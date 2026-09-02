@@ -60,7 +60,7 @@ _doc_md_options :: (fn() -> Options)({
 });
 _render_markdown :: (fn(text : String) -> String)({
   (opts : Options) = _doc_md_options();
-  markdown_to_html(text.clone(), &(opts))
+  markdown_to_html(text.clone(), &opts)
 });
 // ── HTML escaping ────────────────────────────────────────────────────
 _escape_html :: (fn(text : String) -> String)({
@@ -248,7 +248,7 @@ _linkify_type :: (
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     // Word-boundary check: previous byte must not be a word byte.
     prev_word := if(i > usize(0), _is_word_byte(match(bytes.get(i - usize(1)), .Some(x) => x, .None => u8(0))), false);
-    if(_is_upper(b) && !(prev_word), {
+    if(_is_upper(b) && !prev_word, {
       // scan the identifier
       (j : usize) = i;
       while((j < n) && _is_word_byte(match(bytes.get(j), .Some(x) => x, .None => u8(0))), {
@@ -355,7 +355,7 @@ _first_sentence :: (fn(text : String) -> String)({
   (result : String) = line.clone();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     if((b == u8(46)) || ((b == u8(33)) || (b == u8(63))), {
       // skip closers: ` " ' ) ] } >  (’ ” are multibyte; handled as bytes 0xE2..)
@@ -1043,7 +1043,7 @@ _render_impl_blocks :: (
   fn(impls_opt : Option(ArrayList(DocImpl)), all_methods : ArrayList(DocFunction), parent_name : String, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
 )({
   has_impls := match(impls_opt, .Some(im) => (im.len() > usize(0)), .None => false);
-  if(!(has_impls) && (all_methods.len() == usize(0)), {
+  if(!has_impls && (all_methods.len() == usize(0)), {
     return(String.new());
   });
   methods_by_name := HashMap(String, DocFunction).new();
@@ -1135,7 +1135,7 @@ _render_impl_blocks :: (
               break;
             }
           );
-          if(!(methods_by_name.contains_key(nm.clone())), {
+          if(!methods_by_name.contains_key(nm.clone()), {
             unresolved.push(`<code>${_escape_html(nm)}</code>`);
           });
           ni = (ni + usize(1));
@@ -1160,7 +1160,7 @@ _render_impl_blocks :: (
         break;
       }
     );
-    if(!(claimed.contains_key(m.name.clone())), {
+    if(!claimed.contains_key(m.name.clone()), {
       unclaimed.push(m);
     });
     i = (i + usize(1));
@@ -1583,7 +1583,7 @@ _replace_occurrences :: (fn(text : String, from : String, to : String, first_onl
   out := ArrayList(u8).new();
   (pos : usize) = usize(0);
   (done : bool) = false;
-  while(!(done), {
+  while(!done, {
     match(
       _find_bytes_from(hay, needle, pos),
       .Some(idx) => {

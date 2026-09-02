@@ -356,7 +356,7 @@ evaluate_derive :: (
 )({
   tok := ast_expr_token(expr);
   // Early return if not in executing context.
-  if(ctx.is_validating_function_definition || !(ctx.is_executing), {
+  if(ctx.is_validating_function_definition || !ctx.is_executing, {
     info := new_expr_info(env, t_unit());
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);

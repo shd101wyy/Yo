@@ -114,7 +114,7 @@ test("get_integer_type_range: i8", {
   match(
     r,
     .Some(ir) => {
-      assert(ir.min == i64(-(128)), "i8 min");
+      assert(ir.min == i64(-128), "i8 min");
       assert(ir.max == u64(127), "i8 max");
     },
     .None => assert(false, "unreachable")
@@ -136,7 +136,7 @@ test("get_integer_type_range: i16", {
   match(
     r,
     .Some(ir) => {
-      assert(ir.min == i64(-(32768)), "i16 min");
+      assert(ir.min == i64(-32768), "i16 min");
       assert(ir.max == u64(32767), "i16 max");
     },
     .None => assert(false, "unreachable")
@@ -158,7 +158,7 @@ test("get_integer_type_range: i32", {
   match(
     r,
     .Some(ir) => {
-      assert(ir.min == i64(-(2147483648)), "i32 min");
+      assert(ir.min == i64(-2147483648), "i32 min");
       assert(ir.max == u64(2147483647), "i32 max");
     },
     .None => assert(false, "unreachable")
@@ -180,7 +180,7 @@ test("get_integer_type_range: i64", {
   match(
     r,
     .Some(ir) => {
-      assert(ir.min == i64(-(9223372036854775808)), "i64 min");
+      assert(ir.min == i64(-9223372036854775808), "i64 min");
       assert(ir.max == u64(9223372036854775807), "i64 max");
     },
     .None => assert(false, "unreachable")
@@ -215,7 +215,7 @@ test("get_integer_type_range: isize (64-bit)", {
   match(
     r,
     .Some(ir) => {
-      assert(ir.min == i64(-(9223372036854775808)), "isize min");
+      assert(ir.min == i64(-9223372036854775808), "isize min");
       assert(ir.max == u64(9223372036854775807), "isize max");
     },
     .None => assert(false, "unreachable")
@@ -246,11 +246,11 @@ test("can_comptime_int_cast_to: integer types return(true)", {
   assert(can_comptime_int_cast_to(.ComptimeInt), "comptime_int self");
 });
 test("can_comptime_int_cast_to: non-integer types return(false)", {
-  assert(!(can_comptime_int_cast_to(t_f32())), "f32");
-  assert(!(can_comptime_int_cast_to(t_f64())), "f64");
-  assert(!(can_comptime_int_cast_to(t_bool())), "bool");
-  assert(!(can_comptime_int_cast_to(t_unit())), "unit");
-  assert(!(can_comptime_int_cast_to(.ComptimeFloat)), "comptime_float");
+  assert(!can_comptime_int_cast_to(t_f32()), "f32");
+  assert(!can_comptime_int_cast_to(t_f64()), "f64");
+  assert(!can_comptime_int_cast_to(t_bool()), "bool");
+  assert(!can_comptime_int_cast_to(t_unit()), "unit");
+  assert(!can_comptime_int_cast_to(.ComptimeFloat), "comptime_float");
 });
 // ---------------------------------------------------------------------------
 // can_comptime_float_cast_to
@@ -261,11 +261,11 @@ test("can_comptime_float_cast_to: float types return(true)", {
   assert(can_comptime_float_cast_to(.ComptimeFloat), "comptime_float self");
 });
 test("can_comptime_float_cast_to: non-float types return(false)", {
-  assert(!(can_comptime_float_cast_to(t_i32())), "i32");
-  assert(!(can_comptime_float_cast_to(t_u64())), "u64");
-  assert(!(can_comptime_float_cast_to(t_bool())), "bool");
-  assert(!(can_comptime_float_cast_to(t_unit())), "unit");
-  assert(!(can_comptime_float_cast_to(.ComptimeInt)), "comptime_int");
+  assert(!can_comptime_float_cast_to(t_i32()), "i32");
+  assert(!can_comptime_float_cast_to(t_u64()), "u64");
+  assert(!can_comptime_float_cast_to(t_bool()), "bool");
+  assert(!can_comptime_float_cast_to(t_unit()), "unit");
+  assert(!can_comptime_float_cast_to(.ComptimeInt), "comptime_int");
 });
 // ---------------------------------------------------------------------------
 // type_implements_runtime / type_is_comptime_only (Phase 2as)
@@ -290,17 +290,17 @@ test("type_implements_runtime_builtin: runtime types yield Some(true)", {
 test("type_implements_runtime_builtin: comptime types yield Some(false)", {
   match(
     type_implements_runtime_builtin(t_comptime_int()),
-    .Some(b) => assert(!(b), "comptime_int should NOT be runtime"),
+    .Some(b) => assert(!b, "comptime_int should NOT be runtime"),
     .None => assert(false, "comptime_int should be decided")
   );
   match(
     type_implements_runtime_builtin(t_comptime_float()),
-    .Some(b) => assert(!(b), "comptime_float should NOT be runtime"),
+    .Some(b) => assert(!b, "comptime_float should NOT be runtime"),
     .None => assert(false, "comptime_float should be decided")
   );
   match(
     type_implements_runtime_builtin(t_comptime_string()),
-    .Some(b) => assert(!(b), "comptime_str should NOT be runtime"),
+    .Some(b) => assert(!b, "comptime_str should NOT be runtime"),
     .None => assert(false, "comptime_str should be decided")
   );
 });
@@ -309,7 +309,7 @@ test("type_implements_runtime: env-fallback returns false for undecided", {
   // i32 is decided runtime
   assert(type_implements_runtime(t_i32()), "i32 runtime");
   // comptime_int is decided non-runtime
-  assert(!(type_implements_runtime(t_comptime_int())), "comptime_int not runtime");
+  assert(!type_implements_runtime(t_comptime_int()), "comptime_int not runtime");
 });
 test("type_is_comptime_only: comptime types are comptime-only", {
   env := Environment.new(String.from(""));
@@ -319,9 +319,9 @@ test("type_is_comptime_only: comptime types are comptime-only", {
 });
 test("type_is_comptime_only: runtime primitives are not comptime-only", {
   env := Environment.new(String.from(""));
-  assert(!(type_is_comptime_only(t_i32())), "i32 not comptime-only");
-  assert(!(type_is_comptime_only(t_bool())), "bool not comptime-only");
-  assert(!(type_is_comptime_only(t_unit())), "unit not comptime-only");
+  assert(!type_is_comptime_only(t_i32()), "i32 not comptime-only");
+  assert(!type_is_comptime_only(t_bool()), "bool not comptime-only");
+  assert(!type_is_comptime_only(t_unit()), "unit not comptime-only");
 });
 // ---------------------------------------------------------------------------
 // type_requires_comptime_modifier / type_prohibits_comptime_modifier
@@ -335,10 +335,10 @@ test("type_requires_comptime_modifier: comptime-only types require comptime", {
 });
 test("type_requires_comptime_modifier: runtime types do not require comptime", {
   env := Environment.new(String.from(""));
-  assert(!(type_requires_comptime_modifier(t_i32())), "i32 does not need comptime");
-  assert(!(type_requires_comptime_modifier(t_bool())), "bool does not need comptime");
-  assert(!(type_requires_comptime_modifier(t_unit())), "unit does not need comptime");
-  assert(!(type_requires_comptime_modifier(t_f64())), "f64 does not need comptime");
+  assert(!type_requires_comptime_modifier(t_i32()), "i32 does not need comptime");
+  assert(!type_requires_comptime_modifier(t_bool()), "bool does not need comptime");
+  assert(!type_requires_comptime_modifier(t_unit()), "unit does not need comptime");
+  assert(!type_requires_comptime_modifier(t_f64()), "f64 does not need comptime");
 });
 test("type_prohibits_comptime_modifier: runtime-only types prohibit comptime", {
   env := Environment.new(String.from(""));
@@ -348,9 +348,9 @@ test("type_prohibits_comptime_modifier: runtime-only types prohibit comptime", {
 });
 test("type_prohibits_comptime_modifier: primitives and comptime types do not prohibit", {
   env := Environment.new(String.from(""));
-  assert(!(type_prohibits_comptime_modifier(t_i32())), "i32 does not prohibit comptime");
-  assert(!(type_prohibits_comptime_modifier(t_bool())), "bool does not prohibit comptime");
-  assert(!(type_prohibits_comptime_modifier(t_comptime_int())), "comptime_int does not prohibit");
+  assert(!type_prohibits_comptime_modifier(t_i32()), "i32 does not prohibit comptime");
+  assert(!type_prohibits_comptime_modifier(t_bool()), "bool does not prohibit comptime");
+  assert(!type_prohibits_comptime_modifier(t_comptime_int()), "comptime_int does not prohibit");
 });
 // ---------------------------------------------------------------------------
 // get_all_some_types
@@ -388,13 +388,13 @@ test("get_all_some_types: bool has no SomeT", {
 // type_contains_rc_type: Phase 3 implementation tests
 // ---------------------------------------------------------------------------
 test("type_contains_rc_type: primitives return(false)", {
-  assert(!(type_contains_rc_type(t_i32())), "i32 → false");
-  assert(!(type_contains_rc_type(t_bool())), "bool → false");
-  assert(!(type_contains_rc_type(t_unit())), "unit → false");
+  assert(!type_contains_rc_type(t_i32()), "i32 → false");
+  assert(!type_contains_rc_type(t_bool()), "bool → false");
+  assert(!type_contains_rc_type(t_unit()), "unit → false");
 });
 test("type_contains_rc_type: array of i32 returns false", {
   ty := t_array(t_i32(), usize(3));
-  assert(!(type_contains_rc_type(ty)), "Array(i32) → false");
+  assert(!type_contains_rc_type(ty), "Array(i32) → false");
 });
 test("type_contains_rc_type: object struct is RC", {
   labels := ArrayList(String).new();
@@ -428,7 +428,7 @@ test("type_contains_rc_type: plain struct returns false", {
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
   );
-  assert(!(type_contains_rc_type(s)), "plain struct → false");
+  assert(!type_contains_rc_type(s), "plain struct → false");
 });
 test("type_contains_rc_type: struct containing object field returns true", {
   field_labels := ArrayList(String).new();
@@ -499,23 +499,23 @@ _trp_types1 :: (fn(a : TypeValue) -> ArrayList(TypeValue))({
   l
 });
 test("raw-ptr predicate: primitive types are false", {
-  assert(!(type_representation_contains_raw_ptr(t_i32())), "i32");
-  assert(!(type_representation_contains_raw_ptr(t_bool())), "bool");
-  assert(!(type_representation_contains_raw_ptr(t_u8())), "u8");
-  assert(!(type_representation_contains_raw_ptr(t_unit())), "unit");
+  assert(!type_representation_contains_raw_ptr(t_i32()), "i32");
+  assert(!type_representation_contains_raw_ptr(t_bool()), "bool");
+  assert(!type_representation_contains_raw_ptr(t_u8()), "u8");
+  assert(!type_representation_contains_raw_ptr(t_unit()), "unit");
 });
 test("raw-ptr predicate: Ptr(i32) is true (base case)", {
   assert(type_representation_contains_raw_ptr(t_ptr(t_i32())), "*(i32)");
 });
 test("raw-ptr predicate: Array(i32, 3) is false — arrays inline value-typed elements", {
-  assert(!(type_representation_contains_raw_ptr(t_array(t_i32(), usize(3)))), "[i32; 3]");
+  assert(!type_representation_contains_raw_ptr(t_array(t_i32(), usize(3))), "[i32; 3]");
 });
 test("raw-ptr predicate: Array(Ptr(i32), 3) is true — array of pointers propagates", {
   assert(type_representation_contains_raw_ptr(t_array(t_ptr(t_i32()), usize(3))), "[*(i32); 3]");
 });
 test("raw-ptr predicate: plain struct with no pointer fields is false", {
   s := _trp_struct(String.from("Plain"), _trp_labels1(String.from("x")), _trp_types1(t_i32()), false, false, false);
-  assert(!(type_representation_contains_raw_ptr(s)), "struct(x : i32)");
+  assert(!type_representation_contains_raw_ptr(s), "struct(x : i32)");
 });
 test("raw-ptr predicate: newtype struct wrapping a Ptr field is true", {
   s := _trp_struct(String.from("Wrap"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, true);
@@ -527,11 +527,11 @@ test("raw-ptr predicate: plain struct wrapping a Ptr field is true", {
 });
 test("raw-ptr predicate: object struct with Ptr field is FALSE — heap-owning", {
   s := _trp_struct(String.from("Owned"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), true, false, false);
-  assert(!(type_representation_contains_raw_ptr(s)), "object(p : *(u8))");
+  assert(!type_representation_contains_raw_ptr(s), "object(p : *(u8))");
 });
 test("raw-ptr predicate: atomic object struct is FALSE — Arc-style heap-owning", {
   s := _trp_struct(String.from("Shared"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), true, true, false);
-  assert(!(type_representation_contains_raw_ptr(s)), "atomic object(p : *(u8))");
+  assert(!type_representation_contains_raw_ptr(s), "atomic object(p : *(u8))");
 });
 test("raw-ptr predicate: tuple with a Ptr field is true", {
   labels := ArrayList(String).new();
@@ -549,7 +549,7 @@ test("raw-ptr predicate: tuple of primitives is false", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_bool());
-  assert(!(type_representation_contains_raw_ptr(TypeValue.Tuple(labels, types))), "(i32, bool)");
+  assert(!type_representation_contains_raw_ptr(TypeValue.Tuple(labels, types)), "(i32, bool)");
 });
 test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
   vnames := ArrayList(String).new();
@@ -581,7 +581,7 @@ test("raw-ptr predicate: enum with only primitive variants is false", {
   discs.push(i64(0));
   discs.push(i64(1));
   e := TypeValue.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false);
-  assert(!(type_representation_contains_raw_ptr(e)), "enum(A, B(i32))");
+  assert(!type_representation_contains_raw_ptr(e), "enum(A, B(i32))");
 });
 test("raw-ptr predicate: union with a Ptr field is true", {
   labels := ArrayList(String).new();
@@ -607,8 +607,8 @@ test("raw-ptr predicate: depth cap terminates deep nesting (cyclic-reference sta
   // 45 levels exceed the 40-deep cap: the Ptr leaf is unreachable, the
   // predicate terminates and answers false. Termination is the property the
   // TS cyclic test pins (TS uses a visited set; yo-self a depth cap).
-  assert(!(type_representation_contains_raw_ptr(deep)), "45-deep chain terminates false");
+  assert(!type_representation_contains_raw_ptr(deep), "45-deep chain terminates false");
 });
 test("raw-ptr predicate: Dyn(Trait) is FALSE — RC-managed reference-semantics", {
-  assert(!(type_representation_contains_raw_ptr(t_dyn_simple(ArrayList(TypeValue).new()))), "Dyn()");
+  assert(!type_representation_contains_raw_ptr(t_dyn_simple(ArrayList(TypeValue).new())), "Dyn()");
 });

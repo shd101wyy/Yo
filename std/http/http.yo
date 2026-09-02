@@ -120,7 +120,7 @@ impl(
       });
       result = `${result}\r\n`;
       cond(
-        (!(self.body.is_empty())) => {
+        !self.body.is_empty() => {
           result = `${result}${self.body}`;
         },
         true => ()
@@ -238,7 +238,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
   );
   status_line := lines(usize(0));
   cond(
-    (!(status_line.starts_with(`HTTP/`))) => {
+    !status_line.starts_with(`HTTP/`) => {
       return(.Err(`Invalid status line`));
     },
     true => ()

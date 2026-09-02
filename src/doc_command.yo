@@ -91,7 +91,7 @@ _run_git :: (
   if(stderr_text.len() > usize(0), {
     eprint(stderr_text);
   });
-  if(!(out.status.success()), {
+  if(!out.status.success(), {
     return(Option(String).None);
   });
   v := String.from_bytes(out.stdout).trim();
@@ -149,13 +149,13 @@ _collect_yo_files :: (
           (entry.name == "tmp") => true,
           true => false
         );
-        if(!(skip), {
+        if(!skip, {
           full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
           match(
             entry.file_type,
             .Directory => recur(full, files, io, exn),
             .File => {
-              if(entry.name.ends_with(String.from(".yo")) && !(entry.name.ends_with(String.from(".test.yo"))), {
+              if(entry.name.ends_with(String.from(".yo")) && !entry.name.ends_with(String.from(".test.yo")), {
                 files.push(full);
               });
             },
@@ -175,19 +175,19 @@ _find_yo_files :: (
 )({
   abs := _resolve_path(input_path, exn);
   path_exists := io.await(exists(Path.new(abs.clone()), io), io);
-  if(!(path_exists), {
+  if(!path_exists, {
     exn.throw(dyn(`Path does not exist: ${abs}`));
   });
   meta := io.await(metadata(Path.new(abs.clone()), io), IoExn(io : io, exn : exn));
   if(meta.is_file(), {
-    if(!(abs.ends_with(String.from(".yo"))), {
+    if(!abs.ends_with(String.from(".yo")), {
       exn.throw(dyn(`Not a .yo file: ${abs}`));
     });
     single := ArrayList(String).new();
     single.push(abs.clone());
     return(single);
   });
-  if(!(meta.is_dir()), {
+  if(!meta.is_dir(), {
     exn.throw(dyn(`Not a file or directory: ${abs}`));
   });
   files := ArrayList(String).new();
@@ -209,7 +209,7 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
   (search_from : usize) = usize(0);
   (result : Option(String)) = Option(String).None;
   (done : bool) = false;
-  while(!(done), {
+  while(!done, {
     idx := match(
       content.index_of(marker, search_from),
       .Some(x) => x,
@@ -230,7 +230,7 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
     (moved : bool) = true;
     while(moved && (j < content.len()), {
       b := content.byte_at(j);
-      if(((b == u8(32)) || (b == u8(9))) || ((b == u8(10)) || (b == u8(13))), {
+      if((b == u8(32)) || (b == u8(9)) || ((b == u8(10)) || (b == u8(13))), {
         j = (j + usize(1));
       }, {
         moved = false;
@@ -242,7 +242,7 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
       (moved2 : bool) = true;
       while(moved2 && (j < content.len()), {
         b2 := content.byte_at(j);
-        if(((b2 == u8(32)) || (b2 == u8(9))) || ((b2 == u8(10)) || (b2 == u8(13))), {
+        if((b2 == u8(32)) || (b2 == u8(9)) || ((b2 == u8(10)) || (b2 == u8(13))), {
           j = (j + usize(1));
         }, {
           moved2 = false;
@@ -330,7 +330,7 @@ _document_file :: (
   // try/tokenize → warn → null).
   lex_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(Option(DocModule).None);
       }
     )
@@ -400,7 +400,7 @@ run_doc :: (
   start := Instant.now();
   input_abs := _resolve_path(options.input.clone(), exn);
   input_exists := io.await(exists(Path.new(input_abs.clone()), io), io);
-  if(!(input_exists), {
+  if(!input_exists, {
     exn.throw(dyn(`Path does not exist: ${input_abs}`));
   });
   input_meta := io.await(metadata(Path.new(input_abs.clone()), io), IoExn(io : io, exn : exn));

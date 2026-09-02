@@ -50,11 +50,11 @@ export(CryptoError);
 { EINTR } :: import("../libc/errno");
 extern(
   "Yo",
-  __yo_getrandom : (fn(buf : *(u8), buflen : usize, flags : u32) -> isize),
+  __yo_getrandom : (fn(buf : *u8, buflen : usize, flags : u32) -> isize),
   __yo_errno : (fn() -> i32),
-  __yo_arc4random_buf : (fn(buf : *(u8), nbytes : usize) -> unit),
-  __yo_bcrypt_gen_random : (fn(buf : *(u8), size : u32) -> i32),
-  __yo_getentropy : (fn(buf : *(u8), buflen : usize) -> i32)
+  __yo_arc4random_buf : (fn(buf : *u8, nbytes : usize) -> unit),
+  __yo_bcrypt_gen_random : (fn(buf : *u8, size : u32) -> i32),
+  __yo_getentropy : (fn(buf : *u8, buflen : usize) -> i32)
 );
 // ============================================================================
 // Fill a buffer with cryptographically secure random bytes.
@@ -130,7 +130,7 @@ export(random_bytes);
 // ============================================================================
 random_u32 :: (fn(exn : Exception) -> u32)({
   buf := Array(u8, usize(4)).fill(u8(0));
-  random_bytes(RawSlice(u8)(ptr : &(buf(usize(0))), len : usize(4)), exn);
+  random_bytes(RawSlice(u8)(ptr : &buf(usize(0)), len : usize(4)), exn);
   u32(buf(usize(0))) |
     (u32(buf(usize(1))) << u32(8)) |
       (u32(buf(usize(2))) << u32(16)) |
@@ -188,7 +188,7 @@ export(random_u32, random_u64, random_f64, random_range);
 uuid_v4 :: (fn(exn : Exception) -> String)({
   bytes := ArrayList(u8).with_capacity(usize(16));
   buf := Array(u8, usize(16)).fill(u8(0));
-  random_bytes(RawSlice(u8)(ptr : &(buf(usize(0))), len : usize(16)), exn);
+  random_bytes(RawSlice(u8)(ptr : &buf(usize(0)), len : usize(16)), exn);
   // Set version bits (v4)
   buf(usize(6)) = ((buf(usize(6)) & u8(0x0F)) | u8(0x40));
   // Set variant bits

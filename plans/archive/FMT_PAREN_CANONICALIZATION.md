@@ -1,13 +1,15 @@
 # `yo fmt` paren canonicalization — flatten what the grammar already flattens
 
-**Status:** REJECTED by the maintainer, 2026-08-21, the same day it was
-drafted — CLOSED, nothing implemented. Decision: `yo fmt` stays
-paren-preserving (the gofmt position: formatters normalize layout, not
-expression spelling; deliberate parens are the author's). The "don't
-WRITE unnecessary parens" half of the problem moved to authoring guidance
-in `.github/instructions/yo-syntax.instructions.md` and the syntax
-cheatsheet instead. Kept for the analysis — especially Rule 3's
-counterexamples, which remain true statements about the grammar.
+**Status:** REJECTED 2026-08-21; SUPERSEDED 2026-09-02 by
+[`plans/FMT_PAREN_ELISION.md`](../FMT_PAREN_ELISION.md) — IMPLEMENTED.
+Rule 3's rationale became obsolete when PR #201 (closed operator set +
+prefix-operand rule) shipped in the v0.2.21 seed: `3 - -3` now parses,
+paren-less prefix calls are the canonical spelling, and `yo fmt` elides
+them. The "fmt stays paren-preserving" premise was also never literally
+true — the TS-era `isRedundantGroupingParen` machinery already shipped a
+conservative elision subset. This doc is kept as the historical record.
+
+Originally a companion to
 
 Originally a companion to
 [`OPERATOR_SET_AND_PRECEDENCE.md`](OPERATOR_SET_AND_PRECEDENCE.md) (the

@@ -80,17 +80,17 @@ test("String is_char_boundary marks every byte of the four-width subject", {
   s := _subject();
   assert(s.is_char_boundary(usize(0)), "0 starts 'a'");
   assert(s.is_char_boundary(usize(1)), "1 starts 'é'");
-  assert(!(s.is_char_boundary(usize(2))), "2 is inside 'é'");
+  assert(!s.is_char_boundary(usize(2)), "2 is inside 'é'");
   assert(s.is_char_boundary(usize(3)), "3 starts '中'");
-  assert(!(s.is_char_boundary(usize(4))), "4 is inside '中'");
-  assert(!(s.is_char_boundary(usize(5))), "5 is inside '中'");
+  assert(!s.is_char_boundary(usize(4)), "4 is inside '中'");
+  assert(!s.is_char_boundary(usize(5)), "5 is inside '中'");
   assert(s.is_char_boundary(usize(6)), "6 starts '𝄞'");
-  assert(!(s.is_char_boundary(usize(7))), "7 is inside '𝄞'");
-  assert(!(s.is_char_boundary(usize(8))), "8 is inside '𝄞'");
-  assert(!(s.is_char_boundary(usize(9))), "9 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(7)), "7 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(8)), "8 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(9)), "9 is inside '𝄞'");
   assert(s.is_char_boundary(usize(10)), "10 is the end, a boundary");
-  assert(!(s.is_char_boundary(usize(11))), "11 is past the end");
-  assert(!(s.is_char_boundary(usize(100))), "100 is far past the end");
+  assert(!s.is_char_boundary(usize(11)), "11 is past the end");
+  assert(!s.is_char_boundary(usize(100)), "100 is far past the end");
 });
 test("String is_char_boundary over a standalone 4-byte sequence", {
   // The 4-byte width alone, so the offsets are not shifted by anything else.
@@ -98,16 +98,16 @@ test("String is_char_boundary over a standalone 4-byte sequence", {
   assert(s.len() == usize(4), "U+1D11E is 4 bytes");
   assert(s.chars().count() == usize(1), "U+1D11E is 1 rune");
   assert(s.is_char_boundary(usize(0)), "byte 0 is the lead");
-  assert(!(s.is_char_boundary(usize(1))), "byte 1 is a continuation");
-  assert(!(s.is_char_boundary(usize(2))), "byte 2 is a continuation");
-  assert(!(s.is_char_boundary(usize(3))), "byte 3 is a continuation");
+  assert(!s.is_char_boundary(usize(1)), "byte 1 is a continuation");
+  assert(!s.is_char_boundary(usize(2)), "byte 2 is a continuation");
+  assert(!s.is_char_boundary(usize(3)), "byte 3 is a continuation");
   assert(s.is_char_boundary(usize(4)), "byte 4 is the end");
-  assert(!(s.is_char_boundary(usize(5))), "byte 5 is past the end");
+  assert(!s.is_char_boundary(usize(5)), "byte 5 is past the end");
 });
 test("String is_char_boundary on the empty string", {
   e := String.new();
   assert(e.is_char_boundary(usize(0)), "0 is a boundary of the empty string");
-  assert(!(e.is_char_boundary(usize(1))), "1 is past the empty string");
+  assert(!e.is_char_boundary(usize(1)), "1 is past the empty string");
 });
 // ===========================================================================
 // floor_char_boundary / ceil_char_boundary
@@ -152,8 +152,8 @@ test("String floor/ceil agree exactly on the boundaries themselves", {
   i := usize(0);
   while(i <= s.len(), i = (i + usize(1)), {
     on := s.is_char_boundary(i);
-    assert((s.floor_char_boundary(i) == i) == on, "floor fixes exactly the boundaries");
-    assert((s.ceil_char_boundary(i) == i) == on, "ceil fixes exactly the boundaries");
+    assert(s.floor_char_boundary(i) == i == on, "floor fixes exactly the boundaries");
+    assert(s.ceil_char_boundary(i) == i == on, "ceil fixes exactly the boundaries");
     assert(s.is_char_boundary(s.floor_char_boundary(i)), "floor lands on a boundary");
     assert(s.is_char_boundary(s.ceil_char_boundary(i)), "ceil lands on a boundary");
   });
@@ -221,7 +221,7 @@ test("String char_indices offsets are exactly the char boundaries", {
   while(i < s.len(), i = (i + usize(1)), {
     assert(offsets.contains(i) == s.is_char_boundary(i), "key set matches the boundary set");
   });
-  assert(!(offsets.contains(s.len())), "no rune starts at the end offset");
+  assert(!offsets.contains(s.len()), "no rune starts at the end offset");
 });
 test("String char_indices walks in lockstep with chars()", {
   s := `héllo, 世界! 😀`;

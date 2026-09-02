@@ -70,7 +70,7 @@ evaluate_anonymous_struct_value :: (
       .FnCall(_, _, _, _, _) => false
     )
   );
-  if(!(is_underscore), {
+  if(!is_underscore, {
     exn.throw(
       dyn(
         format_error_message(
@@ -122,7 +122,7 @@ evaluate_anonymous_struct_value :: (
       lae := match(fa.get(usize(0)), .Some(a2) => a2, .None => make_err_expr());
       label_arg_expr = lae;
       value_expr = match(fa.get(usize(1)), .Some(a2) => a2, .None => make_err_expr());
-      if(!(is_valid_variable_name(lae)), {
+      if(!is_valid_variable_name(lae), {
         exn.throw(
           dyn(
             format_error_message(

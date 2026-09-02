@@ -135,8 +135,8 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
     j := usize(0);
     while(j < n, {
       flag := match(added.get(j), .None => true, .Some(f) => f);
-      if(!(flag), {
-        if(!(found), {
+      if(!flag, {
+        if(!found, {
           min_idx = j;
           found = true;
         }, {
@@ -374,7 +374,7 @@ _scan_versions_root :: (
 )(
   io.async((e : IoExn) => {
     root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io);
-    if(!(root_exists), {
+    if(!root_exists, {
       return(());
     });
     entries := e.io.await(read_dir(Path.new(versions_dir.clone()), e.io), e);
@@ -388,7 +388,7 @@ _scan_versions_root :: (
             entry_path := `${versions_dir}/${entry.name}`;
             bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
             // A version present in BOTH roots must appear once.
-            if(bin_exists && !(_contains_version(out, entry.name.clone())), {
+            if(bin_exists && !_contains_version(out, entry.name.clone()), {
               out.push(entry.name);
             });
           });
@@ -625,7 +625,7 @@ download_version :: (
     // TLS backend. On a machine where that backend is unavailable (no
     // OpenSSL; Windows Schannel pending) say so plainly instead of letting
     // fetch_with fail somewhere deep inside the handshake.
-    if(!(tls_available()), {
+    if(!tls_available(), {
       e.exn.throw(
         dyn(
           `TLS is unavailable in this build, and downloading Yo versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
@@ -696,7 +696,7 @@ download_version :: (
     tar_cmd.arg(String.from("-C"));
     tar_cmd.arg(tmp_path_str);
     tar_out := e.io.await(tar_cmd.output(e.io), e);
-    if(!(tar_out.status.success()), {
+    if(!tar_out.status.success(), {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${version}`));
     });
@@ -774,7 +774,7 @@ fetch_remote_versions :: (
 )(
   io.async((e : IoExn) => {
     // Same TLS gate as download_version: the GitHub API is HTTPS-only.
-    if(!(tls_available()), {
+    if(!tls_available(), {
       e.exn.throw(
         dyn(
           `TLS is unavailable in this build, and listing remote versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
@@ -785,11 +785,11 @@ fetch_remote_versions :: (
     // The API pages at 100 releases; three pages is far beyond the horizon.
     page := i64(1);
     done := false;
-    while((page <= i64(3)) && (!(done)), {
+    while((page <= i64(3)) && !done, {
       url := `${_releases_api_url()}?per_page=100&page=${page}`;
       body := e.io.await(_http_get(url, e.io), e);
       trimmed := body.trim();
-      if(!(trimmed.starts_with(String.from("["))), {
+      if(!trimmed.starts_with(String.from("[")), {
         e.exn.throw(dyn(`Unexpected GitHub Releases API response shape.`));
       });
       scanned := _scan_release_page(body);

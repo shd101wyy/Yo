@@ -106,7 +106,7 @@ when the receiver itself has pointer type.
 
 - `Pointer` works in both compile-time and runtime contexts (`Runtime` and `Comptime` traits in `prelude.yo`).
 - Pointer comparison: plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic: the methods `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` (require `unsafe(...)`).
-- No NULL in Yo. Nullable pointer: `Option(*(T))` or `?(*(T))` (the `?*` token was removed 2026-08-21 — `?` is the Option alias). `Option(*(T)).None` is optimized as NULL in C codegen.
+- No NULL in Yo. Nullable pointer: `?*T` — the bare prefix chain, canonical since the 2026-09-02 fmt sweep — or the explicit `Option(*T)` (there is no single `?*` token; the 2026-08-21 closed operator set made `?` + `*` two tokens). `Option(*T).None` is optimized as NULL in C codegen.
 
 ## Unsafe operations
 

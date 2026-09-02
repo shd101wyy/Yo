@@ -71,7 +71,7 @@ _fn_call_func :: (fn(e : AstExpr) -> AstExpr)(
 _has_variant :: (fn(variant_names : ArrayList(String), name : String) -> bool)({
   i := usize(0);
   (found : bool) = false;
-  while((i < variant_names.len()) && !(found), {
+  while((i < variant_names.len()) && !found, {
     match(
       variant_names.get(i),
       .Some(vn) => if(vn == name, {
@@ -129,7 +129,7 @@ _evaluate_discriminant :: (
     .Some(v) => match(v, .IntLit(_) => true, _ => false),
     .None => false
   );
-  if(!(is_int_lit_val) && !(is_comptime_int_type(disc_info.ty)), {
+  if(!is_int_lit_val && !is_comptime_int_type(disc_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -141,7 +141,7 @@ _evaluate_discriminant :: (
       )
     );
   });
-  if(!(is_int_lit_val), {
+  if(!is_int_lit_val, {
     exn.throw(
       dyn(
         format_error_message(
@@ -190,7 +190,7 @@ evaluate_enum_type :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  if(!(ast_expr_is_fn_call_of(expr, BK_ENUM, Option(usize).None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_ENUM, Option(usize).None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -309,7 +309,7 @@ evaluate_enum_type :: (
         eq_args := _fn_call_args(enum_arg);
         variant_name_expr := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
         discriminant_expr := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-        if(!(is_valid_variable_name(variant_name_expr)), {
+        if(!is_valid_variable_name(variant_name_expr), {
           exn.throw(
             dyn(
               format_error_message(
@@ -367,7 +367,7 @@ evaluate_enum_type :: (
       // ---------------------------------------------------------------
       ast_expr_is_atom(enum_arg) => {
         variant_name := ast_expr_token(enum_arg).value;
-        if(!(is_valid_variable_name(enum_arg)), {
+        if(!is_valid_variable_name(enum_arg), {
           exn.throw(
             dyn(
               format_error_message(
@@ -422,8 +422,8 @@ evaluate_enum_type :: (
             )
           );
         });
-        if(!(ast_expr_is_fn_call(variant_expr)) ||
-          !(is_valid_variable_name(_fn_call_func(variant_expr))), {
+        if(!ast_expr_is_fn_call(variant_expr) ||
+          !is_valid_variable_name(_fn_call_func(variant_expr)), {
           exn.throw(
             dyn(
               format_error_message(
@@ -459,7 +459,7 @@ evaluate_enum_type :: (
           // Check for duplicate labels in this variant.
           (dup_idx : usize) = usize(0);
           (has_dup : bool) = false;
-          while((dup_idx < v_field_labels.len()) && !(has_dup), {
+          while((dup_idx < v_field_labels.len()) && !has_dup, {
             existing := match(v_field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
             if(existing == field.label, {
               has_dup = true;
@@ -519,7 +519,7 @@ evaluate_enum_type :: (
     match(
       gadt_ret,
       .Some(gre) => {
-        if(!(ast_expr_is_fn_call_of(gre, BF_RECUR, Option(usize).None)), {
+        if(!ast_expr_is_fn_call_of(gre, BF_RECUR, Option(usize).None), {
           exn.throw(
             dyn(
               format_error_message(
@@ -539,7 +539,7 @@ evaluate_enum_type :: (
           evaluated_ra := evaluate_expression_raw(ra, env, ctx, exn);
           ra_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ra));
           ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(env, TypeValue.Unit));
-          if(!(is_type_value(ra_info.value)), {
+          if(!is_type_value(ra_info.value), {
             exn.throw(
               dyn(
                 format_error_message(

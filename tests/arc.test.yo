@@ -86,7 +86,7 @@ test("Test Arc scope cleanup", {
 { Thread } :: import("std/thread");
 test("Test Arc shared across thread", {
   shared := arc(i32(42));
-  t := Thread.spawn((io) => {
+  t := Thread.spawn(io => {
     assert(shared.* == 42);
   });
   t.join();
@@ -95,7 +95,7 @@ test("Test Arc shared across thread", {
 test("Test Arc of struct shared across thread", {
   Counter :: struct(count : i32);
   shared := arc(Counter(i32(99)));
-  t := Thread.spawn((io) => {
+  t := Thread.spawn(io => {
     assert(shared.*.count == 99);
   });
   t.join();
@@ -103,10 +103,10 @@ test("Test Arc of struct shared across thread", {
 });
 test("Test Arc shared across multiple threads", {
   shared := arc(i32(7));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     assert(shared.* == 7);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     assert(shared.* == 7);
   });
   t1.join();

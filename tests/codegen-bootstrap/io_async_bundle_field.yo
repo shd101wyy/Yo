@@ -12,7 +12,7 @@ use_io :: (fn(io : Io) -> i32)(i32(0));
 // the concrete bundle, so `e.io`/`e.exn` type-check instead of lowering `e` to
 // `void*`. Regression guard for the stage-2 bundle-field-as-arg cluster.
 make_future :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     a := use_io(e.io);
     x := e.exn;
     a + i32(42)

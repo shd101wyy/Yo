@@ -35,27 +35,27 @@ comptime_expect_error({
 // ============================================================================
 test("RwLock new stores the initial value", {
   lock := RwLock(i32).new(i32(7));
-  assert(lock.with_read((v) => v) == i32(7), "with_read sees the initial value");
+  assert(lock.with_read(v => v) == i32(7), "with_read sees the initial value");
 });
 test("RwLock with_write writes through", {
   lock := RwLock(i32).new(i32(0));
-  written := lock.with_write((v) => {
+  written := lock.with_write(v => {
     v = i32(42);
     v
   });
   assert(written == i32(42), "with_write returns the value its body produced");
-  assert(lock.with_read((v) => v) == i32(42), "the write landed in the shared cell");
+  assert(lock.with_read(v => v) == i32(42), "the write landed in the shared cell");
 });
 test("RwLock with_read propagates the return value", {
   lock := RwLock(i32).new(i32(7));
-  doubled := lock.with_read((v) => (v * i32(2)));
+  doubled := lock.with_read(v => (v * i32(2)));
   assert(doubled == i32(14), "with_read propagates its body's value");
 });
 test("RwLock repeated read acquisitions release each time", {
   lock := RwLock(i32).new(i32(1));
   i := i32(0);
   while(runtime(i < i32(5)), {
-    assert(lock.with_read((v) => v) == i32(1), "every read acquisition succeeds");
+    assert(lock.with_read(v => v) == i32(1), "every read acquisition succeeds");
     i = (i + i32(1));
   });
 });
@@ -63,26 +63,26 @@ test("RwLock alternating read and write acquisitions", {
   lock := RwLock(i32).new(i32(0));
   i := i32(0);
   while(runtime(i < i32(5)), {
-    seen := lock.with_read((v) => v);
+    seen := lock.with_read(v => v);
     assert(seen == i, "the reader sees the previous writer's value");
-    lock.with_write((v) => {
+    lock.with_write(v => {
       v = (v + i32(1));
       v
     });
     i = (i + i32(1));
   });
-  assert(lock.with_read((v) => v) == i32(5), "five writes landed");
+  assert(lock.with_read(v => v) == i32(5), "five writes landed");
 });
 test("RwLock protects a value struct", {
   Point :: struct(x : i32, y : i32);
   lock := RwLock(Point).new(Point(i32(1), i32(2)));
-  lock.with_write((v) => {
+  lock.with_write(v => {
     v.x = i32(10);
     v.x
   });
-  got := lock.with_read((v) => v.x);
+  got := lock.with_read(v => v.x);
   assert(got == i32(10), "struct field writes land in the shared cell");
-  assert(lock.with_read((v) => v.y) == i32(2), "the untouched field is preserved");
+  assert(lock.with_read(v => v.y) == i32(2), "the untouched field is preserved");
 });
 test("RwLock with_read does not write through to the shared cell", {
   // `with_read` binds the protected value BY VALUE, so a FIELD assignment
@@ -92,11 +92,11 @@ test("RwLock with_read does not write through to the shared cell", {
   // — which is why this case writes through a field instead.)
   Point :: struct(x : i32, y : i32);
   lock := RwLock(Point).new(Point(i32(1), i32(2)));
-  lock.with_read((v) => {
+  lock.with_read(v => {
     v.x = i32(99);
     v.x
   });
-  assert(lock.with_read((v) => v.x) == i32(1), "a read body's field write must not reach the shared cell");
+  assert(lock.with_read(v => v.x) == i32(1), "a read body's field write must not reach the shared cell");
 });
 
 // ============================================================================
@@ -113,7 +113,7 @@ test("RwLock with_read admits several readers at the same time", {
   all_in := AtomicI32(i32(0));
   (reader : Impl(Fn() -> unit)) = (
     () => {
-      lock.with_read((v) => {
+      lock.with_read(v => {
         entered.fetch_add(i32(1), MemoryOrder.AcqRel);
         spins := i32(0);
         while(runtime((entered.load(MemoryOrder.Acquire) < i32(3)) && (spins < i32(2000))), {
@@ -127,9 +127,9 @@ test("RwLock with_read admits several readers at the same time", {
       });
     }
   );
-  t1 := Thread.spawn((io) => reader());
-  t2 := Thread.spawn((io) => reader());
-  t3 := Thread.spawn((io) => reader());
+  t1 := Thread.spawn(io => reader());
+  t2 := Thread.spawn(io => reader());
+  t3 := Thread.spawn(io => reader());
   t1.join();
   t2.join();
   t3.join();
@@ -138,14 +138,14 @@ test("RwLock with_read admits several readers at the same time", {
 test("RwLock writer thread modifies the protected value", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock(i32).new(i32(0));
-  t := Thread.spawn((io) => {
-    lock.with_write((v) => {
+  t := Thread.spawn(io => {
+    lock.with_write(v => {
       v = i32(42);
       v
     });
   });
   t.join();
-  assert(lock.with_read((v) => v) == i32(42), "the main thread sees the writer's value");
+  assert(lock.with_read(v => v) == i32(42), "the main thread sees the writer's value");
 });
 test("RwLock two writer threads increment the protected counter", {
   if(arch == Arch.Wasm32, return(()));
@@ -154,7 +154,7 @@ test("RwLock two writer threads increment the protected counter", {
     () => {
       i := i32(0);
       while(runtime(i < i32(100)), {
-        lock.with_write((v) => {
+        lock.with_write(v => {
           v = (v + i32(1));
           v
         });
@@ -162,11 +162,11 @@ test("RwLock two writer threads increment the protected counter", {
       });
     }
   );
-  t1 := Thread.spawn((io) => bump());
-  t2 := Thread.spawn((io) => bump());
+  t1 := Thread.spawn(io => bump());
+  t2 := Thread.spawn(io => bump());
   t1.join();
   t2.join();
-  assert(lock.with_read((v) => v) == i32(200), "no increment was lost across 2 threads x 100 writes");
+  assert(lock.with_read(v => v) == i32(200), "no increment was lost across 2 threads x 100 writes");
 });
 
 // ============================================================================
@@ -193,7 +193,7 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
     () => {
       i := i32(0);
       while(runtime(i < ITERATIONS), {
-        lock.with_write((v) => {
+        lock.with_write(v => {
           other_writers := active_writers.fetch_add(i32(1), MemoryOrder.AcqRel);
           readers_inside := active_readers.load(MemoryOrder.Acquire);
           if((other_writers != i32(0)) || (readers_inside != i32(0)), {
@@ -213,7 +213,7 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
     () => {
       i := i32(0);
       while(runtime(i < ITERATIONS), {
-        seen := lock.with_read((v) => {
+        seen := lock.with_read(v => {
           active_readers.fetch_add(i32(1), MemoryOrder.AcqRel);
           writers_inside := active_writers.load(MemoryOrder.Acquire);
           if(writers_inside != i32(0), {
@@ -231,11 +231,11 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
       });
     }
   );
-  r1 := Thread.spawn((io) => reader());
-  r2 := Thread.spawn((io) => reader());
-  r3 := Thread.spawn((io) => reader());
-  w1 := Thread.spawn((io) => writer());
-  w2 := Thread.spawn((io) => writer());
+  r1 := Thread.spawn(io => reader());
+  r2 := Thread.spawn(io => reader());
+  r3 := Thread.spawn(io => reader());
+  w1 := Thread.spawn(io => writer());
+  w2 := Thread.spawn(io => writer());
   r1.join();
   r2.join();
   r3.join();
@@ -244,7 +244,7 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
   assert(violations.load(MemoryOrder.Acquire) == i32(0), "no reader may overlap a writer and no two writers may overlap");
   assert(writes_done.load(MemoryOrder.Acquire) == (ITERATIONS * WRITERS), "every writer completed every iteration");
   assert(reads_done.load(MemoryOrder.Acquire) == (ITERATIONS * READERS), "every reader completed every iteration");
-  assert(lock.with_read((v) => v) == (ITERATIONS * WRITERS), "no write was lost");
+  assert(lock.with_read(v => v) == (ITERATIONS * WRITERS), "no write was lost");
 });
 
 // ============================================================================
@@ -261,11 +261,11 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   writer_inside := AtomicI32(i32(0));
   arrived := AtomicI32(i32(0));
   done := AtomicI32(i32(0));
-  done_while_held := AtomicI32(i32(-(1)));
+  done_while_held := AtomicI32(i32(-1));
   // The writer holds the lock for the whole window in which the readers
   // arrive, so all three park in `_read_cv.wait`.
-  w := Thread.spawn((io) => {
-    lock.with_write((v) => {
+  w := Thread.spawn(io => {
+    lock.with_write(v => {
       v = i32(99);
       writer_inside.store(i32(1), MemoryOrder.Release);
       spins := i32(0);
@@ -285,15 +285,15 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   (reader : Impl(Fn() -> unit)) = (
     () => {
       arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
-      seen := lock.with_read((v) => v);
+      seen := lock.with_read(v => v);
       if(seen == i32(99), {
         done.fetch_add(i32(1), MemoryOrder.AcqRel);
       });
     }
   );
-  t1 := Thread.spawn((io) => reader());
-  t2 := Thread.spawn((io) => reader());
-  t3 := Thread.spawn((io) => reader());
+  t1 := Thread.spawn(io => reader());
+  t2 := Thread.spawn(io => reader());
+  t3 := Thread.spawn(io => reader());
   t1.join();
   t2.join();
   t3.join();
@@ -312,16 +312,16 @@ test("RwLock with pool tasks concurrent reads", {
   seen := AtomicI32(i32(0));
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, (io) => {
-    seen.fetch_add(lock.with_read((v) => v), MemoryOrder.AcqRel);
+  spawn(pool, io => {
+    seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
     wg.done();
   });
-  spawn(pool, (io) => {
-    seen.fetch_add(lock.with_read((v) => v), MemoryOrder.AcqRel);
+  spawn(pool, io => {
+    seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
     wg.done();
   });
-  spawn(pool, (io) => {
-    seen.fetch_add(lock.with_read((v) => v), MemoryOrder.AcqRel);
+  spawn(pool, io => {
+    seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
     wg.done();
   });
   wg.wait();
@@ -333,15 +333,15 @@ test("RwLock with pool tasks write then read", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  spawn(pool, (io) => {
-    lock.with_write((v) => {
+  spawn(pool, io => {
+    lock.with_write(v => {
       v = i32(77);
       v
     });
     wg.done();
   });
   wg.wait();
-  assert(lock.with_read((v) => v) == i32(77), "the main thread sees the worker's write");
+  assert(lock.with_read(v => v) == i32(77), "the main thread sees the worker's write");
 });
 // Regression for issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
 //
@@ -351,15 +351,15 @@ test("RwLock with pool tasks write then read", {
 // could catch that, because by construction no test used the shape.
 test("RwLock with_write body may end in a statement (unit R)", {
   lock := RwLock(i32).new(i32(0));
-  lock.with_write((v) => {
+  lock.with_write(v => {
     v = i32(42);
   });
-  assert(lock.with_read((v) => v) == i32(42), "the unit-bodied write landed");
+  assert(lock.with_read(v => v) == i32(42), "the unit-bodied write landed");
 });
 test("RwLock with_read body may end in a statement (unit R)", {
   lock := RwLock(i32).new(i32(5));
   seen := AtomicI32(i32(0));
-  lock.with_read((v) => {
+  lock.with_read(v => {
     seen.store(v, MemoryOrder.Release);
   });
   assert(seen.load(MemoryOrder.Acquire) == i32(5), "the unit-bodied read observed the value");

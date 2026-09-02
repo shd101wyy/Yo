@@ -23,17 +23,17 @@ test("integer radix and prefixes", {
   assert(i32(64).format("o") == `100`, "octal");
 });
 test("sign and zero padding", {
-  assert(i32(-(42)).format("08") == `-0000042`, "zero fill goes after the sign");
+  assert(i32(-42).format("08") == `-0000042`, "zero fill goes after the sign");
   assert(i32(42).format("+") == `+42`, "explicit plus");
   assert(i32(42).format(">6") == `    42`, "numbers right-align by default anyway");
 });
 test("i64.MIN has no magnitude overflow", {
   // The magnitude is computed as (~u64(n) + 1); unary minus would overflow.
-  assert(i64(-(9223372036854775808)).format("x") == `-8000000000000000`, "i64.MIN in hex");
+  assert(i64(-9223372036854775808).format("x") == `-8000000000000000`, "i64.MIN in hex");
 });
 test("float precision", {
   assert(f64(3.14159).format(".2") == `3.14`, "two decimals");
-  assert(f64(-(3.14159)).format(">10.3") == `    -3.142`, "width applies after precision");
+  assert(f64(-3.14159).format(">10.3") == `    -3.142`, "width applies after precision");
 });
 test("the blanket impl covers every ToString type", {
   // Both in ONE body deliberately: this exact shape used to crash, because the
@@ -85,7 +85,7 @@ test("width and precision compose on multibyte text", {
 });
 test("numeric padding measures the sign, prefix and digits in characters", {
   // The ASCII shape first: zero fill goes between the sign/prefix and digits.
-  assert(i32(-(42)).format("08") == `-0000042`, "zero fill still goes after the sign");
+  assert(i32(-42).format("08") == `-0000042`, "zero fill still goes after the sign");
   assert(i32(255).format("#08x") == `0x0000ff`, "alt hex zero padded");
   assert(String.from("中文").format("0>5") == `000中文`, "explicit align beats the zero flag");
 });

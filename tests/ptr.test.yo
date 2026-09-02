@@ -18,13 +18,13 @@ impl(
 );
 test("Test basic pointer arithmetic operations", {
   x := 12;
-  p := &(x);
+  p := &x;
   q := p.add(2); // Test &+
   assert(q > p); // Test &>
   assert(p < q); // Test &<
   assert(q >= p); // Test &>=
   assert(p <= q); // Test &<=
-  assert((q.offset_from(p)) == 2); // Test &/
+  assert(q.offset_from(p) == 2); // Test &/
   z := q.sub(2); // Test &-
   assert(z == p); // Test &==
   assert(z <= p); // Test &<=
@@ -39,7 +39,7 @@ test("Test pointer to object type value and `consume` builtin function", {
       unsafe(printf("Memory allocation failed\n"));
     },
     .Some(ptr) => {
-      casted_ptr := (*(Option(MyBox)))(ptr);
+      casted_ptr := (*Option(MyBox))(ptr);
       // Test the `consume` function here.
       // In theory, the old value will be dropped.
       // So we need to `consume` it here as this is our initialization of the pointer value.

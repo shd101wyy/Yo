@@ -72,7 +72,7 @@ MapCollision :: (
     ref(
       struct(
         hash : u64,
-        _pairs_ptr : *(MapEntry(K, V)),
+        _pairs_ptr : *MapEntry(K, V),
         _pairs_len : usize
       )
     )
@@ -107,7 +107,7 @@ MapBranch :: (
     ref(
       struct(
         bitmap : u32,
-        _children_ptr : *(void),
+        _children_ptr : *void,
         _children_len : u8
       )
     )
@@ -164,7 +164,7 @@ impl(
   Acyclic()
 );
 // -- MapBranch helpers --
-_alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> *(void))({
+_alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> *void)({
   sz := (sizeof(MapNode(K, V)) * usize(count));
   match(
     malloc(sz),
@@ -183,7 +183,7 @@ _branch_child_at :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBran
   target := *(MapNode(K, V))(branch._children_ptr.add(offset));
   target.*
 });
-_branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *(void), idx : u8, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> unit)({
+_branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *void, idx : u8, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> unit)({
   offset := (sizeof(MapNode(K, V)) * usize(idx));
   target := *(MapNode(K, V))(ptr.add(offset));
   target.* = child;
@@ -194,8 +194,8 @@ _copy_children :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    dst : *(void),
-    src : *(void),
+    dst : *void,
+    src : *void,
     dst_offset : u8,
     src_offset : u8,
     count : u8,
@@ -245,10 +245,10 @@ _branch_without_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : Ma
   if(usize(remaining) > usize(0), {
     _copy_children(K, V, new_ptr, branch._children_ptr, idx, idx + u8(1), remaining);
   });
-  MapBranch(K, V)(bitmap : (branch.bitmap & (~(bit))), _children_ptr : new_ptr, _children_len : new_len)
+  MapBranch(K, V)(bitmap : (branch.bitmap & ~bit), _children_ptr : new_ptr, _children_len : new_len)
 });
 // -- MapCollision helpers --
-_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> *(MapEntry(K, V)))({
+_alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> *MapEntry(K, V))({
   sz := (sizeof(MapEntry(K, V)) * count);
   match(
     malloc(sz),
@@ -270,8 +270,8 @@ _copy_pairs :: (
   fn(
     comptime(K) : Type,
     comptime(V) : Type,
-    dst : *(MapEntry(K, V)),
-    src : *(MapEntry(K, V)),
+    dst : *MapEntry(K, V),
+    src : *MapEntry(K, V),
     dst_offset : usize,
     src_offset : usize,
     count : usize,
@@ -485,7 +485,7 @@ _node_get :: (
     .Branch(branch) => {
       frag := _fragment(hash, shift);
       bit := _bit_for(frag);
-      if(!(_branch_has_child(K, V, branch, bit)), {
+      if(!_branch_has_child(K, V, branch, bit), {
         return(.None);
       });
       idx := _branch_index_for(K, V, branch, bit);
@@ -531,13 +531,13 @@ _node_remove :: (
     .Branch(branch) => {
       frag := _fragment(hash, shift);
       bit := _bit_for(frag);
-      if(!(_branch_has_child(K, V, branch, bit)), {
+      if(!_branch_has_child(K, V, branch, bit), {
         return(RemoveResult(K, V)(node : .Some(node), removed : false));
       });
       idx := _branch_index_for(K, V, branch, bit);
       child := _branch_child_at(K, V, branch, idx);
       sub := recur(K, V, child, shift + BITS, hash, k);
-      if(!(sub.removed), {
+      if(!sub.removed, {
         return(RemoveResult(K, V)(node : .Some(node), removed : false));
       });
       match(
@@ -834,7 +834,7 @@ _all_entries_match :: (
       i := u8(0);
       (ok : bool) = true;
       while((i < branch._children_len) && ok, i = (i + u8(1)), {
-        if(!(recur(K, V, _branch_child_at(K, V, branch, i), target)), {
+        if(!recur(K, V, _branch_child_at(K, V, branch, i), target), {
           ok = false;
         });
       });
@@ -907,7 +907,7 @@ impl(
       self._root,
       .Some(root) => {
         result := _node_remove(K, V, root, usize(0), hash_one(key), key);
-        if(!(result.removed), {
+        if(!result.removed, {
           return(self);
         });
         new_len := (self._len - usize(1));

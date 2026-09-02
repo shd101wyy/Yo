@@ -14,11 +14,11 @@
 
 test("signed overflow at the type boundary is rejected", {
   comptime_expect_error(over_i8 :: (i8(127) + i8(1)));
-  comptime_expect_error(under_i8 :: (i8(-(128)) - i8(1)));
+  comptime_expect_error(under_i8 :: (i8(-128) - i8(1)));
   comptime_expect_error(over_i16 :: (i16(32767) + i16(1)));
-  comptime_expect_error(under_i16 :: (i16(-(32768)) - i16(1)));
+  comptime_expect_error(under_i16 :: (i16(-32768) - i16(1)));
   comptime_expect_error(over_i32 :: (i32(2147483647) + i32(1)));
-  comptime_expect_error(under_i32 :: (i32(-(2147483648)) - i32(1)));
+  comptime_expect_error(under_i32 :: (i32(-2147483648) - i32(1)));
   comptime_expect_error(mul_i8 :: (i8(50) * i8(25)));
   comptime_expect_error(mul_i32 :: (i32(100000) * i32(100000)));
 });
@@ -58,8 +58,8 @@ test("values in range are accepted — including 64-bit unsigned above i64::MAX"
   // Boundaries that must NOT be reported.
   max_i8 :: (i8(126) + i8(1));
   comptime_assert(max_i8 == i8(127), "i8 MAX is reachable");
-  min_i8 :: (i8(-(127)) - i8(1));
-  comptime_assert(min_i8 == i8(-(128)), "i8 MIN is reachable");
+  min_i8 :: (i8(-127) - i8(1));
+  comptime_assert(min_i8 == i8(-128), "i8 MIN is reachable");
   max_u8 :: (u8(254) + u8(1));
   comptime_assert(max_u8 == u8(255), "u8 MAX is reachable");
   zero_u8 :: (u8(1) - u8(1));
@@ -75,7 +75,7 @@ test("the checks do not fire on runtime arithmetic", {
   x := i8(127);
   y := i8(1);
   sum := (x + y);
-  assert(sum == i8(-(128)), "runtime i8 addition wraps at the C level");
+  assert(sum == i8(-128), "runtime i8 addition wraps at the C level");
   u := u8(255);
   one := u8(1);
   usum := (u + one);

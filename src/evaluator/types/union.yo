@@ -50,7 +50,7 @@ evaluate_union_type :: (
   ) -> AstExpr
 )({
   (env_mut : Environment) = env;
-  if(!(ast_expr_is_fn_call_of(expr, BK_UNION, Option(usize).None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_UNION, Option(usize).None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -84,7 +84,7 @@ evaluate_union_type :: (
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while((dup_idx < field_labels.len()) && !(has_dup), {
+    while((dup_idx < field_labels.len()) && !has_dup, {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == field.label, {
         has_dup = true;
@@ -123,7 +123,7 @@ evaluate_union_type :: (
       );
     });
     // Union fields must be runtime types.
-    if(type_is_comptime_only(field.ty) || !(type_implements_runtime(field.ty)), {
+    if(type_is_comptime_only(field.ty) || !type_implements_runtime(field.ty), {
       exn.throw(
         dyn(
           format_error_message(

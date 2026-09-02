@@ -107,7 +107,7 @@ _fetch_once :: (
   fn(url_str : String, opts : FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     // Parse URL
     url := Url.parse(url_str, e.exn);
     // Validate scheme
@@ -161,7 +161,7 @@ _fetch_once :: (
     });
     // Set Content-Length if body is provided
     cond(
-      (!(opts.body.is_empty())) => {
+      !opts.body.is_empty() => {
         req.set_body(opts.body);
         req.set_header(`Content-Length`, `${opts.body.len()}`);
       },
@@ -256,7 +256,7 @@ _fetch_follow :: (
   fn(url_str : String, opts : FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     current := url_str.clone();
     hop_opts := opts;
     hops := usize(0);
@@ -264,13 +264,13 @@ _fetch_follow :: (
     // A `done` flag rather than break/continue: the awaiting loop is a
     // state machine (C24).
     done := false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       resp := e.io.await(_fetch_once(current.clone(), hop_opts, e.io), e);
       location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
       // `max_redirects == 0` means "do not follow": the first 3xx comes back
       // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
       // FOLLOWED, so the (max+1)th 3xx throws.
-      follow := ((resp.is_redirect() && !(location.is_empty())) && (opts.max_redirects > usize(0)));
+      follow := ((resp.is_redirect() && !location.is_empty()) && (opts.max_redirects > usize(0)));
       cond(
         follow => {
           cond(
@@ -313,7 +313,7 @@ fetch_with :: (
   fn(url_str : String, opts : FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     (result : HttpResponse) = HttpResponse.new(i32(0), ``);
     match(
       opts.timeout,
@@ -337,7 +337,7 @@ fetch_with :: (
         // this arm is that shape and doubles as its production pin.
         h := e.io.spawn(_fetch_follow(url_str, opts, e.io), e);
         dh := e.io.spawn(sleep(limit, e.io), e.io);
-        while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+        while(runtime(!h.is_finished() && !dh.is_finished()), {
           e.io.await(yield(e.io), e.io);
         });
         cond(
@@ -379,7 +379,7 @@ fetch :: (
   fn(url_str : String, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     // Hoisted: `io.await` directly inside `return(...)` is rejected by the
     // async state-machine codegen (a restriction `yo check` cannot see).
     resp := e.io.await(fetch_with(url_str, FetchOptions.new(), e.io), e);

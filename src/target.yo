@@ -408,7 +408,7 @@ parse_target :: (fn(triple : String) -> Result(TargetInfo, String))({
         .Windows => ((env == Abi.Msvc) || (env == Abi.Gnu)),
         _ => false
       );
-      if(!(allowed), {
+      if(!allowed, {
         return(
           _target_error(
             triple,
@@ -478,7 +478,7 @@ is_target_musl :: (fn(target : TargetInfo) -> bool)(
   target.abi == Option(Abi).Some(Abi.Musl)
 );
 is_target_posix :: (fn(target : TargetInfo) -> bool)(
-  (!(is_target_windows(target))) && (!(is_target_wasm(target)))
+  !is_target_windows(target) && !is_target_wasm(target)
 );
 export(
   Arch,

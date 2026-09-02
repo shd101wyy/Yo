@@ -111,7 +111,7 @@ evaluate_module_field :: (
     );
   });
   // Main case: label: type
-  if(!(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -127,7 +127,7 @@ evaluate_module_field :: (
   label_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   type_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier
-  if(!(is_valid_variable_name(label_expr)), {
+  if(!is_valid_variable_name(label_expr), {
     exn.throw(
       dyn(
         format_error_message(
@@ -149,7 +149,7 @@ evaluate_module_field :: (
   env_mut.module_path = te_info.env.module_path;
   env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
   env_mut.input_string = te_info.env.input_string;
-  if(!(is_type_value(te_info.value)), {
+  if(!is_type_value(te_info.value), {
     exn.throw(
       dyn(
         format_error_message(

@@ -275,15 +275,15 @@ test("Test Send on pointer-bearing types is conditional on the pointee", {
   NonSendCarrier :: ref(struct(v : i32));
   comptime_assert(Type.impls(NonSendCarrier, Send) == false);
   // *(T): Send iff T: Send.
-  comptime_assert(Type.impls(*(i32), Send) == true);
-  comptime_assert(Type.impls(*(NonSendCarrier), Send) == false);
+  comptime_assert(Type.impls(*i32, Send) == true);
+  comptime_assert(Type.impls(*NonSendCarrier, Send) == false);
   // str (builtin static string view) is Send.
   comptime_assert(Type.impls(str, Send) == true);
   // Array(T, N): Send iff T: Send.
   comptime_assert(Type.impls(Array(i32, 4), Send) == true);
   comptime_assert(Type.impls(Array(NonSendCarrier, 4), Send) == false);
   // Nullable pointer ?(*(T)): same as *(T) via Option(*(T)) desugar.
-  comptime_assert(Type.impls(?(*(i32)), Send) == true);
+  comptime_assert(Type.impls(?*i32, Send) == true);
 });
 test("Test type auto derive Acyclic", {
   // Primitive types are Acyclic
@@ -386,9 +386,9 @@ test("Test type auto derive Comptime", {
   comptime_assert(Type.impls(Tuple(Box(i32)), Comptime) == false);
   // Ptr
   // Yo support compile-time pointer
-  comptime_assert(Type.impls(*(comptime_int), Comptime));
-  comptime_assert(Type.impls(*(i32), Comptime));
-  comptime_assert(Type.impls(*(Box(i32)), Comptime) == false);
+  comptime_assert(Type.impls(*comptime_int, Comptime));
+  comptime_assert(Type.impls(*i32, Comptime));
+  comptime_assert(Type.impls(*Box(i32), Comptime) == false);
   // Function
   comptime_assert(Type.impls(fn() -> unit, Comptime));
   // Iso type is runtime only
@@ -428,7 +428,7 @@ test("Test type auto derive Comptime", {
   {
     SelfRecursive :: struct(
       v : i32,
-      next : *(Self)
+      next : *Self
     );
     // i32 is both comptime and runtime
     // *(Self) is both comptime and runtime
@@ -437,21 +437,21 @@ test("Test type auto derive Comptime", {
     // next: *(Self) is both comptime and runtime
     // therefore SelfRecursive2 should be both comptime and runtime
     SelfRecursive2 :: struct(
-      next : *(Self)
+      next : *Self
     );
     comptime_assert(Type.impls(SelfRecursive2, Comptime));
     // v : int is only runtime
     // therefore SelfRecursive3 should be only runtime
     SelfRecursive3 :: struct(
       v : int,
-      next : *(Self)
+      next : *Self
     );
     comptime_assert(Type.impls(SelfRecursive3, Comptime) == false);
     // v : comptime_int is only comptime
     // therefore SelfRecursive4 should be only comptime
     SelfRecursive4 :: struct(
       v : comptime_int,
-      next : *(Self)
+      next : *Self
     );
     comptime_assert(Type.impls(SelfRecursive4, Comptime));
   };
@@ -503,9 +503,9 @@ test("Test type auto derive Runtime", {
   comptime_assert(Type.impls(Tuple(Box(i32)), Runtime));
   // Ptr
   // Yo support compile-time pointer
-  comptime_assert(Type.impls(*(comptime_int), Runtime) == false);
-  comptime_assert(Type.impls(*(i32), Runtime));
-  comptime_assert(Type.impls(*(Box(i32)), Runtime));
+  comptime_assert(Type.impls(*comptime_int, Runtime) == false);
+  comptime_assert(Type.impls(*i32, Runtime));
+  comptime_assert(Type.impls(*Box(i32), Runtime));
   // Function
   comptime_assert(Type.impls(fn() -> unit, Runtime));
   // Iso type is runtime only
@@ -531,20 +531,20 @@ test("Test type auto derive Runtime", {
   fn1 :: (fn(comptime(T) : Type) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
   });
-  fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit)({
+  fn2 :: (fn(comptime(T) : Type, where(T <: !Runtime)) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
   fn3 :: (fn(generic(T : Type), v : T) -> unit)({
     comptime_assert(Type.impls(T, Runtime));
   });
-  fn4 :: (fn(generic(T : Type), v : T, where(T <: !(Runtime))) -> unit)({
+  fn4 :: (fn(generic(T : Type), v : T, where(T <: !Runtime)) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);
   });
   // Self recursive types
   {
     SelfRecursive :: struct(
       v : i32,
-      next : *(Self)
+      next : *Self
     );
     // i32 is both comptime and runtime
     // *(Self) is both comptime and runtime
@@ -553,21 +553,21 @@ test("Test type auto derive Runtime", {
     // next: *(Self) is both comptime and runtime
     // therefore SelfRecursive2 should be both comptime and runtime
     SelfRecursive2 :: struct(
-      next : *(Self)
+      next : *Self
     );
     comptime_assert(Type.impls(SelfRecursive2, Runtime));
     // v : int is only runtime
     // therefore SelfRecursive3 should be only runtime
     SelfRecursive3 :: struct(
       v : int,
-      next : *(Self)
+      next : *Self
     );
     comptime_assert(Type.impls(SelfRecursive3, Runtime));
     // v : comptime_int is only comptime
     // therefore SelfRecursive4 should be only comptime
     SelfRecursive4 :: struct(
       v : comptime_int,
-      next : *(Self)
+      next : *Self
     );
     comptime_assert(Type.impls(SelfRecursive4, Runtime) == false);
   };
@@ -816,7 +816,7 @@ test("Test 'struct'", {
     );
     impl(
       Withdraw,
-      withdraw : (fn(self : *(Self), amount : i32) -> i32)(
+      withdraw : (fn(self : *Self, amount : i32) -> i32)(
         cond(
           (self.balance >= amount) => {
             self.balance = (self.balance - amount);
@@ -852,10 +852,10 @@ test("Test 'struct'", {
       another_new : (fn(v : T) -> Self)(
         Self.new(v)
       ),
-      add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
+      add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
         self.value = (self.value + value);
       }),
-      another_add : (fn(self : *(Self), value : T, where(T <: Add(T))) -> unit)({
+      another_add : (fn(self : *Self, value : T, where(T <: Add(T))) -> unit)({
         self.add(value);
       })
     );
@@ -1027,7 +1027,7 @@ test("Test raw pointer", {
     { GlobalAllocator } :: import("std/allocator");
     open(GlobalAllocator);
     {
-      ptr := (*(i32))(malloc(sizeof(i32) * 2).unwrap());
+      ptr := (*i32)(malloc(sizeof(i32) * 2).unwrap());
       ptr.* = 42;
       (ptr.add(1)).* = 84;
       assert(ptr.* == 42);
@@ -1040,11 +1040,11 @@ test("Test raw pointer", {
     x := 12;
     // pointer
     {
-      I32Ptr :: *(i32);
-      p : *(i32);
-      p = &(x);
-      (p2 : *(i32)) = &(x); // Create pointer
-      p3 := &(x); // Create pointer
+      I32Ptr :: *i32;
+      p : *i32;
+      p = &x;
+      (p2 : *i32) = &x; // Create pointer
+      p3 := &x; // Create pointer
       q := p.*; // Dereference pointer
       assert(p.* == 12);
       assert(p2.* == 12);
@@ -1064,7 +1064,7 @@ test("Test raw pointer", {
       FuncType ::
         (fn() -> void) // Cannot use DST directly in function return type
     );
-    use_void_ptr :: (fn(ptr : *(void)) -> unit)({
+    use_void_ptr :: (fn(ptr : *void) -> unit)({
       comptime_expect_error(
         x := ptr.*,
         "Cannot use DST directly"
@@ -1073,7 +1073,7 @@ test("Test raw pointer", {
       // We need to cast it to a specific type first.
       i32_ptr := *(i32)(ptr);
     });
-    mutate_void_ptr :: (fn(ptr : *(void)) -> unit)({
+    mutate_void_ptr :: (fn(ptr : *void) -> unit)({
       comptime_expect_error(
         x := ptr.*,
         "Cannot use DST directly"
@@ -1082,9 +1082,9 @@ test("Test raw pointer", {
       i32_ptr.* = 16;
     });
     x := 12;
-    use_void_ptr(*(void)(&(x)));
+    use_void_ptr(*(void)(&x));
     assert(x == 12);
-    mutate_void_ptr(*(void)(&(x)));
+    mutate_void_ptr(*(void)(&x));
     assert(x == 16);
   };
 });
@@ -1194,7 +1194,7 @@ test("Test 'match'", {
     )
   );
   // Test pointer as match input
-  area_ptr :: (fn(shape_ptr : *(Shape)) -> i32)(
+  area_ptr :: (fn(shape_ptr : *Shape) -> i32)(
     match(
       shape_ptr,
       // automatic dereference
@@ -1234,8 +1234,8 @@ test("Test 'match'", {
   assert(area_partial(s2) == 5);
   assert(area_partial_2(s1) == 100);
   assert(area_partial_2(s2) == 5);
-  assert(area_ptr(&(s1)) == 27);
-  assert(area_ptr(&(s2)) == 20);
+  assert(area_ptr(&s1) == 27);
+  assert(area_ptr(&s2) == 20);
   // Test primitive type matching (integers)
   classify_number :: (fn(n : i32) -> i32)(
     match(
@@ -1259,7 +1259,7 @@ test("Test 'match'", {
   assert(classify_number(5) == 456);
   assert(classify_number(6) == 456);
   assert(classify_number(7) == 999);
-  assert(classify_number(-(1)) == 999);
+  assert(classify_number(-1) == 999);
   assert(classify_number(100) == 999);
   // Test primitive matching with compile-time constants
   TEN :: 10;
@@ -1308,15 +1308,15 @@ test("Test 'match'", {
       n,
       0 => 0,
       1 => 1,
-      (-(1)) => (-(1)),
+      -1 => -1,
       _ => 2
     )
   );
   assert(classify_sign(0) == 0);
   assert(classify_sign(1) == 1);
-  assert(classify_sign(-(1)) == (-(1)));
+  assert(classify_sign(-1) == -1);
   assert(classify_sign(5) == 2);
-  assert(classify_sign(-(5)) == 2);
+  assert(classify_sign(-5) == 2);
 });
 test("Test 'while'", {
   // without step expression
@@ -1379,7 +1379,7 @@ test("Test 'while'", {
       i := i32(0);
       j := i32(0);
       while(i < max, begin(i = (i + 1), j = (j + 2)), {
-        result = ((result + i) + j);
+        result = (result + i + j);
       });
       return(result);
     });
@@ -1405,7 +1405,7 @@ test("Test 'while'", {
     });
     // Test 2: break statement - stop at first number > 5
     find_first_greater_than_five :: (fn(max : i32) -> i32)({
-      result := -(1);
+      result := -1;
       i := i32(0);
       while(i < max, {
         i = (i + 1);
@@ -1431,7 +1431,7 @@ test("Test 'while'", {
           true => () // continue loop
         );
       });
-      return(-(1)); // not found
+      return(-1); // not found
     });
     // Test 4: while loop with step and continue
     sum_with_step :: (fn(max : i32) -> i32)({
@@ -1450,7 +1450,7 @@ test("Test 'while'", {
     assert(sum_odd(10) == 25); // 1 + 3 + 5 + 7 + 9 = 25
     assert(find_first_greater_than_five(20) == 6);
     assert(search_value(7, 10) == 7);
-    assert(search_value(15, 10) == -(1));
+    assert(search_value(15, 10) == -1);
     assert(sum_with_step(10) == 27); // 1 + 2 + 4 + 5 + 7 + 8 = 27
   };
   // Test: infinite comptime while loop (literal true, no terminator) should error
@@ -1930,7 +1930,7 @@ test("Test 'open' statements", {
   {
     point := { x : i32(5), y : i32(10), z : i32(15) };
     open(point);
-    sum := ((x + y) + z);
+    sum := (x + y + z);
     assert(sum == i32(30));
   };
   // Open inside a function
@@ -2256,7 +2256,7 @@ test("return in match branch type compatibility", {
     list.push(u8(42));
     // .None branch returns from the function — its type should be never/bottom,
     // compatible with *(u8) expected type from .Some branch
-    (ptr : *(u8)) = match(
+    (ptr : *u8) = match(
       list._ptr,
       .Some(p) => p,
       .None => {
@@ -2321,10 +2321,10 @@ test("match arm struct literal with `return` in field name", {
   );
   cf := control_flow_of(ControlFlowKind.Return);
   assert(cf.return_flag, "Return arm must set return_flag = true");
-  assert(!(cf.unwind_flag), "Return arm must leave unwind_flag = false");
+  assert(!cf.unwind_flag, "Return arm must leave unwind_flag = false");
   cf2 := control_flow_of(ControlFlowKind.Escape);
   assert(cf2.unwind_flag, "Escape arm must set unwind_flag = true");
-  assert(!(cf2.return_flag), "Escape arm must leave return_flag = false");
+  assert(!cf2.return_flag, "Escape arm must leave return_flag = false");
 });
 // Regression: cond arm struct literal with `return` in field name (mirrors
 // the match-arm fix in src/codegen/exprs/cond.ts).
@@ -2339,7 +2339,7 @@ test("cond arm struct literal with `return` in field name", {
   );
   f := pick(i32(1));
   assert(f.return_flag, "cond arm 1 must set return_flag = true");
-  assert(!(f.other_flag), "cond arm 1 must leave other_flag = false");
+  assert(!f.other_flag, "cond arm 1 must leave other_flag = false");
 });
 test("locals named after Windows macros survive codegen", {
   // windef.h defines the legacy Win16 set (near/far/pascal/...) to NOTHING,

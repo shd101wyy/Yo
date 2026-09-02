@@ -75,7 +75,7 @@ impl(
   /// Append a signed 64-bit integer in decimal.
   write_i64 : (fn(self : Self, n : i64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(24), "%lld", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -83,7 +83,7 @@ impl(
   /// Append an unsigned 64-bit integer in decimal.
   write_u64 : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(24), "%llu", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -91,7 +91,7 @@ impl(
   /// Append a 64-bit float with the given number of decimal places.
   write_f64 : (fn(self : Self, n : f64, precision : i32) -> Self)({
     buf := Array(u8, usize(64)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(64), "%.*f", precision, n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -106,7 +106,7 @@ impl(
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.
   write_hex : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(20)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(20), "%llx", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -114,7 +114,7 @@ impl(
   /// Append an unsigned 64-bit integer in octal.
   write_octal : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(24), "%llo", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)

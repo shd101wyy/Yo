@@ -65,7 +65,7 @@ evaluate_dyn_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -140,7 +140,7 @@ evaluate_dyn_type :: (
       ),
       .None => t_i32()
     );
-    if(!(is_type_value(trait_info.value)), {
+    if(!is_type_value(trait_info.value), {
       exn.throw(
         dyn(
           format_error_message(
@@ -152,7 +152,7 @@ evaluate_dyn_type :: (
         )
       );
     });
-    if(!(is_trait_type(inner_ty)), {
+    if(!is_trait_type(inner_ty), {
       exn.throw(
         dyn(
           format_error_message(
@@ -266,7 +266,7 @@ evaluate_dyn_type :: (
         });
         m = (m + usize(1));
       });
-      if(!(already), {
+      if(!already, {
         required_traits.push(constraint);
         required_levels.push(usize(0));
         required_ids.push(cid);

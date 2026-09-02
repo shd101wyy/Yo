@@ -214,7 +214,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
               ),
               .None => ()
             );
-            if(!(fallback_found), {
+            if(!fallback_found, {
               fallback_key = e.key.clone();
               fallback_found = true;
             });
@@ -302,7 +302,7 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
       .Some(vn) => {
         is_ct_const := match(
           ei5.value,
-          .Some(v) => if(!(is_unknown_val(v)), {
+          .Some(v) => if(!is_unknown_val(v), {
             vars5 := get_variables_from_env(ei5.env, vn.clone());
             n5 := vars5.len();
             cond(
@@ -361,7 +361,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
                 .Some(var_name) => {
                   c_name := get_variable_name_for_codegen(var_name.clone(), exit_env_opt);
                   (sk : bool) = false;
-                  if(!(scope_stack_contains(context.base.declared_scopes, c_name)), {
+                  if(!scope_stack_contains(context.base.declared_scopes, c_name), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in
@@ -384,7 +384,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
                 },
                 .None => false
               );
-              if(!(skip), {
+              if(!skip, {
                 drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
                 if(drop_code.len() > usize(0), {
                   line := indent.clone();
@@ -589,7 +589,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         );
         em.emit_string_line(`${indent.clone()}// Early return - complete the result Future`);
         result_code := if(
-          !(is_unit_result),
+          !is_unit_result,
           Option(String).Some(`(${get_type_string(child_type, context.base)}){0}`),
           Option(String).None
         );
@@ -650,7 +650,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             env_opt,
             .Some(e) => match(
               ei.value,
-              .Some(v) => if(!(is_unknown_val(v)), {
+              .Some(v) => if(!is_unknown_val(v), {
                 vars := get_variables_from_env(e, var_name.clone());
                 nv := vars.len();
                 cond(
@@ -679,7 +679,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             ),
             .None => false
           );
-          if(!(captured), {
+          if(!captured, {
             // Resolve a plain identifier by its SOURCE TOKEN, not the recorded
             // `variable_name`. Mirrors TS generateAtom (atom.ts:262 uses
             // `expr.token.value`). yo-self's attach_temp_variable_to_expr can
@@ -725,7 +725,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
         // Non-variable atom with a comptime value → inline it. Use the
         // coerced runtime type when present (e.g. a comptime_str arg coerced
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
-        (match(ei.value, .Some(v) => !(is_unknown_val(v)), .None => false)) => match(
+        match(ei.value, .Some(v) => !is_unknown_val(v), .None => false) => match(
           ei.value,
           .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty), context.base),
           .None => _var_read_code(tv.clone(), env_opt)

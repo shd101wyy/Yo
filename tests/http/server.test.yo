@@ -28,11 +28,11 @@ _echo :: (fn(req : HttpRequest) -> HttpResponse)({
 });
 // Read one full response off a raw stream (until the server closes).
 _read_all :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     out := ArrayList(u8).new();
     buf := *(u8)(malloc(usize(4096)).unwrap());
     done := false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
       cond(
         (n == usize(0)) => {
@@ -78,7 +78,7 @@ test("HttpResponse.to_string adds Content-Length and keeps explicit headers", {
 test("serve_once answers a GET from fetch (method, path, header, empty body)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -98,7 +98,7 @@ test("serve_once answers a GET from fetch (method, path, header, empty body)", {
 test("serve_once reads a POST body and forwards request headers", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -115,7 +115,7 @@ test("serve_once reads a POST body and forwards request headers", {
 test("a chunked request body is decoded before the handler sees it", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -135,7 +135,7 @@ test("a chunked request body is decoded before the handler sees it", {
 test("a request that does not parse gets 400 with the reason, handler not called", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -144,7 +144,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
   called := ArrayList(i32).new();
   task := io.spawn(
-    server.serve_once((req) => {
+    server.serve_once(req => {
       called.push(i32(1));
       HttpResponse.with_status(i32(200))
     }, io),
@@ -163,7 +163,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
 test("serve loops until stop(); local_addr reports the bound port", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -173,7 +173,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
   assert(server.local_addr().port == u16(19974), `local_addr port ${server.local_addr().port}`);
   hits := ArrayList(i32).new();
   task := io.spawn(
-    server.serve((req) => {
+    server.serve(req => {
       hits.push(i32(1));
       cond(
         (req.path == `/last`) => {
@@ -199,7 +199,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
 test("the server round-trips a binary request body byte-for-byte", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
@@ -207,7 +207,7 @@ test("the server round-trips a binary request body byte-for-byte", {
   );
   srv := io.await(HttpServer.bind(SocketAddr.loopback(u16(19979)), io), IoExn(io : io, exn : exn));
   task := io.spawn(
-    srv.serve_once((req) => {
+    srv.serve_once(req => {
       resp := HttpResponse.with_status(i32(200)).with_body(req.body);
       resp
     }, io),

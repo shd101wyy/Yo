@@ -77,7 +77,7 @@ impl(
       _open_mode_needs_perm(mode) => i32(perm.mode),
       true => i32(0)
     );
-    io.async((e) => {
+    io.async(e => {
       path_str := path.to_string();
       cstr_bytes := path_str.to_cstr();
       cstr := cstr_bytes.ptr().unwrap();
@@ -96,7 +96,7 @@ impl(
     File.open_with(Path.new(String.from(path)), mode, perm, io)
   ),
   /// Open a file from a C string path with the given mode and custom permissions.
-  open_with_cstr : (fn(path : *(u8), mode : OpenMode, perm : FilePermission, io : Io) -> Impl(Future(File, IoExn)))(
+  open_with_cstr : (fn(path : *u8, mode : OpenMode, perm : FilePermission, io : Io) -> Impl(Future(File, IoExn)))(
     File.open_with(Path.from_cstr(path), mode, perm, io)
   ),
   /// Open a file at `path` with the given mode and default permissions (0o644).
@@ -108,14 +108,14 @@ impl(
     File.open(Path.new(String.from(path)), mode, io)
   ),
   /// Open a file from a C string path with the given mode and default permissions.
-  open_cstr : (fn(path : *(u8), mode : OpenMode, io : Io) -> Impl(Future(File, IoExn)))(
+  open_cstr : (fn(path : *u8, mode : OpenMode, io : Io) -> Impl(Future(File, IoExn)))(
     File.open(Path.from_cstr(path), mode, io)
   ),
   /// Read up to `size` bytes into the buffer `buf`.
   /// Returns the number of bytes actually read.
-  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       result := e.io.await(IO_file.read(fd, buf, u32(size), self._pos), e.io);
       n := IoError.check(result, e.exn);
       self._pos = (self._pos + u64(n));
@@ -124,9 +124,9 @@ impl(
   }),
   /// Write up to `size` raw bytes from `buf` at the file's current position.
   /// Returns the number of bytes written.
-  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       result := e.io.await(IO_file.write(fd, buf, u32(size), self._pos), e.io);
       n := IoError.check(result, e.exn);
       self._pos = (self._pos + u64(n));
@@ -137,7 +137,7 @@ impl(
   /// Returns the number of bytes written.
   write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       data_bytes := data.as_bytes();
       cond(
         (data_bytes.len() == usize(0)) => usize(0),
@@ -155,7 +155,7 @@ impl(
   write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(
-      (e) =>
+      e =>
         cond(
           (data.len() == usize(0)) => usize(0),
           true => {
@@ -170,7 +170,7 @@ impl(
   /// Flush (fsync) file data to disk.
   flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       result := e.io.await(IO_file.fsync(fd), e.io);
       cond(
         (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
@@ -216,7 +216,7 @@ impl(
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
     io.async(
-      (e) =>
+      e =>
         cond(
           self._is_closed => (),
           true => {
@@ -248,7 +248,7 @@ impl(
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       cond(
-        (!(self._is_closed)) => {
+        !self._is_closed => {
           IO_file.close_sync(self._fd);
           self._is_closed = true;
         },
@@ -267,7 +267,7 @@ export(File, OpenMode, FilePermission, SeekFrom);
 impl(
   File,
   IoTraits.Reader(
-    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )
@@ -275,12 +275,12 @@ impl(
 impl(
   File,
   IoTraits.Writer(
-    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.write(buf, size, io)
     ),
     // fd writes are unbuffered — nothing to flush.
     flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      io.async((e) => ())
+      io.async(e => ())
     )
   )
 );
@@ -289,7 +289,7 @@ impl(
 // ============================================================================
 /// Read an entire file into a `String`.
 read_to_string :: (fn(path : Path, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     file := e.io.await(File.open(path, .Read, io), e);
     content := e.io.await(file.read_to_string(io), e);
     e.io.await(file.close(io), e);
@@ -301,12 +301,12 @@ read_to_string_str :: (fn(path : str, io : Io) -> Impl(Future(String, IoExn)))(
   read_to_string(Path.new(String.from(path)), io)
 );
 /// Read an entire file into a `String` (C string path variant).
-read_to_string_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(String, IoExn)))(
+read_to_string_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(String, IoExn)))(
   read_to_string(Path.from_cstr(path), io)
 );
 /// Read an entire file into a byte list (`ArrayList(u8)`).
 read :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     file := e.io.await(File.open(path, .Read, io), e);
     content := e.io.await(file.read_to_end(io), e);
     e.io.await(file.close(io), e);
@@ -318,12 +318,12 @@ read_str :: (fn(path : str, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   read(Path.new(String.from(path)), io)
 );
 /// Read an entire file into bytes (C string path variant).
-read_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+read_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   read(Path.from_cstr(path), io)
 );
 /// Write a `String` to a file, creating or truncating it.
 write_string :: (fn(path : Path, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     file := e.io.await(File.open(path, .Write, io), e);
     e.io.await(file.write_string(data, io), e);
     e.io.await(file.close(io), e);
@@ -334,12 +334,12 @@ write_string_str :: (fn(path : str, data : str, io : Io) -> Impl(Future(unit, Io
   write_string(Path.new(String.from(path)), String.from(data), io)
 );
 /// Write a `str` to a file, creating or truncating it (C string path variant).
-write_string_cstr :: (fn(path : *(u8), data : str, io : Io) -> Impl(Future(unit, IoExn)))(
+write_string_cstr :: (fn(path : *u8, data : str, io : Io) -> Impl(Future(unit, IoExn)))(
   write_string(Path.from_cstr(path), String.from(data), io)
 );
 /// Write bytes to a file, creating or truncating it.
 write :: (fn(path : Path, data : ArrayList(u8), io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     file := e.io.await(File.open(path, .Write, io), e);
     e.io.await(file.write_bytes(data, io), e);
     e.io.await(file.close(io), e);
@@ -347,7 +347,7 @@ write :: (fn(path : Path, data : ArrayList(u8), io : Io) -> Impl(Future(unit, Io
 );
 /// Append a `String` to a file, creating it if it does not exist.
 append_file :: (fn(path : Path, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     file := e.io.await(File.open(path, .Append, io), e);
     e.io.await(file.write_string(data, io), e);
     e.io.await(file.close(io), e);
@@ -367,7 +367,7 @@ extern(
 /// Check if a path exists. Returns `false` for any error including file not found.
 /// Does not use the `Exception` effect.
 exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
-  io.async((io) => {
+  io.async(io => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
@@ -382,7 +382,7 @@ exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
   exists(Path.new(String.from(path)), io)
 );
 /// Check if a path exists (C string path variant).
-exists_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(bool, Io)))(
+exists_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
   exists(Path.from_cstr(path), io)
 );
 /// Check if a path exists, PROPAGATING errors (`std::fs::try_exists`):
@@ -391,7 +391,7 @@ exists_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(bool, Io)))(
 /// absence — the honest form `exists` cannot give
 /// (plans/STD_API_AUDIT.md §7 P0).
 try_exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
@@ -411,7 +411,7 @@ try_exists_str :: (fn(path : str, io : Io) -> Impl(Future(bool, IoExn)))(
 );
 /// Set a path's POSIX permission bits.
 set_permissions :: (fn(path : Path, perm : FilePermission, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     r := unsafe(chmod(*(char)(cstr), perm.mode));
@@ -429,7 +429,7 @@ set_permissions_str :: (fn(path : str, perm : FilePermission, io : Io) -> Impl(F
 /// (`std::fs::copy`), resolving to the number of bytes copied. `to` is
 /// created or truncated.
 copy :: (fn(from : Path, to : Path, io : Io) -> Impl(Future(u64, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     bytes := e.io.await(read(from, e.io), e);
     e.io.await(write(to, bytes, e.io), e);
     md := e.io.await(metadata(from, e.io), e);
@@ -444,7 +444,7 @@ copy_str :: (fn(from : str, to : str, io : Io) -> Impl(Future(u64, IoExn)))(
 
 /// Check if a path is a regular file. Returns `false` for any error.
 is_file :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
-  io.async((io) => {
+  io.async(io => {
     path_str := path.to_string();
     cstr_bytes := path_str.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -467,12 +467,12 @@ is_file_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
   is_file(Path.new(String.from(path)), io)
 );
 /// Check if a path is a regular file (C string path variant).
-is_file_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(bool, Io)))(
+is_file_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
   is_file(Path.from_cstr(path), io)
 );
 /// Check if a path is a directory. Returns `false` for any error.
 is_dir :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
-  io.async((io) => {
+  io.async(io => {
     path_str := path.to_string();
     cstr_bytes := path_str.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -495,13 +495,13 @@ is_dir_str :: (fn(path : str, io : Io) -> Impl(Future(bool, Io)))(
   is_dir(Path.new(String.from(path)), io)
 );
 /// Check if a path is a directory (C string path variant).
-is_dir_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(bool, Io)))(
+is_dir_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(bool, Io)))(
   is_dir(Path.from_cstr(path), io)
 );
 /// Resolve a path to its canonical absolute form (resolves symlinks, `.` and `..`).
 /// Throws if the path does not exist.
 canonicalize :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     path_str := path.to_string();
     cstr_bytes := path_str.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -531,7 +531,7 @@ canonicalize_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(
   canonicalize(Path.new(String.from(path)), io)
 );
 /// Resolve a path to its canonical absolute form (C string path variant).
-canonicalize_cstr :: (fn(path : *(u8), io : Io) -> Impl(Future(Path, IoExn)))(
+canonicalize_cstr :: (fn(path : *u8, io : Io) -> Impl(Future(Path, IoExn)))(
   canonicalize(Path.from_cstr(path), io)
 );
 export(

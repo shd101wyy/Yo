@@ -19,7 +19,7 @@ ARD :: trait(
   (twice_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
     (
       (self, io) ->
-        io.async((e) => {
+        io.async(e => {
           a := e.io.await(Self.read_d(self, io), e);
           b := e.io.await(Self.read_d(self, io), e);
           a + b
@@ -32,9 +32,9 @@ impl(
   generic(T : Type),
   Wrap(T),
   AR(
-    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => usize(5))),
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(5))),
     twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async((e) => {
+      io.async(e => {
         a := e.io.await(Self.read(self, io), e);
         b := e.io.await(Self.read(self, io), e);
         a + b
@@ -47,7 +47,7 @@ impl(
   generic(T : Type),
   Wrap(T),
   ARD(
-    read_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => usize(9)))
+    read_d : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(9)))
   )
 );
 // Non-generic implementor of the same trait — the control that always worked.
@@ -55,9 +55,9 @@ Conc :: struct(k : usize);
 impl(
   Conc,
   AR(
-    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => self.k)),
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => self.k)),
     twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async((e) => {
+      io.async(e => {
         a := e.io.await(Self.read(self, io), e);
         b := e.io.await(Self.read(self, io), e);
         a + b
@@ -71,9 +71,9 @@ impl(
   generic(A : Type, B : Type),
   Pair2(A, B),
   AR(
-    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => usize(21))),
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(21))),
     twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async((e) => {
+      io.async(e => {
         a := e.io.await(Self.read(self, io), e);
         b := e.io.await(Self.read(self, io), e);
         a + b
@@ -84,7 +84,7 @@ impl(
 test("generic implementor: explicit async method awaiting Self method", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -98,7 +98,7 @@ test("generic implementor: explicit async method awaiting Self method", {
 test("generic implementor: awaiting method via trait ?= default", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -112,7 +112,7 @@ test("generic implementor: awaiting method via trait ?= default", {
 test("non-generic implementor control", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -126,7 +126,7 @@ test("non-generic implementor control", {
 test("two-type-argument generic implementor", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

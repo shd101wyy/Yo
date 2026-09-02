@@ -20,7 +20,7 @@ open(import("std/error"));
 _synth_ok :: (
   fn(expected_ty : TypeValue, ee : Environment, given_ty : TypeValue, ge : Environment) -> bool
 )({
-  local_exn := Exception(throw : ((_err) -> unwind(false)));
+  local_exn := Exception(throw : (_err -> unwind(false)));
   checked := ArrayList(TypePair).new();
   (opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   _r := synthesize_types(expected_ty, ee, given_ty, ge, checked, opts, local_exn);
@@ -33,7 +33,7 @@ test("synthesize_types: SomeT binds to a concrete given type", {
   ok := _synth_ok(st, ee, t_i32(), ge);
   assert(ok, "synthesis completes");
   bound := get_value_of_some_type_from_env(ee, st);
-  assert(!(is_some_type(bound)), "T resolved to a concrete type");
+  assert(!is_some_type(bound), "T resolved to a concrete type");
 });
 test("synthesize_types: generic inside a Func param binds structurally", {
   ee := Environment.new(`test`);
@@ -53,7 +53,7 @@ test("synthesize_types: generic inside a Func param binds structurally", {
   ok := _synth_ok(expected_fn, ee, given_fn, ge);
   assert(ok, "structural synthesis completes");
   bound := get_value_of_some_type_from_env(ee, st);
-  assert(!(is_some_type(bound)), "T bound through the Func param position");
+  assert(!is_some_type(bound), "T bound through the Func param position");
 });
 test("synthesize_types: concrete-vs-concrete match is a no-op success", {
   ee := Environment.new(`test`);

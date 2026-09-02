@@ -49,7 +49,7 @@ sleep_mod :: import("std/sys/timer");
 /// deleted / transient editor rename). One string keeps the sweep's compare
 /// and store to a single map.
 _stat_key :: (fn(p : String, io : Io) -> Option(String))({
-  swallow := Exception(throw : ((_e) -> unwind(Option(String).None)));
+  swallow := Exception(throw : (_e -> unwind(Option(String).None)));
   md := io.await(metadata(Path.new(p.clone()), io), IoExn(io : io, exn : swallow));
   Option(String).Some(`${md.modified_time().to_string()}:${md.size().to_string()}`)
 });
@@ -141,7 +141,7 @@ run_watch_once :: (
   changed := ArrayList(String).new();
   rd := BufReader(Stdin).new(stdin());
   (eof : bool) = false;
-  while(!(eof), {
+  while(!eof, {
     // The generic BufReader throws through IoExn instead of returning a
     // Result, so a read error propagates rather than silently ending the list
     // of changed files (D5: plans/STD_API_AUDIT.md).

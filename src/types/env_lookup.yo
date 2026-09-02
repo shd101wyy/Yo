@@ -211,7 +211,7 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
   // Search top-down (most recent frame first) so a per-call binding
   // wins over a stale marker left by a prior synthesis / io.async call.
   (fi : usize) = n_frames;
-  while((fi > usize(0)) && !(found), {
+  while((fi > usize(0)) && !found, {
     fi = (fi - usize(1));
     match(
       env.frames.get(fi),
@@ -219,7 +219,7 @@ _was_self_bound :: (fn(env : Environment, name : String, id_to_find : String) ->
         vars := frame.variables;
         m := vars.len();
         (vi : usize) = usize(0);
-        while((vi < m) && !(found), {
+        while((vi < m) && !found, {
           match(
             vars.get(vi),
             .Some(var) =>
@@ -297,7 +297,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
   (current : TypeValue) = start;
   (done : bool) = false;
   (result : TypeValue) = start;
-  while(!(done), {
+  while(!done, {
     cur_id := _some_id(current);
     cur_name := _some_name(current);
     cond(
@@ -332,7 +332,7 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                   },
                   .Some(val) =>
                     cond(
-                      !(_is_type_eval_value(val)) => {
+                      !_is_type_eval_value(val) => {
                         result = current;
                         done = true;
                       },
@@ -345,10 +345,10 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                             done = true;
                           },
                           // Name collision: different SomeT with same name but different id
-                          ((is_some_type(resolved_tv) && (cur_name == _some_name(resolved_tv))) && (!(_same_some_id(resolved_tv, cur_id)))) => {
+                          (is_some_type(resolved_tv) && (cur_name == _some_name(resolved_tv)) && !_same_some_id(resolved_tv, cur_id)) => {
                             was_bound := _was_self_bound(env, cur_name, cur_id);
                             cond(
-                              (!(was_bound)) => {
+                              !was_bound => {
                                 result = current;
                                 done = true;
                               },
@@ -369,11 +369,11 @@ _do_chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : Arr
                             // `synthesize_types` rebinds the variable to the
                             // concrete type — confirm ownership via the
                             // SomeType's definition frame level instead.
-                            if(!(was_bound), {
+                            if(!was_bound, {
                               was_bound = _def_frame_confirms_binding(env, current, resolved_tv);
                             });
                             cond(
-                              (!(was_bound)) => {
+                              !was_bound => {
                                 result = current;
                                 done = true;
                               },
@@ -446,7 +446,7 @@ _chain_resolve :: (fn(env : Environment, start : TypeValue, visited_ids : ArrayL
 /// Mirrors `getValueOfSomeTypeFromEnv` in `src/types/env-lookup.ts`.
 get_value_of_some_type_from_env :: (fn(env : Environment, some_type : TypeValue) -> TypeValue)(
   cond(
-    !(is_some_type(some_type)) => some_type,
+    !is_some_type(some_type) => some_type,
     true => {
       visited_ids := ArrayList(String).new();
       _chain_resolve(env, some_type, visited_ids)

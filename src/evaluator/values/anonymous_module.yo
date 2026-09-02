@@ -91,7 +91,7 @@ _is_excluded_label :: (fn(excluded : ArrayList(String), label : String) -> bool)
   (found : bool) = false;
   (i : usize) = usize(0);
   n := excluded.len();
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       excluded.get(i),
       .Some(lbl) => if(lbl == label, {
@@ -140,7 +140,7 @@ evaluate_anonymous_module_begin_exprs :: (
   // Evaluate each expression in the module body
   (i : usize) = usize(0);
   n := begin_exprs.len();
-  while((i < n) && !(should_stop), {
+  while((i < n) && !should_stop, {
     set_module_walk_index(i);
     match(
       begin_exprs.get(i),
@@ -157,7 +157,7 @@ evaluate_anonymous_module_begin_exprs :: (
           export_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
           (j : usize) = usize(0);
           nj := export_args.len();
-          while((j < nj) && !(should_stop), {
+          while((j < nj) && !should_stop, {
             match(
               export_args.get(j),
               .None => {
@@ -198,7 +198,7 @@ evaluate_anonymous_module_begin_exprs :: (
                     env.function_declaration_frame_level = ext_info.env.function_declaration_frame_level;
                     env.input_string = ext_info.env.input_string;
                     ext_mod_type := ext_info.ty;
-                    if(!(is_module_type(ext_mod_type)), {
+                    if(!is_module_type(ext_mod_type), {
                       exn.throw(
                         dyn(
                           format_error_message(
@@ -278,14 +278,14 @@ evaluate_anonymous_module_begin_exprs :: (
                             tuple_args := match(exclude_expr, .FnCall(_, _, ta, _, _) => ta, _ => ArrayList(AstExpr).new());
                             (k : usize) = usize(0);
                             nk := tuple_args.len();
-                            while((k < nk) && !(should_stop), {
+                            while((k < nk) && !should_stop, {
                               match(
                                 tuple_args.get(k),
                                 .None => {
                                   should_stop = true;
                                 },
                                 .Some(member_expr) => {
-                                  if(!(ast_expr_is_atom(member_expr)), {
+                                  if(!ast_expr_is_atom(member_expr), {
                                     exn.throw(
                                       dyn(
                                         format_error_message(
@@ -343,10 +343,10 @@ evaluate_anonymous_module_begin_exprs :: (
                       .Struct({ field_labels : efls, field_types : efts }) => {
                         (k : usize) = usize(0);
                         nk := efls.len();
-                        while((k < nk) && !(should_stop), {
+                        while((k < nk) && !should_stop, {
                           ext_label := match(efls.get(k), .Some(l) => l, .None => String.from(""));
                           ext_type := match(efts.get(k), .Some(t) => t, .None => TypeValue.Unit);
-                          if(!(_is_excluded_label(excluded_labels, ext_label.clone())), {
+                          if(!_is_excluded_label(excluded_labels, ext_label.clone()), {
                             // Check for duplicate label
                             if(_find_field_label_index(field_labels, ext_label.clone()).is_some(), {
                               exn.throw(
@@ -391,7 +391,7 @@ evaluate_anonymous_module_begin_exprs :: (
                     (given_var_name : String) = String.from("");
                     cond(
                       ast_expr_is_atom(export_expr) => {
-                        if(!(is_valid_variable_name(export_expr)), {
+                        if(!is_valid_variable_name(export_expr), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -414,7 +414,7 @@ evaluate_anonymous_module_begin_exprs :: (
                         colon_args := match(export_expr, .FnCall(_, _, ca, _, _) => ca, _ => ArrayList(AstExpr).new());
                         label_expr := match(colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                         name_expr := match(colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-                        if(!(ast_expr_is_atom(label_expr)), {
+                        if(!ast_expr_is_atom(label_expr), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -426,7 +426,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             )
                           );
                         });
-                        if(!(is_valid_variable_name(label_expr)), {
+                        if(!is_valid_variable_name(label_expr), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -439,7 +439,7 @@ evaluate_anonymous_module_begin_exprs :: (
                           );
                         });
                         variable_name = ast_expr_token(label_expr).value.clone();
-                        if(!(ast_expr_is_atom(name_expr)), {
+                        if(!ast_expr_is_atom(name_expr), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -451,7 +451,7 @@ evaluate_anonymous_module_begin_exprs :: (
                             )
                           );
                         });
-                        if(!(is_valid_variable_name(name_expr)), {
+                        if(!is_valid_variable_name(name_expr), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -510,7 +510,7 @@ evaluate_anonymous_module_begin_exprs :: (
                       );
                     });
                     // Only compile-time variables can be exported
-                    if(!(the_var.is_compile_time_only), {
+                    if(!the_var.is_compile_time_only, {
                       exn.throw(
                         dyn(
                           format_error_message(
@@ -538,11 +538,9 @@ evaluate_anonymous_module_begin_exprs :: (
                       match(
                         the_val,
                         .TupleVal(cand_fns) => if(cand_fns.len() >= usize(2), {
-                          if(!(
-                            is_overload_set_capable_file(
-                              Option(String).Some(ast_expr_token(export_expr).module_path.clone()),
-                              ctx.std_path.clone()
-                            )
+                          if(!is_overload_set_capable_file(
+                            Option(String).Some(ast_expr_token(export_expr).module_path.clone()),
+                            ctx.std_path.clone()
                           ), {
                             exn.throw(
                               dyn(
@@ -661,7 +659,7 @@ evaluate_anonymous_module_begin_exprs :: (
   // When `keep_frame_at_end` is true the caller intends to keep the
   // module-body bindings live in `env` (e.g. multi-file `check` that
   // caches the prelude env across files); skip the pop.
-  if(partial_error.is_none() && !(keep_frame_at_end), {
+  if(partial_error.is_none() && !keep_frame_at_end, {
     env.pop_frame();
   });
   // Source-namespace STRUCT — TS has no module type: anonymous modules are

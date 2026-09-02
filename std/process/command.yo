@@ -236,10 +236,10 @@ _build_env_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
     );
     i = (i + usize(1));
   });
-  if(!(self._env_clear), {
+  if(!self._env_clear, {
     (ei : usize) = usize(0);
     (env_done : bool) = false;
-    while(runtime(!(env_done)), {
+    while(runtime(!env_done), {
       slot := (environ.add(ei)).*;
       match(
         slot,
@@ -265,7 +265,7 @@ _build_env_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
             );
             ki = (ki + usize(1));
           });
-          if(!(overridden), {
+          if(!overridden, {
             storage.push(entry.to_cstr());
           });
           ei = (ei + usize(1));
@@ -320,12 +320,12 @@ _spawn_with_fds :: (
   // non-optional `stdout` needs wrapping. Only stdout is flushed — the measured
   // defect — rather than passing `.None` to flush all streams.
   unsafe(fflush(.Some(stdout)));
-  io.async((e) => {
+  io.async(e => {
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.
-    argv_bytes := (sizeof(?(*(u8))) * (argc + usize(1)));
+    argv_bytes := (sizeof(?*u8) * (argc + usize(1)));
     argv_raw := malloc(argv_bytes).unwrap();
-    argv_buf := *(?(*(u8)))(argv_raw);
+    argv_buf := *(?*u8)(argv_raw);
     // Fill argv pointers from each owning ArrayList(u8) in storage.
     j := usize(0);
     while(runtime(j < argc), {
@@ -351,14 +351,14 @@ _spawn_with_fds :: (
     program_cstr := (argv_buf.add(usize(0))).*.unwrap();
     // envp: NULL inherits the parent environment; a built block replaces it
     // (inherited entries + overrides, or overrides alone under env_clear).
-    (envp_raw : ?(*(void))) = ?(*(void)).None;
-    (envp_arg : ?(*(?(*(u8))))) = .None;
+    (envp_raw : ?*void) = ?(*void).None;
+    (envp_arg : ?*?*u8) = .None;
     if(use_envp, {
       envc := env_storage.len();
-      envp_bytes := (sizeof(?(*(u8))) * (envc + usize(1)));
+      envp_bytes := (sizeof(?*u8) * (envc + usize(1)));
       envp_mem := malloc(envp_bytes).unwrap();
       envp_raw = .Some(envp_mem);
-      envp_buf := *(?(*(u8)))(envp_mem);
+      envp_buf := *(?*u8)(envp_mem);
       (ej : usize) = usize(0);
       while(runtime(ej < envc), {
         match(
@@ -381,7 +381,7 @@ _spawn_with_fds :: (
       (envp_buf.add(envc)).* = .None;
       envp_arg = .Some(envp_buf);
     });
-    (cwd_ptr : ?(*(u8))) = .None;
+    (cwd_ptr : ?*u8) = .None;
     match(
       cwd_cstr,
       .Some(cc) => {
@@ -428,7 +428,7 @@ _mark_parent_end :: (fn(fd : i32, exn : Exception) -> unit)({
 // Read all available bytes from `fd` into a freshly returned ArrayList(u8)
 // until EOF (read returns 0).
 _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     buf_size := usize(4096);
     buf := *(u8)(malloc(buf_size).unwrap());
     out := ArrayList(u8).new();
@@ -464,9 +464,9 @@ impl(
     // `self : Self` is a value-copy of the Rc-counted Command object, so the
     // closure can freely capture it. (Was `inout(self)` previously, which is a
     // second-class reference and can't be captured across an async boundary.)
-    io.async((e) => {
+    io.async(e => {
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-(1)), i32(-(1)), i32(-(1)), io),
+        _spawn_with_fds(self, i32(-1), i32(-1), i32(-1), io),
         e
       );
       raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
@@ -479,7 +479,7 @@ impl(
   output : (fn(self : Self, io : Io) -> Impl(Future(Output, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object; the
     // closure can freely capture it instead of needing `inout(self)`.
-    io.async((e) => {
+    io.async(e => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := *(i32)(out_fd_buf.as_ptr());
@@ -507,7 +507,7 @@ impl(
       _mark_parent_end(err_read, e.exn);
       // Spawn child with the write ends of both pipes.
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-(1)), out_write, err_write, io),
+        _spawn_with_fds(self, i32(-1), out_write, err_write, io),
         e
       );
       // Close write ends in parent so reads see EOF when child exits.
@@ -523,7 +523,7 @@ impl(
       // task would nest the event loop, C37).
       err_task := e.io.spawn(_drain_fd(err_read, io), e);
       stdout_buf := e.io.await(_drain_fd(out_read, io), e);
-      while(runtime(!(err_task.is_finished())), {
+      while(runtime(!err_task.is_finished()), {
         e.io.await(yield(e.io), e.io);
       });
       stderr_buf := match(
@@ -572,13 +572,13 @@ impl(
   /// Write bytes into the child's piped stdin. Requires `stdin(Stdio.Piped)`.
   write_stdin : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd_opt := self._stdin_fd;
-    io.async((e) => {
+    io.async(e => {
       fd := match(
         fd_opt,
         .Some(f) => f,
         .None => {
           e.exn.throw(dyn(IoError.BadFileDescriptor));
-          i32(-(1))
+          i32(-1)
         }
       );
       n := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)), e.io);
@@ -588,7 +588,7 @@ impl(
   /// Close the child's stdin pipe — the EOF the child is usually waiting for.
   close_stdin : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd_opt := self._stdin_fd;
-    io.async((e) => {
+    io.async(e => {
       match(
         fd_opt,
         .Some(f) => {
@@ -602,13 +602,13 @@ impl(
   /// Read the child's piped stdout to EOF. Requires `stdout(Stdio.Piped)`.
   read_stdout_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
     fd_opt := self._stdout_fd;
-    io.async((e) => {
+    io.async(e => {
       fd := match(
         fd_opt,
         .Some(f) => f,
         .None => {
           e.exn.throw(dyn(IoError.BadFileDescriptor));
-          i32(-(1))
+          i32(-1)
         }
       );
       out := e.io.await(_drain_fd(fd, e.io), e);
@@ -618,13 +618,13 @@ impl(
   /// Read the child's piped stderr to EOF. Requires `stderr(Stdio.Piped)`.
   read_stderr_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
     fd_opt := self._stderr_fd;
-    io.async((e) => {
+    io.async(e => {
       fd := match(
         fd_opt,
         .Some(f) => f,
         .None => {
           e.exn.throw(dyn(IoError.BadFileDescriptor));
-          i32(-(1))
+          i32(-1)
         }
       );
       out := e.io.await(_drain_fd(fd, e.io), e);
@@ -638,7 +638,7 @@ impl(
   /// Wait for the child to exit and return its status. Closes any pipe fds
   /// still open on this handle.
   wait : (fn(self : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       match(
         self._stdin_fd,
         .Some(sf) => {
@@ -673,7 +673,7 @@ impl(
 // One end-pair of a configured stream: (child_fd, parent_fd), -1 = absent.
 // SYNC — pipe(2) is synchronous and /dev/null opens through the sync shim.
 _stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i32, usize(2)))({
-  out := Array(i32, usize(2))(i32(-(1)), i32(-(1)));
+  out := Array(i32, usize(2))(i32(-1), i32(-1));
   match(
     mode,
     .Inherit => (),
@@ -715,7 +715,7 @@ impl(
   /// the parent's stream; `Null` redirects to /dev/null. Call `wait()` to
   /// reap.
   spawn : (fn(self : Self, io : Io) -> Impl(Future(Child, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       in_pair := _stdio_fds(self._stdin, true, e.exn);
       out_pair := _stdio_fds(self._stdout, false, e.exn);
       err_pair := _stdio_fds(self._stderr, false, e.exn);

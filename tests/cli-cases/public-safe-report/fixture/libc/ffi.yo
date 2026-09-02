@@ -5,11 +5,11 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 extern(
   "Yo",
-  __yo_probe_fill : (fn(buf : *(u8), n : usize) -> i32),
-  __yo_probe_len : (fn(s : *(u8)) -> usize)
+  __yo_probe_fill : (fn(buf : *u8, n : usize) -> i32),
+  __yo_probe_len : (fn(s : *u8) -> usize)
 );
 // SAFETY: caller guarantees buf is n bytes.
-fill_report_probe :: (fn(buf : *(u8), n : usize) -> i32)({
+fill_report_probe :: (fn(buf : *u8, n : usize) -> i32)({
   r := unsafe(__yo_probe_fill(buf, n));
   r
 });

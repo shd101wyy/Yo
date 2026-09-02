@@ -41,7 +41,7 @@ comptime_assert(
 
 // Phase N: negative impl override works
 MySendStruct :: struct(value : i32);
-impl(MySendStruct, !(Send()));
+impl(MySendStruct, !Send());
 comptime_assert(
   Type.impls(MySendStruct, Send) == false,
   "negative Send impl should override auto-derive"
@@ -51,7 +51,7 @@ comptime_assert(
 comptime_expect_error({
   ConflictType :: struct(value : i32);
   impl(ConflictType, Send());
-  impl(ConflictType, !(Send()));
+  impl(ConflictType, !Send());
 });
 
 // ============================================================================

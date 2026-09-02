@@ -109,15 +109,15 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   // 3. An EXTERNAL definition in the declarations is relocated to chunk 0,
   //    prototype left behind. A body in the header = duplicate symbol per TU.
   assert(hdr.contains(String.from("void ext_def_fn(void* p);")), "external declarations-buffer definition should leave a prototype in the header");
-  assert(!(hdr.contains(String.from("ext_marker()"))), "external declarations-buffer definition BODY must not stay in the header");
+  assert(!hdr.contains(String.from("ext_marker()")), "external declarations-buffer definition BODY must not stay in the header");
   assert(chunk0.contains(String.from("void ext_def_fn(void* p) {")), "relocated external definition should land in chunk 0");
   assert(chunk0.contains(String.from("ext_marker()")), "relocated external definition should carry its body");
   // 4. A static function defined in the CODE buffer is dequalified on BOTH
   //    sides so any chunk can call it.
   assert(hdr.contains(String.from("void proto_only_fn(int a);")), "residue-defined function should get an external prototype");
-  assert(!(hdr.contains(String.from("static void proto_only_fn(int a);"))), "residue-defined function prototype should lose `static`");
+  assert(!hdr.contains(String.from("static void proto_only_fn(int a);")), "residue-defined function prototype should lose `static`");
   assert(chunk0.contains(String.from("void proto_only_fn(int a) {")), "residue definition belongs to chunk 0");
-  assert(!(chunk0.contains(String.from("static void proto_only_fn"))), "residue definition should lose `static`");
+  assert(!chunk0.contains(String.from("static void proto_only_fn")), "residue definition should lose `static`");
   // 5. Header-routed ranges travel verbatim (still static: per-TU copies).
   assert(hdr.contains(String.from("static inline void borrow_x")), "borrow-primitive range should be header-routed and stay static");
   assert(_count_chunks_with(chunks, String.from("borrow_marker")) == usize(0), "header-routed range must not also appear in a chunk");
@@ -131,7 +131,7 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   assert(_count_chunks_with(chunks, String.from("fn_alpha(void)")) == usize(1), "fn_alpha must appear in exactly one chunk");
   assert(_count_chunks_with(chunks, String.from("fn_beta(void)")) == usize(1), "fn_beta must appear in exactly one chunk");
   assert(_count_chunks_with(chunks, String.from("static inline int fn_alpha")) == usize(0), "fn_alpha body should lose `static inline`");
-  assert(!(hdr.contains(String.from("fn_alpha(void) {"))), "a plain function body must not be header-routed");
+  assert(!hdr.contains(String.from("fn_alpha(void) {")), "a plain function body must not be header-routed");
   // 9. The residue tail (main wrapper) stays in chunk 0, exactly once.
   assert(_count_chunks_with(chunks, String.from("int main(void) {")) == usize(1), "the main wrapper must appear exactly once");
   assert(chunk0.contains(String.from("int main(void) {")), "the main wrapper belongs to chunk 0 (residue)");

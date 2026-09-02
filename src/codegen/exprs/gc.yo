@@ -37,7 +37,7 @@ generate_yo_gc_trace_child :: (fn(expr : AstExpr, indent : String, context : Fun
         context.base.get_expr_info(slot_arg),
         .Some(ei) => {
           slot_ty := ei.ty;
-          if(!(is_pointer_type(slot_ty)), {
+          if(!is_pointer_type(slot_ty), {
             return(codegen_fatal_expr(String.from("__yo_gc_trace_child slot must be a pointer")));
           });
           pointee := match(slot_ty, .Pointer(p) => p, _ => TypeValue.Unit);

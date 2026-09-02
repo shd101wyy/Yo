@@ -22,13 +22,13 @@ test("Vec shared across threads read-only", {
   if(arch == Arch.Wasm32, return(()));
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
   ch := Channel(bool).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     assert(v(usize(0)) == i32(10), "thread1 sees 10");
     assert(v(usize(1)) == i32(20), "thread1 sees 20");
     assert(v(usize(2)) == i32(30), "thread1 sees 30");
     ch.send(true);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     assert(v.len() == usize(3), "thread2 sees length 3");
     assert(v(usize(2)) == i32(30), "thread2 sees 30");
     ch.send(true);
@@ -49,12 +49,12 @@ test("Vec persistence — versions created on main, read across threads", {
   v2 := base2.push(i32(99));
   ch := Channel(bool).new(usize(4));
   // Threads verify the independent versions
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     assert(v1.len() == usize(4), "v1 has 4 elements");
     assert(v1(usize(3)) == i32(4), "v1 last is 4");
     ch.send(true);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     assert(v2.len() == usize(3), "v2 has 3 elements");
     assert(v2(usize(2)) == i32(99), "v2 last is 99");
     ch.send(true);
@@ -71,11 +71,11 @@ test("List shared across threads", {
   if(arch == Arch.Wasm32, return(()));
   xs := List(i32).new().prepend(i32(3)).prepend(i32(2)).prepend(i32(1));
   ch := Channel(bool).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     assert(xs.head().unwrap() == i32(1), "t1 head is 1");
     ch.send(true);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     assert(xs.len() == usize(3), "t2 length is 3");
     ch.send(true);
   });
@@ -88,11 +88,11 @@ test("List persistence across threads — prepend creates independent versions",
   if(arch == Arch.Wasm32, return(()));
   base := List(i32).new().prepend(i32(2)).prepend(i32(1));
   ch := Channel(i32).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     v1 := base.prepend(i32(0));
     ch.send(v1.head().unwrap());
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     v2 := base.prepend(i32(99));
     ch.send(v2.head().unwrap());
   });
@@ -110,11 +110,11 @@ test("Map shared across threads read-only", {
   if(arch == Arch.Wasm32, return(()));
   m := Map(i32, i32).new().insert(i32(1), i32(100)).insert(i32(2), i32(200));
   ch := Channel(bool).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     assert(m.get(i32(1)).unwrap() == i32(100), "t1 gets key 1");
     ch.send(true);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     assert(m.get(i32(2)).unwrap() == i32(200), "t2 gets key 2");
     ch.send(true);
   });
@@ -127,11 +127,11 @@ test("Map persistence across threads", {
   if(arch == Arch.Wasm32, return(()));
   base := Map(i32, i32).new().insert(i32(1), i32(10));
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     m1 := base.insert(i32(2), i32(20)).insert(i32(3), i32(30));
     ch.send(m1.len());
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     m2 := base.insert(i32(99), i32(99));
     ch.send(m2.len());
   });
@@ -150,10 +150,10 @@ test("SortedMap shared across threads", {
   if(arch == Arch.Wasm32, return(()));
   sm := SortedMap(i32, i32).new().insert(i32(3), i32(30)).insert(i32(1), i32(10)).insert(i32(2), i32(20));
   ch := Channel(i32).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     ch.send(sm.min_key().unwrap());
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     ch.send(sm.max_key().unwrap());
   });
   min_k := ch.recv().unwrap();
@@ -169,12 +169,12 @@ test("Set shared across threads", {
   if(arch == Arch.Wasm32, return(()));
   s := Set(i32).new().insert(i32(1)).insert(i32(2)).insert(i32(3));
   ch := Channel(bool).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     assert(s.contains(i32(1)), "t1 sees 1");
     assert(s.contains(i32(2)), "t1 sees 2");
     ch.send(true);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     assert(s.contains(i32(3)), "t2 sees 3");
     assert(s.len() == usize(3), "t2 sees len 3");
     ch.send(true);
@@ -188,10 +188,10 @@ test("SortedSet shared across threads", {
   if(arch == Arch.Wasm32, return(()));
   ss := SortedSet(i32).new().insert(i32(5)).insert(i32(1)).insert(i32(3));
   ch := Channel(i32).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     ch.send(ss.min().unwrap());
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     ch.send(ss.max().unwrap());
   });
   min_v := ch.recv().unwrap();
@@ -207,10 +207,10 @@ test("ImmString shared across threads", {
   if(arch == Arch.Wasm32, return(()));
   s := ImmString.from("hello world");
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     ch.send(s.len());
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     ch.send(s.len());
   });
   l1 := ch.recv().unwrap();
@@ -226,7 +226,7 @@ test("ImmString shared across threads", {
 test("Channel of Vec — producer sends immutable snapshots to consumer", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(Vec(i32)).new(usize(10));
-  producer := Thread.spawn((io) => {
+  producer := Thread.spawn(io => {
     v := Vec(i32).new();
     i := i32(0);
     while(runtime(i < i32(5)), {
@@ -253,15 +253,15 @@ test("ThreadPool reads shared Map", {
   m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20)).insert(i32(3), i32(30));
   wg := WaitGroup.new();
   wg.add(i32(3));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     assert(m.get(i32(1)).unwrap() == i32(10), "worker1 reads key 1");
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     assert(m.get(i32(2)).unwrap() == i32(20), "worker2 reads key 2");
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     assert(m.get(i32(3)).unwrap() == i32(30), "worker3 reads key 3");
     wg.done();
   });
@@ -274,17 +274,17 @@ test("ThreadPool creates independent List versions", {
   ch := Channel(i32).new(usize(10));
   wg := WaitGroup.new();
   wg.add(i32(3));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     v := base.prepend(i32(100));
     ch.send(v.head().unwrap());
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     v := base.prepend(i32(200));
     ch.send(v.head().unwrap());
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     v := base.prepend(i32(300));
     ch.send(v.head().unwrap());
     wg.done();
@@ -308,7 +308,7 @@ test("Queued worker task keeps captured ImmString alive after creator scope exit
   result := Channel(usize).new(usize(1));
   i := usize(0);
   while(runtime(i < worker_count), {
-    spawn(pool, (io) => {
+    spawn(pool, io => {
       ready.send(true);
       release.recv().unwrap();
     });
@@ -321,7 +321,7 @@ test("Queued worker task keeps captured ImmString alive after creator scope exit
   });
   {
     s := ImmString.from("hello");
-    spawn(pool, (io) => {
+    spawn(pool, io => {
       result.send(s.len());
     });
   };
@@ -342,7 +342,7 @@ test("Thread closure consumes Vec via own(self) push — no double-free", {
   // This tests the codegen wrapper correctly NULLs only consumed captures
   base := Vec(i32).new().push(i32(1)).push(i32(2));
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     v1 := base.push(i32(3));
     ch.send(v1.len());
   });
@@ -354,12 +354,12 @@ test("Multiple threads each consume own Vec independently", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(usize).new(usize(10));
   a := Vec(i32).new().push(i32(1));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     v := a.push(i32(2)).push(i32(3));
     ch.send(v.len());
   });
   b := Vec(i32).new().push(i32(10)).push(i32(20));
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     v := b.push(i32(30)).push(i32(40)).push(i32(50));
     ch.send(v.len());
   });
@@ -376,7 +376,7 @@ test("Pool task consumes Vec via own(self) push", {
   ch := Channel(usize).new(usize(4));
   wg := WaitGroup.new();
   wg.add(i32(1));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     v := base.push(i32(99));
     ch.send(v.len());
     wg.done();
@@ -390,7 +390,7 @@ test("Thread closure borrows only — no own(self) consumption", {
   // Only borrowing — no own(self) method called on any capture
   v := Vec(i32).new().push(i32(5)).push(i32(10));
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     ch.send(v.len());
     ch.send(v.len());
   });
@@ -403,7 +403,7 @@ test("Thread consumes ImmString via own(self) concat", {
   if(arch == Arch.Wasm32, return(()));
   s := ImmString.from("hello");
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     s2 := s.concat(ImmString.from(" world"));
     ch.send(s2.len());
   });
@@ -417,7 +417,7 @@ test("Thread with mixed consumed and borrowed captures", {
   v := Vec(i32).new().push(i32(1));
   m := Map(i32, i32).new().insert(i32(1), i32(100));
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     v2 := v.push(i32(2));
     val := m.get(i32(1)).unwrap();
     ch.send(v2.len() + usize(val));
@@ -431,7 +431,7 @@ test("Thread with chained own(self) calls on capture", {
   if(arch == Arch.Wasm32, return(()));
   base := Vec(i32).new();
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     // Chained push calls: base consumed by first push, result consumed by second
     v := base.push(i32(1)).push(i32(2)).push(i32(3));
     ch.send(v.len());
@@ -445,7 +445,7 @@ test("Thread with no RC captures — only primitives", {
   x := i32(42);
   y := i32(58);
   ch := Channel(i32).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     ch.send(x + y);
   });
   result := ch.recv().unwrap();
@@ -456,7 +456,7 @@ test("Vec pop in thread — own(self) returning PopResult", {
   if(arch == Arch.Wasm32, return(()));
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
   ch := Channel(i32).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     result := v.pop();
     ch.send(result.value.unwrap());
     ch.send(i32(result.vec.len()));
@@ -474,19 +474,19 @@ test("Multiple workers each consume different Vecs", {
   wg := WaitGroup.new();
   wg.add(i32(3));
   v1 := Vec(i32).new().push(i32(1));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     r := v1.push(i32(2));
     ch.send(r.len());
     wg.done();
   });
   v2 := Vec(i32).new().push(i32(1)).push(i32(2));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     r := v2.push(i32(3)).push(i32(4));
     ch.send(r.len());
     wg.done();
   });
   v3 := Vec(i32).new();
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     r := v3.push(i32(1)).push(i32(2)).push(i32(3));
     ch.send(r.len());
     wg.done();
@@ -510,11 +510,11 @@ test("Mixed ImmString across threads", {
   s1 := ImmString.from("hello");
   s2 := ImmString.from("world");
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     assert(s1.len() == usize(5), "t1: s1 is 'hello'");
     ch.send(s1.len());
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     assert(s2.len() == usize(5), "t2: s2 is 'world'");
     ch.send(s2.len());
   });
@@ -533,11 +533,11 @@ test("Mixed Map types across threads", {
   m = m.insert(i32(2), i32(20));
   m = m.insert(i32(3), i32(30));
   ch := Channel(i32).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     val := m.get(i32(1)).unwrap();
     ch.send(val);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     val := m.get(i32(3)).unwrap();
     ch.send(val);
   });
@@ -561,7 +561,7 @@ test("Mixed List and Vec across threads", {
   l = l.prepend(i32(10));
   ch := Channel(i32).new(usize(4));
   // Thread 1 reads from Vec
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     sum := i32(0);
     i := usize(0);
     while(runtime(i < v.len()), {
@@ -571,7 +571,7 @@ test("Mixed List and Vec across threads", {
     ch.send(sum);
   });
   // Thread 2 reads from List
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     sum := i32(0);
     cur := l;
     while(runtime(cur.len() > usize(0)), {
@@ -599,10 +599,10 @@ test("Mixed Set and SortedSet across threads", {
   ss = ss.insert(i32(5));
   ss = ss.insert(i32(6));
   ch := Channel(usize).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     ch.send(s.len());
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     ch.send(ss.len());
   });
   r1 := ch.recv().unwrap();
@@ -622,11 +622,11 @@ test("Mixed Map and SortedMap across threads", {
   sm = sm.insert(i32(3), i32(300));
   sm = sm.insert(i32(4), i32(400));
   ch := Channel(i32).new(usize(4));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     val := m.get(i32(2)).unwrap();
     ch.send(val);
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     val := sm.get(i32(4)).unwrap();
     ch.send(val);
   });
@@ -648,15 +648,15 @@ test("All imm types combined across threads", {
   sm := SortedMap(i32, i32).new().insert(i32(8), i32(80));
   ch := Channel(usize).new(usize(8));
   // Thread 1: Vec + List
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     ch.send(v.len() + l.len());
   });
   // Thread 2: Set + SortedSet
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     ch.send(s.len() + ss.len());
   });
   // Thread 3: Map + SortedMap
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     ch.send(m.len() + sm.len());
   });
   total := usize(0);

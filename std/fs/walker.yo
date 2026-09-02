@@ -84,7 +84,7 @@ _join_path :: (fn(base : String, name : String) -> String)(
 // awaits nested in cond arms inside its while-in-while trip
 // issues/async-nested-cond-await-duplicate-while-labels.md.
 _canon_dir_target :: (fn(lp : String, io : Io) -> Impl(Future(String, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
     cond(
       is_d => {
@@ -132,7 +132,7 @@ _filter_by_pattern :: (fn(results : ArrayList(WalkEntry), root_s : String, patte
 });
 walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
-  io.async((e) => {
+  io.async(e => {
     results := ArrayList(WalkEntry).new();
     // Canonical paths of directories entered VIA a followed symlink — the
     // cycle guard for follow_symlinks (a link to an ancestor would otherwise
@@ -222,7 +222,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
             lp := pending_links(j);
             canon_s := e.io.await(_canon_dir_target(lp, e.io), e);
             cond(
-              ((!(canon_s.is_empty())) && (!(followed.contains(canon_s)))) => {
+              (!canon_s.is_empty() && !followed.contains(canon_s)) => {
                 match(followed.insert(canon_s), .Ok(_) => (), .Err(_) => ());
                 stack.push({ path : lp, depth : (cur_depth + u32(1)) });
               },
@@ -241,12 +241,12 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
     _filter_by_pattern(results, root_s, options.pattern)
   })
 });
-walk_with_cstr :: (fn(root : *(u8), options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
+walk_with_cstr :: (fn(root : *u8, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
   walk_with(Path.from_cstr(root), options, io)
 );
 /// Walk a directory tree with default options.
 walk :: (fn(root : Path, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk_with(root, WalkOptions.defaults(), io));
-walk_cstr :: (fn(root : *(u8), io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
+walk_cstr :: (fn(root : *u8, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
 /// Split a glob pattern into (static base dir, relative pattern): the base
 /// is everything up to the last `/` BEFORE the first metacharacter
 /// (`*`, `?`, `[`), or `.` when the pattern is relative with no static dir.
@@ -298,7 +298,7 @@ _glob_split :: (fn(pattern : String) -> struct(base : String, rest : String))({
 /// walker's IoExn when the static base directory cannot be read.
 glob :: (fn(pattern : String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))({
   parts := _glob_split(pattern);
-  io.async((e) => {
+  io.async(e => {
     opts := WalkOptions(
       max_depth : .None,
       follow_symlinks : false,

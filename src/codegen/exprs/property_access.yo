@@ -241,7 +241,7 @@ _tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_
       (i : usize) = usize(0);
       (idx : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           fls.get(i),
           .Some(lbl) => if(lbl == field_name, {
@@ -274,7 +274,7 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
   });
   object_expr := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
   field_expr := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
-  if(!(ast_expr_is_atom(field_expr)), {
+  if(!ast_expr_is_atom(field_expr), {
     return(String.from("/* ERROR: field name must be an identifier */"));
   });
   field_name := ast_expr_token(field_expr).value;
@@ -308,8 +308,8 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
     match(
       ei.value,
       .Some(fv) => if(
-        !(is_unknown_val(fv)),
-        if(!(is_struct_val(fv)), {
+        !is_unknown_val(fv),
+        if(!is_struct_val(fv), {
           return(generate_comptime_value(fv, ei.ty, context.base));
         })
       ),

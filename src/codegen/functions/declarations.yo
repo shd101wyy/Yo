@@ -237,7 +237,7 @@ _object_decl_has_generic_fields :: (fn(fields : ArrayList(RuntimeStructField)) -
   n := fields.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       fields.get(i),
       .Some(field) => if(type_contains_some_type(field.ty), {
@@ -269,7 +269,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : TypeValue, c_name : String, conte
         while(pi < nf, {
           match(
             fields.get(pi),
-            .Some(ft) => if(!(is_unit_type(ft)), {
+            .Some(ft) => if(!is_unit_type(ft), {
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
@@ -321,7 +321,7 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
       vals.next(),
       .Some(entry) => if(is_reference_struct_type(entry.ty), {
         runtime_fields := get_runtime_struct_fields(entry.ty);
-        if(!(_object_decl_has_generic_fields(runtime_fields)), {
+        if(!_object_decl_has_generic_fields(runtime_fields), {
           params := String.from("");
           nf := runtime_fields.len();
           (pi : usize) = usize(0);
@@ -362,7 +362,7 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
   while(ego, {
     match(
       evals.next(),
-      .Some(entry) => if(is_reference_enum_type(entry.ty) && !(type_contains_some_type(entry.ty)), {
+      .Some(entry) => if(is_reference_enum_type(entry.ty) && !type_contains_some_type(entry.ty), {
         _emit_ref_enum_constructor_decls(entry.ty, entry.c_name.clone(), context);
       }),
       .None => {
@@ -394,7 +394,7 @@ _func_has_expr_param :: (fn(ft : TypeValue) -> bool)(
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           param_types.get(i),
           .Some(pt) => if(is_expr_type(pt), {
@@ -416,7 +416,7 @@ _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           param_types.get(i),
           .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
@@ -432,7 +432,7 @@ _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
               .SomeT({ id : ghp_id, resolved_concrete : ghp_rc }) => ((ghp_rc.len() > usize(0)) || lookup_some_resolved_concrete(ghp_id).is_some()),
               _ => false
             );
-            if(!(pt_resolvable), {
+            if(!pt_resolvable, {
               found = true;
             });
           }),
@@ -448,7 +448,7 @@ _func_has_generic_params :: (fn(ft : TypeValue) -> bool)(
 /// True when the return type is a plain `Impl(...)` existential (SomeType at top
 /// level with at least one required trait). Mirrors `returnsPlainImpl`.
 _returns_plain_impl :: (fn(ret : TypeValue) -> bool)(
-  if(!(is_some_type(ret)), false, match(ret, .SomeT({ required_trait_types : rts }) => (rts.len() > usize(0)), _ => false))
+  if(!is_some_type(ret), false, match(ret, .SomeT({ required_trait_types : rts }) => (rts.len() > usize(0)), _ => false))
 );
 /// The body expression of a FuncVal, if any.
 _func_value_body :: (fn(value : EvalValue) -> Option(AstExpr))(
@@ -488,14 +488,14 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // emitted TWICE — see mark_io_async_sm_closure). Mirrors TS
   // declarations.ts:172 / generation.ts:690; the registry is populated only
   // on the FSM path (closures with await analysis).
-  if(!(is_user_main) && is_io_async_sm_closure(func_id.clone()), {
+  if(!is_user_main && is_io_async_sm_closure(func_id.clone()), {
     return(true);
   });
   // Definition rejected by a post-registration validation (e.g. the
   // regular-fn-no-outer-capture check inside a comptime_expect_error):
   // TS discards it on throw; yo-self keeps the registration — skip the
   // emission (its callers were dropped by the same throw).
-  if(!(is_user_main) && is_fn_unemittable(func_id.clone()), {
+  if(!is_user_main && is_fn_unemittable(func_id.clone()), {
     return(true);
   });
   body := _func_value_body(value);
@@ -509,7 +509,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // it where it can, but a module-namespace / registry path may still have
   // registered it; this gate is the single source of truth. Effect-record
   // members stay type-erased and emitted, as for the hard-generic skip.
-  if(((!(is_user_main)) && !(is_erm)) && (fn_has_specializations(func_id.clone()) && func_params_have_raw_some_type(function_type)), {
+  if((!is_user_main && !is_erm) && (fn_has_specializations(func_id.clone()) && func_params_have_raw_some_type(function_type)), {
     return(true);
   });
   has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
@@ -524,9 +524,9 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // A MACRO (Expr-typed param) is NEVER emittable — skip it regardless of ERM status.
   // Only the hard-generic skip is ERM-exempt (an effect handler's generic params are
   // type-erased to void*; a macro's Expr param is not a runtime type at all).
-  skip_unemittable := (!(is_user_main) && (((!(is_erm)) && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type)));
-  skip1 := ((!(is_user_main) && (!(is_effectful) && (!(has_evidence) && !(is_erm)))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
-  has_generic_params := ((!(is_user_main) && (!(is_effectful) && !(is_erm))) && _func_has_generic_params(function_type));
+  skip_unemittable := (!is_user_main && ((!is_erm && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type)));
+  skip1 := ((!is_user_main && (!is_effectful && (!has_evidence && !is_erm))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
+  has_generic_params := ((!is_user_main && (!is_effectful && !is_erm)) && _func_has_generic_params(function_type));
   // Array with an UNRESOLVED length variable (`Array(i32, n)`) has no C
   // rendering (`// Unknown type:` ate the prototype line — array.test
   // batch clang errors); treat it as a generic return like a SomeT one.
@@ -544,7 +544,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   );
   has_generic_return := (type_contains_some_type_for_codegen_param(ret, ArrayList(String).new()) || _ret_has_len_var(ret));
   returns_plain_impl := _returns_plain_impl(ret);
-  skip2 := (has_generic_params || ((has_generic_return && !(returns_plain_impl)) && !(is_erm)));
+  skip2 := (has_generic_params || ((has_generic_return && !returns_plain_impl) && !is_erm));
   // A specialization whose RESULT type is a comptime-only type (comptime_int/
   // float/string) is a compile-time function that must NOT be emitted as runtime
   // C. TS folds comptime calls and never emits them; yo-self's create_specialized
@@ -557,7 +557,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // func_id (yo_id_124) is shared across runtime AND comptime specializations
   // (no per-func_id comptime flag distinguishes them), but the per-call resolved
   // RETURN type does. See issues/fixed/yo-self-return-temp-void-someT.md.
-  skip_comptime_result := ((!(is_user_main) && !(is_erm)) && ((is_comptime_int_type(ret) || is_comptime_float_type(ret)) || is_comptime_string_type(ret)));
+  skip_comptime_result := ((!is_user_main && !is_erm) && (is_comptime_int_type(ret) || is_comptime_float_type(ret) || is_comptime_string_type(ret)));
   // A closure marked for codegen (io.async closure) must be EMITTED even when its
   // synthesized type still has SomeT params (its body + result are concrete; the
   // io.async sync-future resume calls it directly). Without this it is dropped as
@@ -582,7 +582,7 @@ _async_override_return_type :: (
 )({
   ret := _func_result_type(function_type);
   ret_is_future := type_implements_future(ret);
-  if(!(ret_is_future) && !(is_some_type(ret)), {
+  if(!ret_is_future && !is_some_type(ret), {
     // A registered result that is neither a future nor a SomeT is genuinely
     // not an async fn. A BARE SomeT result must NOT bail: the shared
     // func-type registry's concrete Impl(Future(..)) registration is
@@ -658,7 +658,7 @@ _async_override_return_type :: (
 awaited_future_c_type_override :: (
   fn(future_expr : AstExpr, context : CodeGenContext) -> Option(String)
 )({
-  if(!(ast_expr_is_fn_call(future_expr)), {
+  if(!ast_expr_is_fn_call(future_expr), {
     return(Option(String).None);
   });
   callee_v := match(
@@ -788,7 +788,7 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
         cn := entry.c_name.clone();
         tag := _func_extern_tag(entry.ty);
         cond(
-          (match(tag, .Some(s) => (s == "yo"), .None => false)) => if(!(_is_threading_macro_function(cn.clone())), {
+          match(tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
             generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
           }),
           (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
@@ -843,7 +843,7 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
           .Some(aro_entry) => {
             aro_ft := get_func_type(aro_fid.clone());
             aro_ret := _func_result_type(aro_ft);
-            if(type_implements_future(aro_ret) && !(should_skip_function_codegen(aro_fid.clone(), aro_entry.c_name.clone(), aro_entry.value, context)), {
+            if(type_implements_future(aro_ret) && !should_skip_function_codegen(aro_fid.clone(), aro_entry.c_name.clone(), aro_entry.value, context), {
               aro_body := if(is_effect_record_member(aro_fid.clone()), Option(AstExpr).None, _func_value_body(aro_entry.value));
               _aro := _async_override_return_type(aro_ft, aro_body, context);
             });
@@ -875,7 +875,7 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
           is_user_main := (c_name == "__yo_user_main");
           body := _func_value_body(value);
           is_erm := is_effect_record_member(func_id.clone());
-          if(!(should_skip_function_codegen(func_id.clone(), c_name.clone(), value, context)), {
+          if(!should_skip_function_codegen(func_id.clone(), c_name.clone(), value, context), {
             is_exported := (is_user_main || context.exported_function_labels.contains_key(func_id.clone()));
             body_for_decl := if(is_erm, Option(AstExpr).None, body);
             generate_function_declaration(function_type, c_name.clone(), false, is_exported, body_for_decl, is_closure_fn(func_id.clone()), context);

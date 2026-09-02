@@ -78,7 +78,7 @@ evaluate_recur :: (
     .None => false,
     .Some(bc) => match(bc.kind, .FunctionBody => true, _ => false)
   );
-  if(!(is_function_body), {
+  if(!is_function_body, {
     exn.throw(
       dyn(
         format_error_message(
@@ -103,7 +103,7 @@ evaluate_recur :: (
   // ------------------------------------------------------------------
   // Guard 2: must be a recur(...) call.
   // ------------------------------------------------------------------
-  if(!(ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None)), {
+  if(!ast_expr_is_fn_call_of(expr, BF_RECUR, Option(usize).None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -143,7 +143,7 @@ evaluate_recur :: (
   // Short-circuit path: CTFE capability analysis or function-definition
   // validation.  Avoids infinite recursion by skipping actual execution.
   // ------------------------------------------------------------------
-  if((ctx.is_analyzing_ctfe_capability) || (ctx.is_validating_function_definition), {
+  if(ctx.is_analyzing_ctfe_capability || ctx.is_validating_function_definition, {
     // Type-check arguments without executing.
     //
     // Phase 2x stub: `try_to_call_function_with_arguments` is not yet

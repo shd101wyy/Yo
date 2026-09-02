@@ -95,7 +95,7 @@ evaluate_cond :: (
 )({
   (env : Environment) = env_in;
   // Validate that the expression is a cond() call.
-  if(!(ast_expr_is_fn_call_of(expr, BK_COND, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_COND, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -134,7 +134,7 @@ evaluate_cond :: (
   while(pi < statement_count, {
     statement := match(statements.get(pi), .Some(s) => s, .None => make_err_expr());
     is_arrow_call := (ast_expr_is_fn_call(statement) && ast_expr_is_fn_call_of(statement, "=>", .Some(usize(2))));
-    if(!(is_arrow_call), {
+    if(!is_arrow_call, {
       exn.throw(
         dyn(
           format_error_message(
@@ -171,7 +171,7 @@ evaluate_cond :: (
   evaluated_conds := ArrayList(EvaluatedCond).new();
   (done_eval : bool) = false;
   (ec_i : usize) = usize(0);
-  while((ec_i < parsed_stmts.len()) && !(done_eval), {
+  while((ec_i < parsed_stmts.len()) && !done_eval, {
     pstmt := match(
       parsed_stmts.get(ec_i),
       .Some(s) => s,
@@ -220,7 +220,7 @@ evaluate_cond :: (
     // condition as non-comptime-true and let the rest of the
     // case-selection logic fall through naturally.
     is_unit_fallback := match(cond_info.ty, .Unit => true, _ => false);
-    if((!(is_bool_type(cond_info.ty))) && !(is_unit_fallback), {
+    if(!is_bool_type(cond_info.ty) && !is_unit_fallback, {
       exn.throw(
         dyn(
           format_error_message(
@@ -237,7 +237,7 @@ evaluate_cond :: (
     // Last condition must be compile-time known `true`.
     is_last := (ec_i == (parsed_stmts.len() - usize(1)));
     is_comptime_true := match(cond_val, .Some(v) => match(v, .BoolVal(b) => b, _ => false), .None => false);
-    if(is_last && !(is_comptime_true), {
+    if(is_last && !is_comptime_true, {
       exn.throw(
         dyn(
           format_error_message(
@@ -269,7 +269,7 @@ evaluate_cond :: (
   (first_true_index : Option(usize)) = Option(usize).None;
   (fti : usize) = usize(0);
   (fti_done : bool) = false;
-  while((fti < evaluated_conds.len()) && !(fti_done), {
+  while((fti < evaluated_conds.len()) && !fti_done, {
     ec_here := match(
       evaluated_conds.get(fti),
       .Some(c) => c,
@@ -287,8 +287,8 @@ evaluate_cond :: (
         match(
           evaluated_conds.get(j),
           .Some(prev) => {
-            prev_is_false := match(prev.cond_value, .Some(v) => match(v, .BoolVal(b) => !(b), _ => false), .None => false);
-            if(!(prev_is_false), {
+            prev_is_false := match(prev.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
+            if(!prev_is_false, {
               all_prev_false = false;
             });
           },
@@ -352,7 +352,7 @@ evaluate_cond :: (
           }
         );
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => !(type_contains_some_type_deep(et.ty)), .None => false) =>
+          match(ctx.expected_type, .Some(et) => !type_contains_some_type_deep(et.ty), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
           true => body_info.ty
         );
@@ -388,7 +388,7 @@ evaluate_cond :: (
         env.function_declaration_frame_level = body_info.env.function_declaration_frame_level;
         env.input_string = body_info.env.input_string;
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => !(type_contains_some_type_deep(et.ty)), .None => false) =>
+          match(ctx.expected_type, .Some(et) => !type_contains_some_type_deep(et.ty), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => body_info.ty),
           true => body_info.ty
         );
@@ -424,8 +424,8 @@ evaluate_cond :: (
           .Some(ec_item) => {
             nb_i = (nb_i + usize(1));
             // Skip compile-time false conditions.
-            is_comptime_false := match(ec_item.cond_value, .Some(v) => match(v, .BoolVal(b) => !(b), _ => false), .None => false);
-            if(!(is_comptime_false), {
+            is_comptime_false := match(ec_item.cond_value, .Some(v) => match(v, .BoolVal(b) => !b, _ => false), .None => false);
+            if(!is_comptime_false, {
               // Mark condition as executed.
               match(
                 expr_info_table_get(ctx.expr_info_table, ast_expr_id(ec_item.cond_expr)),
@@ -508,21 +508,21 @@ evaluate_cond :: (
                     // return expression owns soundness. Mirrors TS cond.ts
                     // `isPtrRelaxedMatch`.
                     is_ptr_relaxed_match := cond(
-                      (is_pointer_type(et.ty) && !(is_pointer_type(body_einfo.ty))) => match(
+                      (is_pointer_type(et.ty) && !is_pointer_type(body_einfo.ty)) => match(
                         et.ty,
                         .Pointer(child_box) => are_types_compatible(body_einfo.ty, child_box),
                         _ => false
                       ),
                       true => false
                     );
-                    if(!(is_ptr_relaxed_match) && !(are_types_compatible(body_einfo.ty, et.ty)), {
+                    if(!is_ptr_relaxed_match && !are_types_compatible(body_einfo.ty, et.ty), {
                       // Coerce the arm's comptime type to runtime and re-check
                       // (e.g. a `comptime_str` literal arm against a `str`
                       // expected return), mirroring the value-type unification
                       // fallback below. TS's areTypesCompatible accepts this
                       // directly; yo-self needs the explicit widening.
                       runtime_arm_ty := convert_comptime_type_to_runtime_type(body_einfo.ty, body_einfo.env);
-                      if(!(are_types_compatible(runtime_arm_ty, et.ty)), {
+                      if(!are_types_compatible(runtime_arm_ty, et.ty), {
                         exn.throw(
                           dyn(
                             format_error_message(
@@ -538,14 +538,14 @@ evaluate_cond :: (
                   }
                 );
                 // Update the running value type.
-                if(!(has_any_control_flow(body_cf2)), {
+                if(!has_any_control_flow(body_cf2), {
                   match(
                     value_type,
                     .None => {
                       value_type = Option(ValueTypeState).Some(ValueTypeState(ty : body_einfo.ty, env : body_einfo.env));
                     },
                     .Some(vt) => {
-                      if(!(are_types_compatible(body_einfo.ty, vt.ty)), {
+                      if(!are_types_compatible(body_einfo.ty, vt.ty), {
                         // Try widening the previous type to runtime and check again.
                         runtime_vt_ty := convert_comptime_type_to_runtime_type(vt.ty, vt.env);
                         if(are_types_compatible(body_einfo.ty, runtime_vt_ty), {
@@ -577,7 +577,7 @@ evaluate_cond :: (
         (control_flows.len() > usize(0)) => Option(ControlFlowFlags).Some(merge_control_flows(control_flows)),
         true => Option(ControlFlowFlags).None
       );
-      if(has_case_without_control_flow || !(has_any_control_flow(final_cf)), {
+      if(has_case_without_control_flow || !has_any_control_flow(final_cf), {
         // At least one arm produces a value (no diverge).
         if(has_case_without_control_flow && value_type.is_none(), {
           exn.throw(
@@ -605,7 +605,7 @@ evaluate_cond :: (
             body_info_filt_opt,
             .None => (),
             .Some(bi) => {
-              if(!(has_control_flow(bi.control_flow, .Return)) && !(has_control_flow(bi.control_flow, .Unwind)), {
+              if(!has_control_flow(bi.control_flow, .Return) && !has_control_flow(bi.control_flow, .Unwind), {
                 filtered_bodies.push(body);
               });
             }
@@ -670,7 +670,7 @@ evaluate_cond :: (
           true => Option(EvalValue).Some(create_unknown_val(vts.ty))
         );
         result_ty := cond(
-          match(ctx.expected_type, .Some(et) => !(type_contains_some_type_deep(et.ty)), .None => false) =>
+          match(ctx.expected_type, .Some(et) => !type_contains_some_type_deep(et.ty), .None => false) =>
             match(ctx.expected_type, .Some(et) => et.ty, .None => vts.ty),
           true => vts.ty
         );

@@ -11,20 +11,20 @@ open(import("std/string"));
 
 test("lock/unlock/get/set basics", {
   m := Mutex(i64).new(i64(0));
-  assert(!(m.is_locked()), "starts unlocked");
+  assert(!m.is_locked(), "starts unlocked");
   assert(m.try_lock(), "try_lock acquires");
   assert(m.is_locked(), "locked after try_lock");
-  assert(!(m.try_lock()), "try_lock fails while held");
+  assert(!m.try_lock(), "try_lock fails while held");
   m.set(m.get() + i64(1));
   m.unlock();
-  assert(!(m.is_locked()), "unlocked after unlock");
+  assert(!m.is_locked(), "unlocked after unlock");
 });
 
 test("with_lock runs the body under the lock and returns its value", {
   m := Mutex(i64).new(i64(5));
-  r := io.await(m.with_lock((v) => (v + i64(1)), io), io);
+  r := io.await(m.with_lock(v => (v + i64(1)), io), io);
   assert(r == i64(6), "with_lock result");
-  assert(!(m.is_locked()), "released after the section");
+  assert(!m.is_locked(), "released after the section");
 });
 
 test("with_lock with two different R bodies on ONE mutex (the C54 shape)", {
@@ -32,12 +32,12 @@ test("with_lock with two different R bodies on ONE mutex (the C54 shape)", {
   // The second specialization's `R := String` used to clobber the first's
   // `R := i64` in the emitted C (last-writer global registry); both orders
   // are pinned.
-  n := io.await(m.with_lock((v) => (v + i64(1)), io), io);
-  s := io.await(m.with_lock((v) => `v=${v}`, io), io);
+  n := io.await(m.with_lock(v => (v + i64(1)), io), io);
+  s := io.await(m.with_lock(v => `v=${v}`, io), io);
   assert(n == i64(11), "i64 body result");
   assert(s == "v=10", "String body result");
-  s2 := io.await(m.with_lock((v) => `v=${v}`, io), io);
-  n2 := io.await(m.with_lock((v) => (v * i64(3)), io), io);
+  s2 := io.await(m.with_lock(v => `v=${v}`, io), io);
+  n2 := io.await(m.with_lock(v => (v * i64(3)), io), io);
   assert(s2 == "v=10", "String body result (reverse order)");
   assert(n2 == i64(30), "i64 body result (reverse order)");
 });
@@ -72,5 +72,5 @@ test("a contended lock suspends the waiter, and the loop stays live", {
   holder.await(io);
   waiter.await(io);
   assert(m.get() == i64(11), "both critical sections ran");
-  assert(!(m.is_locked()), "released");
+  assert(!m.is_locked(), "released");
 });

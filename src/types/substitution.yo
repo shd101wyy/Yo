@@ -158,7 +158,7 @@ _is_self_pattern :: (fn(s : Substitution, ty : TypeValue) -> bool)({
 _mfb_is_binder :: (fn(labels : ArrayList(String), nm : String) -> bool)({
   (bi : usize) = usize(0);
   (hit : bool) = false;
-  while((bi < labels.len()) && !(hit), {
+  while((bi < labels.len()) && !hit, {
     match(
       labels.get(bi),
       .Some(b_nm) => if(b_nm == nm, {
@@ -177,7 +177,7 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
   (any_masked : bool) = false;
   {
     (si : usize) = usize(0);
-    while((si < s.names.len()) && !(any_masked), {
+    while((si < s.names.len()) && !any_masked, {
       nm := match(s.names.get(si), .Some(v) => v, .None => ``);
       if(_mfb_is_binder(forall_labels, nm), {
         any_masked = true;
@@ -185,7 +185,7 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
       si = (si + usize(1));
     });
   };
-  if(!(any_masked), {
+  if(!any_masked, {
     return(s);
   });
   masked := Substitution(
@@ -201,7 +201,7 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
   (ci : usize) = usize(0);
   while(ci < s.names.len(), {
     nm := match(s.names.get(ci), .Some(v) => v, .None => ``);
-    if(!(_mfb_is_binder(forall_labels, nm)), {
+    if(!_mfb_is_binder(forall_labels, nm), {
       masked.names.push(nm);
       masked.levels.push(match(s.levels.get(ci), .Some(v) => v, .None => usize(0)));
       masked.types.push(match(s.types.get(ci), .Some(t) => t, .None => TypeValue.Unit));

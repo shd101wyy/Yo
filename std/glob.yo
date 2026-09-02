@@ -133,7 +133,7 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
       // Scan characters in class until ]
       found := false;
       cdone := false;
-      while((ci < pb.len()) && (!(cdone)), ci = (ci + usize(1)), {
+      while((ci < pb.len()) && !cdone, ci = (ci + usize(1)), {
         ch := pb(ci);
         cond(
           (ch == u8(93)) => {
@@ -151,13 +151,13 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti :
       });
       // Malformed pattern (no closing ])
       cond(
-        (!(cdone)) => {
+        !cdone => {
           return(false);
         },
         true => ()
       );
       matched := cond(
-        neg => !(found),
+        neg => !found,
         true => found
       );
       cond(

@@ -21,7 +21,7 @@ test("with_timeout drives a too-short deadline to HttpError.Timeout", {
   // deadline wins and `fetch` throws Timeout.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(err.to_string().contains(`timed out`), `expected Timeout`);
         unwind(());
       }
@@ -35,7 +35,7 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
   // example.com's response is ~571 bytes; a 16-byte ceiling is exceeded.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(err.to_string().contains(`too large`), `expected ResponseTooLarge`);
         unwind(());
       }
@@ -50,7 +50,7 @@ test("a redirect chain over the cap throws TooManyRedirects", {
   // cap of 10 is exceeded.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(err.to_string().contains(`Too many redirects`), `expected TooManyRedirects`);
         unwind(());
       }
@@ -64,7 +64,7 @@ test("a redirect chain under the cap is followed to its 200", {
   ok := Box(bool)(false);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  redirect-follow skipped (no egress?): ${err.to_string()}`);
         unwind(());
       }

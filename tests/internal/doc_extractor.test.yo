@@ -80,7 +80,7 @@ test("strip_doc_block_comment preserves markdown formatting", {
 test("extracts a single /// doc comment for a declaration", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -89,7 +89,7 @@ test("extracts a single /// doc comment for a declaration", {
   tokens := lex_(`/// A trait.\nFoo :: trait();\n`, exn);
   result := extract_doc_comments(tokens);
   has_module_doc := match(result.module_doc, .Some(_) => true, .None => false);
-  assert(!(has_module_doc), "no module doc");
+  assert(!has_module_doc, "no module doc");
   assert(result.declarations.len() == usize(1), "one declaration");
   match(
     result.declarations.get(usize(0)),
@@ -103,7 +103,7 @@ test("extracts a single /// doc comment for a declaration", {
 test("merges consecutive /// lines", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -125,7 +125,7 @@ test("merges consecutive /// lines", {
 test("extracts block doc comment", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -147,7 +147,7 @@ test("extracts block doc comment", {
 test("extracts //! as module doc", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -168,7 +168,7 @@ test("extracts //! as module doc", {
 test("extracts /*! */ as module doc", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -186,7 +186,7 @@ test("extracts /*! */ as module doc", {
 test("handles multiple doc comments for different declarations", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -213,7 +213,7 @@ test("handles multiple doc comments for different declarations", {
 test("ignores regular comments, only extracts doc comments", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -232,7 +232,7 @@ test("ignores regular comments, only extracts doc comments", {
 test("handles module doc and declaration docs together", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -256,7 +256,7 @@ test("handles module doc and declaration docs together", {
 test("handles empty token stream", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -265,13 +265,13 @@ test("handles empty token stream", {
   tokens := lex_(``, exn);
   result := extract_doc_comments(tokens);
   has_module_doc := match(result.module_doc, .Some(_) => true, .None => false);
-  assert(!(has_module_doc), "no module doc");
+  assert(!has_module_doc, "no module doc");
   assert(result.declarations.len() == usize(0), "no declarations");
 });
 test("extracts doc from real std-lib-like code", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -304,7 +304,7 @@ test("extracts doc from real std-lib-like code", {
 test("find_matching_parens finds parens for struct", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -331,7 +331,7 @@ test("find_matching_parens finds parens for struct", {
 test("find_matching_parens handles nested parens", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -367,7 +367,7 @@ test("find_matching_parens handles nested parens", {
 test("find_matching_parens returns None when no parens found", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -384,7 +384,7 @@ test("find_matching_parens returns None when no parens found", {
 test("find_matching_parens starts searching from given index", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -425,7 +425,7 @@ test("find_matching_parens starts searching from given index", {
 test("extracts /// docs for struct fields", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -442,7 +442,7 @@ test("extracts /// docs for struct fields", {
 test("handles struct with only some fields documented", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -456,12 +456,12 @@ test("handles struct with only some fields documented", {
   tls_val := match(docs.get(`tls`), .Some(v) => v, .None => ``);
   assert(tls_val == `Enable TLS.`, "tls doc");
   has_port := match(docs.get(`port`), .Some(_) => true, .None => false);
-  assert(!(has_port), "port not documented");
+  assert(!has_port, "port not documented");
 });
 test("handles struct with no documented fields", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -473,7 +473,7 @@ test("handles struct with no documented fields", {
 test("merges consecutive /// lines for a struct field", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -488,7 +488,7 @@ test("merges consecutive /// lines for a struct field", {
 test("extracts block doc for struct fields", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -505,7 +505,7 @@ test("extracts block doc for struct fields", {
 test("extracts /// docs for enum variants", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -524,7 +524,7 @@ test("extracts /// docs for enum variants", {
 test("extracts docs for enum variants with fields", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -541,7 +541,7 @@ test("extracts docs for enum variants with fields", {
 test("handles empty token range", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -554,7 +554,7 @@ test("handles empty token range", {
 test("does not pick up regular // comments", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -564,14 +564,14 @@ test("does not pick up regular // comments", {
   docs := inline_docs_from_source_(source, exn);
   assert(docs.size == usize(1), "one doc");
   has_x := match(docs.get(`x`), .Some(_) => true, .None => false);
-  assert(!(has_x), "x not documented");
+  assert(!has_x, "x not documented");
   y_val := match(docs.get(`y`), .Some(v) => v, .None => ``);
   assert(y_val == `Doc comment.`, "y doc");
 });
 test("handles mixed block and line doc comments", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -588,7 +588,7 @@ test("handles mixed block and line doc comments", {
 test("handles single-line struct with block docs", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -604,7 +604,7 @@ test("handles single-line struct with block docs", {
 test("preserves markdown formatting in inline docs", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -619,7 +619,7 @@ test("preserves markdown formatting in inline docs", {
 test("handles doc comment at end of range with no following identifier", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -632,7 +632,7 @@ test("handles doc comment at end of range with no following identifier", {
 test("extracts top-level doc for ?= field via extractDocComments", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }

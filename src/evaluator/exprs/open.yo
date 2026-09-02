@@ -46,7 +46,7 @@ walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
   cur := e;
   // Local-mutable loop: while cur is `.`-call, descend to first arg.
   done := false;
-  while(!(done), {
+  while(!done, {
     cond(
       ast_expr_is_fn_call_of(cur, BF_DOT, .None) => {
         match(
@@ -93,7 +93,7 @@ evaluate_open :: (
   ) -> AstExpr
 )({
   // Validate shape: `open` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BK_OPEN, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_OPEN, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(

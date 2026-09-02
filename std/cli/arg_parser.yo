@@ -289,7 +289,7 @@ impl(
                 .Flag => {
                   line := `  ${arg_def._long_name}`;
                   cond(
-                    (!(arg_def._short_name.is_empty())) => {
+                    !arg_def._short_name.is_empty() => {
                       line = line.concat(`, ${arg_def._short_name}`);
                     },
                     true => ()
@@ -300,14 +300,14 @@ impl(
                 .Opt => {
                   line := `  ${arg_def._long_name}`;
                   cond(
-                    (!(arg_def._short_name.is_empty())) => {
+                    !arg_def._short_name.is_empty() => {
                       line = line.concat(`, ${arg_def._short_name}`);
                     },
                     true => ()
                   );
                   line = line.concat(` <value>\t${arg_def._description}`);
                   cond(
-                    (!(arg_def._default_value.is_empty())) => {
+                    !arg_def._default_value.is_empty() => {
                       line = line.concat(` (default: ${arg_def._default_value})`);
                     },
                     true => ()
@@ -362,7 +362,7 @@ impl(
     args_len := args.len();
     positional_idx := usize(0);
     (err_msg : Option(String)) = .None;
-    while((idx < args_len) && (err_msg.is_none()), {
+    while((idx < args_len) && err_msg.is_none(), {
       match(
         args.get(idx),
         .Some(current_arg) => {
@@ -469,7 +469,7 @@ impl(
                 true => ()
               );
               cond(
-                (!(is_subcmd)) => {
+                !is_subcmd => {
                   parsed._positionals.push(current_arg);
                   p_idx := usize(0);
                   p_count := usize(0);
@@ -524,7 +524,7 @@ impl(
             def._kind,
             .Opt => {
               cond(
-                ((!(parsed._option_names.contains(def._long_name))) && (!(def._default_value.is_empty()))) => {
+                (!parsed._option_names.contains(def._long_name) && !def._default_value.is_empty()) => {
                   parsed._option_names.push(def._long_name);
                   parsed._option_values.push(def._default_value);
                 },

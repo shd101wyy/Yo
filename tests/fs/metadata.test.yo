@@ -17,7 +17,7 @@ fs_dir :: import("std/fs/dir");
 test("metadata returns file info", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -34,10 +34,10 @@ test("metadata returns file info", {
   assert(is_file, "should be a file");
   is_dir := m.is_dir();
   unsafe(printf("  is_dir = %d\n", cond(is_dir => i32(1), true => i32(0))));
-  assert(!(is_dir), "should not be a dir");
+  assert(!is_dir, "should not be a dir");
   is_symlink := m.is_symlink();
   unsafe(printf("  is_symlink = %d\n", cond(is_symlink => i32(1), true => i32(0))));
-  assert(!(is_symlink), "should not be a symlink");
+  assert(!is_symlink, "should not be a symlink");
   unsafe(printf("  ino = %llu\n", m.ino()));
   assert(m.ino() > u64(0), "inode should be positive");
   unsafe(printf("  nlink = %llu\n", m.nlink()));
@@ -52,7 +52,7 @@ test("metadata returns file info", {
 test("metadata on directory", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -71,7 +71,7 @@ test("metadata on directory", {
   is_dir := m.is_dir();
   unsafe(printf("  is_dir = %d\n", cond(is_dir => i32(1), true => i32(0))));
   assert(is_dir, "should be a dir");
-  assert(!(m.is_file()), "should not be a file");
+  assert(!m.is_file(), "should not be a file");
   io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
 });
 // ============================================================================
@@ -80,7 +80,7 @@ test("metadata on directory", {
 test("metadata_str works with str path", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -102,7 +102,7 @@ test("metadata nonexistent returns error", {
   fpath := Path.new(`/nonexistent/yo_fs_meta_nope.txt`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -120,7 +120,7 @@ test("symlink_metadata on symlink reports symlink", {
   lnk := Path.new(path_join(tmp, `yo_fs_meta_sym_lnk.txt`));
   setup_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception during setup");
         unwind(());
       }
@@ -142,7 +142,7 @@ test("symlink_metadata on symlink reports symlink", {
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         match(
           downcast(err, IoError),
           .Some(io_err) => match(
@@ -165,7 +165,7 @@ test("symlink_metadata on symlink reports symlink", {
   io.await(fs_dir.symlink(src, lnk, io), IoExn(io : io, exn : sym_exn));
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -176,7 +176,7 @@ test("symlink_metadata on symlink reports symlink", {
   is_file := m1.is_file();
   unsafe(printf("  metadata is_file = %d\n", cond(is_file => i32(1), true => i32(0))));
   assert(is_file, "metadata should follow symlink to file");
-  assert(!(m1.is_symlink()), "metadata should not report symlink");
+  assert(!m1.is_symlink(), "metadata should not report symlink");
   // symlink_metadata should report symlink
   m2 := io.await(fs_metadata.symlink_metadata(lnk, io), IoExn(io : io, exn : exn));
   is_sym := m2.is_symlink();
@@ -191,7 +191,7 @@ test("symlink_metadata on symlink reports symlink", {
 test("File.metadata returns correct info", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

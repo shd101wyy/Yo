@@ -144,7 +144,7 @@ test("float bitwise operators are compile errors", {
     consume(v);
   });
   comptime_expect_error({
-    v := ~(f32(1.0));
+    v := ~f32(1.0);
     consume(v);
   });
   comptime_expect_error({
@@ -160,29 +160,29 @@ test("float bitwise operators are compile errors", {
     consume(v);
   });
   comptime_expect_error({
-    v := ~(f64(1.0));
+    v := ~f64(1.0);
     consume(v);
   });
 });
 test("unsigned integer negation is a compile error", {
   comptime_expect_error({
-    v := -(u8(1));
+    v := -u8(1);
     consume(v);
   });
   comptime_expect_error({
-    v := -(u16(1));
+    v := -u16(1);
     consume(v);
   });
   comptime_expect_error({
-    v := -(u32(1));
+    v := -u32(1);
     consume(v);
   });
   comptime_expect_error({
-    v := -(u64(1));
+    v := -u64(1);
     consume(v);
   });
   comptime_expect_error({
-    v := -(usize(1));
+    v := -usize(1);
     consume(v);
   });
 });
@@ -244,7 +244,7 @@ test("From and Into widen integers and floats losslessly", {
   // selects the source type. `into(T)` disambiguates via its type argument,
   // like `try_into(T)`.
   assert((i64 <: From(i32)).from(i32(5)) == i64(5), "From(i32) for i64");
-  assert((i32 <: From(i8)).from(i8(-(8))) == i32(-(8)), "From(i8) for i32");
+  assert((i32 <: From(i8)).from(i8(-8)) == i32(-8), "From(i8) for i32");
   assert((u64 <: From(u8)).from(u8(255)) == u64(255), "From(u8) for u64");
   assert((f64 <: From(f32)).from(f32(1.5)) == f64(1.5), "From(f32) for f64");
   a := i32(5);
@@ -272,7 +272,7 @@ test("float cmp is total: NaNs equal each other and sort after +inf", {
   assert(match(nan.cmp(nan), .Equal => true, _ => false), "NaN cmp NaN is Equal");
   assert(match(inf.cmp(nan), .Less => true, _ => false), "+inf cmp NaN is Less");
   assert(match(one.cmp(one), .Equal => true, _ => false), "1.0 cmp 1.0 is Equal");
-  neg := -(one);
+  neg := -one;
   assert(match(neg.cmp(one), .Less => true, _ => false), "-1.0 cmp 1.0 is Less");
   zero32 := f32(0.0);
   nan32 := (zero32 / zero32);
@@ -297,14 +297,14 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
   some := Option(i32).Some(i32(7));
   none := Option(i32).None;
   assert(some.expect("must be some") == i32(7), "expect returns the value");
-  assert(some.is_some_and((v) => (v > i32(5))), "is_some_and true");
-  assert(!(some.is_some_and((v) => (v > i32(10)))), "is_some_and false predicate");
-  assert(!(none.is_some_and((v) => (v > i32(0)))), "is_some_and on None");
+  assert(some.is_some_and(v => (v > i32(5))), "is_some_and true");
+  assert(!some.is_some_and(v => (v > i32(10))), "is_some_and false predicate");
+  assert(!none.is_some_and(v => (v > i32(0))), "is_some_and on None");
   // Closures capture locals BY VALUE, so observe the side effect through a
   // reference-semantics container instead of a primitive local.
   { ArrayList } :: import("std/collections/array_list");
   seen := ArrayList(i32).new();
-  echoed := some.inspect((v) => {
+  echoed := some.inspect(v => {
     seen.push(v);
   });
   assert((seen.len() == usize(1)) && (seen.get(usize(0)).unwrap() == i32(7)), "inspect ran the callback");
@@ -346,10 +346,10 @@ test("Result completion: unwrap_or, unwrap_or_default, expect, inspect, flatten,
   { ArrayList } :: import("std/collections/array_list");
   seen_ok := ArrayList(i32).new();
   seen_err := ArrayList(u8).new();
-  ok.inspect((v) => {
+  ok.inspect(v => {
     seen_ok.push(v);
   });
-  err.inspect_err((e) => {
+  err.inspect_err(e => {
     seen_err.push(e);
   });
   assert((seen_ok.len() == usize(1)) && (seen_ok.get(usize(0)).unwrap() == i32(4)), "inspect saw the Ok value");

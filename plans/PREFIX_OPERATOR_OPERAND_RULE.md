@@ -14,9 +14,11 @@ token, so even tight `3--3` splits and parses. **Rule 2 (whitespace-
 insensitive dot) and the formatter spacing canonicalization remain
 UNIMPLEMENTED** — their "TS is still the referee" premise predates the
 P2.5 retirement, so that half needs re-planning before it lands.
-**Seed constraint:** `src/` and `std/` must keep PARENTHESIZED prefix
-calls until a release with this rule becomes the seed — the seed binary
-rejects paren-less forms.
+**Seed constraint: LIFTED 2026-09-02** — v0.2.21 (released 2026-09-01)
+carries this rule, so the seed accepts paren-less forms (verified empirically:
+`-x`, `-1`, `?*`-style chains all pass `yo check`). The historical constraint
+read: `src/` and `std/` must keep PARENTHESIZED prefix calls until a release
+with this rule becomes the seed — the seed binary rejects paren-less forms.
 
 **Formatter prefix-CHAIN tightening (added 2026-08-21, same branch):**
 the internal formatter fixture corpus caught that

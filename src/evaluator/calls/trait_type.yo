@@ -102,7 +102,7 @@ try_to_specialize_trait_type :: (
         trait_expr
       }
     );
-    if(!(ast_expr_is_fn_call_of(arg, ":=", .Some(usize(2)))), {
+    if(!ast_expr_is_fn_call_of(arg, ":=", .Some(usize(2))), {
       exn.throw(
         dyn(
           format_error_message(
@@ -132,7 +132,7 @@ try_to_specialize_trait_type :: (
         arg
       }
     );
-    if(!(ast_expr_is_atom(label_sub)), {
+    if(!ast_expr_is_atom(label_sub), {
       exn.throw(
         dyn(
           format_error_message(
@@ -160,7 +160,7 @@ try_to_specialize_trait_type :: (
       );
       li = (li + usize(1));
     });
-    if(!(field_exists), {
+    if(!field_exists, {
       exn.throw(
         dyn(
           format_error_message(
@@ -187,7 +187,7 @@ try_to_specialize_trait_type :: (
       );
       ai = (ai + usize(1));
     });
-    if(!(is_assoc), {
+    if(!is_assoc, {
       exn.throw(
         dyn(
           format_error_message(
@@ -202,7 +202,7 @@ try_to_specialize_trait_type :: (
     // Evaluate the constraint type expression.
     evaluated := evaluate_expression(value_sub, caller_env, ctx);
     evaluated_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
-    if(!(match(evaluated_info_opt, .Some(info) => is_type_value(info.value), .None => false)), {
+    if(!match(evaluated_info_opt, .Some(info) => is_type_value(info.value), .None => false), {
       exn.throw(
         dyn(
           format_error_message(
@@ -365,7 +365,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       arg_expr_opt := arg_exprs.get(j);
       arg_expr := match(arg_expr_opt, .Some(a) => a, .None => trait_expr);
       // Each arg must be a `label: value` colon call.
-      if(!(ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2)))), {
+      if(!ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2))), {
         exn.throw(
           dyn(
             format_error_message(
@@ -395,7 +395,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
           arg_expr
         }
       );
-      if(!(ast_expr_is_atom(label_sub)), {
+      if(!ast_expr_is_atom(label_sub), {
         exn.throw(
           dyn(
             format_error_message(
@@ -423,7 +423,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         );
         li = (li + usize(1));
       });
-      if(!(label_exists), {
+      if(!label_exists, {
         exn.throw(
           dyn(
             format_error_message(
@@ -459,7 +459,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
         caller_env = arg_info.env;
         arg_type := arg_info.ty;
-        if(!(are_types_compatible(arg_type, field_type)), {
+        if(!are_types_compatible(arg_type, field_type), {
           exn.throw(
             dyn(
               format_error_message(
@@ -480,7 +480,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
       });
       j = (j + usize(1));
     }); // end inner arg loop
-    if(!(found_arg), {
+    if(!found_arg, {
       exn.throw(
         dyn(
           format_error_message(

@@ -40,8 +40,8 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       // Build the IP string "a.b.c.d"
       { snprintf } :: import("../libc/stdio");
       buf := Array(u8, usize(16)).fill(u8(0));
-      unsafe(snprintf(*(char)(&(buf(usize(0)))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
-      IO_tcp.make_sockaddr_in(&(buf(usize(0))), addr.port)
+      unsafe(snprintf(*(char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
+      IO_tcp.make_sockaddr_in(&buf(usize(0)), addr.port)
     },
     .V6(_) => {
       // Render the real address text (full uncompressed hex form — valid
@@ -55,7 +55,7 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
 );
 // Parse a low-level sockaddr buffer (as filled in by accept/getsockname)
 // back into a SocketAddr. Unknown families fall back to 0.0.0.0:0.
-_sockaddr_to_socket_addr :: (fn(buf : *(u8)) -> SocketAddr)({
+_sockaddr_to_socket_addr :: (fn(buf : *u8) -> SocketAddr)({
   fam := IO_tcp.get_family(buf);
   cond(
     (fam == u16(AF_INET)) => {
@@ -70,7 +70,7 @@ _sockaddr_to_socket_addr :: (fn(buf : *(u8)) -> SocketAddr)({
     },
     (fam == u16(AF_INET6)) => {
       bytes := Array(u8, usize(16)).fill(u8(0));
-      IO_tcp.get_addr_in6(buf, &(bytes(usize(0))));
+      IO_tcp.get_addr_in6(buf, &bytes(usize(0)));
       segs := Array(u16, usize(8)).fill(u16(0));
       i := usize(0);
       while(runtime(i < usize(8)), {
@@ -133,7 +133,7 @@ impl(
   TcpListener,
   /// Bind to a socket address and start listening.
   bind : (fn(addr : SocketAddr, io : Io) -> Impl(Future(TcpListener, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
         true => AF_INET6
@@ -143,7 +143,7 @@ impl(
       fd := NetError.check(raw_fd, e.exn);
       // Set SO_REUSEADDR
       reuse_val := i32(1);
-      reuse_ptr := &(reuse_val);
+      reuse_ptr := &reuse_val;
       e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, *(u8)(reuse_ptr), u32(4)), e.io);
       // Bind
       saddr := _make_sockaddr(addr);
@@ -184,7 +184,7 @@ impl(
   /// Accept an incoming connection, returning a new `TcpStream`.
   accept : (fn(self : Self, io : Io) -> Impl(Future(TcpStream, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       // Allocate space for the peer address
       addr_buf := *(u8)(malloc(usize(128)).unwrap());
       addr_len := *(u32)(malloc(usize(4)).unwrap());
@@ -219,7 +219,7 @@ impl(
   /// Close the listener socket.
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       cond(
         self._is_closed => (),
         true => {
@@ -245,7 +245,7 @@ impl(
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       cond(
-        (!(self._is_closed)) => {
+        !self._is_closed => {
           { close_sync } :: import("../sys/file");
           close_sync(self._fd);
           self._is_closed = true;
@@ -263,7 +263,7 @@ impl(
   TcpStream,
   /// Connect to a remote address, returning a new `TcpStream`.
   connect : (fn(addr : SocketAddr, io : Io) -> Impl(Future(TcpStream, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
         true => AF_INET6
@@ -291,18 +291,18 @@ impl(
   ),
   /// Read bytes from the stream into `buf`.
   /// Returns the number of bytes read, or 0 if the peer closed the connection.
-  read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
   }),
   /// Write up to `size` raw bytes from `buf` to the stream.
   /// Returns the number of bytes written.
-  write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_tcp.send(fd, buf, size, i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -313,7 +313,7 @@ impl(
     fd := self._fd;
     s := String.from(data);
     s_bytes := s.as_bytes();
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_tcp.send(fd, s_bytes.ptr().unwrap(), s_bytes.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -323,7 +323,7 @@ impl(
   write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     data_bytes := data.as_bytes();
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_tcp.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -332,7 +332,7 @@ impl(
   /// Returns the number of bytes written.
   write_bytes : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_tcp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
       usize(NetError.check(r, e.exn))
     })
@@ -341,7 +341,7 @@ impl(
   shutdown : (fn(self : Self, how : Shutdown, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
     raw_how := _shutdown_to_how(how);
-    io.async((e) => {
+    io.async(e => {
       r := e.io.await(IO_tcp.shutdown(fd, raw_how), e.io);
       cond(
         (r < i32(0)) => {
@@ -354,7 +354,7 @@ impl(
   /// Close the stream.
   close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       cond(
         self._is_closed => (),
         true => {
@@ -381,9 +381,9 @@ impl(
   /// Enable or disable TCP_NODELAY (disables Nagle's algorithm).
   set_nodelay : (fn(self : Self, nodelay : bool, io : Io) -> Impl(Future(unit, IoExn)))({
     sock_fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       val := cond(nodelay => i32(1), true => i32(0));
-      val_ptr := &(val);
+      val_ptr := &val;
       r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, *(u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {
@@ -396,9 +396,9 @@ impl(
   /// Enable or disable SO_KEEPALIVE on the socket.
   set_keepalive : (fn(self : Self, enabled : bool, io : Io) -> Impl(Future(unit, IoExn)))({
     sock_fd := self._fd;
-    io.async((e) => {
+    io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
-      val_ptr := &(val);
+      val_ptr := &val;
       r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, *(u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {
@@ -414,7 +414,7 @@ impl(
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       cond(
-        (!(self._is_closed)) => {
+        !self._is_closed => {
           { close_sync } :: import("../sys/file");
           close_sync(self._fd);
           self._is_closed = true;
@@ -434,7 +434,7 @@ export(TcpStream);
 impl(
   TcpStream,
   IoTraits.Reader(
-    read : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )
@@ -442,11 +442,11 @@ impl(
 impl(
   TcpStream,
   IoTraits.Writer(
-    write : (fn(self : Self, buf : *(u8), size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.write(buf, size, io)
     ),
     flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
-      io.async((e) => ())
+      io.async(e => ())
     )
   )
 );

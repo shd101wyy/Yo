@@ -4,14 +4,14 @@ pragma(Pragma.AllowUnsafe);
 { platform, Platform } :: import("std/process");
 { Error, AnyError, Exception } :: import("std/error");
 open(import("std/libc/stdio"));
-_noop_handler :: (fn(data : *(u8)) -> unit)({
+_noop_handler :: (fn(data : *u8) -> unit)({
   ();
 });
 // ===== Signal Registration =====
 test("on_signal registers handler successfully", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -29,7 +29,7 @@ test("on_signal registers handler successfully", {
 test("on_signal replaces previous handler", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -38,7 +38,7 @@ test("on_signal replaces previous handler", {
   cond(
     (platform == Platform.Windows) => (),
     true => {
-      _other_handler :: (fn(data : *(u8)) -> unit)({
+      _other_handler :: (fn(data : *u8) -> unit)({
         ();
       });
       // Register first handler
@@ -53,7 +53,7 @@ test("on_signal replaces previous handler", {
 test("off_signal removes handler", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

@@ -58,7 +58,7 @@ generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
   keys := ArrayList(String).new();
   kit := context.array_struct_types.keys();
   (kdone : bool) = false;
-  while(!(kdone), {
+  while(!kdone, {
     match(
       kit.next(),
       .Some(k) => {
@@ -310,7 +310,7 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
         while(cfi < nf, {
           match(
             fields.get(cfi),
-            .Some(ft) => if(!(is_unit_type(ft)), {
+            .Some(ft) => if(!is_unit_type(ft), {
               non_unit = (non_unit + usize(1));
             }),
             .None => ()
@@ -324,7 +324,7 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
           while(fi < nf, {
             match(
               fields.get(fi),
-              .Some(ft) => if(!(is_unit_type(ft)), {
+              .Some(ft) => if(!is_unit_type(ft), {
                 label := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
                 fts := get_type_string(ft, context);
                 fname := sanitize_for_c_identifier(label, false);
@@ -842,9 +842,9 @@ _walk_enum_some_only :: (fn(type : TypeValue, visited : HashSet(String)) -> bool
 /// True when a type must be SKIPPED in the type-walk: it contains a SomeType,
 /// unless it is a struct/enum whose only SomeType source is function-typed fields.
 _walk_skip_some :: (fn(type : TypeValue) -> bool)(
-  if(!(type_contains_some_type(type)), false, {
+  if(!type_contains_some_type(type), false, {
     keep := ((is_struct_type(type) && _walk_struct_some_only(type, HashSet(String).new())) || (is_enum_type(type) && _walk_enum_some_only(type, HashSet(String).new())));
-    !(keep)
+    !keep
   })
 );
 /// The newtype-struct pointee of a field type, if the field is a pointer to a
@@ -923,7 +923,7 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
     is_newtype_type(ft) => {
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     },
-    (is_struct_type(ft) && (!(is_reference_struct_type(ft)) && !(is_newtype_type(ft)))) => {
+    (is_struct_type(ft) && (!is_reference_struct_type(ft) && !is_newtype_type(ft))) => {
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     },
     is_tuple_type(ft) => {
@@ -948,7 +948,7 @@ _TypeWalkEntry :: ref(struct(type_id : String, ty : TypeValue, c_name : String, 
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
 /// dispose are generated separately). Mirrors `reservedDynMethodLabels`.
 _is_reserved_dyn_method :: (fn(label : String) -> bool)(
-  ((label == BF_DUP) || (label == BF_DROP)) || ((label == "___dispose") || (label == "dispose"))
+  (label == BF_DUP) || (label == BF_DROP) || ((label == "___dispose") || (label == "dispose"))
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
@@ -958,7 +958,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
   keys := ArrayList(String).new();
   fkit := context.types.keys();
   (fkdone : bool) = false;
-  while(!(fkdone), {
+  while(!fkdone, {
     match(
       fkit.next(),
       .Some(k) => {
@@ -977,7 +977,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
     match(
       context.types.get(key.clone()),
       .Some(entry) => if(is_dyn_type(entry.ty), {
-        if(!(has_any), {
+        if(!has_any, {
           em.emit_declaration_line("");
           em.emit_declaration_line("// === Dyn Type Forward Declarations ===");
           has_any = true;
@@ -1145,7 +1145,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
   keys := ArrayList(String).new();
   bkit := context.dyn_impls.keys();
   (bkdone : bool) = false;
-  while(!(bkdone), {
+  while(!bkdone, {
     match(
       bkit.next(),
       .Some(k) => {
@@ -1176,7 +1176,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
         concrete := resolve_some_type_to_concrete(impl_entry.concrete_type);
         concrete_c_name := match(context.get_type_c_name(type_key(concrete)), .Some(cn) => cn, .None => `unknown_${type_key(concrete)}`);
         box_name := `__yo_dyn_box_${concrete_c_name}`;
-        if(!(generated.contains(box_name.clone())), {
+        if(!generated.contains(box_name.clone()), {
           _g := generated.insert(box_name.clone());
           _g2 := context.dyn_box_typedefs.insert(box_name.clone());
           value_str := get_type_string(concrete, context);
@@ -1242,7 +1242,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       k1.next(),
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
-        .Some(info) => if(!(info.struct_generated), {
+        .Some(info) => if(!info.struct_generated, {
           child := info.child_type_c_name.clone();
           em.emit_declaration_string_line(String.from("typedef struct { // Iso wrapper struct"));
           em.emit_declaration_string_line(String.from("  __yo_ref_header_t header; // Atomic RC header"));
@@ -1268,7 +1268,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       k2.next(),
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
-        .Some(info) => if(!(info.extract_generated), {
+        .Some(info) => if(!info.extract_generated, {
           em.emit_declaration_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso);`);
         }),
         .None => ()
@@ -1305,7 +1305,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       k4.next(),
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
-        .Some(info) => if(!(info.create_generated), {
+        .Some(info) => if(!info.create_generated, {
           child := info.child_type_c_name.clone();
           em.emit_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value) {`);
           em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_malloc(sizeof(${iso_name.clone()}_struct));`);
@@ -1340,7 +1340,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       k5.next(),
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
-        .Some(info) => if(info.create_generated && !(info.dispose_generated), {
+        .Some(info) => if(info.create_generated && !info.dispose_generated, {
           em.emit_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso) {`);
           em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
           em.emit_string_line(String.from("    __yo_decr_rc((void*)iso->value);"));
@@ -1366,7 +1366,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       k6.next(),
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
-        .Some(info) => if(!(info.extract_generated), {
+        .Some(info) => if(!info.extract_generated, {
           em.emit_string_line(`${info.child_type_c_name.clone()} __yo_iso_extract_${iso_name.clone()}(${iso_name.clone()} iso) {`);
           em.emit_string_line(String.from("  bool was_extracted = atomic_exchange(&iso->extracted, true);"));
           em.emit_string_line(String.from("  if (was_extracted) {"));
@@ -1409,7 +1409,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           cn := entry.c_name.clone();
           skip := (_walk_skip_some(ty) || entry.c_include.is_some());
           if(
-            !(skip),
+            !skip,
             cond(
               is_future_trait_type(ty) => {
                 l := String.from("typedef struct ");
@@ -1424,7 +1424,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
                 is_nt_single := (
                   is_newtype_type(ty) && match(ty, .Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
                 );
-                if(!(is_nt_single), {
+                if(!is_nt_single, {
                   l := String.from("typedef struct ");
                   l.push_string(cn.clone());
                   l.push_str("_struct ");
@@ -1435,7 +1435,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
               },
               is_enum_type(ty) => {
                 optimized := (can_optimize_as_nullable_pointer(ty).is_some() || can_optimize_as_simple_enum(ty));
-                if(!(optimized), {
+                if(!optimized, {
                   l := String.from("typedef struct ");
                   l.push_string(cn.clone());
                   l.push_str("_struct ");
@@ -1478,8 +1478,8 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(entry) => {
           ty := entry.ty;
           skip := (type_contains_some_type(ty) || entry.c_include.is_some());
-          if(!(skip) && (is_enum_type(ty) && can_optimize_as_simple_enum(ty)), {
-            if(!(emitted_decl_cnames.contains(entry.c_name.clone())) && !(context.on_demand_body_cnames.contains(entry.c_name.clone())), {
+          if(!skip && (is_enum_type(ty) && can_optimize_as_simple_enum(ty)), {
+            if(!emitted_decl_cnames.contains(entry.c_name.clone()) && !context.on_demand_body_cnames.contains(entry.c_name.clone()), {
               _dn := emitted_decl_cnames.insert(entry.c_name.clone());
               generate_enum_declaration(ty, entry.c_name.clone(), context);
             });
@@ -1504,15 +1504,15 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         context.get_type_entry(tid.clone()),
         .Some(entry) => {
           ty := entry.ty;
-          skip := ((_walk_skip_some(ty) || entry.c_include.is_some()) || cname_to_typeid.contains_key(entry.c_name.clone()));
+          skip := (_walk_skip_some(ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
           if(
-            !(skip),
+            !skip,
             cond(
               is_struct_type(ty) => {
                 _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
                 _m := cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
-              (is_enum_type(ty) && (!(can_optimize_as_simple_enum(ty)) && !(can_optimize_as_nullable_pointer(ty).is_some()))) => {
+              (is_enum_type(ty) && (!can_optimize_as_simple_enum(ty) && !can_optimize_as_nullable_pointer(ty).is_some())) => {
                 _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
                 _m := cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
@@ -1669,7 +1669,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           (seen : bool) = false;
           (si : usize) = usize(0);
           ns := sorted_ids.len();
-          while((si < ns) && !(seen), {
+          while((si < ns) && !seen, {
             match(
               sorted_ids.get(si),
               .Some(s) => if(s == e.type_id, {
@@ -1679,7 +1679,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
             );
             si = (si + usize(1));
           });
-          if(!(seen), {
+          if(!seen, {
             _f := sorted_ids.push(e.type_id.clone());
           });
         },
@@ -1698,13 +1698,13 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
     // Find the matching entry (small N).
     (yi : usize) = usize(0);
     (found : bool) = false;
-    while((yi < ne) && !(found), {
+    while((yi < ne) && !found, {
       match(
         entries.get(yi),
         .Some(e) => if(e.type_id == sid, {
           found = true;
           if(
-            !(context.on_demand_body_cnames.contains(e.c_name.clone())),
+            !context.on_demand_body_cnames.contains(e.c_name.clone()),
             cond(
               (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
               (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
@@ -1730,8 +1730,8 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(entry) => {
           ty := entry.ty;
           skip := (_walk_skip_some(ty) || entry.c_include.is_some());
-          if(!(skip) && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
-            if(!(context.on_demand_body_cnames.contains(entry.c_name.clone())), {
+          if(!skip && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
+            if(!context.on_demand_body_cnames.contains(entry.c_name.clone()), {
               generate_enum_declaration(ty, entry.c_name.clone(), context);
             });
           });
@@ -1756,11 +1756,11 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
           skip := (type_contains_some_type(ty) || entry.c_include.is_some());
           od_done := context.on_demand_body_cnames.contains(entry.c_name.clone());
           if(
-            !(skip),
+            !skip,
             cond(
               is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
-              (is_union_type(ty) && !(od_done)) => generate_union_declaration(ty, entry.c_name.clone(), context),
-              (is_future_trait_type(ty) && !(od_done)) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
+              (is_union_type(ty) && !od_done) => generate_union_declaration(ty, entry.c_name.clone(), context),
+              (is_future_trait_type(ty) && !od_done) => generate_future_trait_declaration(ty, entry.c_name.clone(), context),
               true => ()
             )
           );

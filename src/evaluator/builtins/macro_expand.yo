@@ -95,7 +95,7 @@ evaluate_macro_expand :: (
     }
   );
   cur_env := arg_info.env;
-  if(!(is_expr_type(arg_info.ty)), {
+  if(!is_expr_type(arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -135,7 +135,7 @@ evaluate_macro_expand :: (
         return(expr);
       }
     );
-    if(!(is_comptime_int_type(level_info.ty)), {
+    if(!is_comptime_int_type(level_info.ty), {
       exn.throw(
         dyn(
           format_error_message(
@@ -149,7 +149,7 @@ evaluate_macro_expand :: (
     });
     // Extract the integer value from IntLit.
     lv_opt := level_info.value;
-    if(!(is_int_lit(match(lv_opt, .Some(v) => v, .None => EvalValue.UnitVal))), {
+    if(!is_int_lit(match(lv_opt, .Some(v) => v, .None => EvalValue.UnitVal)), {
       exn.throw(
         dyn(
           format_error_message(
@@ -199,7 +199,7 @@ evaluate_macro_expand :: (
         (should_continue : bool) = true;
         while(should_continue, {
           // Check if it's a function call.
-          if(!(ast_expr_is_fn_call(current_expr)), {
+          if(!ast_expr_is_fn_call(current_expr), {
             should_continue = false;
           });
           if(should_continue, {
@@ -246,7 +246,7 @@ evaluate_macro_expand :: (
                       if(same, {
                         should_continue = false;
                       });
-                      if(!(same), {
+                      if(!same, {
                         current_expr = new_expr;
                         expansion_count = (expansion_count + i64(1));
                         expanded_ok = true;

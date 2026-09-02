@@ -88,8 +88,8 @@ test("same instantiation stays compatible, and generics with placeholders still 
   // every instantiation flows through it.
   is_ok :: (fn(generic(T : Type, E : Type), r : Result(T, E)) -> bool)(match(r, .Ok(_) => true, .Err(_) => false));
   assert(is_ok(fa(false)), "AErr result through a generic");
-  assert(!(is_ok(Result(i32, CErr).Err(CErr.Silent))), "CErr result through the same generic");
-  assert(!(is_ok(Result(i32, BErr).Err(BErr.Quiet))), "BErr result through the same generic");
+  assert(!is_ok(Result(i32, CErr).Err(CErr.Silent)), "CErr result through the same generic");
+  assert(!is_ok(Result(i32, BErr).Err(BErr.Quiet)), "BErr result through the same generic");
   list := ArrayList(Result(i32, AErr)).new();
   list.push(fa(false));
   list.push(fa(true));

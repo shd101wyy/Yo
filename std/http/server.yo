@@ -40,7 +40,7 @@ impl(
   /// Bind a listening socket on `addr` (port 0 picks a free port — read it
   /// back with `local_addr()`).
   bind : (fn(addr : SocketAddr, io : Io) -> Impl(Future(HttpServer, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       listener := e.io.await(TcpListener.bind(addr, e.io), e);
       HttpServer(listener : listener, max_request_bytes : DEFAULT_MAX_REQUEST_BYTES, stopped : false)
     })
@@ -61,7 +61,7 @@ impl(
     fn(self : Self, handler : Impl(Fn(req : HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
-    io.async((e) => {
+    io.async(e => {
       stream := e.io.await(self.listener.accept(e.io), e);
       raw := e.io.await(read_http_message(stream, self.max_request_bytes, true, e.io), e);
       resp := match(
@@ -86,8 +86,8 @@ impl(
     fn(self : Self, handler : Impl(Fn(req : HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
-    io.async((e) => {
-      while(runtime(!(self.stopped)), {
+    io.async(e => {
+      while(runtime(!self.stopped), {
         e.io.await(self.serve_once(handler, e.io), e);
       });
       ()

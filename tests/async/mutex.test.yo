@@ -10,14 +10,14 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 test("Test mutex try_lock and unlock", {
   m := Mutex(i64).new(i64(5));
-  assert(!(m.is_locked()), "new mutex should be unlocked");
+  assert(!m.is_locked(), "new mutex should be unlocked");
   assert(m.try_lock(), "try_lock on unlocked should succeed");
   assert(m.is_locked(), "mutex should report locked");
-  assert(!(m.try_lock()), "second try_lock should fail");
+  assert(!m.try_lock(), "second try_lock should fail");
   assert(m.get() == i64(5), "protected value should read back");
   m.set(i64(6));
   m.unlock();
-  assert(!(m.is_locked()), "unlock should release");
+  assert(!m.is_locked(), "unlock should release");
   assert(m.get() == i64(6), "set should have written through");
 });
 // ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ test("Test mutex excludes across awaits", {
   _r3 := h3.await(io);
   assert(overlaps.* == i64(0), "no task may enter the section while another holds the lock");
   assert(m.get() == i64(3), "read-modify-write across an await must not lose updates");
-  assert(!(m.is_locked()), "all sections released");
+  assert(!m.is_locked(), "all sections released");
 });
 // ---------------------------------------------------------------------------
 // 3. lock() waits for a holder to release

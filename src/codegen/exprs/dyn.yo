@@ -94,14 +94,14 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   args0 := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
   value_expr := match(ei.runtime_arg_exprs_in_order, .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   dyn_type := ei.ty;
-  if(!(is_dyn_type(dyn_type)), {
+  if(!is_dyn_type(dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });
   value_ei := match(context.base.get_expr_info(value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := value_ei.ty;
   // dyn() requires an object type (value types must use box()). Box is not
   // modeled in yo-self (is_boxed_type ≡ false), so the Box branch is dead.
-  if(!(is_reference_struct_type(value_type)) && !(is_boxed_type(value_type)), {
+  if(!is_reference_struct_type(value_type) && !is_boxed_type(value_type), {
     return(String.from("/* Error: dyn() requires an object type (use box() for value types) */"));
   });
   // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
@@ -184,7 +184,7 @@ generate_dyn_call :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   // Track the temp var (SM-field routing is Phase 5, gated dead here).
   already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
   if(
-    !(already),
+    !already,
     match(
       context.declared_temp_vars,
       .Some(s) => {

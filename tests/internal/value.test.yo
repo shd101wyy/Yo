@@ -62,8 +62,8 @@ test("TupleVal: non-empty equality and inequality", {
 test("TupleVal: predicates", {
   t := EvalValue.TupleVal(ArrayList(EvalValue).new());
   assert(is_tuple_val(t), "is_tuple_val true");
-  assert(!(is_array_val(t)), "is_array_val false for TupleVal");
-  assert(!(is_unit_val(t)), "is_unit_val false for TupleVal");
+  assert(!is_array_val(t), "is_array_val false for TupleVal");
+  assert(!is_unit_val(t), "is_unit_val false for TupleVal");
 });
 test("TupleVal: value_to_string empty", {
   t := EvalValue.TupleVal(ArrayList(EvalValue).new());
@@ -111,7 +111,7 @@ test("ArrayVal: length mismatch is not equal", {
 test("ArrayVal: predicates", {
   v := EvalValue.ArrayVal(ArrayList(EvalValue).new());
   assert(is_array_val(v), "is_array_val true");
-  assert(!(is_tuple_val(v)), "is_tuple_val false for ArrayVal");
+  assert(!is_tuple_val(v), "is_tuple_val false for ArrayVal");
 });
 test("ArrayVal: value_to_string", {
   elems := ArrayList(EvalValue).new();
@@ -149,7 +149,7 @@ test("PtrVal: always unequal", {
 test("PtrVal: predicates", {
   p := EvalValue.PtrVal(_ptr_cell(EvalValue.UnitVal), usize(0));
   assert(is_ptr_val(p), "is_ptr_val true");
-  assert(!(is_array_val(p)), "is_array_val false for PtrVal");
+  assert(!is_array_val(p), "is_array_val false for PtrVal");
 });
 test("PtrVal: value_to_string scalar target", {
   p := EvalValue.PtrVal(_ptr_cell(EvalValue.IntLit(String.from("7"))), usize(0));
@@ -229,7 +229,7 @@ test("TraitVal: predicates", {
     ArrayList(Option(EvalValue)).new()
   );
   assert(is_trait_val(v), "is_trait_val true");
-  assert(!(is_struct_val(v)), "is_struct_val false for TraitVal");
+  assert(!is_struct_val(v), "is_struct_val false for TraitVal");
 });
 test("TraitVal: value_to_string", {
   fnames := ArrayList(String).new();
@@ -268,7 +268,7 @@ test("ComptimeListVal: element-wise equality", {
 test("ComptimeListVal: predicates", {
   v := EvalValue.ComptimeListVal(ArrayList(EvalValue).new());
   assert(is_comptime_list_val(v), "is_comptime_list_val true");
-  assert(!(is_array_val(v)), "is_array_val false for ComptimeListVal");
+  assert(!is_array_val(v), "is_array_val false for ComptimeListVal");
 });
 test("ComptimeListVal: value_to_string", {
   elems := ArrayList(EvalValue).new();
@@ -306,9 +306,9 @@ test("ExprVal: structural equality", {
 test("ExprVal: predicates", {
   v := EvalValue.ExprVal(make_err_expr());
   assert(is_expr_val(v), "is_expr_val true");
-  assert(!(is_tuple_val(v)), "is_tuple_val false for ExprVal");
-  assert(!(is_array_val(v)), "is_array_val false for ExprVal");
-  assert(!(is_comptime_list_val(v)), "is_comptime_list_val false for ExprVal");
+  assert(!is_tuple_val(v), "is_tuple_val false for ExprVal");
+  assert(!is_array_val(v), "is_array_val false for ExprVal");
+  assert(!is_comptime_list_val(v), "is_comptime_list_val false for ExprVal");
 });
 test("ExprVal: value_to_string", {
   v := EvalValue.ExprVal(make_err_expr());
@@ -343,9 +343,9 @@ test("predicates are exclusive across all variants", {
   assert(is_comptime_list_val(cl_v), "cl → is_comptime_list_val");
   assert(is_expr_val(expr_v), "expr → is_expr_val");
   // Spot-check: none of the phase-2h predicates fire for simple variants
-  assert(!(is_tuple_val(unit_v)), "unit ≠ tuple");
-  assert(!(is_array_val(bool_v)), "bool ≠ array");
-  assert(!(is_ptr_val(str_v)), "str ≠ ptr");
-  assert(!(is_trait_val(float_v)), "float ≠ trait");
-  assert(!(is_expr_val(varref_v)), "varref ≠ expr");
+  assert(!is_tuple_val(unit_v), "unit ≠ tuple");
+  assert(!is_array_val(bool_v), "bool ≠ array");
+  assert(!is_ptr_val(str_v), "str ≠ ptr");
+  assert(!is_trait_val(float_v), "float ≠ trait");
+  assert(!is_expr_val(varref_v), "varref ≠ expr");
 });

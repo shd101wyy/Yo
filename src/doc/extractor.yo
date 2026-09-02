@@ -92,13 +92,13 @@ get_doc_comment_lookup_key :: (fn(comment : DocComment) -> String)(
 /// Removes the `///` or `//!` prefix and one optional leading space.
 strip_doc_line_comment :: (fn(value : String) -> String)({
   content := cond(
-    (value.starts_with(`///`)) => value.substring(usize(3), value.len()),
-    (value.starts_with(`//!`)) => value.substring(usize(3), value.len()),
+    value.starts_with(`///`) => value.substring(usize(3), value.len()),
+    value.starts_with(`//!`) => value.substring(usize(3), value.len()),
     true => value
   );
   // Strip exactly one leading space if present
   cond(
-    (content.starts_with(` `)) => content.substring(usize(1), content.len()),
+    content.starts_with(` `) => content.substring(usize(1), content.len()),
     true => content
   )
 });
@@ -115,17 +115,17 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
   });
   // Remove opening delimiter: /** or /*!
   content := cond(
-    (value.starts_with(`/**`)) => value.substring(usize(3), value.len()),
-    (value.starts_with(`/*!`)) => value.substring(usize(3), value.len()),
+    value.starts_with(`/**`) => value.substring(usize(3), value.len()),
+    value.starts_with(`/*!`) => value.substring(usize(3), value.len()),
     true => value
   );
   // Remove closing delimiter: */
   content2 := cond(
-    (content.ends_with(`*/`)) => content.substring(usize(0), content.len() - usize(2)),
+    content.ends_with(`*/`) => content.substring(usize(0), content.len() - usize(2)),
     true => content
   );
   // Single-line case: no newlines, just trim whitespace
-  if(!(content2.contains(`\n`)), {
+  if(!content2.contains(`\n`), {
     return(content2.trim());
   });
   // Multi-line: split into lines, strip leading whitespace + optional *, then rejoin
@@ -145,7 +145,7 @@ strip_doc_block_comment :: (fn(value : String) -> String)({
     trimmed := raw_line.trim_start();
     // Strip single leading "* " or "*" (JSDoc-style)
     line := cond(
-      (trimmed.starts_with(`* `)) => trimmed.substring(usize(2), trimmed.len()),
+      trimmed.starts_with(`* `) => trimmed.substring(usize(2), trimmed.len()),
       ((trimmed == `*`) || (trimmed == `*\r`)) => ``,
       true => trimmed
     );
@@ -201,7 +201,7 @@ find_next_declaration_name_ :: (fn(tokens : ArrayList(Token), start_index : usiz
         break;
       }
     );
-    if((is_whitespace_or_regular_comment_(token)) || (is_doc_comment_token_(token)), {
+    if(is_whitespace_or_regular_comment_(token) || is_doc_comment_token_(token), {
       i = (i + usize(1));
     }, {
       if(token.kind == TokenKind.Identifier, {
@@ -424,7 +424,7 @@ find_next_identifier_ :: (fn(tokens : ArrayList(Token), start_index : usize, end
         break;
       }
     );
-    if((is_whitespace_or_regular_comment_(token)) || (is_doc_comment_token_(token)), {
+    if(is_whitespace_or_regular_comment_(token) || is_doc_comment_token_(token), {
       i = (i + usize(1));
     }, {
       if(token.kind == TokenKind.Identifier, {
@@ -545,7 +545,7 @@ find_matching_parens :: (fn(tokens : ArrayList(Token), search_start : usize) -> 
     });
     i = (i + usize(1));
   });
-  if(!(found_open), {
+  if(!found_open, {
     return(Option(ParensResult).None);
   });
   open_index := i;

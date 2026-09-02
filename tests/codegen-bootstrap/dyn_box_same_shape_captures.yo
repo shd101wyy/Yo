@@ -8,23 +8,23 @@ use_cb :: (fn(v : i32, cb : Dyn(Fn(u : i32) -> i32)) -> i32)({
 
 t_auto :: (fn() -> unit)({
   a := 2;
-  x := use_cb(10, dyn((u) => ((u + 1) + a))); // capture variable 'a'
+  x := use_cb(10, dyn(u => (u + 1 + a))); // capture variable 'a'
   assert(x == 13, "ax");
-  y := use_cb(20, dyn((u) => (u * 2))); // capture nothing
+  y := use_cb(20, dyn(u => (u * 2))); // capture nothing
   assert(y == 40, "ay");
   b := Box(i32)(5);
-  z := use_cb(10, dyn((u) => ((u + 1) + b.*))); // capture variable 'b'
+  z := use_cb(10, dyn(u => (u + 1 + b.*))); // capture variable 'b'
   assert(z == 16, "az");
 });
 
 t_manual :: (fn() -> unit)({
   a := 2;
-  x := use_cb(10, dyn(box((u) => ((u + 1) + a)))); // capture variable 'a'
+  x := use_cb(10, dyn(box(u => (u + 1 + a)))); // capture variable 'a'
   assert(x == 13, "mx");
-  y := use_cb(20, dyn(box((u) => (u * 2)))); // capture nothing
+  y := use_cb(20, dyn(box(u => (u * 2)))); // capture nothing
   assert(y == 40, "my");
   b := Box(i32)(5);
-  z := use_cb(10, dyn(box((u) => ((u + 1) + b.*)))); // capture variable 'b'
+  z := use_cb(10, dyn(box(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16, "mz");
 });
 

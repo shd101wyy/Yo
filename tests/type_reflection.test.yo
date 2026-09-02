@@ -27,7 +27,7 @@ test("type reflection field type via Type.get_struct_fields", {
 ColorR :: enum(Red, Green, Blue);
 test("type reflection is_enum via TypeInfo", {
   comptime_assert(Type.get_info(ColorR).is_enum(), "ColorR is an enum");
-  comptime_assert(!(Type.get_info(ColorR).is_struct()), "ColorR is not a struct");
+  comptime_assert(!Type.get_info(ColorR).is_struct(), "ColorR is not a struct");
 });
 test("type reflection variant count via Type.get_enum_variants", {
   variants :: Type.get_enum_variants(ColorR);
@@ -71,13 +71,13 @@ test("TypeInfo for primitive types", {
 test("TypeInfo for str and comptime_str", {
   k_str :: Type.get_info(str);
   comptime_assert(k_str.is_str(), "str should be Str");
-  comptime_assert(!(k_str.is_comptime()), "str is not comptime-only");
+  comptime_assert(!k_str.is_comptime(), "str is not comptime-only");
   comptime_assert(
     match(k_str, .Str => true, _ => false),
     "str tag should match .Str"
   );
   k_cstr :: Type.get_info(comptime_str);
-  comptime_assert(!(k_cstr.is_str()), "comptime_str is not Str");
+  comptime_assert(!k_cstr.is_str(), "comptime_str is not Str");
   comptime_assert(k_cstr.is_comptime(), "comptime_str is comptime-only");
   comptime_assert(
     match(k_cstr, .ComptimeStr => true, _ => false),
@@ -96,17 +96,17 @@ test("TypeInfo for array, pointer", {
   // (Slice case retired with the builtin Slice type —
   // plans/archive/SLICE_REWORK.md.)
   Arr3 :: [i32 ; 3];
-  PtrType :: *(i32);
+  PtrType :: *i32;
   comptime_assert(Type.get_info(Arr3).is_array(), "array should be Array");
   comptime_assert(Type.get_info(PtrType).is_pointer(), "pointer should be Pointer");
 });
 test("TypeInfo negative cases", {
   k_i32 :: Type.get_info(i32);
   k_point :: Type.get_info(TIPoint);
-  comptime_assert(!(k_i32.is_struct()), "i32 should not be Struct");
-  comptime_assert(!(k_i32.is_enum()), "i32 should not be Enum");
-  comptime_assert(!(k_point.is_enum()), "Point should not be Enum");
-  comptime_assert(!(k_point.is_primitive()), "Point should not be Primitive");
+  comptime_assert(!k_i32.is_struct(), "i32 should not be Struct");
+  comptime_assert(!k_i32.is_enum(), "i32 should not be Enum");
+  comptime_assert(!k_point.is_enum(), "Point should not be Enum");
+  comptime_assert(!k_point.is_primitive(), "Point should not be Primitive");
 });
 test("TypeInfo match dispatch", {
   info_i32 :: Type.get_info(i32);
@@ -144,17 +144,17 @@ test("TypeInfo static call style", {
 test("TypeInfo guard methods: is_integer, is_float, is_numeric, is_comptime", {
   comptime_assert(Type.get_info(i32).is_integer(), "i32 is integer");
   comptime_assert(Type.get_info(u64).is_integer(), "u64 is integer");
-  comptime_assert(!(Type.get_info(f32).is_integer()), "f32 is not integer");
+  comptime_assert(!Type.get_info(f32).is_integer(), "f32 is not integer");
   comptime_assert(Type.get_info(f32).is_float(), "f32 is float");
   comptime_assert(Type.get_info(f64).is_float(), "f64 is float");
-  comptime_assert(!(Type.get_info(i32).is_float()), "i32 is not float");
+  comptime_assert(!Type.get_info(i32).is_float(), "i32 is not float");
   comptime_assert(Type.get_info(i32).is_numeric(), "i32 is numeric");
   comptime_assert(Type.get_info(f64).is_numeric(), "f64 is numeric");
-  comptime_assert(!(Type.get_info(bool).is_numeric()), "bool is not numeric");
+  comptime_assert(!Type.get_info(bool).is_numeric(), "bool is not numeric");
   comptime_assert(Type.get_info(comptime_int).is_comptime(), "comptime_int is comptime");
   comptime_assert(Type.get_info(comptime_float).is_comptime(), "comptime_float is comptime");
   comptime_assert(Type.get_info(comptime_str).is_comptime(), "comptime_str is comptime");
-  comptime_assert(!(Type.get_info(i32).is_comptime()), "i32 is not comptime");
+  comptime_assert(!Type.get_info(i32).is_comptime(), "i32 is not comptime");
 });
 test("TypeInfo compound: Array element and length", {
   ArrT :: [i32 ; 3];
@@ -180,7 +180,7 @@ test("TypeInfo compound: Enum variants", {
   comptime_assert(variant_count == usize(3), "Color should have 3 variants");
 });
 test("TypeInfo compound: Pointer pointee", {
-  PtrT :: *(i32);
+  PtrT :: *i32;
   ptr_info :: Type.get_info(PtrT);
   comptime_assert(ptr_info.is_pointer(), "should be pointer");
   pointee_is_i32 :: match(ptr_info, .Ptr(p) => __yo_are_types_compatible(p, i32), _ => false);

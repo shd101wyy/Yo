@@ -67,7 +67,7 @@ eval_bool_arg :: (
       new_expr_info(env, t_bool())
     }
   );
-  if(!(is_bool_type(info.ty)), {
+  if(!is_bool_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -115,7 +115,7 @@ evaluate_yo_comptime_boolean_functions :: (
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_NOT, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(av) => match(av, .BoolVal(b) => EvalValue.BoolVal(!(b)), _ => create_unknown_val(t_bool())),
+          .Some(av) => match(av, .BoolVal(b) => EvalValue.BoolVal(!b), _ => create_unknown_val(t_bool())),
           .None => create_unknown_val(t_bool())
         ),
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_BOOL_TO_COMPTIME_STRING, .Some(usize(1))) =>

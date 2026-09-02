@@ -48,7 +48,7 @@ _inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
         i = (i + usize(2));
       },
       (b == u8(34)) => {
-        in_str = !(in_str);
+        in_str = !in_str;
         i = (i + usize(1));
       },
       true => {
@@ -101,10 +101,10 @@ _contains_word_return :: (fn(s : String) -> bool)({
     match(
       _byte_index_of(s, word.clone(), from),
       .Some(idx) => {
-        before_ok := if(idx == usize(0), true, !(_is_word_byte(s.byte_at(idx - usize(1)))));
+        before_ok := if(idx == usize(0), true, !_is_word_byte(s.byte_at(idx - usize(1))));
         after_idx := (idx + wlen);
-        after_ok := if(after_idx >= slen, true, !(_is_word_byte(s.byte_at(after_idx))));
-        if((before_ok && after_ok) && !(_inside_c_string_literal(s, idx)), {
+        after_ok := if(after_idx >= slen, true, !_is_word_byte(s.byte_at(after_idx)));
+        if(before_ok && after_ok && !_inside_c_string_literal(s, idx), {
           return(true);
         }, {
           from = (idx + usize(1));
@@ -132,7 +132,7 @@ _cond_bool :: (fn(e : AstExpr, context : FunctionGenerationContext) -> Option(bo
 /// Wrap `code` in `&(...)` when the enclosing function returns `-> inout(T)` and
 /// this arm value is not already a pointer. Mirrors the `maybeAddressOf` helper.
 _maybe_address_of :: (fn(value_expr : AstExpr, code : String, cond_outer_is_ptr : bool, context : FunctionGenerationContext) -> String)(
-  if(!(cond_outer_is_ptr), code, {
+  if(!cond_outer_is_ptr, code, {
     arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(ei.ty), .None => true);
     if(arm_is_ptr, code, {
       out := String.from("&(");
@@ -254,7 +254,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
               );
             });
           });
-          if((!(is_inout_atom)) && (!(vtv == raw_code)), {
+          if(!is_inout_atom && !(vtv == raw_code), {
             dline := value_indent.clone();
             dline.push_string(get_type_string(vei.ty, context.base));
             dline.push_str(" ");
@@ -301,7 +301,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
         .None => ()
       );
       if(
-        !(dup_named),
+        !dup_named,
         if(declared_temp, {
           fline := value_indent.clone();
           fline.push_string(generate_dup_code_for_value(final_code.clone(), vei.ty, context));
@@ -313,7 +313,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
       );
       match(
         temp_var_opt,
-        .Some(tv) => if(!(is_unit), {
+        .Some(tv) => if(!is_unit, {
           tline := value_indent.clone();
           tline.push_string(tv.clone());
           tline.push_str(" = ");
@@ -338,7 +338,7 @@ _emit_value_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
     (),
     match(
       temp_var_opt,
-      .Some(tv) => if(!(is_unit), {
+      .Some(tv) => if(!is_unit, {
         line := value_indent.clone();
         line.push_string(tv.clone());
         line.push_str(" = ");
@@ -369,14 +369,14 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
     // All statements except the last.
     (j : usize) = usize(0);
     (stop : bool) = false;
-    while((j < (n - usize(1))) && !(stop), {
+    while((j < (n - usize(1))) && !stop, {
       match(
         begin_args.get(j),
         .Some(barg) => match(
           context.base.get_expr_info(barg),
           .Some(bei) => {
             arg_code := _call_generate_expr(barg, value_indent.clone(), context);
-            if((arg_code.len() > usize(0)) && !(is_temp_variable_name(bei.env.module_path.clone(), arg_code.clone())), {
+            if((arg_code.len() > usize(0)) && !is_temp_variable_name(bei.env.module_path.clone(), arg_code.clone()), {
               line := value_indent.clone();
               line.push_string(arg_code);
               line.push_str(";");
@@ -429,7 +429,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                     );
                   });
                 });
-                if((!(is_inout_atom)) && (!(ftv == raw_code)), {
+                if(!is_inout_atom && !(ftv == raw_code), {
                   dline := value_indent.clone();
                   dline.push_string(get_type_string(fei.ty, context.base));
                   dline.push_str(" ");
@@ -460,7 +460,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                       fdtv := get_variable_name_for_codegen(fdvn.clone(), Option(Environment).Some(fdup_info.env));
                       match(
                         temp_var_opt,
-                        .Some(tv) => if(!(is_unit), {
+                        .Some(tv) => if(!is_unit, {
                           tline := value_indent.clone();
                           tline.push_string(tv.clone());
                           tline.push_str(" = ");
@@ -479,13 +479,13 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
               ),
               .None => ()
             );
-            if(!(dup_result_used), {
+            if(!dup_result_used, {
               final_code2 := _call_generate_expr(final_expr, value_indent.clone(), context);
               if(
                 final_code2.len() > usize(0),
                 match(
                   temp_var_opt,
-                  .Some(tv) => if(!(is_unit), {
+                  .Some(tv) => if(!is_unit, {
                     line := value_indent.clone();
                     line.push_string(tv.clone());
                     line.push_str(" = ");
@@ -508,7 +508,7 @@ _emit_begin_arm :: (fn(value : AstExpr, value_indent : String, temp_var_opt : Op
                 em.emit_string_line(line);
               }, match(
                 temp_var_opt,
-                .Some(tv) => if(!(is_unit), {
+                .Some(tv) => if(!is_unit, {
                   line := value_indent.clone();
                   line.push_string(tv.clone());
                   line.push_str(" = ");
@@ -554,7 +554,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
   (first_nf : usize) = nargs;
   (found_nf : bool) = false;
   (i : usize) = usize(0);
-  while((i < nargs) && !(found_nf), {
+  while((i < nargs) && !found_nf, {
     match(
       args.get(i),
       .Some(arg) => if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).Some(usize(2))), {
@@ -562,8 +562,8 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
         match(
           cargs.get(usize(0)),
           .Some(condition) => {
-            is_false := match(_cond_bool(condition, context), .Some(b) => !(b), .None => false);
-            if(!(is_false), {
+            is_false := match(_cond_bool(condition, context), .Some(b) => !b, .None => false);
+            if(!is_false, {
               first_nf = i;
               found_nf = true;
             });
@@ -600,7 +600,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
   });
   // Declare the result temp (unless unit, or we are collapsing to direct).
   if(
-    !(is_unit) && !(can_opt),
+    !is_unit && !can_opt,
     match(
       temp_var_opt,
       .Some(tv) => {
@@ -642,9 +642,9 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
             });
             match(
               temp_var_opt,
-              .Some(tv) => if(!(is_unit), {
+              .Some(tv) => if(!is_unit, {
                 is_cf := _is_cf_code(value, value_code.clone(), context);
-                if((value_code.len() > usize(0)) && !(is_cf), {
+                if((value_code.len() > usize(0)) && !is_cf, {
                   line := indent.clone();
                   // The collapse-to-direct path skips this cond's own temp
                   // declaration because the evaluator ADOPTS the arm body's
@@ -705,10 +705,10 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
             pargs.get(usize(1)),
             .Some(value) => {
               cbool := _cond_bool(condition, context);
-              is_false := match(cbool, .Some(b) => !(b), .None => false);
-              if(!(is_false), {
+              is_false := match(cbool, .Some(b) => !b, .None => false);
+              if(!is_false, {
                 is_ct_true := match(cbool, .Some(b) => b, .None => false);
-                if(!(has_emitted), {
+                if(!has_emitted, {
                   if(is_ct_true, {
                     h := current_indent.clone();
                     h.push_str("{");
@@ -741,7 +741,7 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   em.emit_string_line(eh);
                   else_depth = (else_depth + usize(1));
                   current_indent.push_str("  ");
-                  if(!(is_ct_true), {
+                  if(!is_ct_true, {
                     // Same pending window as the first-condition site above.
                     cnd_drops2 := match(context.base.get_expr_info(condition), .Some(cnd_ei2) => cnd_ei2.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
                     cnd_prev2 := context.pending_deferred_drops;

@@ -202,7 +202,7 @@ ByteXor :: struct(acc : u64, count : usize);
 impl(
   ByteXor,
   Hasher(
-    write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit)({
+    write : (fn(inout(self) : Self, buf : *u8, size : usize) -> unit)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
         // byte position = bytes written so far, so a value split across
@@ -255,7 +255,7 @@ test("HashSet.with_keys: keyed membership and resize", {
   });
   assert(s.len() == usize(300), "300 elements");
   assert(s.contains(i64(7 * 123)), "member");
-  assert(!(s.contains(i64(8))), "non-member");
+  assert(!s.contains(i64(8)), "non-member");
   assert(s.k1 == K1, "k1 kept through resize");
 });
 test("hash_one_with_keys matches a map's bucket hash inputs", {

@@ -179,7 +179,7 @@ _evaluate_transparent_unary :: (
 /// `ghost_fn(f)` — marks a function value ghost-only. Phase 0: transparent
 /// pass-through. Mirrors `evaluateGhostFn`.
 evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
-  if(!(ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -196,7 +196,7 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere). Mirrors `evaluateOld`.
 evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
-  if(!(ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -599,7 +599,7 @@ wrap_function_body_with_contracts :: (
     );
     fi = (fi + usize(1));
   });
-  if(!(returns_unit), {
+  if(!returns_unit, {
     out_args.push(
       _synth_atom(String.from(_RESULT_IDENTIFIER), TokenKind.Identifier, body_tok.clone())
     );

@@ -32,7 +32,7 @@ fchmod :: (fn(fd : i32, mode : u32) -> i32)(
 // Use AT_FDCWD for current directory.
 // flags: 0 or AT_SYMLINK_NOFOLLOW
 // Returns 0 on success, -errno on failure.
-chmodat :: (fn(dirfd : i32, path : *(u8), mode : u32, flags : i32) -> i32)(
+chmodat :: (fn(dirfd : i32, path : *u8, mode : u32, flags : i32) -> i32)(
   __yo_sync_fchmodat(dirfd, path, mode, flags)
 );
 // ============================================================================
@@ -47,7 +47,7 @@ fchown :: (fn(fd : i32, uid : u32, gid : u32) -> i32)(
 // Use AT_FDCWD for current directory.
 // flags: 0 or AT_SYMLINK_NOFOLLOW
 // Returns 0 on success, -errno on failure.
-chownat :: (fn(dirfd : i32, path : *(u8), uid : u32, gid : u32, flags : i32) -> i32)(
+chownat :: (fn(dirfd : i32, path : *u8, uid : u32, gid : u32, flags : i32) -> i32)(
   __yo_sync_fchownat(dirfd, path, uid, gid, flags)
 );
 // ============================================================================
@@ -59,7 +59,7 @@ chownat :: (fn(dirfd : i32, path : *(u8), uid : u32, gid : u32, flags : i32) -> 
 // mode: F_OK (exists), R_OK (readable), W_OK (writable), X_OK (executable)
 //       Combine with bitwise OR: (R_OK | W_OK)
 // Returns 0 on success, -errno on failure (e.g. -ENOENT, -EACCES).
-access :: (fn(dirfd : i32, path : *(u8), mode : i32) -> i32)(
+access :: (fn(dirfd : i32, path : *u8, mode : i32) -> i32)(
   __yo_sync_access(dirfd, path, mode)
 );
 export(fchmod, chmodat, fchown, chownat, access);

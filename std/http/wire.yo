@@ -67,7 +67,7 @@ find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
           match(
             val_str.parse_i32(),
             .Some(n) => n,
-            .None => i32(-(1))
+            .None => i32(-1)
           )
         },
         .None => {
@@ -75,12 +75,12 @@ find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
           match(
             val_str.parse_i32(),
             .Some(n) => n,
-            .None => i32(-(1))
+            .None => i32(-1)
           )
         }
       )
     },
-    .None => i32(-(1))
+    .None => i32(-1)
   )
 });
 // True when the header section (bytes [0, header_end)) declares
@@ -120,7 +120,7 @@ _hex_digit :: (fn(b : u8) -> i32)(
     ((b >= u8(48)) && (b <= u8(57))) => i32(b - u8(48)),
     ((b >= u8(97)) && (b <= u8(102))) => i32((b - u8(97)) + u8(10)),
     ((b >= u8(65)) && (b <= u8(70))) => i32((b - u8(65)) + u8(10)),
-    true => i32(-(1))
+    true => i32(-1)
   )
 );
 // Decode a `Transfer-Encoding: chunked` body (RFC 9112 §7.1): repeated
@@ -137,7 +137,7 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
     digits := usize(0);
     while(runtime((i < n) && (_hex_digit(body(i)) >= i32(0))), {
       cond(
-        (size > (usize(0x0FFFFFFF))) => {
+        (size > usize(0x0FFFFFFF)) => {
           return(Dechunk.Malformed(`chunk size overflows`));
         },
         true => ()
@@ -196,7 +196,7 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
           i = (i + usize(1));
         });
       },
-      (((i + size) + usize(2)) > n) => {
+      ((i + size + usize(2)) > n) => {
         return(Dechunk.Incomplete);
       },
       true => ()
@@ -237,13 +237,13 @@ read_http_message :: (
   fn(generic(R : Type), stream : R, max_bytes : usize, is_request : bool, io : Io, where(R <: Reader)) ->
     Impl(Future(String, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     buf_size := usize(8192);
     buf := *(u8)(malloc(buf_size).unwrap());
     result := ArrayList(u8).new();
     // Read until connection closes or we've read the full response
     done := false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       n := e.io.await(stream.read(buf, buf_size, e.io), e);
       cond(
         // 0 bytes means the peer closed the connection. A negative count is

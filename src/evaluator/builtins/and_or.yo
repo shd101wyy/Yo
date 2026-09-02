@@ -95,7 +95,7 @@ evaluate_and_or :: (
             new_expr_info(env, t_bool())
           }
         );
-        if(!(is_bool_type(arg_info.ty)), {
+        if(!is_bool_type(arg_info.ty), {
           exn.throw(
             dyn(
               format_error_message(
@@ -133,12 +133,12 @@ evaluate_and_or :: (
               if(is_bool_val(av), {
                 bv := match(av, .BoolVal(b) => b, _ => false);
                 if(is_and, {
-                  if(!(bv), {
+                  if(!bv, {
                     // Short-circuit: false && anything = false.
                     result_val = .Some(EvalValue.BoolVal(false));
                     i = args.len();
                   }, {
-                    if(!(has_unknown) && !(has_runtime), {
+                    if(!has_unknown && !has_runtime, {
                       result_val = .Some(EvalValue.BoolVal(true));
                     });
                   });
@@ -148,7 +148,7 @@ evaluate_and_or :: (
                     result_val = .Some(EvalValue.BoolVal(true));
                     i = args.len();
                   }, {
-                    if(!(has_unknown) && !(has_runtime), {
+                    if(!has_unknown && !has_runtime, {
                       result_val = .Some(EvalValue.BoolVal(false));
                     });
                   });
@@ -168,7 +168,7 @@ evaluate_and_or :: (
     result_val,
     .Some(rv) => cond(
       // Short-circuited with definitive answer — keep it.
-      (is_bool_val(rv)) => .Some(rv),
+      is_bool_val(rv) => .Some(rv),
       has_runtime => .None,
       has_unknown => .Some(create_unknown_val(t_bool())),
       true => result_val

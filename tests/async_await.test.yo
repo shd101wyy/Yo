@@ -377,7 +377,7 @@ test("Test nested cond with await", {
         );
       },
       true => {
-        result.* = i32(-(1));
+        result.* = i32(-1);
       }
     );
     assert(result.* == i32(42), "nested cond should set result to 42");
@@ -440,7 +440,7 @@ test("Test async function with multiple awaits and early return", {
       );
       i.* = (i.* + 1);
     });
-    return(i32(-(1)));
+    return(i32(-1));
   });
   result := io.await(task, io);
   assert(result == i32(5), "should find value 5");
@@ -919,7 +919,7 @@ test("Test loop-local and captured values with continue across await", {
 // ---------------------------------------------------------------------------
 test("Test early return inside loop after continue", {
   i := Box(i32)(0);
-  found := Box(i32)(-(1));
+  found := Box(i32)(-1);
   reached_end := Box(bool)(false);
   task := io.async((io : Io) => {
     while(runtime(i.* < i32(10)), {
@@ -1518,7 +1518,7 @@ test("Test Future with single effect row spread", {
   )(f(e));
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         return(i32(99));
       }
     );
@@ -1539,7 +1539,7 @@ test("Test Future with single individual effect", {
   );
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(77));
       }
@@ -1563,13 +1563,13 @@ test("Test Future with multiple individual effects", {
   });
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(55));
       }
     );
     (log : Log) = (
-      (msg) -> {
+      msg -> {
         println(msg);
       }
     );
@@ -1608,13 +1608,13 @@ test("Test Future with multiple effect row spreads", {
   });
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(42));
       }
     );
     (log : Log) = (
-      (msg) -> {
+      msg -> {
         println(msg);
       }
     );
@@ -1638,7 +1638,7 @@ test("Test Future with mixed individual effect and spread", {
   EmptyBundle :: struct();
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(33));
       }
@@ -1667,12 +1667,12 @@ test("Test explicit Future annotation with bundle effect struct", {
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, raise : Raise, log : Log);
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(100));
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       println(msg);
     }
   );
@@ -1788,7 +1788,7 @@ test("Test unwind in async closure", {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> unit)({
       (raise : Raise) =
         (
-          (msg) -> {
+          msg -> {
             println(msg);
             unwind(());
           }
@@ -1810,7 +1810,7 @@ test("Test unwind in async closure", {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> i32)({
       (raise : Raise) =
         (
-          (msg) -> {
+          msg -> {
             println(msg);
             unwind(666);
           }
@@ -1860,7 +1860,7 @@ test("Test JoinHandle await returns None on unwind", {
   });
   (raise : Raise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );
@@ -1885,7 +1885,7 @@ test("Test JoinHandle two tasks one escapes", {
   });
   (raise : Raise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );
@@ -1912,7 +1912,7 @@ test("Test effect injection via io.await on sync future", {
   });
   (log1 : Log) =
     (
-      (msg) -> {
+      msg -> {
         print("Log1: ");
         println(msg);
       }
@@ -1932,14 +1932,14 @@ test("Test effect injection set-once via io.spawn then io.await", {
   });
   (log1 : Log) =
     (
-      (msg) -> {
+      msg -> {
         print("SpawnLog: ");
         println(msg);
       }
     );
   (log2 : Log) =
     (
-      (msg) -> {
+      msg -> {
         assert(false, "log2 should not be called (set-once semantics)");
       }
     );
@@ -1960,7 +1960,7 @@ test("Test effect injection via io.await on SM future", {
   });
   (log1 : Log) =
     (
-      (msg) -> {
+      msg -> {
         print("SMLog: ");
         println(msg);
       }
@@ -2075,7 +2075,7 @@ test("Test effect resume inside async closure", {
     r
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(10));
     }
   );
@@ -2103,7 +2103,7 @@ test("Test effect resume across multiple yields", {
     r
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(5));
     }
   );
@@ -2126,12 +2126,12 @@ test("Test two effects injected via io.await", {
     result
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(42));
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       unsafe(printf("log: "));
       println(msg);
     }
@@ -2154,12 +2154,12 @@ test("Test two effects injected via io.spawn", {
     result
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(7));
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       unsafe(printf("spawn-log: "));
       println(msg);
     }
@@ -2245,7 +2245,7 @@ test("Test unwind via injected effect aborts future", {
     });
     (raise : Raise) =
       (
-        (msg) -> {
+        msg -> {
           unwind(i32(77));
         }
       );
@@ -2270,7 +2270,7 @@ test("Test JoinHandle unwind via spawn-injected effect", {
   });
   (raise : Raise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );
@@ -2287,7 +2287,7 @@ test("Test given handler inside async closure with yields", {
   Raise :: (fn(msg : String) -> i32);
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         return(i32(50));
       }
     );
@@ -2299,10 +2299,10 @@ test("Test given handler inside async closure with yields", {
     );
     a := might_fail(i32(5), raise);
     io.await(yield(io), io);
-    b := might_fail(i32(-(1)), raise);
+    b := might_fail(i32(-1), raise);
     io.await(yield(io), io);
     c := might_fail(i32(3), raise);
-    r := ((a + b) + c);
+    r := (a + b + c);
     r
   });
   result := io.await(task, io);
@@ -2366,7 +2366,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
     });
     (raise : Raise) =
       (
-        (msg) -> {
+        msg -> {
           unwind(i32(77));
         }
       );
@@ -2390,7 +2390,7 @@ test("SM opt: segment-local i32 vars are not in struct", {
     io.await(yield(io), io);
     c := i32(30);
     d := i32(40);
-    sum1 := ((a + c) + d);
+    sum1 := (a + c + d);
     io.await(yield(io), io);
     e := i32(50);
     result := ((sum1 + e) - sum0);
@@ -2449,7 +2449,7 @@ test("SM opt: multiple awaits with cross-boundary and local vars", {
     check2 := (persistent + local2);
     io.await(yield(io), io);
     // Segment 3: use all checks — checks cross boundaries since used here
-    return((check0 + check1) + check2);
+    return(check0 + check1 + check2);
   });
   r := io.await(task, io);
   // check0=101, check1=102, check2=103 → 101+102+103 = 306
@@ -2461,7 +2461,7 @@ test("SM opt: no await points means no struct fields needed", {
     a := i32(1);
     b := i32(2);
     c := i32(3);
-    return((a + b) + c);
+    return(a + b + c);
   });
   r := io.await(task, io);
   assert(r == i32(6), "no-await sync_fut_t should work with all locals");
@@ -2515,7 +2515,7 @@ test("SM opt: cond-with-await, non-branching segment locals", {
       true => ()
     );
     local_after := i32(9);
-    return((cross + sum0) + local_after);
+    return(cross + sum0 + local_after);
   });
   r := io.await(task, io);
   // sum0 = 107, result = 100 + 107 + 9 = 216
@@ -2552,7 +2552,7 @@ test("SM opt: cond-with-await, cross-boundary vars still work", {
     cond(
       true => {
         io.await(yield(io), io);
-        a = ((a + b) + c);
+        a = (a + b + c);
       },
       true => ()
     );
@@ -2593,7 +2593,7 @@ test("SM opt: temp future vars aliased to await_future fields", {
     io.await(yield(io), io);
     z := i32(30);
     io.await(yield(io), io);
-    return((x + y) + z);
+    return(x + y + z);
   });
   r := io.await(task, io);
   assert(r == i32(60), "temp future aliasing should compute 60");
@@ -2730,7 +2730,7 @@ test("Regression: cond with await in while loop body", {
   task := io.async((io : Io) => {
     counter := i32(0);
     done := false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       io.await(yield(io), io);
       counter = (counter + i32(1));
       cond(
@@ -2740,7 +2740,7 @@ test("Regression: cond with await in while loop body", {
         true => ()
       );
       cond(
-        !(done) => {
+        !done => {
           io.await(yield(io), io);
         },
         true => ()
@@ -2791,7 +2791,7 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
   task := io.async((io : Io) => {
     responses := i32(0);
     done := false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       // Simulate recv
       n := io.await(
         io.async((io : Io) => {
@@ -2811,7 +2811,7 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
         true => ()
       );
       cond(
-        !(done) => {
+        !done => {
           // Simulate send
           io.await(
             io.async((io : Io) => {
@@ -3927,7 +3927,7 @@ test("abort dispose skips awaitless-match pattern bindings (no double-drop)", {
   // assert(false) — reaching it means the throw path did not run.
   throw_exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         unwind(());
       }
     )
@@ -3989,7 +3989,7 @@ test("standalone await as the async body's own result", {
   tail_result :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
     io2.async((e : IoExn) => e.io.await(make_forty_two(e.io), e))
   );
-  exn := Exception(throw : ((_err) -> unwind(())));
+  exn := Exception(throw : (_err -> unwind(())));
   got := io.await(tail_result(io), IoExn(io : io, exn : exn));
   assert(got == i32(42));
 });
@@ -4190,7 +4190,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
       n
     })
   );
-  exn := Exception(throw : ((_err) -> unwind(())));
+  exn := Exception(throw : (_err -> unwind(())));
   got := io.await(probe(io, exn), IoExn(io : io, exn : exn));
   assert(got == usize(6), "3 outer x 2 inner, every pair visited exactly once");
 });
@@ -4533,7 +4533,7 @@ impl(
   )
 );
 make_async_made_probe :: (fn(id : i32, io : Io) -> Impl(Future(AsyncMadeProbe, Io)))(
-  io.async((io) => AsyncMadeProbe(id : id))
+  io.async(io => AsyncMadeProbe(id : id))
 );
 test("async-produced ref result is disposed when the last reference drops", {
   {
@@ -4569,7 +4569,7 @@ impl(
   )
 );
 make_spawn_probe :: (fn(id : i32, io : Io) -> Impl(Future(SpawnMadeProbe, Io)))(
-  io.async((io) => SpawnMadeProbe(id : id))
+  io.async(io => SpawnMadeProbe(id : id))
 );
 test("spawned task's ref result is dup'd out and disposed exactly once", {
   {
@@ -4606,7 +4606,7 @@ impl(
 BranchRaise :: (ctl(generic(T : Type), msg : String) -> T);
 BranchRaiseCtx :: struct(io : Io, raise : BranchRaise);
 throw_after_awaiting_branch :: (fn(shared : BranchLocalProbe, ctx : BranchRaiseCtx) -> Impl(Future(i32, BranchRaiseCtx)))(
-  ctx.io.async((c) => {
+  ctx.io.async(c => {
     seen := i32(0);
     cond(
       runtime(shared.id == i32(7)) => {
@@ -4623,7 +4623,7 @@ throw_after_awaiting_branch :: (fn(shared : BranchLocalProbe, ctx : BranchRaiseC
 test("escape after an awaiting cond branch closed does not re-drop its locals", {
   (raise : BranchRaise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );
@@ -4656,8 +4656,8 @@ test("escape after an awaiting cond branch closed does not re-drop its locals", 
 // expected type, so the idiomatic inline form compiles (it used to need
 // hoisting to a top-level fn — the pre-fix spelling of this very test).
 two_hop_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io) => {
-    inner := io.async((io) => {
+  io.async(io => {
+    inner := io.async(io => {
       io.await(sleep(u64(1)), io);
       return(i32(1));
     });
@@ -4682,15 +4682,15 @@ test("a top-level await returns as soon as its future completes, despite unrelat
 test("a nested e.io.async inside an IoExn async body compiles and awaits with the enclosing bundle", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
     )
   );
   nested_with_bundle :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
-    io.async((e) => {
-      inner := e.io.async((e2) => {
+    io.async(e => {
+      inner := e.io.async(e2 => {
         e2.io.await(sleep(u64(1)), e2.io);
         return(i32(2));
       });
@@ -4712,15 +4712,15 @@ test("a nested e.io.async inside an IoExn async body compiles and awaits with th
 BundleRaise :: (ctl(msg : String) -> i32);
 BundleCtx :: struct(io : Io, raise : BundleRaise);
 bundle_thrower :: (fn(ctx : BundleCtx) -> Impl(Future(i32, BundleCtx)))(
-  ctx.io.async((c) => {
+  ctx.io.async(c => {
     return(c.raise(`bang`));
   })
 );
 bundle_outer_task :: (fn(ctx : BundleCtx) -> Impl(Future(i32, BundleCtx)))(
-  ctx.io.async((c) => {
+  ctx.io.async(c => {
     (inner_raise : BundleRaise) =
       (
-        (msg) -> {
+        msg -> {
           return(i32(7));
         }
       );
@@ -4732,7 +4732,7 @@ bundle_outer_task :: (fn(ctx : BundleCtx) -> Impl(Future(i32, BundleCtx)))(
 test("io.await inside an async body injects the bundle named at the await, not the task's own", {
   (outer_raise : BundleRaise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );

@@ -11,9 +11,9 @@ extern(
   "Yo",
   __YO_THREAD_SYNC_TYPE : Type,
   __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
-  __yo_mutex_lock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
-  __yo_mutex_unlock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
-  __yo_mutex_destroy : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit)
+  __yo_mutex_lock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_mutex_unlock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_mutex_destroy : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit)
 );
 // SAFETY: __YO_THREAD_SYNC_TYPE is an opaque C-level synchronization
 // primitive (pthread_mutex_t or equivalent). It carries its own internal
@@ -83,13 +83,13 @@ impl(
   // Internal methods — pragma-only. These are public to the module system
   // but the _-prefixed naming convention signals "internal API".
   _raw_lock : (fn(self : Self) -> unit)(
-    __yo_mutex_lock(&(self._handle))
+    __yo_mutex_lock(&self._handle)
   ),
   _raw_unlock : (fn(self : Self) -> unit)(
-    __yo_mutex_unlock(&(self._handle))
+    __yo_mutex_unlock(&self._handle)
   ),
-  _raw_handle_ptr : (fn(inout(self) : Self) -> *(__YO_THREAD_SYNC_TYPE))(
-    &(self._handle)
+  _raw_handle_ptr : (fn(inout(self) : Self) -> *__YO_THREAD_SYNC_TYPE)(
+    &self._handle
   )
 );
 impl(
@@ -98,7 +98,7 @@ impl(
   Mutex(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      return(__yo_mutex_destroy(&(self._handle)));
+      return(__yo_mutex_destroy(&self._handle));
     })
   )
 );

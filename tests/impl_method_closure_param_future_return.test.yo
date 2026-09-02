@@ -26,7 +26,7 @@ impl(
   ),
   // effectful future
   apply_exn : (fn(self : Self, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       return(f(self.n + i32(1)));
     })
   ),
@@ -65,11 +65,11 @@ impl(
 inc :: (fn(x : i32) -> i32)(x + i32(1));
 test("instance method: closure param + Impl(Future) return is a future of the declared type", {
   c := Counter(n : i32(10));
-  a := io.await(c.apply_async((x) -> (x * i32(2)), io), io);
+  a := io.await(c.apply_async(x -> (x * i32(2)), io), io);
   assert(a == i32(20), `apply_async: ${a}`);
-  b := io.await(c.ignore_async((x) -> (x * i32(2)), io), io);
+  b := io.await(c.ignore_async(x -> (x * i32(2)), io), io);
   assert(b == i32(10), `ignore_async: ${b}`);
-  k := io.await(c.apply_k(i32(5), (x) -> (x + i32(1)), io), io);
+  k := io.await(c.apply_k(i32(5), x -> (x + i32(1)), io), io);
   assert(k == i32(6), `apply_k: ${k}`);
   d := io.await(c.apply_async(inc, io), io);
   assert(d == i32(11), `named fn as the closure arg: ${d}`);
@@ -78,31 +78,31 @@ test("instance method: closure param + Impl(Future(T, IoExn)) return awaits unde
   c := Counter(n : i32(1));
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `unexpected: ${err.to_string()}`);
         unwind(());
       }
     )
   );
-  r := io.await(c.apply_exn((x) -> (x * i32(10)), io), IoExn(io : io, exn : exn));
+  r := io.await(c.apply_exn(x -> (x * i32(10)), io), IoExn(io : io, exn : exn));
   assert(r == i32(20), `apply_exn: ${r}`);
 });
 test("instance method: closure param + Impl(ToString) return", {
   c := Counter(n : i32(7));
-  s := c.describe((x) -> (x * i32(6))).to_string();
+  s := c.describe(x -> (x * i32(6))).to_string();
   assert(s == "42", `describe: ${s}`);
 });
 test("generic impl (the original C27 repro): fixed-T and generic-R futures", {
   h := Holder(i64).new(i64(10));
-  r := io.await(h.apply_async_t((v) => (v + i64(1)), io), io);
+  r := io.await(h.apply_async_t(v => (v + i64(1)), io), io);
   assert(r == i64(11), `fixed-T future: ${r}`);
-  s := io.await(h.apply_async_r((v) => `v=${v}`, io), io);
+  s := io.await(h.apply_async_r(v => `v=${v}`, io), io);
   assert(s == "v=10", `generic-R future: ${s}`);
 });
 test("two differently-shaped closures through the same method get their own results", {
   c := Counter(n : i32(3));
   base := i32(100);
-  x := io.await(c.apply_async((v) => (v + base), io), io);
-  y := io.await(c.apply_async((v) -> (v * v), io), io);
+  x := io.await(c.apply_async(v => (v + base), io), io);
+  y := io.await(c.apply_async(v -> (v * v), io), io);
   assert((x == i32(103)) && (y == i32(9)), `${x} ${y}`);
 });

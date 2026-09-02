@@ -31,8 +31,8 @@ open(import("./string"));
 extern(
   "Yo",
   __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
-  __yo_mutex_lock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
-  __yo_mutex_unlock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit)
+  __yo_mutex_lock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_mutex_unlock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit)
 );
 /// Log severity, ascending. `Off` disables all output — filtering against it
 /// drops every message, including `Error`.
@@ -109,7 +109,7 @@ enabled :: (fn(level : Level) -> bool)(
   (_level_value(level) >= _level_value(_global_level)) && (_level_value(_global_level) < _level_value(Level.Off))
 );
 export(enabled);
-_write_string :: (fn(s : String, dest : *(FILE)) -> unit)({
+_write_string :: (fn(s : String, dest : *FILE) -> unit)({
   bytes := s.as_bytes();
   cond(
     (bytes.len() > usize(0)) => {
@@ -123,10 +123,10 @@ _write_string :: (fn(s : String, dest : *(FILE)) -> unit)({
 /// filter check and the whole write are under one lock, so concurrent
 /// threads never interleave a line.
 _emit :: (fn(level : Level, target : String, msg : String) -> unit)({
-  unsafe(__yo_mutex_lock(&(_log_mutex)));
+  unsafe(__yo_mutex_lock(&_log_mutex));
   cond(
-    !(enabled(level)) => {
-      unsafe(__yo_mutex_unlock(&(_log_mutex)));
+    !enabled(level) => {
+      unsafe(__yo_mutex_unlock(&_log_mutex));
       return(());
     },
     true => ()
@@ -153,7 +153,7 @@ _emit :: (fn(level : Level, target : String, msg : String) -> unit)({
   );
   _write_string(msg, dest);
   _write_string(String.from("\n"), dest);
-  unsafe(__yo_mutex_unlock(&(_log_mutex)));
+  unsafe(__yo_mutex_unlock(&_log_mutex));
 });
 /// Log a `ToString` value at `level`.
 log :: (fn(generic(T : Type), level : Level, msg : T, where(T <: ToString)) -> unit)(

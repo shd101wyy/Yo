@@ -54,7 +54,7 @@ try_to_convert_to_pointer_type :: (
     exn : Exception
   ) -> Option(AstExpr)
 )({
-  if(!(is_pointer_type(target_type)), {
+  if(!is_pointer_type(target_type), {
     return(Option(AstExpr).None);
   });
   // Evaluate the argument with no expectedType.
@@ -112,7 +112,7 @@ try_to_convert_to_pointer_type :: (
   // -----------------------------------------------------------------------
   // Case 2: pointer → pointer via __yo_as
   // -----------------------------------------------------------------------
-  if(!(is_pointer_type(arg_type)), {
+  if(!is_pointer_type(arg_type), {
     exn.throw(
       dyn(
         format_error_message(

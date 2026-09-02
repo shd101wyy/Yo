@@ -12,7 +12,7 @@ dir :: import("std/sys/dir");
 lock_io :: import("std/sys/lock");
 { temp_dir, path_join } :: import("../helper");
 test("flock on invalid fd returns -EBADF", {
-  ret := lock_io.flock(i32(-(1)), lock_io.LOCK_EX);
+  ret := lock_io.flock(i32(-1), lock_io.LOCK_EX);
   assert(ret == (i32(0) - i32(EBADF)), "flock on fd -1 should return -EBADF");
 });
 test("flock exclusive lock and unlock on temp file", {

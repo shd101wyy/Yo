@@ -45,14 +45,14 @@ test("List concat", {
 });
 test("List map", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
-  doubled := xs.map((x) => (x * i32(2)));
+  doubled := xs.map(x => (x * i32(2)));
   assert(doubled(usize(0)) == i32(6), "doubled[0] should be 6");
   assert(doubled(usize(1)) == i32(4), "doubled[1] should be 4");
   assert(doubled(usize(2)) == i32(2), "doubled[2] should be 2");
 });
 test("List filter", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3)).prepend(i32(4));
-  evens := xs.filter((x) => ((x % i32(2)) == i32(0)));
+  evens := xs.filter(x => ((x % i32(2)) == i32(0)));
   assert(evens.len() == usize(2), "filter length should be 2");
   assert(evens(usize(0)) == i32(4), "evens[0] should be 4");
   assert(evens(usize(1)) == i32(2), "evens[1] should be 2");
@@ -65,7 +65,7 @@ test("List fold", {
 test("List contains", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   assert(xs.contains(i32(2)), "should contain 2");
-  assert(!(xs.contains(i32(5))), "should not contain 5");
+  assert(!xs.contains(i32(5)), "should not contain 5");
 });
 test("List from_list", {
   arr := [i32(10), i32(20), i32(30)];
@@ -98,11 +98,11 @@ test("List Send check", {
 test("List for_each", {
   xs := List(i32).new().prepend(i32(1)).prepend(i32(2)).prepend(i32(3));
   // Closures capture by value, so we verify each element via assert inside the closure
-  xs.for_each((x) => {
+  xs.for_each(x => {
     assert((x >= i32(1)) && (x <= i32(3)), "for_each element should be 1, 2, or 3");
   });
   // Also verify for_each on empty list does nothing
-  List(i32).new().for_each((x) => {
+  List(i32).new().for_each(x => {
     assert(false, "should not be called on empty list");
   });
 });

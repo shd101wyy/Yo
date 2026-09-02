@@ -55,7 +55,7 @@ _analyze_app_ok :: (fn(app_path : String, std_path : String, io : Io) -> bool)({
 test("B1: imported-file edit visible after overlay + invalidation", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `test io failed: ${err}`);
       }
     )
@@ -91,7 +91,7 @@ test("B1: imported-file edit visible after overlay + invalidation", {
   // loader during the baseline analysis): lib itself + app ≥ 2 entries.
   assert(removed.len() >= usize(2), "invalidation should remove the dependent importer too");
   assert(
-    !(_analyze_app_ok(app_path.clone(), std_path.clone(), io)),
+    !_analyze_app_ok(app_path.clone(), std_path.clone(), io),
     "after invalidation the renamed export must break the importer"
   );
 
@@ -107,7 +107,7 @@ test("B1: imported-file edit visible after overlay + invalidation", {
 test("B2: repeated re-analysis keeps registry entry counts stable", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, `test io failed: ${err}`);
       }
     )

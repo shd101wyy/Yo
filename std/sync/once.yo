@@ -49,7 +49,7 @@ impl(
   // Create a new Once.
   new : (fn() -> Self)({
     v := Self(false, Mutex(bool).new(false));
-    unsafe(atomic_store_explicit(&(v._done), false, memory_order_release));
+    unsafe(atomic_store_explicit(&v._done, false, memory_order_release));
     v
   }),
   // Execute the function exactly once.
@@ -65,17 +65,17 @@ impl(
   call : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done (atomic_bool with Acquire load)
     cond(
-      (unsafe(atomic_load_explicit(&(self._done), memory_order_acquire)) == true) => (),
+      (unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true) => (),
       true => {
         self._mutex._raw_lock();
         // Double-check after acquiring lock
         cond(
-          (unsafe(atomic_load_explicit(&(self._done), memory_order_relaxed)) == true) => {
+          (unsafe(atomic_load_explicit(&self._done, memory_order_relaxed)) == true) => {
             self._mutex._raw_unlock();
           },
           true => {
             f();
-            unsafe(atomic_store_explicit(&(self._done), true, memory_order_release));
+            unsafe(atomic_store_explicit(&self._done, true, memory_order_release));
             self._mutex._raw_unlock();
           }
         );
@@ -84,7 +84,7 @@ impl(
   }),
   // Check if the function has been called.
   is_done : (fn(self : Self) -> bool)(
-    unsafe(atomic_load_explicit(&(self._done), memory_order_acquire)) == true
+    unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true
   )
 );
 

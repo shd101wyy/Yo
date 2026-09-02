@@ -19,17 +19,17 @@ test("Option comptime_unwrap_or on None", {
 test("Option comptime_is_some and comptime_is_none", {
   some :: Option(i32).Some(42);
   comptime_assert(some.comptime_is_some(), "Some should be some");
-  comptime_assert(!(some.comptime_is_none()), "Some should not be none");
+  comptime_assert(!some.comptime_is_none(), "Some should not be none");
   none :: Option(i32).None;
   comptime_assert(none.comptime_is_none(), "None should be none");
-  comptime_assert(!(none.comptime_is_some()), "None should not be some");
+  comptime_assert(!none.comptime_is_some(), "None should not be some");
 });
 test("Option runtime methods still work", {
   x := Option(i32).Some(i32(42));
   val := x.unwrap();
   assert(val == i32(42), "runtime unwrap should work");
   assert(x.is_some(), "runtime is_some should work");
-  assert(!(x.is_none()), "runtime is_none should work");
+  assert(!x.is_none(), "runtime is_none should work");
   y := Option(i32).Some(i32(10));
   val2 := y.unwrap_or(i32(0));
   assert(val2 == i32(10), "runtime unwrap_or should work");
@@ -55,17 +55,17 @@ test("Result comptime_unwrap_err on Err", {
 test("Result comptime_is_ok and comptime_is_err", {
   ok :: Result(i32, bool).Ok(42);
   comptime_assert(ok.comptime_is_ok(), "Ok should be ok");
-  comptime_assert(!(ok.comptime_is_err()), "Ok should not be err");
+  comptime_assert(!ok.comptime_is_err(), "Ok should not be err");
   err :: Result(i32, bool).Err(true);
   comptime_assert(err.comptime_is_err(), "Err should be err");
-  comptime_assert(!(err.comptime_is_ok()), "Err should not be ok");
+  comptime_assert(!err.comptime_is_ok(), "Err should not be ok");
 });
 test("Result runtime methods still work", {
   x := Result(i32, bool).Ok(i32(42));
   val := x.unwrap();
   assert(val == i32(42), "runtime unwrap should work");
   assert(x.is_ok(), "runtime is_ok should work");
-  assert(!(x.is_err()), "runtime is_err should work");
+  assert(!x.is_err(), "runtime is_err should work");
 });
 // === Method extraction tests ===
 test("Option method extraction from type", {

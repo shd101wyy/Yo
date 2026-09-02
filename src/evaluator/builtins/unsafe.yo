@@ -45,7 +45,7 @@ evaluate_unsafe :: (
   ) -> AstExpr
 )({
   // Validate shape: `unsafe` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BF_UNSAFE, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BF_UNSAFE, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -62,7 +62,7 @@ evaluate_unsafe :: (
   // could trivially bypass the deref/arith gates by wrapping every pointer op
   // in `unsafe(...)`. See Phase C of plans/MEMORY_SAFETY.md.
   tok := ast_expr_token(expr);
-  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone()))), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message(

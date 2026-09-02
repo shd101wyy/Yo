@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 // Get filesystem statistics for the given path.
 // Writes result to `buf` (use statfs_buf_size() to allocate).
 // Returns 0 on success, -errno on failure.
-statfs :: (fn(path : *(u8), buf : *(u8)) -> i32)(
+statfs :: (fn(path : *u8, buf : *u8) -> i32)(
   __yo_sync_statfs(path, buf)
 );
 // ============================================================================
@@ -35,31 +35,31 @@ statfs_buf_size :: (fn() -> usize)(
   __yo_statfs_buf_size()
 );
 // Filesystem type (0 on platforms without type).
-statfs_type :: (fn(buf : *(u8)) -> u64)(
+statfs_type :: (fn(buf : *u8) -> u64)(
   __yo_statfs_type(buf)
 );
 // Fundamental filesystem block size.
-statfs_bsize :: (fn(buf : *(u8)) -> u64)(
+statfs_bsize :: (fn(buf : *u8) -> u64)(
   __yo_statfs_bsize(buf)
 );
 // Total data blocks in filesystem.
-statfs_blocks :: (fn(buf : *(u8)) -> u64)(
+statfs_blocks :: (fn(buf : *u8) -> u64)(
   __yo_statfs_blocks(buf)
 );
 // Free blocks in filesystem.
-statfs_bfree :: (fn(buf : *(u8)) -> u64)(
+statfs_bfree :: (fn(buf : *u8) -> u64)(
   __yo_statfs_bfree(buf)
 );
 // Free blocks available to unprivileged users.
-statfs_bavail :: (fn(buf : *(u8)) -> u64)(
+statfs_bavail :: (fn(buf : *u8) -> u64)(
   __yo_statfs_bavail(buf)
 );
 // Total file nodes (inodes).
-statfs_files :: (fn(buf : *(u8)) -> u64)(
+statfs_files :: (fn(buf : *u8) -> u64)(
   __yo_statfs_files(buf)
 );
 // Free file nodes (inodes).
-statfs_ffree :: (fn(buf : *(u8)) -> u64)(
+statfs_ffree :: (fn(buf : *u8) -> u64)(
   __yo_statfs_ffree(buf)
 );
 export(

@@ -423,7 +423,7 @@ test("String UTF-8 all ASCII control characters", {
 });
 // ===== String.from_cstr Tests =====
 test("String.from_cstr creates string from C string", {
-  (cstr : *(u8)) = "Hello";
+  (cstr : *u8) = "Hello";
   result := String.from_cstr(cstr);
   match(
     result,
@@ -436,7 +436,7 @@ test("String.from_cstr creates string from C string", {
   );
 });
 test("String.from_cstr empty string", {
-  (cstr : *(u8)) = "";
+  (cstr : *u8) = "";
   result := String.from_cstr(cstr);
   match(
     result,
@@ -448,7 +448,7 @@ test("String.from_cstr empty string", {
   );
 });
 test("String.from_cstr with UTF-8", {
-  (cstr : *(u8)) = "Hello 世界";
+  (cstr : *u8) = "Hello 世界";
   result := String.from_cstr(cstr);
   match(
     result,
@@ -461,7 +461,7 @@ test("String.from_cstr with UTF-8", {
   );
 });
 test("String.from_cstr single character", {
-  (cstr : *(u8)) = "X";
+  (cstr : *u8) = "X";
   result := String.from_cstr(cstr);
   match(
     result,
@@ -765,7 +765,7 @@ test("String + operator chain", {
   str1 := String.from("A");
   str2 := String.from("B");
   str3 := String.from("C");
-  result := ((str1 + str2) + str3);
+  result := (str1 + str2 + str3);
   assert(result.len() == usize(3));
   assert(result.at(usize(0)).unwrap().to_u32() == u32(65));
   assert(result.at(usize(1)).unwrap().to_u32() == u32(66));
@@ -860,7 +860,7 @@ test("String + and == operators combined", {
   str1 := String.from("Hello");
   str2 := String.from(" ");
   str3 := String.from("world");
-  result := ((str1 + str2) + str3);
+  result := (str1 + str2 + str3);
   expected := String.from("Hello world");
   assert(result == expected);
 });
@@ -1785,7 +1785,7 @@ test("String ends_with end_position single character", {
 test("String chars - empty string yields nothing", {
   s := String.new();
   count := usize(0);
-  for(s.chars(), (ch) => {
+  for(s.chars(), ch => {
     consume(ch);
     count = (count + usize(1));
   });
@@ -1795,7 +1795,7 @@ test("String chars - ASCII string yields correct runes", {
   s := `ABC`;
   count := usize(0);
   sum := u32(0);
-  for(s.chars(), (ch) => {
+  for(s.chars(), ch => {
     sum = (sum + ch.to_u32());
     count = (count + usize(1));
   });
@@ -1808,7 +1808,7 @@ test("String chars - multi-byte UTF-8 yields correct runes", {
   s := `你好`;
   count := usize(0);
   runes := ArrayList(u32).new();
-  for(s.chars(), (ch) => {
+  for(s.chars(), ch => {
     runes.push(ch.to_u32());
     count = (count + usize(1));
   });
@@ -1821,7 +1821,7 @@ test("String chars - 4-byte emoji characters", {
   s := `😀😎`;
   count := usize(0);
   runes := ArrayList(u32).new();
-  for(s.chars(), (ch) => {
+  for(s.chars(), ch => {
     runes.push(ch.to_u32());
     count = (count + usize(1));
   });
@@ -1832,7 +1832,7 @@ test("String chars - 4-byte emoji characters", {
 test("String chars - mixed ASCII and UTF-8", {
   s := `Hi世界`;
   count := usize(0);
-  for(s.chars(), (ch) => {
+  for(s.chars(), ch => {
     consume(ch);
     count = (count + usize(1));
   });
@@ -1842,7 +1842,7 @@ test("String chars - mixed ASCII and UTF-8", {
 test("String bytes - empty string yields nothing", {
   s := String.new();
   count := usize(0);
-  for(s.bytes(), (b) => {
+  for(s.bytes(), b => {
     consume(b);
     count = (count + usize(1));
   });
@@ -1852,7 +1852,7 @@ test("String bytes - ASCII string yields raw bytes", {
   s := `ABC`;
   count := usize(0);
   bytes := ArrayList(u8).new();
-  for(s.bytes(), (b) => {
+  for(s.bytes(), b => {
     bytes.push(b);
     count = (count + usize(1));
   });
@@ -1866,7 +1866,7 @@ test("String bytes - UTF-8 string yields all bytes", {
   s := `你`;
   count := usize(0);
   bytes := ArrayList(u8).new();
-  for(s.bytes(), (b) => {
+  for(s.bytes(), b => {
     bytes.push(b);
     count = (count + usize(1));
   });
@@ -1880,7 +1880,7 @@ test("String into_iter - yields runes like chars", {
   s := `Hello`;
   count := usize(0);
   first := u32(0);
-  for(s.into_iter(), (ch) => {
+  for(s.into_iter(), ch => {
     cond(
       (count == usize(0)) => {
         first = ch.to_u32();
@@ -1895,7 +1895,7 @@ test("String into_iter - yields runes like chars", {
 test("String into_iter - empty string", {
   s := String.new();
   count := usize(0);
-  for(s.into_iter(), (ch) => {
+  for(s.into_iter(), ch => {
     consume(ch);
     count = (count + usize(1));
   });
@@ -1974,12 +1974,12 @@ test("str == String compares bytes directly", {
 test("String str-pattern overloads (StrPattern trait)", {
   x := String.from("hello world");
   assert(x.contains("world"), "contains str");
-  assert(!(x.contains("worlds")), "contains str negative");
+  assert(!x.contains("worlds"), "contains str negative");
   assert(x.contains("o w", usize(3)), "contains str with from_index");
   assert(x.starts_with("hello"), "starts_with str");
-  assert(!(x.starts_with("world")), "starts_with str negative");
+  assert(!x.starts_with("world"), "starts_with str negative");
   assert(x.ends_with("world"), "ends_with str");
-  assert(!(x.ends_with("hello")), "ends_with str negative");
+  assert(!x.ends_with("hello"), "ends_with str negative");
   assert(match(x.index_of("lo"), .Some(i) => (i == usize(3)), .None => false), "index_of str");
   assert(match(x.index_of("zz"), .Some(_) => false, .None => true), "index_of str none");
   assert(match(x.last_index_of("o"), .Some(i) => (i == usize(7)), .None => false), "last_index_of str");

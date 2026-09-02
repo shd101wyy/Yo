@@ -263,7 +263,7 @@ impl(
   List(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "imm.List: index out of bounds");
       (current : Option(ListNode(T))) = self._head;
       i := usize(0);
@@ -272,7 +272,7 @@ impl(
           current,
           .Some(node) => {
             if(i == idx, {
-              return(unsafe(&(node._value)));
+              return(unsafe(&node._value));
             });
             current = node._next;
             i = (i + usize(1));

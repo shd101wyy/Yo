@@ -343,7 +343,7 @@ evaluate_while :: (
     }
   );
   // Require bool type for the condition.
-  if(!(is_bool_type(cond_info.ty)), {
+  if(!is_bool_type(cond_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -363,7 +363,7 @@ evaluate_while :: (
   // `condition_value.is_some()` would wrongly treat such a runtime-unknown
   // condition (e.g. `i < lhs.len()` on an unknown param, evaluated at
   // definition time) as comptime-known and mis-fire the modifier gate below.
-  cond_is_comptime_known := match(condition_value, .Some(cv) => !(is_unknown_val(cv)), .None => false);
+  cond_is_comptime_known := match(condition_value, .Some(cv) => !is_unknown_val(cv), .None => false);
   // Enforce comptime() modifier semantics:
   // With comptime(): condition MUST be compile-time known; error if runtime.
   if(is_comptime_modifier && condition_value.is_none(), {
@@ -381,7 +381,7 @@ evaluate_while :: (
   // Without comptime(): if condition happens to be compile-time known, it must
   // be a literal `true`/`false` atom (not a comptime-only variable that can
   // never change inside a runtime loop).
-  if(!(is_comptime_modifier) && cond_is_comptime_known, {
+  if(!is_comptime_modifier && cond_is_comptime_known, {
     (is_literal_bool : bool) = false;
     if(ast_expr_is_atom_of(inner_cond_expr, "true") || ast_expr_is_atom_of(inner_cond_expr, "false"), {
       is_literal_bool = true;
@@ -401,7 +401,7 @@ evaluate_while :: (
         });
       });
     });
-    if(!(is_literal_bool), {
+    if(!is_literal_bool, {
       exn.throw(
         dyn(
           format_error_message(
@@ -429,7 +429,7 @@ evaluate_while :: (
   eff_cond_is_false := match(
     effective_condition_value,
     .None => false,
-    .Some(v) => match(v, .BoolVal(b) => !(b), _ => false)
+    .Some(v) => match(v, .BoolVal(b) => !b, _ => false)
   );
   if(eff_cond_is_false, {
     out_info := new_expr_info(env, t_unit());
@@ -605,11 +605,11 @@ evaluate_while :: (
   if(is_cond_literal_true, {
     guaranteed := _body_has_any_terminator_guaranteed(body_info.control_flow);
     possible := _body_has_any_terminator_possible(body_expr, body_info.control_flow);
-    if(!(guaranteed) && !(possible), {
+    if(!guaranteed && !possible, {
       // No terminator anywhere — this loop can never end.
       _throw_max_iterations_error(expr, body_expr, body_info.control_flow, exn);
     });
-    if(!(guaranteed) && possible, {
+    if(!guaranteed && possible, {
       // Conditional terminator exists — emit as a runtime loop.
       out_info := new_expr_info(body_info.env, t_unit());
       out_info.value = Option(EvalValue).None;
@@ -618,7 +618,7 @@ evaluate_while :: (
     });
   });
   // The while loop body must return unit.
-  if(!(is_unit_type(body_info.ty)), {
+  if(!is_unit_type(body_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -691,7 +691,7 @@ evaluate_while :: (
       // Hoisted: the limit is memoized, but reading it once per loop keeps the
       // per-iteration condition a plain comparison.
       unroll_limit := max_comptime_loop_iterations();
-      while((cond_still_true && (unroll_iter < unroll_limit)) && !(unroll_abort), {
+      while(cond_still_true && (unroll_iter < unroll_limit) && !unroll_abort, {
         cloned_body := clone_expr_fresh_ids(body_expr);
         old_loop_body_u := ctx.is_evaluating_loop_body;
         ctx.is_evaluating_loop_body = Option(LoopBodyCtx).Some(LoopBodyCtx(kind : LoopKind.While, env : current_env, entry_frame_count : current_env.frames.len()));
@@ -723,7 +723,7 @@ evaluate_while :: (
                 );
               }
             );
-            if(!(unroll_abort), {
+            if(!unroll_abort, {
               // Re-evaluate the condition with the updated env.
               cond_clone_u := clone_expr_fresh_ids(inner_cond_expr);
               cond_res_u := evaluate_begin_expression(cond_clone_u, current_env, ctx, ArrayList(Variable).new(), false, exn);
@@ -762,7 +762,7 @@ evaluate_while :: (
         );
         unroll_iter = (unroll_iter + usize(1));
       });
-      if(!(cond_still_true), {
+      if(!cond_still_true, {
         // Loop terminates — store unrolled bodies (TS while.ts:619-629).
         out_done_u := new_expr_info(current_env, t_unit());
         out_done_u.value = Option(EvalValue).None;

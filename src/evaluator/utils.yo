@@ -139,7 +139,7 @@ attach_temp_variable_to_expr :: (
       effective_ty := match(
         info.capture_type,
         .Some(cap_ty) => cond(
-          ((type_contains_rc_type(cap_ty)) && is_owning_the_rc_value) => cap_ty,
+          (type_contains_rc_type(cap_ty) && is_owning_the_rc_value) => cap_ty,
           true => info.ty
         ),
         .None => info.ty
@@ -154,7 +154,7 @@ attach_temp_variable_to_expr :: (
       // gets marked compile-time-only and codegen never declares it.
       has_inlinable_value := match(
         info.value,
-        .Some(iv) => !(is_unknown_val(iv)),
+        .Some(iv) => !is_unknown_val(iv),
         .None => false
       );
       is_ctonly := cond(_is_owning_rc => false, true => has_inlinable_value);
@@ -169,7 +169,7 @@ attach_temp_variable_to_expr :: (
             existing_var := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(info.env));
             // Preserve borrowing: if variable was not owning, keep it not-owning.
             preserved_rc := cond(
-              (!(existing_var.is_owning_the_rc_value)) => false,
+              !existing_var.is_owning_the_rc_value => false,
               true => _is_owning_rc
             );
             existing_var.ty = effective_ty;
@@ -437,10 +437,8 @@ require_expr_not_consumed :: (
           // reported 'use of moved value' with BOTH carets on the same
           // token (tests/imm_vec arms 14/17, surfaced by the Step-4a port).
           same_site := (
-            (
-              (consumed_tok.*.row == ast_expr_token(rhs).row)
-              && (consumed_tok.*.column == ast_expr_token(rhs).column)
-            )
+            (consumed_tok.*.row == ast_expr_token(rhs).row)
+            && (consumed_tok.*.column == ast_expr_token(rhs).column)
             && (consumed_tok.*.module_path == ast_expr_token(rhs).module_path)
           );
           if(same_site, {
@@ -677,7 +675,7 @@ set_expr_as_needs_to_call_dup :: (
       // passes do, so the gate must also require inlinability.
       has_concrete_value := match(
         ei.value,
-        .Some(cv) => (!(is_unknown_val(cv)) && !(type_contains_rc_type(ei.ty))),
+        .Some(cv) => (!is_unknown_val(cv) && !type_contains_rc_type(ei.ty)),
         .None => false
       );
       if(has_concrete_value, {
@@ -691,25 +689,25 @@ set_expr_as_needs_to_call_dup :: (
               });
               // Non-owning RC temp (e.g. index-trait result): codegen does not
               // dup inline for these, so fall through to generate the dup.
-              if(!(v.is_owning_the_rc_value), {
+              if(!v.is_owning_the_rc_value, {
                 needs_dup_for_non_owning_rc_temp = true;
               });
             },
             .None => ()
           );
         });
-        if(!(needs_dup_for_non_owning_rc_temp), {
+        if(!needs_dup_for_non_owning_rc_temp, {
           return(());
         });
       });
       // --- Only RC-bearing types need dup/consume. ---
-      if(!(type_contains_rc_type(ei.ty)), {
+      if(!type_contains_rc_type(ei.ty), {
         return(());
       });
       // Owning temp already holding the value: ownership transfers ⇒ consume, no dup.
       if(is_temp_variable_name(ei.env.module_path, variable_name), {
         is_atom_with_other_name := (ast_expr_is_atom(rhs) && (ast_expr_token(rhs).value != variable_name));
-        if(!(is_atom_with_other_name), {
+        if(!is_atom_with_other_name, {
           match(
             find_variable_in_env(ei.env, variable_name),
             .Some(v) => {
@@ -813,13 +811,13 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
       // only a value codegen actually INLINES has no C variable to dup.
       has_concrete_value := match(
         ei.value,
-        .Some(cv) => (!(is_unknown_val(cv)) && !(type_contains_rc_type(ei.ty))),
+        .Some(cv) => (!is_unknown_val(cv) && !type_contains_rc_type(ei.ty)),
         .None => false
       );
       if(has_concrete_value, {
         return(Option(AstExpr).None);
       });
-      if(!(type_contains_rc_type(ei.ty)), {
+      if(!type_contains_rc_type(ei.ty), {
         return(Option(AstExpr).None);
       });
       match(
@@ -937,12 +935,12 @@ _place_root_is_runtime_variable :: (fn(e : AstExpr, env : Environment) -> bool)(
   while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
     r_args := match(root, .FnCall(_, _, __prv_ra, _, _) => __prv_ra, .Atom(_, _) => ArrayList(AstExpr).new());
     r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
-    if(!(ast_expr_is_atom(r_a1)), {
+    if(!ast_expr_is_atom(r_a1), {
       return(false);
     });
     root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
   });
-  if(!(ast_expr_is_atom(root)), {
+  if(!ast_expr_is_atom(root), {
     return(false);
   });
   vars := get_variables_from_env(env, ast_expr_token(root).value);
@@ -951,7 +949,7 @@ _place_root_is_runtime_variable :: (fn(e : AstExpr, env : Environment) -> bool)(
   });
   match(
     vars.get(vars.len() - usize(1)),
-    .Some(v) => !(v.is_compile_time_only),
+    .Some(v) => !v.is_compile_time_only,
     .None => false
   )
 });
@@ -962,7 +960,7 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
   // borrowed box and the caller read the recycled allocation. Requiring a
   // 2-arg dot missed every one of these. Widening is safe by construction:
   // the marker no-ops when the argument's temp already OWNS its value.
-  if(!(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     if(ast_expr_is_atom(e), {
       return(false);
     });
@@ -971,19 +969,19 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
   });
   e_args := match(e, .FnCall(_, _, __aipp_a, _, _) => __aipp_a, .Atom(_, _) => ArrayList(AstExpr).new());
   e_a1 := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
-  if(!(ast_expr_is_atom(e_a1)), {
+  if(!ast_expr_is_atom(e_a1), {
     return(false);
   });
   (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
   while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
     r_args := match(root, .FnCall(_, _, __aipp_ra, _, _) => __aipp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
     r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
-    if(!(ast_expr_is_atom(r_a1)), {
+    if(!ast_expr_is_atom(r_a1), {
       return(false);
     });
     root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
   });
-  if(!(ast_expr_is_atom(root)), {
+  if(!ast_expr_is_atom(root), {
     return(false);
   });
   vars := get_variables_from_env(env, ast_expr_token(root).value);
@@ -991,7 +989,7 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
     return(false);
   });
   v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(false));
-  !(v.is_compile_time_only)
+  !v.is_compile_time_only
 });
 // ---------------------------------------------------------------------------
 // doc_comment_lookup_key_from_token
@@ -1030,7 +1028,7 @@ consume_case_body_temp_var :: (
     var_name_opt,
     .None => (),
     .Some(var_name) => {
-      if(!(is_temp_variable_name(env.module_path, var_name)), {
+      if(!is_temp_variable_name(env.module_path, var_name), {
         return(());
       });
       vars := get_variables_from_env(env, var_name);
@@ -1252,7 +1250,7 @@ merge_and_check_envs :: (
             // mismatch. (Mirrored in the per-column merge below.) See
             // issues/yo-self-p1-transpile-tail.md Candidate 3.
             case_var_k := match(case_frame.variables.get(kk), .Some(v) => v, .None => base_var);
-            if(((base_var.name != case_var_k.name) && !(is_temp_variable_name(env.module_path, base_var.name))) && !(is_temp_variable_name(env.module_path, case_var_k.name)), {
+            if(((base_var.name != case_var_k.name) && !is_temp_variable_name(env.module_path, base_var.name)) && !is_temp_variable_name(env.module_path, case_var_k.name), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -1391,7 +1389,7 @@ merge_and_check_envs :: (
                         ),
                         _ => false
                       );
-                      if(cb_id_conflict || !(are_types_compatible(cb_cc, cb_fc)), {
+                      if(cb_id_conflict || !are_types_compatible(cb_cc, cb_fc), {
                         cb_impl_conflict = true;
                         cb_entries := ArrayList(TokenAndError).new();
                         cb_entries.push(
@@ -1411,7 +1409,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
                   .None => ()
                 );
                 // General cross-case initialized-type compatibility.
-                if(!(cb_impl_conflict) && !(are_types_compatible(cb_cur_ty, cb_first_ty)), {
+                if(!cb_impl_conflict && !are_types_compatible(cb_cur_ty, cb_first_ty), {
                   cb_entries2 := ArrayList(TokenAndError).new();
                   cb_entries2.push(
                     TokenAndError(
@@ -1473,7 +1471,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
               init_i = (init_i + usize(1));
             });
-            if(all_init && !(match(base_var.initialized_at_token, .Some(_) => true, .None => false)), {
+            if(all_init && !match(base_var.initialized_at_token, .Some(_) => true, .None => false), {
               first_tok := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(
                 first_tok,
@@ -1484,7 +1482,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
             });
             // Case 3: some init, some don't → error
-            if(any_init && !(all_init), {
+            if(any_init && !all_init, {
               err_list := ArrayList(TokenAndError).new();
               (ei : usize) = usize(0);
               while(ei < n_cases, {
@@ -1540,7 +1538,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
               cons_i = (cons_i + usize(1));
             });
-            if(all_consumed && !(match(base_var.consumed_at_token, .Some(_) => true, .None => false)), {
+            if(all_consumed && !match(base_var.consumed_at_token, .Some(_) => true, .None => false), {
               first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(
                 first_tok,
@@ -1551,7 +1549,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
             });
             // Case 3: partial consumption → error
-            if(any_consumed && !(all_consumed), {
+            if(any_consumed && !all_consumed, {
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
               while(eci < n_cases, {
@@ -1589,12 +1587,12 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             );
             ow_i = (ow_i + usize(1));
           });
-          if(all_owning && !(base_var.is_owning_the_rc_value), {
+          if(all_owning && !base_var.is_owning_the_rc_value, {
             base_var.is_owning_the_rc_value = true;
             base_var.is_owning_the_same_rc_value_as = Option(Box(Variable)).None;
           });
           // Partial ownership → error
-          if((any_owning && !(all_owning)) && !(base_var.is_owning_the_rc_value), {
+          if((any_owning && !all_owning) && !base_var.is_owning_the_rc_value, {
             err_list := ArrayList(TokenAndError).new();
             (oei : usize) = usize(0);
             while(oei < n_cases, {
@@ -1657,7 +1655,7 @@ _try_resolve_last_var :: (fn(vars : ArrayList(Variable)) -> Option(EvalValue))(
         last.value.get(usize(0)),
         .None => Option(EvalValue).None,
         .Some(v) => cond(
-          ((is_unknown_val(v)) || (is_var_ref(v))) => Option(EvalValue).None,
+          (is_unknown_val(v) || is_var_ref(v)) => Option(EvalValue).None,
           true => Option(EvalValue).Some(v)
         )
       )
@@ -1845,11 +1843,11 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
 parse_raw_int :: (fn(raw : String) -> Option(i64))({
   stripped := raw.replace_all(`_`, ``);
   cond(
-    ((stripped.starts_with(`0x`)) || (stripped.starts_with(`0X`))) =>
+    (stripped.starts_with(`0x`) || stripped.starts_with(`0X`)) =>
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(16)),
-    ((stripped.starts_with(`0b`)) || (stripped.starts_with(`0B`))) =>
+    (stripped.starts_with(`0b`) || stripped.starts_with(`0B`)) =>
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(2)),
-    ((stripped.starts_with(`0o`)) || (stripped.starts_with(`0O`))) =>
+    (stripped.starts_with(`0o`) || stripped.starts_with(`0O`)) =>
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
     true => stripped.parse_i64()
   )
@@ -1887,7 +1885,7 @@ export(are_values_equal);
 f64_raw_roundtrip :: (fn(v : f64) -> String)({
   { snprintf } :: import("std/libc/stdio");
   buffer := Array(u8, usize(40)).fill(u8(0));
-  buffer_ptr := &(buffer(usize(0)));
+  buffer_ptr := &buffer(usize(0));
   _n := unsafe(snprintf(*(char)(buffer_ptr), usize(40), "%.17g", v));
   String.from_cstr(buffer_ptr).unwrap()
 });
