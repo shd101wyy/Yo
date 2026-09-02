@@ -1,6 +1,6 @@
 # A type error inside an `io.async` closure body compiles vacuously (runs nothing, exits 0)
 
-- **Status**: OPEN (fix in flight)
+- **Status**: FIXED 2026-09-02 (#390 — poison gates at both io.async emitters)
 - **Found**: 2026-09-02 (STD API audit, handover §0c scoping)
 - **Family**: def-eval trial swallow → silent codegen hollowing. Siblings:
   `issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md`
