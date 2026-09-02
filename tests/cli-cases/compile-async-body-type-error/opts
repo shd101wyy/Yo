@@ -1,0 +1,10 @@
+# A TYPE ERROR inside an io.async closure body must FAIL the compile — it used
+# to pass completely vacuously: check stayed green, compile exited 0, and the
+# binary ran to completion having executed none of the closure body (the
+# def-time anon-body trial swallowed the error, no await analysis was stamped,
+# and the sync-future fallback emitted a runs-nothing future — the C22
+# _sync_fut_t class; issues/async-body-type-error-compiles-vacuously.md).
+# The gate is in codegen (src/codegen/exprs/async.yo), so the case compiles
+# rather than checks, and keeps the diagnostic substring.
+stdout_keep_match=was never fully evaluated
+timeout=120

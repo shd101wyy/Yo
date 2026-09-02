@@ -99,6 +99,7 @@ open(import("std/string"));
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
+{ codegen_fatal } :: import("../constants.yo");
 { panic, assert } :: import("std/assert");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
@@ -1716,6 +1717,21 @@ io_async_closure_body :: (fn(expr : AstExpr, context : FunctionGenerationContext
     .None => Option(AstExpr).None
   )
 });
+/// Diagnostic for an `io.async` closure body that reached codegen with NO
+/// ExprInfo — its evaluation was deferred at definition time (the anon-body
+/// trial swallowed an error inside it) and never completed. Emitting the
+/// future anyway produces one that runs nothing and silently completes —
+/// the vacuous pass this poison gate turns into a compile error. Mirrors the
+/// "a diagnostic the C compiler can skip is not a diagnostic" stance of
+/// `codegen_fatal_expr` (constants.yo).
+_hollow_async_body_message :: (fn(body : AstExpr, via_fsm : bool) -> String)({
+  t := ast_expr_token(body);
+  where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
+  kind := if(via_fsm, String.from("state-machine"), String.from("sync-future"));
+
+  `${where}this \`io.async\` closure's body was never fully evaluated — an error inside it was deferred at definition time and never re-checked, so the emitted ${kind} future would run nothing and silently complete.
+Fix the error inside the body. Common causes: a type error the deferred trial swallowed, a forward reference (move the definition above its use), or a call with the wrong argument count.`
+});
 generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), analysis_in : Option(AwaitAnalysisResult), indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: async block missing ExprInfo */")));
   // The io.async closure body is extracted ONCE by the dispatcher (via
@@ -1730,6 +1746,18 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(x) => Option(AstExpr).Some(x), .None => Option(AstExpr).None), _ => Option(AstExpr).None)
   );
   body_expr := match(body_expr_opt, .Some(b) => b, .None => return(String.from("/* Error: async requires exactly 1 argument */")));
+  // POISON GATE (partially-hollow body, FSM path): the io.async closure's
+  // body block must carry ExprInfo — a deferred trial that swallowed an
+  // error leaves the block unevaluated even when earlier statements (e.g.
+  // the first `io.await`) registered await analysis and routed the state
+  // machine, whose segments would then silently truncate at the hole.
+  if(is_io_async, {
+    match(
+      context.base.get_expr_info(body_expr),
+      .None => codegen_fatal(_hollow_async_body_message(body_expr, true)),
+      .Some(_) => ()
+    );
+  });
   future_type := ei.ty;
   if(!(type_implements_future(future_type)), {
     return(String.from("/* Error: async block must have Future type */"));
@@ -2551,6 +2579,24 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       .Some(oe) => match(expr_info_closure_function_value(oe), .Some(fv) => Option(EvalValue).Some(fv), .None => match(cei.value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)),
       .None => match(cei.value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
     )
+  );
+  // POISON GATE (fully-hollow body, sync-future path): a deferred anon-body
+  // trial that swallowed an error leaves the closure's body block with NO
+  // ExprInfo; with no awaits discovered the call routes HERE, and the
+  // sync-future stub below would run nothing and silently complete (the C22
+  // `_sync_fut_t` class — handover §0c). Reject it instead.
+  match(
+    closure_fn_val,
+    .Some(fv) => match(
+      fv,
+      .FuncVal(__fvdh, _) => match(
+        context.base.get_expr_info(__fvdh.*.body),
+        .None => codegen_fatal(_hollow_async_body_message(__fvdh.*.body, false)),
+        .Some(_) => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
   );
   closure_function_c_name := match(
     closure_fn_val,
