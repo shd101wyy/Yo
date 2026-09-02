@@ -43,12 +43,17 @@ put_all_generic :: (
   io.async((e) => e.io.await(s.put_all(v, io), e))
 );
 // Concrete control: a REAL-unit tail await always worked — pin that the fix
-// did not disturb it.
+// did not disturb it. The closure params are ANNOTATED (`(io2 : Io)`) on
+// purpose: a BARE `(e) =>` param leaves the effect bundle unbound at the
+// def-time trial, so `e.io.await` cannot resolve there — that body used to
+// be silently swallowed and the future compiled to a runs-nothing stub
+// (caught by the async poison gate; see
+// issues/io-async-bare-e-closure-body-never-evaluates.md).
 inner_unit :: (fn(io : Io) -> Impl(Future(unit)))(
-  io.async((e) => ())
+  io.async((io2 : Io) => ())
 );
 outer_unit :: (fn(io : Io) -> Impl(Future(unit)))(
-  io.async((e) => e.io.await(inner_unit(io), e.io))
+  io.async((io2 : Io) => io2.await(inner_unit(io), io2))
 );
 test("generic tail await of a unit trait default compiles and runs", {
   t_exn := Exception(
