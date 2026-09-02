@@ -191,85 +191,127 @@ test("ArrayList.shrink_to_fit on empty list", {
   assert(result.is_ok());
   assert(list.capacity() == usize(0));
 });
-// ===== Remove Tests =====
-test("ArrayList.remove removes single element from middle", {
+// ===== Remove / Drain / Iter Tests =====
+// (§5 API: `remove(idx) -> T` and `drain(range) -> ArrayList(T)` panic on an
+// out-of-bounds index / inverted-or-overlong range — the Index impl's
+// contract. There is no assert-panics harness, so like the Index OOB tests
+// above, only the valid paths are exercised here.)
+test("ArrayList.remove removes and returns single element from middle", {
   list := ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
   list.push(i32(30));
   list.push(i32(40));
-  result := list.remove(usize(1), usize(1));
-  assert(result.is_ok());
-  assert(result.unwrap() == usize(1));
+  removed := list.remove(usize(1));
+  assert(removed == i32(20));
   assert(list.len() == usize(3));
   assert(list(usize(0)) == i32(10));
   assert(list(usize(1)) == i32(30));
   assert(list(usize(2)) == i32(40));
 });
-test("ArrayList.remove removes multiple elements", {
+test("ArrayList.remove from beginning returns the head", {
+  list := ArrayList(i32).new();
+  list.push(i32(100));
+  list.push(i32(200));
+  list.push(i32(300));
+  removed := list.remove(usize(0));
+  assert(removed == i32(100));
+  assert(list.len() == usize(2));
+  assert(list(usize(0)) == i32(200));
+  assert(list(usize(1)) == i32(300));
+});
+test("ArrayList.remove from end returns the tail", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  removed := list.remove(usize(2));
+  assert(removed == i32(3));
+  assert(list.len() == usize(2));
+  assert(list(usize(1)) == i32(2));
+});
+test("ArrayList.drain removes a middle range and returns the elements in order", {
   list := ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
   list.push(i32(30));
   list.push(i32(40));
   list.push(i32(50));
-  result := list.remove(usize(1), usize(2));
-  assert(result.is_ok());
-  assert(result.unwrap() == usize(2));
+  drained := list.drain(usize(1) .. usize(3));
+  assert(drained.len() == usize(2));
+  assert(drained(usize(0)) == i32(20));
+  assert(drained(usize(1)) == i32(30));
   assert(list.len() == usize(3));
   assert(list(usize(0)) == i32(10));
   assert(list(usize(1)) == i32(40));
   assert(list(usize(2)) == i32(50));
 });
-test("ArrayList.remove from beginning", {
+test("ArrayList.drain from beginning", {
   list := ArrayList(i32).new();
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
   list.push(i32(400));
-  result := list.remove(usize(0), usize(2));
-  assert(result.is_ok());
+  drained := list.drain(usize(0) .. usize(2));
+  assert(drained.len() == usize(2));
+  assert(drained(usize(1)) == i32(200));
   assert(list.len() == usize(2));
   assert(list(usize(0)) == i32(300));
   assert(list(usize(1)) == i32(400));
 });
-test("ArrayList.remove from end", {
+test("ArrayList.drain the whole list empties it", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  list.push(i32(4));
-  list.push(i32(5));
-  result := list.remove(usize(3), usize(5));
-  assert(result.is_ok());
-  assert(result.unwrap() == usize(2));
-  assert(list.len() == usize(3));
-  assert(list(usize(2)) == i32(3));
+  drained := list.drain(usize(0) .. list.len());
+  assert(drained.len() == usize(3));
+  assert(list.len() == usize(0));
+  assert(list.is_empty());
 });
-test("ArrayList.remove with count exceeding available elements", {
-  list := ArrayList(i32).new();
-  list.push(i32(1));
-  list.push(i32(2));
-  list.push(i32(3));
-  result := list.remove(usize(1), usize(10));
-  assert(result.is_ok());
-  assert(result.unwrap() == usize(2));
-  assert(list.len() == usize(1));
-});
-test("ArrayList.remove with zero count does nothing", {
+test("ArrayList.drain an empty range does nothing", {
   list := ArrayList(i32).new();
   list.push(i32(10));
   list.push(i32(20));
-  result := list.remove(usize(0), usize(0));
-  assert(result.is_ok());
-  assert(result.unwrap() == usize(0));
+  drained := list.drain(usize(1) .. usize(1));
+  assert(drained.len() == usize(0));
   assert(list.len() == usize(2));
 });
-test("ArrayList.remove with out of bounds index returns error", {
+test("ArrayList.drain end == length is allowed", {
   list := ArrayList(i32).new();
-  list.push(i32(10));
-  result := list.remove(usize(5), usize(1));
-  assert(result.is_err());
+  list.push(i32(1));
+  list.push(i32(2));
+  drained := list.drain(usize(1) .. usize(2));
+  assert(drained.len() == usize(1));
+  assert(drained(usize(0)) == i32(2));
+  assert(list.len() == usize(1));
+});
+test("ArrayList.iter yields every element and does not consume the list", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  sum := i32(0);
+  for(list.iter(), (x) => {
+    sum = (sum + x);
+  });
+  assert(sum == i32(6));
+  // The list is intact after iter(): into_iter() would have moved it.
+  assert(list.len() == usize(3));
+  assert(list(usize(0)) == i32(1));
+  assert(list(usize(2)) == i32(3));
+});
+test("ArrayList.iter works on a list of RC strings", {
+  list := ArrayList(String).new();
+  list.push(String.from("a"));
+  list.push(String.from("b"));
+  count := usize(0);
+  for(list.iter(), (s) => {
+    assert(s.len() == usize(1));
+    count = (count + usize(1));
+  });
+  assert(count == usize(2));
+  assert(list.len() == usize(2));
 });
 // ===== Slice Tests =====
 test("ArrayList.slice creates new list with subset of elements", {
@@ -386,7 +428,7 @@ test("ArrayList remove then slice", {
   slice_result := list.slice(usize(1), usize(5));
   assert(slice_result.is_ok());
   sliced := slice_result.unwrap();
-  sliced.remove(usize(1), usize(2));
+  sliced.drain(usize(1) .. usize(3));
   assert(sliced.len() == usize(2));
   assert(sliced(usize(0)) == i32(10));
   assert(sliced(usize(1)) == i32(25));
@@ -410,9 +452,10 @@ test("ArrayList multiple remove operations", {
   while(i < i32(10), i = (i + i32(1)), {
     list.push(i);
   });
-  list.remove(usize(2), usize(2));
+  list.drain(usize(2) .. usize(4));
   assert(list.len() == usize(8));
-  list.remove(usize(0), usize(1));
+  removed := list.remove(usize(0));
+  assert(removed == i32(0));
   assert(list.len() == usize(7));
   assert(list(usize(0)) == i32(1));
   assert(list(usize(1)) == i32(4));
@@ -493,8 +536,8 @@ test("ArrayList.remove with Box elements properly cleans up", {
   list.push(Box(i32)(2));
   list.push(Box(i32)(3));
   list.push(Box(i32)(4));
-  result := list.remove(usize(1), usize(2));
-  assert(result.is_ok());
+  drained := list.drain(usize(1) .. usize(3));
+  assert(drained.len() == usize(2));
   assert(list.len() == usize(2));
   // Removed Box elements should be properly disposed
 });
@@ -517,7 +560,7 @@ test("ArrayList mixed operations with Box elements", {
   // Pop one
   list.pop();
   // Remove one from middle
-  list.remove(usize(1), usize(1));
+  list.remove(usize(1));
   // Should have 2 elements left: 1 and 3
   assert(list.len() == usize(2));
   assert(list(usize(0)).* == i32(1));
@@ -535,7 +578,7 @@ test("ArrayList stress test with Box - push 100 and remove from front", {
   // Remove elements one by one from the front
   i = 0;
   while(i < 50, i = (i + 1), {
-    list.remove(usize(0), usize(1));
+    _r := list.remove(usize(0));
   });
   assert(list.len() == usize(50));
   // Clear the remaining elements
@@ -552,7 +595,7 @@ test("ArrayList stress test with Box - remove multiple elements at once", {
   });
   assert(list.len() == usize(20));
   // Remove 10 elements from the middle
-  list.remove(usize(5), usize(10));
+  list.drain(usize(5) .. usize(15));
   assert(list.len() == usize(10));
   // Remaining elements should be 0-4 and 15-19
   assert(list(usize(0)).* == i32(0));
@@ -612,9 +655,10 @@ test("ArrayList of String - remove from middle drops removed and keeps rest", {
   list.push(String.from("c"));
   list.push(String.from("d"));
   list.push(String.from("e"));
-  result := list.remove(usize(1), usize(2));
-  assert(result.is_ok());
-  assert(result.unwrap() == usize(2));
+  drained := list.drain(usize(1) .. usize(3));
+  assert(drained.len() == usize(2));
+  assert(drained(usize(0)) == String.from("b"));
+  assert(drained(usize(1)) == String.from("c"));
   assert(list.len() == usize(3));
   assert(list(usize(0)) == String.from("a"));
   assert(list(usize(1)) == String.from("d"));
@@ -626,9 +670,8 @@ test("ArrayList of String - remove from end drops removed elements", {
   list.push(String.from("x"));
   list.push(String.from("y"));
   list.push(String.from("z"));
-  result := list.remove(usize(1), usize(10));
-  assert(result.is_ok());
-  assert(result.unwrap() == usize(2));
+  drained := list.drain(usize(1) .. usize(3));
+  assert(drained.len() == usize(2));
   assert(list.len() == usize(1));
   assert(list(usize(0)) == String.from("x"));
   // "y" and "z" should be properly dropped
@@ -638,7 +681,8 @@ test("ArrayList of String - remove single element from front", {
   list.push(String.from("first"));
   list.push(String.from("second"));
   list.push(String.from("third"));
-  list.remove(usize(0), usize(1));
+  removed := list.remove(usize(0));
+  assert(removed == String.from("first"));
   assert(list.len() == usize(2));
   assert(list(usize(0)) == String.from("second"));
   assert(list(usize(1)) == String.from("third"));
@@ -673,7 +717,7 @@ test("ArrayList of String - stress push and remove from front", {
   assert(list.len() == usize(50));
   i = 0;
   while(i < 25, i = (i + 1), {
-    list.remove(usize(0), usize(1));
+    _r := list.remove(usize(0));
   });
   assert(list.len() == usize(25));
   list.clear();
@@ -696,13 +740,13 @@ test("ArrayList of String - remove all elements one by one", {
   list.push(String.from("item2"));
   list.push(String.from("item3"));
   list.push(String.from("item4"));
-  list.remove(usize(0), usize(1));
+  _r1 := list.remove(usize(0));
   assert(list.len() == usize(3));
-  list.remove(usize(0), usize(1));
+  _r2 := list.remove(usize(0));
   assert(list.len() == usize(2));
-  list.remove(usize(0), usize(1));
+  _r3 := list.remove(usize(0));
   assert(list.len() == usize(1));
-  list.remove(usize(0), usize(1));
+  _r4 := list.remove(usize(0));
   assert(list.len() == usize(0));
 });
 test("ArrayList of String - shrink_to_fit preserves String elements", {

@@ -340,8 +340,8 @@ mm_forget_open_document :: (fn(fs_path : String) -> unit)({
   match(
     _open_doc_index(fs_path.clone()),
     .Some(i) => {
-      g_open_doc_paths.remove(i, usize(1));
-      g_open_doc_texts.remove(i, usize(1));
+      g_open_doc_paths.drain(i .. (i + usize(1)));
+      g_open_doc_texts.drain(i .. (i + usize(1)));
     },
     .None => ()
   );
