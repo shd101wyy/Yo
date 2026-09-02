@@ -840,7 +840,7 @@ This cost a full debug cycle in the chunked-C-emission work: an entire emitter b
 
 ### Forward references are NOT allowed
 
-Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later).
+Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later). (Lifting this rule — order-independent `::` definitions and `impl` registration — is a planned campaign: `plans/LAZY_TOPLEVEL_BINDINGS.md`.)
 
 ```rust
 // WRONG — forward reference:
