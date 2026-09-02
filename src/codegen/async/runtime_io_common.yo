@@ -1963,125 +1963,139 @@ generate_tls_runtime :: (fn(emitter : Emitter) -> unit)({
             +
               `#include <openssl/err.h>\n`
               +
-                `\n`
+                `// Weak canary (the shipped macOS bundle weak-links OpenSSL — a hard\n`
                 +
-                  `void* __yo_tls_ctx_new(void) {\n`
+                  `// LC_LOAD_DYLIB would keep the yo binary from even LAUNCHING on a\n`
                   +
-                    `  SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());\n`
+                    `// Mac without brew openssl): a missing dylib leaves every OpenSSL\n`
                     +
-                      `  if (!ctx) return NULL;\n`
+                      `// symbol NULL, and __yo_tls_available() must report that honestly\n`
                       +
-                        `  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);\n`
+                        `// instead of a constant 1. The redeclaration only attaches the\n`
                         +
-                          `  SSL_CTX_set_default_verify_paths(ctx);\n`
+                          `// attribute; the type is the header's own.\n`
                           +
-                            `  return ctx;\n`
+                            `extern SSL_CTX* SSL_CTX_new(const SSL_METHOD*) __attribute__((weak));\n`
                             +
-                              `}\n`
+                              `\n`
                               +
-                                `void* __yo_tls_ssl_new(void* ctx, const char* hostname) {\n`
+                                `void* __yo_tls_ctx_new(void) {\n`
                                 +
-                                  `  SSL* ssl = SSL_new((SSL_CTX*)ctx);\n`
+                                  `  SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());\n`
                                   +
-                                    `  if (!ssl) return NULL;\n`
+                                    `  if (!ctx) return NULL;\n`
                                     +
-                                      `  BIO* rbio = BIO_new(BIO_s_mem());\n`
+                                      `  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);\n`
                                       +
-                                        `  BIO* wbio = BIO_new(BIO_s_mem());\n`
+                                        `  SSL_CTX_set_default_verify_paths(ctx);\n`
                                         +
-                                          `  if (!rbio || !wbio) {\n`
+                                          `  return ctx;\n`
                                           +
-                                            `    if (rbio) BIO_free(rbio);\n`
+                                            `}\n`
                                             +
-                                              `    if (wbio) BIO_free(wbio);\n`
+                                              `void* __yo_tls_ssl_new(void* ctx, const char* hostname) {\n`
                                               +
-                                                `    SSL_free(ssl);\n`
+                                                `  SSL* ssl = SSL_new((SSL_CTX*)ctx);\n`
                                                 +
-                                                  `    return NULL;\n`
+                                                  `  if (!ssl) return NULL;\n`
                                                   +
-                                                    `  }\n`
+                                                    `  BIO* rbio = BIO_new(BIO_s_mem());\n`
                                                     +
-                                                      `  SSL_set_bio(ssl, rbio, wbio);\n`
+                                                      `  BIO* wbio = BIO_new(BIO_s_mem());\n`
                                                       +
-                                                        `  SSL_set_connect_state(ssl);\n`
+                                                        `  if (!rbio || !wbio) {\n`
                                                         +
-                                                          `  SSL_set1_host(ssl, hostname);\n`
+                                                          `    if (rbio) BIO_free(rbio);\n`
                                                           +
-                                                            `  SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, 0, (void*)hostname);\n`
+                                                            `    if (wbio) BIO_free(wbio);\n`
                                                             +
-                                                              `  return ssl;\n`
+                                                              `    SSL_free(ssl);\n`
                                                               +
-                                                                `}\n`
+                                                                `    return NULL;\n`
                                                                 +
-                                                                  `int __yo_tls_handshake(void* ssl) { return SSL_do_handshake((SSL*)ssl); }\n`
+                                                                  `  }\n`
                                                                   +
-                                                                    `int __yo_tls_get_error(void* ssl, int ret) { return SSL_get_error((SSL*)ssl, ret); }\n`
+                                                                    `  SSL_set_bio(ssl, rbio, wbio);\n`
                                                                     +
-                                                                      `int __yo_tls_read(void* ssl, void* buf, int num) { return SSL_read((SSL*)ssl, buf, num); }\n`
+                                                                      `  SSL_set_connect_state(ssl);\n`
                                                                       +
-                                                                        `int __yo_tls_write(void* ssl, const void* buf, int num) { return SSL_write((SSL*)ssl, buf, num); }\n`
+                                                                        `  SSL_set1_host(ssl, hostname);\n`
                                                                         +
-                                                                          `int __yo_tls_shutdown(void* ssl) { return SSL_shutdown((SSL*)ssl); }\n`
+                                                                          `  SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, 0, (void*)hostname);\n`
                                                                           +
-                                                                            `void __yo_tls_free(void* ssl, void* ctx) { SSL_free((SSL*)ssl); SSL_CTX_free((SSL_CTX*)ctx); }\n`
+                                                                            `  return ssl;\n`
                                                                             +
-                                                                              `void* __yo_tls_rbio(void* ssl) { return SSL_get_rbio((SSL*)ssl); }\n`
+                                                                              `}\n`
                                                                               +
-                                                                                `void* __yo_tls_wbio(void* ssl) { return SSL_get_wbio((SSL*)ssl); }\n`
+                                                                                `int __yo_tls_handshake(void* ssl) { return SSL_do_handshake((SSL*)ssl); }\n`
                                                                                 +
-                                                                                  `size_t __yo_tls_bio_pending(void* bio) { return BIO_ctrl_pending((BIO*)bio); }\n`
+                                                                                  `int __yo_tls_get_error(void* ssl, int ret) { return SSL_get_error((SSL*)ssl, ret); }\n`
                                                                                   +
-                                                                                    `int __yo_tls_bio_read(void* bio, void* buf, int len) { return BIO_read((BIO*)bio, buf, len); }\n`
+                                                                                    `int __yo_tls_read(void* ssl, void* buf, int num) { return SSL_read((SSL*)ssl, buf, num); }\n`
                                                                                     +
-                                                                                      `int __yo_tls_bio_write(void* bio, const void* buf, int len) { return BIO_write((BIO*)bio, buf, len); }\n`
+                                                                                      `int __yo_tls_write(void* ssl, const void* buf, int num) { return SSL_write((SSL*)ssl, buf, num); }\n`
                                                                                       +
-                                                                                        `void __yo_tls_err_string(char* buf, size_t len) {\n`
+                                                                                        `int __yo_tls_shutdown(void* ssl) { return SSL_shutdown((SSL*)ssl); }\n`
                                                                                         +
-                                                                                          `  unsigned long code = ERR_get_error();\n`
+                                                                                          `void __yo_tls_free(void* ssl, void* ctx) { SSL_free((SSL*)ssl); SSL_CTX_free((SSL_CTX*)ctx); }\n`
                                                                                           +
-                                                                                            `  if (code == 0) { snprintf(buf, len, \"no error in the OpenSSL queue\"); return; }\n`
+                                                                                            `void* __yo_tls_rbio(void* ssl) { return SSL_get_rbio((SSL*)ssl); }\n`
                                                                                             +
-                                                                                              `  ERR_error_string_n(code, buf, len);\n`
+                                                                                              `void* __yo_tls_wbio(void* ssl) { return SSL_get_wbio((SSL*)ssl); }\n`
                                                                                               +
-                                                                                                `}\n`
+                                                                                                `size_t __yo_tls_bio_pending(void* bio) { return BIO_ctrl_pending((BIO*)bio); }\n`
                                                                                                 +
-                                                                                                  `int __yo_tls_available(void) { return 1; }\n`
+                                                                                                  `int __yo_tls_bio_read(void* bio, void* buf, int len) { return BIO_read((BIO*)bio, buf, len); }\n`
                                                                                                   +
-                                                                                                    `#else\n`
+                                                                                                    `int __yo_tls_bio_write(void* bio, const void* buf, int len) { return BIO_write((BIO*)bio, buf, len); }\n`
                                                                                                     +
-                                                                                                      `void* __yo_tls_ctx_new(void) { return NULL; }\n`
+                                                                                                      `void __yo_tls_err_string(char* buf, size_t len) {\n`
                                                                                                       +
-                                                                                                        `void* __yo_tls_ssl_new(void* ctx, const char* hostname) { (void)ctx; (void)hostname; return NULL; }\n`
+                                                                                                        `  unsigned long code = ERR_get_error();\n`
                                                                                                         +
-                                                                                                          `int __yo_tls_handshake(void* ssl) { (void)ssl; return -1; }\n`
+                                                                                                          `  if (code == 0) { snprintf(buf, len, \"no error in the OpenSSL queue\"); return; }\n`
                                                                                                           +
-                                                                                                            `int __yo_tls_get_error(void* ssl, int ret) { (void)ssl; return ret; }\n`
+                                                                                                            `  ERR_error_string_n(code, buf, len);\n`
                                                                                                             +
-                                                                                                              `int __yo_tls_read(void* ssl, void* buf, int num) { (void)ssl; (void)buf; (void)num; return -1; }\n`
+                                                                                                              `}\n`
                                                                                                               +
-                                                                                                                `int __yo_tls_write(void* ssl, const void* buf, int num) { (void)ssl; (void)buf; (void)num; return -1; }\n`
+                                                                                                                `int __yo_tls_available(void) { return &SSL_CTX_new != NULL; }\n`
                                                                                                                 +
-                                                                                                                  `int __yo_tls_shutdown(void* ssl) { (void)ssl; return 0; }\n`
+                                                                                                                  `#else\n`
                                                                                                                   +
-                                                                                                                    `void __yo_tls_free(void* ssl, void* ctx) { (void)ssl; (void)ctx; }\n`
+                                                                                                                    `void* __yo_tls_ctx_new(void) { return NULL; }\n`
                                                                                                                     +
-                                                                                                                      `void* __yo_tls_rbio(void* ssl) { (void)ssl; return NULL; }\n`
+                                                                                                                      `void* __yo_tls_ssl_new(void* ctx, const char* hostname) { (void)ctx; (void)hostname; return NULL; }\n`
                                                                                                                       +
-                                                                                                                        `void* __yo_tls_wbio(void* ssl) { (void)ssl; return NULL; }\n`
+                                                                                                                        `int __yo_tls_handshake(void* ssl) { (void)ssl; return -1; }\n`
                                                                                                                         +
-                                                                                                                          `size_t __yo_tls_bio_pending(void* bio) { (void)bio; return 0; }\n`
+                                                                                                                          `int __yo_tls_get_error(void* ssl, int ret) { (void)ssl; return ret; }\n`
                                                                                                                           +
-                                                                                                                            `int __yo_tls_bio_read(void* bio, void* buf, int len) { (void)bio; (void)buf; (void)len; return 0; }\n`
+                                                                                                                            `int __yo_tls_read(void* ssl, void* buf, int num) { (void)ssl; (void)buf; (void)num; return -1; }\n`
                                                                                                                             +
-                                                                                                                              `int __yo_tls_bio_write(void* bio, const void* buf, int len) { (void)bio; (void)buf; (void)len; return 0; }\n`
+                                                                                                                              `int __yo_tls_write(void* ssl, const void* buf, int num) { (void)ssl; (void)buf; (void)num; return -1; }\n`
                                                                                                                               +
-                                                                                                                                `void __yo_tls_err_string(char* buf, size_t len) { snprintf(buf, len, \"TLS is not available in this build (Windows Schannel / wasm backends pending, D6)\"); }\n`
+                                                                                                                                `int __yo_tls_shutdown(void* ssl) { (void)ssl; return 0; }\n`
                                                                                                                                 +
-                                                                                                                                  `int __yo_tls_available(void) { return 0; }\n`
+                                                                                                                                  `void __yo_tls_free(void* ssl, void* ctx) { (void)ssl; (void)ctx; }\n`
                                                                                                                                   +
-                                                                                                                                    `#endif\n`
+                                                                                                                                    `void* __yo_tls_rbio(void* ssl) { (void)ssl; return NULL; }\n`
                                                                                                                                     +
-                                                                                                                                      `\n`
+                                                                                                                                      `void* __yo_tls_wbio(void* ssl) { (void)ssl; return NULL; }\n`
+                                                                                                                                      +
+                                                                                                                                        `size_t __yo_tls_bio_pending(void* bio) { (void)bio; return 0; }\n`
+                                                                                                                                        +
+                                                                                                                                          `int __yo_tls_bio_read(void* bio, void* buf, int len) { (void)bio; (void)buf; (void)len; return 0; }\n`
+                                                                                                                                          +
+                                                                                                                                            `int __yo_tls_bio_write(void* bio, const void* buf, int len) { (void)bio; (void)buf; (void)len; return 0; }\n`
+                                                                                                                                            +
+                                                                                                                                              `void __yo_tls_err_string(char* buf, size_t len) { snprintf(buf, len, \"TLS is not available in this build (Windows Schannel / wasm backends pending, D6)\"); }\n`
+                                                                                                                                              +
+                                                                                                                                                `int __yo_tls_available(void) { return 0; }\n`
+                                                                                                                                                +
+                                                                                                                                                  `#endif\n`
+                                                                                                                                                  +
+                                                                                                                                                    `\n`
   );
 });
 

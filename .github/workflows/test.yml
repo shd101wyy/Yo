@@ -283,10 +283,10 @@ jobs:
           submodules: recursive
 
       # The seed links liburing dynamically and cannot start without it.
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # Back on env.SEED_VERSION as of the v0.2.16 seed. This was pinned to
       # v0.2.14 while v0.2.15 was the seed: that seed's evaluator deep-cloned
@@ -386,10 +386,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
       # release (the bootstrap seed) builds stage-1 from THIS checkout, and
@@ -537,9 +537,13 @@ jobs:
           ls -la /tmp/stage1.c
 
           # Phase 2 — fresh process, so the emit arena is already gone.
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into stage1.c — libssl-dev is installed with liburing above, and
+          # the flags resolve via pkg-config (the -luring line's precedent).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage1.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage1
 
           # The binary no longer lives under yo-out/<triple>/bin/, so the
@@ -568,9 +572,13 @@ jobs:
           YO_STD="$PWD/std" /tmp/yo-stage1 compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
           echo "S1=/tmp/yo-stage2" >> "$GITHUB_ENV"
           # Same fail-fast as stage-1.
@@ -686,10 +694,10 @@ jobs:
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
-      - name: Install liburing (needed to run the seed's compiled children)
+      - name: Install liburing (needed to run the seed's compiled children; + OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -716,9 +724,13 @@ jobs:
           YO_STD="$PWD/std" ./yo-candidate compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o yo-candidate
 
       # Built ONCE and shared: the retired weekly workflow rebuilt the
@@ -877,8 +889,14 @@ jobs:
               -o yo-suite.exe
             ./yo-suite.exe --version
           else
+            # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+            # and symbols into the macOS cross C; the runner's brew openssl@3
+            # keg is not on the default search path. Hard link is fine for a
+            # test binary (release.yml weak-links the SHIPPED bundle instead).
+            SSL_PREFIX="$(brew --prefix openssl@3)"
             clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               "cross/yo-${{ matrix.target }}.c" \
+              -I"$SSL_PREFIX/include" -L"$SSL_PREFIX/lib" -lssl -lcrypto \
               -o yo-suite
             ./yo-suite --version
           fi
@@ -946,7 +964,9 @@ jobs:
       - name: Install liburing and GNU time
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev time
+          # + OpenSSL dev: this job compiles stage-2 itself (std/http in the
+          # compiler closure puts OpenSSL headers into the emitted C).
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
 
       # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
       # the SEED (previous release) builds stage-1. The trust chain becomes
@@ -1038,7 +1058,9 @@ jobs:
           fi
 
       - name: "Stage 2: compile the emitted C with clang"
-        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o /tmp/yo-stage2-bin -luring
+        # $(pkg-config ... openssl): std/http in the compiler closure puts OpenSSL
+        # headers into the emitted C (libssl-dev installed with liburing above).
+        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-bin -luring
 
       - name: Upload stage-2 artifacts for the stage-3 job
         uses: actions/upload-artifact@v4
@@ -1168,10 +1190,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
       # the TS CLI as the differential's reference side, which is why bun
@@ -1305,10 +1327,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
       # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
@@ -1451,16 +1473,25 @@ jobs:
             # 31855893056). Debian splits static libs into a -static package;
             # Alpine ships liburing.a inside liburing-dev. Assert it is really
             # there rather than discovering its absence as a link error.
-            apk add --no-cache build-base linux-headers liburing-dev
+            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
             test -f /usr/lib/liburing.a || {
               echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
               find / -name "liburing.a" 2>/dev/null | head
               exit 1
             }
+            # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
+            # emitted C. Alpine splits the archives out of openssl-dev (headers +
+            # .so) into openssl-libs-static — without it the assert below fires
+            # (PR #364's first run). Static here means the artifact needs NO
+            # openssl on the host. Same assert-the-.a stance as liburing.
+            test -f /usr/lib/libssl.a || {
+              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
+              exit 1
+            }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
-              -static -luring -lpthread -lm \
+              -static -luring -lssl -lcrypto -lpthread -lm \
               -o yo-musl
           '
 
@@ -1550,10 +1581,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1653,9 +1684,13 @@ jobs:
           YO_STD="$PWD/std" "$S1" compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
 
       - name: Build system smoke test (WASM)
@@ -1796,10 +1831,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
       # SEED builds stage-1.

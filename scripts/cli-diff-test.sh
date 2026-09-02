@@ -179,10 +179,10 @@ normalize_stream() {
     | sed -e "s|$proj|<PROJ>|g" \
           -e "s|$home|<HOME>|g" \
           -e "s|$REPO_ROOT|<REPO>|g" \
-    | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|s\b|seconds)/<TIME>/g' \
-             -e 's/\b[0-9a-f]{40}\b/<SHA1>/g' \
-             -e 's/\b[0-9a-f]{64}\b/<SHA256>/g' \
-             -e 's/\b(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)\b/<TARGET>/g'
+    | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|seconds|s([^A-Za-z0-9_]|$))/<TIME>\3/g' \
+             -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{40}([^A-Za-z0-9_]|$)/\1<SHA1>\2/g' \
+             -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
+             -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g'
 }
 
 # Emit "<relpath>\t<sha>" for every regular file under $1, skipping ignored

@@ -381,6 +381,26 @@ proven by a live example.com:443 handshake; `_probe_openssl` in src/main.yo
 (plans/D6_TLS_PLAN.md). Remaining: route `std/http` https through it (PR-2)
 and the P0+ curl→std/http swap (PR-3, the only D6 remainder); Windows
 Schannel joins the Windows platform audit.
+**PR-3 BLOCKED 2026-08-30 (Windows TLS) → UNBLOCKED 2026-09-01, RESCHEDULED
+on the v0.2.21 seed**: the curl→std/http swap (version_cache, PR #364) is
+rebased on post-#376 develop with `tls_available()` transport gating
+(Windows/wasm/no-OpenSSL machines get a clean one-line error instead of a
+handshake crash; Schannel stays this row's deferred item), and the emitted
+TLS runtime grew a weak canary — `__yo_tls_available()` returns
+`&SSL_CTX_new != NULL` — so a release bundle can weak-link OpenSSL
+(`-Wl,-weak_library,…`) and still LAUNCH on a Mac without brew openssl.
+**The merge gate moved to SEED_VERSION v0.2.21** (second-order bootstrap
+veil, found 2026-09-01): #376 replaced std's c_include TLS with the
+`extern("Yo") __yo_tls_*` ABI, and only a #376-codegen compiler emits that
+runtime — the v0.2.20 seed emits the compiler-tree C with bare undeclared
+`__yo_tls_*` calls, so CI's seed-built stage-1 fails at clang the moment
+the swap enters the tree. Until v0.2.21 is published and SEED_VERSION
+bumps, PR #364 cannot ride CI at all; local verification uses a
+#376-tree-built compiler as the seed stand-in. The OpenSSL CI plumbing on
+the PR branch (stage-1/stage-2 clang lines, fixpoint_only, fixpoint-arm64)
+is required by either path; release.yml's own sites (Alpine cc lines, the
+candidate build, the macOS bundle legs' weak-link flags, the portable-c
+parse gate) ride the same branch.
 **PR-2 LANDED 2026-08-28**: `std/http` fetch routes https through
 `TlsStream` — a scheme branch chooses TcpStream|TlsStream transport, the
 response reader is shared as a generic over the D5 `Reader` trait, port
@@ -710,9 +730,14 @@ declarations at runtime.
   `_subcommand_help_text` in `src/main.yo`, local, before version pre-dispatch,
   stops at `--`).
 - Replace the two `curl` shell-outs (`src/version_cache.yo` — bundle download
-  + releases list) with `std/http`. **Blocked on TLS (D6/O2)** — doing it
-  earlier would silently downgrade the toolchain's release channel to
-  cleartext.
+  + releases list) with `std/http`. TLS landed (D6/O2), and the swap is
+  WRITTEN on branch `s6/version-cache-std-http` — but it is **SEED-GATED on
+  v0.2.20**: importing `std/http` into the compiler's own closure makes the
+  v0.2.19 SEED compile `fetch_with`'s while-await-under-race shape (C38,
+  fixed after the seed) and the TLS BIO externs, and the seed miscompiles
+  both (`no member named 'while_loop_0_active'`, BIO decl errors) — the
+  yo-seed-gates-source-forms rule in action. Land it in the first PR wave
+  after SEED_VERSION advances to v0.2.20.
 
 **P1 — expected of a modern std**
 ~~HTTP server~~ **DONE 2026-08-29** (`HttpServer`, one connection at a time, `Connection: close`; unblocked by the C27 fix); ~~chunked/redirect/timeout client~~ **DONE** (redirects + deadline

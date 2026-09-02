@@ -544,10 +544,14 @@ jobs:
 
       # The SEED runs on this Linux host, so it needs liburing itself even
       # though the EMITTED C targets macOS (kqueue backend, no liburing).
-      - name: Install liburing
+      # OpenSSL dev + pkg-config because the candidate this job builds below
+      # compiles the tree WITH std/http in its closure (D6 PR-3) — its
+      # compiler-driven clang resolves OpenSSL via pkg-config (_probe_openssl,
+      # src/main.yo, with the Homebrew-keg fallbacks for local runs).
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -694,8 +698,29 @@ jobs:
         run: |
           # System-allocator flavor (see the cross-emit step): no vendored
           # mimalloc objects in the link line.
+          #
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # AND symbols into the bundle C. WEAK-LINK them: a hard
+          # LC_LOAD_DYLIB would keep this yo binary from even LAUNCHING on a
+          # Mac without brew openssl — with -weak_library the dylib is
+          # optional, the missing symbols resolve NULL, and the emitted
+          # __yo_tls_available() canary reports false honestly (the runtime
+          # gates version_cache's remote operations on it). pkg-config finds
+          # the brew keg via PKG_CONFIG_PATH; the weak canary pattern is
+          # proven in issues/ (weakcanary A/B: launches with the dylib
+          # absent, reports unavailable).
+          SSL_PC="$(brew --prefix openssl@3)/lib/pkgconfig"
+          SSL_FLAGS="$(PKG_CONFIG_PATH="$SSL_PC" pkg-config --cflags openssl 2>/dev/null || true)"
+          SSL_LIBDIR="$(PKG_CONFIG_PATH="$SSL_PC" pkg-config --variable=libdir openssl 2>/dev/null || true)"
+          if [ -z "$SSL_LIBDIR" ]; then
+            echo "::error::pkg-config could not resolve brew openssl@3 — cannot weak-link the bundle"
+            exit 1
+          fi
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             "cross/yo-${{ matrix.target }}.c" \
+            $SSL_FLAGS \
+            -Wl,-weak_library,"$SSL_LIBDIR/libssl.3.dylib" \
+            -Wl,-weak_library,"$SSL_LIBDIR/libcrypto.3.dylib" \
             -o yo-seed
           ./yo-seed --version
 
@@ -976,15 +1001,25 @@ jobs:
             # static libs into a -static package; Alpine ships liburing.a
             # inside liburing-dev. Assert it rather than discovering its
             # absence as a link error 140 MB into the compile.
-            apk add --no-cache build-base linux-headers liburing-dev
+            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
             test -f /usr/lib/liburing.a || {
               echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
+              exit 1
+            }
+            # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
+            # emitted C. Alpine splits the archives out of openssl-dev (headers +
+            # .so) into openssl-libs-static — without it the assert below fires
+            # (PR #364's first run). Static here means the artifact needs NO
+            # openssl on the user's machine. Same assert-the-.a stance as
+            # liburing above.
+            test -f /usr/lib/libssl.a || {
+              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
               exit 1
             }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-g1.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
-              -static -luring -lpthread -lm \
+              -static -luring -lssl -lcrypto -lpthread -lm \
               -o yo-g1
           '
           file yo-g1 | tee file.txt
@@ -1008,15 +1043,19 @@ jobs:
       - name: "C -> static SHIPPED binary, inside Alpine (musl + static liburing)"
         run: |
           docker run --rm -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
-            apk add --no-cache build-base linux-headers liburing-dev
+            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
             test -f /usr/lib/liburing.a || {
               echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
+              exit 1
+            }
+            test -f /usr/lib/libssl.a || {
+              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
               exit 1
             }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
-              -static -luring -lpthread -lm \
+              -static -luring -lssl -lcrypto -lpthread -lm \
               -o yo-musl
           '
           file yo-musl | tee file.txt
@@ -1206,6 +1245,15 @@ jobs:
           path: arms-raw
           merge-multiple: true
 
+      # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers into
+      # the Linux arms, and the parse gate below selects THIS runner's arm
+      # (linux-x64) — the headers must be present for -fsyntax-only to mean
+      # anything.
+      - name: Install OpenSSL headers (portable-C parse gate)
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
+
       - name: Assemble and publish yo.c
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1229,7 +1277,7 @@ jobs:
 
           # Sanity-check that the assembled file is at least syntactically a
           # translation unit for THIS runner's platform before publishing it.
-          gcc -std=c11 -fsyntax-only -w yo.c \
+          gcc -std=c11 -fsyntax-only -w $(pkg-config --cflags openssl) yo.c \
             || { echo "::error::assembled yo.c does not even parse on linux-x64"; exit 1; }
 
           # PER-TARGET SPLIT (plans/PORTABLE_C_DISTRIBUTION.md): each arm is a
