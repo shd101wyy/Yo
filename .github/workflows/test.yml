@@ -572,9 +572,13 @@ jobs:
           YO_STD="$PWD/std" /tmp/yo-stage1 compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
           echo "S1=/tmp/yo-stage2" >> "$GITHUB_ENV"
           # Same fail-fast as stage-1.
@@ -690,10 +694,10 @@ jobs:
           echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
 
-      - name: Install liburing (needed to run the seed's compiled children)
+      - name: Install liburing (needed to run the seed's compiled children; + OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -720,9 +724,13 @@ jobs:
           YO_STD="$PWD/std" ./yo-candidate compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o yo-candidate
 
       # Built ONCE and shared: the retired weekly workflow rebuilt the
@@ -881,8 +889,14 @@ jobs:
               -o yo-suite.exe
             ./yo-suite.exe --version
           else
+            # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+            # and symbols into the macOS cross C; the runner's brew openssl@3
+            # keg is not on the default search path. Hard link is fine for a
+            # test binary (release.yml weak-links the SHIPPED bundle instead).
+            SSL_PREFIX="$(brew --prefix openssl@3)"
             clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               "cross/yo-${{ matrix.target }}.c" \
+              -I"$SSL_PREFIX/include" -L"$SSL_PREFIX/lib" -lssl -lcrypto \
               -o yo-suite
             ./yo-suite --version
           fi
@@ -950,7 +964,9 @@ jobs:
       - name: Install liburing and GNU time
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev time
+          # + OpenSSL dev: this job compiles stage-2 itself (std/http in the
+          # compiler closure puts OpenSSL headers into the emitted C).
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
 
       # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
       # the SEED (previous release) builds stage-1. The trust chain becomes
@@ -1042,7 +1058,9 @@ jobs:
           fi
 
       - name: "Stage 2: compile the emitted C with clang"
-        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o /tmp/yo-stage2-bin -luring
+        # $(pkg-config ... openssl): std/http in the compiler closure puts OpenSSL
+        # headers into the emitted C (libssl-dev installed with liburing above).
+        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-bin -luring
 
       - name: Upload stage-2 artifacts for the stage-3 job
         uses: actions/upload-artifact@v4
@@ -1455,16 +1473,23 @@ jobs:
             # 31855893056). Debian splits static libs into a -static package;
             # Alpine ships liburing.a inside liburing-dev. Assert it is really
             # there rather than discovering its absence as a link error.
-            apk add --no-cache build-base linux-headers liburing-dev
+            apk add --no-cache build-base linux-headers liburing-dev openssl-dev
             test -f /usr/lib/liburing.a || {
               echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
               find / -name "liburing.a" 2>/dev/null | head
               exit 1
             }
+            # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
+            # emitted C; static here means the artifact needs NO openssl on the
+            # host. Same assert-the-.a stance as liburing (mirrors release.yml).
+            test -f /usr/lib/libssl.a || {
+              echo "::error::openssl-dev did not provide /usr/lib/libssl.a; -static -lssl cannot work"
+              exit 1
+            }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
-              -static -luring -lpthread -lm \
+              -static -luring -lssl -lcrypto -lpthread -lm \
               -o yo-musl
           '
 
@@ -1657,9 +1682,13 @@ jobs:
           YO_STD="$PWD/std" "$S1" compile src/main.yo \
             --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
 
       - name: Build system smoke test (WASM)
