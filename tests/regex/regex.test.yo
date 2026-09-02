@@ -1216,3 +1216,136 @@ test("more than 99 capture groups neither error nor truncate", {
   assert(m.group(usize(120)).is_some(), "group 120 should have captured");
   assert(m.group(usize(121)).is_none(), "group 121 does not exist");
 });
+// ============================================================================
+// 13. POLISH row: escape, flags-free compile, byte spans, callback replace,
+// lazy find_iter
+// ============================================================================
+test("Regex.escape quotes metacharacters into literals", {
+  re := Regex.new(Regex.escape(`a.b*c`), ``).unwrap();
+  assert(re.test(`a.b*c`), "escaped pattern should match the literal text");
+  assert(!(re.test(`aXb*c`)), "dot must not act as a wildcard after escaping");
+  assert(!(re.test(`abbc`)), "star must not act as a quantifier after escaping");
+  assert(Regex.escape(`hello`) == `hello`, "ordinary text passes through untouched");
+});
+test("Regex.escape covers the whole metacharacter set once", {
+  re := Regex.new(Regex.escape(`\^$.|?*+()[]{}`), ``).unwrap();
+  assert(re.test(`\^$.|?*+()[]{}`), "every metacharacter should match literally");
+});
+test("Regex.escape round-trips non-ASCII input", {
+  s := `héllo.世界*`;
+  re := Regex.new(Regex.escape(s), ``).unwrap();
+  assert(re.test(s), "UTF-8 text should survive escaping byte-for-byte");
+});
+test("Regex.compile is the flags-free constructor", {
+  re := Regex.compile(`ab+c`).unwrap();
+  assert(re.test(`xabbcy`), "compile should behave like new with empty flags");
+  bad := Regex.compile(`(unclosed`);
+  assert(bad.is_err(), "compile should reject malformed patterns");
+});
+test("match end and span are byte offsets", {
+  re := Regex.new(`(\w+)@(\w+)`, ``).unwrap();
+  m := re.exec(`mail Ada@Example`).unwrap();
+  assert(m.index() == usize(5), "match starts at byte 5");
+  assert(m.end() == usize(16), "match ends at byte 16 (exclusive)");
+  assert(m.span().start == usize(5), "span start is the match start");
+  assert(m.span().end == usize(16), "span end is the match end");
+  assert(m.input().substring(m.span().start, m.span().end) == `Ada@Example`, "span slices out the matched text");
+});
+test("group_span reports each capture's byte range", {
+  re := Regex.new(`(\w+)@(\w+)`, ``).unwrap();
+  m := re.exec(`mail Ada@Example`).unwrap();
+  g1 := m.group_span(usize(1)).unwrap();
+  assert((g1.start == usize(5)) && (g1.end == usize(8)), "group 1 spans bytes 5..8");
+  assert(m.input().substring(g1.start, g1.end) == `Ada`, "group 1 span slices its text");
+  g2 := m.group_span(usize(2)).unwrap();
+  assert((g2.start == usize(9)) && (g2.end == usize(16)), "group 2 spans bytes 9..16");
+  assert(m.group_span(usize(0)).unwrap().end == usize(16), "group 0 span is the whole match");
+  assert(m.group_span(usize(3)).is_none(), "out-of-range group span is None");
+});
+test("group_span is byte-based under multibyte input", {
+  re := Regex.new(`(世界)`, ``).unwrap();
+  m := re.exec(`héllo 世界!`).unwrap();
+  // é is two bytes, so the group starts at byte 7, not rune 6
+  g := m.group_span(usize(1)).unwrap();
+  assert(g.start == usize(7), "group start is a BYTE offset (7, past two-byte é)");
+  assert(m.input().substring(g.start, g.end) == `世界`, "byte span slices the group text");
+});
+test("group_span is None for a non-participating group", {
+  re := Regex.new(`(a)|(b)`, ``).unwrap();
+  m := re.exec(`b`).unwrap();
+  assert(m.group_span(usize(1)).is_none(), "the unmatched alternative's group has no span");
+  assert(m.group_span(usize(2)).is_some(), "the matched alternative's group has a span");
+});
+test("find_iter yields match_all's matches lazily", {
+  re := Regex.new(`\d+`, ``).unwrap();
+  input := `a1 bb22 ccc333`;
+  lazy_matches := ArrayList(RegexMatch).new();
+  it := re.find_iter(input);
+  nxt := it.next();
+  while(nxt.is_some(), {
+    lazy_matches.push(nxt.unwrap());
+    nxt = it.next();
+  });
+  eager := re.match_all(input);
+  assert(lazy_matches.len() == eager.len(), "find_iter should yield exactly match_all's match count");
+  i := usize(0);
+  while(i < eager.len(), i = (i + usize(1)), {
+    l := lazy_matches(i);
+    e := eager(i);
+    assert((l.index() == e.index()) && (l.end() == e.end()), "lazy and eager match i should agree on byte offsets");
+    assert(l.value() == e.value(), "lazy and eager match i should agree on text");
+  });
+  exhausted := re.find_iter(input);
+  exhausted.next();
+  assert(exhausted.next().is_some(), "a fresh iterator still yields (single-pass, not shared)");
+});
+test("find_iter stops after exhaustion", {
+  re := Regex.new(`x`, ``).unwrap();
+  it := re.find_iter(`yxz`);
+  first := it.next();
+  assert(first.is_some(), "first next should match");
+  second := it.next();
+  assert(second.is_none(), "second next should be exhausted");
+});
+test("find_iter walks empty matches without looping", {
+  re := Regex.new(`a*`, ``).unwrap();
+  it := re.find_iter(`ab`);
+  n := usize(0);
+  nxt := it.next();
+  while(nxt.is_some(), {
+    n = (n + usize(1));
+    nxt = it.next();
+  });
+  assert(n == usize(3), String.from("a* on 'ab' yields three matches (a, empty, empty-at-end), got ") + n.to_string());
+});
+test("replace_with computes the replacement from the match", {
+  re := Regex.new(`(\w+)@(\w+)`, ``).unwrap();
+  out := re.replace_with(
+    `mail Ada@Example`,
+    (m) => (((m.group(usize(1)).unwrap() + ` <`) + m.group(usize(2)).unwrap()) + `>`)
+  );
+  assert(out == `mail Ada <Example>`, String.from("callback replacement should rebuild from groups, got ") + out);
+});
+test("replace_with inserts callback output verbatim", {
+  re := Regex.new(`x`, ``).unwrap();
+  out := re.replace_with(`axb`, (m) => `$0`);
+  assert(out == `a$0b`, "no dollar-reference processing on callback output");
+});
+test("replace_with returns input unchanged when no match", {
+  re := Regex.new(`zzz`, ``).unwrap();
+  out := re.replace_with(`abc`, (m) => `never`);
+  assert(out == `abc`, "no match should return the input untouched");
+});
+test("replace_all_with computes every replacement from its match", {
+  re := Regex.new(`(\d+)`, ``).unwrap();
+  out := re.replace_all_with(
+    `1 2 3`,
+    (m) => (i32(10) * m.value().parse_i32().unwrap()).to_string()
+  );
+  assert(out == `10 20 30`, String.from("each match should be scaled by the callback, got ") + out);
+});
+test("replace_all_with keeps text between matches", {
+  re := Regex.new(`-+`, ``).unwrap();
+  out := re.replace_all_with(`a--b---c`, (m) => `+`);
+  assert(out == `a+b+c`, String.from("runs between matches should be preserved, got ") + out);
+});
