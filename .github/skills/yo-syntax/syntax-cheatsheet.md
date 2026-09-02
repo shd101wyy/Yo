@@ -110,6 +110,7 @@ Key rules:
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
 - **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes.
+- **A double-quoted literal does NOT concatenate with a `String` variable**: `"prefix " + var` fails with `Cannot unify incompatible types: "String" and "comptime_str"`. For a runtime concat starting from a literal, write `String.from("prefix ") + var` (measured 2026-09-02).
 - **`assert`/`panic` require an explicit import**: `{ assert, panic } :: import("std/assert");` — they are NOT prelude-ambient. Both are generic over `where(T <: ToString)`, so `str`, `String` (template strings), integers, etc. all work as messages: `assert(cond, `got ${x}`)`. `assert(cond)` uses the default message.
 - **`__yo_panic` is the diverging builtin** (message must be `str`/`comptime_str`/`*(u8)`). Use it (not `panic`) in VALUE-position match/cond arms — e.g. `.None => __yo_panic("...")` in an arm that must yield `T` — because `std/assert`'s `panic` is a normal fn returning `unit` and cannot adopt the sibling arm's type. Statement-position `panic("...")` from `std/assert` is fine.
 - Low-level std modules inside `std/assert`'s own dependency cycle (`std/string/string.yo`, `std/collections/array_list.yo`, …) cannot import it — they use `cond`/`if` + `__yo_panic` directly.
@@ -128,7 +129,7 @@ masked := ((A | B) | C);
 - An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
 - The rule also applies on the LEFT of a `cond` arm's `=>`: a same-operator chain like `a || b || c` is fine alone, but `a || b || c => v` mixes `||` with `=>` — wrap the whole condition: `(a || b || c) => v` ("Adjacent different operators need parentheses")
 - `yo fmt` canonicalizes the redundant set (plans/FMT_PAREN_ELISION.md): prefix calls go bare (`-x`, `!flag`, `?*T`), atom-operand and left same-op groups elide (`(x) + (y)` → `x + y`, `(a + b) + c` → `a + b + c`), whole call arguments unwrap (`f((a + b))` → `f(a + b)`); a re-parse AST-equality gate backstops every elision. An operator's infix RHS keeps its group (`y := (1 + 2)`), as do mixed-operator and right-operand groups
-- …and on the RIGHT of an arm's `=>` too, in BOTH `cond` and `match`. An arm body that is a bare infix expression mixes the operator with `=>`: `.Some(qv) => qv != u8(34)` is rejected, `.Some(qv) => (qv != u8(34))` is accepted. Same for `+`, `==`, `&&`, … in arm-body position.
+- …and on the RIGHT of an arm's `=>` too, in BOTH `cond` and `match`. An arm body that is a bare infix expression mixes the operator with `=>`: `.Some(qv) => qv != u8(34)` is rejected, `.Some(qv) => (qv != u8(34))` is accepted. Same for `+`, `==`, `&&`, … in arm-body position. The SAME applies to a CLOSURE's `=>`: `(m) => a + b` is rejected — wrap the whole body: `(m) => ((a + b) + c)` (even a same-operator chain needs the outer wrap when `=>` is the adjacent operator; measured 2026-09-02).
 - **`yo fmt` does NOT catch either form.** `yo fmt` and `yo fmt --check` both pass on the unparenthesised version; only the evaluator rejects it. A clean `fmt` is not evidence the file parses — run `yo check` on the file after editing arms.
 - Source layout does NOT affect grouping — there is no newline-based associativity
 - Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind ONE postfix expression (plans/PREFIX_OPERATOR_OPERAND_RULE.md): `-1`, `!ready`, `&s`, `?*T`, `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`). SEED CONSTRAINT: keep parenthesized forms (`-(1)`, `!(x)`) in `src/` and `std/` until a rule-bearing release becomes the seed.
@@ -545,7 +546,8 @@ test("Async test", {
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - In a standalone program, get `io` by declaring it in `main`'s SIGNATURE —
   `main :: (fn(io : Io) -> unit)({ ... })` — codegen injects it automatically.
-  Do NOT write `io :: __yo_builtin_io` inside a fn body; that form is an
+  `Io` is the ONLY effect parameter `main` may take (`fn(io : Io, exn : Exception)`
+  is not a valid main shape). Do NOT write `io :: __yo_builtin_io` inside a fn body; that form is an
   internal mechanism of the batched test runner's synthesized programs only.
 - `assert(condition, "message")` — runtime assertion; requires `{ assert } :: import("std/assert");` at the top of the test file
 - `comptime_assert(condition)` — compile-time assertion (builtin, no import)
