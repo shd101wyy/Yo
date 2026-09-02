@@ -68,12 +68,19 @@ diagnostics at the definition site.
 
 ## 3. Semantics (the contract to document)
 
-1. A `::` binding whose right-hand side is a **definition** — a `fn(...)`/
-   `ctl(...)`/`unsafe_fn(...)` literal applied to a body, a `struct`/`enum`/
-   `ref(...)`/`trait`/type-constructor expression, a macro definition, or a
-   comptime constant expression — is **deferred**: it is bound in the module
-   env as a *pending* binding at its source position and evaluated on first
-   reference, or at module end, whichever comes first.
+1. A **compile-time binding** whose right-hand side is a **definition** — a
+   `fn(...)`/`ctl(...)`/`unsafe_fn(...)` literal applied to a body, a
+   `struct`/`enum`/`ref(...)`/`trait`/type-constructor expression, a macro
+   definition, or a comptime constant expression — is **deferred**: it is
+   bound in the module env as a *pending* binding at its source position and
+   evaluated on first reference, or at module end, whichever comes first.
+   "Compile-time binding" is the evaluator's notion, NOT the `::` token: the
+   spellings `x :: v`, `comptime(x) := v`, `(comptime(x) : T) = v` and
+   `comptime(x) : T; x = v` are one class (`docs/en-US/DESIGN.md` "Variables";
+   `initialization_assignment.yo` folds them into `effective_is_compile_time_only`,
+   with the LHS `comptime(...)` modifier being `BK_COMPTIME`, `src/expr.yo:232`).
+   The deferral keys on that flag. A `:=`/`=` binding without the modifier is a
+   runtime variable and stays an ordered statement (rule 6/7).
 2. An `impl(<receiver>, ...)` statement is **deferred per receiver**: it is
    indexed under its receiver's syntactic head (the atom `File` in
    `impl(File, ...)`; the receiver pattern's head constructor in
@@ -117,9 +124,14 @@ module env (a REFERENCE to the module frame — never a copy; see
 Unforced | ForcingHead | ForcingBody | Done`.
 
 `evaluate_anonymous_module_begin_exprs`' per-expression branch classifies each
-`::` (`initialization_assignment.yo:100`, `is_const`) whose RHS is a definition
-shape and calls `env.define_pending(name, rhs, ...)` instead of evaluating.
-Everything else takes today's path unchanged.
+compile-time binding — `is_const` (`::`, `initialization_assignment.yo:100`) OR
+a `BK_COMPTIME`-wrapped LHS in the `:=` / typed-`=` / declare-then-`=` forms,
+i.e. exactly the set that ends up `effective_is_compile_time_only` — whose RHS
+is a definition shape, and calls `env.define_pending(name, rhs, ...)` instead of
+evaluating. The declare-then-assign spelling (`comptime(x) : T;` followed by
+`x = v;`) defers at the ASSIGNMENT, since only then is there an RHS; a read of
+`x` between the two statements is a plain "used before initialized" error as
+today. Everything else takes today's path unchanged.
 
 ### 4.2 Forcing on lookup
 
@@ -166,8 +178,8 @@ Retire them in P3, after the corpus proves the general mechanism — not before.
 
 `_trial_eval_fn_body`'s swallow already records the message
 (`_flag_trial_swallow`). Add: when the swallowed error is an unbound-name /
-no-matching-call error AND the name is a `::` binding or impl receiver that
-appears LATER in the same module's `begin_exprs`, re-raise through the real
+no-matching-call error AND the name is a compile-time binding (any spelling of
+rule 1) or impl receiver that appears LATER in the same module's `begin_exprs`, re-raise through the real
 `exn` as `forward reference to "X" (defined at line N) — Yo evaluates
 definitions in order; move the definition above this use`. This converts the
 silent hollow into a check-time error today and stays as the cycle/statement
@@ -201,7 +213,9 @@ argument free. Any diff is a bug in the forcing order (or a genuine
 improvement that must be explained line by line, as the env-sharing PR did).
 
 Then the NEW behaviour is pinned by tests that are red today:
-- free-function mutual recursion (`is_even`/`is_odd` as bare `::` bindings);
+- free-function mutual recursion (`is_even`/`is_odd` as bare `::` bindings),
+  and the same pair spelled `comptime(is_even) := ...` / `(comptime(is_odd) :
+  fn(...) -> bool) = ...` — every compile-time binding spelling defers alike;
 - a caller above its callee, a type used above its definition, a constant
   used above its definition;
 - an `impl(T, Trait(...))` BELOW a free function that calls the trait default
