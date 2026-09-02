@@ -47,7 +47,7 @@ Use this skill when you need to:
 
 - `return expr` is invalid; use `return(expr)` or `return()` for unit.
 - Nested patterns like `.Ok(.Some(x))` are not supported; match in stages.
-- Unary operators need parenthesized operands: `!(ready)`, `&(value)`.
+- Unary operators bind ONE postfix expression, written bare: `!ready`, `&value`, `-p.a`, `?*T` (= `?(*(T))`); only an INFIX operand needs parens (`-(1 + 2)`).
 - Use `while(true, { ... })` for infinite runtime loops; use `while(comptime(cond), { ... })` only for compile-time unrolling.
 - A single-expression lambda body should not be wrapped in `{ ... }` unless semicolons make it a begin block.
 - `"hello"` is `comptime_str` inside `comptime` functions, not `str`. In runtime code, `"hello"` is always `str`.

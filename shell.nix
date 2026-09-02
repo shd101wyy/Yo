@@ -12,7 +12,7 @@ mkShell rec {
   ];
   buildInputs = [
     bash # Hack for running "copilot" CLI in the shell
-         # https://github.com/github/copilot-cli/issues/1428
+         # https://github.com/github/copilot-cli/issues/142
     # Node stays although the compiler no longer uses it: `emscripten` below is
     # itself a node program, and `vsce` packages the npm-only vscode-extension/.
     nodejs_24
@@ -27,6 +27,11 @@ mkShell rec {
   ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
     liburing
     valgrind
+    # OpenSSL dev for the compiler closure: src/ imports std/http, so the
+    # self-build's emitted C #includes <openssl/ssl.h> — same reason CI's
+    # jobs install it next to liburing ("+ OpenSSL dev for std/http in the
+    # compiler closure", test.yml).
+    openssl
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc

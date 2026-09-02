@@ -296,7 +296,7 @@ Formatter-specific syntax preservation:
 - Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
 - Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
 
-Special tight syntaxes must stay immediate: macro splices `#(expr)`, Option sugar `?(T)` / nullable pointers `?(*(T))`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `? (T)`, or `T <: !(Runtime)`.
+Special tight syntaxes must stay immediate: macro splices `#(expr)`, Option sugar `?T` / nullable pointers `?*T`, and negated trait constraints `T <: !Runtime` must not be formatted as `# (expr)`, `? T`, or `T <: ! Runtime`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
