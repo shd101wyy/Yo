@@ -2116,11 +2116,13 @@ match(list.insert(usize(1), i32(20)),
   )
 );
 
-// Remove at index
-match(list.remove(usize(0)),
-  .Ok(v) => printf("Removed: %d\n", v),
-  .Error(err) => printf("Remove failed\n")
-);
+// Remove at index — remove(idx) returns the element directly and panics on
+// an out-of-bounds index (the Index impl's contract); a RANGE removal that
+// hands the elements back is drain(start .. end), which returns them as a
+// fresh ArrayList. Non-consuming iteration is iter(), into_iter() moves.
+removed := list.remove(usize(0));
+printf("Removed: %d\n", removed);
+drained := list.drain(usize(1) .. usize(3));
 
 // Check if has
 cond(
