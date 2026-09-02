@@ -2103,11 +2103,13 @@ match(list.set(usize(1), i32(20)),
   )
 );
 
-// 按索引删除
-match(list.remove(usize(0)),
-  .Ok(v) => printf("Removed: %d\n", v),
-  .Error(err) => printf("Remove failed\n")
-);
+// 按索引删除 —— remove(idx) 直接返回被删除的元素，索引越界会 panic
+// （与 Index 实现的约定一致）；按范围删除并取回元素用
+// drain(start .. end)，它返回一个全新的 ArrayList。不消耗列表的迭代用
+// iter()，into_iter() 会转移列表所有权。
+removed := list.remove(usize(0));
+printf("Removed: %d\n", removed);
+drained := list.drain(usize(1) .. usize(3));
 
 // 检查是否包含
 cond(

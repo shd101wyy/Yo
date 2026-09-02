@@ -60,6 +60,10 @@ impl(N,
 - **跨 `impl` 块的前向引用**。两个独立的 `impl(P, ...)` 块之间不能互相前向引用。
   请合并到同一个 `impl` 块。
 - **顶层 `name :: value` 定义**。顶层自由绑定之间暂不支持前向引用。
+  自 2026-09-02 的编译器起，在更早的定义中引用它们（包括在 `io.async`
+  闭包体内）会得到**编译期报错** —— `forward reference to "X" (defined
+  at line N) — Yo evaluates definitions in order; move the definition above
+  this use` —— 而不是旧行为那样静默地把函数体求值为空、直到运行期才暴露。
 - **非方法形式的字段值**。Lambda 函数体、`Impl(Fn(...))(...)` 包装以及直接值
   绑定都不会被生成前向声明。
 

@@ -63,7 +63,12 @@ They do **not** apply to:
 - **Cross-impl-block forward references.** Two separate `impl(P, ...)`
   blocks cannot forward-reference each other. Merge them into one block.
 - **Top-level `name :: value` definitions.** No forward references between
-  free top-level bindings yet.
+  free top-level bindings yet. Since the 2026-09-02 compiler, referencing one
+  from an earlier definition (including inside an `io.async` closure body)
+  is a **check-time error** — `forward reference to "X" (defined at line N)
+  — Yo evaluates definitions in order; move the definition above this use` —
+  instead of the old silent behavior where the body evaluated to nothing and
+  the failure only surfaced at runtime.
 - **Non-method field shapes.** Lambda bodies, `Impl(Fn(...))(...)` wrappers,
   and direct value bindings won't be forward-declared.
 
