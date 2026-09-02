@@ -6,7 +6,7 @@ integer type inside a template interpolation; the def-eval failure was
 swallowed, the WHOLE async body shipped hollow, and **`yo version install`
 was silently broken in the released v0.2.19 and v0.2.20** (rc=0 no-op /
 bare-SIGABRT rc=134 —
-issues/wrong-arity-call-silently-accepted-version-install-broken.md). This
+issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md). This
 issue is no longer theoretical: pick option 1 (reserve) or 2 (prefer user
 bindings), or at minimum land option 3's shadowing diagnostic, before the
 next release.
