@@ -654,7 +654,7 @@ download_version :: (
       // BUILTIN — the def-eval swallow then hollowed this whole async body,
       // which is what broke `yo version install` in v0.2.19/v0.2.20
       // (issues/builtin-name-shadows-user-definition.md, third face;
-      // issues/wrong-arity-call-silently-accepted-version-install-broken.md).
+      // issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
       short_name := host_bundle_name(version, e.exn);
       println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-triple bundle name (${short_name})...`);
       bundle_name = short_name;
@@ -755,7 +755,7 @@ ensure_cached_version :: (
     // stack garbage at runtime: truthy garbage silently no-opped the install
     // (rc=0, nothing cached), falsy garbage continued into corrupted state
     // (rc=134) — `yo version install` was broken in every release
-    // (issues/wrong-arity-call-silently-accepted-version-install-broken.md).
+    // (issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
     cached := e.io.await(is_version_cached(version, e.io, e.exn), e);
     if(cached, {
       return(get_version_cache_dir(version));
