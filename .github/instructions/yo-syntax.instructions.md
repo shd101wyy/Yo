@@ -1054,6 +1054,8 @@ evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
 
 **Exception**: methods inside the same `impl(...)` block **do** support forward references — a method declared earlier can call one declared later within the same block.
 
+**Trait impls are bindings too**: a call to a trait method or `?=` DEFAULT on a concrete type (`file.read_to_end(io)`) needs that type's `impl(T, Trait(...))` to have been evaluated EARLIER in the module. A later impl makes the call a forward reference whose definition-time failure is swallowed — `yo check` stays green and the enclosing `io.async` body is emitted as a hollow stub that only the C22 stub gate rejects at C-compile time. Register trait impls right after the type's inherent `impl`, before any free function that uses them (`YO_DEBUG_SWALLOW=1 yo check <file>` shows the swallowed "No matching call found").
+
 ## Named constructor arguments are required for `struct`/`ref(struct(...))` types
 
 When constructing a `struct(...)` or `ref(struct(...))` value, always use named field syntax:

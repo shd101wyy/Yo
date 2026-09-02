@@ -352,14 +352,23 @@ v0.2.18 seed builds the migrated tree (rc=0), and the `lsp-handshake`,
 `lsp-completion` and `check-watch-once` goldens — which ARE the migrated stdin
 path — pass unchanged.
 
-**D5 remaining:** **C17** blocks the `Dyn(Reader)` spelling. (c) a buffered `lines()` waits on an async iterator
-protocol (deliberately not faked). Inherent-vs-trait NAME duplication (`File.read_bytes` vs the trait's
-`read_to_end`, the inherent `read_to_string`) is a D2 question to settle when
-the wrappers land. Cautions that still stand: **C21**
-(`-Wincompatible-pointer-types` across implementors — the two warnings are
-live in the slice-2 emit), **C22** (no nested closures inside `io.async`
-bodies), and the C12 note (BufWriter's SYNC `Dispose` flush cannot await an
-async `Writer.write`).
+**D5 CLOSEOUT 2026-09-02:** the `Dyn(Reader)` spelling is unblocked (C17
+fixed 2026-08-29) and now PINNED in `tests/io/async_traits.test.yo` — a
+`Dyn(Reader)` dispatches `read` through the vtable, reaches the `read_to_end`
+default through it, and is a valid `R` for `BufReader(R)`. The inherent-vs-
+trait NAME duplication is SETTLED per D2 (one Rust-shaped name per
+operation): the inherent `File.read_bytes`, `File.read_to_string` and
+`TcpStream.read_bytes` are DELETED — the trait defaults `read_to_end` /
+`read_to_string` are the spelling (the `fs` free functions `read` /
+`read_to_string` now go through them; the deleted `File.read_bytes` also read
+from offset 0 regardless of the C14 position, while the default honours it).
+`write_string` / `write_bytes` / `write_str` stay: the trait has no
+counterpart. The C21 caution is STALE — the slice-2 emit carries zero
+`-Wincompatible-pointer-types` warnings (measured 2026-09-02). Still
+standing: **C22** (no nested closures inside `io.async` bodies) and the C12
+note (BufWriter's SYNC `Dispose` flush cannot await an async `Writer.write`).
+Still to come: a buffered `lines()`, which waits on an async iterator
+protocol (deliberately not faked).
 
 ### D6 — TLS position
 
@@ -580,9 +589,20 @@ One-line records; decisions embedded in them stay binding:
 - `ArrayList`: `remove(start,count)` → `drain(range)`, single
   `remove(idx) -> T`, `iter()` pointer iterator — needs compiler-as-oracle
   treatment (name shared with map/set `remove`) and changes a return type.
-- `Http` inherent `to_string` → `ToString` impl.
-- `str.join(items)` receiver-as-separator: KEEP (Python style) but document;
-  `index_of`/`last_index_of` KEEP (JS names are the local norm).
+  **MEASURED 2026-09-02**: ~20 ArrayList-typed `.remove(` sites (std:
+  async/channel ×2, btree_map, array_list's own retain; src: module_loader ×7,
+  module_manager ×2, trait_checking ×3, unsafe_report ×2, type_trait_methods
+  ×2) among 151 textual `.remove(` hits — the rest are HashMap/HashSet. Own
+  PR: rename first (`remove` → `drain`/`remove_at`) so the compiler names
+  every site, then re-spell; the 2-arg `remove(i, usize(1))` idiom becomes
+  `remove(i) -> T` and the FIFO pops in `async/channel` become `remove(0)`.
+- ~~`Http` inherent `to_string` → `ToString` impl.~~ **DONE 2026-09-02**:
+  `HttpRequest` and `HttpResponse` wire-format serialization moved onto
+  `impl(..., ToString(...))` (same call spelling; now also reachable through
+  interpolation and `T <: ToString` bounds), matching `HttpMethod`/`HttpError`.
+- ~~`str.join(items)` receiver-as-separator: KEEP (Python style) but document~~
+  **DONE** (the method doc already states "with this string as separator" +
+  example); `index_of`/`last_index_of` KEEP (JS names are the local norm).
 
 **The method lesson every chunk inherited** (full version in the handover §5):
 `yo check` + `yo build` were ALL GREEN while the tree was broken — four call-site

@@ -337,38 +337,6 @@ impl(
       usize(NetError.check(r, e.exn))
     })
   }),
-  /// Read all available data from the stream into a byte list.
-  read_bytes : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
-    fd := self._fd;
-    io.async((e) => {
-      buf_size := usize(4096);
-      buf := *(u8)(malloc(buf_size).unwrap());
-      acc := ArrayList(u8).new();
-      done := false;
-      while(runtime(!(done)), {
-        n := e.io.await(IO_tcp.recv(fd, buf, buf_size, i32(0)), e.io);
-        cond(
-          (n < i32(0)) => {
-            free(.Some(*(void)(buf)));
-            done = true;
-            _throw_io(i32(0) - n, e.exn);
-          },
-          (n == i32(0)) => {
-            done = true;
-          },
-          true => {
-            i := usize(0);
-            while(runtime(i < usize(n)), {
-              acc.push((buf.add(i)).*);
-              i = (i + usize(1));
-            });
-          }
-        );
-      });
-      free(.Some(*(void)(buf)));
-      return(acc);
-    })
-  }),
   /// Shut down part or all of the connection.
   shutdown : (fn(self : Self, how : Shutdown, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;

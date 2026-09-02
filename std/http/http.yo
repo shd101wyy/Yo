@@ -101,24 +101,33 @@ impl(
       );
     });
     .None
-  }),
-  /// Serialize the request to an HTTP/1.1 wire-format string.
-  to_string : (fn(self : Self) -> String)({
-    result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
-    i := usize(0);
-    while(i < self.headers.len(), i = (i + usize(1)), {
-      h := self.headers(i);
-      result = `${result}${h.name}: ${h.value}\r\n`;
-    });
-    result = `${result}\r\n`;
-    cond(
-      (!(self.body.is_empty())) => {
-        result = `${result}${self.body}`;
-      },
-      true => ()
-    );
-    result
   })
+);
+/// Wire-format serialization lives on the `ToString` trait (D1/D2: one
+/// spelling for "render to text", also reachable through `${req}`
+/// interpolation and any `T <: ToString` bound) — the same shape
+/// `HttpMethod` and `HttpError` already use.
+impl(
+  HttpRequest,
+  ToString(
+    /// Serialize the request to an HTTP/1.1 wire-format string.
+    to_string : (fn(self : Self) -> String)({
+      result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
+      i := usize(0);
+      while(i < self.headers.len(), i = (i + usize(1)), {
+        h := self.headers(i);
+        result = `${result}${h.name}: ${h.value}\r\n`;
+      });
+      result = `${result}\r\n`;
+      cond(
+        (!(self.body.is_empty())) => {
+          result = `${result}${self.body}`;
+        },
+        true => ()
+      );
+      result
+    })
+  )
 );
 /// Return the standard status text for an HTTP status code.
 http_status_text :: (fn(code : i32) -> String)(
@@ -193,25 +202,30 @@ impl(
   with_body : (fn(self : Self, body : String) -> Self)({
     self.body = body;
     self
-  }),
-  /// Serialize to HTTP/1.1 wire format. A `Content-Length` header is added
-  /// when none is present (the byte length of `body`), so the peer can
-  /// delimit the message without waiting for close.
-  to_string : (fn(self : Self) -> String)({
-    result := `HTTP/1.1 ${self.status_code.to_string()} ${self.status_text}\r\n`;
-    i := usize(0);
-    while(i < self.headers.len(), i = (i + usize(1)), {
-      h := self.headers(i);
-      result = `${result}${h.name}: ${h.value}\r\n`;
-    });
-    cond(
-      self.get_header(`Content-Length`).is_none() => {
-        result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
-      },
-      true => ()
-    );
-    `${result}\r\n${self.body}`
   })
+);
+impl(
+  HttpResponse,
+  ToString(
+    /// Serialize to HTTP/1.1 wire format. A `Content-Length` header is added
+    /// when none is present (the byte length of `body`), so the peer can
+    /// delimit the message without waiting for close.
+    to_string : (fn(self : Self) -> String)({
+      result := `HTTP/1.1 ${self.status_code.to_string()} ${self.status_text}\r\n`;
+      i := usize(0);
+      while(i < self.headers.len(), i = (i + usize(1)), {
+        h := self.headers(i);
+        result = `${result}${h.name}: ${h.value}\r\n`;
+      });
+      cond(
+        self.get_header(`Content-Length`).is_none() => {
+          result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
+        },
+        true => ()
+      );
+      `${result}\r\n${self.body}`
+    })
+  )
 );
 /// Parse a raw HTTP response string into an `HttpResponse`.
 parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
