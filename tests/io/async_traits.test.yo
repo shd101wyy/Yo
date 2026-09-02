@@ -4,8 +4,9 @@
 //! trait defaults and `copy`, unblocked by PRs #294/#295 (the loop-await
 //! state-machine fixes) and the unit-tail-await substitution fix
 //! (issues/fixed/unit-tail-await-of-trait-default-reads-missing-await-result.md).
-//! Still NOT here: generic `BufReader(R)`/`BufWriter(W)` (the filed bug's
-//! generic-impl face + C17).
+//! The generic `BufReader(R)`/`BufWriter(W)` wrappers are covered in
+//! `bufio.test.yo`; the `Dyn(Reader)` spelling (unblocked by C17) is pinned
+//! at the end of this file.
 pragma(Pragma.SkipWasm32Wasi); // File I/O — the async open/read/write path is host-only; standalone WASI lacks it (same skip as tests/fs)
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
@@ -16,6 +17,7 @@ open(import("std/collections/array_list"));
 open(import("std/string"));
 { IoExn, Exception } :: import("std/error");
 { Reader, Writer, copy } :: import("std/io");
+{ BufReader } :: import("std/io/bufio");
 { Stdout, Stderr, stdout, stderr } :: import("std/io/stdio");
 { File, OpenMode } :: import("std/fs/file");
 { TcpStream } :: import("std/net/tcp");
@@ -175,8 +177,9 @@ test("read_to_string throws IoError.InvalidData on malformed UTF-8", {
       }
     )
   );
-  // The INHERENT File.read_to_string validates too (aligned with the trait
-  // default in the same change) — exercise it through the throw handler.
+  // Called directly on a File (no where-bound): this is the Reader trait
+  // DEFAULT — File's inherent duplicate was deleted (D5/D2 closeout, one
+  // spelling per operation) — exercised through the throw handler.
   r := io.await(File.open(path, OpenMode.Read, io), t_e);
   s := io.await(r.read_to_string(io), IoExn(io : io, exn : exn));
   assert(false, `read_to_string must throw on malformed UTF-8, got: ${s}`);
@@ -289,4 +292,61 @@ test("TcpStream carries the Reader and Writer impls", {
     .None => ()
   );
   assert(true, "TcpStream trait registration type-checks");
+});
+// ---------------------------------------------------------------------------
+// D5 remnant: the `Dyn(Reader)` spelling. A reader erased behind the trait
+// object dispatches its Future-returning `read` through the vtable (C17,
+// fixed 2026-08-29), reaches the `read_to_end` DEFAULT through it, and can
+// sit inside `BufReader(Dyn(Reader))` — "BufReader wraps ANY Reader" without
+// naming the concrete type.
+// ---------------------------------------------------------------------------
+DynSource :: ref(struct(inner : Dyn(Reader)));
+impl(
+  DynSource,
+  read_four : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
+    io.async((e) => {
+      buf := ArrayList(u8).new();
+      buf.resize_with_byte(usize(4), int(0));
+      n := e.io.await(self.inner.read(buf.ptr().unwrap(), usize(4), e.io), e);
+      String.from_bytes(buf.slice_copy(usize(0) .. n))
+    })
+  ),
+  rest : (fn(self : Self, io : Io) -> Impl(Future(String, IoExn)))(
+    io.async((e) => {
+      bytes := e.io.await(self.inner.read_to_end(e.io), e);
+      String.from_bytes(bytes)
+    })
+  )
+);
+test("Dyn(Reader): vtable read, the read_to_end default through it, and BufReader(Dyn(Reader))", {
+  t_exn := Exception(
+    throw : (
+      (err) -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := Path.new(path_join(temp_dir(), `yo_d5_dyn_reader.txt`.to_string()));
+  w := io.await(File.open(path, OpenMode.Write, io), t_e);
+  io.await(w.write_string(`dyn-reader-ok\nline two\n`.to_string(), io), t_e);
+  io.await(w.close(io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  src := DynSource(inner : dyn(f));
+  head := io.await(src.read_four(io), t_e);
+  assert(head == `dyn-`, `first four bytes through Dyn(Reader).read, got: ${head}`);
+  tail := io.await(src.rest(io), t_e);
+  assert(tail == `reader-ok\nline two\n`, `read_to_end default through the vtable continues at the file position, got: ${tail}`);
+  io.await(f.close(io), t_e);
+  f2 := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br := BufReader(Dyn(Reader)).new(dyn(f2));
+  l1 := io.await(br.read_line(io), t_e);
+  assert(match(l1, .Some(s) => (s == `dyn-reader-ok`), .None => false), "BufReader(Dyn(Reader)) line 1");
+  l2 := io.await(br.read_line(io), t_e);
+  assert(match(l2, .Some(s) => (s == `line two`), .None => false), "BufReader(Dyn(Reader)) line 2");
+  l3 := io.await(br.read_line(io), t_e);
+  assert(l3.is_none(), "BufReader(Dyn(Reader)) reports EOF");
+  io.await(f2.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
 });

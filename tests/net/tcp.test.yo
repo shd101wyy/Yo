@@ -222,7 +222,7 @@ test("TCP peer_addr returns remote address", {
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
-test("TCP read_bytes gets all data", {
+test("TCP read_to_end gets all data", {
   exn := Exception(
     throw : (
       (err) -> {
@@ -239,8 +239,8 @@ test("TCP read_bytes gets all data", {
   io.await(client.write_str("ABCDE", io), IoExn(io : io, exn : exn));
   io.await(client.shutdown(Shutdown.Write, io), IoExn(io : io, exn : exn));
   // Server reads all
-  data := io.await(server_stream.read_bytes(io), IoExn(io : io, exn : exn));
-  unsafe(printf("  read_bytes len = %lld\n", i64(data.len())));
+  data := io.await(server_stream.read_to_end(io), IoExn(io : io, exn : exn));
+  unsafe(printf("  read_to_end len = %lld\n", i64(data.len())));
   assert(data.len() == usize(5), "should be 5 bytes");
   assert(data(usize(0)) == u8(65), "A");
   assert(data(usize(1)) == u8(66), "B");

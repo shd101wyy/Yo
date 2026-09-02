@@ -860,6 +860,16 @@ This applies to ALL callee-before-caller relationships:
 - `_print_summary_node` before `print_build_summary`
 - `print_build_summary` before `execute_step`
 - Exports section must come AFTER all definitions
+- **Trait `impl(...)` registration before any same-module caller of its
+  methods or DEFAULTS.** `std/fs/file.yo`'s free `read_to_string` called
+  `file.read_to_string(io)` — the `Reader` trait default on `File` — while
+  `impl(File, IoTraits.Reader(...))` sat at the END of the file: the call was
+  a forward reference, its `io.async` body failed definition-time evaluation
+  ("No matching call found") and was SWALLOWED, so `yo check ./std` stayed
+  green while the emitted closure was a hollow stub. Only the C22 stub gate
+  caught it at C-compile time ("call to 'closure_yo_id_N' declared with
+  'error' attribute"). Diagnose with `YO_DEBUG_SWALLOW=1 yo check <file>`;
+  fix by moving the `impl(...)` blocks above the callers.
 
 ### Named tuple fields in type syntax are not allowed
 
