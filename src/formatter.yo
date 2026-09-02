@@ -1429,11 +1429,12 @@ is_redundant_grouping_paren :: (
           // `(f(x))`) is a removable operand after ANY operator — all
           // operators are plain and an atom-like operand needs no parens
           // (plans/FMT_PAREN_ELISION.md D1). A group holding an infix chain
-          // is load-bearing (R1/R2/R3) and stays. One exception: tight
-          // after a prefix operator, a group around a non-atom-like group
+          // is load-bearing (R1/R2/R3) and stays. One exception: after a
+          // prefix-capable operator, a group around a non-atom-like group
           // (`-((1 + 2))`) defers to the INNER elision so the `-(` call
-          // spelling survives rendering.
-          prev_is_adjacent_prefix := match(
+          // spelling survives rendering (adjacent or spaced alike — the
+          // spaced spelling stays conservative the same way).
+          prev_prefix_defers_to_inner := match(
             previous,
             .None => false,
             .Some(p) => (
@@ -1446,7 +1447,7 @@ is_redundant_grouping_paren :: (
             .None => false,
             .Some(p) => (
               ((p.kind == TokenKind.Operator) && !shape.atom_like) ||
-                prev_is_adjacent_prefix
+                prev_prefix_defers_to_inner
             )
           );
           cond(

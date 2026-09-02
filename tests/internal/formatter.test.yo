@@ -211,3 +211,37 @@ test("fmt elision: comment inside a candidate group blocks elision", {
   assert(out.contains(String.from("/* keep */")), "comment preserved");
   assert(_fmt(out.clone()) == out, "idempotent with the comment inside");
 });
+test("fmt elision D3: op((x)) elides both levels in ONE pass", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := -((x));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -x;")), "-((x)) reaches -x in one pass (idempotence)");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D1: prefix-result group elides after an infix operator", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := 3;\n  sink((x) - (-y));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(x - -y)")), "(x) - (-y) elides to x - -y");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D2: flatten in call-argument position", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(((1 + 2) + 3));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(1 + 2 + 3)")), "arg-position ((1+2)+3) flattens fully");
+});
+test("fmt elision: parenthesized dot-deref sugar still canonicalizes", {
+  src := String.from("main :: (fn() -> unit)({\n  assert(a.(*) == 99);\n  assert(c.(*).count == 10);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("a.* == 99")), "a.(*) canonicalizes to a.*");
+  assert(out.contains(String.from("c.*.count")), "c.(*).count canonicalizes to c.*.count");
+});
+test("fmt elision: quote argument with macro splices keeps its group (gate-conservative)", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  expr := quote((lhs.(#(field)) == rhs.(#(field))));\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("quote((lhs.(#(field)) == rhs.(#(field))))")),
+    "exprs_are_equal cannot prove splice trees equal — the group stays"
+  );
+  assert(_fmt(out.clone()) == out, "and that is a fixed point");
+});
