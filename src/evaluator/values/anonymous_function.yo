@@ -108,7 +108,7 @@ _(env : anonfn_dbg_env) :: import("std/env");
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ create_function_body_evaluation_context, forward_ref_diagnostic } :: import("../context.yo");
+{ create_function_body_evaluation_context, hard_swallow_diagnostic } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
@@ -1542,7 +1542,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
     // (the io.async shape that shipped broken version_cache code).
     if(_anon_swallow_pending(), {
       match(
-        forward_ref_diagnostic(_anon_swallow_message()),
+        hard_swallow_diagnostic(_anon_swallow_message()),
         .Some(anon_fwd_msg) => {
           _clear_anon_swallow();
           exn.throw(dyn(format_error_message(tok, anon_fwd_msg, false, .None)));
@@ -1841,7 +1841,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
       // discard for every other error class).
       if(_anon_swallow_pending(), {
         match(
-          forward_ref_diagnostic(_anon_swallow_message()),
+          hard_swallow_diagnostic(_anon_swallow_message()),
           .Some(dgc_fwd_msg) => {
             _clear_anon_swallow();
             exn.throw(dyn(format_error_message(tok, dgc_fwd_msg, false, .None)));

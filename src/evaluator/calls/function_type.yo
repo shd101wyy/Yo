@@ -79,7 +79,7 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
   set_rerun_pending_def_evals_fn,
   set_in_def_time_trial,
   create_function_body_evaluation_context,
-  forward_ref_diagnostic
+  hard_swallow_diagnostic
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
@@ -1555,7 +1555,7 @@ Result type: ${type_to_string(result_box)}`,
             // every release). Error now.
             if(_trial_swallow_pending(), {
               match(
-                forward_ref_diagnostic(_trial_swallow_message()),
+                hard_swallow_diagnostic(_trial_swallow_message()),
                 .Some(fwd_msg) => {
                   _clear_trial_swallow();
                   exn.throw(dyn(format_error_message(ast_expr_token(body_expr), fwd_msg, false, .None)));

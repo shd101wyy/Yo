@@ -962,6 +962,34 @@ forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
     }
   )
 });
+/// The swallow classes that must surface at check time even from the SILENT
+/// trial sites (the deferred-generic trials, TS ts:112 catch parity):
+/// forward references get the enriched diagnostic above, and an ARITY
+/// mismatch against the resolved callee is knowable at def time — the hole
+/// that shipped broken `yo version install` in v0.2.19/v0.2.20: check stayed
+/// green, the swallow ate "Argument count mismatch", and the async state
+/// machine emitted a too-few-arguments C call (UB — garbage values, not an
+/// error). issues/wrong-arity-call-silently-accepted-version-install-broken.md.
+hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
+  match(
+    forward_ref_diagnostic(msg),
+    .Some(fwd) => Option(String).Some(fwd),
+    .None =>
+      cond(
+        msg.contains(String.from("Argument count mismatch")) => {
+          // The swallowed dyn-message often already carries an "Error: "
+          // prefix; format_error_message adds its own — strip one to avoid
+          // "Error: Error:".
+          err_prefix := String.from("Error: ");
+          cond(
+            msg.starts_with(err_prefix) => Option(String).Some(msg.substring(err_prefix.len(), msg.len())),
+            true => Option(String).Some(msg)
+          )
+        },
+        true => Option(String).None
+      )
+  )
+);
 /// True while a DEFINITION-time body trial is running
 /// (`_trial_eval_fn_body`, calls/function_type.yo — set/restored at its
 /// call sites, since a swallowed error unwinds out of the helper itself).
@@ -1157,5 +1185,6 @@ export(
   get_module_begin_expr_index,
   lhs_binds_name,
   module_expr_binds_name,
-  forward_ref_diagnostic
+  forward_ref_diagnostic,
+  hard_swallow_diagnostic
 );
