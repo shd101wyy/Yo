@@ -1473,17 +1473,19 @@ jobs:
             # 31855893056). Debian splits static libs into a -static package;
             # Alpine ships liburing.a inside liburing-dev. Assert it is really
             # there rather than discovering its absence as a link error.
-            apk add --no-cache build-base linux-headers liburing-dev openssl-dev
+            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
             test -f /usr/lib/liburing.a || {
               echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
               find / -name "liburing.a" 2>/dev/null | head
               exit 1
             }
             # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
-            # emitted C; static here means the artifact needs NO openssl on the
-            # host. Same assert-the-.a stance as liburing (mirrors release.yml).
+            # emitted C. Alpine splits the archives out of openssl-dev (headers +
+            # .so) into openssl-libs-static — without it the assert below fires
+            # (PR #364's first run). Static here means the artifact needs NO
+            # openssl on the host. Same assert-the-.a stance as liburing.
             test -f /usr/lib/libssl.a || {
-              echo "::error::openssl-dev did not provide /usr/lib/libssl.a; -static -lssl cannot work"
+              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
               exit 1
             }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
