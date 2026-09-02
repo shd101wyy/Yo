@@ -78,7 +78,7 @@ impl(
   /// Returns `Ok(.Some(old_value))` if key already existed, `Ok(.None)` for
   /// a new key, or `.Err(_)` on allocation failure.
   insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
-    is_new := !(self._map.contains_key(key));
+    is_new := !self._map.contains_key(key);
     result := self._map.insert(key, value);
     cond(
       is_new => match(

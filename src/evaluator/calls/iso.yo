@@ -39,7 +39,7 @@ _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
     .Struct({ field_labels : fls }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < fls.len()) && !(found), {
+      while((i < fls.len()) && !found, {
         match(
           fls.get(i),
           .Some(l) => if(l == "*", {
@@ -124,7 +124,7 @@ evaluate_iso_type_call :: (
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
   env.input_string = arg_info.env.input_string;
   // Check that the argument is a type value.
-  if(!(is_type_value(arg_info.value)), {
+  if(!is_type_value(arg_info.value), {
     exn.throw(
       dyn(
         format_error_message(
@@ -336,7 +336,7 @@ evaluate_iso_value_call :: (
           );
         });
         // Check that the variable owns its RC value.
-        if(!(variable.is_owning_the_rc_value), {
+        if(!variable.is_owning_the_rc_value, {
           exn.throw(
             dyn(
               format_error_message(

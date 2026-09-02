@@ -99,7 +99,7 @@ ci_str_unquote :: (fn(raw : String) -> String)({
   )
 });
 ci_str_quote :: (fn(s : String) -> String)(
-  (String.from("\"") + s) + String.from("\"")
+  String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // Type helpers: child type extraction and fallback return-type computation.
@@ -198,7 +198,7 @@ ci_extract_range_indices :: (
           return(Option(CiRange).None);
         }
       );
-      if(!(is_int_lit(start_field)) || !(is_int_lit(end_field)), {
+      if(!is_int_lit(start_field) || !is_int_lit(end_field), {
         return(Option(CiRange).None);
       });
       start_raw := match(
@@ -417,10 +417,10 @@ ci_eval_list_range_index :: (
   // Fallback when range value is unknown or not a struct.
   range_is_known := match(
     range_info.value,
-    .Some(rv) => (is_struct_val(rv) && !(is_unknown_val(rv))),
+    .Some(rv) => (is_struct_val(rv) && !is_unknown_val(rv)),
     .None => false
   );
-  if(!(range_is_known), {
+  if(!range_is_known, {
     out_info := new_expr_info(cur_env, fallback_ty);
     out_info.value = Option(EvalValue).Some(create_unknown_val(fallback_ty));
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -711,21 +711,21 @@ ci_eval_string_index :: (
     .Some(sv) => is_str_lit(sv),
     .None => false
   );
-  if(!(self_is_str), {
+  if(!self_is_str, {
     out_info := new_expr_info(cur_env, result_ty);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
   });
   raw := match(self_info.value, .Some(sv) => match(sv, .StrLit(r) => r, _ => String.new()), .None => String.new());
   unquoted := ci_str_unquote(raw);
-  if(!(is_range), {
+  if(!is_range, {
     // ----- Single character index -----
     idx_is_known := match(
       idx_info.value,
-      .Some(iv) => (is_int_lit(iv) && !(is_unknown_val(iv))),
+      .Some(iv) => (is_int_lit(iv) && !is_unknown_val(iv)),
       .None => false
     );
-    if(!(idx_is_known), {
+    if(!idx_is_known, {
       out_info := new_expr_info(cur_env, result_ty);
       expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
       return(expr);
@@ -785,7 +785,7 @@ ci_eval_string_index :: (
     // `at(i)` — because a comptime_str is text, not a byte buffer. Runtime
     // `s(i)` yields the u8 instead; that result-TYPE split predates D4 and is
     // deliberate (docs/en-US/STRINGS.md).
-    if(!(unquoted.is_char_boundary(idx_usize)), {
+    if(!unquoted.is_char_boundary(idx_usize), {
       exn.throw(
         dyn(
           format_error_message(
@@ -809,10 +809,10 @@ ci_eval_string_index :: (
   // ----- Range index -----
   range_is_known := match(
     idx_info.value,
-    .Some(rv) => (is_struct_val(rv) && !(is_unknown_val(rv))),
+    .Some(rv) => (is_struct_val(rv) && !is_unknown_val(rv)),
     .None => false
   );
-  if(!(range_is_known), {
+  if(!range_is_known, {
     out_info := new_expr_info(cur_env, result_ty);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
     return(expr);
@@ -885,7 +885,7 @@ ci_eval_string_index :: (
   // `s(a..b)` slices BYTES, matching the runtime `substring`. Out-of-range is
   // already a compile error above; a mid-rune endpoint is one too, where the
   // runtime `substring` panics.
-  if(!(unquoted.is_char_boundary(start_idx)), {
+  if(!unquoted.is_char_boundary(start_idx), {
     exn.throw(
       dyn(
         format_error_message(
@@ -897,7 +897,7 @@ ci_eval_string_index :: (
       )
     );
   });
-  if(!(unquoted.is_char_boundary(end_idx)), {
+  if(!unquoted.is_char_boundary(end_idx), {
     exn.throw(
       dyn(
         format_error_message(

@@ -56,7 +56,7 @@ open(import("std/string"));
 str_lit_unquote :: (fn(raw : String) -> String)(str_lit_unquote_bytes(raw));
 // Wrap an unquoted string with quote chars to produce a StrLit.raw.
 str_lit_quote :: (fn(s : String) -> String)(
-  (String.from("\"") + s) + String.from("\"")
+  String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // Helper — evaluate one argument and validate it is comptime_str type.
@@ -88,7 +88,7 @@ eval_comptime_str_arg :: (
       new_expr_info(env, t_comptime_string())
     }
   );
-  if(!(is_comptime_string_type(info.ty)), {
+  if(!is_comptime_string_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -132,7 +132,7 @@ eval_comptime_int_arg :: (
       new_expr_info(env, t_comptime_int())
     }
   );
-  if(!(is_comptime_int_type(info.ty)), {
+  if(!is_comptime_int_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -332,7 +332,7 @@ evaluate_yo_comptime_string_functions :: (
                   (end_idx > total_bytes) => total_bytes,
                   true => end_idx
                 );
-                if(!(unquoted.is_char_boundary(start_b)), {
+                if(!unquoted.is_char_boundary(start_b), {
                   exn.throw(
                     dyn(
                       format_error_message(
@@ -344,7 +344,7 @@ evaluate_yo_comptime_string_functions :: (
                     )
                   );
                 });
-                if(!(unquoted.is_char_boundary(end_b)), {
+                if(!unquoted.is_char_boundary(end_b), {
                   exn.throw(
                     dyn(
                       format_error_message(

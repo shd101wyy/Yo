@@ -36,7 +36,7 @@ _all_digits :: (fn(s : String, start : usize, end_pos : usize) -> bool)({
       .None => false,
       .Some(b) => ((b >= u8(48)) && (b <= u8(57)))
     );
-    if(!(is_digit), {
+    if(!is_digit, {
       ok = false;
     });
     i = (i + usize(1));
@@ -107,9 +107,9 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
               .Some(b) => ((b >= u8(48)) && (b <= u8(57)))
             )
           );
-          if(!(major_ok)
-          || !(minor_ok)
-          || !(patch_ok), {
+          if(!major_ok
+          || !minor_ok
+          || !patch_ok, {
             return(.Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`));
           });
           .Ok(version)
@@ -139,7 +139,7 @@ find_yo_version_file :: (
         result = .Some(candidate);
         keep_going = false;
       });
-      if(!(found), {
+      if(!found, {
         parent_opt := current.parent();
         match(
           parent_opt,

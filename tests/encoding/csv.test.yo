@@ -62,7 +62,7 @@ test("strict parsing rejects uneven records", {
   ok := csv_parse_strict(String.from("a,b\n1,2\n"), CsvOptions.default());
   assert(match(ok, .Ok(r) => (r.len() == usize(2)), .Err(_) => false), "even records pass");
   bad := csv_parse_strict(String.from("a,b\n1\n"), CsvOptions.default());
-  assert(match(bad, .Err(e) => match(e, .UnevenRecord({ record, expected, found }) => (((record == usize(1)) && (expected == usize(2))) && (found == usize(1))), _ => false), .Ok(_) => false), "uneven record reported with its index");
+  assert(match(bad, .Err(e) => match(e, .UnevenRecord({ record, expected, found }) => ((record == usize(1)) && (expected == usize(2)) && (found == usize(1))), _ => false), .Ok(_) => false), "uneven record reported with its index");
 });
 test("other delimiters (TSV, semicolon)", {
   t := match(csv_parse_with(String.from("a\tb\n1\t2\n"), CsvOptions.with_delimiter(u8(9))), .Ok(r) => r, .Err(_) => ArrayList(ArrayList(String)).new());

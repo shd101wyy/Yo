@@ -301,7 +301,7 @@ _try_eval_body_swallowing :: (
 )({
   inner_exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         if(ctfe_env_mod.get(`YO_DEBUG_CTFE_ANALYZE`).is_some(), {
           eprintln(`[ctfe-analyze] ${_err.to_string()}`);
         });
@@ -442,7 +442,7 @@ analyze_ctfe_capability :: (
   if(prohibited, {
     cannot = true;
   });
-  if(!(is_fn), {
+  if(!is_fn, {
     cannot = true;
   });
   cond(

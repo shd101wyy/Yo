@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 // ============================================================================
 // Open a file relative to dirfd. Use AT_FDCWD for current directory.
 // Returns fd on success, -errno on failure.
-openat :: (fn(dirfd : i32, path : *(u8), flags : i32, mode : i32) -> IoFuture)(
+openat :: (fn(dirfd : i32, path : *u8, flags : i32, mode : i32) -> IoFuture)(
   __yo_async_openat_start(dirfd, path, flags, mode)
 );
 // Close a file descriptor.
@@ -34,18 +34,18 @@ close :: (fn(fd : i32) -> IoFuture)(
 );
 // Read from fd into buffer at the given offset.
 // Returns number of bytes read on success, -errno on failure.
-read :: (fn(fd : i32, buffer : *(u8), size : u32, offset : u64) -> IoFuture)(
+read :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture)(
   __yo_async_read_start(fd, buffer, size, offset)
 );
 // Write buffer to fd at the given offset.
 // Returns number of bytes written on success, -errno on failure.
-write :: (fn(fd : i32, buffer : *(u8), size : u32, offset : u64) -> IoFuture)(
+write :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture)(
   __yo_async_write_start(fd, buffer, size, offset)
 );
 // Get file metadata via statx. Results are written to statxbuf.
 // Use Statx object to wrap and read the buffer.
 // Returns 0 on success, -errno on failure.
-statx :: (fn(dirfd : i32, path : *(u8), flags : i32, mask : u32, statxbuf : *(u8)) -> IoFuture)(
+statx :: (fn(dirfd : i32, path : *u8, flags : i32, mask : u32, statxbuf : *u8) -> IoFuture)(
   __yo_async_statx_start(dirfd, path, flags, mask, statxbuf)
 );
 // Sync file data and metadata to disk.
@@ -67,7 +67,7 @@ ftruncate :: (fn(fd : i32, length : i64) -> IoFuture)(
 // Sync File Helpers
 // ============================================================================
 // Open a file synchronously. Returns fd on success, -errno on failure.
-open_sync :: (fn(path : *(u8), flags : i32, mode : i32) -> i32)(
+open_sync :: (fn(path : *u8, flags : i32, mode : i32) -> i32)(
   __yo_file_open(path, flags, mode)
 );
 // Close a file descriptor synchronously.
@@ -79,7 +79,7 @@ close_sync :: (fn(fd : i32) -> unit)(
 // Returns bytes written on success, -errno on failure. On Windows this is
 // OVERLAPPED-aware: async-opened file fds wrap FILE_FLAG_OVERLAPPED handles
 // that CRT _write cannot serve.
-write_sync :: (fn(fd : i32, buf : *(u8), count : u32, offset : u64) -> i32)(
+write_sync :: (fn(fd : i32, buf : *u8, count : u32, offset : u64) -> i32)(
   __yo_sync_write(fd, buf, count, offset)
 );
 // Get file size synchronously. Returns size on success, -errno on failure.

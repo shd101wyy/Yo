@@ -52,7 +52,7 @@ _cleanup_walk_tree :: (fn(root : String, io : Io, exn : Exception) -> unit)({
 test("walk lists all entries recursively", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -80,7 +80,7 @@ test("walk lists all entries recursively", {
 test("walk_with max_depth limits traversal", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -113,7 +113,7 @@ test("walk_with max_depth limits traversal", {
 test("walk_with include_dirs false excludes directories", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -147,7 +147,7 @@ test("walk_with include_dirs false excludes directories", {
 // ============================================================================
 test("WalkOptions.defaults has expected values", {
   opts := WalkOptions.defaults();
-  assert(!(opts.follow_symlinks), "follow_symlinks should be false");
+  assert(!opts.follow_symlinks, "follow_symlinks should be false");
   assert(opts.include_dirs, "include_dirs should be true");
   max_is_none := match(opts.max_depth, .None => true, _ => false);
   assert(max_is_none, "max_depth should be None");
@@ -158,7 +158,7 @@ test("WalkOptions.defaults has expected values", {
 test("walk nonexistent returns error", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -173,7 +173,7 @@ test("walk nonexistent returns error", {
 test("walk_cstr works with C string path", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -209,7 +209,7 @@ test("walk_with follow_symlinks descends through directory symlinks", {
       // With follow_symlinks the walk must surface link's target contents.
       exn := Exception(
         throw : (
-          (err) -> {
+          err -> {
             assert(false, `unexpected exception: ${err.to_string()}`);
             unwind(());
           }
@@ -268,7 +268,7 @@ test("walk_with follow_symlinks descends through directory symlinks", {
 test("walk_with pattern filters relative paths; glob() expands", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

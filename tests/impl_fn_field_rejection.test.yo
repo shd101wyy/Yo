@@ -37,7 +37,7 @@ WithDynCb :: ref(
 make_dyn_adder :: (fn(n : i32) -> WithDynCb)(
   WithDynCb(
     value : n,
-    cb : dyn((x) => (x + n))
+    cb : dyn(x => (x + n))
   )
 );
 test("workaround A: Dyn(Fn) field captures correctly", {
@@ -56,7 +56,7 @@ test("workaround B: struct generic over closure type", {
   // Non-capturing closure - both struct field and value share the same Impl(Fn) type.
   obj := GenericCb(Impl(Fn(x : i32) -> i32))(
     value : i32(7),
-    cb : ((x) => (x * i32(3)))
+    cb : (x => (x * i32(3)))
   );
   result := obj.cb(i32(4));
   assert(result == i32(12), "4 * 3 = 12");

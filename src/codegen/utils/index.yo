@@ -443,7 +443,7 @@ impl(
     // Record first-registration order (insertion order) so codegen emits
     // functions deterministically, mirroring TS `for..in` semantics rather
     // than HashMap bucket order. Re-registration keeps the original position.
-    if(!(self.functions.contains_key(func_id.clone())), {
+    if(!self.functions.contains_key(func_id.clone()), {
       _o := self.function_order.push(func_id.clone());
     });
     _r := self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
@@ -474,7 +474,7 @@ impl(
   has_function_with_c_name : (fn(self : Self, c_name : String) -> bool)({
     vals := self.functions.values();
     (found : bool) = false;
-    while(!(found), {
+    while(!found, {
       match(
         vals.next(),
         .Some(entry) => if(entry.c_name == c_name, {
@@ -569,7 +569,7 @@ get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeSt
           .Some(flags) => match(flags.get(fi), .Some(f) => f, .None => false),
           .None => false
         );
-        if(!(is_comptime), {
+        if(!is_comptime, {
           label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
           ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           result.push(RuntimeStructField(label : label, ty : ty));
@@ -691,7 +691,7 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
     });
     i = (i + usize(1));
   });
-  if(!(is_extern_c) && _c_reserved_words.contains(sanitized), {
+  if(!is_extern_c && _c_reserved_words.contains(sanitized), {
     prefixed := String.from("__yo_c_reserved_");
     prefixed.push_string(sanitized);
     return(prefixed);
@@ -1038,7 +1038,7 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
       (found : bool) = false;
       (i : usize) = usize(0);
       n := rtts.len();
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           rtts.get(i),
           .Some(rt) => match(
@@ -1119,7 +1119,7 @@ _gts_stack_contains :: (fn(sid : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := g_gts_some_stack.len();
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       g_gts_some_stack.get(i),
       .Some(x) => if(x == sid, {
@@ -1212,7 +1212,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         array_type_name.push_string(sanitize_for_c_identifier(element_type_string.clone(), false));
         array_type_name.push_str("_");
         array_type_name.push_string(length.to_string());
-        if(!(context.has_array_struct_type(array_type_name.clone())), {
+        if(!context.has_array_struct_type(array_type_name.clone()), {
           context.register_array_struct_type(array_type_name.clone(), element_type_string, i64(length));
         });
         array_type_name
@@ -1335,7 +1335,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       clean := _strip_stars(child_c_name.clone()).trim();
       iso_name := String.from("Iso_");
       iso_name.push_string(sanitize_for_c_identifier(clean, false));
-      if(!(context.has_iso_type(iso_name.clone())), {
+      if(!context.has_iso_type(iso_name.clone()), {
         context.register_iso_type(iso_name.clone(), child_c_name.clone(), t);
       });
       iso_name
@@ -1392,7 +1392,7 @@ scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
   n := stack.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       stack.get(i),
       .Some(nm) => if(nm == cn, {
@@ -1483,7 +1483,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
             .Some(gty) => (type_key(gty) == type_key(variable.ty)),
             .None => false
           );
-          is_extern_c := ((is_extern_c_fn) || (is_extern_c_glob));
+          is_extern_c := (is_extern_c_fn || is_extern_c_glob);
           var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
           // A generated fn_* name shadowing a local → prefer the original name.
           if((var_name != variable_name) && var_name.starts_with(String.from("fn_")), {
@@ -1530,7 +1530,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
               mg_i = (mg_i + usize(1));
             });
           };
-          if((!(is_extern_c) && !(mg_any_param)) && is_module_level_global(variable.token.module_path, variable.name), {
+          if((!is_extern_c && !mg_any_param) && is_module_level_global(variable.token.module_path, variable.name), {
             return(`${var_name}${module_global_c_suffix(variable.token.module_path)}`);
           });
           var_name

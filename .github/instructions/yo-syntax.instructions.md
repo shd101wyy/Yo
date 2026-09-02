@@ -63,43 +63,39 @@ io.async((io : Io) =>
 - The parentheses are **required** and must not be omitted.
 - Always write `cond(condition => result, true => default)`
 
-## Don't write unnecessary parentheses
+## Paren hygiene: what `yo fmt` canonicalizes vs. keeps
 
-`yo fmt` deliberately preserves every parenthesis you write (the gofmt
-position — see `plans/archive/FMT_PAREN_CANONICALIZATION.md`), so paren
-hygiene is on the author. The rule of thumb: **a comma or a closing paren
-already delimits the expression — don't wrap it again.**
+`yo fmt` elides provably-redundant parentheses and keeps every
+load-bearing group (plans/FMT_PAREN_ELISION.md, 2026-09-02 — the
+re-parse AST-equality gate makes a meaning-changing format structurally
+impossible). Write the bare forms directly; what survives a `yo fmt`
+pass is the canonical set.
 
-```rust
-// WRONG — redundant parens around comma-delimited call arguments:
-if((x == y), { ... });
-assert((a == b), "msg");
-while((i < n), { ... });
+Fmt elides these — write the bare form:
 
-// CORRECT — the comma is the delimiter:
-if(x == y, { ... });
-assert(a == b, "msg");
-while(i < n, { ... });
-```
+- **Prefix calls**: `-x` (not `-(x)`), `!flag` (not `!(flag)`), `?*T`
+  (not `?(*(T))`), `**T`, `-p.a`, `-f(x)`.
+- **Atom-like operands of any operator**: `x + y` (not `(x) + (y)`),
+  `y := -x` (not `y := (-x)`).
+- **Left same-operator chains**: `a + b + c` (not `(a + b) + c`) —
+  same-op chains left-associate.
+- **Whole call arguments**: `f(a + b)` (not `f((a + b))`), and the
+  classic comma-delimiter rule: `if(x == y, { ... })`, `assert(a == b, "m")`,
+  `while(i < n, { ... })` — never wrap a comma-delimited argument again.
+- **Lambda parameters**: `err -> { ... }` (not `(err) -> { ... }`).
 
-But keep the parens the GRAMMAR needs — these are NOT unnecessary:
+Fmt KEEPS these — the grammar needs them; do not remove by hand:
 
-- **`cond`/`match` arm conditions that are infix expressions**:
-  `cond((x == y) => a, true => b)` — `==` next to `=>` is two adjacent
-  different operators, so the parens are required.
-- **Mixed-operator chains**: `(a + b) * c` — no precedence; required.
-- **Struct-literal field values with infix**: `{ x : (1 + 2), y : 3 }`.
-- **Prefix-operator INFIX operands**: `-(1 + 2)` — a prefix operator
+- **An operator's infix-chain RHS**: `y := (1 + 2)`, `true => (x / y)`,
+  `{ x : (1 + 2), y : 3 }` — the chain must be one group.
+- **Mixed-operator groups**: `(a + b) * c` — no precedence; required.
+- **Right operands**: `3 + (4 - 5)` AND `3 + (4 + 5)` — a right group
+  changes the tree even for the same operator.
+- **Prefix calls with infix arguments**: `-(1 + 2)` — a prefix operator
   binds exactly ONE postfix expression
-  (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1, landed 2026-08-21), so
-  an infix-chain operand needs parens. Bare-primary operands do NOT:
-  `-1`, `!x`, `~m`, `&v`, `?*T` (= `?(*(T))`), `**T`, and `3 - -3` are
-  all valid and preferred in NEW user code. **Seed constraint: `src/`
-  and `std/` must keep the parenthesized spellings (`-(1)`, `!(x)`)
-  until a release with this rule becomes the seed** — the seed binary
-  still rejects paren-less prefix calls.
-
-Same-operator chains never need parens: `a + b + c`, `a && b && c`.
+  (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1); the call parens are
+  the operand boundary.
+- **Multi-arg operator calls** (`-(a, b)`) and operator atoms (`(!)`).
 
 ## `if` is sugar for `cond`
 
@@ -300,7 +296,7 @@ Formatter-specific syntax preservation:
 - Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
 - Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
 
-Special tight syntaxes must stay immediate: macro splices `#(expr)`, Option sugar `?(T)` / nullable pointers `?(*(T))`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `? (T)`, or `T <: !(Runtime)`.
+Special tight syntaxes must stay immediate: macro splices `#(expr)`, Option sugar `?T` / nullable pointers `?*T`, and negated trait constraints `T <: !Runtime` must not be formatted as `# (expr)`, `? T`, or `T <: ! Runtime`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
@@ -323,13 +319,13 @@ y := 3 - -3;    // infix minus, then prefix minus
 -(1 + 2)        // NOT -1 + 2, which is (-1) + 2
 ```
 
-**Seed constraint: `src/` and `std/` must keep the parenthesized
-spellings (`-(1)`, `!(x)`, `&(s)`) until a release with this rule becomes
-the seed** — the seed binary still rejects paren-less prefix calls. The
-formatter emits bare prefix forms tight (`-1`, `!x`, `?*i32`), keeps
-`- -1` spaced (a tight `--1` reads as a C decrement), and never tightens
-a pair that would re-lex as one token (`& &x` stays spaced — `&&` is a
-token).
+The formatter emits bare prefix forms tight (`-1`, `!x`, `?*i32`),
+keeps `- -1` spaced (a tight `--1` reads as a C decrement), and never
+tightens a pair that would re-lex as one token (`& &x` stays spaced —
+`&&` is a token). The historical seed constraint (parenthesized
+spellings until a seed carried the rule) was lifted 2026-09-02 —
+v0.2.21 ships it — and the 2026-09-02 tree sweep converted `src/`,
+`std/`, and `tests/` to the bare spellings.
 
 **`!x && y` groups as `(!x) && y`** — the prefix operator binds only the
 one postfix expression. Since unary and infix are _different operators

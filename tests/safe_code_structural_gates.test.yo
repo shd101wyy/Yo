@@ -14,25 +14,25 @@
 /// `tests/unsafe.test.yo` and `tests/privilege_pragma.test.yo`.
 // `*(T)` in a parameter slot is rejected in safe code.
 comptime_expect_error(
-  takes_ptr :: (fn(p : *(i32)) -> i32)(i32(0))
+  takes_ptr :: (fn(p : *i32) -> i32)(i32(0))
 );
 // `*(T)` in a return slot is rejected in safe code.
 comptime_expect_error(
-  returns_ptr :: (fn() -> *(i32))({
+  returns_ptr :: (fn() -> *i32)({
     x := i32(0);
-    &(x)
+    &x
   })
 );
 // `*(T)` in a struct field is rejected in safe code.
 comptime_expect_error(
-  HasPtrField :: struct(p : *(i32))
+  HasPtrField :: struct(p : *i32)
 );
 // `&(x)` address-of is rejected in safe code (even when assigning to
 // an explicitly-typed local — the type rule fires too, but the
 // address-of fires first at the construction site).
 comptime_expect_error({
   x := i32(0);
-  (p : *(i32)) = &(x);
+  (p : *i32) = &x;
 });
 // `unsafe(...)` itself is rejected in safe code.
 comptime_expect_error(
@@ -49,7 +49,7 @@ comptime_expect_error(
     "c",
     bad_strlen :
       (
-        fn(s : *(u8)) -> usize
+        fn(s : *u8) -> usize
       )
   )
 );
@@ -60,22 +60,22 @@ comptime_expect_error(
     "<string.h>",
     bad_strlen :
       (
-        fn(s : *(u8)) -> usize
+        fn(s : *u8) -> usize
       )
   )
 );
 // Pointer arithmetic `&+` is rejected in safe code.
 comptime_expect_error({
   x := i32(0);
-  p := &(x);
+  p := &x;
   q := p.add(usize(1));
 });
 // Pointer cast `*(U)(p)` is rejected in safe code (result has type
 // `*(U)`, which is a forbidden expression type).
 comptime_expect_error({
   x := i32(0);
-  p := &(x);
-  q := (*(u8))(p);
+  p := &x;
+  q := (*u8)(p);
 });
 // Positive runtime guardrail: safe code with no pointer surface
 // compiles and runs cleanly.

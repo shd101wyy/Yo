@@ -19,12 +19,12 @@ comptime_expect_error({
 // ============================================================================
 test("Mutex new and with_lock read", {
   m := Mutex(i32).new(i32(42));
-  result := m.with_lock((v) => v);
+  result := m.with_lock(v => v);
   assert(result == i32(42), "should read initial value");
 });
 test("Mutex with_lock write and read back", {
   m := Mutex(i32).new(i32(0));
-  result := m.with_lock((v) => {
+  result := m.with_lock(v => {
     v = i32(99);
     v
   });
@@ -32,7 +32,7 @@ test("Mutex with_lock write and read back", {
 });
 test("Mutex with_lock return value", {
   m := Mutex(i32).new(i32(7));
-  doubled := m.with_lock((v) => (v * i32(2)));
+  doubled := m.with_lock(v => (v * i32(2)));
   assert(doubled == i32(14), "with_lock should propagate return value");
 });
 // Regression for issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
@@ -45,10 +45,10 @@ test("Mutex with_lock return value", {
 // caught it, and no test exercised the shape, so nothing in the battery could.
 test("Mutex with_lock body may end in a statement (unit R)", {
   m := Mutex(i32).new(i32(0));
-  m.with_lock((v) => {
+  m.with_lock(v => {
     v = i32(42);
   });
-  assert(m.with_lock((v) => v) == i32(42), "the unit-bodied write landed");
+  assert(m.with_lock(v => v) == i32(42), "the unit-bodied write landed");
 });
 // O7 residual (plans/STD_API_AUDIT.md §8): the sync containers carry the same
 // Acyclic requirement as the imm family — atomic RC cannot collect cycles, so

@@ -182,7 +182,7 @@ test("iter.for_each with closure that captures ArrayList", {
   out := array_list(i32(0));
   out.clear();
   src := array_list(i32(1), i32(2), i32(3), i32(4));
-  src.into_iter().for_each((x) => {
+  src.into_iter().for_each(x => {
     out.push(x);
   });
   assert(out.len() == usize(4), "out has 4 elements");
@@ -193,7 +193,7 @@ test("iter.for_each accumulates side effects", {
   total := array_list(i32(0));
   total.clear();
   total.push(i32(0));
-  my_range(i32(1), i32(5)).for_each((x) => {
+  my_range(i32(1), i32(5)).for_each(x => {
     cur := total(usize(0));
     total(usize(0)) = (cur + x);
   });
@@ -209,13 +209,13 @@ test("iter.any returns true on first match", {
   found := my_range(i32(0), i32(10)).any(x => (x == i32(7)));
   assert(found, "found 7");
   none := my_range(i32(0), i32(5)).any(x => (x > i32(100)));
-  assert(!(none), "no value > 100");
+  assert(!none, "no value > 100");
 });
 test("iter.all returns true only if every element matches", {
   ok := my_range(i32(0), i32(5)).all(x => (x < i32(10)));
   assert(ok, "all < 10");
   bad := my_range(i32(0), i32(5)).all(x => (x < i32(3)));
-  assert(!(bad), "not all < 3");
+  assert(!bad, "not all < 3");
 });
 // --- chained combinators (excluding fold) ---------------------------------
 test("iter.skip then take then count", {
@@ -273,7 +273,7 @@ test("iter.sum, iter.min, iter.max", {
 test("iter.chain yields first then second", {
   it := my_range(i32(1), i32(3)).chain(my_range(i32(10), i32(12)));
   out := ArrayList(i32).new();
-  it.for_each((x) => {
+  it.for_each(x => {
     out.push(x);
   });
   assert(out.len() == usize(4), "4 chained");
@@ -292,13 +292,13 @@ test("iter.take_while and iter.skip_while split at the boundary", {
 });
 test("iter.filter_map maps and filters in one pass", {
   halved := my_range(i32(0), i32(7)).filter_map(
-    (x) => cond(
+    x => cond(
       ((x % i32(2)) == i32(0)) => Option(i32).Some(x / i32(2)),
       true => Option(i32).None
     )
   );
   out := ArrayList(i32).new();
-  halved.for_each((x) => {
+  halved.for_each(x => {
     out.push(x);
   });
   assert(out.len() == usize(4), "0,2,4,6 kept");
@@ -325,7 +325,7 @@ test("map then for_each — self-marker must not clobber the concrete F binding"
   // for_each's already-resolved concrete closure binding
   // (issues/varbound-combinator-receiver-impl-match.md).
   out := ArrayList(i32).new();
-  my_range(i32(1), i32(4)).map((x) => (x * i32(2))).for_each((x) => {
+  my_range(i32(1), i32(4)).map(x => (x * i32(2))).for_each(x => {
     out.push(x);
   });
   assert(out.len() == usize(3), "3 mapped elements");
@@ -336,7 +336,7 @@ test("for over an integer range literal", {
   total := array_list(i32(0));
   total.clear();
   total.push(i32(0));
-  for(i32(0) .. i32(5), (i) => {
+  for(i32(0) .. i32(5), i => {
     cur := total(usize(0));
     total(usize(0)) = (cur + i);
   });
@@ -393,12 +393,12 @@ test("IntoIterator bound accepts ArrayList and Array", {
 // --- D3.4: rev / DoubleEndedIterator (plans/STD_API_AUDIT.md) ---------------
 test("rev on integer ranges", {
   out := array_list(i32(0));
-  (i32(0) .. i32(5)).rev().for_each((x) => {
+  (i32(0) .. i32(5)).rev().for_each(x => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 4, 3, 2, 1, 0]`, "half-open range backwards");
   inc := array_list(i32(0));
-  (i32(1) ..= i32(4)).rev().for_each((x) => {
+  (i32(1) ..= i32(4)).rev().for_each(x => {
     inc.push(x);
   });
   assert(inc.to_string() == `[0, 4, 3, 2, 1]`, "inclusive range backwards");
@@ -412,12 +412,12 @@ test("rev on a range terminates at the type's MIN", {
 test("rev on an ArrayList and on an Array", {
   xs := array_list(i32(1), i32(2), i32(3));
   got := array_list(i32(0));
-  xs.into_iter().rev().for_each((x) => {
+  xs.into_iter().rev().for_each(x => {
     got.push(x);
   });
   assert(got.to_string() == `[0, 3, 2, 1]`, "ArrayList backwards");
   arr_out := array_list(i32(0));
-  [i32(7), i32(8)].into_iter().rev().for_each((x) => {
+  [i32(7), i32(8)].into_iter().rev().for_each(x => {
     arr_out.push(x);
   });
   assert(arr_out.to_string() == `[0, 8, 7]`, "Array backwards");
@@ -427,14 +427,14 @@ test("rev on an ArrayList and on an Array", {
 // issues/fixed/nested-same-adaptor-instantiation-identity-split.md.
 test("rev of rev is the identity", {
   out := array_list(i32(0));
-  (i32(0) .. i32(4)).rev().rev().for_each((x) => {
+  (i32(0) .. i32(4)).rev().rev().for_each(x => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 0, 1, 2, 3]`, "double rev restores source order");
 });
 test("three levels of rev", {
   out := array_list(i32(0));
-  (i32(0) .. i32(4)).rev().rev().rev().for_each((x) => {
+  (i32(0) .. i32(4)).rev().rev().rev().for_each(x => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 3, 2, 1, 0]`, "triple rev reverses again");
@@ -444,7 +444,7 @@ test("self-nesting through a VARIABLE-BOUND receiver", {
   // the stamp, and only the stamp was repaired — so both are covered.
   it := (i32(0) .. i32(4)).rev().rev();
   out := array_list(i32(0));
-  it.for_each((x) => {
+  it.for_each(x => {
     out.push(x);
   });
   assert(out.to_string() == `[0, 0, 1, 2, 3]`, "variable-bound double rev");
@@ -458,7 +458,7 @@ test("a self-nested chain still composes with collect and map", {
   assert(got.to_string() == `[0, 1, 2, 3]`, "collect after a self-nested chain");
   // `.map` puts a closure type in the adaptor's type arguments, which the
   // canonicalizer deliberately declines to touch — keep that path exercised.
-  doubled := (i32(0) .. i32(3)).rev().rev().map((x) => (x * i32(2))).collect(ArrayList(i32));
+  doubled := (i32(0) .. i32(3)).rev().rev().map(x => (x * i32(2))).collect(ArrayList(i32));
   assert(doubled.to_string() == `[0, 2, 4]`, "map after a self-nested chain");
 });
 test("next and next_back meet in the middle", {
@@ -483,11 +483,11 @@ test("collect into an ArrayList", {
   assert(got.to_string() == `[0, 1, 2, 3]`, "range collects in order");
 });
 test("collect after map", {
-  squares := (i32(1) ..= i32(4)).map((x) => (x * x)).collect(ArrayList(i32));
+  squares := (i32(1) ..= i32(4)).map(x => (x * x)).collect(ArrayList(i32));
   assert(squares.to_string() == `[1, 4, 9, 16]`, "mapped chain collects");
 });
 test("collect after filter", {
-  evens := (i32(0) .. i32(8)).filter((x) => ((x % i32(2)) == i32(0))).collect(ArrayList(i32));
+  evens := (i32(0) .. i32(8)).filter(x => ((x % i32(2)) == i32(0))).collect(ArrayList(i32));
   assert(evens.to_string() == `[0, 2, 4, 6]`, "filtered chain collects");
 });
 test("collect into a Deque", {

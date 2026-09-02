@@ -64,7 +64,7 @@ test("WaitGroup add negative clamps to zero", {
   wg := WaitGroup.new();
   wg.add(i32(5));
   // Adding a large negative should clamp count to 0
-  wg.add(i32(-(10)));
+  wg.add(i32(-10));
   assert(wg.count() == i32(0), "count should clamp to 0 when going negative");
 });
 test("WaitGroup done past zero clamps to zero", {
@@ -93,15 +93,15 @@ test("WaitGroup threads call done then main waits", {
   if(arch == Arch.Wasm32, return(()));
   wg := WaitGroup.new();
   wg.add(i32(3));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });
@@ -115,19 +115,19 @@ test("WaitGroup add before spawn done in thread", {
   if(arch == Arch.Wasm32, return(()));
   wg := WaitGroup.new();
   wg.add(i32(5));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     wg.done();
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     wg.done();
   });
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     wg.done();
   });
-  t4 := Thread.spawn((io) => {
+  t4 := Thread.spawn(io => {
     wg.done();
   });
-  t5 := Thread.spawn((io) => {
+  t5 := Thread.spawn(io => {
     wg.done();
   });
   wg.wait();
@@ -143,10 +143,10 @@ test("WaitGroup reuse across thread groups", {
   wg := WaitGroup.new();
   // First group
   wg.add(i32(2));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     wg.done();
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     wg.done();
   });
   wg.wait();
@@ -155,13 +155,13 @@ test("WaitGroup reuse across thread groups", {
   assert(wg.count() == i32(0), "count should be 0 after first group");
   // Second group
   wg.add(i32(3));
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     wg.done();
   });
-  t4 := Thread.spawn((io) => {
+  t4 := Thread.spawn(io => {
     wg.done();
   });
-  t5 := Thread.spawn((io) => {
+  t5 := Thread.spawn(io => {
     wg.done();
   });
   wg.wait();
@@ -178,13 +178,13 @@ test("WaitGroup with pool tasks", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     wg.done();
   });
   wg.wait();
@@ -195,15 +195,15 @@ test("WaitGroup with pool tasks and sleep", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });

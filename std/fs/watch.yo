@@ -89,7 +89,7 @@ Watcher :: ref(
 );
 /// The runtime callback: runs on the event loop thread, so touching the
 /// watcher's queue needs no lock. `user_data` is the `Watcher` handle itself.
-_on_fs_event :: (fn(path : *(u8), mask : i32, user_data : *(u8)) -> unit)({
+_on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
   w := unsafe.cast(user_data, Watcher);
   if(w._active, {
     // SAFETY: every backend hands a NUL-terminated entry name (`""` when it
@@ -123,7 +123,7 @@ watch :: (fn(path : Path, opts : WatchOptions, exn : Exception) -> Watcher)({
   cstr_bytes := path.to_string().to_cstr();
   cstr := cstr_bytes.ptr().unwrap();
   flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
-  rc := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(w, *(u8)));
+  rc := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(w, *u8));
   if(rc < i32(0), {
     events.fs_event_close(w._handle);
     exn.throw(dyn(IoError.from_errno(i32(0) - rc)));

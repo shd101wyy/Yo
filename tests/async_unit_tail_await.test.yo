@@ -16,7 +16,7 @@ Sink :: trait(
   (put_all : (fn(self : Self, v : u8, io : Io) -> Impl(Future(unit, IoExn)))) ?=
     (
       (self, v, io) ->
-        io.async((e) => {
+        io.async(e => {
           n := e.io.await(Self.put(self, v, io), e);
           assert(n == usize(1), "one put");
           ()
@@ -28,7 +28,7 @@ impl(
   Tally,
   Sink(
     put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async((e) => {
+      io.async(e => {
         self.count = (self.count + v);
         usize(1)
       })
@@ -40,11 +40,11 @@ impl(
 put_all_generic :: (
   fn(generic(S : Type), s : S, v : u8, io : Io, where(S <: Sink)) -> Impl(Future(unit, IoExn))
 )(
-  io.async((e) => e.io.await(s.put_all(v, io), e))
+  io.async(e => e.io.await(s.put_all(v, io), e))
 );
 // Concrete control: a REAL-unit tail await always worked — pin that the fix
 // did not disturb it. The closure params are ANNOTATED (`(io2 : Io)`) on
-// purpose: a BARE `(e) =>` param leaves the effect bundle unbound at the
+// purpose: a BARE `e =>` param leaves the effect bundle unbound at the
 // def-time trial, so `e.io.await` cannot resolve there — that body used to
 // be silently swallowed and the future compiled to a runs-nothing stub
 // (caught by the async poison gate; see
@@ -58,7 +58,7 @@ outer_unit :: (fn(io : Io) -> Impl(Future(unit)))(
 test("generic tail await of a unit trait default compiles and runs", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -73,7 +73,7 @@ test("generic tail await of a unit trait default compiles and runs", {
 test("concrete unit tail await control still works", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

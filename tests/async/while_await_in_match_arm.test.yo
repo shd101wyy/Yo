@@ -11,7 +11,7 @@
 { sleep } :: import("std/time/sleep");
 { yield } :: import("std/async");
 work :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     e.io.await(sleep(Duration.from_millis(i64(5)), e.io), e.io);
     i32(7)
   })
@@ -19,7 +19,7 @@ work :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
 // .None: one plain await. .Some(l): a poll loop awaiting `yield` until either
 // the work or the deadline finishes.
 race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     (result : i32) = i32(0);
     match(
       limit,
@@ -30,7 +30,7 @@ race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
         h := e.io.spawn(work(e.io), e);
         dh := e.io.spawn(sleep(l, e.io), e.io);
         (spins : i32) = i32(0);
-        while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+        while(runtime(!h.is_finished() && !dh.is_finished()), {
           e.io.await(yield(e.io), e.io);
           spins = (spins + i32(1));
         });
@@ -46,14 +46,14 @@ race :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
 // The mirror image: the looping arm FIRST, so the representative point is the
 // looping one and the plain arm must not inherit its loop check.
 race_rev :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     (result : i32) = i32(0);
     match(
       limit,
       .Some(l) => {
         h := e.io.spawn(work(e.io), e);
         dh := e.io.spawn(sleep(l, e.io), e.io);
-        while(runtime(!(h.is_finished()) && !(dh.is_finished())), {
+        while(runtime(!h.is_finished() && !dh.is_finished()), {
           e.io.await(yield(e.io), e.io);
         });
         result = cond(h.is_finished() => i32(100), true => i32(200));
@@ -68,7 +68,7 @@ race_rev :: (fn(limit : Option(Duration), io : Io) -> Impl(Future(i32, IoExn)))(
 test("plain arm awaits once, looping arm polls to completion", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -85,7 +85,7 @@ test("plain arm awaits once, looping arm polls to completion", {
 test("looping arm listed first", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

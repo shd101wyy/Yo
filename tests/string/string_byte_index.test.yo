@@ -240,8 +240,8 @@ test("String contains from_index is a byte offset", {
   assert(s.contains(`中`, usize(3)), "at the byte it starts on");
   // pre-D4: contains(中, 3) was FALSE (rune 3 is 𝄞, past 中).
   assert(s.contains(`𝄞`, usize(6)), "4-byte rune at its own offset");
-  assert(!(s.contains(`中`, usize(4))), "past 中's start");
-  assert(!(s.contains(`é`, usize(2))), "past é's start");
+  assert(!s.contains(`中`, usize(4)), "past 中's start");
+  assert(!s.contains(`é`, usize(2)), "past é's start");
 });
 // ===========================================================================
 // The EMPTY needle — the one documented hole in "every index this returns is
@@ -258,7 +258,7 @@ test("String index_of with an empty needle answers from_index verbatim", {
   // NOT a boundary — `index_of` hands the offset straight back, so this is the
   // one result that must NOT be fed to `substring` unchecked.
   assert(s.index_of(e.clone(), usize(2)).unwrap() == usize(2), "empty needle mid-rune");
-  assert(!(s.is_char_boundary(usize(2))), "and byte 2 really is inside a rune");
+  assert(!s.is_char_boundary(usize(2)), "and byte 2 really is inside a rune");
   assert(s.try_substring(usize(0), usize(2)).is_none(), "which try_substring refuses");
   // And past the end: unclamped (JavaScript's indexOf("") would clamp to len).
   assert(s.index_of(e.clone(), usize(99)).unwrap() == usize(99), "empty needle past the end");
@@ -301,19 +301,19 @@ test("String starts_with position is a byte offset — the 1.3(a) fix", {
   assert(s.starts_with(`你`, usize(0)), "prefix at 0");
   // pre-D4: FALSE for every `position` — the defect.
   assert(s.starts_with(`好`, usize(3)), "prefix at the second rune");
-  assert(!(s.starts_with(`好`, usize(1))), "mid-rune position cannot match");
-  assert(!(s.starts_with(`好`, usize(2))), "mid-rune position cannot match");
+  assert(!s.starts_with(`好`, usize(1)), "mid-rune position cannot match");
+  assert(!s.starts_with(`好`, usize(2)), "mid-rune position cannot match");
   t := _subject();
   assert(t.starts_with(`中`, usize(3)), "3-byte rune at byte 3");
   assert(t.starts_with(`𝄞`, usize(6)), "4-byte rune at byte 6");
   assert(t.starts_with(``, usize(999)), "empty prefix is everywhere");
-  assert(!(t.starts_with(`a`, usize(999))), "position past the end");
+  assert(!t.starts_with(`a`, usize(999)), "position past the end");
 });
 test("String ends_with end_position counts bytes", {
   s := _subject();
   // pre-D4: ends_with('é', 2) — 2 runes of "aé" — was true; the byte form is 3.
   assert(s.ends_with(`é`, usize(3)), "first 3 bytes end with é");
-  assert(!(s.ends_with(`é`, usize(2))), "cutting inside é cannot match");
+  assert(!s.ends_with(`é`, usize(2)), "cutting inside é cannot match");
   assert(s.ends_with(`中`, usize(6)), "first 6 bytes end with 中");
   assert(s.ends_with(`𝄞`, usize(10)), "the whole string ends with 𝄞");
   assert(s.ends_with(`𝄞`), "default end_position is the whole string");

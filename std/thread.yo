@@ -210,7 +210,7 @@ impl(
 // do not "tidy" this into a method until that is fixed.
 spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
   assert(
-    !(pool._closed.load(MemoryOrder.Acquire)),
+    !pool._closed.load(MemoryOrder.Acquire),
     "thread.spawn: pool has been shut down"
   );
   // The pool mutex serializes submission so that `join_all`'s sentinel tasks

@@ -114,12 +114,12 @@ impl(
   to_c_order : (fn(self : Self) -> memory_order)(
     match(
       self,
-      (.Relaxed) => memory_order_relaxed,
-      (.Consume) => memory_order_consume,
-      (.Acquire) => memory_order_acquire,
-      (.Release) => memory_order_release,
-      (.AcqRel) => memory_order_acq_rel,
-      (.SeqCst) => memory_order_seq_cst
+      .Relaxed => memory_order_relaxed,
+      .Consume => memory_order_consume,
+      .Acquire => memory_order_acquire,
+      .Release => memory_order_release,
+      .AcqRel => memory_order_acq_rel,
+      .SeqCst => memory_order_seq_cst
     )
   )
 );
@@ -133,8 +133,8 @@ impl(
 _read_order :: (fn(order : MemoryOrder) -> MemoryOrder)(
   match(
     order,
-    (.Release) => MemoryOrder.Relaxed,
-    (.AcqRel) => MemoryOrder.Acquire,
+    .Release => MemoryOrder.Relaxed,
+    .AcqRel => MemoryOrder.Acquire,
     _ => order
   )
 );
@@ -171,7 +171,7 @@ impl(
     unsafe(
       atomic_compare_exchange_strong_explicit(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -212,7 +212,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_schar(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -223,7 +223,7 @@ impl(
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -232,7 +232,7 @@ impl(
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -241,7 +241,7 @@ impl(
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -250,7 +250,7 @@ impl(
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -259,7 +259,7 @@ impl(
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -268,7 +268,7 @@ impl(
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -278,7 +278,7 @@ impl(
     read := _read_order(order);
     (current : i8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -318,7 +318,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_short(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -329,7 +329,7 @@ impl(
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -338,7 +338,7 @@ impl(
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -347,7 +347,7 @@ impl(
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -356,7 +356,7 @@ impl(
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -365,7 +365,7 @@ impl(
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -374,7 +374,7 @@ impl(
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -384,7 +384,7 @@ impl(
     read := _read_order(order);
     (current : i16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -424,7 +424,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_int(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -450,7 +450,7 @@ impl(
     read := _read_order(order);
     (current : i32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -460,7 +460,7 @@ impl(
     read := _read_order(order);
     (current : i32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -500,7 +500,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_llong(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -511,7 +511,7 @@ impl(
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -520,7 +520,7 @@ impl(
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -529,7 +529,7 @@ impl(
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -538,7 +538,7 @@ impl(
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -547,7 +547,7 @@ impl(
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -556,7 +556,7 @@ impl(
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -566,7 +566,7 @@ impl(
     read := _read_order(order);
     (current : i64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -606,7 +606,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_uchar(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -617,7 +617,7 @@ impl(
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -626,7 +626,7 @@ impl(
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -635,7 +635,7 @@ impl(
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -644,7 +644,7 @@ impl(
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -653,7 +653,7 @@ impl(
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -662,7 +662,7 @@ impl(
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -672,7 +672,7 @@ impl(
     read := _read_order(order);
     (current : u8) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -712,7 +712,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_ushort(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -723,7 +723,7 @@ impl(
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -732,7 +732,7 @@ impl(
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -741,7 +741,7 @@ impl(
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -750,7 +750,7 @@ impl(
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -759,7 +759,7 @@ impl(
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -768,7 +768,7 @@ impl(
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -778,7 +778,7 @@ impl(
     read := _read_order(order);
     (current : u16) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -818,7 +818,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_uint(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -829,7 +829,7 @@ impl(
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -838,7 +838,7 @@ impl(
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -847,7 +847,7 @@ impl(
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -856,7 +856,7 @@ impl(
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -865,7 +865,7 @@ impl(
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -874,7 +874,7 @@ impl(
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -884,7 +884,7 @@ impl(
     read := _read_order(order);
     (current : u32) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -924,7 +924,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_ullong(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -935,7 +935,7 @@ impl(
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -944,7 +944,7 @@ impl(
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -953,7 +953,7 @@ impl(
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -962,7 +962,7 @@ impl(
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -971,7 +971,7 @@ impl(
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -980,7 +980,7 @@ impl(
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -990,7 +990,7 @@ impl(
     read := _read_order(order);
     (current : u64) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -1030,7 +1030,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_size_t(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -1041,7 +1041,7 @@ impl(
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -1050,7 +1050,7 @@ impl(
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -1059,7 +1059,7 @@ impl(
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -1068,7 +1068,7 @@ impl(
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -1077,7 +1077,7 @@ impl(
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -1086,7 +1086,7 @@ impl(
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -1096,7 +1096,7 @@ impl(
     read := _read_order(order);
     (current : usize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -1136,7 +1136,7 @@ impl(
     unsafe(
       __yo_atomic_compare_exchange_ptrdiff(
         &(self.*),
-        &(expected),
+        &expected,
         new_value,
         success.to_c_order(),
         failure.to_c_order()
@@ -1147,7 +1147,7 @@ impl(
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current + value, order, read);
     });
     current
@@ -1156,7 +1156,7 @@ impl(
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current - value, order, read);
     });
     current
@@ -1165,7 +1165,7 @@ impl(
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current & value, order, read);
     });
     current
@@ -1174,7 +1174,7 @@ impl(
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current | value, order, read);
     });
     current
@@ -1183,7 +1183,7 @@ impl(
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       swapped = self.compare_exchange(current, current ^ value, order, read);
     });
     current
@@ -1192,7 +1192,7 @@ impl(
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current < value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });
@@ -1202,7 +1202,7 @@ impl(
     read := _read_order(order);
     (current : isize) = self.load(read);
     (swapped : bool) = false;
-    while(runtime(!(swapped)), {
+    while(runtime(!swapped), {
       chosen := if(current > value, current, value);
       swapped = self.compare_exchange(current, chosen, order, read);
     });

@@ -13,15 +13,15 @@
 { IoExn, Exception } :: import("std/error");
 
 give_a :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async((e) => usize(11))
+  io.async(e => usize(11))
 );
 give_b :: (fn(x : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async((e) => (x + usize(100)))
+  io.async(e => (x + usize(100)))
 );
 // The pre-fix silent wrong-value shape: sibling conds, each branch
 // RE-assigning `out` from an await; every pick() returned 999 before.
 pick :: (fn(which : usize, io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     (out : usize) = usize(0);
     (done : bool) = false;
     cond(
@@ -32,14 +32,14 @@ pick :: (fn(which : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       true => ()
     );
     cond(
-      (!(done) && (which == usize(2))) => {
+      (!done && (which == usize(2))) => {
         out = e.io.await(give_b(usize(7), io), e);
         done = true;
       },
       true => ()
     );
     cond(
-      (!(done)) => {
+      !done => {
         out = usize(999);
       },
       true => ()
@@ -49,7 +49,7 @@ pick :: (fn(which : usize, io : Io) -> Impl(Future(usize, IoExn)))(
 );
 // Linear (no cond) re-assignment of an await result.
 lin :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     (out : usize) = usize(0);
     out = e.io.await(give_a(io), e);
     out = (out + usize(1));
@@ -59,7 +59,7 @@ lin :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
 test("await re-assigned into an existing var runs its cond branch", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -76,7 +76,7 @@ test("await re-assigned into an existing var runs its cond branch", {
 test("linear re-assignment of an await result lands", {
   t_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

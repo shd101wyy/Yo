@@ -376,7 +376,7 @@ impl(
       },
       .Lookahead => {
         child := node.children(usize(0));
-        positive := (!(node.negated));
+        positive := !node.negated;
         // Emit lookahead instruction with placeholder sub_end
         la_pc := self._emit(Instr.lookahead_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
@@ -387,7 +387,7 @@ impl(
       },
       .Lookbehind => {
         child := node.children(usize(0));
-        positive := (!(node.negated));
+        positive := !node.negated;
         lb_pc := self._emit(Instr.lookbehind_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
         recur(self, child);
@@ -408,7 +408,7 @@ impl(
     pc := usize(0);
     instrs := self._program.instructions;
     (done : bool) = false;
-    while((pc < instrs.len()) && (!(done)), {
+    while((pc < instrs.len()) && !done, {
       instr := instrs(pc);
       match(
         instr.kind,

@@ -20,6 +20,8 @@ open(import("std/fmt"));
 { HashMap } :: import("std/collections/hash_map");
 { Token, TokenKind } :: import("./token.yo");
 { tokenize, _is_two_char_operator } :: import("./lexer.yo");
+{ parse } :: import("./parser.yo");
+{ exprs_are_equal } :: import("./expr.yo");
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -118,20 +120,6 @@ paren_is_call_delimiter :: (fn(previous : Option(Token)) -> bool)(
     )
   )
 );
-/// True iff `operator` is one of `:=`, `::`, `=`, `:`, `=>`, `->` — operators
-/// whose right-hand side does not require parenthesisation. Mirrors
-/// `operatorAllowsUngroupedRhs`.
-operator_allows_ungrouped_rhs :: (fn(op : String) -> bool)(
-  cond(
-    (op == ":=") => true,
-    (op == "::") => true,
-    (op == "=") => true,
-    (op == ":") => true,
-    (op == "=>") => true,
-    (op == "->") => true,
-    true => false
-  )
-);
 /// True iff `value` is one of the function-type keywords (`fn` or
 /// `unsafe_fn`). Mirrors `isFunctionTypeKeyword`.
 is_function_type_keyword :: (fn(value : String) -> bool)(
@@ -181,7 +169,7 @@ prefix_operator_needs_leading_space :: (
     previous,
     .None => false,
     .Some(p) => cond(
-      (((p.kind == TokenKind.Operator) && (p.value == "...")) && (token.value == "#")) => false,
+      ((p.kind == TokenKind.Operator) && (p.value == "...") && (token.value == "#")) => false,
       (p.kind == TokenKind.Comma) => true,
       ((p.kind == TokenKind.Operator) && (p.value != ".")) => {
         prev_is_prefix_capable := (
@@ -193,14 +181,14 @@ prefix_operator_needs_leading_space :: (
           prev_prev,
           .None => false,
           .Some(pp) => (
-            (is_atom_like_token(pp.kind) || (pp.kind == TokenKind.Dot)) || (
+            is_atom_like_token(pp.kind) || (pp.kind == TokenKind.Dot) || (
               (pp.kind == TokenKind.RParen) ||
                 ((pp.kind == TokenKind.RBracket) || (pp.kind == TokenKind.RCurlyBracket))
             )
           )
         );
         cond(
-          !(prev_is_prefix_capable) => true,
+          !prev_is_prefix_capable => true,
           prev_prev_ends_rvalue => true,
           ((p.value == "-") && (token.value == "-")) => true,
           _is_two_char_operator(`${p.value}${token.value}`) => true,
@@ -237,8 +225,8 @@ _trim_trailing_h_ws :: (fn(s : String) -> String)({
   n := bytes.len();
   (k : usize) = usize(0);
   (done : bool) = false;
-  while((k < n) && (!(done)), {
-    b := match(bytes.get((n - k) - usize(1)), .Some(x) => x, .None => u8(0));
+  while((k < n) && !done, {
+    b := match(bytes.get(n - k - usize(1)), .Some(x) => x, .None => u8(0));
     if((b == u8(32)) || (b == u8(9)), {
       k = (k + usize(1));
     }, {
@@ -256,7 +244,7 @@ leading_whitespace_length :: (fn(line : String) -> usize)({
   n := line.len();
   (i : usize) = usize(0);
   (done : bool) = false;
-  while((i < n) && (!(done)), {
+  while((i < n) && !done, {
     b := line.byte_at(i);
     cond(
       (b == u8(32)) => {
@@ -285,7 +273,7 @@ previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Op
   (i : usize) = (index - usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while(!(done), {
+  while(!done, {
     match(
       tokens.get(i),
       .None => {
@@ -299,10 +287,10 @@ previous_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize) -> Op
         }
       )
     );
-    if((!(done)) && (i == usize(0)), {
+    if(!done && (i == usize(0)), {
       done = true;
     }, {
-      if(!(done), {
+      if(!done, {
         i = (i - usize(1));
       });
     });
@@ -316,7 +304,7 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
   (i : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while((i < end_exclusive) && (!(done)), {
+  while((i < end_exclusive) && !done, {
     match(
       tokens.get(i),
       .None => {
@@ -339,7 +327,7 @@ next_meaningful_token :: (fn(tokens : ArrayList(Token), index : usize, end_exclu
 token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usize, end_exclusive : usize) -> bool)({
   (i : usize) = start_inclusive;
   (found : bool) = false;
-  while((i < end_exclusive) && (!(found)), {
+  while((i < end_exclusive) && !found, {
     match(
       tokens.get(i),
       .None => (),
@@ -356,7 +344,7 @@ token_range_has_comment :: (fn(tokens : ArrayList(Token), start_inclusive : usiz
 has_any_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize, kind : TokenKind) -> bool)({
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
@@ -378,13 +366,13 @@ has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_
   (curly_depth : usize) = usize(0);
   (i : usize) = (left_index + usize(1));
   (found : bool) = false;
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
-        ((t.kind == kind) && (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)))) => {
+        ((t.kind == kind) && ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)))) => {
           found = true;
         },
         (t.kind == TokenKind.LParen) => {
@@ -412,11 +400,6 @@ has_top_level_token :: (fn(tokens : ArrayList(Token), left_index : usize, right_
   });
   found
 });
-/// True iff any top-level (no nesting) token in `(left_index, right_index)`
-/// is an Operator. Skips comments. Mirrors `hasTopLevelOperator`.
-has_top_level_operator :: (fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool)(
-  has_top_level_token(tokens, left_index, right_index, TokenKind.Operator)
-);
 // ---------------------------------------------------------------------------
 // Set/Map computation helpers
 // ---------------------------------------------------------------------------
@@ -427,7 +410,7 @@ next_token :: (fn(tokens : ArrayList(Token), skipped_indices : HashSet(usize), i
   (next_index : usize) = (index + usize(1));
   (result : Option(Token)) = Option(Token).None;
   (done : bool) = false;
-  while((next_index < n) && (!(done)), {
+  while((next_index < n) && !done, {
     cond(
       skipped_indices.contains(next_index) => (),
       true => {
@@ -546,7 +529,7 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
             _p2 := stack_paren_depths.pop();
             _p3 := stack_bracket_depths.pop();
             _p4 := stack_has_top_level_semi.pop();
-            if(!(has_semi), {
+            if(!has_semi, {
               _add1 := inline_indices.insert(left_idx);
               _add2 := inline_indices.insert(i);
             });
@@ -688,14 +671,14 @@ has_top_level_curly_argument :: (
   (previous_top_level : Option(Token)) = Option(Token).None;
   (found : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
         true => {
-          at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+          at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
           // Check curly-after-comma BEFORE depth updates
           if((t.kind == TokenKind.LCurlyBracket) && at_top_level, {
             match(
@@ -750,19 +733,19 @@ has_top_level_field_block :: (
   (saw_top_level_colon : bool) = false;
   (found : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while((i < right_index) && (!(found)), {
+  while((i < right_index) && !found, {
     match(
       tokens.get(i),
       .None => (),
       .Some(t) => cond(
         is_comment_token(t.kind) => (),
         true => {
-          at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+          at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
           cond(
-            (((t.kind == TokenKind.Operator) && (t.value == ":")) && at_top_level) => {
+            ((t.kind == TokenKind.Operator) && (t.value == ":") && at_top_level) => {
               saw_top_level_colon = true;
             },
-            (((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0))) && saw_top_level_colon) => {
+            ((t.kind == TokenKind.LCurlyBracket) && (bracket_depth == usize(0)) && saw_top_level_colon) => {
               found = true;
             },
             true => ()
@@ -824,14 +807,14 @@ has_direct_top_level_closure_argument :: (
       (saw_closure_operator : bool) = false;
       (found : bool) = false;
       (i : usize) = (left_index + usize(1));
-      while((i < right_index) && (!(found)), {
+      while((i < right_index) && !found, {
         match(
           tokens.get(i),
           .None => (),
           .Some(t) => cond(
             is_comment_token(t.kind) => (),
             true => {
-              at_top_level := (((paren_depth == usize(0)) && (bracket_depth == usize(0))) && (curly_depth == usize(0)));
+              at_top_level := ((paren_depth == usize(0)) && (bracket_depth == usize(0)) && (curly_depth == usize(0)));
               cond(
                 ((t.kind == TokenKind.Operator) && at_top_level) => {
                   v := t.value.clone();
@@ -839,13 +822,13 @@ has_direct_top_level_closure_argument :: (
                     (v == ":") => {
                       saw_top_level_colon = true;
                     },
-                    ((!(saw_top_level_colon)) && ((v == "=>") || (v == "->"))) => {
+                    (!saw_top_level_colon && ((v == "=>") || (v == "->"))) => {
                       saw_closure_operator = true;
                     },
                     true => ()
                   );
                 },
-                (((t.kind == TokenKind.LCurlyBracket) && at_top_level) && saw_closure_operator) => {
+                ((t.kind == TokenKind.LCurlyBracket) && at_top_level && saw_closure_operator) => {
                   found = true;
                 },
                 true => ()
@@ -890,7 +873,7 @@ is_parenthesized_dot_deref :: (
   (inner_count : usize) = usize(0);
   (early_exit : bool) = false;
   (i : usize) = (left_index + usize(1));
-  while((i < right_index) && (!(early_exit)), {
+  while((i < right_index) && !early_exit, {
     match(
       tokens.get(i),
       .None => (),
@@ -926,6 +909,504 @@ is_parenthesized_dot_deref :: (
     )
   )
 });
+// ---------------------------------------------------------------------------
+// Paren-elision predicates (plans/FMT_PAREN_ELISION.md D1-D3)
+// ---------------------------------------------------------------------------
+/// True iff `t` is a prefix-capable operator token
+/// (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): a BARE one of these in
+/// expression position binds exactly one postfix expression — `-x`, `!x`,
+/// `?*T` chains. Local mirror of the parser's `_is_prefix_op_token` (not
+/// exported there). `+` and the rest stay infix-only, so a leading `+` can
+/// never start an atom-like group.
+is_prefix_capable_operator :: (fn(t : Token) -> bool)(
+  (t.kind == TokenKind.Operator) &&
+    (
+      (t.value == "-") || (
+        (t.value == "!") || (
+          (t.value == "~") || (
+            (t.value == "&") || ((t.value == "*") || ((t.value == "?") || (t.value == "^")))
+          )
+        )
+      )
+    )
+);
+/// The elision-relevant shape of a paren group's content
+/// (plans/FMT_PAREN_ELISION.md "Grammar model"):
+///   * `atom_like` — the content is ONE postfix expression: an atom, call,
+///     dot-chain, or a prefix operator (or chain) applied to one. A group
+///     around it is removable wherever an operand is expected, because a
+///     prefix result is itself a single operand.
+///   * `has_infix` — the content contains a top-level INFIX operator (an
+///     operator token appearing after the first non-operator token).
+///     Removing such a group would splice an operator chain into the
+///     surrounding expression, changing grouping or making it illegal.
+/// A LEADING run of prefix-capable operators (`(-x)`, `(?*(x))`) is not
+/// infix: prefix calls are single operands. Top-level commas/semicolons
+/// (multi-arg calls, multi-statement groups) and a leading infix-only
+/// operator make the content neither.
+GroupContentShape :: struct(
+  atom_like : bool,
+  has_infix : bool
+);
+classify_group_content :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> GroupContentShape
+)({
+  (paren_depth : usize) = usize(0);
+  (bracket_depth : usize) = usize(0);
+  (curly_depth : usize) = usize(0);
+  (seen_primary : bool) = false;
+  (has_infix : bool) = false;
+  (bad : bool) = false;
+  (i : usize) = (left_index + usize(1));
+  while((i < right_index) && !bad, {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => cond(
+        is_comment_token(t.kind) => (),
+        true => {
+          at_top_level := (
+            (paren_depth == usize(0)) && (bracket_depth == usize(0)) &&
+              (curly_depth == usize(0))
+          );
+          if(at_top_level, {
+            cond(
+              (t.kind == TokenKind.Operator) => cond(
+                seen_primary => {
+                  has_infix = true;
+                },
+                true => {
+                  if(!is_prefix_capable_operator(t), {
+                    bad = true;
+                  });
+                }
+              ),
+              ((t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon)) => {
+                bad = true;
+              },
+              true => {
+                seen_primary = true;
+              }
+            );
+          });
+          cond(
+            (t.kind == TokenKind.LParen) => {
+              paren_depth = (paren_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+              paren_depth = (paren_depth - usize(1));
+            },
+            (t.kind == TokenKind.LBracket) => {
+              bracket_depth = (bracket_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+              bracket_depth = (bracket_depth - usize(1));
+            },
+            (t.kind == TokenKind.LCurlyBracket) => {
+              curly_depth = (curly_depth + usize(1));
+            },
+            ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+              curly_depth = (curly_depth - usize(1));
+            },
+            true => ()
+          );
+        }
+      )
+    );
+    i = (i + usize(1));
+  });
+  GroupContentShape(
+    atom_like : (seen_primary && !has_infix && !bad),
+    has_infix : has_infix
+  )
+});
+/// Index of the nearest preceding meaningful (non-comment) token, searched
+/// backwards from `before` (exclusive). Companion to
+/// `previous_meaningful_token`, which returns only the token.
+previous_meaningful_token_index :: (fn(tokens : ArrayList(Token), before : usize) -> Option(usize))({
+  (i : usize) = before;
+  (result : Option(usize)) = Option(usize).None;
+  (done : bool) = false;
+  while((i > usize(0)) && !done, {
+    i = (i - usize(1));
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => if(!is_comment_token(t.kind), {
+        result = Option(usize).Some(i);
+        done = true;
+      })
+    );
+  });
+  result
+});
+/// D2 (plans/FMT_PAREN_ELISION.md): true iff the group is the LEFT operand
+/// of an infix operator and EVERY top-level operator inside the group is
+/// that same operator — `(a ⊕ b) ⊕ c` flattens to `a ⊕ b ⊕ c`, which
+/// re-parses identically because same-operator chains left-associate
+/// (plans/OPERATOR_ASSOCIATIVITY.md). The group must sit in true
+/// left-operand position (start of an expression: after `(`, `,`, `;` or
+/// `{`, or nothing at all); a group after an operator is a RIGHT operand
+/// and never flattens (`3 + (4 + 5)` keeps its parens), and mixed
+/// operators never flatten (`(3 + 4) - 5`).
+is_left_same_operator_flatten_group :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)(
+  cond(
+    token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
+    true => {
+      next := next_meaningful_token(tokens, right_index, tokens.len());
+      match(
+        next,
+        .None => false,
+        .Some(n) => cond(
+          (n.kind != TokenKind.Operator) => false,
+          true => {
+            previous := previous_meaningful_token(tokens, left_index);
+            left_position := match(
+              previous,
+              .None => true,
+              .Some(p) => (
+                (p.kind == TokenKind.LParen) || (
+                  (p.kind == TokenKind.Comma) || (
+                    (p.kind == TokenKind.Semicolon) || (p.kind == TokenKind.LCurlyBracket)
+                  )
+                )
+              )
+            );
+            cond(
+              !left_position => false,
+              true => {
+                (paren_depth : usize) = usize(0);
+                (bracket_depth : usize) = usize(0);
+                (curly_depth : usize) = usize(0);
+                (op_count : usize) = usize(0);
+                (mismatch : bool) = false;
+                (i : usize) = (left_index + usize(1));
+                while((i < right_index) && !mismatch, {
+                  match(
+                    tokens.get(i),
+                    .None => (),
+                    .Some(t) => cond(
+                      is_comment_token(t.kind) => (),
+                      true => {
+                        at_top_level := (
+                          (paren_depth == usize(0)) && (bracket_depth == usize(0)) &&
+                            (curly_depth == usize(0))
+                        );
+                        if(at_top_level, {
+                          cond(
+                            (t.kind == TokenKind.Operator) => {
+                              op_count = (op_count + usize(1));
+                              if(!(t.value == n.value), {
+                                mismatch = true;
+                              });
+                            },
+                            ((t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon)) => {
+                              mismatch = true;
+                            },
+                            true => ()
+                          );
+                        });
+                        cond(
+                          (t.kind == TokenKind.LParen) => {
+                            paren_depth = (paren_depth + usize(1));
+                          },
+                          ((t.kind == TokenKind.RParen) && (paren_depth > usize(0))) => {
+                            paren_depth = (paren_depth - usize(1));
+                          },
+                          (t.kind == TokenKind.LBracket) => {
+                            bracket_depth = (bracket_depth + usize(1));
+                          },
+                          ((t.kind == TokenKind.RBracket) && (bracket_depth > usize(0))) => {
+                            bracket_depth = (bracket_depth - usize(1));
+                          },
+                          (t.kind == TokenKind.LCurlyBracket) => {
+                            curly_depth = (curly_depth + usize(1));
+                          },
+                          ((t.kind == TokenKind.RCurlyBracket) && (curly_depth > usize(0))) => {
+                            curly_depth = (curly_depth - usize(1));
+                          },
+                          true => ()
+                        );
+                      }
+                    )
+                  );
+                  i = (i + usize(1));
+                });
+                (op_count > usize(0)) && !mismatch
+              }
+            )
+          }
+        )
+      )
+    }
+  )
+);
+/// Index of the nearest following meaningful (non-comment) token, searched
+/// forwards from `index` (exclusive) up to `end_exclusive`. Companion to
+/// `next_meaningful_token`, which returns only the token.
+next_meaningful_token_index :: (
+  fn(tokens : ArrayList(Token), index : usize, end_exclusive : usize) -> Option(usize)
+)({
+  (i : usize) = (index + usize(1));
+  (result : Option(usize)) = Option(usize).None;
+  (done : bool) = false;
+  while((i < end_exclusive) && !done, {
+    match(
+      tokens.get(i),
+      .None => {
+        done = true;
+      },
+      .Some(t) => if(!is_comment_token(t.kind), {
+        result = Option(usize).Some(i);
+        done = true;
+      })
+    );
+    i = (i + usize(1));
+  });
+  result
+});
+/// True iff the group's first meaningful token is `(` whose own content
+/// has a top-level comma (`-((1, 2))`). Splicing a prefix operator
+/// directly onto such a group re-lexes as a MULTI-ARG call (`-(1, 2)`) —
+/// a different tree — so D3 must refuse (plans/FMT_PAREN_ELISION.md R4
+/// comma guard, held structurally rather than left to the re-parse gate).
+/// A comma-free inner group is fine: `-((x))` elides all the way to `-x`
+/// because the inner group is a concurrent removal candidate.
+first_inner_group_has_top_level_comma :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)({
+  first_idx := next_meaningful_token_index(tokens, left_index, right_index);
+  match(
+    first_idx,
+    .None => false,
+    .Some(fi) =>
+      match(
+        tokens.get(fi),
+        .None => false,
+        .Some(t) => cond(
+          (t.kind != TokenKind.LParen) => false,
+          true => {
+            (depth : usize) = usize(0);
+            (found : bool) = false;
+            (done : bool) = false;
+            (i : usize) = (fi + usize(1));
+            while((i < right_index) && !done, {
+              match(
+                tokens.get(i),
+                .None => {
+                  done = true;
+                },
+                .Some(u) => cond(
+                  is_comment_token(u.kind) => (),
+                  true => {
+                    cond(
+                      (u.kind == TokenKind.LParen) => {
+                        depth = (depth + usize(1));
+                      },
+                      ((u.kind == TokenKind.RParen) && (depth > usize(0))) => {
+                        depth = (depth - usize(1));
+                      },
+                      ((u.kind == TokenKind.RParen) && (depth == usize(0))) => {
+                        done = true;
+                      },
+                      ((u.kind == TokenKind.Comma) && (depth == usize(0))) => {
+                        found = true;
+                        done = true;
+                      },
+                      true => ()
+                    );
+                  }
+                )
+              );
+              i = (i + usize(1));
+            });
+            found
+          }
+        )
+      )
+  )
+});
+/// True iff the group's content is EXACTLY one nested paren group whose own
+/// content is not atom-like (`-((1 + 2))`, `-((1, 2))`). When the group
+/// sits tight after a prefix operator, the INNER group must be the one
+/// elided: removing the outer instead leaves the prefix operator before a
+/// non-adjacent `(` (rendering as the misleading `- (1 + 2)`), and for a
+/// comma group tightening would re-lex as a multi-arg call. With the outer
+/// kept, the inner elides through the normal D1 path and the `-(` call
+/// spelling survives intact.
+single_inner_group_not_atom_like :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)({
+  first_idx := next_meaningful_token_index(tokens, left_index, right_index);
+  match(
+    first_idx,
+    .None => false,
+    .Some(fi) =>
+      match(
+        tokens.get(fi),
+        .None => false,
+        .Some(t) => cond(
+          (t.kind != TokenKind.LParen) => false,
+          true => {
+            // Find the inner group's matching RParen, then require the
+            // content to be exactly that one group.
+            (depth : usize) = usize(0);
+            (inner_right : usize) = right_index;
+            (found_end : bool) = false;
+            (i : usize) = (fi + usize(1));
+            while((i < right_index) && !found_end, {
+              match(
+                tokens.get(i),
+                .None => {
+                  found_end = true;
+                },
+                .Some(u) => cond(
+                  is_comment_token(u.kind) => (),
+                  true => {
+                    cond(
+                      (u.kind == TokenKind.LParen) => {
+                        depth = (depth + usize(1));
+                      },
+                      ((u.kind == TokenKind.RParen) && (depth > usize(0))) => {
+                        depth = (depth - usize(1));
+                      },
+                      (u.kind == TokenKind.RParen) => {
+                        inner_right = i;
+                        found_end = true;
+                      },
+                      true => ()
+                    );
+                  }
+                )
+              );
+              i = (i + usize(1));
+            });
+            cond(
+              !found_end => false,
+              true => {
+                // Exactly one group: nothing meaningful after its RParen.
+                trailing := next_meaningful_token_index(tokens, inner_right, right_index);
+                match(
+                  trailing,
+                  .Some(_) => false,
+                  .None => !classify_group_content(tokens, fi, inner_right).atom_like
+                )
+              }
+            )
+          }
+        )
+      )
+  )
+});
+/// D3 (plans/FMT_PAREN_ELISION.md): true iff the group is the call-paren
+/// pair of a prefix operator — no whitespace between operator and `(` — in
+/// PREFIX position (the token before the operator is not an rvalue-end, so
+/// this is not the infix spelling `f -(x)`), and the single argument is
+/// atom-like. The bare spelling re-parses identically because a bare
+/// prefix operator binds exactly one postfix expression
+/// (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-(x)` → `-x`,
+/// `?(*(x))` → `?*x`. Multi-arg calls (`-(a, b)`), infix-argument calls
+/// (`-(a + b)`), and operator atoms (`(!)`) keep their parens, as does
+/// anything followed by `(` or `.` — `-(x)(y)` / `-(x).y` would re-bind
+/// differently without them.
+is_elidable_prefix_call_paren :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)(
+  cond(
+    token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
+    true => {
+      op_index := previous_meaningful_token_index(tokens, left_index);
+      match(
+        op_index,
+        .None => false,
+        .Some(oi) =>
+          match(
+            tokens.get(oi),
+            .None => false,
+            .Some(op) => cond(
+              !is_prefix_capable_operator(op) => false,
+              true =>
+                match(
+                  tokens.get(left_index),
+                  .None => false,
+                  .Some(lp) => cond(
+                    // The call form is exactly adjacency: `(` starts where the
+                    // operator token ends (`f - (x)` has a gap and is infix).
+                    ((op.byte_offset + op.value.len()) != lp.byte_offset) => false,
+                    true => {
+                      // Prefix position: an rvalue-end before the operator
+                      // makes it the infix spelling (`f -(x)`).
+                      before_op := match(
+                        previous_meaningful_token_index(tokens, oi),
+                        .Some(bi) => tokens.get(bi),
+                        .None => Option(Token).None
+                      );
+                      cond(
+                        paren_is_call_delimiter(before_op) => false,
+                        true => {
+                          // A following `(` or `.` would re-bind differently
+                          // (`-(x)(y)`, `-(x).y`).
+                          next := next_meaningful_token(tokens, right_index, tokens.len());
+                          next_safe := match(
+                            next,
+                            .None => true,
+                            .Some(nx) => (
+                              (nx.kind != TokenKind.LParen) && (nx.kind != TokenKind.Dot)
+                            )
+                          );
+                          cond(
+                            !next_safe => false,
+                            true => {
+                              first_inner := next_meaningful_token(tokens, left_index, right_index);
+                              first_inner_ok := match(
+                                first_inner,
+                                .None => false,
+                                .Some(fi) =>
+                                  !(
+                                    (fi.kind == TokenKind.Identifier) &&
+                                      is_function_type_keyword(fi.value.clone())
+                                  )
+                              );
+                              cond(
+                                first_inner_group_has_top_level_comma(
+                                  tokens,
+                                  left_index,
+                                  right_index
+                                ) => false,
+                                true => {
+                                  shape := classify_group_content(
+                                    tokens,
+                                    left_index,
+                                    right_index
+                                  );
+                                  cond(
+                                    // `-( (1 + 2) )` / `-( (1, 2) )`: defer to
+                                    // the inner group's own elision so the
+                                    // tight `-(` call spelling survives.
+                                    single_inner_group_not_atom_like(
+                                      tokens,
+                                      left_index,
+                                      right_index
+                                    ) => false,
+                                    true => (first_inner_ok && shape.atom_like)
+                                  )
+                                }
+                              )
+                            }
+                          )
+                        }
+                      )
+                    }
+                  )
+                )
+            )
+          )
+      )
+    }
+  )
+);
 /// True iff the paren range is a redundant grouping paren (e.g.
 /// `(x)` around a single sub-expression that doesn't need protection).
 /// Mirrors `isRedundantGroupingParen`.
@@ -943,13 +1424,30 @@ is_redundant_grouping_paren :: (
         token_range_has_comment(tokens, left_index + usize(1), right_index) => false,
         paren_is_call_delimiter(previous) => false,
         true => {
-          // Operator predecessor + not in the allow-list → cannot remove
+          shape := classify_group_content(tokens, left_index, right_index);
+          // Operator predecessor: an atom-like group (`(x)`, `(-x)`,
+          // `(f(x))`) is a removable operand after ANY operator — all
+          // operators are plain and an atom-like operand needs no parens
+          // (plans/FMT_PAREN_ELISION.md D1). A group holding an infix chain
+          // is load-bearing (R1/R2/R3) and stays. One exception: after a
+          // prefix-capable operator, a group around a non-atom-like group
+          // (`-((1 + 2))`) defers to the INNER elision so the `-(` call
+          // spelling survives rendering (adjacent or spaced alike — the
+          // spaced spelling stays conservative the same way).
+          prev_prefix_defers_to_inner := match(
+            previous,
+            .None => false,
+            .Some(p) => (
+              is_prefix_capable_operator(p) &&
+                single_inner_group_not_atom_like(tokens, left_index, right_index)
+            )
+          );
           prev_blocks := match(
             previous,
             .None => false,
             .Some(p) => (
-              (p.kind == TokenKind.Operator) &&
-                (!(operator_allows_ungrouped_rhs(p.value.clone())))
+              ((p.kind == TokenKind.Operator) && !shape.atom_like) ||
+                prev_prefix_defers_to_inner
             )
           );
           cond(
@@ -960,21 +1458,27 @@ is_redundant_grouping_paren :: (
               prev_is_dot_blocks := match(
                 previous,
                 .None => false,
-                .Some(p) => ((p.kind == TokenKind.Dot) && (!(paren_dot_deref)))
+                .Some(p) => ((p.kind == TokenKind.Dot) && !paren_dot_deref)
               );
               cond(
                 prev_is_dot_blocks => false,
                 true => {
-                  // Following operator/dot/lparen blocks removal
+                  // Following `(` or `.` blocks removal (call/index of the
+                  // group, dot re-binding). A following OPERATOR only blocks
+                  // when the group holds an infix chain — an atom-like group
+                  // is a plain operand of that operator too (D1). The
+                  // parenthesised dot-deref sugar `a.(*)` keeps its
+                  // exemption in every position: it canonicalizes to `a.*`.
                   next_blocks := match(
                     next,
                     .None => false,
                     .Some(nx) => (
-                      (
-                        ((nx.kind == TokenKind.Operator) && (!(paren_dot_deref))) ||
-                          ((nx.kind == TokenKind.Dot) && (!(paren_dot_deref)))
-                      ) ||
-                        (nx.kind == TokenKind.LParen)
+                      (nx.kind == TokenKind.LParen) || (
+                        ((nx.kind == TokenKind.Dot) && !paren_dot_deref) || (
+                          (nx.kind == TokenKind.Operator) && !paren_dot_deref &&
+                            !shape.atom_like
+                        )
+                      )
                     )
                   );
                   cond(
@@ -1009,7 +1513,10 @@ is_redundant_grouping_paren :: (
 /// True iff removing the redundant grouping paren at `(left_index,
 /// right_index)` would expose the inner operator to a surrounding
 /// operator that would then re-parse the meaning incorrectly. Mirrors
-/// `parenRemovalWouldExposeOperatorRhsInfix`.
+/// `parenRemovalWouldExposeOperatorRhsInfix`, with the content test
+/// upgraded to infix-awareness (plans/FMT_PAREN_ELISION.md): a LEADING
+/// prefix run (`(-x)`, `(?*(x))`) is a single operand, not an exposed
+/// chain — only a top-level INFIX operator inside the group exposes.
 paren_removal_would_expose_operator_rhs_infix :: (
   fn(
     tokens : ArrayList(Token),
@@ -1020,6 +1527,7 @@ paren_removal_would_expose_operator_rhs_infix :: (
   ) -> bool
 )({
   previous := previous_meaningful_token(tokens, left_index);
+  exposes := classify_group_content(tokens, left_index, right_index).has_infix;
   match(
     previous,
     .None => {
@@ -1029,34 +1537,28 @@ paren_removal_would_expose_operator_rhs_infix :: (
         parent_left_opt,
         .None => false,
         .Some(parent_left) => cond(
-          (!(candidate_left_indices.contains(parent_left))) => false,
+          !candidate_left_indices.contains(parent_left) => false,
           true => match(
             previous_meaningful_token(tokens, parent_left),
             .None => false,
-            .Some(pp) => (
-              (pp.kind == TokenKind.Operator) &&
-                has_top_level_operator(tokens, left_index, right_index)
-            )
+            .Some(pp) => ((pp.kind == TokenKind.Operator) && exposes)
           )
         )
       )
     },
     .Some(prev) => cond(
-      (prev.kind == TokenKind.Operator) => has_top_level_operator(tokens, left_index, right_index),
+      (prev.kind == TokenKind.Operator) => exposes,
       true => {
         parent_left_opt := parent_parens.get(left_index);
         match(
           parent_left_opt,
           .None => false,
           .Some(parent_left) => cond(
-            (!(candidate_left_indices.contains(parent_left))) => false,
+            !candidate_left_indices.contains(parent_left) => false,
             true => match(
               previous_meaningful_token(tokens, parent_left),
               .None => false,
-              .Some(pp) => (
-                (pp.kind == TokenKind.Operator) &&
-                  has_top_level_operator(tokens, left_index, right_index)
-              )
+              .Some(pp) => ((pp.kind == TokenKind.Operator) && exposes)
             )
           )
         )
@@ -1080,7 +1582,10 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
       .None => (),
       .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(i), {
         right_idx := match(matching_parens.get(i), .Some(x) => x, .None => i);
-        if(is_redundant_grouping_paren(tokens, i, right_idx), {
+        if(is_redundant_grouping_paren(tokens, i, right_idx) || (
+          is_left_same_operator_flatten_group(tokens, i, right_idx) ||
+            is_elidable_prefix_call_paren(tokens, i, right_idx)
+        ), {
           _add := candidate_left_indices.insert(i);
         });
       })
@@ -1094,8 +1599,12 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
   while(j < n, {
     if(candidate_left_indices.contains(j), {
       right_idx := match(matching_parens.get(j), .Some(x) => x, .None => j);
-      keep_candidate := !(
-        paren_removal_would_expose_operator_rhs_infix(
+      // A D2 same-operator flatten bypasses the exposure filter: its own
+      // same-op + left-position conditions prove the splice is safe even
+      // inside a retained R1 group (`y := ((1 + 2) + 3)` → `y := (1 + 2 + 3)`),
+      // which the operator-exposure walk cannot see through.
+      keep_candidate := (
+        is_left_same_operator_flatten_group(tokens, j, right_idx) || !paren_removal_would_expose_operator_rhs_infix(
           tokens,
           j,
           right_idx,
@@ -1143,7 +1652,7 @@ find_multiline_paren_indices :: (
             right_tok := match(tokens.get(right_idx), .Some(rt) => rt, .None => left_tok);
             spans_rows := (right_tok.row > left_tok.row);
             cond(
-              ((!(force_multiline)) && (!(spans_rows))) => (),
+              (!force_multiline && !spans_rows) => (),
               true => {
                 first_inner := next_meaningful_token(tokens, i, right_idx);
                 first_is_curly := match(
@@ -1161,7 +1670,7 @@ find_multiline_paren_indices :: (
                         )
                     )
                 );
-                if(!(skip), {
+                if(!skip, {
                   _add1 := multiline_indices.insert(i);
                   _add2 := multiline_indices.insert(right_idx);
                 });
@@ -1202,7 +1711,7 @@ is_tightly_bound_operator :: (
     previous,
     .None => false,
     .Some(p) => (
-      ((p.kind == TokenKind.Operator) && ((p.value == "*") || (p.value == "&"))) &&
+      (p.kind == TokenKind.Operator) && ((p.value == "*") || (p.value == "&")) &&
         match(prev_prev, .None => false, .Some(pp) => (pp.kind == TokenKind.Dot))
     )
   );
@@ -1210,7 +1719,7 @@ is_tightly_bound_operator :: (
     previous,
     .None => true,
     .Some(p) => !(
-      (is_atom_like_token(p.kind) || prev_is_postfix_deref) || (
+      is_atom_like_token(p.kind) || prev_is_postfix_deref || (
         (p.kind == TokenKind.RParen) ||
           ((p.kind == TokenKind.RBracket) || (p.kind == TokenKind.RCurlyBracket))
       )
@@ -1229,11 +1738,11 @@ is_tightly_bound_operator :: (
   );
   cond(
     prev_is_dot => true,
-    ((is_prefix_capable && prefix_position) && next_starts_prefix_operand) => true,
+    (is_prefix_capable && prefix_position && next_starts_prefix_operand) => true,
     true => {
       next_is_lparen := match(next, .None => false, .Some(n) => (n.kind == TokenKind.LParen));
       cond(
-        (!(next_is_lparen)) => false,
+        !next_is_lparen => false,
         true => {
           // Tight only when both:
           //   (1) no whitespace between operator and '('
@@ -1250,7 +1759,7 @@ is_tightly_bound_operator :: (
             )
           );
           cond(
-            (!(no_space)) => false,
+            !no_space => false,
             true => {
               prev_is_rvalue_end := match(
                 previous,
@@ -1264,7 +1773,7 @@ is_tightly_bound_operator :: (
                   )
                 )
               );
-              !(prev_is_rvalue_end)
+              !prev_is_rvalue_end
             }
           )
         }
@@ -1388,7 +1897,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
               ll_n := ll_bytes.len();
               (lk : usize) = usize(0);
               (ll_done : bool) = false;
-              while((lk < ll_n) && (!(ll_done)), {
+              while((lk < ll_n) && !ll_done, {
                 lb := match(ll_bytes.get(lk), .Some(x) => x, .None => u8(0));
                 if((lb == u8(32)) || (lb == u8(9)), {
                   lk = (lk + usize(1));
@@ -1502,7 +2011,7 @@ read_raw_template_string :: (fn(input : String, start : usize) -> String)({
   (brace_depth : usize) = usize(0);
   (end_index : usize) = n; // default: until EOF
   (done : bool) = false;
-  while((index < n) && (!(done)), {
+  while((index < n) && !done, {
     char_byte := match(bytes.get(index), .Some(x) => x, .None => u8(0));
     cond(
       (char_byte == u8(92)) => {
@@ -1575,8 +2084,12 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
 // ---------------------------------------------------------------------------
 // Public entry — `format_yo_source`
 // ---------------------------------------------------------------------------
-/// Format the given Yo source text and return the rewritten output.
-///
+/// Paren TOKENS elided by the last `_format_yo_source_impl` run. A plain
+/// usize side channel rather than a struct return: structs returning Rc
+/// fields through the dup/drop policy leaked the box (LSan flagged 40+6
+/// bytes per call in tests/internal/formatter.test.yo), while the module
+/// globals pattern (`g_loader_std_path` family) is allocation-free.
+(g_fmt_elided_tokens : usize) = usize(0);
 /// 1-to-1 port of `formatYoSource` in `src/formatter.ts`. Throws via the
 /// implicit `Exception` handler on lexer/parser errors.
 ///
@@ -1591,13 +2104,21 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
 ///   4. Walk the tokens in order, emitting C-formatted output via the mutable
 ///      `result` string. Stacks track `(LParen/LBracket/LCurlyBracket)`
 ///      framing decisions for the matching close brackets.
-format_yo_source :: (
+///
+/// Layout always runs; the redundant-paren elisions of
+/// plans/FMT_PAREN_ELISION.md run only when `elide_parens` is on — the
+/// public `format_yo_source` wrapper turns them off for a file that fails
+/// the re-parse verify gate. The elision count is reported through
+/// `g_fmt_elided_tokens`.
+_format_yo_source_impl :: (
   fn(
     input : String,
     module_path : String,
-    exn : Exception
+    exn : Exception,
+    elide_parens : bool
   ) -> String
-)(
+)({
+  g_fmt_elided_tokens = usize(0);
   cond(
     (input.len() == usize(0)) => String.from(""),
     true => {
@@ -1620,7 +2141,10 @@ format_yo_source :: (
       };
       // Pre-compute index sets / maps used by the layout decisions.
       inline_curly_indices := find_inline_curly_indices(significant_tokens);
-      skipped_paren_indices := find_redundant_grouping_paren_indices(significant_tokens);
+      skipped_paren_indices := cond(
+        elide_parens => find_redundant_grouping_paren_indices(significant_tokens),
+        true => HashSet(usize).new()
+      );
       multiline_paren_indices := find_multiline_paren_indices(significant_tokens, skipped_paren_indices);
       multiline_bracket_indices := find_multiline_bracket_indices(significant_tokens);
       multiline_inline_curly_indices := find_multiline_inline_curly_indices(significant_tokens, inline_curly_indices);
@@ -1682,20 +2206,20 @@ format_yo_source :: (
                 prev_row_check := match(
                   previous,
                   .None => false,
-                  .Some(p) => ((token.row > p.row) && (!(at_line_start)))
+                  .Some(p) => ((token.row > p.row) && !at_line_start)
                 );
                 if(prev_row_check, {
                   // Trim trailing whitespace + add newline.
                   // Trim by walking back; if result already ends in '\n', skip.
-                  if(!(result.ends_with(String.from("\n"))), {
+                  if(!result.ends_with(String.from("\n")), {
                     result.push_str("\n");
                   });
                   at_line_start = true;
                 });
                 cond(
                   is_line_comment_token(token.kind) => {
-                    if(!(at_line_start), {
-                      if((!(result.ends_with(String.from(" ")))) && (!(result.ends_with(String.from("\n")))), {
+                    if(!at_line_start, {
+                      if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                         result.push_str(" ");
                       });
                     });
@@ -1737,7 +2261,7 @@ format_yo_source :: (
                       tr
                     };
                     result.push_string(trimmed);
-                    if(!(result.ends_with(String.from("\n"))), {
+                    if(!result.ends_with(String.from("\n")), {
                       result.push_str("\n");
                     });
                     at_line_start = true;
@@ -1747,8 +2271,8 @@ format_yo_source :: (
                     has_nl := raw.contains(String.from("\n"));
                     cond(
                       has_nl => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -1770,7 +2294,7 @@ format_yo_source :: (
                                 at_line_start = false;
                               });
                               result.push_string(line);
-                              if(!(result.ends_with(String.from("\n"))), {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
@@ -1781,8 +2305,8 @@ format_yo_source :: (
                         });
                       },
                       true => {
-                        if(!(at_line_start), {
-                          if((!(result.ends_with(String.from(" ")))) && (!(result.ends_with(String.from("\n")))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                             result.push_str(" ");
                           });
                         });
@@ -1804,7 +2328,7 @@ format_yo_source :: (
                           .None => false,
                           .Some(nx) => (nx.row == token.row)
                         );
-                        if(next_on_same_row && (((!(at_line_start)) && (!(result.ends_with(String.from(" "))))) && (!(result.ends_with(String.from("\n"))))), {
+                        if(next_on_same_row && (!at_line_start && !result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n"))), {
                           result.push_str(" ");
                         });
                       }
@@ -1841,8 +2365,8 @@ format_yo_source :: (
                             result.push_str("{");
                             indent_level = (indent_level + usize(1));
                             next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
-                            if((!(next_is_rcurly)) && match(next, .None => false, .Some(_) => true), {
-                              if(!(result.ends_with(String.from("\n"))), {
+                            if(!next_is_rcurly && match(next, .None => false, .Some(_) => true), {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
@@ -1860,7 +2384,7 @@ format_yo_source :: (
                             });
                             result.push_str("{");
                             next_is_rcurly := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RCurlyBracket));
-                            if(((!(next_is_rcurly)) && match(next, .None => false, .Some(_) => true)) && ((!(at_line_start)) && (!(result.ends_with(String.from(" "))))), {
+                            if(!next_is_rcurly && match(next, .None => false, .Some(_) => true) && (!at_line_start && !result.ends_with(String.from(" "))), {
                               result.push_str(" ");
                             });
                           }
@@ -1881,7 +2405,7 @@ format_yo_source :: (
                         result.push_str("{");
                         curly_depth = (curly_depth + usize(1));
                         indent_level = (indent_level + usize(1));
-                        if(!(result.ends_with(String.from("\n"))), {
+                        if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
                         at_line_start = true;
@@ -1909,8 +2433,8 @@ format_yo_source :: (
                         });
                         cond(
                           cur_multiline => {
-                            if(!(at_line_start), {
-                              if(!(result.ends_with(String.from("\n"))), {
+                            if(!at_line_start, {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
@@ -1931,8 +2455,8 @@ format_yo_source :: (
                           },
                           true => {
                             prev_is_lcurly := match(previous, .None => false, .Some(p) => (p.kind == TokenKind.LCurlyBracket));
-                            if((!(at_line_start)) && (!(prev_is_lcurly)), {
-                              if((!(result.ends_with(String.from(" ")))) && (!(result.ends_with(String.from("\n")))), {
+                            if(!at_line_start && !prev_is_lcurly, {
+                              if(!result.ends_with(String.from(" ")) && !result.ends_with(String.from("\n")), {
                                 result.push_str(" ");
                               });
                             });
@@ -1950,8 +2474,8 @@ format_yo_source :: (
                         );
                       },
                       true => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -1993,8 +2517,8 @@ format_yo_source :: (
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
                       next_is_rparen := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RParen));
-                      if((!(next_is_rparen)) && match(next, .None => false, .Some(_) => true), {
-                        if(!(result.ends_with(String.from("\n"))), {
+                      if(!next_is_rparen && match(next, .None => false, .Some(_) => true), {
+                        if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
                         at_line_start = true;
@@ -2018,8 +2542,8 @@ format_yo_source :: (
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
                       next_is_rbracket := match(next, .None => false, .Some(nx) => (nx.kind == TokenKind.RBracket));
-                      if((!(next_is_rbracket)) && match(next, .None => false, .Some(_) => true), {
-                        if(!(result.ends_with(String.from("\n"))), {
+                      if(!next_is_rbracket && match(next, .None => false, .Some(_) => true), {
+                        if(!result.ends_with(String.from("\n")), {
                           result.push_str("\n");
                         });
                         at_line_start = true;
@@ -2029,7 +2553,7 @@ format_yo_source :: (
                   (token.kind == TokenKind.RParen) => {
                     // close_operator_continuations
                     (closing_done : bool) = false;
-                    while((continuation_paren.len() > usize(0)) && (!(closing_done)), {
+                    while((continuation_paren.len() > usize(0)) && !closing_done, {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2058,8 +2582,8 @@ format_yo_source :: (
                     });
                     cond(
                       is_multiline => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2099,7 +2623,7 @@ format_yo_source :: (
                   (token.kind == TokenKind.RBracket) => {
                     // close_operator_continuations
                     (closing_done2 : bool) = false;
-                    while((continuation_paren.len() > usize(0)) && (!(closing_done2)), {
+                    while((continuation_paren.len() > usize(0)) && !closing_done2, {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2130,8 +2654,8 @@ format_yo_source :: (
                     });
                     cond(
                       is_multiline_b => {
-                        if(!(at_line_start), {
-                          if(!(result.ends_with(String.from("\n"))), {
+                        if(!at_line_start, {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2168,7 +2692,7 @@ format_yo_source :: (
                   (token.kind == TokenKind.Comma) => {
                     // close_operator_continuations
                     (closing_done3 : bool) = false;
-                    while((continuation_paren.len() > usize(0)) && (!(closing_done3)), {
+                    while((continuation_paren.len() > usize(0)) && !closing_done3, {
                       top_idx := (continuation_paren.len() - usize(1));
                       top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                       top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2202,10 +2726,10 @@ format_yo_source :: (
                       next,
                       .None => false,
                       .Some(nx) => (
-                        ((nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket)) || (nx.kind == TokenKind.RCurlyBracket)
+                        (nx.kind == TokenKind.RParen) || (nx.kind == TokenKind.RBracket) || (nx.kind == TokenKind.RCurlyBracket)
                       )
                     );
-                    if((!(next_is_closer)) && match(next, .None => false, .Some(_) => true), {
+                    if(!next_is_closer && match(next, .None => false, .Some(_) => true), {
                       cur_bracket_ml := cond(
                         (bracket_stack_multiline.len() > usize(0)) => match(bracket_stack_multiline.get(bracket_stack_multiline.len() - usize(1)), .Some(x) => x, .None => false),
                         true => false
@@ -2224,30 +2748,30 @@ format_yo_source :: (
                       );
                       cond(
                         cur_bracket_ml => {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
                         (cur_curly_inline && cur_curly_ml) => {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
-                        ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && (!(cur_curly_ml)))) => {
-                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                        ((bracket_stack_multiline.len() > usize(0)) || (cur_curly_inline && !cur_curly_ml)) => {
+                          if(!at_line_start && !result.ends_with(String.from(" ")), {
                             result.push_str(" ");
                           });
                         },
                         cur_paren_ml => {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
                         },
                         true => {
-                          if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                          if(!at_line_start && !result.ends_with(String.from(" ")), {
                             result.push_str(" ");
                           });
                         }
@@ -2256,10 +2780,10 @@ format_yo_source :: (
                   },
                   (token.kind == TokenKind.Semicolon) => {
                     next_is_not_rbracket := match(next, .None => false, .Some(nx) => (nx.kind != TokenKind.RBracket));
-                    next_is_not_comment := match(next, .None => true, .Some(nx) => (!(is_comment_token(nx.kind))));
+                    next_is_not_comment := match(next, .None => true, .Some(nx) => !is_comment_token(nx.kind));
                     cond(
                       ((bracket_depth > usize(0)) && (next_is_not_rbracket && next_is_not_comment)) => {
-                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                        if(!at_line_start && !result.ends_with(String.from(" ")), {
                           result.push_str(" ");
                         });
                         result.push_str(";");
@@ -2268,7 +2792,7 @@ format_yo_source :: (
                       true => {
                         // close_operator_continuations
                         (closing_done4 : bool) = false;
-                        while((continuation_paren.len() > usize(0)) && (!(closing_done4)), {
+                        while((continuation_paren.len() > usize(0)) && !closing_done4, {
                           top_idx := (continuation_paren.len() - usize(1));
                           top_p := match(continuation_paren.get(top_idx), .Some(x) => x, .None => usize(0));
                           top_b := match(continuation_bracket.get(top_idx), .Some(x) => x, .None => usize(0));
@@ -2301,10 +2825,10 @@ format_yo_source :: (
                         emit_newline := match(
                           next,
                           .None => false,
-                          .Some(nx) => ((!(is_comment_token(nx.kind))) || (nx.row > token.row))
+                          .Some(nx) => (!is_comment_token(nx.kind) || (nx.row > token.row))
                         );
                         if(emit_newline, {
-                          if(!(result.ends_with(String.from("\n"))), {
+                          if(!result.ends_with(String.from("\n")), {
                             result.push_str("\n");
                           });
                           at_line_start = true;
@@ -2356,7 +2880,7 @@ format_yo_source :: (
                     is_colon_in_inline_curly := ((token.value == ":") && (inline_curly_depth > usize(0)));
                     cond(
                       is_colon_in_inline_curly => {
-                        if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                        if(!at_line_start && !result.ends_with(String.from(" ")), {
                           result.push_str(" ");
                         });
                         result.push_str(":");
@@ -2364,7 +2888,7 @@ format_yo_source :: (
                         cond(
                           next_on_next_row => {
                             // start_operator_continuation
-                            if(!(result.ends_with(String.from("\n"))), {
+                            if(!result.ends_with(String.from("\n")), {
                               result.push_str("\n");
                             });
                             at_line_start = true;
@@ -2374,7 +2898,7 @@ format_yo_source :: (
                             _r3 := continuation_curly.push(curly_depth);
                           },
                           true => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
                               result.push_str(" ");
                             });
                           }
@@ -2383,7 +2907,7 @@ format_yo_source :: (
                       is_tightly_bound_operator(token, previous, previous_previous_token, next) => {
                         cond(
                           prefix_operator_needs_leading_space(token, previous, previous_previous_token) => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
                               result.push_str(" ");
                             });
                           },
@@ -2411,17 +2935,17 @@ format_yo_source :: (
                               ((p.kind == TokenKind.LBracket) || (p.kind == TokenKind.LCurlyBracket))
                           )
                         );
-                        if(!(prev_is_open_bracket), {
+                        if(!prev_is_open_bracket, {
                           prev_on_earlier_row := match(previous, .None => false, .Some(p) => (token.row > p.row));
                           cond(
                             prev_on_earlier_row => {
-                              if(!(result.ends_with(String.from("\n"))), {
+                              if(!result.ends_with(String.from("\n")), {
                                 result.push_str("\n");
                               });
                               at_line_start = true;
                             },
                             true => {
-                              if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                              if(!at_line_start && !result.ends_with(String.from(" ")), {
                                 result.push_str(" ");
                               });
                             }
@@ -2441,7 +2965,7 @@ format_yo_source :: (
                         cond(
                           next_on_next_row2 => {
                             // start_operator_continuation
-                            if(!(result.ends_with(String.from("\n"))), {
+                            if(!result.ends_with(String.from("\n")), {
                               result.push_str("\n");
                             });
                             at_line_start = true;
@@ -2451,7 +2975,7 @@ format_yo_source :: (
                             _r3 := continuation_curly.push(curly_depth);
                           },
                           true => {
-                            if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                            if(!at_line_start && !result.ends_with(String.from(" ")), {
                               result.push_str(" ");
                             });
                           }
@@ -2461,7 +2985,7 @@ format_yo_source :: (
                   },
                   is_atom_like_token(token.kind) => {
                     if(needs_space_before_atom(previous), {
-                      if((!(at_line_start)) && (!(result.ends_with(String.from(" ")))), {
+                      if(!at_line_start && !result.ends_with(String.from(" ")), {
                         result.push_str(" ");
                       });
                     });
@@ -2487,13 +3011,75 @@ format_yo_source :: (
         );
       });
       // Final newline.
-      if((result.len() > usize(0)) && (!(result.ends_with(String.from("\n")))), {
+      if((result.len() > usize(0)) && !result.ends_with(String.from("\n")), {
         result.push_str("\n");
       });
+      g_fmt_elided_tokens = skipped_paren_indices.len();
       result
     }
   )
-);
+});
+/// Re-parse verify gate (plans/FMT_PAREN_ELISION.md): parse the original
+/// and the formatted text and compare the top-level expression trees
+/// (`exprs_are_equal` ignores ExprIds/positions; both parses run the same
+/// `if`→`cond` desugar, so that is compared like-for-like too). Any parse
+/// failure unwinds here as `false` — the caller reformats conservatively.
+_formatted_parses_identically :: (
+  fn(original : String, formatted : String, module_path : String) -> bool
+)({
+  gate_exn := Exception(throw : (_err -> unwind(false)));
+  before := parse(original.clone(), module_path.clone(), gate_exn);
+  after := parse(formatted.clone(), module_path.clone(), gate_exn);
+  cond(
+    (before.len() != after.len()) => false,
+    true => {
+      (all : bool) = true;
+      (i : usize) = usize(0);
+      while((i < before.len()) && all, {
+        match(
+          before.get(i),
+          .None => (),
+          .Some(b) =>
+            match(
+              after.get(i),
+              .None => {
+                all = false;
+              },
+              .Some(a) => {
+                if(!exprs_are_equal(b, a), {
+                  all = false;
+                });
+              }
+            )
+        );
+        i = (i + usize(1));
+      });
+      all
+    }
+  )
+});
+/// Format Yo source (the `yo fmt` engine): the token-level renderer, then —
+/// because eliding parentheses is the formatter's first structure-aware
+/// rewrite — a mandatory verify gate: if any paren was elided, the
+/// original and the formatted text must parse to identical ASTs, else the
+/// file is reformatted with elisions disabled. A meaning-changing format
+/// is structurally impossible, not merely untested
+/// (plans/FMT_PAREN_ELISION.md "Implementation sketch" step 2).
+format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -> String)({
+  formatted := _format_yo_source_impl(input.clone(), module_path.clone(), exn, true);
+  // `return`, not cond-arm value returns: a local returned through a cond
+  // arm is duplicated by the dup/drop policy and the original leaks (LSan
+  // flagged 40+6 bytes per call in tests/internal/formatter.test.yo — the
+  // tracked self-hosted-emit leak debt class,
+  // issues/self-hosted-emit-leaks-remaining-classes.md).
+  if(g_fmt_elided_tokens == usize(0), {
+    return(formatted);
+  });
+  if(_formatted_parses_identically(input, formatted, module_path), {
+    return(formatted);
+  });
+  _format_yo_source_impl(input, module_path, exn, false)
+});
 // ---------------------------------------------------------------------------
 // Directory walking + batch formatting
 // ---------------------------------------------------------------------------
@@ -2532,7 +3118,7 @@ collect_yo_files :: (
                 .Directory => is_ignored_format_dir(entry_name.clone()),
                 _ => false
               );
-              if(!(skip), {
+              if(!skip, {
                 child_path := target_path.join(Path.new(entry_name.clone()));
                 recur(child_path, files, io, exn);
               });
@@ -2579,7 +3165,7 @@ find_yo_format_files :: (
           true => Path.new(fmt_cwd.clone()).join(Path.new(p.clone()))
         );
         path_exists := io.await(exists(path_obj, io), io);
-        if(!(path_exists), {
+        if(!path_exists, {
           exn.throw(dyn(`Path does not exist: ${p}`));
         });
         collect_yo_files(path_obj, files, io, exn);
@@ -2604,7 +3190,7 @@ find_yo_format_files :: (
             .None => false
           )
         );
-        if(!(is_dup), {
+        if(!is_dup, {
           _r := deduped.push(f.clone());
         });
       }
@@ -2638,7 +3224,7 @@ format_yo_files :: (
         formatted := format_yo_source(original, file, exn);
         if(formatted != original, {
           _r := changed.push(file);
-          if(!(options.check), {
+          if(!options.check, {
             io.await(write_string(Path.new(file), formatted, io), IoExn(io : io, exn : exn));
           });
         });
@@ -2657,7 +3243,6 @@ export(
   FormatYoFilesOptions,
   FormatYoFilesResult,
   paren_is_call_delimiter,
-  operator_allows_ungrouped_rhs,
   is_function_type_keyword,
   needs_space_before_atom,
   prefix_operator_needs_leading_space,
@@ -2667,7 +3252,6 @@ export(
   token_range_has_comment,
   has_any_token,
   has_top_level_token,
-  has_top_level_operator,
   next_token,
   find_matching_paren_indices,
   find_parent_paren_indices,
@@ -2680,6 +3264,12 @@ export(
   has_top_level_field_block,
   has_direct_top_level_closure_argument,
   is_parenthesized_dot_deref,
+  is_prefix_capable_operator,
+  GroupContentShape,
+  classify_group_content,
+  previous_meaningful_token_index,
+  is_left_same_operator_flatten_group,
+  is_elidable_prefix_call_paren,
   is_redundant_grouping_paren,
   paren_removal_would_expose_operator_rhs_infix,
   find_redundant_grouping_paren_indices,

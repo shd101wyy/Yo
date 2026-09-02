@@ -22,7 +22,7 @@ _state_initialized := false;
 _entity_map := HashMap(String, String).new();
 _legacy_set := HashSet(String).new();
 _ensure_init :: (fn() -> unit)({
-  if(!(_state_initialized), {
+  if(!_state_initialized, {
     _entity_map = _build_entity_map();
     _legacy_set = _build_legacy_set();
     _state_initialized = true;
@@ -71,7 +71,7 @@ _parse_dec :: (fn(s : String) -> i32)({
 });
 // Check if a character is an ASCII alphanumeric
 _is_alpha_numeric :: (fn(c : rune) -> bool)(
-  (((c >= rune(u32('a'))) && (c <= rune(u32('z')))) || ((c >= rune(u32('A'))) && (c <= rune(u32('Z'))))) || ((c >= rune(u32('0'))) && (c <= rune(u32('9'))))
+  ((c >= rune(u32('a'))) && (c <= rune(u32('z')))) || ((c >= rune(u32('A'))) && (c <= rune(u32('Z')))) || ((c >= rune(u32('0'))) && (c <= rune(u32('9'))))
 );
 // ---------------------------------------------------------------------------
 // A rune-indexed view of the input.
@@ -148,7 +148,7 @@ html_decode :: (fn(input : String) -> String)({
     return(input);
   });
   // Quick check: if no '&', return as-is
-  if(!(input.contains(`&`)), {
+  if(!input.contains(`&`), {
     return(input);
   });
   table := _char_table(input);
@@ -280,7 +280,7 @@ html_decode :: (fn(input : String) -> String)({
             // Legacy mode: try progressively shorter names
             (matched : bool) = false;
             (try_end : usize) = name_end;
-            while((try_end > name_start) && !(matched), {
+            while((try_end > name_start) && !matched, {
               try_name := _slice_runes(input, table, name_start, try_end);
               if(_legacy_set.contains(try_name), {
                 match(
@@ -298,7 +298,7 @@ html_decode :: (fn(input : String) -> String)({
                 try_end = (try_end - usize(1));
               });
             });
-            if(!(matched), {
+            if(!matched, {
               // No legacy match — output '&' literally and continue
               result = `${result}&`;
               i = name_start;

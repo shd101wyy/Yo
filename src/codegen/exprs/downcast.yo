@@ -30,7 +30,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
   dyn_ei := match(context.base.get_expr_info(dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
-  if(!(is_dyn_type(dyn_ei.ty)), {
+  if(!is_dyn_type(dyn_ei.ty), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
   dyn_code := _call_generate_expr(dyn_arg, indent.clone(), context);
@@ -42,7 +42,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   type_id_c_name := match(context.base.get_type_c_name(type_id.clone()), .Some(cn) => cn, .None => target_type_c_name.clone());
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(sanitize_for_c_identifier(type_id_c_name, false));
-  if(!(context.base.type_id_static_names.contains(static_var_name.clone())), {
+  if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
     _n := context.base.type_id_static_names.insert(static_var_name.clone());
     _r := context.base.type_id_statics.insert(type_id.clone(), static_var_name.clone());
     context.base.emit_typeid_static(static_var_name.clone(), String.new());
@@ -78,7 +78,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
     it := context.base.dyn_impls.keys();
     (scan_done : bool) = false;
-    while(!(scan_done), {
+    while(!scan_done, {
       match(
         it.next(),
         .Some(dk) => match(
@@ -132,7 +132,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   });
   // Result Option type.
   option_type := ei.ty;
-  if(!(is_enum_type(option_type)), {
+  if(!is_enum_type(option_type), {
     return(String.from("/* ERROR: downcast expected Option enum as result type */"));
   });
   match(

@@ -12,7 +12,7 @@ test("SortedSet insert and contains", {
   s := SortedSet(i32).new();
   s = s.insert(i32(42));
   assert(s.contains(i32(42)), "should contain 42");
-  assert(!(s.contains(i32(99))), "should not contain 99");
+  assert(!s.contains(i32(99)), "should not contain 99");
   assert(s.len() == usize(1), "len should be 1");
 });
 test("SortedSet insert duplicate", {
@@ -32,10 +32,10 @@ test("SortedSet insert multiple and sorted order", {
   assert(elems.len() == usize(4), "list len 4");
   // Verify sorted: 1, 3, 5, 7
   (cur : List(i32)) = elems;
-  (prev : i32) = i32(-(1));
+  (prev : i32) = i32(-1);
   (sorted : bool) = true;
   (done : bool) = false;
-  while(runtime(!(done)), {
+  while(runtime(!done), {
     match(
       cur.head(),
       .Some(v) => {
@@ -59,7 +59,7 @@ test("SortedSet remove", {
   s = s.insert(i32(3));
   s2 := s.remove(i32(2));
   assert(s2.len() == usize(2), "after remove len 2");
-  assert(!(s2.contains(i32(2))), "2 removed");
+  assert(!s2.contains(i32(2)), "2 removed");
   assert(s2.contains(i32(1)), "1 still there");
   assert(s2.contains(i32(3)), "3 still there");
   // original unchanged
@@ -123,7 +123,7 @@ test("SortedSet difference", {
   assert(c.len() == usize(2), "difference has 2");
   assert(c.contains(i32(1)), "contains 1");
   assert(c.contains(i32(3)), "contains 3");
-  assert(!(c.contains(i32(2))), "does not contain 2");
+  assert(!c.contains(i32(2)), "does not contain 2");
 });
 test("SortedSet is_subset", {
   a := SortedSet(i32).new();
@@ -134,7 +134,7 @@ test("SortedSet is_subset", {
   b = b.insert(i32(2));
   b = b.insert(i32(3));
   assert(a.is_subset(b), "a is subset of b");
-  assert(!(b.is_subset(a)), "b is not subset of a");
+  assert(!b.is_subset(a), "b is not subset of a");
 });
 test("SortedSet is_disjoint", {
   a := SortedSet(i32).new();
@@ -146,7 +146,7 @@ test("SortedSet is_disjoint", {
   assert(a.is_disjoint(b), "a and b disjoint");
   c := SortedSet(i32).new();
   c = c.insert(i32(2));
-  assert(!(a.is_disjoint(c)), "a and c not disjoint");
+  assert(!a.is_disjoint(c), "a and c not disjoint");
 });
 test("SortedSet Eq trait", {
   a := SortedSet(i32).new();
@@ -167,7 +167,7 @@ test("SortedSet structural sharing", {
   s2 := s.insert(i32(3));
   assert(s.len() == usize(2), "original still 2");
   assert(s2.len() == usize(3), "new has 3");
-  assert(!(s.contains(i32(3))), "original doesn't have 3");
+  assert(!s.contains(i32(3)), "original doesn't have 3");
 });
 test("SortedSet many elements", {
   (s : SortedSet(i32)) = SortedSet(i32).new();
@@ -193,7 +193,7 @@ test("SortedSet from_list with elements", {
   assert(s.len() == usize(4), "len = 4");
   assert(s.contains(i32(10)), "contains 10");
   assert(s.contains(i32(30)), "contains 30");
-  assert(!(s.contains(i32(50))), "does not contain 50");
+  assert(!s.contains(i32(50)), "does not contain 50");
   // should be sorted
   assert(s.min().unwrap() == i32(10), "min = 10");
   assert(s.max().unwrap() == i32(40), "max = 40");

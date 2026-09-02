@@ -107,7 +107,7 @@ impl(
   ),
   _parse_number : (fn(self : Self) -> Option(usize))({
     start := self._pos;
-    while(!(self._at_end()), {
+    while(!self._at_end(), {
       pk := self._peek();
       is_digit := match(
         pk,
@@ -373,7 +373,7 @@ impl(
       true => ()
     );
     // Parse class contents until ']'
-    while(!(self._at_end()), {
+    while(!self._at_end(), {
       pk2 := self._peek();
       found_end := match(
         pk2,
@@ -409,7 +409,7 @@ impl(
       .None => false
     );
     cond(
-      (!(is_brace)) => {
+      !is_brace => {
         return(.Err(RegexError.InvalidUnicodeProperty(self._pos)));
       },
       true => ()
@@ -417,7 +417,7 @@ impl(
     self._pos = (self._pos + usize(1));
     // Read property name until '}'
     name_bytes := ArrayList(u8).new();
-    while(!(self._at_end()), {
+    while(!self._at_end(), {
       nb := self._peek();
       nb_val := match(
         nb,
@@ -479,14 +479,14 @@ impl(
               .None => false
             );
             cond(
-              (!(is_lt)) => {
+              !is_lt => {
                 return(.Err(RegexError.InvalidNamedBackreference(self._pos)));
               },
               true => ()
             );
             self._pos = (self._pos + usize(1));
             name_bytes := ArrayList(u8).new();
-            while(!(self._at_end()), {
+            while(!self._at_end(), {
               nb := self._peek();
               nb_val := match(
                 nb,
@@ -702,7 +702,7 @@ impl(
     cur_is_la := false;
     cur_is_lb := false;
     cur_is_pos := true;
-    while(!(self._at_end()), {
+    while(!self._at_end(), {
       pk := self._peek();
       b := match(
         pk,
@@ -800,7 +800,7 @@ impl(
                         true => {
                           self._pos = (self._pos + usize(2));
                           name_bytes := ArrayList(u8).new();
-                          while(!(self._at_end()), {
+                          while(!self._at_end(), {
                             name_b := self._peek();
                             name_ch := match(
                               name_b,
@@ -836,7 +836,7 @@ impl(
             true => ()
           );
           cond(
-            (((!(is_nc)) && (!(is_la))) && ((!(is_lb)) && (g_idx == usize(0)))) => {
+            (!is_nc && !is_la && (!is_lb && (g_idx == usize(0)))) => {
               self._group_count = (self._group_count + usize(1));
               g_idx = self._group_count;
             },

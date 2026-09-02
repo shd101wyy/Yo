@@ -5,7 +5,7 @@ Id :: trait(
   id : (fn(self : Self) -> Self)
 );
 RetI32 :: trait(
-  return_i32 : (fn(self : *(Self)) -> i32)
+  return_i32 : (fn(self : *Self) -> i32)
 );
 use_id :: (
   fn(
@@ -21,7 +21,7 @@ impl(
   i32,
   Id(
     id : (
-      (self) -> {
+      self -> {
         unsafe(printf("i32 value: %d\n", self));
         return(self);
       }
@@ -32,7 +32,7 @@ impl(
   i32,
   RetI32(
     return_i32 : (
-      (self) -> {
+      self -> {
         return(self.*);
       }
     )
@@ -42,7 +42,7 @@ impl(
   bool,
   Id(
     id : (
-      (self) -> {
+      self -> {
         cond(
           self => unsafe(printf("bool value: true\n")),
           true => unsafe(printf("bool value: false\n"))
@@ -56,7 +56,7 @@ impl(
   bool,
   RetI32(
     return_i32 : (
-      (self) ->
+      self ->
         cond(
           self.* => 1,
           true => return(0)
@@ -68,7 +68,7 @@ impl(
   Box(i32),
   Id(
     id : (
-      (self) -> {
+      self -> {
         unsafe(printf("Boxed i32 value: %d\n", self.*));
         return(self);
       }
@@ -80,7 +80,7 @@ impl(
   RetI32(
     // Let's x2 here
     return_i32 : (
-      (self) -> {
+      self -> {
         return(self.*.* + (self.*.*));
       }
     )

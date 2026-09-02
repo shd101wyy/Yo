@@ -41,7 +41,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                 aei.variable_name,
                 .Some(vn) => {
                   arg_vars := get_variables_from_env(aei.env, vn.clone());
-                  if((arg_vars.len() > usize(0)) && (arg_code.starts_with("(*")) && (arg_code.ends_with(")")), {
+                  if((arg_vars.len() > usize(0)) && arg_code.starts_with("(*") && arg_code.ends_with(")"), {
                     match(
                       arg_vars.get(arg_vars.len() - usize(1)),
                       .Some(v) => if(v.is_ref, {
@@ -76,7 +76,7 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
                       sanitized_arg_temp := get_variable_name_for_codegen(avn.clone(), Option(Environment).Some(aei2.env));
                       if(!(arg_code == sanitized_arg_temp), {
                         already_arg := match(context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
-                        if(!(already_arg), {
+                        if(!already_arg, {
                           match(
                             context.declared_temp_vars,
                             .Some(s) => {
@@ -140,11 +140,11 @@ generate_recur :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       // Result-temp: emit `<cType> <temp> = <call>;` then return the temp.
       match(
         ei.variable_name,
-        .Some(temp_var) => if(!(is_unit_type(ei.ty)), {
+        .Some(temp_var) => if(!is_unit_type(ei.ty), {
           c_type := get_type_string(ei.ty, context.base);
           temp_var_name := get_variable_name_for_codegen(temp_var.clone(), Option(Environment).Some(ei.env));
           already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
-          if(!(already), {
+          if(!already, {
             match(
               context.declared_temp_vars,
               .Some(s) => {

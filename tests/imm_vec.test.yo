@@ -25,7 +25,7 @@ test("Vec with_capacity zero then push", {
 test("Vec push single element", {
   v := Vec(i32).new().push(i32(42));
   assert(v.len() == usize(1), "length should be 1");
-  assert(!(v.is_empty()), "should not be empty");
+  assert(!v.is_empty(), "should not be empty");
 });
 test("Vec push multiple elements", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3)).push(i32(4)).push(i32(5));
@@ -136,7 +136,7 @@ test("Vec reverse single and empty", {
 });
 test("Vec map", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
-  doubled := v.map((a) => (a * i32(2)));
+  doubled := v.map(a => (a * i32(2)));
   assert(doubled.len() == usize(3), "map preserves length");
   assert(doubled(usize(0)) == i32(2), "map 0");
   assert(doubled(usize(1)) == i32(4), "map 1");
@@ -144,7 +144,7 @@ test("Vec map", {
 });
 test("Vec filter", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3)).push(i32(4)).push(i32(5));
-  evens := v.filter((a) => ((a % i32(2)) == i32(0)));
+  evens := v.filter(a => ((a % i32(2)) == i32(0)));
   assert(evens.len() == usize(2), "filter length");
   assert(evens(usize(0)) == i32(2), "filter 0");
   assert(evens(usize(1)) == i32(4), "filter 1");
@@ -156,19 +156,19 @@ test("Vec fold", {
 });
 test("Vec any", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
-  assert(v.any((a) => (a == i32(2))), "any finds 2");
-  assert(!(v.any((a) => (a == i32(99)))), "any misses 99");
+  assert(v.any(a => (a == i32(2))), "any finds 2");
+  assert(!v.any(a => (a == i32(99))), "any misses 99");
 });
 test("Vec all", {
   v := Vec(i32).new().push(i32(2)).push(i32(4)).push(i32(6));
-  assert(v.all((a) => ((a % i32(2)) == i32(0))), "all even");
+  assert(v.all(a => ((a % i32(2)) == i32(0))), "all even");
   v2 := v.push(i32(3));
-  assert(!(v2.all((a) => ((a % i32(2)) == i32(0)))), "not all even");
+  assert(!v2.all(a => ((a % i32(2)) == i32(0))), "not all even");
 });
 test("Vec find", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
-  assert(v.find((a) => (a > i32(15))).unwrap() == i32(20), "find first > 15");
-  assert(v.find((a) => (a > i32(100))).is_none(), "find none > 100");
+  assert(v.find(a => (a > i32(15))).unwrap() == i32(20), "find first > 15");
+  assert(v.find(a => (a > i32(100))).is_none(), "find none > 100");
 });
 test("Vec index_of", {
   v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
@@ -178,7 +178,7 @@ test("Vec index_of", {
 test("Vec contains", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
   assert(v.contains(i32(2)), "contains 2");
-  assert(!(v.contains(i32(99))), "not contains 99");
+  assert(!v.contains(i32(99)), "not contains 99");
 });
 test("Vec dedup", {
   v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(1)).push(i32(3)).push(i32(2));

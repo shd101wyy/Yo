@@ -77,7 +77,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
         .Atom(_, tok) => (tok.kind == TokenKind.Dot),
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(is_dot), return(Option(Pragma).None));
+      if(!is_dot, return(Option(Pragma).None));
       if(args.len() != usize(2), return(Option(Pragma).None));
       lhs_is_pragma := match(
         args.get(usize(0)),
@@ -88,7 +88,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
         ),
         .None => false
       );
-      if(!(lhs_is_pragma), return(Option(Pragma).None));
+      if(!lhs_is_pragma, return(Option(Pragma).None));
       match(
         args.get(usize(1)),
         .Some(rhs) => match(
@@ -113,7 +113,7 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   found := false;
   i := usize(0);
   n := program.len();
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       program.get(i),
       .Some(expr) => {

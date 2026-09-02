@@ -56,7 +56,7 @@ _inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
         i = (i + usize(2));
       },
       (b == u8(34)) => {
-        in_str = !(in_str);
+        in_str = !in_str;
         i = (i + usize(1));
       },
       true => {
@@ -108,10 +108,10 @@ _contains_word_return :: (fn(s : String) -> bool)({
     match(
       _byte_index_of(s, word.clone(), from),
       .Some(idx) => {
-        before_ok := if(idx == usize(0), true, !(_is_word_byte(s.byte_at(idx - usize(1)))));
+        before_ok := if(idx == usize(0), true, !_is_word_byte(s.byte_at(idx - usize(1))));
         after_idx := (idx + wlen);
-        after_ok := if(after_idx >= slen, true, !(_is_word_byte(s.byte_at(after_idx))));
-        if((before_ok && after_ok) && !(_inside_c_string_literal(s, idx)), {
+        after_ok := if(after_idx >= slen, true, !_is_word_byte(s.byte_at(after_idx)));
+        if(before_ok && after_ok && !_inside_c_string_literal(s, idx), {
           return(true);
         }, {
           from = (idx + usize(1));
@@ -139,7 +139,7 @@ _is_or_pattern :: (fn(expr : AstExpr) -> bool)(
 );
 /// Flatten an or-pattern into its individual patterns. Mirrors `flattenOrPattern`.
 _flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
-  if(!(_is_or_pattern(expr)), {
+  if(!_is_or_pattern(expr), {
     out := ArrayList(AstExpr).new();
     _p := out.push(expr);
     out
@@ -310,7 +310,7 @@ _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Func
     ),
     .None => ()
   );
-  if(!(dup_named), {
+  if(!dup_named, {
     match(
       bei.variable_name,
       .Some(_) => {
@@ -343,7 +343,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     if(n > usize(0), {
       (j : usize) = usize(0);
       (stop : bool) = false;
-      while((j < (n - usize(1))) && !(stop), {
+      while((j < (n - usize(1))) && !stop, {
         match(
           begin_args.get(j),
           .Some(arg) => {
@@ -358,7 +358,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
               .Some(aei0) => is_temp_variable_name(aei0.env.module_path.clone(), arg_code.clone()),
               .None => false
             );
-            if((arg_code.len() > usize(0)) && !(arm_bare_temp), {
+            if((arg_code.len() > usize(0)) && !arm_bare_temp, {
               line := indent.clone();
               line.push_string(arg_code);
               line.push_str(";");
@@ -406,7 +406,7 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
   body_code := generate_case_body(case_body, body_indent.clone(), context);
   assigned := match(
     temp_var_opt,
-    .Some(tv) => if((!(is_unit) && (body_code.len() > usize(0))) && !(_is_control_flow_code(body_code)), {
+    .Some(tv) => if((!is_unit && (body_code.len() > usize(0))) && !_is_control_flow_code(body_code), {
       line := body_indent.clone();
       line.push_string(tv.clone());
       line.push_str(" = ");
@@ -417,7 +417,7 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
     }, false),
     .None => false
   );
-  if(!(assigned) && (body_code.len() > usize(0)), {
+  if(!assigned && (body_code.len() > usize(0)), {
     // Same bare-temp-name skip as generate_case_body's statement loop: a
     // unit arm whose final statement emitted itself returns only its eval
     // temp name — emitting `temp;` here referenced an undeclared identifier
@@ -427,7 +427,7 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
       .Some(cbei) => is_temp_variable_name(cbei.env.module_path.clone(), body_code.clone()),
       .None => false
     );
-    if(!(fb_bare_temp), {
+    if(!fb_bare_temp, {
       line := body_indent.clone();
       line.push_string(body_code);
       line.push_str(";");
@@ -509,7 +509,7 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
               ),
               .None => false
             );
-            if(!(emitted_any), {
+            if(!emitted_any, {
               // Fallback: literals from the flattened pattern expressions.
               flat := _flatten_or_pattern(case_value);
               nf := flat.len();
@@ -728,7 +728,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
                 ),
                 .None => ()
               );
-              if(!(smb_has), {
+              if(!smb_has, {
                 match(
                   context.state_machine_variables,
                   .Some(smv2) => {
@@ -790,7 +790,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
     .Some(pb) => {
       body_code := generate_case_body(pb, body_indent.clone(), context);
       if(
-        (!(is_unit)) && !(_is_control_flow_code(body_code)),
+        !is_unit && !_is_control_flow_code(body_code),
         match(
           temp_var_opt,
           .Some(tv) => {
@@ -844,7 +844,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
     .Some(nb) => {
       body_code := generate_case_body(nb, body_indent.clone(), context);
       if(
-        (!(is_unit)) && !(_is_control_flow_code(body_code)),
+        !is_unit && !_is_control_flow_code(body_code),
         match(
           temp_var_opt,
           .Some(tv) => {
@@ -946,7 +946,7 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
 _remove_arm_shadows :: (fn(params : ArrayList(AstExpr), context : FunctionGenerationContext) -> unit)({
   // Mirror the curly unwrap in _emit_destructure_binds so curly-bound vars are
   // also un-shadowed.
-  is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false)));
+  is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false));
   dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(p0), .None => params.clone()), params.clone());
   np := dparams.len();
   (pi : usize) = usize(0);
@@ -1004,7 +1004,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
         // atoms bind positionally to the field at that index — correct when the
         // curly fields are in declaration order; `{a : alias}` `:` pairs bind by
         // label.)
-        is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false)));
+        is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false));
         dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(p0), .None => params.clone()), params.clone());
         // Labeled if any param is a `:`(2) pair.
         (has_labeled : bool) = false;
@@ -1047,7 +1047,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                     });
                     if(fi < labels.len(), {
                       ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                      if(!(is_unit_type(ftype)), {
+                      if(!is_unit_type(ftype), {
                         decl := body_indent.clone();
                         decl.push_string(get_type_string(ftype, context.base));
                         decl.push_str(" ");
@@ -1082,7 +1082,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
               .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_"), {
                 field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                if(!(is_unit_type(ftype)), {
+                if(!is_unit_type(ftype), {
                   decl := body_indent.clone();
                   decl.push_string(get_type_string(ftype, context.base));
                   decl.push_str(" ");
@@ -1254,7 +1254,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   is_unit := is_unit_type(value_type);
   em := context.base.emitter;
   if(
-    !(is_unit),
+    !is_unit,
     match(
       temp_var_opt,
       .Some(tv) => {
@@ -1289,7 +1289,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
           true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
         )
       }, false);
-      if(!(is_inout_atom) && !(matched_value_code == subject_var_name), {
+      if(!is_inout_atom && !(matched_value_code == subject_var_name), {
         decl := indent.clone();
         decl.push_string(get_type_string(match_value_type, context.base));
         decl.push_str(" ");
@@ -1328,7 +1328,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   });
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(match_value_type);
-  is_ref_sem := (!(is_ptr) && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
+  is_ref_sem := (!is_ptr && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
   enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
   // Resolve a leaked recursive-enum SELF-SHELL to its finalized form. A shell
   // keeps `variant_names` (so the tag emits) but has EMPTY `variant_fields`/
@@ -1339,7 +1339,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   // The evaluator already resolves shells before reading variants; codegen must
   // too. Mirrors the resolve_enum_shell use in _type_key_at / get_type_string.
   enum_type := resolve_enum_shell(enum_type0);
-  if(!(is_enum_type(enum_type)), {
+  if(!is_enum_type(enum_type), {
     return(codegen_fatal_expr(String.from("\"match\" expression requires an enum type")));
   });
   match(context.base.get_type_c_name(type_key(enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some(_) => ());

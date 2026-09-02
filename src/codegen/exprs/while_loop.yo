@@ -153,7 +153,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                 .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), code.clone()),
                 .None => false
               );
-              if(!(is_bare_temp), {
+              if(!is_bare_temp, {
                 line := indent.clone();
                 line.push_string(code);
                 line.push_str(";");
@@ -187,11 +187,11 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                   get_deferred_drop_target_atom_name(de),
                   .Some(nm) => {
                     cn := sanitize_for_c_identifier(nm, false);
-                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
+                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
                   },
                   .None => false
                 );
-                if(!(undeclared_temp), {
+                if(!undeclared_temp, {
                   // Skip a drop already emitted inside a short-circuit
                   // conditional branch (and_or.yo) — same guard as begin.yo's
                   // scope-end pass. Without it (and TS while.ts before the
@@ -210,7 +210,7 @@ generate_loop_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
                     ),
                     .None => false
                   );
-                  if(!(sc_skip), {
+                  if(!sc_skip, {
                     code := _call_generate_expr(de, indent.clone(), context);
                     if(code.len() > usize(0), {
                       line := indent.clone();

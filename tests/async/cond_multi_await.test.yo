@@ -31,7 +31,7 @@ _mk_other :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
 // The two arms await differently-shaped futures at position 1 (i32 vs Wrap),
 // and each USES its second await's result.
 _run :: (fn(flag : bool, io : Io) -> Impl(Future(i32, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     (out : i32) = i32(0);
     cond(
       flag => {
@@ -52,7 +52,7 @@ _run :: (fn(flag : bool, io : Io) -> Impl(Future(i32, IoExn)))(
 test("second await result is stored in each differently-shaped cond arm", {
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected");
         unwind(());
       }

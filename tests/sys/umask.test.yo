@@ -21,7 +21,7 @@ test("umask affects file creation mode and can be restored", {
   test_path := path_cstr.ptr().unwrap();
   old_mask := umask_io.umask(i32(0));
   set_prev := umask_io.umask(i32(0o022));
-  open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  open_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, open_flags, i32(0o666)), io);
   close_result := io.await(file.close(fd), io);
   statx_uninit := MaybeUninit(Array(u8, usize(256))).new();

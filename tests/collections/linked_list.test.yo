@@ -12,7 +12,7 @@ test("LinkedList.push_front adds single element", {
   list := LinkedList(i32).new();
   list.push_front(i32(42));
   assert(list.len() == usize(1));
-  assert(!(list.is_empty()));
+  assert(!list.is_empty());
   assert(list.front().unwrap() == i32(42));
   assert(list.back().unwrap() == i32(42));
 });
@@ -43,7 +43,7 @@ test("LinkedList.push_back adds single element", {
   list := LinkedList(i32).new();
   list.push_back(i32(42));
   assert(list.len() == usize(1));
-  assert(!(list.is_empty()));
+  assert(!list.is_empty());
   assert(list.front().unwrap() == i32(42));
   assert(list.back().unwrap() == i32(42));
 });
@@ -407,11 +407,11 @@ test("LinkedList.has returns false for non-existing element", {
   list := LinkedList(i32).new();
   list.push_back(i32(10));
   list.push_back(i32(20));
-  assert(!(list.contains(i32(99))));
+  assert(!list.contains(i32(99)));
 });
 test("LinkedList.has returns false for empty list", {
   list := LinkedList(i32).new();
-  assert(!(list.contains(i32(42))));
+  assert(!list.contains(i32(42)));
 });
 test("LinkedList.has finds element at front", {
   list := LinkedList(i32).new();
@@ -507,13 +507,13 @@ test("LinkedList.is_empty returns true for empty list", {
 test("LinkedList.is_empty returns false for non-empty list", {
   list := LinkedList(i32).new();
   list.push_back(i32(1));
-  assert(!(list.is_empty()));
+  assert(!list.is_empty());
 });
 test("LinkedList.is_empty after operations", {
   list := LinkedList(i32).new();
   assert(list.is_empty());
   list.push_back(i32(1));
-  assert(!(list.is_empty()));
+  assert(!list.is_empty());
   list.pop_back();
   assert(list.is_empty());
 });
@@ -603,7 +603,7 @@ test("LinkedList alternating push and pop", {
 test("LinkedList into_iter - empty list", {
   list := LinkedList(i32).new();
   count := i32(0);
-  for(list.into_iter(), (x) => {
+  for(list.into_iter(), x => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
@@ -612,7 +612,7 @@ test("LinkedList into_iter - single element", {
   list := LinkedList(i32).new();
   list.push_back(i32(42));
   result := i32(0);
-  for(list.into_iter(), (x) => {
+  for(list.into_iter(), x => {
     result = x;
   });
   assert(result == i32(42));
@@ -625,7 +625,7 @@ test("LinkedList into_iter - multiple elements in order", {
   sum := i32(0);
   count := i32(0);
   prev := i32(0);
-  for(list.into_iter(), (x) => {
+  for(list.into_iter(), x => {
     sum = (sum + x);
     count = (count + i32(1));
     assert(x > prev);
@@ -637,7 +637,7 @@ test("LinkedList into_iter - multiple elements in order", {
 test("LinkedList iter - empty list", {
   list := LinkedList(i32).new();
   count := i32(0);
-  for(list.iter(), (ptr) => {
+  for(list.iter(), ptr => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
@@ -647,7 +647,7 @@ test("LinkedList iter - yields pointers to elements", {
   list.push_back(i32(10));
   list.push_back(i32(20));
   sum := i32(0);
-  for(list.iter(), (ptr) => {
+  for(list.iter(), ptr => {
     sum = (sum + ptr.*);
   });
   assert(sum == i32(30));
@@ -657,7 +657,7 @@ test("LinkedList iter - mutate through pointer", {
   list.push_back(i32(1));
   list.push_back(i32(2));
   list.push_back(i32(3));
-  for(list.iter(), (ptr) => {
+  for(list.iter(), ptr => {
     ptr.* = (ptr.* * i32(10));
   });
   assert(list(usize(0)) == i32(10));

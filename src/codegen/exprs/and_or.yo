@@ -175,8 +175,8 @@ _emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : 
               // holds no +1 to release; emitting the drop is an undeclared-
               // identifier C error (the rc1 stage-2 clang break).
               sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
-              sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && (!(context.base.declared_c_var_names.contains(sc_target_cn))));
-              if(!(sc_undeclared), {
+              sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.contains(sc_target_cn));
+              if(!sc_undeclared, {
                 drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
                 if(drop_code.len() > usize(0), {
                   line := indent.clone();
@@ -230,7 +230,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       args.get(i),
       .Some(arg) => match(
         _comptime_bool(arg, context),
-        .Some(b) => if(!(b), {
+        .Some(b) => if(!b, {
           return(String.from("false"));
         }),
         .None => {
@@ -261,7 +261,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     );
     k = (k + usize(1));
   });
-  if(!(needs), {
+  if(!needs, {
     out := String.from("(");
     (m : usize) = usize(0);
     while(m < rn, {
@@ -381,7 +381,7 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     );
     k = (k + usize(1));
   });
-  if(!(needs), {
+  if(!needs, {
     out := String.from("(");
     (m : usize) = usize(0);
     while(m < rn, {

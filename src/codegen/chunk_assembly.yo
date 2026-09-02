@@ -92,7 +92,7 @@ _ca_parse_static_fn_line :: (
     (ad : usize) = usize(2);
     (a : usize) = (p + attr_pat.len());
     (adone : bool) = false;
-    while(!(adone) && (a < n), {
+    while(!adone && (a < n), {
       ab := _ca_bget(bytes, a);
       cond(
         (ab == u8(40)) => {
@@ -121,7 +121,7 @@ _ca_parse_static_fn_line :: (
   // parameter list; the identifier run ending there is the function name.
   (q : usize) = p;
   (found : bool) = false;
-  while(!(found), {
+  while(!found, {
     if(q >= n, {
       return(Option(_StaticFnLine).None);
     });
@@ -224,7 +224,7 @@ _ca_dequalify_statics :: (fn(text : String, header_defined : HashSet(String)) ->
     if(_ca_matches(bytes, ls, static_pat), {
       match(
         _ca_parse_static_fn_line(bytes, ls, n, inline_pat, attr_pat),
-        .Some(info) => if(!(header_defined.contains(info.name)), {
+        .Some(info) => if(!header_defined.contains(info.name), {
           strip = info.prefix_len;
         }),
         .None => ()
@@ -289,13 +289,13 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
     b0 := _ca_bget(bytes, ls);
     ident_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || (((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95))));
     (moved : bool) = false;
-    if(ident_start && !(_ca_decl_line_is_qualified(bytes, ls)), {
+    if(ident_start && !_ca_decl_line_is_qualified(bytes, ls), {
       // Parse `<return type> name(<params>)` then require ` {` — the same
       // shape check the residue-prototype scanner uses.
       (q : usize) = ls;
       (found : bool) = false;
       (stop : bool) = false;
-      while(!(found) && (!(stop) && (q < n)), {
+      while(!found && (!stop && (q < n)), {
         bq := _ca_bget(bytes, q);
         cond(
           (bq == u8(40)) => {
@@ -350,7 +350,7 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
             // the relocated text.
             (be : usize) = le;
             (done : bool) = false;
-            while(!(done) && (be < n), {
+            while(!done && (be < n), {
               (ble : usize) = be;
               while((ble < n) && (_ca_bget(bytes, ble) != u8(10)), {
                 ble = (ble + usize(1));
@@ -372,7 +372,7 @@ _ca_split_decl_defs :: (fn(text : String) -> DeclSplit)({
         });
       });
     });
-    if(!(moved), {
+    if(!moved, {
       (ci : usize) = ls;
       while(ci < le, {
         hdr.push(_ca_bget(bytes, ci));
@@ -407,7 +407,7 @@ _ca_collect_residue_protos :: (
       (q : usize) = ls;
       (found : bool) = false;
       (stop : bool) = false;
-      while(!(found) && (!(stop) && (q < n)), {
+      while(!found && (!stop && (q < n)), {
         bq := _ca_bget(bytes, q);
         cond(
           (bq == u8(40)) => {
@@ -450,7 +450,7 @@ _ca_collect_residue_protos :: (
           while((w < n) && ((_ca_bget(bytes, w) == u8(32)) || ((_ca_bget(bytes, w) == u8(10)) || (_ca_bget(bytes, w) == u8(9)))), {
             w = (w + usize(1));
           });
-          if((_ca_bget(bytes, w) == u8(123)) && !(protos_out.contains_key(nm.clone())), {
+          if((_ca_bget(bytes, w) == u8(123)) && !protos_out.contains_key(nm.clone()), {
             names_out.push(nm.clone());
             _s := protos_out.insert(nm, _ca_slice(bytes, ls, close_pos));
             ()
@@ -504,7 +504,7 @@ _ca_collect_yo_refs :: (fn(text : String, into : HashSet(String)) -> unit)({
       },
       ((b == u8(95)) && _ca_matches(bytes, i, yo_pat)) => {
         prev_ident := if(i > usize(0), _ca_is_ident_byte(_ca_bget(bytes, i - usize(1))), false);
-        if(!(prev_ident), {
+        if(!prev_ident, {
           (e : usize) = i;
           while((e < n) && _ca_is_ident_byte(_ca_bget(bytes, e)), {
             e = (e + usize(1));

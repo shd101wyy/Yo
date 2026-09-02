@@ -30,7 +30,7 @@ make_atom_expr :: (fn(v : str) -> AstExpr)(
 );
 test("suspension_analysis_result_empty returns zero suspensions", {
   r := suspension_analysis_result_empty();
-  assert(!(r.has_suspensions), "has_suspensions should be false");
+  assert(!r.has_suspensions, "has_suspensions should be false");
   assert(r.suspension_points.len() == usize(0), "no suspension points");
   assert(r.captured_variables.len() == usize(0), "no captured variables");
 });
@@ -75,9 +75,9 @@ test("SuspensionPoint optional fields default to None", {
     cond_branch_suspension_in_while : Option(ArrayList(bool)).None
   );
   has_target := match(sp.target_variable_id, .Some(_) => true, .None => false);
-  assert(!(has_target), "target_variable_id should be None");
+  assert(!has_target, "target_variable_id should be None");
   has_cond := match(sp.is_inside_cond, .Some(_) => true, .None => false);
-  assert(!(has_cond), "is_inside_cond should be None");
+  assert(!has_cond, "is_inside_cond should be None");
 });
 test("SuspensionCapturedVariable fields accessible", {
   cv := SuspensionCapturedVariable(
@@ -90,7 +90,7 @@ test("SuspensionCapturedVariable fields accessible", {
   assert(cv.id == "v0", "id");
   assert(cv.name == "counter", "name");
   has_alias := match(cv.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
-  assert(!(has_alias), "no alias");
+  assert(!has_alias, "no alias");
 });
 test("SuspensionCapturedVariable self-referential field (Box(Self))", {
   inner := Box(SuspensionCapturedVariable)(

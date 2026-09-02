@@ -10,7 +10,7 @@ test("ImmString new creates empty string", {
 });
 test("ImmString from str", {
   s := ImmString.from("hello");
-  assert(!(s.is_empty()), "should not be empty");
+  assert(!s.is_empty(), "should not be empty");
   assert(s.len() == usize(5), "should have 5 bytes");
   assert(s == ImmString.from("hello"), "should equal same content");
 });
@@ -65,16 +65,16 @@ test("ImmString slice clamping", {
 test("ImmString starts_with and ends_with", {
   s := ImmString.from("hello world");
   assert(s.starts_with(ImmString.from("hello")), "should start with 'hello'");
-  assert(!(s.starts_with(ImmString.from("world"))), "should not start with 'world'");
+  assert(!s.starts_with(ImmString.from("world")), "should not start with 'world'");
   assert(s.ends_with(ImmString.from("world")), "should end with 'world'");
-  assert(!(s.ends_with(ImmString.from("hello"))), "should not end with 'hello'");
+  assert(!s.ends_with(ImmString.from("hello")), "should not end with 'hello'");
   assert(s.starts_with(ImmString.new()), "empty prefix always matches");
   assert(s.ends_with(ImmString.new()), "empty suffix always matches");
 });
 test("ImmString contains and index_of", {
   s := ImmString.from("abcdef");
   assert(s.contains(ImmString.from("cde")), "should contain 'cde'");
-  assert(!(s.contains(ImmString.from("xyz"))), "should not contain 'xyz'");
+  assert(!s.contains(ImmString.from("xyz")), "should not contain 'xyz'");
   assert(s.index_of(ImmString.from("cd"), usize(0)).unwrap() == usize(2), "index_of 'cd' should be 2");
   assert(s.index_of(ImmString.from("cd"), usize(3)).is_none(), "index_of past match should be None");
 });
@@ -125,7 +125,7 @@ test("ImmString equality and ordering", {
 test("ImmString equality with str", {
   s := ImmString.from("hello");
   assert(s.eq_str("hello"), "should equal str literal");
-  assert(!(s.eq_str("world")), "should not equal different str");
+  assert(!s.eq_str("world"), "should not equal different str");
 });
 test("ImmString len is bytes, chars().count() is runes", {
   ascii := ImmString.from("hello");
@@ -246,19 +246,19 @@ test("ImmString is_char_boundary marks every byte of a 4-byte sequence", {
   s := ImmString.from("aé中𝄞");
   assert(s.is_char_boundary(usize(0)), "0 starts 'a'");
   assert(s.is_char_boundary(usize(1)), "1 starts 'é'");
-  assert(!(s.is_char_boundary(usize(2))), "2 is inside 'é'");
+  assert(!s.is_char_boundary(usize(2)), "2 is inside 'é'");
   assert(s.is_char_boundary(usize(3)), "3 starts '中'");
-  assert(!(s.is_char_boundary(usize(4))), "4 is inside '中'");
-  assert(!(s.is_char_boundary(usize(5))), "5 is inside '中'");
+  assert(!s.is_char_boundary(usize(4)), "4 is inside '中'");
+  assert(!s.is_char_boundary(usize(5)), "5 is inside '中'");
   assert(s.is_char_boundary(usize(6)), "6 starts '𝄞'");
-  assert(!(s.is_char_boundary(usize(7))), "7 is inside '𝄞'");
-  assert(!(s.is_char_boundary(usize(8))), "8 is inside '𝄞'");
-  assert(!(s.is_char_boundary(usize(9))), "9 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(7)), "7 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(8)), "8 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(9)), "9 is inside '𝄞'");
   assert(s.is_char_boundary(usize(10)), "10 is the end, a boundary");
-  assert(!(s.is_char_boundary(usize(11))), "11 is past the end");
+  assert(!s.is_char_boundary(usize(11)), "11 is past the end");
   e := ImmString.new();
   assert(e.is_char_boundary(usize(0)), "0 is a boundary of the empty string");
-  assert(!(e.is_char_boundary(usize(1))), "1 is past the empty string");
+  assert(!e.is_char_boundary(usize(1)), "1 is past the empty string");
 });
 test("ImmString floor/ceil char boundary snap onto rune starts", {
   s := ImmString.from("aé中𝄞");
@@ -275,8 +275,8 @@ test("ImmString floor/ceil char boundary snap onto rune starts", {
   i := usize(0);
   while(i <= s.len(), i = (i + usize(1)), {
     on := s.is_char_boundary(i);
-    assert((s.floor_char_boundary(i) == i) == on, "floor fixes exactly the boundaries");
-    assert((s.ceil_char_boundary(i) == i) == on, "ceil fixes exactly the boundaries");
+    assert(s.floor_char_boundary(i) == i == on, "floor fixes exactly the boundaries");
+    assert(s.ceil_char_boundary(i) == i == on, "ceil fixes exactly the boundaries");
   });
   assert(ImmString.new().floor_char_boundary(usize(7)) == usize(0), "empty floors to 0");
   assert(ImmString.new().ceil_char_boundary(usize(7)) == usize(0), "empty ceils to 0");
@@ -442,9 +442,9 @@ test("ImmString byte_at is unchanged by the flip", {
 test("ImmString starts_with/ends_with on multibyte content", {
   s := ImmString.from("aé中𝄞");
   assert(s.starts_with(ImmString.from("aé")), "multibyte prefix");
-  assert(!(s.starts_with(ImmString.from("é"))), "'é' is not the prefix");
+  assert(!s.starts_with(ImmString.from("é")), "'é' is not the prefix");
   assert(s.ends_with(ImmString.from("中𝄞")), "multibyte suffix");
-  assert(!(s.ends_with(ImmString.from("中"))), "'中' is not the suffix");
+  assert(!s.ends_with(ImmString.from("中")), "'中' is not the suffix");
 });
 test("ImmString split on a multibyte separator yields byte-correct parts", {
   //  a  ，  é  ，  中        ， is U+FF0C, 3 bytes

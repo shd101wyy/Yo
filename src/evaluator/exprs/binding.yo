@@ -94,7 +94,7 @@ evaluate_binding :: (
   // Mutable env that we update from rhs ExprInfo.
   (env : Environment) = env_in;
   // Validate shape: ":" with exactly 2 args.
-  if(!(ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_COLON, .Some(usize(2))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -139,7 +139,7 @@ evaluate_binding :: (
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
   // Rhs must evaluate to a TypeValue.
-  if(!(is_type_value(rhs_info.value)), {
+  if(!is_type_value(rhs_info.value), {
     exn.throw(
       dyn(
         format_error_message(
@@ -249,7 +249,7 @@ evaluate_binding :: (
   // Reject runtime bindings inside a compile-time-only function body.
   // Mirrors: context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
   //          && context.isEvaluatingFunctionBodyOrAsyncBlock?.type.return.isCompileTimeOnly
-  if(!(is_compile_time_only), {
+  if(!is_compile_time_only, {
     is_ctfe_body := match(
       ctx.is_evaluating_function_body_or_async_block,
       .Some(fctx) => (
@@ -276,7 +276,7 @@ evaluate_binding :: (
     });
   });
   // Validate lhs is a valid variable name (identifier or operator).
-  if(!(is_valid_variable_name(lhs)), {
+  if(!is_valid_variable_name(lhs), {
     lhs_tok_val := ast_expr_token(lhs).value;
     exn.throw(
       dyn(
@@ -307,7 +307,7 @@ evaluate_binding :: (
   // Reject type annotations that require comptime but binding is runtime.
   // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
   // in initialization_assignment.yo.
-  binding_requires_ct := (type_requires_comptime_modifier(user_defined_type) || (type_implements_comptime(user_defined_type, env) && !(type_implements_runtime_full(user_defined_type, env))));
+  binding_requires_ct := (type_requires_comptime_modifier(user_defined_type) || (type_implements_comptime(user_defined_type, env) && !type_implements_runtime_full(user_defined_type, env)));
   // In a DEFINITION-time body trial a type still carrying unresolved SomeTs
   // cannot be judged comptime-only — the twin of the ::-vs-:= skip in
   // initialization_assignment.yo (root 7837, IterFilter's
@@ -315,10 +315,10 @@ evaluate_binding :: (
   // issues/fixed/def-eval-swallow-remaining-roots.md). The specialization-time
   // re-eval re-checks with concrete types.
   binding_ct_check := cond(
-    ((in_def_time_trial() && binding_requires_ct) && (get_all_some_types(user_defined_type).len() > usize(0))) => false,
+    (in_def_time_trial() && binding_requires_ct && (get_all_some_types(user_defined_type).len() > usize(0))) => false,
     true => binding_requires_ct
   );
-  if(binding_ct_check && !(is_compile_time_only), {
+  if(binding_ct_check && !is_compile_time_only, {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(
@@ -351,7 +351,7 @@ evaluate_binding :: (
   // the check itself after the RHS is evaluated, relaxing it for ctl
   // handlers whose body ALWAYS unwinds (TS binding.ts:160
   // `deferGenericFnTypeCheckToAssignment` + assignment.ts:447-470).
-  if(((!(is_compile_time_only)) && !(g_defer_generic_fn_type_check)) && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
+  if((!is_compile_time_only && !g_defer_generic_fn_type_check) && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
     ty_str := type_to_string(user_defined_type);
     exn.throw(
       dyn(
@@ -370,7 +370,7 @@ evaluate_binding :: (
     .Some(_) => true,
     .None => false
   );
-  if((!(is_compile_time_only)) && (!(is_inside_fn_body) && ctx.is_inside_impl_block), {
+  if(!is_compile_time_only && (!is_inside_fn_body && ctx.is_inside_impl_block), {
     exn.throw(
       dyn(
         format_error_message(
@@ -383,7 +383,7 @@ evaluate_binding :: (
     );
   });
   // Module-level: runtime var at module scope (not inside a function body).
-  is_module_level := (!(is_compile_time_only) && !(is_inside_fn_body));
+  is_module_level := (!is_compile_time_only && !is_inside_fn_body);
   // Initial value: comptime vars get an UnknownVal placeholder; runtime vars get None.
   initial_value_opt := cond(
     is_compile_time_only => Option(EvalValue).Some(create_unknown_val(user_defined_type)),

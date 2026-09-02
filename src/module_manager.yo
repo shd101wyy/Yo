@@ -269,7 +269,7 @@ mm_demand_loader :: (fn() -> Option((fn(path : String) -> LoadModuleResult)))(
   g_demand_loader
 );
 mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
-mm_has_prelude_env :: (fn() -> bool)(!(g_cached_prelude_env.is_none()));
+mm_has_prelude_env :: (fn() -> bool)(!g_cached_prelude_env.is_none());
 mm_clear_prelude_env :: (fn() -> unit)({
   g_cached_prelude_env = Option(Environment).None;
 });
@@ -419,7 +419,7 @@ _eval_module_exprs_capturing_error :: (
 )({
   local_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         _stash_load_error(err.to_string());
         eprintln(`check: error in: ${err.to_string()}`);
         unwind(false)
@@ -675,7 +675,7 @@ mm_load_file :: (
   // rule), so we can't name the file here — the caller logs that from `ok`.
   local_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         eprintln(`check: error in: ${err.to_string()}`);
         unwind(_failed_outcome())
       }
@@ -688,7 +688,7 @@ mm_load_file :: (
   // process-wide registries under fresh type identities — which corrupts
   // where-constrained generic-impl resolution for every file checked after it
   // (see issues/fixed/seed-built-stage1-array-fill-method-miss.md).
-  if(input_path.ends_with(String.from("prelude.yo")) && !(g_cached_prelude_env.is_none()), {
+  if(input_path.ends_with(String.from("prelude.yo")) && !g_cached_prelude_env.is_none(), {
     if(verbose, {
       println(`check: ${input_path} — evaluator OK`);
     });

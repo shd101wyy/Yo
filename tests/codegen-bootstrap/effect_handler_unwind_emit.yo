@@ -12,7 +12,7 @@ use_exn :: (fn(exn : Exception) -> i32)(i32(7));
 // "// Failed to transpile unwind()" or `return return (void*){0};`. TS emits the
 // handler fine. See the "unwind handler emission" fix.
 run_single :: (fn(x : i32) -> unit)({
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(throw : (_err -> unwind(())));
   _r := use_exn(inner_exn);
 });
 
@@ -20,7 +20,7 @@ run_single :: (fn(x : i32) -> unit)({
 run_block :: (fn(x : i32) -> unit)({
   blk_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         err;
         unwind(());
       }

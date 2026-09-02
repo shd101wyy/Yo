@@ -8,7 +8,7 @@
 { Exception, IoExn } :: import("std/error");
 
 give :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
-  io.async((e) => usize(11))
+  io.async(e => usize(11))
 );
 test("mismatched effect records are rejected at check time", {
   // A one-field record for an IoExn future: wrong layout.
@@ -20,7 +20,7 @@ test("mismatched effect records are rejected at check time", {
 test("matching bundles still pass", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

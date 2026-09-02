@@ -3,8 +3,8 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio.yo"));
 { Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
-  print : (fn(self : *(Self)) -> unit),
-  return_i32 : (fn(self : *(Self)) -> i32)
+  print : (fn(self : *Self) -> unit),
+  return_i32 : (fn(self : *Self) -> i32)
 );
 use_test_dyn :: (
   fn(
@@ -31,12 +31,12 @@ impl(
   i32,
   TestDyn(
     print : (
-      (self) -> {
+      self -> {
         unsafe(printf("i32 value: %d\n", self.*));
       }
     ),
     return_i32 : (
-      (self) -> {
+      self -> {
         return(self.*);
       }
     )
@@ -46,7 +46,7 @@ impl(
   bool,
   TestDyn(
     print : (
-      (self) -> {
+      self -> {
         cond(
           self.* => unsafe(printf("bool value: true\n")),
           true => unsafe(printf("bool value: false\n"))
@@ -54,7 +54,7 @@ impl(
       }
     ),
     return_i32 : (
-      (self) ->
+      self ->
         cond(
           self.* => 1,
           true => return(0)
@@ -66,14 +66,14 @@ impl(
   MyBox,
   TestDyn(
     print : (
-      (self) -> {
+      self -> {
         unsafe(printf("Boxed i32 value: %d\n", self.x)); // Test auto-dereference
         unsafe(printf("Boxed i32 value: %d\n", self.*.x)); // Test manual dereference
       }
     ),
     // Let's x2 here
     return_i32 : (
-      (self) -> {
+      self -> {
         return(self.x + (self.*.x));
       }
     )
@@ -141,7 +141,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 test("Test downcast success", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : ((self) -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_cat := downcast(animal, Cat);
@@ -157,9 +157,9 @@ test("Test downcast success", {
 });
 test("Test downcast failure", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : ((self) -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name)));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : ((self) -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   maybe_dog := downcast(animal, Dog);
@@ -175,9 +175,9 @@ test("Test downcast failure", {
 });
 test("Test downcast type check via is_some", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : ((self) -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name)));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : ((self) -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name)));
   Animal :: Dyn(ToString);
   (animal : Animal) = dyn(Cat(`whiskers`));
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
@@ -185,9 +185,9 @@ test("Test downcast type check via is_some", {
 });
 test("Test downcast with multiple concrete types", {
   Cat :: ref(struct(name : String));
-  impl(Cat, ToString(to_string : ((self) -> self.name)));
+  impl(Cat, ToString(to_string : (self -> self.name)));
   Dog :: ref(struct(name : String));
-  impl(Dog, ToString(to_string : ((self) -> self.name)));
+  impl(Dog, ToString(to_string : (self -> self.name)));
   Animal :: Dyn(ToString);
   (cat_animal : Animal) = dyn(Cat(`kitty`));
   (dog_animal : Animal) = dyn(Dog(`buddy`));
@@ -225,7 +225,7 @@ impl(
   FixedSrc,
   AsyncRead(
     read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
-      io.async((e) => {
+      io.async(e => {
         return(self.n);
       })
     )
@@ -235,7 +235,7 @@ DynReader :: ref(struct(inner : Dyn(AsyncRead)));
 impl(
   DynReader,
   read_twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       a := e.io.await(self.inner.read(e.io), e);
       b := e.io.await(self.inner.read(e.io), e);
       return(a + b);
@@ -245,7 +245,7 @@ impl(
 test("Dyn(trait) with a Future-returning method dispatches through the vtable", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )

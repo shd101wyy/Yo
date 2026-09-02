@@ -61,7 +61,7 @@ test("path_contains_path — shorter path is not contained in longer prefix", {
   p2 := ArrayList(String).new();
   p2.push(String.from("x"));
   p2.push(String.from("a"));
-  assert(!(path_contains_path(p1, p2)), "[x] does not contain [x,a]");
+  assert(!path_contains_path(p1, p2), "[x] does not contain [x,a]");
 });
 test("path_contains_path — disjoint paths are not contained", {
   p1 := ArrayList(String).new();
@@ -69,7 +69,7 @@ test("path_contains_path — disjoint paths are not contained", {
   p1.push(String.from("a"));
   p2 := ArrayList(String).new();
   p2.push(String.from("y"));
-  assert(!(path_contains_path(p1, p2)), "disjoint paths not contained");
+  assert(!path_contains_path(p1, p2), "disjoint paths not contained");
 });
 // ---------------------------------------------------------------------------
 // path_conflicts_with_path
@@ -87,7 +87,7 @@ test("path_conflicts_with_path — non-conflicting paths", {
   p1.push(String.from("x"));
   p2 := ArrayList(String).new();
   p2.push(String.from("y"));
-  assert(!(path_conflicts_with_path(p1, p2)), "[x] does not conflict with [y]");
+  assert(!path_conflicts_with_path(p1, p2), "[x] does not conflict with [y]");
 });
 // ---------------------------------------------------------------------------
 // path_collection_conflicts_with_path_collection
@@ -113,12 +113,12 @@ test("path_collection_conflicts — disjoint collections", {
   c1.push(p1);
   c2 := ArrayList(ArrayList(String)).new();
   c2.push(p2);
-  assert(!(path_collection_conflicts_with_path_collection(c1, c2)), "disjoint collections don't conflict");
+  assert(!path_collection_conflicts_with_path_collection(c1, c2), "disjoint collections don't conflict");
 });
 test("path_collection_conflicts — empty collections don't conflict", {
   c1 := ArrayList(ArrayList(String)).new();
   c2 := ArrayList(ArrayList(String)).new();
-  assert(!(path_collection_conflicts_with_path_collection(c1, c2)), "empty collections don't conflict");
+  assert(!path_collection_conflicts_with_path_collection(c1, c2), "empty collections don't conflict");
 });
 // ---------------------------------------------------------------------------
 // ControlFlowKind + ControlFlowFlags
@@ -126,29 +126,29 @@ test("path_collection_conflicts — empty collections don't conflict", {
 test("control_flow_of Return", {
   cf := control_flow_of(ControlFlowKind.Return);
   assert(cf.return_flag, "return(flag set)");
-  assert(!(cf.unwind_flag), "unwind(flag not set)");
-  assert(!(cf.break_flag), "break flag not set");
-  assert(!(cf.continue_flag), "continue flag not set");
+  assert(!cf.unwind_flag, "unwind(flag not set)");
+  assert(!cf.break_flag, "break flag not set");
+  assert(!cf.continue_flag, "continue flag not set");
 });
 test("control_flow_of Break", {
   cf := control_flow_of(ControlFlowKind.Break);
-  assert(!(cf.return_flag), "return(not set)");
+  assert(!cf.return_flag, "return(not set)");
   assert(cf.break_flag, "break set");
 });
 test("has_control_flow — correct flag", {
   cf := control_flow_of(ControlFlowKind.Unwind);
   assert(has_control_flow(.Some(cf), ControlFlowKind.Unwind), "unwind(set)");
-  assert(!(has_control_flow(.Some(cf), ControlFlowKind.Return)), "return(not set)");
+  assert(!has_control_flow(.Some(cf), ControlFlowKind.Return), "return(not set)");
 });
 test("has_control_flow — None", {
-  assert(!(has_control_flow(Option(ControlFlowFlags).None, ControlFlowKind.Return)), "None has no control flow");
+  assert(!has_control_flow(Option(ControlFlowFlags).None, ControlFlowKind.Return), "None has no control flow");
 });
 test("has_any_control_flow", {
   cf := control_flow_of(ControlFlowKind.Continue);
   assert(has_any_control_flow(.Some(cf)), "has any");
-  assert(!(has_any_control_flow(Option(ControlFlowFlags).None)), "None has none");
+  assert(!has_any_control_flow(Option(ControlFlowFlags).None), "None has none");
   empty := ControlFlowFlags(return_flag : false, unwind_flag : false, break_flag : false, continue_flag : false);
-  assert(!(has_any_control_flow(.Some(empty))), "all-false has none");
+  assert(!has_any_control_flow(.Some(empty)), "all-false has none");
 });
 test("merge_control_flows", {
   r := control_flow_of(ControlFlowKind.Return);
@@ -159,7 +159,7 @@ test("merge_control_flows", {
   merged := merge_control_flows(flows);
   assert(merged.return_flag, "return(merged)");
   assert(merged.break_flag, "break merged");
-  assert(!(merged.unwind_flag), "unwind(not merged)");
+  assert(!merged.unwind_flag, "unwind(not merged)");
 });
 test("control_flow_to_string — single flag", {
   cf := control_flow_of(ControlFlowKind.Return);

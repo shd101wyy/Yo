@@ -54,7 +54,7 @@ test("iov pwritev and preadv on regular file", {
   path_str := helper.path_join(tmp, `yo_iov_regular_test.txt`);
   path_c := path_str.to_cstr();
   path := path_c.ptr().unwrap();
-  flags := ((O_RDWR | O_CREAT) | O_TRUNC);
+  flags := (O_RDWR | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, path, flags, i32(0o644)), io);
   assert(fd >= i32(0), "openat should create a regular file for iov test");
   iov_bytes := (iov_io.iovec_size() * usize(2));

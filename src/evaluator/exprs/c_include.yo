@@ -64,7 +64,7 @@ evaluate_c_include :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None), {
     exn.throw(
       dyn(
         format_error_message(
@@ -82,7 +82,7 @@ evaluate_c_include :: (
   // call-site gate in `function.yo` catches actual calls, but type-level
   // uses (an imported extern Type in a field/trait bound) would slip
   // through. Mirrors `c-include.ts:46-66`.
-  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone()))), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message(
@@ -106,7 +106,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   all_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // First arg must be an atom (the C header file string literal, e.g. "<stdio.h>").
   first_arg_opt := all_args.get(usize(0));
-  if(!(match(first_arg_opt, .Some(a) => ast_expr_is_atom(a), .None => false)), {
+  if(!match(first_arg_opt, .Some(a) => ast_expr_is_atom(a), .None => false), {
     exn.throw(
       dyn(
         format_error_message(
@@ -189,7 +189,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while((dup_idx < field_labels.len()) && !(has_dup), {
+    while((dup_idx < field_labels.len()) && !has_dup, {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;

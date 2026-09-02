@@ -31,7 +31,7 @@ test("lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   assert(pos_cur_4 == i64(4), "lseek SEEK_CUR by +4 should return offset 4");
   pos_cur_3 := seek_io.lseek(fd, i64(3), seek_io.SEEK_CUR);
   assert(pos_cur_3 == i64(7), "lseek SEEK_CUR by +3 should return offset 7");
-  pos_end_minus_2 := seek_io.lseek(fd, i64(-(2)), seek_io.SEEK_END);
+  pos_end_minus_2 := seek_io.lseek(fd, i64(-2), seek_io.SEEK_END);
   assert(pos_end_minus_2 == i64(8), "lseek SEEK_END by -2 should return offset 8");
   pos_cur_now := seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR);
   assert(pos_cur_now == i64(8), "lseek SEEK_CUR by 0 should keep current offset at 8");
@@ -43,7 +43,7 @@ test("lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   assert(rm == i32(0), "unlinking temp file after seek regular test should succeed");
 });
 test("lseek invalid fd invalid whence and negative offset errors", {
-  bad_fd_ret := seek_io.lseek(i32(-(1)), i64(0), seek_io.SEEK_SET);
+  bad_fd_ret := seek_io.lseek(i32(-1), i64(0), seek_io.SEEK_SET);
   assert(bad_fd_ret == (i64(0) - i64(EBADF)), "lseek on invalid fd should return -EBADF");
   tmp := temp_dir();
   template_str := path_join(tmp, `yo_io_seek_error_XXXXXX`);
@@ -53,7 +53,7 @@ test("lseek invalid fd invalid whence and negative offset errors", {
   assert(fd >= i32(0), "mkstemp for seek error test should succeed");
   invalid_whence_ret := seek_io.lseek(fd, i64(0), i32(99));
   assert(invalid_whence_ret == (i64(0) - i64(EINVAL)), "lseek with invalid whence should return -EINVAL");
-  negative_set_ret := seek_io.lseek(fd, i64(-(1)), seek_io.SEEK_SET);
+  negative_set_ret := seek_io.lseek(fd, i64(-1), seek_io.SEEK_SET);
   assert(negative_set_ret == (i64(0) - i64(EINVAL)), "lseek SEEK_SET to negative offset should return -EINVAL");
   close_ret := io.await(file.close(fd), io);
   assert(close_ret == i32(0), "closing temp file after seek error test should succeed");

@@ -19,7 +19,7 @@ open(import("std/fmt"));
 test("write_string and read_to_string round-trip", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -39,7 +39,7 @@ test("write_string and read_to_string round-trip", {
 test("write_string_cstr and read_to_string_cstr", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -59,7 +59,7 @@ test("write_string_cstr and read_to_string_cstr", {
 test("read returns bytes", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -79,7 +79,7 @@ test("read returns bytes", {
 test("append_file appends to existing content", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -97,7 +97,7 @@ test("append_file appends to existing content", {
 test("exists returns true for existing file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -114,7 +114,7 @@ test("exists returns true for existing file", {
 test("exists returns false for nonexistent file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -123,7 +123,7 @@ test("exists returns false for nonexistent file", {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such_file.txt`);
   e := io.await(fs_file.exists(fpath, io), io);
   unsafe(printf("  exists = %d\n", cond(e => i32(1), true => i32(0))));
-  assert(!(e), "file should not exist");
+  assert(!e, "file should not exist");
 });
 // ============================================================================
 // File object tests
@@ -131,7 +131,7 @@ test("exists returns false for nonexistent file", {
 test("File.open write and read_to_string", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -157,7 +157,7 @@ test("File.open nonexistent returns error", {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such.txt`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got error as expected\n"));
         unwind(());
       }
@@ -169,7 +169,7 @@ test("File.open nonexistent returns error", {
 test("File.size returns correct size", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -188,7 +188,7 @@ test("File.size returns correct size", {
 test("File.path returns correct path", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -211,7 +211,7 @@ test("OpenMode.CreateNew fails if file exists", {
   // Create file first (with success handler)
   setup_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception during setup");
         unwind(());
       }
@@ -221,7 +221,7 @@ test("OpenMode.CreateNew fails if file exists", {
   // Try CreateNew on existing file - should fail
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  CreateNew correctly failed\n"));
         unwind(());
       }
@@ -233,7 +233,7 @@ test("OpenMode.CreateNew fails if file exists", {
 test("OpenMode.CreateNew succeeds on new file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -256,7 +256,7 @@ test("OpenMode.CreateNew succeeds on new file", {
 test("File.open_cstr convenience", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -284,7 +284,7 @@ test("File.open_cstr convenience", {
 test("File sequential write_string calls advance the position", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -304,7 +304,7 @@ test("File sequential write_string calls advance the position", {
 test("File sequential read calls advance the position", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -318,11 +318,11 @@ test("File sequential read calls advance the position", {
   buf := *(u8)(malloc(usize(8)).unwrap());
   n1 := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
   assert(n1 == usize(3), "first read should return 3 bytes");
-  first := ((((buf).* == u8(65)) && ((buf.add(usize(1))).* == u8(66))) && ((buf.add(usize(2))).* == u8(67)));
+  first := (((buf).* == u8(65)) && ((buf.add(usize(1))).* == u8(66)) && ((buf.add(usize(2))).* == u8(67)));
   assert(first, "first read should be ABC");
   n2 := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
   assert(n2 == usize(3), "second read should return 3 bytes");
-  second := ((((buf).* == u8(68)) && ((buf.add(usize(1))).* == u8(69))) && ((buf.add(usize(2))).* == u8(70)));
+  second := (((buf).* == u8(68)) && ((buf.add(usize(1))).* == u8(69)) && ((buf.add(usize(2))).* == u8(70)));
   assert(second, "second read must be DEF — the position must advance");
   free(.Some(*(void)(buf)));
   io.await(f.close(io), IoExn(io : io, exn : exn));
@@ -331,7 +331,7 @@ test("File sequential read calls advance the position", {
 test("File.seek positions the next read", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -347,7 +347,7 @@ test("File.seek positions the next read", {
   buf := *(u8)(malloc(usize(8)).unwrap());
   n := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
   assert(n == usize(3), "read after seek should return 3 bytes");
-  got := ((((buf).* == u8(53)) && ((buf.add(usize(1))).* == u8(54))) && ((buf.add(usize(2))).* == u8(55)));
+  got := (((buf).* == u8(53)) && ((buf.add(usize(1))).* == u8(54)) && ((buf.add(usize(2))).* == u8(55)));
   assert(got, "read after seek(5) must be 567, not 012");
   free(.Some(*(void)(buf)));
   io.await(f.close(io), IoExn(io : io, exn : exn));

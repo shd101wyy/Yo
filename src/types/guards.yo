@@ -112,7 +112,7 @@ is_module_type :: (fn(t : TypeValue) -> bool)(
 /// Mirrors TS `isStructType` (guards.ts:161): EXCLUDES source-namespace
 /// structs, exactly as TS does.
 is_struct_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .Struct({ is_source_namespace : sns }) => !(sns), _ => false)
+  match(t, .Struct({ is_source_namespace : sns }) => !sns, _ => false)
 );
 is_enum_type :: (fn(t : TypeValue) -> bool)(
   match(t, .EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false)
@@ -174,25 +174,25 @@ is_isize_type :: (fn(t : TypeValue) -> bool)(
   match(t, .Isize => true, _ => false)
 );
 is_u8_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .Int(bits, signed) => ((bits == u8(8)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(8)) && !signed), _ => false)
 );
 is_i8_type :: (fn(t : TypeValue) -> bool)(
   match(t, .Int(bits, signed) => ((bits == u8(8)) && signed), _ => false)
 );
 is_u16_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .Int(bits, signed) => ((bits == u8(16)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(16)) && !signed), _ => false)
 );
 is_i16_type :: (fn(t : TypeValue) -> bool)(
   match(t, .Int(bits, signed) => ((bits == u8(16)) && signed), _ => false)
 );
 is_u32_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .Int(bits, signed) => ((bits == u8(32)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(32)) && !signed), _ => false)
 );
 is_i32_type :: (fn(t : TypeValue) -> bool)(
   match(t, .Int(bits, signed) => ((bits == u8(32)) && signed), _ => false)
 );
 is_u64_type :: (fn(t : TypeValue) -> bool)(
-  match(t, .Int(bits, signed) => ((bits == u8(64)) && !(signed)), _ => false)
+  match(t, .Int(bits, signed) => ((bits == u8(64)) && !signed), _ => false)
 );
 is_i64_type :: (fn(t : TypeValue) -> bool)(
   match(t, .Int(bits, signed) => ((bits == u8(64)) && signed), _ => false)
@@ -265,9 +265,9 @@ is_box_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
     .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
-      (!(is_ref)) => false,
+      !is_ref => false,
       (field_labels.len() != usize(1)) => false,
-      (!(name.clone().starts_with(String.from("Box(")))) => false,
+      !name.clone().starts_with(String.from("Box(")) => false,
       true => match(
         field_labels.get(usize(0)),
         .Some(label) => (label == "*"),
@@ -370,7 +370,7 @@ is_integer_type :: (fn(t : TypeValue) -> bool)(
 is_unsigned_integer_type :: (fn(t : TypeValue) -> bool)(
   match(
     t,
-    .Int(_, signed) => !(signed),
+    .Int(_, signed) => !signed,
     .Usize => true,
     _ => false
   )
@@ -460,7 +460,7 @@ is_rc_type :: (fn(t : TypeValue) -> bool)(
       // Check if any required trait is a Future trait
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < req_traits.len()) && !(found), {
+      while((i < req_traits.len()) && !found, {
         match(
           req_traits.get(i),
           .Some(tr) => {
@@ -516,7 +516,7 @@ _some_type_implements_future :: (fn(t : TypeValue) -> bool)(
     .SomeT({ required_trait_types : sf_rtts }) => {
       (sf_found : bool) = false;
       (sf_i : usize) = usize(0);
-      while((sf_i < sf_rtts.len()) && !(sf_found), {
+      while((sf_i < sf_rtts.len()) && !sf_found, {
         match(
           sf_rtts.get(sf_i),
           .Some(sf_rt) => if(is_future_trait_type(sf_rt), {
@@ -550,7 +550,7 @@ is_function_type_generic :: (fn(t : TypeValue) -> bool)(
                 pt,
                 // Future-implementing SomeT params are exempt — mirrors TS
                 // `!typeImplementsFuture(p.type)` (guards.ts:474).
-                .SomeT(name : _) => if(!(_some_type_implements_future(pt)), {
+                .SomeT(name : _) => if(!_some_type_implements_future(pt), {
                   found = true;
                 }),
                 _ => ()
@@ -600,7 +600,7 @@ is_function_type_hard_generic :: (fn(t : TypeValue) -> bool)(
                   // `!typeImplementsFuture(p.type)` (guards.ts:510): they
                   // lower to the future-trait struct pointer, so the
                   // unspecialized form IS valid C.
-                  if(!(_some_type_implements_future(pt)) && !(_some_param_has_resolved_concrete(sid)), {
+                  if(!_some_type_implements_future(pt) && !_some_param_has_resolved_concrete(sid), {
                     found = true;
                   });
                 },
@@ -646,12 +646,12 @@ is_function_specializable :: (fn(t : TypeValue) -> bool)(false);
 // "Box(" — i.e. the prelude `Box(T)` wrapper.
 is_boxed_type :: (fn(t : TypeValue) -> bool)(
   if(
-    !(is_reference_struct_type(t)),
+    !is_reference_struct_type(t),
     false,
     match(
       t,
       .Struct({ name, field_labels }) =>
-        (((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false)) && name.starts_with("Box(")),
+        ((field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && name.starts_with("Box(")),
       _ => false
     )
   )

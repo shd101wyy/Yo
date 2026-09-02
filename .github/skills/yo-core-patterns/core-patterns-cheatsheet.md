@@ -120,7 +120,7 @@ first := numbers(usize(0));  // → i32  (value)
 numbers(usize(0)) = i32(99);
 
 // When you need the pointer explicitly:
-ptr := &(numbers(usize(0)));  // → *(i32)
+ptr := &numbers(usize(0));  // → *(i32)
 ptr.* = i32(100);
 
 // Safe access:
@@ -172,7 +172,7 @@ counter.* = (counter.* + i32(1));
 
 - Use `Box(T)` or `box(value)` for owned heap allocation
 - Use `*(T)` for raw pointers
-- Model nullable pointers as `Option(*(T))` or `?(*(T))`, not sentinel integers
+- Model nullable pointers as `?*T` (= `?(*(T))`) or the explicit `Option(*T)`, not sentinel integers
 - Constructor syntax: `Box(T)(value)` — NOT `Box(T).new(value)`
 - Single-payload reference-semantics values may use `(*) : T`; access the payload with `value.*`.
   This is a value payload accessor for reference-semantics values, while pointer dereference

@@ -292,7 +292,7 @@ test("ArrayList.iter yields every element and does not consume the list", {
   list.push(i32(2));
   list.push(i32(3));
   sum := i32(0);
-  for(list.iter(), (x) => {
+  for(list.iter(), x => {
     sum = (sum + x);
   });
   assert(sum == i32(6));
@@ -306,7 +306,7 @@ test("ArrayList.iter works on a list of RC strings", {
   list.push(String.from("a"));
   list.push(String.from("b"));
   count := usize(0);
-  for(list.iter(), (s) => {
+  for(list.iter(), s => {
     assert(s.len() == usize(1));
     count = (count + usize(1));
   });
@@ -763,7 +763,7 @@ test("ArrayList of String - shrink_to_fit preserves String elements", {
 test("ArrayList into_iter - empty list", {
   list := ArrayList(i32).new();
   count := usize(0);
-  for(list.into_iter(), (value) => {
+  for(list.into_iter(), value => {
     consume(value);
     count = (count + usize(1));
   });
@@ -774,7 +774,7 @@ test("ArrayList into_iter - single element", {
   list.push(i32(42));
   count := usize(0);
   got := i32(0);
-  for(list.into_iter(), (value) => {
+  for(list.into_iter(), value => {
     got = value;
     count = (count + usize(1));
   });
@@ -788,7 +788,7 @@ test("ArrayList into_iter - multiple elements in order", {
   list.push(i32(30));
   sum := i32(0);
   count := usize(0);
-  for(list.into_iter(), (value) => {
+  for(list.into_iter(), value => {
     sum = (sum + value);
     count = (count + usize(1));
   });
@@ -798,7 +798,7 @@ test("ArrayList into_iter - multiple elements in order", {
 test("ArrayList iter - empty list", {
   list := ArrayList(i32).new();
   count := usize(0);
-  for(list, (x) => {
+  for(list, x => {
     consume(x);
     count = (count + usize(1));
   });
@@ -811,7 +811,7 @@ test("ArrayList iter - reads elements by value", {
   list.push(i32(300));
   sum := i32(0);
   count := usize(0);
-  for(list, (x) => {
+  for(list, x => {
     sum = (sum + x);
     count = (count + usize(1));
   });
@@ -857,7 +857,7 @@ test("Test ArrayList index pointer access", {
   list.push(i32(100));
   list.push(i32(200));
   list.push(i32(300));
-  ptr := &(list(usize(1)));
+  ptr := &list(usize(1));
   assert(ptr.* == i32(200), "index pointer should return pointer to element");
   // Modify through pointer
   ptr.* = i32(999);
@@ -982,10 +982,10 @@ test("ArrayList.is_empty tracks length", {
   list := ArrayList(i32).new();
   assert(list.is_empty(), "a fresh list is empty");
   list.push(i32(1));
-  assert(!(list.is_empty()), "not empty after a push");
+  assert(!list.is_empty(), "not empty after a push");
   list.push(i32(2));
   list.pop();
-  assert(!(list.is_empty()), "still not empty with one element left");
+  assert(!list.is_empty(), "still not empty with one element left");
   list.pop();
   assert(list.is_empty(), "empty again once every element is popped");
 });

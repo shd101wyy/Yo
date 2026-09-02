@@ -74,7 +74,7 @@ evaluate_yo_comptime_list_car :: (
     }
   );
   (cur_env : Environment) = info.env;
-  if(!(is_comptime_list_type(info.ty)), {
+  if(!is_comptime_list_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -184,7 +184,7 @@ evaluate_yo_comptime_list_cdr :: (
     }
   );
   (cur_env : Environment) = info.env;
-  if(!(is_comptime_list_type(info.ty)), {
+  if(!is_comptime_list_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -336,7 +336,7 @@ evaluate_yo_comptime_list_cons :: (
     }
   );
   cur_env = cdr_info.env;
-  if(!(is_comptime_list_type(cdr_info.ty)), {
+  if(!is_comptime_list_type(cdr_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -367,7 +367,7 @@ evaluate_yo_comptime_list_cons :: (
   );
   child_ty := match(cdr_info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
   list_ty := cdr_info.ty;
-  if(!(are_types_compatible(car_info.ty, child_ty)), {
+  if(!are_types_compatible(car_info.ty, child_ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -453,7 +453,7 @@ evaluate_yo_comptime_list_append :: (
     }
   );
   (cur_env : Environment) = first_info.env;
-  if(!(is_comptime_list_type(first_info.ty)), {
+  if(!is_comptime_list_type(first_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -501,7 +501,7 @@ evaluate_yo_comptime_list_append :: (
     }
   );
   cur_env = second_info.env;
-  if(!(is_comptime_list_type(second_info.ty)), {
+  if(!is_comptime_list_type(second_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -530,7 +530,7 @@ evaluate_yo_comptime_list_append :: (
       EvalValue.UnitVal
     }
   );
-  if(!(are_types_compatible(first_info.ty, second_info.ty)), {
+  if(!are_types_compatible(first_info.ty, second_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -624,7 +624,7 @@ evaluate_yo_comptime_list_length :: (
       new_expr_info(env, TypeValue.Unit)
     }
   );
-  if(!(is_comptime_list_type(info.ty)), {
+  if(!is_comptime_list_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -739,7 +739,7 @@ evaluate_yo_comptime_list_element_type :: (
       TypeValue.Unit
     }
   );
-  if(!(is_comptime_list_type(inner_ty)), {
+  if(!is_comptime_list_type(inner_ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -797,7 +797,7 @@ evaluate_yo_comptime_list_get :: (
       new_expr_info(env, TypeValue.Unit)
     }
   );
-  if(!(is_comptime_list_type(list_info.ty)), {
+  if(!is_comptime_list_type(list_info.ty), {
     exn.throw(
       dyn(
         format_error_message(

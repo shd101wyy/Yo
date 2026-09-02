@@ -120,7 +120,7 @@ is_unit_value_expression :: (fn(expr : AstExpr) -> bool)(
 _ids_list_contains :: (fn(lst : ArrayList(String), s : String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < lst.len()) && (!(found)), {
+  while((i < lst.len()) && !found, {
     match(
       lst.get(i),
       .Some(x) => if(x == s, {
@@ -154,7 +154,7 @@ _dup_call_target_name :: (fn(e : AstExpr) -> Option(String))(
               .Some(x) => x,
               .None => return(Option(String).None)
             );
-            if((ast_expr_is_atom(a0) && ast_expr_is_atom(a1)) && ast_expr_is_atom_of(a1, BF_DUP), {
+            if(ast_expr_is_atom(a0) && ast_expr_is_atom(a1) && ast_expr_is_atom_of(a1, BF_DUP), {
               return(Option(String).Some(ast_expr_token(a0).value));
             });
           },
@@ -183,7 +183,7 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
     .Some(lst) => {
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < lst.len()) && (!(found)), {
+      while((i < lst.len()) && !found, {
         match(
           lst.get(i),
           .Some(x) => if(ast_expr_id(x) == ast_expr_id(e), {
@@ -193,7 +193,7 @@ _push_dup_call :: (fn(res : DupCallsResult, var_id : String, e : AstExpr) -> uni
         );
         i = (i + usize(1));
       });
-      if(!(found), {
+      if(!found, {
         lst.push(e);
       });
     },
@@ -350,7 +350,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
           while(ki < br.dup_call_var_ids.len(), {
             match(
               br.dup_call_var_ids.get(ki),
-              .Some(vid) => if(!(_ids_list_contains(all_vars, vid.clone())), {
+              .Some(vid) => if(!_ids_list_contains(all_vars, vid.clone()), {
                 all_vars.push(vid);
               }),
               .None => ()
@@ -361,7 +361,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
           while(pi < br.vars_with_partial_branch_dups.len(), {
             match(
               br.vars_with_partial_branch_dups.get(pi),
-              .Some(pv) => if(!(_ids_list_contains(res.vars_with_partial_branch_dups, pv.clone())), {
+              .Some(pv) => if(!_ids_list_contains(res.vars_with_partial_branch_dups, pv.clone()), {
                 res.vars_with_partial_branch_dups.push(pv);
               }),
               .None => ()
@@ -430,7 +430,7 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
             });
           }, {
             // Some arms dup, some don't — the pair must survive.
-            if(!(_ids_list_contains(res.vars_with_partial_branch_dups, vid.clone())), {
+            if(!_ids_list_contains(res.vars_with_partial_branch_dups, vid.clone()), {
               res.vars_with_partial_branch_dups.push(vid.clone());
             });
           });
@@ -486,7 +486,7 @@ _try_synthesize_return_type :: (
     env : Environment
   ) -> bool
 )({
-  local_exn := Exception(throw : ((_err) -> unwind(false)));
+  local_exn := Exception(throw : (_err -> unwind(false)));
   _sr := synthesize_types(
     expected_ty,
     env,
@@ -526,7 +526,7 @@ _check_keyword_position :: (
   is_second_last := ((n_args >= usize(2)) && (loop_i == (n_args - usize(2))));
   second_last_before_unit := (is_second_last && last_is_unit);
   ok := (is_last || second_last_before_unit);
-  if(!(ok), {
+  if(!ok, {
     exn.throw(
       dyn(
         format_error_message(
@@ -574,7 +574,7 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
     .EnumVal(_, fields) => {
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < fields.len()) && !(found), {
+      while((i < fields.len()) && !found, {
         match(
           fields.get(i),
           .Some(f) => if(recur(f), {
@@ -589,7 +589,7 @@ _value_contains_unknown :: (fn(v : EvalValue) -> bool)(
     .StructVal(_, _, field_values) => {
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < field_values.len()) && !(found), {
+      while((i < field_values.len()) && !found, {
         match(
           field_values.get(i),
           .Some(f) => if(recur(f), {
@@ -633,10 +633,10 @@ _m3_tokens_comparable :: (fn(left : Token, right : Token) -> bool)(
   (left.module_path == right.module_path) && (left.input == right.input)
 );
 _m3_token_is_at_or_before :: (fn(left : Token, right : Token) -> bool)(
-  if(!(_m3_tokens_comparable(left, right)), false, left.character <= right.character)
+  if(!_m3_tokens_comparable(left, right), false, left.character <= right.character)
 );
 _m3_token_is_before :: (fn(left : Token, right : Token) -> bool)(
-  if(!(_m3_tokens_comparable(left, right)), false, left.character < right.character)
+  if(!_m3_tokens_comparable(left, right), false, left.character < right.character)
 );
 _m3_max_comparable_token :: (fn(node : AstExpr, reference : Token, best : Token) -> Token)({
   tok := ast_expr_token(node);
@@ -664,16 +664,16 @@ _m3_max_comparable_token :: (fn(node : AstExpr, reference : Token, best : Token)
 });
 _m3_last_comparable_token_in_expr :: (fn(expr : AstExpr, reference : Token) -> Token)({
   init := ast_expr_token(expr);
-  init2 := if(!(_m3_tokens_comparable(init, reference)), reference, init);
+  init2 := if(!_m3_tokens_comparable(init, reference), reference, init);
   _m3_max_comparable_token(expr, reference, init2)
 });
 /// A local that CAN need a scope-end drop, ignoring consumed status. Mirrors
 /// `variableCanNeedDropIgnoringConsumed`.
 _variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
-  if(!(v.is_owning_the_rc_value), {
+  if(!v.is_owning_the_rc_value, {
     return(false);
   });
-  if(!(type_contains_rc_type(v.ty)), {
+  if(!type_contains_rc_type(v.ty), {
     return(false);
   });
   if(v.is_module_level, {
@@ -684,7 +684,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : Variable) -> bool)({
     .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
     _ => false
   );
-  !(some_undroppable)
+  !some_undroppable
 });
 /// True iff `v` is captured by the current function/closure. Mirrors
 /// `variableIsCapturedByCurrentFunction`.
@@ -753,7 +753,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
           );
           fi = (fi + usize(1));
         });
-        if(!(found), {
+        if(!found, {
           _p := existing.push(drop_expr);
           ei.early_return_only_deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
         });
@@ -856,7 +856,7 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
       });
       (ai : usize) = usize(0);
       (found : bool) = false;
-      while((ai < fargs.len()) && (!(found)), {
+      while((ai < fargs.len()) && !found, {
         match(
           fargs.get(ai),
           .Some(a) => if(recur(a, ctx), {
@@ -889,7 +889,7 @@ _remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), 
           while(i < dl.len(), {
             match(
               dl.get(i),
-              .Some(d) => if(!(remove_ids.contains(ast_expr_id(d))), {
+              .Some(d) => if(!remove_ids.contains(ast_expr_id(d)), {
                 kept.push(d);
               }),
               .None => ()
@@ -996,7 +996,7 @@ _optimize_dup_drop_pairs :: (
         while(pi < cres.vars_with_partial_branch_dups.len(), {
           match(
             cres.vars_with_partial_branch_dups.get(pi),
-            .Some(pv) => if(!(_ids_list_contains(merged.vars_with_partial_branch_dups, pv.clone())), {
+            .Some(pv) => if(!_ids_list_contains(merged.vars_with_partial_branch_dups, pv.clone()), {
               merged.vars_with_partial_branch_dups.push(pv);
             }),
             .None => ()
@@ -1021,7 +1021,7 @@ _optimize_dup_drop_pairs :: (
     match(
       fvars.get(cdi),
       .Some(cv) => {
-        if((cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some()) && type_contains_rc_type(cv.ty), {
+        if(cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some() && type_contains_rc_type(cv.ty), {
           (cbase : Variable) = cv;
           (cwalking : bool) = true;
           while(cwalking, {
@@ -1072,18 +1072,18 @@ _optimize_dup_drop_pairs :: (
       fvars.get(vi),
       .Some(v) => {
         e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
-        e2 := (e1 && (!(v.is_module_level)));
-        e3 := (e2 && (!(v.is_ref)));
+        e2 := (e1 && !v.is_module_level);
+        e3 := (e2 && !v.is_ref);
         some_undroppable := match(
           v.ty,
           .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
           _ => false
         );
-        e4 := (e3 && (!(some_undroppable)));
+        e4 := (e3 && !some_undroppable);
         e5 := (e4 && v.consumed_at_token.is_none());
-        e6 := (e5 && (!(_name_matches_opt(v.name.clone(), result_var_name))));
-        e7 := (e6 && (!(_name_matches_opt(v.name.clone(), tail_atom_name))));
-        e8 := (e7 && (!(_variable_is_captured_by_current_function(v, ctx))));
+        e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
+        e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
+        e8 := (e7 && !_variable_is_captured_by_current_function(v, ctx));
         if(e8, {
           // Follow the ownership-alias chain to the root base variable
           // (begin.ts:1892-1897).
@@ -1106,7 +1106,7 @@ _optimize_dup_drop_pairs :: (
             .Some(dups) => if(dups.len() > usize(0), {
               // Value types with RC fields: `y = temp` is a C memcpy; both
               // copies need their own drop — never cancel (begin.ts:1900-1909).
-              value_type_with_rc := ((!(is_reference_struct_type(base.ty))) && type_contains_rc_type(base.ty));
+              value_type_with_rc := (!is_reference_struct_type(base.ty) && type_contains_rc_type(base.ty));
               partial := _ids_list_contains(merged.vars_with_partial_branch_dups, base_id.clone());
               // A main-path dup in a child AFTER an early-return child: the
               // early return never executes the dup, so the value is still
@@ -1154,7 +1154,7 @@ _optimize_dup_drop_pairs :: (
                   bci2 = (bci2 + usize(1));
                 });
               });
-              gates_ok := ((!(value_type_with_rc)) && ((!(partial)) && ((!(ret_before_dup)) && ((consumed_dups == usize(0)) && (!(base_consumed))))));
+              gates_ok := (!value_type_with_rc && (!partial && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed))));
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts
                 // (begin.ts:1930-1955).
@@ -1288,10 +1288,10 @@ _schedule_scope_end_drops :: (
         // locals: the compound-literal dup + dup-on-store then over-counted
         // every store by +1 and cycle collection never reclaimed HashMap
         // cycles (issues/yo-self-compound-literal-rc-overcount.md).
-        e0 := ((!(params_only)) || v.is_parameter);
-        e1 := ((e0 && v.is_owning_the_rc_value) && type_contains_rc_type(v.ty));
-        e2 := (e1 && (!(v.is_module_level)));
-        e3 := (e2 && (!(v.is_ref)));
+        e0 := (!params_only || v.is_parameter);
+        e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
+        e2 := (e1 && !v.is_module_level);
+        e3 := (e2 && !v.is_ref);
         // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
         // drop possible). Bounded/resolved SomeTypes keep their drop — mirrors
         // TS getVariablesNeedingDrop's resolvedConcreteType/requiredTraits check.
@@ -1300,10 +1300,10 @@ _schedule_scope_end_drops :: (
           .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
           _ => false
         );
-        e4 := (e3 && (!(some_undroppable)));
+        e4 := (e3 && !some_undroppable);
         e5 := (e4 && v.consumed_at_token.is_none());
-        e6 := (e5 && (!(_name_matches_opt(v.name.clone(), result_var_name))));
-        e7 := (e6 && (!(_name_matches_opt(v.name.clone(), tail_atom_name))));
+        e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
+        e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
         if(e7, {
           _p := to_drop.push(v);
         });
@@ -1425,7 +1425,7 @@ evaluate_begin_expression :: (
   (has_runtime_side_effects : bool) = false;
   (done : bool) = false;
   (loop_i : usize) = usize(0);
-  while((loop_i < n_args) && !(done), {
+  while((loop_i < n_args) && !done, {
     (expr_to_eval : AstExpr) = match(
       begin_args.get(loop_i),
       .Some(a) => a,
@@ -1460,7 +1460,7 @@ evaluate_begin_expression :: (
       // -------------------------------------------------------------------
       is_return_expr => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("return"), exn);
-        if(!(ctx.is_evaluating_function_body_or_async_block.is_some()), {
+        if(!ctx.is_evaluating_function_body_or_async_block.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1562,15 +1562,15 @@ evaluate_begin_expression :: (
                   rft,
                   .Func({ result : rfb, meta : __fm1 }) => {
                     rfco := __fm1.*.result_is_comptime_only;
-                    if((!(rfco) && type_representation_contains_raw_ptr(rfb))
-                    && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone()))), {
+                    if((!rfco && type_representation_contains_raw_ptr(rfb))
+                    && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone())), {
                       ret_slice_opts := FlowOptions(
                         allow_same_frame_local : false,
                         allow_parameter_source : true,
                         allow_comptime_source : true,
                         max_local_frame_level : Option(usize).None
                       );
-                      if(!(is_flowable_expr(evaluated_ret_arg, ctx, ret_slice_opts)), {
+                      if(!is_flowable_expr(evaluated_ret_arg, ctx, ret_slice_opts), {
                         exn.throw(
                           dyn(
                             format_error_message(
@@ -1626,7 +1626,7 @@ evaluate_begin_expression :: (
                   match(
                     ir_list.get(usize(0)),
                     .Some(ir_first) => {
-                      if(!(are_types_compatible(ir_first.concrete_type, ret_info.ty)), {
+                      if(!are_types_compatible(ir_first.concrete_type, ret_info.ty), {
                         ir_entries := ArrayList(TokenAndError).new();
                         ir_entries.push(
                           TokenAndError(
@@ -1679,7 +1679,7 @@ evaluate_begin_expression :: (
       // -------------------------------------------------------------------
       is_break_atom => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("break"), exn);
-        if(!(ctx.is_evaluating_loop_body.is_some()), {
+        if(!ctx.is_evaluating_loop_body.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1703,7 +1703,7 @@ evaluate_begin_expression :: (
       // -------------------------------------------------------------------
       is_continue_atom => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("continue"), exn);
-        if(!(ctx.is_evaluating_loop_body.is_some()), {
+        if(!ctx.is_evaluating_loop_body.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1727,7 +1727,7 @@ evaluate_begin_expression :: (
       // -------------------------------------------------------------------
       is_escape_call => {
         _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("unwind"), exn);
-        if(!(ctx.enclosing_function_return_type.is_some()), {
+        if(!ctx.enclosing_function_return_type.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1773,7 +1773,7 @@ evaluate_begin_expression :: (
         // "Test zero-arg unwind exits unit function", the file's one
         // genuinely failing test).
         if(esc_n_args == usize(0), {
-          if(!(is_some_type(enclosing_ret)) && !(are_types_compatible(TypeValue.Unit, enclosing_ret)), {
+          if(!is_some_type(enclosing_ret) && !are_types_compatible(TypeValue.Unit, enclosing_ret), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -1820,7 +1820,7 @@ evaluate_begin_expression :: (
           // Type-check unwind value against the enclosing return type.
           // Skip when the enclosing return type is an unresolved SomeType.
           esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
-          if(!(is_some_type(enclosing_ret)) && !(esc_compat), {
+          if(!is_some_type(enclosing_ret) && !esc_compat, {
             exn.throw(
               dyn(
                 format_error_message(
@@ -1855,7 +1855,7 @@ evaluate_begin_expression :: (
         // Propagate the expectedType hint only to the last expression in the block.
         old_expected := ctx.expected_type;
         is_last_in_loop := (loop_i == (n_args - usize(1)));
-        if(!(is_last_in_loop), {
+        if(!is_last_in_loop, {
           ctx.expected_type = Option(ExpectedTypeCtx).None;
         });
         evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, exn);
@@ -1874,7 +1874,7 @@ evaluate_begin_expression :: (
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be
         // folded to a compile-time value.
-        if(!(is_last_in_loop) && !(has_runtime_side_effects), {
+        if(!is_last_in_loop && !has_runtime_side_effects, {
           is_value_none := match(
             ev_info_opt,
             .Some(ei) => ei.value.is_none(),
@@ -1905,9 +1905,9 @@ evaluate_begin_expression :: (
             ),
             .None => false
           );
-          is_assign_runtime := (is_either_assign && !(ct_only_assign));
-          is_nonassign_unknown := (!(is_either_assign) && is_unknown_val);
-          if((is_value_none || is_assign_runtime) || is_nonassign_unknown, {
+          is_assign_runtime := (is_either_assign && !ct_only_assign);
+          is_nonassign_unknown := (!is_either_assign && is_unknown_val);
+          if(is_value_none || is_assign_runtime || is_nonassign_unknown, {
             has_runtime_side_effects = true;
           });
         });
@@ -1923,7 +1923,7 @@ evaluate_begin_expression :: (
         });
       }
     );
-    if(!(done), {
+    if(!done, {
       loop_i = (loop_i + usize(1));
     });
   });
@@ -1974,9 +1974,9 @@ evaluate_begin_expression :: (
                   .Func({ result : result_box }) => {
                     expected_ret := result_box;
                     synth_ok := _try_synthesize_return_type(expected_ret, return_type, env);
-                    if(!(synth_ok), {
+                    if(!synth_ok, {
                       compat := are_types_compatible(return_type, expected_ret);
-                      if(!(is_some_type(expected_ret)) && !(compat), {
+                      if(!is_some_type(expected_ret) && !compat, {
                         exn.throw(
                           dyn(
                             format_error_message(
@@ -2002,9 +2002,9 @@ evaluate_begin_expression :: (
               ctx.expected_type,
               .Some(et) => {
                 as_synth_ok := _try_synthesize_return_type(et.ty, return_type, env);
-                if(!(as_synth_ok), {
+                if(!as_synth_ok, {
                   as_compat := are_types_compatible(return_type, et.ty);
-                  if(!(is_some_type(et.ty)) && !(as_compat), {
+                  if(!is_some_type(et.ty) && !as_compat, {
                     exn.throw(
                       dyn(
                         format_error_message(
@@ -2137,7 +2137,7 @@ evaluate_begin_expression :: (
               // mirrors begin.ts `isOwnParamReturn` (matched by label against
               // the enclosing function's parameter list).
               is_own_param_return := (
-                (rv.is_owning_the_rc_value && rv.consumed_at_token.is_none()) && match(
+                rv.is_owning_the_rc_value && rv.consumed_at_token.is_none() && match(
                   ctx.is_evaluating_function_body_or_async_block,
                   .Some(fc) => match(
                     fc.kind,
@@ -2151,7 +2151,7 @@ evaluate_begin_expression :: (
                           own_flags := own_fm.*.param_is_owning;
                           (own_i : usize) = usize(0);
                           n_own := own_labels.len();
-                          while((own_i < n_own) && (!(own_found)), {
+                          while((own_i < n_own) && !own_found, {
                             lbl_match := match(own_labels.get(own_i), .Some(lbl) => (lbl == rv_name), .None => false);
                             flag_match := match(own_flags.get(own_i), .Some(fl) => fl, .None => false);
                             if(lbl_match && flag_match, {
@@ -2170,7 +2170,7 @@ evaluate_begin_expression :: (
                   .None => false
                 )
               );
-              if((rv.is_owning_the_rc_value && ((rv.frame_level == (env.frames.len() - usize(1))) || is_own_param_return)) && rv.consumed_at_token.is_none(), {
+              if(rv.is_owning_the_rc_value && ((rv.frame_level == (env.frames.len() - usize(1))) || is_own_param_return) && rv.consumed_at_token.is_none(), {
                 // Transfer: consumed — the scope-end scheduler (e5) skips it.
                 rv.consumed_at_token = Option(Box(Token)).Some(box(ast_expr_token(last_expr)));
               }, {
@@ -2256,8 +2256,8 @@ evaluate_begin_expression :: (
         match(
           fr2.variables.get(evi),
           .Some(ev) => {
-            not_auto := !(ev.token.module_path.starts_with(String.from("auto-generated://")));
-            eligible := (ev.consumed_at_token.is_some() && (ev.initialized_at_token.is_some() && (not_auto && (!(_variable_is_captured_by_current_function(ev, ctx)) && _variable_can_need_drop_ignoring_consumed(ev)))));
+            not_auto := !ev.token.module_path.starts_with(String.from("auto-generated://"));
+            eligible := (ev.consumed_at_token.is_some() && (ev.initialized_at_token.is_some() && (not_auto && (!_variable_is_captured_by_current_function(ev, ctx) && _variable_can_need_drop_ignoring_consumed(ev)))));
             init_ok := match(ev.initialized_at_token, .Some(it) => _m3_token_is_at_or_before(begin_tok, it), .None => false);
             if(eligible && init_ok, {
               drop_code := `___drop(${ev.name})`;
@@ -2348,7 +2348,7 @@ evaluate_begin_expression :: (
     .None => true,
     .Some(v) => match(v, .UnitVal => true, _ => _value_contains_unknown(v))
   );
-  if(shared_with_tail && !(carry_runtime_args), {
+  if(shared_with_tail && !carry_runtime_args, {
     out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).None;
     out_info.index_trait_ptr_type = Option(TypeValue).None;
     out_info.index_method_type = Option(TypeValue).None;

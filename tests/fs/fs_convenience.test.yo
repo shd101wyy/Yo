@@ -17,13 +17,13 @@ fs_metadata :: import("std/fs/metadata");
 // Probe wrappers: the expected-throw tests await through a SEPARATE handler,
 // and a top-level await's IoExn arm needs a fn boundary for unwind to land in.
 read_link_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     _t := e.io.await(fs_dir.read_link(p, e.io), e);
     ()
   })
 );
 try_exists_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     _t := e.io.await(fs_file.try_exists(p, e.io), e);
     ()
   })
@@ -34,7 +34,7 @@ try_exists_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
 test("is_file returns true for a regular file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -51,7 +51,7 @@ test("is_file returns true for a regular file", {
 test("is_file returns false for a directory", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -62,14 +62,14 @@ test("is_file returns false for a directory", {
   io.await(fs_dir.create_dir(dpath, io), IoExn(io : io, exn : exn));
   r := io.await(fs_file.is_file(dpath, io), io);
   unsafe(printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "directory should not be a file");
+  assert(!r, "directory should not be a file");
   io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
 });
 test("is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
   r := io.await(fs_file.is_file(fpath, io), io);
   unsafe(printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "nonexistent path should return false");
+  assert(!r, "nonexistent path should return false");
 });
 // ============================================================================
 // is_dir tests
@@ -77,7 +77,7 @@ test("is_file returns false for nonexistent path", {
 test("is_dir returns true for a directory", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -94,7 +94,7 @@ test("is_dir returns true for a directory", {
 test("is_dir returns false for a file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -105,14 +105,14 @@ test("is_dir returns false for a file", {
   io.await(fs_file.write_string(fpath, String.from("test"), io), IoExn(io : io, exn : exn));
   r := io.await(fs_file.is_dir(fpath, io), io);
   unsafe(printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "file should not be a directory");
+  assert(!r, "file should not be a directory");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
 test("is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
   r := io.await(fs_file.is_dir(dpath, io), io);
   unsafe(printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "nonexistent path should return false");
+  assert(!r, "nonexistent path should return false");
 });
 // ============================================================================
 // canonical tests
@@ -120,7 +120,7 @@ test("is_dir returns false for nonexistent path", {
 test("canonical resolves a real path", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -139,7 +139,7 @@ test("canonical resolves a real path", {
 test("canonical resolves dot-dot segments", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -170,7 +170,7 @@ test("canonical throws for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_canonical_missing`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -196,7 +196,7 @@ test("copy copies contents, permission bits and returns the byte count", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -229,7 +229,7 @@ test("remove_dir_all removes a nested tree (files, subdirs, symlink as link)", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -265,7 +265,7 @@ test("read_link returns the symlink target; a non-link throws", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -294,7 +294,7 @@ test("read_link on a non-link throws", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(true, "threw as expected (EINVAL)");
         unwind(());
       }
@@ -304,7 +304,7 @@ test("read_link on a non-link throws", {
   plain := Path.new(path_join(base.clone(), `s3_rl_plain.txt`.to_string()));
   e0 := Exception(
     throw : (
-      (err0) -> {
+      err0 -> {
         assert(false, "setup failed");
         unwind(());
       }
@@ -326,7 +326,7 @@ test("try_exists: true, false for absent, THROWS for a denied parent", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -353,7 +353,7 @@ test("try_exists THROWS for a denied parent instead of answering false", {
   });
   e0 := Exception(
     throw : (
-      (err0) -> {
+      err0 -> {
         assert(false, "setup failed");
         unwind(());
       }
@@ -368,7 +368,7 @@ test("try_exists THROWS for a denied parent instead of answering false", {
   child := Path.new(path_join(base.clone(), `s3_te_denied/child.txt`.to_string()));
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(true, "threw as expected (EACCES)");
         unwind(());
       }
@@ -392,7 +392,7 @@ test("try_exists denied-dir cleanup", {
   });
   e0 := Exception(
     throw : (
-      (err0) -> {
+      err0 -> {
         assert(true, "already clean");
         unwind(());
       }

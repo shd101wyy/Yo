@@ -95,7 +95,7 @@ evaluate_raw_pointer_call :: (
       // the user vocabulary — naming `*(T)` in a parameter / field / return slot
       // is rejected. 1:1 with `src/evaluator/calls/pointer.ts:75-86`.
       ptok := ast_expr_token(expr);
-      if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.clone())))), {
+      if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ptok.module_path.clone())), {
         exn.throw(
           dyn(
             format_error_message(

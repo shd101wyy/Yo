@@ -141,7 +141,7 @@ parse_error_text :: (
                 a_row = (usize(r1) - usize(1));
                 a_col = (usize(c1) - usize(1));
                 // path = body minus ":row:col"
-                tail_len := ((row_s.len() + col_s.len()) + usize(2));
+                tail_len := (row_s.len() + col_s.len() + usize(2));
                 a_path = body.substring(usize(0), body.len() - tail_len);
               });
             },
@@ -173,12 +173,12 @@ parse_error_text :: (
                   return(out);
                 }
               );
-              if(((d.row == a_row) && (d.col == a_col)) && (d.message == message), {
+              if((d.row == a_row) && (d.col == a_col) && (d.message == message), {
                 dup = true;
               });
               di = (di + usize(1));
             });
-            if(!(dup), {
+            if(!dup, {
               out.push(LspDiag(row : a_row, col : a_col, end_col : end_col, message : message));
             });
           },
@@ -230,7 +230,7 @@ _ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
   });
   pre_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         _stash_parse_error(err.to_string());
         unwind(())
       }
@@ -260,7 +260,7 @@ _analyze_eval :: (
 )({
   local_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         _stash_parse_error(err.to_string());
         unwind(
           AnalyzeOutcome(

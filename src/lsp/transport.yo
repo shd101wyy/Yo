@@ -32,7 +32,7 @@ read_lsp_message :: (
   (content_len : usize) = usize(0);
   (saw_header : bool) = false;
   (done_headers : bool) = false;
-  while(!(done_headers), {
+  while(!done_headers, {
     line_opt := io.await(reader.read_line(io), IoExn(io : io, exn : exn));
     match(
       line_opt,

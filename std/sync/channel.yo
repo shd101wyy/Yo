@@ -34,7 +34,7 @@ Channel :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type
   atomic(
     ref(
       struct(
-        _data : *(T),
+        _data : *T,
         _head : usize,
         _len : AtomicUsize,
         _capacity : usize,
@@ -58,7 +58,7 @@ impl(
   /// Capacity must be > 0.
   new : (fn(capacity : usize) -> Self)({
     assert(capacity > usize(0), "Channel.new: capacity must be > 0");
-    (ptr : *(T)) = *(T)(malloc(capacity * sizeof(T)).unwrap());
+    (ptr : *T) = *(T)(malloc(capacity * sizeof(T)).unwrap());
     return(
       Self(
         _data : ptr,
@@ -82,7 +82,7 @@ impl(
     // Wait while buffer is full and channel is not closed
     while(runtime(
       (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
-      && (!(self._closed.load(MemoryOrder.Relaxed)))
+      && !self._closed.load(MemoryOrder.Relaxed)
     ), {
       self._not_full.wait(self._mutex._raw_handle_ptr());
     });
@@ -110,7 +110,7 @@ impl(
     // Wait while buffer is empty and channel is not closed
     while(runtime(
       (self._len.load(MemoryOrder.Relaxed) == usize(0))
-      && (!(self._closed.load(MemoryOrder.Relaxed)))
+      && !self._closed.load(MemoryOrder.Relaxed)
     ), {
       self._not_empty.wait(self._mutex._raw_handle_ptr());
     });

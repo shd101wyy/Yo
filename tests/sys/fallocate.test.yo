@@ -12,7 +12,7 @@ dir :: import("std/sys/dir");
 temp_io :: import("std/sys/temp");
 fallocate_io :: import("std/sys/fallocate");
 test("fallocate invalid fd returns -EBADF", {
-  ret := fallocate_io.fallocate(i32(-(1)), i32(0), i64(0), i64(4096));
+  ret := fallocate_io.fallocate(i32(-1), i32(0), i64(0), i64(4096));
   assert(ret == (i32(0) - i32(EBADF)), "fallocate on invalid fd should return -EBADF");
 });
 test("fallocate mode 0 extends file size", {

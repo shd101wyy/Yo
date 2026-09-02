@@ -170,7 +170,7 @@ try_to_call_type_with_arguments :: (
           arg_expr
         }
       );
-      if(!(ast_expr_is_atom(label_sub)), {
+      if(!ast_expr_is_atom(label_sub), {
         exn.throw(
           dyn(
             format_error_message(
@@ -299,7 +299,7 @@ try_to_call_type_with_arguments :: (
             .Some(f_rt) => if(is_fn_trait_type(f_rt), {
               match(
                 f_rt,
-                .FnTraitT({ call_result : fcr }) => if(!(is_some_type(fcr)), {
+                .FnTraitT({ call_result : fcr }) => if(!is_some_type(fcr), {
                   fld_has_concrete_fn = true;
                 }),
                 _ => ()
@@ -331,7 +331,7 @@ try_to_call_type_with_arguments :: (
       convert_comptime_type_to_runtime_type(arg_info.ty, env)
     );
     // Type compatibility check.
-    if(!(are_types_compatible(arg_type, member_element.ty)), {
+    if(!are_types_compatible(arg_type, member_element.ty), {
       if(in_def_time_trial() && tycall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
         eprintln(
           `[tycall-mismatch] label=${member_element.label} expected=${type_to_string(member_element.ty)} got=${type_to_string(arg_type)} argval=${match(arg_info.value, .Some(av) => value_to_string(av), .None => String.from("<none>"))}`
@@ -355,11 +355,11 @@ try_to_call_type_with_arguments :: (
     i = (i + usize(1));
   });
   // Check that all unchecked fields have defaults.
-  if(!(is_union_type), {
+  if(!is_union_type, {
     (ci : usize) = usize(0);
     while(ci < n_fields, {
       already_checked := match(checked_indices.get(ci), .Some(_) => true, .None => false);
-      if(!(already_checked), {
+      if(!already_checked, {
         field_opt2 := type_fields.get(ci);
         match(
           field_opt2,
@@ -376,7 +376,7 @@ try_to_call_type_with_arguments :: (
               // re-raise: skip during checking-phase trials and cee-propagate
               // mode, and when a flag is already pending.
               mf_msg := `Type member "${field.label}" is not provided and has no default value or assigned value.`;
-              if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+              if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
                 flag_flow_violation(mf_msg.clone());
               });
               exn.throw(

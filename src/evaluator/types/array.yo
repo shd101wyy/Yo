@@ -43,7 +43,7 @@ evaluate_array_type :: (
   ) -> AstExpr
 )({
   // Verify this is `Array(T, N)` with exactly 2 arguments.
-  if(!(ast_expr_is_fn_call_of(expr, BK_ARRAY, Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_ARRAY, Option(usize).Some(usize(2))), {
     exn.throw(
       dyn(
         format_error_message(
@@ -82,7 +82,7 @@ evaluate_array_type :: (
     .Some(info) => info,
     .None => new_expr_info(env, t_usize()) // unreachable
   );
-  if(!(is_type_value(elem_type_info.value)), {
+  if(!is_type_value(elem_type_info.value), {
     exn.throw(
       dyn(
         format_error_message(

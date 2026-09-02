@@ -6,8 +6,8 @@ Scanned 1 .yo file(s); 2 public top-level fn declaration(s) inspected.
   raw-pointer leaks: 2
 
 Findings (file:line:col):
-  lib/api.yo:3:18: leaky parameter exposes *(u8) — p : *(u8), n : usize
-  lib/api.yo:3:38: leaky return exposes *(u8) — *(u8)
+  lib/api.yo:3:18: leaky parameter exposes *u8 — p : *u8, n : usize
+  lib/api.yo:3:36: leaky return exposes *u8 — *u8
 
 These public signatures expose raw pointer types. Migrate to value types (e.g. Slice(u8), ref(name) : T) where the raw pointer is not part of the API contract. Names ending in _cstr, _ptr, _raw, or from_raw_parts / as_ptr are exempt — they signal raw-pointer use by contract.
 rc=0
@@ -20,17 +20,17 @@ $ yo public-safe-report . --json
       "column": 18,
       "declName": "leaky",
       "slot": "parameter",
-      "pointerType": "*(u8)",
-      "snippet": "p : *(u8), n : usize"
+      "pointerType": "*u8",
+      "snippet": "p : *u8, n : usize"
     },
     {
       "file": "lib/api.yo",
       "line": 3,
-      "column": 38,
+      "column": 36,
       "declName": "leaky",
       "slot": "return",
-      "pointerType": "*(u8)",
-      "snippet": "*(u8)"
+      "pointerType": "*u8",
+      "snippet": "*u8"
     }
   ],
   "totals": {

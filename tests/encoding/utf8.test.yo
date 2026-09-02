@@ -127,14 +127,14 @@ test("sequence_len covers the whole lead-byte table", {
   assert(sequence_len(u8(0xFF)) == usize(0), "0xFF leads nothing");
 });
 test("is_continuation and is_boundary partition the byte space", {
-  assert(!(is_continuation(u8(0x00))), "NUL is not a continuation byte");
-  assert(!(is_continuation(u8(0x7F))), "0x7F is not a continuation byte");
+  assert(!is_continuation(u8(0x00)), "NUL is not a continuation byte");
+  assert(!is_continuation(u8(0x7F)), "0x7F is not a continuation byte");
   assert(is_continuation(u8(0x80)), "0x80 is a continuation byte");
   assert(is_continuation(u8(0xBF)), "0xBF is a continuation byte");
-  assert(!(is_continuation(u8(0xC0))), "0xC0 is not a continuation byte");
-  assert(!(is_continuation(u8(0xFF))), "0xFF is not a continuation byte");
+  assert(!is_continuation(u8(0xC0)), "0xC0 is not a continuation byte");
+  assert(!is_continuation(u8(0xFF)), "0xFF is not a continuation byte");
   assert(is_boundary(u8(0x41)), "ASCII sits on a boundary");
-  assert(!(is_boundary(u8(0x9F))), "a continuation byte is not a boundary");
+  assert(!is_boundary(u8(0x9F)), "a continuation byte is not a boundary");
   assert(is_boundary(u8(0xF0)), "a 4-byte lead sits on a boundary");
 });
 test("encoded_len matches the encoded width", {

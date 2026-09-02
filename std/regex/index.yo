@@ -1,7 +1,7 @@
 //! Regular expression engine with an NFA-based virtual machine.
 //!
-//! The public surface of the whole package is the three names this module
-//! exports: `Regex`, `RegexMatch` and `RegexError`. The sibling modules
+//! The public surface of the whole package is the four names this module
+//! exports: `Regex`, `RegexMatch`, `RegexMatchIter` and `RegexError`. The sibling modules
 //! (`parser`, `node`, `compiler`, `vm`, `flags`, `unicode`) are internals —
 //! they export only what their siblings consume, and nothing in them is
 //! covered by the stability promise.
@@ -93,6 +93,46 @@ impl(
   source : (fn(self : Self) -> String)(
     self._pattern
   ),
+  /// Flags-free constructor for the common case — exactly
+  /// `Regex.new(pattern, "")` without spelling the empty flag string.
+  compile : (fn(pattern : String) -> Result(Self, RegexError))(
+    Self.new(pattern, String.from(""))
+  ),
+  /// Quote `s` so every character the pattern grammar treats specially
+  /// (`\ ^ $ . | ? * + ( ) [ ] { }`) matches literally: each is preceded by
+  /// a backslash. Bytes that are already ordinary (alphanumerics, spaces,
+  /// other punctuation) and non-ASCII UTF-8 sequences pass through
+  /// untouched, so `Regex.new(Regex.escape(s), "").unwrap().test(s)` and
+  /// round-tripping a user string through a larger pattern are both safe.
+  escape : (fn(s : String) -> String)({
+    metas := ArrayList(u8).new();
+    metas.push(u8(92));
+    metas.push(u8(94));
+    metas.push(u8(36));
+    metas.push(u8(46));
+    metas.push(u8(124));
+    metas.push(u8(63));
+    metas.push(u8(42));
+    metas.push(u8(43));
+    metas.push(u8(40));
+    metas.push(u8(41));
+    metas.push(u8(91));
+    metas.push(u8(93));
+    metas.push(u8(123));
+    metas.push(u8(125));
+    out := ArrayList(u8).new();
+    b := s.as_bytes();
+    (i : usize) = usize(0);
+    while(i < b.len(), {
+      c := b(i);
+      if(metas.contains(c), {
+        out.push(u8(92));
+      });
+      out.push(c);
+      i = (i + usize(1));
+    });
+    String.from_bytes(out)
+  }),
   _extract_substring : (fn(self : Self, bytes : ArrayList(u8), start : usize, end_pos : usize) -> String)({
     result_bytes := ArrayList(u8).with_capacity(end_pos - start);
     i := start;
@@ -114,7 +154,7 @@ impl(
         first_byte := prefix(usize(0));
         (pos : usize) = from_byte;
         (found : bool) = false;
-        while((pos <= (input_len - prefix_len)) && (!(found)), {
+        while((pos <= (input_len - prefix_len)) && !found, {
           cond(
             (input_bytes(pos) == first_byte) => {
               // Check remaining prefix bytes
@@ -160,6 +200,7 @@ impl(
     match_end_byte := slots(usize(1));
     match_text := self._extract_substring(bytes, match_start_byte, match_end_byte);
     groups := ArrayList(Option(String)).new();
+    group_spans := ArrayList(Option(Range(usize))).new();
     g := usize(1);
     while(g <= self._n_groups, g = (g + usize(1)), {
       start_slot := (g * usize(2));
@@ -172,18 +213,21 @@ impl(
             ((gs != unset) && (ge != unset)) => {
               group_text := self._extract_substring(bytes, gs, ge);
               groups.push(.Some(group_text));
+              group_spans.push(.Some(gs .. ge));
             },
             true => {
               groups.push(.None);
+              group_spans.push(.None);
             }
           );
         },
         true => {
           groups.push(.None);
+          group_spans.push(.None);
         }
       );
     });
-    RegexMatch.new(match_text, match_start_byte, input, groups, self._group_names)
+    RegexMatch.new(match_text, match_start_byte, match_end_byte, input, groups, group_spans, self._group_names)
   })
 );
 // Block 3: exec, match_all (depend on Block 2)
@@ -340,6 +384,118 @@ impl(
     matches
   })
 );
+/// Lazy iterator over a regex's non-overlapping matches — what
+/// `Regex.find_iter` returns. Yields exactly what `match_all` collects,
+/// one match at a time: `next()` runs the VM from the end of the previous
+/// match (an empty match advances one UTF-8 character, mirroring
+/// `match_all`'s infinite-loop guard), so a large input can be scanned
+/// without materializing every match. Single-pass: once `next()` returns
+/// `.None` the iterator is exhausted (it does not rewind).
+RegexMatchIter :: ref(
+  struct(
+    _regex : Regex,
+    _vm : NfaVm,
+    _input : String,
+    _byte_pos : usize,
+    _has_prefix : bool
+  )
+);
+impl(
+  RegexMatchIter,
+  Iterator(
+    Item : RegexMatch,
+    next : (fn(inout(self) : Self) -> Option(RegexMatch))({
+      re := self._regex;
+      bytes := self._input.as_bytes();
+      input_len := bytes.len();
+      while(self._byte_pos <= input_len, {
+        result := self._vm.exec_at(self._byte_pos);
+        cond(
+          result.matched => {
+            m := re._build_match(result.slots, self._input);
+            match_start := result.slots(usize(0));
+            match_end := result.slots(usize(1));
+            cond(
+              (match_end == match_start) => {
+                // Empty match: advance one char to avoid an infinite loop
+                cond(
+                  (self._byte_pos >= input_len) => {
+                    self._byte_pos = (input_len + usize(1));
+                  },
+                  true => {
+                    b := bytes(self._byte_pos);
+                    char_len := utf8.step_len(b);
+                    next_pos := (self._byte_pos + char_len);
+                    self._byte_pos = cond(
+                      self._has_prefix => re._find_prefix_pos(bytes, next_pos),
+                      true => next_pos
+                    );
+                  }
+                );
+              },
+              true => {
+                self._byte_pos = cond(
+                  self._has_prefix => re._find_prefix_pos(bytes, match_end),
+                  true => match_end
+                );
+              }
+            );
+            return(.Some(m));
+          },
+          true => {
+            // Sticky scans never restart after a miss; otherwise advance
+            // one UTF-8 character and retry from there (match_all's
+            // non-sticky miss arm).
+            cond(
+              re._flags.sticky => {
+                self._byte_pos = (input_len + usize(1));
+              },
+              (self._byte_pos >= input_len) => {
+                self._byte_pos = (input_len + usize(1));
+              },
+              true => {
+                b := bytes(self._byte_pos);
+                char_len := utf8.step_len(b);
+                next_pos := (self._byte_pos + char_len);
+                self._byte_pos = cond(
+                  self._has_prefix => re._find_prefix_pos(bytes, next_pos),
+                  true => next_pos
+                );
+              }
+            );
+          }
+        );
+      });
+      .None
+    })
+  )
+);
+// Block 3b: find_iter (lazy match_all)
+impl(
+  Regex,
+  /// Lazy variant of `match_all`: returns a `RegexMatchIter` (an
+  /// `Iterator`) yielding the same non-overlapping matches one at a time.
+  /// Works with `for m in re.find_iter(s)` and with manual `next()` loops;
+  /// see the type's doc for the advance rules.
+  find_iter : (fn(self : Self, input : String) -> RegexMatchIter)({
+    vm := NfaVm.new(self._program, self._flags, input);
+    // The sticky flag only matches at the start/end of previous matches —
+    // the literal-prefix scan would skip legal positions, so it is off for
+    // sticky (match_all's sticky arm never consults it either).
+    has_prefix := ((self._program.literal_prefix.len() > usize(0)) && !(self._flags.sticky));
+    byte_pos := cond(
+      has_prefix => self._find_prefix_pos(input.as_bytes(), usize(0)),
+      true => usize(0)
+    );
+    RegexMatchIter(
+      _regex : self,
+      _vm : vm,
+      _input : input,
+      _byte_pos : byte_pos,
+      _has_prefix : has_prefix
+    )
+  })
+);
 // Block 4: test, search (depends on Block 3)
 impl(
   Regex,
@@ -491,7 +647,8 @@ impl(
     String.from_bytes(result)
   })
 );
-// Block 6: replace, replace_all, split (depends on Block 3+5)
+// Block 6: replace, replace_all, replace_with, replace_all_with, split
+// (depends on Block 3+5)
 impl(
   Regex,
   replace : (fn(self : Self, input : String, replacement : String) -> String)({
@@ -561,6 +718,73 @@ impl(
       }
     )
   }),
+  /// `replace` with the replacement COMPUTED per match: `f` receives the
+  /// `RegexMatch` (so `group(i)`/`named_group(...)` are available) and
+  /// returns the text to splice in. The callback IS the interpretation
+  /// layer — its output is inserted verbatim, with no `$1` reference
+  /// processing.
+  replace_with : (fn(self : Self, input : String, f : Impl(Fn(m : RegexMatch) -> String)) -> String)({
+    result := self.exec(input);
+    match(
+      result,
+      .None => input,
+      .Some(m) => {
+        input_bytes := input.as_bytes();
+        out := ArrayList(u8).new();
+        pi := usize(0);
+        while(pi < m.index(), pi = (pi + usize(1)), {
+          out.push(input_bytes(pi));
+        });
+        rep := f(m);
+        rep_bytes := rep.as_bytes();
+        ri := usize(0);
+        while(ri < rep_bytes.len(), ri = (ri + usize(1)), {
+          out.push(rep_bytes(ri));
+        });
+        pi = m.end();
+        while(pi < input_bytes.len(), pi = (pi + usize(1)), {
+          out.push(input_bytes(pi));
+        });
+        String.from_bytes(out)
+      }
+    )
+  }),
+  /// `replace_all` with the replacement computed per match by `f` — same
+  /// non-overlapping-match walk as `replace_all`, same verbatim insertion
+  /// rule as `replace_with`.
+  replace_all_with : (fn(self : Self, input : String, f : Impl(Fn(m : RegexMatch) -> String)) -> String)({
+    all_matches := self.match_all(input);
+    cond(
+      (all_matches.len() == usize(0)) => input,
+      true => {
+        input_bytes := input.as_bytes();
+        out := ArrayList(u8).new();
+        (last_end_byte : usize) = usize(0);
+        mi := usize(0);
+        while(mi < all_matches.len(), mi = (mi + usize(1)), {
+          m := all_matches(mi);
+          // Copy text between last match end and this match start
+          pi := last_end_byte;
+          while(pi < m.index(), pi = (pi + usize(1)), {
+            out.push(input_bytes(pi));
+          });
+          rep := f(m);
+          rep_bytes := rep.as_bytes();
+          ri := usize(0);
+          while(ri < rep_bytes.len(), ri = (ri + usize(1)), {
+            out.push(rep_bytes(ri));
+          });
+          last_end_byte = m.end();
+        });
+        // Copy remaining text after last match
+        pi := last_end_byte;
+        while(pi < input_bytes.len(), pi = (pi + usize(1)), {
+          out.push(input_bytes(pi));
+        });
+        String.from_bytes(out)
+      }
+    )
+  }),
   split : (fn(self : Self, input : String) -> ArrayList(String))({
     parts := ArrayList(String).new();
     all_matches := self.match_all(input);
@@ -615,5 +839,6 @@ impl(
 export(
   Regex,
   RegexMatch,
+  RegexMatchIter,
   RegexError
 );

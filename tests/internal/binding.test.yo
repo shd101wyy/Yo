@@ -115,7 +115,7 @@ test("is_valid_variable_name: non-operator FnCall is invalid", {
   callee := AstExpr.Atom(usize(5), mk_token(TokenKind.Identifier, "foo"));
   args := ArrayList(AstExpr).new();
   expr := AstExpr.FnCall(usize(6), callee, args, false, mk_token(TokenKind.Identifier, "foo"));
-  assert(!(is_valid_variable_name(expr)), "fn call with identifier token should be invalid");
+  assert(!is_valid_variable_name(expr), "fn call with identifier token should be invalid");
 });
 // ---------------------------------------------------------------------------
 // evaluate_binding happy paths
@@ -124,7 +124,7 @@ test("evaluate_binding: (found : bool) — records variable name", {
   set_evaluate_expression_fn(stub_evaluate_type);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -141,7 +141,7 @@ test("evaluate_binding: (found : bool) — records ExprInfo with UnitVal", {
   set_evaluate_expression_fn(stub_evaluate_type);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -174,7 +174,7 @@ test("evaluate_binding: (comptime(n) : i32) — records variable name n", {
   set_evaluate_expression_fn(stub_evaluate_type);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -196,7 +196,7 @@ test_binding_throws :: (fn() -> bool)({
   set_evaluate_expression_fn(stub_evaluate_type);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(true);
       }
     )

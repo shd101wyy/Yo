@@ -68,7 +68,7 @@ _radix_of :: (fn(kind : rune) -> u64)(
 /// The `#` prefix for a radix.
 _prefix_of :: (fn(radix : u64, alt : bool) -> String)(
   cond(
-    !(alt) => String.new(),
+    !alt => String.new(),
     (radix == u64(16)) => String.from("0x"),
     (radix == u64(2)) => String.from("0b"),
     (radix == u64(8)) => String.from("0o"),
@@ -97,7 +97,7 @@ impl(
   Format(
     format : (fn(inout(self) : Self, spec : str) -> String)({
       neg := (self < i8(0));
-      mag := if(neg, ~(u64(self)) + u64(1), u64(self));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i8(0).to_string(), self.to_string());
       _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
     })
@@ -108,7 +108,7 @@ impl(
   Format(
     format : (fn(inout(self) : Self, spec : str) -> String)({
       neg := (self < i16(0));
-      mag := if(neg, ~(u64(self)) + u64(1), u64(self));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i16(0).to_string(), self.to_string());
       _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
     })
@@ -119,7 +119,7 @@ impl(
   Format(
     format : (fn(inout(self) : Self, spec : str) -> String)({
       neg := (self < i32(0));
-      mag := if(neg, ~(u64(self)) + u64(1), u64(self));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i32(0).to_string(), self.to_string());
       _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
     })
@@ -130,7 +130,7 @@ impl(
   Format(
     format : (fn(inout(self) : Self, spec : str) -> String)({
       neg := (self < i64(0));
-      mag := if(neg, ~(u64(self)) + u64(1), u64(self));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i64(0).to_string(), self.to_string());
       _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
     })
@@ -141,7 +141,7 @@ impl(
   Format(
     format : (fn(inout(self) : Self, spec : str) -> String)({
       neg := (self < isize(0));
-      mag := if(neg, ~(u64(self)) + u64(1), u64(self));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, isize(0).to_string(), self.to_string());
       _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
     })
@@ -195,8 +195,8 @@ impl(
       neg := (self < f64(0.0));
       body := match(
         s.precision,
-        .Some(p) => _f64_fixed(if(neg, -(self), self), p),
-        .None => if(neg, -(self), self).to_string()
+        .Some(p) => _f64_fixed(if(neg, -self, self), p),
+        .None => if(neg, -self, self).to_string()
       );
       sign := cond(
         neg => String.from("-"),

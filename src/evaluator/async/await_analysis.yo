@@ -241,11 +241,11 @@ is_join_handle_await_call :: (fn(expr : AstExpr) -> bool)({
       )
     )
   );
-  if(!(is_method_await), {
+  if(!is_method_await, {
     return(false);
   });
   // Exclude io.await (that's handled by is_io_await_call)
-  !(is_io_await_call(expr))
+  !is_io_await_call(expr)
 });
 // ---------------------------------------------------------------------------
 // get_future_variable_id_ — extract the future variable ID from an await arg
@@ -316,7 +316,7 @@ detect_await_expr_ :: (
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )({
-  if(!(is_io_await_call(expr.clone())), {
+  if(!is_io_await_call(expr.clone()), {
     return(());
   });
   // Pre-clone expr for the SuspensionPoint before the consuming match below
@@ -344,7 +344,7 @@ detect_await_expr_ :: (
       );
       // The argument's type must implement the Future trait
       future_type_val := await_info.ty.clone();
-      if(!(type_implements_future(future_type_val.clone())), {
+      if(!type_implements_future(future_type_val.clone()), {
         return(());
       });
       // Extract the concrete FutureTrait type from the bound
@@ -420,7 +420,7 @@ analyze_await_points :: (
       detect : dyn((expr, parent_expr, points) => {
         detect_await_expr_(expr, parent_expr, points, await_extras, get_info);
       }),
-      should_skip_body : dyn((expr) => is_io_async_call(expr))
+      should_skip_body : dyn(expr => is_io_async_call(expr))
     )
   );
   // Mark the await whose value IS the async body's own result: a standalone
@@ -602,8 +602,8 @@ collect_variable_bindings_ :: (
                                       variable.is_owning_the_same_rc_value_as,
                                       .Some(_) => (),
                                       .None => {
-                                        if(!(variable.is_compile_time_only) &&
-                                          !(seen.contains_key(variable.id.to_string())), {
+                                        if(!variable.is_compile_time_only &&
+                                          !seen.contains_key(variable.id.to_string()), {
                                           cv := CapturedVariable(
                                             base : SuspensionCapturedVariable(
                                               id : variable.id.to_string(),

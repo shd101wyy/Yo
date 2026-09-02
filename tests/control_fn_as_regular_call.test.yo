@@ -24,9 +24,9 @@ open(import("std/libc/stdio"));
 do_work :: (fn(iterations : i32, io : Io) -> i32)({
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("do_work: unexpected exception\n"));
-        unwind(i32(-(1)));
+        unwind(i32(-1));
       }
     )
   );
@@ -64,7 +64,7 @@ test("control fn called from worker closures", {
   // Match the yo_http_benchmark multi-threaded pattern: call the
   // control fn from main AND from a ThreadPool task closure.
   pool := ThreadPool.new(usize(2));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     r := do_work(i32(4), io);
     assert(r == i32(6), "worker sum 0..3 should be 6");
   });

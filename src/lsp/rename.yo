@@ -29,7 +29,7 @@ _collect_rename_edits :: (
     .Atom(_, tok) => {
       if(tok.value == old_name, {
         key := `${tok.row}:${tok.column}`;
-        if(!(seen.contains(key.clone())), {
+        if(!seen.contains(key.clone()), {
           _a := seen.insert(key);
           out.push(
             // RUNE column + RUNE width (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11). A byte width here would
@@ -69,7 +69,7 @@ handle_rename :: (
 )({
   lex_exn := Exception(
     throw : (
-      (_err) -> unwind(Option(JsonValue).None)
+      _err -> unwind(Option(JsonValue).None)
     )
   );
   tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);

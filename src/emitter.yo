@@ -51,7 +51,7 @@ _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
 /// parens (not in `<type> <name> =` position), so genuine never-declared phantoms
 /// are never recorded. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> unit)({
-  if(!(line.contains(String.from("_temp_"))), {
+  if(!line.contains(String.from("_temp_")), {
     return(());
   });
   eq_opt := line.index_of(String.from(" = "));
@@ -94,7 +94,7 @@ _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> un
 /// sentinel — i.e. close one C block, discarding the names it declared.
 _emitter_pop_block :: (fn(stack : ArrayList(String)) -> unit)({
   (done : bool) = false;
-  while(!(done) && (stack.len() > usize(0)), {
+  while(!done && (stack.len() > usize(0)), {
     match(
       stack.pop(),
       .Some(v) => if(v == "{", {

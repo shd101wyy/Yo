@@ -539,7 +539,7 @@ test("renderConstantMd: renders a constant without value", {
   );
   md := render_constant_md(c);
   assert(md.contains(`\`usize\``), "type only");
-  assert(!(md.contains(`=`)), "no equals sign");
+  assert(!md.contains(`=`), "no equals sign");
 });
 test("renderConstantMd: renders deprecated banner", {
   c := DocConstant(
@@ -580,8 +580,8 @@ test("renderModuleMd: renders empty module without content sections", {
   );
   md := render_module_md(m);
   assert(md.contains(`# empty`), "heading");
-  assert(!(md.contains(`## Types`)), "no types section");
-  assert(!(md.contains(`## Functions`)), "no functions section");
+  assert(!md.contains(`## Types`), "no types section");
+  assert(!md.contains(`## Functions`), "no functions section");
 });
 // ── renderIndexMd ─────────────────────────────────────────────────────────────
 test("renderIndexMd: renders an index page", {
@@ -627,7 +627,7 @@ test("renderModuleMd: renders the stability note and the index badge", {
   md := render_module_md(um);
   assert(md.contains(`**Stability: unstable**`), "module page carries the stability note");
   stable_md := render_module_md(m);
-  assert(!(stable_md.contains(`Stability:`)), "a stable module has no note");
+  assert(!stable_md.contains(`Stability:`), "a stable module has no note");
   modules := ArrayList(DocModule).new();
   modules.push(um);
   idx := render_index_md(DocModel(name : `proj`, modules : modules, version : Option(String).None));

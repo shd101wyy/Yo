@@ -330,7 +330,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
       // import chain, concretizing the closure's expected result with a
       // process struct ("Expected type \"Output\"" def-eval swallows, ekey
       // probe in issues/yo-self-async-emission-cluster.md item 7).
-      if(!(allow.contains(ssn.clone())), {
+      if(!allow.contains(ssn.clone()), {
         return(ty);
       });
       ss_found := get_variables_from_env(env2, ssn.clone());
@@ -344,7 +344,7 @@ _subst_some_types_from_env :: (fn(ty : TypeValue, env2 : Environment, allow : Ar
             sv.value.get(usize(0)),
             .Some(sval) => match(
               sval,
-              .TypeVal(stv) => if(!(is_some_type(stv)), {
+              .TypeVal(stv) => if(!is_some_type(stv), {
                 ss_bound = Option(TypeValue).Some(stv);
                 ss_bi = usize(0);
               }),
@@ -423,7 +423,7 @@ _trial_eval_anon_body :: (
   });
   inner_exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         if(anonfn_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[anon-swallow] ${_err.to_string()}`);
         });
@@ -464,7 +464,7 @@ _trial_eval_anon_body :: (
 _synth_nested_return_somes :: (
   fn(ret_ty : TypeValue, body_ty : TypeValue, expected_env : Environment, given_env : Environment) -> unit
 )({
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(throw : (_err -> unwind(())));
   nrs_checked := ArrayList(TypePair).new();
   (nrs_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
   synthesize_types(ret_ty, expected_env, body_ty, given_env, nrs_checked, nrs_opts, inner_exn);
@@ -479,7 +479,7 @@ _synth_nested_return_somes :: (
 _trial_eval_annotation_type :: (
   fn(type_expr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(TypeValue)) -> unit
 )({
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(throw : (_err -> unwind(())));
   ctx.is_evaluating_function_type = true;
   evaluated := evaluate_expression_raw(type_expr, env, ctx, inner_exn);
   match(
@@ -488,7 +488,7 @@ _trial_eval_annotation_type :: (
       ann_ei.value,
       .Some(ann_v) => match(
         ann_v,
-        .TypeVal(ann_tv) => if(!(is_some_type(ann_tv)), {
+        .TypeVal(ann_tv) => if(!is_some_type(ann_tv), {
           out.push(ann_tv);
         }),
         _ => ()
@@ -521,7 +521,7 @@ _check_anon_fn_captures :: (
     exn : Exception
   ) -> unit
 )({
-  if(!(is_closure), {
+  if(!is_closure, {
     (names : String) = String.new();
     key_iter := caps.keys();
     (more : bool) = true;
@@ -605,7 +605,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             )
                           );
                         });
-                        if((!(v.is_compile_time_only)) && type_is_control_bound(v.ty), {
+                        if(!v.is_compile_time_only && type_is_control_bound(v.ty), {
                           exn.throw(
                             dyn(
                               format_error_message(
@@ -714,7 +714,7 @@ evaluate_anonymous_function_implementation :: (
   // (the Fn-trait wrapper); for regular functions it is Func.
   // -------------------------------------------------------------------------
   op_is_arrow := (op_str == "->");
-  is_creating_closure := (!(op_is_arrow));
+  is_creating_closure := !op_is_arrow;
   // Resolve the concrete Func type to use for parameter/return information.
   // For Func expected types: use directly.
   // For FnTraitT: convert to Func.
@@ -927,7 +927,7 @@ evaluate_anonymous_function_implementation :: (
           match(
             ann_out.get(usize(0)),
             .Some(ann_user_ty) => {
-              if(!(ann_frame_pushed), {
+              if(!ann_frame_pushed, {
                 _ann_fr := env.push_frame(false);
                 ann_frame_pushed = true;
               });
@@ -953,7 +953,7 @@ evaluate_anonymous_function_implementation :: (
                 },
                 .None => false
               );
-              if(!(ann_already), {
+              if(!ann_already, {
                 ann_tok := ast_expr_token(ann_pe);
                 _ann_v := add_variable_to_env(
                   env,
@@ -1017,7 +1017,7 @@ evaluate_anonymous_function_implementation :: (
             cap_frame.variables.get(cap_vi),
             .Some(cv) => {
               cond(
-                (!(cv.name == "__recur_fn")) => {
+                !(cv.name == "__recur_fn") => {
                   cap_names.push(cv.name);
                   cap_tys.push(cv.ty);
                   cap_val := match(
@@ -1131,7 +1131,7 @@ evaluate_anonymous_function_implementation :: (
               sv.value.get(usize(0)),
               .Some(sval) => match(
                 sval,
-                .TypeVal(stv) => if(!(is_some_type(stv)), {
+                .TypeVal(stv) => if(!is_some_type(stv), {
                   _st_bound = Option(TypeValue).Some(stv);
                   _st_bi = usize(0);
                 }),
@@ -1216,7 +1216,7 @@ evaluate_anonymous_function_implementation :: (
                 rv.value.get(usize(0)),
                 .Some(rvv) => match(
                   rvv,
-                  .TypeVal(rvt) => if(!(is_some_type(rvt)), {
+                  .TypeVal(rvt) => if(!is_some_type(rvt), {
                     rpr_conc = true;
                     rpr_vi = usize(0);
                   }),
@@ -1227,7 +1227,7 @@ evaluate_anonymous_function_implementation :: (
               .None => ()
             );
           });
-          if(rpr_conc && !(rp_resolved_names.contains(rpr_nm.clone())), {
+          if(rpr_conc && !rp_resolved_names.contains(rpr_nm.clone()), {
             rp_resolved_names.push(rpr_nm.clone());
           });
         }),
@@ -1410,9 +1410,9 @@ evaluate_anonymous_function_implementation :: (
   // commented out). The env still binds the inherited `forall_labels` below (~line 688)
   // for bodies that DO reference ResumeType.
   (should_defer_body : bool) = (forall_param_exprs.len() > usize(0));
-  if(!(should_defer_body), {
+  if(!should_defer_body, {
     (sd_i : usize) = usize(0);
-    while((sd_i < param_types.len()) && !(should_defer_body), {
+    while((sd_i < param_types.len()) && !should_defer_body, {
       sd_pt := match(param_types.get(sd_i), .Some(t) => t, .None => t_unit());
       if(get_all_some_types(sd_pt).len() > usize(0), {
         should_defer_body = true;
@@ -1459,7 +1459,7 @@ evaluate_anonymous_function_implementation :: (
   // A ctl handler itself is exempt: its result is the resume type, delivered
   // DOWN into the still-live throw frame. SomeT results are conservatively
   // not control-bound, so generic/async (`Impl(Future(...))`) results pass.
-  if(!(ctl_force), {
+  if(!ctl_force, {
     decl_result_ty := match(function_type, .Func({ result : __rr }) => __rr, _ => t_unit());
     if(type_is_control_bound(decl_result_ty), {
       exn.throw(
@@ -1482,10 +1482,10 @@ Result type: ${type_to_string(decl_result_ty)}`,
   // throw propagate past the cee catch and abandon the enclosing begin
   // (the cee_regular_fn_capture_reject corpus DIFF: trailing println
   // dropped).
-  if(ctl_force && !(propagate_def_time_errors()), {
+  if(ctl_force && !propagate_def_time_errors(), {
     should_defer_body = false;
   });
-  if(!(should_defer_body), {
+  if(!should_defer_body, {
     // A separate preliminary FuncVal for the body-eval context (EvalValue is
     // not Clone; `func_val` above is consumed by the ExprInfo below). Same
     // pattern as closure_type.yo's `func_val_pre`.
@@ -1584,7 +1584,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
     match(
       anon_body_out.get(usize(0)),
       .Some(anon_eb) => {
-        if(evaluated_body_contains_unwind(anon_eb) && ((!(fn_type_is_control)) && (!(is_creating_closure))), {
+        if(evaluated_body_contains_unwind(anon_eb) && (!fn_type_is_control && !is_creating_closure), {
           exn.throw(
             dyn(
               format_error_message(
@@ -1621,7 +1621,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
           .Some(nrs_info) => {
             nrs_body_ty := nrs_info.ty;
             nrs_ret_ty := match(function_type, .Func({ result : nrs_r }) => nrs_r, _ => t_unit());
-            nrs_ret_nested := ((!(is_some_type(nrs_ret_ty))) && (get_all_some_types(nrs_ret_ty).len() > usize(0)));
+            nrs_ret_nested := (!is_some_type(nrs_ret_ty) && (get_all_some_types(nrs_ret_ty).len() > usize(0)));
             // BARE-SomeT declared return (`-> B`, map's output forall): TS
             // binds it through object identity at the plain body/declared
             // compat check (the closure's `B` IS the signature's `B`, so
@@ -1641,8 +1641,8 @@ Result type: ${type_to_string(decl_result_ty)}`,
             // handler and binds like a `=>` closure: excluding every `->`
             // literal left `o.map((x) -> ...)`'s `R` unresolved
             // (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55).
-            nrs_ret_bare := ((is_some_type(nrs_ret_ty) && (is_creating_closure || !(ctl_force))) && !(ctx.is_inside_io_async_call));
-            nrs_body_concrete := ((!(is_some_type(nrs_body_ty))) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
+            nrs_ret_bare := (is_some_type(nrs_ret_ty) && (is_creating_closure || !ctl_force) && !ctx.is_inside_io_async_call);
+            nrs_body_concrete := (!is_some_type(nrs_body_ty) && (get_all_some_types(nrs_body_ty).len() == usize(0)));
             if((nrs_ret_nested || nrs_ret_bare) && nrs_body_concrete, {
               _synth_nested_return_somes(nrs_ret_ty, nrs_body_ty, expected_type_env, body_eval_env);
               // TS ts:1012-1014 completes the mechanism by REPLACING the
@@ -1773,10 +1773,10 @@ Result type: ${type_to_string(decl_result_ty)}`,
                 // ctx.is_inside_io_async_call is FALSE at this point, so the
                 // flag cannot be the gate).
                 body_is_comptime := (
-                  (is_comptime_string_type(body_ty) || is_comptime_int_type(body_ty))
+                  is_comptime_string_type(body_ty) || is_comptime_int_type(body_ty)
                   || is_comptime_float_type(body_ty)
                 );
-                if(!(body_is_comptime), {
+                if(!body_is_comptime, {
                   register_closure_body_type(func_id.clone(), body_ty);
                 });
               });
@@ -1849,7 +1849,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
           .None => ()
         );
       });
-      if(!(dgc_fv_was) && flow_violation_pending(), {
+      if(!dgc_fv_was && flow_violation_pending(), {
         clear_flow_violation();
       });
       match(
@@ -1857,7 +1857,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
         .Some(dgc_body) => match(
           expr_info_table_get(ctx.expr_info_table, ast_expr_id(dgc_body)),
           .Some(dgc_info) => {
-            dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !(has_control_flow(dgc_info.control_flow, .Return)));
+            dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !has_control_flow(dgc_info.control_flow, .Return));
             dgc_is_ref := match(function_type, .Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
             dgc_expected := cond(
               dgc_is_ref => t_ptr(dgc_ret),
@@ -1874,13 +1874,13 @@ Result type: ${type_to_string(decl_result_ty)}`,
                   });
                   dgc_fi = (dgc_fi + usize(1));
                 });
-                !(dgc_found)
+                !dgc_found
               },
               _ => false
             );
             dgc_trial_ty := dgc_info.ty;
             dgc_trial_abstract := (get_all_some_types(dgc_trial_ty).len() > usize(0));
-            dgc_trial_degenerate := (is_unit_type(dgc_trial_ty) && !(is_unit_type(dgc_expected)));
+            dgc_trial_degenerate := (is_unit_type(dgc_trial_ty) && !is_unit_type(dgc_expected));
             // Parametricity: when the expected return is the fn's OWN forall
             // SomeT (own_forall_skip false) a CONCRETE trial type can never
             // satisfy it — only an expression typed T itself can. The exact
@@ -1890,7 +1890,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
             // -> T` was accepted while TS rejects
             // (anonymous-function.ts:773).
             dgc_expected_is_some := is_some_type(dgc_expected);
-            if((((!(dgc_skip_cf) && !(dgc_own_forall_skip)) && !(dgc_trial_abstract)) && !(dgc_trial_degenerate)) && (dgc_expected_is_some || !(are_types_compatible_exact(dgc_trial_ty, dgc_expected))), {
+            if((((!dgc_skip_cf && !dgc_own_forall_skip) && !dgc_trial_abstract) && !dgc_trial_degenerate) && (dgc_expected_is_some || !are_types_compatible_exact(dgc_trial_ty, dgc_expected)), {
               dgc_exp_str := type_to_string(dgc_expected);
               dgc_got_str := type_to_string(dgc_trial_ty);
               // A deliberate user-facing rejection: outside a dry-run, flag
@@ -1898,7 +1898,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
               // re-raises it via the real exn (the wall otherwise swallows
               // the throw and the enclosing body silently hollows — same
               // pattern as helper.yo Step 5b's no-matching-overload flag).
-              if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
+              if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
                 flag_flow_violation(
                   `Incompatible function return type for:
 - Expected: ${dgc_exp_str}
@@ -2002,7 +2002,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
   // fully-annotated binding shape (`(c : Impl(Fn(y : i32) -> i32)) = ...`),
   // which is exactly the c01/c06 case.
   (final_lambda_ty : TypeValue) = function_type;
-  if(is_creating_closure && !(ctx.is_inside_io_async_call), {
+  if(is_creating_closure && !ctx.is_inside_io_async_call, {
     match(
       expected_ty,
       .SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_ier, w_kft, w_rc) => {
@@ -2021,7 +2021,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
                   });
                   match(
                     w_rt,
-                    .FnTraitT({ call_result : w_cr }) => if(!(is_some_type(w_cr)), {
+                    .FnTraitT({ call_result : w_cr }) => if(!is_some_type(w_cr), {
                       w_has_concrete_fn = true;
                     }),
                     _ => ()

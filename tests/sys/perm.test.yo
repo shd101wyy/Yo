@@ -17,7 +17,7 @@ test("access F_OK R_OK W_OK on existing file", {
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("perm test data");
@@ -43,7 +43,7 @@ test("chmodat changes and restores permissions", {
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   data := *(u8)("chmod test");
@@ -71,7 +71,7 @@ test("fchmod by fd sets executable bit", {
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd_w >= i32(0));
   data := *(u8)("fchmod test");
@@ -104,7 +104,7 @@ test("fchown with -1 -1 succeeds (no change)", {
   p := path_join(tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd_w := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd_w >= i32(0));
   data := *(u8)("chown test");

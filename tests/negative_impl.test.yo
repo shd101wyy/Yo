@@ -6,7 +6,7 @@
 /// Negative impls are only allowed for marker traits (no methods).
 // Positive: negative Send impl makes a Send type non-Send.
 MySendStruct :: struct(value : i32);
-impl(MySendStruct, !(Send()));
+impl(MySendStruct, !Send());
 comptime_assert(
   Type.impls(MySendStruct, Send) == false,
   "negative Send impl should override auto-derive"
@@ -14,7 +14,7 @@ comptime_assert(
 
 // Positive: negative Acyclic impl works.
 MyAcyclicStruct :: struct(value : i32);
-impl(MyAcyclicStruct, !(Acyclic));
+impl(MyAcyclicStruct, !Acyclic);
 comptime_assert(
   Type.impls(MyAcyclicStruct, Acyclic) == false,
   "negative Acyclic impl should override auto-derive"
@@ -29,7 +29,7 @@ test("negative impl does not require pragma", {
 comptime_expect_error({
   ConflictType :: struct(value : i32);
   impl(ConflictType, Send());
-  impl(ConflictType, !(Send));
+  impl(ConflictType, !Send);
 });
 
 // Negative: reverse order contradiction — negative + positive cannot coexist.
@@ -39,7 +39,7 @@ comptime_expect_error({
 // Negative: !(Trait) for a trait with methods is rejected.
 // Clone trait has the `clone` method.
 comptime_expect_error(
-  impl(MySendStruct, !(Clone))
+  impl(MySendStruct, !Clone)
 );
 
 // Negative: !(Trait) for a user-defined trait with method.
@@ -47,18 +47,18 @@ MyHandler :: trait(
   handle : (fn(self : Self) -> i32)
 );
 comptime_expect_error(
-  impl(MySendStruct, !(MyHandler))
+  impl(MySendStruct, !MyHandler)
 );
 
 // Positive: negative impl inside pragma'd code works too.
 // (Covered by tests below in a pragma block.)
 // Positive: only negative entries (no positive traits) is valid.
 OnlyNegStruct :: struct(value : i32);
-impl(OnlyNegStruct, !(Send));
+impl(OnlyNegStruct, !Send);
 
 // Positive: negative impl with multiple types (via generic) works.
 Container :: (fn(comptime(T) : Type) -> comptime(Type))(struct(inner : T));
-impl(generic(T : Type), Container(T), !(Send));
+impl(generic(T : Type), Container(T), !Send);
 comptime_assert(
   Type.impls(Container(i32), Send) == false,
   "negative generic impl should override auto-derive for Container(i32)"

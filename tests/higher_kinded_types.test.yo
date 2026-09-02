@@ -185,7 +185,7 @@ test("Multiple trait methods with HKT", {
   (x : Option(i32)) = .Some(i32(5));
   (y : Option(i32)) = .None;
   assert(x.contains_value(), "Some should contain value");
-  assert(!(y.contains_value()), "None should not contain value");
+  assert(!y.contains_value(), "None should not contain value");
   result := x.transform(generic(i32), (fn(a : i32) -> i32)(a + i32(10)));
   match(
     result,
@@ -235,7 +235,7 @@ test("Partial application as HKT generic arg", {
   (r2 : BoolResult(str)) = .Ok(false);
   match(
     r2,
-    .Ok(v) => assert(!(v), "expected false"),
+    .Ok(v) => assert(!v, "expected false"),
     .Err(_) => assert(false, "expected Ok")
   );
   println(`  passed`);
@@ -279,7 +279,7 @@ test("Partial application leaves one placeholder", {
   match(
     b,
     .Ok(_) => assert(false, "expected Err"),
-    .Err(e) => assert(!(e), "expected false")
+    .Err(e) => assert(!e, "expected false")
   );
   println(`  passed`);
 });
@@ -328,7 +328,7 @@ test("do_map with type change", {
 test("Container get_value with bool", {
   (x : Option(bool)) = .Some(false);
   v := x.get_value();
-  assert(!(v), "expected false");
+  assert(!v, "expected false");
   println(`  passed`);
 });
 // ─────────────────────────────────────────────────────
@@ -351,9 +351,9 @@ test("Mappable transform and contains_value", {
 // ─────────────────────────────────────────────────────
 test("Mappable transform on None", {
   (x : Option(i32)) = .None;
-  assert(!(x.contains_value()), "None should not contain value");
+  assert(!x.contains_value(), "None should not contain value");
   result := x.transform(generic(bool), (fn(a : i32) -> bool)(true));
-  assert(!(result.contains_value()), "transformed None should not contain value");
+  assert(!result.contains_value(), "transformed None should not contain value");
   match(
     result,
     .Some(_) => assert(false, "expected None"),

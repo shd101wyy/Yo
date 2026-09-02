@@ -38,7 +38,7 @@ Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
-        _ptr : *(T),
+        _ptr : *T,
         _len : usize,
         _cap : usize
       )
@@ -71,7 +71,7 @@ impl(
   where(T <: (Send, Acyclic)),
   Vec(T),
   /// Allocate raw buffer without creating an intermediate atomic object.
-  _raw_alloc : (fn(cap : usize) -> *(T))({
+  _raw_alloc : (fn(cap : usize) -> *T)({
     alloc_cap := cond(
       (cap > usize(0)) => cap,
       true => usize(1)
@@ -86,8 +86,8 @@ impl(
   /// Copy elements element-by-element so RC-backed values duplicate correctly.
   _copy_elems : (
     fn(
-      dst : *(T),
-      src : *(T),
+      dst : *T,
+      src : *T,
       dst_offset : usize,
       src_offset : usize,
       count : usize
@@ -278,7 +278,7 @@ impl(
     new_ptr := Self._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      (new_ptr.add(i)).* = (self._ptr.add((self._len - usize(1)) - i)).*;
+      (new_ptr.add(i)).* = (self._ptr.add(self._len - usize(1) - i)).*;
     });
     result := Self(_ptr : new_ptr, _len : self._len, _cap : self._len);
     unsafe.drop(self);
@@ -320,7 +320,7 @@ impl(
   any : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> bool)({
     i := usize(0);
     (found : bool) = false;
-    while((i < self._len) && !(found), i = (i + usize(1)), {
+    while((i < self._len) && !found, i = (i + usize(1)), {
       if(f((self._ptr.add(i)).*), {
         found = true;
       });
@@ -332,7 +332,7 @@ impl(
     i := usize(0);
     (ok : bool) = true;
     while((i < self._len) && ok, i = (i + usize(1)), {
-      if(!(f((self._ptr.add(i)).*)), {
+      if(!f((self._ptr.add(i)).*), {
         ok = false;
       });
     });
@@ -377,12 +377,12 @@ impl(
         elem := (self._ptr.add(i)).*;
         (found : bool) = false;
         j := usize(0);
-        while((j < count) && !(found), j = (j + usize(1)), {
+        while((j < count) && !found, j = (j + usize(1)), {
           if((self._ptr.add(j)).* == elem, {
             found = true;
           });
         });
-        if(!(found), {
+        if(!found, {
           if(count != i, {
             consume((self._ptr.add(count)).* = elem);
           });
@@ -399,12 +399,12 @@ impl(
       elem := (self._ptr.add(i)).*;
       (found : bool) = false;
       j := usize(0);
-      while((j < count) && !(found), j = (j + usize(1)), {
+      while((j < count) && !found, j = (j + usize(1)), {
         if((new_ptr.add(j)).* == elem, {
           found = true;
         });
       });
-      if(!(found), {
+      if(!found, {
         (new_ptr.add(count)).* = elem;
         count = (count + usize(1));
       });
@@ -474,7 +474,7 @@ impl(
   Vec(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "imm.Vec: index out of bounds");
       self._ptr.add(idx)
     })

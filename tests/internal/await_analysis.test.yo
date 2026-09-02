@@ -177,17 +177,17 @@ test("type_implements_future: SomeT with FutureTraitT returns true", {
 });
 test("type_implements_future: unit type returns false", {
   result := type_implements_future(t_unit());
-  assert(!(result), "unit type should return(false)");
+  assert(!result, "unit type should return(false)");
 });
 test("type_implements_future: bool returns false", {
   result := type_implements_future(t_bool());
-  assert(!(result), "bool should return(false)");
+  assert(!result, "bool should return(false)");
 });
 test("type_implements_future: FutureTraitT itself returns false", {
   // FutureTraitT is not a SomeT or DynT, so type_implements_future returns false
   future_ty := t_future_trait_simple(String.from("Future"), t_unit());
   result := type_implements_future(future_ty);
-  assert(!(result), "FutureTraitT itself is not SomeT/DynT, so false");
+  assert(!result, "FutureTraitT itself is not SomeT/DynT, so false");
 });
 // ---------------------------------------------------------------------------
 // is_io_async_call
@@ -198,11 +198,11 @@ test("is_io_async_call: io.async(f) returns true", {
 });
 test("is_io_async_call: io.await(f, io) returns false", {
   expr := make_io_method_call("await", make_ident("f"), usize(5));
-  assert(!(is_io_async_call(expr)), "io.await should not be io.async");
+  assert(!is_io_async_call(expr), "io.await should not be io.async");
 });
 test("is_io_async_call: atom returns false", {
   expr := make_ident("io");
-  assert(!(is_io_async_call(expr)), "atom should return(false)");
+  assert(!is_io_async_call(expr), "atom should return(false)");
 });
 // ---------------------------------------------------------------------------
 // is_io_await_call
@@ -213,11 +213,11 @@ test("is_io_await_call: io.await(f, io) returns true", {
 });
 test("is_io_await_call: io.async(f) returns false", {
   expr := make_io_method_call("async", make_ident("f"), usize(5));
-  assert(!(is_io_await_call(expr)), "io.async should not be io.await");
+  assert(!is_io_await_call(expr), "io.async should not be io.await");
 });
 test("is_io_await_call: atom returns false", {
   expr := make_ident("future");
-  assert(!(is_io_await_call(expr)), "atom should return(false)");
+  assert(!is_io_await_call(expr), "atom should return(false)");
 });
 // ---------------------------------------------------------------------------
 // is_io_state_call
@@ -228,7 +228,7 @@ test("is_io_state_call: io.state(f) returns true", {
 });
 test("is_io_state_call: io.await(f, io) returns false", {
   expr := make_io_method_call("await", make_ident("f"), usize(5));
-  assert(!(is_io_state_call(expr)), "io.await should not be io.state");
+  assert(!is_io_state_call(expr), "io.await should not be io.state");
 });
 // ---------------------------------------------------------------------------
 // is_io_spawn_call
@@ -239,7 +239,7 @@ test("is_io_spawn_call: io.spawn(f) returns true", {
 });
 test("is_io_spawn_call: io.await(f, io) returns false", {
   expr := make_io_method_call("await", make_ident("f"), usize(5));
-  assert(!(is_io_spawn_call(expr)), "io.await should not be io.spawn");
+  assert(!is_io_spawn_call(expr), "io.await should not be io.spawn");
 });
 // ---------------------------------------------------------------------------
 // is_join_handle_await_call
@@ -251,15 +251,15 @@ test("is_join_handle_await_call: handle.await(using_io, handle) returns true", {
 test("is_join_handle_await_call: io.await(f, io) returns false", {
   // io.await is excluded by the !is_io_await_call guard
   expr := make_io_method_call("await", make_ident("f"), usize(5));
-  assert(!(is_join_handle_await_call(expr)), "io.await should not be join handle await");
+  assert(!is_join_handle_await_call(expr), "io.await should not be join handle await");
 });
 test("is_join_handle_await_call: atom returns false", {
   expr := make_ident("handle");
-  assert(!(is_join_handle_await_call(expr)), "atom should return(false)");
+  assert(!is_join_handle_await_call(expr), "atom should return(false)");
 });
 test("is_join_handle_await_call: io.async is not join handle await", {
   expr := make_io_method_call("async", make_ident("f"), usize(5));
-  assert(!(is_join_handle_await_call(expr)), "io.async should not be join handle await");
+  assert(!is_join_handle_await_call(expr), "io.async should not be join handle await");
 });
 // ---------------------------------------------------------------------------
 // analyze_await_points — basic structural tests
@@ -268,7 +268,7 @@ test("analyze_await_points: empty atom body => no await points", {
   body := make_ident("unit");
   result := analyze_await_points(body, get_info_none);
   assert(result.await_points.len() == usize(0), "no await points in atom body");
-  assert(!(result.has_awaits), "has_awaits should be false");
+  assert(!result.has_awaits, "has_awaits should be false");
 });
 test("analyze_await_points: non-await fncall body => no await points", {
   // foo(x) — not an io.await call, get_info returns None
@@ -283,7 +283,7 @@ test("analyze_await_points: non-await fncall body => no await points", {
   );
   result := analyze_await_points(body, get_info_none);
   assert(result.await_points.len() == usize(0), "no await points in non-await call");
-  assert(!(result.has_awaits), "has_awaits should be false");
+  assert(!result.has_awaits, "has_awaits should be false");
 });
 test("analyze_await_points: io.await with None get_info => no await points (type unknown)", {
   // io.await(task, io) — but get_info returns None so type is unknown, no suspension point

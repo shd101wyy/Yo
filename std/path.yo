@@ -33,7 +33,7 @@ impl(
     is_abs := false;
     // Handle empty path early
     cond(
-      (path_str.is_empty()) => {
+      path_str.is_empty() => {
         return(Self(_segments : segments, _is_absolute : is_abs));
       },
       true => ()
@@ -99,7 +99,7 @@ impl(
         .Some(part) => {
           // Skip empty segments (from leading/trailing slashes)
           cond(
-            (part.is_empty()) => (),
+            part.is_empty() => (),
             true => {
               // Check if it's "." (current directory)
               is_dot := (
@@ -129,9 +129,9 @@ impl(
                 }
               );
               cond(
-                (is_dot) => (),
+                is_dot => (),
                 // Skip "."
-                (is_dotdot) => {
+                is_dotdot => {
                   // Pop the last segment if exists
                   cond(
                     (segments.len() > usize(0)) => {
@@ -153,7 +153,7 @@ impl(
     return(Self(_segments : segments, _is_absolute : is_abs));
   }),
   /// Create a path from a C string pointer.
-  from_cstr : (fn(cstr : *(u8)) -> Self)({
+  from_cstr : (fn(cstr : *u8) -> Self)({
     str_result := String.from_cstr(cstr);
     match(
       str_result,
@@ -170,7 +170,7 @@ impl(
   join : (fn(self : Self, other : Self) -> Self)({
     // If other is absolute, return other
     cond(
-      (other._is_absolute) => {
+      other._is_absolute => {
         return(other);
       },
       true => ()
@@ -277,7 +277,7 @@ impl(
             // Return substring after the dot
             ext := name.substring(idx + usize(1), name.len());
             cond(
-              (ext.is_empty()) => {
+              ext.is_empty() => {
                 return(.None);
               },
               true => {
@@ -415,7 +415,7 @@ impl(
     );
     // If suffix is absolute, it must match exactly
     cond(
-      (suffix._is_absolute) => {
+      suffix._is_absolute => {
         cond(
           (self._is_absolute != suffix._is_absolute) => {
             return(false);
@@ -467,7 +467,7 @@ impl(
     result := ArrayList(String).with_capacity(self._segments.len() + usize(1));
     // Add root component if absolute
     cond(
-      (self._is_absolute) => {
+      self._is_absolute => {
         result.push(String.from("/"));
       },
       true => ()
@@ -492,7 +492,7 @@ impl(
   ),
   /// Check if the path is relative (not absolute).
   is_relative : (fn(self : Self) -> bool)(
-    !(self._is_absolute)
+    !self._is_absolute
   ),
   /// Return `self` expressed relative to `base`: drop the segments the two
   /// share, emit one `..` per remaining `base` segment, then the rest of
@@ -557,7 +557,7 @@ impl(
         // is a RENDER-level rule (Node: path.normalize(".") === "." and
         // path.dirname("foo") === "."): the empty-segment representation is
         // untouched, so join/parent/relative_from keep their semantics.
-        if((!(self._is_absolute)) && (segments.len() == usize(0)), {
+        if(!self._is_absolute && (segments.len() == usize(0)), {
           return(String.from("."));
         });
         // Check if first segment is a Windows drive letter (e.g., "C:")
@@ -596,7 +596,7 @@ impl(
         // For Unix absolute paths, prepend /
         // For Windows paths with drive letter, don't prepend /
         cond(
-          (self._is_absolute && !(has_drive_letter)) => {
+          (self._is_absolute && !has_drive_letter) => {
             result = result.concat(sep);
           },
           true => ()

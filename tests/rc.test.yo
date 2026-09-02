@@ -122,7 +122,7 @@ test("Test Rc in different data structures", {
 test("Test Rc with Iso", {
   {
     x := box(123);
-    z := ^(x);
+    z := ^x;
     match(
       z,
       .Some(_) => assert(true),
@@ -132,7 +132,7 @@ test("Test Rc with Iso", {
   {
     x := box(123);
     y := { x };
-    z := ^(x);
+    z := ^x;
     match(
       z,
       .Some(_) => assert(false, "unreachable"),
@@ -365,13 +365,13 @@ test("Test nested && with RC temps - no phantom drop", {
   b := make_str("world");
   c := make_str("test");
   // Nested &&: inner && creates temp vars that outer && must not drop
-  result := (((a.len() > usize(0)) && (b.len() > usize(0))) && (c.len() > usize(0)));
+  result := ((a.len() > usize(0)) && (b.len() > usize(0)) && (c.len() > usize(0)));
   assert(result, "nested && should work with RC temps");
   // Nested || inside &&
   result2 := ((a.len() > usize(0)) && ((b.len() > usize(0)) || (c.len() > usize(0))));
   assert(result2, "nested || inside && should work with RC temps");
   // Triple nesting
-  result3 := (((a.len() > usize(0)) && (b.len() > usize(0))) && ((c.len() > usize(0)) || (make_str("x").len() > usize(0))));
+  result3 := ((a.len() > usize(0)) && (b.len() > usize(0)) && ((c.len() > usize(0)) || (make_str("x").len() > usize(0))));
   assert(result3, "triple nested && || should work with RC temps");
   ();
 });
@@ -496,7 +496,7 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
     c := cond(is_unit(Val.UnitVal) => true, true => false);
     assert(c, "cond condition");
     b := (is_unit(Val.UnitVal) && is_unit(Val.IntVal(v : i32(1))));
-    assert(!(b), "short-circuit operands");
+    assert(!b, "short-circuit operands");
     i = (i + usize(1));
   });
   // Enum-payload position: the outer variant takes the inner one by move.

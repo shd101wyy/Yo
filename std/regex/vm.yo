@@ -111,7 +111,7 @@ impl(
     )
   ),
   _is_word_char : (fn(self : Self, cp : u32) -> bool)(
-    (((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90)))) || (((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95)))
+    ((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90))) || (((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95)))
   ),
   _find_prev_char_start : (fn(self : Self, pos : usize) -> usize)({
     p := (pos - usize(1));
@@ -162,7 +162,7 @@ impl(
     );
     (found : bool) = false;
     i := usize(0);
-    while((i < cls.ranges.len()) && (!(found)), i = (i + usize(1)), {
+    while((i < cls.ranges.len()) && !found, i = (i + usize(1)), {
       r := cls.ranges(i);
       (low : u32) = cond(
         self._flags.ignore_case => self._to_lower(r.low),
@@ -180,9 +180,9 @@ impl(
       );
     });
     cond(
-      ((!(found)) && self._flags.ignore_case) => {
+      (!found && self._flags.ignore_case) => {
         i2 := usize(0);
-        while((i2 < cls.ranges.len()) && (!(found)), i2 = (i2 + usize(1)), {
+        while((i2 < cls.ranges.len()) && !found, i2 = (i2 + usize(1)), {
           r := cls.ranges(i2);
           cond(
             ((cp >= r.low) && (cp <= r.high)) => {
@@ -195,7 +195,7 @@ impl(
       true => ()
     );
     cond(
-      cls.negated => (!(found)),
+      cls.negated => !found,
       true => found
     )
   }),
@@ -299,7 +299,7 @@ impl(
       },
       .AssertNonWordBoundary => {
         cond(
-          (!(self._is_word_boundary(byte_pos))) => {
+          !self._is_word_boundary(byte_pos) => {
             new_t := thread.fork(thread.pc + usize(1));
             recur(self, list, new_t, byte_pos, seen);
           },
@@ -455,7 +455,7 @@ impl(
       (char_byte_len : usize) = usize(0);
       (at_end : bool) = (byte_pos >= input_len);
       cond(
-        (!(at_end)) => {
+        !at_end => {
           decoded := self._decode_codepoint(byte_pos);
           cur_cp = decoded.codepoint;
           char_byte_len = decoded.byte_len;
@@ -490,14 +490,14 @@ impl(
       // Process each thread (priority order — first match wins in gen)
       (found_match_in_gen : bool) = false;
       t := usize(0);
-      while((t < current.len()) && (!(found_match_in_gen)), t = (t + usize(1)), {
+      while((t < current.len()) && !found_match_in_gen, t = (t + usize(1)), {
         thread := current(t);
         instr := self._program.instructions(thread.pc);
         match(
           instr.kind,
           .Char => {
             cond(
-              ((!(at_end)) && (self._char_matches(instr.codepoint, cur_cp))) => {
+              (!at_end && self._char_matches(instr.codepoint, cur_cp)) => {
                 new_thread := thread.fork(thread.pc + usize(1));
                 self._add_thread(next, new_thread, byte_pos + char_byte_len, next_seen);
               },
@@ -506,7 +506,7 @@ impl(
           },
           .AnyChar => {
             cond(
-              (!(at_end)) => {
+              !at_end => {
                 should_match := cond(
                   self._flags.dot_all => true,
                   true => (cur_cp != u32(10))
@@ -524,7 +524,7 @@ impl(
           },
           .CharClass => {
             cond(
-              (!(at_end)) => {
+              !at_end => {
                 class_opt := self._program.classes.get(instr.class_idx);
                 match(
                   class_opt,
@@ -648,7 +648,7 @@ impl(
               true => {
                 // Try from byte_pos backwards to 0
                 (try_pos : usize) = byte_pos;
-                while(!(lb_matched), {
+                while(!lb_matched, {
                   cond(
                     (try_pos == usize(0)) => {
                       cond(

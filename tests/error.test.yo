@@ -36,7 +36,7 @@ test("Test Exception throwing and catching with String", {
   );
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`Error: ${err}`);
         match(
           downcast(err, String),
@@ -61,7 +61,7 @@ test("Test Exception with custom MathError enum", {
     MathError,
     ToString(
       to_string : (
-        (self) -> match(
+        self -> match(
           self,
           .DivisionByZero => `Division by zero`,
           .NegativeSqrt => `Square root of a negative number`
@@ -78,7 +78,7 @@ test("Test Exception with custom MathError enum", {
   );
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`Error: ${err}`);
         match(
           downcast(err, MathError),
@@ -108,7 +108,7 @@ test("Test ResumableException throwing and catching with String", {
   );
   exn := ResumableException(i32)(
     throw : (
-      (err) -> {
+      err -> {
         println(`Error: ${err}`);
         match(
           downcast(err, String),
@@ -133,7 +133,7 @@ test("Test ResumableException with custom MathError enum", {
     MathError,
     ToString(
       to_string : (
-        (self) -> match(
+        self -> match(
           self,
           .DivisionByZero => `Division by zero`,
           .NegativeSqrt => `Square root of a negative number`
@@ -150,7 +150,7 @@ test("Test ResumableException with custom MathError enum", {
   );
   exn := ResumableException(i32)(
     throw : (
-      (err) -> {
+      err -> {
         println(`Error: ${err}`);
         match(
           downcast(err, MathError),
@@ -183,7 +183,7 @@ test("Exception install-point clears __yo_effect_escaped after unwind", {
     true
   });
   call_with_local :: (fn() -> bool)({
-    local_exn := Exception(throw : ((_e) -> unwind(false)));
+    local_exn := Exception(throw : (_e -> unwind(false)));
     _r := do_throw(local_exn);
     true
   });
@@ -218,7 +218,7 @@ test("comptime call after exn.throw in a match arm compiles and unwinds", {
   );
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )

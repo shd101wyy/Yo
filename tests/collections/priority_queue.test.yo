@@ -12,7 +12,7 @@ test("PriorityQueue.push adds single element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(42));
   assert(pq.len() == usize(1), "len should be 1");
-  assert(!(pq.is_empty()), "should not be empty");
+  assert(!pq.is_empty(), "should not be empty");
 });
 test("PriorityQueue.push adds multiple elements", {
   pq := PriorityQueue(i32).new();
@@ -167,7 +167,7 @@ test("PriorityQueue with many elements", {
   pq.push(i32(10));
   assert(pq.len() == usize(20), "len should be 20");
   // Pop all and verify ascending order
-  prev := i32(-(1));
+  prev := i32(-1);
   remaining := usize(20);
   while(remaining > usize(0), remaining = (remaining - usize(1)), {
     v := pq.pop().unwrap();
@@ -192,7 +192,7 @@ test("PriorityQueue.peek reflects new minimum after pop", {
 test("PriorityQueue into_iter - empty queue", {
   pq := PriorityQueue(i32).new();
   count := i32(0);
-  for(pq.into_iter(), (x) => {
+  for(pq.into_iter(), x => {
     count = (count + i32(1));
   });
   assert(count == i32(0));
@@ -204,7 +204,7 @@ test("PriorityQueue into_iter - visits all elements", {
   pq.push(i32(20));
   sum := i32(0);
   count := i32(0);
-  for(pq.into_iter(), (x) => {
+  for(pq.into_iter(), x => {
     sum = (sum + x);
     count = (count + i32(1));
   });
@@ -216,7 +216,7 @@ test("PriorityQueue iter - yields pointers", {
   pq.push(i32(10));
   pq.push(i32(20));
   sum := i32(0);
-  for(pq.iter(), (ptr) => {
+  for(pq.iter(), ptr => {
     sum = (sum + ptr.*);
   });
   assert(sum == i32(30));
@@ -225,12 +225,12 @@ test("PriorityQueue iter - mutate through pointer", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(10));
-  for(pq.iter(), (ptr) => {
+  for(pq.iter(), ptr => {
     ptr.* = (ptr.* * i32(100));
   });
   // Elements are multiplied but in heap order
   sum := i32(0);
-  for(pq.into_iter(), (x) => {
+  for(pq.into_iter(), x => {
     sum = (sum + x);
   });
   assert(sum == i32(1500));

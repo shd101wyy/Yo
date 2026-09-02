@@ -105,8 +105,8 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
     .Some(temp_var_name) => {
       in_sm := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       if(
-        !(in_sm),
-        if(!(is_unit_type(lhs_type)), {
+        !in_sm,
+        if(!is_unit_type(lhs_type), {
           save := indent.clone();
           save.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
           save.push_str(" = ");
@@ -121,7 +121,7 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
         // same-state), a plain LOCAL temp is the correct home. This branch
         // previously emitted NOTHING, so the deferred drop either dropped
         // calloc zero (silent leak) or referenced an undeclared temp.
-        if(!(is_unit_type(lhs_type)), {
+        if(!is_unit_type(lhs_type), {
           (sm_field : Option(String)) = Option(String).None;
           match(
             context.state_machine_variables,
@@ -237,11 +237,11 @@ generate_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       context.current_assignment_save_temp = prev_save_temp;
       return(match(ei.variable_name, .Some(v) => v, .None => String.from("")));
     });
-    if(!(is_unit_type(lhs_type)), {
+    if(!is_unit_type(lhs_type), {
       c_type_string := get_type_string(lhs_type, context.base);
       is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       line := indent.clone();
-      if(is_init && !(is_sm_var), {
+      if(is_init && !is_sm_var, {
         line.push_string(c_type_string);
         line.push_str(" ");
       });

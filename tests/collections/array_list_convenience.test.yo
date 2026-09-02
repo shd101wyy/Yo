@@ -13,11 +13,11 @@ test("ArrayList contains returns false for missing element", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  assert(!(list.contains(i32(5))), "should not contain 5");
+  assert(!list.contains(i32(5)), "should not contain 5");
 });
 test("ArrayList contains on empty list", {
   list := ArrayList(i32).new();
-  assert(!(list.contains(i32(1))), "empty list should not contain anything");
+  assert(!list.contains(i32(1)), "empty list should not contain anything");
 });
 test("ArrayList index_of finds element", {
   list := ArrayList(i32).new();
@@ -186,7 +186,7 @@ test("retain keeps order and drops rejects", {
   while(i <= i32(10), i = (i + i32(1)), {
     list.push(i);
   });
-  list.retain((v) => ((v % i32(2)) == i32(0)));
+  list.retain(v => ((v % i32(2)) == i32(0)));
   assert(list.len() == usize(5), "five evens kept");
   assert(list(usize(0)) == i32(2), "order preserved head");
   assert(list(usize(4)) == i32(10), "order preserved tail");
@@ -196,7 +196,7 @@ test("retain drops RC elements without leaks or double-drops", {
   list.push(`keep-a`.to_string());
   list.push(`drop-b`.to_string());
   list.push(`keep-c`.to_string());
-  list.retain((v) => v.starts_with(`keep`));
+  list.retain(v => v.starts_with(`keep`));
   assert(list.len() == usize(2), "two kept");
   assert(list(usize(0)) == `keep-a`, "a kept");
   assert(list(usize(1)) == `keep-c`, "c kept");

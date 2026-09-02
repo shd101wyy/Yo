@@ -115,10 +115,10 @@ evaluate_initialization_assignment :: (
   is_compile_time_only := (is_const || ctx.force_compile_time_bindings);
   // For type conversion purposes, only `::` suppresses comptime→runtime
   // conversion; `:=` with forceCompileTimeBindings still converts.
-  should_convert_to_runtime_type := !(is_const);
+  should_convert_to_runtime_type := !is_const;
   // Reject runtime `:=` inside a compile-time-only function body.
   // Phase 2w: `is_function_type_and_returns_comptime_value` is a stub (always false).
-  if(!(is_compile_time_only), {
+  if(!is_compile_time_only, {
     is_ctfe_body := match(
       ctx.is_evaluating_function_body_or_async_block,
       .Some(fctx) => (
@@ -321,7 +321,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
       .None => ()
     );
     // Validate LHS name.
-    if(!(is_valid_variable_name(actual_lhs)), {
+    if(!is_valid_variable_name(actual_lhs), {
       lhs_tok_val := ast_expr_token(actual_lhs).value.clone();
       exn.throw(
         dyn(
@@ -351,7 +351,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
       );
     });
     effective_is_compile_time_only := (is_implicit || is_compile_time_only);
-    effective_should_convert_to_runtime := (!(is_implicit) && should_convert_to_runtime_type);
+    effective_should_convert_to_runtime := (!is_implicit && should_convert_to_runtime_type);
     // Determine the LHS type.
     rhs_type_opt := match(
       rhs_info_opt,
@@ -372,7 +372,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
       .Some(rt) => rt,
       .None => t_unit()
     );
-    if(!(has_predefined_type), {
+    if(!has_predefined_type, {
       // User did not annotate a type — infer from RHS.
       match(
         rhs_type_opt,
@@ -415,7 +415,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
       // Re-read rhs_info for the updated rhs.
       rhs_info_opt = expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));
       // Check type compatibility.
-      if(!(are_types_compatible(pre_type, synth.ty)), {
+      if(!are_types_compatible(pre_type, synth.ty), {
         pre_ty_str := type_to_string(pre_type);
         rhs_ty_str := type_to_string(synth.ty);
         exn.throw(
@@ -440,7 +440,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     // implementsComptime && !implementsRuntime with the auto-derive
     // recursion (types/utils.ts:85-96). Use the env-aware derivation as
     // the fallback after the cheap tag path.
-    lhs_requires_ct := (type_requires_comptime_modifier(lhs_type) || (type_implements_comptime(lhs_type, env) && !(type_implements_runtime_full(lhs_type, env))));
+    lhs_requires_ct := (type_requires_comptime_modifier(lhs_type) || (type_implements_comptime(lhs_type, env) && !type_implements_runtime_full(lhs_type, env)));
     // In a DEFINITION-time body trial a type still carrying unresolved
     // SomeTs cannot be judged comptime-only (TS's auto-derive is
     // conservative on SomeTypes; yo-self's trait check is optimistic, so
@@ -449,10 +449,10 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
     // issues/fixed/def-eval-swallow-remaining-roots.md). Skip; the
     // specialization-time re-eval re-checks with concrete types.
     lhs_ct_check := cond(
-      ((in_def_time_trial() && lhs_requires_ct) && (get_all_some_types(lhs_type).len() > usize(0))) => false,
+      (in_def_time_trial() && lhs_requires_ct && (get_all_some_types(lhs_type).len() > usize(0))) => false,
       true => lhs_requires_ct
     );
-    if(!(effective_is_compile_time_only) && lhs_ct_check, {
+    if(!effective_is_compile_time_only && lhs_ct_check, {
       lhs_type_str := type_to_string(lhs_type);
       expr_str := ast_expr_to_string(expr);
       exn.throw(
@@ -631,7 +631,7 @@ ${rhs_str}`,
         actual_lhs_tok.value.clone()
     );
     // Reject mutable runtime variable inside an impl block.
-    is_runtime_not_in_fn := (!(effective_is_compile_time_only) && !(ctx.is_evaluating_function_body_or_async_block.is_some()));
+    is_runtime_not_in_fn := (!effective_is_compile_time_only && !ctx.is_evaluating_function_body_or_async_block.is_some());
     if(is_runtime_not_in_fn && ctx.is_inside_impl_block, {
       exn.throw(
         dyn(
@@ -647,8 +647,8 @@ Use \`::\` for compile-time definitions inside impl.`,
     });
     // Mark as module-level for C file-scope statics.
     is_module_level := (
-      !(effective_is_compile_time_only) &&
-        !(ctx.is_evaluating_function_body_or_async_block.is_some())
+      !effective_is_compile_time_only &&
+        !ctx.is_evaluating_function_body_or_async_block.is_some()
     );
     // Look up doc comment from pre-computed position-keyed lookup.
     doc_comment_opt := match(
@@ -698,7 +698,7 @@ Use \`::\` for compile-time definitions inside impl.`,
       final_lhs_type,
       lhs_value_opt,
       effective_is_compile_time_only,
-      !(is_implicit),
+      !is_implicit,
       // is_reassignable
       type_contains_rc_type(final_lhs_type),
       // is_owning_the_rc_value (stub: always false)

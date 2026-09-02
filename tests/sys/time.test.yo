@@ -17,8 +17,8 @@ make_test_file :: (fn(name : String) -> ArrayList(u8))({
   p := path_join(tmp, name);
   p.to_cstr()
 });
-create_file :: (fn(test_path : *(u8), content : *(u8), content_len : u32, io : Io) -> unit)({
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+create_file :: (fn(test_path : *u8, content : *u8, content_len : u32, io : Io) -> unit)({
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, test_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
   wr := io.await(file.write(fd, content, content_len, u64(0)), io);

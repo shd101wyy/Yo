@@ -48,7 +48,7 @@ test("AtomicBool compare_exchange", {
   assert(a.load(MemoryOrder.Relaxed) == true, "should have new value");
   expected = false;
   ok = a.compare_exchange(expected, true, MemoryOrder.Release, MemoryOrder.Relaxed);
-  assert(!(ok), "CAS should fail with mismatched expected");
+  assert(!ok, "CAS should fail with mismatched expected");
   assert(expected == true, "expected should be updated to current value");
 });
 
@@ -83,7 +83,7 @@ test("AtomicI32 compare_exchange failure", {
   a := AtomicI32(i32(5));
   expected := i32(0);
   ok := a.compare_exchange(expected, i32(1), MemoryOrder.Release, MemoryOrder.Relaxed);
-  assert(!(ok), "CAS should fail");
+  assert(!ok, "CAS should fail");
   assert(expected == i32(5), "expected should be updated");
   assert(a.load(MemoryOrder.Relaxed) == i32(5), "value unchanged");
 });
@@ -95,7 +95,7 @@ test("AtomicI32 cross-thread counter", {
   if(arch == Arch.Wasm32, return(()));
   counter := AtomicI32(i32(0));
   iterations := i32(1000);
-  t := Thread.spawn((io) => {
+  t := Thread.spawn(io => {
     (i : i32) = i32(0);
     while(runtime(i < iterations), {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
@@ -136,8 +136,8 @@ test("AtomicUsize store and load", {
 // ============================================================================
 test("AtomicIsize store and load", {
   a := AtomicIsize(isize(0));
-  a.store(isize(-(42)), MemoryOrder.Release);
-  assert(a.load(MemoryOrder.Acquire) == isize(-(42)), "should read back isize");
+  a.store(isize(-42), MemoryOrder.Release);
+  assert(a.load(MemoryOrder.Acquire) == isize(-42), "should read back isize");
 });
 
 // ============================================================================
@@ -171,12 +171,12 @@ test("AtomicI8 fetch_min / fetch_max", {
   assert(a.load(MemoryOrder.Acquire) == i8(40), "fetch_max keeps the larger value");
 });
 test("AtomicI8 fetch_min / fetch_max are signed comparisons", {
-  a := AtomicI8(i8(-(5)));
-  assert(a.fetch_max(i8(3), MemoryOrder.SeqCst) == i8(-(5)), "fetch_max returns previous");
+  a := AtomicI8(i8(-5));
+  assert(a.fetch_max(i8(3), MemoryOrder.SeqCst) == i8(-5), "fetch_max returns previous");
   assert(a.load(MemoryOrder.SeqCst) == i8(3), "3 > -5");
-  b := AtomicI8(i8(-(5)));
-  assert(b.fetch_min(i8(3), MemoryOrder.SeqCst) == i8(-(5)), "fetch_min returns previous");
-  assert(b.load(MemoryOrder.SeqCst) == i8(-(5)), "-5 < 3");
+  b := AtomicI8(i8(-5));
+  assert(b.fetch_min(i8(3), MemoryOrder.SeqCst) == i8(-5), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i8(-5), "-5 < 3");
 });
 test("AtomicI8 wraps like the runtime operator", {
   (seed : i8) = i8(127);
@@ -218,12 +218,12 @@ test("AtomicI16 fetch_min / fetch_max", {
   assert(a.load(MemoryOrder.Acquire) == i16(40), "fetch_max keeps the larger value");
 });
 test("AtomicI16 fetch_min / fetch_max are signed comparisons", {
-  a := AtomicI16(i16(-(5)));
-  assert(a.fetch_max(i16(3), MemoryOrder.SeqCst) == i16(-(5)), "fetch_max returns previous");
+  a := AtomicI16(i16(-5));
+  assert(a.fetch_max(i16(3), MemoryOrder.SeqCst) == i16(-5), "fetch_max returns previous");
   assert(a.load(MemoryOrder.SeqCst) == i16(3), "3 > -5");
-  b := AtomicI16(i16(-(5)));
-  assert(b.fetch_min(i16(3), MemoryOrder.SeqCst) == i16(-(5)), "fetch_min returns previous");
-  assert(b.load(MemoryOrder.SeqCst) == i16(-(5)), "-5 < 3");
+  b := AtomicI16(i16(-5));
+  assert(b.fetch_min(i16(3), MemoryOrder.SeqCst) == i16(-5), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i16(-5), "-5 < 3");
 });
 test("AtomicI16 wraps like the runtime operator", {
   (seed : i16) = i16(32767);
@@ -265,12 +265,12 @@ test("AtomicI32 fetch_min / fetch_max", {
   assert(a.load(MemoryOrder.Acquire) == i32(40), "fetch_max keeps the larger value");
 });
 test("AtomicI32 fetch_min / fetch_max are signed comparisons", {
-  a := AtomicI32(i32(-(5)));
-  assert(a.fetch_max(i32(3), MemoryOrder.SeqCst) == i32(-(5)), "fetch_max returns previous");
+  a := AtomicI32(i32(-5));
+  assert(a.fetch_max(i32(3), MemoryOrder.SeqCst) == i32(-5), "fetch_max returns previous");
   assert(a.load(MemoryOrder.SeqCst) == i32(3), "3 > -5");
-  b := AtomicI32(i32(-(5)));
-  assert(b.fetch_min(i32(3), MemoryOrder.SeqCst) == i32(-(5)), "fetch_min returns previous");
-  assert(b.load(MemoryOrder.SeqCst) == i32(-(5)), "-5 < 3");
+  b := AtomicI32(i32(-5));
+  assert(b.fetch_min(i32(3), MemoryOrder.SeqCst) == i32(-5), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i32(-5), "-5 < 3");
 });
 test("AtomicI32 wraps like the runtime operator", {
   (seed : i32) = i32(2147483647);
@@ -312,12 +312,12 @@ test("AtomicI64 fetch_min / fetch_max", {
   assert(a.load(MemoryOrder.Acquire) == i64(40), "fetch_max keeps the larger value");
 });
 test("AtomicI64 fetch_min / fetch_max are signed comparisons", {
-  a := AtomicI64(i64(-(5)));
-  assert(a.fetch_max(i64(3), MemoryOrder.SeqCst) == i64(-(5)), "fetch_max returns previous");
+  a := AtomicI64(i64(-5));
+  assert(a.fetch_max(i64(3), MemoryOrder.SeqCst) == i64(-5), "fetch_max returns previous");
   assert(a.load(MemoryOrder.SeqCst) == i64(3), "3 > -5");
-  b := AtomicI64(i64(-(5)));
-  assert(b.fetch_min(i64(3), MemoryOrder.SeqCst) == i64(-(5)), "fetch_min returns previous");
-  assert(b.load(MemoryOrder.SeqCst) == i64(-(5)), "-5 < 3");
+  b := AtomicI64(i64(-5));
+  assert(b.fetch_min(i64(3), MemoryOrder.SeqCst) == i64(-5), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == i64(-5), "-5 < 3");
 });
 test("AtomicI64 wraps like the runtime operator", {
   (seed : i64) = i64(9223372036854775807);
@@ -602,12 +602,12 @@ test("AtomicIsize fetch_min / fetch_max", {
   assert(a.load(MemoryOrder.Acquire) == isize(40), "fetch_max keeps the larger value");
 });
 test("AtomicIsize fetch_min / fetch_max are signed comparisons", {
-  a := AtomicIsize(isize(-(5)));
-  assert(a.fetch_max(isize(3), MemoryOrder.SeqCst) == isize(-(5)), "fetch_max returns previous");
+  a := AtomicIsize(isize(-5));
+  assert(a.fetch_max(isize(3), MemoryOrder.SeqCst) == isize(-5), "fetch_max returns previous");
   assert(a.load(MemoryOrder.SeqCst) == isize(3), "3 > -5");
-  b := AtomicIsize(isize(-(5)));
-  assert(b.fetch_min(isize(3), MemoryOrder.SeqCst) == isize(-(5)), "fetch_min returns previous");
-  assert(b.load(MemoryOrder.SeqCst) == isize(-(5)), "-5 < 3");
+  b := AtomicIsize(isize(-5));
+  assert(b.fetch_min(isize(3), MemoryOrder.SeqCst) == isize(-5), "fetch_min returns previous");
+  assert(b.load(MemoryOrder.SeqCst) == isize(-5), "-5 < 3");
 });
 test("AtomicIsize wraps like the runtime operator", {
   (seed : isize) = isize(0);
@@ -631,9 +631,9 @@ test("AtomicI64 fetch_add under four-thread contention", {
       i = (i + i64(1));
     });
   });
-  t1 := Thread.spawn((io) => spin(counter, iterations));
-  t2 := Thread.spawn((io) => spin(counter, iterations));
-  t3 := Thread.spawn((io) => spin(counter, iterations));
+  t1 := Thread.spawn(io => spin(counter, iterations));
+  t2 := Thread.spawn(io => spin(counter, iterations));
+  t3 := Thread.spawn(io => spin(counter, iterations));
   spin(counter, iterations);
   t1.join();
   t2.join();
@@ -651,9 +651,9 @@ test("AtomicU64 fetch_sub under four-thread contention", {
       i = (i + u64(1));
     });
   });
-  t1 := Thread.spawn((io) => drain(counter, iterations));
-  t2 := Thread.spawn((io) => drain(counter, iterations));
-  t3 := Thread.spawn((io) => drain(counter, iterations));
+  t1 := Thread.spawn(io => drain(counter, iterations));
+  t2 := Thread.spawn(io => drain(counter, iterations));
+  t3 := Thread.spawn(io => drain(counter, iterations));
   drain(counter, iterations);
   t1.join();
   t2.join();
@@ -671,9 +671,9 @@ test("AtomicUsize fetch_add under four-thread contention", {
       i = (i + usize(1));
     });
   });
-  t1 := Thread.spawn((io) => spin(counter, iterations));
-  t2 := Thread.spawn((io) => spin(counter, iterations));
-  t3 := Thread.spawn((io) => spin(counter, iterations));
+  t1 := Thread.spawn(io => spin(counter, iterations));
+  t2 := Thread.spawn(io => spin(counter, iterations));
+  t3 := Thread.spawn(io => spin(counter, iterations));
   spin(counter, iterations);
   t1.join();
   t2.join();
@@ -713,9 +713,9 @@ test("AtomicU32 fetch_or / fetch_and under four-thread contention", {
       i = (i + u32(1));
     });
   });
-  t1 := Thread.spawn((io) => toggle(bits, v1, u32(2), u32(4294967293), iterations));
-  t2 := Thread.spawn((io) => toggle(bits, v2, u32(4), u32(4294967291), iterations));
-  t3 := Thread.spawn((io) => toggle(bits, v3, u32(8), u32(4294967287), iterations));
+  t1 := Thread.spawn(io => toggle(bits, v1, u32(2), u32(4294967293), iterations));
+  t2 := Thread.spawn(io => toggle(bits, v2, u32(4), u32(4294967291), iterations));
+  t3 := Thread.spawn(io => toggle(bits, v3, u32(8), u32(4294967287), iterations));
   toggle(bits, v0, u32(1), u32(4294967294), iterations);
   t1.join();
   t2.join();
@@ -740,9 +740,9 @@ test("AtomicU16 fetch_xor under four-thread contention", {
       i = (i + u16(1));
     });
   });
-  t1 := Thread.spawn((io) => flip(flags, u16(43981), iterations));
-  t2 := Thread.spawn((io) => flip(flags, u16(43981), iterations));
-  t3 := Thread.spawn((io) => flip(flags, u16(4660), iterations));
+  t1 := Thread.spawn(io => flip(flags, u16(43981), iterations));
+  t2 := Thread.spawn(io => flip(flags, u16(43981), iterations));
+  t3 := Thread.spawn(io => flip(flags, u16(4660), iterations));
   flip(flags, u16(4660), iterations);
   t1.join();
   t2.join();
@@ -761,7 +761,7 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
   // `lo` is <= v after `lo.fetch_min(v)`. A dropped read-modify-write breaks
   // exactly that. Each thread reports into its OWN atomic (single writer).
   lowest := AtomicI32(i32(1000000));
-  highest := AtomicI32(i32(-(1000000)));
+  highest := AtomicI32(i32(-1000000));
   v0 := AtomicI32(i32(0));
   v1 := AtomicI32(i32(0));
   v2 := AtomicI32(i32(0));
@@ -783,9 +783,9 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
       i = (i + i32(1));
     });
   });
-  t1 := Thread.spawn((io) => push(lowest, highest, v1, i32(1000), i32(1000)));
-  t2 := Thread.spawn((io) => push(lowest, highest, v2, i32(2000), i32(1000)));
-  t3 := Thread.spawn((io) => push(lowest, highest, v3, i32(3000), i32(1000)));
+  t1 := Thread.spawn(io => push(lowest, highest, v1, i32(1000), i32(1000)));
+  t2 := Thread.spawn(io => push(lowest, highest, v2, i32(2000), i32(1000)));
+  t3 := Thread.spawn(io => push(lowest, highest, v3, i32(3000), i32(1000)));
   push(lowest, highest, v0, i32(0), i32(1000));
   t1.join();
   t2.join();
@@ -817,13 +817,13 @@ test("fence publishes a relaxed store across threads", {
   // flag must therefore observe the payload.
   data := AtomicI64(i64(0));
   ready := AtomicBool(false);
-  observed := AtomicI64(i64(-(1)));
-  writer := Thread.spawn((io) => {
+  observed := AtomicI64(i64(-1));
+  writer := Thread.spawn(io => {
     data.store(i64(424242), MemoryOrder.Relaxed);
     fence(MemoryOrder.Release);
     ready.store(true, MemoryOrder.Relaxed);
   });
-  while(runtime(!(ready.load(MemoryOrder.Relaxed))), {
+  while(runtime(!ready.load(MemoryOrder.Relaxed)), {
     ();
   });
   fence(MemoryOrder.Acquire);

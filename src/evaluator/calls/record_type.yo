@@ -120,7 +120,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
       arg_expr_opt := arg_exprs.get(j);
       arg_expr := match(arg_expr_opt, .Some(a) => a, .None => module_expr);
       // Each arg must be a `label: value` colon call.
-      if(!(ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2)))), {
+      if(!ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2))), {
         exn.throw(
           dyn(
             format_error_message(
@@ -151,7 +151,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
           arg_expr
         }
       );
-      if(!(ast_expr_is_atom(label_sub)), {
+      if(!ast_expr_is_atom(label_sub), {
         exn.throw(
           dyn(
             format_error_message(
@@ -180,7 +180,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         );
         li = (li + usize(1));
       });
-      if(!(label_exists_in_type), {
+      if(!label_exists_in_type, {
         exn.throw(
           dyn(
             format_error_message(
@@ -217,7 +217,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
         caller_env = arg_info.env;
         arg_type := arg_info.ty;
-        if(!(are_types_compatible(arg_type, field_type)), {
+        if(!are_types_compatible(arg_type, field_type), {
           exn.throw(
             dyn(
               format_error_message(
@@ -238,7 +238,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
       });
       j = (j + usize(1));
     }); // end inner loop over argExprs
-    if(!(found_arg), {
+    if(!found_arg, {
       exn.throw(
         dyn(
           format_error_message(

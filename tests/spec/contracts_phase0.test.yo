@@ -17,7 +17,7 @@ test("requires/ensures on a satisfying call run without panicking", {
 });
 
 test("multiple predicates inside a single requires/ensures", {
-  clamped :: (fn(x : i32, lo : i32, hi : i32, requires(lo <= hi, x >= i32(-(1000))), ensures(result >= lo, result <= hi)) -> i32)(
+  clamped :: (fn(x : i32, lo : i32, hi : i32, requires(lo <= hi, x >= i32(-1000)), ensures(result >= lo, result <= hi)) -> i32)(
     cond(
       (x < lo) => lo,
       (x > hi) => hi,
@@ -25,7 +25,7 @@ test("multiple predicates inside a single requires/ensures", {
     )
   );
   assert(clamped(i32(5), i32(0), i32(10)) == i32(5), "clamp 5 in [0,10]");
-  assert(clamped(i32(-(5)), i32(0), i32(10)) == i32(0), "clamp -5 in [0,10]");
+  assert(clamped(i32(-5), i32(0), i32(10)) == i32(0), "clamp -5 in [0,10]");
   assert(clamped(i32(15), i32(0), i32(10)) == i32(10), "clamp 15 in [0,10]");
 });
 
@@ -71,7 +71,7 @@ test("ghost_fn declaration is parseable and callable in Phase 0", {
   // Phase 0 is transparent — the ghost function is still callable.
   // Later phases will forbid calls from non-ghost code.
   assert(is_positive(i32(5)), "5 is positive");
-  assert(!(is_positive(i32(-(5)))), "-5 is not positive");
+  assert(!is_positive(i32(-5)), "-5 is not positive");
 });
 
 test("old() is a transparent pass-through in Phase 0", {
@@ -195,10 +195,10 @@ test("runtime requires(...) is lowered to a runtime assert and PASSES on valid i
 });
 
 test("comptime requires(...) PASSES at compile time for valid input", {
-  abs :: (fn(comptime(x) : i32, requires(x >= i32(-(100)))) -> comptime(i32))(
-    cond((x >= i32(0)) => x, true => -(x))
+  abs :: (fn(comptime(x) : i32, requires(x >= i32(-100))) -> comptime(i32))(
+    cond((x >= i32(0)) => x, true => -x)
   );
-  GOOD :: abs(i32(-(50)));
+  GOOD :: abs(i32(-50));
   assert(GOOD == i32(50), "abs(-50) == 50");
 });
 
@@ -211,17 +211,17 @@ test("comptime requires(...) PASSES at compile time for valid input", {
 // it.
 test("ensures(...) is lowered and PASSES on a valid runtime postcondition", {
   abs :: (fn(x : i32, ensures(result >= i32(0))) -> i32)(
-    cond((x >= i32(0)) => x, true => -(x))
+    cond((x >= i32(0)) => x, true => -x)
   );
-  assert(abs(i32(-(5))) == i32(5), "abs(-5) == 5");
+  assert(abs(i32(-5)) == i32(5), "abs(-5) == 5");
   assert(abs(i32(7)) == i32(7), "abs(7) == 7");
 });
 
 test("ensures(...) with multiple postconditions in a single call", {
-  abs :: (fn(x : i32, ensures(result >= i32(0), (result == x) || (result == -(x)))) -> i32)(
-    cond((x >= i32(0)) => x, true => -(x))
+  abs :: (fn(x : i32, ensures(result >= i32(0), (result == x) || (result == -x))) -> i32)(
+    cond((x >= i32(0)) => x, true => -x)
   );
-  assert(abs(i32(-(3))) == i32(3), "abs(-3) == 3");
+  assert(abs(i32(-3)) == i32(3), "abs(-3) == 3");
 });
 
 test("ensures(...) with old(...) captures the entry value of a ref param", {

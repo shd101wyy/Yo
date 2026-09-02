@@ -7,10 +7,10 @@
 { assert } :: import("std/assert");
 open(import("std/string"));
 _paren_wrapped :: (fn(c : String) -> bool)(
-  (c.starts_with("(*")) && (c.ends_with(")"))
+  c.starts_with("(*") && c.ends_with(")")
 );
 test("str-literal arg containing ) as && RHS compiles + runs", {
   assert(_paren_wrapped(String.from("(*x)")));
-  assert(!(_paren_wrapped(String.from("(*x"))));
-  assert(!(_paren_wrapped(String.from("x)"))));
+  assert(!_paren_wrapped(String.from("(*x")));
+  assert(!_paren_wrapped(String.from("x)")));
 });

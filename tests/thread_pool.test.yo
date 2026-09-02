@@ -14,7 +14,7 @@ test("ThreadPool new reports the requested thread count", {
   // is honoured exactly.
   pool := ThreadPool.new(usize(3));
   assert(pool.num_threads() == usize(3), "pool should report 3 threads");
-  assert(!(pool.is_shutdown()), "a fresh pool is not shut down");
+  assert(!pool.is_shutdown(), "a fresh pool is not shut down");
 });
 test("ThreadPool with_hardware_threads sizes itself from the runtime", {
   if(arch == Arch.Wasm32, return(()));
@@ -28,7 +28,7 @@ test("ThreadPool spawn runs the task", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(2));
   ran := AtomicI32(i32(0));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     ran.store(i32(7), MemoryOrder.Release);
     ()
   });
@@ -40,7 +40,7 @@ test("ThreadPool spawn with i32 capture", {
   pool := ThreadPool.new(usize(2));
   value := 42;
   seen := AtomicI32(i32(0));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     assert(value == 42, "captured value visible on the worker thread");
     seen.store(value, MemoryOrder.Release);
     ()
@@ -54,7 +54,7 @@ test("ThreadPool spawn with multiple captures", {
   x := 100;
   y := 200;
   sum := AtomicI32(i32(0));
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     sum.store(x + y, MemoryOrder.Release);
     ()
   });
@@ -67,7 +67,7 @@ test("ThreadPool join_all waits for every submitted task", {
   counter := AtomicI32(i32(0));
   i := i32(0);
   while(runtime(i < i32(32)), {
-    spawn(pool, (io) => {
+    spawn(pool, io => {
       counter.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
     });
@@ -84,7 +84,7 @@ test("ThreadPool join_all is reusable across batches", {
   while(runtime(round < i32(3)), {
     i := i32(0);
     while(runtime(i < i32(8)), {
-      spawn(pool, (io) => {
+      spawn(pool, io => {
         counter.fetch_add(i32(1), MemoryOrder.AcqRel);
         ()
       });
@@ -103,7 +103,7 @@ test("ThreadPool join_all on an unused pool returns immediately", {
   if(arch == Arch.Wasm32, return(()));
   pool := ThreadPool.new(usize(2));
   pool.join_all();
-  assert(!(pool.is_shutdown()), "join_all does not close the pool");
+  assert(!pool.is_shutdown(), "join_all does not close the pool");
 });
 test("ThreadPool shared with another OS thread that submits into it", {
   if(arch == Arch.Wasm32, return(()));
@@ -112,17 +112,17 @@ test("ThreadPool shared with another OS thread that submits into it", {
   // Submit from the main thread...
   i := i32(0);
   while(runtime(i < i32(4)), {
-    spawn(pool, (io) => {
+    spawn(pool, io => {
       counter.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
     });
     i = (i + i32(1));
   });
   // ...and from a dedicated OS thread sharing the same pool object.
-  submitter := Thread.spawn((io) => {
+  submitter := Thread.spawn(io => {
     j := i32(0);
     while(runtime(j < i32(4)), {
-      spawn(pool, (io) => {
+      spawn(pool, io => {
         counter.fetch_add(i32(1), MemoryOrder.AcqRel);
         ()
       });
@@ -142,7 +142,7 @@ test("ThreadPool shutdown drains outstanding work", {
   counter := AtomicI32(i32(0));
   i := i32(0);
   while(runtime(i < i32(16)), {
-    spawn(pool, (io) => {
+    spawn(pool, io => {
       counter.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
     });
@@ -167,12 +167,12 @@ test("ThreadPool tasks of several async shapes in one program", {
   pool := ThreadPool.new(usize(4));
   out := AtomicI32(i32(0));
   // Shape 1: no io use at all.
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     out.fetch_add(i32(1), MemoryOrder.AcqRel);
     ()
   });
   // Shape 2: await a unit future.
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     task := io.async((io : Io) => {
       io.await(yield(io), io);
     });
@@ -181,7 +181,7 @@ test("ThreadPool tasks of several async shapes in one program", {
     ()
   });
   // Shape 3: await a future returning a value.
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     x := 10;
     y := 20;
     task := io.async((io : Io) => {
@@ -194,7 +194,7 @@ test("ThreadPool tasks of several async shapes in one program", {
     ()
   });
   // Shape 4: await a future with a loop.
-  spawn(pool, (io) => {
+  spawn(pool, io => {
     task := io.async((io : Io) => {
       counter := 0;
       while(runtime(counter < i32(3)), {
@@ -221,7 +221,7 @@ test("ThreadPool tasks return values over a Channel", {
   out := Channel(i32).new(usize(8));
   i := i32(0);
   while(runtime(i < i32(8)), {
-    spawn(pool, (io) => {
+    spawn(pool, io => {
       out.send(i32(11));
       ()
     });

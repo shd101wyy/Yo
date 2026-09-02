@@ -23,7 +23,7 @@ Bumpable :: trait(
       }
     ),
   // default reading through a sibling
-  (ro : (fn(inout(self) : Self) -> u64)) ?= ((self) -> self.peek()),
+  (ro : (fn(inout(self) : Self) -> u64)) ?= (self -> self.peek()),
   // explicit fn spelling of a default
   (thrice : (fn(inout(self) : Self, v : u64) -> unit)) ?=
     (fn(inout(self) : Self, v : u64) -> unit)({
@@ -31,7 +31,7 @@ Bumpable :: trait(
       self.twice(v);
     }),
   // by-value receiver default — the control that always worked
-  (snapshot : (fn(self : Self) -> u64)) ?= ((self) -> self.state)
+  (snapshot : (fn(self : Self) -> u64)) ?= (self -> self.state)
 );
 Counter :: struct(state : u64);
 impl(

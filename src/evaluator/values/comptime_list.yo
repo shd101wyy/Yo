@@ -80,7 +80,7 @@ evaluate_comptime_list_value :: (
       .Some(info) => info.value.is_some(),
       .None => false
     );
-    if(!(has_value), {
+    if(!has_value, {
       exn.throw(
         dyn(
           format_error_message(
@@ -123,7 +123,7 @@ evaluate_comptime_list_value :: (
       .None => Option(TypeValue).Some(arg_ty),
       .Some(ct) => {
         compat := are_types_compatible(arg_ty, ct);
-        if(!(compat), {
+        if(!compat, {
           ct_str := type_to_string(ct);
           arg_str := type_to_string(arg_ty);
           exn.throw(

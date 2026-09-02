@@ -118,7 +118,7 @@ has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> b
   (found : bool) = false;
   (i : usize) = usize(0);
   n := tokens.len();
-  while((i < n) && (!(found)), {
+  while((i < n) && !found, {
     match(
       tokens.get(i),
       .Some(tok) => {
@@ -197,7 +197,7 @@ impl(
     // argument shape semantically rather than as text.
     skip_prelude := pre_scan_for_skip_prelude(program.clone());
     (module_error : Option(String)) = .None;
-    if(!(skip_prelude), {
+    if(!skip_prelude, {
       prelude_path := `file://${std_path}/prelude.yo`;
       match(
         load_module_fn(prelude_path),

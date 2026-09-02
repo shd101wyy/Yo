@@ -183,7 +183,7 @@ module_cache_has :: (fn(path : String) -> bool)(
 /// re-registration (a duplicate push would still be harmless because
 /// `_module_cache_index` returns the first match).
 register_module :: (fn(path : String, module_value : EvalValue, module_type : TypeValue) -> unit)({
-  if(!(module_cache_has(path.clone())), {
+  if(!module_cache_has(path.clone()), {
     g_module_cache_keys.push(path);
     g_module_cache_vals.push(module_value);
     g_module_cache_types.push(module_type);
@@ -259,7 +259,7 @@ invalidate_module :: (fn(path : String) -> ArrayList(String))({
       );
       ri = (ri + usize(1));
     });
-    if(!(already), {
+    if(!already, {
       removed.push(p.clone());
       // Collect p's dependents BEFORE remove_module drops p's own edges
       // (dependents are INCOMING edges — unaffected — but keep the order
