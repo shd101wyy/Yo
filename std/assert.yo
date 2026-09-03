@@ -1,9 +1,10 @@
 //! Runtime assertion and panic functions.
 //!
 //! Both `panic` and `assert` accept any type that implements the `ToString`
-//! trait — its `.to_string().to_c_str()` result is forwarded to the built-in
-//! `__yo_panic`. The `to_c_str()` allocates a C string on the heap; the caller
-//! (process termination via abort) does not need to free it.
+//! trait — its `.to_string().to_cstr()` result (a NUL-terminated
+//! `ArrayList(u8)`) is handed to the built-in `__yo_panic` through its data
+//! pointer. The process is terminating via abort; the buffer need not be
+//! freed.
 //!
 //! Usage:
 //!   assert(x > i32(0), "x must be positive");
@@ -15,7 +16,15 @@ open(import("std/string"));
 ///
 /// `msg` must implement `ToString`.
 panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)({
-  __yo_panic(msg.to_string().to_c_str());
+  // __yo_panic comptime-evaluates its message argument, so the pointer has
+  // to arrive as a plain *(u8)-typed binding — an Option .unwrap() chain
+  // leaves the argument without an ExprInfo and the builtin rejects it.
+  buf := msg.to_string().to_cstr();
+  match(
+    buf.ptr(),
+    .Some(p) => __yo_panic(p),
+    .None => __yo_panic("panic: <empty message>")
+  );
   ()
 });
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.

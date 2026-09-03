@@ -33,7 +33,8 @@ test("live TLS fetch of example.com (skips offline)", {
   exn := Exception(
     throw : (
       err -> {
-        unsafe(printf("  tls test skipped (no egress?): %s\n", err.to_string().to_c_str()));
+        cb := err.to_string().to_cstr();
+        unsafe(printf("  tls test skipped (no egress?): %s\n", *(u8)(cb.ptr().unwrap())));
         unwind(());
       }
     )

@@ -1349,3 +1349,44 @@ test("replace_all_with keeps text between matches", {
   out := re.replace_all_with(`a--b---c`, (m) => `+`);
   assert(out == `a+b+c`, String.from("runs between matches should be preserved, got ") + out);
 });
+// ============================================================================
+// Regex as a String Pattern — std/regex impls std/string's Pattern trait, so
+// every String pattern method accepts a compiled Regex directly.
+// ============================================================================
+test("String pattern methods with a Regex: contains / index_of / last_index_of", {
+  re := Regex.new(`[0-9]+`, ``).unwrap();
+  s := `a1b22c`;
+  assert(s.contains(re), "digit run contained");
+  assert(!`abc`.contains(re), "no digits");
+  assert(s.index_of(re).unwrap_or(usize(999)) == usize(1), "first digit run at byte 1");
+  assert(s.last_index_of(re).unwrap_or(usize(999)) == usize(3), "last digit run (22) at byte 3");
+  assert(s.index_of(re, usize(2)).unwrap_or(usize(999)) == usize(3), "from_index skips the first run");
+});
+test("String pattern methods with a Regex: starts_with / ends_with / split / split_once", {
+  re := Regex.new(`[0-9]+`, ``).unwrap();
+  assert(`42x`.starts_with(re), "anchored at byte 0");
+  assert(!`x42`.starts_with(re), "not anchored at 0");
+  assert(`x42`.ends_with(re), "digit run at the end");
+  parts := `a1b22c`.split(re);
+  assert(parts.len() == usize(3), "split on digit runs");
+  sep := `|`;
+  assert(sep.join(parts) == `a|b|c`, "split parts");
+  match(
+    `x=42`.split_once(re),
+    .Some(p) => begin(assert(p.0 == `x=`, "split_once before the digit run"), assert(p.1 == ``, "split_once after the digit run")),
+    .None => assert(false, "digit run present")
+  );
+});
+test("String replace / replace_all with a Regex pattern", {
+  re := Regex.new(`[0-9]+`, ``).unwrap();
+  assert(`a1b22c`.replace(re, `#`) == `a#b22c`, "replace first match");
+  assert(`a1b22c`.replace_all(re, `#`) == `a#b#c`, "replace all matches");
+  zero := Regex.new(`x*`, ``).unwrap();
+  assert(`abc`.replace_all(zero, `-`) == `-a-b-c-`, "zero-width regex inserts between runes, like the empty string");
+});
+test("Regex Pattern offsets are String BYTE offsets", {
+  re := Regex.new(`é+`, ``).unwrap();
+  s := `aébé`;
+  assert(s.index_of(re).unwrap_or(usize(999)) == usize(1), "é run starts at byte 1 (a is one byte)");
+  assert(s.last_index_of(re).unwrap_or(usize(999)) == usize(4), "last é run starts at byte 4 (after a, é, b)");
+});

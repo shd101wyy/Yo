@@ -1,5 +1,5 @@
 pragma(Pragma.AllowUnsafe);
-{ assert } :: import("std/assert");
+{ assert, assert_approx } :: import("std/assert");
 open(import("std/string"));
 open(import("std/collections/array_list"));
 // ===== Construction Tests =====
@@ -2032,4 +2032,154 @@ test("String literals carry NUL and control characters through codegen", {
   assert(ctl.len() == usize(4), "NUL + x + backspace + formfeed");
   assert(ctl.byte_at(usize(2)) == u8(8), "backspace byte");
   assert(ctl.byte_at(usize(3)) == u8(12), "formfeed byte");
+});
+// ===== Unicode case conversion (std/string/unicode tables) =====
+// to_lowercase/to_uppercase used to map ASCII only; they now carry the full
+// Unicode 15.1 mapping. The ASCII arms above pin that ASCII behavior is
+// byte-identical to before.
+test("String to_lowercase is Unicode-correct", {
+  assert(String.from("ÉCOLE").to_lowercase() == String.from("école"), "Latin-1 lower");
+  assert(String.from("ΑΒΓ ΩΣ").to_lowercase() == String.from("αβγ ωσ"), "Greek (no final-sigma context rule)");
+  assert(String.from("ĀĂĄĆ").to_lowercase() == String.from("āăąć"), "Latin Extended-A alternating range");
+  (deseret : String) = String.from("𐐀𐐁").to_lowercase();
+  assert(deseret == String.from("𐐨𐐩"), "Deseret (supplementary plane)");
+  (dotted : String) = String.from("İ").to_lowercase();
+  assert(dotted.len() == usize(3), "İ expands to i + U+0307 (one byte + two bytes)");
+  assert((dotted.byte_at(usize(0)) == u8(0x69)) && ((dotted.byte_at(usize(1)) == u8(0xCC)) && (dotted.byte_at(usize(2)) == u8(0x87))), "the expansion bytes (i + U+0307)");
+  assert(String.from("").to_lowercase() == String.from(""), "empty stays empty");
+});
+test("String to_uppercase is Unicode-correct", {
+  assert(String.from("école").to_uppercase() == String.from("ÉCOLE"), "Latin-1 upper");
+  (sharp_s : String) = String.from("straße").to_uppercase();
+  assert(sharp_s == String.from("STRASSE"), "ß expands to SS (length grows)");
+  assert(String.from("ﬁ").to_uppercase() == String.from("FI"), "ligature expands");
+  assert(String.from("привет").to_uppercase() == String.from("ПРИВЕТ"), "Cyrillic");
+  assert(String.from("ǆ").to_uppercase() == String.from("Ǆ"), "titlecase digraph");
+});
+test("String to_ascii_* maps ASCII only, byte-for-byte", {
+  (mixed : String) = String.from("ÉAbC");
+  assert(mixed.to_ascii_lowercase() == String.from("Éabc"), "non-ASCII byte untouched by to_ascii_lowercase");
+  assert(mixed.to_ascii_uppercase() == String.from("ÉABC"), "non-ASCII byte untouched by to_ascii_uppercase");
+  assert(mixed.to_ascii_lowercase().len() == mixed.len(), "no expansion — ASCII mapping is byte-wise");
+  assert(String.from("AbC").to_ascii_lowercase() == String.from("abc"), "plain ASCII lower");
+  assert(String.from("AbC").to_ascii_uppercase() == String.from("ABC"), "plain ASCII upper");
+});
+// ===== rune as a Pattern =====
+test("rune pattern: contains / index_of / last_index_of", {
+  s := String.from("a,é,b");
+  assert(s.contains(rune(u32(0x2C))), "comma contained");
+  assert(s.contains(rune(u32(0xE9))), "é contained");
+  assert(!s.contains(rune(u32(0x2F))), "/ not contained");
+  assert(s.index_of(rune(u32(0xE9))).unwrap_or(usize(999)) == usize(2), "é starts at byte 2");
+  assert(s.last_index_of(rune(u32(0x2C))).unwrap_or(usize(999)) == usize(4), "last comma at byte 4 (a, comma, 2-byte é, then this comma)");
+  assert(s.index_of(rune(u32(0xE9)), usize(3)).is_none(), "from_index past the é finds nothing");
+});
+test("rune pattern: starts_with / ends_with / split / split_once", {
+  s := String.from("é,x");
+  assert(s.starts_with(rune(u32(0xE9))), "starts with é");
+  assert(s.ends_with(rune(u32(0x78))), "ends with x");
+  assert(!s.ends_with(rune(u32(0x2C))), "does not end with comma");
+  parts := s.split(rune(u32(0x2C)));
+  assert(parts.len() == usize(2), "split on comma");
+  first := parts.get(usize(0)).unwrap_or(String.from("?"));
+  second := parts.get(usize(1)).unwrap_or(String.from("?"));
+  assert((first == String.from("é")) && (second == String.from("x")), "split parts");
+  match(
+    s.split_once(rune(u32(0x2C))),
+    .Some(p) => begin(assert(p.0 == String.from("é"), "split_once first half"), assert(p.1 == String.from("x"), "split_once second half")),
+    .None => assert(false, "split_once on a rune")
+  );
+});
+test("rune pattern: replace / replace_all", {
+  s := String.from("aébéc");
+  assert(s.replace(rune(u32(0xE9)), String.from("E")) == String.from("aEbéc"), "replace first é");
+  assert(s.replace_all(rune(u32(0xE9)), String.from("E")) == String.from("aEbEc"), "replace_all é");
+  assert(s.replace(rune(u32(0xFF)), String.from("X")) == s, "absent rune replaces nothing");
+});
+// ===== split_once =====
+test("String split_once", {
+  kv := String.from("key=value=more");
+  match(
+    kv.split_once(String.from("=")),
+    .Some(p) => begin(assert(p.0 == String.from("key"), "split_once before-half"), assert(p.1 == String.from("value=more"), "split_once after-half")),
+    .None => assert(false, "separator is present")
+  );
+  assert(kv.split_once(String.from("!")).is_none(), "absent separator is .None");
+  match(
+    kv.split_once(""),
+    .Some(p) => begin(assert(p.0 == String.from(""), "empty separator: empty before-half"), assert(p.1 == kv, "empty separator: whole after-half")),
+    .None => assert(false, "empty separator always matches")
+  );
+  assert(String.from("").split_once(String.from("=")).is_none(), "empty string, no separator");
+});
+// ===== strip_prefix / strip_suffix =====
+test("String strip_prefix", {
+  s := String.from("prefix-x");
+  assert(s.strip_prefix(String.from("prefix-")).unwrap_or(String.from("?")) == String.from("x"), "strips the prefix");
+  assert(s.strip_prefix(String.from("nope-")).is_none(), "non-matching prefix is .None");
+  assert(s.strip_prefix("").unwrap_or(String.from("?")) == s, "empty prefix strips nothing");
+  assert(s.strip_prefix(s).unwrap_or(String.from("?")) == String.from(""), "whole-string prefix strips to empty");
+});
+test("String strip_suffix", {
+  s := String.from("file.rs");
+  assert(s.strip_suffix(String.from(".rs")).unwrap_or(String.from("?")) == String.from("file"), "strips the suffix");
+  assert(s.strip_suffix(String.from(".ts")).is_none(), "non-matching suffix is .None");
+  assert(s.strip_suffix("").unwrap_or(String.from("?")) == s, "empty suffix strips nothing");
+  assert(String.from("aaa").strip_suffix(String.from("aa")).unwrap_or(String.from("?")) == String.from("a"), "last starting occurrence wins (Rust parity)");
+  assert(String.from("café").strip_suffix(String.from("é")).unwrap_or(String.from("?")) == String.from("caf"), "multibyte suffix");
+});
+// ===== replace_all with an empty (zero-width) pattern =====
+// Rust semantics, adopted with the Pattern-generic rewrite: an empty pattern
+// matches between every pair of runes and at both ends. (It used to return
+// `self` unchanged.)
+test("String replace_all with empty search inserts everywhere", {
+  s := String.from("abc");
+  assert(s.replace_all(String.from(""), String.from("-")) == String.from("-a-b-c-"), "Rust: \"abc\".replace_all(\"\", \"-\") == \"-a-b-c-\"");
+  assert(String.from("").replace_all(String.from(""), String.from("-")) == String.from("-"), "the empty string still has one boundary");
+});
+// ===== parse_f64 =====
+test("String parse_f64 accepts the Rust f64::from_str grammar", {
+  assert_approx(String.from("3.25").parse_f64().unwrap_or(f64(0)), f64(3.25), f64(0.000000000001), "plain decimal");
+  assert_approx(String.from("-1.5e-3").parse_f64().unwrap_or(f64(0)), f64(-0.0015), f64(0.000000000001), "signed exponent");
+  assert_approx(String.from(".5").parse_f64().unwrap_or(f64(0)), f64(0.5), f64(0.000000000001), "leading dot");
+  assert_approx(String.from("5.").parse_f64().unwrap_or(f64(0)), f64(5), f64(0.000000000001), "trailing dot");
+  assert_approx(String.from("+2").parse_f64().unwrap_or(f64(0)), f64(2), f64(0.000000000001), "explicit plus");
+  assert_approx(String.from("01").parse_f64().unwrap_or(f64(0)), f64(1), f64(0.000000000001), "leading zero (unlike JSON)");
+  assert(String.from("inf").parse_f64().is_some(), "inf");
+  assert(String.from("NAN").parse_f64().is_some(), "NAN (case-insensitive)");
+  assert(String.from("Infinity").parse_f64().is_some(), "Infinity");
+});
+test("String parse_f64 rejects what atof would silently accept", {
+  assert(String.from(" 1").parse_f64().is_none(), "leading whitespace");
+  assert(String.from("1 ").parse_f64().is_none(), "trailing whitespace");
+  assert(String.from("0x1p3").parse_f64().is_none(), "hex float");
+  assert(String.from("1.2.3").parse_f64().is_none(), "two dots");
+  assert(String.from("").parse_f64().is_none(), "empty");
+  assert(String.from("1e").parse_f64().is_none(), "dangling exponent");
+  assert(String.from("1e+").parse_f64().is_none(), "exponent sign with no digits");
+  assert(String.from(".").parse_f64().is_none(), "dot alone (no digits)");
+  assert(String.from("abc").parse_f64().is_none(), "not a number");
+});
+// ===== parse_i64_radix / parse_u64_radix =====
+test("String parse_i64_radix", {
+  assert(String.from("ff").parse_i64_radix(u32(16)).unwrap_or(i64(-999)) == i64(255), "hex");
+  assert(String.from("-ff").parse_i64_radix(u32(16)).unwrap_or(i64(0)) == i64(-255), "negative hex");
+  assert(String.from("101").parse_i64_radix(u32(2)).unwrap_or(i64(-999)) == i64(5), "binary");
+  assert(String.from("z").parse_i64_radix(u32(36)).unwrap_or(i64(-999)) == i64(35), "base 36");
+  assert(String.from("+7").parse_i64_radix(u32(10)).unwrap_or(i64(-999)) == i64(7), "explicit plus");
+  assert(String.from("-8000000000000000").parse_i64_radix(u32(16)).unwrap_or(i64(0)) == i64.MIN, "exactly i64.MIN");
+  assert(String.from("ffffffffffffffff").parse_i64_radix(u32(16)).is_none(), "overflows i64");
+  assert(String.from("2").parse_i64_radix(u32(2)).is_none(), "digit not valid in radix");
+  assert(String.from("1_0").parse_i64_radix(u32(10)).is_none(), "underscore rejected (Rust from_str_radix)");
+  assert(String.from("").parse_i64_radix(u32(10)).is_none(), "empty");
+  assert(String.from("8").parse_i64_radix(u32(1)).is_none(), "radix below 2");
+  assert(String.from("8").parse_i64_radix(u32(37)).is_none(), "radix above 36");
+});
+test("String parse_u64_radix", {
+  assert(String.from("ff").parse_u64_radix(u32(16)).unwrap_or(u64(999)) == u64(255), "hex");
+  assert(String.from("ffffffffffffffff").parse_u64_radix(u32(16)).unwrap_or(u64(0)) == u64.MAX, "u64 max");
+  assert(String.from("+7").parse_u64_radix(u32(10)).unwrap_or(u64(999)) == u64(7), "explicit plus");
+  assert(String.from("-1").parse_u64_radix(u32(10)).is_none(), "minus rejected for unsigned (Rust parity)");
+  assert(String.from("2").parse_u64_radix(u32(2)).is_none(), "digit not valid in radix");
+  assert(String.from("100000000000000000000").parse_u64_radix(u32(10)).is_none(), "overflows u64");
 });

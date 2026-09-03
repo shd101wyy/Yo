@@ -1605,3 +1605,41 @@ ran — issues/async-await-nested-if-lost-continuation.md; `check` cannot
 catch it, and only SOME shapes are rejected at codegen). Until that bug is
 minimized and fixed: hoist every await-bearing step to a top-level
 statement of the closure and branch on plain booleans afterwards.
+
+## Block bodies cannot START with `cond(`/`match(` — and other body-statement rules
+
+A function/method body written `({...})` whose FIRST statement is `cond(...)` or
+`match(...)` fails to parse with the misleading "{ ... } without semicolons is
+parsed as a struct literal" error. Lead with any assignment instead — e.g. hoist
+the scrutinee: `(first : Option(usize)) = sep.index_in(self, usize(0));` then
+`match(first, ...)`. Related body rules learned the hard way:
+
+- Typed assignments need the whole pair parenthesized: `(x : T) = expr;` — bare
+  `x : T = expr` is rejected as "adjacent different operators" (`x := expr` is
+  fine unparenthesized).
+- Module-level bindings use `::`; `name : (fn(...))` at module level parses as a
+  CALL of the type value.
+- `1e-12`-style exponent float literals do not lex — spell the mantissa out
+  (`f64(0.000000000001)`).
+
+## Tuples: semicolon TYPE, comma VALUE, `.0` access, no destructuring patterns
+
+`(A; B)` is the tuple TYPE (semicolons); `(a, b)` is the tuple VALUE (commas).
+Field access is by integer index: `p.0`, `p.1`. (The comment at
+src/parser.yo's tuple branch states the mapping backwards —
+tests/internal/parser.test.yo "Parse tuple value (a, b)" / "Parse Tuple type
+(a; b)" are the truth.) Match patterns CANNOT destructure tuples: write
+`.Some(p) => p.0`, never `.Some((k, v))`. The first std API returning one is
+`String.split_once -> Option((String; String))`.
+
+## `__yo_panic` comptime-evaluates its message argument
+
+The builtin evaluates its argument and requires an ExprInfo: pass a plain
+`*u8`/str-typed binding. An Option `.unwrap()` chain on the argument leaves it
+without an ExprInfo and fails with "Failed to evaluate panic message" — bind
+the pointer through a local/`match` first (see std/assert.yo's `panic`).
+
+## `println` comes from `std/fmt`; `join` runs separator-first
+
+`{ println } :: import("std/fmt");` — there is no `io.println`. And `join` is
+`separator.join(list : ArrayList(String))`, not `list.join(sep)`.
