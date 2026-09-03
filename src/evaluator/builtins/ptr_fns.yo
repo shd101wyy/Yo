@@ -70,9 +70,7 @@ evaluate_address_call :: (
       dyn(
         format_error_message(
           ptok,
-          `Taking an address with '&(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use the 'inout(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
-          false,
-          .None
+          `Taking an address with '&(...)' produces a raw pointer ('*(T)'), which is not available in safe code.\n\nFor in-place mutation of a value, use the 'inout(name) : T' parameter form on the receiving function. For collections, the safe types (Slice(T), ArrayList(T), HashMap(K, V)) own their interior pointers — don't take an address of an element manually. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -111,9 +109,7 @@ evaluate_address_call :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("&: failed to evaluate the argument expression for reference."),
-            false,
-            .None
+            String.from("&: failed to evaluate the argument expression for reference.")
           )
         )
       );
@@ -133,9 +129,7 @@ evaluate_address_call :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?"),
-          false,
-          .None
+          String.from("Cannot create a pointer to a type. Did you mean to use \"*\"?")
         )
       )
     );

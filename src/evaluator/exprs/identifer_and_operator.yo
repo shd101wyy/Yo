@@ -33,7 +33,7 @@ _(env : ident_dbg_env) :: import("std/env");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ format_error_message, ErrorKind } :: import("../../error.yo");
+{ format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Evaluate an identifier or operator expression.
 ///
@@ -208,9 +208,7 @@ evaluate_identifier_and_operator :: (
         dyn(
           format_error_message(
             token,
-            `Variable "${identifier_string}" not found.`,
-            false,
-            Option(ErrorKind).None
+            `Variable "${identifier_string}" not found.`
           )
         )
       );
@@ -224,9 +222,7 @@ evaluate_identifier_and_operator :: (
         dyn(
           format_error_message(
             token,
-            String.from("Variable \"") + identifier_string + String.from("\" is not initialized"),
-            false,
-            Option(ErrorKind).None
+            String.from("Variable \"") + identifier_string + String.from("\" is not initialized")
           )
         )
       );

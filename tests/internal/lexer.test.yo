@@ -3,7 +3,8 @@ open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, find_matching_bracket } :: import("../../src/token.yo");
-{ LexerError, tokenize } :: import("../../src/lexer.yo");
+{ tokenize } :: import("../../src/lexer.yo");
+{ YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
 // Tokenize source, panicking on any lexer error.
 lex_or_panic :: (fn(source : String, exn : Exception) -> ArrayList(Token))(
@@ -661,14 +662,18 @@ test("Unterminated string auto-closes at EOF (TS parity)", {
     }
   );
 });
-test("Unterminated block comment raises LexerError", {
+test("Unterminated block comment raises a lexer diagnostic", {
   exn := Exception(
     throw : (
       err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `unterminated block comment`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`unterminated block comment`), "wrong error message");
+            assert(s.contains(`--> test.yo:`), "D3: lexer diagnostics carry the file");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }
@@ -677,14 +682,14 @@ test("Unterminated block comment raises LexerError", {
   tokenize(`/* unterminated`, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
-test("Unterminated template string raises LexerError", {
+test("Unterminated template string raises a lexer diagnostic", {
   exn := Exception(
     throw : (
       err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `unterminated template string`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`unterminated template string`), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }
@@ -745,9 +750,9 @@ test("forall is reserved for verification quantifiers", {
     throw : (
       err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `\`forall\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`\`forall\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }
@@ -761,9 +766,9 @@ test("∀ is reserved for verification quantifiers", {
     throw : (
       err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `\`∀\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`\`∀\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }

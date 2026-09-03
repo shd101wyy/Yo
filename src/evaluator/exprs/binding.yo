@@ -99,9 +99,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "${BK_COLON}" for variable binding.`,
-          false,
-          .None
+          `Expected "${BK_COLON}" for variable binding.`
         )
       )
     );
@@ -125,9 +123,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(rhs),
-          `Failed to evaluate rhs expression:\n${ast_expr_to_string(rhs)}`,
-          false,
-          .None
+          `Failed to evaluate rhs expression:\n${ast_expr_to_string(rhs)}`
         )
       )
     );
@@ -144,9 +140,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(rhs),
-          `Expected type for rhs, got ${ast_expr_to_string(rhs)}`,
-          false,
-          .None
+          `Expected type for rhs, got ${ast_expr_to_string(rhs)}`
         )
       )
     );
@@ -175,9 +169,7 @@ evaluate_binding :: (
         dyn(
           format_error_message(
             ast_expr_token(rhs),
-            `Array type with inferred length '_' is not allowed in type annotations.\nUse explicit length like 'Array(i32, 3)' or omit the type annotation and initialize with 'arr := Array(i32, _)(1, 2, 3)'`,
-            false,
-            .None
+            `Array type with inferred length '_' is not allowed in type annotations.\nUse explicit length like 'Array(i32, 3)' or omit the type annotation and initialize with 'arr := Array(i32, _)(1, 2, 3)'`
           )
         )
       );
@@ -201,9 +193,7 @@ evaluate_binding :: (
         dyn(
           format_error_message(
             ast_expr_token(lhs),
-            `Expected one argument for "comptime", got ${n_comptime_args.to_string()}`,
-            false,
-            .None
+            `Expected one argument for "comptime", got ${n_comptime_args.to_string()}`
           )
         )
       );
@@ -227,9 +217,7 @@ evaluate_binding :: (
         dyn(
           format_error_message(
             ast_expr_token(lhs),
-            `Expected exactly one argument for "given", got ${n_given_args.to_string()}`,
-            false,
-            .None
+            `Expected exactly one argument for "given", got ${n_given_args.to_string()}`
           )
         )
       );
@@ -267,9 +255,7 @@ evaluate_binding :: (
         dyn(
           format_error_message(
             ast_expr_token(lhs),
-            `Unexpected runtime variable binding in a compile-time only function body.`,
-            false,
-            .None
+            `Unexpected runtime variable binding in a compile-time only function body.`
           )
         )
       );
@@ -282,9 +268,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs),
-          `Invalid binding to "${lhs_tok_val}", expected identifier or operator`,
-          false,
-          .None
+          `Invalid binding to "${lhs_tok_val}", expected identifier or operator`
         )
       )
     );
@@ -297,9 +281,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           res_tok,
-          `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/OPERATOR_SET_AND_PRECEDENCE.md).`,
-          false,
-          .None
+          `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/OPERATOR_SET_AND_PRECEDENCE.md).`
         )
       )
     );
@@ -324,9 +306,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs),
-          `Expected "comptime" for compile-time known value binding:\n${ty_str}`,
-          false,
-          .None
+          `Expected "comptime" for compile-time known value binding:\n${ty_str}`
         )
       )
     );
@@ -338,9 +318,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs),
-          `Unexpected "comptime" for ${ty_str} which can only be used at runtime.`,
-          false,
-          .None
+          `Unexpected "comptime" for ${ty_str} which can only be used at runtime.`
         )
       )
     );
@@ -357,9 +335,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs),
-          `Runtime variables with generic function types are not allowed:\n${ty_str}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${variable_name}) : ${ty_str}`,
-          false,
-          .None
+          `Runtime variables with generic function types are not allowed:\n${ty_str}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${variable_name}) : ${ty_str}`
         )
       )
     );
@@ -375,9 +351,7 @@ evaluate_binding :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs),
-          `Mutable runtime variable "${variable_name}" is not allowed inside an impl block.\nUse "::" for compile-time definitions inside impl.`,
-          false,
-          .None
+          `Mutable runtime variable "${variable_name}" is not allowed inside an impl block.\nUse "::" for compile-time definitions inside impl.`
         )
       )
     );
@@ -411,7 +385,7 @@ evaluate_binding :: (
               error_message : `Variable "${variable_name}" is already defined here (variable shadowing is not allowed):`
             )
           );
-          exn.throw(dyn(format_error_messages(sh_entries, false, .None)));
+          exn.throw(dyn(format_error_messages(sh_entries)));
         },
         .None => ()
       );

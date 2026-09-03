@@ -30,7 +30,7 @@ open(import("std/string"));
   is_float_type,
   is_comptime_float_type
 } :: import("../../types/guards.yo");
-{ format_error_message, ErrorKind } :: import("../../error.yo");
+{ format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { IntRange, get_integer_type_range, get_integer_type_bits } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
@@ -218,9 +218,7 @@ check_int_overflow :: (
             token,
             `Integer overflow in compile-time evaluation
   ${ua.to_string()} ${u_symbol} ${ub.to_string()} = ${uv.to_string()}
-  Result ${uv.to_string()} exceeds ${type_to_string(ty)} range [0, ${rng.max.to_string()}]`,
-            false,
-            Option(ErrorKind).Some(ErrorKind.Overflow)
+  Result ${uv.to_string()} exceeds ${type_to_string(ty)} range [0, ${rng.max.to_string()}]`
           )
         )
       );
@@ -245,9 +243,7 @@ check_int_overflow :: (
           token,
           `Integer overflow in compile-time evaluation
   ${a.to_string()} ${op_symbol} ${b.to_string()} = ${value.to_string()}
-  Result ${value.to_string()} exceeds ${type_to_string(ty)} range [${rng.min.to_string()}, ${rng.max.to_string()}]`,
-          false,
-          Option(ErrorKind).Some(ErrorKind.Overflow)
+  Result ${value.to_string()} exceeds ${type_to_string(ty)} range [${rng.min.to_string()}, ${rng.max.to_string()}]`
         )
       )
     );
@@ -285,9 +281,7 @@ eval_numeric_arg :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`,
-            false,
-            .None
+            `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`
           )
         )
       );
@@ -411,9 +405,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Cannot apply negation to unsigned type: ${fn_name}`,
-                false,
-                .None
+                `Cannot apply negation to unsigned type: ${fn_name}`
               )
             )
           );
@@ -483,9 +475,7 @@ evaluate_yo_comptime_numeric_functions :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Unexpected unary comptime numeric operation: ${op}`,
-              false,
-              .None
+              `Unexpected unary comptime numeric operation: ${op}`
             )
           )
         );
@@ -553,9 +543,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(arg1),
-                        `Division by zero in comptime float operation: ${fn_name}`,
-                        false,
-                        .None
+                        `Division by zero in comptime float operation: ${fn_name}`
                       )
                     )
                   );
@@ -611,9 +599,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Modulo operation not supported for floating point types: ${fn_name}`,
-                false,
-                .None
+                `Modulo operation not supported for floating point types: ${fn_name}`
               )
             )
           );
@@ -623,9 +609,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Unexpected binary comptime float operation: ${op}`,
-                false,
-                .None
+                `Unexpected binary comptime float operation: ${op}`
               )
             )
           );
@@ -689,9 +673,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(arg1),
-                        `Division by zero in comptime integer operation: ${fn_name}`,
-                        false,
-                        .None
+                        `Division by zero in comptime integer operation: ${fn_name}`
                       )
                     )
                   );
@@ -718,9 +700,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(arg1),
-                        `Modulo by zero in comptime integer operation: ${fn_name}`,
-                        false,
-                        .None
+                        `Modulo by zero in comptime integer operation: ${fn_name}`
                       )
                     )
                   );
@@ -813,9 +793,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Unexpected binary comptime integer operation: ${op}`,
-                false,
-                .None
+                `Unexpected binary comptime integer operation: ${op}`
               )
             )
           );

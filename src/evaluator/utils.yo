@@ -373,9 +373,7 @@ throw_expr_is_implicit_variable_error :: (
               dyn(
                 format_error_message(
                   ast_expr_token(rhs),
-                  `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via  parameters.`,
-                  false,
-                  .None
+                  `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via  parameters.`
                 )
               )
             );
@@ -418,7 +416,7 @@ require_expr_not_consumed :: (
             error_message : `Variable "${var_name}" is not defined.`
           )
         );
-        exn.throw(dyn(format_error_messages(entries, false, .None)));
+        exn.throw(dyn(format_error_messages(entries)));
       });
       v := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
       match(
@@ -457,7 +455,7 @@ require_expr_not_consumed :: (
               error_message : String.from("value moved here")
             )
           );
-          exn.throw(dyn(format_error_messages(entries, false, .None)));
+          exn.throw(dyn(format_error_messages(entries)));
         }
       );
     }
@@ -500,7 +498,7 @@ expect_expr_to_have_been_evaluated :: (
       entries.push(
         TokenAndError(token : ast_expr_token(expr), error_message : msg)
       );
-      exn.throw(dyn(format_error_messages(entries, false, .None)));
+      exn.throw(dyn(format_error_messages(entries)));
       // Unreachable. Provide a placeholder so the type checker is
       // satisfied.
       new_expr_info_placeholder_for_unreachable_(expr)
@@ -556,7 +554,7 @@ set_expr_as_consumed :: (
                 error_message : `Variable "${name}" is not defined.`
               )
             );
-            exn.throw(dyn(format_error_messages(entries, false, .None)));
+            exn.throw(dyn(format_error_messages(entries)));
           });
           v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
           match(
@@ -589,7 +587,7 @@ set_expr_as_consumed :: (
                     error_message : String.from("value moved here")
                   )
                 );
-                exn.throw(dyn(format_error_messages(entries, false, .None)));
+                exn.throw(dyn(format_error_messages(entries)));
               }
             )
           );
@@ -1095,9 +1093,7 @@ merge_and_check_envs :: (
           dyn(
             format_error_message(
               ast_expr_token(body),
-              `Expected the body of the case to be evaluated, but it is not.`,
-              false,
-              .None
+              `Expected the body of the case to be evaluated, but it is not.`
             )
           )
         );
@@ -1158,9 +1154,7 @@ merge_and_check_envs :: (
         dyn(
           format_error_message(
             ast_expr_token(match(bodies.get(ci), .Some(b) => b, .None => make_err_expr())),
-            `Case env is missing outer frames (has ${case_env.frames.len().to_string()}, need ${required_depth.to_string()}).`,
-            false,
-            .None
+            `Case env is missing outer frames (has ${case_env.frames.len().to_string()}, need ${required_depth.to_string()}).`
           )
         )
       );
@@ -1255,9 +1249,7 @@ merge_and_check_envs :: (
                 dyn(
                   format_error_message(
                     ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
-                    `Frame level ${frame_i} has different variable names for different cases.`,
-                    false,
-                    .None
+                    `Frame level ${frame_i} has different variable names for different cases.`
                   )
                 )
               );
@@ -1401,7 +1393,7 @@ Impl(...) uses static dispatch and requires the same concrete type in all branch
 Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(cb_entries, false, .None)));
+                        exn.throw(dyn(format_error_messages(cb_entries)));
                       });
                     },
                     .None => ()
@@ -1420,7 +1412,7 @@ First initialization: ${type_to_string(cb_first_ty)}
 Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                     )
                   );
-                  exn.throw(dyn(format_error_messages(cb_entries2, false, .None)));
+                  exn.throw(dyn(format_error_messages(cb_entries2)));
                 });
                 cb_k = (cb_k + usize(1));
               });
@@ -1440,9 +1432,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                       dyn(
                         format_error_message(
                           base_var.token,
-                          `Variable "${var_name}" might not be initialized in all cases.`,
-                          false,
-                          .None
+                          `Variable "${var_name}" might not be initialized in all cases.`
                         )
                       )
                     );
@@ -1499,7 +1489,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                 };
                 ei = (ei + usize(1));
               });
-              exn.throw(dyn(format_error_messages(err_list, false, .None)));
+              exn.throw(dyn(format_error_messages(err_list)));
             });
           });
           // ---- Check consumed_at_token ----
@@ -1566,7 +1556,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                 };
                 eci = (eci + usize(1));
               });
-              exn.throw(dyn(format_error_messages(err_list, false, .None)));
+              exn.throw(dyn(format_error_messages(err_list)));
             });
           });
           // ---- Check is_owning_the_rc_value ----
@@ -1609,7 +1599,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               };
               oei = (oei + usize(1));
             });
-            exn.throw(dyn(format_error_messages(err_list, false, .None)));
+            exn.throw(dyn(format_error_messages(err_list)));
           });
           // ---- Handle variable ID reassignment across branches ----
           // If any branch has a different variable ID, generate a new one.

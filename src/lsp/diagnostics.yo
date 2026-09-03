@@ -4,12 +4,13 @@
 //! Analysis rides the same module_manager service `check` uses: the prelude
 //! env is process-cached, imports demand-load and cache, and the document
 //! itself is evaluated FRESH per call from its in-editor text (never from
-//! disk, never registered in the module cache). Errors arrive as
-//! `YoError.to_string()` text — a structured (token, message) channel is
-//! slice 0 of plans/P4_LSP.md; until then the stable
-//! `<path>:<row>:<col>:` anchors in the formatted text are parsed back out,
-//! and the underline length is recovered from the document text by
-//! extending over identifier characters.
+//! disk, never registered in the module cache). Errors arrive as rendered
+//! `YoError` strings (the P1 human format of src/diagnostics.yo) and
+//! `parse_error_text` parses that EXACT renderer shape — `severity:` header
+//! lines, `--> path:row:col` anchors, and the caret run itself as the
+//! underline length, so ranges are exact. A structured (token, message)
+//! channel that makes the parsing unnecessary is P3 of
+//! plans/ERROR_DIAGNOSTICS_OVERHAUL.md.
 //!
 //! KNOWN MVP LIMITS (plans/P4_LSP.md kickoff notes):
 //!   - Imports are cached for the process lifetime: an edit to an imported
@@ -24,7 +25,6 @@ open(import("std/error"));
 { parse } :: import("../parser.yo");
 { AstExpr } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
-{ rune_col_to_byte_offset } :: import("./protocol.yo");
 {
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
@@ -59,90 +59,208 @@ _take_parse_error :: (fn() -> Option(String))({
   taken
 });
 
-/// True iff byte `b` continues an identifier (the underline-length
-/// heuristic used when recovering a range from formatted error text).
-_is_ident_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) ||
-    (
-      ((b >= u8(65)) && (b <= u8(90))) ||
-        (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
-    )
+/// True iff byte `b` is an ASCII digit.
+_is_digit_byte :: (fn(b : u8) -> bool)(
+  (b >= u8(48)) && (b <= u8(57))
 );
 
-/// Length of the identifier starting at RUNE column `col` of row `row` in
-/// `text`, minimum 1. The answer is a RUNE count, because the caller adds it
-/// to `col` to build an LSP range.
-///
-/// `col` is a rune column (the formatted error text prints `token.column + 1`,
-/// and `Token.column` is a rune column) while `line.as_bytes()` is byte
-/// indexed — indexing one with the other put the underline in the wrong place
-/// on any line containing a multibyte character before the identifier
-/// (plans/STD_API_AUDIT_D4_PLAN.md §5.1, the `_ident_len_at` row). The count
-/// itself needs no conversion back: `_is_ident_byte` matches only ASCII, so
-/// every byte counted is exactly one rune.
-_ident_len_at :: (fn(text : String, row : usize, col : usize) -> usize)({
-  lines := text.split(String.from("\n"));
-  line := match(lines.get(row), .Some(l) => l, .None => return(usize(1)));
-  bytes := line.as_bytes();
-  start := rune_col_to_byte_offset(line, col);
-  if(start >= bytes.len(), {
-    return(usize(1));
-  });
+/// The number of `^` bytes in `s` — the underline length the renderer drew
+/// (the caret is ASCII, so bytes == runes).
+_count_carets :: (fn(s : String) -> usize)({
+  bytes := s.as_bytes();
   (n : usize) = usize(0);
-  (i : usize) = start;
+  (i : usize) = usize(0);
   while(i < bytes.len(), {
-    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
-    if(_is_ident_byte(b), {
-      n = (n + usize(1));
-      i = (i + usize(1));
-    }, {
-      i = bytes.len();
-    });
+    match(
+      bytes.get(i),
+      .Some(b) => {
+        if(b == u8(94), {
+          n = (n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
   });
-  cond((n == usize(0)) => usize(1), true => n)
+  n
 });
 
-/// Extract `<path>:<row>:<col>:`-anchored diagnostics from a formatted
-/// YoError string. Entries whose path is the analyzed document map to
-/// precise ranges; entries in OTHER files (a broken import) surface at
-/// 0:0 with the full message so the user still sees them. Duplicate
-/// (row, col, message-head) anchors — the formatter prints the location
-/// twice per entry — collapse to one diagnostic.
+/// True iff `l` is the renderer's row line (`NN | source`, `NN` optionally
+/// space-padded to the group's gutter width).
+_is_row_line :: (fn(l : String) -> bool)({
+  t := l.trim();
+  bytes := t.as_bytes();
+  (i : usize) = usize(0);
+  (digits : usize) = usize(0);
+  (scanning : bool) = true;
+  while((i < bytes.len()) && scanning, {
+    b := match(
+      bytes.get(i),
+      .Some(x) => x,
+      .None => u8(0)
+    );
+    if(_is_digit_byte(b), {
+      digits = (digits + usize(1));
+      i = (i + usize(1));
+    }, {
+      scanning = false;
+    });
+  });
+  if((digits == usize(0)) || ((i + usize(2)) > bytes.len()), {
+    return(false);
+  });
+  b0 := match(
+    bytes.get(i),
+    .Some(x) => x,
+    .None => u8(0)
+  );
+  b1 := match(
+    bytes.get(i + usize(1)),
+    .Some(x) => x,
+    .None => u8(0)
+  );
+  (b0 == u8(32)) && (b1 == u8(124))
+});
+
+/// Strip one severity header prefix (`error: `, `warning: `, `note: `,
+/// `help: `) off a rendered block's message.
+_strip_severity_prefix :: (fn(message : String) -> String)({
+  if(message.starts_with(String.from("error: ")), {
+    return(message.substring(usize(7), message.len()));
+  });
+  if(message.starts_with(String.from("warning: ")), {
+    return(message.substring(usize(9), message.len()));
+  });
+  if(message.starts_with(String.from("note: ")), {
+    return(message.substring(usize(6), message.len()));
+  });
+  if(message.starts_with(String.from("help: ")), {
+    return(message.substring(usize(6), message.len()));
+  });
+  message
+});
+
+/// Extract diagnostics from a rendered diagnostic-group string (the P1
+/// human format of src/diagnostics.yo): blocks of `severity[code]: message`
+/// lines followed by `<indent>--> <path>:<row+1>:<col+1>`, `<indent>|`,
+/// `NN | source`, `<indent>| <spaces>^^^^`. The underline length is read
+/// from the caret run itself, so end columns are exact — no identifier
+/// guessing. Entries whose path is the analyzed document map to precise
+/// ranges; entries in OTHER files (a broken import) surface at 0:0 with the
+/// full message so the user still sees them.
 parse_error_text :: (
   fn(err_text : String, doc_abs : String, doc_text : String) -> ArrayList(LspDiag)
 )({
   out := ArrayList(LspDiag).new();
   lines := err_text.split(String.from("\n"));
-  // Message accumulator: lines since the last caret/location group.
+  // Message accumulator: lines since the last anchor group.
   msg_parts := ArrayList(String).new();
   (li : usize) = usize(0);
   n := lines.len();
   while(li < n, {
-    line := match(lines.get(li), .Some(l) => l, .None => String.new());
-    // A location anchor is `<path>:<digits>:<digits>:` — split from the
-    // RIGHT so paths containing ':' cannot confuse it.
-    (is_anchor : bool) = false;
-    (a_row : usize) = usize(0);
-    (a_col : usize) = usize(0);
-    (a_path : String) = String.new();
-    if(line.ends_with(String.from(":")), {
-      body := line.substring(usize(0), line.len() - usize(1));
+    line := match(
+      lines.get(li),
+      .Some(l) => l,
+      .None => String.new()
+    );
+    trimmed := line.trim();
+    (handled : bool) = false;
+    if(trimmed.starts_with(String.from("--> ")), {
+      body := trimmed.substring(usize(4), trimmed.len());
       segs := body.split(String.from(":"));
       if(segs.len() >= usize(3), {
-        col_s := match(segs.get(segs.len() - usize(1)), .Some(s) => s, .None => String.new());
-        row_s := match(segs.get(segs.len() - usize(2)), .Some(s) => s, .None => String.new());
+        col_s := match(
+          segs.get(segs.len() - usize(1)),
+          .Some(s) => s,
+          .None => String.new()
+        );
+        row_s := match(
+          segs.get(segs.len() - usize(2)),
+          .Some(s) => s,
+          .None => String.new()
+        );
         match(
           row_s.parse_u64(),
           .Some(r1) => match(
             col_s.parse_u64(),
             .Some(c1) => {
               if((r1 >= u64(1)) && (c1 >= u64(1)), {
-                is_anchor = true;
-                a_row = (usize(r1) - usize(1));
-                a_col = (usize(c1) - usize(1));
-                // path = body minus ":row:col"
+                handled = true;
+                a_row := (usize(r1) - usize(1));
+                a_col := (usize(c1) - usize(1));
+                // path = body minus ":row:col" (split from the right, so a
+                // path containing ':' cannot confuse it)
                 tail_len := (row_s.len() + col_s.len() + usize(2));
-                a_path = body.substring(usize(0), body.len() - tail_len);
+                a_path := body.substring(usize(0), body.len() - tail_len);
+                message := _strip_severity_prefix(
+                  String.from("\n").join(msg_parts).trim()
+                );
+                if(message.len() > usize(0), {
+                  same_file := ((a_path == doc_abs) || a_path.ends_with(doc_abs.clone()));
+                  cond(
+                    same_file => {
+                      // The renderer emits up to three snippet lines after
+                      // the anchor; consume exactly that shape and read the
+                      // underline length off the caret run.
+                      caret_len := usize(1);
+                      (k : usize) = (li + usize(1));
+                      (consumed : usize) = usize(0);
+                      if(k < n, {
+                        t0 := match(
+                          lines.get(k),
+                          .Some(x) => x,
+                          .None => String.new()
+                        );
+                        if(t0.trim() == String.from("|"), {
+                          k = (k + usize(1));
+                          consumed = (consumed + usize(1));
+                        });
+                      });
+                      if(k < n, {
+                        t1 := match(
+                          lines.get(k),
+                          .Some(x) => x,
+                          .None => String.new()
+                        );
+                        if(_is_row_line(t1), {
+                          k = (k + usize(1));
+                          consumed = (consumed + usize(1));
+                        });
+                      });
+                      if(k < n, {
+                        t2 := match(
+                          lines.get(k),
+                          .Some(x) => x,
+                          .None => String.new()
+                        );
+                        t2t := t2.trim();
+                        if(t2t.starts_with(String.from("| ")), {
+                          cnt := _count_carets(t2t);
+                          if(cnt > usize(0), {
+                            caret_len = cnt;
+                            consumed = (consumed + usize(1));
+                          });
+                        });
+                      });
+                      li = (li + consumed);
+                      end_col := (a_col + caret_len);
+                      out.push(
+                        LspDiag(row : a_row, col : a_col, end_col : end_col, message : message)
+                      );
+                    },
+                    true => {
+                      out.push(
+                        LspDiag(
+                          row : usize(0),
+                          col : usize(0),
+                          end_col : usize(1),
+                          message : `${message} (in ${a_path}:${(a_row + usize(1))}:${(a_col + usize(1))})`
+                        )
+                      );
+                    }
+                  );
+                });
+                msg_parts = ArrayList(String).new();
               });
             },
             .None => ()
@@ -151,59 +269,13 @@ parse_error_text :: (
         );
       });
     });
-    if(is_anchor, {
-      message := String.from("\n").join(msg_parts).trim();
-      if(message.starts_with(String.from("Error:")), {
-        message = message.substring(usize(6), message.len()).trim();
-      });
-      if(message.len() > usize(0), {
-        same_file := ((a_path == doc_abs) || a_path.ends_with(doc_abs.clone()));
-        cond(
-          same_file => {
-            end_col := (a_col + _ident_len_at(doc_text, a_row, a_col));
-            // Dedup: the formatter prints each entry's location twice.
-            (dup : bool) = false;
-            (di : usize) = usize(0);
-            while(di < out.len(), {
-              d := match(
-                out.get(di),
-                .Some(x) => x,
-                .None => {
-                  di = out.len();
-                  return(out);
-                }
-              );
-              if((d.row == a_row) && (d.col == a_col) && (d.message == message), {
-                dup = true;
-              });
-              di = (di + usize(1));
-            });
-            if(!dup, {
-              out.push(LspDiag(row : a_row, col : a_col, end_col : end_col, message : message));
-            });
-          },
-          true => {
-            out.push(
-              LspDiag(
-                row : usize(0),
-                col : usize(0),
-                end_col : usize(1),
-                message : `${message} (in ${a_path}:${(a_row + usize(1))}:${(a_col + usize(1))})`
-              )
-            );
-          }
-        );
-      });
-      // Skip the source line + caret line that follow an anchor.
-      msg_parts = ArrayList(String).new();
-      li = (li + usize(3));
-    }, {
+    if(!handled, {
       msg_parts.push(line);
-      li = (li + usize(1));
     });
+    li = (li + usize(1));
   });
-  // Nothing anchored (a LexerError or a bare string throw): one
-  // whole-message diagnostic at 0:0.
+  // Nothing anchored (a bare string throw): one whole-message diagnostic at
+  // 0:0.
   if((out.len() == usize(0)) && (err_text.trim().len() > usize(0)), {
     out.push(
       LspDiag(

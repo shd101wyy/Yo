@@ -4,7 +4,8 @@ open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { StringBuilder } :: import("std/string/string_builder");
 { AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import("../../src/expr.yo");
-{ ParseError, parse, extract_source_line, generate_expr_from_code } :: import("../../src/parser.yo");
+{ parse, extract_source_line, make_parse_error, generate_expr_from_code } :: import("../../src/parser.yo");
+{ Token, TokenKind } :: import("../../src/token.yo");
 { assert, panic } :: import("std/assert");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Check that two String values are equal; fails with msg if not.
@@ -575,18 +576,21 @@ test("extract_source_line: out-of-range returns empty string", {
   result := extract_source_line(src, usize(99));
   assert_str_eq(result, String.from(""), "out-of-range row should return(empty string)");
 });
-test("ParseError.to_string: format with source line", {
-  err := ParseError(
-    message : String.from("unexpected token: }"),
+test("make_parse_error renders via the shared renderer", {
+  tok := Token(
+    kind : TokenKind.Identifier,
+    value : String.from("}"),
     row : usize(3),
     column : usize(0),
+    character : usize(0),
     module_path : String.from("test.yo"),
-    source_line : String.from("}")
+    input : String.from("a\nb\nc\n}")
   );
-  s := err.to_string();
+  s := make_parse_error(tok, String.from("unexpected token: }")).to_string();
   assert(s.contains(String.from("error: unexpected token: }")), "should contain error message");
-  assert(s.contains(String.from("--> test.yo:4:0")), "should show row+1=4 in location");
+  assert(s.contains(String.from("--> test.yo:4:1")), "should show row+1=4, col+1=1 in location");
   assert(s.contains(String.from("4 | }")), "should show source line with row+1");
+  assert(s.contains(String.from("4 | }")), "source line");
 });
 // ---------------------------------------------------------------------------
 // generate_expr_from_code
