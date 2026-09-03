@@ -2,7 +2,7 @@
 
 ## Status
 
-OPEN (fix implemented in this session; move to `issues/fixed/` with the PR).
+FIXED 2026-09-03.
 
 ## The error (verbatim)
 
@@ -85,22 +85,47 @@ temp was declared. clang: use of undeclared identifier.
 
 ## Fix
 
-`src/codegen/exprs/match.yo`, `generate_case_body`, non-begin arm path: wrap
-the arm body generation with the same pending-drop publication the begin path
-twenty lines above already does —
+Two failed designs first (kept here because the constraints they broke are
+the real spec):
 
-```yo
-nb_prev_pending := context.pending_deferred_drops;
-nb_drops := match(
-  context.base.get_expr_info(body_expr),
-  .Some(nb_vei) => nb_vei.deferred_drop_expressions,
-  .None => Option(ArrayList(AstExpr)).None
-);
-context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(nb_drops, nb_prev_pending));
-nb_code := _call_generate_expr(body_expr, indent.clone(), context);
-context.pending_deferred_drops = nb_prev_pending;
-```
+1. **Concat-publish into `pending_deferred_drops`** (what the begin path
+   does): the short-circuit claim could then also reach drops rolled up to
+   the FUNCTION-BODY pending list, whose emission is owned by the
+   effect-unwind path (`__yo_effect_escaped` → "drop locals before early
+   return"). The claim emitted an UNCONDITIONAL in-branch drop beside the
+   escape-only one — a double free whenever a throw inside the arm unwound
+   (`json_parse lone high surrogate`, ASan heap-use-after-free; one extra
+   `__yo_decr_rc` line in the emitted C).
+2. **Replace `pending_deferred_drops` with the arm's own list** (no concat):
+   the unwind path then missed the outer drops during arm generation and the
+   same json test failed differently (the throw stopped propagating).
 
-With the drops visible, `_emit_drops_for_conditional_branch` claims them
-in-branch; the later site flush skips them via the existing
-`short_circuit_handled_drop_var_names` one-shot guard.
+The landed design keeps the two concerns in separate fields:
+
+- `src/codegen/functions/context.yo`: new
+  `arm_value_deferred_drops : Option(ArrayList(AstExpr))` — a NON-BEGIN
+  match arm's OWN `deferred_drop_expressions`, published for the claim only.
+  `pending_deferred_drops` stays exactly as the unwind path expects it.
+- `src/codegen/exprs/match.yo`, `generate_case_body` non-begin path: save /
+  set / restore `arm_value_deferred_drops` around the arm body generation.
+- `src/codegen/exprs/and_or.yo`, `_emit_drops_for_conditional_branch`: the
+  claim source is `arm_value_deferred_drops` when set, else
+  `pending_deferred_drops` (begin / function-body / SM publication — the
+  original behavior); claimed drops are removed from the chosen list IN
+  PLACE (drain, highest index first), because the arm-value publication is
+  the SAME shared `ArrayList` as the ExprInfo's list the arm-tail flush
+  (`match.yo`'s `generate_deferred_drop_expressions(body_expr, ...)`) later
+  reads — a filtered copy would leave the claimed drop in it and double-drop.
+
+With the arm-owned drops visible, the claim emits them in-branch; the later
+site flushes skip them via the in-place removal (and the belt-and-suspenders
+`short_circuit_handled_drop_var_names` one-shot guard).
+
+## Verification
+
+- the minimal repro compiles and runs (plain fn and effectful main)
+- regression arm in `tests/short_circuit_str_literal_arg.test.yo`
+- `tests/encoding/json.test.yo` 56/56 under the default ASan build (the
+  double-free canary)
+- string 267/267, regex 186/186, coverage, imm_string, dyn 9/9
+- `check ./src` 262/262; codegen corpus 156/156 byte-identical

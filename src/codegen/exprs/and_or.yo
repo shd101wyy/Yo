@@ -147,9 +147,22 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
 /// created inside a short-circuit conditional branch, and remove them from the
 /// pending set so they aren't dropped again at scope end. No-op when there are
 /// no pending drops (the no-RC corpus). Mirrors `emitDropsForConditionalBranch`.
-_emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : String, context : FunctionGenerationContext) -> unit)(
+_emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : String, context : FunctionGenerationContext) -> unit)({
+  // Claim source: the enclosing NON-BEGIN match arm's OWN drops when one is
+  // being generated (claims must not reach the effect-unwind-owned pending
+  // set — see arm_value_deferred_drops), else the pending set (the begin /
+  // function-body / SM publication, the original TS behavior).
+  src_drops := match(
+    context.arm_value_deferred_drops,
+    .Some(a) => a,
+    .None => match(
+      context.pending_deferred_drops,
+      .Some(p) => p,
+      .None => ArrayList(AstExpr).new()
+    )
+  );
   match(
-    context.pending_deferred_drops,
+    Option(ArrayList(AstExpr)).Some(src_drops),
     .Some(pending_drops) => if(var_names.len() > usize(0), {
       match(
         context.short_circuit_handled_drop_var_names,
@@ -158,8 +171,7 @@ _emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : 
           context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(HashSet(String).new());
         }
       );
-      new_pending := ArrayList(AstExpr).new();
-      (removed : usize) = usize(0);
+      (removed_idx : ArrayList(usize)) = ArrayList(usize).new();
       n := pending_drops.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -193,25 +205,35 @@ _emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : 
                 },
                 .None => ()
               );
-              removed = (removed + usize(1));
-            }, {
-              _p := new_pending.push(drop_expr);
-            }),
-            .None => {
-              _p := new_pending.push(drop_expr);
-            }
+              _r := removed_idx.push(i);
+            }, ()),
+            .None => ()
           ),
           .None => ()
         );
         i = (i + usize(1));
       });
-      if(removed > usize(0), {
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(new_pending);
+      // Remove claimed drops IN PLACE (highest index first): the list can be
+      // an ExprInfo's own deferred_drop_expressions (the arm-value
+      // publication), and the later site-level flush reads that SAME list —
+      // a copy would leave the claimed drop in it and double-drop.
+      if(removed_idx.len() > usize(0), {
+        (k : usize) = removed_idx.len();
+        while(k > usize(0), {
+          k = (k - usize(1));
+          match(
+            removed_idx.get(k),
+            .Some(ri) => {
+              _d := pending_drops.drain(ri .. (ri + usize(1)));
+            },
+            .None => ()
+          );
+        });
       });
     }),
     .None => ()
   )
-);
+});
 /// `&&` operator with short-circuit evaluation. Mirrors `generateOpAnd`.
 generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());

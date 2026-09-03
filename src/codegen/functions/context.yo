@@ -314,6 +314,14 @@ FunctionGenerationContext :: ref(
     /// Pending deferred drops from enclosing begin blocks (run before async
     /// completion / early return).
     pending_deferred_drops : Option(ArrayList(AstExpr)),
+    /// A NON-BEGIN match arm's own deferred drops, published for the
+    /// short-circuit branch claim ONLY. Deliberately separate from
+    /// `pending_deferred_drops`: that list is owned by the effect-unwind /
+    /// early-return machinery, and letting the claim reach it double-dropped
+    /// escape-owned temps (json lone-surrogate ASan UAF). Claims remove from
+    /// this list IN PLACE so the arm-tail flush (same shared ExprInfo list)
+    /// cannot re-emit them.
+    arm_value_deferred_drops : Option(ArrayList(AstExpr)),
     /// Drops for RC vars consumed by return values (emitted on unwind only).
     consumed_var_pending_drops : Option(ArrayList(AstExpr)),
     /// Variables locally shadowed (e.g. match destructuring) — use the local C
@@ -410,6 +418,7 @@ impl(
       is_effect_record_member_function : false,
       variable_id_remapping : Option(HashMap(String, String)).None,
       pending_deferred_drops : Option(ArrayList(AstExpr)).None,
+      arm_value_deferred_drops : Option(ArrayList(AstExpr)).None,
       consumed_var_pending_drops : Option(ArrayList(AstExpr)).None,
       local_shadowed_variables : Option(HashSet(String)).None,
       declared_temp_vars : Option(HashSet(String)).None,

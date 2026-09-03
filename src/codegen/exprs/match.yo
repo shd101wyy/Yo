@@ -396,25 +396,27 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
       .None => ()
     );
     generate_deferred_dup_expressions(body_expr, indent.clone(), context);
-    // Publish this arm value's own deferred drops as the live pending set
-    // (concat over the outer one) — the same push the BEGIN path above does
-    // and generate_function_body does for a body begin. A `&&`/`||` inside a
-    // NON-BEGIN arm body lowers its right operand into a nested if-block;
-    // the branch-created RC temps (e.g. a `String.from(...)` operand) must
-    // be claimed IN-branch by _emit_drops_for_conditional_branch. Without
-    // this publication the claim found nothing, the drop stayed on the arm
-    // value's ExprInfo, and the later site-level flush referenced the temp
-    // AFTER its if-block had closed — an undeclared-identifier C error
+    // Publish this arm value's own deferred drops into the ARM-SCOPED list
+    // the short-circuit claim reads — NOT into pending_deferred_drops, which
+    // the effect-unwind / early-return machinery owns (letting the claim
+    // reach it double-dropped escape-owned temps — json lone-surrogate ASan
+    // UAF). A `&&`/`||` inside a NON-BEGIN arm body lowers its right operand
+    // into a nested if-block; the branch-created RC temps (e.g. a
+    // `String.from(...)` operand) must be claimed IN-branch by
+    // _emit_drops_for_conditional_branch. Without this publication the claim
+    // found nothing, the drop stayed on the arm value's ExprInfo, and the
+    // later site-level flush referenced the temp AFTER its if-block had
+    // closed — an undeclared-identifier C error
     // (issues/fixed/match-arm-and-or-rhs-temp-drop-leaks-arm-scope.md).
-    nb_prev_pending := context.pending_deferred_drops;
+    nb_prev_arm_drops := context.arm_value_deferred_drops;
     nb_drops := match(
       context.base.get_expr_info(body_expr),
       .Some(nb_vei) => nb_vei.deferred_drop_expressions,
-      .None => Option(ArrayList(AstExpr)).None
+      .None => context.arm_value_deferred_drops
     );
-    context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(nb_drops, nb_prev_pending));
+    context.arm_value_deferred_drops = nb_drops;
     nb_code := _call_generate_expr(body_expr, indent.clone(), context);
-    context.pending_deferred_drops = nb_prev_pending;
+    context.arm_value_deferred_drops = nb_prev_arm_drops;
     nb_code
   })
 );
