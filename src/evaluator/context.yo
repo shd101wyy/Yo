@@ -39,7 +39,7 @@ _(env : ctx_dbg_env) :: import("std/env");
   BK_IMPL_LOWER,
   BK_COMPTIME
 } :: import("../expr.yo");
-{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, ComptimeRef } :: import("../expr_info.yo");
+{ PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
 // ---------------------------------------------------------------------------
 // PathCollection now imported from ../expr_info.yo (Phase 2k)
@@ -747,6 +747,20 @@ track_variable_usage_resolved :: (
             eprintln(`[cap-track] name=${variable_name} actual_fl=${actual_frame_level.to_string()} ev_count=${eval_env.frame_count().to_string()} top_excl=${trk_top.to_string()} cto=${v.is_compile_time_only.to_string()}`);
           });
           if(is_fn_body && (actual_frame_level == (eval_env.frame_count() - usize(1))), {
+            return(());
+          });
+          // A MODULE-level global is not a capture: it lowers to a
+          // process-global C symbol (module-mangled; see
+          // issues/fixed/module-global-c-names-are-not-namespaced.md), so
+          // capturing it adds a phantom capture-struct member the C never
+          // declares while some use sites still emit the raw name — a plain
+          // closure OR an async closure body referencing a module global
+          // then fails the C compile
+          // (issues/module-global-referenced-inside-async-closure-undeclared.md;
+          // measured: the inline-anon and io.async shapes both break, the
+          // module-level named fn works). Cross-module globals never reach
+          // here — they resolve through `mod.name` property access.
+          if(is_module_level_global(eval_env.module_path, variable_name.clone()), {
             return(());
           });
           // Don't track compile-time-only variables — judged by the

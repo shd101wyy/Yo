@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 open(import("std/libc/stdio.yo"));
 MyBox :: ref(
   struct(
@@ -249,4 +250,30 @@ test("a -> fn literal binds the result type variable of Option.map and of an Imp
   assert(t.to_string() == `n=21`, "method generic R bound by a -> literal");
   n := a.apply(v -> (v * i64(2)));
   assert((n + i64(1)) == i64(41), "and by a numeric -> literal");
+});
+
+// ---------------------------------------------------------------------------
+// Module-level globals are NOT captures (issues/module-global-referenced-
+// inside-async-closure-undeclared.md, fixed in the capture tracker): a
+// module global lowers to a process-global C symbol, so referencing one
+// from inside a closure must emit the global directly — capturing it added
+// a phantom capture-struct member and the C compile failed with
+// "no member named 'counter_m<hash>'".
+// ---------------------------------------------------------------------------
+module_global_counter := AtomicI32(i32(0));
+run_it :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+test("a closure referencing a module-level global compiles and mutates it", {
+  run_it(() => {
+    module_global_counter.fetch_add(i32(3), MemoryOrder.Relaxed);
+    ()
+  });
+  assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(3), "the inline closure reached the module global");
+});
+test("a named module-level fn still reaches the global", {
+  bump_again :: (fn() -> unit)({
+    module_global_counter.fetch_add(i32(4), MemoryOrder.Relaxed);
+    ()
+  });
+  run_it(bump_again);
+  assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(4), "named module fn reached the global");
 });
