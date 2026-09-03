@@ -3137,7 +3137,7 @@ evaluate_module_value :: (
         // colon pairs are forward-declarable the same way (array_list's
         // Clone/Index/Iterator impls — root #3 of
         // issues/fixed/def-eval-swallow-remaining-roots.md).
-        if((ast_expr_is_fn_call(c2_pp_expr) && !ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2)))) && (!ast_expr_is_fn_call_of(c2_pp_expr, BK_WHERE, .None) && !ast_expr_is_fn_call_of(c2_pp_expr, "!", .Some(usize(1)))), {
+        if(ast_expr_is_fn_call(c2_pp_expr) && !ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(c2_pp_expr, BK_WHERE, .None) && !ast_expr_is_fn_call_of(c2_pp_expr, "!", .Some(usize(1)))), {
           c2_ta := match(
             c2_pp_expr,
             .FnCall(_, _, ta, _, _) => ta,
@@ -3329,7 +3329,7 @@ evaluate_module_value :: (
       if(ast_expr_is_fn_call_of(mf_expr, BK_WHERE, .None), {
         _collect_impl_where_constraints(mf_expr, forall_names, forall_some_types, forall_env, ctx, exn, impl_where_some_types, impl_where_traits);
       });
-      if((ast_expr_is_fn_call(mf_expr) && !ast_expr_is_fn_call_of(mf_expr, BK_COLON, .Some(usize(2)))) && !ast_expr_is_fn_call_of(mf_expr, BK_WHERE, .None), {
+      if(ast_expr_is_fn_call(mf_expr) && !ast_expr_is_fn_call_of(mf_expr, BK_COLON, .Some(usize(2))) && !ast_expr_is_fn_call_of(mf_expr, BK_WHERE, .None), {
         trait_fn_expr2 := match(
           mf_expr,
           .FnCall(_, tfb, _, _, _) => tfb,
@@ -3809,7 +3809,7 @@ evaluate_module_value :: (
           // Direct colon pair: add it directly.
           method_exprs.push(field_expr);
         });
-        if((ast_expr_is_fn_call(field_expr) && !ast_expr_is_fn_call_of(field_expr, BK_COLON, .Some(usize(2)))) && !ast_expr_is_fn_call_of(field_expr, BK_WHERE, .None), {
+        if(ast_expr_is_fn_call(field_expr) && !ast_expr_is_fn_call_of(field_expr, BK_COLON, .Some(usize(2))) && !ast_expr_is_fn_call_of(field_expr, BK_WHERE, .None), {
           // Non-colon FnCall: treat as trait constructor, extract its colon-pair args.
           // (`where(...)` args are skipped — see the generic loop above.)
           trait_inner_args := match(

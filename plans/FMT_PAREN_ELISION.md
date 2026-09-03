@@ -112,7 +112,10 @@ has no remaining caller, and the helper is deleted.
 ### D2 — E4: flatten left-nested same-operator groups
 
 `(a ⊕ b) ⊕ c` → `a ⊕ b ⊕ c` when the group is the LEFT operand of the same
-operator and the group's depth-0 operators all equal it. Includes inside a
+operator and the group's depth-0 INFIX operators all equal it. Prefix
+operators in operand position do not count as chain links — `((a) && !b) && !c`
+flattens all the way to `(a) && !b && !c` (refined 2026-09-03; the first cut
+counted the `!`s as operators and refused to flatten past them). Includes inside a
 retained R1 group: `y := ((1 + 2) + 3)` → `y := (1 + 2 + 3)`.
 Right operands NEVER flatten (R2); mixed operators NEVER (R3).
 
