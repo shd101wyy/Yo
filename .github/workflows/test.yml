@@ -645,7 +645,15 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
+          # 2026-09-03: the windows-latest / windows-11-arm images' mingw64
+          # toolchain lost libasan ("cannot find -lasan" on every batch),
+          # so ASan is disabled on Windows until the images ship it again —
+          # macOS/Linux keep the sanitizer (issues/windows-images-lost-libasan.md).
+          case "$RUNNER_OS" in
+            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
+            *) TEST_SAN_FLAG="" ;;
+          esac
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
 
   # ---------------------------------------------------------------------
   # The four NON-LINUX release targets: full language suite per PR, under a
@@ -923,7 +931,13 @@ jobs:
         shell: bash
         run: |
           if [ -f yo-suite.exe ]; then YO=./yo-suite.exe; else YO=./yo-suite; fi
-          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
+          # 2026-09-03: windows images' mingw64 lost libasan — see the twin
+          # note in the `test` job (issues/windows-images-lost-libasan.md).
+          case "$RUNNER_OS" in
+            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
+            *) TEST_SAN_FLAG="" ;;
+          esac
+          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
