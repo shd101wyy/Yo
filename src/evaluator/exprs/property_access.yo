@@ -36,6 +36,7 @@ _(env : pa_dbg_env) :: import("std/env");
   expr_info_table_set,
   expr_info_origin_type,
   expr_info_set_origin_type,
+  lookup_io_builtin_struct_field,
   ComptimeRef
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
@@ -1435,6 +1436,36 @@ Raw pointer operations may dereference invalid memory.`,
     });
   });
   obj_val_main := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
+  // -------------------------------------------------------------------------
+  // `.io` on the bare `Io` effect struct is the IDENTITY projection.
+  // The bundle-style body form (`e.io.await(f, e.io)`) is written against an
+  // effect BUNDLE ({io, exn}), but when an io.async closure's effect binds
+  // `E` to the bare `Io` (Step 6b-nested derives it from the receiver), `e`
+  // IS the Io and the projection must total — identity — or the body fails
+  // its def-time trial ("No matching call found" on `(e.io).await`), was
+  // historically swallowed into a runs-nothing future, and is now rejected
+  // by the async poison gate
+  // (issues/io-async-bare-e-closure-body-never-evaluates.md). Only `io` is
+  // total: `.exn` on a bare Io stays a field-miss (there is no exception
+  // capability to project). Identity is keyed on the io-builtin side table,
+  // so a user struct that merely has an `io` field is untouched.
+  if(is_struct_type(base_ty) && ast_expr_is_atom(property_expr) && (ast_expr_token(property_expr).value == "io"), {
+    io_proj_sid := match(base_ty, .Struct({ id : ips }) => ips, _ => String.from(""));
+    if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
+      out_io := new_expr_info(env, base_ty);
+      out_io.value = obj_val_main;
+      out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name, .None => Option(String).None);
+      out_io.path_collection = match(
+        obj_info_opt,
+        .Some(oi_pc) => oi_pc.path_collection,
+        .None => ArrayList(ArrayList(String)).new()
+      );
+      out_io.is_accessing_property = Option(bool).Some(true);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_io);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_io);
+      return(expr);
+    });
+  });
   // -------------------------------------------------------------------------
   // Struct / Tuple / Union field access
   // -------------------------------------------------------------------------
