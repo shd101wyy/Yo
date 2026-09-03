@@ -47,6 +47,8 @@ open(import("std/fmt"));
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
+{ render_any_error } :: import("./error.yo");
+{ emit_rendered_text, emit_chatter } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -422,7 +424,7 @@ _eval_module_exprs_capturing_error :: (
   local_exn := Exception(
     throw : (
       err -> {
-        _stash_load_error(err.to_string());
+        _stash_load_error(render_any_error(err));
         unwind(false)
       }
     )
@@ -679,7 +681,7 @@ mm_load_file :: (
   local_exn := Exception(
     throw : (
       err -> {
-        _stash_load_error(err.to_string());
+        _stash_load_error(render_any_error(err));
         unwind(_failed_outcome())
       }
     )
@@ -693,7 +695,7 @@ mm_load_file :: (
   // (see issues/fixed/seed-built-stage1-array-fill-method-miss.md).
   if(input_path.ends_with(String.from("prelude.yo")) && !g_cached_prelude_env.is_none(), {
     if(verbose, {
-      println(`check: ${input_path} — evaluator OK`);
+      emit_chatter(`check: ${input_path} — evaluator OK`);
     });
     return(
       ModuleLoadOutcome(
@@ -718,7 +720,7 @@ mm_load_file :: (
   mm_hit_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
   if(module_cache_has(mm_hit_abs.clone()), {
     if(verbose, {
-      println(`check: ${input_path} — evaluator OK`);
+      emit_chatter(`check: ${input_path} — evaluator OK`);
     });
     mm_hit := load_module_from_cache(mm_hit_abs.clone());
     return(
@@ -732,7 +734,7 @@ mm_load_file :: (
     );
   });
   if(verbose, {
-    println(`check: parsing ${input_path}`);
+    emit_chatter(`check: parsing ${input_path}`);
   });
   // COMPTIME read — synchronous on purpose (see _read_file_sync): evaluating
   // a module runs inside the evaluator, and under `yo build` inside
@@ -742,15 +744,15 @@ mm_load_file :: (
   src := String.from_bytes(src_bytes);
   exprs := parse(src, input_path.clone(), local_exn);
   if(verbose, {
-    println(`check: parsed ${exprs.len().to_string()} top-level exprs`);
+    emit_chatter(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   });
   if(input_path.ends_with(String.from("prelude.yo")), {
     if(verbose, {
-      println(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
+      emit_chatter(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
     });
     _pr := mm_load_prelude_file(input_path.clone(), std_path.clone(), exprs, local_exn);
     if(verbose, {
-      println(`check: ${input_path} — evaluator OK`);
+      emit_chatter(`check: ${input_path} — evaluator OK`);
     });
     return(
       ModuleLoadOutcome(
@@ -768,13 +770,13 @@ mm_load_file :: (
   });
   entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
   if(verbose, {
-    println(`check: invoking evaluate_anonymous_module_begin_exprs`);
+    emit_chatter(`check: invoking evaluate_anonymous_module_begin_exprs`);
   });
   // The demand loader must use the LOCAL exn: a nested import's failure has to
   // unwind this file's handler, not the driver's.
   outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, local_exn);
   if(outcome.ok && verbose, {
-    println(`check: ${input_path} — evaluator OK`);
+    emit_chatter(`check: ${input_path} — evaluator OK`);
   });
   outcome
 });

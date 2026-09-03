@@ -16,7 +16,33 @@ open(import("std/error"));
   Severity,
   Span,
   Diagnostic,
-  render_diagnostics_human
+  render_diagnostics_human,
+  render_diagnostics_for_mode,
+  E_UNEXPECTED_TOKEN,
+  E_EXPECTED_TOKEN,
+  E_ADJACENT_OPERATORS,
+  E_UNTERMINATED,
+  E_UNEXPECTED_CHARACTER,
+  E_UNKNOWN_OPERATOR,
+  E_STRUCT_LITERAL_VS_BLOCK,
+  E_CALL_SYNTAX,
+  E_VARIABLE_NOT_FOUND,
+  E_ENUM_VARIANT_NOT_FOUND,
+  E_MODULE_FIELD_NOT_FOUND,
+  E_NOT_DEFINED,
+  E_INCOMPATIBLE_TYPES,
+  E_TRAIT_NOT_IMPLEMENTED,
+  E_ARGUMENT_COUNT_MISMATCH,
+  E_RETURN_TYPE_MISMATCH,
+  E_TYPE_MISMATCH,
+  E_USE_OF_MOVED_VALUE,
+  E_CANNOT_REASSIGN,
+  E_MAYBE_UNINITIALIZED,
+  E_AWAIT_PLACEMENT,
+  E_NEVER_FULLY_EVALUATED,
+  E_FORWARD_REFERENCE,
+  E_COMPTIME_ARGUMENT,
+  E_COMPTIME_OVERFLOW
 } :: import("./diagnostics.yo");
 /// A token paired with an error message for error reporting — the input
 /// currency of the batch builder (ownership-flow errors collect several
@@ -52,12 +78,120 @@ _source_line_of_token :: (fn(token : Token) -> String)({
     .None => String.new()
   )
 });
+/// Wrap a static code constant as the classifier's return value.
+_coded :: (fn(c : str) -> Option(String))(Option(String).Some(String.from(c)));
+/// Classify a message into its diagnostic code FAMILY (P2,
+/// plans/ERROR_DIAGNOSTICS_OVERHAUL.md §5). Codes are allocated per family —
+/// the 1000+ emission sites collapse into these — and the classification is
+/// central on purpose: one table to test, no per-site sweep, and messages
+/// carry their family's distinctive vocabulary verbatim (checked by
+/// tests/internal/error.test.yo). Specific rules come BEFORE generic ones.
+_classify_message :: (fn(error_message : String) -> Option(String))({
+  msg := error_message.trim();
+  // ── Syntax (E00xx–E02xx) ────────────────────────────────────────────────
+  if(msg.starts_with(String.from("unexpected token")), {
+    return(_coded(E_UNEXPECTED_TOKEN));
+  });
+  if(msg.starts_with(String.from("expected ")), {
+    return(_coded(E_EXPECTED_TOKEN));
+  });
+  if(msg.contains(String.from("Adjacent different operators")), {
+    return(_coded(E_ADJACENT_OPERATORS));
+  });
+  if(msg.starts_with(String.from("unterminated ")), {
+    return(_coded(E_UNTERMINATED));
+  });
+  if(msg.starts_with(String.from("unexpected character")), {
+    return(_coded(E_UNEXPECTED_CHARACTER));
+  });
+  if(msg.starts_with(String.from("unknown operator in")), {
+    return(_coded(E_UNKNOWN_OPERATOR));
+  });
+  if(msg.contains(String.from("without semicolons is parsed as a struct literal")), {
+    return(_coded(E_STRUCT_LITERAL_VS_BLOCK));
+  });
+  if(msg.contains(String.from("paren-less function")) || msg.contains(
+    String.from("whitespace before '('")
+  ), {
+    return(_coded(E_CALL_SYNTAX));
+  });
+  // ── Name / scope / module resolution (E03xx–E05xx) ─────────────────────
+  if(msg.contains(String.from("Enum variant \"")), {
+    return(_coded(E_ENUM_VARIANT_NOT_FOUND));
+  });
+  if(msg.contains(String.from("Module field \"")), {
+    return(_coded(E_MODULE_FIELD_NOT_FOUND));
+  });
+  if(msg.contains(String.from("is not defined.")), {
+    return(_coded(E_NOT_DEFINED));
+  });
+  if(msg.contains(String.from("not found.")) || msg.contains(
+    String.from("not found ")
+  ) || msg.contains(String.from("\" not found")), {
+    return(_coded(E_VARIABLE_NOT_FOUND));
+  });
+  // ── Types & traits (E06xx–E08xx) ───────────────────────────────────────
+  if(msg.contains(String.from("Argument count mismatch")), {
+    return(_coded(E_ARGUMENT_COUNT_MISMATCH));
+  });
+  if(msg.contains(String.from("does not implement required trait")) || msg.contains(
+    String.from("must NOT implement")
+  ), {
+    return(_coded(E_TRAIT_NOT_IMPLEMENTED));
+  });
+  if(msg.contains(String.from("return type")) && (
+    msg.contains(String.from("Incompatible")) || msg.contains(
+      String.from("mismatch")
+    )
+  ), {
+    return(_coded(E_RETURN_TYPE_MISMATCH));
+  });
+  if(msg.starts_with(String.from("Incompatible type")) || msg.starts_with(
+    String.from("Incompatible types")
+  ) || msg.starts_with(String.from("Assigned value type mismatch")) || msg.starts_with(
+    String.from("Pattern type ")
+  ), {
+    return(_coded(E_INCOMPATIBLE_TYPES));
+  });
+  if(msg.contains(String.from("type mismatch")) || msg.contains(
+    String.from("Type mismatch")
+  ) || msg.contains(String.from("Failed to call the type")), {
+    return(_coded(E_TYPE_MISMATCH));
+  });
+  // ── Ownership / moves / effects / async (E09xx–E10xx) ──────────────────
+  if(msg.starts_with(String.from("use of moved value")), {
+    return(_coded(E_USE_OF_MOVED_VALUE));
+  });
+  if(msg.starts_with(String.from("Cannot reassign")), {
+    return(_coded(E_CANNOT_REASSIGN));
+  });
+  if(msg.contains(String.from("might be initialized in some cases")), {
+    return(_coded(E_MAYBE_UNINITIALIZED));
+  });
+  if(msg.contains(String.from("must BE the first condition")), {
+    return(_coded(E_AWAIT_PLACEMENT));
+  });
+  if(msg.contains(String.from("was never fully evaluated")), {
+    return(_coded(E_NEVER_FULLY_EVALUATED));
+  });
+  if(msg.contains(String.from("forward reference")), {
+    return(_coded(E_FORWARD_REFERENCE));
+  });
+  // ── Comptime (E11xx–E12xx) ─────────────────────────────────────────────
+  if(msg.starts_with(String.from("Integer overflow")), {
+    return(_coded(E_COMPTIME_OVERFLOW));
+  });
+  if(msg.contains(String.from("comptime_assert")), {
+    return(_coded(E_COMPTIME_ARGUMENT));
+  });
+  Option(String).None
+});
 /// One diagnostic entry from a token + verbatim message.
 _diagnostic_of_token :: (
   fn(token : Token, severity : Severity, error_message : String) -> Diagnostic
 )(
   Diagnostic(
-    code : Option(String).None,
+    code : _classify_message(error_message),
     severity : severity,
     message : error_message.trim(),
     span : _span_of_token(token),
@@ -96,7 +230,7 @@ format_error_message :: (fn(token : Token, error_message : String) -> YoError)(
 format_raw_error :: (fn(module_path : String, error_message : String) -> YoError)(
   _yo_error_of(
     Diagnostic(
-      code : Option(String).None,
+      code : _classify_message(error_message),
       severity : Severity.Error,
       message : error_message.trim(),
       span : Span(path : module_path, row : usize(0), col : usize(0), len : usize(0)),
@@ -147,7 +281,7 @@ format_lexer_error :: (
   );
   _yo_error_of(
     Diagnostic(
-      code : Option(String).None,
+      code : _classify_message(message),
       severity : Severity.Error,
       message : message.trim(),
       span : Span(path : module_path, row : row, col : column, len : usize(1)),
@@ -155,6 +289,17 @@ format_lexer_error :: (
     )
   )
 });
+/// Render any thrown error in the process's current format (P2): a
+/// structured `YoError` renders per `--error-format`; everything else keeps
+/// its own `to_string`. This is what every printing edge goes through —
+/// handlers stash THIS text, so the format choice is global.
+render_any_error :: (fn(err : AnyError) -> String)(
+  match(
+    downcast(err, YoError),
+    .Some(ye) => render_diagnostics_for_mode(ye.diagnostics),
+    .None => err.to_string()
+  )
+);
 /// Get the source line at the token's position with a caret indicator
 /// (the legacy pre-P1 block, still used by the warnings path).
 get_line_at_token :: (fn(token : Token) -> String)({
@@ -218,11 +363,14 @@ format_warning_messages :: (
   )
 });
 export(TokenAndError, TokenAndWarning, YoError);
+// Exported for the registry/classifier tests (tests/internal).
+export(_classify_message);
 export(get_line_at_token, get_line_at_position);
 export(
   format_error_message,
   format_error_messages,
   format_lexer_error,
   format_raw_error,
-  format_warning_messages
+  format_warning_messages,
+  render_any_error
 );

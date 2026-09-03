@@ -28,6 +28,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { println, eprintln } :: import("std/fmt");
+{ emit_rendered_text } :: import("./diagnostics.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -116,7 +117,7 @@ watch_round :: (
               // P1 single-print rule) — the watch round owns the print.
               match(
                 _take_load_error(),
-                .Some(rendered) => eprintln(rendered),
+                .Some(rendered) => emit_rendered_text(rendered),
                 .None => ()
               );
               failed = (failed + usize(1));

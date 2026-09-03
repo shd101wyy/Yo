@@ -270,7 +270,11 @@ parse_error_text :: (
       });
     });
     if(!handled, {
-      msg_parts.push(line);
+      // The P2 `help: run yo explain …` tail line belongs to the block just
+      // rendered — it must not leak into the NEXT entry's message text.
+      if(!trimmed.starts_with(String.from("help: ")), {
+        msg_parts.push(line);
+      });
     });
     li = (li + usize(1));
   });

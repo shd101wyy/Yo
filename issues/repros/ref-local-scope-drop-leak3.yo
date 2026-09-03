@@ -1,0 +1,27 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Severity, Span, Diagnostic, render_diagnostics_human } :: import("../../src/diagnostics.yo");
+{ YoError } :: import("../../../src/error.yo");
+main :: (fn() -> unit)({
+  acc := usize(0);
+  (i : usize) = usize(0);
+  while(i < usize(100), {
+    diags := ArrayList(Diagnostic).new();
+    diags.push(
+      Diagnostic(
+        code : Option(String).None,
+        severity : Severity.Error,
+        message : String.from("Variable \"x\" not found."),
+        span : Span(path : String.from("t.yo"), row : usize(0), col : usize(0), len : usize(1)),
+        source_line : String.from("x := 1;")
+      )
+    );
+    err := YoError(diagnostics : diags);
+    s := err.to_string();
+    acc = (acc + s.len());
+    i = (i + usize(1));
+  });
+  println(`acc ${acc}`);
+});
+export(main);

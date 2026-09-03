@@ -17,7 +17,8 @@ open(import("std/fmt"));
   format_error_messages,
   format_lexer_error,
   format_raw_error,
-  format_warning_messages
+  format_warning_messages,
+  _classify_message
 } :: import("../../src/error.yo");
 {
   Severity,
@@ -179,4 +180,57 @@ test("YoError.to_string is the shared human render", {
   assert(s.starts_with(`error: unexpected keyword`), "severity header present");
   assert(s.contains(`--> main.yo:1:1`), "anchor present");
   assert(s.contains(`1 | let`), "source line present");
+});
+// ─── P2: the classifier maps messages to code families ──────────────────────
+test("classifier: representative messages map to their families", {
+  match(
+    _classify_message(`Variable "x" not found.`),
+    .Some(c) => assert(c == "E0401", `E0401, got ${c}`),
+    .None => assert(false, "variable-not-found must classify")
+  );
+  match(
+    _classify_message(`Enum variant "Reed" not found in enum`),
+    .Some(c) => assert(c == "E0402", `E0402, got ${c}`),
+    .None => assert(false, "enum variant must classify")
+  );
+  match(
+    _classify_message(`Incompatible types:\n- Expected: i32\n- Given   : i64`),
+    .Some(c) => assert(c == "E0601", `E0601, got ${c}`),
+    .None => assert(false, "incompatible types must classify")
+  );
+  match(
+    _classify_message(`Argument count mismatch: expected 3, got 2`),
+    .Some(c) => assert(c == "E0603", `E0603, got ${c}`),
+    .None => assert(false, "arity must classify")
+  );
+  match(
+    _classify_message(`use of moved value: \`x\``),
+    .Some(c) => assert(c == "E0901", `E0901, got ${c}`),
+    .None => assert(false, "moved value must classify")
+  );
+  match(
+    _classify_message(`unexpected token: }`),
+    .Some(c) => assert(c == "E0001", `E0001, got ${c}`),
+    .None => assert(false, "unexpected token must classify")
+  );
+  match(
+    _classify_message(`unterminated template string`),
+    .Some(c) => assert(c == "E0004", `E0004, got ${c}`),
+    .None => assert(false, "unterminated must classify")
+  );
+  match(
+    _classify_message(`Integer overflow in compile-time evaluation`),
+    .Some(c) => assert(c == "E1102", `E1102, got ${c}`),
+    .None => assert(false, "comptime overflow must classify")
+  );
+  assert(_classify_message(`something entirely novel`).is_none(), "unfamiliar text stays uncoded");
+});
+test("coded diagnostics render the explain tail (P2)", {
+  tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
+  s := format_error_message(tok, `Variable "x" not found.`).to_string();
+  assert(s.starts_with(`error[E0401]: Variable "x" not found.`), `coded header, got:\n${s}`);
+  assert(
+    s.contains(`help: run \`yo explain E0401\` for more information`),
+    `explain tail, got:\n${s}`
+  );
 });
