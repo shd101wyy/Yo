@@ -83,3 +83,20 @@ test("concrete unit tail await control still works", {
   io.await(outer_unit(io), t_e);
   assert(true, "completed");
 });
+// The bare-(e) form (issues/io-async-bare-e-closure-body-never-evaluates.md):
+// an UNANNOTATED closure param with a bundle-style `e.io.await(...)` body.
+// The `.io` projection on a bare `Io` receiver is identity, so the body
+// evaluates at def time and the future actually RUNS it — before the root
+// fix this shape compiled to a runs-nothing future (silently, pre-#390) or
+// was rejected by the poison gate (post-#390). The awaited VALUE proves the
+// body executed end to end.
+test("bare-e closure with e.io.await body runs", {
+  inner7 :: (fn(io : Io) -> Impl(Future(i32)))(
+    io.async((io2 : Io) => i32(7))
+  );
+  outer7 :: (fn(io : Io) -> Impl(Future(i32)))(
+    io.async(e => e.io.await(inner7(io), e.io))
+  );
+  v := io.await(outer7(io), io);
+  assert(v == i32(7), "the bare-e closure body must actually run");
+});

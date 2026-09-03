@@ -1,7 +1,10 @@
 # A bare `(e) =>` io.async closure body never evaluates — it compiled to a runs-nothing future, silently
 
-- **Status**: OPEN (the silent form is now a hard compile error via the async
-  poison gate, #390; making the body actually evaluate is the open work)
+- **Status**: FIXED 2026-09-03 — the `.io` projection is now total: on a
+  bare `Io` receiver it is the IDENTITY (evaluator +
+  codegen `property_access.yo` twins), so the bundle-style body evaluates at
+  def time and the future runs it. Pinned by the "bare-e closure with
+  e.io.await body runs" test in tests/async_unit_tail_await.test.yo.
 - **Found**: 2026-09-02, validating #390's poison gate against the test suite
   (`tests/async_unit_tail_await.test.yo`'s `outer_unit`, wasm + macOS legs).
 
