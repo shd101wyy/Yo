@@ -800,7 +800,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       return_temp_var := match(ei.variable_name, .Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))), .None => Option(String).None);
       match(
         return_temp_var,
-        .Some(rtv) => if((!handled_deferred_dup && !is_unit) && !(rtv == arg_code), {
+        .Some(rtv) => if(!handled_deferred_dup && !is_unit && !(rtv == arg_code), {
           line := indent.clone();
           line.push_string(return_type.clone());
           line.push_str(" ");

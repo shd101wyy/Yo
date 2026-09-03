@@ -178,7 +178,7 @@ evaluate_struct_type :: (
     // `!(field.is_comptime)`: a comptime field is ERASED from the C layout
     // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
     // cannot collide and must stay legal.
-    if((is_reference_semantics && !field.is_comptime) && (field.label == "header"), {
+    if(is_reference_semantics && !field.is_comptime && (field.label == "header"), {
       res_args := match(arg, .FnCall(_, _, a3, _, _) => a3, .Atom(_, _) => ArrayList(AstExpr).new());
       res_tok := if(
         ast_expr_is_fn_call(arg),

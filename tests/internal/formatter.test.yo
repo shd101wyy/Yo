@@ -245,3 +245,16 @@ test("fmt elision: quote argument with macro splices keeps its group (gate-conse
   );
   assert(_fmt(out.clone()) == out, "and that is a fixed point");
 });
+test("fmt elision D2: prefix operands are not chain operators", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  if(((exp_enum_id != giv_enum_id) && !(same_enum_ctor)) && !(same_variants), {\n    return(1);\n  });\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(
+    out.contains(
+      String.from("if((exp_enum_id != giv_enum_id) && !same_enum_ctor && !same_variants, {")
+    ),
+    "((A) && !b) && !c flattens fully — the ! operands do not split the && chain"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});

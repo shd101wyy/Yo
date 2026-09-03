@@ -509,7 +509,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // it where it can, but a module-namespace / registry path may still have
   // registered it; this gate is the single source of truth. Effect-record
   // members stay type-erased and emitted, as for the hard-generic skip.
-  if((!is_user_main && !is_erm) && (fn_has_specializations(func_id.clone()) && func_params_have_raw_some_type(function_type)), {
+  if(!is_user_main && !is_erm && (fn_has_specializations(func_id.clone()) && func_params_have_raw_some_type(function_type)), {
     return(true);
   });
   has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
@@ -525,8 +525,8 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // Only the hard-generic skip is ERM-exempt (an effect handler's generic params are
   // type-erased to void*; a macro's Expr param is not a runtime type at all).
   skip_unemittable := (!is_user_main && ((!is_erm && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type)));
-  skip1 := ((!is_user_main && (!is_effectful && (!has_evidence && !is_erm))) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
-  has_generic_params := ((!is_user_main && (!is_effectful && !is_erm)) && _func_has_generic_params(function_type));
+  skip1 := (!is_user_main && (!is_effectful && (!has_evidence && !is_erm)) && (is_function_type_hard_generic(function_type) || (_func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some())));
+  has_generic_params := (!is_user_main && (!is_effectful && !is_erm) && _func_has_generic_params(function_type));
   // Array with an UNRESOLVED length variable (`Array(i32, n)`) has no C
   // rendering (`// Unknown type:` ate the prototype line — array.test
   // batch clang errors); treat it as a generic return like a SomeT one.
@@ -544,7 +544,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   );
   has_generic_return := (type_contains_some_type_for_codegen_param(ret, ArrayList(String).new()) || _ret_has_len_var(ret));
   returns_plain_impl := _returns_plain_impl(ret);
-  skip2 := (has_generic_params || ((has_generic_return && !returns_plain_impl) && !is_erm));
+  skip2 := (has_generic_params || (has_generic_return && !returns_plain_impl && !is_erm));
   // A specialization whose RESULT type is a comptime-only type (comptime_int/
   // float/string) is a compile-time function that must NOT be emitted as runtime
   // C. TS folds comptime calls and never emits them; yo-self's create_specialized
@@ -557,7 +557,7 @@ should_skip_function_codegen :: (fn(func_id : String, c_name : String, value : E
   // func_id (yo_id_124) is shared across runtime AND comptime specializations
   // (no per-func_id comptime flag distinguishes them), but the per-call resolved
   // RETURN type does. See issues/fixed/yo-self-return-temp-void-someT.md.
-  skip_comptime_result := ((!is_user_main && !is_erm) && (is_comptime_int_type(ret) || is_comptime_float_type(ret) || is_comptime_string_type(ret)));
+  skip_comptime_result := (!is_user_main && !is_erm && (is_comptime_int_type(ret) || is_comptime_float_type(ret) || is_comptime_string_type(ret)));
   // A closure marked for codegen (io.async closure) must be EMITTED even when its
   // synthesized type still has SomeT params (its body + result are concrete; the
   // io.async sync-future resume calls it directly). Without this it is dropped as
