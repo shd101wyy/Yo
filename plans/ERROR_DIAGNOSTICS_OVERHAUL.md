@@ -9,6 +9,10 @@
 > [P4_LSP.md](P4_LSP.md) header. Sections 1–4 are a verified audit of the
 > current `src/` (all numbers re-runnable, commands given); sections 5+ are
 > the design and phasing proposed for approval.
+>
+> **§11 decisions recorded 2026-09-03**: `yo explain` (no alias), numeric
+> `E0308`-style codes, a bilingual English + 简体中文 registry from day one,
+> exit codes stay 0/1, runtime-panic locations stay in P3 (details §11).
 
 Yo's positioning is "designed for the LLM era" — and the error channel is the
 highest-bandwidth feedback an iterating agent receives. Today that channel is
@@ -368,7 +372,7 @@ compiler dependency via the LSP, so no seed-availability risk).
 
 ## 5. Error codes and the registry
 
-- Format: `E` + 4 digits. Loose band convention (not enforced, guidance
+- Format (DECIDED, §11.2): `E` + 4 digits. Loose band convention (not enforced, guidance
   only): `E00xx–E02xx` syntax (lexer+parser), `E03xx–E05xx` name/scope/module
   resolution, `E06xx–E08xx` types & traits, `E09xx–E10xx` ownership/moves/
   effects/async, `E11xx–E12xx` comptime/macros/reflection, `E13xx` internal
@@ -389,19 +393,30 @@ Registry entry (data, in `src/diagnostics_registry.yo`; ships inside the
 binary so `yo explain` works offline):
 
 ```rust
-Example  :: struct(bad : String, good : String, why : String);
+Example  :: struct(bad : String, good : String, why : String, why_zh : String);
 Explain  :: struct(
   code : String,            // "E0308"
-  title : String,           // "mismatched types"
-  summary : String,         // one sentence
-  explanation : String,     // paragraphs; markdown-ish
-  examples : ArrayList(Example),
+  title : String,           // "mismatched types"        (English)
+  title_zh : String,        // 简体中文标题
+  summary : String,         // one sentence              (English)
+  summary_zh : String,
+  explanation : String,     // paragraphs; markdown-ish  (English)
+  explanation_zh : String,
+  examples : ArrayList(Example),  // snippets are language-neutral; `why` prose is bilingual
   related : ArrayList(String)
 );
 ```
 
+**Bilingual by decision (§11.3):** every prose field ships in English AND
+Simplified Chinese from day one — there is no English-only pass to retrofit.
+The compiler's own message text stays English-only (§10); the registry is
+the bilingual surface. `yo explain` prints English by default; `--lang
+zh-CN` (or the `YO_LANG` env var) selects the Chinese fields, and
+`--format json` carries both languages.
+
 A registry test enforces: every code referenced from the code table has an
-entry, titles/summaries/explanations non-empty, ≥1 example per entry, and —
+entry, titles/summaries/explanations non-empty **in both languages**, ≥1
+example per entry, and —
 the strong gate, borrowed from rustc's error-index tests — **every `good`
 snippet compiles** (checked by a small harness shelling `yo check` on temp
 files) and every `bad` snippet errors *with that code* (checked the same
@@ -411,11 +426,9 @@ way). The corpus therefore cannot rot.
 
 ## 6. `yo explain`
 
-Naming: **`yo explain <CODE>`** is recommended over `yo error <CODE>` — it
-matches the repo's verb-subcommands (`build`, `check`, `doc`, `fetch`,
-`install`, `version`) and is the spelling ROADMAP 4.5 already uses. `yo
-error` remains a fine alias if preferred (open question OQ1; the mechanics
-below are name-independent).
+Naming (DECIDED, §11.1): **`yo explain <CODE>`** — it matches the repo's
+verb-subcommands (`build`, `check`, `doc`, `fetch`, `install`, `version`)
+and is the spelling ROADMAP 4.5 already uses. No `yo error` alias.
 
 ```
 $ yo explain E0308
@@ -440,7 +453,8 @@ help: did you mean `E0308`? Run `yo explain --list` for all codes.
 - `yo explain --list` — code + title per line; `yo explain --list --format
   json` — the full registry dump (this is the ROADMAP 4.2 corpus export).
 - `yo explain E0308 --format json` — one entry, for agents pulling depth on
-  demand.
+  demand. `--lang zh-CN` prints the Chinese fields (default English; the
+  `YO_LANG` env var is equivalent); JSON always carries both languages.
 - Exit 0 when found, 1 when not (with did-you-mean over the registry — the
   same edit-distance helper as D8, §8.1).
 - No network, no repo presence needed — the registry is compiled in.
@@ -489,6 +503,8 @@ Scope:
 1. Code table in `src/diagnostics.yo` + registry in
    `src/diagnostics_registry.yo`; assign codes to the top families (target:
    ≥60% of corpus-measured emissions coded, estimated 60–100 codes).
+   Registry entries are bilingual (English + 简体中文) from the first entry
+   (§5) — no English-only pass to retrofit later.
 2. `help: run \`yo explain E0xxx\`` tail on coded diagnostics.
 3. `yo explain` subcommand with `--list`, `--format json`, did-you-mean.
 4. Registry test incl. good-snippets-compile / bad-snippets-error-with-code.
@@ -500,7 +516,8 @@ Scope:
    vocabulary).
 
 Acceptance: two runs → byte-identical JSON; `jq` round-trips every field;
-explain offline; registry gates green; suite green.
+explain offline in both languages; registry gates green (incl.
+both-language non-empty); suite green.
 
 ### P3 — repair-oriented upgrades (the LLM loop)
 
@@ -513,7 +530,7 @@ explain offline; registry gates green; suite green.
 3. **Import-chain collapse** (D16): report the leaf diagnostic once + one
    `note: in module imported from <path>` chain note (bounded, no cascade).
 4. **ICE wrapper** (D11): `codegen_fatal*` → `internal compiler error:` +
-   compiler file:line + report prompt; keep rc=1 (OQ4).
+   compiler file:line + report prompt; keep rc=1 (decided, §11.4).
 5. **LSP typed channel**: `analyze_document` returns
    `ArrayList(Diagnostic)`; `parse_error_text` and `_ident_len_at` retire —
    the P4 remaining item closes; exact ranges from spans, not identifier
@@ -521,7 +538,8 @@ explain offline; registry gates green; suite green.
 6. **Runtime panic locations** (D13): `panic()`/`assert()` codegen embeds the
    Yo file:line of the call site (`exprs/panic.yo` has the `Expr`; its token
    is available); fix the StrLit quotes artifact. ⚠ some tests capture
-   runtime panic text — audit before landing (acceptance includes it).
+   runtime panic text — audit before landing (acceptance includes it;
+   decided in-scope, §11.5).
 7. `--error-format` threaded through `build`/`test`; test runner honors
    `--json-summary` (currently ignored) or removes the flag (pick during
    implementation; CLI-compat tests decide).
@@ -536,7 +554,7 @@ golden re-recorded once more; runtime-panic-touching tests audited and green.
 - Color (tty-gated, `NO_COLOR`/`TERM=dumb`) — D14; cosmetic, after data work.
 - A live warnings channel (D15) — `Severity.Warning` exists since P1; wiring
   unused-variable/etc. detection is its own small project.
-- SARIF output; `yo fix` (ROADMAP 4.5's bigger sibling); zh-CN registry.
+- SARIF output; `yo fix` (ROADMAP 4.5's bigger sibling).
 
 ---
 
@@ -551,6 +569,7 @@ golden re-recorded once more; runtime-panic-touching tests audited and green.
 | Registry rots as messages evolve | Registry test compiles every `good` snippet and asserts every `bad` snippet errors with its code (rustc error-index model) |
 | Codes churn / renumbering temptation | Never-renumber rule in §5; registry keeps per-code history lines |
 | Runtime-panic location change (P3.6) breaks tests that capture panic text | Explicit audit listed as P3 acceptance, before landing |
+| Registry EN/zh entries drift apart | Both languages are authored in ONE entry side by side; the registry test fails on any empty `_zh` prose field |
 
 ---
 
@@ -572,28 +591,29 @@ golden re-recorded once more; runtime-panic-touching tests audited and green.
 - **Multi-error batch output.** Fail-fast single-error stays (§1.5) — no
   parser recovery / evaluator continuation machinery in this plan. Revisit
   only if agent-iteration data shows batching pays for recovery complexity.
-- Renumbering or recycling codes; translating message text (English remains
-  the machine lingua franca; zh-CN is a registry-level add-on, OQ3).
+- Renumbering or recycling codes; translating the compiler's own message
+  text (English remains the machine lingua franca — the bilingual surface is
+  the explanations registry, where both languages ship from day one, §11.3).
 - A `yo fix` auto-rewriter (ROADMAP mentions it; separate doc when wanted).
 - Absorbing the `#line`/debug-info project.
 
 ---
 
-## 11. Open questions for the maintainer
+## 11. Decisions (maintainer, 2026-09-03)
 
-1. **Subcommand name**: `yo explain E0308` (recommended; verb-form, matches
-   ROADMAP 4.5 spelling) vs `yo error E0308` (as originally floated). Alias
-   support is cheap either way.
-2. **Code format**: numeric `E0308` (recommended; rustc parity, terse,
-   typo-duck-typed by did-you-mean) vs semantic slugs (`type-mismatch`;
-   self-describing but long, and renames become compatibility hazards).
-3. **Registry language**: English-only at first (recommended) vs bilingual
-   entries from day one (doubles authoring; `docs/` bilingual rule then
-   applies to the rendered reference too).
-4. **Exit codes**: keep 0/1 everywhere (recommended; goldens and scripts
-   assume it) vs rustc-style distinct ICE code.
-5. **P3.6 runtime panic locations**: in scope here, or split into its own
-   change given the runtime-output churn across std tests?
+The former open questions, all decided:
+
+1. **Subcommand name**: `yo explain E0308` — verb-form, matches the ROADMAP
+   4.5 spelling. No `yo error` alias.
+2. **Code format**: numeric `E0308` (rustc parity, terse, typo-duck-typed by
+   did-you-mean). No semantic slugs.
+3. **Registry language**: bilingual — every entry carries English AND
+   Simplified Chinese prose from day one (`title`/`title_zh`, …; §5). The
+   compiler's own message text stays English-only.
+4. **Exit codes**: keep 0/1 everywhere (goldens and scripts assume it).
+5. **P3.6 runtime panic locations**: stays in Phase 3 scope, with its
+   audit-before-landing acceptance item (the runtime-output churn across std
+   tests is checked first).
 
 ---
 
