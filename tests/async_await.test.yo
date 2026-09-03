@@ -9,6 +9,7 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { exists } :: import("std/fs/file");
 { arch, Arch } :: import("std/process");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { sleep } :: import("std/sys/timer");
 { Instant } :: import("std/time/instant");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
@@ -4741,4 +4742,21 @@ test("io.await inside an async body injects the bundle named at the await, not t
   result := handle.await(io);
   assert(result.is_some(), "the inner handler resumed the throw; the task's own (unwinding) handler must not have run");
   assert(result.unwrap() == i32(8), "resumed value 7 + 1");
+});
+// ---------------------------------------------------------------------------
+// A module-level global referenced from an io.async closure body
+// (issues/module-global-referenced-inside-async-closure-undeclared.md):
+// module globals are NOT captures (they lower to process-global C symbols),
+// so the async body reaches the global directly — capturing it used to add
+// a phantom capture-struct member and fail the C compile.
+// ---------------------------------------------------------------------------
+module_global_counter := AtomicI32(i32(0));
+test("io.async closure body mutates a module-level global", {
+  if(arch == Arch.Wasm32, return(()));
+  task := io.async((io : Io) => {
+    module_global_counter.fetch_add(i32(6), MemoryOrder.Relaxed);
+    ()
+  });
+  io.await(task, io);
+  assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(6), "the async body reached the module global");
 });

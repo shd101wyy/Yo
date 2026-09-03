@@ -1,6 +1,12 @@
 # A module-level global referenced inside an io.async closure body emits undeclared-identifier C
 
-- **Status**: OPEN
+- **Status**: FIXED 2026-09-03 — `trackVariableUsage` (src/evaluator/context.yo)
+  now excludes module-level globals from closure captures (keyed on the
+  `is_module_level_global` registry): a module global lowers to a
+  process-global C symbol, so closures reference it directly instead of
+  capturing. Measured wider than the async shape: a plain inline anon
+  closure referencing a module global broke identically. Pinned by arms in
+  tests/closure.test.yo and tests/async_await.test.yo.
 - **Found**: 2026-09-03, building the bare-`e` repro for
   `issues/fixed/io-async-bare-e-closure-body-never-evaluates.md` (PR #394).
 
