@@ -270,7 +270,7 @@ _fetch_follow :: (
       // `max_redirects == 0` means "do not follow": the first 3xx comes back
       // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
       // FOLLOWED, so the (max+1)th 3xx throws.
-      follow := ((resp.is_redirect() && !location.is_empty()) && (opts.max_redirects > usize(0)));
+      follow := (resp.is_redirect() && !location.is_empty() && (opts.max_redirects > usize(0)));
       cond(
         follow => {
           cond(

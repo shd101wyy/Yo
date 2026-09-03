@@ -1250,7 +1250,7 @@ merge_and_check_envs :: (
             // mismatch. (Mirrored in the per-column merge below.) See
             // issues/yo-self-p1-transpile-tail.md Candidate 3.
             case_var_k := match(case_frame.variables.get(kk), .Some(v) => v, .None => base_var);
-            if(((base_var.name != case_var_k.name) && !is_temp_variable_name(env.module_path, base_var.name)) && !is_temp_variable_name(env.module_path, case_var_k.name), {
+            if((base_var.name != case_var_k.name) && !is_temp_variable_name(env.module_path, base_var.name) && !is_temp_variable_name(env.module_path, case_var_k.name), {
               exn.throw(
                 dyn(
                   format_error_message(
@@ -1592,7 +1592,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             base_var.is_owning_the_same_rc_value_as = Option(Box(Variable)).None;
           });
           // Partial ownership → error
-          if((any_owning && !all_owning) && !base_var.is_owning_the_rc_value, {
+          if(any_owning && !all_owning && !base_var.is_owning_the_rc_value, {
             err_list := ArrayList(TokenAndError).new();
             (oei : usize) = usize(0);
             while(oei < n_cases, {

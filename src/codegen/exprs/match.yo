@@ -406,7 +406,7 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
   body_code := generate_case_body(case_body, body_indent.clone(), context);
   assigned := match(
     temp_var_opt,
-    .Some(tv) => if((!is_unit && (body_code.len() > usize(0))) && !_is_control_flow_code(body_code), {
+    .Some(tv) => if(!is_unit && (body_code.len() > usize(0)) && !_is_control_flow_code(body_code), {
       line := body_indent.clone();
       line.push_string(tv.clone());
       line.push_str(" = ");
@@ -1030,7 +1030,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                 label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(le), ast_expr_token(le).value, String.from("")), .None => String.from(""));
                 match(
                   pargs.get(usize(1)),
-                  .Some(var_expr) => if((ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_")) && (label.len() > usize(0)), {
+                  .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_") && (label.len() > usize(0)), {
                     // Find the field index for this label.
                     (fi : usize) = labels.len();
                     nl := labels.len();

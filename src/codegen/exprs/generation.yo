@@ -707,7 +707,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   match(
     ei.value,
     .Some(v) => {
-      is_plain_comptime := ((!is_unknown_val(v) && !is_unit_type(ei.ty)) && !has_any_control_flow(ei.control_flow));
+      is_plain_comptime := (!is_unknown_val(v) && !is_unit_type(ei.ty) && !has_any_control_flow(ei.control_flow));
       is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && ctor_has_runtime_args);
       if(is_plain_comptime && !is_runtime_ctor, {
         comptime_code := generate_comptime_value(v, ei.ty, context.base);

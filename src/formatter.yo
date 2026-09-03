@@ -1080,6 +1080,7 @@ is_left_same_operator_flatten_group :: (
                 (paren_depth : usize) = usize(0);
                 (bracket_depth : usize) = usize(0);
                 (curly_depth : usize) = usize(0);
+                (seen_primary : bool) = false;
                 (op_count : usize) = usize(0);
                 (mismatch : bool) = false;
                 (i : usize) = (left_index + usize(1));
@@ -1096,16 +1097,31 @@ is_left_same_operator_flatten_group :: (
                         );
                         if(at_top_level, {
                           cond(
-                            (t.kind == TokenKind.Operator) => {
-                              op_count = (op_count + usize(1));
-                              if(!(t.value == n.value), {
-                                mismatch = true;
-                              });
-                            },
+                            (t.kind == TokenKind.Operator) => cond(
+                              // A prefix-capable operator in OPERAND
+                              // position (no primary since the last chain
+                              // operator) is an operand, not a chain link —
+                              // `a && !b && !c` is ONE && chain; the `!`s do
+                              // not split it.
+                              !seen_primary => {
+                                if(!is_prefix_capable_operator(t), {
+                                  mismatch = true;
+                                });
+                              },
+                              true => {
+                                op_count = (op_count + usize(1));
+                                if(!(t.value == n.value), {
+                                  mismatch = true;
+                                });
+                                seen_primary = false;
+                              }
+                            ),
                             ((t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon)) => {
                               mismatch = true;
                             },
-                            true => ()
+                            true => {
+                              seen_primary = true;
+                            }
                           );
                         });
                         cond(
