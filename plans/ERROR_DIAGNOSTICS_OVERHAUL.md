@@ -13,6 +13,19 @@
 > **§11 decisions recorded 2026-09-03**: `yo explain` (no alias), numeric
 > `E0308`-style codes, a bilingual English + 简体中文 registry from day one,
 > exit codes stay 0/1, runtime-panic locations stay in P3 (details §11).
+>
+> **P1 LANDED 2026-09-03** (this branch): structured `Diagnostic` + shared
+> renderer in `src/diagnostics.yo`; `YoError` rebased, dead `ErrorKind`/
+> `is_assertion_error`/`YoLexerError`/`ParseError`/`LexerError` deleted,
+> 1028 call sites trimmed; lexer/parser/evaluator all throw the one
+> structured error; single-print edges (D1–D6 dead). Verified:
+> `check ./src` 264/264, `compile --skip-c-compiler` rc=0, stage-1 built at
+> CI's flag set, internal error 17/17 + lexer 47/47 + parser 50/52 (the 2
+> are pre-existing on pristine develop —
+> `issues/parser-multibyte-spec-tests-leak-under-linux-asan.md`), CLI corpus
+> 54 PASS (3 doc-* diffs are local git-version text only; 1 network skip),
+> lsp-handshake golden re-recorded (leak + doubled location gone, LSP frames
+> byte-identical).
 
 Yo's positioning is "designed for the LLM era" — and the error channel is the
 highest-bandwidth feedback an iterating agent receives. Today that channel is
