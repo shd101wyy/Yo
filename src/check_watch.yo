@@ -27,7 +27,7 @@
 //!     by the cli-case harness, which cannot mutate files concurrently.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
-{ println } :: import("std/fmt");
+{ println, eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -43,7 +43,8 @@ sleep_mod :: import("std/sys/timer");
 {
   mm_load_file,
   mm_invalidate_document,
-  mm_resolve_entry_abs
+  mm_resolve_entry_abs,
+  _take_load_error
 } :: import("./module_manager.yo");
 /// `"${mtime}:${size}"` for a path, or `.None` when the stat fails (file
 /// deleted / transient editor rename). One string keeps the sweep's compare
@@ -111,6 +112,13 @@ watch_round :: (
           cond(
             ok => println(`watch: ${fp} — OK`),
             true => {
+              // The loader's handlers only stash the rendered diagnostic (the
+              // P1 single-print rule) — the watch round owns the print.
+              match(
+                _take_load_error(),
+                .Some(rendered) => eprintln(rendered),
+                .None => ()
+              );
               failed = (failed + usize(1));
               println(`watch: ${fp} — FAILED`);
             }

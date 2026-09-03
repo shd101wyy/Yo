@@ -749,9 +749,7 @@ _get_expr_type :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `Failed to get expr info after evaluation`,
-            false,
-            .None
+            `Failed to get expr info after evaluation`
           )
         )
       );
@@ -763,9 +761,7 @@ _get_expr_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected a type value, got ${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected a type value, got ${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -1076,9 +1072,7 @@ evaluate_function_parameter :: (
         dyn(
           format_error_message(
             ast_expr_token(expr_mut),
-            `Use "?=" for default parameter values. Assigned values require an explicit type: (name : Type) = value.`,
-            false,
-            .None
+            `Use "?=" for default parameter values. Assigned values require an explicit type: (name : Type) = value.`
           )
         )
       );
@@ -1090,9 +1084,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr_mut),
-          `":=" is not allowed in parameter lists. Use (name : Type) = value instead.`,
-          false,
-          .None
+          `":=" is not allowed in parameter lists. Use (name : Type) = value instead.`
         )
       )
     );
@@ -1130,9 +1122,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          _type_err_msg,
-          false,
-          .None
+          _type_err_msg
         )
       )
     );
@@ -1149,9 +1139,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `"generic"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
-                false,
-                .None
+                `"generic"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`
               )
             )
           );
@@ -1163,9 +1151,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Expected one argument for "comptime", got ${c_args.len()}`,
-                false,
-                .None
+                `Expected one argument for "comptime", got ${c_args.len()}`
               )
             )
           );
@@ -1184,9 +1170,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Expected one argument for "own", got ${o_args.len()}`,
-                false,
-                .None
+                `Expected one argument for "own", got ${o_args.len()}`
               )
             )
           );
@@ -1199,7 +1183,7 @@ evaluate_function_parameter :: (
         r_args := _fn_call_args(lhs_mut);
         if(!(r_args.len() == usize(1)), {
           exn.throw(
-            dyn(format_error_message(ast_expr_token(lhs_mut), `Expected one argument for "inout", got ${r_args.len()}`, false, .None))
+            dyn(format_error_message(ast_expr_token(lhs_mut), `Expected one argument for "inout", got ${r_args.len()}`))
           );
         });
         if(is_owning_rc_value, {
@@ -1207,9 +1191,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`,
-                false,
-                .None
+                `Cannot combine 'own' and 'inout' on the same parameter — they have opposite calling conventions.`
               )
             )
           );
@@ -1223,9 +1205,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `'inout' cannot combine with 'generic'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`,
-                false,
-                .None
+                `'inout' cannot combine with 'generic'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`
               )
             )
           );
@@ -1242,9 +1222,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Expected one argument for "quote" (or ":"), got ${q_args.len()}`,
-                false,
-                .None
+                `Expected one argument for "quote" (or ":"), got ${q_args.len()}`
               )
             )
           );
@@ -1254,9 +1232,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Cannot use "comptime" with "quote" (or ":"). "quote" parameters means compile-time only, so "comptime" is redundant.`,
-                false,
-                .None
+                `Cannot use "comptime" with "quote" (or ":"). "quote" parameters means compile-time only, so "comptime" is redundant.`
               )
             )
           );
@@ -1269,9 +1245,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(lhs_mut),
-              `Expected identifier for parameter label, got ${ast_expr_to_string(lhs_mut)}`,
-              false,
-              .None
+              `Expected identifier for parameter label, got ${ast_expr_to_string(lhs_mut)}`
             )
           )
         );
@@ -1287,9 +1261,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected a label for function parameter, got ${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected a label for function parameter, got ${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -1300,9 +1272,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
-          String.from("Not allowed to use 'Self' as the label."),
-          false,
-          .None
+          String.from("Not allowed to use 'Self' as the label.")
         )
       )
     );
@@ -1319,9 +1289,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(ave),
-              `Expected type value for = assignment, got ${ast_expr_to_string(ave)}`,
-              false,
-              .None
+              `Expected type value for = assignment, got ${ast_expr_to_string(ave)}`
             )
           )
         );
@@ -1333,9 +1301,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(ave),
-              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "generic(...)".`,
-              false,
-              .None
+              `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${match(label, .Some(l) => l, .None => String.from("?"))})" or put this in "generic(...)".`
             )
           )
         );
@@ -1353,9 +1319,7 @@ evaluate_function_parameter :: (
           dyn(
             format_error_message(
               ast_expr_token(te),
-              `(3) Failed to evaluate type expression: ${ast_expr_to_string(te)}`,
-              false,
-              .None
+              `(3) Failed to evaluate type expression: ${ast_expr_to_string(te)}`
             )
           )
         );
@@ -1428,9 +1392,7 @@ evaluate_function_parameter :: (
                       dyn(
                         format_error_message(
                           ast_expr_token(dve),
-                          `Incompatible default value type:\n- Expected: ${type_to_string(pt)}\n- Got     : ${type_to_string(dv_ty)}`,
-                          false,
-                          .None
+                          `Incompatible default value type:\n- Expected: ${type_to_string(pt)}\n- Got     : ${type_to_string(dv_ty)}`
                         )
                       )
                     );
@@ -1443,9 +1405,7 @@ evaluate_function_parameter :: (
                 dyn(
                   format_error_message(
                     ast_expr_token(dve),
-                    `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`,
-                    false,
-                    .None
+                    `Expected a compile-time known value for default parameter, got ${ast_expr_to_string(dve)}`
                   )
                 )
               );
@@ -1457,9 +1417,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(dve),
-                `Failed to evaluate default value expression`,
-                false,
-                .None
+                `Failed to evaluate default value expression`
               )
             )
           );
@@ -1477,9 +1435,7 @@ evaluate_function_parameter :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("Expected type for function parameter}"),
-            false,
-            .None
+            String.from("Expected type for function parameter}")
           )
         )
       );
@@ -1497,9 +1453,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'inout(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`,
-          false,
-          .None
+          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'inout(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -1512,9 +1466,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
-          `Parameter marked as "comptime" but type is not available at compile-time:\n${type_to_string(final_param_type)}`,
-          false,
-          .None
+          `Parameter marked as "comptime" but type is not available at compile-time:\n${type_to_string(final_param_type)}`
         )
       )
     );
@@ -1524,9 +1476,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
-          `Parameter marked as runtime but type is not available at runtime:\n${type_to_string(final_param_type)}`,
-          false,
-          .None
+          `Parameter marked as runtime but type is not available at runtime:\n${type_to_string(final_param_type)}`
         )
       )
     );
@@ -1543,9 +1493,7 @@ evaluate_function_parameter :: (
         dyn(
           format_error_message(
             match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
-            `Runtime function parameters with generic function types are not allowed:\n${type_to_string(final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(label, .Some(l) => l, .None => String.from("?"))}) : ${type_to_string(final_param_type)}`,
-            false,
-            .None
+            `Runtime function parameters with generic function types are not allowed:\n${type_to_string(final_param_type)}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${match(label, .Some(l) => l, .None => String.from("?"))}) : ${type_to_string(final_param_type)}`
           )
         )
       );
@@ -1559,9 +1507,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr)),
-          `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${type_to_string(final_param_type)}`,
-          false,
-          .None
+          `Expected Expr or ExprList type for "quote" (or ":") parameter, got ${type_to_string(final_param_type)}`
         )
       )
     );
@@ -1593,9 +1539,7 @@ use_id :: (fn(generic(T : Type),
               where(T <: Id)
           ) -> T)({
   return(val.id());
-})`,
-            false,
-            .None
+})`
           )
         )
       );
@@ -1918,9 +1862,7 @@ validate_concrete_type_constraints :: (
           dyn(
             format_error_message(
               ast_expr_token(t_expr),
-              String.from("validate_concrete_type_constraints: failed to evaluate trait expression"),
-              false,
-              .None
+              String.from("validate_concrete_type_constraints: failed to evaluate trait expression")
             )
           )
         );
@@ -1942,9 +1884,7 @@ validate_concrete_type_constraints :: (
               dyn(
                 format_error_message(
                   ast_expr_token(t_expr),
-                  String.from("Expected trait type for right-hand side of where clause constraint."),
-                  false,
-                  .None
+                  String.from("Expected trait type for right-hand side of where clause constraint.")
                 )
               )
             );
@@ -1956,9 +1896,7 @@ validate_concrete_type_constraints :: (
             dyn(
               format_error_message(
                 ast_expr_token(t_expr),
-                String.from("Expected trait type for right-hand side of where clause constraint."),
-                false,
-                .None
+                String.from("Expected trait type for right-hand side of where clause constraint.")
               )
             )
           );
@@ -1970,9 +1908,7 @@ validate_concrete_type_constraints :: (
           dyn(
             format_error_message(
               ast_expr_token(t_expr),
-              String.from("Expected trait type for right-hand side of where clause constraint, got: ").concat(type_to_string(tv)),
-              false,
-              .None
+              String.from("Expected trait type for right-hand side of where clause constraint, got: ").concat(type_to_string(tv))
             )
           )
         );
@@ -1993,9 +1929,7 @@ validate_concrete_type_constraints :: (
             dyn(
               format_error_message(
                 ast_expr_token(constraint_expr),
-                String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" must NOT implement ")).concat(type_to_string(tv)).concat(String.from(", but it does.")),
-                false,
-                .None
+                String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" must NOT implement ")).concat(type_to_string(tv)).concat(String.from(", but it does."))
               )
             )
           );
@@ -2006,9 +1940,7 @@ validate_concrete_type_constraints :: (
             dyn(
               format_error_message(
                 ast_expr_token(constraint_expr),
-                String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" does not implement required trait ")).concat(type_to_string(tv)).concat(String.from(".")),
-                false,
-                .None
+                String.from("Type ").concat(type_to_string(concrete_type)).concat(String.from(" does not implement required trait ")).concat(type_to_string(tv)).concat(String.from("."))
               )
             )
           );
@@ -2019,9 +1951,7 @@ validate_concrete_type_constraints :: (
         dyn(
           format_error_message(
             ast_expr_token(t_expr),
-            String.from("Expected trait type for right-hand side of where clause constraint."),
-            false,
-            .None
+            String.from("Expected trait type for right-hand side of where clause constraint.")
           )
         )
       );
@@ -2150,9 +2080,7 @@ apply_single_trait_constraint :: (
       dyn(
         format_error_message(
           ast_expr_token(unwrapped_trait_expr),
-          `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(trait_ty)}`,
-          false,
-          .None
+          `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(trait_ty)}`
         )
       )
     );
@@ -2163,9 +2091,7 @@ apply_single_trait_constraint :: (
       dyn(
         format_error_message(
           ast_expr_token(unwrapped_trait_expr),
-          String.from("Trait type in where clause already has a receiver type assigned."),
-          false,
-          .None
+          String.from("Trait type in where clause already has a receiver type assigned.")
         )
       )
     );
@@ -2207,9 +2133,7 @@ parse_where_clause_constraints :: (
         dyn(
           format_error_message(
             ast_expr_token(constraint_expr),
-            `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(constraint_expr)}`,
-            false,
-            .None
+            `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${ast_expr_to_string(constraint_expr)}`
           )
         )
       );
@@ -2252,9 +2176,7 @@ parse_where_clause_constraints :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(lhs_expr),
-                      `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`,
-                      false,
-                      .None
+                      `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`
                     )
                   )
                 );
@@ -2266,9 +2188,7 @@ parse_where_clause_constraints :: (
               dyn(
                 format_error_message(
                   ast_expr_token(lhs_expr),
-                  `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`,
-                  false,
-                  .None
+                  `Expected type for left-hand side of where clause constraint, got variable "${var_name}".`
                 )
               )
             );
@@ -2316,9 +2236,7 @@ parse_where_clause_constraints :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_expr),
-                String.from("Expected type for left-hand side of where clause constraint."),
-                false,
-                .None
+                String.from("Expected type for left-hand side of where clause constraint.")
               )
             )
           );
@@ -2330,9 +2248,7 @@ parse_where_clause_constraints :: (
           dyn(
             format_error_message(
               ast_expr_token(lhs_expr),
-              String.from("Expected type for left-hand side of where clause constraint."),
-              false,
-              .None
+              String.from("Expected type for left-hand side of where clause constraint.")
             )
           )
         );
@@ -2420,9 +2336,7 @@ parse_where_clause_constraints :: (
               dyn(
                 format_error_message(
                   ast_expr_token(unwrapped_te),
-                  String.from("Expected trait type for right-hand side of where clause constraint."),
-                  false,
-                  .None
+                  String.from("Expected trait type for right-hand side of where clause constraint.")
                 )
               )
             );
@@ -2441,9 +2355,7 @@ parse_where_clause_constraints :: (
             dyn(
               format_error_message(
                 ast_expr_token(unwrapped_te),
-                String.from("Expected trait type for right-hand side of where clause constraint."),
-                false,
-                .None
+                String.from("Expected trait type for right-hand side of where clause constraint.")
               )
             )
           );
@@ -2464,9 +2376,7 @@ parse_where_clause_constraints :: (
           dyn(
             format_error_message(
               ast_expr_token(unwrapped_te),
-              `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(trait_ty2)}`,
-              false,
-              .None
+              `Expected trait type for right-hand side of where clause constraint, got: ${type_to_string(trait_ty2)}`
             )
           )
         );
@@ -2476,9 +2386,7 @@ parse_where_clause_constraints :: (
           dyn(
             format_error_message(
               ast_expr_token(unwrapped_te),
-              String.from("Trait type in where clause already has a receiver type assigned."),
-              false,
-              .None
+              String.from("Trait type in where clause already has a receiver type assigned.")
             )
           )
         );
@@ -2720,9 +2628,7 @@ evaluate_function_parameters :: (
               dyn(
                 format_error_message(
                   ast_expr_token(tp_expr),
-                  `Duplicate label "${row_var_name}" in type parameter`,
-                  false,
-                  .None
+                  `Duplicate label "${row_var_name}" in type parameter`
                 )
               )
             );
@@ -2801,9 +2707,7 @@ evaluate_function_parameters :: (
             dyn(
               format_error_message(
                 ast_expr_token(tp_expr),
-                `Duplicate label "${param.label}" in type parameter`,
-                false,
-                .None
+                `Duplicate label "${param.label}" in type parameter`
               )
             )
           );
@@ -2829,9 +2733,7 @@ evaluate_function_parameters :: (
         dyn(
           format_error_message(
             ast_expr_token(param_expr),
-            `Only one "..." clause is allowed per function signature. Combine all implicit parameters into a single , e.g.: a : TypeA, b : TypeB`,
-            false,
-            .None
+            `Only one "..." clause is allowed per function signature. Combine all implicit parameters into a single , e.g.: a : TypeA, b : TypeB`
           )
         )
       );
@@ -2854,9 +2756,7 @@ evaluate_function_parameters :: (
             dyn(
               format_error_message(
                 ast_expr_token(impl_expr),
-                `Effect row variable "${row_var_name2}" not found in scope. Declare it with generic(..., ...(${row_var_name2}))`,
-                false,
-                .None
+                `Effect row variable "${row_var_name2}" not found in scope. Declare it with generic(..., ...(${row_var_name2}))`
               )
             )
           );
@@ -2869,9 +2769,7 @@ evaluate_function_parameters :: (
               dyn(
                 format_error_message(
                   ast_expr_token(impl_expr),
-                  String.from("Effect row variable not found"),
-                  false,
-                  .None
+                  String.from("Effect row variable not found")
                 )
               )
             );
@@ -2926,9 +2824,7 @@ evaluate_function_parameters :: (
                         dyn(
                           format_error_message(
                             ast_expr_token(impl_expr),
-                            `"...(${row_var_name2})" requires "${row_var_name2}" to be a generic-declared effect row variable, but it resolves to a concrete type.`,
-                            false,
-                            .None
+                            `"...(${row_var_name2})" requires "${row_var_name2}" to be a generic-declared effect row variable, but it resolves to a concrete type.`
                           )
                         )
                       );
@@ -3026,9 +2922,7 @@ evaluate_function_parameters :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(impl_expr),
-                        `Effect row variable "${row_var_name2}" has invalid value. Expected a type.`,
-                        false,
-                        .None
+                        `Effect row variable "${row_var_name2}" has invalid value. Expected a type.`
                       )
                     )
                   );
@@ -3039,9 +2933,7 @@ evaluate_function_parameters :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(impl_expr),
-                      `Effect row variable "${row_var_name2}" has no value.`,
-                      false,
-                      .None
+                      `Effect row variable "${row_var_name2}" has no value.`
                     )
                   )
                 );
@@ -3066,9 +2958,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(impl_expr),
-              `Implicit parameter requires a label. Use "name : Type" instead of "Type".`,
-              false,
-              .None
+              `Implicit parameter requires a label. Use "name : Type" instead of "Type".`
             )
           )
         );
@@ -3097,9 +2987,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(impl_expr),
-              `Duplicate label "${param.label}" in implicit parameter (already in generic)`,
-              false,
-              .None
+              `Duplicate label "${param.label}" in implicit parameter (already in generic)`
             )
           )
         );
@@ -3126,9 +3014,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(impl_expr),
-              `Duplicate label "${param.label}" in implicit parameter`,
-              false,
-              .None
+              `Duplicate label "${param.label}" in implicit parameter`
             )
           )
         );
@@ -3191,9 +3077,7 @@ evaluate_function_parameters :: (
         dyn(
           format_error_message(
             ast_expr_token(z_expr),
-            `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...). Move ${z_name} before ${_zone_label(max_zone)}.`,
-            false,
-            .None
+            `${z_name} appears after ${max_name} in the function signature. The canonical clause order is: generic(...), parameters, where(...), requires(...), ensures(...). Move ${z_name} before ${_zone_label(max_zone)}.`
           )
         )
       );
@@ -3220,9 +3104,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(c_expr),
-              String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition."),
-              false,
-              .None
+              String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition.")
             )
           )
         );
@@ -3232,9 +3114,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(c_expr),
-              String.from("Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'."),
-              false,
-              .None
+              String.from("Multiple 'requires(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'requires(P1, P2, ...)'.")
             )
           )
         );
@@ -3260,9 +3140,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(c_expr),
-              String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition."),
-              false,
-              .None
+              String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition.")
             )
           )
         );
@@ -3272,9 +3150,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(c_expr),
-              String.from("Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'."),
-              false,
-              .None
+              String.from("Multiple 'ensures(...)' clauses in the same signature are a syntax error. Combine the predicates into one call: 'ensures(Q1, Q2, ...)'.")
             )
           )
         );
@@ -3397,9 +3273,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(last_param),
-              String.from("The where clause must have at least one constraint."),
-              false,
-              .None
+              String.from("The where clause must have at least one constraint.")
             )
           )
         );
@@ -3423,9 +3297,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(param_expr),
-              `Expected type parameters to be the first argument, got ${(current_i + usize(1))}`,
-              false,
-              .None
+              `Expected type parameters to be the first argument, got ${(current_i + usize(1))}`
             )
           )
         );
@@ -3503,9 +3375,7 @@ evaluate_function_parameters :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(vlhs_arg),
-                      `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(vlhs_arg)}`,
-                      false,
-                      .None
+                      `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(vlhs_arg)}`
                     )
                   )
                 );
@@ -3522,9 +3392,7 @@ evaluate_function_parameters :: (
                 dyn(
                   format_error_message(
                     ast_expr_token(vtype_arg),
-                    `Expected type for variadic parameter, got ${ast_expr_to_string(vtype_arg)}`,
-                    false,
-                    .None
+                    `Expected type for variadic parameter, got ${ast_expr_to_string(vtype_arg)}`
                   )
                 )
               );
@@ -3559,9 +3427,7 @@ evaluate_function_parameters :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(varg),
-                      String.from("...(param_name) is not supported yet."),
-                      false,
-                      .None
+                      String.from("...(param_name) is not supported yet.")
                     )
                   )
                 );
@@ -3570,9 +3436,7 @@ evaluate_function_parameters :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(varg),
-                      `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(varg)}`,
-                      false,
-                      .None
+                      `Expected a valid variable name for variadic parameter, got ${ast_expr_to_string(varg)}`
                     )
                   )
                 );
@@ -3632,9 +3496,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               ast_expr_token(param_expr),
-              String.from("Expected variadic parameter to be the last parameter before the normal parameters."),
-              false,
-              .None
+              String.from("Expected variadic parameter to be the last parameter before the normal parameters.")
             )
           )
         );
@@ -3668,9 +3530,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               _dup_err_tok,
-              `Duplicate label "${param.label}" in function parameter`,
-              false,
-              .None
+              `Duplicate label "${param.label}" in function parameter`
             )
           )
         );
@@ -3700,9 +3560,7 @@ evaluate_function_parameters :: (
           dyn(
             format_error_message(
               _eli_tok,
-              String.from("Expected ExprList type to be the last parameter."),
-              false,
-              .None
+              String.from("Expected ExprList type to be the last parameter.")
             )
           )
         );
@@ -3761,9 +3619,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected -> for function type, got:\n${ast_expr_to_string(expr)}\n\nNote: For closures, use Impl(Fn(...) -> ...) syntax.`,
-          false,
-          .None
+          `Expected -> for function type, got:\n${ast_expr_to_string(expr)}\n\nNote: For closures, use Impl(Fn(...) -> ...) syntax.`
         )
       )
     );
@@ -3785,9 +3641,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_list_expr),
-          `Expected a "fn", "ctl", or "unsafe_fn" call for parameter list, got:\n${ast_expr_to_string(arg_list_expr)}`,
-          false,
-          .None
+          `Expected a "fn", "ctl", or "unsafe_fn" call for parameter list, got:\n${ast_expr_to_string(arg_list_expr)}`
         )
       )
     );
@@ -3827,9 +3681,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(rl_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
-            false,
-            .None
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.")
           )
         )
       );
@@ -3843,9 +3695,7 @@ evaluate_function_type :: (
           dyn(
             format_error_message(
               ast_expr_token(rl_expr),
-              `Expected one argument for "comptime", got ${ct_args.len()}`,
-              false,
-              .None
+              `Expected one argument for "comptime", got ${ct_args.len()}`
             )
           )
         );
@@ -3866,9 +3716,7 @@ evaluate_function_type :: (
           dyn(
             format_error_message(
               ast_expr_token(rl_expr),
-              `Expected one argument for "unquote", got ${uq_args.len()}`,
-              false,
-              .None
+              `Expected one argument for "unquote", got ${uq_args.len()}`
             )
           )
         );
@@ -3878,9 +3726,7 @@ evaluate_function_type :: (
           dyn(
             format_error_message(
               ast_expr_token(rl_expr),
-              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`,
-              false,
-              .None
+              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
             )
           )
         );
@@ -3894,9 +3740,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(rl_expr),
-            `To define a macro function, please use "unquote" for the return type, not "quote".`,
-            false,
-            .None
+            `To define a macro function, please use "unquote" for the return type, not "quote".`
           )
         )
       );
@@ -3911,9 +3755,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (inout(name) : T)' (or unlabeled '-> inout(T)'), not '-> (name : inout(T))'."),
-            false,
-            .None
+            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (inout(name) : T)' (or unlabeled '-> inout(T)'), not '-> (name : inout(T))'.")
           )
         )
       );
@@ -3923,9 +3765,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("In a labeled return slot, 'comptime' goes on the label, not the type. Use '-> (comptime(name) : T)' (or unlabeled '-> comptime(T)'), not '-> (name : comptime(T))'."),
-            false,
-            .None
+            String.from("In a labeled return slot, 'comptime' goes on the label, not the type. Use '-> (comptime(name) : T)' (or unlabeled '-> comptime(T)'), not '-> (name : comptime(T))'.")
           )
         )
       );
@@ -3935,9 +3775,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(rl_expr),
-            `Expected a valid variable name for return label, got ${ast_expr_to_string(rl_expr)}`,
-            false,
-            .None
+            `Expected a valid variable name for return label, got ${ast_expr_to_string(rl_expr)}`
           )
         )
       );
@@ -3953,9 +3791,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
-            false,
-            .None
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.")
           )
         )
       );
@@ -3968,9 +3804,7 @@ evaluate_function_type :: (
           dyn(
             format_error_message(
               ast_expr_token(return_type_expr),
-              `Expected one argument for "comptime", got ${ct_args2.len()}`,
-              false,
-              .None
+              `Expected one argument for "comptime", got ${ct_args2.len()}`
             )
           )
         );
@@ -3989,9 +3823,7 @@ evaluate_function_type :: (
           dyn(
             format_error_message(
               ast_expr_token(return_type_expr),
-              `Expected one argument for "unquote", got ${uq_args2.len()}`,
-              false,
-              .None
+              `Expected one argument for "unquote", got ${uq_args2.len()}`
             )
           )
         );
@@ -4001,9 +3833,7 @@ evaluate_function_type :: (
           dyn(
             format_error_message(
               ast_expr_token(return_type_expr),
-              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`,
-              false,
-              .None
+              `Cannot use "comptime" with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`
             )
           )
         );
@@ -4016,9 +3846,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            `To define a macro function, please use "unquote" for the return type, not "quote".`,
-            false,
-            .None
+            `To define a macro function, please use "unquote" for the return type, not "quote".`
           )
         )
       );
@@ -4032,9 +3860,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(return_type_expr),
-          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'."),
-          false,
-          .None
+          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.")
         )
       )
     );
@@ -4052,9 +3878,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            `Expected a type for function return type, got:\n${ast_expr_to_string(return_type_expr)}`,
-            false,
-            .None
+            `Expected a type for function return type, got:\n${ast_expr_to_string(return_type_expr)}`
           )
         )
       );
@@ -4070,9 +3894,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            `Expected a "comptime" for return type, like:\n\ncomptime(${ast_expr_to_string(return_type_expr)})\n\nGiven type:\n${type_to_string(return_type)}`,
-            false,
-            .None
+            `Expected a "comptime" for return type, like:\n\ncomptime(${ast_expr_to_string(return_type_expr)})\n\nGiven type:\n${type_to_string(return_type)}`
           )
         )
       );
@@ -4090,9 +3912,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(return_type_expr),
-          `Unexpected "comptime" for return type of ${type_to_string(return_type)} which can only be used at runtime.`,
-          false,
-          .None
+          `Unexpected "comptime" for return type of ${type_to_string(return_type)} which can only be used at runtime.`
         )
       )
     );
@@ -4114,9 +3934,7 @@ evaluate_function_type :: (
           dyn(
             format_error_message(
               ast_expr_token(match(param_exprs_for_error(arg_list, rci), .Some(e) => e, .None => make_err_expr())),
-              String.from("Expected all parameters to be compile time only given the return type is compile time only."),
-              false,
-              .None
+              String.from("Expected all parameters to be compile time only given the return type is compile time only.")
             )
           )
         );
@@ -4130,9 +3948,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(return_type_expr),
-          `Expected Expr type for "unquote" return type, got ${type_to_string(return_type)}`,
-          false,
-          .None
+          `Expected Expr type for "unquote" return type, got ${type_to_string(return_type)}`
         )
       )
     );
@@ -4295,9 +4111,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/MACRO_POLICY.md."),
-            false,
-            .None
+            String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/MACRO_POLICY.md.")
           )
         )
       );

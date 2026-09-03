@@ -403,11 +403,13 @@ _take_load_error :: (fn() -> Option(String))({
 });
 /// Evaluate a module's top-level exprs, catching any evaluator error locally so
 /// the caller can unregister the currently-loading entry before re-throwing.
-/// Success: pushes the module value to `out`. Failure: the handler PRINTS the
-/// error (handlers cannot capture outer runtime vars, and an unwound String
-/// loses its Rc storage) and unwinds — `out` stays empty, which is the caller's
-/// signal. The message is also stashed via `_stash_load_error` (a fn call —
-/// legal in handlers) so the loader can return it as `module_error`.
+/// Success: pushes the module value to `out`. Failure: the handler STASHES the
+/// rendered diagnostic (handlers cannot capture outer runtime vars, so a module
+/// global is the channel) and unwinds — `out` stays empty, which is the
+/// caller's signal. The owning CLI edge then prints it exactly once (the P1
+/// single-print rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2): `check` via
+/// `check_single_file`, watch rounds in `check_watch.yo`, `compile` by
+/// re-throwing the stash, the LSP by parsing it into diagnostics.
 _eval_module_exprs_capturing_error :: (
   fn(
     mod_exprs : ArrayList(AstExpr),
@@ -421,7 +423,6 @@ _eval_module_exprs_capturing_error :: (
     throw : (
       err -> {
         _stash_load_error(err.to_string());
-        eprintln(`check: error in: ${err.to_string()}`);
         unwind(false)
       }
     )
@@ -673,10 +674,12 @@ mm_load_file :: (
   // Local exception handler escapes the function body with a failed outcome.
   // Effect-handler bodies cannot capture outer runtime vars (per Yo's `->`
   // rule), so we can't name the file here — the caller logs that from `ok`.
+  // The rendered diagnostic is STASHED, not printed (the P1 single-print
+  // rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2): the owning edge prints.
   local_exn := Exception(
     throw : (
       err -> {
-        eprintln(`check: error in: ${err.to_string()}`);
+        _stash_load_error(err.to_string());
         unwind(_failed_outcome())
       }
     )
@@ -787,7 +790,17 @@ mm_preload_prelude :: (
   ) -> unit
 )({
   if(g_cached_prelude_env.is_none(), {
-    _pre := mm_load_file(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
+    pre_outcome := mm_load_file(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
+    // A prelude that fails to evaluate is the ROOT cause of everything that
+    // follows — print its diagnostic here, once, at this edge (the P1
+    // single-print rule; the loader's handlers only stash).
+    if(!pre_outcome.ok, {
+      match(
+        _take_load_error(),
+        .Some(rendered) => eprintln(rendered),
+        .None => eprintln(`check: error in: ${std_path}/prelude.yo`)
+      );
+    });
     // Build the O(1) prelude variable cache here rather than inside
     // `mm_load_file`, to avoid interference with the compile path.
     match(g_cached_prelude_env, .Some(pe) => build_prelude_var_cache(pe), .None => ());

@@ -130,9 +130,7 @@ process_unquotes_in_expr :: (
               dyn(
                 format_error_message(
                   tok,
-                  String.from("unquote: failed to evaluate argument"),
-                  false,
-                  .None
+                  String.from("unquote: failed to evaluate argument")
                 )
               )
             );
@@ -142,7 +140,7 @@ process_unquotes_in_expr :: (
         val := match(
           arg_info.value,
           .None => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: argument must have a compile-time value"), false, .None)));
+            exn.throw(dyn(format_error_message(tok, String.from("unquote: argument must have a compile-time value"))));
             EvalValue.ExprVal(make_err_expr())
           },
           .Some(v) => v
@@ -152,7 +150,7 @@ process_unquotes_in_expr :: (
           if(is_unknown_val(val), {
             return(expr);
           });
-          exn.throw(dyn(format_error_message(tok, String.from("unquote: expected Expr type"), false, .None)));
+          exn.throw(dyn(format_error_message(tok, String.from("unquote: expected Expr type"))));
         });
         if(is_unknown_val(val), {
           return(expr);
@@ -164,7 +162,7 @@ process_unquotes_in_expr :: (
           val,
           .ExprVal(eb) => clone_expr_fresh_ids(eb),
           _ => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"), false, .None)));
+            exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"))));
             make_err_expr()
           }
         );
@@ -219,9 +217,7 @@ process_unquotes_in_expr :: (
                             dyn(
                               format_error_message(
                                 ast_expr_token(arg),
-                                String.from("unquote_splicing: expected ComptimeList(Expr) type"),
-                                false,
-                                .None
+                                String.from("unquote_splicing: expected ComptimeList(Expr) type")
                               )
                             )
                           );

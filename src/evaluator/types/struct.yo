@@ -64,9 +64,7 @@ evaluate_struct_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -155,9 +153,7 @@ evaluate_struct_type :: (
         dyn(
           format_error_message(
             err_tok,
-            `Duplicate label "${field.label}" in struct`,
-            false,
-            .None
+            `Duplicate label "${field.label}" in struct`
           )
         )
       );
@@ -189,9 +185,7 @@ evaluate_struct_type :: (
         dyn(
           format_error_message(
             res_tok,
-            String.from("\"header\" is a reserved field name in a reference struct: the generated C layout already carries a `header` member (the reference-count header), so a field of that name would collide with it. Rename the field."),
-            false,
-            .None
+            String.from("\"header\" is a reserved field name in a reference struct: the generated C layout already carries a `header` member (the reference-count header), so a field of that name would collide with it. Rename the field.")
           )
         )
       );
@@ -234,9 +228,7 @@ evaluate_struct_type :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`,
-                false,
-                .None
+                `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`
               )
             )
           );
@@ -251,9 +243,7 @@ evaluate_struct_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Newtype struct must have exactly one field, but got ${fields.len()} fields.`,
-          false,
-          .None
+          `Newtype struct must have exactly one field, but got ${fields.len()} fields.`
         )
       )
     );
@@ -339,9 +329,7 @@ evaluate_struct_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Type ${type_to_string(struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`,
-          false,
-          .None
+          `Type ${type_to_string(struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
         )
       )
     );

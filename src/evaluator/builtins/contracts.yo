@@ -76,9 +76,7 @@ _evaluate_contract_marker :: (
           dyn(
             format_error_message(
               ast_expr_token(arg),
-              String.from("Failed to evaluate argument of contract clause."),
-              false,
-              .None
+              String.from("Failed to evaluate argument of contract clause.")
             )
           )
         );
@@ -103,7 +101,7 @@ _reject_zero_arg_marker :: (fn(expr : AstExpr, message : String, exn : Exception
     .Atom(_, _) => usize(0)
   );
   if(n == usize(0), {
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), message, false, .None)));
+    exn.throw(dyn(format_error_message(ast_expr_token(expr), message)));
   });
 });
 evaluate_requires :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
@@ -166,9 +164,7 @@ _evaluate_transparent_unary :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            String.from("Failed to evaluate argument of contract clause."),
-            false,
-            .None
+            String.from("Failed to evaluate argument of contract clause.")
           )
         )
       );
@@ -184,9 +180,7 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `'ghost_fn(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `'ghost_fn(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -201,9 +195,7 @@ evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `'old(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `'old(...)' takes exactly one argument, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );

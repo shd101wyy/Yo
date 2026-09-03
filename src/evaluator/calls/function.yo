@@ -993,9 +993,7 @@ _try_expand_call_overload :: (
         format_error_message(
           ast_expr_token(call_expr),
           `No matching call found with arguments:
-${ast_expr_to_string(call_expr)}`,
-          false,
-          .None
+${ast_expr_to_string(call_expr)}`
         )
       )
     );
@@ -1845,9 +1843,7 @@ _evaluate_funcval_runtime_call :: (
                       dyn(
                         format_error_message(
                           ast_expr_token(expr),
-                          _ac_mmsg,
-                          false,
-                          .None
+                          _ac_mmsg
                         )
                       )
                     );
@@ -2777,9 +2773,7 @@ evaluate_function_call :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `No matching call found for operator "${op_name}" with receiver type "${type_to_string(receiver_ty)}"`,
-            false,
-            .None
+            `No matching call found for operator "${op_name}" with receiver type "${type_to_string(receiver_ty)}"`
           )
         )
       );
@@ -3301,9 +3295,7 @@ C functions are outside Yo's type-checking reach — wrong argument types, contr
 
 Fix: wrap the call:
 
-  unsafe(${ast_expr_to_string(expr)})`,
-          false,
-          .None
+  unsafe(${ast_expr_to_string(expr)})`
         )
       )
     );
@@ -3326,9 +3318,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    `Expected 1 body argument for function definition, got ${args.len()}`,
-                    false,
-                    .None
+                    `Expected 1 body argument for function definition, got ${args.len()}`
                   )
                 )
               );
@@ -3353,9 +3343,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: closure creation failed"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: closure creation failed")
                     )
                   )
                 );
@@ -3415,9 +3403,7 @@ Fix: wrap the call:
                           dyn(
                             format_error_message(
                               tok,
-                              String.from("evaluate_function_call: SomeT closure creation failed"),
-                              false,
-                              .None
+                              String.from("evaluate_function_call: SomeT closure creation failed")
                             )
                           )
                         );
@@ -3430,9 +3416,7 @@ Fix: wrap the call:
                       dyn(
                         format_error_message(
                           tok,
-                          String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)"),
-                          false,
-                          .None
+                          String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)")
                         )
                       )
                     );
@@ -3462,9 +3446,7 @@ Fix: wrap the call:
                       dyn(
                         format_error_message(
                           tok,
-                          String.from("evaluate_function_call: DynT closure creation failed"),
-                          false,
-                          .None
+                          String.from("evaluate_function_call: DynT closure creation failed")
                         )
                       )
                     );
@@ -3477,9 +3459,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)")
                     )
                   )
                 );
@@ -3719,9 +3699,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: EnumT callee has no selected variant"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: EnumT callee has no selected variant")
                     )
                   )
                 );
@@ -3749,9 +3727,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    `evaluate_function_call: enum variant not found: ${variant_name}`,
-                    false,
-                    .None
+                    `evaluate_function_call: enum variant not found: ${variant_name}`
                   )
                 )
               );
@@ -3937,9 +3913,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: pointer cast expects 1 argument"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: pointer cast expects 1 argument")
                     )
                   )
                 );
@@ -3955,9 +3929,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: pointer type conversion failed"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: pointer type conversion failed")
                     )
                   )
                 );
@@ -3979,9 +3951,7 @@ Fix: wrap the call:
                     dyn(
                       format_error_message(
                         tok,
-                        String.from("evaluate_function_call: numeric cast expects 1 argument"),
-                        false,
-                        .None
+                        String.from("evaluate_function_call: numeric cast expects 1 argument")
                       )
                     )
                   );
@@ -3997,9 +3967,7 @@ Fix: wrap the call:
                     dyn(
                       format_error_message(
                         tok,
-                        String.from("evaluate_function_call: numeric type conversion failed"),
-                        false,
-                        .None
+                        String.from("evaluate_function_call: numeric type conversion failed")
                       )
                     )
                   );
@@ -4011,9 +3979,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)"),
-                    false,
-                    .None
+                    String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)")
                   )
                 )
               );
@@ -4064,9 +4030,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    `Partial application: expected ${pa_pt.len()} argument(s), got ${n_a}`,
-                    false,
-                    .None
+                    `Partial application: expected ${pa_pt.len()} argument(s), got ${n_a}`
                   )
                 )
               );
@@ -4375,7 +4339,7 @@ Fix: wrap the call:
           if(n_required_reg != n_p, {
             fv_count_msg = `Argument count mismatch: expected ${(n_required_reg + n_ev)}..${(n_p + n_ev)}, got ${n_a}`;
           });
-          exn.throw(dyn(format_error_message(tok, fv_count_msg, false, .None)));
+          exn.throw(dyn(format_error_message(tok, fv_count_msg)));
         });
         // Number of regular args actually supplied (the rest of `n_a` are
         // evidence args, which follow the regulars in `evaled_arg_infos`).
@@ -4511,9 +4475,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(cl_label_expr),
-                      `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`,
-                      false,
-                      .None
+                      `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`
                     )
                   )
                 );
@@ -4525,9 +4487,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(cl_label_expr),
-                      String.from("Named argument call is not allowed for this parameter (it has no label)."),
-                      false,
-                      .None
+                      String.from("Named argument call is not allowed for this parameter (it has no label).")
                     )
                   )
                 );
@@ -4537,9 +4497,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(cl_label_expr),
-                      `Named argument is not supported. Label is only used for readibility.\n    Expected label "${cl_param_label}" at the argument position, but got "${cl_label}".`,
-                      false,
-                      .None
+                      `Named argument is not supported. Label is only used for readibility.\n    Expected label "${cl_param_label}" at the argument position, but got "${cl_label}".`
                     )
                   )
                 );
@@ -4830,9 +4788,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(arg_expr),
-                      String.from("evaluate_function_call: arg not evaluated"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: arg not evaluated")
                     )
                   )
                 );
@@ -5349,9 +5305,7 @@ Fix: wrap the call:
                     ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr)),
                     `Incompatible type with expected type:
 - Expected: ${type_to_string(resolved_decl_pt)}
-- Actual  : ${type_to_string(etc_arg_ty)}`,
-                    false,
-                    .None
+- Actual  : ${type_to_string(etc_arg_ty)}`
                   )
                 )
               );
@@ -5718,9 +5672,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("Expected macro function to return an Expr value."),
-                      false,
-                      .None
+                      String.from("Expected macro function to return an Expr value.")
                     )
                   )
                 );
@@ -6760,9 +6712,7 @@ Fix: wrap the call:
                 format_error_message(
                   ast_expr_token(func_expr),
                   `No matching call found with arguments:
-${ast_expr_to_string(expr)}`,
-                  false,
-                  .None
+${ast_expr_to_string(expr)}`
                 )
               )
             );

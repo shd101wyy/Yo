@@ -9,6 +9,7 @@ open(import("std/error"));
 { ArrayList, array_list } :: import("std/collections/array_list");
 { TokenKind, Token, find_matching_bracket } :: import("./token.yo");
 { tokenize } :: import("./lexer.yo");
+{ YoError, format_error_message, format_raw_error } :: import("./error.yo");
 {
   AstExpr,
   ExprId,
@@ -40,48 +41,12 @@ FnArgsResult :: struct(
   args : ArrayList(AstExpr),
   index : usize
 );
-/// An error produced by the parser.
-ParseError :: ref(
-  struct(
-    message : String,
-    row : usize,
-    column : usize,
-    module_path : String,
-    source_line : String
-  )
-);
-impl(
-  ParseError,
-  ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      sb := StringBuilder.new();
-      sb.write_str("error: ");
-      sb.write_string(self.message);
-      sb.write_str("\n --> ");
-      sb.write_string(self.module_path);
-      sb.write_str(":");
-      sb.write_string(`${(self.row + usize(1))}`);
-      sb.write_str(":");
-      sb.write_string(`${self.column}`);
-      if(self.source_line.len() > usize(0), {
-        sb.write_str("\n  |\n");
-        sb.write_string(`${(self.row + usize(1))}`);
-        sb.write_str(" | ");
-        sb.write_string(self.source_line);
-        sb.write_str("\n  |");
-        (k : usize) = usize(0);
-        // pad column + 3 spaces (to align under first non-space char of source line)
-        while(k < self.column, {
-          sb.write_byte(u8(32));
-          k = (k + usize(1));
-        });
-        sb.write_byte(u8(94));
-      });
-      sb.to_string()
-    })
-  )
-);
-impl(ParseError, Error());
+/// Parse errors used to be a local `ParseError` struct rendered by its own
+/// `ToString` — the only rustc-shaped renderer in the tree while every other
+/// stage printed plain blocks. P1 of plans/ERROR_DIAGNOSTICS_OVERHAUL.md
+/// deleted it: `make_parse_error`/`make_parse_error_raw` now build the same
+/// structured `YoError` the evaluator and lexer throw, so one renderer (src/
+/// diagnostics.yo) and one CLI-edge prefix rule serve every stage.
 /// Extract the Nth source line (0-indexed) from the input string.
 /// Returns an empty string if the row is out of range.
 extract_source_line :: (fn(input : String, row : usize) -> String)({
@@ -92,25 +57,15 @@ extract_source_line :: (fn(input : String, row : usize) -> String)({
     .Some(line) => line
   )
 });
-/// Build a `ParseError` from a token, automatically extracting the source line.
-make_parse_error :: (fn(tok : Token, message : String) -> ParseError)(
-  ParseError(
-    message : message,
-    row : tok.row,
-    column : tok.column,
-    module_path : tok.module_path,
-    source_line : extract_source_line(tok.input, tok.row)
-  )
+/// Build a parse-error `YoError` from a token (message + full span + source
+/// line, rendered by the shared renderer).
+make_parse_error :: (fn(tok : Token, message : String) -> YoError)(
+  format_error_message(tok, message)
 );
-/// Build a `ParseError` without source context (for end-of-input or internal errors).
-make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseError)(
-  ParseError(
-    message : message,
-    row : usize(0),
-    column : usize(0),
-    module_path : module_path,
-    source_line : String.from("")
-  )
+/// Build a parse-error `YoError` without source context (end-of-input and
+/// internal errors): path-anchored, no snippet.
+make_parse_error_raw :: (fn(module_path : String, message : String) -> YoError)(
+  format_raw_error(module_path, message)
 );
 // Per-process monotonic counter for AstExpr ids. Each Parser instance
 // pulls from this so ids are unique across files in multi-file `check`
@@ -1729,6 +1684,6 @@ generate_exprs_from_code :: (
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
   parse(code.clone(), module_path, exn)
 });
-export(ParseResult, FnArgsResult, ParseError, Parser, parse);
+export(ParseResult, FnArgsResult, Parser, parse);
 export(extract_source_line, make_parse_error, make_parse_error_raw);
 export(generate_expr_from_code, generate_exprs_from_code);

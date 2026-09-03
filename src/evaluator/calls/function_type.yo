@@ -878,9 +878,7 @@ try_to_implement_function_by_function_type :: (
               tok,
               `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
 
-Result type: ${type_to_string(result_box)}`,
-              false,
-              .None
+Result type: ${type_to_string(result_box)}`
             )
           )
         );
@@ -896,9 +894,7 @@ Result type: ${type_to_string(result_box)}`,
           dyn(
             format_error_message(
               tok,
-              `Expected 1 argument for function body, got ${args.len()}`,
-              false,
-              .None
+              `Expected 1 argument for function body, got ${args.len()}`
             )
           )
         );
@@ -1340,7 +1336,7 @@ Result type: ${type_to_string(result_box)}`,
           if(flow_violation_pending(), {
             viol_msg := flow_violation_message();
             clear_flow_violation();
-            exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg, false, .None)));
+            exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg)));
           });
           // FATAL (TS parity, function-type.ts:499): this is the CONCRETE-fn
           // path — TS's evaluateBeginExpression here has NO catch, so a
@@ -1378,9 +1374,7 @@ Result type: ${type_to_string(result_box)}`,
               dyn(
                 format_error_message(
                   ast_expr_token(fb),
-                  String.from("Function body raised a compile-time error during definition-time evaluation."),
-                  false,
-                  .None
+                  String.from("Function body raised a compile-time error during definition-time evaluation.")
                 )
               )
             );
@@ -1406,9 +1400,7 @@ Result type: ${type_to_string(result_box)}`,
                 dyn(
                   format_error_message(
                     ast_expr_token(seb),
-                    `Function returning '${type_to_string(result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`,
-                    false,
-                    .None
+                    `Function returning '${type_to_string(result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`
                   )
                 )
               );
@@ -1558,7 +1550,7 @@ Result type: ${type_to_string(result_box)}`,
                 hard_swallow_diagnostic(_trial_swallow_message()),
                 .Some(fwd_msg) => {
                   _clear_trial_swallow();
-                  exn.throw(dyn(format_error_message(ast_expr_token(body_expr), fwd_msg, false, .None)));
+                  exn.throw(dyn(format_error_message(ast_expr_token(body_expr), fwd_msg)));
                 },
                 .None => ()
               );
@@ -1633,9 +1625,7 @@ Result type: ${type_to_string(result_box)}`,
                       dyn(
                         format_error_message(
                           tok,
-                          `Incompatible function return type for:\n- Expected: ${dg_exp_str}\n- Given  : ${dg_got_str}`,
-                          false,
-                          .None
+                          `Incompatible function return type for:\n- Expected: ${dg_exp_str}\n- Given  : ${dg_got_str}`
                         )
                       )
                     );
@@ -1655,9 +1645,7 @@ Result type: ${type_to_string(result_box)}`,
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("try_to_implement_function_by_function_type: expected Func type"),
-            false,
-            .None
+            String.from("try_to_implement_function_by_function_type: expected Func type")
           )
         )
       );

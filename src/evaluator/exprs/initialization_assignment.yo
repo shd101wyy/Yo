@@ -104,9 +104,7 @@ evaluate_initialization_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Expected \":=\" or \"::\" for initialization assignment."),
-          false,
-          .None
+          String.from("Expected \":=\" or \"::\" for initialization assignment.")
         )
       )
     );
@@ -136,9 +134,7 @@ evaluate_initialization_assignment :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("Unexpected runtime variable declaration in a compile-time only function body."),
-            false,
-            .None
+            String.from("Unexpected runtime variable declaration in a compile-time only function body.")
           )
         )
       );
@@ -166,9 +162,7 @@ evaluate_initialization_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs),
-          String.from("'inout(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive."),
-          false,
-          .None
+          String.from("'inout(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive.")
         )
       )
     );
@@ -184,9 +178,7 @@ evaluate_initialization_assignment :: (
         dyn(
           format_error_message(
             ast_expr_token(lhs),
-            `Expected exactly one argument for "given", got ${n_given_args.to_string()}`,
-            false,
-            .None
+            `Expected exactly one argument for "given", got ${n_given_args.to_string()}`
           )
         )
       );
@@ -206,9 +198,7 @@ evaluate_initialization_assignment :: (
         format_error_message(
           ast_expr_token(actual_lhs),
           `Unexpected use of ":" in type declaration with "${op_str}". Please consider using "=":
-(${ast_expr_to_string(actual_lhs)}) = ${ast_expr_to_string(rhs)}`,
-          false,
-          .None
+(${ast_expr_to_string(actual_lhs)}) = ${ast_expr_to_string(rhs)}`
         )
       )
     );
@@ -272,9 +262,7 @@ evaluate_initialization_assignment :: (
               ast_expr_token(rhs),
               `Cannot bind a value whose type is control-bound (transitively contains a \`ctl(...) -> ret\` function type) at module level. Module-level bindings outlive every call frame; invoking the contained control-function later would unwind to a dead frame.
 
-Bound type: ${type_to_string(rhs_info.ty)}`,
-              false,
-              .None
+Bound type: ${type_to_string(rhs_info.ty)}`
             )
           )
         );
@@ -327,9 +315,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
         dyn(
           format_error_message(
             ast_expr_token(actual_lhs),
-            `Invalid assignment to ${lhs_tok_val}, expected identifier or operator`,
-            false,
-            .None
+            `Invalid assignment to ${lhs_tok_val}, expected identifier or operator`
           )
         )
       );
@@ -343,9 +329,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
         dyn(
           format_error_message(
             res_tok,
-            `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/OPERATOR_SET_AND_PRECEDENCE.md).`,
-            false,
-            .None
+            `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/OPERATOR_SET_AND_PRECEDENCE.md).`
           )
         )
       );
@@ -381,9 +365,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
             dyn(
               format_error_message(
                 ast_expr_token(rhs),
-                `Failed to evaluate, got ${ast_expr_to_string(rhs)}`,
-                false,
-                .None
+                `Failed to evaluate, got ${ast_expr_to_string(rhs)}`
               )
             )
           );
@@ -424,9 +406,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
               ast_expr_token(actual_lhs),
               `Incompatible types:
 - Defined: ${pre_ty_str}
-- Given  : ${rhs_ty_str}`,
-              false,
-              .None
+- Given  : ${rhs_ty_str}`
             )
           )
         );
@@ -463,9 +443,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`,
 ${expr_str}
 
 Type:
-${lhs_type_str}`,
-            false,
-            .None
+${lhs_type_str}`
           )
         )
       );
@@ -478,9 +456,7 @@ ${lhs_type_str}`,
           format_error_message(
             ast_expr_token(expr),
             `Expected ":=" instead of "::" for value type "${lhs_type_str}" which can only be used at the runtime:
-${expr_str}`,
-            false,
-            .None
+${expr_str}`
           )
         )
       );
@@ -517,9 +493,7 @@ ${expr_str}`,
             ast_expr_token(actual_lhs),
             `Expected compile-time value for "${lhs_tok_val}".
 Got runtime value. Please consider using ":=" instead of "::":
-${rhs_str}`,
-            false,
-            .None
+${rhs_str}`
           )
         )
       );
@@ -638,9 +612,7 @@ ${rhs_str}`,
           format_error_message(
             actual_lhs_tok,
             `Mutable runtime variable "${var_name}" is not allowed inside an impl block.
-Use \`::\` for compile-time definitions inside impl.`,
-            false,
-            .None
+Use \`::\` for compile-time definitions inside impl.`
           )
         )
       );
@@ -685,7 +657,7 @@ Use \`::\` for compile-time definitions inside impl.`,
                 error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
               )
             );
-            exn.throw(dyn(format_error_messages(sh_entries, false, .None)));
+            exn.throw(dyn(format_error_messages(sh_entries)));
           },
           .None => ()
         );

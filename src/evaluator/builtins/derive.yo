@@ -189,7 +189,7 @@ call_registered_derive_rule :: (
     ctx_info.value,
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"), false, .None)));
+      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"))));
       EvalValue.UnitVal
     }
   );
@@ -239,7 +239,7 @@ call_registered_derive_rule :: (
     call_info.value,
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"), false, .None)));
+      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"))));
       EvalValue.UnitVal
     }
   );
@@ -247,7 +247,7 @@ call_registered_derive_rule :: (
     call_val,
     .ExprVal(e) => e,
     _ => {
-      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`, false, .None)));
+      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`)));
       make_err_expr()
     }
   );
@@ -294,9 +294,7 @@ process_trait_arg :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive: trait argument must be a trait name or trait constructor call"),
-            false,
-            .None
+            String.from("derive: trait argument must be a trait name or trait constructor call")
           )
         )
       );
@@ -313,9 +311,7 @@ process_trait_arg :: (
         dyn(
           format_error_message(
             tok,
-            `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`,
-            false,
-            .None
+            `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`
           )
         )
       );
@@ -373,9 +369,7 @@ evaluate_derive :: (
       dyn(
         format_error_message(
           tok,
-          String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...)."),
-          false,
-          .None
+          String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...).")
         )
       )
     );
@@ -461,9 +455,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive requires a target type"),
-            false,
-            .None
+            String.from("derive requires a target type")
           )
         )
       );
@@ -481,9 +473,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive: failed to evaluate target type"),
-            false,
-            .None
+            String.from("derive: failed to evaluate target type")
           )
         )
       );
@@ -501,9 +491,7 @@ evaluate_derive :: (
           dyn(
             format_error_message(
               tok,
-              String.from("derive: expected a type"),
-              false,
-              .None
+              String.from("derive: expected a type")
             )
           )
         );
@@ -515,9 +503,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive: expected a type"),
-            false,
-            .None
+            String.from("derive: expected a type")
           )
         )
       );
@@ -534,9 +520,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive only works on struct and enum types"),
-            false,
-            .None
+            String.from("derive only works on struct and enum types")
           )
         )
       );
@@ -565,9 +549,7 @@ evaluate_derive :: (
       dyn(
         format_error_message(
           tok,
-          String.from("derive requires at least one trait argument after the target type"),
-          false,
-          .None
+          String.from("derive requires at least one trait argument after the target type")
         )
       )
     );

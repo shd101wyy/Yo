@@ -531,9 +531,7 @@ _check_keyword_position :: (
       dyn(
         format_error_message(
           ast_expr_token(expr_to_eval),
-          `The "${keyword}" keyword can only be used as the last expression.`,
-          false,
-          .None
+          `The "${keyword}" keyword can only be used as the last expression.`
         )
       )
     );
@@ -1465,9 +1463,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr_to_eval),
-                String.from("The \"return\" keyword can only be used inside a function body or async block."),
-                false,
-                .None
+                String.from("The \"return\" keyword can only be used inside a function body or async block.")
               )
             )
           );
@@ -1528,9 +1524,7 @@ evaluate_begin_expression :: (
               dyn(
                 format_error_message(
                   ast_expr_token(ret_arg),
-                  String.from("Return expression is not evaluated correctly."),
-                  false,
-                  .None
+                  String.from("Return expression is not evaluated correctly.")
                 )
               )
             );
@@ -1575,9 +1569,7 @@ evaluate_begin_expression :: (
                           dyn(
                             format_error_message(
                               ast_expr_token(ret_arg),
-                              `'return(...)' from a function returning '${type_to_string(rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`,
-                              false,
-                              .None
+                              `'return(...)' from a function returning '${type_to_string(rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`
                             )
                           )
                         );
@@ -1646,7 +1638,7 @@ evaluate_begin_expression :: (
                             error_message : `Conflicting return has concrete type: ${type_to_string(ret_info.ty)}`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(ir_entries, false, .None)));
+                        exn.throw(dyn(format_error_messages(ir_entries)));
                       });
                     },
                     .None => ()
@@ -1684,9 +1676,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr_to_eval),
-                String.from("The \"break\" keyword can only be used inside a loop."),
-                false,
-                .None
+                String.from("The \"break\" keyword can only be used inside a loop.")
               )
             )
           );
@@ -1708,9 +1698,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr_to_eval),
-                String.from("The \"continue\" keyword can only be used inside a loop."),
-                false,
-                .None
+                String.from("The \"continue\" keyword can only be used inside a loop.")
               )
             )
           );
@@ -1732,9 +1720,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr_to_eval),
-                String.from("The \"unwind\" keyword can only be used inside a function that has an enclosing function."),
-                false,
-                .None
+                String.from("The \"unwind\" keyword can only be used inside a function that has an enclosing function.")
               )
             )
           );
@@ -1751,9 +1737,7 @@ evaluate_begin_expression :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr_to_eval),
-                String.from("The \"unwind\" keyword accepts at most one argument."),
-                false,
-                .None
+                String.from("The \"unwind\" keyword accepts at most one argument.")
               )
             )
           );
@@ -1778,9 +1762,7 @@ evaluate_begin_expression :: (
               dyn(
                 format_error_message(
                   ast_expr_token(expr_to_eval),
-                  `Incompatible type for \`escape\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(TypeValue.Unit)}`,
-                  false,
-                  .None
+                  `Incompatible type for \`escape\` argument:\n- Expected (enclosing function return type): ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(TypeValue.Unit)}`
                 )
               )
             );
@@ -1809,9 +1791,7 @@ evaluate_begin_expression :: (
               dyn(
                 format_error_message(
                   ast_expr_token(esc_arg),
-                  String.from("Unwind expression is not evaluated correctly."),
-                  false,
-                  .None
+                  String.from("Unwind expression is not evaluated correctly.")
                 )
               )
             );
@@ -1825,9 +1805,7 @@ evaluate_begin_expression :: (
               dyn(
                 format_error_message(
                   ast_expr_token(esc_arg),
-                  `Incompatible type for \`unwind\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`,
-                  false,
-                  .None
+                  `Incompatible type for \`unwind\` argument:\n- Expected: ${type_to_string(enclosing_ret)}\n- Got: ${type_to_string(esc_info.ty)}`
                 )
               )
             );
@@ -1936,9 +1914,7 @@ evaluate_begin_expression :: (
       dyn(
         format_error_message(
           ast_expr_token(last_expr),
-          `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(last_expr)}`,
-          false,
-          .None
+          `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(last_expr)}`
         )
       )
     );
@@ -1981,9 +1957,7 @@ evaluate_begin_expression :: (
                           dyn(
                             format_error_message(
                               ast_expr_token(last_expr),
-                              `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`,
-                              false,
-                              .None
+                              `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`
                             )
                           )
                         );
@@ -2009,9 +1983,7 @@ evaluate_begin_expression :: (
                       dyn(
                         format_error_message(
                           ast_expr_token(last_expr),
-                          `Return type mismatch. Expected type "${type_to_string(et.ty)}", but got "${type_to_string(return_type)}".`,
-                          false,
-                          .None
+                          `Return type mismatch. Expected type "${type_to_string(et.ty)}", but got "${type_to_string(return_type)}".`
                         )
                       )
                     );

@@ -130,9 +130,7 @@ throw_rhs_contains_control_flow_expression_error :: (
     dyn(
       format_error_message(
         ast_expr_token(rhs),
-        error_msg,
-        false,
-        .None
+        error_msg
       )
     )
   );
@@ -294,9 +292,7 @@ evaluate_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "=" for assignment.`,
-          false,
-          .None
+          `Expected "=" for assignment.`
         )
       )
     );
@@ -332,9 +328,7 @@ evaluate_assignment :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs),
-                `Cannot write to field of atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`,
-                false,
-                .None
+                `Cannot write to field of atomic object '${ast_expr_to_string(root_expr)}' (type ${type_to_string(atomic_obj_type)}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
               )
             )
           );
@@ -356,9 +350,7 @@ evaluate_assignment :: (
         dyn(
           format_error_message(
             ast_expr_token(lhs),
-            `Failed to evaluate left-hand side of assignment: ${ast_expr_to_string(lhs)}`,
-            false,
-            .None
+            `Failed to evaluate left-hand side of assignment: ${ast_expr_to_string(lhs)}`
           )
         )
       );
@@ -375,9 +367,7 @@ evaluate_assignment :: (
         dyn(
           format_error_message(
             ast_expr_token(rhs),
-            `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`,
-            false,
-            .None
+            `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`
           )
         )
       );
@@ -449,7 +439,7 @@ evaluate_assignment :: (
         // Flag so a def-time trial-eval swallow re-raises it via the real `exn`
         // (function_type.yo), mirroring the simple-variable assignment gate.
         flag_flow_violation(prop_viol_msg);
-        exn.throw(dyn(format_error_message(ast_expr_token(rhs), prop_viol_msg, false, .None)));
+        exn.throw(dyn(format_error_message(ast_expr_token(rhs), prop_viol_msg)));
       });
     });
     // Step 4 — Type compatibility check
@@ -483,9 +473,7 @@ evaluate_assignment :: (
         dyn(
           format_error_message(
             ast_expr_token(lhs),
-            `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}`,
-            false,
-            .None
+            `Incompatible types:\n- Expected: ${exp_str}\n- Given   : ${rhs_str}`
           )
         )
       );
@@ -791,9 +779,7 @@ evaluate_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs_resolved),
-          `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`,
-          false,
-          .None
+          `Cannot reassign "_". Use ":=" to discard a value, or use a named variable for reassignment.`
         )
       )
     );
@@ -805,9 +791,7 @@ evaluate_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs_resolved),
-          `Variable ${variable_name} not found in the environment`,
-          false,
-          .None
+          `Variable ${variable_name} not found in the environment`
         )
       )
     );
@@ -836,9 +820,7 @@ evaluate_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(lhs_resolved),
-          `Cannot reassign "${variable_name}".\nYou can mutate fields (e.g., ${variable_name}.field = value) but cannot reassign itself.`,
-          false,
-          .None
+          `Cannot reassign "${variable_name}".\nYou can mutate fields (e.g., ${variable_name}.field = value) but cannot reassign itself.`
         )
       )
     );
@@ -860,9 +842,7 @@ evaluate_assignment :: (
       dyn(
         format_error_message(
           ast_expr_token(rhs),
-          `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`,
-          false,
-          .None
+          `Failed to evaluate right-hand side of assignment: ${ast_expr_to_string(rhs)}`
         )
       )
     );
@@ -899,9 +879,7 @@ ${dgc_ty_str}
 Generic functions must be compile-time known to enable monomorphization. Consider using:
 comptime(${variable_name}) : ${dgc_ty_str}
 
-(Carve-out: a ctl handler whose body always unwinds is accepted automatically; the analysis did not see an all-paths-unwind body.)`,
-            false,
-            .None
+(Carve-out: a ctl handler whose body always unwinds is accepted automatically; the analysis did not see an all-paths-unwind body.)`
           )
         )
       );
@@ -936,7 +914,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       // Flag the violation so a def-time trial-eval swallow re-raises it via the
       // real `exn` (function_type.yo), mirroring the `inout(name) :=` binding-site.
       flag_flow_violation(viol_msg);
-      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg, false, .None)));
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), viol_msg)));
     });
   });
   // Check if the LHS variable was consumed by the RHS (e.g., via own parameter).
@@ -1008,9 +986,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       dyn(
         format_error_message(
           ast_expr_token(lhs_resolved),
-          `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}`,
-          false,
-          .None
+          `Incompatible types:\n- Expected: ${var_ty_str}\n- Given   : ${rhs_ty_str}`
         )
       )
     );
@@ -1062,7 +1038,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
               error_message : String.from("Defined here:")
             )
           );
-          exn.throw(dyn(format_error_messages(wl_entries, false, .None)));
+          exn.throw(dyn(format_error_messages(wl_entries)));
         });
       },
       .None => ()
@@ -1086,7 +1062,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
                 error_message : String.from("Defined here:")
               )
             );
-            exn.throw(dyn(format_error_messages(of_entries, false, .None)));
+            exn.throw(dyn(format_error_messages(of_entries)));
           });
         },
         _ => ()
@@ -1123,7 +1099,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
           error_message : String.from("First assigned here:")
         )
       );
-      exn.throw(dyn(format_error_messages(ra_entries, false, .None)));
+      exn.throw(dyn(format_error_messages(ra_entries)));
     });
   });
   // Record FIRST-INITIALIZATIONS into the per-branch init log — consumed by

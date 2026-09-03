@@ -47,7 +47,7 @@ open(import("std/string"));
 { type_to_string } :: import("../types/string.yo");
 { Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
-{ YoError, ErrorKind, format_error_message } :: import("../error.yo");
+{ YoError, format_error_message } :: import("../error.yo");
 {
   find_matching_generic_impl,
   find_matching_negative_generic_impl,
@@ -1244,7 +1244,7 @@ check_type_implements_self_constraints :: (
 )(
   match(
     check_self_constraints_violation_msg(target_type, trait_type, env),
-    .Some(msg) => exn.throw(dyn(format_error_message(error_token, msg, false, Option(ErrorKind).None))),
+    .Some(msg) => exn.throw(dyn(format_error_message(error_token, msg))),
     .None => ()
   )
 );
@@ -1838,7 +1838,7 @@ validate_type_availability :: (
   });
   if(!(type_implements_comptime(ty, env) || type_implements_runtime_full(ty, env)), {
     msg := `Type `.concat(type_to_string(ty)).concat(` has incompatible field contexts and cannot be used in any evaluation context.`);
-    exn.throw(dyn(format_error_message(token, msg, false, Option(ErrorKind).None)));
+    exn.throw(dyn(format_error_message(token, msg)));
   })
 });
 // ---------------------------------------------------------------------------

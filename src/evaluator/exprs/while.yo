@@ -226,7 +226,7 @@ _throw_max_iterations_error :: (
     true =>
       `Infinite compile-time while loop detected. The condition is compile-time \`true\` but the loop body has no \`break\`, \`return\`, or \`unwind\` to terminate it.\nIf you need an infinite runtime loop, use \`while true, { ... }\` without the comptime modifier.\nTo increase the limit, set the YO_MAX_COMPTIME_LOOP_ITERATIONS environment variable.`
   );
-  exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false, .None)));
+  exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg)));
   make_err_expr()
 });
 // ---------------------------------------------------------------------------
@@ -268,9 +268,7 @@ evaluate_while :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected 2 or 3 arguments for while loop, got ${n_args.to_string()}`,
-          false,
-          .None
+          `Expected 2 or 3 arguments for while loop, got ${n_args.to_string()}`
         )
       )
     );
@@ -294,7 +292,7 @@ evaluate_while :: (
         inv_viol.non_first_stmt => String.from("'invariant(...)' must be the first statement of a 'while(...)' loop body. Move this invariant to the top of the loop body, before any other statements."),
         true => String.from("'invariant(...)' must be the first statement of the enclosing 'while(...)' loop body. It cannot appear inside cond/match branches, nested blocks, or as a non-first statement.")
       );
-      exn.throw(dyn(format_error_message(ast_expr_token(inv_viol.node), inv_msg, false, .None)));
+      exn.throw(dyn(format_error_message(ast_expr_token(inv_viol.node), inv_msg)));
     },
     .None => ()
   );
@@ -328,9 +326,7 @@ evaluate_while :: (
       dyn(
         format_error_message(
           ast_expr_token(inner_cond_expr),
-          `Failed to evaluate the condition expression: ${ast_expr_to_string(inner_cond_expr)}`,
-          false,
-          .None
+          `Failed to evaluate the condition expression: ${ast_expr_to_string(inner_cond_expr)}`
         )
       )
     );
@@ -348,9 +344,7 @@ evaluate_while :: (
       dyn(
         format_error_message(
           ast_expr_token(inner_cond_expr),
-          `Expected bool type for condition expression, got: ${ast_expr_to_string(inner_cond_expr)}`,
-          false,
-          .None
+          `Expected bool type for condition expression, got: ${ast_expr_to_string(inner_cond_expr)}`
         )
       )
     );
@@ -371,9 +365,7 @@ evaluate_while :: (
       dyn(
         format_error_message(
           ast_expr_token(inner_cond_expr),
-          `"while comptime(...)" requires a compile-time known condition, but the condition evaluates to a runtime value.\nRemove the "comptime" modifier to use a runtime while loop: \`while cond, body\`.`,
-          false,
-          .None
+          `"while comptime(...)" requires a compile-time known condition, but the condition evaluates to a runtime value.\nRemove the "comptime" modifier to use a runtime while loop: \`while cond, body\`.`
         )
       )
     );
@@ -406,9 +398,7 @@ evaluate_while :: (
         dyn(
           format_error_message(
             ast_expr_token(inner_cond_expr),
-            `while loop condition is compile-time known but the \`comptime\` modifier is missing.\nThe condition depends on comptime-only variable(s) that cannot change inside a runtime loop, which will cause an infinite loop.\nUse \`while comptime(cond), body\` to unroll the loop at compile time.`,
-            false,
-            .None
+            `while loop condition is compile-time known but the \`comptime\` modifier is missing.\nThe condition depends on comptime-only variable(s) that cannot change inside a runtime loop, which will cause an infinite loop.\nUse \`while comptime(cond), body\` to unroll the loop at compile time.`
           )
         )
       );
@@ -460,9 +450,7 @@ evaluate_while :: (
       dyn(
         format_error_message(
           ast_expr_token(body_expr),
-          `Failed to evaluate the body expression: ${ast_expr_to_string(body_expr)}`,
-          false,
-          .None
+          `Failed to evaluate the body expression: ${ast_expr_to_string(body_expr)}`
         )
       )
     );
@@ -530,9 +518,7 @@ evaluate_while :: (
               dyn(
                 format_error_message(
                   ast_expr_token(step_expr_cont),
-                  `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_cont)}`,
-                  false,
-                  .None
+                  `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_cont)}`
                 )
               )
             );
@@ -623,9 +609,7 @@ evaluate_while :: (
       dyn(
         format_error_message(
           ast_expr_token(body_expr),
-          `Expected the while loop body to return unit, but got: ${type_to_string(body_info.ty)}`,
-          false,
-          .None
+          `Expected the while loop body to return unit, but got: ${type_to_string(body_info.ty)}`
         )
       )
     );
@@ -647,9 +631,7 @@ evaluate_while :: (
           dyn(
             format_error_message(
               ast_expr_token(step_expr_s),
-              `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_s)}`,
-              false,
-              .None
+              `Failed to evaluate the step expression: ${ast_expr_to_string(step_expr_s)}`
             )
           )
         );

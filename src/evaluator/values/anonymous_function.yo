@@ -560,9 +560,7 @@ Use a closure (=> syntax) instead, or refactor the handler to not reference oute
 If this is an effect handler (e.g. Exception.throw), the handler type only accepts -> functions:
 handlers are capture-free by design (docs/en-US/ALGEBRAIC_EFFECTS.md), so a handler body may use
 its own parameters and locals, comptime constants, and builtins (panic, unwind) — record the
-outcome after the guarded call instead (e.g. a result the handler unwinds past).`,
-            false,
-            .None
+outcome after the guarded call instead (e.g. a result the handler unwinds past).`
           )
         )
       );
@@ -598,9 +596,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             dyn(
                               format_error_message(
                                 ci.token,
-                                `Cannot capture inout binding '${k}' in a closure. \`inout(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`,
-                                false,
-                                .None
+                                `Cannot capture inout binding '${k}' in a closure. \`inout(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`
                               )
                             )
                           );
@@ -612,9 +608,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                                 ci.token,
                                 `Closures cannot capture a value of control-bound type. The captured value \`${k}\` has type \`${type_to_string(v.ty)}\` which transitively contains a \`ctl(...) -> ret\` function. Closures can escape their enclosing frame, taking the captured control function with them — which would unwind to a dead install frame.
 
-Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`,
-                                false,
-                                .None
+Pass \`${k}\` as a regular function parameter instead of capturing it in a closure.`
                               )
                             )
                           );
@@ -656,9 +650,7 @@ evaluate_anonymous_function_implementation :: (
       dyn(
         format_error_message(
           tok,
-          `Anonymous function: expected 2 args, got ${n_expr_args}`,
-          false,
-          .None
+          `Anonymous function: expected 2 args, got ${n_expr_args}`
         )
       )
     );
@@ -690,9 +682,7 @@ evaluate_anonymous_function_implementation :: (
         dyn(
           format_error_message(
             tok,
-            `Expected a function type, got:\n${ast_expr_to_string(expr)}`,
-            false,
-            .None
+            `Expected a function type, got:\n${ast_expr_to_string(expr)}`
           )
         )
       );
@@ -746,9 +736,7 @@ evaluate_anonymous_function_implementation :: (
         dyn(
           format_error_message(
             tok,
-            String.from("Anonymous function: expected a Func or Impl(Fn(...)) type"),
-            false,
-            .None
+            String.from("Anonymous function: expected a Func or Impl(Fn(...)) type")
           )
         )
       );
@@ -875,9 +863,7 @@ evaluate_anonymous_function_implementation :: (
       dyn(
         format_error_message(
           tok,
-          `Anonymous function: expected ${n_expected} regular parameters, got ${n_regular}`,
-          false,
-          .None
+          `Anonymous function: expected ${n_expected} regular parameters, got ${n_regular}`
         )
       )
     );
@@ -1468,9 +1454,7 @@ evaluate_anonymous_function_implementation :: (
             tok,
             `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
 
-Result type: ${type_to_string(decl_result_ty)}`,
-            false,
-            .None
+Result type: ${type_to_string(decl_result_ty)}`
           )
         )
       );
@@ -1545,7 +1529,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
         hard_swallow_diagnostic(_anon_swallow_message()),
         .Some(anon_fwd_msg) => {
           _clear_anon_swallow();
-          exn.throw(dyn(format_error_message(tok, anon_fwd_msg, false, .None)));
+          exn.throw(dyn(format_error_message(tok, anon_fwd_msg)));
         },
         .None => ()
       );
@@ -1556,7 +1540,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
     if(flow_violation_pending(), {
       anon_viol_msg := flow_violation_message();
       clear_flow_violation();
-      exn.throw(dyn(format_error_message(tok, anon_viol_msg, false, .None)));
+      exn.throw(dyn(format_error_message(tok, anon_viol_msg)));
     });
     // Channel 2: comptime_expect_error observation — when the body eval
     // THREW (empty `out`) and propagate mode is on, re-raise so the
@@ -1566,9 +1550,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
         dyn(
           format_error_message(
             tok,
-            String.from("Anonymous function body raised a compile-time error during definition-time evaluation."),
-            false,
-            .None
+            String.from("Anonymous function body raised a compile-time error during definition-time evaluation.")
           )
         )
       );
@@ -1589,9 +1571,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
             dyn(
               format_error_message(
                 tok,
-                String.from("`unwind` is only valid inside a control-function body. This function is declared with `fn(...) -> ret`; change the declared type to `ctl(...) -> ret` if the body needs to unwind."),
-                false,
-                .None
+                String.from("`unwind` is only valid inside a control-function body. This function is declared with `fn(...) -> ret`; change the declared type to `ctl(...) -> ret` if the body needs to unwind.")
               )
             )
           );
@@ -1844,7 +1824,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
           hard_swallow_diagnostic(_anon_swallow_message()),
           .Some(dgc_fwd_msg) => {
             _clear_anon_swallow();
-            exn.throw(dyn(format_error_message(tok, dgc_fwd_msg, false, .None)));
+            exn.throw(dyn(format_error_message(tok, dgc_fwd_msg)));
           },
           .None => ()
         );
@@ -1909,9 +1889,7 @@ Result type: ${type_to_string(decl_result_ty)}`,
                 dyn(
                   format_error_message(
                     tok,
-                    `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`,
-                    false,
-                    .None
+                    `Incompatible function return type for:\n- Expected: ${dgc_exp_str}\n- Given  : ${dgc_got_str}`
                   )
                 )
               );

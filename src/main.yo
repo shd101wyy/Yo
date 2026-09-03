@@ -69,8 +69,10 @@ _(env : proc_env) :: import("std/env");
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
   mm_load_file,
-  mm_preload_prelude
+  mm_preload_prelude,
+  _take_load_error
 } :: import("./module_manager.yo");
+{ YoError } :: import("./error.yo");
 { eval_context_new } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
@@ -616,9 +618,20 @@ check_single_file :: (
     io : Io,
     exn : Exception
   ) -> bool
-)(
-  mm_load_file(input_path, std_path, true, io, exn).ok
-);
+)({
+  outcome := mm_load_file(input_path, std_path, true, io, exn);
+  if(!(outcome.ok), {
+    // The loader's handlers only stash the rendered diagnostic (the P1
+    // single-print rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2) — check's
+    // own edge prints it here, exactly once, anchored at the failing file.
+    match(
+      _take_load_error(),
+      .Some(rendered) => eprintln(rendered),
+      .None => eprintln(`check: error in: ${input_path} (no diagnostic recorded)`)
+    );
+  });
+  outcome.ok
+});
 /// The argv entry following index `i` (the value of a `--flag value` pair), or
 /// "" if `i` is the last argument. Used by the `compile` flag parser.
 _arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
@@ -1769,7 +1782,15 @@ run_compile :: (
     entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
     outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, exn);
     if(!(outcome.ok), {
-      exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
+      // The eval failure's rendered diagnostic is in the loader's stash (its
+      // handlers no longer print — the P1 single-print rule). Rethrow it so
+      // the top-level handler prints it once, WITH the underlying text (the
+      // old wrapper dropped it, D2).
+      match(
+        _take_load_error(),
+        .Some(rendered) => exn.throw(dyn(rendered)),
+        .None => exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`))
+      );
       return(());
     });
     module_value := outcome.module_value;
@@ -4107,7 +4128,24 @@ main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
       (err) -> {
-        eprintln(`yo: error: ${err.to_string()}`);
+        // A structured YoError renders itself (severity header + --> anchor)
+        // — print it bare. Anything else keeps the yo: error: wrapper,
+        // unless it is a rendered diagnostic rethrown as a string (compile's
+        // eval-failure rethrow) — no doubled prefixes (P1, D4).
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            eprintln(ye.to_string());
+          },
+          .None => {
+            text := err.to_string();
+            if(text.starts_with(String.from("error: ")), {
+              eprintln(text);
+            }, {
+              eprintln(`yo: error: ${text}`);
+            });
+          }
+        );
         unsafe(exit(int(1)));
         unwind();
       }
