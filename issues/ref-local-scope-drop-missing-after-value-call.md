@@ -1,19 +1,24 @@
 # A ref-typed named local passed by value to a call misses its scope-end drop — the whole RC group leaks
 
-**Status: OPEN — first fix attempt REVERTED 2026-09-04** (verified
+**Status: FIXED 2026-09-04** (PR #401 — `codegen: fix the Stage-0
+projection-dup leak`). Root cause, fully characterized: the balancing
+`___drop` for Aliasing-Stage-0's caller-side `___dup` attaches to the CALL
+node, but a call that is the BARE TAIL of a function/method body never got
+its designed second-chance flush — `generate_implicit_return_statement`
+flushed only param-targeted drops, and the flush-first had gate-skipped the
+arg-temp drop as not-yet-declared by design. Trait-impl method tails
+(`YoError.to_string` → `render_diagnostics_human(self.diagnostics)`) leaked
+the entire +1 group per call. Fix: (1) `generate_deferred_drop_expressions`
+is idempotent at the drop level — an emitted drop leaves the node's list
+(node-list membership was already the architecture's "not yet emitted"
+signal via `generate_pending_deferred_drops`' already-set); (2) the
+implicit-return tail now flushes the tail node's drops unfiltered before
+`return`. Local probe re-runs were blocked by this session environment's
+~600 s SIGTERM on long builds; CI's stage-1 build + internal shards +
+fixpoint battery are the validator. Originally filed as:
+(surfaced 2026-09-03 by the P2 error-diagnostics work; verified
 **pre-existing** — reproduces identically on the P1 commit's code and on a
-stage-1 built from pristine `origin/develop`). The root-cause diagnosis
-(below) stands; the fix — idempotent drop flush + an unfiltered bare-tail
-flush — broke the stage-2 self-compile with `use of undeclared identifier
-'_file____home_temp_NNNN'` at drop sites: the flush system carries latent
-never-declared temps whose names ARE registered in `declared_c_var_names`
-(registration and C-text declaration diverge), so the `undeclared_temp`
-gate cannot catch them once a new flush point exposes the list; and
-removal-on-emit is unsafe while any emitter legitimately re-flushes one
-node across ALTERNATIVE branch paths. A second attempt must gate the tail
-flush on the `declared_scopes` liveness signal (real C-text declaration)
-and keep branch-local re-emission intact. The revert commit on PR #400
-carries the analysis.
+stage-1 built from pristine `origin/develop`).
 
 ## Reproducer
 

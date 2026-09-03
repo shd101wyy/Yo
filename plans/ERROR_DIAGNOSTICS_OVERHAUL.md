@@ -29,11 +29,17 @@
 > there); --error-format threaded to the test/build children;
 > --json-summary honored.
 >
-> **P3 REMAINING** (follow-up slice): import-chain collapse (D16), the LSP
-> typed channel (P4_LSP's remaining item), and the pre-existing ref-local
-> scope-drop leak (issues/ref-local-scope-drop-missing-after-value-call.md —
-> filed with repros and the emitted-C mechanism; fixing it unblocks the
-> LeakSanitizer-red internal suites).
+> **P3r LANDED 2026-09-04** (PR #401): import-chain collapse (D16 — the
+> leaf group once + one anchored note, via the new typed diagnostics
+> stash); the LSP typed channel (structured diagnostics first, text parsing
+> demoted to the string-throw fallback — P4_LSP's remaining quality item
+> closed).
+>
+> **P3r-1 (the ref-local scope-drop leak) remains OPEN**: the first fix
+> (idempotent drop flush + bare-tail second chance) was REVERTED — stage-2
+> exposed latent never-declared temps the flush gates cannot catch; see
+> issues/ref-local-scope-drop-missing-after-value-call.md for the full
+> evidence and the requirements on a second attempt.
 >
 > **P1 LANDED 2026-09-03** (PR #399, merged): structured `Diagnostic` + shared
 > renderer in `src/diagnostics.yo`; `YoError` rebased, dead `ErrorKind`/

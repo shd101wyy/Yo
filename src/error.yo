@@ -331,6 +331,31 @@ render_any_error :: (fn(err : AnyError) -> String)(
     .None => err.to_string()
   )
 );
+/// The typed diagnostics channel (P3): the last thrown YoError's structured
+/// group. Every stash-and-print edge (module loading, the LSP, import-site
+/// collapse) reads STRUCTURED data from here instead of parsing rendered
+/// text — one stash next to the text stash, populated at the same points.
+(g_last_error_diagnostics : Option(ArrayList(Diagnostic))) = Option(
+  ArrayList(Diagnostic)
+).None;
+stash_error_diagnostics :: (fn(err : AnyError) -> unit)({
+  match(
+    downcast(err, YoError),
+    .Some(ye) => {
+      g_last_error_diagnostics = Option(ArrayList(Diagnostic)).Some(ye.diagnostics);
+    },
+    .None => ()
+  );
+});
+take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
+  taken := g_last_error_diagnostics;
+  g_last_error_diagnostics = Option(ArrayList(Diagnostic)).None;
+  taken
+});
+/// A Note-severity diagnostic anchored at a token (the import-chain note).
+note_diagnostic_of_token :: (fn(token : Token, message : String) -> Diagnostic)(
+  _diagnostic_of_token(token, Severity.Note, message)
+);
 /// Get the source line at the token's position with a caret indicator
 /// (the legacy pre-P1 block, still used by the warnings path).
 get_line_at_token :: (fn(token : Token) -> String)({
@@ -405,5 +430,8 @@ export(
   format_lexer_error,
   format_raw_error,
   format_warning_messages,
-  render_any_error
+  render_any_error,
+  stash_error_diagnostics,
+  take_error_diagnostics,
+  note_diagnostic_of_token
 );
