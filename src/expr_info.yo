@@ -874,10 +874,27 @@ is_extern_c_global :: (fn(name : String) -> bool)(
 /// and absolutize relative paths against the CWD (`Path.new` collapses
 /// `.`/`..` segments on construction).
 _mg_canon :: (fn(module_path : String) -> String)({
-  (p : String) = module_path.replace(String.from("file://"), String.from(""));
+  // Normalize separators and the two absolute spellings so record/lookup
+  // agree on every platform. Windows mixed forms measured diverging
+  // (2026-09-03, PR #396's windows legs): `file:///C:/a/b` strips to
+  // `/C:/a/b` while the CLI spelling `./x` prepends a backslashed cwd
+  // (`C:\a\b/x`) — the module-global registry (the capture exclusion and
+  // the C-name mangling both key on this) then missed on windows only.
+  (p : String) = module_path.replace(String.from("\\"), String.from("/")).replace(String.from("file://"), String.from(""));
   if(!p.starts_with(String.from("/")), {
-    base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
-    p = `${base}/${p}`;
+    // A drive-letter absolute (C:/...) skips the cwd-prepend and joins the
+    // file:// spelling's shape below; a relative path takes the prepend.
+    has_drive := ((p.len() > usize(2)) && (p.substring(usize(1), usize(2)) == String.from(":")));
+    if(!has_drive, {
+      base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+      // cwd() is backslashed on Windows — normalize to match the file://
+      // spelling's separators.
+      base = base.replace(String.from("\\"), String.from("/"));
+      p = `${base}/${p}`;
+    });
+  });
+  if((!p.starts_with(String.from("/")) && (p.len() > usize(2))) && (p.substring(usize(1), usize(2)) == String.from(":")), {
+    p = `/${p}`;
   });
   // Collapse `/./` segments (the CLI-arg spelling `./tests/x.yo` after the
   // CWD prepend). `..` is not collapsed: the two spellings of one module
