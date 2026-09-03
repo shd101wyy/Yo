@@ -23,10 +23,11 @@ open(import("std/string"));
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, LoadModuleResult } :: import("../context.yo");
+{ Diagnostic } :: import("../../diagnostics.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ format_error_message } :: import("../../error.yo");
+{ YoError, format_error_message, take_error_diagnostics, note_diagnostic_of_token } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { Path } :: import("std/path");
 { cwd } :: import("std/env");
@@ -420,18 +421,44 @@ evaluate_import :: (
       module_error : .None
     )
   );
-  // Check for a load error.
+  // Check for a load error (P3 D16, plans/ERROR_DIAGNOSTICS_OVERHAUL.md):
+  // report the LEAF diagnostic group once, plus ONE note anchored at the
+  // import — no nested-render cascade. The leaf's structured group is in the
+  // typed stash (module loading stashes text + diagnostics together); the
+  // text-wrapping fallback only fires for non-structured load errors.
   match(
     load_result.module_error,
     .Some(err_msg) => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(module_arg),
-            `Failed to import module "${module_path_to_import}":\n${err_msg}`
-          )
+      leaf := take_error_diagnostics();
+      group := match(
+        leaf,
+        .Some(ds) => {
+          entries := ArrayList(Diagnostic).new();
+          (ci : usize) = usize(0);
+          while(ci < ds.len(), {
+            match(
+              ds.get(ci),
+              .Some(d) => {
+                ___ := entries.push(d);
+              },
+              .None => ()
+            );
+            ci = (ci + usize(1));
+          });
+          ___ := entries.push(
+            note_diagnostic_of_token(
+              ast_expr_token(module_arg),
+              `while importing this module (import chain collapsed — the error above is from the imported file)`
+            )
+          );
+          YoError(diagnostics : entries)
+        },
+        .None => format_error_message(
+          ast_expr_token(module_arg),
+          `Failed to import module "${module_path_to_import}":\n${err_msg}`
         )
       );
+      exn.throw(dyn(group));
     },
     .None => ()
   );
