@@ -2410,6 +2410,7 @@ run_test :: (
   (no_sanitize : bool) = false;
   (test_cc : String) = String.from("");
   (test_target : String) = String.from("");
+  (json_summary : bool) = false;
   (batch_size : usize) = TEST_BATCH_SIZE;
   // `--exclude <path>` (repeatable), same semantics as `check --exclude`.
   excludes := ArrayList(String).new();
@@ -2467,7 +2468,11 @@ run_test :: (
       // Consumed for CLI compatibility; the sequential in-process runner has
       // no use for them yet — accepted divergence, tracked in
       // plans/P1_CLI_PARITY.md §6.
-      ((a == "--keep-generated-files") || (a == "-k") || (a == "--json-summary") || (a == "--profile")) => {
+      (a == "--json-summary") => {
+        json_summary = true;
+        ai = (ai + usize(1));
+      },
+      ((a == "--keep-generated-files") || (a == "-k") || (a == "--profile")) => {
         ai = (ai + usize(1));
       },
       a.starts_with(String.from("-")) => {
@@ -2780,6 +2785,12 @@ run_test :: (
           ccmd.arg(String.from("--target"));
           ccmd.arg(test_target.clone());
         });
+        // Forward the error format so a batch-compile failure renders per
+        // --error-format (P3 threading).
+        if(!(error_format() == "human"), {
+          ccmd.arg(String.from("--error-format"));
+          ccmd.arg(error_format());
+        });
         // `--std-path` is a GLOBAL flag: main strips it from argv before
         // subcommand dispatch and stashes it with the module manager, so the
         // RUNNER honours it — but the child `compile` is spawned with a fresh
@@ -3044,6 +3055,13 @@ run_test :: (
     println(`${failed.to_string()} failed`);
   });
   println(`${(passed + failed).to_string()} total`);
+  // --json-summary (P3): the same footer as one machine-readable line —
+  // previously accepted-and-ignored.
+  if(json_summary, {
+    println(
+      `{"passed":${passed.to_string()},"failed":${failed.to_string()},"total":${(passed + failed).to_string()}}`
+    );
+  });
   if(failed > usize(0), {
     // Route the nonzero exit through the top-level throw handler (its
     // `unsafe(exit(int(1)))` runs in the ctl-handler context, which exits

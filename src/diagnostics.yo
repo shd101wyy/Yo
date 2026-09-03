@@ -101,12 +101,15 @@ Label :: struct(
 );
 /// One diagnostic entry. `source_line` is the source text at `span.row`,
 /// extracted once at construction — the renderer never re-reads files.
+/// `help` (P3) carries an in-band repair hint ("did you mean …"); it
+/// defaults to none so P1-era construction sites stay unchanged.
 Diagnostic :: struct(
   code : Option(String),
   severity : Severity,
   message : String,
   span : Span,
-  source_line : String
+  source_line : String,
+  (help : Option(String)) ?= Option(String).None
 );
 _max_usize :: (fn(a : usize, b : usize) -> usize)(
   cond(
@@ -114,6 +117,77 @@ _max_usize :: (fn(a : usize, b : usize) -> usize)(
     true => b
   )
 );
+_min_usize :: (fn(a : usize, b : usize) -> usize)(
+  cond((a < b) => a, true => b)
+);
+/// Levenshtein distance between two strings (byte-wise — identifier
+/// suggestions are ASCII in practice, and the registry's codes are).
+edit_distance :: (fn(a : String, b : String) -> usize)({
+  m := a.len();
+  n := b.len();
+  if(m == usize(0), {
+    return(n);
+  });
+  if(n == usize(0), {
+    return(m);
+  });
+  prev := ArrayList(usize).new();
+  cur := ArrayList(usize).new();
+  (j : usize) = usize(0);
+  while(j <= n, {
+    _p := prev.push(j);
+    _c := cur.push(usize(0));
+    j = (j + usize(1));
+  });
+  i := usize(1);
+  while(i <= m, {
+    cur(usize(0)) = i;
+    j2 := usize(1);
+    while(j2 <= n, {
+      ac := a.byte_at(i - usize(1));
+      bc := b.byte_at(j2 - usize(1));
+      cost := cond((ac == bc) => usize(0), true => usize(1));
+      cand := _min_usize(
+        prev(j2) + usize(1),
+        _min_usize(cur(j2 - usize(1)) + usize(1), prev(j2 - usize(1)) + cost)
+      );
+      cur(j2) = cand;
+      j2 = (j2 + usize(1));
+    });
+    k := usize(0);
+    while(k <= n, {
+      prev(k) = cur(k);
+      k = (k + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  prev(n)
+});
+/// The closest candidate within distance 3 — the did-you-mean engine for
+/// unresolved names (P3) and unknown codes. First-listed wins ties.
+suggest_name :: (fn(target : String, candidates : ArrayList(String)) -> Option(String))({
+  best := Option(String).None;
+  (best_d : usize) = usize(4);
+  (i : usize) = usize(0);
+  while(i < candidates.len(), {
+    match(
+      candidates.get(i),
+      .Some(c) => {
+        if(c == target, {
+          return(Option(String).None);
+        });
+        d := edit_distance(target, c);
+        if(d < best_d, {
+          best_d = d;
+          best = Option(String).Some(c);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  best
+});
 _severity_prefix :: (fn(sev : Severity) -> String)(
   match(
     sev,
@@ -187,6 +261,14 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
       carets := String.from("^").repeat(underline_len);
       out.push(`${indent}| ${col_spaces}${carets}`);
     });
+  });
+  if(d.help.is_some(), {
+    h := match(
+      d.help,
+      .Some(hh) => hh,
+      .None => String.new()
+    );
+    out.push(`help: ${h}`);
   });
   if(d.code.is_some(), {
     c := match(
@@ -306,7 +388,13 @@ render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
         keys.push(String.from("notes"));
         vals.push(JsonValue.Array(items : ArrayList(JsonValue).new()));
         keys.push(String.from("help"));
-        vals.push(JsonValue.Null);
+        vals.push(
+          match(
+            d.help,
+            .Some(h) => JsonValue.Str(value : h),
+            .None => JsonValue.Null
+          )
+        );
         keys.push(String.from("rendered"));
         vals.push(JsonValue.Str(value : render_diagnostics_human(single)));
         out.push(json_stringify(JsonValue.Object(keys : keys, values : vals)));
@@ -329,6 +417,7 @@ render_diagnostics_for_mode :: (fn(diagnostics : ArrayList(Diagnostic)) -> Strin
 export(Severity, Span, Label, Diagnostic);
 export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);
 export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
+export(edit_distance, suggest_name);
 export(E_UNEXPECTED_TOKEN, E_EXPECTED_TOKEN, E_ADJACENT_OPERATORS, E_UNTERMINATED);
 export(E_UNEXPECTED_CHARACTER, E_UNKNOWN_OPERATOR, E_STRUCT_LITERAL_VS_BLOCK, E_CALL_SYNTAX);
 export(E_VARIABLE_NOT_FOUND, E_ENUM_VARIANT_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_NOT_DEFINED);

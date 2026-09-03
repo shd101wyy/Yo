@@ -37,14 +37,16 @@ open(import("std/fmt"));
   format_lexer_error,
   format_raw_error,
   format_warning_messages,
-  _classify_message
+  _classify_message,
+  format_error_message_with_help
 } :: import("../../src/error.yo");
 {
   Severity,
   Span,
   Diagnostic,
   render_diagnostics_human,
-  render_diagnostics_short
+  render_diagnostics_short,
+  suggest_name
 } :: import("../../src/diagnostics.yo");
 // Build a dummy token for testing.
 make_token :: (fn(module_path : String, input : String, row : usize, column : usize, value : String) -> Token)(
@@ -221,5 +223,33 @@ test("coded diagnostics render the explain tail (P2)", {
   assert(
     s.contains(`help: run \`yo explain E0401\` for more information`),
     `explain tail, got:\n${s}`
+  );
+});
+// ─── P3: the help channel + did-you-mean ─────────────────────────────────────
+test("suggest_name finds near identifiers and rejects far ones", {
+  cands := ArrayList(String).new();
+  cands.push(String.from("compute"));
+  cands.push(String.from("count"));
+  cands.push(String.from("total"));
+  match(
+    suggest_name(String.from("computee"), cands),
+    .Some(h) => assert(h == "compute", `computee → compute, got ${h}`),
+    .None => assert(false, "near identifier must suggest")
+  );
+  assert(suggest_name(String.from("zzzzzzz"), cands).is_none(), "far identifier suggests nothing");
+});
+test("format_error_message_with_help renders the hint block", {
+  tok := make_token(`t.yo`, `compute(x);`, usize(0), usize(0), `compute`);
+  err := format_error_message_with_help(
+    tok,
+    `Variable "computee" not found.`,
+    Option(String).Some(`did you mean "compute"?`)
+  );
+  s := err.to_string();
+  assert(s.starts_with(`error[E0401]: Variable "computee" not found.`), `coded header, got:\n${s}`);
+  assert(s.contains(`help: did you mean "compute"?`), `hint line, got:\n${s}`);
+  assert(
+    s.contains(`help: run \`yo explain E0401\` for more information`),
+    `explain tail still present, got:\n${s}`
   );
 });

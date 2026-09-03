@@ -23,7 +23,7 @@ _(env : ident_dbg_env) :: import("std/env");
   expr_info_set_origin_type
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
-{ Environment, Variable, get_variables_from_env, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
 { EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved }
 :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -33,7 +33,8 @@ _(env : ident_dbg_env) :: import("std/env");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
+{ suggest_name } :: import("../../diagnostics.yo");
 { Exception } :: import("std/error");
 /// Evaluate an identifier or operator expression.
 ///
@@ -206,9 +207,14 @@ evaluate_identifier_and_operator :: (
       });
       exn.throw(
         dyn(
-          format_error_message(
+          format_error_message_with_help(
             token,
-            `Variable "${identifier_string}" not found.`
+            `Variable "${identifier_string}" not found.`,
+            match(
+              suggest_name(identifier_string, env_candidate_names(env)),
+              .Some(h) => Option(String).Some(`did you mean "${h}"?`),
+              .None => Option(String).None
+            )
           )
         )
       );

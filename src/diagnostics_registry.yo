@@ -40,7 +40,8 @@ open(import("std/fmt"));
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_COMPTIME_ARGUMENT,
-  E_COMPTIME_OVERFLOW
+  E_COMPTIME_OVERFLOW,
+  suggest_name
 } :: import("./diagnostics.yo");
 /// One registry entry: a code, its bilingual prose, and one bad→good
 /// example pair (snippets are language-neutral; the `why` is bilingual).
@@ -503,73 +504,8 @@ all_registry_codes :: (fn() -> ArrayList(String))({
   });
   out
 });
-/// Levenshtein distance (small, registry-local; P3 generalizes suggestions).
-_min_usize :: (fn(a : usize, b : usize) -> usize)(
-  cond((a < b) => a, true => b)
-);
-_edit_distance :: (fn(a : String, b : String) -> usize)({
-  m := a.len();
-  n := b.len();
-  if(m == usize(0), {
-    return(n);
-  });
-  if(n == usize(0), {
-    return(m);
-  });
-  prev := ArrayList(usize).new();
-  cur := ArrayList(usize).new();
-  (j : usize) = usize(0);
-  while(j <= n, {
-    prev.push(j);
-    cur.push(usize(0));
-    j = (j + usize(1));
-  });
-  i := usize(1);
-  while(i <= m, {
-    cur(usize(0)) = i;
-    j2 := usize(1);
-    while(j2 <= n, {
-      ac := a.byte_at(i - usize(1));
-      bc := b.byte_at(j2 - usize(1));
-      cost := cond((ac == bc) => usize(0), true => usize(1));
-      cand := _min_usize(
-        prev(j2) + usize(1),
-        _min_usize(cur(j2 - usize(1)) + usize(1), prev(j2 - usize(1)) + cost)
-      );
-      cur(j2) = cand;
-      j2 = (j2 + usize(1));
-    });
-    k := usize(0);
-    while(k <= n, {
-      prev(k) = cur(k);
-      k = (k + usize(1));
-    });
-    i = (i + usize(1));
-  });
-  prev(n)
-});
 /// The closest registered code within distance 3, for did-you-mean.
-suggest_code :: (fn(code : String) -> Option(String))({
-  entries := registry_entries();
-  best := Option(String).None;
-  (best_d : usize) = usize(4);
-  (i : usize) = usize(0);
-  while(i < entries.len(), {
-    match(
-      entries.get(i),
-      .Some(e) => {
-        d := _edit_distance(code, e.code);
-        if(d < best_d, {
-          best_d = d;
-          best = Option(String).Some(e.code);
-        });
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  best
-});
+suggest_code :: (fn(code : String) -> Option(String))(suggest_name(code, all_registry_codes()));
 /// One registry entry as JSON (for `yo explain --format json`): both
 /// languages always included.
 explain_to_json :: (fn(e : Explain) -> String)({
