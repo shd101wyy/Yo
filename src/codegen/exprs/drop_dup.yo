@@ -842,6 +842,16 @@ generate_deferred_drop_expressions :: (
       .Some(drops) => {
         em := context.base.emitter;
         n := drops.len();
+        // Drops EMITTED below leave the list (P3r idempotent flush,
+        // issues/ref-local-scope-drop-missing-after-value-call.md): node-list
+        // membership is the architecture's "not yet emitted" signal —
+        // generate_pending_deferred_drops skips any pending drop whose target
+        // is still listed (`already`), so removing an emitted drop both
+        // prevents double-emission and lets a LATER flush (the bare-tail
+        // implicit-return second chance) pick up exactly the drops earlier
+        // passes gate-skipped (not-yet-declared arg temps). Drops skipped by
+        // a gate here STAY pending for that later chance.
+        emitted := ArrayList(usize).new();
         (i : usize) = usize(0);
         while(i < n, {
           match(
@@ -885,6 +895,7 @@ generate_deferred_drop_expressions :: (
                     line.push_string(code);
                     line.push_str(";");
                     em.emit_string_line(line);
+                    _e := emitted.push(i);
                   });
                 });
               });
@@ -892,6 +903,19 @@ generate_deferred_drop_expressions :: (
             .None => ()
           );
           i = (i + usize(1));
+        });
+        // Remove the emitted drops (descending index so earlier positions stay
+        // valid). The list is the LIVE ExprInfo entry's ArrayList.
+        (ri : usize) = emitted.len();
+        while(ri > usize(0), {
+          ri = (ri - usize(1));
+          match(
+            emitted.get(ri),
+            .Some(idx) => {
+              _rm := drops.remove(idx);
+            },
+            .None => ()
+          );
         });
       },
       .None => ()

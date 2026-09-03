@@ -1079,9 +1079,20 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
       // ("non-void function should return a value", the install_command
       // batch). Emit nothing: control cannot reach past the statement form.
       if(final_code.trim().len() > usize(0), {
-        // Own-param scope-end drops: after the tail's statements/dups (the
-        // expression-level flushes skip param targets), before the return.
-        generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
+        // The tail's node drops, UNFILTERED. The flush-first at
+        // generation.yo's non-begin path deliberately gate-skipped the
+        // arg-temp drops (their C declarations do not exist yet); the tail's
+        // own call emission was the designed second chance, but a call that
+        // returns through THIS branch never got it — a Stage-0 `___dup` on an
+        // RC field projection argument (trait-impl method tails like
+        // `to_string : … render_diagnostics_human(self.diagnostics)`) leaked
+        // its +1 wholesale (issues/ref-local-scope-drop-missing-after-value-call.md).
+        // Emitting here is double-safe: generate_deferred_drop_expressions
+        // removes each emitted drop from the node's list (idempotent flush),
+        // and drops some call shape already flushed internally are no longer
+        // listed. Param-targeted drops ride the same call (own-param
+        // scope-end release before the return — the .Atom arm's rule).
+        generate_deferred_drop_expressions(expr, indent.clone(), context);
         line := indent.clone();
         line.push_str("return ");
         line.push_string(final_code);
