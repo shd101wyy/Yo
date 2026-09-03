@@ -24,6 +24,7 @@ _(args : proc_args) :: import("std/env");
 _(env : proc_env) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command, Output, ExitStatus } :: import("std/process/command");
+{ error_format } :: import("./diagnostics.yo");
 { yield } :: import("std/async");
 { mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
@@ -819,6 +820,12 @@ compile_artifact :: (
     is_static_lib := match(artifact.kind, .StaticLibrary => true, _ => false);
     if(is_static_lib, {
       cmd.arg(String.from("--static-library"));
+    });
+    // Forward the error format so artifact-compile failures render per
+    // --error-format (P3 threading, plans/ERROR_DIAGNOSTICS_OVERHAUL.md).
+    if(!(error_format() == "human"), {
+      cmd.arg(String.from("--error-format"));
+      cmd.arg(error_format());
     });
     if(artifact.c_flags.len() > usize(0), {
       joined := ` `.join(artifact.c_flags);

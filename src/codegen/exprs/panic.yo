@@ -1,7 +1,7 @@
 //! `panic(...)` emitter — mirrors `src/codegen/exprs/panic.ts`.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
@@ -10,6 +10,16 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { panic, assert } :: import("std/assert");
 { codegen_fatal_expr } :: import("../constants.yo");
+/// A comptime panic-message literal, with any surrounding double quotes
+/// stripped — `.StrLit` values keep their quotes and they leaked into the
+/// printed message (the `"\"ArrayList: index out of bounds\""` artifact,
+/// P3.6 / D13).
+_strip_panic_quotes :: (fn(raw : String) -> String)({
+  if((raw.len() >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(raw.len() - usize(1)) == u8(34)), {
+    return(raw.substring(usize(1), raw.len() - usize(1)));
+  });
+  raw
+});
 /// `panic(...)`: emit a stderr message (if any) + abort(), then return an
 /// unreachable type-correct dummy value (`*(T*)NULL`) so the C compiles
 /// (panic never returns). Mirrors `generatePanic`.
@@ -34,9 +44,14 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
         comptime_msg,
         .Some(raw) => {
           em := context.base.emitter;
+          // P3.6 (D13): the panic message carries its Yo call site, and the
+          // StrLit's literal quotes are stripped.
+          ptok := ast_expr_token(expr);
+          ploc := ` (at ${ptok.module_path}:${(ptok.row + usize(1))}:${(ptok.column + usize(1))})`;
+          pmsg := `${_strip_panic_quotes(raw)}${ploc}`;
           l := indent.clone();
           l.push_str("fprintf(stderr, \"%s\\n\", ");
-          l.push_string(_c_string_literal(raw));
+          l.push_string(_c_string_literal(pmsg));
           l.push_str(");");
           em.emit_string_line(l);
           em.emit_string_line({
@@ -61,9 +76,12 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
             .None => false
           );
           em := context.base.emitter;
+          rtok := ast_expr_token(expr);
+          rloc := ` (at ${rtok.module_path}:${(rtok.row + usize(1))}:${(rtok.column + usize(1))})`;
           line := indent.clone();
+          str_fmt := _c_string_literal(`%.*s${rloc}\n`);
           if(msg_is_str, {
-            line.push_str("fprintf(stderr, \"%.*s\\n\", (int)");
+            line.push_string(`fprintf(stderr, ${str_fmt}, (int)`);
             line.push_string(msg_code.clone());
             line.push_str(".len, (const char*)");
             line.push_string(msg_code.clone());
@@ -71,12 +89,14 @@ generate_panic :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
           }, {
             cond(
               msg_is_ptr_u8 => {
-                line.push_str("fprintf(stderr, \"%s\\n\", (const char*)");
+                ptr_fmt := _c_string_literal(`%s${rloc}\n`);
+                line.push_string(`fprintf(stderr, ${ptr_fmt}, (const char*)`);
                 line.push_string(msg_code.clone());
                 line.push_str(");");
               },
               true => {
-                line.push_str("fprintf(stderr, \"%s\\n\", ");
+                gen_fmt := _c_string_literal(`%s${rloc}\n`);
+                line.push_string(`fprintf(stderr, ${gen_fmt}, `);
                 line.push_string(msg_code.clone());
                 line.push_str(");");
               }

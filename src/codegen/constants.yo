@@ -18,6 +18,7 @@
 //! all reduce to these predicates. Names are stored as `String` to match the
 //! AST token-value type the callers compare against.
 open(import("std/string"));
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { Exception } :: import("std/error");
@@ -190,19 +191,27 @@ set_codegen_fatal_exn :: (fn(exn : Exception) -> unit)({
   g_codegen_fatal_exn = Option(Exception).Some(exn);
   ()
 });
-/// Report a fatal, unrecoverable codegen error. Throws `message` through the
-/// registered handler (the top-level CLI handler exits with rc=1, matching a
-/// TS compile error); panics only when no handler was registered (a direct
-/// emitter invocation outside `compile_module` — never the CLI path).
+/// Report a fatal, unrecoverable codegen error. Throws through the
+/// registered handler (the top-level CLI handler exits with rc=1); panics
+/// only when no handler was registered (a direct emitter invocation outside
+/// `compile_module` — never the CLI path).
+///
+/// P3 ICE wrapper (plans/ERROR_DIAGNOSTICS_OVERHAUL.md §7 P3, D11): every
+/// codegen_fatal is an internal-compiler-error class — an emitter
+/// precondition no accepted source can reach — so the message is prefixed
+/// and a report prompt is appended, instead of a bare string that reads
+/// like a user error.
 codegen_fatal :: (fn(message : String) -> unit)({
+  wrapped := `internal compiler error: ${message}\nThis is a bug in the Yo compiler, not in your program — please report it:\nhttps://github.com/shd101wyy/Yo/issues`;
   match(
     g_codegen_fatal_exn,
     .Some(exn) => {
-      exn.throw(dyn(message.clone()));
+      exn.throw(dyn(wrapped));
       ()
     },
     .None => ()
   );
+  eprintln(wrapped);
   __yo_panic("fatal codegen error with no handler registered (see message above)")
 });
 /// `codegen_fatal` in EXPRESSION position — for the emitters, whose signatures

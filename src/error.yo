@@ -225,6 +225,22 @@ _yo_error_of :: (fn(entry : Diagnostic) -> YoError)({
 format_error_message :: (fn(token : Token, error_message : String) -> YoError)(
   _yo_error_of(_diagnostic_of_token(token, Severity.Error, error_message))
 );
+/// Create a `YoError` from a token, a message, and a P3 repair hint —
+/// the did-you-mean channel ("help: did you mean …?").
+format_error_message_with_help :: (
+  fn(token : Token, error_message : String, help : Option(String)) -> YoError
+)({
+  d := _diagnostic_of_token(token, Severity.Error, error_message);
+  if(help.is_some(), {
+    h := match(
+      help,
+      .Some(hh) => hh,
+      .None => String.new()
+    );
+    d.help = Option(String).Some(h);
+  });
+  _yo_error_of(d)
+});
 /// Create a `YoError` with a path anchor but no snippet — end-of-input and
 /// other position-less parser errors.
 format_raw_error :: (fn(module_path : String, error_message : String) -> YoError)(
@@ -259,6 +275,21 @@ format_error_messages :: (fn(token_and_error_list : ArrayList(TokenAndError)) ->
     i = (i + usize(1));
   });
   YoError(diagnostics : entries)
+});
+/// The batch builder with a repair hint attached to the PRIMARY entry
+/// (the P3 did-you-mean channel for the ownership-flow family's raises).
+format_error_messages_with_help :: (
+  fn(token_and_error_list : ArrayList(TokenAndError), help : Option(String)) -> YoError
+)({
+  err := format_error_messages(token_and_error_list);
+  match(
+    err.diagnostics.get(usize(0)),
+    .Some(first) => {
+      first.help = help;
+    },
+    .None => ()
+  );
+  err
 });
 /// A lexer error as a `YoError` diagnostic group. The lexer's internal
 /// struct carries no file context (D3), so the throw site supplies the
@@ -368,7 +399,9 @@ export(_classify_message);
 export(get_line_at_token, get_line_at_position);
 export(
   format_error_message,
+  format_error_message_with_help,
   format_error_messages,
+  format_error_messages_with_help,
   format_lexer_error,
   format_raw_error,
   format_warning_messages,
