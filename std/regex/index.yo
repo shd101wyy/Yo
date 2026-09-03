@@ -233,14 +233,17 @@ impl(
 // Block 3: exec, match_all (depend on Block 2)
 impl(
   Regex,
-  exec : (fn(self : Self, input : String) -> Option(RegexMatch))({
+  /// The scan behind `exec`, generalized to a nonzero start offset — what the
+  /// `Pattern` impl needs for `index_in(haystack, from)`. Sticky: one
+  /// anchored attempt at `from_byte`. Otherwise every rune boundary from
+  /// `from_byte` on, with the same literal-prefix jump `exec` uses.
+  _find_from : (fn(self : Self, input : String, from_byte : usize) -> Option(RegexMatch))({
     bytes := input.as_bytes();
     input_len := bytes.len();
     vm := NfaVm.new(self._program, self._flags, input);
-    // Sticky flag: only try matching at position 0
     cond(
       self._flags.sticky => {
-        result := vm.exec_at(usize(0));
+        result := vm.exec_at(from_byte);
         cond(
           result.matched => .Some(self._build_match(result.slots, input)),
           true => .None
@@ -249,15 +252,14 @@ impl(
       true => {
         has_prefix := (self._program.literal_prefix.len() > usize(0));
         byte_pos := cond(
-          has_prefix => self._find_prefix_pos(bytes, usize(0)),
-          true => usize(0)
+          ((has_prefix && (from_byte <= input_len))) => self._find_prefix_pos(bytes, from_byte),
+          true => from_byte
         );
         while(byte_pos <= input_len, {
           result := vm.exec_at(byte_pos);
           cond(
             result.matched => {
-              m := self._build_match(result.slots, input);
-              return(.Some(m));
+              return(.Some(self._build_match(result.slots, input)));
             },
             true => ()
           );
@@ -280,6 +282,9 @@ impl(
       }
     )
   }),
+  exec : (fn(self : Self, input : String) -> Option(RegexMatch))(
+    self._find_from(input, usize(0))
+  ),
   match_all : (fn(self : Self, input : String) -> ArrayList(RegexMatch))({
     matches := ArrayList(RegexMatch).new();
     bytes := input.as_bytes();
@@ -835,6 +840,76 @@ impl(
     );
     parts
   })
+);
+// A compiled `Regex` is a `Pattern`: every String pattern-method accepts
+// one directly — `s.contains(re)`, `s.index_of(re)`, `s.split(re)`,
+// `s.replace(re, String.from("-"))`, `s.split_once(re)`,
+// `s.strip_prefix(re)`. All offsets are the byte offsets `RegexMatch`
+// reports. This impl lives here (not in std/string) so the dependency stays
+// one-directional: regex imports string, never the reverse.
+impl(
+  Regex,
+  Pattern(
+    is_prefix_of : (fn(self : Self, haystack : String, position : usize) -> bool)({
+      vm := NfaVm.new(self._program, self._flags, haystack);
+      vm.exec_at(position).matched
+    }),
+    /// A match must END exactly at `end_position` (clamped to `len()`).
+    is_suffix_of : (fn(self : Self, haystack : String, end_position : usize) -> bool)({
+      (n : usize) = haystack.len();
+      (eff : usize) = if((end_position > n), n, end_position);
+      ms := self.match_all(haystack);
+      (hit : bool) = false;
+      (i : usize) = usize(0);
+      while((i < ms.len()) && !hit, i = (i + usize(1)), {
+        m := ms(i);
+        hit = (m.end() == eff);
+      });
+      hit
+    }),
+    index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))(
+      match(
+        self._find_from(haystack, from_index),
+        .Some(m) => .Some(m.index()),
+        .None => .None
+      )
+    ),
+    is_contained_in : (fn(self : Self, haystack : String, from_index : usize) -> bool)(
+      match(
+        self._find_from(haystack, from_index),
+        .Some(_) => true,
+        .None => false
+      )
+    ),
+    last_index_in : (fn(self : Self, haystack : String, from_index : usize) -> Option(usize))({
+      (n : usize) = haystack.len();
+      (lim : usize) = if((from_index > n), n, from_index);
+      ms := self.match_all(haystack);
+      (last : Option(usize)) = .None;
+      (i : usize) = usize(0);
+      while(i < ms.len(), i = (i + usize(1)), {
+        m := ms(i);
+        cond(
+          (m.index() <= lim) => {
+            last = .Some(m.index());
+          },
+          true => ()
+        );
+      });
+      last
+    }),
+    length_in : (fn(self : Self, haystack : String, at : usize) -> usize)({
+      vm := NfaVm.new(self._program, self._flags, haystack);
+      result := vm.exec_at(at);
+      cond(
+        result.matched => ((result.slots(usize(1)) - result.slots(usize(0)))),
+        true => usize(0)
+      )
+    }),
+    split_of : (fn(self : Self, haystack : String) -> ArrayList(String))(
+      self.split(haystack)
+    )
+  )
 );
 export(
   Regex,

@@ -14,7 +14,7 @@ log :: import("std/log");
 { PATH_SEPARATOR, PATH_DELIMITER } :: import("std/path");
 { stdin } :: import("std/io/stdio");
 { get_hardware_threads, get_cpu_id } :: import("std/thread");
-{ unicode_to_lowercase, unicode_to_uppercase } :: import("std/string/unicode");
+{ to_lowercase_bytes, to_uppercase_bytes } :: import("std/string/unicode");
 { is_valid_entity_code, from_code_point } :: import("std/encoding/html");
 { step_len, sequence_len } :: import("std/encoding/utf8");
 { bench, BenchResult } :: import("std/testing/bench");
@@ -116,28 +116,16 @@ test("get_hardware_threads and get_cpu_id", {
   assert(id >= i32(-1), "cpu id is a core index or -1");
   assert(id < i32(n), "a reported core index is below the hardware thread count");
 });
-// --- string/unicode: locale-independent Unicode case mapping (all scripts,
-// simple mappings + SpecialCasing expansions). The C-locale `towlower` this
-// module once called maps ASCII only — `ÉCOLE` came back as `École`
+// --- string/unicode: the LEAF byte-level case-mapping tables behind
+// String.to_lowercase/to_uppercase (the String-method coverage lives in
+// tests/string/string.test.yo). The C-locale `towlower` this module once
+// called maps ASCII only — `ÉCOLE` came back as `École`
 // (issues/fixed/unicode-case-mapping-was-locale-dependent.md).
-test("unicode_to_lowercase / unicode_to_uppercase", {
-  assert(unicode_to_lowercase(String.from("HeLLo WORLD")) == "hello world", "ascii lower");
-  assert(unicode_to_uppercase(String.from("HeLLo world")) == "HELLO WORLD", "ascii upper");
-  assert(unicode_to_lowercase(String.from("ÉCOLE")) == "école", "Latin-1 lower (was École under the C locale)");
-  assert(unicode_to_uppercase(String.from("école")) == "ÉCOLE", "Latin-1 upper");
-  assert(unicode_to_uppercase(String.from("straße")) == "STRASSE", "ß expands under uppercase");
-  assert(unicode_to_lowercase(String.from("ẞ")) == "ß", "capital sharp s lowercases to ß (simple mapping)");
-  assert(unicode_to_uppercase(String.from("ﬁ")) == "FI", "ligature expands (SpecialCasing)");
-  assert(unicode_to_lowercase(String.from("İ")) == "i̇", "dotted capital I expands to i + U+0307");
-  assert(unicode_to_lowercase(String.from("ΑΒΓ ΩΣ")) == "αβγ ωσ", "Greek (no final-sigma context rule)");
-  assert(unicode_to_uppercase(String.from("привет")) == "ПРИВЕТ", "Cyrillic");
-  assert(unicode_to_lowercase(String.from("ĀĂĄĆ")) == "āăąć", "Latin Extended-A alternating range, lower");
-  assert(unicode_to_uppercase(String.from("āăąć")) == "ĀĂĄĆ", "Latin Extended-A alternating range, upper");
-  assert(unicode_to_lowercase(String.from("𐐀𐐁")) == "𐐨𐐩", "Deseret (supplementary plane, +0x28)");
-  assert(unicode_to_uppercase(String.from("ǅ")) == "Ǆ", "titlecase digraph uppercases");
-  assert(unicode_to_lowercase(String.from("ǅ")) == "ǆ", "titlecase digraph lowercases");
-  assert(unicode_to_lowercase(String.from("日本語 123")) == "日本語 123", "uncased scripts and digits pass through");
-  assert(unicode_to_lowercase(String.from("")) == "", "empty");
+test("to_lowercase_bytes / to_uppercase_bytes", {
+  assert(String.from_bytes(to_lowercase_bytes(String.from("ÉCOLE").as_bytes())) == "école", "Latin-1 lower (was École under the C locale)");
+  assert(String.from_bytes(to_uppercase_bytes(String.from("straße").as_bytes())) == "STRASSE", "ß expands under uppercase");
+  assert(String.from_bytes(to_lowercase_bytes(String.from("日本語 123").as_bytes())) == "日本語 123", "uncased scripts and digits pass through");
+  assert(String.from_bytes(to_uppercase_bytes(String.new().as_bytes())) == "", "empty in, empty out");
 });
 // --- encoding/html: entity code validation + from_code_point.
 test("is_valid_entity_code", {

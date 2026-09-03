@@ -1,26 +1,29 @@
 //! Unicode case conversion — locale-independent, table-driven.
 //!
-//! `unicode_to_lowercase` / `unicode_to_uppercase` apply the Unicode
-//! 15.1.0 case mappings: the simple (one-to-one) mappings from
-//! UnicodeData.txt for every script, plus the one-to-many SpecialCasing
-//! expansions (`ß` → `SS`, `ﬁ` → `FI`, `İ` → `i̇`, …). They never consult the C
-//! locale — `towlower`/`towupper` only map ASCII under the default `"C"`
-//! locale, which is what this module used to call
+//! `to_lowercase_bytes` / `to_uppercase_bytes` apply the Unicode 15.1.0
+//! case mappings: the simple (one-to-one) mappings from UnicodeData.txt for
+//! every script, plus the one-to-many SpecialCasing expansions (`ß` → `SS`,
+//! `ﬁ` → `FI`, `İ` → `i̇`, …). They never consult the C locale —
+//! `towlower`/`towupper` only map ASCII under the default `"C"` locale,
+//! which is what this module used to call
 //! (issues/fixed/unicode-case-mapping-was-locale-dependent.md).
 //!
 //! Context-sensitive rules (Greek final sigma, Lithuanian / Turkish dotted
 //! i) are NOT applied; the mapping is per code point, like Go's
 //! `unicode.ToUpper` and `strings.ToUpper`.
 //!
+//! This is a LEAF module (byte buffers in, byte buffers out — no `String`
+//! import) so that `std/string/string.yo` can import IT and route
+//! `String.to_lowercase`/`to_uppercase` through these tables without a
+//! dependency cycle. The String-level entry points are those methods.
+//!
 //! ## Example
 //!
 //! ```rust
-//! { unicode_to_lowercase, unicode_to_uppercase } :: import "std/string/unicode";
+//! { to_lowercase_bytes } :: import "std/string/unicode";
 //!
-//! lower := unicode_to_lowercase(`HELLO WÖRLD`);  // "hello wörld"
-//! upper := unicode_to_uppercase(`hello wörld`);  // "HELLO WÖRLD"
+//! lower := `HELLO WÖRLD`.to_lowercase();  // "hello wörld" — String method
 //! ```
-open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 utf8 :: import("../encoding/utf8");
 // ============================================================================
@@ -2158,10 +2161,11 @@ _special_to_upper :: (fn(cp : i32, out : ArrayList(u8)) -> bool)({
   });
   true
 });
-/// Convert a `String` to lowercase using the Unicode case mapping (all
-/// scripts, plus the `İ` → `i̇` expansion). Locale-independent.
-unicode_to_lowercase :: (fn(input : String) -> String)({
-  (bytes : ArrayList(u8)) = input.as_bytes();
+/// Lowercase UTF-8 bytes using the Unicode case mapping (all scripts, plus
+/// the `İ` → `i̇` expansion). Locale-independent. `String.to_lowercase` calls
+/// this; the input must be valid UTF-8 (a `String` always is).
+to_lowercase_bytes :: (fn(input : ArrayList(u8)) -> ArrayList(u8))({
+  (bytes : ArrayList(u8)) = input;
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
   while(i < bytes.len(), {
@@ -2185,13 +2189,14 @@ unicode_to_lowercase :: (fn(input : String) -> String)({
       i = (i + len);
     });
   });
-  String.from_bytes(out)
+  out
 });
-/// Convert a `String` to uppercase using the Unicode case mapping (all
-/// scripts, plus the one-to-many expansions such as `ß` → `SS` and `ﬁ` →
-/// `FI`). Locale-independent.
-unicode_to_uppercase :: (fn(input : String) -> String)({
-  (bytes : ArrayList(u8)) = input.as_bytes();
+/// Uppercase UTF-8 bytes using the Unicode case mapping (all scripts, plus
+/// the one-to-many expansions such as `ß` → `SS` and `ﬁ` → `FI`).
+/// Locale-independent. `String.to_uppercase` calls this; the input must be
+/// valid UTF-8 (a `String` always is).
+to_uppercase_bytes :: (fn(input : ArrayList(u8)) -> ArrayList(u8))({
+  (bytes : ArrayList(u8)) = input;
   (out : ArrayList(u8)) = ArrayList(u8).with_capacity(bytes.len());
   (i : usize) = usize(0);
   while(i < bytes.len(), {
@@ -2215,6 +2220,6 @@ unicode_to_uppercase :: (fn(input : String) -> String)({
       i = (i + len);
     });
   });
-  String.from_bytes(out)
+  out
 });
-export(unicode_to_lowercase, unicode_to_uppercase, to_upper_code_point, to_lower_code_point);
+export(to_lowercase_bytes, to_uppercase_bytes, to_upper_code_point, to_lower_code_point);
