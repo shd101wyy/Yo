@@ -14,7 +14,28 @@
 > `E0308`-style codes, a bilingual English + 简体中文 registry from day one,
 > exit codes stay 0/1, runtime-panic locations stay in P3 (details §11).
 >
-> **P1 LANDED 2026-09-03** (this branch): structured `Diagnostic` + shared
+> **P2 LANDED 2026-09-03** (PR #400): 25 E-code families with a central
+> message classifier, the bilingual (EN + 简体中文) registry with bad/good
+> examples, `yo explain` (--list/--format json/--lang zh-CN, did-you-mean),
+> `--error-format human|short|json` + `YO_ERROR_FORMAT` (JSON Lines on
+> stdout; chatter to stderr under json), registry gates.
+>
+> **P3 LANDED 2026-09-03** (PR #401) — the repair-oriented slice: the
+> `help:` channel (Diagnostic.help, renders + JSON); did-you-mean at
+> unresolved names and enum variants (shared edit-distance; the registry
+> delegates); the ICE wrapper on codegen_fatal; panic() call-site locations
+> + the StrLit-quotes fix (exact for direct calls; the assert-family
+> wrappers report std/assert's own line — caller frames are not available
+> there); --error-format threaded to the test/build children;
+> --json-summary honored.
+>
+> **P3 REMAINING** (follow-up slice): import-chain collapse (D16), the LSP
+> typed channel (P4_LSP's remaining item), and the pre-existing ref-local
+> scope-drop leak (issues/ref-local-scope-drop-missing-after-value-call.md —
+> filed with repros and the emitted-C mechanism; fixing it unblocks the
+> LeakSanitizer-red internal suites).
+>
+> **P1 LANDED 2026-09-03** (PR #399, merged): structured `Diagnostic` + shared
 > renderer in `src/diagnostics.yo`; `YoError` rebased, dead `ErrorKind`/
 > `is_assertion_error`/`YoLexerError`/`ParseError`/`LexerError` deleted,
 > 1028 call sites trimmed; lexer/parser/evaluator all throw the one
