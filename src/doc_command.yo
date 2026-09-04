@@ -44,20 +44,21 @@ DocCommandOptions :: struct(
   format : String,
   version : String
 );
-/// `path.resolve(p)`: absolute paths normalize on Path construction; relative
-/// paths are joined onto the current working directory (which also
-/// normalizes). Mirrors node's resolve for the single-argument uses here.
+/// `path.resolve(p)`: absolute paths are folded lexically; relative paths are
+/// joined onto the current working directory and then folded. Mirrors node's
+/// resolve for the single-argument uses here — `Path` itself records `..` as
+/// written, so the fold is the explicit `normalize()`.
 _resolve_path :: (fn(p : String, exn : Exception) -> String)({
   path := Path.new(p.clone());
   if(path.is_absolute(), {
-    return(path.to_string());
+    return(path.normalize().to_string());
   });
   base := match(
     cwd(),
     .Ok(c) => c,
     .Err(e) => exn.throw(dyn(`doc: cannot determine cwd: ${e}`))
   );
-  base.join(path).to_string()
+  base.join(path).normalize().to_string()
 });
 /// One `git -C <dir> <args...>` invocation → trimmed stdout, or `.None` on
 /// failure/empty (mirrors `git(...)`'s catch in detectGitVersion).

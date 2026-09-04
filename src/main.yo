@@ -362,9 +362,11 @@ collect_module_deps :: (
   // Normalize extension: append .yo if missing
   norm_path := normalize_import_path(effective_path.clone());
   // Resolve absolute path by normalizing base_dir/norm_path as one string.
-  // Path.new normalizes ".." segments, which is needed for relative imports like "../types/tags.yo".
-  // (Path.join does NOT re-normalize ".." in the second argument.)
-  abs_path_raw := Path.new(`${effective_base}/${norm_path}`).to_string();
+  // The explicit `normalize()` folds ".." for relative imports like
+  // "../types/tags.yo": `Path` records ".." as written (folding it is wrong
+  // over symlinks), and this string has to match resolve_module_path's cache
+  // key, which folds the same way.
+  abs_path_raw := Path.new(`${effective_base}/${norm_path}`).normalize().to_string();
   // When std_base is empty, also skip paths that resolve into std/ (e.g.
   // relative imports like "../string" from within std/imm/). With std_base
   // set, std/ resolves into std_base and these paths should be followed.
