@@ -1,7 +1,7 @@
 # `yo fmt` paren canonicalization — flatten what the grammar already flattens
 
 **Status:** REJECTED 2026-08-21; SUPERSEDED 2026-09-02 by
-[`plans/archive/FMT_PAREN_ELISION.md`](../FMT_PAREN_ELISION.md) — IMPLEMENTED.
+[`plans/archive/FMT_PAREN_ELISION.md`](FMT_PAREN_ELISION.md) — IMPLEMENTED.
 Rule 3's rationale became obsolete when PR #201 (closed operator set +
 prefix-operand rule) shipped in the v0.2.21 seed: `3 - -3` now parses,
 paren-less prefix calls are the canonical spelling, and `yo fmt` elides
@@ -12,7 +12,7 @@ conservative elision subset. This doc is kept as the historical record.
 Originally a companion to
 
 Originally a companion to
-[`OPERATOR_SET_AND_PRECEDENCE.md`](OPERATOR_SET_AND_PRECEDENCE.md) (the
+[`OPERATOR_SET_AND_PRECEDENCE.md`](../reference/OPERATOR_SET_AND_PRECEDENCE.md) (the
 no-precedence stance and closed operator set this design leans on) and
 [`OPERATOR_ASSOCIATIVITY.md`](OPERATOR_ASSOCIATIVITY.md) (same-op chains
 are left-associative — the rule that makes Rule 2 below meaning-preserving).

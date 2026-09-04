@@ -99,7 +99,7 @@ Also in scope:
   rather than canonicalizing it, so a raw "would format" count conflates real
   spacing bugs with line-breaking differences.
 - ~~**The 3 hollow language test files**~~ — **RESOLVED 2026-08-08**
-  ([`issues/fixed/yo-self-hollow-language-test-files.md`](../issues/fixed/yo-self-hollow-language-test-files.md)).
+  ([`issues/fixed/yo-self-hollow-language-test-files.md`](../../issues/fixed/yo-self-hollow-language-test-files.md)).
   The first full-corpus sweep scored 185 GREEN / 3 HOLLOW — files that reported
   passes (one claimed 49) while running no assertions — and its first CI run added
   **2 RED files that pass on macOS but fail on Linux** (`ref_local_binding`,

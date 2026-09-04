@@ -8,7 +8,7 @@
 # Bootstrapping the Evaluator — Self-Hosted `yo check`
 
 > **Status: active plan.** Focused sub-goal of the broader bootstrap
-> effort ([`BOOTSTRAPPING.md`](../BOOTSTRAPPING.md)). This document narrows
+> effort ([`BOOTSTRAPPING.md`](BOOTSTRAPPING.md)). This document narrows
 > the target to the **evaluator** and the **`check` subcommand only** —
 > deliberately excluding codegen — so the self-hosting milestone becomes
 > tractable and measurable.
@@ -44,7 +44,7 @@ structure).
 - **No codegen.** `check` never reaches codegen, so the async runtime,
   `generation.ts`, `other-fn-call.ts`, effect state machines, RC
   lowering, etc. are all **out of scope** for this plan. (They remain
-  in [`BOOTSTRAPPING.md`](../BOOTSTRAPPING.md) for the full `compile`/`test`
+  in [`BOOTSTRAPPING.md`](BOOTSTRAPPING.md) for the full `compile`/`test`
   self-hosting goal.)
 - **No `compile` / `test` self-hosting.** Those need codegen; tracked
   separately.
@@ -660,7 +660,7 @@ impl(forall(K : Type), M(K), make : (fn(v : K) -> Self)(Self(x : v)));
 
 `M(i32)` works, `M(String)` fails; returning `i32` works, returning `Self`
 (with a `String` field) fails. Full diagnosis + recommended approach in
-[`issues/fixed/phase3-nested-generic-instantiation-identity.md`](../issues/fixed/phase3-nested-generic-instantiation-identity.md).
+[`issues/fixed/phase3-nested-generic-instantiation-identity.md`](../../issues/fixed/phase3-nested-generic-instantiation-identity.md).
 
 **Foundation LANDED (regression-neutral, contributes to the eventual fix):**
 
@@ -785,9 +785,9 @@ check, body-vs-return compatibility); comptime arithmetic value folding Tier 2
 
 ## References
 
-- [`BOOTSTRAPPING.md`](../BOOTSTRAPPING.md) — full self-hosting plan/status
+- [`BOOTSTRAPPING.md`](BOOTSTRAPPING.md) — full self-hosting plan/status
   (incl. codegen), file-mapping table, component port progress.
-- [`yo-self/README.md`](../yo-self/README.md) — quick start. (The
+- [`yo-self/README.md`](../../src/README.md) — quick start. (The
   `ulimit -s 65520` requirement is obsolete as of `6aff3bd7`.)
 - `issues/yo-self-*.md` — per-blocker diagnoses.
 - `MEMORY.md` notes: strict 1-to-1 port; validate with `check` not the

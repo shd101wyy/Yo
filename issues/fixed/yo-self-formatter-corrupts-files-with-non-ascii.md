@@ -12,7 +12,7 @@
 > widening it to a `Token.byte_offset` field is the follow-up.
 
 **Found 2026-08-09** while measuring the `fmt` divergence for
-[`plans/archive/P1_CLI_PARITY.md`](../plans/archive/P1_CLI_PARITY.md) §6. This is not a
+[`plans/archive/P1_CLI_PARITY.md`](../../plans/archive/P1_CLI_PARITY.md) §6. This is not a
 spacing disagreement — it is **silent source destruction**, and it is the
 dominant remaining `fmt` divergence class.
 

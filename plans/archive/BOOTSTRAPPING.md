@@ -33,7 +33,7 @@ exported functions, same control flow. Success criterion — met 2026-08-03
 
 Operational details — gate commands, measurement rules, honest-sweep
 methodology, `scripts/bootstrap/` — live in
-[`YO_SELF_STAGE2_HANDOFF.md`](archive/YO_SELF_STAGE2_HANDOFF.md) (CLOSED, still the
+[`YO_SELF_STAGE2_HANDOFF.md`](YO_SELF_STAGE2_HANDOFF.md) (CLOSED, still the
 best reference for running the gates).
 
 ## Architecture
@@ -67,9 +67,9 @@ Yo source → Lexer → Parser → AST  (yo-self/lexer.yo, parser.yo, expr.yo)
   wiring list; carried as a line item in `SELF_HOSTING_COMPLETION.md`.
 - Memory levers for the self-hosted binary's compile peak (it completes on
   16 GB but peaks ~2× the TS compiler): root cause and ranked levers in
-  [`YO_SELF_ENV_SHARING.md`](backlog/YO_SELF_ENV_SHARING.md) (parked at user
+  [`YO_SELF_ENV_SHARING.md`](../backlog/YO_SELF_ENV_SHARING.md) (parked at user
   direction); the big peak lever is
-  [`TYPEVALUE_HASH_CONSING.md`](backlog/TYPEVALUE_HASH_CONSING.md) (design, not
+  [`TYPEVALUE_HASH_CONSING.md`](../backlog/TYPEVALUE_HASH_CONSING.md) (design, not
   started). Both become LSP-latency-relevant in the next phase.
 - Open async RC-lifetime divergences (D2–D7) and other non-blocking issues:
   see `plans/archive/CI_GATING_HANDOFF.md` §3 and `issues/`.

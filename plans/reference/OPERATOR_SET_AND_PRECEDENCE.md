@@ -8,7 +8,7 @@ alternative is documented below as deferred.
 
 Companion docs — both remain authoritative for what they cover:
 
-- [`OPERATOR_ASSOCIATIVITY.md`](OPERATOR_ASSOCIATIVITY.md) (**implemented**):
+- [`OPERATOR_ASSOCIATIVITY.md`](../archive/OPERATOR_ASSOCIATIVITY.md) (**implemented**):
   same operator → left-associative; different adjacent operators →
   parentheses required; newline-associativity removed. Untouched by this
   plan.

@@ -18,12 +18,12 @@ gate's in-process parses add to that debt class, ~46 bytes/call).
 
 Originally PROPOSED 2026-09-02 (rewritten twice the same day: first to fix a
 wrong "prefix elision is grammar-blocked" claim based on the stale
-[`archive/FMT_PAREN_CANONICALIZATION.md`](archive/FMT_PAREN_CANONICALIZATION.md)
+[`archive/FMT_PAREN_CANONICALIZATION.md`](FMT_PAREN_CANONICALIZATION.md)
 rationale, then after discovering the formatter ALREADY elides a subset — the
 docs' "fmt preserves every parenthesis" was never literally true).
 
 Companions: [`OPERATOR_ASSOCIATIVITY.md`](OPERATOR_ASSOCIATIVITY.md) and
-[`PREFIX_OPERATOR_OPERAND_RULE.md`](PREFIX_OPERATOR_OPERAND_RULE.md) (Rule 1
+[`PREFIX_OPERATOR_OPERAND_RULE.md`](../reference/PREFIX_OPERATOR_OPERAND_RULE.md) (Rule 1
 landed 2026-08-21 in PR #201, shipped in the v0.2.21 seed released 2026-09-01;
 its old "seed rejects paren-less forms" constraint is lifted — noted there).
 

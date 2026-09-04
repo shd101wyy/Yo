@@ -7,7 +7,7 @@
 > markdown_yo notes and §9's debt list are the P2 pickup points.
 
 **Handover doc. Start here.** Supersedes
-[`archive/PRE_P1_HANDOVER.md`](archive/PRE_P1_HANDOVER.md), whose question
+[`archive/PRE_P1_HANDOVER.md`](PRE_P1_HANDOVER.md), whose question
 ("what must be true before P1 starts?") is answered: nothing is blocking, and
 P1 has started.
 
@@ -81,7 +81,7 @@ was green before and after — exactly the trap §1 exists to catch.
 
 **All eight are fixed**, each with a regression test in
 `tests/async_await.test.yo`. The first five were one family
-([write-up](../issues/fixed/async-await-in-nested-match-arms.md)):
+([write-up](../../issues/fixed/async-await-in-nested-match-arms.md)):
 
 | bug                                                          | symptom                |
 | ------------------------------------------------------------ | ---------------------- |
@@ -102,7 +102,7 @@ That left 4 errors, which reduced to **three** further root causes — all now
 fixed, each with a minimal reproducer in `issues/repros/`:
 
 6. **[Same-named locals in sibling branches of an async body are
-   conflated](../issues/fixed/async-sibling-arm-same-named-locals.md)** — **the
+   conflated](../../issues/fixed/async-sibling-arm-same-named-locals.md)** — **the
    worst bug of the batch, because one of its three variants is SILENT.** A
    34-line reproducer compiled clean, exited 0, and printed `compile  thing`:
    the second arm's `label` was empty. Two name-keyed mechanisms were at fault
@@ -114,7 +114,7 @@ fixed, each with a minimal reproducer in `issues/repros/`:
    carried `decl_site` from the bufio slot-alias fix — so only the remapping key
    needed porting.
 7. **[A dropped call result on an async early-completion
-   path](../issues/fixed/async-match-arm-early-return-drops-call-result.md)** —
+   path](../../issues/fixed/async-match-arm-early-return-drops-call-result.md)** —
    a `match` used as a definition's RHS with an arm that early-`return`s a
    freshly-constructed value, inside a body that awaits later. Codegen emitted a
    comment where a value belonged. It now emits the call inline, which is what
@@ -203,7 +203,7 @@ unit tests:
 Two of those are silent — the run step that reports success without running, and
 `--dry-run` building for real. Fixing the dry-run branch then exposed a NINTH
 compiler bug ([an `if` whose branch awaits, as a `while` body, emitted
-nothing](../issues/fixed/async-if-with-await-in-while-body-emits-nothing.md)),
+nothing](../../issues/fixed/async-if-with-await-in-while-body-emits-nothing.md)),
 which is the same lesson §2 ends on: the code had never reached the code
 generator.
 
@@ -215,13 +215,13 @@ ELEVENTH:
   stored the binding into the FIRST same-named state-machine slot while reads
   used the arm's own slot, so the awaited callee captured NULL. Fixed in both
   compilers; the effect-escape cleanup had the same name-scan defect. See
-  [the issue](../issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md) —
+  [the issue](../../issues/fixed/async-sibling-arm-match-bindings-store-to-wrong-slot.md) —
   it is the FOURTH member of the sibling-arm cluster, and the lesson
   generalizes: any name-based lookup over `stateMachineVariables` is wrong.
 - **Child output overtaking parent output** — libc stdout is fully buffered to
   a pipe, so `Building X → …` flushed at exit, AFTER the spawned program's
   own output. `fflush` before spawn in the C runtime. See
-  [the issue](../issues/fixed/spawn-child-output-ordered-before-buffered-parent-stdout.md).
+  [the issue](../../issues/fixed/spawn-child-output-ordered-before-buffered-parent-stdout.md).
   Invisible on a tty; deterministic under a pipe — precisely what the harness
   compares byte-for-byte.
 
@@ -239,7 +239,7 @@ dispatch, and two differential cases (`doc-json`, `doc-markdown`) producing
 BYTE-IDENTICAL doc.json / README.md / module pages / stdout under both
 compilers. Wiring it surfaced three more bugs, all fixed with tests:
 control characters in string literals emitted invalid C from BOTH compilers
-([write-up](../issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md)),
+([write-up](../../issues/fixed/c-string-literal-control-chars-emitted-as-unicode-escapes.md)),
 std's `eprint` was missing the `unsafe(...)` wrapper its sibling `eprintln`
 has, and method signatures lacked TS's `(Receiver) ` prefix (yo-self's Func
 type carries no SelfType — the method registry's `self_type` supplies it).
@@ -390,7 +390,7 @@ Three root causes, all fixed:
 2. The self-hosted formatter **destroyed** any file mixing a multi-byte
    character with a backtick string (253 → 17) — a character index used as a
    byte offset in `read_raw_template_string`.
-   [write-up](../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md)
+   [write-up](../../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md)
 3. **The same class again, in `_trim_trailing_h_ws` (17 → 4).** It walked a
    byte index down from `bytes.len()` and handed it to `String.substring`,
    which is CHAR-indexed — so for any buffer already containing a multi-byte
@@ -490,4 +490,4 @@ Carried forward, plus what this pass added.
   numbers. The case uses the harness's `stdout_keep` filter to assert the lines
   that ARE comparable (the built program's own output, the build's step lines,
   any error) rather than `stdout=ignore`, which would assert nothing.
-- Open compiler issues live in [`../issues/`](../issues/); none block P1.
+- Open compiler issues live in [`../issues/`](../../issues/); none block P1.

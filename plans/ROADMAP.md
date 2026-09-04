@@ -22,7 +22,7 @@ All exit criteria met: the corpus is green under honest hollow-scoring, the
 fixpoint holds (stage-2 ≡ stage-3, byte-identical, CI-gated), and every listed
 front — cluster-B `dyn(box(closure))` spec emission, cee validations, the
 contracts port, the REDs, the `||`-LHS trait-call miscompile,
-`await_analysis` triage — closed. Record: [`BOOTSTRAPPING.md`](BOOTSTRAPPING.md).
+`await_analysis` triage — closed. Record: [`BOOTSTRAPPING.md`](archive/BOOTSTRAPPING.md).
 
 The two-compiler lockstep **was retired** by Phase 0.5 below — the TypeScript
 compiler is deleted and the self-hosted compiler lives as `src/`.
@@ -44,9 +44,9 @@ GitHub-Releases version cache — the seed is now v0.2.23); P4's Yo-native LSP
 is feature-complete 2026-08-22 (`yo lsp` plus the extension's bundled
 client). Remaining P4 quality items (typed diagnostics channel, doc-comment
 plumbing) are listed in the P4_LSP.md header — the typed-diagnostics one is
-P3 of [`ERROR_DIAGNOSTICS_OVERHAUL.md`](ERROR_DIAGNOSTICS_OVERHAUL.md).
+P3 of [`ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md).
 
-Working docs: [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md)
+Working docs: [`SELF_HOSTING_COMPLETION.md`](archive/SELF_HOSTING_COMPLETION.md)
 (umbrella) → `P1_CLI_PARITY.md` (COMPLETE) → `P2_RETIRE_SRC.md` +
 `P2_5_RETIRE_EXECUTION.md` (LANDED) → `P3_DISTRIBUTION.md` (shipped) →
 `P4_LSP.md` (feature-complete).
@@ -82,18 +82,18 @@ Dafny-inspired, but built on assets Dafny lacks:
    LLM development loops. — **LANDED** (Phases A–C, revised scope:
    build-runner artifact cache, LSP-correct invalidation at ~65 ms per edit,
    in-process `--watch`; the original cross-process evaluated-export cache
-   was descoped — see [`INCREMENTAL_COMPILATION.md`](INCREMENTAL_COMPILATION.md)).
+   was descoped — see [`INCREMENTAL_COMPILATION.md`](reference/INCREMENTAL_COMPILATION.md)).
 2. **LSP maturity** — a real language server with go-to-definition, hover
    types, and inline errors. — **LANDED** (P4, feature-complete 2026-08-22:
    `yo lsp` serves diagnostics, hover, definition, symbols, references,
    folding, rename, formatting, signature help and completion, and the VS
-   Code extension bundles the client — [`P4_LSP.md`](P4_LSP.md)).
+   Code extension bundles the client — [`P4_LSP.md`](archive/P4_LSP.md)).
 3. **Error-message overhaul** — errors are the language's actual UI, and
    (see Phase 4) the LLM repair loop. Every error should carry the corrected
    form the way the `unsafe(...)` gate hint does. Kill the 15-deep
    import-chain error cascades: report the leaf once, with the chain
    collapsed. — detailed design **PROPOSED 2026-09-03**:
-   [`ERROR_DIAGNOSTICS_OVERHAUL.md`](ERROR_DIAGNOSTICS_OVERHAUL.md)
+   [`ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md)
    (structured diagnostics, `E`-codes with an offline `yo explain` registry,
    `--error-format human|short|json`; awaiting review).
 4. **Debug info** — `#line` directives mapping emitted C back to `.yo`
@@ -126,7 +126,7 @@ design constraint, not an accident:
    any model's context.
 2. **Errors as few-shot repairs** — see Phase 2.3; the error corpus doubles
    as training/eval data. Design proposed in
-   [`ERROR_DIAGNOSTICS_OVERHAUL.md`](ERROR_DIAGNOSTICS_OVERHAUL.md) — the
+   [`ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md) — the
    `yo explain` registry's verified examples are the corpus export.
 3. **Syntax stability + sugar pass** — do the breaking cleanups NOW (the
    pointer-operator retirement was the right kind); then freeze. Consider a
@@ -136,7 +136,7 @@ design constraint, not an accident:
    and permissively-licensed repos, so the next model generation knows Yo.
 5. **`yo explain <error-id>` / `yo fix`** — machine-consumable diagnostics.
    `yo explain` is designed in
-   [`ERROR_DIAGNOSTICS_OVERHAUL.md`](ERROR_DIAGNOSTICS_OVERHAUL.md);
+   [`ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md);
    `yo fix` remains open.
 
 ## Phase 5 — Targets & ecosystem

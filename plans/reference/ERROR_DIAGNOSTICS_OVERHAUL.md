@@ -4,12 +4,12 @@
 > #399; P2 PR #400; P3 + P3r + the P3r-1 Stage-0 balancing-drop leak fix PR
 > #403, opened as #401 and superseded when #400's branch was deleted on
 > merge). Kept as the living reference for the shipped design. This doc was
-> the detailed design for ROADMAP items [Phase 2.3](ROADMAP.md)
-> ("Error-message overhaul"), [Phase 4.2](ROADMAP.md) ("Errors as few-shot
-> repairs") and [Phase 4.5](ROADMAP.md) ("`yo explain <error-id>` /
+> the detailed design for ROADMAP items [Phase 2.3](../ROADMAP.md)
+> ("Error-message overhaul"), [Phase 4.2](../ROADMAP.md) ("Errors as few-shot
+> repairs") and [Phase 4.5](../ROADMAP.md) ("`yo explain <error-id>` /
 > machine-consumable diagnostics"), and it closed the
 > "structured-diagnostics return channel" remaining-quality item in
-> [P4_LSP.md](P4_LSP.md) header. Sections 1–4 are a verified audit of the
+> [P4_LSP.md](../archive/P4_LSP.md) header. Sections 1–4 are a verified audit of the
 > pre-overhaul `src/` (numbers frozen at their writing); sections 5+ are the
 > design as approved and landed.
 >

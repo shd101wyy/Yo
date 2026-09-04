@@ -14,7 +14,7 @@ This is Swift's model. It's Go's model. It's Java's model. All three are widely 
 
 ## Non-Goals
 
-- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](backlog/FUTURE_ORIGINS.md) for the deferred design.
+- **No `&(T)` reference type, no Origins, no lifetimes.** See [`FUTURE_ORIGINS.md`](../backlog/FUTURE_ORIGINS.md) for the deferred design.
 - **No `unsafe fn` (function coloring).** Only `unsafe(...)` expression calls at the use site. Unsafety doesn't propagate to callers.
 - **No borrow checker, no aliasing rules.**
 - **No changes to `&(x)` semantics.** `&(x)` still returns `*(T)` exactly as today (and is forbidden in safe code by the privilege gate, not by a semantic change).

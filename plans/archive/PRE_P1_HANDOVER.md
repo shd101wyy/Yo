@@ -1,4 +1,4 @@
-> **CLOSED 2026-08-09 — superseded by [`../P1_CLI_PARITY.md`](../P1_CLI_PARITY.md).**
+> **CLOSED 2026-08-09 — superseded by [`../P1_CLI_PARITY.md`](P1_CLI_PARITY.md).**
 >
 > This document asked "what should be true before we start writing P1 code?"
 > That question is answered: nothing is blocking, and P1 has started. Its three
@@ -30,7 +30,7 @@ Everything below is verified unless marked as a hypothesis.
 ~~1. The 3 HOLLOW test files~~ — **DONE 2026-08-08.** All three run their
 assertions, and `scripts/bootstrap/known-failing.tsv` is **empty**, so the
 full-corpus sweep now demands a clean run on its own. Five distinct bugs, not
-three; see [`issues/fixed/handover-yo-self-hollow-files.md`](../issues/fixed/handover-yo-self-hollow-files.md).
+three; see [`issues/fixed/handover-yo-self-hollow-files.md`](../../issues/fixed/handover-yo-self-hollow-files.md).
 
 ~~2. Branch protection is off~~ — **DONE 2026-08-08.** The `develop` ruleset is
 `enforcement: active` with **15** required status checks, up from a disabled
@@ -105,7 +105,7 @@ def-time body eval was blamed. The token points there only because that is where
 the body is. Compiling the definition **alone** (clean) versus definition + one
 call (fails) settles it in one compile, and is cheaper than either the four
 speculative fixes or the instrumented build that followed them. Full write-up:
-[`issues/fixed/handover-yo-self-hollow-files.md`](../issues/fixed/handover-yo-self-hollow-files.md).
+[`issues/fixed/handover-yo-self-hollow-files.md`](../../issues/fixed/handover-yo-self-hollow-files.md).
 
 > **Two warnings, both learned the expensive way, and still binding for the next
 > change in this area.** `hollow=0` is **not** proof of a fix — one attempt
@@ -177,7 +177,7 @@ Revert, if ever needed: `gh api -X PUT repos/shd101wyy/Yo/rulesets/13548862 --in
 
 ## 3. ~~Decide consciously — the `ctl` ABI issue~~ — FIXED 2026-08-09
 
-[`issues/fixed/ctl-handler-void-signature-vs-sret-cast.md`](../issues/fixed/ctl-handler-void-signature-vs-sret-cast.md)
+[`issues/fixed/ctl-handler-void-signature-vs-sret-cast.md`](../../issues/fixed/ctl-handler-void-signature-vs-sret-cast.md)
 
 Filed as _latent_ on the premise that no reachable `ctl` has a `ResumeType` over
 16 bytes. **Measurement refuted that premise**, in yo-self's own emitted C:
@@ -300,7 +300,7 @@ Two more scoping facts:
      as a byte offset (`formatter.yo:1460` → `read_raw_template_string`); ASCII
      hid it, so no existing test could catch it, and `fmt` exited 0 with output
      that did not parse. 23 of 40 sampled `std/` files were being destroyed.
-     [`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`](../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md)
+     [`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`](../../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md)
 
   **What remains is ONE class, 17 files**: a stray space before `)` after an
   operator token in a MULTILINE paren frame — `(==)`, `(..)`, `(..=)`,
@@ -319,7 +319,7 @@ Two more scoping facts:
   `read_raw_template_string`, whose parameter is documented and used as a BYTE
   offset. ASCII-only input hides it, which is why every existing test misses it.
   4-line reproducer and full analysis:
-  [`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`](../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
+  [`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`](../../issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
 
   This **must be fixed before the `fmt` differential gate can be wired at all** —
   the gate would otherwise be measuring corruption rather than style. It is also
@@ -339,7 +339,7 @@ Two more scoping facts:
      established with `ensureSpace()` — so `, .Some` collapses to `,.Some`, and
      likewise `=.Some`, `=>.Err`, `:.Some`. The fix is to trim only for MEMBER
      ACCESS (`needsSpaceBeforeAtom(previous)`, which is exactly "the dot has a left
-     operand"). See [`plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md`](PREFIX_OPERATOR_OPERAND_RULE.md),
+     operand"). See [`plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md`](../reference/PREFIX_OPERATOR_OPERAND_RULE.md),
      which diagnosed this independently and correctly.
 
      > **Retraction (2026-08-09).** An earlier revision of this section claimed
@@ -365,7 +365,7 @@ Two more scoping facts:
   canonicalizing, so a raw "would format" count conflates real spacing bugs with
   benign line-breaking differences — which is why the measurement above compares
   BOTH formatters' output on the same input instead of counting `--check` hits.
-  [`issues/fixed/yo-self-formatter-diverges-from-ts.md`](../issues/fixed/yo-self-formatter-diverges-from-ts.md)
+  [`issues/fixed/yo-self-formatter-diverges-from-ts.md`](../../issues/fixed/yo-self-formatter-diverges-from-ts.md)
 
 - **Depth-8 RC cap** — `_type_contains_rc_inner` returns `false` past 8 levels
   where TS uses an unbounded visited set, so an object nested >8 aggregate levels
@@ -373,7 +373,7 @@ Two more scoping facts:
   0 times across `check ./std`, `check ./yo-self`, and a full self-emit). The twin
   cap in `_type_is_control_bound_inner` fired **181,325,397 times in one self-emit**
   — a _performance_ lever, not a correctness one.
-  [`issues/yo-self-rc-depth-cap-skips-deep-teardown.md`](../issues/yo-self-rc-depth-cap-skips-deep-teardown.md)
+  [`issues/yo-self-rc-depth-cap-skips-deep-teardown.md`](../../issues/yo-self-rc-depth-cap-skips-deep-teardown.md)
 - Coverage gaps worth knowing: yo-self is built and exercised on **ubuntu-x86_64
   only**; the stage-2 binary is never run against any test (byte-identity only);
   TSan covers 6 files; there is no UBSan job.

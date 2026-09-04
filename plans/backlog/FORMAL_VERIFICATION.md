@@ -3,7 +3,7 @@
 > **Status: draft.** Initial design sketch — no code landed. This document
 > proposes a layered verification surface for Yo built on the existing
 > compile-time evaluator, algebraic effects, and where-clause type system.
-> Breaking changes are acceptable per [`yo-design.instructions.md`](../.github/instructions/yo-design.instructions.md).
+> Breaking changes are acceptable per [`yo-design.instructions.md`](../../.github/instructions/yo-design.instructions.md).
 
 ## Goal
 
@@ -682,7 +682,7 @@ through call chains as part of the type.
 
 ### `unsafe(...)` and the safe boundary
 
-The verifier respects [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md): inside an
+The verifier respects [`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md): inside an
 `unsafe(...)` expression, the verifier requires explicit pointer
 contracts:
 
@@ -1758,17 +1758,17 @@ non-empty slice or check at runtime.
 
 ## References
 
-- [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md) — the unsafe boundary verification
+- [`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md) — the unsafe boundary verification
   trusts.
-- [`EXPLICIT_EFFECTS.md`](archive/EXPLICIT_EFFECTS.md) — the effect model
+- [`EXPLICIT_EFFECTS.md`](../archive/EXPLICIT_EFFECTS.md) — the effect model
   capabilities sit on top of.
-- [`UNIFIED_COMPTIME_DESIGN.md`](backlog/UNIFIED_COMPTIME_DESIGN.md) — the
+- [`UNIFIED_COMPTIME_DESIGN.md`](UNIFIED_COMPTIME_DESIGN.md) — the
   comptime evaluator the VC generator extends.
-- [`GADTS.md`](GADTS.md) — per-variant refinement, the seed of value-
+- [`GADTS.md`](../reference/GADTS.md) — per-variant refinement, the seed of value-
   indexed types.
-- [`SLICE_FLOWABILITY.md`](archive/SLICE_FLOWABILITY.md) — example of non-trivial
+- [`SLICE_FLOWABILITY.md`](../archive/SLICE_FLOWABILITY.md) — example of non-trivial
   static analysis already running in the evaluator.
-- [`ASYNC_SM_VARIABLE_OPTIMIZATION.md`](archive/ASYNC_SM_VARIABLE_OPTIMIZATION.md)
+- [`ASYNC_SM_VARIABLE_OPTIMIZATION.md`](../archive/ASYNC_SM_VARIABLE_OPTIMIZATION.md)
   — the state-machine model async verification reuses.
 - External: Dafny (Microsoft Research), F\* (MSR Inria), Liquid Haskell,
   Rust + Kani, Frama-C/ACSL, CBMC, KLEE, SeaHorn.

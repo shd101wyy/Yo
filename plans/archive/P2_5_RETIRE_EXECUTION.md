@@ -531,7 +531,7 @@ Delete `:249`, `:250`, `:251`, `:265` and the `:276` `index.ts` pitfall outright
 > $ yo build          # build the compiler with itself → yo-out/<target>/bin/yo
 > ```
 >
-> You need an existing `yo` to build `yo`: download the latest release bundle and put its `bin/` on your PATH. That is the seed — see [plans/archive/BOOTSTRAPPING.md](plans/archive/BOOTSTRAPPING.md) for the trust chain. There is no watch loop; rebuild with `yo build` on demand.
+> You need an existing `yo` to build `yo`: download the latest release bundle and put its `bin/` on your PATH. That is the seed — see [plans/archive/BOOTSTRAPPING.md](../../plans/archive/BOOTSTRAPPING.md) for the trust chain. There is no watch loop; rebuild with `yo build` on demand.
 
 **`docs/{en-US,zh-CN}/LSP.md`** — banner at the top of both locales (option (b)) —
 

@@ -37,8 +37,8 @@ retired `&+` (grouped-infix intent preserved with `ptr + 1`); 41/42
 (`?*(u8)` tight) pass byte-identically once the chain rule fires.
 
 Originally proposed 2026-08-09. Companion to
-[`OPERATOR_ASSOCIATIVITY.md`](OPERATOR_ASSOCIATIVITY.md) (Yo's no-precedence
-philosophy) and [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) §6 (the `fmt`
+[`OPERATOR_ASSOCIATIVITY.md`](../archive/OPERATOR_ASSOCIATIVITY.md) (Yo's no-precedence
+philosophy) and [`P1_CLI_PARITY.md`](../archive/P1_CLI_PARITY.md) §6 (the `fmt`
 divergence, whose "space before `.`" class this rule resolves).
 
 ## TL;DR

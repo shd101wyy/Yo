@@ -80,7 +80,7 @@ Landed 2026-08-10:
      broken step never fed a final verdict. FIXED both sides + a
      `tests/cli-cases/build-fail` differential case asserting the failure
      contract. See
-     [the issue](../issues/fixed/yo-build-exits-zero-on-failed-step.md) —
+     [the issue](../../issues/fixed/yo-build-exits-zero-on-failed-step.md) —
      and its lesson: the differential only catches rc MISMATCHES, so a
      shared wrong rc passes silently; failure contracts need their own cases.
   2. **Self-hosted DEBUG-mode emission of the compiler miscompiles** (16
@@ -88,7 +88,7 @@ Landed 2026-08-10:
      first attempt ran the child compile without `--release` because the
      forwarding fix hadn't landed in the running binary. OPEN — off the
      critical path since everything canonical builds at -O2:
-     [issue](../issues/self-hosted-debug-emission-undeclared-temp.md).
+     [issue](../../issues/self-hosted-debug-emission-undeclared-temp.md).
 
 Still open in 2.2:
 
@@ -125,7 +125,7 @@ The first full-CI run over the P1 work failed 7 jobs; all triaged:
    deferred drops referenced `sm->var_<temp>` slots nothing ever stored, the
    escape dispose double-counted borrow bindings once the store landed, and
    nested matches made outer-arm drop cases unreachable (now chained). See
-   [the issue](../issues/fixed/async-match-scrutinee-deferred-drops-hit-zeroed-slot.md).
+   [the issue](../../issues/fixed/async-match-scrutinee-deferred-drops-hit-zeroed-slot.md).
    **yo-self port pending** — its `_store_temp_var_to_state_machine_if_needed`
    is a documented no-op stub, so stage-2-built binaries carry the same class.
 2. **Language tests (macOS/Windows/wasm×2) + hollow sweep — fixture bleed,
@@ -137,14 +137,14 @@ The first full-CI run over the P1 work failed 7 jobs; all triaged:
    Wave 1 (phantom-temp class, ~9 of 17 errors): the clear-variableName-
    around-raw-generation dance existed at only 3 of TS's 7 sites — ported to
    cond.yo/match.yo (see
-   [the phantom-temp issue](../issues/fixed/stage2-match-if-else-value-phantom-temp.md)).
+   [the phantom-temp issue](../../issues/fixed/stage2-match-if-else-value-phantom-temp.md)).
    Wave 2 (empty-RHS class, the remaining 8, all in fetch.yo): awaits inside
    bare-`if` bodies — a shape BOTH compilers miscompiled (TS silently skipped
    the branch at runtime; yo-self dropped the awaits and emitted
    `sm->var_N = ;`). Six-part fix across both compilers, kept 1:1 — see
-   [the bare-if issue](../issues/fixed/ts-bare-if-await-early-return-silently-skipped.md)
+   [the bare-if issue](../../issues/fixed/ts-bare-if-await-early-return-silently-skipped.md)
    and the updated
-   [await-position matrix](../issues/fixed/await-in-branch-positions-matrix.md).
+   [await-position matrix](../../issues/fixed/await-in-branch-positions-matrix.md).
    Wave 3 (the byte-diff layer the clang errors had masked): the C
    `i64.MIN` literal — `-9223372036854775808LL` is ULL-typed in C, so
    yo-self's inlined overflow-check comparisons went unsigned and every
@@ -167,7 +167,7 @@ The first full-CI run over the P1 work failed 7 jobs; all triaged:
 Also landed en route: `yo build` exits 1 on failed steps (both compilers +
 `build-fail` case), and the self-hosted def-eval swallow was found to extend
 to `compile` (an undefined call builds a runnable no-op binary —
-[open issue](../issues/fixed/self-hosted-compile-swallows-undefined-call.md)).
+[open issue](../../issues/fixed/self-hosted-compile-swallows-undefined-call.md)).
 
 ## doc --format html: LANDED (2026-08-10)
 

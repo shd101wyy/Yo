@@ -8,7 +8,7 @@
 
 Implement Rust-style iterator support for all Yo standard library collections. The `Iterator` and `IntoIterator` traits and the `for` macro are defined in `prelude.yo`. This plan adds iterator support across the entire `std/` library.
 
-> **Note:** The `Iterator` and `IntoIterator` traits now use direct trait types with associated types (see [Associated Types plan](../ASSOCIATED_TYPES.md)). The syntax has been updated from the original function-wrapper pattern (`Iterator(T)(next : ...)`) to direct trait fields (`Iterator(Item : T, next : ...)`).
+> **Note:** The `Iterator` and `IntoIterator` traits now use direct trait types with associated types (see [Associated Types plan](../reference/ASSOCIATED_TYPES.md)). The syntax has been updated from the original function-wrapper pattern (`Iterator(T)(next : ...)`) to direct trait fields (`Iterator(Item : T, next : ...)`).
 
 ## Design Decisions
 
@@ -47,7 +47,7 @@ IntoIterator :: trait(
 );
 ```
 
-> **History:** These traits were originally defined as function wrappers (`fn(...) -> Trait`). They were migrated to direct trait types with associated types as part of the [Associated Types redesign](../ASSOCIATED_TYPES.md).
+> **History:** These traits were originally defined as function wrappers (`fn(...) -> Trait`). They were migrated to direct trait types with associated types as part of the [Associated Types redesign](../reference/ASSOCIATED_TYPES.md).
 
 **`for` macro** (lines 3685–3743):
 
@@ -149,7 +149,7 @@ next : (fn(self : *(Self)) -> Option(T))(cond(
 
 ### 2. IntoIterator trait was unusable for generic impls (now resolved)
 
-`Self.IntoIter` in the IntoIterator trait could not be resolved for `impl(forall(T), ...)` due to the same evaluator limitation that affected `Self.Item`. This was addressed by the [Associated Types redesign](../ASSOCIATED_TYPES.md), which added proper associated type support via `extractTraitTypeArgsFromImplExpr` for direct trait types.
+`Self.IntoIter` in the IntoIterator trait could not be resolved for `impl(forall(T), ...)` due to the same evaluator limitation that affected `Self.Item`. This was addressed by the [Associated Types redesign](../reference/ASSOCIATED_TYPES.md), which added proper associated type support via `extractTraitTypeArgsFromImplExpr` for direct trait types.
 
 **Current status:** The IntoIterator trait now works correctly with associated types and where clause enforcement. However, the existing `into_iter` implementations remain as plain methods (not IntoIterator trait impls) since they were written before the fix and work correctly as-is. The `for` macro doesn't require IntoIterator — it just calls `.next()` on whatever is returned by the expression.
 
