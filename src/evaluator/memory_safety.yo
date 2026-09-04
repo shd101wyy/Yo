@@ -17,6 +17,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { cwd } :: import("std/env");
+{ Path } :: import("std/path");
 // NOTE: TS's `memory-safety.ts` declares its own internal `PragmaKind`
 // string-union, separate from the user-facing `Pragma` enum. yo-self is
 // self-hosted, so the compiler reuses the language's own `Pragma` enum
@@ -129,25 +130,27 @@ is_auto_generated_expansion :: (fn(module_path : Option(String)) -> bool)(
 /// does, add `pragma(Pragma.AllowMacroDef);` to the std macro-defining
 /// files and drop the std branch (plans/MACRO_POLICY.md Part 2).
 /// Lexically absolutize a path for the std-prefix comparison below: strip a
-/// `file://` scheme, then join a relative remainder onto the current working
-/// directory (dropping a leading `./`). Purely lexical — no symlink
+/// `file://` scheme, then absolutize. Purely lexical — no symlink
 /// resolution — matching how the loaders build std module URIs (a join on
-/// the same std root).
+/// the same std root). Normalization is delegated to `Path`, whose
+/// `is_absolute` recognizes the Windows shapes (`C:/...`, `\\host/...`) and
+/// folds `\` to `/`; a hand-rolled leading-`/` check cwd-joins those into
+/// `<cwd>/C:/...` garbage, which silently voided the std exemptions below
+/// for every Windows invocation whose std path arrived relative
+/// (issues/windows-lex-abs-path-voids-std-exemption.md).
 _lex_abs_path :: (fn(p : String) -> String)({
   (s : String) = p.clone();
   if(s.starts_with(`file://`), {
     s = s.slice_copy(usize(7) .. s.len());
   });
-  if(s.starts_with(`/`), {
-    return(s);
-  });
-  if(s.starts_with(`./`), {
-    s = s.slice_copy(usize(2) .. s.len());
+  (path : Path) = Path.new(s);
+  if(path.is_absolute(), {
+    return(path.to_string());
   });
   match(
     cwd(),
-    .Ok(d) => `${d.to_string()}/${s}`,
-    .Err(_) => s
+    .Ok(d) => d.join(path).to_string(),
+    .Err(_) => path.to_string()
   )
 });
 is_macro_def_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
@@ -211,5 +214,6 @@ export(
   is_implicitly_unsafe_capable_file,
   is_auto_generated_expansion,
   is_macro_def_capable_file,
-  is_overload_set_capable_file
+  is_overload_set_capable_file,
+  _lex_abs_path
 );

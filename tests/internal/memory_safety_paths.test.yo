@@ -1,0 +1,105 @@
+// Unit tests for the path-shape logic behind the evaluator's per-file
+// privilege gates (src/evaluator/memory_safety.yo).
+//
+// `_lex_abs_path` used to absolutize with a leading-`/` check only, so every
+// Windows absolute path — `C:/...`, `C:\...`, `file://C:/...` — was
+// cwd-joined into `<cwd>/C:/...` garbage. The std exemptions in
+// `is_macro_def_capable_file` and `is_overload_set_capable_file` then never
+// matched on Windows: `yo compile` / `yo check` with a relative
+// `--std-path ./std` rejected std files that define macros ("requires
+// 'pragma(Pragma.AllowMacroDef);'"), which made every seed-gated build of
+// this tree fail on Windows. See
+// issues/windows-lex-abs-path-voids-std-exemption.md.
+open(import("std/string"));
+{ assert } :: import("std/assert");
+{ cwd } :: import("std/env");
+{
+  _lex_abs_path,
+  is_macro_def_capable_file,
+  is_overload_set_capable_file
+} :: import("../../src/evaluator/memory_safety.yo");
+
+test("lex_abs_path: POSIX absolute path passes through unchanged", {
+  p := _lex_abs_path(String.from("/usr/lib/yo/std/m.yo"));
+  assert(p == String.from("/usr/lib/yo/std/m.yo"), "POSIX absolute is already absolute");
+});
+
+test("lex_abs_path: POSIX file:// URI strips the scheme", {
+  p := _lex_abs_path(String.from("file:///usr/lib/yo/std/m.yo"));
+  assert(p == String.from("/usr/lib/yo/std/m.yo"), "file:// scheme is stripped");
+});
+
+test("lex_abs_path: Windows drive-absolute forward-slash path is absolute", {
+  // Pre-fix this cwd-joined into `<cwd>/C:/Users/u/std/m.yo`.
+  p := _lex_abs_path(String.from("C:/Users/u/std/m.yo"));
+  assert(p == String.from("C:/Users/u/std/m.yo"), "drive-absolute path is not cwd-joined");
+});
+
+test("lex_abs_path: Windows file:// URI with drive letter is absolute", {
+  // The module-URI shape the loaders actually produce on Windows.
+  p := _lex_abs_path(String.from("file://C:/Users/u/std/m.yo"));
+  assert(p == String.from("C:/Users/u/std/m.yo"), "file://C:/ URI absolutizes to the drive path");
+});
+
+test("lex_abs_path: Windows backslash separators fold to forward slashes", {
+  p := _lex_abs_path(String.from("C:\\Users\\u\\std\\m.yo"));
+  assert(p == String.from("C:/Users/u/std/m.yo"), "backslashes normalize so prefix compares match");
+});
+
+test("lex_abs_path: relative path joins the working directory", {
+  p := _lex_abs_path(String.from("./std/m.yo"));
+  c := cwd();
+  match(
+    c,
+    .Ok(d) => {
+      want := `${d.to_string()}/std/m.yo`;
+      assert(p == want, "./std/m.yo absolutizes to <cwd>/std/m.yo");
+    },
+    .Err(_) => assert(true, "no cwd to compare against")
+  );
+});
+
+test("macro-def gate: Windows std file under an absolute std path is exempt", {
+  ok := is_macro_def_capable_file(
+    Option(String).Some(String.from("file://C:/prj/std/collections/array_list.yo")),
+    String.from("C:/prj/std")
+  );
+  assert(ok, "std file under Windows std path may define macros");
+});
+
+test("macro-def gate: POSIX std file is exempt", {
+  ok := is_macro_def_capable_file(
+    Option(String).Some(String.from("file:///usr/lib/yo/std/prelude.yo")),
+    String.from("/usr/lib/yo/std")
+  );
+  assert(ok, "std file under POSIX std path may define macros");
+});
+
+test("macro-def gate: non-std file stays gated", {
+  ok := is_macro_def_capable_file(
+    Option(String).Some(String.from("file:///home/u/proj/m.yo")),
+    String.from("/usr/lib/yo/std")
+  );
+  assert(!ok, "user file without the pragma may not define macros");
+});
+
+test("macro-def gate: no module path stays gated", {
+  ok := is_macro_def_capable_file(Option(String).None, String.from("/usr/lib/yo/std"));
+  assert(!ok, "no module path means no exemption");
+});
+
+test("overload gate: Windows prelude is the overload-set file", {
+  ok := is_overload_set_capable_file(
+    Option(String).Some(String.from("file://C:/prj/std/prelude.yo")),
+    String.from("C:/prj/std")
+  );
+  assert(ok, "prelude under Windows std path may define overload sets");
+});
+
+test("overload gate: other Windows std files are not", {
+  ok := is_overload_set_capable_file(
+    Option(String).Some(String.from("file://C:/prj/std/collections/array_list.yo")),
+    String.from("C:/prj/std")
+  );
+  assert(!ok, "only prelude may define overload sets");
+});

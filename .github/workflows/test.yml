@@ -764,12 +764,28 @@ jobs:
         include:
           - target: macos-arm64
             yo_target: aarch64-apple-darwin
+            # macOS legs stay system-flavored: mimalloc measured slower AND
+            # fatter there (plans/WINDOWS_ALLOCATOR_DECISION.md).
+            allocator: system
           - target: macos-x64
             yo_target: x86_64-apple-darwin
+            allocator: system
+          # The Windows legs receive MIMALLOC-flavored C. Since the vendored
+          # v3.5.1 bump, plain-C11 mimalloc compiles under clang on both
+          # Windows triples (issues/fixed/
+          # windows-arm64-mimalloc-msvc-arm-intrinsics.md), so the per-PR
+          # native suite exercises it on windows-x64 AND windows-11-arm —
+          # whose clang 22 treats the incompatible-pointer-types class that
+          # killed v3.5.0 as a hard ERROR. test-native links static.c on
+          # those legs only; a flavor/link mismatch degrades silently to
+          # the CRT heap via __has_include, which is why the allocator
+          # travels with the matrix row.
           - target: windows-x64
             yo_target: x86_64-pc-windows-msvc
+            allocator: mimalloc
           - target: windows-arm64
             yo_target: aarch64-pc-windows-msvc
+            allocator: mimalloc
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -801,15 +817,15 @@ jobs:
         with:
           name: suite-candidate
 
-      # --allocator system so the native leg needs no vendored-mimalloc link
-      # line: this binary exists to RUN the suite, not to be measured.
+      # The allocator travels with the matrix row (see the matrix comment):
+      # system for macOS, mimalloc for the Windows native legs.
       - name: "Cross-emit the suite compiler C (${{ matrix.yo_target }})"
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
           chmod +x yo-candidate
           mkdir -p cross
-          ./yo-candidate compile src/main.yo --optimize 2 --allocator system \
+          ./yo-candidate compile src/main.yo --optimize 2 --allocator ${{ matrix.allocator }} \
             --std-path ./std --target ${{ matrix.yo_target }} \
             --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
           ls -la "cross/yo-${{ matrix.target }}.c"
@@ -890,9 +906,15 @@ jobs:
               windows-x64)   CT=x86_64-pc-windows-msvc ;;
               windows-arm64) CT=aarch64-pc-windows-msvc ;;
             esac
+            # Windows C arrives mimalloc-flavored (see the suite-cross-emit
+            # matrix): link the vendored static.c or the emitted
+            # __has_include(<mimalloc.h>) block silently falls back to the
+            # CRT heap and the leg would test nothing.
             clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               --target=$CT \
               "cross/yo-${{ matrix.target }}.c" \
+              vendor/mimalloc/src/static.c \
+              -Ivendor/mimalloc/include \
               -lws2_32 -lbcrypt -ladvapi32 \
               -o yo-suite.exe
             ./yo-suite.exe --version

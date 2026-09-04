@@ -4,6 +4,28 @@
 `--allocator system` on **both** `windows-x64` and `windows-arm64`.
 Linux keeps mimalloc. macOS already used `system`.
 
+> **2026-09-04 update — revisited, measured on Windows, RE-AFFIRMED.** Both
+> grounds of the original decision were re-tested by PR #181:
+>
+> 1. *Buildability.* The vendored v3.5.1 bump removed the hard blocker:
+>    upstream fixed the clang-cl `__ldar64`/`__stlr64` gap (arm64) and the
+>    v3.5.0 x64 pointer-type breakage, so `--allocator mimalloc` now builds
+>    and runs on both Windows targets as plain C11 under clang — no local
+>    patches, no C++ route (`issues/fixed/
+>    windows-arm64-mimalloc-msvc-arm-intrinsics.md`). The per-PR Windows
+>    native suite legs (`test.yml` `test-native`) compile and run it on both
+>    arches, so the option stays CI-guarded for Windows users who pick it.
+> 2. *Cost.* The Windows A/B this file originally lacked now exists —
+>    measured 2026-09-04 on a windows-x64 host (clang 21.1.8, stage-1 twins
+>    built by the same seed from the same tree, 3 reps per arm,
+>    min-of-reps, `scripts/bootstrap/measure-windows.ps1`), on the two
+>    canonical heavy workloads rather than the 2026-08-20 `check ./std`
+>    probe: **system is ~25% faster on `check ./src` and ~28% faster on the
+>    full-tree emit, with non-overlapping spreads**; mimalloc is
+>    consistently leaner on peak. The macOS pattern reproduces on Windows.
+>    **`system` stays** (user, 2026-09-04) — see "The cost" below for the
+>    full tables.
+
 Recorded because the decision is **not** "mimalloc was broken so we removed it".
 On x64 mimalloc worked. It was removed for consistency, and this file exists so
 that a future reader does not rediscover the working x64 build and assume the
@@ -15,8 +37,8 @@ change was a mistake.
 | --- | --- | --- |
 | linux-x64, linux-arm64 | **mimalloc** | glibc malloc inflates the emit's peak RSS ~72% (15.5 GB vs 9.0 GB). Measured, platform-specific, and does not transfer. |
 | macos-arm64, macos-x64 | system | mimalloc measured **slower and fatter** on macOS — 3.3x on markdown_it_yo, +53% wall on the r15 self-emit. |
-| windows-x64 | system | this decision — see below |
-| windows-arm64 | system | this decision, and mimalloc cannot be built there at all |
+| windows-x64 | system | re-measured 2026-09-04: system ~25% faster on wall (check, emit), mimalloc leaner on peak — see "The cost" |
+| windows-arm64 | system | same decision and evidence as x64 (no arm64 Windows host has run the A/B); mimalloc v3.5.1 builds there now and is CI-exercised per-PR |
 
 ## The two Windows targets were NOT the same question
 
@@ -106,6 +128,49 @@ inside a step gated `if: runner.os == 'Linux'`.)
 The other cost of the alternative is worth restating: keeping mimalloc on x64
 would have pinned the submodule to v3.3.2, since v3.5.0 does not compile there.
 
+### Re-measured on the real workloads (2026-09-04): system wins wall decisively
+
+The 2026-08-20 probe ran `check ./std` — a toy next to what yo.exe actually
+does. Once the v3.5.1 bump made mimalloc buildable again, the A/B was re-run
+on the two canonical heavy workloads. Same method (stage-1 twins built by the
+same seed from the same tree, 3 reps per arm, min-of-reps, peak sampled
+in-loop at 200 ms):
+
+`yo check ./src --std-path ./std` (evaluator-bound):
+
+| arm | min wall | spread | min peak |
+| --- | --- | --- | --- |
+| mimalloc v3.5.1 | 455.58 s | 37.18 s | 13,391 MB |
+| system | 340.10 s | 11.65 s | 15,447 MB |
+
+full-tree emit (`compile src/main.yo --optimize 2 --emit-c --skip-c-compiler`,
+the CI/release hot path):
+
+| arm | min wall | spread | min peak |
+| --- | --- | --- | --- |
+| mimalloc v3.5.1 | 511.88 s | 12.94 s | 12,823 MB (reps ranged 12.8–16.3 GB) |
+| system | 368.74 s | 68.70 s | 18,490 MB (flat across reps) |
+
+Wall: mimalloc is **+34% slower on check and +39% slower on the emit**
+(equivalently, system is 25%/28% faster), and both comparisons are
+unambiguous — the arms' spreads do not overlap; system's WORST emit rep
+(437 s) beats mimalloc's BEST (512 s). The macOS pattern reproduces: mimalloc
+v3's abandoned-page reclaim-on-free path costs more than the platform default
+saves for this compiler's allocation pattern, on Windows as on macOS.
+
+Peak: the one dimension mimalloc wins — 13% leaner on check, and on the emit
+12.8–16.3 GB against system's flat 18.5 GB. A real trade, and the reason
+mimalloc still pays its way on Linux; but wall time is what the release
+pipeline, CI, and every `yo build` pay, so the decision re-affirms `system`
+(user, 2026-09-04). Windows now keeps `system` not for lack of measurement
+but because of it.
+
+(Tooling note: the sampler's original post-exit `PeakWorkingSet64` read
+silently stopped working on modern .NET — it returns empty once the child
+exits, even with the handle cached. `scripts/bootstrap/measure-windows.ps1`
+now samples the peak in a 200 ms wait loop; the numbers above are from that
+version.)
+
 ## How to revisit
 
 The decision is one matrix field per target in `.github/workflows/release.yml`
@@ -115,17 +180,23 @@ it, so the emit and the link cannot drift.
 
 Reopen this if any of the following changes:
 
-1. The Windows A/B shows mimalloc materially ahead on wall or peak.
-2. Upstream mimalloc adds a `__clang__` discriminator to `atomic.h`, making the
-   C11 route viable on ARM64. It had none as of v3.5.0 and the tips of
-   `main`/`dev`/`dev3` (checked 2026-08-20).
+1. RESOLVED 2026-09-04, against flipping: the A/B ran and system is
+   materially ahead on wall (see "The cost"). Reopen only if a workload
+   appears where peak RSS is the binding constraint AND the measured wall
+   regression is acceptable.
+2. RESOLVED by v3.5.1: upstream added the `__clang__` discriminators
+   (PRs #1379/#1380), making the C11 route viable on ARM64. No longer a
+   differentiator — the arm64 build works and is CI-exercised.
 3. The portable single-file `yo.c` constraint is dropped, which would put the
-   C++ route back on the table.
+   C++ route back on the table. (Moot for allocator choice while `system`
+   wins wall anyway.)
 
 ## Related
 
-- `issues/retired/windows-arm64-mimalloc-msvc-arm-intrinsics.md` — the original arm64 break (retired: mooted by this decision)
+- `issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md` — the original arm64 break (fixed upstream in v3.5.1; was retired as mooted by this decision, restored to `issues/fixed/` by the v3.5.1 bump)
 - `issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md` — a SEPARATE
   defect in Yo's own emitted C. windows-arm64 stays `experimental: true` because
   of it; the allocator change does not touch it.
 - `issues/fixed/mimalloc-performance-regression.md` — the macOS measurements
+- `scripts/bootstrap/measure-windows.ps1` — the A/B tool (restored 2026-09-04
+  with in-loop peak capture; `check ./src`/emit numbers above are its output)

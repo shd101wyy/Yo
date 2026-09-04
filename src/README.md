@@ -52,7 +52,7 @@ yo test ./tests/internal/lexer.test.yo --test-name-pattern "tokenize" --parallel
 
 ## Test suite layout
 
-The compiler's own tests live in **`tests/internal/`** — 58 files compiled and run
+The compiler's own tests live in **`tests/internal/`** — 65 files compiled and run
 by `yo`. They were at `yo-self/tests/` until 2026-08-05 (moved because the
 TypeScript `src/` was going to be retired and `yo-self/` renamed to `src/`, so
 they belong under `tests/` rather than being shuffled twice — both have since

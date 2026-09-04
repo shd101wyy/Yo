@@ -12,7 +12,7 @@
 `Q2: can mimalloc build on windows-arm64 via the C++ route?`).
 
 This is a **separate defect** from
-`issues/windows-arm64-mimalloc-msvc-arm-intrinsics.md`. That one is in vendored
+`issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md`. That one is in vendored
 mimalloc. This one is in **Yo's own emitted C**.
 
 ## Symptom
