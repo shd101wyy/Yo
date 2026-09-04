@@ -11,6 +11,12 @@
 //! same choice as loop labels — so a module-level mutable global isn't needed,
 //! which keeps the Phase-6 self-host fixpoint happy).
 open(import("std/string"));
+{ eprintln } :: import("std/fmt");
+_(env : ao_env) :: import("std/env");
+// YO_DEBUG_TAIL_FLUSH=1 — the probe flag shared with drop_dup.yo: prints
+// every short-circuit branch-drop emission (the pinpoint probe for the
+// analytically-cancelled drop class).
+(g_debug_or0 : bool) = ao_env.get(`YO_DEBUG_TAIL_FLUSH`).is_some();
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_is_fn_call_of, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
@@ -177,6 +183,9 @@ _emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : 
               sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
               sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.contains(sc_target_cn));
               if(!sc_undeclared, {
+                if(g_debug_or0, {
+                  eprintln(`[scdrop] EMIT drop of ${target.clone()} in ${context.base.current_function_name.clone()}`);
+                });
                 drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
                 if(drop_code.len() > usize(0), {
                   line := indent.clone();
@@ -346,6 +355,9 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
+  if(g_debug_or0, {
+    eprintln(`[or0] AND operand-0 emission in ${context.base.current_function_name.clone()} (${first_var_names.len().to_string()} names)`);
+  });
   _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
   sc_var
 });
@@ -472,6 +484,9 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
+  if(g_debug_or0, {
+    eprintln(`[or0] OR operand-0 emission in ${context.base.current_function_name.clone()} (${first_var_names.len().to_string()} names)`);
+  });
   _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
   sc_var
 });
