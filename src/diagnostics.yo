@@ -13,6 +13,71 @@
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
+{ JsonValue, json_stringify } :: import("std/encoding/json");
+/// The error-rendering format for this process: "human" (default), "short",
+/// or "json" (JSON Lines — one object per diagnostic, on stdout). Set once
+/// at CLI startup from `--error-format`/`YO_ERROR_FORMAT`; every edge that
+/// prints or rethrows a rendered diagnostic goes through
+/// `render_diagnostics_for_mode` so the choice is global and consistent.
+(g_error_format : String) = String.from("human");
+set_error_format :: (fn(mode : String) -> unit)({
+  g_error_format = mode;
+});
+error_format :: (fn() -> String)(g_error_format);
+/// Print already-rendered diagnostic text on the right stream: JSON Lines
+/// are DATA (stdout); human/short go to stderr like every compiler's
+/// diagnostics.
+emit_rendered_text :: (fn(text : String) -> unit)({
+  cond(
+    (g_error_format == "json") => println(text),
+    true => eprintln(text)
+  );
+});
+/// Progress chatter (`check: …`): stdout normally, stderr under
+/// `--error-format json` so the data channel stays pure JSON Lines.
+emit_chatter :: (fn(text : String) -> unit)({
+  cond(
+    (g_error_format == "json") => eprintln(text),
+    true => println(text)
+  );
+});
+/// ── Diagnostic codes (P2, plans/ERROR_DIAGNOSTICS_OVERHAUL.md §5) ──────────
+/// `E` + 4 digits, allocated per error FAMILY (never renumbered once
+/// published). Bands: E00xx–E02xx syntax (lexer+parser), E03xx–E05xx
+/// name/scope/module resolution, E06xx–E08xx types & traits, E09xx–E10xx
+/// ownership/moves/effects/async, E11xx–E12xx comptime, E13xx internal
+/// codegen, E15xx CLI/build/deps. These `str` constants are the only
+/// spelling of each code in the tree.
+// Syntax (lexer + parser).
+E_UNEXPECTED_TOKEN :: "E0001";
+E_EXPECTED_TOKEN :: "E0002";
+E_ADJACENT_OPERATORS :: "E0003";
+E_UNTERMINATED :: "E0004";
+E_UNEXPECTED_CHARACTER :: "E0005";
+E_UNKNOWN_OPERATOR :: "E0006";
+E_STRUCT_LITERAL_VS_BLOCK :: "E0007";
+E_CALL_SYNTAX :: "E0008";
+// Name / scope / module resolution.
+E_VARIABLE_NOT_FOUND :: "E0401";
+E_ENUM_VARIANT_NOT_FOUND :: "E0402";
+E_MODULE_FIELD_NOT_FOUND :: "E0403";
+E_NOT_DEFINED :: "E0404";
+// Types & traits.
+E_INCOMPATIBLE_TYPES :: "E0601";
+E_TRAIT_NOT_IMPLEMENTED :: "E0602";
+E_ARGUMENT_COUNT_MISMATCH :: "E0603";
+E_RETURN_TYPE_MISMATCH :: "E0604";
+E_TYPE_MISMATCH :: "E0605";
+// Ownership / moves / effects / async.
+E_USE_OF_MOVED_VALUE :: "E0901";
+E_CANNOT_REASSIGN :: "E0902";
+E_MAYBE_UNINITIALIZED :: "E0903";
+E_AWAIT_PLACEMENT :: "E0904";
+E_NEVER_FULLY_EVALUATED :: "E0905";
+E_FORWARD_REFERENCE :: "E0906";
+// Comptime.
+E_COMPTIME_ARGUMENT :: "E1101";
+E_COMPTIME_OVERFLOW :: "E1102";
 /// The severity of a diagnostic entry. The FIRST entry of an error group is
 /// the primary (`Error`, or `Warning` once a warnings channel exists);
 /// secondary entries ("value moved here", "Defined here:") are `Note`s.
@@ -123,6 +188,14 @@ _render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit
       out.push(`${indent}| ${col_spaces}${carets}`);
     });
   });
+  if(d.code.is_some(), {
+    c := match(
+      d.code,
+      .Some(cc) => cc,
+      .None => String.new()
+    );
+    out.push(`help: run \`yo explain ${c}\` for more information`);
+  });
 });
 /// The human rendering of a diagnostic group (rustc-shaped): each entry in
 /// order — entry 0 is the primary error, the rest are notes — separated by
@@ -185,5 +258,82 @@ render_diagnostics_short :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
   });
   String.from("\n").join(out)
 });
+/// The JSON Lines rendering (P2): one JSON object per diagnostic, one line
+/// each — so `head`/`jq` work per line. Positions are 0-based (the internal
+/// `Token` basis; the +1 is display-only) and `end_col` = col + span length.
+/// `rendered` carries the human block verbatim: agents get fields for logic
+/// and the caret block for reading, without re-deriving either.
+/// `labels`/`notes`/`help` exist (empty for now) so the schema is stable
+/// when P3 fills them.
+render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+  out := ArrayList(String).new();
+  (di : usize) = usize(0);
+  while(di < diagnostics.len(), {
+    match(
+      diagnostics.get(di),
+      .Some(d) => {
+        single := ArrayList(Diagnostic).new();
+        single.push(d);
+        sev := _severity_prefix(d.severity);
+        span_keys := ArrayList(String).new();
+        span_vals := ArrayList(JsonValue).new();
+        span_keys.push(String.from("file"));
+        span_vals.push(JsonValue.Str(value : d.span.path));
+        span_keys.push(String.from("row"));
+        span_vals.push(JsonValue.Number(value : f64(d.span.row)));
+        span_keys.push(String.from("col"));
+        span_vals.push(JsonValue.Number(value : f64(d.span.col)));
+        span_keys.push(String.from("end_col"));
+        span_vals.push(JsonValue.Number(value : f64(d.span.col + d.span.len)));
+        keys := ArrayList(String).new();
+        vals := ArrayList(JsonValue).new();
+        keys.push(String.from("code"));
+        vals.push(
+          match(
+            d.code,
+            .Some(c) => JsonValue.Str(value : c),
+            .None => JsonValue.Null
+          )
+        );
+        keys.push(String.from("severity"));
+        vals.push(JsonValue.Str(value : sev));
+        keys.push(String.from("message"));
+        vals.push(JsonValue.Str(value : d.message));
+        keys.push(String.from("span"));
+        vals.push(JsonValue.Object(keys : span_keys, values : span_vals));
+        keys.push(String.from("labels"));
+        vals.push(JsonValue.Array(items : ArrayList(JsonValue).new()));
+        keys.push(String.from("notes"));
+        vals.push(JsonValue.Array(items : ArrayList(JsonValue).new()));
+        keys.push(String.from("help"));
+        vals.push(JsonValue.Null);
+        keys.push(String.from("rendered"));
+        vals.push(JsonValue.Str(value : render_diagnostics_human(single)));
+        out.push(json_stringify(JsonValue.Object(keys : keys, values : vals)));
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  String.from("\n").join(out)
+});
+/// Render a diagnostic group in the process's current format (defined after
+/// the three renderers it dispatches to — module-level order matters).
+render_diagnostics_for_mode :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)(
+  cond(
+    (g_error_format == "short") => render_diagnostics_short(diagnostics),
+    (g_error_format == "json") => render_diagnostics_json(diagnostics),
+    true => render_diagnostics_human(diagnostics)
+  )
+);
 export(Severity, Span, Label, Diagnostic);
-export(render_diagnostics_human, render_diagnostics_short);
+export(render_diagnostics_human, render_diagnostics_short, render_diagnostics_json);
+export(render_diagnostics_for_mode, set_error_format, error_format, emit_rendered_text, emit_chatter);
+export(E_UNEXPECTED_TOKEN, E_EXPECTED_TOKEN, E_ADJACENT_OPERATORS, E_UNTERMINATED);
+export(E_UNEXPECTED_CHARACTER, E_UNKNOWN_OPERATOR, E_STRUCT_LITERAL_VS_BLOCK, E_CALL_SYNTAX);
+export(E_VARIABLE_NOT_FOUND, E_ENUM_VARIANT_NOT_FOUND, E_MODULE_FIELD_NOT_FOUND, E_NOT_DEFINED);
+export(E_INCOMPATIBLE_TYPES, E_TRAIT_NOT_IMPLEMENTED, E_ARGUMENT_COUNT_MISMATCH);
+export(E_RETURN_TYPE_MISMATCH, E_TYPE_MISMATCH);
+export(E_USE_OF_MOVED_VALUE, E_CANNOT_REASSIGN, E_MAYBE_UNINITIALIZED, E_AWAIT_PLACEMENT);
+export(E_NEVER_FULLY_EVALUATED, E_FORWARD_REFERENCE);
+export(E_COMPTIME_ARGUMENT, E_COMPTIME_OVERFLOW);

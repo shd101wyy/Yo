@@ -1,0 +1,603 @@
+//! src/diagnostics_registry — the bilingual explanation registry for Yo's
+//! diagnostic codes (P2, plans/ERROR_DIAGNOSTICS_OVERHAUL.md §5–§6).
+//!
+//! Every entry carries English AND Simplified Chinese prose from day one
+//! (maintainer decision, §11.3): `title`/`title_zh`, `summary`/`summary_zh`,
+//! `explanation`/`explanation_zh`, and the example's `why`/`why_zh` — the
+//! bad/good snippets themselves are language-neutral. The registry ships
+//! inside the binary, so `yo explain` works offline; codes are never
+//! renumbered once published.
+//!
+//! The registry test (tests/internal/diagnostics_registry.test.yo) enforces
+//! completeness: every code the classifier can emit has an entry, no prose
+//! field is empty in either language, and every entry has its example pair.
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ JsonValue, json_stringify } :: import("std/encoding/json");
+{
+  E_UNEXPECTED_TOKEN,
+  E_EXPECTED_TOKEN,
+  E_ADJACENT_OPERATORS,
+  E_UNTERMINATED,
+  E_UNEXPECTED_CHARACTER,
+  E_UNKNOWN_OPERATOR,
+  E_STRUCT_LITERAL_VS_BLOCK,
+  E_CALL_SYNTAX,
+  E_VARIABLE_NOT_FOUND,
+  E_ENUM_VARIANT_NOT_FOUND,
+  E_MODULE_FIELD_NOT_FOUND,
+  E_NOT_DEFINED,
+  E_INCOMPATIBLE_TYPES,
+  E_TRAIT_NOT_IMPLEMENTED,
+  E_ARGUMENT_COUNT_MISMATCH,
+  E_RETURN_TYPE_MISMATCH,
+  E_TYPE_MISMATCH,
+  E_USE_OF_MOVED_VALUE,
+  E_CANNOT_REASSIGN,
+  E_MAYBE_UNINITIALIZED,
+  E_AWAIT_PLACEMENT,
+  E_NEVER_FULLY_EVALUATED,
+  E_FORWARD_REFERENCE,
+  E_COMPTIME_ARGUMENT,
+  E_COMPTIME_OVERFLOW
+} :: import("./diagnostics.yo");
+/// One registry entry: a code, its bilingual prose, and one bad→good
+/// example pair (snippets are language-neutral; the `why` is bilingual).
+Explain :: struct(
+  code : String,
+  title : String,
+  title_zh : String,
+  summary : String,
+  summary_zh : String,
+  explanation : String,
+  explanation_zh : String,
+  bad : String,
+  good : String,
+  why : String,
+  why_zh : String
+);
+_mk_explain :: (
+  fn(
+    code : str,
+    title : str,
+    title_zh : str,
+    summary : str,
+    summary_zh : str,
+    explanation : str,
+    explanation_zh : str,
+    bad : str,
+    good : str,
+    why : str,
+    why_zh : str
+  ) -> Explain
+)(
+  Explain(
+    code : String.from(code),
+    title : String.from(title),
+    title_zh : String.from(title_zh),
+    summary : String.from(summary),
+    summary_zh : String.from(summary_zh),
+    explanation : String.from(explanation),
+    explanation_zh : String.from(explanation_zh),
+    bad : String.from(bad),
+    good : String.from(good),
+    why : String.from(why),
+    why_zh : String.from(why_zh)
+  )
+);
+/// The registry, one entry per diagnostic code. Literals live inside this
+/// function on purpose (module-level backtick String literals are not
+/// comptime values — see the yo-syntax notes).
+registry_entries :: (fn() -> ArrayList(Explain))({
+  out := ArrayList(Explain).new();
+  out.push(
+    _mk_explain(
+      E_UNEXPECTED_TOKEN,
+      "unexpected token",
+      "意外的记号",
+      "The parser met a token it cannot use at this position.",
+      "解析器在此位置遇到了无法使用的记号。",
+      "The grammar expects a specific shape here and the token does not fit it. Read the caret line: the offending token is underlined. Common causes: a stray `;` or `,`, a missing operator, or an expression that ended too early.",
+      "此处的语法有特定的形状要求，而这个记号不符合。查看插入符号行：出错的记号已被标出。常见原因：多余的分号或逗号、缺少运算符，或表达式过早结束。",
+      "x := (1 + ;",
+      "x := (1 + 2);",
+      "The `;` cannot follow `+` — the right operand is missing.",
+      "`;` 不能紧跟在 `+` 之后 —— 缺少右侧操作数。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_EXPECTED_TOKEN,
+      "expected a specific token",
+      "缺少特定的记号",
+      "A delimiter or keyword is missing from the surrounding construct.",
+      "所在构造缺少一个分隔符或关键字。",
+      "Yo has no operator precedence, so grouping is explicit: every `( ... )`, `[ ... ]` and `{ ...; ... }` must close with the matching token, and calls need their argument list complete. The message names what was expected (for example `expected )`).",
+      "Yo 没有运算符优先级，因此分组是完全显式的：每个 `( ... )`、`[ ... ]` 和 `{ ...; ... }` 都必须以匹配的记号闭合，调用也需要完整的参数列表。错误信息会指出期望的内容（例如 `expected )`）。",
+      "sum := (a + (b * c);\nsum2 := (a + b * c);",
+      "sum := (a + (b * c));\nsum2 := ((a + b) * c);",
+      "The inner call is missing its `)`, and adjacent different operators always need parentheses.",
+      "内层表达式缺少 `)`，且相邻的不同运算符必须加括号。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ADJACENT_OPERATORS,
+      "adjacent different operators need parentheses",
+      "相邻的不同运算符需要括号",
+      "Two different operators sit next to each other with no grouping.",
+      "两个不同的运算符相邻出现且没有分组。",
+      "Yo deliberately has NO operator precedence. A chain of the SAME operator is fine (`a + b + c`), but as soon as two DIFFERENT operators are adjacent you must choose the grouping explicitly with parentheses.",
+      "Yo 刻意不设运算符优先级。同一个运算符的链没有问题（`a + b + c`），但一旦两个不同的运算符相邻，就必须用括号明确指定分组。",
+      "y := (a + b * c);",
+      "y := (a + (b * c));",
+      "`+` and `*` are different operators — pick which binds first.",
+      "`+` 和 `*` 是不同的运算符 —— 请选择先结合哪一个。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNTERMINATED,
+      "unterminated literal or comment",
+      "未闭合的字面量或注释",
+      "A block comment, template string, or char literal was never closed.",
+      "块注释、模板字符串或字符字面量没有闭合。",
+      "The lexer reached the end of the file while still inside the construct. Find its opening delimiter (`/*`, a backtick, or a char quote) and close it.",
+      "词法分析器在该构造内部就到达了文件末尾。找到它的起始定界符（`/*`、反引号或字符引号）并将其闭合。",
+      "s := `hello;",
+      "s := `hello`;",
+      "The template string opened with a backtick never closes.",
+      "以反引号开始的模板字符串没有闭合。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNEXPECTED_CHARACTER,
+      "unexpected character",
+      "意外字符",
+      "The lexer met a character that cannot start any Yo token.",
+      "词法分析器遇到了不能作为任何 Yo 记号开头的字符。",
+      "This is usually a full-width punctuation mark from an IME (，；（）) or an invisible control character. Replace it with the ASCII equivalent.",
+      "这通常来自输入法的全角标点（，；（））或不可见的控制字符。请替换为对应的 ASCII 字符。",
+      "f(a，b)",
+      "f(a, b)",
+      "The full-width comma `，` is not Yo's ASCII comma.",
+      "全角逗号 `，` 不是 Yo 的 ASCII 逗号。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_UNKNOWN_OPERATOR,
+      "unknown operator run",
+      "未知的运算符序列",
+      "A run of operator characters is not any operator Yo knows.",
+      "一串运算符字符不是 Yo 认识的任何运算符。",
+      "Yo has a CLOSED operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md): operator characters are split greedily against the fixed table, and an unknown run is a lex error. Separate the operators with spaces or parentheses, or use the named method.",
+      "Yo 的运算符集合是封闭的（plans/OPERATOR_SET_AND_PRECEDENCE.md）：运算符字符会按固定表贪婪切分，未知的序列是词法错误。请用空格或括号分隔运算符，或改用命名方法。",
+      "p &+ n",
+      "p.add(n)",
+      "`&+` is not an operator — pointer arithmetic uses `.add`/`.sub`.",
+      "`&+` 不是运算符 —— 指针运算使用 `.add`/`.sub`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_STRUCT_LITERAL_VS_BLOCK,
+      "{ ... } without semicolons is a struct literal",
+      "无分号的 { ... } 是结构体字面量",
+      "A braced single expression is parsed as a struct value, not a block.",
+      "花括号内的单个表达式会被解析为结构体值，而不是语句块。",
+      "This is Yo's most distinctive brace rule: `{ expr }` (no semicolons) constructs an anonymous struct; `{ stmt; stmt; }` is a block. Wrap the expression in `begin`-style braces with semicolons, or — better — drop the braces and let the expression stand alone.",
+      "这是 Yo 最特别的 braces 规则：`{ expr }`（无分号）构造匿名结构体；`{ stmt; stmt; }` 才是语句块。请为语句加分号，或者更好的做法是去掉花括号，直接写表达式。",
+      "r := { .Ok(()) }",
+      "r := .Ok(())",
+      "The braces make `.Ok(())` a struct field value, not a Result.",
+      "花括号把 `.Ok(())` 变成了结构体字段值，而不是 Result。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CALL_SYNTAX,
+      "call syntax",
+      "调用语法",
+      "Function calls need immediate parentheses with no space before them.",
+      "函数调用的圆括号必须紧跟函数名，前面不能有空格。",
+      "Calls are `f(a, b)` — never `f (a, b)` and never paren-less. The no-whitespace rule is what lets the parser tell a call from an expression list, and it applies to every keyword call too (`return(x)`, not `return (x)`).",
+      "调用写作 `f(a, b)` —— 不能是 `f (a, b)`，也不能省略括号。无空格规则让解析器能够区分调用与表达式列表，它同样适用于所有关键字调用（`return(x)` 而非 `return (x)`）。",
+      "f (1)",
+      "f(1)",
+      "The space before `(` turns the call into a parse error.",
+      "`(` 前的空格会让调用变成解析错误。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_VARIABLE_NOT_FOUND,
+      "name not found",
+      "找不到名称",
+      "No binding with this name is visible at this point.",
+      "此处没有可见的同名绑定。",
+      "Check the spelling first. Then check ORDER: module-level definitions are processed top-to-bottom, so a function must be defined BEFORE its callers (helpers first, callers last). An identifier from another module needs the module imported, and a type from it is reached through the module value.",
+      "先检查拼写。再检查顺序：模块级定义自上而下处理，函数必须定义在调用者之前（先辅助函数，后调用者）。来自其他模块的标识符需要先 import，并通过模块值访问。",
+      "main :: (fn() -> unit)({\n  helper();\n});\nhelper :: (fn() -> unit)(());\n",
+      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper();\n});\n",
+      "`helper` is defined after its caller — move it above.",
+      "`helper` 定义在调用者之后 —— 把它移到前面。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ENUM_VARIANT_NOT_FOUND,
+      "enum variant not found",
+      "找不到枚举变体",
+      "The enum has no variant with this name.",
+      "该枚举没有这个名字的变体。",
+      "Variants are constructed with a leading dot (`.Some(1)`). If the spelling is right, the name may live on a DIFFERENT enum than the one the type checker resolved — qualify it through the enum's module or bind the enum to a local first.",
+      "变体用前导点构造（`.Some(1)`）。如果拼写没错，这个名称可能在类型检查器解析到的另一个枚举上 —— 通过枚举所在模块限定它，或先把枚举绑定到局部变量。",
+      "e : Color = .Reed;",
+      "e : Color = .Red;",
+      "Typo: the variant is `Red`, not `Reed`.",
+      "拼写错误：变体是 `Red`，不是 `Reed`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MODULE_FIELD_NOT_FOUND,
+      "module field not found",
+      "找不到模块字段",
+      "The imported module does not export a member with this name.",
+      "导入的模块没有导出这个名字的成员。",
+      "A module's public surface is exactly its `export(...)` list. Either the member is not exported, or it is spelled differently — check the module's export line, or open the module to see its names.",
+      "模块的公开接口就是它的 `export(...)` 列表。要么该成员未被导出，要么拼写不同 —— 查看模块的 export 行，或 open 该模块查看其名称。",
+      "{ a } :: import(\"./other.yo\");\nx := a_missing(a);",
+      "{ a } :: import(\"./other.yo\");\nx := a(a);",
+      "`a_missing` is not in `other.yo`'s export list.",
+      "`a_missing` 不在 `other.yo` 的 export 列表中。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NOT_DEFINED,
+      "variable is not defined",
+      "变量未定义",
+      "The name is used where no definition of it exists.",
+      "在不存在其定义的地方使用了该名称。",
+      "Unlike a scope miss, this usually means the binding itself never happened — a `::` definition that failed earlier, or a name that only exists in a sibling branch. Define it before use, at the same module level.",
+      "与作用域未命中不同，这通常意味着绑定本身没有发生 —— 更早的 `::` 定义失败，或该名称只存在于兄弟分支中。请在同一模块层级先定义再使用。",
+      "main :: (fn() -> unit)({\n  helper2();\n});",
+      "helper2 :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper2();\n});",
+      "The callee is never defined in the file.",
+      "被调用者从未在文件中定义。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_INCOMPATIBLE_TYPES,
+      "incompatible types",
+      "类型不兼容",
+      "The value's type does not satisfy the expected type at this position.",
+      "值的类型不满足此位置期望的类型。",
+      "Yo checks structurally but nominally for enums/traits. Read the Expected/Given pair in the message: convert explicitly (`i32(x)`, `String.from(...)`), or fix the producing expression. Numeric types never implicitly convert — every width change is a named conversion.",
+      "Yo 对结构体做结构化检查，但对枚举/trait 采用名义类型。请阅读错误信息中的 Expected/Given：显式转换（`i32(x)`、`String.from(...)`），或修正产生该值的表达式。数值类型从不隐式转换 —— 每次位宽改变都是一次显式命名转换。",
+      "x : i32 = i64(5);",
+      "x : i32 = i32(5);",
+      "i64 does not narrow to i32 implicitly.",
+      "i64 不会隐式收窄为 i32。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_TRAIT_NOT_IMPLEMENTED,
+      "required trait not implemented",
+      "未实现必需的 trait",
+      "A where-clause bound is not satisfied by the type.",
+      "类型不满足 where 子句的约束。",
+      "The call site requires `T <: SomeTrait` and the type's impls do not provide it. Add the `impl(T, SomeTrait(...))` near the type (and register it BEFORE first use — impls are bindings too), or relax the bound. If you wrote `must NOT implement`, this is its positive twin.",
+      "调用点要求 `T <: SomeTrait`，而该类型的 impl 没有提供。请在类型附近添加 `impl(T, SomeTrait(...))`（并在首次使用之前注册 —— impl 也是绑定），或放宽约束。",
+      "fn sq(v : T, where(T <: Mul)) -> T;\n",
+      "impl(Point, Mul(...));\nfn sq(v : T, where(T <: Mul)) -> T;",
+      "The bound needs the impl to exist before the generic call resolves.",
+      "该约束要求 impl 在泛型调用解析之前存在。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ARGUMENT_COUNT_MISMATCH,
+      "argument count mismatch",
+      "参数数量不匹配",
+      "The call passes a different number of arguments than the callee takes.",
+      "调用传入的参数数量与被调用方不一致。",
+      "The message shows `expected N, got M` against the resolved callee. Optional arguments are not a Yo feature — wrap the variations in separate functions or pass an options struct. For closures note that the count includes every parameter, including the receiver for methods.",
+      "错误信息会针对解析到的被调用方显示 `expected N, got M`。Yo 没有可选参数 —— 请把变体拆成独立函数，或传入选项结构体。注意计数包括所有参数（方法的计数含接收者）。",
+      "f(a, b, c);",
+      "f(a, b);",
+      "Match the arity of the resolved callee exactly.",
+      "与解析到的被调用方参数个数完全一致。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_RETURN_TYPE_MISMATCH,
+      "return type mismatch",
+      "返回类型不匹配",
+      "The value produced by the function does not match its declared return type.",
+      "函数产生的值与其声明的返回类型不匹配。",
+      "The declared `-> T` governs every exit path: the tail expression AND every explicit `return(...)`. Convert the value, or change the declaration. For functions returning `unit`, a trailing expression that is not unit is this same error.",
+      "声明的 `-> T` 约束所有退出路径：尾部表达式和每个显式 `return(...)`。请转换该值，或修改声明。对返回 `unit` 的函数，非 unit 的尾表达式也会触发此错误。",
+      "f :: (fn() -> i32)(`text`);",
+      "f :: (fn() -> String)(`text`);",
+      "The tail is a String; the declaration says i32.",
+      "尾部表达式是 String，而声明是 i32。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_TYPE_MISMATCH,
+      "type mismatch",
+      "类型不匹配",
+      "Two types that must agree do not.",
+      "两个必须一致的类型不一致。",
+      "A more general sibling of E0601: parameter types, struct field types, or trait obligations disagreed. The message names both sides — reconcile them with an explicit conversion or by fixing one side's type.",
+      "E0601 的更泛化形式：参数类型、结构体字段类型或 trait 义务不一致。错误信息会给出双方 —— 通过显式转换或修正一侧的类型使其一致。",
+      "p : (i32, i32) = (1, `2`);",
+      "p : (i32, i32) = (1, 2);",
+      "The second tuple element must be i32.",
+      "元组第二个元素必须是 i32。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_USE_OF_MOVED_VALUE,
+      "use of moved value",
+      "使用了被移动的值",
+      "An `own` value was consumed and is used again afterwards.",
+      "`own` 值已被消耗，之后又被使用。",
+      "Passing an `own` argument transfers ownership; the binding is dead afterwards. Re-order the uses, clone first (`clone(x)`), or take the value by plain parameter instead of `own`.",
+      "传递 `own` 参数会转移所有权，之后该绑定即失效。请调整使用顺序、先克隆（`clone(x)`），或使用普通参数代替 `own`。",
+      "sink(own_thing);\nsink(own_thing);",
+      "sink(clone(own_thing));\nsink(own_thing);",
+      "The first call consumed it; clone before the first use instead.",
+      "第一次调用已消耗它；请在第一次使用前克隆。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_CANNOT_REASSIGN,
+      "cannot reassign",
+      "不能重新赋值",
+      "A binding declared with `:=`/`::` cannot be rebound with `=`.",
+      "用 `:=`/`::` 声明的绑定不能用 `=` 重新绑定。",
+      "`=` reassigns an EXISTING binding and only one declared to accept it. If you meant mutation, mutate fields (`x.field = v`) or index-write (`xs(i) = v`). If you meant a new value, use a fresh name (`x2 := ...`).",
+      "`=` 只能为已存在且允许的绑定重新赋值。若是想修改内容，请改字段（`x.field = v`）或索引写入（`xs(i) = v`）；若是想要新值，请换一个新名字（`x2 := ...`）。",
+      "x := 1;\nx = 2;",
+      "x := 1;\nx2 := (x + 1);",
+      "Bind the new value to a new name.",
+      "把新值绑定到新名字。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_MAYBE_UNINITIALIZED,
+      "variable may be uninitialized",
+      "变量可能未初始化",
+      "A variable is initialized on some branches but not all of them.",
+      "变量在某些分支上初始化，但并非所有分支。",
+      "The message lists the branches where it MIGHT and where it is NOT initialized. Initialize before the branch (`x : T = default`), or provide the binding in every arm, or restructure so the join always has a value.",
+      "错误信息会列出可能初始化与未初始化的分支。请在分支前初始化（`x : T = default`），或在每个分支都提供绑定，或重构为汇合点总有值。",
+      "v : i32 = 0;\ncond(c => v := 1, true => ());",
+      "v : i32 = 0;\ncond(c => v = 1, true => ());",
+      "Use `=` on the pre-initialized binding, not `:=` in one arm.",
+      "对预先初始化的绑定使用 `=`，而不是在单个分支用 `:=`。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_AWAIT_PLACEMENT,
+      "await placement restriction",
+      "await 位置限制",
+      "An `io.await` sits where the async state machine cannot suspend.",
+      "`io.await` 位于异步状态机无法挂起的位置。",
+      "The codegen restriction family: inside a `cond`, the awaited condition must BE the first condition; nested awaits in later branches need restructuring (hoist the await before the cond). The message names the exact shape.",
+      "这是 codegen 限制类错误：在 `cond` 中，被 await 的条件必须是第一个条件；后续分支中的嵌套 await 需要重构（把 await 提到 cond 之前）。错误信息会指出具体形状。",
+      "x := cond(io.await(f, io) == 1, true => 0);",
+      "v := io.await(f, io);\nx := cond((v == 1), true => 0);",
+      "Hoist the await so the cond's first condition is the comparison.",
+      "先取出 await，使 cond 的第一个条件是比较。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_NEVER_FULLY_EVALUATED,
+      "body was never fully evaluated",
+      "函数体从未被完整求值",
+      "A function body's definition-time evaluation never completed.",
+      "函数体在定义期的求值没有完成。",
+      "The evaluator trial-evaluates bodies at definition time; when that aborts early (usually an error swallowed by the def-eval wall), codegen has no metadata and the body would emit hollow. Surface the underlying error with YO_DEBUG_SWALLOW=1 yo check — it points at the real defect inside the body.",
+      "求值器会在定义期试算函数体；如果提前中止（通常是 def-eval 墙吞掉的错误），codegen 就没有元数据，函数体会变成空壳。用 YO_DEBUG_SWALLOW=1 yo check 显露出底层错误 —— 它会指向函数体内真正的缺陷。",
+      "g :: (fn() -> i32)(missing_helper());",
+      "helper :: (fn() -> i32)(1);\ng :: (fn() -> i32)(helper());",
+      "The body references something unresolvable at definition time.",
+      "函数体在定义期引用了无法解析的东西。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_FORWARD_REFERENCE,
+      "forward reference",
+      "前向引用",
+      "A definition is used before it appears in the module.",
+      "定义在模块中出现之前就被使用了。",
+      "Module-level definitions evaluate in order, so a `::` binding or impl must precede its uses. Either move the definition up, or — for mutual structure — restructure so the dependency points one way. (The lazy-toplevel plan will lift this; until then, order is the rule.)",
+      "模块级定义按顺序求值，因此 `::` 绑定或 impl 必须先于其使用。要么把定义上移，要么重构让依赖单向。（lazy-toplevel 计划会解除此限制；在那之前，顺序就是规则。）",
+      "a :: b;\nb :: 1;",
+      "b :: 1;\na :: b;",
+      "Swap the order so the definition comes first.",
+      "交换顺序，让定义在前。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_ARGUMENT,
+      "comptime argument error",
+      "comptime 参数错误",
+      "A comptime builtin received an argument of the wrong shape.",
+      "comptime 内建函数收到了形状错误的参数。",
+      "The comptime builtins (`comptime_assert`, `comptime_expect_error`, …) check their argument kinds at compile time. Give the builtin the shape it names — for `comptime_assert` a comptime-known bool, not a runtime value or a non-bool expression.",
+      "comptime 内建函数（`comptime_assert`、`comptime_expect_error` 等）在编译期检查参数种类。请提供它所要求的形状 —— 例如 `comptime_assert` 需要编译期已知的 bool，而不是运行时值或非 bool 表达式。",
+      "comptime_assert(x);",
+      "comptime_assert((1 > 0));",
+      "The condition must be a compile-time bool.",
+      "条件必须是编译期 bool。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_COMPTIME_OVERFLOW,
+      "compile-time integer overflow",
+      "编译期整数溢出",
+      "Constant arithmetic exceeded the target integer's range.",
+      "常量运算超出了目标整数类型的范围。",
+      "When BOTH operands are compile-time constants, Yo selects the checked comptime operator and rejects overflow instead of wrapping. Bind one side to a runtime value if wrap-around is intended, or widen the type (i64) for the constant math.",
+      "当两个操作数都是编译期常量时，Yo 会选用带检查的 comptime 运算符并拒绝溢出而非回绕。若确实需要回绕，请把一侧绑定为运行时值；若只是数值太大，请加宽类型（i64）。",
+      "x := (2147483647 + 1);",
+      "s : i32 = 2147483647;\nx := (s + 1);",
+      "Runtime addition wraps; the comptime one rejects.",
+      "运行时加法会回绕；comptime 加法会拒绝。"
+    )
+  );
+  out
+});
+/// Find the registry entry for `code`.
+lookup_explain :: (fn(code : String) -> Option(Explain))({
+  entries := registry_entries();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        if(e.code == code, {
+          return(Option(Explain).Some(e));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(Explain).None
+});
+/// All registered codes, in registration order.
+all_registry_codes :: (fn() -> ArrayList(String))({
+  entries := registry_entries();
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        ___ := out.push(e.code);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// Levenshtein distance (small, registry-local; P3 generalizes suggestions).
+_min_usize :: (fn(a : usize, b : usize) -> usize)(
+  cond((a < b) => a, true => b)
+);
+_edit_distance :: (fn(a : String, b : String) -> usize)({
+  m := a.len();
+  n := b.len();
+  if(m == usize(0), {
+    return(n);
+  });
+  if(n == usize(0), {
+    return(m);
+  });
+  prev := ArrayList(usize).new();
+  cur := ArrayList(usize).new();
+  (j : usize) = usize(0);
+  while(j <= n, {
+    prev.push(j);
+    cur.push(usize(0));
+    j = (j + usize(1));
+  });
+  i := usize(1);
+  while(i <= m, {
+    cur(usize(0)) = i;
+    j2 := usize(1);
+    while(j2 <= n, {
+      ac := a.byte_at(i - usize(1));
+      bc := b.byte_at(j2 - usize(1));
+      cost := cond((ac == bc) => usize(0), true => usize(1));
+      cand := _min_usize(
+        prev(j2) + usize(1),
+        _min_usize(cur(j2 - usize(1)) + usize(1), prev(j2 - usize(1)) + cost)
+      );
+      cur(j2) = cand;
+      j2 = (j2 + usize(1));
+    });
+    k := usize(0);
+    while(k <= n, {
+      prev(k) = cur(k);
+      k = (k + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  prev(n)
+});
+/// The closest registered code within distance 3, for did-you-mean.
+suggest_code :: (fn(code : String) -> Option(String))({
+  entries := registry_entries();
+  best := Option(String).None;
+  (best_d : usize) = usize(4);
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    match(
+      entries.get(i),
+      .Some(e) => {
+        d := _edit_distance(code, e.code);
+        if(d < best_d, {
+          best_d = d;
+          best = Option(String).Some(e.code);
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  best
+});
+/// One registry entry as JSON (for `yo explain --format json`): both
+/// languages always included.
+explain_to_json :: (fn(e : Explain) -> String)({
+  keys := ArrayList(String).new();
+  vals := ArrayList(JsonValue).new();
+  keys.push(String.from("code"));
+  vals.push(JsonValue.Str(value : e.code));
+  keys.push(String.from("title"));
+  vals.push(JsonValue.Str(value : e.title));
+  keys.push(String.from("title_zh"));
+  vals.push(JsonValue.Str(value : e.title_zh));
+  keys.push(String.from("summary"));
+  vals.push(JsonValue.Str(value : e.summary));
+  keys.push(String.from("summary_zh"));
+  vals.push(JsonValue.Str(value : e.summary_zh));
+  keys.push(String.from("explanation"));
+  vals.push(JsonValue.Str(value : e.explanation));
+  keys.push(String.from("explanation_zh"));
+  vals.push(JsonValue.Str(value : e.explanation_zh));
+  keys.push(String.from("bad"));
+  vals.push(JsonValue.Str(value : e.bad));
+  keys.push(String.from("good"));
+  vals.push(JsonValue.Str(value : e.good));
+  keys.push(String.from("why"));
+  vals.push(JsonValue.Str(value : e.why));
+  keys.push(String.from("why_zh"));
+  vals.push(JsonValue.Str(value : e.why_zh));
+  json_stringify(JsonValue.Object(keys : keys, values : vals))
+});
+export(Explain, registry_entries, lookup_explain, all_registry_codes);
+export(suggest_code, explain_to_json);

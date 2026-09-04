@@ -122,23 +122,43 @@ _is_row_line :: (fn(l : String) -> bool)({
   (b0 == u8(32)) && (b1 == u8(124))
 });
 
-/// Strip one severity header prefix (`error: `, `warning: `, `note: `,
-/// `help: `) off a rendered block's message.
-_strip_severity_prefix :: (fn(message : String) -> String)({
-  if(message.starts_with(String.from("error: ")), {
-    return(message.substring(usize(7), message.len()));
+/// `<word>` optionally followed by `[CODE]`, then `: ` — strip through the
+/// colon; .None when the message does not start with that shape.
+_strip_sev_word :: (fn(message : String, word : str) -> Option(String))({
+  w := String.from(word);
+  rest := String.new();
+  if((message.len() > w.len()) && message.starts_with(w), {
+    rest = message.substring(w.len(), message.len());
+    if(rest.starts_with(String.from("[")), {
+      close := rest.index_of(String.from("]"));
+      match(
+        close,
+        .Some(c) => {
+          rest = rest.substring(c + usize(1), rest.len());
+        },
+        .None => {
+          rest = String.new();
+        }
+      );
+    });
   });
-  if(message.starts_with(String.from("warning: ")), {
-    return(message.substring(usize(9), message.len()));
+  if((rest.len() > usize(0)) && rest.starts_with(String.from(": ")), {
+    return(Option(String).Some(rest.substring(usize(2), rest.len())));
   });
-  if(message.starts_with(String.from("note: ")), {
-    return(message.substring(usize(6), message.len()));
-  });
-  if(message.starts_with(String.from("help: ")), {
-    return(message.substring(usize(6), message.len()));
-  });
-  message
+  Option(String).None
 });
+/// Strip one severity header prefix off a rendered block's message — the
+/// bare form (`error: `) and the coded form (`error[E0401]: `), which is
+/// what the renderer emits for classified diagnostics (P2).
+_strip_severity_prefix :: (fn(message : String) -> String)(
+  cond(
+    _strip_sev_word(message, "error").is_some() => _strip_sev_word(message, "error").unwrap_or(message),
+    _strip_sev_word(message, "warning").is_some() => _strip_sev_word(message, "warning").unwrap_or(message),
+    _strip_sev_word(message, "note").is_some() => _strip_sev_word(message, "note").unwrap_or(message),
+    _strip_sev_word(message, "help").is_some() => _strip_sev_word(message, "help").unwrap_or(message),
+    true => message
+  )
+);
 
 /// Extract diagnostics from a rendered diagnostic-group string (the P1
 /// human format of src/diagnostics.yo): blocks of `severity[code]: message`
@@ -270,7 +290,11 @@ parse_error_text :: (
       });
     });
     if(!handled, {
-      msg_parts.push(line);
+      // The P2 `help: run yo explain …` tail line belongs to the block just
+      // rendered — it must not leak into the NEXT entry's message text.
+      if(!trimmed.starts_with(String.from("help: ")), {
+        msg_parts.push(line);
+      });
     });
     li = (li + usize(1));
   });

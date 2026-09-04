@@ -1,0 +1,169 @@
+//! Tests for src/diagnostics_registry.yo — the P2 gates
+//! (plans/ERROR_DIAGNOSTICS_OVERHAUL.md §5): every code the classifier can
+//! emit has a bilingual registry entry, no prose field is empty in either
+//! language, every entry carries its bad/good example pair, and the
+//! did-you-mean suggestion machinery works.
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, panic } :: import("std/assert");
+{
+  Explain,
+  registry_entries,
+  lookup_explain,
+  all_registry_codes,
+  suggest_code,
+  explain_to_json
+} :: import("../../src/diagnostics_registry.yo");
+{
+  E_UNEXPECTED_TOKEN,
+  E_EXPECTED_TOKEN,
+  E_ADJACENT_OPERATORS,
+  E_UNTERMINATED,
+  E_UNEXPECTED_CHARACTER,
+  E_UNKNOWN_OPERATOR,
+  E_STRUCT_LITERAL_VS_BLOCK,
+  E_CALL_SYNTAX,
+  E_VARIABLE_NOT_FOUND,
+  E_ENUM_VARIANT_NOT_FOUND,
+  E_MODULE_FIELD_NOT_FOUND,
+  E_NOT_DEFINED,
+  E_INCOMPATIBLE_TYPES,
+  E_TRAIT_NOT_IMPLEMENTED,
+  E_ARGUMENT_COUNT_MISMATCH,
+  E_RETURN_TYPE_MISMATCH,
+  E_TYPE_MISMATCH,
+  E_USE_OF_MOVED_VALUE,
+  E_CANNOT_REASSIGN,
+  E_MAYBE_UNINITIALIZED,
+  E_AWAIT_PLACEMENT,
+  E_NEVER_FULLY_EVALUATED,
+  E_FORWARD_REFERENCE,
+  E_COMPTIME_ARGUMENT,
+  E_COMPTIME_OVERFLOW
+} :: import("../../src/diagnostics.yo");
+_check_entry :: (fn(e : Explain, label : String) -> unit)({
+  assert(e.title.len() > usize(0), `${label}: English title empty`);
+  assert(e.title_zh.len() > usize(0), `${label}: Chinese title empty`);
+  assert(e.summary.len() > usize(0), `${label}: English summary empty`);
+  assert(e.summary_zh.len() > usize(0), `${label}: Chinese summary empty`);
+  assert(e.explanation.len() > usize(0), `${label}: English explanation empty`);
+  assert(e.explanation_zh.len() > usize(0), `${label}: Chinese explanation empty`);
+  assert(e.bad.len() > usize(0), `${label}: bad example empty`);
+  assert(e.good.len() > usize(0), `${label}: good example empty`);
+  assert(e.why.len() > usize(0), `${label}: English why empty`);
+  assert(e.why_zh.len() > usize(0), `${label}: Chinese why empty`);
+});
+test("every code the classifier emits has a registry entry", {
+  codes := ArrayList(String).new();
+  codes.push(String.from(E_UNEXPECTED_TOKEN));
+  codes.push(String.from(E_EXPECTED_TOKEN));
+  codes.push(String.from(E_ADJACENT_OPERATORS));
+  codes.push(String.from(E_UNTERMINATED));
+  codes.push(String.from(E_UNEXPECTED_CHARACTER));
+  codes.push(String.from(E_UNKNOWN_OPERATOR));
+  codes.push(String.from(E_STRUCT_LITERAL_VS_BLOCK));
+  codes.push(String.from(E_CALL_SYNTAX));
+  codes.push(String.from(E_VARIABLE_NOT_FOUND));
+  codes.push(String.from(E_ENUM_VARIANT_NOT_FOUND));
+  codes.push(String.from(E_MODULE_FIELD_NOT_FOUND));
+  codes.push(String.from(E_NOT_DEFINED));
+  codes.push(String.from(E_INCOMPATIBLE_TYPES));
+  codes.push(String.from(E_TRAIT_NOT_IMPLEMENTED));
+  codes.push(String.from(E_ARGUMENT_COUNT_MISMATCH));
+  codes.push(String.from(E_RETURN_TYPE_MISMATCH));
+  codes.push(String.from(E_TYPE_MISMATCH));
+  codes.push(String.from(E_USE_OF_MOVED_VALUE));
+  codes.push(String.from(E_CANNOT_REASSIGN));
+  codes.push(String.from(E_MAYBE_UNINITIALIZED));
+  codes.push(String.from(E_AWAIT_PLACEMENT));
+  codes.push(String.from(E_NEVER_FULLY_EVALUATED));
+  codes.push(String.from(E_FORWARD_REFERENCE));
+  codes.push(String.from(E_COMPTIME_ARGUMENT));
+  codes.push(String.from(E_COMPTIME_OVERFLOW));
+  (i : usize) = usize(0);
+  while(i < codes.len(), {
+    c := match(
+      codes.get(i),
+      .Some(x) => x,
+      .None => String.new()
+    );
+    found := lookup_explain(c);
+    assert(found.is_some(), `code ${c} must have a registry entry`);
+    match(
+      found,
+      .Some(e) => _check_entry(e, c),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+test("registry entries are unique and code-shaped", {
+  entries := registry_entries();
+  assert(entries.len() >= usize(25), `at least 25 entries, got ${entries.len()}`);
+  seen := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    e := match(
+      entries.get(i),
+      .Some(x) => x,
+      .None => __yo_panic("missing registry entry")
+    );
+    assert(e.code.len() == usize(5), `code shape EXXXX: ${e.code}`);
+    assert(e.code.starts_with(String.from("E")), `codes start with E: ${e.code}`);
+    (dup : bool) = false;
+    (j : usize) = usize(0);
+    while(j < seen.len(), {
+      match(
+        seen.get(j),
+        .Some(s) => {
+          if(s == e.code, {
+            dup = true;
+          });
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    assert(!dup, `duplicate registry code ${e.code}`);
+    ___ := seen.push(e.code);
+    _check_entry(e, e.code);
+    i = (i + usize(1));
+  });
+});
+test("lookup a known code", {
+  found := lookup_explain(String.from("E0401"));
+  assert(found.is_some(), "E0401 must resolve");
+  match(
+    found,
+    .Some(e) => {
+      assert(e.code == "E0401", "code round-trips");
+      assert(e.title.contains(String.from("name")), "E0401 title");
+    },
+    .None => ()
+  );
+});
+test("lookup an unknown code is None", {
+  assert(lookup_explain(String.from("E9999")).is_none(), "E9999 unknown");
+});
+test("explain_to_json carries both languages", {
+  match(
+    lookup_explain(String.from("E0601")),
+    .Some(e) => {
+      js := explain_to_json(e);
+      assert(js.contains(String.from("\"code\":\"E0601\"")), "code field");
+      assert(js.contains(String.from("\"title_zh\":")), "Chinese title field");
+      assert(js.contains(String.from("\"explanation_zh\":")), "Chinese explanation field");
+      assert(js.contains(String.from("\"good\":")), "good example field");
+    },
+    .None => assert(false, "E0601 must resolve")
+  );
+});
+test("all_registry_codes matches registry_entries length", {
+  codes := all_registry_codes();
+  entries := registry_entries();
+  assert(
+    codes.len() == entries.len(),
+    `codes ${codes.len()} == entries ${entries.len()}`
+  );
+});

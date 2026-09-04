@@ -72,12 +72,25 @@ _(env : proc_env) :: import("std/env");
   mm_preload_prelude,
   _take_load_error
 } :: import("./module_manager.yo");
-{ YoError } :: import("./error.yo");
+{ YoError, render_any_error } :: import("./error.yo");
+{
+  render_diagnostics_for_mode,
+  set_error_format,
+  error_format,
+  emit_rendered_text,
+  emit_chatter
+} :: import("./diagnostics.yo");
 { eval_context_new } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { run_check_watch, run_watch_once, watch_snapshot, wait_for_change } :: import("./check_watch.yo");
+{
+  lookup_explain,
+  registry_entries,
+  suggest_code,
+  explain_to_json
+} :: import("./diagnostics_registry.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size } :: import("./types/utils.yo");
@@ -626,7 +639,7 @@ check_single_file :: (
     // own edge prints it here, exactly once, anchored at the failing file.
     match(
       _take_load_error(),
-      .Some(rendered) => eprintln(rendered),
+      .Some(rendered) => emit_rendered_text(rendered),
       .None => eprintln(`check: error in: ${input_path} (no diagnostic recorded)`)
     );
   });
@@ -745,7 +758,7 @@ run_check :: (
   });
   if(total > usize(1), {
     passed := (total - failed);
-    println(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
+    emit_chatter(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
   });
   // Watch modes survive a failing initial pass — that is their whole point.
   // (Phase C, plans/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
@@ -1783,12 +1796,16 @@ run_compile :: (
     outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, exn);
     if(!(outcome.ok), {
       // The eval failure's rendered diagnostic is in the loader's stash (its
-      // handlers no longer print — the P1 single-print rule). Rethrow it so
-      // the top-level handler prints it once, WITH the underlying text (the
-      // old wrapper dropped it, D2).
+      // handlers no longer print — the P1 single-print rule). Emit it on the
+      // format-aware stream and exit 1 — the throw only ever existed to
+      // reach the top-level handler, and a rethrown string would regain the
+      // yo: error: wrapper under --error-format json (D2).
       match(
         _take_load_error(),
-        .Some(rendered) => exn.throw(dyn(rendered)),
+        .Some(rendered) => {
+          emit_rendered_text(rendered);
+          unsafe(exit(int(1)));
+        },
         .None => exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`))
       );
       return(());
@@ -3866,6 +3883,149 @@ yo --version                     Show version number`
 });
 /// Per-subcommand help text (`yo <subcommand> --help`). Returns `.None` for
 /// an unknown subcommand (the caller falls back to the top-level usage).
+/// Print each line of `text` indented two spaces (registry examples).
+_print_indented :: (fn(text : String) -> unit)({
+  parts := text.split(String.from("\n"));
+  (i : usize) = usize(0);
+  while(i < parts.len(), {
+    match(
+      parts.get(i),
+      .Some(l) => println(`  ${l}`),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// `yo explain <CODE>` — print a diagnostic code's bilingual explanation,
+/// offline, from the compiled-in registry (P2,
+/// plans/ERROR_DIAGNOSTICS_OVERHAUL.md §6). `--list` enumerates every code;
+/// `--format json` carries both languages; `--lang zh-CN` (or the YO_LANG
+/// env var) selects the Chinese prose. Exit 0 when found; an unknown code
+/// exits 1 with a did-you-mean over the registry.
+run_explain :: (
+  fn(argv : ArrayList(String), io : Io, exn : Exception) -> unit
+)({
+  (show_list : bool) = false;
+  (as_json : bool) = false;
+  lang := String.from("en");
+  env_lang := proc_env.get(String.from("YO_LANG"));
+  if(env_lang.is_some(), {
+    lang = env_lang.unwrap_or(String.from(""));
+  });
+  (target : String) = String.new();
+  (ai : usize) = usize(1);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    if(a == "--list", {
+      show_list = true;
+      ai = (ai + usize(1));
+    }, {
+      if(a == "--format", {
+        as_json = true;
+        ai = (ai + usize(2));
+      }, {
+        if(a.starts_with(String.from("--format=")), {
+          as_json = (a.substring(usize(9), a.len()) == "json");
+          ai = (ai + usize(1));
+        }, {
+          if(a == "--lang", {
+            if((ai + usize(1)) < argv.len(), {
+              lang = argv(ai + usize(1)).clone();
+            });
+            ai = (ai + usize(2));
+          }, {
+            if(a.starts_with(String.from("--lang=")), {
+              lang = a.substring(usize(7), a.len());
+              ai = (ai + usize(1));
+            }, {
+              target = a.clone();
+              ai = (ai + usize(1));
+            });
+          });
+        });
+      });
+    });
+  });
+  if(show_list, {
+    entries := registry_entries();
+    (ei : usize) = usize(0);
+    while(ei < entries.len(), {
+      match(
+        entries.get(ei),
+        .Some(e) => {
+          if(as_json, {
+            println(explain_to_json(e));
+          }, {
+            if((lang == "zh-CN"), {
+              println(`${e.code}  ${e.title_zh}`);
+            }, {
+              println(`${e.code}  ${e.title}`);
+            });
+          });
+        },
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
+    return(());
+  });
+  if(target.len() == usize(0), {
+    exn.throw(
+      dyn(`explain: missing error code. Usage: yo explain <CODE> | yo explain --list`)
+    );
+  });
+  match(
+    lookup_explain(target),
+    .Some(e) => {
+      if(as_json, {
+        println(explain_to_json(e));
+        return(());
+      });
+      if((lang == "zh-CN"), {
+        println(`${e.code} — ${e.title_zh}`);
+        println(``);
+        println(e.summary_zh);
+        println(``);
+        println(e.explanation_zh);
+        println(``);
+        println(`示例 — 这样会报错：`);
+        _print_indented(e.bad);
+        println(`示例 — 改成这样：`);
+        _print_indented(e.good);
+        _print_indented(e.why_zh);
+      }, {
+        println(`${e.code} — ${e.title}`);
+        println(``);
+        println(e.summary);
+        println(``);
+        println(e.explanation);
+        println(``);
+        println(`Example — this fails:`);
+        _print_indented(e.bad);
+        println(`Example — write this instead:`);
+        _print_indented(e.good);
+        _print_indented(e.why);
+      });
+      println(`Run 'yo explain --list' for all codes.`);
+    },
+    .None => {
+      hint := suggest_code(target);
+      match(
+        hint,
+        .Some(h) => exn.throw(
+          dyn(
+            `explain: unknown error code '${target}'\nhelp: did you mean '${h}'? Run 'yo explain --list' for all codes.`
+          )
+        ),
+        .None => exn.throw(
+          dyn(
+            `explain: unknown error code '${target}'. Run 'yo explain --list' for all codes.`
+          )
+        )
+      );
+    }
+  );
+});
 _subcommand_help_text :: (fn(subcmd : String) -> Option(String))(
   cond(
     (subcmd == "compile") => Option(String).Some(
@@ -4091,6 +4251,24 @@ Examples:
   $ yo version install 0.2.16
   $ yo version clean 0.2.14`
     ),
+    (subcmd == "explain") => Option(String).Some(
+      `Usage: yo explain <CODE> [options]
+
+Show the offline explanation for a diagnostic code (bilingual English +
+简体中文), with a bad/good example pair. The registry ships inside the
+binary — no network needed.
+
+Options:
+  --list                 List every code with its title
+  --format json          One JSON object per entry (carries both languages)
+  --lang zh-CN           Print the Chinese prose (default: en; YO_LANG env
+                         var is equivalent)
+
+Examples:
+  $ yo explain E0401
+  $ yo explain E0601 --lang zh-CN
+  $ yo explain --list`
+    ),
     (subcmd == "lsp") => Option(String).Some(
       `Usage: yo lsp
 
@@ -4128,19 +4306,19 @@ main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
       (err) -> {
-        // A structured YoError renders itself (severity header + --> anchor)
-        // — print it bare. Anything else keeps the yo: error: wrapper,
-        // unless it is a rendered diagnostic rethrown as a string (compile's
-        // eval-failure rethrow) — no doubled prefixes (P1, D4).
+        // A structured YoError renders itself in the process's format
+        // (--error-format) on the right stream. Anything else keeps the
+        // yo: error: wrapper, unless it is a rendered diagnostic rethrown
+        // as a string — no doubled prefixes (P1, D4).
         match(
           downcast(err, YoError),
           .Some(ye) => {
-            eprintln(ye.to_string());
+            emit_rendered_text(render_diagnostics_for_mode(ye.diagnostics));
           },
           .None => {
             text := err.to_string();
             if(text.starts_with(String.from("error: ")), {
-              eprintln(text);
+              emit_rendered_text(text);
             }, {
               eprintln(`yo: error: ${text}`);
             });
@@ -4151,7 +4329,47 @@ main :: (fn(io : Io) -> unit)({
       }
     )
   );
-  raw_argv := args();
+  // The error-rendering format: `--error-format human|short|json` (global,
+  // stripped before subcommand dispatch, like --std-path) or the
+  // YO_ERROR_FORMAT env var (lower precedence). Set BEFORE anything can
+  // render an error, so every edge agrees.
+  (err_format : String) = String.from("");
+  env_fmt := proc_env.get(String.from("YO_ERROR_FORMAT"));
+  if(env_fmt.is_some(), {
+    err_format = env_fmt.unwrap_or(String.from(""));
+  });
+  raw_argv0 := args();
+  argv0 := ArrayList(String).new();
+  ai0 := usize(0);
+  while(ai0 < raw_argv0.len(), {
+    a0 := raw_argv0(ai0);
+    if(a0 == "--error-format", {
+      if((ai0 + usize(1)) < raw_argv0.len(), {
+        err_format = raw_argv0(ai0 + usize(1)).clone();
+        ai0 = (ai0 + usize(1));
+      }, {
+        exn.throw(dyn(`--error-format requires a value: human, short or json`));
+      });
+    }, {
+      if(a0.starts_with(String.from("--error-format=")), {
+        err_format = a0.substring(usize(15), a0.len());
+      }, {
+        argv0.push(a0);
+      });
+    });
+    ai0 = (ai0 + usize(1));
+  });
+  if(err_format.len() > usize(0), {
+    if(!((err_format == "human") || ((err_format == "short") || (err_format == "json"))), {
+      exn.throw(
+        dyn(
+          `Invalid --error-format '${err_format}' (expected: human, short or json). Set --error-format or YO_ERROR_FORMAT.`
+        )
+      );
+    });
+    set_error_format(err_format);
+  });
+  raw_argv := argv0;
   // Global `--std-path <dir>` flag: strip it from argv before subcommand
   // dispatch and stash the override with the module manager. The TS
   // counterpart is the root-level yargs `std-path` option in `yo-cli.ts`.
@@ -4257,7 +4475,9 @@ main :: (fn(io : Io) -> unit)({
       .None => ()
     );
   });
-  if(subcmd == "lsp", {
+  if(subcmd == "explain", {
+    run_explain(argv, io, exn);
+  }, if(subcmd == "lsp", {
     run_lsp_server(io, exn);
   }, if(subcmd == "compile", {
     run_compile(argv, io, exn);
