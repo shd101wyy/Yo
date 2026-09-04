@@ -10,6 +10,14 @@ set -u
 cd "$(dirname "$0")/../.." || exit 2
 S1=${S1:-/tmp/s1}
 P=${P:-fast}
+# GATE 7 runs the CLI cases in sandboxes, and S1 may be staged outside this
+# checkout (CI's /tmp/yo-stage1) — where the exe-relative walk-up finds
+# neither std/ nor .github/skills. The harness passes YO_STD through; pin
+# YO_SKILLS the same way so `yo skills install` resolves the checkout's
+# bundled skills regardless of where S1 sits.
+if [ -d "$PWD/.github/skills" ]; then
+  export YO_SKILLS="$PWD/.github/skills"
+fi
 fails=0
 fail() {
   echo "FAIL: $*"

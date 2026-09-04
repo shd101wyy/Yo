@@ -1,0 +1,47 @@
+//! CLI output language (English + 简体中文) for user-facing strings — help
+//! texts, usage errors, and command output. `yo explain` pioneered the
+//! convention (`--lang zh-CN` flag, `YO_LANG` env var); this module
+//! generalizes it to the whole CLI and gives string authors a one-line
+//! selector (`tr`).
+//!
+//! Precedence: the global `--lang <lc>` flag (stripped by main.yo's argument
+//! pre-scan and stashed here) beats the `YO_LANG` env var.
+open(import("std/string"));
+{ env } :: import("std/env");
+/// The global `--lang` override, stashed by main.yo's pre-scan.
+(g_lang_override : Option(String)) = Option(String).None;
+/// Record the global `--lang` flag value.
+set_cli_lang_override :: (fn(lang : String) -> unit)({
+  g_lang_override = Option(String).Some(lang);
+});
+/// Resolve the CLI language: `"zh-CN"` when the override or `YO_LANG` names a
+/// Simplified-Chinese spelling we translate (`zh-CN`, `zh_CN`, `zh-Hans`,
+/// `zh`), `"en"` otherwise — including unrecognized values, which quietly get
+/// the default: a language preference must never turn into an error.
+cli_lang :: (fn() -> String)({
+  named := match(
+    g_lang_override,
+    .Some(l) => l,
+    .None => match(
+      env.get(String.from("YO_LANG")),
+      .Some(l) => l,
+      .None => String.from("")
+    )
+  );
+  cond(
+    ((named == "zh-CN") || ((named == "zh_CN") || ((named == "zh-Hans") || (named == "zh")))) => {
+      return(String.from("zh-CN"));
+    },
+    true => {
+      return(String.from("en"));
+    }
+  );
+});
+/// Pick the English or Simplified-Chinese variant of a user-facing string.
+tr :: (fn(en : String, zh : String) -> String)(
+  cond(
+    (cli_lang() == "zh-CN") => zh,
+    true => en
+  )
+);
+export(set_cli_lang_override, cli_lang, tr);

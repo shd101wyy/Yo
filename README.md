@@ -298,6 +298,10 @@ cp -r .github/skills /path/to/your-yo-project/.github/
 
 Then in any AI agent session, invoke a skill by name (e.g. `@yo-syntax`) to give the agent contextual knowledge about the Yo language.
 
+### CLI output language
+
+CLI help texts and user-facing messages are bilingual (English + 简体中文): `yo --lang zh-CN --help` or `export YO_LANG=zh-CN` switches the CLI to Simplified Chinese. English is the default.
+
 ## License
 
 [UIUC/NCSA Open Source License](./LICENSE.md)
