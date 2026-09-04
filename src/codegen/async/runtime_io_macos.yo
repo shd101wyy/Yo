@@ -492,6 +492,16 @@ static int64_t __yo_file_size(int32_t fd) {
   return st.st_size;
 }
 
+// Fill a stat buffer from an OPEN DESCRIPTOR instead of a path — the fd form
+// of __yo_async_statx_start, for a handle whose path is unknown or has since
+// been renamed/unlinked. macOS has no AT_EMPTY_PATH (fstatat with an empty
+// path is ENOENT), so this is a plain fstat(2) into the same struct stat
+// the accessors below read. Returns 0 on success, -errno on failure.
+static int32_t __yo_fstat(int32_t fd, void* statxbuf) {
+  int result = fstat(fd, (struct stat*)statxbuf);
+  return (result < 0) ? -errno : 0;
+}
+
 // On macOS, we use struct stat instead of struct statx
 // These functions wrap struct stat access to match the Linux statx API
 static size_t __yo_statx_buf_size(void) {

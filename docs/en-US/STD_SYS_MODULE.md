@@ -186,6 +186,7 @@ The C runtime is split into focused modules under `src/codegen/async/`:
 | **File read/write**         | ✅                    | ✅                     | ✅ (IOCP)                                             |
 | **File open/close**         | ✅                    | ✅                     | ✅ (sync wrappers)                                    |
 | **Stat**                    | ✅ (statx)            | ✅ (struct stat)       | ✅ (\_\_yo_win_stat_t + FILETIME 100ns precision)     |
+| **fstat (by descriptor)**   | ✅ (statx + `AT_EMPTY_PATH`) | ✅ (`fstat`)     | ✅ (`_fstat64` + GetFileInformationByHandle)          |
 | **mkdir/unlink/rename**     | ✅                    | ✅ (sync wrappers)     | ✅ (sync wrappers)                                    |
 | **symlink/link**            | ✅                    | ✅ (sync wrappers)     | ✅ (CreateSymbolicLinkW/CreateHardLinkW)              |
 | **fsync/fdatasync**         | ✅                    | ✅ (sync wrappers)     | ✅ (`_commit`)                                        |

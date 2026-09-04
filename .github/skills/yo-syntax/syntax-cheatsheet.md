@@ -1694,3 +1694,58 @@ writing source. Backtick templates span lines fine.
 Precompute the inner template into a local first. And `push_str` on the
 emitter/string-builder wants a static `str` literal — anything interpolated
 (runtime `String`) goes through `push_string`.
+
+## A backtick inside a template string ENDS it — never markdown-quote in emitted C
+
+The per-platform runtime files (`src/codegen/async/runtime_io_*.yo`) hold whole
+C programs inside backtick template strings. Writing a habitual markdown
+`` `struct stat` `` in a C **comment** in there closes the template mid-C, and
+the rest of the C body is parsed as Yo. The diagnostic points at the middle of
+a C comment and says something unrelated:
+
+```
+error[E0008]: paren-less function and operator calls are not supported; use parentheses
+    --> ./src/codegen/async/runtime_io_macos.yo:498:65
+    |
+498 | // path is ENOENT), so this is a plain fstat(2) into the same ` struct stat `
+```
+
+Worse, `yo fmt` will then "format" the accidental Yo fragment — inserting the
+spaces you see inside those backticks — so the file no longer matches what you
+typed. Inside any emitted-C template, write `struct stat`, not the quoted form.
+
+## Async value-position `cond`: two shapes miscompile — use the statement form
+
+Inside an `io.async` body, a `cond` used as a VALUE (`x := cond(...)`) breaks in
+two ways that `yo check` cannot see:
+
+1. **An arm that awaits, with a `while` around the cond** → the binding is never
+   written and EVERY arm yields the zero value (`0`, or an enum's first
+   variant). No diagnostic, no clang error
+   (issues/async-cond-value-with-await-arm-inside-while-yields-zero.md).
+2. **An arm that `throw`s, after an await in the body**, where a surviving arm's
+   value is a variable read → clang fails with `use of undeclared identifier
+   '_file____User_temp_N'`
+   (issues/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
+
+Both have the same safe rewrite — predeclare, then assign from STATEMENT-form
+`cond`s:
+
+```rust
+(ft : FileType) = FileType.Other;          // predeclared, mutable
+cond(
+  (dt == DT_UNKNOWN) => {
+    ft = e.io.await(_file_type_or_other(p, e.io), e.io);   // fine as a statement
+  },
+  true => ()
+);
+cond(
+  (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(...))),
+  true => ()
+);
+ft                                          // bare tail
+```
+
+An UNCONDITIONAL await bound in a `while` (`v := e.io.await(...)`) is fine, and
+a value-position `cond` with an awaiting arm and no `while` around it is fine —
+it is the combinations above that break.
