@@ -60,7 +60,8 @@
 > `check ./src` 264/264, `compile --skip-c-compiler` rc=0, stage-1 built at
 > CI's flag set, internal error 17/17 + lexer 47/47 + parser 50/52 (the 2
 > are pre-existing on pristine develop —
-> `issues/parser-multibyte-spec-tests-leak-under-linux-asan.md`), CLI corpus
+> `issues/fixed/parser-multibyte-spec-tests-leak-under-linux-asan.md`), CLI
+> corpus
 > 54 PASS (3 doc-* diffs are local git-version text only; 1 network skip),
 > lsp-handshake golden re-recorded (leak + doubled location gone, LSP frames
 > byte-identical).

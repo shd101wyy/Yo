@@ -1,8 +1,19 @@
 # A real newline inside a double-quoted string reports as "Adjacent different operators (near :)" — far from the cause
 
-**Status: OPEN** (found 2026-09-03 during the error-diagnostics P2 work; the
-diagnostic misdirection is the bug — whether `""` strings should span lines is
-a design question).
+**Status: FIXED** (found 2026-09-03 during the error-diagnostics P2 work;
+fixed 2026-09-04 in the P1–P3 close-out, option (b) of the fix direction
+below): `""` strings cannot span lines, and the lexer now says so AT the
+opening quote — `unterminated string literal — the line or file ended before
+the closing quote; use a backtick template for multiline text` — classified
+as E0004 (E_UNTERMINATED) with the backtick guidance in both the message and
+the bilingual registry entry. A raw line break (or EOF) now terminates the
+scan instead of swallowing text until some stray quote on a later line
+closes it, which is what put the old misdirected error arbitrarily far from
+the cause. Whether `""` should ever span lines remains a rejected design
+change — backtick templates are the multiline spelling.
+
+**Originally filed as**: the diagnostic misdirection was the bug — the
+reported site and message had nothing to do with the real newline.
 
 ## Reproducer
 

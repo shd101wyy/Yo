@@ -1417,7 +1417,7 @@ run_compile :: (
         output = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
       },
-      ((a_name == "--c-compiler") || (a_name == "--cc")) => {
+      ((a_name == "--c-compiler") || (a_name == "--cc") || (a_name == "-cc")) => {
         cc = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
       },
@@ -1642,7 +1642,7 @@ run_compile :: (
   if((cc == "") && target_triple.starts_with("wasm"), {
     cc = String.from("emcc");
   });
-  if(cc == "", {
+  if((cc == "") && !skip_cc, {
     match(
       _find_available_compiler(io),
       .Some(found_cc) => {

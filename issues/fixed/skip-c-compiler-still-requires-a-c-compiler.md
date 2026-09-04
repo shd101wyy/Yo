@@ -1,8 +1,11 @@
 # `yo compile --emit-c --skip-c-compiler` still requires a C compiler to be FOUND
 
-**Status: OPEN** (found 2026-09-04 during the error-diagnostics P3r-1 work;
-the flag's contract is "don't RUN a C compiler", but the command still
-refuses to start when none is on PATH).
+**Status: FIXED** (found and fixed 2026-09-04 in the P1–P3 close-out): the
+discovery-and-throw in `run_compile` is now guarded by `skip_cc` (a skipped
+C-compile step never needs a compiler — the skip path returns before any
+`cc` use), and `-cc` is an accepted spelling alongside `--c-compiler` /
+`--cc` (the flag parser previously rejected the exact spelling the error
+message recommended).
 
 ## Reproducer
 

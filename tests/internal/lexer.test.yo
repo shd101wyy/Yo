@@ -637,30 +637,51 @@ test("find_matching_bracket returns None for non-bracket", {
   assert(result == .None, "identifier has no matching bracket");
 });
 // ─── Error handling ───────────────────────────────────────────────────────────
-test("Unterminated string auto-closes at EOF (TS parity)", {
-  // TS has NO unterminated-string check (src/lexer.ts:347-378): the scan runs
-  // to end-of-input and the token is pushed with the closing quote appended.
+test("Unterminated string (real newline) raises a lexer diagnostic", {
+  // Yo closes the TS gap: a line break before the closing quote is a LEXER
+  // error anchored at the opening quote. The old behavior auto-closed the
+  // token at the line/file end and let a misdirected "Adjacent different
+  // operators" / "unexpected token" surface arbitrarily far from the cause
+  // (issues/fixed/multiline-double-quoted-string-parse-error-misleading.md).
   exn := Exception(
     throw : (
       err -> {
-        assert(false, "unexpected error");
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`unterminated string literal`), "wrong error message");
+            assert(s.contains(`backtick template`), "the multiline hint is in the message");
+            assert(s.contains(`--> test.yo:1:6`), "anchored at the opening quote");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
         unwind(());
       }
     )
   );
-  // NOTE (both compilers): the scan index is only advanced when the closing
-  // quote is FOUND, so after the auto-closed token the tail re-lexes as
-  // ordinary tokens — assert only the first token.
-  toks := non_ws(lex_or_panic(`"unterminated`, exn));
-  assert(toks.len() >= usize(1), "expected at least 1 token");
-  match(
-    toks.get(usize(0)),
-    .None => assert(false, "no token"),
-    .Some(tok) => {
-      assert(tok.kind == TokenKind.StringLit, "expected StringLit");
-      assert(tok.value == `"unterminated"`, "value auto-closed with quote");
-    }
+  tokenize(`x := "line1\nline2";`, `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("Unterminated string at EOF raises the same diagnostic", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`unterminated string literal`), "wrong error message");
+            assert(s.contains(`--> test.yo:1:1`), "anchored at the opening quote");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
   );
+  tokenize(`"unterminated`, `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
 });
 test("Unterminated block comment raises a lexer diagnostic", {
   exn := Exception(
