@@ -396,15 +396,42 @@ tokenize :: (
               str_closed = true;
               k = n;
             },
+            // A raw line break terminates the scan WITHOUT closing the
+            // literal — "" strings cannot span lines. Ending the scan here
+            // (instead of swallowing text until some stray quote on a LATER
+            // line happens to close it) is what keeps the unterminated
+            // error below anchored at the offending line.
+            ((ck.char == u32(0x0A)) || (ck.char == u32(0x0D))) => {
+              k = n;
+            },
             true => {
               val_sb.write_rune(ck);
               k = (k + usize(1));
             }
           );
         });
-        // TS has NO unterminated-string check — the scan just runs to EOF and
-        // the token is pushed with the closing quote appended (lexer.ts:347-378).
-        str_closed;
+        // TS has no unterminated-string check — the scan just runs to EOF and
+        // the token is pushed with the closing quote appended (lexer.ts:347-
+        // 378), and the first confusing token pair then surfaces as a
+        // misdirected "Adjacent different operators" / "unexpected token"
+        // arbitrarily far from the cause
+        // (issues/fixed/multiline-double-quoted-string-parse-error-misleading.md).
+        // Yo errors in the lexer, at the literal's opening quote; the message
+        // starts with "unterminated " so the P2 classifier stamps
+        // E_UNTERMINATED (E0004) and `yo explain` carries the fix guidance.
+        if(!str_closed, {
+          exn.throw(
+            dyn(
+              format_lexer_error(
+                module_path,
+                input,
+                line,
+                col,
+                `unterminated string literal — the line or file ended before the closing quote; use a backtick template for multiline text`
+              )
+            )
+          );
+        });
         val_sb.write_byte(u8(0x22));
         tok_val := val_sb.to_string();
         tokens.push(Token(kind : TokenKind.StringLit, value : tok_val, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));

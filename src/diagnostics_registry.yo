@@ -142,14 +142,14 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_UNTERMINATED,
       "unterminated literal or comment",
       "未闭合的字面量或注释",
-      "A block comment, template string, or char literal was never closed.",
-      "块注释、模板字符串或字符字面量没有闭合。",
-      "The lexer reached the end of the file while still inside the construct. Find its opening delimiter (`/*`, a backtick, or a char quote) and close it.",
-      "词法分析器在该构造内部就到达了文件末尾。找到它的起始定界符（`/*`、反引号或字符引号）并将其闭合。",
-      "s := `hello;",
-      "s := `hello`;",
-      "The template string opened with a backtick never closes.",
-      "以反引号开始的模板字符串没有闭合。"
+      "A string, block comment, template string, or char literal was never closed.",
+      "字符串、块注释、模板字符串或字符字面量没有闭合。",
+      "A \"\" string cannot span lines: a line break (or end of file) before the closing quote is unterminated — use a backtick template for multiline text. For comments, templates, and char literals, the lexer reached end of file while still inside the construct: find its opening delimiter (`/*`, a backtick, a quote) and close it.",
+      "\"\" 字符串不能跨行：闭合引号之前出现换行（或文件结束）即为未闭合 —— 多行文本请使用反引号模板。对于注释、模板与字符字面量，词法分析器在该构造内部就到达了文件末尾：找到它的起始定界符（`/*`、反引号、引号）并将其闭合。",
+      "s := \"line1",
+      "s := `line1\nline2`;",
+      "The \"\" string never sees its closing quote on the same line — the backtick template is the multiline spelling.",
+      "\"\" 字符串在同一行内没有等到闭合引号 —— 反引号模板才是多行写法。"
     )
   );
   out.push(
