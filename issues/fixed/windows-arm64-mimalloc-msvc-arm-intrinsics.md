@@ -283,6 +283,7 @@ windows-x64 again (see PR #181), and the windows-x64/windows-arm64 CI legs
 compile it as part of the per-PR native suite.
 
 What did NOT change: the shipped Windows bundles still use `--allocator
-system` — that was a separate decision (`plans/WINDOWS_ALLOCATOR_DECISION.md`),
-made on macOS-measured performance grounds, and only the "mimalloc cannot be
-built here at all" part of its rationale is now obsolete.
+system` — a separate decision (`plans/WINDOWS_ALLOCATOR_DECISION.md`), now
+re-affirmed on 2026-09-04 with a Windows-native A/B on the canonical heavy
+workloads (system won wall decisively; mimalloc won peak) rather than the
+transplanted macOS numbers the decision originally rested on.

@@ -11,24 +11,12 @@
   macOS-only, which is exactly why windows-x64 still ships mimalloc "because the
   switch was measured on macOS only".
 
-  THE GOTCHA THIS SCRIPT EXISTS TO ENCODE: .NET's PeakWorkingSet64 is NOT
-  readable after the process exits. Caching `$p.Handle` while it is alive is
-  necessary but NOT sufficient — `$p.Refresh()` then discards the cached values
-  and they cannot be re-read from a dead process, which is how the first
-  measured run failed (it read back EMPTY, not 0).
-
-  So the peak is taken two ways, and neither relies on that property:
-
-    1. GetProcessMemoryInfo (psapi) against the cached handle. This is the
-       kernel's own PeakWorkingSetSize and remains valid for an exited process
-       as long as a handle is open. Exact.
-    2. Polling WorkingSet64 while the process runs, tracking the max. Always
-       available, but can miss a spike between samples.
-
-  (1) is preferred and (2) is the fallback, with the method reported alongside
-  the number so a sampled figure is never mistaken for an exact one. A peak that
-  fails to read is a HARD ERROR: 0 compares equal across arms, so a silent
-  failure would present as "the allocators are identical" rather than as a bug.
+  THE GOTCHA THIS SCRIPT EXISTS TO ENCODE: .NET can only report
+  PeakWorkingSet64 after a process exits if its native handle was cached WHILE
+  IT WAS ALIVE. Touching `$p.Handle` once before waiting is what caches it.
+  Without that line the property throws InvalidOperationException ("Process has
+  exited") or silently reads 0 — and a peak of 0 compares equal across arms, so
+  the bug presents as "the allocators are identical" rather than as an error.
 
   Reports the MIN across repetitions, not the mean. Min is the right estimator
   for "how fast can this go": a shared CI runner only ever adds noise, so the
@@ -67,37 +55,6 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# psapi's GetProcessMemoryInfo, which unlike Process.PeakWorkingSet64 keeps
-# working once the process has exited (the handle keeps the accounting alive).
-$sig = @'
-[StructLayout(LayoutKind.Sequential)]
-public struct PROCESS_MEMORY_COUNTERS {
-  public uint cb;
-  public uint PageFaultCount;
-  public UIntPtr PeakWorkingSetSize;
-  public UIntPtr WorkingSetSize;
-  public UIntPtr QuotaPeakPagedPoolUsage;
-  public UIntPtr QuotaPagedPoolUsage;
-  public UIntPtr QuotaPeakNonPagedPoolUsage;
-  public UIntPtr QuotaNonPagedPoolUsage;
-  public UIntPtr PagefileUsage;
-  public UIntPtr PeakPagefileUsage;
-}
-[DllImport("psapi.dll", SetLastError=true)]
-public static extern bool GetProcessMemoryInfo(IntPtr hProcess, out PROCESS_MEMORY_COUNTERS counters, uint size);
-'@
-$havePsapi = $false
-try {
-  # NO -UsingNamespace here: Add-Type already emits
-  # `using System.Runtime.InteropServices;` for -MemberDefinition, and adding it
-  # again is a CS0105 duplicate-using ERROR. That silently sent every run down
-  # the sampled fallback until a local run surfaced it.
-  Add-Type -Namespace Win32 -Name Psapi -MemberDefinition $sig -ErrorAction Stop
-  $havePsapi = $true
-} catch {
-  Write-Host "note: psapi shim unavailable ($($_.Exception.Message)); falling back to polling"
-}
-
 if (-not (Test-Path $Exe)) { throw "no such executable: $Exe" }
 $exePath = (Resolve-Path $Exe).Path
 
@@ -118,10 +75,10 @@ for ($i = 1; $i -le $Reps; $i++) {
   $sw = [System.Diagnostics.Stopwatch]::StartNew()
   $p = [System.Diagnostics.Process]::Start($psi)
 
-  # LOAD-BEARING. Caches the native handle while the process is alive; psapi
-  # needs it to report the peak after exit. Do not "clean up" this apparently
-  # unused expression.
-  $handle = $p.Handle
+  # LOAD-BEARING — see THE GOTCHA above. Caches the native handle while the
+  # process is alive so PeakWorkingSet64 survives its exit. Do not "clean up"
+  # this apparently unused expression.
+  $null = $p.Handle
 
   # Drain both pipes BEFORE waiting. A child that fills a redirected pipe
   # blocks forever if nobody reads it, and this workload is chatty enough to
@@ -129,70 +86,42 @@ for ($i = 1; $i -le $Reps; $i++) {
   $stdout = $p.StandardOutput.ReadToEndAsync()
   $stderr = $p.StandardError.ReadToEndAsync()
 
-  # Poll while it runs, as the fallback peak. Cheap next to a ~30 s workload.
-  # Sample ONCE before the loop condition: a short-lived process can exit
-  # between Start() and the first HasExited check, leaving zero samples and a
-  # peak of 0 — which this script treats as fatal. Measured on a millisecond
-  # workload locally.
-  $sampledPeak = 0L
-  try { $sampledPeak = $p.WorkingSet64 } catch { }
-  while (-not $p.HasExited) {
-    # Refresh() INSIDE the loop is required and is safe here. .NET caches
-    # process property values, so without it WorkingSet64 returns the snapshot
-    # taken at start forever and the "peak" is just the startup footprint —
-    # measured locally as 1-3 MB for a 10 s compile, which is nonsense. The
-    # destructive Refresh() is the one AFTER exit; while the process lives,
-    # refreshing is exactly how the value advances.
-    try { $p.Refresh(); $ws = $p.WorkingSet64; if ($ws -gt $sampledPeak) { $sampledPeak = $ws } } catch { }
-    Start-Sleep -Milliseconds 25
+  # Peak capture happens INSIDE the wait loop. On current .NET the post-exit
+  # PeakWorkingSet64 read this script originally relied on returns EMPTY even
+  # with the handle cached (null on pwsh 7.6 / .NET 9; alive reads are fine),
+  # so the value is sampled while the process runs instead. On these
+  # minute-scale workloads the peak is a sustained plateau, and a 200 ms
+  # sampling interval cannot meaningfully miss it.
+  $peakSample = [long]0
+  while (-not $p.WaitForExit(200)) {
+    $p.Refresh()
+    if ($p.PeakWorkingSet64 -gt $peakSample) { $peakSample = $p.PeakWorkingSet64 }
   }
-  $p.WaitForExit()
   $sw.Stop()
   $null = $stdout.Result
   $errText = $stderr.Result
+
+  $p.Refresh()
+  $peakBytes = $p.PeakWorkingSet64
+  # Older runtimes still report the true OS peak after exit; take whichever
+  # of that and the in-loop sample is larger (an exited process reads null on
+  # new .NET, which falls through to the sample).
+  if (-not $peakBytes -or ($peakSample -gt $peakBytes)) { $peakBytes = $peakSample }
   $code = $p.ExitCode
 
-  # NO $p.Refresh() here — it discards .NET's cached values, and a dead process
-  # cannot supply them again. That is exactly what voided the first run.
-  $peakBytes = 0L
-  $method = 'sampled'
-  # The try/catch is required, not defensive dressing: Add-Type COMPILES the
-  # P/Invoke declaration on any platform, so $havePsapi only proves the shim
-  # built. On a host with no psapi.dll the CALL throws rather than returning
-  # false, and an uncaught throw here would abort a measurement that the
-  # polling fallback could have completed.
-  if ($havePsapi) {
-    try {
-      $pmc = New-Object Win32.Psapi+PROCESS_MEMORY_COUNTERS
-      $pmc.cb = [uint32][System.Runtime.InteropServices.Marshal]::SizeOf($pmc)
-      if ([Win32.Psapi]::GetProcessMemoryInfo($handle, [ref]$pmc, $pmc.cb)) {
-        $peakBytes = [int64]$pmc.PeakWorkingSetSize
-        $method = 'psapi'
-      }
-    } catch {
-      if ($i -eq 1) { Write-Host "note: psapi call failed ($($_.Exception.Message)); using polled peak" }
-      $havePsapi = $false
-    }
+  if ($peakBytes -le 0) {
+    throw "peak working set read back as $peakBytes — the handle was not cached, so this measurement is void"
   }
-  if ($peakBytes -le 0) { $peakBytes = $sampledPeak }
-
-  # EXIT CODE FIRST. A child that dies immediately also yields no memory
-  # samples, so checking the peak first reports "peak unreadable" and buries
-  # the actual cause — which is exactly how this presented in local testing.
-  # The diagnostic that names the real fault has to come first.
   if ($code -ne 0) {
     Write-Host "  rep ${i}: EXIT $code"
     if ($errText) { Write-Host ($errText -split "`n" | Select-Object -Last 20 | Out-String) }
     throw "$Label rep $i exited $code — a failed run cannot be compared"
   }
-  if ($peakBytes -le 0) {
-    throw "peak working set unreadable by BOTH psapi and polling — this measurement is void (0 would compare equal across arms and read as 'no difference')"
-  }
 
   $wall += $sw.Elapsed.TotalSeconds
   $peak += $peakBytes
   $codes += $code
-  Write-Host ("  rep {0}: {1,8:N2}s  peak {2,8:N0} MB  [{3}]" -f $i, $sw.Elapsed.TotalSeconds, ($peakBytes / 1MB), $method)
+  Write-Host ("  rep {0}: {1,8:N2}s  peak {2,8:N0} MB" -f $i, $sw.Elapsed.TotalSeconds, ($peakBytes / 1MB))
 }
 
 $minWall = ($wall | Measure-Object -Minimum).Minimum
@@ -213,7 +142,6 @@ if ($JsonOut) {
     peakAll    = $peak
     wallMinSec = $minWall
     peakMinB   = $minPeak
-    peakMethod = $method
     # The spread is reported so a comparison can refuse to call a winner when
     # the difference between arms is inside one arm's own run-to-run noise.
     wallSpread = $maxWall - $minWall

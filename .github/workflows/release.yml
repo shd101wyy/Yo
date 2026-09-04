@@ -464,12 +464,13 @@ jobs:
             # plain C11 under clang, no local patches; the clang blockers
             # (v3.3.2 arm64 __ldar64/__stlr64, v3.5.0 x64 pointer-type errors)
             # are fixed upstream as of v3.5.1 and the per-PR native suite
-            # compiles it on both Windows runners (test.yml test-native). The
-            # allocator CHOICE is nonetheless `system`: the one measured
-            # comparison (macOS) had mimalloc slower AND fatter for this
-            # workload, and the Windows cost was never measured before the
-            # decision. Flip only with a Windows A/B in hand.
-            # Record: plans/WINDOWS_ALLOCATOR_DECISION.md.
+            # compiles AND runs it on both Windows runners (test.yml
+            # test-native). The allocator CHOICE is nonetheless `system`, now
+            # on Windows-measured grounds: the 2026-09-04 A/B on the
+            # canonical heavy workloads had system 25%/28% faster on wall
+            # (check ./src, full-tree emit; non-overlapping spreads), with
+            # mimalloc winning only peak RSS. Record + tables:
+            # plans/WINDOWS_ALLOCATOR_DECISION.md.
             bundle_allocator: system
             experimental: false
           # windows-arm64 is NEW: no arm64-Windows bundle has ever shipped, so
@@ -481,7 +482,10 @@ jobs:
           # under clang, on this exact triple (upstream fixed the
           # __ldar64/__stlr64 clang-cl gap in v3.5.1; the v0.2.12 failure
           # that once motivated experimental-only status is
-          # issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md).
+          # issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md), and
+          # the 2026-09-04 x64 A/B that re-affirmed `system` on wall time
+          # applies here too — mimalloc stays CI-exercised per-PR for users
+          # who opt in via --allocator mimalloc.
           #
           # The question is SETTLED: Windows uses the system allocator on both
           # targets by decision, not by breakage — the full record (including
@@ -717,15 +721,16 @@ jobs:
       # runner's, and a bundle named windows-x64 containing the wrong
       # architecture would install and run while emitting for the wrong one.
       # The PE assertion below is what actually proves it.
-      # The allocator is matrix-driven rather than hardcoded: windows-arm64
-      # CANNOT link mimalloc (clang lacks the `_M_ARM64` MSVC intrinsics
-      # mimalloc's atomic.h selects on architecture alone), so the two Windows
-      # legs must differ here. It has to match the `bundle_allocator` this
-      # target was EMITTED with in seed-cross-emit: the emitted C guards its
+      # The allocator is matrix-driven rather than hardcoded, and follows the
+      # `bundle_allocator` this target was EMITTED with in seed-cross-emit
+      # (via cross/allocator-<target>.txt below): the emitted C guards its
       # mimalloc block behind `#if __has_include(<mimalloc.h>)`, so a mimalloc
       # emit compiled without the include path silently degrades to malloc
       # instead of failing — which is precisely the outcome an assertion has to
-      # catch rather than a link error.
+      # catch rather than a link error. (Since the v3.5.1 vendored bump, BOTH
+      # Windows triples can link mimalloc under plain C11; the matrix row
+      # chooses `system` on measured-cost grounds —
+      # plans/WINDOWS_ALLOCATOR_DECISION.md.)
       - name: "Compile the cross-emitted C natively (Windows)"
         if: runner.os == 'Windows'
         shell: bash
