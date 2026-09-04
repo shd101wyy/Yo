@@ -3313,3 +3313,90 @@ test("comptime requires(...) on a satisfying call compiles cleanly", {
   v := ok;
   assert(v == i32(50), "abs(-50) folds to 50");
 });
+// ===========================================================================
+// u64 / usize above i64.MAX — comptime arithmetic must be UNSIGNED
+// ===========================================================================
+// Comptime integers are carried as `i64`, so every u64/usize value above
+// i64.MAX is a NEGATIVE bit pattern (`u64.MAX` is `-1`). Division, modulo, the
+// ordering comparisons and the right shift have to be redone in the unsigned
+// domain: signed `-1 / 10` is 0, `-1 % 10` is -1, `-1 > 1` is false and
+// `-1 >> 1` is -1, none of which are the u64 answers.
+// issues/fixed/comptime-u64-div-mod-cmp-shr-are-signed.md
+//
+// These are MODULE-LEVEL `::` bindings observed by RUNTIME asserts, and that
+// shape is deliberate: a `comptime_assert` inside a `test(...)` body does NOT
+// FIRE (issues/comptime-assert-never-fires-inside-a-function-body.md), so the
+// 1064 comptime_asserts already in this file assert nothing. A module-level
+// binding folds at comptime; the runtime assert below then observes the value
+// the folder produced, which makes the gate real.
+_MAX :: u64.MAX;
+_DIV2 :: (_MAX / u64(2));
+_DIV10 :: (_MAX / u64(10));
+_SUB5_DIV10 :: ((_MAX - u64(5)) / u64(10));
+_BIT63_DIV2 :: ((u64(1) << u64(63)) / u64(2));
+_MOD10 :: (_MAX % u64(10));
+_MOD2 :: (_MAX % u64(2));
+_GT1 :: (_MAX > u64(1));
+_GTE1 :: (_MAX >= u64(1));
+_LT1 :: (_MAX < u64(1));
+_LTE1 :: (_MAX <= u64(1));
+_ONE_LT_MAX :: (u64(1) < _MAX);
+_I64MAX_LT_MAX :: (u64(9223372036854775807) < _MAX);
+_MAX_GT_BIT63 :: (_MAX > u64(9223372036854775808));
+_SHR1 :: (_MAX >> u64(1));
+_SHR63 :: (_MAX >> u64(63));
+_SUB1 :: (_MAX - u64(1));
+_SHL63 :: (u64(1) << u64(63));
+test("comptime u64 above i64.MAX divides and compares UNSIGNED", {
+  assert(_DIV2 == u64(9223372036854775807), `u64.MAX / 2 folded to ${_DIV2}`);
+  assert(_DIV10 == u64(1844674407370955161), `u64.MAX / 10 folded to ${_DIV10}`);
+  assert(_SUB5_DIV10 == u64(1844674407370955161), `(u64.MAX - 5) / 10 folded to ${_SUB5_DIV10}`);
+  assert(_BIT63_DIV2 == u64(4611686018427387904), `(1 << 63) / 2 folded to ${_BIT63_DIV2}`);
+  assert(_MOD10 == u64(5), `u64.MAX % 10 folded to ${_MOD10}`);
+  assert(_MOD2 == u64(1), `u64.MAX % 2 folded to ${_MOD2}`);
+  assert(_GT1, "u64.MAX > 1");
+  assert(_GTE1, "u64.MAX >= 1");
+  assert(!_LT1, "!(u64.MAX < 1)");
+  assert(!_LTE1, "!(u64.MAX <= 1)");
+  assert(_ONE_LT_MAX, "1 < u64.MAX");
+  assert(_I64MAX_LT_MAX, "i64.MAX < u64.MAX");
+  assert(_MAX_GT_BIT63, "u64.MAX > 2^63");
+  assert(_SHR1 == u64(9223372036854775807), `u64.MAX >> 1 folded to ${_SHR1}`);
+  assert(_SHR63 == u64(1), `u64.MAX >> 63 folded to ${_SHR63}`);
+  // The two's-complement-identical operations were always right; pin them so
+  // a future change here cannot regress them.
+  assert(_SUB1 == u64(18446744073709551614), "u64.MAX - 1");
+  assert(_SHL63 == u64(9223372036854775808), "1 << 63");
+});
+_UMAX :: usize.MAX;
+_U_GT1 :: (_UMAX > usize(1));
+_U_LT1 :: (_UMAX < usize(1));
+_U_DIV2 :: (_UMAX / usize(2));
+_U_MOD10 :: (_UMAX % usize(10));
+_U_SHR1 :: (_UMAX >> usize(1));
+test("comptime usize above i64.MAX divides and compares UNSIGNED", {
+  // usize shares the hazard: is_unsigned_integer_type covers .Usize and
+  // get_integer_type_bits reports the target pointer width, so a comptime
+  // bounds check against usize.MAX was reading a negative pattern.
+  assert(_U_GT1, "usize.MAX > 1");
+  assert(!_U_LT1, "!(usize.MAX < 1)");
+  assert(_U_DIV2 == usize(9223372036854775807), `usize.MAX / 2 folded to ${_U_DIV2}`);
+  assert(_U_MOD10 == usize(5), `usize.MAX % 10 folded to ${_U_MOD10}`);
+  assert(_U_SHR1 == usize(9223372036854775807), `usize.MAX >> 1 folded to ${_U_SHR1}`);
+});
+_NEG :: i64(-1);
+_S_DIV10 :: (_NEG / i64(10));
+_S_LT1 :: (_NEG < i64(1));
+_S_GT1 :: (_NEG > i64(1));
+_S_SHR1 :: (_NEG >> i64(1));
+_S_MIN_DIV2 :: (i64.MIN / i64(2));
+_S_MIN_LT0 :: (i64.MIN < i64(0));
+test("comptime SIGNED integers stay signed", {
+  // The negative control: the unsigned split must not leak into i64.
+  assert(_S_DIV10 == i64(0), `-1 / 10 folded to ${_S_DIV10}`);
+  assert(_S_LT1, "-1 < 1");
+  assert(!_S_GT1, "!(-1 > 1)");
+  assert(_S_SHR1 == i64(-1), `-1 >> 1 folded to ${_S_SHR1}`);
+  assert(_S_MIN_DIV2 == i64(-4611686018427387904), `i64.MIN / 2 folded to ${_S_MIN_DIV2}`);
+  assert(_S_MIN_LT0, "i64.MIN < 0");
+});
