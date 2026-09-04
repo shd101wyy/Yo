@@ -1843,6 +1843,20 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
 /// - Underscore separators (e.g. `1_000_000`)
 ///
 /// Returns `None` if the raw string cannot be parsed.
+///
+/// **This is a BIT-PATTERN parser, deliberately not a range-checked one.**
+/// Comptime integers are carried as `i64`, so a `u64`/`usize` literal above
+/// `i64.MAX` is represented by its NEGATIVE two's-complement pattern —
+/// `18446744073709551615` must come back as `i64(-1)`, and `_int_raw_in_range`
+/// below relies on exactly that ("parse_raw_int wraps on overflow … and would
+/// falsely report out-of-range"). The prefixed forms have always wrapped.
+///
+/// It therefore must NOT use `String.parse_i64`, which is the public std API
+/// and follows Rust: it REJECTS anything outside `i64`. The decimal path parses
+/// the magnitude as a `u64` and reinterprets it, which is the same answer the
+/// old wrapping `parse_i64` gave for everything up to `u64.MAX` and `.None`
+/// beyond it (no integer type can hold that, and every caller treats `.None`
+/// as "not representable").
 parse_raw_int :: (fn(raw : String) -> Option(i64))({
   stripped := raw.replace_all(`_`, ``);
   cond(
@@ -1852,7 +1866,14 @@ parse_raw_int :: (fn(raw : String) -> Option(i64))({
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(2)),
     (stripped.starts_with(`0o`) || stripped.starts_with(`0O`)) =>
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
-    true => stripped.parse_i64()
+    // A signed literal is in i64's own range by construction.
+    stripped.starts_with(`-`) => stripped.parse_i64(),
+    // Unsigned magnitude, reinterpreted as the i64 bit pattern.
+    true => match(
+      stripped.parse_u64(),
+      .Some(mag) => .Some(i64(mag)),
+      .None => Option(i64).None
+    )
   )
 });
 /// Parse a raw float token string (e.g. `"3.14"`, `"1e-5"`) to `f64`.

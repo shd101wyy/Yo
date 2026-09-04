@@ -113,3 +113,50 @@ accepted and `i64.MIN - 1` rejected, and a differential test asserting
 **Verified RED first** on the shipped v0.2.24 binary: all six fail there.
 
 **FIXED 2026-09-04.**
+
+## The compiler DEPENDED on the wrap — `parse_raw_int` had to be separated
+
+Making `parse_i64` reject overflow broke the compiler itself, in a way worth
+recording because it is the general lesson of this fix.
+
+`parse_raw_int` (`src/evaluator/utils.yo`) is the parser for **every integer
+literal in every Yo program**, and its decimal path was `stripped.parse_i64()`.
+It relies on that call **wrapping**: comptime integers are carried as `i64`, so
+a `u64`/`usize` literal above `i64.MAX` is represented by its negative
+two's-complement pattern — `18446744073709551615` has to come back as
+`i64(-1)`. Its own caller says so, three lines away:
+
+> *"parse_raw_int wraps on overflow (e.g. u64::MAX = 2^64 - 1 → i64(-1)) and
+> would falsely report out-of-range."*
+
+With `parse_i64` rejecting overflow, `parse_raw_int` returned `.None` for those
+literals, `try_to_convert_to_numeric_type` found no `ExprInfo`, and the whole
+prelude died — reported, unhelpfully, as `Variable "Send" not found` at
+`std/prelude.yo:3151`, the expression *after* `impl(u64, MIN, MAX)`. Bisecting
+by neutering `MAX : u64(18446744073709551615)` moved the failure to
+`usize.MAX`, and neutering both made it vanish; feeding the stage-1 literals
+directly then isolated it exactly:
+
+```
+u64(18446744073709551615)   FAIL: Failed to evaluate argument
+u64(9223372036854775808)    FAIL: Failed to evaluate argument
+u64(9223372036854775807)    OK
+i64(9223372036854775807)    OK
+```
+
+**Two different contracts were sharing one function.** They are now separate:
+
+- `String.parse_i64` — the public std API. Rust semantics: **rejects** anything
+  outside `i64`.
+- `parse_raw_int` — the compiler's internal **bit-pattern** parser, documented
+  as such. Its decimal path parses the magnitude with `parse_u64` and
+  reinterprets it, which reproduces the old wrapping answer for everything up
+  to `u64.MAX` and answers `.None` beyond it (no integer type can hold that,
+  and every caller treats `.None` as "not representable"). A leading `-` still
+  goes through `parse_i64`, which is in range by construction. The prefixed
+  hex/binary/octal paths were already bit-pattern parsers and are untouched.
+
+The other 45 `parse_i32`/`parse_i64`/`parse_u32`/`parse_u64` call sites in
+`src/` were audited: they parse semver components, CLI and env numbers, HTTP
+status codes and comptime indexes, none of which want a wrap — for those,
+rejecting overflow is a strict improvement.
