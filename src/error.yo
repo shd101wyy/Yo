@@ -1,6 +1,6 @@
 //! Error types and formatting utilities for the Yo compiler.
 //!
-//! P1 of plans/ERROR_DIAGNOSTICS_OVERHAUL.md: `YoError` carries structured
+//! P1 of plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md: `YoError` carries structured
 //! `Diagnostic` values (code/severity/message/span/source-line); the human
 //! text — including the location block — is RENDERED from that data at the
 //! edge, never baked into the message string. The single-message and batch
@@ -81,7 +81,7 @@ _source_line_of_token :: (fn(token : Token) -> String)({
 /// Wrap a static code constant as the classifier's return value.
 _coded :: (fn(c : str) -> Option(String))(Option(String).Some(String.from(c)));
 /// Classify a message into its diagnostic code FAMILY (P2,
-/// plans/ERROR_DIAGNOSTICS_OVERHAUL.md §5). Codes are allocated per family —
+/// plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5). Codes are allocated per family —
 /// the 1000+ emission sites collapse into these — and the classification is
 /// central on purpose: one table to test, no per-site sweep, and messages
 /// carry their family's distinctive vocabulary verbatim (checked by
@@ -392,7 +392,7 @@ get_line_at_position :: (
   `${module_path}:${row_plus1}:${col_plus1}:\n  \n${row_line}\n${spaces}^`
 });
 /// Format warning messages into a single string (legacy pre-P1 block; the
-/// warnings channel itself is P4, plans/ERROR_DIAGNOSTICS_OVERHAUL.md §7).
+/// warnings channel itself is P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §7).
 format_warning_messages :: (
   fn(warning_message : Option(String), token_and_warning_list : ArrayList(TokenAndWarning)) -> String
 )({

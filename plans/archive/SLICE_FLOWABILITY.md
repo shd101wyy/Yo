@@ -4,7 +4,7 @@ Status: **✅ Landed.** Phases A–F complete. Verdicts pinned in `tests/slice_f
 
 ## Problem
 
-`plans/MEMORY_SAFETY.md` Known Limitation #1 documents a structural hole:
+`plans/reference/MEMORY_SAFETY.md` Known Limitation #1 documents a structural hole:
 `Slice(T)` is a fat pointer (`*(T) + length`) whose **user-visible type
 doesn't mention `*(T)`**, so safe code can construct a slice from
 local-storage and return it past that storage's lifetime:
@@ -45,7 +45,7 @@ does not.
   argument as `ref(T)` flowability.
 - **No catch for "caller drops the source after the call returns".**
   That requires lifetimes. Same audit obligation as the rest of
-  `plans/MEMORY_SAFETY.md` — see Known Limitation #1.
+  `plans/reference/MEMORY_SAFETY.md` — see Known Limitation #1.
 
 ## Design
 
@@ -254,7 +254,7 @@ By induction on the flowability chain:
 This is a strictly weaker guarantee than Rust's lifetime system — a
 caller that drops the source after the call returns can still
 invalidate the slice. That's the same audit hole as the rest of
-`plans/MEMORY_SAFETY.md` Known Limitation #1.
+`plans/reference/MEMORY_SAFETY.md` Known Limitation #1.
 
 ## Phases
 
@@ -330,7 +330,7 @@ allowComptimeSource: true`.
 
 ### Phase F — Docs ✅
 
-- ✅ `plans/MEMORY_SAFETY.md` Known Limitation #1: marked as
+- ✅ `plans/reference/MEMORY_SAFETY.md` Known Limitation #1: marked as
   RESOLVED with a pointer to this doc.
 - ✅ `plans/archive/ITERATOR_REDESIGN.md` Open Question 7: marked as
   RESOLVED with the rule summary.
@@ -370,7 +370,7 @@ allowComptimeSource: true`.
 
 ## References
 
-- `plans/MEMORY_SAFETY.md` Known Limitation #1 — the gap this closes.
+- `plans/reference/MEMORY_SAFETY.md` Known Limitation #1 — the gap this closes.
 - `plans/archive/ITERATOR_REDESIGN.md` §"Soundness of `ref(T)` return slots" —
   the structural rule we extend.
 - `src/evaluator/types/flowability.ts` — the existing implementation.

@@ -1,4 +1,8 @@
 # Atomic Object & Immutable Collection Optimizations
+> **ARCHIVED 2026-09-04 — RECORD OF APPLIED OPTIMIZATIONS** (the rc()
+> thread-safety fix and the std/imm optimizations described here are in the
+> tree; nothing pending).
+
 
 This document records the optimizations applied to `atomic object(...)` types
 and `std/imm/*` persistent data structures.

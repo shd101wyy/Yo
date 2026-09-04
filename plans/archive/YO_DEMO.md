@@ -1,4 +1,7 @@
 I would like to start create a demo project using the Yo language.
+> **ARCHIVED 2026-09-04 — TS-era scratch note** (informal demo-project
+> brainstorm from the TypeScript-compiler period).
+
 Right now this workspace contains 3 directories:
 
 - Yo - The Yo language implementation

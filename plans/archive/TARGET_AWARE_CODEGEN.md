@@ -1,4 +1,9 @@
 # Target-Aware C Codegen: Eliminating Platform Macros
+> **ARCHIVED 2026-09-04 — LARGELY LANDED.** Platform selection happens at emit
+> time via the target system (src/target.yo; see plans/reference/TARGET_TRIPLES.md).
+> Residual C-preprocessor selection remains only in
+> src/codegen/async/runtime_io_common.yo.
+
 
 ## Problem
 

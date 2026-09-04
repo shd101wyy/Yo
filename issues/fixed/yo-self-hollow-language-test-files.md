@@ -67,7 +67,7 @@ three hollow files are outside the battery. `hollow_sweep69.sh` was written
 precisely to close this and had been wired into no workflow at all
 (`grep -rn hollow_sweep .github/` returned nothing) — see the ratchet below.
 
-This matters for `plans/SELF_HOSTING_COMPLETION.md` **P2**: after `src/` is
+This matters for `plans/archive/SELF_HOSTING_COMPLETION.md` **P2**: after `src/` is
 retired, the self-hosted binary's "N passed" becomes the only signal there is.
 
 ## Shape of the failure

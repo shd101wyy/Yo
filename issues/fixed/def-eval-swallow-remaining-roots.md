@@ -453,7 +453,7 @@ pushed for them, so the lists were empty for a mundane reason. The 885 pushes
 that "fired" were all other impls. Case counts in one full compile of the
 reproducer: **200 case2 fields, 2600 case3 fields.**
 
-Reproduce with the 14-line patch in `plans/HANDOVER_DEF_EVAL_SWALLOW.md` §4.
+Reproduce with the 14-line patch in `plans/archive/HANDOVER_DEF_EVAL_SWALLOW.md` §4.
 
 ### SUPERSEDED 2026-08-13: "the context-list approach CANNOT work"
 
@@ -633,7 +633,7 @@ trial) until it reproduces; that names the third factor without guessing.
 
 ### IMPLEMENTED 2026-08-13 (branch `fix/family-a-provisional-static`) — the §3 handover shape, measurements pending
 
-The three-part fix from `plans/HANDOVER_DEF_EVAL_SWALLOW.md` §3, with one
+The three-part fix from `plans/archive/HANDOVER_DEF_EVAL_SWALLOW.md` §3, with one
 correction found by reading: **Case 3 needs NO new registration.** Its field
 loop already registers each method into the PERMANENT registry as the field
 completes (`impl.yo` `register_type_trait_method` in-loop, plus the

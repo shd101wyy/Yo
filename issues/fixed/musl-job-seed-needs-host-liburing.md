@@ -55,7 +55,7 @@ It is unrelated to the **static** liburing the Alpine stage links into the
 musl artifact, and it does not enter the artifact: stage 1 is emit-only
 (`--emit-c --skip-c-compiler`), so no host library is linked.
 
-## Broader consequence (recorded in `plans/P3_DISTRIBUTION.md`)
+## Broader consequence (recorded in `plans/archive/P3_DISTRIBUTION.md`)
 
 This is not just a CI bug — it is a property of the shipped product: **a user
 who downloads the Linux bundle onto a box without liburing gets a binary that

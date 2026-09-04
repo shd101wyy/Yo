@@ -1,5 +1,5 @@
 //! Hashing — the `Hasher` implementations behind the prelude's `Hash` trait
-//! (plans/STD_API_AUDIT.md D3.9, plans/HASHER_REDESIGN.md).
+//! (plans/STD_API_AUDIT.md D3.9, plans/reference/HASHER_REDESIGN.md).
 //!
 //! The split is Rust's: a type's `Hash` impl says WHICH bytes make up its
 //! identity (`hash(self, hasher)` feeds them in), and a `Hasher` says how those
@@ -136,7 +136,7 @@ impl(
     // defaults: they avoid a stack round-trip per integer, and — until the
     // SEED compiler carries C43 (issues/fixed/trait-default-inout-self-bound-by-value.md)
     // — the compiler's own HashMaps, compiled BY the seed, must not execute an
-    // `inout(self)` trait default (plans/HASHER_REDESIGN.md, "seed gating").
+    // `inout(self)` trait default (plans/reference/HASHER_REDESIGN.md, "seed gating").
     write_u8 : (fn(inout(self) : Self, v : u8) -> unit)({
       self.length = (self.length + usize(1));
       self._push_byte(v);

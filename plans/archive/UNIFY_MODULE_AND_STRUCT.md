@@ -1,4 +1,8 @@
 # Unify `Module` and `Struct` Types
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** The legacy `module(...)` surface is
+> removed; `Struct` is the single nominal record type (imports are
+> source-namespace structs).
+
 
 ## Motivation
 
@@ -313,7 +317,7 @@ wasm-wasi` and `--cc emcc` runs).
 - Mirror the unification in `yo-self/types/`, `yo-self/evaluator/types/`
   on a best-effort basis so the bootstrap stays roughly in sync.
 - Remove `Module` from the `yo-self` `TypeTag` enum if reachable.
-- Update `plans/BOOTSTRAPPING.md` to note the simplified type system.
+- Update `plans/archive/BOOTSTRAPPING.md` to note the simplified type system.
 - `./yo-cli test ./yo-self/tests/` is informational only — known failures
   there do not block landing the change.
 

@@ -1,4 +1,7 @@
 ## Implementation Plan
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** `Dyn(Trait)` dynamic dispatch ships in the
+> evaluator and codegen (vtable-based calls in src/codegen/).
+
 
 ### Phase 1: Collection & Analysis
 

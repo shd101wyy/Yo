@@ -43,7 +43,7 @@ FnArgsResult :: struct(
 );
 /// Parse errors used to be a local `ParseError` struct rendered by its own
 /// `ToString` — the only rustc-shaped renderer in the tree while every other
-/// stage printed plain blocks. P1 of plans/ERROR_DIAGNOSTICS_OVERHAUL.md
+/// stage printed plain blocks. P1 of plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md
 /// deleted it: `make_parse_error`/`make_parse_error_raw` now build the same
 /// structured `YoError` the evaluator and lexer throw, so one renderer (src/
 /// diagnostics.yo) and one CLI-edge prefix rule serve every stage.
@@ -74,7 +74,7 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> YoError)(
 // over by the first-parsed file's matching-id expression — observed as
 // `import("./rune.yo")` resolving to `i32` at export-spread time).
 // Global expr-id counter moved to expr.yo (shared with synthesized nodes).
-/// The PREFIX-capable operators (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+/// The PREFIX-capable operators (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md
 /// Rule 1): a BARE one of these in expression position, followed by a
 /// primary-starter, is a prefix CALL binding exactly one postfix
 /// expression — `-1`, `!x`, `&v`, `~m`, `*T`, `?T`, `^v`, and chains like
@@ -1359,7 +1359,7 @@ impl(
         );
         rhs_is_parenthesized := self.is_parenthesized_expr(rhs_start, rhs_end - usize(1));
         if(rhs_is_chained_op && (rhs_is_parenthesized == false), {
-          // Stricter operator grouping (plans/OPERATOR_ASSOCIATIVITY.md): a chain
+          // Stricter operator grouping (plans/archive/OPERATOR_ASSOCIATIVITY.md): a chain
           // of the SAME operator left-associates; adjacent DIFFERENT operators
           // require explicit parentheses. No precedence, no newline rule (source
           // layout no longer affects grouping).
@@ -1425,7 +1425,7 @@ impl(
       )
     )
   ),
-  /// Parse ONE prefix operand (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+  /// Parse ONE prefix operand (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md
   /// Rule 1): a primary plus its TIGHT postfix ends (no-whitespace calls
   /// and immediate dot-chains) — never an infix chain, so `-a.b(c) + d`
   /// binds `a.b(c)` and `+ d` applies to the prefix result. A nested bare

@@ -225,7 +225,7 @@ module_id_from_path :: (fn(path : String) -> String)(
 /// proper evaluator over the parsed top-level expressions. On any failure
 /// (the evaluator's coverage of real source files is still incomplete),
 /// return `.None` so the codegen dispatcher uses its AST-only bootstrap
-/// heuristics. See `plans/BOOTSTRAPPING.md` Path Forward Stream A.
+/// heuristics. See `plans/archive/BOOTSTRAPPING.md` Path Forward Stream A.
 try_populate_expr_info_table :: (
   fn(
     exprs : ArrayList(AstExpr),
@@ -637,7 +637,7 @@ check_single_file :: (
   outcome := mm_load_file(input_path, std_path, true, io, exn);
   if(!(outcome.ok), {
     // The loader's handlers only stash the rendered diagnostic (the P1
-    // single-print rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2) — check's
+    // single-print rule, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md D2) — check's
     // own edge prints it here, exactly once, anchored at the failing file.
     match(
       _take_load_error(),
@@ -763,7 +763,7 @@ run_check :: (
     emit_chatter(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
   });
   // Watch modes survive a failing initial pass — that is their whole point.
-  // (Phase C, plans/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
+  // (Phase C, plans/reference/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
   if(watch_once, {
     run_watch_once(files, std_path.clone(), io, exn);
   });
@@ -1862,7 +1862,7 @@ run_compile :: (
     });
     cond(
       (emit_chunks >= usize(1)) => {
-        // Chunked emission (plans/CHUNKED_C_EMISSION.md step 2): parts[0] is
+        // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): parts[0] is
         // the shared header, parts[1..] the linkage-split translation-unit
         // bodies. Each chunk #includes the header BY BASENAME (quoted
         // includes resolve relative to the including file, and the files are
@@ -1997,7 +1997,7 @@ run_compile :: (
     }
   );
   // Chunked emission needs ThinLTO **at -O1 and above**, and there it is NOT an
-  // optional tuning knob (plans/CHUNKED_C_EMISSION.md). Splitting the program
+  // optional tuning knob (plans/reference/CHUNKED_C_EMISSION.md). Splitting the program
   // into N translation units externalizes every generated function, so an
   // optimizing build can no longer internalize or dead-strip them: MEASURED on
   // an N=4 self-build at -O2, the binary went 9 MB / 3.5k symbols -> 24 MB /
@@ -2469,7 +2469,7 @@ run_test :: (
       },
       // Consumed for CLI compatibility; the sequential in-process runner has
       // no use for them yet — accepted divergence, tracked in
-      // plans/P1_CLI_PARITY.md §6.
+      // plans/archive/P1_CLI_PARITY.md §6.
       (a == "--json-summary") => {
         json_summary = true;
         ai = (ai + usize(1));
@@ -3081,7 +3081,7 @@ run_test :: (
 /// else is rejected rather than silently swallowed — `main.yo`'s other arg loops
 /// assign unrecognized tokens to a path, which is how `yo test ./tests --profile`
 /// ends up running against a path literally named `--profile`
-/// (plans/P1_CLI_PARITY.md §3). Do not copy that shape here.
+/// (plans/archive/P1_CLI_PARITY.md §3). Do not copy that shape here.
 run_init :: (
   fn(
     argv : ArrayList(String),
@@ -3468,7 +3468,7 @@ run_build_cmd :: (
     io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
     return(());
   });
-  // `yo build --watch` (Phase C, plans/INCREMENTAL_COMPILATION.md): a thin
+  // `yo build --watch` (Phase C, plans/reference/INCREMENTAL_COMPILATION.md): a thin
   // loop — every round is a full `run_build`, and the Phase A inputs-sha256
   // artifact cache makes unchanged artifacts a no-op. Evaluator state is NOT
   // kept warm across rounds: artifacts compile in child processes anyway,
@@ -3666,7 +3666,7 @@ run_doc_cmd :: (
 /// The `version` subcommand — mirrors src/yo-cli.ts's `version [action] [value]`:
 /// no action prints the current + pinned version; pin/install/list/clean
 /// manage the GitHub-Releases-backed native-bundle cache
-/// (plans/P3_DISTRIBUTION.md item 2).
+/// (plans/archive/P3_DISTRIBUTION.md item 2).
 run_version_cmd :: (
   fn(
     argv : ArrayList(String),
@@ -4007,7 +4007,7 @@ _print_indented :: (fn(text : String) -> unit)({
 });
 /// `yo explain <CODE>` — print a diagnostic code's bilingual explanation,
 /// offline, from the compiled-in registry (P2,
-/// plans/ERROR_DIAGNOSTICS_OVERHAUL.md §6). `--list` enumerates every code;
+/// plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §6). `--list` enumerates every code;
 /// `--format json` carries both languages; `--lang zh-CN` (or the YO_LANG
 /// env var) selects the Chinese prose. Exit 0 when found; an unknown code
 /// exits 1 with a did-you-mean over the registry.

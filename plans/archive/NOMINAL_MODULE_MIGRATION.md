@@ -1,4 +1,9 @@
 # Migration Plan: Structural to Nominal ModuleType
+> **ARCHIVED 2026-09-04 — PARTIALLY LANDED.** The nominal Struct-based module
+> model shipped (see UNIFY_MODULE_AND_STRUCT.md in this archive); duplicate
+> inherent-method rejection did NOT and is tracked in
+> plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md.
+
 
 ## Overview
 

@@ -1,4 +1,4 @@
-// Yo Language extension entry — LSP client wiring (plans/P4_LSP.md slice 6,
+// Yo Language extension entry — LSP client wiring (plans/archive/P4_LSP.md slice 6,
 // brought forward for the diagnostics MVP).
 //
 // Plain JavaScript ON PURPOSE: the extension stayed build-step-free when it

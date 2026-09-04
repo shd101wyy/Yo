@@ -19,7 +19,7 @@ the file is implicitly allowed to call C, dereference raw pointers,
 construct raw pointer types, etc. The reader has no way to tell at a
 glance which expressions are UB-capable and which are pure Yo.
 
-This is Known Limitation #2 in `plans/MEMORY_SAFETY.md`:
+This is Known Limitation #2 in `plans/reference/MEMORY_SAFETY.md`:
 
 > Calling a C function with the wrong argument types is UB, but a
 > call site like `c_function(x, y, z)` carries no syntactic marker —
@@ -264,7 +264,7 @@ the wrapper's body owns the audit obligation.
 
 ### Phase E — Docs
 
-- Update `plans/MEMORY_SAFETY.md` Known Limitation #2: mark
+- Update `plans/reference/MEMORY_SAFETY.md` Known Limitation #2: mark
   RESOLVED with a pointer to this doc.
 - Update `.github/instructions/yo-design.instructions.md`: brief
   note on the extern wrap rule for future-Claude consistency.
@@ -327,7 +327,7 @@ the wrapper's body owns the audit obligation.
 
 ## References
 
-- `plans/MEMORY_SAFETY.md` Known Limitation #2 — the gap this
+- `plans/reference/MEMORY_SAFETY.md` Known Limitation #2 — the gap this
   closes.
 - `src/evaluator/exprs/extern.ts` — extern declaration evaluator,
   source of `isExtern: "c"` marker.

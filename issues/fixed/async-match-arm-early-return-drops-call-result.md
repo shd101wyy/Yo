@@ -31,7 +31,7 @@ A `match` used as a DEFINITION's right-hand side, one arm early-`return`ing a
 freshly-constructed value, inside an async body that awaits later. Without the
 later await there is a single state and the shape compiles.
 
-`check ./yo-self` is green throughout — see plans/P1_CLI_PARITY.md §1 for why
+`check ./yo-self` is green throughout — see plans/archive/P1_CLI_PARITY.md §1 for why
 that proves nothing about codegen.
 
 ---

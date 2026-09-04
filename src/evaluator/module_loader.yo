@@ -42,7 +42,7 @@ open(import("std/string"));
 (g_loading_keys : ArrayList(String)) = ArrayList(String).new();
 (g_loading_envs : ArrayList(Environment)) = ArrayList(Environment).new();
 /// Keep the registries' owner tag in sync with the loading-stack top
-/// (Phase B2, plans/INCREMENTAL_COMPILATION.md). The tag lives in
+/// (Phase B2, plans/reference/INCREMENTAL_COMPILATION.md). The tag lives in
 /// type_trait_methods.yo — see `set_registration_owner`'s doc there.
 _sync_registration_owner :: (fn() -> unit)({
   n := g_loading_keys.len();
@@ -110,7 +110,7 @@ loading_env :: (fn(path : String) -> Option(Environment))({
 // imported `g_import_edge_imports(i)` (both `file://…` abs paths). Fed by
 // the demand loader on EVERY import request — cache hits included, since a
 // hit is still a dependency. Consumed by `invalidate_module`'s
-// reverse-closure walk (plans/INCREMENTAL_COMPILATION.md Phase B1).
+// reverse-closure walk (plans/reference/INCREMENTAL_COMPILATION.md Phase B1).
 (g_import_edge_importers : ArrayList(String)) = ArrayList(String).new();
 (g_import_edge_imports : ArrayList(String)) = ArrayList(String).new();
 /// Record that `importer` imports `imported`. Exact-pair duplicates are
@@ -234,7 +234,7 @@ remove_module :: (fn(path : String) -> unit)({
 /// edge closure) from the cache, so no cached module keeps exports built
 /// against the old version. Dependencies of the removed set stay cached —
 /// they are unchanged. Returns the removed abs paths (the Phase B2 registry
-/// purge consumes this). plans/INCREMENTAL_COMPILATION.md Phase B1.
+/// purge consumes this). plans/reference/INCREMENTAL_COMPILATION.md Phase B1.
 invalidate_module :: (fn(path : String) -> ArrayList(String))({
   removed := ArrayList(String).new();
   worklist := ArrayList(String).new();

@@ -38,7 +38,7 @@ shard and is the precedent this job should follow.
 
 ## Do this together with P2.5 step 20
 
-`plans/P2_5_RETIRE_EXECUTION.md` step 20 **deletes the 4-shard TS arm**, making
+`plans/archive/P2_5_RETIRE_EXECUTION.md` step 20 **deletes the 4-shard TS arm**, making
 this job the SOLE arm for `tests/internal` — which both raises the stakes (its
 timeout becomes the only thing standing between a regression and an unscored
 tier) and, crucially, carries the SAME branch-protection hazard described

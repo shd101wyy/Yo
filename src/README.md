@@ -27,7 +27,7 @@ RETIRED TypeScript one. See the translation note in AGENTS.md.
   read that first; it carries THE METHOD (gate battery, hollow-green hygiene,
   phantom-kill protocol) and the measured dead ends not worth repeating.
 
-See **[`../plans/BOOTSTRAPPING.md`](../plans/BOOTSTRAPPING.md)** for:
+See **[`../plans/archive/BOOTSTRAPPING.md`](../plans/archive/BOOTSTRAPPING.md)** for:
 
 - Current status and test counts per phase
 - File mapping table (TypeScript source → Yo target)

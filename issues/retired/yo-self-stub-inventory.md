@@ -1587,7 +1587,7 @@ which is itself an extra yo-self-only rejection with no TS counterpart.
 
 **TS:** src/evaluator/types/struct.ts:82-85 — `const needsSendCycleBreak = isAtomicRc; if (needsSendCycleBreak) beginSendDerivation(structType.id);` BEFORE the field loop, with the comment that self-referential `atomic object(_next: Option(Self))` triggers Option creation during field evaluation which checks Send for this type. src/evaluator/types/struct.ts:159-173 — after `endSendDerivation`, `if (isAtomicRc && !typeImplementsSend(structType, env)) throw "atomic object must implement Send (all fields must be Send) …"` listing the non-Send fields.
 
-**Evidence:** struct.yo:179 `if(is_atomic_rc, {` contains only the `Arc(Iso(T))` ban; the header lists `beginSendDerivation`, `endSendDerivation`, `typeImplementsSend` as "not yet ported (see plans/BOOTSTRAPPING.md Phase 3)".
+**Evidence:** struct.yo:179 `if(is_atomic_rc, {` contains only the `Arc(Iso(T))` ban; the header lists `beginSendDerivation`, `endSendDerivation`, `typeImplementsSend` as "not yet ported (see plans/archive/BOOTSTRAPPING.md Phase 3)".
 
 ### `yo-self/evaluator/types/struct.yo:92` — deferred-todo _(evaluator-types)_
 

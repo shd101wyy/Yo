@@ -71,7 +71,7 @@ buffer on every iteration of `write`'s outer loop, forever.
 
 The mismatch came from `allocCondBranchCodes` — the per-function base that makes
 dispatch codes unique across sibling/nested conds (added with the
-[nested-match-arm cluster](fixed/async-await-in-nested-match-arms.md)). One of the
+[nested-match-arm cluster](async-await-in-nested-match-arms.md)). One of the
 two `_attach_cond_branch_post_while` call sites passed the RAW branch index while
 the emission beside it wrote `cond_branch_base + ci`:
 

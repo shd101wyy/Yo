@@ -1,4 +1,8 @@
 # Plan: Compile tetris_yo to WASM with Raylib
+> **ARCHIVED 2026-09-04 — ONE-OFF ENABLEMENT RECORD (TS-era).** The WASM
+> flag/host-leak fix it drove shipped with the build runner; the emscripten
+> raylib toolchain stays an external environment concern.
+
 
 ## Problem
 

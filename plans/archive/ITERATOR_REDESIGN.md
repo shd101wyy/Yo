@@ -9,7 +9,7 @@ family, and benchmarks showed `get`-based value access costs ≤10% in the
 worst case (and is faster for struct elements). Iteration is the value
 form only (`into_iter`); in-place element mutation uses index writes.
 The historical design below is kept for the record. (Originally landed
-as phases A–E, deferred from `plans/MEMORY_SAFETY.md` Phase D.)
+as phases A–E, deferred from `plans/reference/MEMORY_SAFETY.md` Phase D.)
 
 ## Problem
 
@@ -36,7 +36,7 @@ With Phase C's structural gates, `*(T)` is no longer reachable from safe code. T
 4. Stays consistent with Yo's "no lifetimes, no borrow checker" stance.
 5. Composes with existing safe types without forcing `T <: Clone`.
 
-The earlier sketch in `plans/MEMORY_SAFETY.md` proposed three replacements (value iteration, index iteration, `each_mut` callback). Of those, callback-style iteration **fails goal 3** — a closure body's `break` / `continue` would have to escape into the caller's loop, which the closure-capture gate (Phase B) explicitly forbids. Value iteration **fails goal 2** for value-struct types and `object` types with non-trivial RC traffic. Index iteration works but only for random-access collections.
+The earlier sketch in `plans/reference/MEMORY_SAFETY.md` proposed three replacements (value iteration, index iteration, `each_mut` callback). Of those, callback-style iteration **fails goal 3** — a closure body's `break` / `continue` would have to escape into the caller's loop, which the closure-capture gate (Phase B) explicitly forbids. Value iteration **fails goal 2** for value-struct types and `object` types with non-trivial RC traffic. Index iteration works but only for random-access collections.
 
 This plan proposes a fourth approach: **projection-style iteration**, modelled on Hylo's `let` / `inout` subscript projections.
 
@@ -90,7 +90,7 @@ project : (fn(ref(self) : Self, pos : Position) -> ref(Element));
 
 `project` yields a writable borrow of the element at `pos`. Unlike Hylo and Rust, Yo doesn't carry read-only-vs-mutable at the binding level — every binding is read-write by default and `inout` is the only borrow flavor — so there's no `let` / `inout` variant pair to define. A read-only projection in user code is just a `project`-returned `inout`-binding that the body happens not to write through; the compiler doesn't enforce read-only-ness because the underlying value model doesn't either.
 
-If we later add a `in(name) : T` read-only-by-ref modifier (deferred from `plans/MEMORY_SAFETY.md` Open Question 5), the trait can grow a sibling `project_const` method then. For v1 a single `project` covers every use case.
+If we later add a `in(name) : T` read-only-by-ref modifier (deferred from `plans/reference/MEMORY_SAFETY.md` Open Question 5), the trait can grow a sibling `project_const` method then. For v1 a single `project` covers every use case.
 
 ### Iterator protocol — `next()` yields positions, projection happens at the call site
 
@@ -393,11 +393,11 @@ main :: (fn() -> unit)({
 In addition to the flowability rule above, the language enforces:
 
 - `ref(T)` cannot appear inside any other type expression — guaranteed by parsing `ref(T)` only at the top of a return slot or a parameter slot. So `Option(ref(T))`, `struct(x : ref(T))`, `(ref(T), bool)`, generic args holding `ref(T)`, etc. all reject at parse time.
-- An `inout`-bound binding (parameter or `ref(name) := ...` local) cannot be captured by a closure — already enforced by the Phase B gate from `plans/MEMORY_SAFETY.md` (`Cannot capture inout parameter 'x' in a closure`). The same `isInout: true` flag covers both binding sources.
+- An `inout`-bound binding (parameter or `ref(name) := ...` local) cannot be captured by a closure — already enforced by the Phase B gate from `plans/reference/MEMORY_SAFETY.md` (`Cannot capture inout parameter 'x' in a closure`). The same `isInout: true` flag covers both binding sources.
 - An `inout`-bound local cannot escape into a non-`inout` stored binding — `r := inout_bound_local` auto-derefs (`r : T`); there is no `inout` value-type for `r` to be.
 - An `inout`-bound local cannot be returned from a function unless the function's return slot is `ref(T)` AND the expression satisfies the flowability rule.
 
-Net effect: every `inout`-bound binding visible in user code traces back to an `inout`-typed parameter, which traces back to caller-side storage. The structural rules are strictly weaker than Rust's borrow checker — a determined user can still invalidate a borrow by structurally mutating the underlying collection mid-iteration. The audit story owns that gap, same as the rest of `plans/MEMORY_SAFETY.md`.
+Net effect: every `inout`-bound binding visible in user code traces back to an `inout`-typed parameter, which traces back to caller-side storage. The structural rules are strictly weaker than Rust's borrow checker — a determined user can still invalidate a borrow by structurally mutating the underlying collection mid-iteration. The audit story owns that gap, same as the rest of `plans/reference/MEMORY_SAFETY.md`.
 
 ### Why this composes — the `Option(ref(T))` non-problem
 
@@ -441,7 +441,7 @@ Parser + evaluator landed:
 
 - `ref(name) := expr;` recognized in `src/evaluator/exprs/initialization-assignment.ts`. Wraps the lhs identifier in a `ref(...)` call; the evaluator unwraps it to the inner name and flags the bound variable with `isRef: true` (same flag used for `ref(name) : T` parameter bindings).
 - `ref(name) := ...` is rejected when combined with `::` or in a comptime-only context (borrows are runtime constructs only).
-- The existing Phase B closure-capture gate from `plans/MEMORY_SAFETY.md` already fires on any binding with `isRef: true`, so the ref-binding inherits the no-escape rule for free.
+- The existing Phase B closure-capture gate from `plans/reference/MEMORY_SAFETY.md` already fires on any binding with `isRef: true`, so the ref-binding inherits the no-escape rule for free.
 - Codegen side (`src/codegen/exprs/initialization-assignment.ts`): the lhs is unwrapped for emission; the binding's C-declared type uses `T*` when `isRef` is set on the variable (matching the existing `ref(name) : T` parameter ABI).
 
 Tests landed in `tests/ref_local_binding.test.yo`:
@@ -564,7 +564,7 @@ with a `yield expr` form in the body that pauses and returns control to the call
 
 ## Open Questions
 
-1. **Read-only projections.** Deferred until `in(name) : T` (read-only-by-ref parameter modifier — see `plans/MEMORY_SAFETY.md` Open Question 5) lands. Until then, all projections yield read-write `inout`-bindings; user code that only reads through the binding pays no actual cost (the C-ABI return is a pointer either way, and Yo's evaluator doesn't insert any extra reads on bind).
+1. **Read-only projections.** Deferred until `in(name) : T` (read-only-by-ref parameter modifier — see `plans/reference/MEMORY_SAFETY.md` Open Question 5) lands. Until then, all projections yield read-write `inout`-bindings; user code that only reads through the binding pays no actual cost (the C-ABI return is a pointer either way, and Yo's evaluator doesn't insert any extra reads on bind).
 
 2. **`String` iteration semantics.** `String`'s elements are bytes, but most users want `rune` iteration. Two iterators (`bytes()` / `chars()`) or one? Lean: two, matching Rust.
 

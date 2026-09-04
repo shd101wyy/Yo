@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # cli-diff-test.sh — golden test harness for CLI SUBCOMMANDS.
-# See plans/P1_CLI_PARITY.md §1.
+# See plans/archive/P1_CLI_PARITY.md §1.
 #
 # `scripts/diff-test.sh` compares stdout + exit code, which is the right verdict
 # for a compiled program. It is useless for `init`/`fetch`/`install`/`cache`/
@@ -13,7 +13,7 @@
 # reference) and the name is from that era. The TS compiler was deleted with
 # `src/` (P2.5), so goldens are now the only reference — which is exactly the
 # post-retirement form the golden mode was built for while both arms still
-# existed (plans/P2_5_RETIRE_EXECUTION.md step 12).
+# existed (plans/archive/P2_5_RETIRE_EXECUTION.md step 12).
 #
 # Why it exists: in this codebase "ported" can mean "type-checks and is
 # unreachable", and `check` cannot tell those apart. `init_project` was 239
