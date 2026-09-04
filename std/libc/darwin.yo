@@ -1,0 +1,15 @@
+//! Darwin-only C interface pieces (audit env row: `vars()`).
+//!
+//! macOS does not export `environ` through the regular headers; the
+//! sanctioned route is `<crt_externs.h>`'s `_NSGetEnviron()`. This module is
+//! only ever imported from a `Platform.Macos` comptime arm, so the header
+//! include never reaches other platforms' emitted C.
+pragma(Pragma.AllowUnsafe);
+c_include(
+  "<crt_externs.h>",
+  /// The ADDRESS OF the process environment symbol: returns `char ***` —
+  /// dereference once for the NULL-terminated "NAME=VALUE" array.
+  _NSGetEnviron :
+    (fn() -> **?*char)
+);
+export(_NSGetEnviron);

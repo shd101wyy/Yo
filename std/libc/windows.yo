@@ -34,6 +34,11 @@ c_include(
   // _putenv_s - Sets environment variable (Windows-specific)
   // Returns 0 on success, non-zero on error
   _putenv_s : (fn(varname : *char, value_string : *char) -> int),
+  // _environ - The process environment (MSVC UTCRT): NULL-terminated array
+  // of "NAME=VALUE" strings. ANSI variant — Unicode-valued variables are
+  // not represented; use env::vars() which reads this.
+  _environ :
+    *?*char,
   // GetModuleFileNameW - Gets the path of the current executable (Unicode
   // version; hModule = NULL means "the .exe of the current process").
   // Returns the number of WCHARs copied excluding the null terminator, or 0
@@ -62,6 +67,7 @@ export(GetCurrentDirectoryW);
 export(SetCurrentDirectoryA);
 export(WideCharToMultiByte);
 export(_putenv_s);
+export(_environ);
 export(GetModuleFileNameW);
 export(CP_UTF8);
 export(_unlink);

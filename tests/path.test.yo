@@ -634,3 +634,51 @@ test("Path ordering follows the normalized rendering", {
   assert(b > a, "> works");
   assert(c > a, "'ab' > 'a/b' — byte order on the rendering");
 });
+// ===== quick-wins row: join(str), push, ancestors, PATH split/join =====
+test("Path.join accepts str, String, and Path interchangeably", {
+  p := Path.new(`a/b`);
+  via_str := p.join("c");
+  via_string := p.join(String.from("c"));
+  via_path := p.join(Path.new(`c`));
+  assert((via_str == via_string) && (via_string == via_path), "all three agree");
+  assert(via_str.to_string() == `a/b/c`, "joined");
+  assert(p.join("/abs").to_string() == `/abs`, "absolute other still replaces");
+});
+test("Path.push extends in place; absolute push replaces", {
+  p := Path.new(`a/b`);
+  p.push("c");
+  assert(p.to_string() == `a/b/c`, "pushed");
+  p.push("/root");
+  assert(p.to_string() == `/root`, "absolute push replaced the contents");
+});
+test("Path.ancestors walks from self to the root", {
+  p := Path.new(`a/b/c`);
+  anc := p.ancestors();
+  assert(anc.len() == usize(3), "three ancestors");
+  assert(anc(usize(0)).to_string() == `a/b/c`, "starts at self");
+  assert(anc(usize(1)).to_string() == `a/b`, "then parent");
+  assert(anc(usize(2)).to_string() == `a`, "then grandparent");
+  abs := Path.new(`/x/y`).ancestors();
+  assert(abs.len() == usize(3), "absolute chain incl. root");
+  assert(abs(usize(2)).to_string() == `/`, "ends at the root");
+});
+test("split_paths / join_paths round-trip a PATH-style string", {
+  // Built with the PLATFORM delimiter — the input spelling differs between
+  // Unix (`:`) and Windows (`;`), so construct it instead of writing a
+  // literal.
+  raw := String.new();
+  _a := raw.push_string(`/usr/bin`);
+  _b := raw.push_byte(u8(PATH_DELIMITER));
+  _c := raw.push_string(`/bin`);
+  _d := raw.push_byte(u8(PATH_DELIMITER));
+  parts := split_paths(raw);
+  assert(parts.len() == usize(2), "empty segment dropped");
+  assert(parts(usize(0)) == Path.new(`/usr/bin`), "first (segment equality)");
+  assert(parts(usize(1)) == Path.new(`/bin`), "second (segment equality)");
+  expected := String.new();
+  _e := expected.push_string(`/usr/bin`);
+  _f := expected.push_byte(u8(PATH_DELIMITER));
+  _g := expected.push_string(`/bin`);
+  joined := join_paths(parts);
+  assert(joined == expected, "round-tripped with the platform delimiter");
+});

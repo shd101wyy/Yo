@@ -1,6 +1,6 @@
 //! Formatted output to stdout and stderr.
 pragma(Pragma.AllowUnsafe);
-{ fwrite, stdout, stderr } :: import("../libc/stdio");
+{ fwrite, stdout, stderr, FILE } :: import("../libc/stdio");
 { String } :: import("../string");
 { ToString } :: import("./to_string.yo");
 export(ToString);
@@ -8,61 +8,43 @@ export(ToString);
 export(Format);
 { FormatSpec } :: import("./spec.yo");
 export(FormatSpec);
-/// Print a value that implements `ToString` to stdout, followed by a newline.
-println :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> unit)({
-  s := v.to_string();
+/// Write `s`'s bytes to `stream` — the one shared body behind
+/// `print`/`println`/`eprint`/`eprintln` (audit fmt row: collapse the four
+/// duplicated print bodies).
+_write_str :: (fn(s : String, stream : *FILE) -> unit)({
   str_bytes := s.as_bytes();
   str_bytes_len := str_bytes.len();
   cond(
     (str_bytes_len > usize(0)) => {
       str_bytes_ptr := str_bytes.ptr().unwrap();
-      unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout));
+      _w := unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stream));
     },
     true => ()
   );
-  unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stdout));
+});
+_write_newline :: (fn(stream : *FILE) -> unit)({
+  _n := unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stream));
+  ()
+});
+/// Print a value that implements `ToString` to stdout, followed by a newline.
+println :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> unit)({
+  _write_str(v.to_string(), stdout);
+  _write_newline(stdout);
 });
 export(println);
 /// Print a value that implements `ToString` to stdout, without a trailing newline.
-print :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> unit)({
-  s := v.to_string();
-  str_bytes := s.as_bytes();
-  str_bytes_len := str_bytes.len();
-  cond(
-    (str_bytes_len > usize(0)) => {
-      str_bytes_ptr := str_bytes.ptr().unwrap();
-      unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stdout));
-    },
-    true => ()
-  );
-});
+print :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> unit)(
+  _write_str(v.to_string(), stdout)
+);
 export(print);
 /// Print a value that implements `ToString` to stderr, followed by a newline.
 eprintln :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> unit)({
-  s := v.to_string();
-  str_bytes := s.as_bytes();
-  str_bytes_len := str_bytes.len();
-  cond(
-    (str_bytes_len > usize(0)) => {
-      str_bytes_ptr := str_bytes.ptr().unwrap();
-      unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr));
-    },
-    true => ()
-  );
-  unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stderr));
+  _write_str(v.to_string(), stderr);
+  _write_newline(stderr);
 });
 export(eprintln);
 /// Print a value that implements `ToString` to stderr, without a trailing newline.
-eprint :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> unit)({
-  s := v.to_string();
-  str_bytes := s.as_bytes();
-  str_bytes_len := str_bytes.len();
-  cond(
-    (str_bytes_len > usize(0)) => {
-      str_bytes_ptr := str_bytes.ptr().unwrap();
-      unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stderr));
-    },
-    true => ()
-  );
-});
+eprint :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> unit)(
+  _write_str(v.to_string(), stderr)
+);
 export(eprint);

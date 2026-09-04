@@ -151,3 +151,10 @@ test("Test unit ToString", {
   // a struct field, a container element) is covered by
   // tests/unit_as_value_type.test.yo.
 });
+test("numeric to_string through the shared snprintf helper", {
+  assert(i8(-128).to_string() == `-128`, "i8 min");
+  assert(i64(9007199254740993).to_string() == `9007199254740993`, "big i64");
+  assert(u64(18446744073709551615).to_string() == `18446744073709551615`, "u64 max");
+  assert(f64(0.5).to_string() == `0.5`, "f64 %g drops trailing zeros");
+  assert(f32(2.5).to_string() == `2.5`, "f32 widened");
+});

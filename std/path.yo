@@ -167,7 +167,14 @@ impl(
     );
   }),
   /// Join this path with another. If `other` is absolute, returns `other`.
-  join : (fn(self : Self, other : Self) -> Self)({
+  /// Join with any `ToString` — a `str`/`String` literal or another `Path`
+  /// (audit path row: `join(str)`). `Path` round-trips through `new`
+  /// losslessly (paths are stored normalized), so the generic facade is
+  /// semantics-preserving for existing `Path` callers.
+  join : (fn(generic(P : Type), self : Self, other : P, where(P <: ToString)) -> Self)(
+    self._join_path(Path.new(other.to_string()))
+  ),
+  _join_path : (fn(self : Self, other : Self) -> Self)({
     // If other is absolute, return other
     cond(
       other._is_absolute => {
@@ -745,4 +752,86 @@ impl(
     )
   )
 );
+/// Extend this path IN PLACE with `other` (audit path row: `push` —
+/// Rust's `PathBuf::push`). Takes any `ToString` like `join`. An absolute
+/// `other` replaces the contents entirely, exactly like `join`.
+impl(
+  Path,
+  push : (fn(generic(P : Type), inout(self) : Self, other : P, where(P <: ToString)) -> unit)({
+    joined := self._join_path(Path.new(other.to_string()));
+    self._segments.clear();
+    _e := self._segments.extend(joined._segments);
+    self._is_absolute = joined._is_absolute;
+  })
+);
+/// This path and every ancestor, starting with `self` and ending at the
+/// root (`/`) for absolute paths or the empty relative path (audit path
+/// row: `ancestors` — Rust yields an iterator; this materializes the list,
+/// walker-style). `"a/b/c"` → `a/b/c`, `a/b`, `a`; `/x` → `/x`, `/`.
+impl(
+  Path,
+  ancestors : (fn(self : Self) -> ArrayList(Self))({
+    out := ArrayList(Self).new();
+    cur := self.clone();
+    _p := out.push(cur.clone());
+    while(true, {
+      nxt := cur.parent();
+      // `parent` of a single relative segment is the EMPTY relative path
+      // (renders "."); Rust's `ancestors` stops before it, as do we. The
+      // absolute root ("/", zero segments + absolute) IS yielded.
+      stop := match(
+        nxt,
+        .Some(n) =>
+          cond(
+            ((n._segments.len() == usize(0)) && !n._is_absolute) => true,
+            true => {
+              _p2 := out.push(n.clone());
+              cur = n;
+              false
+            }
+          ),
+        .None => true
+      );
+      if(stop, {
+        return(out);
+      });
+    });
+    out
+  })
+);
 export(Path);
+// ============================================================================
+// PATH environment-variable helpers (audit path row: PATH split/join —
+// Rust's std::env::split_paths / join_paths, placed with the delimiter).
+// ============================================================================
+/// Split a `PATH`-style string (`"/usr/bin:/bin"` on Unix, `;`-separated on
+/// Windows) into its `Path` components. Empty segments are dropped.
+split_paths :: (fn(s : String) -> ArrayList(Path))({
+  parts := s.split(rune(u32(PATH_DELIMITER)));
+  out := ArrayList(Path).new();
+  i := usize(0);
+  while(i < parts.len(), i = (i + usize(1)), {
+    part := parts.get(i).unwrap_or(String.new());
+    cond(
+      part.is_empty() => (),
+      true => {
+        _p := out.push(Path.new(part.clone()));
+      }
+    );
+  });
+  out
+});
+/// Join paths back into a `PATH`-style string with the platform delimiter.
+join_paths :: (fn(paths : ArrayList(Path)) -> String)({
+  out := String.new();
+  i := usize(0);
+  while(i < paths.len(), i = (i + usize(1)), {
+    p := paths.get(i).unwrap_or(Path.new(String.new()));
+    if(i > usize(0), {
+      _c := out.push_byte(u8(PATH_DELIMITER));
+    });
+    _a := out.push_string(p.to_string());
+  });
+  out
+});
+export(split_paths, join_paths);
