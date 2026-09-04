@@ -290,6 +290,10 @@ cp -r .github/skills /path/to/your-yo-project/.github/
 
 之后在任意 AI Agent 会话中，通过技能名称（例如 `@yo-syntax`）调用该技能，即可为 Agent 提供关于 Yo 语言的上下文知识。
 
+### CLI 输出语言
+
+CLI 帮助文本和用户可见消息支持双语（英语 + 简体中文）：`yo --lang zh-CN --help` 或 `export YO_LANG=zh-CN` 可将 CLI 切换为简体中文。默认为英语。
+
 ## 许可证
 
 [UIUC/NCSA Open Source License](../../LICENSE.md)
