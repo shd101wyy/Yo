@@ -2,25 +2,14 @@
 //! diagnostic model (plans/ERROR_DIAGNOSTICS_OVERHAUL.md). These are the
 //! golden tests for the human/short renderers: exact-string pins of the
 //! rustc-shaped output.
-//!//!
-//! SUSPENDED VARIANTS (the leak, again): the multi-line-message, lexer-
-//! error, and coded-render golden variants trip the OPEN compiler leak
-//! (issues/ref-local-scope-drop-missing-after-value-call.md) under some
-//! compiler generations — LeakSanitizer aborts the test after the assert
-//! passes, and which variants trip shifts per generation (the primary
-//! exact-pin above survives across generations so far). They are removed
-//! here to keep the required CI shards green, listed in the issue doc,
-//! and return with the leak fix. The contract they pinned is covered by
-//! the surviving exact-pins plus the renderer unit surface.
 //!
-//! The tests call render_diagnostics_human(err.diagnostics) directly rather
-//! than err.to_string(): to_string's trait-dispatch tail is the exact shape
-//! of the OPEN compiler leak issues/ref-local-scope-drop-missing-after-
-//! value-call.md (the whole diagnostic group leaks per call under
-//! LeakSanitizer in some compiler generations), which would fail these
-//! tests for a reason unrelated to what they test. YoError.to_string IS
-//! render_diagnostics_human(self.diagnostics) by definition; the direct
-//! call tests the same contract.
+//! The renderer pins call render_diagnostics_human(err.diagnostics) directly;
+//! the to_string test below additionally pins the TRAIT-DISPATCH tail
+//! (YoError.to_string IS render_diagnostics_human(self.diagnostics)) — that
+//! bare-tail projection-by-value call was the exact shape of the Stage-0
+//! balancing-drop leak (issues/fixed/
+//! ref-local-scope-drop-missing-after-value-call.md), so it doubles as the
+//! leak regression net under the shard's LeakSanitizer build.
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -68,6 +57,13 @@ test("format_error_message renders the full block exactly once", {
   expected := `error: undefined variable x\n  --> test.yo:1:5\n  |\n1 | let x = 1;\n  |     ^`;
   assert(s == expected, `exact render, got:\n${s}`);
 });
+test("format_error_message multi-line message keeps continuation lines", {
+  tok := make_token(`test.yo`, `x := "s";`, usize(0), usize(0), `x`);
+  err := format_error_message(tok, `Incompatible types:\n- Expected: i32\n- Given   : String`);
+  s := render_diagnostics_human(err.diagnostics);
+  expected := `error: Incompatible types:\n- Expected: i32\n- Given   : String\n  --> test.yo:1:1\n  |\n1 | x := "s";\n  | ^`;
+  assert(s == expected, `multi-line render, got:\n${s}`);
+});
 test("format_error_message underlines the whole token (D5)", {
   tok := make_token(`t.yo`, `aa bb`, usize(0), usize(3), `bb`);
   s := render_diagnostics_human(format_error_message(tok, `msg`).diagnostics);
@@ -105,6 +101,13 @@ test("format_error_messages: entry 0 is the error, later entries are notes (D6)"
   assert(s == expected, `error + note blocks, got:\n${s}`);
 });
 // ─── format_lexer_error (D3: lexer errors carry file + source line) ─────────
+test("format_lexer_error renders like every other stage", {
+  input := `a b\n@@ oops`;
+  err := format_lexer_error(`src.yo`, input, usize(1), usize(0), `unexpected character`);
+  s := render_diagnostics_human(err.diagnostics);
+  expected := `error: unexpected character\n  --> src.yo:2:1\n  |\n2 | @@ oops\n  | ^`;
+  assert(s == expected, `lexer diagnostic, got:\n${s}`);
+});
 // ─── format_raw_error (path anchor, no snippet) ──────────────────────────────
 test("format_raw_error anchors the path without a snippet", {
   s := render_diagnostics_human(format_raw_error(`e.yo`, `unexpected end of input`).diagnostics);
@@ -112,6 +115,35 @@ test("format_raw_error anchors the path without a snippet", {
   assert(s == expected, `raw diagnostic, got:\n${s}`);
 });
 // ─── the code field renders as [EXXXX] (filled by P2) ────────────────────────
+test("a coded diagnostic renders error[E0308] in both renderers", {
+  diags := ArrayList(Diagnostic).new();
+  diags.push(
+    Diagnostic(
+      code : Option(String).Some(String.from("E0308")),
+      severity : Severity.Error,
+      message : String.from("mismatched types"),
+      span : Span(path : String.from("a.yo"), row : usize(0), col : usize(0), len : usize(1)),
+      source_line : String.from("x")
+    )
+  );
+  h := render_diagnostics_human(diags);
+  assert(h == `error[E0308]: mismatched types\n  --> a.yo:1:1\n  |\n1 | x\n  | ^`, `coded human, got:\n${h}`);
+  sh := render_diagnostics_short(diags);
+  assert(sh == `a.yo:1:1: error[E0308]: mismatched types`, `coded short, got:\n${sh}`);
+});
+// ─── YoError.to_string — the bare-tail Stage-0 shape ─────────────────────────
+// This pins the TRAIT-DISPATCH tail (impl(YoError, ToString) to_string =
+// render_diagnostics_human(self.diagnostics)): the bare-tail projection-
+// by-value call whose Stage-0 balancing drop went missing on the shared
+// begin node (issues/fixed/ref-local-scope-drop-missing-after-value-call.md) —
+// under the shard's LeakSanitizer build it is the leak's regression net.
+test("YoError.to_string renders through the trait tail", {
+  tok := make_token(`test.yo`, `let x = 1;`, usize(0), usize(4), `x`);
+  err := format_error_message(tok, `undefined variable x`);
+  s := err.to_string();
+  expected := `error: undefined variable x\n  --> test.yo:1:5\n  |\n1 | let x = 1;\n  |     ^`;
+  assert(s == expected, `to_string render, got:\n${s}`);
+});
 // ─── render_diagnostics_short ────────────────────────────────────────────────
 test("render_diagnostics_short is one line per entry", {
   tok := make_token(`test.yo`, `let x = 1;`, usize(0), usize(4), `x`);
