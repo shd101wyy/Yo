@@ -475,6 +475,11 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
       if(is_stmt_binding, {
         generate_deferred_drop_expressions(body_expr, indent.clone(), context);
       }, {
+        // Bare-tail second chance (scope-stack-gated) — see the note at the
+        // .Atom arm in return.yo's generate_implicit_return_statement: the
+        // unit tail's expression-internal flushes only cover their own call
+        // nodes, and no begin opened for a single-expression unit body.
+        generate_deferred_drop_expressions(body_expr, indent.clone(), context, true, false, true);
         // Own-param scope-end drops for a unit tail: AFTER the statement
         // (mirrors the begin path's statement-then-drops order at :168).
         generate_deferred_drop_expressions(body_expr, indent.clone(), context, false, true);
