@@ -18,7 +18,7 @@
 //! a no-op; unresolved-SomeT params (Phase-3 generics) need Gap-6 resolution.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, BF_DROP, BF_DUP, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, BF_DROP, BF_DUP, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_array_type, is_tuple_type, is_dyn_type, is_atomic_reference_struct_type, is_reference_struct_type, is_atomic_reference_enum_type, is_reference_enum_type, is_iso_type, is_struct_type, is_enum_type, is_some_type, is_newtype_type } :: import("../../types/guards.yo");
@@ -847,44 +847,58 @@ generate_deferred_drop_expressions :: (
           match(
             drops.get(i),
             .Some(drop_expr) => {
-              param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(drop_expr, context), false);
-              param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !param_target));
-              skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures));
-              // Skip a drop whose target TEMP was never emitted as a C declaration
-              // (declaration elided while its deferred-drop survived) — emitting
-              // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.
-              // Gated to temp names (is_temp_variable_name) so function params /
-              // user vars (declared in the C signature, not via get_variable_type_string)
-              // are never skipped. Safe: a never-declared C variable cannot be
-              // double-freed and holds no value to leak.
-              undeclared_temp := match(
-                get_deferred_drop_target_atom_name(drop_expr),
-                .Some(nm) => {
-                  cn := sanitize_for_c_identifier(nm, false);
-                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
-                },
-                .None => false
-              );
-              if(!skip_capture && !undeclared_temp, {
-                sc_skip := match(
-                  context.short_circuit_handled_drop_var_names,
-                  .Some(handled) => match(
-                    get_deferred_drop_target_atom_name(drop_expr),
-                    .Some(t) => if(handled.contains(t.clone()), {
-                      _r := handled.remove(t);
-                      true
-                    }, false),
-                    .None => false
-                  ),
+              // Emitted-once guard: a SHARED single-expression begin node
+              // carries the begin's scope-end drops AND the tail call's
+              // Stage-0 balancing drops, and is flushed from several points
+              // (the call emitter's post-call flush, the enclosing arm/body
+              // flush). This set — not list removal — is the idempotence
+              // signal: membership in the node list is the pending path's
+              // "the node's own flush handles it" contract
+              // (generate_pending_deferred_drops's `already`), which
+              // removal-on-emit would break. Checked BEFORE the gates below
+              // so an already-emitted drop also leaves their state (the
+              // short-circuit set) untouched.
+              if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
+                param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(drop_expr, context), false);
+                param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !param_target));
+                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures));
+                // Skip a drop whose target TEMP was never emitted as a C declaration
+                // (declaration elided while its deferred-drop survived) — emitting
+                // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.
+                // Gated to temp names (is_temp_variable_name) so function params /
+                // user vars (declared in the C signature, not via get_variable_type_string)
+                // are never skipped. Safe: a never-declared C variable cannot be
+                // double-freed and holds no value to leak.
+                undeclared_temp := match(
+                  get_deferred_drop_target_atom_name(drop_expr),
+                  .Some(nm) => {
+                    cn := sanitize_for_c_identifier(nm, false);
+                    (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
+                  },
                   .None => false
                 );
-                if(!sc_skip, {
-                  code := _call_generate_expr(drop_expr, indent.clone(), context);
-                  if(code.len() > usize(0), {
-                    line := indent.clone();
-                    line.push_string(code);
-                    line.push_str(";");
-                    em.emit_string_line(line);
+                if(!skip_capture && !undeclared_temp, {
+                  sc_skip := match(
+                    context.short_circuit_handled_drop_var_names,
+                    .Some(handled) => match(
+                      get_deferred_drop_target_atom_name(drop_expr),
+                      .Some(t) => if(handled.contains(t.clone()), {
+                        _r := handled.remove(t);
+                        true
+                      }, false),
+                      .None => false
+                    ),
+                    .None => false
+                  );
+                  if(!sc_skip, {
+                    code := _call_generate_expr(drop_expr, indent.clone(), context);
+                    if(code.len() > usize(0), {
+                      line := indent.clone();
+                      line.push_string(code);
+                      line.push_str(";");
+                      em.emit_string_line(line);
+                      _m := context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                    });
                   });
                 });
               });

@@ -393,7 +393,25 @@ FunctionGenerationContext :: ref(
     /// emitted inside the RHS must skip it (the local still owns the value;
     /// dropping both double-frees). TS needs no flag — its per-expr
     /// point-in-time envs simply don't contain the not-yet-defined temp.
-    current_assignment_save_temp : Option(String)
+    current_assignment_save_temp : Option(String),
+    /// Deferred-drop expression ids (ast_expr_id) already emitted as C — the
+    /// emitted-once guard for the node-list drop flushes (drop_dup.yo
+    /// generate_deferred_drop_expressions, begin.yo _emit_deferred_drops). A
+    /// shared single-expression begin node carries BOTH the begin's scope-end
+    /// drops and the tail call's Stage-0 balancing drops (evaluator begin.yo
+    /// preserves both), and such a node is flushed from more than one point —
+    /// the call emitter's post-call flush and the enclosing arm/body-level
+    /// flush (match.yo's arm flush). The emitters do NOT remove-on-emit:
+    /// node-list membership is the pending path's "the node's own flush
+    /// handles it" signal (return.yo generate_pending_deferred_drops's
+    /// `already` set), which removal-on-emit would break (double emission via
+    /// the pending path — the reverted idempotent-flush attempt). One set per
+    /// COMPILATION is sound because one ExprInfo table maps an expr id to
+    /// exactly one emitted C function (specializations clone bodies with
+    /// fresh ids). Keyed by expr IDENTITY, not target name: two same-named
+    /// locals in sibling C scopes are distinct drop exprs and must each emit
+    /// once.
+    emitted_deferred_drop_ids : HashSet(usize)
   )
 );
 impl(
@@ -435,7 +453,8 @@ impl(
       async_body_return_expr : Option(AstExpr).None,
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
       deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
-      current_assignment_save_temp : Option(String).None
+      current_assignment_save_temp : Option(String).None,
+      emitted_deferred_drop_ids : HashSet(usize).new()
     )
   )
 );
