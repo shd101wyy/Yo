@@ -30,7 +30,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, scope_stack_contains } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 /// The registered C name of the first `method_name` entry for `type`, if it is
@@ -832,8 +832,7 @@ generate_deferred_drop_expressions :: (
     indent : String,
     context : FunctionGenerationContext,
     (skip_param_drops : bool) ?= false,
-    (only_param_drops : bool) ?= false,
-    (require_scope_stack : bool) ?= false
+    (only_param_drops : bool) ?= false
   ) -> unit
 )(
   match(
@@ -878,25 +877,7 @@ generate_deferred_drop_expressions :: (
                   },
                   .None => false
                 );
-                // Body-tail mode (require_scope_stack): a body-level flush that
-                // runs AFTER the whole body expression must additionally require
-                // the target's C declaration to have been EMITTED and still be in
-                // scope — the block-scope stack is the emission-order ground
-                // truth, where the flat declared_c_var_names registration set
-                // cannot distinguish a branch-alternative temp that was
-                // registered but never materialized. This is the gate that makes
-                // the bare-tail second chance safe (the reverted attempts failed
-                // exactly here; see the note in return.yo).
-                scope_ok := if(
-                  require_scope_stack,
-                  match(
-                    get_deferred_drop_target_atom_name(drop_expr),
-                    .Some(snm) => scope_stack_contains(context.base.declared_scopes, sanitize_for_c_identifier(snm, false)),
-                    .None => true
-                  ),
-                  true
-                );
-                if(!skip_capture && !undeclared_temp && scope_ok, {
+                if(!skip_capture && !undeclared_temp, {
                   sc_skip := match(
                     context.short_circuit_handled_drop_var_names,
                     .Some(handled) => match(

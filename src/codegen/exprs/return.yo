@@ -1044,17 +1044,6 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
     .Atom(_, _) => {
       atom_code := generate_atom(expr, context, indent.clone());
       final_code := handle_atom_deferred_dup(expr, atom_code, indent.clone(), context);
-      // Bare-tail second chance (scope-stack-gated): the flush-first
-      // gate-skipped this node's drops whose C declarations did not exist
-      // yet — they are declared during the tail's own emission, and NOTHING
-      // else flushes them on the implicit-return path (the pending channel
-      // is empty here: no codegen begin opened; the expression-internal
-      // flushes only see their own call nodes). Safe NOW because of the two
-      // guards the reverted attempts lacked: the emitted-once set (no double
-      // emission against the flush-first) and the require_scope_stack gate
-      // (only targets whose declarations were actually emitted and are still
-      // in scope — the registered-but-never-emitted temp class cannot pass).
-      generate_deferred_drop_expressions(expr, indent.clone(), context, true, false, true);
       // Own-param scope-end drops (function-scope, excluded from the caller's
       // flush-first — generation.yo non-begin path): AFTER the tail's dup so a
       // borrowed value leaving the fn keeps its +1, BEFORE the return.
@@ -1090,15 +1079,6 @@ generate_implicit_return_statement :: (fn(expr : AstExpr, indent : String, conte
       // ("non-void function should return a value", the install_command
       // batch). Emit nothing: control cannot reach past the statement form.
       if(final_code.trim().len() > usize(0), {
-        // Bare-tail second chance (scope-stack-gated) — same note as the
-        // .Atom arm above: the flush-first skipped these drops as
-        // not-yet-declared, the call emitters' internal flushes only cover
-        // their own call nodes, and no begin opened (the pending channel is
-        // empty for a single-expression fn body). This closes the
-        // whole-RC-group leak of a bare-tail call's operand temps (the
-        // `(id == \`lit\`) || …` shape — issues/fixed/
-        // parser-multibyte-spec-tests-leak-under-linux-asan.md).
-        generate_deferred_drop_expressions(expr, indent.clone(), context, true, false, true);
         // Own-param scope-end drops: after the tail's statements/dups (the
         // expression-level flushes skip param targets), before the return.
         generate_deferred_drop_expressions(expr, indent.clone(), context, false, true);
