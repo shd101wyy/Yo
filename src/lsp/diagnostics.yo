@@ -23,6 +23,8 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 open(import("std/error"));
 { parse } :: import("../parser.yo");
+{ Diagnostic } :: import("../diagnostics.yo");
+{ stash_error_diagnostics, take_error_diagnostics } :: import("../error.yo");
 { AstExpr } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
 {
@@ -358,6 +360,7 @@ _analyze_eval :: (
     throw : (
       err -> {
         _stash_parse_error(err.to_string());
+        stash_error_diagnostics(err);
         unwind(
           AnalyzeOutcome(
             ok : false,
@@ -373,6 +376,46 @@ _analyze_eval :: (
   AnalyzeOutcome(ok : outcome.ok, exprs : exprs, info_table : outcome.ctx.expr_info_table)
 });
 
+/// Map STRUCTURED diagnostics (the P3 typed channel) to LSP diagnostics —
+/// exact ranges from the spans, no text parsing. Same-file entries get
+/// precise ranges; foreign-file entries (a broken import's leaf) surface at
+/// 0:0 with the location in the message, mirroring the text parser.
+_typed_to_lsp :: (
+  fn(diags : ArrayList(Diagnostic), doc_abs : String) -> ArrayList(LspDiag)
+)({
+  out := ArrayList(LspDiag).new();
+  (i : usize) = usize(0);
+  while(i < diags.len(), {
+    match(
+      diags.get(i),
+      .Some(d) => {
+        same_file := ((d.span.path == doc_abs) || d.span.path.ends_with(doc_abs.clone()));
+        if(same_file, {
+          ___ := out.push(
+            LspDiag(
+              row : d.span.row,
+              col : d.span.col,
+              end_col : (d.span.col + d.span.len),
+              message : d.message
+            )
+          );
+        }, {
+          ___ := out.push(
+            LspDiag(
+              row : usize(0),
+              col : usize(0),
+              end_col : usize(1),
+              message : `${d.message} (in ${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))})`
+            )
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 /// Evaluate `text` as the module at `doc_fs_path` and return diagnostics.
 /// Empty result = clean file.
 analyze_document :: (
@@ -389,42 +432,66 @@ analyze_document :: (
   outcome := _analyze_eval(entry_abs.clone(), text.clone(), std_path.clone(), io);
   out_state.push(outcome);
   diags := ArrayList(LspDiag).new();
+  // P3 typed channel first: structured diagnostics for BOTH parse and eval
+  // failures (every stage throws YoError now). The text parsers remain the
+  // fallback for non-structured string throws only.
+  typed := take_error_diagnostics();
   match(
-    _take_parse_error(),
-    .Some(pe) => {
-      pds := parse_error_text(pe, entry_abs.clone(), text.clone());
-      (pi : usize) = usize(0);
-      while(pi < pds.len(), {
+    typed,
+    .Some(tds) => {
+      mapped := _typed_to_lsp(tds, entry_abs.clone());
+      (ti : usize) = usize(0);
+      while(ti < mapped.len(), {
         match(
-          pds.get(pi),
+          mapped.get(ti),
           .Some(d) => {
-            diags.push(d);
+            ___ := diags.push(d);
           },
           .None => ()
         );
-        pi = (pi + usize(1));
+        ti = (ti + usize(1));
       });
     },
     .None => ()
   );
-  match(
-    _take_load_error(),
-    .Some(le) => {
-      lds := parse_error_text(le, entry_abs.clone(), text.clone());
-      (ei : usize) = usize(0);
-      while(ei < lds.len(), {
-        match(
-          lds.get(ei),
-          .Some(d2) => {
-            diags.push(d2);
-          },
-          .None => ()
-        );
-        ei = (ei + usize(1));
-      });
-    },
-    .None => ()
-  );
+  if(diags.len() == usize(0), {
+    match(
+      _take_parse_error(),
+      .Some(pe) => {
+        pds := parse_error_text(pe, entry_abs.clone(), text.clone());
+        (pi : usize) = usize(0);
+        while(pi < pds.len(), {
+          match(
+            pds.get(pi),
+            .Some(d) => {
+              ___ := diags.push(d);
+            },
+            .None => ()
+          );
+          pi = (pi + usize(1));
+        });
+      },
+      .None => ()
+    );
+    match(
+      _take_load_error(),
+      .Some(le) => {
+        lds := parse_error_text(le, entry_abs.clone(), text.clone());
+        (ei : usize) = usize(0);
+        while(ei < lds.len(), {
+          match(
+            lds.get(ei),
+            .Some(d2) => {
+              ___ := diags.push(d2);
+            },
+            .None => ()
+          );
+          ei = (ei + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
   diags
 });
 export(analyze_document);

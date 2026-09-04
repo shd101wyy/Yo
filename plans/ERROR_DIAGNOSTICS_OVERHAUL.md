@@ -14,7 +14,42 @@
 > `E0308`-style codes, a bilingual English + 简体中文 registry from day one,
 > exit codes stay 0/1, runtime-panic locations stay in P3 (details §11).
 >
-> **P1 LANDED 2026-09-03** (this branch): structured `Diagnostic` + shared
+> **P2 LANDED 2026-09-03** (PR #400): 25 E-code families with a central
+> message classifier, the bilingual (EN + 简体中文) registry with bad/good
+> examples, `yo explain` (--list/--format json/--lang zh-CN, did-you-mean),
+> `--error-format human|short|json` + `YO_ERROR_FORMAT` (JSON Lines on
+> stdout; chatter to stderr under json), registry gates.
+>
+> **P3 LANDED 2026-09-03** (PR #403, opened as #401 — auto-closed when #400's
+> branch was deleted on merge) — the repair-oriented slice: the
+> `help:` channel (Diagnostic.help, renders + JSON); did-you-mean at
+> unresolved names and enum variants (shared edit-distance; the registry
+> delegates); the ICE wrapper on codegen_fatal; panic() call-site locations
+> + the StrLit-quotes fix (exact for direct calls; the assert-family
+> wrappers report std/assert's own line — caller frames are not available
+> there); --error-format threaded to the test/build children;
+> --json-summary honored.
+>
+> **P3r LANDED 2026-09-04** (PR #403): import-chain collapse (D16 — the
+> leaf group once + one anchored note, via the new typed diagnostics
+> stash); the LSP typed channel (structured diagnostics first, text parsing
+> demoted to the string-throw fallback — P4_LSP's remaining quality item
+> closed).
+>
+> **P3r-1 (the ref-local scope-drop leak) FIXED** (same stack): root cause was
+> never the tail flush — the begin epilogue CLOBBERS the shared node's
+> deferred-drop list (`out_info.deferred_drop_expressions = scope_end_drops`),
+> discarding Stage-0's balancing `___drop` for a bare-tail projection-by-value
+> call while the dup survives. Fix: concat the tail's drops on the shared id
+> (evaluator begin.yo) + a per-function emitted-once guard
+> (`FunctionGenerationContext.emitted_deferred_drop_ids`) in both node-list
+> drop emitters — no new flush point, no removal-on-emit (the pending path's
+> `already` contract stays intact). The five suspended golden variants are
+> restored and a `YoError.to_string` trait-tail golden added as the leak's
+> regression net; see
+> issues/fixed/ref-local-scope-drop-missing-after-value-call.md.
+>
+> **P1 LANDED 2026-09-03** (PR #399, merged): structured `Diagnostic` + shared
 > renderer in `src/diagnostics.yo`; `YoError` rebased, dead `ErrorKind`/
 > `is_assertion_error`/`YoLexerError`/`ParseError`/`LexerError` deleted,
 > 1028 call sites trimmed; lexer/parser/evaluator all throw the one

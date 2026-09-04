@@ -146,6 +146,24 @@ test("lookup a known code", {
 test("lookup an unknown code is None", {
   assert(lookup_explain(String.from("E9999")).is_none(), "E9999 unknown");
 });
+test("suggest_code finds near misses", {
+  // E1404 is NOT a registered code and E0404 is its UNIQUE nearest entry —
+  // no tie for first-listed-wins to hide behind. (E0402, the original pick,
+  // IS registered: suggest_name deliberately returns None when the target
+  // itself exists; E0405 would tie E0005 and E0404 at distance 1 with the
+  // earlier-listed E0005 winning. The far miss grew a digit too: E9999 is
+  // distance 3 from the E09xx family — within the threshold — since that
+  // family landed.)
+  match(
+    suggest_code(String.from("E1404")),
+    .Some(h) => assert(h == "E0404", `typo E1404 suggests E0404, got ${h}`),
+    .None => assert(false, "a near miss must suggest")
+  );
+  assert(
+    suggest_code(String.from("E99999")).is_none(),
+    "a far miss suggests nothing"
+  );
+});
 test("explain_to_json carries both languages", {
   match(
     lookup_explain(String.from("E0601")),

@@ -1643,3 +1643,39 @@ the pointer through a local/`match` first (see std/assert.yo's `panic`).
 
 `{ println } :: import("std/fmt");` — there is no `io.println`. And `join` is
 `separator.join(list : ArrayList(String))`, not `list.join(sep)`.
+
+## Match/cond arms are VALUES — `push` returns `Result`
+
+`ArrayList.push` returns `Result(unit, ArrayListError)`, so a `push(...)`
+call in an arm position mismatches a `()` sibling arm ("Incompatible types:
+Previous: <enum…> / Current: unit"). Discard into a binding first (one `___`
+per block — redeclaring `___` in the same scope is an error):
+
+```rust
+match(xs.get(i),
+  .Some(x) => {
+    ___ := out.push(x);   // block value is the binding: unit
+  },
+  .None => ()
+);
+```
+
+Same class: a `return(...)` inside one arm types that arm as the RETURN type,
+mismatching a `()` sibling — restructure with a found-flag + trailing value,
+or use `__yo_panic("literal")` for diverging value-position arms (str only).
+
+## A real newline inside `"…"` is a parse error — reported misleadingly
+
+Double-quoted strings do not span lines: a real newline inside `"…"` produces
+`Adjacent different operators need parentheses to clarify grouping (near :)`
+pointing at a construct far from the string (issues/
+multiline-double-quoted-string-parse-error-misleading.md). Write `\n` as the
+two-character escape — and beware tools that materialize real newlines when
+writing source. Backtick templates span lines fine.
+
+## No nested backtick templates inside `${…}`; `push_str` takes static `str`
+
+`f(\`outer ${g(\`inner\`)}\`)` fails to evaluate ("Module field … not found").
+Precompute the inner template into a local first. And `push_str` on the
+emitter/string-builder wants a static `str` literal — anything interpolated
+(runtime `String`) goes through `push_string`.

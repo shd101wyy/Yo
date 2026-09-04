@@ -55,7 +55,8 @@ _(env : pa_dbg_env) :: import("std/env");
 { is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type } :: import("../../types/guards.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
+{ suggest_name } :: import("../../diagnostics.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { is_valid_variable_name } :: import("../utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -435,9 +436,14 @@ evaluate_property_access :: (
               .None => {
                 exn.throw(
                   dyn(
-                    format_error_message(
+                    format_error_message_with_help(
                       ast_expr_token(prop_expr_1),
-                      `Enum variant "${variant_name_1}" not found in enum`
+                      `Enum variant "${variant_name_1}" not found in enum`,
+                      match(
+                        suggest_name(variant_name_1, en_vnames_1),
+                        .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
+                        .None => Option(String).None
+                      )
                     )
                   )
                 );
@@ -859,9 +865,14 @@ Raw pointer operations may dereference invalid memory.`
               });
               exn.throw(
                 dyn(
-                  format_error_message(
+                  format_error_message_with_help(
                     ast_expr_token(property_expr),
-                    `Enum variant "${variant_name_tv}" not found in enum`
+                    `Enum variant "${variant_name_tv}" not found in enum`,
+                    match(
+                      suggest_name(variant_name_tv, tv_en_vnames),
+                      .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
+                      .None => Option(String).None
+                    )
                   )
                 )
               );

@@ -76,6 +76,7 @@ open(import("std/string"));
   Frame,
   new_frame,
   get_variables_from_env,
+  env_candidate_names,
   find_variable_in_env,
   make_err_variable,
   generate_variable_id,
@@ -87,9 +88,11 @@ open(import("std/string"));
 {
   format_error_message,
   format_error_messages,
+  format_error_messages_with_help,
   TokenAndError,
   YoError
 } :: import("../error.yo");
+{ suggest_name } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, random_id }
 :: import("../utils.yo");
@@ -416,7 +419,12 @@ require_expr_not_consumed :: (
             error_message : `Variable "${var_name}" is not defined.`
           )
         );
-        exn.throw(dyn(format_error_messages(entries)));
+        hint := match(
+          suggest_name(var_name, env_candidate_names(env)),
+          .Some(h) => Option(String).Some(`did you mean "${h}"?`),
+          .None => Option(String).None
+        );
+        exn.throw(dyn(format_error_messages_with_help(entries, hint)));
       });
       v := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
       match(
@@ -554,7 +562,12 @@ set_expr_as_consumed :: (
                 error_message : `Variable "${name}" is not defined.`
               )
             );
-            exn.throw(dyn(format_error_messages(entries)));
+            hint := match(
+              suggest_name(name, env_candidate_names(env)),
+              .Some(h) => Option(String).Some(`did you mean "${h}"?`),
+              .None => Option(String).None
+            );
+            exn.throw(dyn(format_error_messages_with_help(entries, hint)));
           });
           v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
           match(

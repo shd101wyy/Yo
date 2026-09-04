@@ -2296,7 +2296,46 @@ evaluate_begin_expression :: (
     clone_expr_info_for_shared_begin_result(last_info, env, return_type),
     new_expr_info(env, return_type)
   );
-  out_info.deferred_drop_expressions = scope_end_drops;
+  // The begin level owns the scope-end drops, but on a SHARED id it must not
+  // CLOBBER the tail's own deferred drops: a Stage-0 projection dup's
+  // balancing `___drop(<dup temp>)` rides the tail CALL node (utils.yo
+  // set_expr_as_needs_to_call_dup_for_borrowed_projection — the dup temp is
+  // consumed, so NO other channel can release that +1), and for a
+  // single-expression begin that call node IS this shared node. Clobbering
+  // left the dup (deferred_dup_expressions survives the clone) with no
+  // balancing drop — every bare-tail projection-by-value call to a
+  // may-mutate callee leaked its whole RC group
+  // (issues/ref-local-scope-drop-missing-after-value-call.md). Concat the
+  // tail's drops AFTER the scope drops; codegen's emitted-once guard
+  // (FunctionGenerationContext.emitted_deferred_drop_ids) keeps each drop to
+  // a single emission now that one list is flushed from several points.
+  out_info.deferred_drop_expressions = if(
+    shared_with_tail,
+    match(
+      last_info.deferred_drop_expressions,
+      .Some(tail_drops) => {
+        (merged_drop_list : ArrayList(AstExpr)) = match(
+          scope_end_drops,
+          .Some(existing_drops) => existing_drops,
+          .None => ArrayList(AstExpr).new()
+        );
+        (s0_di : usize) = usize(0);
+        while(s0_di < tail_drops.len(), {
+          match(
+            tail_drops.get(s0_di),
+            .Some(s0_td) => {
+              merged_drop_list.push(s0_td);
+            },
+            .None => ()
+          );
+          s0_di = (s0_di + usize(1));
+        });
+        Option(ArrayList(AstExpr)).Some(merged_drop_list)
+      },
+      .None => scope_end_drops
+    ),
+    scope_end_drops
+  );
   out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
   out_info.control_flow = last_info.control_flow;
   out_info.comptime_ref = last_info.comptime_ref;
