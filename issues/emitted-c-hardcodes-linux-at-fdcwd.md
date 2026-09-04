@@ -1,7 +1,7 @@
 # The emitted C scaffolding hardcodes Linux's `AT_FDCWD` (-100) on every platform
 
 **Status: OPEN** (found 2026-08-15 while measuring cross-platform emission for
-`plans/PORTABLE_C_DISTRIBUTION.md`.)
+`plans/reference/PORTABLE_C_DISTRIBUTION.md`.)
 
 ## What
 
@@ -45,7 +45,7 @@ platform's value in code emitted for all of them:
   the code being right.
 - It breaks the moment the fallback arm is not semantically identical to the
   fast arm, or on a platform whose `AT_FDCWD` the `*at()` call rejects.
-- It is an obstacle to `plans/PORTABLE_C_DISTRIBUTION.md`: a single C file for
+- It is an obstacle to `plans/reference/PORTABLE_C_DISTRIBUTION.md`: a single C file for
   all platforms cannot carry one platform's magic number.
 
 Affected helpers (macOS emit): `__yo_sync_access` and the sites around
@@ -74,7 +74,7 @@ compiler supplies the value) while leaving the C half's hardcoded literal would
 **convert today's accidental agreement into silent divergence**: the Yo value
 would become the compiling platform's, the C value would stay macOS's.
 
-This matters most for `plans/PORTABLE_C_DISTRIBUTION.md`. Under any `#if`
+This matters most for `plans/reference/PORTABLE_C_DISTRIBUTION.md`. Under any `#if`
 merging, the Yo half freezes at emit time while the C half is chosen at
 C-compile time, permanently decoupling them — e.g. emit for Linux, compile on
 macOS, and `0x100 & 0x20 == 0` makes `std/fs/metadata.yo`'s

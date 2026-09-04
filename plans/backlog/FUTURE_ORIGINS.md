@@ -1,18 +1,18 @@
 # Future Direction: Origin-Based References `&(T, R)`
 
-> **Status: speculative, not planned.** Preserved for future reference. Yo's current memory-safety story is [`MEMORY_SAFETY.md`](../MEMORY_SAFETY.md) (`unsafe(...)` marker) plus `object` / `Iso(T)` / `Arc(T)`. This document explores what a compile-time-checked borrow system would look like _if_ user demand later justifies the implementation cost. Do not implement without explicit go-ahead.
+> **Status: speculative, not planned.** Preserved for future reference. Yo's current memory-safety story is [`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md) (`unsafe(...)` marker) plus `object` / `Iso(T)` / `Arc(T)`. This document explores what a compile-time-checked borrow system would look like _if_ user demand later justifies the implementation cost. Do not implement without explicit go-ahead.
 >
 > Decision rationale: the design here is essentially "Rust lifetimes wearing Yo's clothes" — same expressiveness, same complexity, same LLM failure modes. The committed `unsafe(...)` marker plus Yo's existing RC infrastructure provides Zig-level practical safety at a fraction of the implementation and cognitive cost. Revisit if real-world Yo code accumulates patterns that the current setup can't express cleanly.
 
 ## Goal
 
-Add a compile-time-checked reference type `&(T, R)` where `R` is an **Origin** — a new kind of comptime parameter alongside `Type`, `usize`, etc. Origins make borrowing precise enough to handle multi-ref returns and library APIs, while staying uniform with Yo's existing parameter system (no `'a` special syntax). Together with [`unsafe(...)`](../MEMORY_SAFETY.md), `object`, and `Iso(T)`, this delivers Rust-level UAF safety without Rust's syntactic surface.
+Add a compile-time-checked reference type `&(T, R)` where `R` is an **Origin** — a new kind of comptime parameter alongside `Type`, `usize`, etc. Origins make borrowing precise enough to handle multi-ref returns and library APIs, while staying uniform with Yo's existing parameter system (no `'a` special syntax). Together with [`unsafe(...)`](../reference/MEMORY_SAFETY.md), `object`, and `Iso(T)`, this delivers Rust-level UAF safety without Rust's syntactic surface.
 
 The pitch: **"Origins are just comptime parameters. `forall(R : Origin)` brings one into scope, `&(T, R)` uses it, `where(R1 < R2)` constrains it. No new syntactic category."**
 
 ## Prerequisite
 
-Builds on [`MEMORY_SAFETY.md`](../MEMORY_SAFETY.md). Raw pointers (`*(T)`) remain for FFI, stdlib internals, and performance hot paths; `&(T, R)` is layered on top, not a replacement. Cast `*(T)` → `&(T, R)` is an `unsafe(...)` operation.
+Builds on [`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md). Raw pointers (`*(T)`) remain for FFI, stdlib internals, and performance hot paths; `&(T, R)` is layered on top, not a replacement. Cast `*(T)` → `&(T, R)` is an `unsafe(...)` operation.
 
 ## Non-Goals
 
@@ -458,7 +458,7 @@ Output borrows from `self`, not from `name`. Without the explicit annotation the
 
 ## Alternatives Considered
 
-The exhaustive list is in [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md#alternatives-considered). Specific to origins:
+The exhaustive list is in [`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md#alternatives-considered). Specific to origins:
 
 ### Rust-style `'a` syntax
 
@@ -480,7 +480,7 @@ Considered. Rejected: `object` handles cyclic graphs, unknown-lifetime sharing, 
 
 ## What This Does Not Solve
 
-- **Data races across threads.** `Iso(T)` / `Arc(T)` / `Send` — see `plans/ARC_TYPE.md`.
+- **Data races across threads.** `Iso(T)` / `Arc(T)` / `Send` — see `plans/reference/ARC_TYPE.md`.
 - **Out-of-bounds reads.** `ArrayList.get` is bounds-checked; pointer arithmetic stays `unsafe(...)`.
 - **Logic errors involving live data.** Memory safety only prevents UB.
 - **Resource leaks** (FDs, sockets) — `object` + `___drop`. Orthogonal.

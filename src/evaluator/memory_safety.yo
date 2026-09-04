@@ -1,4 +1,4 @@
-//! Memory-safety helpers (Phase C of plans/MEMORY_SAFETY.md).
+//! Memory-safety helpers (Phase C of plans/reference/MEMORY_SAFETY.md).
 //!
 //! 1-to-1 port of `src/evaluator/memory-safety.ts`.
 //!
@@ -128,7 +128,7 @@ is_auto_generated_expansion :: (fn(module_path : Option(String)) -> bool)(
 /// handler predates `AllowMacroDef`, so std files cannot carry the pragma
 /// call until a release that knows the variant becomes the seed. Once one
 /// does, add `pragma(Pragma.AllowMacroDef);` to the std macro-defining
-/// files and drop the std branch (plans/MACRO_POLICY.md Part 2).
+/// files and drop the std branch (plans/reference/MACRO_POLICY.md Part 2).
 /// Lexically absolutize a path for the std-prefix comparison below: strip a
 /// `file://` scheme, then absolutize. Purely lexical — no symlink
 /// resolution — matching how the loaders build std module URIs (a join on
@@ -186,7 +186,7 @@ is_macro_def_capable_file :: (fn(module_path : Option(String), std_path : String
 /// modules, `Call :: (neg, comptime_neg)`), so only the prelude itself —
 /// plus compiler-synthesized `auto-generated://` code, which inherits the
 /// privileged caller's policy like the unsafe and macro gates — passes.
-/// See plans/FUNCTION_OVERLOADING_POLICY.md.
+/// See plans/reference/FUNCTION_OVERLOADING_POLICY.md.
 is_overload_set_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
   match(
     module_path,

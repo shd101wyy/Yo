@@ -304,7 +304,7 @@ y :: 14;
 // or
 (3 + 4) - 5;
 
-// Yo has a CLOSED operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md).
+// Yo has a CLOSED operator set (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).
 // A run of operator characters is split greedily against two fixed tables;
 // anything not in them is a LEX ERROR, not a user-defined operator.
 //   two-char: != && -> :: := <: << <= == => >= >> ?= ||
@@ -963,7 +963,7 @@ match(some_ptr,
 
 For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `inout(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, and `-fwrapv` for signed-integer overflow.
 
-Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
+Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
 
 - **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
 - **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
@@ -1257,7 +1257,7 @@ use_cond :: (fn(x: i32) -> unit)(
 passes (including the async state machine) see a real `cond` node. The
 prelude still carries the equivalent macro definition as the
 specification and as a fallback for dynamically constructed ASTs (see
-`std/prelude.yo` and `plans/MACRO_POLICY.md`):
+`std/prelude.yo` and `plans/reference/MACRO_POLICY.md`):
 
 ```rust
 // Definition in prelude.yo (spec/fallback — normally desugared at parse time)
@@ -3048,7 +3048,7 @@ like the `if` macro.
 of the file — like `Pragma.AllowUnsafe` for pointer ops, macro definition
 is a per-file opt-in (macros are unhygienic and splice code into their
 callers, so the ability to define them is gated; see
-`plans/MACRO_POLICY.md`). *Calling* macros (`if`, `for`, collection
+`plans/reference/MACRO_POLICY.md`). *Calling* macros (`if`, `for`, collection
 literals) never needs the pragma, and neither does working with quoted
 `Expr` values in comptime functions (the mechanism `derive_rule` uses).
 
@@ -3361,7 +3361,7 @@ x : i32;
 asm("mov {0}, #42", out(reg, x));
 ```
 
-For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMBLY.md](../INLINE_ASSEMBLY.md).
+For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMBLY.md](INLINE_ASSEMBLY.md).
 
 ## Index Trait
 

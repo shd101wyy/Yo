@@ -7,7 +7,7 @@
 # Each arm is a COMPLETE translation unit for its platform, wrapped in a
 # preprocessor conditional. The C preprocessor selects exactly one; the rest are
 # skipped without being tokenized. This is deliberate, and it is the *safe*
-# design rather than a compromise — see plans/PORTABLE_C_DISTRIBUTION.md:
+# design rather than a compromise — see plans/reference/PORTABLE_C_DISTRIBUTION.md:
 #
 #   * A genuinely MERGED file (one copy of the shared ~99%, `#if` only at the
 #     divergences) decouples the two halves of every platform constant. The Yo

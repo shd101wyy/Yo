@@ -390,4 +390,4 @@ branches :: Type.map_variants(
 
 ## Design Document
 
-For the full design including implementation details, see [TYPE_REFLECTION.md](../../plans/TYPE_REFLECTION.md).
+For the full design including implementation details, see [TYPE_REFLECTION.md](../../plans/reference/TYPE_REFLECTION.md).

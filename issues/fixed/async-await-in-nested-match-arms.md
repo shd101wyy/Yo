@@ -5,7 +5,7 @@
 
 ## How they were found
 
-`plans/P1_CLI_PARITY.md` §1 predicted this exactly: _"in this codebase 'ported'
+`plans/archive/P1_CLI_PARITY.md` §1 predicted this exactly: _"in this codebase 'ported'
 can mean 'type-checks and is unreachable', and `check` cannot tell those
 apart."_ `build_runner.yo`, `fetch.yo` and `install_command.yo` had been
 type-checking cleanly while reachable from no subcommand — so codegen had never

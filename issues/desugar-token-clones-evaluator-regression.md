@@ -15,7 +15,7 @@ runner agent itself on 7 GB `ubuntu-latest`).
 | #199 with copy-on-write only | 56 s | 7.4 GB |
 
 Bisect: the regression is entirely #199's parse-time `if`→`cond` desugar
-(`desugar_program_if_calls`, plans/MACRO_POLICY.md); the operator and
+(`desugar_program_if_calls`, plans/reference/MACRO_POLICY.md); the operator and
 overloading merges are innocent. COW alone did NOT fix it — the dominant
 cost was not the rebuild but the clones (below).
 

@@ -272,4 +272,4 @@ Derive rules can inspect types at compile time using `Type.get_info(T)` and the 
 
 ## Design Document
 
-For the full design including implementation details, see [DERIVE_TRAITS.md](../../plans/DERIVE_TRAITS.md).
+For the full design including implementation details, see [DERIVE_TRAITS.md](../../plans/reference/DERIVE_TRAITS.md).

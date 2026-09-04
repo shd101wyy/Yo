@@ -1,4 +1,8 @@
 # Build Module System
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** `build.module()` + `add_import` /
+> `add_import_list` ship in std/build.yo (system-library requirements propagate
+> through imports).
+
 
 ## Problem
 
@@ -274,5 +278,5 @@ C file, source-level imports are the natural and preferred mechanism for Yo cons
 
 - Update `src/tests/build-system.test.ts` with module-based tests.
 - Update `docs/en-US/BUILD_SYSTEM.md`.
-- Update `plans/DEPENDENCY_MANAGEMENT.md`.
+- Update `plans/reference/DEPENDENCY_MANAGEMENT.md`.
 - Update all example `build.yo` files in tests.

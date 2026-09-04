@@ -39,7 +39,7 @@ not: the std root keeps whatever spelling `--std-path`/`YO_STD` was given
 returns the **resolved** path (`/private/tmp/...`). The prefix test then fails
 and the file falls through to `file_has_pragma(..., Pragma.AllowMacroDef)`,
 which std files cannot yet carry (the exemption exists precisely because the
-pragma is seed-gated — see plans/MACRO_POLICY.md Part 2).
+pragma is seed-gated — see plans/reference/MACRO_POLICY.md Part 2).
 
 `is_implicitly_unsafe_capable_file` in the same file shares `_lex_abs_path` and
 therefore the same hazard.

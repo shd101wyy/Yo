@@ -1,4 +1,8 @@
 # Migration: `controlFlow` from String to Struct
+> **ARCHIVED 2026-09-04 — TS-ERA MIGRATION DOC.** The TypeScript compiler is
+> retired (tag src-attic-final); the structured control-flow info ships as
+> ControlFlowKind in src/expr_info.yo.
+
 
 ## Goal
 

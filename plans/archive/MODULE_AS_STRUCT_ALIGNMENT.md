@@ -1,4 +1,8 @@
 # yo-self: align modules to TS's struct representation
+> **ARCHIVED 2026-09-04 — TS-ERA PORTING DOC.** The TypeScript reference it
+> aligns to is retired (tag src-attic-final); the struct module representation
+> it describes is the shipped model (src/module_manager.yo).
+
 
 ## Why
 

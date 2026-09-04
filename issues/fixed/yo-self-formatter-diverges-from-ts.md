@@ -13,7 +13,7 @@
 > plus an idempotence check without a permanently-red gate. The remaining
 > residuals for a STABLE cli-case are unrelated to output: `formatter.yo`'s
 > `FormatYoFilesOptions.cwd` is dead, and the walked file list is neither sorted
-> nor deduped — see plans/P2_5_RETIRE_EXECUTION.md step 14.
+> nor deduped — see plans/archive/P2_5_RETIRE_EXECUTION.md step 14.
 >
 > Kept for its reproduction recipe and its "why this was never caught" lesson,
 > which still applies to every self-referential gate.
@@ -111,7 +111,7 @@ treating every "would format" as a bug is not.
 CI has only ever run `fmt --check` through the **TypeScript** CLI
 (`.github/workflows/test.yml:83`). The self-hosted `fmt` is at flag parity and
 its output had never been compared to the reference. This matters for
-`plans/SELF_HOSTING_COMPLETION.md` **P2**: once `src/` is retired the
+`plans/archive/SELF_HOSTING_COMPLETION.md` **P2**: once `src/` is retired the
 self-hosted formatter becomes canonical, `fmt --check` becomes self-referential,
 and the first `yo fmt` would silently restyle hundreds of files with no gate
 able to notice.

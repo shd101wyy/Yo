@@ -597,7 +597,7 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
 - Place skip pragmas at the top of the file (within the first 50 lines). A file can have both target-specific pragmas, or the generic one. Pragmas are validated by the evaluator against the `Pragma` enum in `std/prelude.yo`, so typos surface as compile errors.
 - For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
-- See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
+- See `plans/reference/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
 - When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm32-wasip1`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
 - `process.platform` returns `"emscripten"` or `"wasi"` depending on target.

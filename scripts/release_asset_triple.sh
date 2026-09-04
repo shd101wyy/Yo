@@ -5,7 +5,7 @@
 # also artifact names, job titles and the portable-arm presence checks in
 # .github/workflows/release.yml. What ships is the canonical target triple, so
 # the ABI is explicit on every platform the way `-musl` already made it explicit
-# on Linux — plans/RELEASE_ASSET_TRIPLES.md.
+# on Linux — plans/reference/RELEASE_ASSET_TRIPLES.md.
 #
 # Sourced by release.yml. `install.sh` / `install.ps1` cannot use this file:
 # they are fetched standalone over HTTP and carry their own copy of the mapping.

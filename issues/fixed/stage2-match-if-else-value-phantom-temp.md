@@ -16,7 +16,7 @@ Option-shaped dup is String's newtype underbelly, correct all along.)
 `cond.yo` and `match.yo` now do the exact TS dance (ExprInfo is a ref
 struct, so the handle mutation mirrors TS mutating `expr.$`). `begin.yo` is
 missing TS's whole last-arg deferred-dup block — a LATENT gap recorded in
-plans/P2_RETIRE_SRC.md, not part of this fix.
+plans/archive/P2_RETIRE_SRC.md, not part of this fix.
 
 Reducer (fails in seconds):
 [`repros/stage2-match-if-else-value-phantom-temp.yo`](repros/stage2-match-if-else-value-phantom-temp.yo)

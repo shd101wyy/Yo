@@ -1,4 +1,7 @@
 # Scope: comptime arithmetic operator folding in yo-self (Bug B)
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** Comptime arithmetic folding ships (the
+> `__yo_comptime_fold_range` family); the gating bug is closed in issues/fixed/.
+
 
 ## Goal
 

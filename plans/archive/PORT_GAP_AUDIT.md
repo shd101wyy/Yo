@@ -1,4 +1,8 @@
 # Port Gap Audit: `src/` (TypeScript) → `yo-self/` (Yo)
+> **ARCHIVED 2026-09-04 — POINT-IN-TIME AUDIT (2026-05-15).** A snapshot of the
+> TS → yo-self porting status; superseded by the bootstrap completion
+> (BOOTSTRAPPING.md, GOAL ACHIEVED) and the P2 retirement in this archive.
+
 
 Date: 2026-05-15. Snapshot of compiler-core porting status. Goal: drive
 `yo-self/` to a strict 1-to-1 port of `src/` so it can build itself and

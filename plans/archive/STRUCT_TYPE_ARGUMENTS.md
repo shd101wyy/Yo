@@ -1,4 +1,8 @@
 # Carry generic type arguments on `TypeValue.Struct` (faithful port of `StructType.env`)
+> **ARCHIVED 2026-09-04 — TS-ERA PORTING DOC.** The StructType.env recovery it
+> ports ships in src/evaluator/types/struct.yo; the TS reference is retired
+> (tag src-attic-final).
+
 
 ## Why
 

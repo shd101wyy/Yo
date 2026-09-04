@@ -5,7 +5,7 @@
 > explicit parameters; handlers carry a `ctl(...) -> R` type;
 > `Future(T, E)` carries at most one effect bundle. The reference
 > behaviour for users now lives in
-> [`docs/en-US/ALGEBRAIC_EFFECTS.md`](../docs/en-US/ALGEBRAIC_EFFECTS.md).
+> [`docs/en-US/ALGEBRAIC_EFFECTS.md`](../../docs/en-US/ALGEBRAIC_EFFECTS.md).
 > This file remains as the implementation log — motivation,
 > sub-phase tracking, codegen invariants, and the negative-test
 > coverage matrix.

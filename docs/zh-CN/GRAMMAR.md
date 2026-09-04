@@ -93,7 +93,7 @@ Digit              ::= '0'..'9'
 ;; 示例：3 `add` 4
 BacktickIdentifier ::= '`' Identifier '`'
 
-;; 运算符 — Yo 使用封闭运算符集（plans/OPERATOR_SET_AND_PRECEDENCE.md）。
+;; 运算符 — Yo 使用封闭运算符集（plans/reference/OPERATOR_SET_AND_PRECEDENCE.md）。
 ;; 一串运算符字符按下表贪婪切分（最长匹配优先）；不含任何表内运算符的
 ;; 字符串是词法错误。因此 `**x` 词法分析为 '*' '*' 'x' —— 不存在 `**`
 ;; 记号。新运算符像关键字一样，需要在编译器中显式添加。
@@ -226,7 +226,7 @@ Separator ::= ',' | ';'
    - 有效：`func(arg1, arg2)`
    - 无效：`func (arg1, arg2)` 或 `func arg1, arg2`
    - 控制流关键字也是调用：请写 `return(value)`、`return()`、`unwind(value)` 或 `unwind()`
-   - 前缀运算符（`-` `!` `~` `&` `*` `?` `^`）绑定恰好一个后缀表达式（plans/PREFIX_OPERATOR_OPERAND_RULE.md 规则 1）：`-1`、`!ready`、`&x`、`?*T`、`3 - -3` 均合法；中缀操作数仍需括号（`-(1 + 2)`），带括号的调用形式（`-(x)`）不变
+   - 前缀运算符（`-` `!` `~` `&` `*` `?` `^`）绑定恰好一个后缀表达式（plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md 规则 1）：`-1`、`!ready`、`&x`、`?*T`、`3 - -3` 均合法；中缀操作数仍需括号（`-(1 + 2)`），带括号的调用形式（`-(x)`）不变
 
 3. **中缀运算符**：无优先级
    - 相同运算符的链是左结合的：`a + b + c` ⇒ `(a + b) + c`

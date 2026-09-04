@@ -10,12 +10,12 @@
 //! lines, `--> path:row:col` anchors, and the caret run itself as the
 //! underline length, so ranges are exact. A structured (token, message)
 //! channel that makes the parsing unnecessary is P3 of
-//! plans/ERROR_DIAGNOSTICS_OVERHAUL.md.
+//! plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md.
 //!
-//! KNOWN MVP LIMITS (plans/P4_LSP.md kickoff notes):
+//! KNOWN MVP LIMITS (plans/archive/P4_LSP.md kickoff notes):
 //!   - Imports are cached for the process lifetime: an edit to an imported
 //!     file is not seen until the server restarts. Invalidation is the
-//!     incremental-compilation arc (plans/INCREMENTAL_COMPILATION.md).
+//!     incremental-compilation arc (plans/reference/INCREMENTAL_COMPILATION.md).
 //!   - Re-analysis re-registers the document's impls under fresh type ids;
 //!     the stale entries leak (bounded by edit count). The site-keyed
 //!     duplicate-inherent-method gate is replay-safe by construction.
@@ -320,7 +320,7 @@ export(parse_error_text);
 /// handler's `unwind(())` exits THIS unit-typed frame — `unwind` exits the
 /// function that BOUND the ctl value, and a value/frame type mismatch is a
 /// codegen-level error `check` cannot see (the handler transpiles hollow;
-/// plans/P4_LSP.md slice 0 notes — this bit this very file's first draft,
+/// plans/archive/P4_LSP.md slice 0 notes — this bit this very file's first draft,
 /// caught by the stage-2 hollow count).
 _ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
   if(mm_has_prelude_env(), {
@@ -339,7 +339,7 @@ _ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
 
 /// The retained result of one document analysis: the parsed program and
 /// the ExprInfo side table the evaluation filled in. Hover / definition /
-/// symbols read these between edits (plans/P4_LSP.md slice 3+).
+/// symbols read these between edits (plans/archive/P4_LSP.md slice 3+).
 AnalyzeOutcome :: ref(
   struct(
     ok : bool,

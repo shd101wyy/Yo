@@ -589,7 +589,7 @@ is_musl() {
 }
 
 # The published asset name for this host, in canonical target-triple form
-# (plans/RELEASE_ASSET_TRIPLES.md). Kept in step with
+# (plans/reference/RELEASE_ASSET_TRIPLES.md). Kept in step with
 # scripts/release_asset_triple.sh and src/version_cache.yo — this file is
 # fetched standalone over HTTP, so it cannot source either of them.
 host_triple() {
@@ -607,7 +607,7 @@ install_dist() {
   # earlier carry only the short form, so probe for the triple and fall back.
   # This BRIDGES the changeover — it is what keeps `curl | sh` installing the
   # current release — and is removable once nothing in use predates it
-  # (plans/RELEASE_ASSET_TRIPLES.md).
+  # (plans/reference/RELEASE_ASSET_TRIPLES.md).
   #
   # Linux is musl-only (2026-08-20): the static musl bundle is THE Linux
   # bundle — it runs on glibc and musl systems alike, so it is preferred on
@@ -700,7 +700,7 @@ install_dist() {
 # Used when the platform has no native bundle, or when the caller passes
 # -cc/-cflags. The published yo.c carries one complete translation unit per
 # platform behind preprocessor conditionals, so the same file builds anywhere
-# with a C compiler (plans/PORTABLE_C_DISTRIBUTION.md).
+# with a C compiler (plans/reference/PORTABLE_C_DISTRIBUTION.md).
 #
 # The compiled binary still needs std/ at runtime — it is a compiler, not a
 # self-contained program — so the release SOURCE tarball is fetched for it and

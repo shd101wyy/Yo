@@ -548,7 +548,7 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
   )
 );
 // ---------------------------------------------------------------------------
-// Phase-0 contract-clause side-tables (plans/FORMAL_VERIFICATION.md).
+// Phase-0 contract-clause side-tables (plans/backlog/FORMAL_VERIFICATION.md).
 // ---------------------------------------------------------------------------
 /// `fn(...)`-type-expression id (then the FuncVal id via the same two-step as
 /// the defaults) → the signature's `requires(...)` predicate expressions.
@@ -837,7 +837,7 @@ _is_dots_atom :: (fn(expr : AstExpr) -> bool)(
   )
 );
 // ---------------------------------------------------------------------------
-// Phase 0 of plans/FORMAL_VERIFICATION.md: canonical signature clause order.
+// Phase 0 of plans/backlog/FORMAL_VERIFICATION.md: canonical signature clause order.
 // Each parameter belongs to an ordered "zone"; zones must appear
 // non-decreasing left-to-right:
 //   generic(0) -> regular params (1) -> where(2) -> requires(3) -> ensures(4)
@@ -3060,7 +3060,7 @@ evaluate_function_parameters :: (
     });
   });
   // --------------------------------------------------------------------------
-  // Pass 2b — Phase 0 of plans/FORMAL_VERIFICATION.md: enforce the canonical
+  // Pass 2b — Phase 0 of plans/backlog/FORMAL_VERIFICATION.md: enforce the canonical
   // signature clause order, then extract the contract clauses.
   // Mirrors src/evaluator/types/function.ts:1700-1783.
   // --------------------------------------------------------------------------
@@ -4102,7 +4102,7 @@ evaluate_function_type :: (
     );
   });
   // Gate macro DEFINITIONS behind `pragma(Pragma.AllowMacroDef);`
-  // (plans/MACRO_POLICY.md Part 2). CALLING macros is ungated; std is
+  // (plans/reference/MACRO_POLICY.md Part 2). CALLING macros is ungated; std is
   // exempt this generation (see is_macro_def_capable_file) and
   // `auto-generated://` expansions inherit their caller's policy.
   if((quoted_param_indices.len() > usize(0)) || is_return_unquote, {
@@ -4111,7 +4111,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/MACRO_POLICY.md.")
+            String.from("Defining a macro (a 'quote(...)' parameter or an 'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the top of the file. See plans/reference/MACRO_POLICY.md.")
           )
         )
       );

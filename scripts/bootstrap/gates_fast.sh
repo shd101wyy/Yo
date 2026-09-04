@@ -177,8 +177,8 @@ fi
 echo "=== T1 GATE 6: fmt (self-hosted check + write idempotence) ==="
 # History: this was a TS-vs-self differential while the two formatters were
 # being reconciled (339 divergent files → 17 → 0; root causes recorded in
-# plans/P1_CLI_PARITY.md §7, resolution measured 2026-08-11 over all 865
-# files). The TS pre-check is gone per plans/P2_5_RETIRE_EXECUTION.md step 14;
+# plans/archive/P1_CLI_PARITY.md §7, resolution measured 2026-08-11 over all 865
+# files). The TS pre-check is gone per plans/archive/P2_5_RETIRE_EXECUTION.md step 14;
 # what replaces the differential's value is (a) the tree must be
 # self-fmt-clean, and (b) write mode must be a NO-OP on a check-clean tree —
 # a diff there is a check/write divergence, the class --check alone can't see.

@@ -223,7 +223,7 @@ GenericImplEntry :: struct(
 // each entry, from `registration_owner()` (type_trait_methods.yo). `""` =
 // registered outside any module load, never purged. Enables
 // `purge_generic_impls_owned_by` — LSP re-analysis must not leak a registry
-// generation per edit (plans/INCREMENTAL_COMPILATION.md Phase B2), and
+// generation per edit (plans/reference/INCREMENTAL_COMPILATION.md Phase B2), and
 // stale entries here are a PER-KEYSTROKE cost: every candidate scan in
 // `find_methods_from_generic_impls` walks them.
 (g_impl_registry_entry_owners : ArrayList(ArrayList(String))) =
@@ -3940,7 +3940,7 @@ evaluate_module_value :: (
               method_name := name_tok.value.clone();
               qualified := `${receiver_name}.${method_name}`;
               // Duplicate-INHERENT-method rejection
-              // (plans/FUNCTION_OVERLOADING_POLICY.md,
+              // (plans/reference/FUNCTION_OVERLOADING_POLICY.md,
               // issues/fixed/duplicate-inherent-method-impls-not-rejected.md):
               // a second `impl(T, m : ...)` for the same (type, name) from a
               // DIFFERENT source site is a genuine second definition — before
@@ -3968,7 +3968,7 @@ evaluate_module_value :: (
                       dyn(
                         format_error_message(
                           name_tok,
-                          `Method "${method_name}" is already defined for this type (first definition: ${__prev_site}). Duplicate inherent method impls are not allowed — use a distinct name (e.g. a comptime_ prefix), or provide the second signature via a trait (plans/FUNCTION_OVERLOADING_POLICY.md).`
+                          `Method "${method_name}" is already defined for this type (first definition: ${__prev_site}). Duplicate inherent method impls are not allowed — use a distinct name (e.g. a comptime_ prefix), or provide the second signature via a trait (plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
                         )
                       )
                     );

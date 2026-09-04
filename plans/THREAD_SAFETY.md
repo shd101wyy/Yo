@@ -7,7 +7,7 @@ LANDED** — `_`-prefixed fields are file-private by CONVENTION ONLY, verified
 reproducer). This document previously said "Complete. All 14 phases
 implemented", and vector 27 below is still marked closed BY Phase P — it is
 open.
-**Companion to:** `plans/MEMORY_SAFETY.md`.
+**Companion to:** `plans/reference/MEMORY_SAFETY.md`.
 **Decided so far:**
 
 - Phase A approach: **A2** — manual `impl(T, Send())` requires `pragma(Pragma.AllowUnsafe)`.
@@ -160,7 +160,7 @@ Every concrete way user or compiler-emitted code could cause a race, paired with
 ❌ **Gaps** (each entry lists the phase that closes it):
 
 - No high-level `Atomic*` wrappers (raw C11 types only). → **Phase C**.
-- `Iso(Arc(T))` / `Arc(Iso(T))` semantics undefined (`plans/ARC_TYPE.md:272`). → **Phase H** (ban both direct compositions).
+- `Iso(Arc(T))` / `Arc(Iso(T))` semantics undefined (`plans/reference/ARC_TYPE.md:272`). → **Phase H** (ban both direct compositions).
 - `Dyn(Trait)` crossing a thread boundary is unprotected — there's no requirement that the concrete type be Send. → **Phase I** (use existing `Dyn(Trait, Send)` multi-trait form on every cross-thread API surface).
 - `Impl(Future(T, E))` Send status undefined; current structural derive would say Send when T, E are. → **Phase L** (`Impl(Trait)` is non-Send unless `, Send` is listed in the bound; document this).
 - Self-referential `atomic object` immutability is documented, not enforced. → **Phase A2** audit boundary (manual `impl(T, Acyclic())` requires pragma + `// SAFETY:` comment).

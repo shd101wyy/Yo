@@ -39,7 +39,7 @@ resolve, and the build succeeds.
 
 ## Why this blocks Stream A
 
-`plans/BOOTSTRAPPING.md` Path Forward Stream A is "wire the proper
+`plans/archive/BOOTSTRAPPING.md` Path Forward Stream A is "wire the proper
 evaluator into the main pipeline". The natural shape is:
 
 ```yo
