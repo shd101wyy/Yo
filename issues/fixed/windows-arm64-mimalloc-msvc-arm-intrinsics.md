@@ -1,6 +1,13 @@
 # windows-arm64 bundle fails: vendored mimalloc uses MSVC-only ARM64 intrinsics under clang
 
-**Status:** RESOLVED BY DECISION 2026-08-20 — Windows drops mimalloc on BOTH targets and uses the system allocator. See the closing section. Originally filed as: Found by the first release that exercised the leg (v0.2.12,
+**Status:** FIXED 2026-09-04 — see "RESOLVED BY UPSTREAM v3.5.1" at the bottom.
+The fix is the vendored-mimalloc v3.5.1 bump, not a local patch; the record
+below is kept because the constraints it establishes (plain-C11 build route,
+no C++ runtime) still govern how mimalloc may be upgraded. Formerly
+`issues/retired/`, where it had been filed as mooted by the 2026-08-20
+system-allocator decision; the v3.5.1 bump PR (#181) moved it to
+`issues/fixed/` when an actual fix landed. Originally filed as: Found by the
+first release that exercised the leg (v0.2.12,
 run 32336959494, job 96335309059). The leg is `experimental: true`, so the
 release still concluded `success` and published — this is why that flag exists.
 
@@ -106,18 +113,18 @@ to build today, it is the compiler's own default, and macOS measured mimalloc
 slower and fatter. But it is an unblock pending evidence, not a verdict that
 mimalloc is impossible here.
 
-### Upstream has no source fix (but has a BUILD-SYSTEM one)
+### Upstream had no source fix UNTIL v3.5.1 (but had a BUILD-SYSTEM one)
 
 The vendored mimalloc was upstream tag **v3.3.2**
 (`30b2d9d89099bee08e9f67a1ffb3e12e7ba45227`, `MI_MALLOC_VERSION 30302`) when
-this was investigated, clean and unmodified. **It is now v3.5.0**
-(`18b08671c9302247bfb682286e6bf3cc1773f801`, `MI_MALLOC_VERSION 30500`), and the
-bump changes NOTHING here — the `_M_ARM64` guard blocks are byte-identical
-between the two tags, which is precisely why the bump was not treated as a fix
-for this. The `_M_ARM64` blocks in `include/mimalloc/atomic.h` are
-**byte-identical** at the newest tag (v3.5.0) and at the tips of `origin/main`,
-`origin/dev` and `origin/dev3` (tip `604c252a`, 2026-08-19). `__clang__` appears
-**zero** times in that file.
+this was investigated, clean and unmodified. At v3.5.0
+(`18b08671c9302247bfb682286e6bf3cc1773f801`, `MI_MALLOC_VERSION 30500`) the
+bump still changed NOTHING here — the `_M_ARM64` guard blocks were
+byte-identical between the two tags, and `__clang__` appeared **zero** times
+in `atomic.h` at `origin/main`, `origin/dev` and `origin/dev3` (tip
+`604c252a`, 2026-08-19). **That stopped being true at v3.5.1** — see
+"RESOLVED BY UPSTREAM v3.5.1" below; the sentences above describe the state
+as of the 2026-08-20 investigation.
 
 Upstream's mitigation is not a source guard at all but a BUILD-SYSTEM one:
 commit `d767dbfb` sets `MI_USE_CXX=ON` for clang-cl in CMakeLists.txt, routing
@@ -238,3 +245,44 @@ RSS ~72%, which is a measured, platform-specific reason that does not transfer.
 `issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md`. The arm64
 leg has a second, unrelated defect in Yo's OWN emitted C. Switching allocator
 does not touch it, so windows-arm64 stays `experimental: true`.
+
+---
+
+## RESOLVED BY UPSTREAM v3.5.1 (2026-09-04)
+
+Upstream added exactly the source fix this file concluded did not exist. In
+`include/mimalloc/atomic.h`, every `__ldar`/`__stlr`/`__ldar64`/`__stlr64`
+call site is now guarded `!defined(__clang__)` — falling back to the
+interlocked path clang DOES implement in MSVC-compat mode — with the memory
+ordering preserved (the "relaxed mislabelled acquire" `#else` trap from
+"A one-line guard fix is NOT sufficient" above is gone because upstream
+restructured the guards rather than deleting the calls):
+
+- `7cca1b54` — Work around clang-cl missing ldar, stlr (PR #1379, @res2k)
+- `8cc8a2aa` — Allow C mode building w/ MSVC or clang-cl (PR #1380, @res2k)
+- `604c252a`, `0a4ea88d` — clang-on-Windows compile/link fixes (issue #1370)
+- the v3.5.0 windows-x64 breakage this file recorded (`internal.h` `page->self`
+  returning `uintptr_t` as `mi_page_t*`) is fixed in the same release as
+  `mi_atomic_load_ptr_acquire(mi_page_t, &page->self)` (`internal.h:800`)
+
+Upstream also grew CI coverage for the exact route Yo needs — plain-C
+(`MI_NO_USE_CXX`) clang-cl builds, including ARM (`0e9c24f8`, `d9626926`) —
+so the "route upstream does not exercise" mismatch is exercised upstream now.
+
+Verified locally against the vendored v3.5.1 with clang 21.1.8, plain C11, no
+local patches, via `clang -std=c11 -fsyntax-only -Ivendor/mimalloc/include
+vendor/mimalloc/src/static.c`:
+
+| target | v3.3.2 | v3.5.0 | v3.5.1 |
+| --- | --- | --- | --- |
+| `x86_64-pc-windows-msvc` | builds | FAILS (pointer-type errors) | clean |
+| `aarch64-pc-windows-msvc` | FAILS (`__ldar64`/`__stlr64`) | FAILS | clean |
+
+`--allocator mimalloc` also builds and runs the full compiler natively on
+windows-x64 again (see PR #181), and the windows-x64/windows-arm64 CI legs
+compile it as part of the per-PR native suite.
+
+What did NOT change: the shipped Windows bundles still use `--allocator
+system` — that was a separate decision (`plans/WINDOWS_ALLOCATOR_DECISION.md`),
+made on macOS-measured performance grounds, and only the "mimalloc cannot be
+built here at all" part of its rationale is now obsolete.

@@ -4,6 +4,21 @@
 `--allocator system` on **both** `windows-x64` and `windows-arm64`.
 Linux keeps mimalloc. macOS already used `system`.
 
+> **2026-09-04 update — the "cannot build" grounds are obsolete.** The
+> vendored mimalloc bump to v3.5.1 (PR #181) removed the only hard blocker:
+> upstream fixed the clang-cl `__ldar64`/`__stlr64` gap (arm64) and the
+> v3.5.0 x64 pointer-type breakage, so `--allocator mimalloc` now builds and
+> runs on both Windows targets as plain C11 under clang — no local patches,
+> no C++ route (see
+> `issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md` and the
+> per-PR Windows native CI in `test.yml`). The DECISION itself stands: it
+> was made on measured-cost grounds (macOS A/B), and this file's
+> "conditions for revisiting" item 1 is now satisfied. Flipping
+> `bundle_allocator` for the Windows release legs waits on a Windows A/B.
+> Also new since 2026-08-20: the Windows-native suite legs exist per-PR
+> (`test.yml` `test-native`), so any future flip is CI-guarded on both
+> arches.
+
 Recorded because the decision is **not** "mimalloc was broken so we removed it".
 On x64 mimalloc worked. It was removed for consistency, and this file exists so
 that a future reader does not rediscover the working x64 build and assume the
@@ -124,7 +139,7 @@ Reopen this if any of the following changes:
 
 ## Related
 
-- `issues/retired/windows-arm64-mimalloc-msvc-arm-intrinsics.md` — the original arm64 break (retired: mooted by this decision)
+- `issues/fixed/windows-arm64-mimalloc-msvc-arm-intrinsics.md` — the original arm64 break (fixed upstream in v3.5.1; was retired as mooted by this decision, restored to `issues/fixed/` by the v3.5.1 bump)
 - `issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md` — a SEPARATE
   defect in Yo's own emitted C. windows-arm64 stays `experimental: true` because
   of it; the allocator change does not touch it.
