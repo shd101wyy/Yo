@@ -10,7 +10,7 @@ You are a programming language and compiler expert.
 > | you are reading | `src/` means | the Yo compiler is called |
 > | --- | --- | --- |
 > | live code, this file, `docs/`, `.github/` | **the Yo compiler** (current) | `src/` |
-> | `plans/`, `issues/`, `code-reviews/`, `outdated/` | the **retired TypeScript** compiler | `yo-self/` |
+> | `plans/`, `issues/`, `code-reviews/` | the **retired TypeScript** compiler | `yo-self/` |
 >
 > The TypeScript compiler that lived in `src/`, with the whole bun/node root toolchain
 > (`package.json`, `bun.lock`, `tsconfig.json`, the `yo-cli` / `yo-cli.ps1` shims, …),
@@ -309,7 +309,7 @@ yo version clean      # Remove all cached versions
 - Always add test cases for any bug you found, and verify they fail before fixing the bug. After fixing, verify the new test cases pass and add them to `tests/` test set.
 - The full test suite (`yo test ./tests --exclude tests/internal --exclude tests/cli-cases --bail`) takes ~30 minutes on a Mac Mini M4 and is safe to run locally. For faster iteration, run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
-- Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
+- `outdated/` is retired (its contents were triaged into `plans/` on 2026-09-04). Follow the plans taxonomy in `plans/README.md`: root = active plans only, `plans/reference/` = landed designs & decision records (authoritative), `plans/backlog/` = written-not-started, `plans/archive/` = closed/refuted/superseded records.
 - `tmp/fixme.yo` is the scratch file for experimentation (`.gitignore` covers `tmp*`, so it is never committed). There is no need to restore its contents after modifying it. It replaced `src/tests/fixme.yo`, which older docs still name.
 - When creating or updating docs in `docs/`, always write both English (`docs/en-US/`) and Chinese (`docs/zh-CN/`) versions.
 - Use ` ```rust ` (not ` ```yo `) for Yo language code blocks in Markdown files — Rust highlighting renders better on GitHub.
@@ -322,7 +322,7 @@ yo version clean      # Remove all cached versions
 - **`yo compile` cannot be used on `*.test.yo` files.** Extract the failing test case into a standalone `.yo` file with a `main` function and `export(main);` (the bare `export main;` form older docs show does not parse).
 - **Algebraic effect `unwind` vs C `abort()`**: They are completely different. The Yo keyword `unwind` discards a continuation; C's `abort()` terminates the process. (`unwind` was previously named `escape`, renamed in commit `a3510d20`.)
 - **The VS Code extension bundles an LSP client since 2026-08-22** (plain JS, no build step): it spawns `yo lsp` (configurable via `yo.binPath`), which serves the FULL feature set — diagnostics, hover, definition, symbols, references, folding, rename, formatting, signature help, completion (P4 feature-complete 2026-08-22, `plans/archive/P4_LSP.md`). With `yo.lsp.enabled: false` (or no yo binary) it degrades to syntax highlighting.
-- **`outdated/` markdown files are stale.** Do not use them for design decisions.
+- **Plans docs state their status up top.** `plans/archive/` docs are CLOSED records — each banner names the outcome (implemented, refuted, superseded) and freezes historical numbers at their writing dates; don't use them as live designs. `plans/reference/` docs are landed designs/decisions that stay authoritative.
 - **`yo fetch` auto-prunes stale lock entries.** When a dep is removed from `build.yo`, running `yo fetch` removes it from `yo.lock`. Global cache is not auto-cleaned.
 - **`GIT_TERMINAL_PROMPT=0`** must be set when running `git ls-remote` on potentially non-existent repos to prevent interactive credential prompts.
 - **A "move" of a named local into a struct/enum field is NOT a consumption in the evaluator.** `set_expr_as_consumed` (`src/evaluator/utils.yo`) only fires for owning temps and `own` parameters; a named local passed to a struct literal gets a deferred `___dup` (copy semantics), and the move you see in the emitted C is manufactured by the **dup/drop pair optimizer** (`_optimize_dup_drop_pairs` in `src/evaluator/exprs/begin.yo`) cancelling that dup against the scope-end drop. So a missing drop in the C is an optimizer bug, not a consumption-marking bug — and any tree walk in that optimizer family must follow `ExprInfo.macro_expansion` for macro calls (`for`, collection literals, user macros — their calls keep the macro head in the AST; the expansion is where branch structure is visible). `if(...)` no longer needs this: since 2026-08-21 it is desugared to `cond(...)` at parse time (`desugar_if_calls`, plans/reference/MACRO_POLICY.md), so passes see the real `cond` node. See `issues/fixed/where-constraints-arraylist-96b-leak.md`.
