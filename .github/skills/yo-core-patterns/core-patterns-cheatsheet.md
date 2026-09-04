@@ -268,7 +268,7 @@ impl(generic(T), where(T <: ToString), Box(T),
 ### Overloading: functions NO, inherent methods NO (policy), trait YES
 
 Function overloading does not exist (Rust stance,
-plans/FUNCTION_OVERLOADING_POLICY.md): rebinding a name is rejected
+plans/reference/FUNCTION_OVERLOADING_POLICY.md): rebinding a name is rejected
 everywhere, and an exported `Call` tuple of ≥2 candidates (an overload set)
 is rejected outside std/prelude.yo — the prelude's runtime/comptime operator
 pairs (`Call :: (neg, comptime_neg)`) are the ONLY sanctioned overload sets.

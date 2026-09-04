@@ -296,7 +296,7 @@ The cost of removing pointer iterators from public APIs:
 
 Mitigations:
 
-- **Yo's ownership analysis** already elides many RC dup/drop pairs (see `plans/RC_OWNERSHIP_IMPLEMENTATION.md`). For typical iteration patterns the per-yield RC traffic is often zero.
+- **Yo's ownership analysis** already elides many RC dup/drop pairs (see `plans/reference/RC_OWNERSHIP_IMPLEMENTATION.md`). For typical iteration patterns the per-yield RC traffic is often zero.
 - **`each_mut` with inlined closure** matches pointer-iterator performance for in-place mutation. The closure body inlines, the `inout` param lowers to a `T*` in C, the loop is identical to a hand-written pointer walk.
 - **Index-based iteration with bounds-check hoisting** matches pointer arithmetic when the loop bound is provable; LLVM handles this routinely.
 - **Performance-critical paths that genuinely need raw-pointer iteration** can opt into `pragma(Pragma.AllowUnsafe);` or push the hot path into a stdlib module.
@@ -482,7 +482,7 @@ Comment-style directives (`// @skip_prelude`, `// @skip_wasm`, …) were the ori
 - [x] Migrate every `// @skip_prelude` and `// @skip_wasm*` directive in `std/`, `yo-self/`, `src/tests/`, and `tests/` to `pragma(Pragma.X);` via `scripts/migrate-skip-pragmas.ts` (80 directives across 57 files). Comment text inside string literals (e.g. test data in `yo-self/tests/phase6*.test.yo`) is left untouched.
 - [x] Remove the now-unused `hasCommentAttribute` helper from `src/evaluator/index.ts`.
 - [x] **yo-self port landed.** `yo-self/expr.yo` now defines `BF_PRAGMA` (and `BF_UNSAFE` for forward-compat); new `yo-self/evaluator/builtins/pragma.yo` mirrors `recognizePragmaArgByAstShape` and `preScanForSkipPrelude` from the TS side; `yo-self/evaluator/index.yo` calls `pre_scan_for_skip_prelude(program.clone())` instead of `has_comment_attribute(tokens, "@skip_prelude")`. The legacy helper stays exported but unused by the constructor. Scope: only the `SkipPrelude` pre-scan that must run before prelude loading; full `AllowUnsafe`-pragma gating in yo-self is a separate Phase C port not yet started (current yo-self doesn't gate raw-pointer ops, so pragma gating has no observable behavior to wire to yet).
-- [x] Docs: `plans/WASM_SUPPORT.md` and `.github/instructions/testing.instructions.md` rewritten to describe `pragma(Pragma.SkipWasm*)` instead of the old comment directives.
+- [x] Docs: `plans/reference/WASM_SUPPORT.md` and `.github/instructions/testing.instructions.md` rewritten to describe `pragma(Pragma.SkipWasm*)` instead of the old comment directives.
 
 ---
 

@@ -960,7 +960,7 @@ match(some_ptr,
 
 面向用户的指南见 [MEMORY_SAFETY.md](MEMORY_SAFETY.md) —— 覆盖默认安全的契约、`inout(name)` 参数、`pragma(Pragma.AllowUnsafe);` opt-in、`unsafe(...)` 逐操作包装、`// SAFETY:` 注释约定、`yo unsafe-report`，以及处理有符号整数溢出的 `-fwrapv`。
 
-Yo 的安全模型是分层的（设计计划见 [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)）：
+Yo 的安全模型是分层的（设计计划见 [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)）：
 
 - **引用语义类型**（`ref(struct(...))` / `ref(enum(...))`）通过引用计数自动释放（RC + 循环回收），从构造上保证内存安全。
 - **`Iso(T)` / `Arc(T)`** 分别提供仿射所有权传递和原子 RC 共享所有权。
@@ -1248,7 +1248,7 @@ use_cond :: (fn(x: i32) -> unit)(
 `cond(condition => then, true => else)`，因此后续所有编译阶段（包括
 async 状态机）看到的是真正的 `cond` 节点。prelude 中仍保留等价的宏定义，
 作为语义规范以及动态构造 AST 的回退路径（参见 `std/prelude.yo` 与
-`plans/MACRO_POLICY.md`）：
+`plans/reference/MACRO_POLICY.md`）：
 
 ```rust
 // prelude.yo 中的定义（规范/回退 —— 正常情况下在解析阶段脱糖）
@@ -3017,7 +3017,7 @@ AST 不经求值直接绑定）和 `-> unquote(Expr)` 返回类型（返回的 A
 **定义宏需要在文件顶部声明 `pragma(Pragma.AllowMacroDef);`** —— 与指针
 操作的 `Pragma.AllowUnsafe` 一样，定义宏是按文件粒度的显式选择（宏不
 卫生、且会向调用方拼接代码，因此定义能力受门控；参见
-`plans/MACRO_POLICY.md`）。*调用*宏（`if`、`for`、集合字面量）不需要该
+`plans/reference/MACRO_POLICY.md`）。*调用*宏（`if`、`for`、集合字面量）不需要该
 pragma；在 comptime 函数中操作引用的 `Expr` 值（`derive_rule` 使用的机
 制）同样不需要。
 

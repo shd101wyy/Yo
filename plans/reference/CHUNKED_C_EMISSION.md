@@ -10,7 +10,7 @@ rebuild). Split the emitted program into N translation units compiled in
 parallel with a content-hashed `.o` cache, then link. Opt-in
 (`--emit-chunks N`, default 0 = today's single file, bit-for-bit): the
 single-file `yo.c` is a DISTRIBUTION REQUIREMENT
-(`plans/PORTABLE_C_DISTRIBUTION.md`), and the bootstrap fixpoint gates
+(`plans/reference/PORTABLE_C_DISTRIBUTION.md`), and the bootstrap fixpoint gates
 compare default emissions.
 
 ## Outcome
@@ -26,7 +26,7 @@ a cached link. **The more useful result is what that leaves behind:** a warm
 chunked build is 137.4 s of evaluation plus a ~24 s ThinLTO link, i.e. the
 EVALUATOR is now 85% of a cached rebuild. Further chunk-side work cannot buy
 much; the next real levers are cross-process incremental evaluation (the
-deferred original Phase C of `plans/INCREMENTAL_COMPILATION.md`) and
+deferred original Phase C of `plans/reference/INCREMENTAL_COMPILATION.md`) and
 content-stable symbol naming, which is also what would make the `.o` cache pay
 off for ordinary source edits rather than only for flag changes.
 
@@ -167,7 +167,7 @@ compiles in under a second.
 4. auto-N (below) exists, so small programs and small machines do not
    REGRESS relative to single-file.
 Even then, these paths stay single-file permanently: portable-C distribution
-(`plans/PORTABLE_C_DISTRIBUTION.md`), `--emit-c` / `--emit-c-to` (the
+(`plans/reference/PORTABLE_C_DISTRIBUTION.md`), `--emit-c` / `--emit-c-to` (the
 single-file artifact is what humans read and bisect — see
 `.github/instructions/debugging.instructions.md`), `--static-library` (one
 input -> one `.o`; currently rejected outright with chunks), and wasm/emcc

@@ -58,7 +58,7 @@ fixed operator table**. Three layers, only the first of which changes:
 
 New operator tokens become a **compiler change** — deliberate, reviewed,
 like adding a keyword. Nobody outside `std/` has ever defined a novel
-operator (audit 2026-08-21, `plans/MACRO_POLICY.md` Part 1), so the
+operator (audit 2026-08-21, `plans/reference/MACRO_POLICY.md` Part 1), so the
 expressiveness lost is theoretical; the predictability gained is not:
 
 - `**i32` lexes as `*`,`*`,`i32` → with the prefix-operand rule,
@@ -115,7 +115,7 @@ Notes:
   short-circuiting (Rust reserves them for the same reason).
 - The rest are structural: binding forms, member access, arm/label/type
   syntax, and the splice markers owned by the quote layer
-  (`plans/MACRO_POLICY.md`).
+  (`plans/reference/MACRO_POLICY.md`).
 - Enforcement point: reject `(op) :: ...` bindings and trait-operator
   registrations for reserved tokens at definition evaluation, next to the
   existing operator-binding path (where `(^) ::` / `(!) ::` are handled) —
@@ -248,6 +248,6 @@ priors conflict.
   metaprogramming-adjacent).
 - No change to trait-based overloading of table operators.
 - No change to `#`/`...#` (see the open question in
-  `plans/MACRO_POLICY.md` — kept, with removal-if-ever as a separate
+  `plans/reference/MACRO_POLICY.md` — kept, with removal-if-ever as a separate
   mechanical PR).
 - No precedence table of any size (Part 2).

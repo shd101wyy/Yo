@@ -23,7 +23,7 @@
 //! the module cache in `evaluator/module_loader.yo`, so the state that TS keeps
 //! in instance fields lives here as module-level globals. The API is the same
 //! service; the storage is not, and a literal port of the class would have been
-//! wrong (plans/P1_CLI_PARITY.md §7).
+//! wrong (plans/archive/P1_CLI_PARITY.md §7).
 // `resolve_std_path` reads `YO_STD` through libc `getenv`, which needs a raw
 // `*(char)` — same reason `main.yo` carries this pragma.
 pragma(Pragma.AllowUnsafe);
@@ -355,7 +355,7 @@ _open_doc_text :: (fn(fs_path : String) -> Option(String))(
     .None => Option(String).None
   )
 );
-/// LSP invalidation entry (Phase B1, plans/INCREMENTAL_COMPILATION.md):
+/// LSP invalidation entry (Phase B1, plans/reference/INCREMENTAL_COMPILATION.md):
 /// drop the module cached for this FILESYSTEM path and every transitive
 /// dependent, so the next analysis of any document re-evaluates exactly the
 /// stale part of its import closure. Returns the removed `file://` paths
@@ -409,7 +409,7 @@ _take_load_error :: (fn() -> Option(String))({
 /// rendered diagnostic (handlers cannot capture outer runtime vars, so a module
 /// global is the channel) and unwinds — `out` stays empty, which is the
 /// caller's signal. The owning CLI edge then prints it exactly once (the P1
-/// single-print rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2): `check` via
+/// single-print rule, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md D2): `check` via
 /// `check_single_file`, watch rounds in `check_watch.yo`, `compile` by
 /// re-throwing the stash, the LSP by parsing it into diagnostics.
 _eval_module_exprs_capturing_error :: (
@@ -521,7 +521,7 @@ demand_load_module :: (fn(path : String) -> LoadModuleResult)({
   // Import-graph edge: whoever is mid-evaluation (loading-stack top) depends
   // on `path`. Recorded on EVERY request — a cache hit is still a dependency
   // — so `invalidate_module` can walk dependents. Phase B1,
-  // plans/INCREMENTAL_COMPILATION.md.
+  // plans/reference/INCREMENTAL_COMPILATION.md.
   match(
     current_loading_module(),
     .Some(importer) => record_import_edge(importer, path.clone()),
@@ -678,7 +678,7 @@ mm_load_file :: (
   // Effect-handler bodies cannot capture outer runtime vars (per Yo's `->`
   // rule), so we can't name the file here — the caller logs that from `ok`.
   // The rendered diagnostic is STASHED, not printed (the P1 single-print
-  // rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2): the owning edge prints.
+  // rule, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md D2): the owning edge prints.
   local_exn := Exception(
     throw : (
       err -> {

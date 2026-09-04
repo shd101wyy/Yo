@@ -1,7 +1,7 @@
 //! TypeValue — the central representation of types in the Yo type system.
 //!
 //! Mirrors `src/types/definitions.ts` but uses a Yo `enum` with per-variant
-//! data instead of the TS fat-node interface. See `plans/BOOTSTRAPPING.md`
+//! data instead of the TS fat-node interface. See `plans/archive/BOOTSTRAPPING.md`
 //! § "Architecture Decisions / 2. Type representation".
 //!
 //! Notes:
@@ -102,7 +102,7 @@ FuncMeta :: struct(
 derive(FuncMeta, Clone);
 /// The Yo type universe.
 ///
-/// Reference-semantics enum (`ref(enum(…))`, plans/REF_REFERENCE_SEMANTICS.md
+/// Reference-semantics enum (`ref(enum(…))`, plans/reference/REF_REFERENCE_SEMANTICS.md
 /// Phase 4): `TypeValue` is self-referential (`Self` / `ArrayList(Self)`),
 /// so a value enum needs the self-shell workaround. As a `ref(enum)` its `Self`
 /// fields are heap-pointer handles — the recursion is broken by indirection,
@@ -231,7 +231,7 @@ TypeValue :: ref(
     /// `is_reference_semantics` = true for `ref(enum(...))`, false for `enum(...)`.
     /// `is_atomic_rc` = true for `atomic(ref(enum(...)))`. Mirror
     /// `EnumType.isReferenceSemantics` / `EnumType.isAtomicRc` in
-    /// `src/types/definitions.ts`. plans/REF_REFERENCE_SEMANTICS.md Phase 3.
+    /// `src/types/definitions.ts`. plans/reference/REF_REFERENCE_SEMANTICS.md Phase 3.
     EnumT(
       id : String,
       name : String,

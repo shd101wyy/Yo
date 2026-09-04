@@ -1,5 +1,11 @@
 # P3 — distribution: installers, the releases channel, static musl
 
+> **ARCHIVED 2026-09-04 — COMPLETE.** Every item proven by shipped releases:
+> v0.2.14 (2026-08-21) was the first through the fully reworked machinery,
+> and the channel has run green on every release since (v0.2.15 … v0.2.23).
+> Later release-channel fixes are ordinary maintenance tracked in `issues/`,
+> not this plan.
+
 **Working doc for Phase 3 of
 [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md).** Same contract
 as `P1_CLI_PARITY.md`/`P2_RETIRE_SRC.md`: measured numbers, live status,
@@ -28,7 +34,7 @@ The Windows bundles really are MSVC-ABI, and the unqualified `windows-x64` said
 nothing about that while Linux already qualified itself with `-musl`. The
 compiler's own `--target` vocabulary is NOT affected. Full decision, the mapping
 table, and where the name is produced and consumed:
-`plans/RELEASE_ASSET_TRIPLES.md`.
+`plans/reference/RELEASE_ASSET_TRIPLES.md`.
 
 **The language suite now runs on ALL SIX targets, per PR** — Linux both
 arches natively, and macos-arm64/macos-x64/windows-x64/windows-arm64 via the

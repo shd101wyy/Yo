@@ -15,7 +15,7 @@
 # (`node out/cjs/yo-cli.cjs`) and the name is from that era. That compiler was
 # deleted with the TypeScript `src/` (P2.5), so the goldens are now the only reference — which
 # is exactly the post-retirement form the golden mode was built for while both
-# arms still existed (plans/P2_5_RETIRE_EXECUTION.md step 13).
+# arms still existed (plans/archive/P2_5_RETIRE_EXECUTION.md step 13).
 #
 # ── Goldens are the reference ───────────────────────────────────────────────
 # Per-file goldens live under <dir-of-file>/goldens/<basename>.golden. A golden

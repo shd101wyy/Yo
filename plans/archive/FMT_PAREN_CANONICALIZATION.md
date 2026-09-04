@@ -1,7 +1,7 @@
 # `yo fmt` paren canonicalization — flatten what the grammar already flattens
 
 **Status:** REJECTED 2026-08-21; SUPERSEDED 2026-09-02 by
-[`plans/FMT_PAREN_ELISION.md`](../FMT_PAREN_ELISION.md) — IMPLEMENTED.
+[`plans/archive/FMT_PAREN_ELISION.md`](../FMT_PAREN_ELISION.md) — IMPLEMENTED.
 Rule 3's rationale became obsolete when PR #201 (closed operator set +
 prefix-operand rule) shipped in the v0.2.21 seed: `3 - -3` now parses,
 paren-less prefix calls are the canonical spelling, and `yo fmt` elides

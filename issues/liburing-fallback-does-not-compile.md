@@ -1,12 +1,12 @@
 # The liburing `#else` fallback does not compile: async sleep is emitted outside the guard
 
 **Status: FIXED 2026-08-15** (found while sizing
-`plans/PORTABLE_C_DISTRIBUTION.md`; surfaced by an adversarial review and then
+`plans/reference/PORTABLE_C_DISTRIBUTION.md`; surfaced by an adversarial review and then
 verified end-to-end.)
 
 ## The claim this refutes
 
-`plans/P3_DISTRIBUTION.md` documents the Linux async runtime as degrading
+`plans/archive/P3_DISTRIBUTION.md` documents the Linux async runtime as degrading
 gracefully when liburing is absent:
 
 > the `#else` arm replaces the whole subsystem with stubs whose init does

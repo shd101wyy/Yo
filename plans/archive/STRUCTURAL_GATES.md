@@ -21,7 +21,7 @@ Two independent sub-clusters.
 Tests: `safe_code_structural_gates`, `extern_unsafe_wrap`.
 Repro: `takes_ptr :: (fn(p : *(i32)) -> i32)(...)`, `(fn(s : *(char)) -> usize)(strlen(s))`
 — a raw pointer type `*(T)` (or `&(x)` address-of) named in a file WITHOUT
-`pragma(Pragma.AllowUnsafe);`. "Phase C structural gates" (plans/MEMORY_SAFETY.md).
+`pragma(Pragma.AllowUnsafe);`. "Phase C structural gates" (plans/reference/MEMORY_SAFETY.md).
 
 **TS gates (both use `isImplicitlyUnsafeCapableFile`):**
 

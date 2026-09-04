@@ -1,5 +1,11 @@
 # P2 — retire `src/` and the bun/node toolchain
 
+> **ARCHIVED 2026-09-04 — LANDED.** The TypeScript compiler, the bun/node
+> toolchain and the `./yo-cli` shims are gone, frozen at the tag
+> `src-attic-final`; `yo-self/` was renamed to `src/` (P2.5 Group F,
+> 2026-08-20). Execution record:
+> [`P2_5_RETIRE_EXECUTION.md`](P2_5_RETIRE_EXECUTION.md), in this archive.
+
 **Working handover doc for Phase 2 of
 [`SELF_HOSTING_COMPLETION.md`](SELF_HOSTING_COMPLETION.md).** Same contract as
 [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) (COMPLETE, 2026-08-10): every number

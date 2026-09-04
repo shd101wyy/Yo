@@ -3,7 +3,7 @@
 **Status:** LANDED 2026-08-28 (branch `target/rust-triples`). User decision
 2026-08-28: *"follow Rust's way; we don't need to worry about backward
 compatibility and breaking changes"* — this supersedes the "what does NOT
-change" section of `plans/RELEASE_ASSET_TRIPLES.md`, which had kept the
+change" section of `plans/reference/RELEASE_ASSET_TRIPLES.md`, which had kept the
 compiler's own `--target` names vendor-less when the release assets moved to
 triples.
 
@@ -116,7 +116,7 @@ Historical documents under `plans/`, `issues/`, `outdated/` are NOT rewritten
   the upstream to the new vocabulary and bump the submodule pointer
   (companion-commit procedure as for std API changes).
 - **Release assets** already carry these exact names (PR #323,
-  `plans/RELEASE_ASSET_TRIPLES.md`); `scripts/release_asset_triple.sh`'s
+  `plans/reference/RELEASE_ASSET_TRIPLES.md`); `scripts/release_asset_triple.sh`'s
   internal-label → triple table stays because the internal labels are also
   artifact names and job titles. `src/version_cache.yo`'s
   `host_bundle_triple_name` could now be derived from `host_target().triple`

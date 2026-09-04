@@ -347,8 +347,8 @@ jobs:
             seed (`bin/yo` + `std/` + `vendor/mimalloc/` + LICENSE). The
             TypeScript compiler that used to build them was retired in P2.5 and
             is frozen at the `src-attic-final` tag. See
-            `plans/SELF_HOSTING_COMPLETION.md` Phase 2 for the trust chain and
-            `plans/BOOTSTRAPPING.md` for the campaign record.
+            `plans/archive/SELF_HOSTING_COMPLETION.md` Phase 2 for the trust chain and
+            `plans/archive/BOOTSTRAPPING.md` for the campaign record.
           prerelease: false
           # The freshly packaged .vsix, NOT the publish step's output. That
           # output is empty whenever the publish did not run — which was
@@ -403,8 +403,8 @@ jobs:
         with:
           path: yo-out/site
 
-  # Bootstrap seed bundles — plans/SELF_HOSTING_COMPLETION.md Phase 2 (task 2.1)
-  # and plans/P2_RETIRE_SRC.md. The TypeScript compiler builds the native
+  # Bootstrap seed bundles — plans/archive/SELF_HOSTING_COMPLETION.md Phase 2 (task 2.1)
+  # and plans/archive/P2_RETIRE_SRC.md. The TypeScript compiler builds the native
   # self-hosted binary "one last time" per platform; the tarballs attached to
   # the release are what the 2.3 CI migration downloads instead of setting up
   # bun/node. Bundle layout: <name>/bin/yo, <name>/std/, <name>/vendor/mimalloc/,
@@ -415,7 +415,7 @@ jobs:
   # static-musl user-facing story is Phase 3 (distribution), not the seed.
   # The portable-C artifacts: ONE .c.gz per platform (per-target split), with
   # the merged assembly kept as a publish gate only.
-  # plans/PORTABLE_C_DISTRIBUTION.md has the rationale and the measurements;
+  # plans/reference/PORTABLE_C_DISTRIBUTION.md has the rationale and the measurements;
   # the short version is that each arm is a complete translation unit under a
   # preprocessor conditional, so the C compiler selects one and skips the rest
   # (measured: 568 MB of skipped arms cost 0.7 s on a 69 s compile).
@@ -470,7 +470,7 @@ jobs:
             # canonical heavy workloads had system 25%/28% faster on wall
             # (check ./src, full-tree emit; non-overlapping spreads), with
             # mimalloc winning only peak RSS. Record + tables:
-            # plans/WINDOWS_ALLOCATOR_DECISION.md.
+            # plans/reference/WINDOWS_ALLOCATOR_DECISION.md.
             bundle_allocator: system
             experimental: false
           # windows-arm64 is NEW: no arm64-Windows bundle has ever shipped, so
@@ -490,7 +490,7 @@ jobs:
           # The question is SETTLED: Windows uses the system allocator on both
           # targets by decision, not by breakage — the full record (including
           # the A/B that answered it; its dispatch workflow has been removed)
-          # is plans/WINDOWS_ALLOCATOR_DECISION.md.
+          # is plans/reference/WINDOWS_ALLOCATOR_DECISION.md.
           - target: windows-arm64
             yo_target: aarch64-pc-windows-msvc
             bundle_allocator: system
@@ -730,7 +730,7 @@ jobs:
       # catch rather than a link error. (Since the v3.5.1 vendored bump, BOTH
       # Windows triples can link mimalloc under plain C11; the matrix row
       # chooses `system` on measured-cost grounds —
-      # plans/WINDOWS_ALLOCATOR_DECISION.md.)
+      # plans/reference/WINDOWS_ALLOCATOR_DECISION.md.)
       - name: "Compile the cross-emitted C natively (Windows)"
         if: runner.os == 'Windows'
         shell: bash
@@ -848,7 +848,7 @@ jobs:
   # THE Linux release legs (musl-only, 2026-08-20). The glibc seed-bundles
   # legs were REMOVED, not renamed: the static musl bundles run on glibc and
   # musl systems alike (measured perf delta is inside run-to-run noise and the
-  # emit is byte-identical — plans/P3_DISTRIBUTION.md), so publishing both
+  # emit is byte-identical — plans/archive/P3_DISTRIBUTION.md), so publishing both
   # doubled the release cost for no coverage. What the glibc legs used to
   # carry moved here: the stage-2 re-emit gate runs against the static
   # candidate below, and the portable-c arms are emitted at the end of this
@@ -1184,7 +1184,7 @@ jobs:
         run: gh release upload "v${{ needs.release.outputs.version }}" "$BUNDLE.tar.gz" --clobber
 
       # This leg's arm of the single portable `yo.c`, rehomed from the removed
-      # glibc legs (plans/PORTABLE_C_DISTRIBUTION.md). A SEPARATE emit rather
+      # glibc legs (plans/reference/PORTABLE_C_DISTRIBUTION.md). A SEPARATE emit rather
       # than reusing yo-musl.c, because that one is mimalloc-flavored: its
       # mimalloc use is behind `#if __has_include(<mimalloc.h>)`, so it
       # MIS-LINKS on a box that has the headers and no -lmimalloc. The
@@ -1271,7 +1271,7 @@ jobs:
           gcc -std=c11 -fsyntax-only -w $(pkg-config --cflags openssl) yo.c \
             || { echo "::error::assembled yo.c does not even parse on linux-x64"; exit 1; }
 
-          # PER-TARGET SPLIT (plans/PORTABLE_C_DISTRIBUTION.md): each arm is a
+          # PER-TARGET SPLIT (plans/reference/PORTABLE_C_DISTRIBUTION.md): each arm is a
           # complete translation unit, so it ships as its own artifact — a
           # user downloads ~6 MiB instead of the ~30 MiB merged file, for a
           # measured ~1% compile-time difference. The merged yo.c above stays

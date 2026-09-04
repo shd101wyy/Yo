@@ -21,7 +21,7 @@ anchors — works, but a typed channel is cleaner); doc-comment plumbing
 (`Variable.doc_comment` has a single producer, so hover misses many doc
 comments); inlay hints deliberately dropped (attic shipped them disabled);
 and the incremental-compilation arc for the two documented invalidation
-gaps (`plans/INCREMENTAL_COMPILATION.md`).
+gaps (`plans/reference/INCREMENTAL_COMPILATION.md`).
 
 **Kickoff decisions (2026-08-22, maintainer-approved direction):**
 - Slice order adjusted: transport FIRST (slice 1+2 together) — most
@@ -36,12 +36,12 @@ gaps (`plans/INCREMENTAL_COMPILATION.md`).
   in diagnostics.yo): imported-file edits invisible until restart, and
   per-edit re-registration leaks registry entries — both are the
   incremental-compilation arc
-  (plans/INCREMENTAL_COMPILATION.md, reopened by this kickoff).
+  (plans/reference/INCREMENTAL_COMPILATION.md, reopened by this kickoff).
 - `json_parse_string`/`json_parse_bytes` were added to std
   (std/encoding/json.yo generalized to bytes — `json_parse` took the
   STATIC `str` view, unusable on runtime input).
 - The cli-diff-test harness pipes a case's `stdin` file to the binary,
-  which is how the LSP case drives the real server (plans/P4_LSP.md's
+  which is how the LSP case drives the real server (plans/archive/P4_LSP.md's
   "test the way the CLI is tested" rule).
 
 Original scoping (2026-08-12) below.

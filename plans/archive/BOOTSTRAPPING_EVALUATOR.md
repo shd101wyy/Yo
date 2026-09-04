@@ -2,8 +2,8 @@
 > complete: the self-hosted compiler passes the full suite, the stage-2/stage-3
 > fixpoint holds, and every CI job gates PRs (run 31069479984, commit
 > `ac85f6cfc`). Kept as a historical record — do not resume work from this
-> file. Umbrella status: `plans/BOOTSTRAPPING.md`. What comes next:
-> `plans/SELF_HOSTING_COMPLETION.md`.
+> file. Umbrella status: `plans/archive/BOOTSTRAPPING.md`. What comes next:
+> `plans/archive/SELF_HOSTING_COMPLETION.md`.
 
 # Bootstrapping the Evaluator — Self-Hosted `yo check`
 

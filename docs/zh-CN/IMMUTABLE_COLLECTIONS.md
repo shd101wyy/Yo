@@ -149,6 +149,6 @@ Map 和 SortedMap 已经使用结构共享（每次变更只复制 O(log n) 个�
 
 ## 相关文档
 
-- `plans/IMMUTABLE_COLLECTIONS.md` —— 实现计划与设计历史
+- `plans/archive/IMMUTABLE_COLLECTIONS.md` —— 实现计划与设计历史
 - `docs/zh-CN/ARC.md` —— 共享所有权概览
 - 生成的 `yo doc` 输出 —— 逐模块 API 详情

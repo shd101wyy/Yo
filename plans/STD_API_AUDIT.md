@@ -5,7 +5,7 @@ DECIDED by the user 2026-08-23; **S0, S1 and almost all of S2 are LANDED**
 (PRs #229–#294, 2026-08-23 → 2026-08-26). Remaining: D6 PR-3 (the
 curl swap, plans/D6_TLS_PLAN.md), the §7 S4/P1 tail, §9 S5 stability freeze,
 and the seed-gated queue (plans/backlog/SEED_VERSION_AUTOMATION.md). D3.9
-(Hasher) LANDED 2026-08-28 — plans/HASHER_REDESIGN.md.
+(Hasher) LANDED 2026-08-28 — plans/reference/HASHER_REDESIGN.md.
 D4 PR 9 closed BY EVENTS 2026-08-28: the vendor migrated upstream
 (markdown_yo ff51f91 — zero substring sites remain, and its byte-based
 decoders are CORRECT by construction under the byte-indexed String), the
@@ -216,7 +216,7 @@ the git history and the named issue docs. The record, one line each:
    `unit`). En route fixed: `unit` in C storage positions emitted `void`
    (issues/fixed/unit-typed-params-and-fields-emit-c-void.md,
    issues/fixed/inout-unit-receiver-void-ref-spill.md).
-9. ~~**Hasher redesign**~~ **DONE 2026-08-28** (plans/HASHER_REDESIGN.md):
+9. ~~**Hasher redesign**~~ **DONE 2026-08-28** (plans/reference/HASHER_REDESIGN.md):
    Rust-style `Hasher` (`write(buf, size)`/`finish` required, `write_u8..u64`,
    `write_usize`, `write_i8..i64`, `write_isize` defaulted) + `Hash.hash(self,
    inout(hasher) : H, where(H <: Hasher))` in the prelude; `std/hash` with

@@ -480,7 +480,7 @@ Considered. Rejected: `object` handles cyclic graphs, unknown-lifetime sharing, 
 
 ## What This Does Not Solve
 
-- **Data races across threads.** `Iso(T)` / `Arc(T)` / `Send` — see `plans/ARC_TYPE.md`.
+- **Data races across threads.** `Iso(T)` / `Arc(T)` / `Send` — see `plans/reference/ARC_TYPE.md`.
 - **Out-of-bounds reads.** `ArrayList.get` is bounds-checked; pointer arithmetic stays `unsafe(...)`.
 - **Logic errors involving live data.** Memory safety only prevents UB.
 - **Resource leaks** (FDs, sockets) — `object` + `___drop`. Orthogonal.

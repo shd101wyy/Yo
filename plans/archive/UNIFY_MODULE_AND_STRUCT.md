@@ -313,7 +313,7 @@ wasm-wasi` and `--cc emcc` runs).
 - Mirror the unification in `yo-self/types/`, `yo-self/evaluator/types/`
   on a best-effort basis so the bootstrap stays roughly in sync.
 - Remove `Module` from the `yo-self` `TypeTag` enum if reachable.
-- Update `plans/BOOTSTRAPPING.md` to note the simplified type system.
+- Update `plans/archive/BOOTSTRAPPING.md` to note the simplified type system.
 - `./yo-cli test ./yo-self/tests/` is informational only — known failures
   there do not block landing the change.
 

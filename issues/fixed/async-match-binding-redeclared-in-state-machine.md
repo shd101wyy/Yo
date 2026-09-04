@@ -1,7 +1,7 @@
 # A match-arm destructuring binding is declared twice inside a state machine
 
 **Status: FIXED** (2026-08-09) in `src/`. Found while wiring `build`/`fetch`/
-`install` to subcommands (plans/P1_CLI_PARITY.md §1); the last of the five
+`install` to subcommands (plans/archive/P1_CLI_PARITY.md §1); the last of the five
 classes that seam exposed
 ([write-up](fixed/async-await-in-nested-match-arms.md)).
 

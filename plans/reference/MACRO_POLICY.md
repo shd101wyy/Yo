@@ -73,7 +73,7 @@ conversion.
   param, no unquote return, so `is_macro_fn` is false and macro dispatch never
   fires. The `derive`/`derive_rule` **builtins** (`src/evaluator/builtins/derive.yo`,
   `derive_rule.yo`) explicitly evaluate the returned Expr.
-  `plans/DERIVE_TRAITS.md:147` states this design explicitly.
+  `plans/reference/DERIVE_TRAITS.md:147` states this design explicitly.
 - **But derive hard-depends on the quote/Expr comptime layer**: `quote`,
   `unquote`, `#()`, `...#()`, `gensym`, `Expr`/`ExprList`, `EvalValue.ExprVal`,
   `clone_expr_fresh_ids`, the `__yo_expr_*` reflection builtins, and
@@ -136,7 +136,7 @@ Nothing enforces this; the failure mode is silent. The bill so far:
   every overload trial.
 - Macro expansions bypass the unsafe pragma gate via the `auto-generated://`
   carve-out (`src/evaluator/memory_safety.yo:97-117`,
-  `plans/MEMORY_SAFETY.md:395`) — deliberate ("the macro author owns the
+  `plans/reference/MEMORY_SAFETY.md:395`) — deliberate ("the macro author owns the
   contract"), but a real privilege edge.
 - Macros are **unhygienic**: expansion evaluates in the caller's env; `gensym`
   is the entire (manual) hygiene story. Survivable mainly because Yo forbids

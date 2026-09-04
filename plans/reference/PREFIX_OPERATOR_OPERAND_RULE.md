@@ -2,7 +2,7 @@
 
 **Rule 1 IMPLEMENTED 2026-08-21** (`parse_prefix_operand` /
 `parse_expression` in `src/parser.yo`, on the closed-operator-set branch —
-see `plans/OPERATOR_SET_AND_PRECEDENCE.md`): a bare prefix-capable
+see `plans/reference/OPERATOR_SET_AND_PRECEDENCE.md`): a bare prefix-capable
 operator (`-` `!` `~` `&` `*` `?` `^`) binds one postfix expression;
 parenthesized operator atoms (`(!)`) stay values; the no-whitespace `(`
 form stays the operator-call path (`-(a)`, multi-arg `-(a, b)`); nested

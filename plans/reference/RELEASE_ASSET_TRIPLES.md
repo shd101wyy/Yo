@@ -1,7 +1,8 @@
 # Release assets move to canonical target triples
 
-**Status:** IN PROGRESS (user decision 2026-08-28: "Can we follow Rust's naming
-approach?"). Applies from the release AFTER v0.2.18.
+**Status: LANDED 2026-08-28** — commit `b46d29f71` ("release: name assets by
+canonical target triple (#323)"). The IN PROGRESS header below predates the
+merge; applies from the release AFTER v0.2.18.
 
 ## Decision
 

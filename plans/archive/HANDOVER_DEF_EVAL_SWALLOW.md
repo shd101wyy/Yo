@@ -288,6 +288,6 @@ same file for the CI migration. Rebase each on develop after #110 lands.
 | family A reproducer                      | `issues/repros/self-static-method-at-def-time.yo`             |
 | the swallow's surface / earlier analysis | `issues/retired/def-time-body-eval-swallow-surface.md`        |
 | the silent-miscompile origin story       | `issues/fixed/self-hosted-compile-swallows-undefined-call.md` |
-| P2 roadmap this feeds                    | `plans/P2_RETIRE_SRC.md`, `plans/P2_5_RETIRE_EXECUTION.md`    |
+| P2 roadmap this feeds                    | `plans/archive/P2_RETIRE_SRC.md`, `plans/archive/P2_5_RETIRE_EXECUTION.md`    |
 | the trial/swallow debug hook             | `yo-self/evaluator/calls/function_type.yo:263-280`            |
 | the marker gate that makes it visible    | `yo-self/codegen/functions/generation.yo:575-630`             |

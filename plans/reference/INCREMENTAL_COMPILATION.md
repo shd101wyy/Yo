@@ -206,7 +206,7 @@ scoping as its own small plan if build times become the bottleneck before P4.
 
 ## When this reopens
 
-At P4 kickoff (`plans/P4_LSP.md`): the LSP's incremental evaluation design
+At P4 kickoff (`plans/archive/P4_LSP.md`): the LSP's incremental evaluation design
 should subsume the build-cache question — a module whose evaluated exports can
 be reused across LSP edits can be reused across builds.
 

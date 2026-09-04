@@ -1261,5 +1261,5 @@ Options:
 
 ## See Also
 
-- [BUILD_SYSTEM.md](../../plans/BUILD_SYSTEM.md) — Full design document with implementation details
+- [BUILD_SYSTEM.md](../../plans/reference/BUILD_SYSTEM.md) — Full design document with implementation details
 - [Zig Build System](https://ziglang.org/learn/build-system/) — Primary inspiration

@@ -41,7 +41,7 @@ The faithful-port doctrine applies: TS's mechanism in TS's place.
 ## Fix plan
 
 A researched, adversarially-verified port plan now lives at
-**`plans/YO_SELF_IMPL_REGISTRY_SCRUB.md`** — read that instead of the sketch
+**`plans/archive/YO_SELF_IMPL_REGISTRY_SCRUB.md`** — read that instead of the sketch
 below, which it supersedes. Two findings from it are worth stating here
 because they widen this issue:
 

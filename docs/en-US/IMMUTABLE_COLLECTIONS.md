@@ -163,6 +163,6 @@ mutation), so COW would provide diminishing returns. List's primary operation
 
 ## Related docs
 
-- `plans/IMMUTABLE_COLLECTIONS.md` — implementation plan and design history
+- `plans/archive/IMMUTABLE_COLLECTIONS.md` — implementation plan and design history
 - `docs/en-US/ARC.md` — shared ownership overview
 - Generated `yo doc` output for module-level API details

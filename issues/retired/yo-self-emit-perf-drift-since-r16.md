@@ -44,7 +44,7 @@ step-24 blocker cares about.
   instantiation load of the ported modules (generic dedup at the SOURCE
   level), a compiler-side instantiation-dedup/interning pass, or the step-24
   options A/C (cross-emit fan-out / bigger runners) recorded in
-  `plans/P2_5_RETIRE_EXECUTION.md`.
+  `plans/archive/P2_5_RETIRE_EXECUTION.md`.
 - Per-module cost attribution (which ported modules dominate the +4.4 GB)
   would target source-level dedup work; measurable by emitting subsets of
   main.yo's import closure.

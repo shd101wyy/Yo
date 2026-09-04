@@ -120,7 +120,7 @@ Top files: `evaluator/types/function.yo` 94, `evaluator/exprs/match.yo` 58,
 Message text quality is actually decent — messages embed rendered types
 (`type_to_string`, 192 uses) and expression source (`ast_expr_to_string`, 215
 uses), and several carry multi-line guidance (the overloading policy message
-even cites `plans/FUNCTION_OVERLOADING_POLICY.md`). What's missing is
+even cites `plans/reference/FUNCTION_OVERLOADING_POLICY.md`). What's missing is
 everything *around* the text.
 
 ### 1.2 Per-stage matrix

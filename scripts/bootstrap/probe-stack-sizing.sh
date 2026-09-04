@@ -21,7 +21,7 @@
 # WHY A SYNTHETIC PROBE RATHER THAN `check ./yo-self`: that workload needs under
 # 1 MB at -O2 (LLVM stack coloring shrinks frames ~100x), so it cannot reach the
 # threshold and a sweep over it returns "pass" at every size — measured, see
-# plans/P3_DISTRIBUTION.md item 3.
+# plans/archive/P3_DISTRIBUTION.md item 3.
 #
 # THE TRAP THIS SCRIPT ENCODES: naive "non-tail" recursion is NOT enough.
 # `n + recur(n - 1)` gets linearised by LLVM's accumulator tail-call transform

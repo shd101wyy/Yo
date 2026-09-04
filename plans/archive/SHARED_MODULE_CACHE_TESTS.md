@@ -1,5 +1,11 @@
 # Shared module-compilation cache for the test runner
 
+> **ARCHIVED 2026-09-04 — MOOT.** Phase 1 optimized the TypeScript test
+> runner; the branch never merged, and the TS runner retired with `src/` in
+> P2.5 (2026-08-20). Phase 2 (yo-self) was researched, never started. Kept
+> as the measurement + design record; a Yo-runner equivalent would restart
+> from the Phase 2 notes.
+
 **Status: PHASE 1 COMPLETE AND VALIDATED 2026-08-15** (branch
 `perf/shared-module-cache`, off `p2/group-c-goldens` — rebase onto develop and
 open the PR once the GATE 3 merge train lands). Phase 2 (yo-self) is

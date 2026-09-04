@@ -263,7 +263,7 @@ Options:
 ### Phase 3: Polish
 
 10. **`yo-init-deps`**: Update `yo init` templates with dependency example (commented out)
-11. **`docs`**: Update `docs/en-US/BUILD_SYSTEM.md` and `plans/BUILD_SYSTEM.md`
+11. **`docs`**: Update `docs/en-US/BUILD_SYSTEM.md` and `plans/reference/BUILD_SYSTEM.md`
 12. **`tests`**: Integration tests for dependency fetching
 
 ---

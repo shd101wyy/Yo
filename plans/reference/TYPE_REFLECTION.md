@@ -340,4 +340,4 @@ Compound variants use wildcard `_` in match patterns: `.Struct(_, _) => true`. T
 | `src/types/definitions.ts`           | Internal type definitions (source of truth)      |
 | `src/types/tags.ts`                  | Internal TypeTag enum                            |
 | `tests/derive.test.yo`               | TypeInfo tests (57 total)                        |
-| `plans/DERIVE_TRAITS.md`             | Cross-reference                                  |
+| `plans/reference/DERIVE_TRAITS.md`             | Cross-reference                                  |

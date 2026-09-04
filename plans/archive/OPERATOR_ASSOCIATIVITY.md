@@ -1,5 +1,10 @@
 # Stricter Operator Grouping
 
+> **ARCHIVED 2026-09-04 — SUPERSEDED** by
+> [`OPERATOR_SET_AND_PRECEDENCE.md`](../reference/OPERATOR_SET_AND_PRECEDENCE.md)
+> (closed operator token set + no-precedence stance, 2026-08-21). The
+> grouping implementation described below lives in `src/parser.yo`.
+
 Status: **implemented** (`src/parser.ts` + `yo-self/parser.yo`; std/tests/yo-self
 migrated; corpus 83/83). The infix branch now: same operator → left-associative
 (`parseLeftAssociativeOperator`); adjacent different operators → parentheses-

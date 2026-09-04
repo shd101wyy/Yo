@@ -1,5 +1,13 @@
 # Self-hosting completion — retire `src/`, full CLI, install scripts, LSP
 
+> **ARCHIVED 2026-09-04 — CAMPAIGN COMPLETE.** Every phase landed: P1 CLI
+> parity (COMPLETE 2026-08-10), P2 + P2.5 retirement of `src/` and the
+> bun/node toolchain (LANDED 2026-08-20, frozen at tag `src-attic-final`),
+> P3 distribution (every item proven by shipped releases, v0.2.14 onward),
+> P4 LSP + VS Code (FEATURE-COMPLETE 2026-08-22). The per-phase records are
+> archived alongside this doc; live work continues from
+> [`ROADMAP.md`](../ROADMAP.md).
+
 **Written 2026-08-06.** Successor to the bootstrap campaign
 ([`BOOTSTRAPPING.md`](BOOTSTRAPPING.md), goal achieved: fixpoint holds, full
 suite green under the self-hosted binary, all CI jobs gate). This document is
@@ -302,7 +310,7 @@ evaluate bundling zig as Koka bundles nothing but suggests one).
 > Code extension carries a plain-JS client (`yo.binPath`). Gated by the
 > `lsp-handshake` + `lsp-completion` cli-cases (real framed-protocol goldens).
 > The companion incremental-compilation Phase B landed alongside
-> (`plans/INCREMENTAL_COMPILATION.md`): per-edit module-cache invalidation
+> (`plans/reference/INCREMENTAL_COMPILATION.md`): per-edit module-cache invalidation
 > with an open-buffer overlay, and registry purge so re-analysis stops
 > leaking. Inlay hints deliberately dropped (the attic shipped them
 > disabled). Original scoping below.

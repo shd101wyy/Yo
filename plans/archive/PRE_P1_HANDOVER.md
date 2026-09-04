@@ -339,7 +339,7 @@ Two more scoping facts:
      established with `ensureSpace()` — so `, .Some` collapses to `,.Some`, and
      likewise `=.Some`, `=>.Err`, `:.Some`. The fix is to trim only for MEMBER
      ACCESS (`needsSpaceBeforeAtom(previous)`, which is exactly "the dot has a left
-     operand"). See [`plans/PREFIX_OPERATOR_OPERAND_RULE.md`](PREFIX_OPERATOR_OPERAND_RULE.md),
+     operand"). See [`plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md`](PREFIX_OPERATOR_OPERAND_RULE.md),
      which diagnosed this independently and correctly.
 
      > **Retraction (2026-08-09).** An earlier revision of this section claimed

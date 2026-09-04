@@ -203,7 +203,7 @@ genuinely hard specialization cases and stay lenient.
   no-op binary), because a typo'd call is never a single-letter type param.
 - Unblocks the two `unsafe-gate` negative cases parked in P2.4 (they are
   undefined-name/gate rejections, not type-unification ones).
-- Unblocks P4's slice 0 for the same reason — see `plans/P4_LSP.md`.
+- Unblocks P4's slice 0 for the same reason — see `plans/archive/P4_LSP.md`.
 - **Measured zero false positives** across std AND yo-self, the two corpora
   whose green `check` the swallow exists to protect.
 

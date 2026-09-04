@@ -38,7 +38,7 @@ Gate: `tests/async_await.test.yo` "Test spawn inside a loop runs tasks
 concurrently", red-first verified (the pre-fix compiler hangs; the test run
 times out at rc=124 with zero check errors).
 
-Consequence for `plans/CHUNKED_C_EMISSION.md` step 3: the parallel driver's
+Consequence for `plans/reference/CHUNKED_C_EMISSION.md` step 3: the parallel driver's
 shell-script workaround is no longer forced. Replacing it with native
 `io.spawn` is now possible and is recorded there as a follow-up.
 
@@ -110,7 +110,7 @@ a parallel download, or a parallel compile driver — deadlocks. The pattern is
 idiomatic and the failure mode is the worst kind: silent, total, and invisible
 to `yo check` and to codegen.
 
-It currently blocks `plans/CHUNKED_C_EMISSION.md` step 3 (spawn one `cc -c` per
+It currently blocks `plans/reference/CHUNKED_C_EMISSION.md` step 3 (spawn one `cc -c` per
 chunk), where N is dynamic by construction.
 
 ## Workaround (verified, variant F)
