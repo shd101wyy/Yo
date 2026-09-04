@@ -13,7 +13,7 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { env, current_exe, cwd } :: import("std/env");
 { copy, exists } :: import("std/fs/file");
-{ read_dir, create_dir_all, FileType } :: import("std/fs/dir");
+{ read_dir, create_dir_all } :: import("std/fs/dir");
 { metadata } :: import("std/fs/metadata");
 { ArrayList } :: import("std/collections/array_list");
 { tr } :: import("./cli_lang.yo");
@@ -55,6 +55,27 @@ _copy_skills_file :: (
     g_skills_created = (g_skills_created + usize(1));
   });
 });
+/// List a directory's entry names in sorted order — raw readdir order is
+/// filesystem-dependent (ext4 hash order vs NTFS), which made the
+/// create/overwrite journal a platform lottery. Same fix as run_check's
+/// file list (main.yo) and build_runner's step names.
+_sorted_dir_names :: (
+  fn(
+    path : Path,
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(String)
+)({
+  entries := io.await(read_dir(path.clone(), io), IoExn(io : io, exn : exn));
+  names := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    names.push(entries(i).name.clone());
+    i = (i + usize(1));
+  });
+  names.sort();
+  names
+});
 _copy_skills_dir :: (
   fn(
     src : Path,
@@ -73,27 +94,20 @@ _copy_skills_dir :: (
   while(stack.len() > usize(0), {
     item := stack.pop().unwrap();
     io.await(create_dir_all(item.dest.clone(), io), IoExn(io : io, exn : exn));
-    entries := io.await(read_dir(item.src.clone(), io), IoExn(io : io, exn : exn));
-    (i : usize) = usize(0);
-    while(i < entries.len(), {
-      entry := entries(i);
-      src_entry := entry.path();
-      dest_entry := item.dest.join(Path.new(entry.name.clone()));
-      display := `${item.prefix}/${entry.name}`;
-      match(
-        entry.file_type,
-        .Directory => {
-          stack.push({ src : src_entry, dest : dest_entry, prefix : display });
-        },
-        .File => {
-          _copy_skills_file(src_entry, dest_entry, display, io, exn);
-        },
-        .Symlink => {
-          _copy_skills_file(src_entry, dest_entry, display, io, exn);
-        },
-        .Other => {}
-      );
-      i = (i + usize(1));
+    names := _sorted_dir_names(item.src.clone(), io, exn);
+    (j : usize) = usize(0);
+    while(j < names.len(), {
+      name := names(j);
+      src_entry := item.src.join(Path.new(name.clone()));
+      dest_entry := item.dest.join(Path.new(name.clone()));
+      display := `${item.prefix}/${name}`;
+      md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
+      if(md.is_dir(), {
+        stack.push({ src : src_entry, dest : dest_entry, prefix : display });
+      }, {
+        _copy_skills_file(src_entry, dest_entry, display, io, exn);
+      });
+      j = (j + usize(1));
     });
   });
 });
@@ -187,8 +201,8 @@ run_skills_install :: (
     );
   });
   bundled_dir := bundled_opt.unwrap();
-  entries := io.await(read_dir(bundled_dir.clone(), io), IoExn(io : io, exn : exn));
-  if(entries.len() == usize(0), {
+  names := _sorted_dir_names(bundled_dir.clone(), io, exn);
+  if(names.len() == usize(0), {
     println(tr(`No skill files found in the bundled skills directory.`, `捆绑的技能目录里没有技能文件。`));
     return(());
   });
@@ -224,24 +238,17 @@ run_skills_install :: (
     dest_skills := project.join(Path.new(parent.clone())).join(Path.new(String.from("skills")));
     io.await(create_dir_all(dest_skills.clone(), io), IoExn(io : io, exn : exn));
     (e : usize) = usize(0);
-    while(e < entries.len(), {
-      entry := entries(e);
-      src_entry := entry.path();
-      dest_entry := dest_skills.join(Path.new(entry.name.clone()));
-      display := `${parent}/skills/${entry.name}`;
-      match(
-        entry.file_type,
-        .Directory => {
-          _copy_skills_dir(src_entry, dest_entry, display, io, exn);
-        },
-        .File => {
-          _copy_skills_file(src_entry, dest_entry, display, io, exn);
-        },
-        .Symlink => {
-          _copy_skills_file(src_entry, dest_entry, display, io, exn);
-        },
-        .Other => {}
-      );
+    while(e < names.len(), {
+      name := names(e);
+      src_entry := bundled_dir.join(Path.new(name.clone()));
+      dest_entry := dest_skills.join(Path.new(name.clone()));
+      display := `${parent}/skills/${name}`;
+      md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
+      if(md.is_dir(), {
+        _copy_skills_dir(src_entry, dest_entry, display, io, exn);
+      }, {
+        _copy_skills_file(src_entry, dest_entry, display, io, exn);
+      });
       e = (e + usize(1));
     });
     t = (t + usize(1));
@@ -268,8 +275,8 @@ run_skills_install :: (
   });
   println(
     tr(
-      `\nInstalled ${entries.len()} skill(s) to ${targets.len()} location(s) (${locations}): ${summary}`,
-      `\n已安装 ${entries.len()} 个技能到 ${targets.len()} 个位置（${locations}）：${summary}`
+      `\nInstalled ${names.len()} skill(s) to ${targets.len()} location(s) (${locations}): ${summary}`,
+      `\n已安装 ${names.len()} 个技能到 ${targets.len()} 个位置（${locations}）：${summary}`
     )
   );
 });
