@@ -1,8 +1,19 @@
 # A ref-typed named local passed by value to a call misses its scope-end drop — the whole RC group leaks
 
-**Status: OPEN** (surfaced 2026-09-03 by the P2 error-diagnostics work; verified
+**Status: OPEN — first fix attempt REVERTED 2026-09-04** (verified
 **pre-existing** — reproduces identically on the P1 commit's code and on a
-stage-1 built from pristine `origin/develop`).
+stage-1 built from pristine `origin/develop`). The root-cause diagnosis
+(below) stands; the fix — idempotent drop flush + an unfiltered bare-tail
+flush — broke the stage-2 self-compile with `use of undeclared identifier
+'_file____home_temp_NNNN'` at drop sites: the flush system carries latent
+never-declared temps whose names ARE registered in `declared_c_var_names`
+(registration and C-text declaration diverge), so the `undeclared_temp`
+gate cannot catch them once a new flush point exposes the list; and
+removal-on-emit is unsafe while any emitter legitimately re-flushes one
+node across ALTERNATIVE branch paths. A second attempt must gate the tail
+flush on the `declared_scopes` liveness signal (real C-text declaration)
+and keep branch-local re-emission intact. The revert commit on PR #400
+carries the analysis.
 
 ## Reproducer
 
