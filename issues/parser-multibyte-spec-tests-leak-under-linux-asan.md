@@ -4,6 +4,15 @@
 **not a regression of it**: reproduced on pristine `origin/develop`
 `060acdc26` with the stock seed `v0.2.23`, before any of that work's edits).
 
+**NOT the Stage-0 shared-id leak — refuted 2026-09-04**: the balancing-drop
+leak fix (PR #403; `issues/fixed/
+ref-local-scope-drop-missing-after-value-call.md`) does NOT cover this. The
+branch-built fixed compiler (CI `suite-candidate` artifact from run
+33842210258, verified leak-free on the original `to_string` repro) still
+reports the identical `SUMMARY: AddressSanitizer: 1881 byte(s) leaked in
+32 allocation(s)` on these two tests — a separate mechanism, most likely in
+the per-rune temp handling of the multibyte peel path itself.
+
 ## Reproducer
 
 ```bash
