@@ -167,6 +167,10 @@ The compiler is the `yo` binary on your PATH (install it with `scripts/install.s
 build one from this tree with `yo build` — see below). There is no `./yo-cli` shim and no
 `bun run build` step any more: **every `./yo-cli <args>` in older docs is `yo <args>`.**
 
+On Windows, `scripts/install.ps1` installs to `%LOCALAPPDATA%\Yo\bin\yo.cmd`. PowerShell
+and cmd resolve `yo` automatically, but Git Bash does not do PATHEXT resolution — there
+the binary is only reachable as `yo.cmd` (e.g. `"$LOCALAPPDATA/Yo/bin/yo.cmd" --version`).
+
 ```bash
 # Build the compiler with itself (repo-root build.yo) → yo-out/<target>/bin/yo
 yo build
