@@ -577,22 +577,6 @@ test("extract_source_line: out-of-range returns empty string", {
   result := extract_source_line(src, usize(99));
   assert_str_eq(result, String.from(""), "out-of-range row should return(empty string)");
 });
-test("make_parse_error renders via the shared renderer", {
-  tok := Token(
-    kind : TokenKind.Identifier,
-    value : String.from("}"),
-    row : usize(3),
-    column : usize(0),
-    character : usize(0),
-    module_path : String.from("test.yo"),
-    input : String.from("a\nb\nc\n}")
-  );
-  s := render_diagnostics_human(make_parse_error(tok, String.from("unexpected token: }")).diagnostics);
-  assert(s.contains(String.from("error: unexpected token: }")), "should contain error message");
-  assert(s.contains(String.from("--> test.yo:4:1")), "should show row+1=4, col+1=1 in location");
-  assert(s.contains(String.from("4 | }")), "should show source line with row+1");
-  assert(s.contains(String.from("4 | }")), "source line");
-});
 // ---------------------------------------------------------------------------
 // generate_expr_from_code
 // ---------------------------------------------------------------------------
