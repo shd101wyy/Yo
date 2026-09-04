@@ -1,12 +1,15 @@
 pragma(Pragma.SkipWasm32Emscripten); // https needs a network stack + TLS
 pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
-pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
-{ assert } :: import("std/assert");
+// Windows used to skip this whole file because https had no backend there
+// (OpenSSL is absent on the runners). The Schannel backend closed that
+// (plans/D6_TLS_PLAN.md item 3), so every test here — the loopback client,
+// the server, chunked bodies AND the live https fetch — now runs on Windows.
+{ assert, panic } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");
 { fetch, fetch_with, FetchOptions } :: import("std/http/client");
 { Exception, IoExn } :: import("std/error");
-{ println } :: import("std/fmt");
+{ println, eprintln } :: import("std/fmt");
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { GlobalAllocator } :: import("std/allocator");
@@ -15,6 +18,13 @@ open(import("std/string"));
 { SocketAddr } :: import("std/net/addr");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/time/sleep");
+{ env } :: import("std/env");
+/// True where a network failure is a REAL failure rather than "this box has
+/// no egress": GitHub Actions and essentially every other CI sets `CI`.
+///
+/// A capture-free `->` handler may not read a runtime local, but it CAN call
+/// a module-level binding (#396) — hence a module-level fn.
+_network_required :: (fn() -> bool)(env.get("CI").is_some());
 pragma(Pragma.AllowUnsafe);
 test("HttpRequest build GET request", {
   req := HttpRequest.new(HttpMethod.GET, `/index.html`);
@@ -122,16 +132,30 @@ test("fetch still refuses an unsupported scheme", {
   _r := io.await(fetch(`ftp://127.0.0.1:1/`, io), IoExn(io : io, exn : exn));
   assert(false, "fetch(ftp) must throw UnsupportedScheme");
 });
-test("fetch over https returns a real response (skips offline)", {
-  // https now speaks TLS (D6). Skips when the connection can't be made so
-  // an offline box stays green.
+test("fetch over https returns a real response (mandatory under CI)", {
+  // https speaks TLS (D6: OpenSSL on unix, Schannel on Windows). A box with
+  // no egress SKIPS; under CI a failure is a FAILURE — the old handler
+  // unwound out of the test on every error, so a broken TLS stack passed
+  // with no assertion at all
+  // (issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md).
   reached := Box(bool)(false);
   ok := Box(bool)(false);
   exn := Exception(
     throw : (
       err -> {
-        println(`  https fetch skipped (no egress?): ${err.to_string()}`);
-        unwind(());
+        detail := err.to_string();
+        cond(
+          _network_required() => {
+            // eprintln, not println: a buffered println is lost when the
+            // panic below aborts the test child.
+            eprintln(`  https fetch FAILED where the network is required: ${detail}`);
+            panic(`https fetch failed under CI — see the message above`);
+          },
+          true => {
+            println(`  https fetch skipped (no egress?): ${detail}`);
+            unwind(());
+          }
+        );
       }
     )
   );

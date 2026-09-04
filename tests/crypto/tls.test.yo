@@ -1,18 +1,27 @@
 //! TLS client stream (`std/crypto/tls`, plans/D6_TLS_PLAN.md). The live
-//! handshake test needs OpenSSL at build time AND network egress at run
-//! time; it SKIPS (printing a note) when the connection cannot be made, so
-//! an offline box stays green. The error-enum test is pure.
+//! handshake test needs a TLS backend at build time (OpenSSL on unix,
+//! Schannel on Windows) AND network egress at run time. On a developer box
+//! with no egress it SKIPS, printing a note; **under CI it is mandatory** —
+//! a failure that merely printed a note used to pass with no assertion at
+//! all, which is how a broken backend stays green
+//! (issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md).
+//! The error-enum and availability tests are pure.
 pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
-pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners (Schannel is the deferred Windows path)
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
-pragma(Pragma.AllowUnsafe);
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 open(import("std/string"));
-open(import("std/libc/stdio"));
+open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
-{ TlsStream, TlsError } :: import("std/crypto/tls");
+{ TlsStream, TlsError, tls_available } :: import("std/crypto/tls");
 { Exception, IoExn } :: import("std/error");
 { arch, Arch } :: import("std/process");
+{ env } :: import("std/env");
+/// True where a TLS failure is a REAL failure rather than "this box has no
+/// egress": GitHub Actions and essentially every other CI sets `CI`.
+///
+/// A capture-free `->` handler may not read a runtime local, but it CAN call
+/// a module-level binding (#396), which is why this is a module-level fn.
+_network_required :: (fn() -> bool)(env.get("CI").is_some());
 
 test("TlsError renders each variant", {
   a := TlsError.Connect(host : `example.com`.to_string());
@@ -24,18 +33,40 @@ test("TlsError renders each variant", {
   d := TlsError.Closed;
   assert(d.to_string().contains(`closed`), "closed label");
 });
-test("live TLS fetch of example.com (skips offline)", {
-  // A SKIPPING handler: any connect/handshake failure prints a note and
-  // aborts the test body via unwind — but we catch that intent by making
-  // the handler set a flag and unwind to a state we treat as "skipped".
+test("a TLS backend is present wherever one can be", {
+  // Network-free and deterministic — this is the assertion that catches "the
+  // backend was never wired up". Schannel ships with Windows and the unix CI
+  // legs link OpenSSL, so under CI a `false` here is unambiguously a build or
+  // wiring regression. On a developer box without OpenSSL it is legitimately
+  // false, so the claim is only made where it holds.
+  cond(
+    _network_required() => assert(tls_available(), "CI builds must have a working TLS backend"),
+    true => assert(true, "not CI: no TLS backend is promised on this box")
+  );
+});
+test("live TLS fetch of example.com (mandatory under CI)", {
+  // A box with no egress SKIPS; under CI a failure is a FAILURE. The old
+  // handler unwound out of the test body on EVERY error, so the trailing
+  // `cond` was dead code and a broken backend passed with no assertion at
+  // all (issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md).
   reached := Box(bool)(false);
   ok := Box(bool)(false);
   exn := Exception(
     throw : (
       err -> {
-        cb := err.to_string().to_cstr();
-        unsafe(printf("  tls test skipped (no egress?): %s\n", *(u8)(cb.ptr().unwrap())));
-        unwind(());
+        detail := err.to_string();
+        cond(
+          _network_required() => {
+            // eprintln, not a buffered println: the panic below aborts the
+            // test child and a buffered line would be lost with it.
+            eprintln(`  TLS FAILED where the network is required: ${detail}`);
+            panic(`live TLS handshake failed under CI — see the message above`);
+          },
+          true => {
+            eprintln(`  tls test skipped (no egress?): ${detail}`);
+            unwind(());
+          }
+        );
       }
     )
   );
