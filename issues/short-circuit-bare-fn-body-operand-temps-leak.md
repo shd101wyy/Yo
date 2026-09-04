@@ -41,24 +41,25 @@ verified.)
    and removal-on-emit inverts the pending path's `already` contract.
 3. **broad ||-node list flush** (this branch, first try): same undeclared
    class plus a bool-target drop expr (`.tag` on bool) from inner-node lists.
-4. **gated tail flush** (this branch, second try — emitted-once guard +
-   `require_scope_stack` block-scope gate): the branch-built compiler
-   ABORTS with `mimalloc: corrupted free list entry` compiling even
-   trivial files — the wrongly-emitted drop is somewhere in the compiler's
-   own bare-tail fns, and the wasm32-wasi leg failed the same way
-   (tests/crypto SHA-1, exit 34304). Conclusion: the scheduler-produced
-   body list contains drops whose release is accounted for ANALYTICALLY
-   elsewhere (the `_optimize_dup_drop_pairs` cancellation family) — none of
-   the four gates (emitted-once, undeclared-temp, scope-stack,
-   closure/short-circuit) covers that class.
+4. **gated tail flush** (emitted-once guard + `require_scope_stack`
+   block-scope gate) — **verdict: INCONCLUSIVE, not disproven**. Its CI run
+   failed (wasm32-wasi SHA-1 abort; stage-3 byte-identity fail) and the
+   branch-built binary aborts even on eval-only `yo check` of hello world —
+   but a probe build with emission prints showed ZERO emissions firing
+   before the abort: the corruption is the **seed-build lottery**
+   (v0.2.23's latent self-miscompiles — the class documented in
+   `issues/fixed/seed-built-stage1-miscompiles-current-source.md`), which
+   lands on a tree's exact eval shapes and can strike ANY branch that
+   shifts them. A control binary from the identical tree minus the flush
+   compiles cleanly. The flush itself was never actually invalidated.
 
 ## Next direction
 
-Pinpoint the wrongly-emitted drop FIRST, then design the gate around the
-actual failure: build the compiler from a tail-flush branch with
-`--sanitize address` (an ASan compiler build points at the exact over-
-release), or add a debug env-gated print of every tail-flushed
-drop's target and module path, compile the tree, and read the first drop
-whose target is analytically cancelled. The likely missing gate is a
-consumption/cancellation check mirroring `_keep_pending_drop`'s
-`consumed_at_token` logic (return.yo) for the node-list channel.
+**Precondition: a seed that carries the #403/#405 fixes** (the emitted-once
+guard closed the seed's own double-emission class). After the next release
+bumps SEED_VERSION past v0.2.23, re-land attempt 4 verbatim and let the
+self-hosted CI chain judge it — the corruption noise that masked the
+verdict is the old seed's, not the change's. If it still corrupts, pinpoint
+with the YO_DEBUG_TAIL_FLUSH probe (read the env IN-FUNCTION — module-level
+reads fire before std/env is populated) and design a consumption gate
+mirroring `_keep_pending_drop`'s `consumed_at_token` check.
