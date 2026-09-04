@@ -2220,312 +2220,6 @@ impl(
 impl(
   String,
   /**
-  * Helper: check if a byte is an ASCII digit '0'-'9'
-  */
-  _is_digit_byte : (fn(byte : u8) -> bool)(
-    (byte >= u8(48)) && (byte <= u8(57))
-  ),
-  /**
-  * Parse the string as a signed 32-bit integer.
-  * Returns .Some(value) on success, .None on failure (empty, invalid chars, overflow).
-  */
-  parse_i32 : (fn(self : Self) -> Option(i32))(
-    match(
-      self._bytes,
-      .None => .None,
-      .Some(al) => {
-        total_bytes := al.len();
-        cond(
-          (total_bytes == usize(0)) => .None,
-          true => {
-            idx := usize(0);
-            is_negative := false;
-            first_byte_opt := al.get(usize(0));
-            match(
-              first_byte_opt,
-              .Some(first_byte) => {
-                cond(
-                  (first_byte == u8(45)) => {
-                    is_negative = true;
-                    idx = usize(1);
-                  },
-                  (first_byte == u8(43)) => {
-                    idx = usize(1);
-                  },
-                  true => ()
-                );
-              },
-              .None => {
-                return(.None);
-              }
-            );
-            cond(
-              (idx >= total_bytes) => .None,
-              true => {
-                result := i64(0);
-                has_digit := false;
-                while(idx < total_bytes, idx = (idx + usize(1)), {
-                  byte_opt := al.get(idx);
-                  match(
-                    byte_opt,
-                    .Some(byte) => {
-                      cond(
-                        Self._is_digit_byte(byte) => {
-                          digit := i64(byte - u8(48));
-                          result = ((result * i64(10)) + digit);
-                          has_digit = true;
-                        },
-                        true => {
-                          return(.None);
-                        }
-                      );
-                    },
-                    .None => {
-                      return(.None);
-                    }
-                  );
-                });
-                cond(
-                  !has_digit => .None,
-                  true => {
-                    final_val := cond(
-                      is_negative => (i64(0) - result),
-                      true => result
-                    );
-                    cond(
-                      ((final_val < i64(-2147483648)) || (final_val > i64(2147483647))) => .None,
-                      true => .Some(i32(final_val))
-                    )
-                  }
-                )
-              }
-            )
-          }
-        )
-      }
-    )
-  ),
-  /**
-  * Parse the string as a signed 64-bit integer.
-  * Returns .Some(value) on success, .None on failure.
-  * Note: does not detect i64 overflow during accumulation.
-  */
-  parse_i64 : (fn(self : Self) -> Option(i64))(
-    match(
-      self._bytes,
-      .None => .None,
-      .Some(al) => {
-        total_bytes := al.len();
-        cond(
-          (total_bytes == usize(0)) => .None,
-          true => {
-            idx := usize(0);
-            is_negative := false;
-            first_byte_opt := al.get(usize(0));
-            match(
-              first_byte_opt,
-              .Some(first_byte) => {
-                cond(
-                  (first_byte == u8(45)) => {
-                    is_negative = true;
-                    idx = usize(1);
-                  },
-                  (first_byte == u8(43)) => {
-                    idx = usize(1);
-                  },
-                  true => ()
-                );
-              },
-              .None => {
-                return(.None);
-              }
-            );
-            cond(
-              (idx >= total_bytes) => .None,
-              true => {
-                result := i64(0);
-                has_digit := false;
-                while(idx < total_bytes, idx = (idx + usize(1)), {
-                  byte_opt := al.get(idx);
-                  match(
-                    byte_opt,
-                    .Some(byte) => {
-                      cond(
-                        Self._is_digit_byte(byte) => {
-                          digit := i64(byte - u8(48));
-                          result = ((result * i64(10)) + digit);
-                          has_digit = true;
-                        },
-                        true => {
-                          return(.None);
-                        }
-                      );
-                    },
-                    .None => {
-                      return(.None);
-                    }
-                  );
-                });
-                cond(
-                  !has_digit => .None,
-                  true => {
-                    final_val := cond(
-                      is_negative => (i64(0) - result),
-                      true => result
-                    );
-                    return(.Some(final_val));
-                  }
-                )
-              }
-            )
-          }
-        )
-      }
-    )
-  ),
-  /**
-  * Parse the string as an unsigned 32-bit integer.
-  * Returns .Some(value) on success, .None on failure (empty, invalid chars, overflow, negative sign).
-  */
-  parse_u32 : (fn(self : Self) -> Option(u32))(
-    match(
-      self._bytes,
-      .None => .None,
-      .Some(al) => {
-        total_bytes := al.len();
-        cond(
-          (total_bytes == usize(0)) => .None,
-          true => {
-            idx := usize(0);
-            first_byte_opt := al.get(usize(0));
-            match(
-              first_byte_opt,
-              .Some(first_byte) => {
-                cond(
-                  (first_byte == u8(45)) => {
-                    return(.None);
-                  },
-                  (first_byte == u8(43)) => {
-                    idx = usize(1);
-                  },
-                  true => ()
-                );
-              },
-              .None => {
-                return(.None);
-              }
-            );
-            cond(
-              (idx >= total_bytes) => .None,
-              true => {
-                result := u64(0);
-                has_digit := false;
-                while(idx < total_bytes, idx = (idx + usize(1)), {
-                  byte_opt := al.get(idx);
-                  match(
-                    byte_opt,
-                    .Some(byte) => {
-                      cond(
-                        Self._is_digit_byte(byte) => {
-                          digit := u64(byte - u8(48));
-                          result = ((result * u64(10)) + digit);
-                          has_digit = true;
-                        },
-                        true => {
-                          return(.None);
-                        }
-                      );
-                    },
-                    .None => {
-                      return(.None);
-                    }
-                  );
-                });
-                cond(
-                  !has_digit => .None,
-                  true => cond(
-                    (result > u64(4294967295)) => .None,
-                    true => .Some(u32(result))
-                  )
-                )
-              }
-            )
-          }
-        )
-      }
-    )
-  ),
-  /**
-  * Parse the string as an unsigned 64-bit integer.
-  * Returns .Some(value) on success, .None on failure.
-  * Note: does not detect u64 overflow during accumulation.
-  */
-  parse_u64 : (fn(self : Self) -> Option(u64))(
-    match(
-      self._bytes,
-      .None => .None,
-      .Some(al) => {
-        total_bytes := al.len();
-        cond(
-          (total_bytes == usize(0)) => .None,
-          true => {
-            idx := usize(0);
-            first_byte_opt := al.get(usize(0));
-            match(
-              first_byte_opt,
-              .Some(first_byte) => {
-                cond(
-                  (first_byte == u8(45)) => {
-                    return(.None);
-                  },
-                  (first_byte == u8(43)) => {
-                    idx = usize(1);
-                  },
-                  true => ()
-                );
-              },
-              .None => {
-                return(.None);
-              }
-            );
-            cond(
-              (idx >= total_bytes) => .None,
-              true => {
-                result := u64(0);
-                has_digit := false;
-                while(idx < total_bytes, idx = (idx + usize(1)), {
-                  byte_opt := al.get(idx);
-                  match(
-                    byte_opt,
-                    .Some(byte) => {
-                      cond(
-                        Self._is_digit_byte(byte) => {
-                          digit := u64(byte - u8(48));
-                          result = ((result * u64(10)) + digit);
-                          has_digit = true;
-                        },
-                        true => {
-                          return(.None);
-                        }
-                      );
-                    },
-                    .None => {
-                      return(.None);
-                    }
-                  );
-                });
-                cond(
-                  !has_digit => .None,
-                  true => .Some(result)
-                )
-              }
-            )
-          }
-        )
-      }
-    )
-  ),
-  /**
   * Parse the string as a boolean.
   * Returns .Some(true) for "true", .Some(false) for "false", .None for anything else.
   */
@@ -2597,15 +2291,22 @@ _f64_grammar_ok :: (fn(bytes : ArrayList(u8)) -> bool)({
   });
   (rest : usize) = (n - i);
   // inf / nan / infinity — ASCII case-insensitive, nothing may follow
+  // inf / nan / infinity — ASCII case-insensitive, nothing may follow.
+  // These arms may only return when the WORD ACTUALLY MATCHES. Returning
+  // unconditionally is the bug that made every 3-byte remainder ("1.5",
+  // "0.5", "100", "1e3", "2.5", "0.0") and every 8-byte one ("1.234567")
+  // answer .None — they are ordinary numbers and must fall through to the
+  // numeric grammar below.
   cond(
     (rest == usize(3)) => {
       a := _lc_ascii(bytes(i));
       b := _lc_ascii(bytes(i + usize(1)));
       c := _lc_ascii(bytes(i + usize(2)));
       // "inf" (0x69 0x6E 0x66) or "nan" (0x6E 0x61 0x6E)
-      return(
-        ((a == u8(0x69)) && ((b == u8(0x6E)) && (c == u8(0x66)))) || ((a == u8(0x6E)) && ((b == u8(0x61)) && (c == u8(0x6E))))
-      );
+      (word : bool) = (((a == u8(0x69)) && ((b == u8(0x6E)) && (c == u8(0x66)))) || ((a == u8(0x6E)) && ((b == u8(0x61)) && (c == u8(0x6E)))));
+      if(word, {
+        return(true);
+      });
     },
     (rest == usize(8)) => {
       // "infinity": i n f i n i t y
@@ -2622,7 +2323,9 @@ _f64_grammar_ok :: (fn(bytes : ArrayList(u8)) -> bool)({
         );
         ok = (ok && (lc == want));
       });
-      return(ok);
+      if(ok, {
+        return(true);
+      });
     },
     true => ()
   );
@@ -2809,7 +2512,49 @@ impl(
         _radix_magnitude(self, radix, start)
       }
     )
-  })
+  }),
+  /**
+  * Parse the string as a signed 32-bit integer — Rust's `i32::from_str`.
+  * An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
+  * any non-digit, or a value outside `i32`.
+  */
+  parse_i32 : (fn(self : Self) -> Option(i32))(
+    match(
+      self.parse_i64_radix(u32(10)),
+      .Some(v) => cond(
+        ((v < i64(-2147483648)) || (v > i64(2147483647))) => .None,
+        true => .Some(i32(v))
+      ),
+      .None => .None
+    )
+  ),
+  /**
+  * Parse the string as a signed 64-bit integer — Rust's `i64::from_str`.
+  * An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
+  * any non-digit, or overflow (`i64.MIN` itself is accepted).
+  */
+  parse_i64 : (fn(self : Self) -> Option(i64))(self.parse_i64_radix(u32(10))),
+  /**
+  * Parse the string as an unsigned 32-bit integer — Rust's `u32::from_str`.
+  * An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
+  * run, any non-digit, or a value outside `u32`.
+  */
+  parse_u32 : (fn(self : Self) -> Option(u32))(
+    match(
+      self.parse_u64_radix(u32(10)),
+      .Some(v) => cond(
+        (v > u64(4294967295)) => .None,
+        true => .Some(u32(v))
+      ),
+      .None => .None
+    )
+  ),
+  /**
+  * Parse the string as an unsigned 64-bit integer — Rust's `u64::from_str`.
+  * An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
+  * run, any non-digit, or overflow.
+  */
+  parse_u64 : (fn(self : Self) -> Option(u64))(self.parse_u64_radix(u32(10)))
 );
 /// Index trait implementation — access a single byte by index.
 /// Panics if the string is empty.

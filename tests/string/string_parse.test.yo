@@ -158,3 +158,111 @@ test("String parse_bool case sensitive", {
   result := s.parse_bool();
   assert(result.is_none(), "should fail on wrong case");
 });
+// === parse_f64 (the grammar's word arms) ===
+// Every case below answered .None before the fix: the inf/nan and "infinity"
+// arms returned UNCONDITIONALLY, so a 3-byte or 8-byte remainder that was an
+// ordinary number never reached the numeric grammar
+// (issues/fixed/parse-f64-rejects-every-3-or-8-byte-number.md).
+_f64_is :: (fn(s : str, want : f64) -> bool)({
+  r := String.from(s).parse_f64();
+  match(r, .Some(v) => (v == want), .None => false)
+});
+test("String parse_f64 accepts three-byte numbers", {
+  assert(_f64_is("1.5", f64(1.5)), "1.5");
+  assert(_f64_is("0.5", f64(0.5)), "0.5");
+  assert(_f64_is("2.5", f64(2.5)), "2.5");
+  assert(_f64_is("0.0", f64(0.0)), "0.0");
+  assert(_f64_is("100", f64(100.0)), "100");
+  assert(_f64_is("1e3", f64(1000.0)), "1e3");
+  assert(_f64_is("-.5", f64(-0.5)), "-.5 (sign + 3-byte remainder is 2 bytes, guard case)");
+});
+test("String parse_f64 accepts a signed three-byte remainder", {
+  assert(_f64_is("-1.5", f64(-1.5)), "-1.5");
+  assert(_f64_is("+1.5", f64(1.5)), "+1.5");
+  assert(_f64_is("-100", f64(-100.0)), "-100");
+});
+test("String parse_f64 accepts eight-byte significands", {
+  assert(String.from("1.234567").parse_f64().is_some(), "1.234567");
+  assert(_f64_is("12345678", f64(12345678.0)), "12345678");
+  assert(_f64_is("1.000000", f64(1.0)), "1.000000");
+});
+test("String parse_f64 still accepts inf/nan/infinity", {
+  assert(String.from("inf").parse_f64().is_some(), "inf");
+  assert(String.from("INF").parse_f64().is_some(), "INF");
+  assert(String.from("-inf").parse_f64().is_some(), "-inf");
+  assert(String.from("nan").parse_f64().is_some(), "nan");
+  assert(String.from("NaN").parse_f64().is_some(), "NaN");
+  assert(String.from("infinity").parse_f64().is_some(), "infinity");
+  assert(String.from("Infinity").parse_f64().is_some(), "Infinity");
+  assert(String.from("-infinity").parse_f64().is_some(), "-infinity");
+});
+test("String parse_f64 still rejects what Rust rejects", {
+  assert(String.from("").parse_f64().is_none(), "empty");
+  assert(String.from(" 1.5").parse_f64().is_none(), "leading space");
+  assert(String.from("1.5 ").parse_f64().is_none(), "trailing space");
+  assert(String.from("0x1p3").parse_f64().is_none(), "hex float");
+  assert(String.from("1.5x").parse_f64().is_none(), "garbage suffix");
+  assert(String.from("abc").parse_f64().is_none(), "letters (3 bytes, not inf/nan)");
+  assert(String.from("infx").parse_f64().is_none(), "inf with a suffix");
+  assert(String.from("infinit").parse_f64().is_none(), "truncated infinity");
+  assert(String.from("infinityy").parse_f64().is_none(), "infinity with a suffix");
+  assert(String.from("nanana").parse_f64().is_none(), "nan repeated");
+  assert(String.from(".").parse_f64().is_none(), "lone dot");
+  assert(String.from("1e").parse_f64().is_none(), "exponent with no digits");
+  assert(String.from("1.2.3").parse_f64().is_none(), "two dots");
+});
+// === integer overflow (was: silent WRAP) ===
+// parse_i64 used to document "does not detect i64 overflow during
+// accumulation" and returned a wrapped value; the u64/u32/i32 parsers wrapped
+// their accumulator too, so an input of exactly 2^64 landed on 0 and PASSED
+// their range checks — issues/fixed/integer-parsers-wrap-instead-of-rejecting-overflow.md
+test("String parse_i64 rejects overflow instead of wrapping", {
+  assert(`9223372036854775807`.parse_i64().unwrap() == i64(9223372036854775807), "i64.MAX");
+  assert(`9223372036854775808`.parse_i64().is_none(), "i64.MAX + 1");
+  assert(`99999999999999999999`.parse_i64().is_none(), "far past i64.MAX");
+  assert(`18446744073709551616`.parse_i64().is_none(), "2^64 (wrapped to 0 before the fix)");
+});
+test("String parse_i64 accepts i64.MIN", {
+  assert(`-9223372036854775808`.parse_i64().unwrap() == i64.MIN, "i64.MIN");
+  assert(`-9223372036854775809`.parse_i64().is_none(), "i64.MIN - 1");
+});
+test("String parse_u64 rejects overflow instead of wrapping", {
+  assert(`18446744073709551615`.parse_u64().unwrap() == u64(18446744073709551615), "u64.MAX");
+  assert(`18446744073709551616`.parse_u64().is_none(), "u64.MAX + 1 (was 0)");
+  assert(`99999999999999999999999`.parse_u64().is_none(), "far past u64.MAX");
+});
+test("String parse_i32 rejects overflow instead of wrapping", {
+  assert(`2147483647`.parse_i32().unwrap() == i32(2147483647), "i32.MAX");
+  assert(`-2147483648`.parse_i32().unwrap() == i32(-2147483648), "i32.MIN");
+  assert(`2147483648`.parse_i32().is_none(), "i32.MAX + 1");
+  assert(`-2147483649`.parse_i32().is_none(), "i32.MIN - 1");
+  assert(`18446744073709551616`.parse_i32().is_none(), "2^64 (was Some(0))");
+});
+test("String parse_u32 rejects overflow instead of wrapping", {
+  assert(`4294967295`.parse_u32().unwrap() == u32(4294967295), "u32.MAX");
+  assert(`4294967296`.parse_u32().is_none(), "u32.MAX + 1");
+  assert(`18446744073709551616`.parse_u32().is_none(), "2^64 (was Some(0))");
+});
+/// `parse_i64` and `parse_i64_radix(10)` must answer identically — they used
+/// to disagree on every overflowing input, which is why the former delegates.
+_agree :: (fn(s : str) -> bool)({
+  a := String.from(s).parse_i64();
+  b := String.from(s).parse_i64_radix(u32(10));
+  match(
+    a,
+    .Some(x) => match(b, .Some(y) => (x == y), .None => false),
+    .None => b.is_none()
+  )
+});
+test("String parse_i64 agrees with parse_i64_radix(10) everywhere", {
+  assert(_agree("42"), "42");
+  assert(_agree("-42"), "-42");
+  assert(_agree("+42"), "+42");
+  assert(_agree("9223372036854775807"), "i64.MAX");
+  assert(_agree("9223372036854775808"), "i64.MAX + 1");
+  assert(_agree("-9223372036854775808"), "i64.MIN");
+  assert(_agree("-9223372036854775809"), "i64.MIN - 1");
+  assert(_agree("18446744073709551616"), "2^64");
+  assert(_agree(""), "empty");
+  assert(_agree("abc"), "letters");
+});
