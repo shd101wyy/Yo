@@ -674,4 +674,75 @@ impl(
     )
   )
 );
+/// Deep copy (audit path row: `Clone` — a `ref` type needs an explicit impl;
+/// sharing the RC handle via assignment is NOT a copy and would alias
+/// mutations through the segment list).
+impl(
+  Path,
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)({
+      segments := ArrayList(String).with_capacity(self._segments.len());
+      (n : usize) = self._segments.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          self._segments.get(i),
+          .Some(seg) => {
+            _p := segments.push(seg.clone());
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      Self(_segments : segments, _is_absolute : self._is_absolute)
+    })
+  )
+);
+/// Hash over the segments plus the absolute flag (audit path row: `Hash` —
+/// makes Path usable as a HashMap key). Consistent with `Eq(Path)`: equal
+/// paths hash equal.
+impl(
+  Path,
+  Hash(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+      hasher.write_u8(if(self._is_absolute, u8(1), u8(0)));
+      (n : usize) = self._segments.len();
+      hasher.write_usize(n);
+      (i : usize) = usize(0);
+      while(i < n, {
+        match(
+          self._segments.get(i),
+          .Some(seg) => {
+            (rb : RawSlice(u8)) = seg.raw_bytes();
+            hasher.write(rb.ptr, rb.len);
+            // Terminator, so adjacent segments stay prefix-free.
+            hasher.write_u8(u8(47));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    })
+  )
+);
+/// Ordering by the normalized rendering (audit path row: `Ord`) — a total
+/// order suitable for sorted collections; NOT a promise about platform
+/// collation.
+impl(
+  Path,
+  Ord(Path)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.to_string() < rhs.to_string()
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.to_string() <= rhs.to_string()
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.to_string() > rhs.to_string()
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.to_string() >= rhs.to_string()
+    )
+  )
+);
 export(Path);

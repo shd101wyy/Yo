@@ -178,6 +178,31 @@ impl(
       )
     })
   }),
+  /// Truncate or extend the file to exactly `length` bytes (Rust's
+  /// `File::set_len`). Extending pads with zeroes. Takes effect regardless of
+  /// this handle's read/write position.
+  set_len : (fn(self : Self, length : i64, io : Io) -> Impl(Future(unit, IoExn)))({
+    fd := self._fd;
+    io.async(e => {
+      result := e.io.await(IO_file.ftruncate(fd, length), e.io);
+      cond(
+        (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
+        true => ()
+      )
+    })
+  }),
+  /// Wrap an ALREADY-OPEN file descriptor without opening anything (Rust's
+  /// `File::from` for raw fds). The handle starts at position 0 — use
+  /// `seek()` if the descriptor's data should be read from elsewhere. The
+  /// path is unknown, so `path()` reports an empty path.
+  from_fd : (fn(fd : i32) -> Self)(
+    Self(
+      _fd : fd,
+      _path : Path.new(String.new()),
+      _is_closed : false,
+      _pos : u64(0)
+    )
+  ),
   /// Seek to a position relative to `from`. Returns the new absolute byte offset.
   seek : (fn(self : Self, offset : i64, from : SeekFrom, exn : Exception) -> i64)({
     // `_pos` is the authority, NOT the descriptor's position. `read`/`write_*`

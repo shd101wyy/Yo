@@ -589,3 +589,48 @@ test("Path.components of single segment", {
     }
   );
 });
+// ===== Clone / Hash / Ord (audit path row) =====
+test("Path.clone is a deep copy — mutating the copy leaves the original alone", {
+  p := Path.new(`a/b`);
+  q := p.clone();
+  assert(p == q, "clone is equal");
+  assert(p != Path.new(`a/c`), "different paths differ");
+  q2 := q.join(Path.new(`c`));
+  assert(q2.to_string() == `a/b/c`, "the clone is usable");
+  assert(p.to_string() == `a/b`, "the original is untouched");
+});
+test("Path hashes consistently with Eq (usable as a HashMap key)", {
+  { HashMap } :: import("std/collections/hash_map");
+  { DefaultHasher } :: import("std/hash");
+  p := Path.new(`/x/y`);
+  q := Path.new(`/x/y`);
+  r := Path.new(`/x/z`);
+  h1 := DefaultHasher.new();
+  p.hash(h1);
+  v1 := h1.finish();
+  h2 := DefaultHasher.new();
+  q.hash(h2);
+  v2 := h2.finish();
+  h3 := DefaultHasher.new();
+  r.hash(h3);
+  v3 := h3.finish();
+  assert(v1 == v2, "equal paths hash equal");
+  assert(v1 != v3, "different paths hash differently (no collision here)");
+  m := HashMap(Path, i32).new();
+  _i := m.insert(p, i32(1));
+  _i2 := m.insert(q, i32(2));
+  got := m.get(r);
+  assert(got.is_none(), "a different path misses");
+  got_p := m.get(Path.new(`/x/y`));
+  assert(got_p.unwrap_or(i32(-1)) == i32(2), "equal-path insert overwrites");
+});
+test("Path ordering follows the normalized rendering", {
+  a := Path.new(`a/b`);
+  b := Path.new(`a/c`);
+  c := Path.new(`ab`);
+  assert(a < b, "a/b < a/c");
+  assert(!(b < a), "not backwards");
+  assert(a <= a.clone(), "<= on equal paths");
+  assert(b > a, "> works");
+  assert(c > a, "'ab' > 'a/b' — byte order on the rendering");
+});
