@@ -360,8 +360,7 @@ test("File.set_len truncates a longer file", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string().to_cstr();
-        unsafe(fprintf(stderr, "  set_len-truncates error: %s\n", *(char)(msg.ptr().unwrap())));
+        eprintln(`  set_len-truncates error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -383,8 +382,7 @@ test("File.set_len extends with zeroes", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string().to_cstr();
-        unsafe(fprintf(stderr, "  set_len-extends error: %s\n", *(char)(msg.ptr().unwrap())));
+        eprintln(`  set_len-extends error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -408,8 +406,7 @@ test("File.from_fd wraps an existing descriptor", {
   exn := Exception(
     throw : (
       err -> {
-        msg := err.to_string().to_cstr();
-        unsafe(fprintf(stderr, "  from-fd error: %s\n", *(char)(msg.ptr().unwrap())));
+        eprintln(`  from-fd error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
       }
