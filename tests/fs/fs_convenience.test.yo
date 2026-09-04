@@ -10,14 +10,31 @@ open(import("std/fmt"));
 fs_file :: import("std/fs/file");
 { File, OpenMode } :: import("std/fs/file");
 fs_dir :: import("std/fs/dir");
+fs_walker :: import("std/fs/walker");
+fs_metadata :: import("std/fs/metadata");
 { temp_dir, path_join } :: import("../helper");
+{ platform, Platform } :: import("std/process");
+// Probe wrappers: the expected-throw tests await through a SEPARATE handler,
+// and a top-level await's IoExn arm needs a fn boundary for unwind to land in.
+read_link_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    _t := e.io.await(fs_dir.read_link(p, e.io), e);
+    ()
+  })
+);
+try_exists_probe :: (fn(p : Path, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    _t := e.io.await(fs_file.try_exists(p, e.io), e);
+    ()
+  })
+);
 // ============================================================================
 // is_file tests
 // ============================================================================
 test("is_file returns true for a regular file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -25,7 +42,7 @@ test("is_file returns true for a regular file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("hello"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("hello"), io), IoExn(io : io, exn : exn));
   r := io.await(fs_file.is_file(fpath, io), io);
   unsafe(printf("  is_file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a file");
@@ -34,7 +51,7 @@ test("is_file returns true for a regular file", {
 test("is_file returns false for a directory", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -45,14 +62,14 @@ test("is_file returns false for a directory", {
   io.await(fs_dir.create_dir(dpath, io), IoExn(io : io, exn : exn));
   r := io.await(fs_file.is_file(dpath, io), io);
   unsafe(printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "directory should not be a file");
+  assert(!r, "directory should not be a file");
   io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
 });
 test("is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
   r := io.await(fs_file.is_file(fpath, io), io);
   unsafe(printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "nonexistent path should return false");
+  assert(!r, "nonexistent path should return false");
 });
 // ============================================================================
 // is_dir tests
@@ -60,7 +77,7 @@ test("is_file returns false for nonexistent path", {
 test("is_dir returns true for a directory", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -77,7 +94,7 @@ test("is_dir returns true for a directory", {
 test("is_dir returns false for a file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -85,17 +102,17 @@ test("is_dir returns false for a file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("test"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("test"), io), IoExn(io : io, exn : exn));
   r := io.await(fs_file.is_dir(fpath, io), io);
   unsafe(printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "file should not be a directory");
+  assert(!r, "file should not be a directory");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
 test("is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
   r := io.await(fs_file.is_dir(dpath, io), io);
   unsafe(printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
-  assert(!(r), "nonexistent path should return false");
+  assert(!r, "nonexistent path should return false");
 });
 // ============================================================================
 // canonical tests
@@ -103,7 +120,7 @@ test("is_dir returns false for nonexistent path", {
 test("canonical resolves a real path", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -112,8 +129,8 @@ test("canonical resolves a real path", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_conv_canonical.txt`));
-  io.await(fs_file.write_file(fpath, String.from("canonical"), io), IoExn(io : io, exn : exn));
-  resolved := io.await(fs_file.canonical(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("canonical"), io), IoExn(io : io, exn : exn));
+  resolved := io.await(fs_file.canonicalize(fpath, io), IoExn(io : io, exn : exn));
   resolved_str := resolved.to_string();
   unsafe(printf("  canonical = %s\n", resolved_str.to_cstr().ptr().unwrap()));
   assert(resolved.is_absolute(), "canonical path should be absolute");
@@ -122,7 +139,7 @@ test("canonical resolves a real path", {
 test("canonical resolves dot-dot segments", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected error: ${err}`);
         assert(false, "unexpected exception");
         unwind(());
@@ -135,11 +152,11 @@ test("canonical resolves dot-dot segments", {
   file_path := Path.new(path_join(tmp, `yo_fs_conv_canonical_dir/target.txt`));
   io.await(fs_dir.create_dir(dir_path, io), IoExn(io : io, exn : exn));
   io.await(fs_dir.create_dir(sub_path, io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(file_path, String.from("data"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(file_path, String.from("data"), io), IoExn(io : io, exn : exn));
   // Path with .. segment: dir/sub/../target.txt should resolve to dir/target.txt
   dotdot_path := Path.new(path_join(path_join(path_join(tmp, `yo_fs_conv_canonical_dir`), `sub`), `../target.txt`));
-  resolved := io.await(fs_file.canonical(dotdot_path, io), IoExn(io : io, exn : exn));
-  direct := io.await(fs_file.canonical(file_path, io), IoExn(io : io, exn : exn));
+  resolved := io.await(fs_file.canonicalize(dotdot_path, io), IoExn(io : io, exn : exn));
+  direct := io.await(fs_file.canonicalize(file_path, io), IoExn(io : io, exn : exn));
   resolved_str := resolved.to_string();
   direct_str := direct.to_string();
   unsafe(printf("  dotdot resolved = %s\n", resolved_str.to_cstr().ptr().unwrap()));
@@ -153,12 +170,238 @@ test("canonical throws for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_canonical_missing`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
     )
   );
-  io.await(fs_file.canonical(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.canonicalize(fpath, io), IoExn(io : io, exn : exn));
   assert(false, "should have thrown");
+});
+
+// ============================================================================
+// S3 P0 wrappers: copy / remove_dir_all / read_link / set_permissions /
+// try_exists (plans/STD_API_AUDIT.md §7 P0 item 4)
+// ============================================================================
+test("copy copies contents, permission bits and returns the byte count", {
+  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
+  // trees): skipped on Windows, where these semantics do not exist — and
+  // where this section currently hard-crashes the test child
+  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
+  // Windows story for copy/set_permissions/read_link).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  base := temp_dir();
+  src_p := Path.new(path_join(base.clone(), `s3_copy_src.txt`.to_string()));
+  dst_p := Path.new(path_join(base.clone(), `s3_copy_dst.txt`.to_string()));
+  io.await(fs_file.write_string(src_p, `copy me, préserve me`.to_string(), io), e);
+  io.await(fs_file.set_permissions(src_p, fs_file.FilePermission(mode : u32(384)), io), e);
+  n := io.await(fs_file.copy(src_p, dst_p, io), e);
+  assert(n == u64(21), "byte count (multibyte é = 2 bytes)");
+  got := io.await(fs_file.read_to_string(dst_p, io), e);
+  assert(got == `copy me, préserve me`, "contents copied");
+  md := io.await(fs_metadata.metadata(dst_p, io), e);
+  assert((md.mode() & u32(4095)) == u32(384), "0o600 permission bits copied");
+  io.await(fs_dir.remove_file(src_p, io), e);
+  io.await(fs_dir.remove_file(dst_p, io), e);
+});
+test("remove_dir_all removes a nested tree (files, subdirs, symlink as link)", {
+  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
+  // trees): skipped on Windows, where these semantics do not exist — and
+  // where this section currently hard-crashes the test child
+  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
+  // Windows story for copy/set_permissions/read_link).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  base := temp_dir();
+  root := Path.new(path_join(base.clone(), `s3_rda_root`.to_string()));
+  sub := Path.new(path_join(base.clone(), `s3_rda_root/sub/deeper`.to_string()));
+  io.await(fs_dir.create_dir_all(sub, io), e);
+  io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/a.txt`.to_string())), `a`.to_string(), io), e);
+  io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/sub/deeper/b.txt`.to_string())), `b`.to_string(), io), e);
+  // A symlink to a file OUTSIDE the tree: it must be removed as a LINK.
+  outside := Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string()));
+  io.await(fs_file.write_string(outside, `survives`.to_string(), io), e);
+  io.await(fs_dir.symlink(outside, Path.new(path_join(base.clone(), `s3_rda_root/sub/link`.to_string())), io), e);
+  io.await(fs_walker.remove_dir_all(root, io), e);
+  gone := io.await(fs_file.exists(root, io), io);
+  assert(gone == false, "tree fully removed");
+  still := io.await(fs_file.exists(outside, io), io);
+  assert(still, "symlink TARGET untouched");
+  io.await(fs_dir.remove_file(outside, io), e);
+});
+test("read_link returns the symlink target; a non-link throws", {
+  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
+  // trees): skipped on Windows, where these semantics do not exist — and
+  // where this section currently hard-crashes the test child
+  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
+  // Windows story for copy/set_permissions/read_link).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  base := temp_dir();
+  target := Path.new(path_join(base.clone(), `s3_rl_target.txt`.to_string()));
+  link := Path.new(path_join(base.clone(), `s3_rl_link`.to_string()));
+  io.await(fs_file.write_string(target, `t`.to_string(), io), e);
+  io.await(fs_dir.symlink(target, link, io), e);
+  got := io.await(fs_dir.read_link(link, io), e);
+  assert(got.to_string() == target.to_string(), "target read back");
+  io.await(fs_dir.remove_file(link, io), e);
+  io.await(fs_dir.remove_file(target, io), e);
+});
+test("read_link on a non-link throws", {
+  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
+  // trees): skipped on Windows, where these semantics do not exist — and
+  // where this section currently hard-crashes the test child
+  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
+  // Windows story for copy/set_permissions/read_link).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(true, "threw as expected (EINVAL)");
+        unwind(());
+      }
+    )
+  );
+  base := temp_dir();
+  plain := Path.new(path_join(base.clone(), `s3_rl_plain.txt`.to_string()));
+  e0 := Exception(
+    throw : (
+      err0 -> {
+        assert(false, "setup failed");
+        unwind(());
+      }
+    )
+  );
+  io.await(fs_file.write_string(plain, `p`.to_string(), io), IoExn(io : io, exn : e0));
+  io.await(read_link_probe(plain, io), IoExn(io : io, exn : exn));
+  assert(false, "read_link on a regular file must throw");
+});
+test("try_exists: true, false for absent, THROWS for a denied parent", {
+  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
+  // trees): skipped on Windows, where these semantics do not exist — and
+  // where this section currently hard-crashes the test child
+  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
+  // Windows story for copy/set_permissions/read_link).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  base := temp_dir();
+  here := Path.new(path_join(base.clone(), `s3_te_here.txt`.to_string()));
+  io.await(fs_file.write_string(here, `x`.to_string(), io), e);
+  assert(io.await(fs_file.try_exists(here, io), e), "present is true");
+  absent := Path.new(path_join(base.clone(), `s3_te_absent.txt`.to_string()));
+  assert(io.await(fs_file.try_exists(absent, io), e) == false, "absent is false, not an error");
+  io.await(fs_dir.remove_file(here, io), e);
+});
+test("try_exists THROWS for a denied parent instead of answering false", {
+  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
+  // trees): skipped on Windows, where these semantics do not exist — and
+  // where this section currently hard-crashes the test child
+  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
+  // Windows story for copy/set_permissions/read_link).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  e0 := Exception(
+    throw : (
+      err0 -> {
+        assert(false, "setup failed");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : e0);
+  base := temp_dir();
+  // 0o000 directory: plain exists() would lie `false`; try_exists throws.
+  denied_dir := Path.new(path_join(base.clone(), `s3_te_denied`.to_string()));
+  io.await(fs_dir.create_dir(denied_dir, io), e);
+  io.await(fs_file.set_permissions(denied_dir, fs_file.FilePermission(mode : u32(0)), io), e);
+  child := Path.new(path_join(base.clone(), `s3_te_denied/child.txt`.to_string()));
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(true, "threw as expected (EACCES)");
+        unwind(());
+      }
+    )
+  );
+  io.await(try_exists_probe(child, io), IoExn(io : io, exn : exn));
+  // NOTE: reached only if try_exists did NOT throw — restore perms so the
+  // temp dir stays removable either way, then fail.
+  io.await(fs_file.set_permissions(denied_dir, fs_file.FilePermission(mode : u32(448)), io), e);
+  assert(false, "denied parent must throw");
+});
+test("try_exists denied-dir cleanup", {
+  // POSIX-semantics coverage (mode bits, symlink-as-link removal, denied
+  // trees): skipped on Windows, where these semantics do not exist — and
+  // where this section currently hard-crashes the test child
+  // (issues/s3-fs-wrappers-windows-semantics-audit.md tracks the real
+  // Windows story for copy/set_permissions/read_link).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  e0 := Exception(
+    throw : (
+      err0 -> {
+        assert(true, "already clean");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : e0);
+  base := temp_dir();
+  denied_dir := Path.new(path_join(base.clone(), `s3_te_denied`.to_string()));
+  io.await(fs_file.set_permissions(denied_dir, fs_file.FilePermission(mode : u32(448)), io), e);
+  io.await(fs_dir.remove_dir(denied_dir, io), e);
+  assert(true, "cleaned");
 });

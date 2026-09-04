@@ -17,16 +17,16 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 { Exception, Error, AnyError } :: import("std/error");
 { yield } :: import("std/async");
-Worker :: import("std/worker");
+{ ThreadPool, spawn } :: import("std/thread");
 // Top-level fn with a locally installed effect handler that escapes.
 // The body pattern mirrors a server accept loop: install handler,
 // perform some async operations, return via `return ()` on early exit.
 do_work :: (fn(iterations : i32, io : Io) -> i32)({
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("do_work: unexpected exception\n"));
-        unwind(i32(-(1)));
+        unwind(i32(-1));
       }
     )
   );
@@ -55,13 +55,22 @@ test("control fn called as regular function from multiple sites", {
   assert(c == i32(21), "sum 0..6");
 });
 test("control fn called from worker closures", {
+  // Runs everywhere, INCLUDING standalone WASI, where pthread_create fails: the
+  // pool used to queue this task to a worker that does not exist and
+  // `join_all` blocked forever (the CI leg hung 3.4 h here). `__yo_worker_spawn`
+  // now runs a task inline when its slot has no OS thread, so the assertion
+  // below really executes on WASI too
+  // (issues/fixed/wasi-thread-pool-submit-deadlock.md).
   // Match the yo_http_benchmark multi-threaded pattern: call the
-  // control fn from main AND from a Worker.spawn closure.
-  Worker.set_num_threads(2);
-  Worker.spawn((io) => {
+  // control fn from main AND from a ThreadPool task closure.
+  pool := ThreadPool.new(usize(2));
+  spawn(pool, io => {
     r := do_work(i32(4), io);
     assert(r == i32(6), "worker sum 0..3 should be 6");
   });
   main_result := do_work(i32(4), io);
   assert(main_result == i32(6), "main sum 0..3 should be 6");
+  // Without this the pool task is fire-and-forget and its assertion may never
+  // run before the test ends — the check would pass vacuously.
+  pool.join_all();
 });

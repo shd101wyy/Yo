@@ -20,8 +20,8 @@ open(import("std/string"));
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
-{ is_control_fn, mark_as_effect_record_member, get_func_type } :: import("../../function_value.yo");
-{ get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ is_control_fn, mark_as_effect_record_member, get_func_type, fn_has_specializations } :: import("../../function_value.yo");
+{ get_all_some_types, type_contains_rc_type, type_contains_some_type, type_contains_some_type_deep, func_params_have_raw_some_type } :: import("../../types/utils.yo");
 { CodeGenContext, DynImplEntry, type_key, sanitize_for_c_identifier } :: import("../utils/index.yo");
 // Cycle-GC trace specialization (collect_trace_methods_from_generic_impls): yo-self
 // has no codegen-time monomorphizer, so the trace collector drives the evaluator's
@@ -376,7 +376,16 @@ _is_generic_unspecialized_func :: (fn(v : EvalValue) -> bool)({
         );
         tp_i = (tp_i + usize(1));
       });
-      (has_type_param || (__fm2.*.forall_labels.len() > usize(0))) || _any_expr_param(param_types)
+      // An ORIGINAL the evaluator has minted specializations from, whose
+      // signature still carries a SomeT param (an `Impl(Fn)` closure param):
+      // every call dispatches through its specialization, and the original
+      // renders that param as whichever capture struct the SomeT cell last
+      // held — dead code that only type-checks while a single closure
+      // shape flows through it. RAW SomeT scan on purpose: the cell
+      // resolution is exactly what must not count as concrete here
+      // (issues/fixed/forwarded-closure-param-shares-specialization.md).
+      has_raw_some := (fn_has_specializations(_func_val_id(v)) && func_params_have_raw_some_type(get_func_type(_func_val_id(v))));
+      ((has_type_param || has_raw_some) || (__fm2.*.forall_labels.len() > usize(0))) || _any_expr_param(param_types)
     },
     _ => false
   )
@@ -1030,7 +1039,7 @@ _specialize_and_register_trace :: (
         find_function_calls_in_expr(spec_body, base, info);
       });
       // Key by type_key(ct), NOT the raw struct id: shared-id generics (every
-      // Bucket/ArrayList instantiation shares ONE eval struct id, differing
+      // MapEntry/ArrayList instantiation shares ONE eval struct id, differing
       // only in type_arguments) would all register under the same id and
       // get_trace_function_for_type would return whichever instantiation
       // registered FIRST (HashMap iteration order → flaky) — the GC-tracer

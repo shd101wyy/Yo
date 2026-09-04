@@ -9,12 +9,12 @@ pragma(Pragma.AllowUnsafe);
 { strlen } :: import("std/libc/string");
 // ── Negative: unwrapped extern call is rejected even in a pragma'd file.
 comptime_expect_error(
-  bad_unwrapped :: (fn(s : *(char)) -> usize)(strlen(s))
+  bad_unwrapped :: (fn(s : *char) -> usize)(strlen(s))
 );
 // ── Positive: a Yo wrapper whose BODY wraps the extern is itself
 //             callable without `unsafe(...)` at the caller. The wrap
 //             obligation belongs to the body-author, not the caller.
-yo_strlen :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));
+yo_strlen :: (fn(s : *char) -> usize)(unsafe(strlen(s)));
 test("call-site wrap: stdlib wrappers don't propagate the unsafe requirement", {
   cstr := *(char)("hello");
   // No `unsafe(...)` needed at this call site — `yo_strlen`'s body

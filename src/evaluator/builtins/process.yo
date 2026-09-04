@@ -48,7 +48,7 @@ evaluate_yo_process_functions :: (
   if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_PLATFORM, .Some(usize(0))), {
     tgt := get_current_target();
     os_str := String.from(os_to_str(tgt.os));
-    raw := ((String.from("\"") + os_str) + String.from("\""));
+    raw := (String.from("\"") + os_str + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
     info.value = .Some(val);
@@ -58,7 +58,7 @@ evaluate_yo_process_functions :: (
   if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .Some(usize(0))), {
     tgt := get_current_target();
     arch_str := String.from(arch_to_str(tgt.arch));
-    raw := ((String.from("\"") + arch_str) + String.from("\""));
+    raw := (String.from("\"") + arch_str + String.from("\""));
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
     info.value = .Some(val);
@@ -81,9 +81,7 @@ evaluate_yo_process_functions :: (
     dyn(
       format_error_message(
         ast_expr_token(expr),
-        `Unknown process function`,
-        false,
-        .None
+        `Unknown process function`
       )
     )
   );

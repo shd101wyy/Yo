@@ -1,52 +1,163 @@
-//! Reader-writer lock allowing multiple concurrent readers or one exclusive writer.
-pragma(Pragma.AllowUnsafe);
+//! Reader-writer lock allowing multiple concurrent readers or one exclusive
+//! writer.
 //!
-//! # Example
+//! Phase D (THREAD_SAFETY): `RwLock(T)` is parameterized over the protected
+//! data and access is granted only through a closure, exactly like
+//! `Mutex(T).with_lock`:
+//!
+//! - `with_read(body)` binds the protected value BY VALUE, so for a value `T`
+//!   the body gets a copy and its writes never reach the shared cell. Yo has
+//!   no read-only binding mode, so for a `ref(...)` `T` — where the copy
+//!   shares the same object — read-only-ness is a convention, not an enforced
+//!   rule. Do NOT assign to the parameter: that currently degenerates in the
+//!   evaluator (see
+//!   issues/assign-to-by-value-closure-param-under-generic-result-types-unit.md).
+//! - `with_write(body)` binds `inout(v) : T`, so writes land in the protected
+//!   cell.
+//!
+//! The private `__RwLockReadUnlocker` / `__RwLockWriteUnlocker` objects
+//! release the lock from their `Dispose` impl, so the release happens on a
+//! normal return, on an early `return`, and on an `unwind` alike.
+//!
+//! ## Example
 //!
 //! ```rust
 //! { RwLock } :: import "std/sync/rwlock";
 //!
-//! lock := RwLock.new();
-//! // Multiple readers can hold the lock simultaneously
-//! lock.read_lock();
-//! // ... read shared data ...
-//! lock.read_unlock();
+//! lock := RwLock(i32).new(i32(0));
 //!
-//! // Only one writer at a time, blocks all readers
-//! lock.write_lock();
-//! // ... write shared data ...
-//! lock.write_unlock();
+//! // Many readers may hold the lock at the same time.
+//! value := lock.with_read((v) => v);
+//!
+//! // One writer at a time, excluding every reader.
+//! bumped := lock.with_write((v) => {
+//!   v = (v + i32(1));
+//!   v
+//! });
 //! ```
+//!
+//! A body may end in a VALUE or in a STATEMENT — the latter binds the
+//! callback's generic `R` to unit, which used to emit `void* tmp = <void call>`
+//! and fail to C-compile (the same hole was in `Mutex.with_lock`). Fixed
+//! 2026-08-26:
+//! issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
+pragma(Pragma.AllowUnsafe);
+
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
-/// Reader-writer lock built on `Mutex` and `Cond`.
+
+/// Reader-writer lock built on `Mutex` and `Cond`, owning the protected `T`.
 /// Uses atomic reference counting for safe cross-thread sharing.
-RwLock :: atomic(
+RwLock :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  atomic(
+    ref(
+      struct(
+        _readers : i32,
+        _writer : bool,
+        _mutex : Mutex(bool),
+        _read_cv : Cond,
+        _write_cv : Cond,
+        _value : T
+      )
+    )
+  )
+);
+// O7 residual: an Acyclic-element RwLock cannot form a cycle — atomic RC is
+// only sound for acyclic data, and this lets the sync containers nest
+// inside each other and inside the imm family (same contract as std/imm).
+impl(generic(T : Type), where(T <: (Send, Acyclic)), RwLock(T), Acyclic());
+
+// __RwLockReadUnlocker / __RwLockWriteUnlocker — private objects that release
+// the corresponding acquisition on Dispose. Allocated locally inside
+// with_read / with_write; Yo's drop-on-scope-exit and drop-on-unwind machinery
+// guarantees the release under a normal return and an unwind(...) alike.
+// Mirrors `__MutexUnlocker` in ./mutex.
+__RwLockReadUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   ref(
     struct(
-      _readers : i32,
-      _writer : bool,
-      _mutex : Mutex(bool),
-      _read_cv : Cond,
-      _write_cv : Cond
+      _lock : RwLock(T)
     )
   )
 );
 impl(
-  RwLock,
-  // Create a new reader-writer lock.
-  new : (fn() -> Self)(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  __RwLockReadUnlocker(T),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      self._lock._raw_read_unlock();
+    })
+  )
+);
+
+__RwLockWriteUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  ref(
+    struct(
+      _lock : RwLock(T)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  __RwLockWriteUnlocker(T),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      self._lock._raw_write_unlock();
+    })
+  )
+);
+
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  RwLock(T),
+  /// Create a new reader-writer lock protecting `value`.
+  new : (fn(value : T) -> Self)(
     Self(
       _readers : i32(0),
       _writer : false,
       _mutex : Mutex(bool).new(false),
       _read_cv : Cond.new(),
-      _write_cv : Cond.new()
+      _write_cv : Cond.new(),
+      _value : value
     )
   ),
-  // Acquire a read lock. Blocks if a writer holds the lock.
-  // Multiple readers can hold the lock simultaneously.
-  read_lock : (fn(self : Self) -> unit)({
+  /// Run `body` under a SHARED acquisition. Several readers may be inside
+  /// `with_read` at once; no writer can be. `body` receives the protected
+  /// value BY VALUE — for a value `T` its writes stay in the body's own copy.
+  with_read : (
+    fn(
+      generic(R : Type),
+      self : Self,
+      body : Impl(Fn(v : T) -> R)
+    ) -> R
+  )({
+    self._raw_read_lock();
+    _guard := __RwLockReadUnlocker(T)(self);
+    body(self._value)
+  }),
+  /// Run `body` under an EXCLUSIVE acquisition. No other reader or writer can
+  /// be inside the lock. `body` receives `inout(v) : T`, so its writes land in
+  /// the protected cell.
+  with_write : (
+    fn(
+      generic(R : Type),
+      self : Self,
+      body : Impl(Fn(inout(v) : T) -> R)
+    ) -> R
+  )({
+    self._raw_write_lock();
+    _guard := __RwLockWriteUnlocker(T)(self);
+    body(self._value)
+  }),
+  // Internal methods — pragma-only. These are public to the module system but
+  // the _-prefixed naming convention signals "internal API". They exist for
+  // the two unlocker objects above; user code goes through with_read /
+  // with_write.
+  //
+  // Acquire a read lock. Blocks while a writer holds the lock.
+  _raw_read_lock : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer), {
       self._read_cv.wait(self._mutex._raw_handle_ptr());
@@ -55,7 +166,7 @@ impl(
     self._mutex._raw_unlock();
   }),
   // Release a read lock.
-  read_unlock : (fn(self : Self) -> unit)({
+  _raw_read_unlock : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     self._readers = (self._readers - i32(1));
     cond(
@@ -64,8 +175,8 @@ impl(
     );
     self._mutex._raw_unlock();
   }),
-  // Acquire a write lock. Blocks if readers or a writer hold the lock.
-  write_lock : (fn(self : Self) -> unit)({
+  // Acquire a write lock. Blocks while readers or a writer hold the lock.
+  _raw_write_lock : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer || (self._readers > i32(0))), {
       self._write_cv.wait(self._mutex._raw_handle_ptr());
@@ -74,14 +185,31 @@ impl(
     self._mutex._raw_unlock();
   }),
   // Release a write lock.
-  write_unlock : (fn(self : Self) -> unit)({
+  //
+  // Wake BOTH waiting sets. The previous form picked one:
+  //
+  //     cond((self._readers > i32(0)) => self._read_cv.broadcast(),
+  //          true                     => self._write_cv.signal());
+  //
+  // and its reader arm was UNREACHABLE. The exclusion invariant guarantees
+  // `_readers == 0` here: `_raw_read_lock` blocks while `_writer` is set, so
+  // no reader can have incremented `_readers` while this writer held the lock,
+  // and `_raw_write_lock` only proceeds once `_readers == 0`. So the test was
+  // always false and only `_write_cv.signal()` ever ran — readers blocked in
+  // `_read_cv.wait` were never woken by the writer at all, and escaped only on
+  // a pthread SPURIOUS wakeup, which is what made this look like it worked.
+  //
+  // A releasing writer cannot know which set is waiting, so it must notify
+  // both: broadcast to every blocked reader (they can all proceed together)
+  // and signal one blocked writer (only one can proceed). Both predicates are
+  // re-checked in `while` loops, so the extra wakeups are safe.
+  _raw_write_unlock : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     self._writer = false;
-    cond(
-      (self._readers > i32(0)) => self._read_cv.broadcast(),
-      true => self._write_cv.signal()
-    );
+    self._read_cv.broadcast();
+    self._write_cv.signal();
     self._mutex._raw_unlock();
   })
 );
+
 export(RwLock);

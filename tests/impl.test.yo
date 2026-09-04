@@ -5,7 +5,7 @@ Id :: trait(
   id : (fn(self : Self) -> Self)
 );
 RetI32 :: trait(
-  return_i32 : (fn(self : *(Self)) -> i32)
+  return_i32 : (fn(self : *Self) -> i32)
 );
 use_id :: (
   fn(
@@ -21,7 +21,7 @@ impl(
   i32,
   Id(
     id : (
-      (self) -> {
+      self -> {
         unsafe(printf("i32 value: %d\n", self));
         return(self);
       }
@@ -32,7 +32,7 @@ impl(
   i32,
   RetI32(
     return_i32 : (
-      (self) -> {
+      self -> {
         return(self.*);
       }
     )
@@ -42,7 +42,7 @@ impl(
   bool,
   Id(
     id : (
-      (self) -> {
+      self -> {
         cond(
           self => unsafe(printf("bool value: true\n")),
           true => unsafe(printf("bool value: false\n"))
@@ -56,7 +56,7 @@ impl(
   bool,
   RetI32(
     return_i32 : (
-      (self) ->
+      self ->
         cond(
           self.* => 1,
           true => return(0)
@@ -68,7 +68,7 @@ impl(
   Box(i32),
   Id(
     id : (
-      (self) -> {
+      self -> {
         unsafe(printf("Boxed i32 value: %d\n", self.*));
         return(self);
       }
@@ -80,7 +80,7 @@ impl(
   RetI32(
     // Let's x2 here
     return_i32 : (
-      (self) -> {
+      self -> {
         return(self.*.* + (self.*.*));
       }
     )
@@ -271,4 +271,70 @@ test("Test inherent method shadows a same-name trait method (inherent-first)", {
   // Inherent-first: `v.pick("s")` selects the inherent `pick(DelegateV)`; `str` does
   // not match it, and resolution must NOT fall through to `DelegatePickStr.pick(str)`.
   comptime_expect_error(v.pick("s"));
+});
+// Duplicate INHERENT method impls are rejected (plans/FUNCTION_OVERLOADING_POLICY.md,
+// issues/fixed/duplicate-inherent-method-impls-not-rejected.md): a second
+// `impl(T, m : ...)` for the same (type, name) from a different source site is
+// an error — before the gate the first silently won (identical signature) or
+// both dispatched by arity. Trait-provided names (arm above) stay legal.
+test("Test duplicate inherent method impl is rejected (same signature)", {
+  comptime_expect_error({
+    DupSameSig :: struct(x : i32);
+    impl(DupSameSig, get : (fn(self : Self) -> i32)(self.x));
+    impl(DupSameSig, get : (fn(self : Self) -> i32)(self.x + i32(1)));
+    ()
+  });
+});
+test("Test duplicate inherent method impl is rejected (different arity)", {
+  comptime_expect_error({
+    DupArity :: struct(x : i32);
+    impl(DupArity, get : (fn(self : Self) -> i32)(self.x));
+    impl(DupArity, get : (fn(self : Self, y : i32) -> i32)(self.x + y));
+    ()
+  });
+});
+// A generic impl registering the same method PER INSTANTIATION replays the
+// same defining site — that must stay legal (the loader's idempotent
+// re-registration works the same way).
+GenBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(
+  generic(T : Type),
+  GenBox(T),
+  first : (fn(self : Self) -> T)(self.v)
+);
+test("Test generic impl instantiated twice registers cleanly", {
+  a := GenBox(i32)(v : i32(7));
+  b := GenBox(bool)(v : true);
+  assert(a.first() == i32(7), "GenBox(i32) instantiation");
+  assert(b.first() == true, "GenBox(bool) instantiation");
+});
+// ============================================================
+// `(T <: Trait).static_method()` binds Self to T, not to the trait
+// ============================================================
+// A generic impl's STATIC (no-`self`) trait method whose body constructs via
+// `Self(...)` used to fail under the explicit-dispatch form with "Receiver type
+// is undefined when implementing trait": the dot-receiver evaluated to the
+// TRAIT, so `Self` bound to the trait and `Self(field : ...)` read as a trait
+// IMPLEMENTATION. The plain `T.method()` form was always fine, which is what
+// isolated it. issues/fixed/subtype-dispatch-binds-self-to-the-trait.md
+SdBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
+SdMake :: trait(
+  sd_make : (fn() -> Self)
+);
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  SdBox(T),
+  SdMake(sd_make : (fn() -> Self)(Self(value : (T <: Default).default())))
+);
+test("explicit `<:` dispatch of a generic static binds Self to the receiver", {
+  a := (SdBox(i32) <: SdMake).sd_make();
+  assert(a.value == i32(0), "i32 instantiation through the <: form");
+  b := (SdBox(bool) <: SdMake).sd_make();
+  assert(b.value == false, "bool instantiation resolves independently");
+  // The plain dot form must keep agreeing with it.
+  c := SdBox(i32).sd_make();
+  assert(c.value == a.value, "plain dot form agrees with the <: form");
 });

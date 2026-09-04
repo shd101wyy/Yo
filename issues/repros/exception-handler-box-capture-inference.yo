@@ -1,0 +1,25 @@
+open(import("std/fmt"));
+open(import("std/string"));
+{ assert } :: import("std/assert");
+{ Exception } :: import("std/error");
+boom :: (fn(exn : Exception) -> i32)({
+  exn.throw(dyn(`kaboom`));
+  i32(0)
+});
+main :: (fn() -> unit)({
+  thrown := Box(bool)(false);
+  exn := Exception(
+    throw : (
+      (err) -> {
+        msg := err.to_string();
+        assert(msg.contains(`kaboom`), `got: ${msg}`);
+        thrown.* = true;
+        unwind(());
+      }
+    )
+  );
+  _r := boom(exn);
+  assert(false, "must throw");
+  ()
+});
+export(main);

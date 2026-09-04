@@ -12,11 +12,11 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.data0),
-        (idx == usize(1)) => &(self.data1),
-        (idx == usize(2)) => &(self.data2),
+        (idx == usize(0)) => &self.data0,
+        (idx == usize(1)) => &self.data1,
+        (idx == usize(2)) => &self.data2,
         true => __yo_panic("MyArray: index out of bounds")
       )
     )
@@ -36,7 +36,7 @@ test("Test Index trait on custom struct", {
 test("Test Index trait address-of", {
   (arr : MyArray) = MyArray(i32(100), i32(200), i32(300));
   // &(arr(i)) should return a pointer to the element
-  (p : *(i32)) = &(arr(usize(1)));
+  (p : *i32) = &arr(usize(1));
   assert(p.* == i32(200), "&(arr(1)).* should be 200");
   // Mutate through pointer
   p.* = i32(999);
@@ -58,7 +58,7 @@ test("Test Index trait address-of on ArrayList", {
   list.push(i32(200));
   list.push(i32(300));
   // &(list(i)) should return a pointer to the element
-  (p : *(i32)) = &(list(usize(1)));
+  (p : *i32) = &list(usize(1));
   assert(p.* == i32(200), "&(list(1)).* should be 200");
   // Mutate through pointer
   p.* = i32(999);
@@ -138,9 +138,9 @@ test("Test range slicing preserves data (owned copy)", {
 // === HashMap Index tests ===
 test("Test Index trait on HashMap", {
   (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
-  map.set(i32(1), i32(100));
-  map.set(i32(2), i32(200));
-  map.set(i32(3), i32(300));
+  map.insert(i32(1), i32(100));
+  map.insert(i32(2), i32(200));
+  map.insert(i32(3), i32(300));
   // Basic indexing
   assert(map(i32(1)) == i32(100), "map(1) should be 100");
   assert(map(i32(2)) == i32(200), "map(2) should be 200");
@@ -148,7 +148,7 @@ test("Test Index trait on HashMap", {
 });
 test("Test Index trait mutation on HashMap", {
   (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
-  map.set(i32(10), i32(42));
+  map.insert(i32(10), i32(42));
   // Mutate through pointer
   &(map(i32(10))).* = i32(999);
   assert(map(i32(10)) == i32(999), "map(10) should be 999 after mutation");
@@ -156,16 +156,16 @@ test("Test Index trait mutation on HashMap", {
 // === BTreeMap Index tests ===
 test("Test Index trait on BTreeMap", {
   (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
-  map.set(i32(5), i32(500));
-  map.set(i32(3), i32(300));
-  map.set(i32(7), i32(700));
+  map.insert(i32(5), i32(500));
+  map.insert(i32(3), i32(300));
+  map.insert(i32(7), i32(700));
   assert(map(i32(3)) == i32(300), "map(3) should be 300");
   assert(map(i32(5)) == i32(500), "map(5) should be 500");
   assert(map(i32(7)) == i32(700), "map(7) should be 700");
 });
 test("Test Index trait mutation on BTreeMap", {
   (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
-  map.set(i32(1), i32(10));
+  map.insert(i32(1), i32(10));
   &(map(i32(1))).* = i32(77);
   assert(map(i32(1)) == i32(77), "map(1) should be 77 after mutation");
 });
@@ -231,7 +231,7 @@ test("Test Index on ArrayList(String) - RC dup in loop", {
   (i : usize) = usize(0);
   while(i < list.len(), {
     (elem : String) = list(i);
-    assert(elem.bytes_len() > usize(0), "element should not be empty");
+    assert(elem.len() > usize(0), "element should not be empty");
     // elem is dropped at end of iteration; list elements must remain valid
     i = (i + usize(1));
   });
@@ -284,13 +284,13 @@ test("Test NOT operator on Index trait field access", {
   _ := markers.push(Marker(active : true, is_image : false));
   _ := markers.push(Marker(active : true, is_image : true));
   // Direct ! on Index trait field access
-  assert(!(markers(usize(0)).is_image), "markers[0] should not be image");
+  assert(!markers(usize(0)).is_image, "markers[0] should not be image");
   assert(markers(usize(1)).is_image, "markers[1] should be image");
   // ! inside a loop (the original bug scenario)
   (count : i32) = i32(0);
   (i : i32) = i32(0);
   while(i < i32(2), {
-    if(!(markers(usize(i)).is_image), {
+    if(!markers(usize(i)).is_image, {
       count = (count + i32(1));
     });
     i = (i + i32(1));
@@ -324,6 +324,46 @@ test("Comptime string inclusive range slicing", {
   x :: "Hello";
   comptime_assert(x(0 ..= 2) == "Hel", "inclusive slice");
   comptime_assert(x(0 ..= 4) == "Hello", "full inclusive slice");
+});
+test("Comptime string indexing is BYTE-based (D4 PR 7, O1c)", {
+  // Subject covers three UTF-8 widths: a=1B @0, é=2B @1, 中=3B @3 — 6 bytes.
+  x :: "aé中";
+  // s[i] takes a BYTE offset on a rune boundary and yields the rune STARTING
+  // there as a 1-rune comptime_str (mirrors runtime `at(i)`; the pre-PR-7
+  // engine read i as a RUNE index: x(1) was "é" by counting, x(3) an error).
+  comptime_assert(x(0) == "a", "byte 0 starts a");
+  comptime_assert(x(1) == "é", "byte 1 starts é");
+  comptime_assert(x(3) == "中", "byte 3 starts 中");
+  // Runtime-observable: the folded rune agrees with the runtime byte basis.
+  third_ct :: x(3);
+  (third : str) = third_ct;
+  assert(third.len() == usize(3));
+  assert(third == "中");
+});
+test("Comptime string range slicing is BYTE-based (D4 PR 7, O1c)", {
+  x :: "aé中";
+  // Byte offsets [start, end) — the pre-PR-7 engine counted runes here
+  // (x(1 .. 3) was "é中").
+  comptime_assert(x(1 .. 3) == "é", "bytes 1..3 are é");
+  comptime_assert(x(3 .. 6) == "中", "bytes 3..6 are 中");
+  comptime_assert(x(0 .. 6) == "aé中", "full byte range");
+  // Inclusive: the end byte must be the LAST byte of a rune.
+  comptime_assert(x(1 ..= 2) == "é", "inclusive last byte of é");
+  comptime_assert(x(3 ..= 5) == "中", "inclusive last byte of 中");
+  // Runtime-observable case.
+  second_ct :: x(1 .. 3);
+  (second : str) = second_ct;
+  assert(second.len() == usize(2));
+  assert(second == "é");
+});
+test("Comptime string mid-rune offsets are compile errors (D4 PR 7)", {
+  x :: "aé中";
+  // Byte 2 is the SECOND byte of é — not a rune boundary.
+  comptime_expect_error(bad_index :: x(2));
+  comptime_expect_error(bad_slice_end :: x(0 .. 2));
+  comptime_expect_error(bad_slice_start :: x(2 .. 6));
+  // Boundary offsets stay accepted (over-rejection canary).
+  comptime_assert(x(0 .. 1) == "a", "boundary range still fine");
 });
 // ============================================================
 // ComptimeList indexing via ComptimeIndex trait
@@ -398,10 +438,10 @@ impl(
   Point,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -410,10 +450,10 @@ impl(
   Point,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -445,10 +485,10 @@ impl(
   StrictPoint,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.x),
-        (idx == usize(1)) => &(self.y),
+        (idx == usize(0)) => &self.x,
+        (idx == usize(1)) => &self.y,
         true => __yo_panic("StrictPoint: index out of bounds")
       )
     )
@@ -458,13 +498,13 @@ impl(
   StrictPoint,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.x),
-        (idx == usize(1)) => &(self.y),
+        (idx == usize(0)) => &self.x,
+        (idx == usize(1)) => &self.y,
         true => {
           comptime_assert(false, "StrictPoint: index out of bounds");
-          &(self.x)
+          &self.x
         }
       )
     )
@@ -483,10 +523,10 @@ impl(
   GenericPoint(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -497,10 +537,10 @@ impl(
   GenericPoint(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.x),
-        true => &(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
       )
     )
   )
@@ -535,10 +575,10 @@ impl(
   Pair,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))(
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &(self.first),
-        true => &(self.second)
+        (idx == usize(0)) => &self.first,
+        true => &self.second
       )
     )
   )
@@ -547,10 +587,10 @@ impl(
   Pair,
   ComptimeIndex(usize)(
     Output : i32,
-    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*(Self.Output)))(
+    index : (fn(comptime(inout(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       cond(
-        (idx == usize(0)) => &(self.first),
-        true => &(self.second)
+        (idx == usize(0)) => &self.first,
+        true => &self.second
       )
     )
   )

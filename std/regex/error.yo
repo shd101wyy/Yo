@@ -1,0 +1,102 @@
+//! Typed error for `std/regex` pattern and flag compilation.
+//!
+//! `Regex.new` is a pure fallible transform, so it reports failure as
+//! `Result(Regex, RegexError)` — never as a string (see
+//! `.github/instructions/yo-design.instructions.md`, "std error handling").
+//! Every variant is matchable, and `RegexError` implements `Error` so it can
+//! also be thrown as an `AnyError`.
+//!
+//! Positions are **byte offsets into the pattern**, recording where the parser
+//! stopped — not necessarily where the construct began.
+//!
+//! ## Example
+//!
+//! ```rust
+//! { Regex, RegexError } :: import("std/regex");
+//!
+//! match(
+//!   Regex.new(`a{3,1}`, ``),
+//!   .Ok(re) => (),
+//!   .Err(e) => match(
+//!     e,
+//!     .QuantifierOutOfOrder(min, max, pos) => println(`bad {${min},${max}}`),
+//!     _ => println(e)
+//!   )
+//! );
+//! ```
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ Error } :: import("std/error");
+{ ToString } :: import("std/fmt");
+/// Render one ASCII flag byte as a one-character string, so messages say
+/// `flag 'q'` rather than `flag 113`.
+_flag_char :: (fn(flag : u8) -> String)({
+  bytes := ArrayList(u8).new();
+  bytes.push(flag);
+  String.from_bytes(bytes)
+});
+/// Everything `Regex.new` can reject, split by what the user has to fix.
+RegexError :: enum(
+  /// The pattern ended where an expression was expected, e.g. `a|` inside a
+  /// `{m,n}` quantifier or after an operator.
+  UnexpectedEnd(pos : usize),
+  /// The pattern ends with a `\` that escapes nothing.
+  TrailingBackslash(pos : usize),
+  /// A `[` character class was never closed with `]`.
+  UnterminatedCharClass(pos : usize),
+  /// A `(` group was never closed with `)`.
+  UnterminatedGroup(pos : usize),
+  /// A `)` appeared with no `(` to close.
+  UnmatchedCloseParen(pos : usize),
+  /// A `{m,n}` quantifier is malformed — a missing bound, or a missing `,`/`}`.
+  InvalidQuantifier(pos : usize),
+  /// A `{m,n}` quantifier whose upper bound is below its lower bound.
+  QuantifierOutOfOrder(min : usize, max : usize, pos : usize),
+  /// `\1`–`\9` naming a group the pattern does not have.
+  InvalidBackreference(group : usize, pos : usize),
+  /// `\k` not followed by `<name>`, or a `\k<name` that is never closed.
+  InvalidNamedBackreference(pos : usize),
+  /// `\k<name>` naming a group the pattern does not define.
+  UnknownGroupName(name : String, pos : usize),
+  /// `\p` / `\P` not followed by `{name}`, or a `\p{name` that is never closed.
+  InvalidUnicodeProperty(pos : usize),
+  /// `\p{name}` / `\P{name}` naming a property this engine does not know.
+  UnknownUnicodeProperty(name : String, pos : usize),
+  /// A flag character outside `gimsuy`.
+  InvalidFlag(flag : u8),
+  /// The same flag character given more than once.
+  DuplicateFlag(flag : u8)
+);
+impl(
+  RegexError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .UnexpectedEnd(pos) => `regex error: unexpected end of pattern at byte ${pos}`,
+          .TrailingBackslash(pos) => `regex error: pattern ends with a trailing backslash at byte ${pos}`,
+          .UnterminatedCharClass(pos) => `regex error: unterminated character class, expected ']' at byte ${pos}`,
+          .UnterminatedGroup(pos) => `regex error: unterminated group, expected ')' at byte ${pos}`,
+          .UnmatchedCloseParen(pos) => `regex error: unmatched ')' at byte ${pos}`,
+          .InvalidQuantifier(pos) => `regex error: invalid '{m,n}' quantifier at byte ${pos}`,
+          .QuantifierOutOfOrder(min, max, pos) =>
+            `regex error: quantifier '{${min},${max}}' has max below min at byte ${pos}`,
+          .InvalidBackreference(group, pos) =>
+            `regex error: backreference to group ${group} exceeds the number of groups at byte ${pos}`,
+          .InvalidNamedBackreference(pos) =>
+            `regex error: malformed named backreference, expected '\\k<name>' at byte ${pos}`,
+          .UnknownGroupName(name, pos) =>
+            `regex error: unknown named group '${name}' in backreference at byte ${pos}`,
+          .InvalidUnicodeProperty(pos) =>
+            `regex error: malformed unicode property, expected '\\p{name}' at byte ${pos}`,
+          .UnknownUnicodeProperty(name, pos) =>
+            `regex error: unknown unicode property '${name}' at byte ${pos}`,
+          .InvalidFlag(flag) => `regex error: invalid flag '${_flag_char(flag)}'`,
+          .DuplicateFlag(flag) => `regex error: duplicate flag '${_flag_char(flag)}'`
+        )
+    )
+  )
+);
+impl(RegexError, Error());
+export(RegexError);

@@ -1,6 +1,6 @@
 //! Double-ended queue (ring buffer) with O(1) push/pop at both ends.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { Deque } :: import "std/collections/deque";
@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
-      _buf : ?*(T),
+      _buf : ?*T,
       _head : usize,
       _tail : usize,
       _len : usize,
@@ -106,7 +106,7 @@ impl(
     self._len = (self._len + usize(1));
   }),
   // Remove and return the front element.
-  pop_front : (fn(self : Self) -> ?(T))(
+  pop_front : (fn(self : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {
@@ -121,7 +121,7 @@ impl(
     )
   ),
   // Remove and return the back element.
-  pop_back : (fn(self : Self) -> ?(T))(
+  pop_back : (fn(self : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
       true => {
@@ -139,7 +139,7 @@ impl(
     )
   ),
   // Get an element by logical index (0 = front).
-  get : (fn(self : Self, index : usize) -> ?(T))(
+  get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
       (index >= self._len) => .None,
       true => {
@@ -209,9 +209,34 @@ impl(
 );
 impl(
   generic(T : Type),
+  DequeIter(T),
+  DoubleEndedIterator(
+    Item : T,
+    next_back : (fn(inout(self) : Self) -> Option(T))(
+      cond(
+        (self._remaining == usize(0)) => .None,
+        true => {
+          // Decrement FIRST so the index lands on the last LIVE element and
+          // `_remaining - 1` never underflows. `_pos` + `_remaining` already
+          // bracket both ends, so back-iteration needs no new field.
+          self._remaining = (self._remaining - usize(1));
+          idx := ((self._deque._head + self._pos + self._remaining) % self._deque._capacity);
+          buf := self._deque._buf.unwrap();
+          .Some((buf.add(idx)).*)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
   Deque(T),
-  into_iter : (fn(self : Self) -> DequeIter(T))(
-    DequeIter(T)(_deque : self, _pos : usize(0), _remaining : self._len)
+  IntoIterator(
+    Item : T,
+    IntoIter : DequeIter(T),
+    into_iter : (fn(self : Self) -> DequeIter(T))(
+      DequeIter(T)(_deque : self, _pos : usize(0), _remaining : self._len)
+    )
   )
 );
 /**
@@ -230,8 +255,8 @@ impl(
   generic(T : Type),
   DequeIterPtr(T),
   Iterator(
-    Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    Item : *T,
+    next : (fn(inout(self) : Self) -> Option(*T))(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
@@ -258,7 +283,7 @@ impl(
   Deque(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "Deque: index out of bounds");
       buf := self._buf.unwrap();
       physical_idx := ((self._head + idx) % self._capacity);
@@ -291,6 +316,23 @@ impl(
         },
         .None => ()
       );
+    })
+  )
+);
+/// Build a `Deque(T)` from any iterator of `T` — the target of
+/// `it.collect(Deque(T))`. Elements arrive at the BACK, so iteration order is
+/// preserved.
+impl(
+  generic(T : Type),
+  Deque(T),
+  FromIterator(
+    Elem : T,
+    from_iter_new : (fn() -> Self)(
+      Deque(T).new()
+    ),
+    from_iter_add : (fn(acc : Self, item : T) -> Self)({
+      acc.push_back(item);
+      acc
     })
   )
 );

@@ -19,6 +19,9 @@ description: "Use when making design decisions about the Yo language, writing st
 
 - Fields written with `name :: value` or `comptime(name) : Type` are compile-time-only static fields/methods. They are available through the type metadata but are not emitted into the C runtime layout.
 - Ordinary fields with compile-time-only types (for example `x : comptime_int`) are still data fields. They make the containing struct comptime-only unless another rule changes the type; do not treat them like `::` fields.
+- **`header` is RESERVED as a runtime field name in a reference struct.** A `ref(struct(...))` emits `{ __yo_ref_header_t header; <user fields...> }`, so a user field of that name would be a second member with the same name — and every access would silently resolve to the reference-count header instead. The evaluator rejects it at declaration time with a source location (`src/evaluator/types/struct.yo`), so `yo check` catches it rather than the backend emitting C that will not compile.
+  - The reservation is narrow, on purpose: it does not apply to VALUE structs (they inject nothing), it does not apply to `::` comptime fields (erased from the layout), and it does not cover the header's OWN members — `ref_count`, `gc_flags`, `type_id`, `dispose_fn`, `borrow_count`, `gc_mark` are nested INSIDE `__yo_ref_header_t` and so remain usable as field names.
+  - Field-name MANGLING (renaming the user field instead of reserving the name) is the nicer fix and is deliberately deferred: it would have to rename a C member consistently across struct declaration, constructor parameters and body, struct-literal emission, field access, `_ptr_field_access`, match destructuring, `open()`, the traversal functions, dup/drop/dispose, and the `box->${field}` sites in `src/codegen/functions/dyn.yo` — and one missed site reproduces the bug or, worse, reads the wrong member. See `issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md`.
 
 ## `Self` in type definitions
 
@@ -68,13 +71,14 @@ Use `recur(args)` only when calling the type constructor with **different** type
 
 - `char` is the C character type (8-bit)
 - `rune` represents Unicode code points (32-bit, like Go's rune)
-- File: `std/data/rune.yo`
+- File: `std/string/rune.yo`
 
 ## Strings
 
 - Double quote string returns `str` type (contains `[u8]` byte slice)
 - Template string returns `String` type (utf-8 encoded reference-semantics type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.
 - `str` is a builtin type — don't use it as a variable or type name.
+- **String indexing is BYTE-based, everywhere** (D4, `plans/STD_API_AUDIT_D4_PLAN.md`, 2026-08-26): `String.len()` is the byte count at O(1), and `at` / `substring` / `s(a..b)` / `index_of` / `last_index_of` / the positional arguments of `contains` / `starts_with` / `ends_with` / the `Pattern` trait all take and return byte offsets — the same unit as `str.len()` and `StringBuilder.len()`, which were always bytes. `substring` clamps out-of-range but PANICS on an offset inside a rune; `try_substring` is the non-panicking form, `floor_char_boundary` / `ceil_char_boundary` snap arbitrary offsets. Rune work goes through `chars()` / `char_indices()` composed with iterator methods — the rune count is `s.chars().count()` (the iterator spelling keeps the O(n) cost visible; `len()` is O(1) everywhere in std). Comptime strings share the byte basis (D4 PR 7). Full contract: `docs/en-US/STRINGS.md` / `docs/zh-CN/STRINGS.md`.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
 - Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
 
@@ -102,7 +106,7 @@ when the receiver itself has pointer type.
 
 - `Pointer` works in both compile-time and runtime contexts (`Runtime` and `Comptime` traits in `prelude.yo`).
 - Pointer comparison: plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic: the methods `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` (require `unsafe(...)`).
-- No NULL in Yo. Nullable pointer: `Option(*(T))` or `?*(T)`. `Option(*(T)).None` is optimized as NULL in C codegen.
+- No NULL in Yo. Nullable pointer: `?*T` — the bare prefix chain, canonical since the 2026-09-02 fmt sweep — or the explicit `Option(*T)` (there is no single `?*` token; the 2026-08-21 closed operator set made `?` + `*` two tokens). `Option(*T).None` is optimized as NULL in C codegen.
 
 ## Unsafe operations
 
@@ -123,6 +127,7 @@ result := unsafe.cast(ptr, *(u8));
 - `SomeType` automatically implements the `Runtime` trait by default.
 - Never write functions to resolve `SomeType` — struct/enum/union are nominal types, replacing SomeType causes problems.
 - **Never substitute SomeType within another Type.** Because many types like struct/enum/union etc in Yo are nominal type, simple substitution can break type identity. The correct approach is to re-evaluate the type expression in an environment where the type parameter is bound to the concrete type.
+- **Every `Impl(Trait)` annotation wrapper is a SomeT with the RESERVED name `"Impl"`** (`src/evaluator/builtins/impl_constraint.yo`). Any evaluator logic that matches or binds SomeTs BY NAME (param↔return substitution, env markers, where-clause bookkeeping) must exclude that name (and nameless dyn wrappers) — two wrappers in one signature are unrelated. Missing the exclusion makes a call typed as one of its ARGUMENTS' types (C27, `issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md`). Do NOT "fix" it by renaming the SomeT (every `== "Impl"` reservation check breaks), by skipping its env binding (std stops checking), or by keying env bindings per id (io.async/io.await share wrapper bindings by name — `async_await` regresses).
 
 ## Platform-specific code
 
@@ -137,9 +142,18 @@ AF_INET6 :: cond(
 
 Current goal: make Yo work on Linux, macOS, and Windows.
 
-## Breaking changes are acceptable
+## API stability: the language may still break, `std` may not
 
-Yo is a new, evolving language. Don't worry about breaking changes when making design decisions.
+Yo the LANGUAGE is still evolving — language-level breaking changes are acceptable when the design calls for them. The STANDARD LIBRARY closed its breaking window with the S2 sweep (`plans/STD_API_AUDIT.md` §1, §5–§6): every `std` module is **stable** unless its module doc carries a `## Stability` section, and stable modules change **additively only**:
+
+- Additive = new modules, new exported functions/types/constants, new trait impls, new enum variants only where the enum is documented as non-exhaustive, new optional builder methods, wider accepted inputs, bug fixes that make behaviour match the documentation. Renames, signature changes, removed exports, changed error variants, changed defaults and changed wire/serialization formats are NOT additive — they need a documented deprecation (`# Deprecated` doc section on the old name, kept working) and land only with a new module or as a parallel API.
+- A NEW module enters as `unstable` for one release: its inner doc ends with
+  ```
+  //! ## Stability
+  //! unstable — new in vX.Y.Z; the API may still change until the next release.
+  ```
+  `yo doc` renders the marker (HTML badge, `"stability"` in JSON, a note in Markdown); the audit's §7 table records when a module was frozen. Drop the section to freeze it.
+- Dead surface is not "stable": an export with no consumer and no test is deleted BEFORE it is frozen (the §6 rule), never marked stable by default. Freezing an export no test exercises is how a broken API becomes permanent (C34).
 
 ## Compile-time only functions must use `comptime` return types
 
@@ -303,11 +317,11 @@ use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
 
 ## Comptime/runtime function specialization
 
-Yo does **not** support function overloading. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`). For operators, the `Call :: (runtime_fn, comptime_fn)` tuple pattern inside a module provides dispatch.
+Yo does **not** support function overloading — same stance as Rust, and ENFORCED since 2026-08-21 (`plans/FUNCTION_OVERLOADING_POLICY.md`): an exported `Call` holding a tuple of two or more candidates is rejected everywhere except std/prelude.yo, whose runtime/comptime operator modules (`(-)`/`(!)`/`(~)`, `Call :: (neg, comptime_neg)`) are the single sanctioned overload sets (`is_overload_set_capable_file` in `src/evaluator/memory_safety.yo`, gated at the export choke point in `src/evaluator/values/anonymous_module.yo`). A single-function `Call` — a callable module — is not an overload set and stays allowed. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`).
 
 Use separate `impl` blocks with `where(Self <: Comptime)` constraints for comptime method variants on generic types like `Option(T)` and `Result(T, E)`.
 
-**Duplicate method names across impl blocks are disallowed.** Defining `unwrap` in two separate impl blocks for the same type produces an error. Use distinct names (e.g., `comptime_unwrap`) instead. This ensures unambiguous method extraction via `Type.method_name`.
+**Duplicate method names across impl blocks are disallowed** — ENFORCED since 2026-08-21: a second same-name INHERENT impl for the same type errors with `Method "X" is already defined for this type` (gated at inherent registration in `src/evaluator/values/impl.yo`, keyed on the defining site so loader re-evaluation and per-instantiation generic re-registration stay legal — `plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md`). Trait-provided methods sharing a name remain legal by design. Use distinct names (e.g., `comptime_unwrap`) for variants. This ensures unambiguous method extraction via `Type.method_name`.
 
 **Enum type method extraction** works: `Option(i32).unwrap` returns the method as a callable function value, matching struct type behavior.
 
@@ -381,7 +395,7 @@ Define traits parameterized by type constructors:
 ```rust
 Functor :: (fn(comptime(F) : (fn(comptime(T) : Type) -> comptime(Type))) -> comptime(Type))(
   trait(
-    map : (fn(generic(A : Type, B : Type), self : F(A), f : (fn(a : A) -> B)) -> F(B))
+    map : (fn(generic(A : Type, B : Type), self : F(A), f : Impl(Fn(a : A) -> B)) -> F(B))
   )
 );
 ```
@@ -394,7 +408,7 @@ Use `where(F(A) <: SomeTrait(F))` to constrain type constructor applications:
 do_map :: (fn(
   generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type, B : Type),
   container: F(A),
-  f: (fn(a : A) -> B),
+  f: Impl(Fn(a : A) -> B),
   where(F(A) <: Functor(F))
 ) -> F(B))(
   container.map(generic(B), f)
@@ -468,6 +482,104 @@ Key semantics:
 - Mixed GADT/regular variants: some variants can have `-> recur(...)` while others remain unconstrained
 - For full design document, see `plans/GADTS.md` and `docs/en-US/GADTS.md`
 
+## std error handling: three blessed styles, no fourth
+
+Decided in `plans/STD_API_AUDIT.md` D1. Before this, std shipped four styles,
+sometimes inside one file. When you add or change a fallible std API, pick from
+exactly these three — and if none fits, that is a design discussion, not a
+licence to invent a fourth.
+
+| Situation | Style |
+| --- | --- |
+| I/O, and anything on the `io` path (fs, net, http, process) | **effects** — `exn : Exception` / `IoExn` |
+| pure fallible transforms: parsing, decoding, conversion | **`Result(T, TypedError)`** |
+| lookups where absence is not an error | **`Option(T)`** |
+
+Rules that follow from it:
+
+- **`Result(_, String)` is banned.** An error type is a real enum implementing
+  `Error()`. A string error cannot be matched on, downcast, or wrapped, and it
+  forces every caller into prose comparison.
+- **Never drop the payload on failure.** `Channel.send` returning
+  `Result(unit, unit)` discarded the value the caller still owned; return it.
+- A fallible constructor that cannot fail should not be fallible — do not add a
+  `Result` "for symmetry".
+- Absence and failure are different: do not model a missing key as an error, and
+  do not model an I/O failure as `None`.
+
+## std naming conventions
+
+Decided in `plans/STD_API_AUDIT.md` D2. One name per concept, across the whole
+tree. Use these when adding an API; a new module that invents a synonym is a
+review defect, not a style preference.
+
+| Concept | Blessed name | Do not use |
+| --- | --- | --- |
+| element count | `len()`, plus `is_empty()` on EVERY container | a public `size` field |
+| map insert | `insert(k, v) -> Option(V)` (returns the old value) | `set` |
+| set insert | `insert(v) -> bool` | `add` |
+| sequence append | `push` / `push_front` / `push_back` | — |
+| membership | `contains` (sequence/set), `contains_key` (map) | — |
+| value iterator | `into_iter()` | — |
+| pointer iterator | `iter()` | `iter_ptr` |
+| accessors | a bare noun | a `get_` prefix |
+| byte codecs | `encode` / `decode` | `to_ascii` / `to_unicode` |
+| text formats | `parse` / `stringify` | `decode_html`-style verb-first names |
+| conversion | `from_` / `to_` / `into_`, with Rust's discipline (`into_` consumes) | two spellings of one conversion (`to_cstr` vs `to_c_str`) |
+| comptime twins | `Comptime` prefix on the trait, `comptime_` prefix on the method | an infix `_comptime_` |
+
+Two conventions that are easy to miss:
+
+- **`sys/` is plumbing, `std/*` is the product.** Every user-relevant syscall
+  gets a typed wrapper, and an underscore-private name must never appear in an
+  `export(...)` list.
+- **Traits are the API.** An inherent method that duplicates a trait method
+  becomes a trait impl, so generic code can dispatch on it. Types that should
+  compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
+- **Hashing is Rust-shaped (plans/HASHER_REDESIGN.md).** `Hash.hash(self,
+  inout(hasher) : H)` FEEDS bytes; a `Hasher` (`std/hash`: `SipHasher13` =
+  `DefaultHasher`, `Fnv1aHasher`) turns them into the `u64`. Never write a
+  `-> u64` hash method or fold hashes with `* 31`; a new type's impl calls
+  `hasher.write_*` per field (or `derive(Hash)`), variable-length data writes a
+  terminator/length, and `hash_one(v)` is the one-value helper. Maps use FIXED
+  default keys so emitted C and printed maps are reproducible (the fixpoint
+  gate compares C byte for byte); `HashMap.with_keys` is the per-instance opt-in.
+
+## UTF-8 lives in exactly one module
+
+`std/encoding/utf8.yo` is the only place in the tree that is allowed to know how
+UTF-8 is laid out. Before it landed, **eleven** `std/` files carried their own
+copy of the same bit twiddling (STD_API_AUDIT D8), and three latent bugs were
+hiding in the copies. Do not add a twelfth.
+
+| you need | call |
+| --- | --- |
+| decode a rune at a byte offset, strictly | `decode(bytes, i) -> Result(Decoded, Utf8Error)` |
+| decode without ever failing (a scanner over untrusted bytes) | `decode_lossy(bytes, i) -> Decoded` — U+FFFD, width ≥ 1 |
+| decode from a buffer that is not an `ArrayList(u8)` | `decode_parts(b0, b1, b2, b3, available, index)` — fetch the bytes yourself, no allocation |
+| encode a `rune` | `encode_into(r, out)` / `encode(r)` |
+| encode a raw `u32` from a decoder (`\uXXXX`, a UTF-16 unit, `towlower`) | `encode_lossy_into(code, out)` — substitutes U+FFFD, so you cannot emit CESU-8 |
+| advance a rune-walking loop | `step_len(b)` — never `cond((b < 0x80) => 1, (b < 0xE0) => 2, …)` |
+| test a rune boundary | `is_boundary(b)` / `is_continuation(b)` |
+| check a whole buffer or a sub-range | `validate(bytes)` / `validate_range(bytes, from, to)` |
+
+Two constraints on that module you must not break:
+
+- **It stays below `std/error` and `std/fmt`.** It imports only
+  `std/string/rune` and `std/collections/array_list`, because
+  `std/string/string.yo` is a consumer and `std/error`/`std/fmt` both import
+  `std/string`. That is why `Utf8Error` has inherent `message()`/`index()`
+  instead of `ToString`/`Error()` impls — same reason `AllocError` has none.
+  A module that wants a throwable UTF-8 error wraps it, the way
+  `StringError.InvalidUtf8(cause : Utf8Error)` does.
+- **`String.from_bytes` does not validate** — it is the *unchecked*
+  constructor, and its ~170 call sites (26 of them in `vendor/markdown_yo`) are
+  why it still has that name. Use `String.from_utf8` for bytes of unknown
+  provenance: a file, a socket, a subprocess, a decoded payload. Use
+  `from_bytes` only when the bytes demonstrably came from UTF-8 already.
+  `String.from_cstr` does not validate either, deliberately: it is how every
+  `${number}` in every template string is built.
+
 ## Standard library module organization (`std/`)
 
 ## Function-type re-evaluation during impl specialization
@@ -540,7 +652,7 @@ open(import("std/fs/file"));
 // open(import("std/fs"));  // which module? file? dir? walker?
 ```
 
-Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/os`, `std/io`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
+Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.
 
 ### Multi-file modules with a primary file
 
@@ -583,11 +695,16 @@ Runtime builtins generate inline C code (`(&(arr->data[idx]))`). Comptime builti
 
 ### comptime_str indexing
 
-`comptime_str` supports indexing via `ComptimeIndex`:
+`comptime_str` supports indexing via `ComptimeIndex`. Since D4 PR 7
+(2026-08-26) the indices are **BYTE offsets**, matching the runtime basis:
 
-- `"Hello"(0)` → `"H"` (single character as comptime_str)
-- `"Hello"(0..3)` → `"Hel"` (range slicing)
-- `"Hello"(0..=2)` → `"Hel"` (inclusive range slicing)
+- `"Hello"(0)` → `"H"` — the RUNE starting at byte 0, as a 1-rune comptime_str
+  (runtime `s(i)` yields the `u8` instead; that result-type split is
+  deliberate — see `docs/en-US/STRINGS.md`)
+- `"Hello"(0..3)` → `"Hel"` (byte-range slicing)
+- `"Hello"(0..=2)` → `"Hel"` (inclusive byte-range slicing)
+- an offset inside a rune is a **compile error** (where the runtime
+  `substring` panics); out of range is a compile error too
 
 Builtins: `__yo_comptime_string_index`, `__yo_comptime_string_index_range`, `__yo_comptime_string_index_range_inclusive`
 
@@ -649,7 +766,8 @@ env_mut.input_string = result.env.input_string;
 
 ### `io.async` closures: one parameter, effects struct
 
-`io.async`'s signature is `Impl(Fn(e : E) -> T)`. The closure takes exactly
+`io.async` takes one closure argument typed `Impl(Fn(e : E) -> T)` and returns
+`Impl(Future(T, E))` (`std/prelude.yo`). The closure takes exactly
 one parameter — the **effects struct** `e : E`. When the future needs
 `IoExn` effects, the parameter type is `IoExn`, and all effect operations
 go through `e.io` and `e.exn`. The closure body must NOT capture `io` or
@@ -667,7 +785,7 @@ io.async((e : IoExn) => {
 // CORRECT — all effects through e:
 io.async((e : IoExn) => {
   e.io.await(create_dir_all(path, e.io), e);
-  e.exn.throw(dyn("error"));
+  e.exn.throw(dyn(`error`));
 });
 ```
 

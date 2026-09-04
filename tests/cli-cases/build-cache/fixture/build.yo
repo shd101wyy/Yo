@@ -1,0 +1,29 @@
+build :: import("std/build");
+{ imports } :: import("./deps.yo");
+{ assert, panic } :: import("std/assert");
+
+mod :: build.module({ name : "cachedemo", root : "./src/lib.yo" });
+
+exe :: build.executable({ name : "cachedemo", root : "./src/main.yo" });
+exe.add_import_list(imports);
+
+lib :: build.static_library({ name : "cachedemo-lib", root : "./src/lib.yo" });
+
+tests :: build.test({ name : "tests", root : "./tests/" });
+
+run_exe :: build.run(exe);
+
+docs :: build.doc({ name : "docs", root : "./src" });
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
+
+run_step :: build.step("run", "Run the application");
+run_step.depend_on(run_exe);
+
+test_step :: build.step("test", "Run unit tests");
+test_step.depend_on(tests);
+
+doc_step :: build.step("doc", "Generate documentation");
+doc_step.depend_on(docs);

@@ -3,10 +3,10 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
 { Channel } :: import("std/sync/channel");
-{ Thread } :: import("std/thread");
-{ sleep } :: import("std/time/sleep");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 { WaitGroup } :: import("std/sync/waitgroup");
-Worker :: import("std/worker");
 // ============================================================================
 // Basic Operations
 // ============================================================================
@@ -14,7 +14,7 @@ test("Channel new creates empty channel", {
   ch := Channel(i32).new(usize(10));
   assert(ch.is_empty(), "new channel should be empty");
   assert(ch.len() == usize(0), "new channel should have len 0");
-  assert(!(ch.is_closed()), "new channel should not be closed");
+  assert(!ch.is_closed(), "new channel should not be closed");
 });
 test("Channel send and recv single value", {
   ch := Channel(i32).new(usize(10));
@@ -80,7 +80,7 @@ test("Channel try_recv returns None when empty", {
 // ============================================================================
 test("Channel close sets closed flag", {
   ch := Channel(i32).new(usize(5));
-  assert(!(ch.is_closed()), "channel should not be closed initially");
+  assert(!ch.is_closed(), "channel should not be closed initially");
   ch.close();
   assert(ch.is_closed(), "channel should be closed after close()");
 });
@@ -95,6 +95,29 @@ test("Channel try_send returns Err after close", {
   ch.close();
   r := ch.try_send(i32(1));
   assert(r.is_err(), "try_send to closed channel should return Err");
+});
+// S0 C8 (plans/STD_API_AUDIT.md §2): a failed send must hand the value BACK
+// to the caller instead of silently dropping it (Rust's SendError(T)).
+test("Channel send to closed channel returns the value back", {
+  ch := Channel(i32).new(usize(5));
+  ch.close();
+  r := ch.send(i32(7));
+  match(
+    r,
+    .Err(v) => assert(v == i32(7), "the unsent value comes back in Err"),
+    .Ok(_) => assert(false, "send to closed channel must fail")
+  );
+});
+test("Channel try_send to full channel returns the value back", {
+  ch := Channel(i32).new(usize(1));
+  ch.send(i32(1));
+  r := ch.try_send(i32(2));
+  match(
+    r,
+    .Err(v) => assert(v == i32(2), "the unsent value comes back in Err"),
+    .Ok(_) => assert(false, "try_send to full channel must fail")
+  );
+  assert(ch.recv().unwrap() == i32(1), "buffered value is untouched");
 });
 test("Channel recv drains remaining values after close", {
   ch := Channel(i32).new(usize(5));
@@ -130,7 +153,7 @@ test("Channel with bool type", {
   v1 := ch.recv();
   v2 := ch.recv();
   assert(v1.unwrap(), "first value should be true");
-  assert(!(v2.unwrap()), "second value should be false");
+  assert(!v2.unwrap(), "second value should be false");
 });
 test("Channel with usize type", {
   ch := Channel(usize).new(usize(5));
@@ -144,7 +167,7 @@ test("Channel with usize type", {
 test("Channel single producer single consumer with Thread", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
-  producer := Thread.spawn((io) => {
+  producer := Thread.spawn(io => {
     i := i32(0);
     while(runtime(i < i32(5)), {
       ch.send(i);
@@ -171,7 +194,7 @@ test("Channel single producer single consumer with Thread", {
 test("Channel thread producer sends many values", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
-  t := Thread.spawn((io) => {
+  t := Thread.spawn(io => {
     i := i32(0);
     while(runtime(i < i32(10)), {
       ch.send(i);
@@ -198,25 +221,25 @@ test("Channel thread producer sends many values", {
 test("Channel consumer thread blocks until producer sends", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-  consumer := Thread.spawn((io) => {
+  consumer := Thread.spawn(io => {
     val := ch.recv();
     assert(val.is_some(), "consumer should receive a value");
     assert(val.unwrap() == i32(999), "value should be 999");
   });
   // Sleep briefly so consumer has time to block on recv
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   ch.send(i32(999));
   consumer.join();
 });
 test("Channel close wakes blocked consumer Thread", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(5));
-  consumer := Thread.spawn((io) => {
+  consumer := Thread.spawn(io => {
     val := ch.recv();
     assert(val.is_none(), "recv should return None after close");
   });
   // Sleep briefly so consumer blocks on recv
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   ch.close();
   consumer.join();
 });
@@ -231,11 +254,11 @@ test("Channel bounded capacity blocks producer", {
   ch.send(i32(2));
   // Channel is now full
   // Producer thread will block because channel is full
-  producer := Thread.spawn((io) => {
+  producer := Thread.spawn(io => {
     ch.send(i32(3)); // Blocks until consumer drains
   });
   // Sleep briefly to let producer block
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   // Channel should still have 2 items (producer is blocked)
   assert(ch.len() == usize(2), "channel should still have 2 items");
   // Drain one item to unblock the producer
@@ -251,12 +274,12 @@ test("Channel bounded capacity blocks producer", {
 test("Channel capacity 1 works as rendezvous", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(1));
-  t := Thread.spawn((io) => {
+  t := Thread.spawn(io => {
     ch.send(i32(100));
     ch.send(i32(200));
   });
   // Small delay to let first send complete
-  sleep(usize(50));
+  sleep_blocking(Duration.from_millis(i64(50)));
   v1 := ch.recv();
   assert(v1.unwrap() == i32(100), "first value should be 100");
   v2 := ch.recv();
@@ -264,15 +287,15 @@ test("Channel capacity 1 works as rendezvous", {
   t.join();
 });
 // ============================================================================
-// Worker integration (Channel is atomic object — no Arc wrapping needed)
+// ThreadPool integration (Channel is atomic object — no Arc wrapping needed)
 // ============================================================================
-test("Channel send from Worker recv from main", {
+test("Channel send from pool task recv from main", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(10));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  Worker.spawn((io) => {
+  spawn(pool, io => {
     ch.send(i32(42));
     wg.done();
   });
@@ -281,13 +304,13 @@ test("Channel send from Worker recv from main", {
   assert(val.is_some(), "should receive value from worker");
   assert(val.unwrap() == i32(42), "value should be 42");
 });
-test("Channel Worker sends multiple values", {
+test("Channel pool task sends multiple values", {
   if(arch == Arch.Wasm32, return(()));
   ch := Channel(i32).new(usize(20));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  Worker.spawn((io) => {
+  spawn(pool, io => {
     ch.send(i32(10));
     ch.send(i32(20));
     ch.send(i32(30));
@@ -313,4 +336,15 @@ test("Channel implements Send", {
   assert_send(Channel(i32));
   assert_send(Channel(bool));
   assert_send(Channel(usize));
+});
+// O7 residual (plans/STD_API_AUDIT.md §8): the sync containers carry the same
+// Acyclic requirement as the imm family — atomic RC cannot collect cycles, so
+// a cyclic ATOMIC payload would leak silently and unavoidably.
+test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles", {
+  // atomic() so the payload IS Send — a plain ref struct fails the Send bound
+  // first and the expect-error would pass vacuously without touching Acyclic.
+  CyclicNode :: atomic(ref(struct(v : i32, next : Option(Self))));
+  comptime_assert(Type.impls(CyclicNode, Send), "the pin payload must be Send so the error is Acyclic's");
+  comptime_expect_error(Channel(CyclicNode));
+  assert(true, "rejected at comptime");
 });

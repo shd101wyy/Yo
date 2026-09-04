@@ -9,7 +9,8 @@
 //! mechanisms share one shape and the bundle self-locates its std.
 //!
 //! Download flow:
-//!   1. Resolve the host platform's bundle name (yo-v<v>-<os>-<arch>).
+//!   1. Resolve the host platform's bundle name (yo-v<v>-<os>-<arch>,
+//!      with a `-musl` suffix on Linux — musl-only since 2026-08-20).
 //!   2. Download `https://github.com/<repo>/releases/download/v<v>/<bundle>.tar.gz`.
 //!   3. Extract; the tarball root is a `<bundle>/` directory — move it to the
 //!      version cache directory.
@@ -22,7 +23,9 @@ open(import("std/fmt"));
 { AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ exists } :: import("std/fs/file");
+{ exists, write_string } :: import("std/fs/file");
+{ FetchOptions, fetch_with } :: import("std/http/client");
+{ tls_available } :: import("std/crypto/tls");
 {
   FileType,
   create_dir_all,
@@ -31,7 +34,7 @@ open(import("std/fmt"));
   remove_file,
   rename
 } :: import("std/fs/dir");
-{ walk_with, WalkOptions } :: import("std/fs/walker");
+{ remove_dir_all } :: import("std/fs/walker");
 { TempDir } :: import("std/fs/temp");
 { env } :: import("std/env");
 {
@@ -67,38 +70,6 @@ _releases_download_url :: (fn() -> String)(`https://github.com/${_github_repo()}
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-/// Recursively remove a directory and all its contents.
-_remove_dir_all :: (
-  fn(
-    path : Path,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(unit, IoExn))
-)(
-  io.async((e : IoExn) => {
-    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true);
-    entries := e.io.await(walk_with(path, opts, e.io), e);
-    n := entries.len();
-    while(n > usize(0), {
-      n = (n - usize(1));
-      match(
-        entries.get(n),
-        .None => (),
-        .Some(entry) =>
-          match(
-            entry.file_type,
-            .Directory => {
-              e.io.await(remove_dir(entry.path, e.io), e);
-            },
-            _ => {
-              e.io.await(remove_file(entry.path, e.io), e);
-            }
-          )
-      );
-    });
-    e.io.await(remove_dir(path, e.io), e);
-  })
-);
 /// Extract the string value of a JSON field named `key`.
 /// Handles both `"key":"value"` and `"key": "value"` forms.
 /// Returns `.None` if the field is not found.
@@ -164,8 +135,8 @@ _sort_by_semver :: (fn(versions : ArrayList(String)) -> ArrayList(String))({
     j := usize(0);
     while(j < n, {
       flag := match(added.get(j), .None => true, .Some(f) => f);
-      if(!(flag), {
-        if(!(found), {
+      if(!flag, {
+        if(!found, {
           min_idx = j;
           found = true;
         }, {
@@ -207,9 +178,10 @@ cached_binary_path :: (fn(version_dir : String) -> String)({
   );
   `${version_dir}/bin/${bin_name}`
 });
-/// The release-bundle basename for a version on the HOST platform,
-/// e.g. `yo-v0.2.4-macos-arm64`. Mirrors scripts/install.sh's detect_osarch.
-host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
+/// The PRE-MUSL release-bundle basename (`yo-v<v>-<os>-<arch>`, no suffix).
+/// Only the Linux glibc-era fallback in `download_version` should use this
+/// directly — everything else goes through `host_bundle_name`.
+_host_bundle_name_base :: (fn(version : String, exn : Exception) -> String)({
   target := host_target();
   os_name := cond(
     is_target_macos(target) => `macos`,
@@ -219,7 +191,7 @@ host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
       platform_str := String.from(os_to_str(target.os));
       exn.throw(
         dyn(
-          `Unsupported platform for Yo release bundles: ${platform_str}. Available targets: linux-x64, linux-arm64, macos-arm64, macos-x64, windows-x64.`
+          `Unsupported platform for Yo release bundles: ${platform_str}. Available targets: linux-x64-musl, linux-arm64-musl, macos-arm64, macos-x64, windows-x64.`
         )
       );
       String.new()
@@ -238,6 +210,64 @@ host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
     }
   );
   `yo-v${version}-${os_name}-${arch_name}`
+});
+/// The release-bundle basename in canonical target-triple form,
+/// e.g. `yo-v0.2.19-aarch64-apple-darwin` / `yo-v0.2.19-x86_64-unknown-linux-musl`.
+///
+/// This is the name releases carry from the one after v0.2.18
+/// (plans/RELEASE_ASSET_TRIPLES.md); `download_version` bridges the changeover
+/// by falling back to the short `host_bundle_name` form. The triple is the
+/// PUBLISHED asset name only — the compiler's own `--target` vocabulary stays
+/// vendor-less (`aarch64-macos`), see that plan's "what does NOT change".
+host_bundle_triple_name :: (fn(version : String, exn : Exception) -> String)({
+  target := host_target();
+  triple := cond(
+    is_target_macos(target) =>
+      match(
+        target.arch,
+        .X86_64 => `x86_64-apple-darwin`,
+        .Aarch64 => `aarch64-apple-darwin`,
+        _ => String.new()
+      ),
+    // Linux is musl-only: the static musl bundle IS the Linux bundle and runs
+    // on glibc hosts too (see `host_bundle_name`).
+    is_target_linux(target) =>
+      match(
+        target.arch,
+        .X86_64 => `x86_64-unknown-linux-musl`,
+        .Aarch64 => `aarch64-unknown-linux-musl`,
+        _ => String.new()
+      ),
+    is_target_windows(target) =>
+      match(
+        target.arch,
+        .X86_64 => `x86_64-pc-windows-msvc`,
+        .Aarch64 => `aarch64-pc-windows-msvc`,
+        _ => String.new()
+      ),
+    true => String.new()
+  );
+  if(triple.is_empty(), {
+    // Reuse the short-name builder's diagnostics: it throws naming the
+    // supported platforms and architectures. If it ever stops throwing for a
+    // host this table has no triple for, refuse rather than build a bogus name.
+    ___ := _host_bundle_name_base(version, exn);
+    exn.throw(dyn(`No release-bundle target triple for this host.`));
+  });
+  `yo-v${version}-${triple}`
+});
+/// The release-bundle basename for a version on the HOST platform,
+/// e.g. `yo-v0.2.13-linux-x64-musl` / `yo-v0.2.13-macos-arm64`. Mirrors
+/// scripts/install.sh. Linux is musl-only (2026-08-20): the static musl
+/// bundle is THE Linux bundle and runs on glibc and musl systems alike; the
+/// glibc names exist only on releases that predate the musl legs (x64:
+/// v0.2.7+, arm64: v0.2.12+), which `download_version` falls back to.
+host_bundle_name :: (fn(version : String, exn : Exception) -> String)({
+  base := _host_bundle_name_base(version, exn);
+  cond(
+    is_target_linux(host_target()) => `${base}-musl`,
+    true => base
+  )
 });
 /// Check if a specific Yo version is already cached locally.
 /// A cached version is a bundle extraction whose `bin/yo` exists.
@@ -344,7 +374,7 @@ _scan_versions_root :: (
 )(
   io.async((e : IoExn) => {
     root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io);
-    if(!(root_exists), {
+    if(!root_exists, {
       return(());
     });
     entries := e.io.await(read_dir(Path.new(versions_dir.clone()), e.io), e);
@@ -358,7 +388,7 @@ _scan_versions_root :: (
             entry_path := `${versions_dir}/${entry.name}`;
             bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
             // A version present in BOTH roots must appear once.
-            if(bin_exists && !(_contains_version(out, entry.name.clone())), {
+            if(bin_exists && !_contains_version(out, entry.name.clone()), {
               out.push(entry.name);
             });
           });
@@ -411,62 +441,36 @@ clean_version_cache :: (
         version_dir := get_version_cache_dir(version);
         dir_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
         if(dir_exists, {
-          e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
+          e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
         });
       },
       .None => {
         versions_dir := get_global_versions_cache_dir();
         dir_exists := e.io.await(exists(Path.new(versions_dir), e.io), e.io);
         if(dir_exists, {
-          e.io.await(_remove_dir_all(Path.new(versions_dir), e.io, e.exn), e);
+          e.io.await(remove_dir_all(Path.new(versions_dir), e.io), e);
         });
       }
     );
   })
 );
-/// HTTP GET using curl, sending the headers GitHub's API requires.
-/// Follows redirects. Returns the response body as a String.
-/// Mirrors the TS httpGet: HTTP 403 throws the rate-limit message, any
-/// other status >= 400 throws `HTTP <code> fetching <url>`.
+/// HTTP GET via std/http (D6 PR-3 — the curl shell-out is gone), sending
+/// the headers GitHub's API requires. Follows redirects. Returns the
+/// response body as a String. HTTP 403 throws the rate-limit message, any
+/// other status >= 400 throws `HTTP <code> fetching <url>`. (The old
+/// signature also declared an `exn` parameter no call site ever passed —
+/// the arity mismatch was invisible to `check` because def-time trial
+/// failures are swallowed.)
 _http_get :: (
-  fn(
-    url : String,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(String, IoExn))
+  fn(url : String, io : Io) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    cmd := Command.new(String.from("curl"));
-    cmd.arg(String.from("--silent"));
-    cmd.arg(String.from("--location"));
-    cmd.arg(String.from("--max-redirs"));
-    cmd.arg(String.from("5"));
-    // GitHub's API rejects requests without a User-Agent.
-    cmd.arg(String.from("-H"));
-    cmd.arg(String.from("User-Agent: yo-version-cache"));
-    cmd.arg(String.from("-H"));
-    cmd.arg(String.from("Accept: application/vnd.github+json"));
-    // Append the final HTTP status code (3 digits) to stdout so the
-    // caller-visible status survives curl's exit-code flattening.
-    cmd.arg(String.from("-w"));
-    cmd.arg(String.from("%{http_code}"));
-    cmd.arg(url);
-    out := e.io.await(cmd.output(e.io), e);
-    if(!(out.status.success()), {
-      msg := String.from("HTTP request failed for: ");
-      msg.push_string(url);
-      e.exn.throw(dyn(msg));
-    });
-    // stdout = body bytes + 3-digit status code. Split at the BYTE level:
-    // release JSON can contain non-ASCII, and String indices are rune-based.
-    n := out.stdout.len();
-    if(n < usize(3), {
-      e.exn.throw(dyn(`HTTP request failed for: ${url}`));
-    });
-    code_str := String.from_bytes(out.stdout.slice_copy((n - usize(3)) .. n));
-    body := String.from_bytes(out.stdout.slice_copy(usize(0) .. (n - usize(3))));
-    code := match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
-    if(code == i64(403), {
+    opts := FetchOptions.new();
+    opts = opts.with_header(`User-Agent`, `yo-version-cache`);
+    opts = opts.with_header(`Accept`, `application/vnd.github+json`);
+    opts = opts.with_max_redirects(usize(5));
+    resp := e.io.await(fetch_with(url, opts, e.io), e);
+    if(resp.status_code == i32(403), {
       // Unauthenticated GitHub API rate limit (60 requests/hour/IP).
       e.exn.throw(
         dyn(
@@ -474,46 +478,34 @@ _http_get :: (
         )
       );
     });
-    if(code >= i64(400), {
-      e.exn.throw(dyn(`HTTP ${code_str} fetching ${url}`));
+    if(resp.status_code >= i32(400), {
+      e.exn.throw(dyn(`HTTP ${resp.status_code} fetching ${url}`));
     });
-    body
+    resp.body
   })
 );
-/// Download a URL to `dest_path` using curl. Follows redirects.
+/// Download a URL to `dest_path` via std/http (D6 PR-3). Follows redirects.
 /// Returns the final HTTP status code as a 3-digit String (e.g. "200",
-/// "404") so the caller can map statuses to messages (the TS downloadFile
-/// throws and the caller inspects the message; without catch, we return
-/// the status instead). Throws only when curl itself fails (network error).
+/// "404") so the caller can map statuses to messages. Like the curl
+/// `-o`/`-w` pair it replaces: the body is written to `dest_path` whatever
+/// the status, and only a transport failure throws.
 _download_file :: (
   fn(
     url : String,
     dest_path : String,
-    io : Io,
-    exn : Exception
+    io : Io
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
-    cmd := Command.new(String.from("curl"));
-    cmd.arg(String.from("--silent"));
-    cmd.arg(String.from("--location"));
-    cmd.arg(String.from("--max-redirs"));
-    cmd.arg(String.from("5"));
-    cmd.arg(String.from("-H"));
-    cmd.arg(String.from("User-Agent: yo-version-cache"));
-    cmd.arg(String.from("-o"));
-    cmd.arg(dest_path);
-    cmd.arg(String.from("-w"));
-    cmd.arg(String.from("%{http_code}"));
-    cmd.arg(url);
-    out := e.io.await(cmd.output(e.io), e);
-    if(!(out.status.success()), {
-      msg := String.from("Failed to download: ");
-      msg.push_string(url);
-      e.exn.throw(dyn(msg));
-    });
-    // With `-o`, the body goes to the file; stdout is exactly the -w output.
-    String.from_bytes(out.stdout)
+    opts := FetchOptions.new();
+    opts = opts.with_header(`User-Agent`, `yo-version-cache`);
+    opts = opts.with_max_redirects(usize(5));
+    // Release bundles are tens of MiB; give them ample headroom over the
+    // 64 MiB default response cap.
+    opts = opts.with_max_response_bytes(usize(536870912));
+    resp := e.io.await(fetch_with(url, opts, e.io), e);
+    e.io.await(write_string(Path.new(dest_path), resp.body, e.io), e);
+    `${resp.status_code}`
   })
 );
 /// One page of the GitHub Releases API scan: the non-draft, non-prerelease
@@ -606,9 +598,9 @@ _cleanup_failed_download :: (
   io.async((e : IoExn) => {
     ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
     if(ver_exists, {
-      e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
+      e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
-    e.io.await(_remove_dir_all(tmp_path, e.io, e.exn), e);
+    e.io.await(remove_dir_all(tmp_path, e.io), e);
   })
 );
 /// Download a specific Yo version's native bundle from GitHub Releases and
@@ -629,16 +621,61 @@ download_version :: (
         )
       );
     });
-    bundle_name := host_bundle_name(version, e.exn);
-    url := `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+    // GitHub Releases is HTTPS-only, and std/http's https goes through the
+    // TLS backend. On a machine where that backend is unavailable (no
+    // OpenSSL; Windows Schannel pending) say so plainly instead of letting
+    // fetch_with fail somewhere deep inside the handshake.
+    if(!tls_available(), {
+      e.exn.throw(
+        dyn(
+          `TLS is unavailable in this build, and downloading Yo versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
+        )
+      );
+    });
+    // Releases from the one after v0.2.18 name their assets by canonical target
+    // triple; v0.2.18 and earlier carry only the short form. Try the triple,
+    // then fall back — this BRIDGES the changeover so the current release stays
+    // installable, and is removable once nothing in use predates it
+    // (plans/RELEASE_ASSET_TRIPLES.md).
+    (bundle_name : String) = host_bundle_triple_name(version, e.exn);
     version_dir := get_version_cache_dir(version);
     // 1. Download the tarball to a temp directory.
     tmp_dir := e.io.await(TempDir.new(e.io), e);
     tmp_path_str := tmp_dir.path().to_string();
-    tarball_path := `${tmp_path_str}/${bundle_name}.tar.gz`;
+    (url : String) = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+    (tarball_path : String) = `${tmp_path_str}/${bundle_name}.tar.gz`;
     println(`Downloading Yo v${version} (${bundle_name}) from GitHub Releases...`);
-    code_str := e.io.await(_download_file(url, tarball_path, e.io, e.exn), e);
-    code := match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
+    code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
+    (code : i64) = match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
+    // Pre-triple fallback: the short `yo-v<v>-<os>-<arch>[-musl]` name.
+    if(code == i64(404), {
+      // NOT named `short`: that shadows the prelude C-interop integer type,
+      // and builtin-first dispatch makes the interpolation below resolve the
+      // BUILTIN — the def-eval swallow then hollowed this whole async body,
+      // which is what broke `yo version install` in v0.2.19/v0.2.20
+      // (issues/builtin-name-shadows-user-definition.md, third face;
+      // issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
+      short_name := host_bundle_name(version, e.exn);
+      println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-triple bundle name (${short_name})...`);
+      bundle_name = short_name;
+      url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+      tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
+      short_code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
+      code = match(short_code_str.parse_i64(), .None => i64(0), .Some(c1) => c1);
+    });
+    // Linux glibc-era fallback: releases that predate the musl legs only
+    // published `yo-v<v>-linux-<arch>` bundles. On a glibc host that bundle
+    // is fully functional; on a musl host it will not run, but a download
+    // that exists beats a hard 404 (install.sh makes the same call).
+    if((code == i64(404)) && is_target_linux(host_target()), {
+      legacy := _host_bundle_name_base(version, e.exn);
+      println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-musl bundle name (${legacy})...`);
+      bundle_name = legacy;
+      url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
+      tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
+      legacy_code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
+      code = match(legacy_code_str.parse_i64(), .None => i64(0), .Some(c2) => c2);
+    });
     if(code == i64(404), {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       msg := `Yo v${version} has no ${bundle_name}.tar.gz release asset.`;
@@ -648,7 +685,7 @@ download_version :: (
     });
     if(code >= i64(400), {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
-      e.exn.throw(dyn(`HTTP ${code_str} downloading ${url}`));
+      e.exn.throw(dyn(`HTTP ${code.to_string()} downloading ${url}`));
     });
     // 2. Extract; the tarball root is a `<bundleName>/` directory holding
     // bin/, std/ and vendor/ as SIBLINGS (the compiler resolves its std by
@@ -659,28 +696,46 @@ download_version :: (
     tar_cmd.arg(String.from("-C"));
     tar_cmd.arg(tmp_path_str);
     tar_out := e.io.await(tar_cmd.output(e.io), e);
-    if(!(tar_out.status.success()), {
+    if(!tar_out.status.success(), {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
       e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${version}`));
     });
-    extracted_dir := `${tmp_path_str}/${bundle_name}`;
-    bin_exists := e.io.await(exists(Path.new(`${extracted_dir}/bin`), e.io), e.io);
-    std_exists := e.io.await(exists(Path.new(`${extracted_dir}/std`), e.io), e.io);
-    if(!(bin_exists && std_exists), {
+    // The tarball root is conventionally named after the asset, but do not
+    // REQUIRE that: the asset-name/directory-name coupling is what forced the
+    // triple rename to ship duplicate tarballs rather than duplicate upload
+    // names (plans/RELEASE_ASSET_TRIPLES.md). Find the extracted root by
+    // looking for the directory that holds bin/ and std/, and fall back to the
+    // conventional name only for the error message.
+    (extracted_dir : String) = `${tmp_path_str}/${bundle_name}`;
+    (found_root : bool) = false;
+    entries := e.io.await(read_dir(Path.new(tmp_path_str), e.io), e);
+    (ei : usize) = usize(0);
+    while(runtime((ei < entries.len()) && (found_root == false)), {
+      entry := entries(ei);
+      cand := `${tmp_path_str}/${entry.name}`;
+      cand_bin := e.io.await(exists(Path.new(`${cand}/bin`), e.io), e.io);
+      cand_std := e.io.await(exists(Path.new(`${cand}/std`), e.io), e.io);
+      if(cand_bin && cand_std, {
+        extracted_dir = cand;
+        found_root = true;
+      });
+      ei = (ei + usize(1));
+    });
+    if(found_root == false, {
       e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
-      e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (missing bin/ or std/).`));
+      e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (no directory with bin/ and std/).`));
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
     // entry), then MOVE the extracted bundle root to the version directory.
     ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
     if(ver_exists, {
-      e.io.await(_remove_dir_all(Path.new(version_dir), e.io, e.exn), e);
+      e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
     e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
     e.io.await(rename(Path.new(extracted_dir), Path.new(version_dir), e.io), e);
     println(`Installed Yo v${version} to ${version_dir}`);
     // 4. Clean up the temp directory (the tarball stays behind in it).
-    e.io.await(_remove_dir_all(tmp_dir.path(), e.io, e.exn), e);
+    e.io.await(remove_dir_all(tmp_dir.path(), e.io), e);
     version_dir
   })
 );
@@ -694,6 +749,13 @@ ensure_cached_version :: (
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
+    // Arity fix (2026-08-30): this call passed TWO args to the THREE-param
+    // is_version_cached for its entire life — the def-eval swallow accepts
+    // wrong-arity calls, and the missing `exn` record made `cached` read
+    // stack garbage at runtime: truthy garbage silently no-opped the install
+    // (rc=0, nothing cached), falsy garbage continued into corrupted state
+    // (rc=134) — `yo version install` was broken in every release
+    // (issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
     cached := e.io.await(is_version_cached(version, e.io, e.exn), e);
     if(cached, {
       return(get_version_cache_dir(version));
@@ -711,15 +773,23 @@ fetch_remote_versions :: (
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
+    // Same TLS gate as download_version: the GitHub API is HTTPS-only.
+    if(!tls_available(), {
+      e.exn.throw(
+        dyn(
+          `TLS is unavailable in this build, and listing remote versions requires HTTPS. Install OpenSSL (macOS: brew install openssl@3; the Windows Schannel backend is still pending) and retry.`
+        )
+      );
+    });
     versions := ArrayList(String).new();
     // The API pages at 100 releases; three pages is far beyond the horizon.
     page := i64(1);
     done := false;
-    while((page <= i64(3)) && (!(done)), {
+    while((page <= i64(3)) && !done, {
       url := `${_releases_api_url()}?per_page=100&page=${page}`;
-      body := e.io.await(_http_get(url, e.io, e.exn), e);
+      body := e.io.await(_http_get(url, e.io), e);
       trimmed := body.trim();
-      if(!(trimmed.starts_with(String.from("["))), {
+      if(!trimmed.starts_with(String.from("[")), {
         e.exn.throw(dyn(`Unexpected GitHub Releases API response shape.`));
       });
       scanned := _scan_release_page(body);
@@ -749,6 +819,7 @@ export(
   compare_semver,
   cached_binary_path,
   host_bundle_name,
+  host_bundle_triple_name,
   is_version_cached,
   resolve_version_dir,
   list_cached_versions,

@@ -41,12 +41,14 @@ make_sp :: (fn(idx : usize) -> SuspensionPoint)(
     while_nesting_depth : Option(usize).None,
     cond_branch_source_index : Option(usize).None,
     needs_own_cond_branch_field : Option(bool).None,
-    enclosing_while_expr : Option(AstExpr).None
+    enclosing_while_expr : Option(AstExpr).None,
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
+    cond_branch_suspension_in_while : Option(ArrayList(bool)).None
   )
 );
 test("await_analysis_result_empty has no awaits", {
   r := await_analysis_result_empty();
-  assert(!(r.has_awaits), "has_awaits false");
+  assert(!r.has_awaits, "has_awaits false");
   assert(r.await_points.len() == usize(0), "no await points");
   assert(r.captured_variables.len() == usize(0), "no captured vars");
 });
@@ -59,7 +61,7 @@ test("AwaitPoint base fields accessible", {
   );
   assert(ap.base.index == usize(3), "base index");
   has_ftype := match(ap.future_type, .Some(_) => true, .None => false);
-  assert(!(has_ftype), "no future_type");
+  assert(!has_ftype, "no future_type");
 });
 test("AwaitPoint future_type can be set", {
   ap := AwaitPoint(
@@ -84,7 +86,9 @@ test("AwaitPoint target_variable_id from parent assign", {
     while_nesting_depth : Option(usize).None,
     cond_branch_source_index : Option(usize).None,
     needs_own_cond_branch_field : Option(bool).None,
-    enclosing_while_expr : Option(AstExpr).None
+    enclosing_while_expr : Option(AstExpr).None,
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
+    cond_branch_suspension_in_while : Option(ArrayList(bool)).None
   );
   ap := AwaitPoint(
     base : sp,
@@ -178,7 +182,7 @@ test("AwaitAnalysisResult can hold await points", {
 });
 test("AwaitAnalysisResult variable_id_remapping", {
   r := await_analysis_result_empty();
-  r.variable_id_remapping.set(String.from("ssa_v1"), String.from("orig_v0"));
+  r.variable_id_remapping.insert(String.from("ssa_v1"), String.from("orig_v0"));
   got := r.variable_id_remapping.get(String.from("ssa_v1"));
   result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "orig_v0", "remapping lookup");

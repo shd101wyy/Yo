@@ -1,0 +1,232 @@
+//! The `Format` protocol — `value.format(spec)` (STD_API_AUDIT D3.10).
+//!
+//! The spec grammar lives in `./spec.yo`; this module is the dispatch layer.
+//! Numeric types get radix and sign-aware zero padding; everything else that
+//! implements `ToString` gets width, fill, alignment and truncation through one
+//! blanket impl — Rust's model, where fill/align/width are post-processing over
+//! whatever the value rendered as.
+//!
+//! ## Example
+//!
+//! ```rust
+//! open(import("std/fmt/format"));
+//!
+//! i32(255).format("#06x");   // "0x00ff"
+//! f64(3.14159).format(".2"); // "3.14"
+//! `ada`.format("<8");        // "ada     "
+//! ```
+{ FormatSpec } :: import("./spec");
+{ Alignment, Writer } :: import("./writer");
+{ StringBuilder } :: import("../string/string_builder");
+{ ArrayList } :: import("../collections/array_list");
+open(import("../string"));
+open(import("./to_string"));
+/// Format a value according to a spec string.
+Format :: trait(
+  /// Render `self` under `spec`. An unrecognised spec degrades to the plain
+  /// `to_string()` rendering rather than failing.
+  format :
+    (
+      fn(inout(self) : Self, spec : str) -> String
+    )
+);
+_DIGITS_LOWER :: "0123456789abcdef";
+_DIGITS_UPPER :: "0123456789ABCDEF";
+/// Render `mag` in `radix`, without sign or prefix. `radix` is 2, 8 or 16.
+_to_radix :: (fn(mag : u64, radix : u64, upper : bool) -> String)(
+  cond(
+    (mag == u64(0)) => String.from("0"),
+    true => {
+      alpha := if(upper, _DIGITS_UPPER, _DIGITS_LOWER);
+      bytes := String.from(alpha).as_bytes();
+      tmp := ArrayList(u8).new();
+      (m : u64) = mag;
+      while(m > u64(0), {
+        d := usize(m % radix);
+        tmp.push(bytes(d));
+        m = (m / radix);
+      });
+      sb := StringBuilder.new();
+      (i : usize) = tmp.len();
+      while(i > usize(0), {
+        i = (i - usize(1));
+        sb.write_byte(tmp(i));
+      });
+      sb.to_string()
+    }
+  )
+);
+/// The radix a spec's `kind` selects, or 10 when it selects none.
+_radix_of :: (fn(kind : rune) -> u64)(
+  cond(
+    ((kind.char == u32(0x78)) || (kind.char == u32(0x58))) => u64(16),
+    (kind.char == u32(0x62)) => u64(2),
+    (kind.char == u32(0x6F)) => u64(8),
+    true => u64(10)
+  )
+);
+/// The `#` prefix for a radix.
+_prefix_of :: (fn(radix : u64, alt : bool) -> String)(
+  cond(
+    !alt => String.new(),
+    (radix == u64(16)) => String.from("0x"),
+    (radix == u64(2)) => String.from("0b"),
+    (radix == u64(8)) => String.from("0o"),
+    true => String.new()
+  )
+);
+/// Render `v` with exactly `p` decimal places, via the Writer primitive.
+_f64_fixed :: (fn(v : f64, p : usize) -> String)(
+  Writer.new().write_f64(v, i32(p)).to_string()
+);
+/// Shared body for every integer impl: `neg` and `mag` are the sign-magnitude
+/// split the caller computed in its own width.
+_format_int :: (fn(neg : bool, mag : u64, decimal : String, spec : str) -> String)({
+  s := FormatSpec.parse(spec);
+  radix := _radix_of(s.kind);
+  digits := if(radix == u64(10), decimal, _to_radix(mag, radix, s.kind.char == u32(0x58)));
+  sign := cond(
+    neg => String.from("-"),
+    s.plus => String.from("+"),
+    true => String.new()
+  );
+  s.pad_numeric(sign, _prefix_of(radix, s.alt), digits)
+});
+impl(
+  i8,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)({
+      neg := (self < i8(0));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
+      dec := if(neg, i8(0).to_string(), self.to_string());
+      _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
+    })
+  )
+);
+impl(
+  i16,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)({
+      neg := (self < i16(0));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
+      dec := if(neg, i16(0).to_string(), self.to_string());
+      _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
+    })
+  )
+);
+impl(
+  i32,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)({
+      neg := (self < i32(0));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
+      dec := if(neg, i32(0).to_string(), self.to_string());
+      _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
+    })
+  )
+);
+impl(
+  i64,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)({
+      neg := (self < i64(0));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
+      dec := if(neg, i64(0).to_string(), self.to_string());
+      _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
+    })
+  )
+);
+impl(
+  isize,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)({
+      neg := (self < isize(0));
+      mag := if(neg, ~u64(self) + u64(1), u64(self));
+      dec := if(neg, isize(0).to_string(), self.to_string());
+      _format_int(neg, mag, if(neg, mag.to_string(), dec), spec)
+    })
+  )
+);
+impl(
+  u8,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)(
+      _format_int(false, u64(self), self.to_string(), spec)
+    )
+  )
+);
+impl(
+  u16,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)(
+      _format_int(false, u64(self), self.to_string(), spec)
+    )
+  )
+);
+impl(
+  u32,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)(
+      _format_int(false, u64(self), self.to_string(), spec)
+    )
+  )
+);
+impl(
+  u64,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)(
+      _format_int(false, u64(self), self.to_string(), spec)
+    )
+  )
+);
+impl(
+  usize,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)(
+      _format_int(false, u64(self), self.to_string(), spec)
+    )
+  )
+);
+impl(
+  f64,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)({
+      s := FormatSpec.parse(spec);
+      neg := (self < f64(0.0));
+      body := match(
+        s.precision,
+        .Some(p) => _f64_fixed(if(neg, -self, self), p),
+        .None => if(neg, -self, self).to_string()
+      );
+      sign := cond(
+        neg => String.from("-"),
+        s.plus => String.from("+"),
+        true => String.new()
+      );
+      s.pad_numeric(sign, String.new(), body)
+    })
+  )
+);
+impl(
+  f32,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)(
+      f64(self).format(spec)
+    )
+  )
+);
+/// Every other `ToString` type: width, fill, alignment and truncation only.
+/// A concrete impl above always wins over this one.
+impl(
+  generic(T : Type),
+  where(T <: ToString),
+  T,
+  Format(
+    format : (fn(inout(self) : Self, spec : str) -> String)({
+      s := FormatSpec.parse(spec);
+      body := self.to_string();
+      s.pad(body, Alignment.Left)
+    })
+  )
+);
+export(Format);

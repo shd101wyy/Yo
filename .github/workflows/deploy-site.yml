@@ -1,0 +1,86 @@
+name: Deploy site (manual)
+
+# Manual redeploy lever for the documentation website. The site normally
+# deploys ONLY from release.yml's deploy-site job (on purpose — see the
+# invariant recorded there), which deploys the Pages artifact built inside
+# the same release run. When that job is skipped by an unrelated failure in
+# its `needs` chain — exactly what happened on the v0.2.15 release, where
+# the then-in-job seed-bump step failed AFTER the release was public and
+# took deploy-site down with it — the release run cannot be salvaged
+# (reruns execute the original workflow snapshot). This workflow rebuilds
+# the site from the release TAG with the released compiler and deploys it.
+#
+# Inputs: `version` — a PUBLISHED release tag (e.g. v0.2.15). The tree is
+# checked out at that tag and the site is built by that same release's own
+# binary, so the deployed bytes match what the release run would have
+# deployed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Published release tag to build and deploy the site for (e.g. v0.2.15)"
+        required: true
+        type: string
+      builder:
+        description: "Release tag of the compiler that BUILDS the site (defaults to `version`). Use an older release when the target release's binary cannot fit the runner — e.g. v0.2.15's evaluator regression (issues/desugar-token-clones-evaluator-regression.md) OOMs 7 GB runners on the site build."
+        required: false
+        type: string
+        default: ""
+
+env:
+  # See test.yml's APT_OPTS comment: a bare apt-get can hang forever on the
+  # dpkg lock held by the runner's unattended-upgrades timer.
+  APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
+
+jobs:
+  build-and-deploy:
+    name: Build the site at the tag and deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version }}
+          # build_site.yo imports vendor/markdown_yo — without submodules the
+          # compile dies with "file or directory not found" (first dispatch,
+          # 2026-08-22). Recursive, matching release.yml's checkouts.
+          submodules: recursive
+
+      # The seed is a dynamically linked Linux binary whose async runtime
+      # links liburing — it cannot start without it (release.yml's site-build
+      # step records the v0.2.10 failure this caused).
+      - name: Install liburing
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
+
+      - name: Install the site-builder compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ inputs.builder != '' && inputs.builder || inputs.version }}
+
+      - name: Generate documentation website
+        env:
+          YO_STD: ${{ github.workspace }}/std
+        run: |
+          # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
+          # renames — `insert`, `read_to_string` — landed 2026-08-25); the
+          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # the site-builder compile and the `yo doc` runs the site binary
+          # spawns must resolve std from the checkout, exactly like the
+          # `yo build` bootstrap does.
+          yo compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
+          /tmp/build-site --output yo-out/site --version "${{ inputs.version }}" --yo yo
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: yo-out/site
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4

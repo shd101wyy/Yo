@@ -13,7 +13,7 @@ pragma(Pragma.AllowUnsafe);
 // UnixAddr - sockaddr_un buffer with pointer and length
 // ============================================================================
 UnixAddr :: struct(
-  buf : ?*(u8),
+  buf : ?*u8,
   len : u32
 );
 export(UnixAddr);
@@ -32,7 +32,7 @@ socket_dgram :: (fn() -> IoFuture)(
 );
 // Bind a socket to a local Unix address.
 // Returns 0 on success, -errno on failure.
-bind :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IoFuture)(
+bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_bind_start(sockfd, addr, addrlen)
 );
 // Listen for incoming connections on a Unix socket.
@@ -42,22 +42,22 @@ listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
 );
 // Accept an incoming connection.
 // Returns fd on success, -errno on failure.
-accept :: (fn(sockfd : i32, addr : *(u8), addrlen : *(u32)) -> IoFuture)(
+accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture)(
   __yo_async_accept_start(sockfd, addr, addrlen)
 );
 // Connect to a Unix socket address.
 // Returns 0 on success, -errno on failure.
-connect :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IoFuture)(
+connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_connect_start(sockfd, addr, addrlen)
 );
 // Send data on a connected Unix socket.
 // Returns number of bytes sent on success, -errno on failure.
-send :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IoFuture)(
+send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
 // Receive data from a connected Unix socket.
 // Returns number of bytes received on success, -errno on failure.
-recv :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IoFuture)(
+recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
 // Close a Unix socket file descriptor.
@@ -71,7 +71,7 @@ close :: (fn(fd : i32) -> IoFuture)(
 // Create a sockaddr_un from a filesystem path.
 // The path must be a null-terminated C string.
 // Returns a UnixAddr with allocated buffer. Caller must free the buffer.
-make_sockaddr_un :: (fn(path : *(u8)) -> UnixAddr)({
+make_sockaddr_un :: (fn(path : *u8) -> UnixAddr)({
   size := sockaddr_un_size();
   cond(
     (size == usize(0)) => UnixAddr(.None, u32(0)),
@@ -89,7 +89,7 @@ make_sockaddr_un :: (fn(path : *(u8)) -> UnixAddr)({
   )
 });
 // Extract the path from a sockaddr_un buffer.
-get_path :: (fn(addr_buf : *(u8)) -> *(u8))(
+get_path :: (fn(addr_buf : *u8) -> *u8)(
   __yo_sockaddr_un_get_path(addr_buf)
 );
 // Free a UnixAddr buffer.

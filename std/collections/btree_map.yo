@@ -1,24 +1,21 @@
 //! Sorted map backed by a sorted array with O(log n) lookup via binary search.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { BTreeMap } :: import "std/collections/btree_map";
 //!
 //! m := BTreeMap(String, i32).new();
-//! m.set(String.from("b"), 2);
-//! m.set(String.from("a"), 1);
+//! m.insert(String.from("b"), 2);
+//! m.insert(String.from("a"), 1);
 //! // Iteration order: a, b
 //! ```
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("./array_list");
+{ MapEntry } :: import("./entry.yo");
+export(MapEntry);
 { assert } :: import("../assert");
 open(import("../string"));
-/// Key-value pair entry stored in a BTreeMap.
-BTreeEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(key : K, value : V)
-);
-export(BTreeEntry);
 // Internal result from binary search.
 _FindResult :: struct(idx : usize, found : bool);
 /// Sorted map maintaining entries in key order.
@@ -26,7 +23,7 @@ _FindResult :: struct(idx : usize, found : bool);
 BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   ref(
     struct(
-      _entries : ArrayList(BTreeEntry(K, V))
+      _entries : ArrayList(MapEntry(K, V))
     )
   )
 );
@@ -35,7 +32,7 @@ impl(
   BTreeMap(K, V),
   // Create an empty map.
   new : (fn() -> Self)(
-    Self(_entries : ArrayList(BTreeEntry(K, V)).new())
+    Self(_entries : ArrayList(MapEntry(K, V)).new())
   ),
   // Number of entries.
   len : (fn(self : Self) -> usize)(
@@ -68,7 +65,7 @@ impl(
     _FindResult(lo, false)
   }),
   // Retrieve the value associated with key `k`.
-  get : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
+  get : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => .Some(self._entries(r.idx).value),
@@ -77,16 +74,16 @@ impl(
   }),
   // Insert or update the value for key `k`.
   // For new keys: append at end then shift-left to correct sorted position.
-  set : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> unit)({
+  insert : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> unit)({
     r := self._find(k);
     cond(
       r.found => {
         entry := self._entries(r.idx);
-        &(self._entries(r.idx)).* = BTreeEntry(K, V)(key : entry.key, value : v);
+        &(self._entries(r.idx)).* = MapEntry(K, V)(key : entry.key, value : v);
       },
       true => {
         // Append new entry then bubble left to sorted position
-        self._entries.push(BTreeEntry(K, V)(key : k, value : v));
+        self._entries.push(MapEntry(K, V)(key : k, value : v));
         pos := (self._entries.len() - usize(1));
         while(pos > r.idx, pos = (pos - usize(1)), {
           curr := self._entries(pos);
@@ -98,7 +95,7 @@ impl(
     );
   }),
   // Remove the entry with key `k`. Returns the old value, or .None.
-  remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> ?(V))({
+  remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => {
@@ -109,15 +106,19 @@ impl(
       true => .None
     )
   }),
-  // Return the entry with the smallest key, or .None.
-  min : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
+  /// Return the entry with the smallest key, or `.None`.
+  ///
+  /// Named `first_entry`/`last_entry` rather than `min`/`max` because this is a
+  /// MAP: it returns a whole `MapEntry`, not a key. Sets keep `min`/`max`,
+  /// which do return the element (plans/STD_API_AUDIT.md §5).
+  first_entry : (fn(self : Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(usize(0)))
     )
   ),
-  // Return the entry with the largest key, or .None.
-  max : (fn(self : Self) -> ?(BTreeEntry(K, V)))(
+  /// Return the entry with the largest key, or `.None`.
+  last_entry : (fn(self : Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries(self._entries.len() - usize(1)))
@@ -125,11 +126,11 @@ impl(
   )
 );
 /**
-* Value iterator for BTreeMap - yields BTreeEntry(K, V) in sorted key order
+* Value iterator for BTreeMap - yields MapEntry(K, V) in sorted key order
 */
 BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _entries : ArrayList(BTreeEntry(K, V)),
+    _entries : ArrayList(MapEntry(K, V)),
     _index : usize
   )
 );
@@ -137,8 +138,8 @@ impl(
   generic(K : Type, V : Type),
   BTreeMapIter(K, V),
   Iterator(
-    Item : BTreeEntry(K, V),
-    next : (fn(inout(self) : Self) -> Option(BTreeEntry(K, V)))(
+    Item : MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))(
       cond(
         (self._index >= self._entries.len()) => .None,
         true => {
@@ -153,16 +154,20 @@ impl(
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
-  into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
-    BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
+  IntoIterator(
+    Item : MapEntry(K, V),
+    IntoIter : BTreeMapIter(K, V),
+    into_iter : (fn(self : Self) -> BTreeMapIter(K, V))(
+      BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0))
+    )
   )
 );
 /**
-* Pointer iterator for BTreeMap - yields pointers to BTreeEntry(K, V) in sorted key order
+* Pointer iterator for BTreeMap - yields pointers to MapEntry(K, V) in sorted key order
 */
 BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
-    _entries : ArrayList(BTreeEntry(K, V)),
+    _entries : ArrayList(MapEntry(K, V)),
     _index : usize
   )
 );
@@ -170,8 +175,8 @@ impl(
   generic(K : Type, V : Type),
   BTreeMapIterPtr(K, V),
   Iterator(
-    Item : *(BTreeEntry(K, V)),
-    next : (fn(inout(self) : Self) -> Option(*(BTreeEntry(K, V))))(
+    Item : *MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(*MapEntry(K, V)))(
       cond(
         (self._index >= self._entries.len()) => .None,
         true =>
@@ -258,10 +263,10 @@ impl(
   BTreeMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(inout(self) : Self, idx : K, where(K <: Ord(K))) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : K, where(K <: Ord(K))) -> *Self.Output)({
       r := self._find(idx);
       assert(r.found, "BTreeMap: key not found");
-      entry_ptr := &(self._entries(r.idx));
+      entry_ptr := &self._entries(r.idx);
       &(entry_ptr.*.value)
     })
   )

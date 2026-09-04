@@ -1,0 +1,60 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ json_parse, json_stringify, JsonValue, JsonError, ToJson, FromJson, json_encode, json_decode, json_parse_result } :: import("std/encoding/json");
+{ HashMap } :: import("std/collections/hash_map");
+{ ArrayList } :: import("std/collections/array_list");
+{ Error, AnyError, Exception } :: import("std/error");
+// ===== ToJson / FromJson =====
+_TPoint :: struct(x : i32, y : i32);
+impl(
+  _TPoint,
+  ToJson(
+    to_json : (fn(inout(self) : Self) -> JsonValue)({
+      keys := ArrayList(String).new();
+      values := ArrayList(JsonValue).new();
+      keys.push(`x`);
+      values.push(self.x.to_json());
+      keys.push(`y`);
+      values.push(self.y.to_json());
+      JsonValue.Object(keys : keys, values : values)
+    })
+  ),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))({
+      xv := match(
+        v.get(`x`),
+        .Some(j) => match(
+          i32.from_json(j),
+          .Ok(n) => n,
+          .Err(e) => {
+            return(.Err(e));
+          }
+        ),
+        .None => {
+          return(.Err(.Other(`missing field x`)));
+        }
+      );
+      yv := match(
+        v.get(`y`),
+        .Some(j2) => match(
+          i32.from_json(j2),
+          .Ok(n2) => n2,
+          .Err(e2) => {
+            return(.Err(e2));
+          }
+        ),
+        .None => {
+          return(.Err(.Other(`missing field y`)));
+        }
+      );
+      .Ok(Self(x : xv, y : yv))
+    })
+  )
+);
+test("opt decode", {
+  match(
+    json_decode(Option(i32), `null`),
+    .Ok(o) => assert(o.is_none(), "null decodes to None"),
+    .Err(_) => assert(false, "null decode should succeed")
+  );
+});

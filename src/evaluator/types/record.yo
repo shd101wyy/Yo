@@ -77,9 +77,7 @@ evaluate_module_field :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("evaluate_module_field: ?= (default value) is not yet supported (Phase 3)"),
-          false,
-          .None
+          String.from("evaluate_module_field: ?= (default value) is not yet supported (Phase 3)")
         )
       )
     );
@@ -90,9 +88,7 @@ evaluate_module_field :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Cannot use \"::\" for module field. Use \":=\" instead.\nAll module fields are compile-time only by default."),
-          false,
-          .None
+          String.from("Cannot use \"::\" for module field. Use \":=\" instead.\nAll module fields are compile-time only by default.")
         )
       )
     );
@@ -103,22 +99,18 @@ evaluate_module_field :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("evaluate_module_field: assigned value form is not yet supported (Phase 3)"),
-          false,
-          .None
+          String.from("evaluate_module_field: assigned value form is not yet supported (Phase 3)")
         )
       )
     );
   });
   // Main case: label: type
-  if(!(ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(expr, ":", Option(usize).Some(usize(2))), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected label for module field, got ${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected label for module field, got ${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -127,14 +119,12 @@ evaluate_module_field :: (
   label_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   type_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier
-  if(!(is_valid_variable_name(label_expr)), {
+  if(!is_valid_variable_name(label_expr), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(label_expr),
-          `Expected identifier for module field label, got ${ast_expr_to_string(label_expr)}`,
-          false,
-          .None
+          `Expected identifier for module field label, got ${ast_expr_to_string(label_expr)}`
         )
       )
     );
@@ -149,14 +139,12 @@ evaluate_module_field :: (
   env_mut.module_path = te_info.env.module_path;
   env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
   env_mut.input_string = te_info.env.input_string;
-  if(!(is_type_value(te_info.value)), {
+  if(!is_type_value(te_info.value), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(type_expr),
-          `Expected type for module field, got ${ast_expr_to_string(type_expr)}`,
-          false,
-          .None
+          `Expected type for module field, got ${ast_expr_to_string(type_expr)}`
         )
       )
     );

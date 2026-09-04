@@ -85,9 +85,7 @@ evaluate_derive_rule :: (
       dyn(
         format_error_message(
           tok,
-          String.from("derive_rule requires exactly 2 arguments"),
-          false,
-          .None
+          String.from("derive_rule requires exactly 2 arguments")
         )
       )
     );
@@ -104,9 +102,7 @@ evaluate_derive_rule :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive_rule: first argument must be a trait name or trait constructor call"),
-            false,
-            .None
+            String.from("derive_rule: first argument must be a trait name or trait constructor call")
           )
         )
       );
@@ -124,9 +120,7 @@ evaluate_derive_rule :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive_rule: failed to evaluate derive function"),
-            false,
-            .None
+            String.from("derive_rule: failed to evaluate derive function")
           )
         )
       );
@@ -141,30 +135,26 @@ evaluate_derive_rule :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive_rule: derive function has no compile-time value"),
-            false,
-            .None
+            String.from("derive_rule: derive function has no compile-time value")
           )
         )
       );
       EvalValue.UnitVal
     }
   );
-  if(!(is_func_val(derive_fn_val)), {
+  if(!is_func_val(derive_fn_val), {
     exn.throw(
       dyn(
         format_error_message(
           tok,
-          String.from("derive_rule: second argument must be a function"),
-          false,
-          .None
+          String.from("derive_rule: second argument must be a function")
         )
       )
     );
   });
   // Store in the global registry (value + Func type).
-  _set := g_derive_rules.set(key.clone(), derive_fn_val);
-  _sett := g_derive_rule_types.set(key, EvalValue.TypeVal(derive_fn_info.ty));
+  _set := g_derive_rules.insert(key.clone(), derive_fn_val);
+  _sett := g_derive_rule_types.insert(key, EvalValue.TypeVal(derive_fn_info.ty));
   out := new_expr_info(env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);

@@ -27,7 +27,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Composite types:](#composite-types)
     - [Pointer types:](#pointer-types)
     - [Static/Dynamic dispatch types:](#staticdynamic-dispatch-types)
-    - [Value Types vs Object Types](#value-types-vs-object-types)
+    - [Value Types vs Reference-Semantics Types](#value-types-vs-reference-semantics-types)
   - [Variable Declaration](#variable-declaration)
     - [No variable shadowing](#no-variable-shadowing)
   - [Type inference](#type-inference)
@@ -41,13 +41,13 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Partial Application with `_`](#partial-application-with-_)
   - [Type Methods](#type-methods)
   - [recur](#recur)
-  - [Object Types and Memory Management](#object-types-and-memory-management)
-    - [Object Type](#object-type)
+  - [Reference-Semantics Types and Memory Management](#reference-semantics-types-and-memory-management)
+    - [Reference-Semantics Type](#reference-semantics-type)
     - [Compile-Time Reference Counting Optimization](#compile-time-reference-counting-optimization)
 - [Pointers](#pointers)
   - [Pointer Operations](#pointer-operations)
-  - [Pointer Arithmetic Operations](#pointer-arithmetic-operations)
-  - [Pointer Operators Reference](#pointer-operators-reference)
+  - [Pointer Arithmetic and Comparison](#pointer-arithmetic-and-comparison)
+  - [Pointer Operations Reference](#pointer-operations-reference)
   - [The consume Function](#the-consume-function)
   - [Nullable Pointers](#nullable-pointers)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
@@ -84,7 +84,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Pattern Matching](#pattern-matching)
 - [String](#string)
   - [String literal as `str` or C string pointer](#string-literal-as-str-or-c-string-pointer)
-  - [String (Immutable String)](#string-immutable-string)
+  - [String (Growable UTF-8 String)](#string-growable-utf-8-string)
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
 - [Collections](#collections)
   - [ArrayList](#arraylist)
@@ -95,7 +95,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Basic Closure Syntax](#basic-closure-syntax)
   - [Closure Capture Semantics](#closure-capture-semantics)
   - [Closure Type Restrictions](#closure-type-restrictions)
-  - [Closures with Object Types](#closures-with-object-types)
+  - [Closures with Reference-Semantics Types](#closures-with-reference-semantics-types)
 - [Box and Boxing](#box-and-boxing)
   - [Box Type](#box-type)
   - [Usage Examples](#usage-examples)
@@ -132,7 +132,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Compile-Time Assertions](#compile-time-assertions)
   - [Testing Expected Errors](#testing-expected-errors)
   - [Test Organization](#test-organization)
-  - [Testing with Object Types](#testing-with-object-types)
+  - [Testing with Reference-Semantics Types](#testing-with-reference-semantics-types)
   - [Test Files](#test-files)
 - [Meta-programming](#meta-programming)
   - [Macro functions](#macro-functions)
@@ -176,7 +176,7 @@ is visible at the call site, so what you see is what runs.
 
 - **No operator precedence** (same-operator chains left-associate; adjacent different operators require explicit parentheses)
 - **No variable shadowing** (similar to Zig)
-- **No stop-the-world GC** (optional thread-local cycle collector for object types)
+- **No stop-the-world GC** (optional thread-local cycle collector for reference-semantics types)
 
 ## Inspiration
 
@@ -234,12 +234,12 @@ yo build run          # Build and run the executable
 yo build test         # Run tests
 yo build --list-steps # List available build steps
 yo build --cc zig     # Use zig as the C compiler
-yo build --target wasm-emscripten  # Cross-compile for WASM (Emscripten)
+yo build --target wasm32-unknown-emscripten  # Cross-compile for WASM (Emscripten)
 
 # Direct compilation (single file, no build.yo needed)
 yo compile hello.yo -o hello
 yo compile hello.yo --cc clang -o hello
-yo compile hello.yo --target wasm-emscripten -o hello.html
+yo compile hello.yo --target wasm32-unknown-emscripten -o hello.html
 
 # Formatting (fixed style, 2-space indentation)
 yo fmt                     # Format all .yo files in the current directory
@@ -304,9 +304,13 @@ y :: 14;
 // or
 (3 + 4) - 5;
 
-// Operators in Yo are combination of the following characters:
-// = + - * / < > @ $ ~ & % | ! ? ^ . : \\ #
-// They can be used as infix operators with two arguments
+// Yo has a CLOSED operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md).
+// A run of operator characters is split greedily against two fixed tables;
+// anything not in them is a LEX ERROR, not a user-defined operator.
+//   two-char: != && -> :: := <: << <= == => >= >> ?= ||
+//   one-char: ! # % & * + - / : < = > ? ^ | ~
+//   dot family: . .. ..= ... ...#
+// Infix operators are translated to a dot method call:
 // But they will be translated as dot method call:
 (3 + 4) * 5; // is the same as
 3.(+)(4).(*)(5);
@@ -398,7 +402,7 @@ A type can have the following **Kind**:
 - `Impl(Trait)` (static dispatch type that implements Trait)
 - `Dyn(Trait)` (dynamic dispatch type that implements Trait)
 
-#### Value Types vs Object Types
+#### Value Types vs Reference-Semantics Types
 
 **Value Types** (stack-allocated, copied on assignment):
 
@@ -507,7 +511,7 @@ Variables can be shadowed in different block scopes:
 ### Type inference
 
 ```rust
-// String is an object type with automatic reference counting
+// String is an reference-semantics type with automatic reference counting
 (my_string : String) = String.from("Hello, world"); // Heap-allocated
 my_string_2 := my_string; // Both point to the same object (RC incremented)
 
@@ -519,11 +523,11 @@ my_int_2 := my_int; // my_int_2 is a copy
 (my_int_array : Array(i32, 3)) = [1, 2, 3]; // Stack-allocated
 my_int_array := [1, 2, 3]; // Array(i32, 3)
 
-// ArrayList is an object type
+// ArrayList is an reference-semantics type
 (my_array_list : ArrayList(i32)) = ArrayList(i32).new(); // Heap-allocated, RC
 
-// Enum/ADT can be value or object type depending on definition
-Person :: struct(name : String, age : i32); // Value type (but contains object field)
+// Enum/ADT can be value or reference-semantics type depending on definition
+Person :: struct(name : String, age : i32); // Value type (but holds a reference-semantics field)
 p := Person(name : String.from("Alice"), age : 30);
 _(name, age) := p; // name : String, age : i32
 ```
@@ -585,9 +589,7 @@ p2 := BoolPoint(true, false);
 Named arguments in Yo must be provided in the same order as they are defined in the function signature:
 
 ```rust
-add :: (fn(x : i32, y : i32) -> i32)
-  (x + y)
-;
+add :: (fn(x : i32, y : i32) -> i32)((x + y));
 
 add(3, 4);        // OK: Positional arguments
 add(x: 3, y: 4);  // OK: Named arguments in correct order
@@ -603,9 +605,9 @@ Default parameter values can be defined using `?=` syntax:
 create_user :: (fn(
     name: String,
     (age: i32) ?= 18,
-  ) -> User)
+  ) -> User)(
   User(name: name, age: age)
-;
+);
 
 create_user(name: "Alice");  // Uses defaults: age=18
 create_user(name: "Bob", age: 30);  // Explicit age
@@ -618,9 +620,7 @@ create_user(name: "Bob", age: 30);  // Explicit age
 You can use `generic` to define generic functions:
 
 ```rust
-identity :: (fn(generic(T : Type), arg : T) -> T)
-  arg
-;
+identity :: (fn(generic(T : Type), arg : T) -> T)(arg);
 
 x := identity(12);     // Type inferred: x: i32
 y := identity(true);   // Type inferred: y: bool
@@ -631,9 +631,7 @@ y := identity(true);   // Type inferred: y: bool
 You can use `where` clause to add type constraints on generic parameters:
 
 ```rust
-add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)
-  (x + y)
-;
+add :: (fn(generic(T : Type), x: T, y: T, where(T <: Add(T))) -> T)((x + y));
 ```
 
 `where` clause can specify multiple constraints:
@@ -887,7 +885,7 @@ float_ptr := *(f32)(ptr);  // Cast pointer to *(f32)
 
 ### Pointer Arithmetic and Comparison
 
-Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics object types compare VALUES via their own `Eq` impls.
+Pointer arithmetic uses methods — `p.add(n)`, `p.sub(n)`, `p.offset_from(q)` — which require `unsafe(...)`. Pointer comparison uses the ordinary operators (`==`, `!=`, `<`, `<=`, `>`, `>=`) via the `Eq`/`Ord` impls on `*(T)` and stays safe — comparing addresses can't violate memory safety. Note that `*(T) ==` compares ADDRESSES (identity), while reference-semantics types compare VALUES via their own `Eq` impls.
 
 ```rust
 test("Pointer arithmetic", {
@@ -946,11 +944,12 @@ For more pointer examples, see [ptr.test.yo](../tests/ptr.test.yo).
 Yo uses `Option(*(T))` for nullable pointers:
 
 ```rust
-// malloc returns Option(*(T))
+// malloc returns Option(*(void)) — it is NOT generic, so cast before use.
 some_ptr := malloc(sizeof(i32));
 match(some_ptr,
-  .Some(ptr) => {
-    ptr.* = 42;
+  .Some(vp) => {
+    ptr := *(i32)(vp);
+    ptr.* = i32(42);
     printf("value: %d\n", ptr.*);
     free(some_ptr);
   },
@@ -958,7 +957,7 @@ match(some_ptr,
 );
 ```
 
-**Note**: Raw pointers are unsafe. Use object types for safe memory management whenever possible.
+**Note**: Raw pointers are unsafe. Use reference-semantics types for safe memory management whenever possible.
 
 ### Memory Safety
 
@@ -966,9 +965,9 @@ For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers t
 
 Yo's safety model is layered (the design plan is [plans/MEMORY_SAFETY.md](../../plans/MEMORY_SAFETY.md)):
 
-- **`object` types** are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
+- **Reference-semantics types** (`ref(struct(...))` / `ref(enum(...))`, and the `atomic(ref(...))` variants) are reference-counted and automatically freed (RC + cycle removal). Memory-safe by construction.
 - **`Iso(T)` / `Arc(T)`** provide affine and atomic-RC ownership for transfer and thread-shared cases.
-- **`*(T)` raw pointers** require an explicit `unsafe(...)` wrap around operations that dereference, do arithmetic on, or consume-through a pointer. Without the wrap, those operations are compile errors.
+- **`*(T)` raw pointers** are available only in a file that declares `pragma(Pragma.AllowUnsafe);`. Inside such a file the `unsafe(...)` wrap is the per-operation AUDIT MARKER that `yo unsafe-report` keys on — and the convention `std/`, `src/` and `tests/` follow — not a second compiler gate: a bare `p.*` in a pragma'd file compiles. In a file WITHOUT the pragma the whole raw-pointer surface is rejected, including the `*(T)` type itself.
 
 `unsafe(...)` is a regular builtin call that takes exactly one expression. It is purely a compile-time marker — at codegen time it lowers to its inner expression, no runtime cost.
 
@@ -992,7 +991,7 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
 
 **What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`), and `consume(p.* = v)`.
 
-**What stays safe**: taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe).
+**What needs no additional `unsafe(...)` wrap** (inside a file that already declares `pragma(Pragma.AllowUnsafe);`): taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe). None of these are available in SAFE code — without the pragma, `&(x)` is rejected at the construction site and a `*(T)` type in any signature is rejected outright.
 
 The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. A file must declare `pragma(Pragma.AllowUnsafe);` at the top before it can use `unsafe(...)` or perform raw pointer operations. `std/`, `src/`, and `tests/` files declare this pragma explicitly; user code (`main.yo`, the rest of your project) defaults to safe mode and gets a compile error if it tries to use `unsafe(...)`.
 
@@ -1061,7 +1060,7 @@ double_both :: (fn(inout(x) : i32, inout(y) : i32) -> unit)({
 
 ### RAII (Resource Acquisition Is Initialization)
 
-Yo automatically manages memory for object types through reference counting. When an object's reference count reaches zero, it is automatically freed.
+Yo automatically manages memory for reference-semantics types through reference counting. When an object's reference count reaches zero, it is automatically freed.
 
 ```rust
 test :: (fn() -> unit)({
@@ -1081,24 +1080,26 @@ my_unit := (); // my_unit: unit.
 
 my_i32_tuple := (12);  // my_i32_tuple: i32
 // Needs extra comma to make it a tuple
-my_i32_tuple := (12,); // my_i32_tuple: (i32,). Free type
+my_i32_tuple := (12,); // my_i32_tuple: (i32;). Free type
 
-(i32_tuple: (i32, i32, i32)) = (1, 2, 3); // tuple: (i32, i32, i32). Free type
+// NOTE the separator: tuple VALUES use commas, tuple TYPES use SEMICOLONS.
+(i32_tuple : (i32; i32; i32)) = (1, 2, 3);
 
-mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32, bool, *u8[6,'\0']). Free type
+mixed_tuple := (1, true, "Hello"); // mixed_tuple: (i32; bool; str)
 
-(a, b, c) := mixed_tuple; // a: i32, b: bool, c: *u8[6,'\0']. Free type
+(a, b, c) := mixed_tuple; // a: i32, b: bool, c: str
 
 a := mixed_tuple.0;
 b := mixed_tuple.1;
 c := mixed_tuple.2;
 
-// NOTE: For a tuple that has only 1 element, we need to add a comma to make it a tuple.
-MyTuple := (i32)
+// NOTE: a 1-element tuple TYPE still needs the separator, or it is just the
+// element type itself.
+MyTuple :: (i32);
 // is equivalent to
-MyTuple := i32;
-// to make it a tuple, we need to add a comma
-MyTuple := (i32,);
+MyTuple :: i32;
+// to make it a 1-element tuple type:
+MyTuple :: (i32;);
 ```
 
 ## Array & Ranges
@@ -1121,7 +1122,7 @@ the underlying buffer is freed are excluded by construction:
   static string data — `s(a..b)` on a `str` is a zero-copy window of
   static bytes, which can never dangle.
 - **Element access hands out values, never interior pointers** —
-  `xs.get(i)` returns the element (a handle for object types, which
+  `xs.get(i)` returns the element (a handle for reference-semantics types, which
   survives container growth; a copy for struct types, written back with
   `xs(i) = v`). See [FLOWABILITY.md](./FLOWABILITY.md).
 
@@ -1138,7 +1139,7 @@ part := list(usize(1)..usize(3));   // [2, 3]
 part2 := list(usize(1)..=usize(3)); // [2, 3, 4]
 
 // Mutating the copy does not affect the source
-part.set(usize(0), i32(99));
+part(usize(0)) = i32(99);
 assert(list(usize(1)) == i32(2));
 ```
 
@@ -1151,7 +1152,9 @@ Arrays in Yo come with useful methods:
 Create an array filled with a value:
 
 ```rust
-// Fill at runtime
+// `fill` requires a COMPILE-TIME value (it is defined under `where(T <: Comptime)`
+// and takes a `comptime(val)`), so there is no runtime fill. The two forms below
+// differ only in binding the comptime result to a runtime (`:=`) or comptime (`::`) name.
 zeros := Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
 
 // Fill at compile-time
@@ -1164,12 +1167,11 @@ Get the length of an array:
 
 ```rust
 arr := [1, 2, 3, 4, 5];
-len := arr.len();  // 5 (compile-time known for fixed-size arrays)
+len := arr.len();  // 5 (a runtime value; the length is in the TYPE, reachable
+                   //    at compile time via Type.get_info([i32; 5]) -> .Array(_, n))
 
 // Works with generic arrays
-generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)
-  arr.len()  // Returns n
-;
+generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)(arr.len());  // Returns n
 ```
 
 ### Array Length Inference
@@ -1250,10 +1252,15 @@ use_cond :: (fn(x: i32) -> unit)(
 
 `if(condition, then, else)`
 
-The `if` in Yo is actually a macro function (see `std/prelude.yo`):
+`if` is sugar for `cond`: the compiler desugars every `if(...)` call to
+`cond(condition => then, true => else)` at parse time, so downstream
+passes (including the async state machine) see a real `cond` node. The
+prelude still carries the equivalent macro definition as the
+specification and as a fallback for dynamically constructed ASTs (see
+`std/prelude.yo` and `plans/MACRO_POLICY.md`):
 
 ```rust
-// Definition in prelude.yo
+// Definition in prelude.yo (spec/fallback — normally desugared at parse time)
 if :: (fn(
         quote(condition): Expr,
         quote(then): Expr,
@@ -1272,12 +1279,11 @@ main :: (fn() -> unit)({
   // If no return type, it is unit
   number := 3;
 
-  if number < 5, then: {
+  if(number < 5, then: {
     println("condition was true");
-  },
-  else: {
+  }, else: {
     println("condition was false");
-  };
+  });
 
   if(number < 5, println("condition was true"), println("condition was false"));
 });
@@ -1285,8 +1291,8 @@ main :: (fn() -> unit)({
 
 ### while
 
-`while(condition, do: body)` or
-`while(condition, steps, do: body)`
+`while(condition, body)` or
+`while(condition, step, body)`
 
 ```rust
 factorial :: (fn(n: i32) -> i32)({
@@ -1358,7 +1364,7 @@ for(iter_expr, (variable) => {
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For object element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types, `x` is a handle to the element, so mutating `x` in the body mutates the element in place. In-place mutation of struct/scalar elements uses an index loop with index writes:
 
 ```rust
 // Value form — each `x` is yielded by value.
@@ -1369,7 +1375,7 @@ for(list, (value) => {
   println(value);
 });
 
-// Object elements are handles — mutation lands in the collection.
+// Reference-semantics elements are handles — mutation lands in the collection.
 for(names, (s) => {
   s.push_str("!");
 });
@@ -1388,7 +1394,12 @@ Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, et
 
 The old borrow form `for(coll, inout(x) => body)` was removed (interior refs into reallocatable storage are inexpressible — see [FLOWABILITY.md](./FLOWABILITY.md)); using it produces a compile error with the migration recipe.
 
-Strings have explicit `chars()` (rune iteration) and `bytes()` (byte iteration).
+Strings have explicit `chars()` (rune iteration), `char_indices()` (rune
+iteration carrying each rune's byte offset) and `bytes()` (byte iteration).
+String indexing itself is BYTE-based, like Rust and Go: `len()` is the byte
+count at O(1), and every index a string method takes or returns is a byte
+offset on a UTF-8 character boundary. The rune count is `s.chars().count()`.
+See [STRINGS.md](./STRINGS.md) for the full contract.
 
 ## Algebraic Data Types (ADT)
 
@@ -1641,26 +1652,26 @@ newtype(
 
 ```rust
 rune :: newtype(
-  c : u32
+  char : u32
 );
 impl(rune,
   // Constructor with validation
-  from_u32 : ((fn(value: u32) -> Option(Self))
+  from_u32 : (fn(value : u32) -> Option(Self))(
     cond(
-      ((value <= u32(0x10FFFF)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
+      ((value <= u32(0x10FFFF)) && ((value < 0xD800) || (value > 0xDFFF))) => .Some(Self(char : value)),
       true => .None
     )
   ),
 
-  to_u32 : ((fn(self: Self) -> u32) self.c),
+  to_u32 : (fn(self : Self) -> u32)(self.char),
 
-  is_ascii : ((fn(self: Self) -> bool) (self.c <= 0x7F)),
+  is_ascii : (fn(self : Self) -> bool)(self.char <= u32(0x7F)),
 
   // Constants
-  NUL        : Self(c: 0x00),
-  TAB        : Self(c: 0x09),
-  NEWLINE    : Self(c: 0x0A),
-  SPACE      : Self(c: 0x20)
+  NUL        : Self(char : 0x00),
+  TAB        : Self(char : 0x09),
+  NEWLINE    : Self(char : 0x0A),
+  SPACE      : Self(char : 0x20)
 );
 ```
 
@@ -1683,7 +1694,7 @@ UserId :: newtype(value : i32);
 ## C union
 
 ```rust
-MyNumber := union(
+MyNumber :: union(
   i : i32,
   j : f32
 );
@@ -1705,11 +1716,11 @@ union MyNumber {
 It's the same as the ADT, but all variants have no fields.
 
 ```rust
-State := enum(
+State :: enum(
   Working,
   Failed
 );
-Week := enum(
+Week :: enum(
   Monday, // 0
   Tuesday, // 1
   Wednesday // 2
@@ -1819,9 +1830,14 @@ s := "Hello"; // s : str — a string literal is the builtin static string view 
 s3 := *(u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 ```
 
-### String (Immutable String)
+### String (Growable UTF-8 String)
 
-UTF-8 encoded string.
+Heap-allocated, growable UTF-8 string — the same shape as Rust's `String`. It is
+NOT immutable: `push_str`, `push_string`, `push_byte`, `reserve` and `clear` take
+`inout(self)` and mutate in place. Operators like `+` still produce a new string.
+
+For an immutable, atomically reference-counted string that is safe to share across
+threads, see `std/imm/string`, whose "modification" methods all return a new value.
 
 ```rust
 s := String.new();
@@ -1840,6 +1856,44 @@ greeting := `Hello, ${name}!, age: ${age}`;
 // greeting: String
 // value "Hello, Alice!, age: 16"
 ```
+
+##### Format specifications — `${value:spec}`
+
+An interpolation may carry a format spec after a colon, using Rust's and Python's
+grammar (minus dynamic width/precision):
+
+```text
+spec  := [[fill]align][+][#][0][width][.precision][kind]
+align := "<" | ">" | "^"
+kind  := "x" | "X" | "b" | "o"
+```
+
+```rust
+name := `ada`;
+n := i32(255);
+pi := f64(3.14159);
+
+`[${name:>8}]`    // "[     ada]"   right-align to width 8
+`[${name:<6}]`    // "[ada   ]"     left-align
+`[${name:^7}]`    // "[  ada  ]"    center
+`[${name:*>6}]`   // "[***ada]"     custom fill character
+`${n:x}`          // "ff"           lowercase hex
+`${n:#06x}`       // "0x00ff"       alternate form, zero-padded
+`${pi:.2}`        // "3.14"         two decimals
+`${pi:>8.3}`      // "   3.142"     width applies after precision
+```
+
+Width is counted in CHARACTERS, and zero padding on a number goes between the
+sign or radix prefix and the digits (`${i32(-(42)):08}` is `-0000042`, not
+`000-0042`).
+
+Any value that implements `ToString` accepts the width, fill, alignment and
+truncation parts; numbers additionally accept sign, radix and zero-fill.
+
+The spec is separated from the expression by a colon with **no space before it**.
+A spaced colon is left alone, so an ordinary colon pair inside an interpolation
+keeps its meaning, and a colon inside a call's arguments or inside a string
+literal — `${parts.join(":")}` — is never mistaken for a separator.
 
 ## Collections
 
@@ -1862,7 +1916,7 @@ list.push(i32(42));
 list.push(i32(100));
 list.push(i32(200));
 
-printf("Length: %zu\n", list.length());
+printf("Length: %zu\n", list.len());
 printf("Capacity: %zu\n", list.capacity());
 
 // Get elements by index
@@ -1873,7 +1927,7 @@ match(first,
 );
 
 // Set an element
-list.set(usize(1), i32(150));
+list(usize(1)) = i32(150);
 
 // Pop an element
 popped := list.pop();
@@ -1901,7 +1955,7 @@ Hash map with key-value pairs.
 map := HashMap(i32, i32).new();
 
 // Insert key-value pairs
-result := map.set(i32(1), i32(100));
+result := map.insert(i32(1), i32(100));
 match(result,
   .Ok(opt) => match(opt,
     .None => printf("Inserted new key\n"),
@@ -1919,7 +1973,7 @@ match(value_opt,
 
 // Check if key exists
 cond(
-  (map.has(i32(1))) => printf("Contains key 1\n"),
+  (map.contains_key(i32(1))) => printf("Contains key 1\n"),
   true => printf("Does not contain key 1\n")
 );
 
@@ -1931,7 +1985,7 @@ match(removed,
 );
 
 // Check length and empty
-printf("Length: %zu\n", map.length());
+printf("Length: %zu\n", map.len());
 cond(
   (map.is_empty()) => printf("Map is empty\n"),
   true => printf("Map is not empty\n")
@@ -1952,7 +2006,7 @@ Hash set for unique values.
 set := HashSet(i32).new();
 
 // Insert elements
-result := set.add(i32(42));
+result := set.insert(i32(42));
 match(result,
   .Ok(was_new) => cond(
     was_new => printf("Inserted new element\n"),
@@ -1963,7 +2017,7 @@ match(result,
 
 // Check if has
 cond(
-  (set.has(i32(42))) => printf("Contains 42\n"),
+  (set.contains(i32(42))) => printf("Contains 42\n"),
   true => printf("Does not contain 42\n")
 );
 
@@ -1978,25 +2032,25 @@ cond(
 set1 := HashSet(i32).new();
 set2 := HashSet(i32).new();
 
-set1.add(i32(1));
-set1.add(i32(2));
-set1.add(i32(3));
+set1.insert(i32(1));
+set1.insert(i32(2));
+set1.insert(i32(3));
 
-set2.add(i32(2));
-set2.add(i32(3));
-set2.add(i32(4));
+set2.insert(i32(2));
+set2.insert(i32(3));
+set2.insert(i32(4));
 
 // Union
 union_result := set1.union(set2);
 match(union_result,
-  .Ok(union_set) => printf("Union size: %zu\n", union_set.length()),
+  .Ok(union_set) => printf("Union size: %zu\n", union_set.len()),
   .Error(_) => printf("Union failed\n")
 );
 
 // Intersection
 inter_result := set1.intersection(set2);
 match(inter_result,
-  .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.length()),
+  .Ok(inter_set) => printf("Intersection size: %zu\n", inter_set.len()),
   .Error(_) => printf("Intersection failed\n")
 );
 
@@ -2054,7 +2108,7 @@ match(list.get(usize(0)),
 );
 
 // Insert at index
-match(list.set(usize(1), i32(20)),
+match(list.insert(usize(1), i32(20)),
   .Ok(_) => printf("Inserted at index 1\n"),
   .Error(err) => match(err,
     .IndexOutOfBounds => printf("Index out of bounds\n"),
@@ -2062,15 +2116,17 @@ match(list.set(usize(1), i32(20)),
   )
 );
 
-// Remove at index
-match(list.remove(usize(0)),
-  .Ok(v) => printf("Removed: %d\n", v),
-  .Error(err) => printf("Remove failed\n")
-);
+// Remove at index — remove(idx) returns the element directly and panics on
+// an out-of-bounds index (the Index impl's contract); a RANGE removal that
+// hands the elements back is drain(start .. end), which returns them as a
+// fresh ArrayList. Non-consuming iteration is iter(), into_iter() moves.
+removed := list.remove(usize(0));
+printf("Removed: %d\n", removed);
+drained := list.drain(usize(1) .. usize(3));
 
 // Check if has
 cond(
-  (list.has(i32(20))) => printf("Contains 20\n"),
+  (list.contains(i32(20))) => printf("Contains 20\n"),
   true => printf("Does not contain 20\n")
 );
 
@@ -2084,7 +2140,14 @@ assert(list.is_empty(), "List should be empty");
 
 ## Closure
 
-Yo supports closures (anonymous functions that capture their environment). Closures are automatically reference-counted and can capture variables from their surrounding scope.
+Yo supports closures (anonymous functions that capture their environment).
+
+A closure compiles to a **capture struct** holding the variables it uses. How that struct is stored and called depends on the type it is given:
+
+- **`Impl(Fn(...))` — static dispatch, not reference counted.** The compiler monomorphizes the closure into its own function, passes the capture struct **by value**, and emits a direct call. No heap allocation, no vtable, no reference count. Each closure has its own distinct type (see [Closure Type Restrictions](#closure-type-restrictions)), so this form cannot hold two different closures in one variable.
+- **`Dyn(Fn(...))` — dynamic dispatch, reference counted.** The capture struct is boxed on the heap behind a reference-count header, and the value is a fat pointer of `{data, vtable}`. Use this when closures of different types must share one type — storing them in a collection, returning them from different branches, or accepting any callable. Write `dyn(...)` around the closure to coerce it.
+
+In both cases the *captured values* follow the usual rules: a captured reference-semantics value is retained by the capture and released when the capture is dropped.
 
 Please check [closure.test.yo](../tests/closure.test.yo) for closure examples and usage.
 
@@ -2134,7 +2197,7 @@ test_closure :: (fn() -> unit)({
 Closures capture variables from their environment:
 
 - **Value types** (primitives, structs) are captured by value (copied)
-- **Object types** (reference-counted) are captured by reference
+- **Reference-semantics types** (reference-counted) are captured by reference
 - Captured variables maintain their mutability
 
 ```rust
@@ -2142,7 +2205,7 @@ test_capture :: (fn() -> unit)({
   // Value type - captured by value
   counter := 0;
 
-  // Object type - captured by reference
+  // Reference-semantics type - captured by reference
   data := Box(i32)(42);
 
   closure := ((increment : i32) => {
@@ -2265,7 +2328,7 @@ test("Box assignment behavior", {
 
 ### Box and Reference Counting
 
-`Box(T)` is an object type, so it uses automatic reference counting:
+`Box(T)` is an reference-semantics type, so it uses automatic reference counting:
 
 ```rust
 test("Box reference counting", {
@@ -2291,7 +2354,7 @@ test("Box reference counting", {
 - **Recursive types**: Breaking cycles in type definitions
 
 ```rust
-// Dynamic dispatch requires object types
+// Dynamic dispatch requires reference-semantics types
 impl(i32, SomeTrait(...));
 
 // Value types must be boxed for Dyn
@@ -2343,11 +2406,22 @@ RetI32 :: trait(
   return_i32 : (fn(inout(self) : Self) -> i32)
 );
 
+// `Impl(Trait)` is STATIC dispatch: every path must return the SAME concrete
+// type, which the compiler infers. Returning `bool` from one arm and `i32` from
+// another does not compile.
 get_value :: (fn(use_bool : bool) -> Impl(RetI32))({
   cond(
-    use_bool => return(true),   // bool implements RetI32
-    true => return(i32(42))      // i32 implements RetI32
-  )
+    use_bool => return(i32(1)),
+    true => return(i32(42))
+  );
+});
+
+// To return DIFFERENT concrete types from different arms, erase to `Dyn`:
+get_any :: (fn(use_bool : bool) -> Dyn(RetI32))({
+  cond(
+    use_bool => return(dyn(true)),
+    true => return(dyn(i32(42)))
+  );
 });
 ```
 
@@ -2383,7 +2457,7 @@ See [DYN_DESIGN.md](./DYN_DESIGN.md) for comprehensive documentation on dynamic 
 
 Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
 
-`Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through trait objects.
+`Dyn` types in Yo are reference-counted, like other reference-semantics types. They enable dynamic dispatch through trait objects. This applies to closures too: a `Dyn(Fn(...))` closure is heap-boxed and reference counted, whereas the `Impl(Fn(...))` form is monomorphized, passed by value and carries no reference count of its own.
 
 **Key features:**
 
@@ -2421,9 +2495,7 @@ DogRun :: impl(Dog, Run(
 ));
 
 // Dyn type is reference counted - no & needed
-act :: (fn(s: Dyn(Speak, Run)) -> i32)
-  (s.speak() + s.run())
-;
+act :: (fn(s: Dyn(Speak, Run)) -> i32)((s.speak() + s.run()));
 
 main :: (fn() -> i32)({
   dog := Dog();
@@ -2438,7 +2510,7 @@ main :: (fn() -> i32)({
 ## Impl vs Dyn
 
 - **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
-- **Dyn**: Dynamic dispatch, runtime polymorphism, requires object types
+- **Dyn**: Dynamic dispatch, runtime polymorphism, requires reference-semantics types
 
 ```rust
 // Impl - static dispatch (monomorphization)
@@ -2571,7 +2643,7 @@ safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
   )
 );
 
-result := safe_divide(6, 3);     // result = 2
+result := safe_divide(6, 3, exn);     // result = 2
 safe_divide(10, 0, exn);         // handler fires, unwinds — code after this is unreached
 ```
 
@@ -2615,15 +2687,15 @@ Yo uses **async/await with state machine transformation** for efficient **single
 
 main :: (fn(io : Io) -> unit)({
   task1 := io.async((io : Io)=> {
-    io.await(yield());
+    io.await(yield(io), io);
     return(i32(1));
   });
   task2 := io.async((io : Io)=> {
-    io.await(yield());
+    io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1);  // start task1, returns JoinHandle(i32)
-  handle2 := io.spawn(task2);  // start task2, returns JoinHandle(i32)
+  handle1 := io.spawn(task1, io);  // start task1, returns JoinHandle(i32)
+  handle2 := io.spawn(task2, io);  // start task2, returns JoinHandle(i32)
   r1 := handle1.await(io);  // wait → Option(i32)
   r2 := handle2.await(io);
 });
@@ -2633,8 +2705,8 @@ export(main);
 Key properties:
 
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
-- `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
-- `io.spawn(future)` starts a cold future without waiting, returns `JoinHandle(T)`
+- `io.await(future, e)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future (`e` is the effect record — just `io` for pure-Io tasks)
+- `io.spawn(future, e)` starts a cold future without waiting, returns `JoinHandle(T)`
 - `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
 - All async code runs on the **same thread** (no thread spawning, no data races)
 
@@ -2652,7 +2724,7 @@ Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. It is no longer
 a compiler built-in; it is defined in `std/prelude.yo` as a thin
-`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: Send`, so it only wraps
+`atomic(ref(struct(...)))` wrapper. `Arc(T)` requires `T <: (Send, Acyclic)` — thread-shareable AND unable to form a reference cycle (atomic RC is not cycle-collected) — so it only wraps
 thread-shareable values. Use `Arc(T)` when you want to share a single value.
 Use `atomic(ref(struct(...)))` when defining your own shared types.
 
@@ -2669,7 +2741,7 @@ copy := shared;             // refcount: 1 → 2
 // Cross-thread sharing
 { Thread } :: import("std/thread");
 shared := arc(i32(42));
-t := Thread.spawn(() => {
+t := Thread.spawn((io) => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
 });
 t.join();
@@ -2788,7 +2860,7 @@ test("Test description", {
 
 // Io is implicitly available via `io` in all test bodies
 test("With effects", {
-  io.await(sleep(u64(1000)));
+  io.await(sleep(u64(1000)), io);
 });
 ```
 
@@ -2843,7 +2915,7 @@ test("Compile-time assertions", {
 
   // Type-level assertions
   T :: i32;
-  comptime_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_comptime_string(T) == "i32");
 });
 ```
 
@@ -2959,7 +3031,12 @@ quote((0, unquote_splicing(list.get_args()), 4)); // tuple (0, 1, 2, 3, 4)
 
 ### Macro functions
 
-Macro functions use `quote` and `unquote` for code generation. See `std/prelude.yo` for real examples like the `if` macro.
+Macro functions use `quote` and `unquote` for code generation. A macro is
+an ordinary comptime function with one or both of two signature flags: a
+`quote(name) : Expr` parameter (the caller's raw AST is bound without
+being evaluated) and an `-> unquote(Expr)` return type (the returned AST
+is spliced into the call site). See `std/prelude.yo` for real examples
+like the `if` macro.
 
 - `quote(...)` : Quote an expression
 - `unquote(...)` : Unquote within a quoted expression
@@ -2967,10 +3044,30 @@ Macro functions use `quote` and `unquote` for code generation. See `std/prelude.
 
 `unquote` can only be used within `quote`.
 
-Example from `std/prelude.yo`:
+**Defining a macro requires `pragma(Pragma.AllowMacroDef);`** at the top
+of the file — like `Pragma.AllowUnsafe` for pointer ops, macro definition
+is a per-file opt-in (macros are unhygienic and splice code into their
+callers, so the ability to define them is gated; see
+`plans/MACRO_POLICY.md`). *Calling* macros (`if`, `for`, collection
+literals) never needs the pragma, and neither does working with quoted
+`Expr` values in comptime functions (the mechanism `derive_rule` uses).
 
 ```rust
-// The `if` macro function
+pragma(Pragma.AllowMacroDef);
+
+// Custom macro example — a lazy-body `unless`
+unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
+  quote(
+    cond(unquote(condition) => (), true => unquote(do))
+  )
+);
+```
+
+The prelude's `if` macro is the canonical example (current compilers
+desugar `if(...)` calls to `cond(...)` at parse time, keeping this
+definition as the spec/fallback):
+
+```rust
 if :: (fn(quote(condition): Expr,
         quote(then): Expr,
         (quote(else): Expr) ?= quote(())
@@ -2987,28 +3084,13 @@ if :: (fn(quote(condition): Expr,
 if(true, {
   println("true");
 });
-
-// The `try` macro for Result types
-try :: (fn(quote(expr_to_try): Expr) -> unquote(Expr))({
-  temp :: gensym("try");
-  quote {
-    unquote(temp) := unquote(expr_to_try);
-    match(unquote(temp),
-      .Ok => unquote(temp).value,
-      .Error => {
-        return(unquote(temp).error);
-      }
-    )
-  }
-});
-
-// Custom macro example
-unless :: (fn(quote(condition): Expr, quote(do): Expr) -> unquote(Expr))(
-  quote(
-    if(not(unquote(condition)), unquote(do))
-  )
-);
 ```
+
+> The std `try` macro was removed (it hid a caller-frame `return` and
+> collided conceptually with algebraic effects). Match on the `Result`
+> instead, or define an equivalent macro locally under
+> `pragma(Pragma.AllowMacroDef);` —
+> `tests/codegen-bootstrap/try_macro_assign.yo` keeps a working version.
 
 ## Derive Traits
 
@@ -3016,11 +3098,11 @@ Yo supports automatic trait derivation similar to Rust's `#[derive(...)]`, but u
 
 ### Built-in derives
 
-Five traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, and `ToString`. They work for both structs and enums:
+Six traits have built-in derive support: `Eq`, `Hash`, `Clone`, `Ord`, `Default`, and `ToString`. They work for both structs and enums:
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq, Hash, Clone, Ord, ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
 
 // Now Point supports ==, !=, hashing, cloning, comparison, and string conversion
 main :: (fn() -> unit)({
@@ -3034,30 +3116,31 @@ export(main);
 
 ### User-defined derive rules with `derive_rule`
 
-Trait authors can register custom derive rules using `derive_rule`. This uses Yo's quote/unquote macro system to generate `impl` blocks at compile time:
+Trait authors can register custom derive rules using `derive_rule`. A derive rule is **not a macro** — it is a regular comptime function returning `comptime(Expr)` that builds the `impl` block with `quote`/`unquote`; the `derive` builtin evaluates the returned Expr explicitly (so no `Pragma.AllowMacroDef` is needed):
 
 ```rust
-MyEq :: (fn(comptime(T) : Type) -> comptime(Type))(
-  trait(eq : (fn(self : T, other : T) -> bool))
+MyEq :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
+  trait(my_eq : (fn(self : Self, other : Rhs) -> bool))
 );
 
-derive_rule(MyEq, (fn(comptime(T) : Type, quote(target) : Expr) -> unquote(Expr))({
-  eq_body :: __yo_type_join_fields(
+my_derive_eq :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  eq_body :: Type.join_fields(
     T,
-    (fn(comptime(field) : FieldInfo) -> unquote(Expr))(
-      quote(self.(unquote(field.name.to_expr())).eq(other.(unquote(field.name.to_expr()))))
+    (fn(comptime(field) : FieldInfo) -> comptime(Expr))(
+      quote(self.(#(field.name.to_expr())).my_eq(other.(#(field.name.to_expr()))))
     ),
     quote(&&)
   );
-  quote(
-    impl(unquote(target), MyEq(unquote(target))(
-      eq : ((self, other) => unquote(eq_body))
-    ))
-  )
+  ctx.make_impl(quote(
+    MyEq(...#(trait_params))(
+      my_eq : ((self, other) -> #(eq_body))
+    )
+  ))
 });
+derive_rule(MyEq, my_derive_eq);
 
 Point :: struct(x : i32, y : i32);
-derive(Point, MyEq);  // Uses the registered derive_rule
+derive(Point, MyEq(Point));  // Uses the registered derive_rule
 ```
 
 ## Type Reflection
@@ -3177,9 +3260,7 @@ len :: arr.len();          // 5 (compile-time)
 zeros :: Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
 
 // Generic array function
-create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T; n])
-  Array(T, n).fill(value)
-;
+create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T; n])(Array(T, n).fill(value));
 
 int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
 ```
@@ -3197,7 +3278,7 @@ test("Compile-time assertions", {
 
   // Compile-time type checks
   T :: i32;
-  comptime_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_comptime_string(T) == "i32");
 });
 ```
 
@@ -3286,7 +3367,7 @@ For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMB
 
 Yo provides a unified `Index` trait for custom indexing on any type. Types that implement `Index(Idx)` can use function-call syntax `value(index)` for element access, pointer access via `&(value(index))`, and mutation via the call-syntax assignment `value(index) = new_value`.
 
-The standard library implements `Index` for `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, and `String`. Fixed-size arrays and `str` use built-in indexing with the same syntax; `..` and `..=` ranges on collections produce owned copies (`slice_copy`), while ranges on `str` are zero-copy static windows.
+The standard library implements `Index` for its collection types, including `ArrayList`, `HashMap`, `BTreeMap`, `Deque`, `LinkedList` and `String`. Fixed-size arrays and `str` use built-in indexing with the same syntax; `..` and `..=` ranges on collections produce owned copies (`slice_copy`), while ranges on `str` are zero-copy static windows.
 
 For the full design, trait definition, and implementation details, see [INDEX_TRAIT.md](./INDEX_TRAIT.md).
 

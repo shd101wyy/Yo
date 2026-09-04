@@ -53,7 +53,7 @@ _comptime_expect_error_arg_threw :: (
 )({
   local_exn := Exception(
     throw : (
-      (_err) -> unwind(true)
+      _err -> unwind(true)
     )
   );
   clear_cee_observed_error();
@@ -293,7 +293,7 @@ evaluate_comptime_expect_error :: (
             msg_info.value,
             .Some(v) => {
               err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(v));
-              exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg, false, .None)));
+              exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg)));
             },
             .None => ()
           );
@@ -308,9 +308,7 @@ evaluate_comptime_expect_error :: (
       format_error_message(
         ast_expr_token(expr),
         String.from("Expected compile error, but the expression was evaluated successfully:\n") +
-          ast_expr_to_string(arg_expr),
-        false,
-        .None
+          ast_expr_to_string(arg_expr)
       )
     )
   );

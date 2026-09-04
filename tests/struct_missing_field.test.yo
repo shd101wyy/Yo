@@ -1,0 +1,67 @@
+//! C18 (issues/fixed/struct-literal-missing-field-silently-accepted.md): a
+//! struct literal that OMITS a required field must be rejected — including
+//! inside an `io.async` closure body, the context where the check used to be
+//! SWALLOWED (leaving codegen with no ExprInfo → a `// Failed to transpile`
+//! object with an uninitialised field that SIGSEGVs). The missing-field
+//! error now flags the flow-violation channel so the async-closure-body
+//! swallow re-raises it.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+
+Thing :: ref(struct(a : i32, b : i32, c : i32));
+Defaulted :: ref(struct(a : i32, (b : i32) ?= i32(9)));
+
+test("missing required field is rejected inside an io.async closure", {
+  comptime_expect_error(
+    (fn(io2 : Io) -> Impl(Future(Thing, IoExn)))(
+      io2.async(e => {
+        t := Thing(a : i32(1), b : i32(2)); // omits c
+        t
+      })
+    )
+  );
+  assert(true, "rejected");
+});
+test("missing required field is rejected in a plain function too", {
+  comptime_expect_error(
+    (fn() -> Thing)(Thing(a : i32(1), c : i32(3))) // omits b
+  );
+  assert(true, "rejected");
+});
+test("a complete construction inside io.async still compiles and runs", {
+  make :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
+    io2.async(e => {
+      t := Thing(a : i32(1), b : i32(2), c : i32(3));
+      t.a + t.b + t.c
+    })
+  );
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected");
+        unwind(());
+      }
+    )
+  );
+  r := io.await(make(io), IoExn(io : io, exn : exn));
+  assert(r == i32(6), "complete struct built correctly");
+});
+test("an omitted DEFAULTED field inside io.async is fine", {
+  make :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
+    io2.async(e => {
+      t := Defaulted(a : i32(1)); // b defaults to 9
+      t.a + t.b
+    })
+  );
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected");
+        unwind(());
+      }
+    )
+  );
+  r := io.await(make(io), IoExn(io : io, exn : exn));
+  assert(r == i32(10), "default applied");
+});

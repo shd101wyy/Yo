@@ -1,0 +1,40 @@
+// Regression tests for issues/fixed/inline-builtin-alias-drops-body-arguments.md.
+//
+// Codegen ELIDES a function whose body is a single call to a builtin "inline"
+// function (`__yo_op_add`, `__yo_ms_sleep`, …) and emits that builtin at the
+// CALL SITE with the caller's already-generated argument codes. That textual
+// substitution is only sound when the wrapper passes its parameters straight
+// through, in order. Before the fix, `is_function_value_with_only_builtin_yo_
+// inline_function_call` (src/codegen/utils/index.yo) checked the callee NAME
+// alone, so every wrapper that COMPUTED anything from its parameters had that
+// computation silently discarded — no diagnostic, wrong answer.
+//
+// These assertions run at RUNTIME on values the compiler cannot fold (the
+// inputs come from a mutable local), because a comptime-folded assertion goes
+// through the evaluator and never exercises the codegen path under test.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+/// Computed argument: the `+ 1` is what used to disappear.
+add_with_bump :: (fn(a : i32, b : i32) -> i32)(__yo_op_add(a, b + i32(1)));
+/// Reordered parameters: `b - a`, not `a - b`.
+sub_reversed :: (fn(a : i32, b : i32) -> i32)(__yo_op_sub(b, a));
+/// The shape that MUST keep being inlined — a straight pass-through alias, the
+/// form all of prelude's operator aliases use.
+add_passthrough :: (fn(a : i32, b : i32) -> i32)(__yo_op_add(a, b));
+test("inline-builtin alias keeps a computed argument", {
+  (x : i32) = i32(10);
+  (y : i32) = i32(3);
+  // 10 + (3 + 1) = 14. The bug emitted `((10) + (3))` = 13.
+  assert(add_with_bump(x, y) == i32(14));
+});
+test("inline-builtin alias keeps its parameter order", {
+  (x : i32) = i32(10);
+  (y : i32) = i32(3);
+  // b - a = 3 - 10 = -7. The bug emitted `((10) - (3))` = 7.
+  assert(sub_reversed(x, y) == i32(-7));
+});
+test("a straight pass-through alias still computes correctly", {
+  (x : i32) = i32(10);
+  (y : i32) = i32(3);
+  assert(add_passthrough(x, y) == i32(13));
+});

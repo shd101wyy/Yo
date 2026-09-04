@@ -10,10 +10,48 @@ description: "Use when running tests, setting up test files, or debugging test f
 > it are all deleted (`src/` is now the Yo compiler — see AGENTS.md's note) — there is no bun, npm, or node in this repo outside
 > `vscode-extension/`.
 
+## Testing changes to the repo's `std/`
+
+The installed `yo` resolves `std` from its OWN release bundle (exe-walk-up
+beats the `./std` fallback), so running `yo test` from the repo root after
+editing `std/` silently tests the INSTALLED std, not your edit. Point it at
+the tree explicitly:
+
+```bash
+YO_STD=$PWD/std yo test ./tests/sync/channel.test.yo --parallel 1
+```
+
+A tree-built stage-1 (`yo build` → `yo-out/<target>/bin/yo`) walks up to the
+repo root and finds `./std` naturally, so it needs no override — and it is
+what CI's suite legs run. Changes to `src/` codegen are only observable
+under such a stage-1; the installed seed emits the old code no matter which
+std it reads.
+
+**`--std-path` now works for `yo test` too — but check which binary you are
+running.** `yo test` compiles its generated batch in a SPAWNED child
+(`src/main.yo`), and that child used to be given `--c-compiler`, `--target`,
+`--sanitize` and friends but NOT `--std-path`, so it re-resolved std on its own
+and landed back on the installed bundle. The runner evaluated against one std
+and compiled the batch against another, silently — green for code that was
+never compiled, whenever the edit was behaviour-only rather than shape-changing.
+Fixed 2026-08-26 (`issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md`,
+gated by `tests/cli-cases/test-std-path-forwarded`). **A released `yo` on PATH
+predating that fix still has the old behaviour**, so when the binary is not one
+you built from this tree, prefer `YO_STD` — it rides the inherited environment
+and has always reached the child.
+
+`YO_KEEP_BATCH=1` keeps the generated `.yo`/`.c`/binary next to the test file,
+which is how you confirm a batch really transpiled:
+
+```bash
+YO_KEEP_BATCH=1 YO_STD=$PWD/std yo test ./tests/sync/atomic.test.yo --parallel 1
+bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
+```
+
 ## Scratch experiments
 
 - `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.
-- Type-check it with `yo check tmp/fixme.yo`; compile and run it with `yo compile tmp/fixme.yo --release -o a.out && ./a.out`.
+- Type-check it with `yo check tmp/fixme.yo`; compile and run it with `yo compile tmp/fixme.yo --optimize 2 -o a.out && ./a.out`.
 - Its contents are disposable — there is no need to restore them after modifying it.
 
 ## C codegen tests
@@ -25,6 +63,26 @@ description: "Use when running tests, setting up test files, or debugging test f
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
+## Windows: failing tests report a SIGNAL status, and a runtime-template edit needs TWO builds
+
+`yo test` on Windows used to die with `yo: error: unknown I/O error` at the
+first failing test (the waitpid NTSTATUS bug — fixed 2026-08-29,
+`issues/fixed/yo-test-failing-child-windows-unknown-io-error.md`). A failing
+test now prints `✗` with `Test failed with exit code 22`-style raw statuses
+(SIGABRT), the summary, and exits 1 — same shape as Linux.
+
+Two Windows-specific facts remain:
+
+- An abnormal child termination (assert/abort) is a SIGNAL status:
+  `code() == None`, `signal() != 0`. Clean nonzero exits still give
+  `code() == Some(n)` for n in 0–255.
+- **A `src/codegen/async/runtime_io_*.yo` template edit takes effect in the
+  compiler's OWN runtime only after a SECOND build** — the stage-1 rule
+  again: one `yo build` gives a binary that emits the new runtime but still
+  runs the old one. And `yo build` invoked as `yo-out/<target>/bin/yo.exe`
+  cannot relink itself (LNK1104: Windows will not overwrite a running
+  executable) — compile to a different `-o` path instead.
+
 ## Evaluator-only check (no codegen)
 
 - `yo check <file-or-dir>` — runs the evaluator on a single `.yo` file or every `.yo` under a directory and prints any type / evaluator errors. No C generation, no C compile.
@@ -32,12 +90,173 @@ description: "Use when running tests, setting up test files, or debugging test f
 - Useful as a bulk sanity pass after touching many files: `yo check ./src` or `yo check std/` before running any test.
 - **`check` is evaluator-only.** The async state-machine restrictions are enforced in CODEGEN, so `check` passes straight over them. Use `yo compile src/main.yo --skip-c-compiler` (~3 min) to catch that class.
 
+### `check` + `build` both green is NOT proof for a tree-wide rename
+
+Renaming an existing std method (`HashSet.add` -> `insert`, 2026-08-25) had
+`yo check ./std` 152/152, `yo check ./src` 262/262 AND `yo build` rc=0 all green
+while the tree was broken. Four classes of call site are structurally invisible:
+
+| invisible in | why |
+| --- | --- |
+| macro `quote(...)` bodies | not evaluated until expansion, so nothing type-checks them at definition time |
+| generic trait-impl bodies | `check` never instantiates them (e.g. `FromIterator.from_iter_add`) |
+| generic helpers in the defining module | same — the six `result_set.add` sites inside hash_set's own set-ops |
+| **async closure bodies** (`io.async((e) => {...})`) | the evaluator's deferred trial SWALLOWS the error and codegen emits `// Failed to transpile` — **no error anywhere** |
+
+The last row is the dangerous one. A missed call in `std/fs/walker.yo`'s
+symlink loop made `walk_with` return an EMPTY list, so `yo fetch`, `yo version`
+and both report lints kept building and traversed nothing. See
+`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
+
+### `usize` is 32 bits on wasm32 — the native suite cannot see width bugs
+
+The wasm targets are the only place `usize` is not 64 bits, so any code that
+hardcodes a bit position, a shift amount, or a `1 << k` boundary is a regression
+the whole native suite will pass. Measured 2026-08-27: adding a `>> usize(32)`
+step to `HashMap`/`HashSet`'s power-of-two capacity rounding — correct on the
+hosts — made `with_capacity` round wrong on wasm32, where a shift equal to the
+operand width is undefined. `tests/collections/hash_map.test.yo`'s "rounds up to
+power of 2" failed under `--target wasm32-wasip1` while `yo test ./tests` stayed
+green at 3240/3240.
+
+Derive widths instead of writing them:
+
+```rust
+sh := usize(1);
+while(sh < (sizeof(usize) * usize(8)), { c = (c | (c >> sh)); sh = (sh * usize(2)); });
+```
+
+and in tests, derive the boundary the same way (`bits :: (sizeof(usize) * usize(8))`,
+then `usize(1) << (bits - usize(3))`) rather than writing `usize(1) << usize(61)`,
+which is meaningless on a 32-bit target.
+
+**So run the wasm legs locally for anything touching sizes, capacities or bit
+math**, one file at a time with a timeout so a hang is a verdict rather than a
+wait:
+
+```bash
+for f in $(find tests -name '*.test.yo' -not -path 'tests/internal/*' -not -path 'tests/cli-cases/*' | sort); do
+  YO_STD=$PWD/std timeout 240 "$BIN" test "./$f" --parallel 1 --target wasm32-wasip1 &> "logs/$(echo $f | tr / _).log"
+  echo -e "$?\t$f"
+done
+```
+
+~4 s a file, ~15 min for the corpus, and it reports HANGS (rc=124) that the
+`--bail` suite hides behind whichever file fails first. This is how both the
+3.4-hour `ThreadPool` deadlock (`issues/fixed/wasi-thread-pool-submit-deadlock.md`)
+and the width bug above were found.
+
+### "Byte-identity of the emitted C" does NOT survive a `std/` source edit
+
+The standing acceptance test for an *additive codegen* change — record `sha256`
+of the emitted-C corpus before editing, require `same=N diff=0` — is only valid
+when the `.yo` SOURCE is unchanged. Generated C identifiers embed two families
+of number: anonymous type ids (`__yo_tN`) and a global declaration/expression
+counter (`yo_id_N`, `struct_decl_N`, `enum_decl_N`, `loop_yo_id_N`). **Adding
+declarations anywhere in `std/` shifts every counter ordered after the insertion
+point by a constant and permutes the `__yo_tN` numbering**, so the `.c` changes
+`sha256` even when the program is provably identical. Measured 2026-08-26 while
+adding six unused methods to `std/string/string.yo`: the shift was a uniform
++1004, and the numbers appear in `std/collections/array_list.yo` and
+`std/allocator.yo` identifiers too, not just the edited file's.
+
+Compare like this instead — it is strictly stronger than a `sha256` match:
+
+```bash
+norm() { sed -E 's/__yo_t[0-9]+/__yo_tT/g; s/__YO_T[0-9]+/__YO_TT/g;
+                 s/yo_id_[0-9]+/yo_id_N/g; s/(struct_decl|enum_decl|decl)_[0-9]+/\1_N/g;
+                 s/_temp_[0-9]+/_temp_N/g' "$1"; }
+diff <(norm before.c | sort) <(norm after.c | sort)          # must be EMPTY
+diff <(grep -oE '__yo_[A-Za-z0-9_]+\(' before.c | sort -u) \
+     <(grep -oE '__yo_[A-Za-z0-9_]+\(' after.c  | sort -u)  # must be EMPTY
+grep -c '<the new API you added>' after.c                    # must be 0 if unused
+```
+
+An empty sorted-normalized diff with equal line counts says the emitted program
+is the same multiset of statements; the symbol-set diff says no function was
+added, removed or renamed. In-order differences that remain are pure
+declaration reordering.
+
+**And for a "no behaviour change" REWRITE, drop the emitted C entirely —
+compare the program's OUTPUT.** The recipe above still assumes the source is
+additive. A refactor that claims to preserve behaviour while changing function
+BODIES (a loop rewritten onto a different iterator, a method renamed and
+delegated) makes the emitted C differ on purpose, so no C-level comparison
+— normalized or not — can pass without weakening it into meaninglessness.
+Measured 2026-08-26 on the D4 PR 2 migration: 13567 → 14139 lines and a
+different symbol set, from a change whose whole contract was "no behaviour
+change". The gate that has teeth:
+
+```bash
+# 1. BEFORE editing: a standalone driver over the touched surface, with a
+#    corpus that includes the inputs the refactor is ABOUT (multibyte, empty,
+#    boundary). Print every result AND its length, so a silent truncation
+#    shows up.
+yo compile tmp/probe.yo --std-path "$PWD/std" --optimize 2 -o tmp/probe.bin
+./tmp/probe.bin > before.txt; shasum -a 256 before.txt
+# 2. AFTER: same binary rebuilt, same corpus.
+./tmp/probe.bin > after.txt; diff before.txt after.txt     # must be EMPTY
+```
+
+Two companions make it airtight. **Body-identity** where the refactor claims a
+pure rename: extract the old body with `git show HEAD:<file>` and compare it
+character-for-character to the new one — that covers call sites no runtime test
+can reach (compiler-internal code, which does not take effect until the tree is
+rebuilt). And a **simulated future state**: if the refactor exists to survive a
+change that has not landed yet, apply that change in a throwaway edit and run
+the new tests against it, then run them again with the pre-refactor file. The
+new tests must fail in the second run. If they pass both ways they are not
+testing the refactor.
+
+So for a rename sweep the gate is the FULL suite plus READING the cli-case
+golden diff — never check/build. A golden that gets SMALLER or reports FEWER
+findings (`Scanned 1 .yo file(s)` -> `Scanned 0`) is a regression signal, not
+drift. Grep separately inside `quote(`, `impl(` and `io.async(` bodies; the
+compiler will not name those sites for you.
+
 ## Build system tests
 
 - The build system is covered by `.yo` tests in `tests/internal/`: `build_runner.test.yo`, `lock_file.test.yo`, `target.test.yo`, `fetch.test.yo`, `install_command.test.yo`, `cache.test.yo`, `init.test.yo`, `version.test.yo`.
 - Tests cover: build registry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps.
 - Run them like any other internal test: `yo test ./tests/internal/build_runner.test.yo --parallel 1`.
 - End-to-end CLI subcommand behaviour is covered separately by the `tests/cli-cases/` corpus.
+
+## Adding a cli-case: `yo fmt` the fixture BEFORE recording the golden
+
+A cli-case fixture (`tests/cli-cases/<case>/fixture/*.yo`) is a real `.yo` file
+and CI's "Check the formatted code" step scans the whole tree, so an
+unformatted fixture reds the PR even when every other gate is green. Fixtures
+sit outside the `src/ std/ tests/internal/` paths people usually pass to
+`yo fmt`, which is exactly why this is easy to miss.
+
+Order matters: formatting changes the fixture's content hash, and that hash is
+part of the case's `expected_tree` golden. So `yo fmt` the fixture FIRST, then
+`scripts/cli-diff-test.sh --record <case>`, then re-score without `--record`.
+Doing it the other way round means recording twice.
+
+Verify with all three roots, using the INSTALLED release binary rather than a
+locally built one, since that is what CI runs:
+
+```bash
+yo fmt --check ./src ./std ./tests
+```
+
+## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
+
+Type keys embed each declaring module's PATH SPELLING, and std resolution is
+`--std-path > YO_STD > exe-walk-up > ./std`. A stage-1 sitting INSIDE the
+repo (e.g. `yo-out/<target>/bin/yo`) exe-walks-up to the repo std and renders
+ABSOLUTE module paths; the script's stage-2 binary is built in `/tmp` and
+falls back to relative `./std`. Different path spellings → different type-key
+strings → different hash-bucket emission order → a FIXPOINT_BROKEN verdict
+with same-content, reordered/renumbered C (measured 2026-08-23: first
+divergence was `struct_decl_31673__Users/...` vs `struct_decl_31673___std/...`).
+Copy the binary first, exactly as AGENTS.md shows:
+
+```bash
+cp yo-out/aarch64-apple-darwin/bin/yo /tmp/yo-s1
+S1=/tmp/yo-s1 P=local bash scripts/bootstrap/fixpoint_only.sh
+```
 
 ## A fixpoint run's stage-1 must come from the SAME tree it compiles
 
@@ -91,7 +310,7 @@ yo test ./tests/internal/parser.test.yo --parallel 1
   (`compiler-internal-tests` in `.github/workflows/test.yml`).
 - Run them whenever modifying `src/` source or these tests.
 - No WASM directives needed (pure logic, no I/O syscalls) — but they are
-  host-toolchain-only in CI, excluded from the emcc and wasm-wasi jobs.
+  host-toolchain-only in CI, excluded from the emcc and wasm32-wasip1 jobs.
 - Large `.test.yo` files are batch-compiled in chunks of 100 tests by default. Use `--test-batch-size N` to tune this when a generated C batch is too large or when you need tighter failure isolation. Smaller batches reduce C size but repeat Yo compilation, so avoid lowering this unless needed.
 - Do not run multiple `yo test ...` commands concurrently. The test path currently writes shared scratch files such as `/tmp/yo_self_out.c`, so concurrent runs can collide and produce misleading compile errors or skipped-test counts.
 
@@ -122,6 +341,48 @@ Debugging one:
   `Eq` on the payload type specialized, which is a much heavier requirement than
   the assertion actually needs.
 
+#### Counting untranspiled bodies: never anchor to start-of-line
+
+Use `scripts/count-transpile-failures.sh <emitted.c>` — do not hand-roll a
+`grep`. Two things make a hand-rolled one wrong in opposite directions:
+
+- **Overcount.** Codegen spells its own marker strings (`String.from("// Failed
+  to transpile ")`), so the compiler compiling itself bakes them into stage-2 as
+  C string literals. That floor is 15 as of 2026-08-25 and moves whenever
+  codegen gains or loses a fallback branch — it is not the "fixed floor of 2"
+  older docs assert.
+- **Undercount.** `grep -cE '^\s*// Failed to transpile'` scores only the
+  standalone-comment form. Codegen also emits markers **mid-line**, as
+  `return // Failed to transpile <expr>;` and
+  `__yo_tN tmp = // Failed to transpile <expr>;`, and anchoring calls those
+  clean. That is the mistake that let a hollow `io.async` closure body ship
+  green (`issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`).
+- **Invisible since PR #275.** When the untranspilable body sits in a
+  **value-returning** function, codegen no longer emits markers at all — the
+  whole body becomes
+  `abort(); /* untranspilable body in a value-returning fn: ... */`, because
+  falling off the end is UB and `-Werror=return-type` rejects it. Such a file
+  scores **`0 real`** and the program dies rc=134 at runtime. The script prints
+  an `N abort-stub` field for exactly this; **`0 real` alone is not proof a
+  file is clean — read the stub count too**, and for an async change also run
+  the binary. MEASURED 2026-08-26 on a closure nested inside an `io.async`
+  closure body: `0 real (0 string-literal floor, 1 abort-stub)`, rc=134.
+- **A missing file used to score clean.** `grep` on a path that does not exist
+  printed nothing and the script answered `0 real`, exit 0. It now exits 2 with
+  `MISSING FILE`. Check that first when a gate reports a suspiciously clean
+  number (`fixpoint_only.sh` scores `/tmp/$P_stage2.c` through this script).
+
+The rule that separates them: a **string-literal** occurrence is immediately
+preceded by a double quote; an **emitted marker** never is. Match anywhere on
+the line, then reject matches whose preceding byte is `"`. This is the same
+discriminator the codegen abort-stub detector uses
+(`src/codegen/functions/generation.yo`, PR #275).
+
+`fixpoint_only.sh` and `chunked_gate.sh` both call the script, and
+`fixpoint_only.sh` **gates** on it: a stage-2 carrying an untranspiled body is a
+broken compiler even when stage2 == stage3 byte-for-byte, because both stages
+emit the same hole.
+
 ### macOS 26 AMFI / ASAN dylib workaround
 
 On macOS 26+ (current release), locally-compiled C binaries linked against the
@@ -141,10 +402,10 @@ This disables leak detection on macOS, but tests still validate logic.
 See `issues/retired/macos-26-asan-blocked-by-amfi.md` for the kernel-log evidence.
 
 **Alternative** (slower, but keeps ASAN coverage on Linux/WASI): use
-`--target wasm-wasi` to run via `wasmtime`:
+`--target wasm32-wasip1` to run via `wasmtime`:
 
 ```bash
-yo test ./tests/internal --target wasm-wasi --parallel 1
+yo test ./tests/internal --target wasm32-wasip1 --parallel 1
 ```
 
 > Note: no file in `tests/internal` carries a `SkipWasm32*` pragma (verified
@@ -329,8 +590,8 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 
 ## WASM testing
 
-- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-emscripten`)
-- Run a test on standalone WASI: `yo test ./tests/XXX.test.yo --target wasm-wasi` (runs via `wasmtime`)
+- Run a test on Emscripten: `yo test ./tests/XXX.test.yo --cc emcc` (auto-targets `wasm32-unknown-emscripten`)
+- Run a test on standalone WASI: `yo test ./tests/XXX.test.yo --target wasm32-wasip1` (runs via `wasmtime`)
 - Use `pragma(Pragma.SkipWasm32Emscripten);` to skip a test file on the Emscripten target.
 - Use `pragma(Pragma.SkipWasm32Wasi);` to skip a test file on the standalone WASI target.
 - Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
@@ -338,5 +599,5 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
 - See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
-- When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm-wasi`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
+- When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm32-wasip1`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
 - `process.platform` returns `"emscripten"` or `"wasi"` depending on target.

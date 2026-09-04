@@ -139,7 +139,7 @@ _monomorphize_default_fv :: (
   fn(fv : EvalValue, default_fid : String, value_type : TypeValue, caller_env : Environment, ctx : EvalContext, exn : Exception) -> EvalValue
 )(
   cond(
-    !(is_func_val(fv)) => fv,
+    !is_func_val(fv) => fv,
     (default_fid == String.new()) => fv,
     match(fv, .FuncVal(__mfv, _) => (__mfv.*.func_id == default_fid), _ => false) => {
       default_ft := get_func_type(default_fid.clone());
@@ -194,7 +194,7 @@ _resolve_dyn_trait_values :: (fn(dyn_type : TypeValue, value_type : TypeValue, c
                 (have_exact : bool) = false;
                 ne := entries.len();
                 (k : usize) = usize(0);
-                while((k < ne) && !(have_exact), {
+                while((k < ne) && !have_exact, {
                   match(
                     entries.get(k),
                     .Some(entry) => if(entry.label == fname, {
@@ -297,9 +297,7 @@ evaluate_dyn_value :: (
         dyn(
           format_error_message(
             expr_tok,
-            String.from("evaluate_dyn_value: expected a FnCall expression"),
-            false,
-            .None
+            String.from("evaluate_dyn_value: expected a FnCall expression")
           )
         )
       );
@@ -314,9 +312,7 @@ evaluate_dyn_value :: (
         dyn(
           format_error_message(
             expr_tok,
-            String.from("'dyn' requires exactly one argument"),
-            false,
-            .None
+            String.from("'dyn' requires exactly one argument")
           )
         )
       );
@@ -402,7 +398,7 @@ evaluate_dyn_value :: (
     .None => ()
   );
   // Non-executing path: still type-check the inner expression, then return early.
-  if(ctx.is_validating_function_definition || !(ctx.is_executing), {
+  if(ctx.is_validating_function_definition || !ctx.is_executing, {
     saved_et_ne := ctx.expected_type;
     ctx.expected_type = inner_expected;
     inner_ne := evaluate_expression(value_arg, env, ctx);
@@ -485,7 +481,7 @@ evaluate_dyn_value :: (
       .None => ()
     );
     (ne_final_expr : AstExpr) = inner_ne;
-    if(!(is_reference_struct_type(ne_value_type)) && !(is_dyn_type(ne_value_type)), {
+    if(!is_reference_struct_type(ne_value_type) && !is_dyn_type(ne_value_type), {
       match(
         _create_boxed_type(ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
@@ -544,9 +540,7 @@ evaluate_dyn_value :: (
         dyn(
           format_error_message(
             expr_tok,
-            String.from("evaluate_dyn_value: failed to evaluate inner expression"),
-            false,
-            .None
+            String.from("evaluate_dyn_value: failed to evaluate inner expression")
           )
         )
       );
@@ -560,7 +554,7 @@ evaluate_dyn_value :: (
   // Note: Future-implementing SomeType check (typeImplementsFuture) is omitted
   // in Phase 3 — all non-object, non-dyn values are wrapped in box().
   (final_value_expr_ex : AstExpr) = eval_inner;
-  if(!(is_reference_struct_type(value_type)) && !(is_dyn_type(value_type)), {
+  if(!is_reference_struct_type(value_type) && !is_dyn_type(value_type), {
     box_tok := synthetic_token(String.from("box"), cur_env.module_path);
     box_atom := AstExpr.Atom(usize(0), box_tok);
     box_args := ArrayList(AstExpr).new();
@@ -583,9 +577,7 @@ evaluate_dyn_value :: (
           dyn(
             format_error_message(
               expr_tok,
-              String.from("evaluate_dyn_value: failed to auto-box value for 'dyn'"),
-              false,
-              .None
+              String.from("evaluate_dyn_value: failed to auto-box value for 'dyn'")
             )
           )
         );
@@ -656,9 +648,7 @@ evaluate_dyn_value :: (
           dyn(
             format_error_message(
               expr_tok,
-              String.from("'dyn' requires a SomeType (Impl), DynType, or an expected Dyn type context. Concrete types without trait fields are not supported in Phase 3."),
-              false,
-              .None
+              String.from("'dyn' requires a SomeType (Impl), DynType, or an expected Dyn type context. Concrete types without trait fields are not supported in Phase 3.")
             )
           )
         );

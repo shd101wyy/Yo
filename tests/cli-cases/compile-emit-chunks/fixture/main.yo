@@ -1,0 +1,23 @@
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+Item :: ref(struct(label : String, n : i64));
+main :: (fn() -> unit)({
+  xs := ArrayList(Item).new();
+  xs.push(Item(label : String.from("a"), n : i64(2)));
+  xs.push(Item(label : String.from("b"), n : i64(40)));
+  (total : i64) = i64(0);
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(it) => {
+        total = (total + it.n);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  println(`total=${total.to_string()}`);
+});
+export(main);

@@ -44,6 +44,7 @@ open(import("std/string"));
 { _generate_sm_atom } :: import("./exprs/atom.yo");
 { preregister_async_block_types, generate_deferred_async_blocks } :: import("./exprs/async.yo");
 { register_fsm_emitters_impl } :: import("./async/state_code_gen.yo");
+{ assemble_chunks } :: import("./chunk_assembly.yo");
 /// True if any field of the struct contains a SomeType (generic). Mirrors the
 /// `!type.fields.some(field => typeContainsSomeType(field.type))` guard.
 /// On-demand recovery for a type first seen DURING emission (a lazily-minted
@@ -106,7 +107,7 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
     .Some(od_e) => {
       od_cn := od_e.c_name.clone();
       od_ty := od_e.ty;
-      od_is_struct := match(od_ty, .Struct({ is_source_namespace : od_ns }) => !(od_ns), _ => false);
+      od_is_struct := match(od_ty, .Struct({ is_source_namespace : od_ns }) => !od_ns, _ => false);
       od_is_enum := match(od_ty, .EnumT(_, _, _, _, _, _, _, _, _) => true, _ => false);
       od_is_tuple := match(od_ty, .Tuple(_, _) => true, _ => false);
       od_is_union := match(od_ty, .Union(_, _, _) => true, _ => false);
@@ -128,6 +129,12 @@ _on_demand_collect_and_declare :: (fn(t : TypeValue, context : CodeGenContext) -
         od_l.push_string(od_cn.clone());
         od_l.push_str("; // Forward declaration (on-demand)");
         context.emitter.emit_declaration_string_line(od_l);
+      });
+      // Record the body emission so the declaration passes skip this C name
+      // (they may not have reached it yet — the hook can fire DURING a pass).
+      // Mark before emitting, matching type_id_static_names' stance.
+      if(od_is_struct || od_is_enum || od_is_tuple || od_is_union || od_is_future, {
+        _od_m := context.on_demand_body_cnames.insert(od_cn.clone());
       });
       cond(
         od_is_struct => generate_struct_declaration(od_ty, od_cn.clone(), context),
@@ -152,12 +159,12 @@ _struct_has_generic_field :: (fn(ty : TypeValue) -> bool)(
       n := field_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           field_types.get(i),
           // RECURSIVE: TS's needs-cycle-GC pre-scan uses `typeContainsSomeType`,
           // which walks the whole type. A generic `ArrayList(E)` has field
-          // `?*(E)` — a SomeT nested under Option/Ptr — which the top-level
+          // `?(*(E))` — a SomeT nested under Option/Ptr — which the top-level
           // test misses, so the generic instantiation was accepted as a
           // concrete CYCLE ROOT and forced the heavy GC runtime for the entire
           // program. See issues/repros/toplevel-some-type-check-forces-cycle-gc.yo.
@@ -190,10 +197,10 @@ compute_needs_cycle_gc :: (fn(context : CodeGenContext) -> unit)({
       vals.next(),
       .Some(entry) => {
         ty := entry.ty;
-        is_struct_root := ((is_reference_struct_type(ty) && !(is_atomic_reference_struct_type(ty))) && !(_struct_has_generic_field(ty)));
+        is_struct_root := (is_reference_struct_type(ty) && !is_atomic_reference_struct_type(ty) && !_struct_has_generic_field(ty));
         // A reference-semantics enum can also form an RC cycle (recursive Self
         // variant field), so it is a cycle root too.
-        is_enum_root := ((is_reference_enum_type(ty) && !(is_atomic_reference_enum_type(ty))) && !(type_contains_some_type_deep(ty)));
+        is_enum_root := (is_reference_enum_type(ty) && !is_atomic_reference_enum_type(ty) && !type_contains_some_type_deep(ty));
         if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(ty), {
           context.needs_cycle_gc = true;
           go = false;
@@ -286,7 +293,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// preRegisterAsyncBlockTypes / preRegisterEffectfulFunctions /
 /// generateDeferredAsyncBlocks (Phase 5), generateClosureDisposeFunctions
 /// (Phase 5), generateSpecialized* (Gap 2), generateLibraryInitFunction.
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception) -> String)({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0)) -> String)({
   // Route fatal emitter errors (codegen_fatal) through this compile's exn so
   // they exit rc=1 like a TS compile error instead of __yo_panic's SIGABRT.
   set_codegen_fatal_exn(exn);
@@ -306,6 +313,10 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
+  // Chunked emission (plans/CHUNKED_C_EMISSION.md): record function byte
+  // ranges and split cross-chunk statics. MUST stay false by default — the
+  // single-file emission is gated byte-identical.
+  base.chunk_mode = (emit_chunks >= usize(1));
   // Seed the always-needed standard C headers (mirrors the cIncludes set the TS
   // CodeGeneratorC.compileModule constructs). <unistd.h>/<sys/stat.h> are
   // platform-specific and added by emit_c_includes.
@@ -325,7 +336,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   collect_required_functions(module_value, base, info, true);
   collect_required_types(module_value, base, info);
   // Pointer-field pointees missed by the dup/drop walk (e.g. HashMap/ArrayList
-  // element types behind `data : ?*(T)`); a separate pass so the main collection
+  // element types behind `data : ?(*(T))`); a separate pass so the main collection
   // order — which the lazy array-struct registration depends on — is untouched.
   // See issues/fixed/yo-self-p1-uncollected-pointee.md.
   collect_pointer_pointees(base);
@@ -364,16 +375,32 @@ typedef enum {
   // Mirrors codegen-c.ts: fixupDynImplKeys → generateDynBoxTypes.
   fixup_dyn_impl_keys(base);
   generate_dyn_box_types(base);
-  // Command-line arguments runtime shim.
-  base.emitter.emit_declaration_string_line(
-    `
+  // Command-line arguments runtime shim. Chunked emission: written by main
+  // (chunk 0), read from any chunk — one definition, extern in the header.
+  if(base.chunk_mode, {
+    base.emitter.emit_declaration_string_line(
+      `
+// Command-line arguments (initialized in main)
+typedef struct { uint8_t** data; size_t length; } Slice_uint8_t_u42_;
+extern int32_t __yo_argc;
+extern uint8_t** __yo_argv;
+extern Slice_uint8_t_u42_ __yo_args;
+`
+    );
+    base.chunk_globals.push_string(
+      String.from("int32_t __yo_argc;\nuint8_t** __yo_argv;\nSlice_uint8_t_u42_ __yo_args;\n")
+    );
+  }, {
+    base.emitter.emit_declaration_string_line(
+      `
 // Command-line arguments (initialized in main)
 typedef struct { uint8_t** data; size_t length; } Slice_uint8_t_u42_;
 static int32_t __yo_argc;
 static uint8_t** __yo_argv;
 static Slice_uint8_t_u42_ __yo_args;
 `
-  );
+    );
+  });
   // Pre-register async-block state-machine types (forward-declared struct
   // typedefs + uses_async flag) before function declarations, so prototypes use
   // the right SM struct names. Mirrors codegen-c.ts:205.
@@ -401,11 +428,38 @@ static Slice_uint8_t_u42_ __yo_args;
   // codegen-c.ts:251. Returns the (c_var_name, rhs) list for initialization.
   module_vars := emit_module_level_variable_declarations(ctx);
   // Main wrapper (executable mode only); initializes the module-level vars first.
-  if(!(is_library), {
+  if(!is_library, {
     generate_main_wrapper(ctx, module_vars);
   });
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
+  // Chunked emission (plans/CHUNKED_C_EMISSION.md step 2): assemble the
+  // shared header + N linkable translation units from the recorded ranges;
+  // hand them to the driver as parts[0] = header, parts[1..] = chunk bodies
+  // (without the #include line — the driver knows the header's file name).
+  if(base.chunk_mode, {
+    asm2 := assemble_chunks(
+      base.emitter.headers,
+      base.emitter.declarations,
+      base.emitter.code,
+      base.chunk_fn_ranges,
+      base.chunk_header_ranges,
+      base.chunk_globals,
+      emit_chunks
+    );
+    chunk_parts_out.push(asm2.header_text);
+    (ci2 : usize) = usize(0);
+    while(ci2 < asm2.chunks.len(), {
+      match(
+        asm2.chunks.get(ci2),
+        .Some(cb) => {
+          chunk_parts_out.push(cb);
+        },
+        .None => ()
+      );
+      ci2 = (ci2 + usize(1));
+    });
+  });
   base.emitter.print()
 });
 export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);

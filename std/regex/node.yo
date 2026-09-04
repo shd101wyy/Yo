@@ -1,5 +1,8 @@
 //! Regex AST node types.
 //!
+//! **Internal to `std/regex`.** Nothing here is public API: import
+//! `std/regex` and use `Regex`. This module's shape changes freely.
+//!
 //! The parser produces a tree of `RegexNode` objects representing the
 //! structure of a regex pattern. Nodes are reference-counted objects
 //! since they form a recursive tree.
@@ -231,7 +234,7 @@ impl(
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
-      negated : (!(positive)),
+      negated : !positive,
       q_min : usize(0),
       q_max : usize(0),
       q_greedy : true,
@@ -249,7 +252,7 @@ impl(
       children : kids,
       codepoint : u32(0),
       ranges : ArrayList(CharRange).new(),
-      negated : (!(positive)),
+      negated : !positive,
       q_min : usize(0),
       q_max : usize(0),
       q_greedy : true,
@@ -260,8 +263,6 @@ impl(
 );
 export(
   RegexNode,
-  NodeKind,
   CharRange,
-  AnchorKind,
   GroupNameEntry
 );

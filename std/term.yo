@@ -1,0 +1,72 @@
+//! Terminal facade: TTY detection, terminal size, color-support detection and
+//! raw mode for the standard streams — the typed, non-`sys` face of
+//! `std/sys/tty` (which stays fd- and errno-oriented). `std/cli` and
+//! interactive tools consume this module.
+//!
+//! ## Stability
+//!
+//! unstable — new in this release; the API may still change while `std/cli`
+//! adopts it. It becomes additive-only in the next release.
+open(import("./string"));
+{ Exception } :: import("./error");
+{ IoError } :: import("./sys/errors");
+{ env } :: import("./env");
+IO_tty :: import("./sys/tty");
+/// One of the process's three standard streams.
+Stream :: enum(Stdin, Stdout, Stderr);
+_fd_of :: (fn(s : Stream) -> i32)(
+  match(s, .Stdin => i32(0), .Stdout => i32(1), .Stderr => i32(2))
+);
+/// Terminal dimensions in character cells.
+TermSize :: struct(
+  /// Width in columns.
+  columns : usize,
+  /// Height in rows.
+  rows : usize
+);
+/// True when `s` is connected to a terminal (false for pipes, files and
+/// redirections — including every `yo test` child, whose streams are pipes).
+is_terminal :: (fn(s : Stream) -> bool)(
+  IO_tty.isatty(_fd_of(s))
+);
+/// The terminal size of `s`, or `.None` when `s` is not a terminal (or the
+/// size is unavailable).
+size_of :: (fn(s : Stream) -> Option(TermSize))({
+  ws := IO_tty.tty_winsize(_fd_of(s));
+  cond(
+    ((ws.width > i32(0)) && (ws.height > i32(0))) =>
+      Option(TermSize).Some(TermSize(columns : usize(ws.width), rows : usize(ws.height))),
+    true => Option(TermSize).None
+  )
+});
+/// The terminal size of stdout, or `.None` when stdout is not a terminal.
+size :: (fn() -> Option(TermSize))(
+  size_of(Stream.Stdout)
+);
+/// True when it is reasonable to emit ANSI colors on `s`: the stream is a
+/// terminal, `NO_COLOR` is unset (https://no-color.org — any value disables),
+/// and `TERM` is not `dumb`.
+supports_color :: (fn(s : Stream) -> bool)(
+  cond(
+    !is_terminal(s) => false,
+    env.get(`NO_COLOR`).is_some() => false,
+    true => match(env.get(`TERM`), .Some(t) => (t != `dumb`), .None => true)
+  )
+);
+/// Put the terminal for `s` into RAW mode (no echo, byte-at-a-time input).
+/// Throws `IoError` when `s` is not a terminal or the mode change fails.
+/// ALWAYS pair with `restore_mode()` — a process exiting in raw mode leaves
+/// the user's shell unreadable.
+enter_raw_mode :: (fn(s : Stream, exn : Exception) -> unit)({
+  fd := _fd_of(s);
+  IoError.check(IO_tty.tty_init(fd), exn);
+  IoError.check(IO_tty.tty_set_mode(fd, IO_tty.TTY_MODE_RAW), exn);
+  ()
+});
+/// Restore the terminal mode saved by the first `enter_raw_mode` call.
+/// Safe to call when raw mode was never entered.
+restore_mode :: (fn() -> unit)({
+  IO_tty.tty_reset();
+  ()
+});
+export(Stream, TermSize, is_terminal, size_of, size, supports_color, enter_raw_mode, restore_mode);

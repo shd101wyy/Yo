@@ -63,9 +63,43 @@ io.async((io : Io) =>
 - The parentheses are **required** and must not be omitted.
 - Always write `cond(condition => result, true => default)`
 
-## `if` is a macro for `cond`
+## Paren hygiene: what `yo fmt` canonicalizes vs. keeps
 
-`if` is defined in `prelude.yo` as a macro that expands to `cond`:
+`yo fmt` elides provably-redundant parentheses and keeps every
+load-bearing group (plans/FMT_PAREN_ELISION.md, 2026-09-02 — the
+re-parse AST-equality gate makes a meaning-changing format structurally
+impossible). Write the bare forms directly; what survives a `yo fmt`
+pass is the canonical set.
+
+Fmt elides these — write the bare form:
+
+- **Prefix calls**: `-x` (not `-(x)`), `!flag` (not `!(flag)`), `?*T`
+  (not `?(*(T))`), `**T`, `-p.a`, `-f(x)`.
+- **Atom-like operands of any operator**: `x + y` (not `(x) + (y)`),
+  `y := -x` (not `y := (-x)`).
+- **Left same-operator chains**: `a + b + c` (not `(a + b) + c`) —
+  same-op chains left-associate.
+- **Whole call arguments**: `f(a + b)` (not `f((a + b))`), and the
+  classic comma-delimiter rule: `if(x == y, { ... })`, `assert(a == b, "m")`,
+  `while(i < n, { ... })` — never wrap a comma-delimited argument again.
+- **Lambda parameters**: `err -> { ... }` (not `(err) -> { ... }`).
+
+Fmt KEEPS these — the grammar needs them; do not remove by hand:
+
+- **An operator's infix-chain RHS**: `y := (1 + 2)`, `true => (x / y)`,
+  `{ x : (1 + 2), y : 3 }` — the chain must be one group.
+- **Mixed-operator groups**: `(a + b) * c` — no precedence; required.
+- **Right operands**: `3 + (4 - 5)` AND `3 + (4 + 5)` — a right group
+  changes the tree even for the same operator.
+- **Prefix calls with infix arguments**: `-(1 + 2)` — a prefix operator
+  binds exactly ONE postfix expression
+  (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1); the call parens are
+  the operand boundary.
+- **Multi-arg operator calls** (`-(a, b)`) and operator atoms (`(!)`).
+
+## `if` is sugar for `cond`
+
+`if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The prelude macro that used to back this was DELETED 2026-08-30 once the v0.2.20 seed shipped the desugar (plans/MACRO_POLICY.md Part 3.2) — an `if` call the desugar leaves alone (odd arity, mismatched labels, a dynamically built AST) is now an error:
 
 ```rust
 if(condition, then_body)        // → cond(condition => then_body, true => ())
@@ -75,7 +109,7 @@ if(condition, then_body, else)  // → cond(condition => then_body, true => else
 Use `if` for simple two-branch conditionals — especially for comptime early-return guards:
 
 ```rust
-if((arch == Arch.Wasm32), {
+if(arch == Arch.Wasm32, {
   printf("  skipped on wasm32\n");
   return();
 });
@@ -183,26 +217,27 @@ name as a variant field (for example, prefer `struct_field_types` over
 `field_types`). Some self-hosted codegen paths can currently emit invalid C for
 those shadowing-shaped bindings.
 
-## All function, keyword, and prefix-operator calls require immediate `(...)`
+## All function and keyword calls require immediate `(...)`
 
 - Write `func(arg1, arg2)`, not `func arg1, arg2`.
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`.
 - In `(exn : Exception) = Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves. (`unwind` requires the handler's lambda to be typed as `ctl(...) -> R`, which it is when bound to a `ctl`-typed field like `Exception.throw`.)
-- Prefix operators follow the same rule: `&(x)`, `!(ready)`, `-(value)`, `~(bits)`.
+- Prefix operators may use the call form (`&(x)`, `!(ready)`) or bind one bare postfix expression (`&x`, `!ready`, `-value` — plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1; see "Unary (prefix) operators" below, including the src/std seed constraint). A no-whitespace `(` after the operator is always the call form.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
+- **The operator token set is CLOSED** (plans/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && || # ...#`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
+- **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std is exempt this generation (seed-bootstrap constraint — see `is_macro_def_capable_file` in `src/evaluator/memory_safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 
-This avoids ambiguous parses such as `&x, y`:
+Note how the prefix rule disambiguates `&x, y`: a bare `&` binds ONE
+postfix expression, so `call(&x, y)` passes a pointer to `x` plus `y`.
+Taking the address of a tuple needs the call form:
 
 ```rust
-// WRONG:
-call(&x, y)
+// Pointer to x, plus y (bare prefix binds one postfix expression):
+call(&x, y)      // same as call(&(x), y)
 
-// CORRECT — pass a pointer and another argument:
-call(&(x), y)
-
-// CORRECT — take the address of a tuple:
+// Address of the tuple (x, y) — call form required:
 call(&(x, y))
 ```
 
@@ -250,7 +285,7 @@ next : (fn(inout(self) : Self) -> Option(Self.Item))
 FuncType :: (fn() -> void)
 
 // `:` vs `=` — wrap the typed binding:
-(err1 : AnyErr) = dyn(ErrA(`error A`));
+(err1 : AnyError) = dyn(ErrA(`error A`));
 
 // `:=` vs `&&` — wrap the operator RHS:
 is_neg := ((a == "-") && (b == 1));
@@ -261,33 +296,44 @@ Formatter-specific syntax preservation:
 - Canonical pointer dereference is `ptr.*`; format legacy `ptr.(*)` as `ptr.*`.
 - Keep compact collection and tuple literals compact when they are single-line, even inside a multiline call: `[1, 2, 3]`, `(1, 2, 3)`.
 
-Special tight syntaxes must stay immediate: macro splices `#(expr)`, optional pointer types `?*(T)`, and negated trait constraints `T <: !(Runtime)` must not be formatted as `# (expr)`, `?* (T)`, or `T <: !(Runtime)`.
+Special tight syntaxes must stay immediate: macro splices `#(expr)`, Option sugar `?T` / nullable pointers `?*T`, and negated trait constraints `T <: !Runtime` must not be formatted as `# (expr)`, `? T`, or `T <: ! Runtime`.
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
-## Unary operators need parentheses around their operand
+## Unary (prefix) operators bind exactly ONE postfix expression
 
-Unary operators (`!`, `&`, `-`, `~`) are prefix calls, so they **require parentheses around their operand**. A bare `!x` / `&s` / `-n` is a _"Paren-less function and operator calls are not supported"_ error (the same rule that rejects `func arg`).
+Since 2026-08-21 (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1), a bare
+prefix operator (`-` `!` `~` `&` `*` `?` `^`) followed by a primary is
+valid: it binds exactly one postfix expression — the primary plus its
+dot-chains and calls — and nothing more.
 
 ```rust
-// WRONG — paren-less unary operand:
-assert(!d.is_empty(), "should not be empty");
-func(&s, label, extra);
+// Valid, and preferred in NEW user code:
+x := -1;
+assert(!d.is_empty(), "bare prefix binds the whole call chain");
+p := &x;
+t :: ?*u8;      // = ?(*(u8)) — Option of raw pointer
+y := 3 - -3;    // infix minus, then prefix minus
 
-// CORRECT — wrap the operand:
-assert(!(d.is_empty()), "should not be empty");
-func(&(s), label, extra);
+// An INFIX operand still needs parens (one postfix expression only):
+-(1 + 2)        // NOT -1 + 2, which is (-1) + 2
 ```
 
-This applies to **all** unary operators: `!`, `&`, `-`, `~`.
+The formatter emits bare prefix forms tight (`-1`, `!x`, `?*i32`),
+keeps `- -1` spaced (a tight `--1` reads as a C decrement), and never
+tightens a pair that would re-lex as one token (`& &x` stays spaced —
+`&&` is a token). The historical seed constraint (parenthesized
+spellings until a seed carried the rule) was lifted 2026-09-02 —
+v0.2.21 ships it — and the 2026-09-02 tree sweep converted `src/`,
+`std/`, and `tests/` to the bare spellings.
 
-**`!x && y` is invalid** because `!x` is a paren-less unary. Since unary and infix
-are _different operators with no precedence_, you must parenthesize — and the two
-groupings mean different things, so choose by intent:
+**`!x && y` groups as `(!x) && y`** — the prefix operator binds only the
+one postfix expression. Since unary and infix are _different operators
+with no precedence_, write the other intent with parens:
 
 ```rust
 // (NOT x) AND y:
-!(x) && y
+!x && y
 
 // NOT (x AND y):
 !(x && y)
@@ -430,7 +476,7 @@ Use destructured imports for files in the same directory:
 
 ```rust
 // CORRECT — destructured import with relative path:
-{ RegexNode, NodeKind, CharRange } :: import("./node.yo");
+{ RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
 
 // CORRECT - Named module
 node_module :: import("./node.yo");
@@ -498,6 +544,9 @@ like the RHS failed to type — the wrong place to look. Measured 2026-08-12:
 - If you use a comptime-only (`::`) variable in a bare `while` condition (without `comptime()`), the compiler will **error**: the condition would never change at runtime, causing an infinite loop.
 - `assert`/`panic` live in `std/assert` (`{ assert, panic } :: import("std/assert");`) — not prelude-ambient. Messages accept any `ToString` type (template strings OK); `assert(cond)` uses a default message. The diverging builtin for value-position arms is `__yo_panic("str only")`.
 - Pointer comparison is plain `==`/`!=`/`<`/`<=`/`>`/`>=` (Eq/Ord impls on `*(T)`, address identity). Pointer arithmetic is METHODS: `p.add(n)`, `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance → `isize`). Comparisons are safe; arithmetic methods require `unsafe(...)`.
+- **Associated-type binding syntax works only on BARE trait names, not parameterized trait constructors.** `where(Self <: Iterator(Item := A))` is fine (`Iterator` is a bare trait); `where(T <: Add(T, Output := T))` is REJECTED ("Argument count mismatch: expected 1, got 2") because `Add` is a trait CONSTRUCTOR (`Add(Rhs)`) and the binding parses as a second argument. Use the plain bound (`where(T <: (Add(T), Default))`) and let per-call specialization resolve `Output` — measured working end-to-end (prelude `Iterator.sum`).
+- **A module-level `NAME :: <backtick String literal>` is REJECTED** ("Expected compile-time value for NAME"): `::` constants must be comptime values, and a backtick literal (like `String.from(...)`) constructs a runtime RC `String`. Double-quoted `str` (`app_name :: "yo-demo";`) and numeric constants (`_COMMA :: u8(44);`) are fine — `str` is static. For big `String` data (e.g. an embedded table), put the backtick literal INSIDE the function that consumes it (`data := ` + blob) — it is one C string literal there; a module-level `:=` global also works but runs at module init and module globals get unmangled C names (alias hazard). Precedent: `std/encoding/html_entities.yo`.
+- **A leading UTF-8 BOM (U+FEFF) in a `.yo` file is skipped by the lexer** (byte 0 only; a U+FEFF elsewhere is an ordinary identifier rune). Row/column/`character` are as if the file had no BOM; `Token.byte_offset` still counts the 3 BOM bytes. Files written by Windows PowerShell 5.1's `Set-Content -Encoding UTF8` carry such a BOM (PS 7 does not add one), which is how `scripts/install.ps1`'s verification step once failed with `Variable "<BOM>open" not found` (`issues/fixed/lexer-rejects-leading-utf8-bom.md`). When a script must write `.yo` source BOM-less on BOTH PowerShell generations, use `[System.IO.File]::WriteAllText` (UTF-8 without BOM by default).
 
 ## `unsafe(...)` and `pragma(Pragma.AllowUnsafe);` for raw pointer operations
 
@@ -564,6 +613,25 @@ len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
 
 `asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
 
+### c_include-typed integers: cast to a Yo int before comparing
+
+Values typed by a `c_include` type alias (`ssize_t`, `off_t`, …) can fail to
+transpile in comparisons (`n <= isize(0)` emits `// Failed to transpile` in
+condition position — a class `yo check` cannot see; the C compiler then
+errors). Casts DO emit correctly, so bind through a cast at the call site:
+
+```rust
+// WRONG — may emit "// Failed to transpile n <= isize(0)":
+n := unsafe(write(int(fd), *(void)(p), count));   // n : ssize_t
+if(n <= isize(0), { ... });
+
+// CORRECT — cast to a Yo integer at the binding:
+n := i64(unsafe(write(int(fd), *(void)(p), count)));
+if(n <= i64(0), { ... });
+```
+
+See `issues/cinclude-int-comparison-fails-to-transpile.md`.
+
 `auto-generated://` URIs (macros, derive expansions) bypass the per-call wrap — the macro author owns the contract via the expansion site. See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
 
 ### Raw views and the static-str model (post slice-rework)
@@ -576,9 +644,9 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
   constraints.
 - Range indexing COPIES: `arr(a..b)` → new `ArrayList(T)`, `s(a..b)` on
   `String` → new `String`; `str` ranges stay zero-copy static windows.
-- Safe sub-range _views_ use `ListView(T)`
-  (`std/collections/list_view.yo`) — an alias window over the live
-  Rc'd backing.
+- There is no aliasing view type: `ListView(T)` was deleted (no `Index`, no
+  iteration, no consumers — superseded by the copying range forms above). If a
+  real view type is ever needed it comes back with iteration and `Index`.
 - Privileged ptr+len plumbing uses `RawSlice(T)` (prelude). Naming it —
   or any type whose representation carries a raw pointer — in a
   parameter annotation requires `pragma(Pragma.AllowUnsafe);` (a
@@ -601,6 +669,19 @@ Enforced at function-type evaluation (`src/evaluator/types/function.yo`). See `t
 ### Signed-integer overflow is defined (wrap-around)
 
 Yo passes `-fwrapv` to clang/gcc/zig by default, so signed-integer overflow is two's-complement wrap-around, not UB. `x := i32(2147483647); y := (x + i32(1));` evaluates to `i32(-2147483648)`, not silent miscompilation. Opt-out: `--cflags='-fno-wrapv'`.
+
+**COMPTIME arithmetic is the opposite: it REJECTS overflow.** The wrap-around above is a property of the *runtime* operator. Whenever both operands are compile-time constants the `Comptime*` overload is selected instead (`__yo_comptime_i32_add` and friends in `std/prelude.yo`), and that one raises a hard error rather than wrapping:
+
+```rust
+y := (i32(2147483647) + i32(1));   // ERROR: Integer overflow in compile-time evaluation
+                                    //   2147483647 + 1 = 2147483648
+                                    //   Result 2147483648 exceeds i32 range [-2147483648, 2147483647]
+
+x := i32(2147483647);
+y := (x + i32(1));                  // OK — runtime add, wraps to i32(-2147483648)
+```
+
+The two forms look nearly identical, so this bites when writing a test that asserts wrap-around: the *expected* value must also be built from a runtime binding, e.g. `(seed : i32) = i32(2147483647); (expected : i32) = (seed + i32(1));`. Writing the expectation as a folded constant fails the compile instead of the assertion. (Measured 2026-08-25 while adding the atomic `fetch_*` family — `tests/sync/atomic.test.yo` "wraps like the runtime operator".)
 
 ### `// SAFETY:` comment convention
 
@@ -808,6 +889,7 @@ The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)`
 - `*(u8)("literal")` works — casting `comptime_str` to pointer is valid.
 - Only pointer-to-pointer and `comptime_str`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
 - **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.
+- **String indexing is BYTE-based** (D4, 2026-08-26): `len()` is the byte count (O(1)); `at` / `substring` / `s(a..b)` / `index_of` and every positional string argument speak byte offsets, at compile time (`comptime_str`) and at runtime alike. `substring` panics on an offset inside a rune (`try_substring` is the non-panicking form); rune work goes through `chars()` / `char_indices()`, and the rune count is `s.chars().count()`. Full contract: `docs/en-US/STRINGS.md`; pitfalls: the string-indexing section of `.github/skills/yo-syntax/syntax-cheatsheet.md`.
 
 ## Trait method dispatch syntax
 
@@ -968,6 +1050,8 @@ evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
 
 **Exception**: methods inside the same `impl(...)` block **do** support forward references — a method declared earlier can call one declared later within the same block.
 
+**Trait impls are bindings too**: a call to a trait method or `?=` DEFAULT on a concrete type (`file.read_to_end(io)`) needs that type's `impl(T, Trait(...))` to have been evaluated EARLIER in the module. A later impl makes the call a forward reference whose definition-time failure is swallowed — `yo check` stays green and the enclosing `io.async` body is emitted as a hollow stub that only the C22 stub gate rejects at C-compile time. Register trait impls right after the type's inherent `impl`, before any free function that uses them (`YO_DEBUG_SWALLOW=1 yo check <file>` shows the swallowed "No matching call found").
+
 ## Named constructor arguments are required for `struct`/`ref(struct(...))` types
 
 When constructing a `struct(...)` or `ref(struct(...))` value, always use named field syntax:
@@ -1122,3 +1206,6 @@ Fixes, in order of preference:
 The error names a frame _level_, not a file or line, so it does not point at the
 arm you edited. If it appears right after you touched a `match`, assume this
 before hunting elsewhere.
+
+## Closure arguments: `->` literals and `=>` closures both infer the result type
+- **Either arrow binds an inferred result type.** When an argument's return type must be INFERRED into a type variable (`o.map((x) -> ...)`, `m.with_lock((v) => ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` param), a capture-free `->` fn literal and a `=>` closure both bind `R` (fixed 2026-08-29, `issues/fixed/arrow-fn-literal-result-type-not-inferred.md`, C55). Pick `=>` only when the body needs to capture. `->` stays required for effect handlers, whose declared result is the per-call-site `ResumeType` and is never bound at the literal.

@@ -47,6 +47,10 @@ open(import("std/fmt"));
   synthetic_token,
   snapshot_env,
   capture_env_for,
+  get_funcval_cap_vars,
+  make_capture_variable,
+  mint_funcval_env_key,
+  register_funcval_cap_vars,
   make_err_variable
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args (TS helper.ts:411-451). utils.yo
@@ -54,7 +58,7 @@ open(import("std/fmt"));
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ Token } :: import("../../token.yo");
+{ Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { t_unit, t_type, t_resolved_cell } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -156,6 +160,7 @@ _(env : helper_dbg_env) :: import("std/env");
   get_closure_body_type,
   register_func_type,
   get_func_type,
+  mark_fn_specialized,
   is_closure_fn,
   register_closure_capture_info,
   get_closure_capture_info,
@@ -409,9 +414,7 @@ validate_function_return_type :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(expr),
-                        String.from("Failed to infer the function call return type.\nPlease consider providing the expected type."),
-                        false,
-                        .None
+                        String.from("Failed to infer the function call return type.\nPlease consider providing the expected type.")
                       )
                     )
                   );
@@ -662,9 +665,7 @@ check_if_function_parameter_matches_argument :: (
         dyn(
           format_error_message(
             ast_expr_token(cl_label_expr),
-            `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`,
-            false,
-            .None
+            `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`
           )
         )
       );
@@ -675,9 +676,7 @@ check_if_function_parameter_matches_argument :: (
         dyn(
           format_error_message(
             ast_expr_token(cl_label_expr),
-            String.from("Named argument call is not allowed for this parameter (it has no label)."),
-            false,
-            .None
+            String.from("Named argument call is not allowed for this parameter (it has no label).")
           )
         )
       );
@@ -687,9 +686,7 @@ check_if_function_parameter_matches_argument :: (
         dyn(
           format_error_message(
             ast_expr_token(cl_label_expr),
-            `Named argument is not supported. Label is only used for readibility.\n    Expected label "${param_label}" at the argument position, but got "${cl_label}".`,
-            false,
-            .None
+            `Named argument is not supported. Label is only used for readibility.\n    Expected label "${param_label}" at the argument position, but got "${cl_label}".`
           )
         )
       );
@@ -745,9 +742,7 @@ check_if_function_parameter_matches_argument :: (
         dyn(
           format_error_message(
             ast_expr_token(actual_arg),
-            String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo"),
-            false,
-            .None
+            String.from("check_if_function_parameter_matches_argument: arg has no ExprInfo")
           )
         )
       );
@@ -897,9 +892,7 @@ check_if_function_parameter_matches_argument :: (
         dyn(
           format_error_message(
             ast_expr_token(actual_arg),
-            `Cannot assign runtime argument to compile-time parameter "${param_label}"`,
-            false,
-            .None
+            `Cannot assign runtime argument to compile-time parameter "${param_label}"`
           )
         )
       );
@@ -955,9 +948,7 @@ ${ast_expr_to_string(actual_arg)}`
             dyn(
               format_error_message(
                 ast_expr_token(actual_arg),
-                `Value mismatch for parameter "${param_label}"`,
-                false,
-                .None
+                `Value mismatch for parameter "${param_label}"`
               )
             )
           );
@@ -1058,15 +1049,17 @@ ${ast_expr_to_string(actual_arg)}`
   callee_env_r = synth.expected_env;
   // Step 7: Re-evaluate param type with the updated callee_env.
   final_pt := evaluate_function_parameter_type_again(resolved_pt, callee_env_r, ctx);
+  // Debug hook (like YO_DEBUG_BIND): trace every param compatibility check.
+  if(match(helper_dbg_env.get(`YO_DEBUG_PARAMCHECK`), .Some(pdbg) => (pdbg.len() > usize(0)), .None => false), {
+    eprintln(`[param-check] label=${param_label} declared=${type_to_string(param_type)} final=${type_to_string(final_pt)} arg=${type_to_string(arg_type)} compat=${are_types_compatible(final_pt, arg_type).to_string()}`);
+  });
   // Step 8: Type-compatibility check.
   if(!(are_types_compatible(final_pt, arg_type)), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(actual_arg),
-          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(final_pt)}\n- Got     : ${type_to_string(arg_type)}`,
-          false,
-          .None
+          `Type mismatch for parameter "${param_label}":\n- Expected: ${type_to_string(final_pt)}\n- Got     : ${type_to_string(arg_type)}`
         )
       )
     );
@@ -1200,7 +1193,7 @@ value_to_signature_string :: (fn(value : EvalValue) -> String)(
     // instantiation produced the SAME specialization signature and collapsed
     // onto one specialized function (param typed from one instantiation,
     // return from another — arc.test.yo's per-test `Counter :: struct(...)`;
-    // previously also the shared-GcTracer-visit Bucket class). yo-self has no
+    // previously also the shared-GcTracer-visit MapEntry class). yo-self has no
     // numeric `type.id`; `type_key` is its instantiation-precise identity.
     // (Re-applied 2026-07-17: the 2026-07-15 revert's crash verdicts came
     // from an invalidated bisect — the startup corruption was the since-fixed
@@ -1460,7 +1453,22 @@ _find_specialization_cache :: (
                       // concrete reuse (struct↔struct) intact.
                       cached_is_some := is_some_type(cached_ty);
                       current_is_some := is_some_type(current_ty);
-                      if((cached_is_some && !(current_is_some)) || (!(cached_is_some) && current_is_some), {
+                      // A closure's CAPTURE STRUCT is its identity: two closures
+                      // capturing the same variables have structurally identical
+                      // (anonymous) capture structs that `are_types_compatible_exact`
+                      // cannot tell apart, so a forwarded closure param hit the
+                      // FIRST closure's specialization
+                      // (issues/fixed/forwarded-closure-param-shares-specialization.md).
+                      cap_ids_differ := match(
+                        cached_ty,
+                        .Struct({ id : cap_cid }) => match(
+                          current_ty,
+                          .Struct({ id : cap_nid }) => ((cap_cid.starts_with("capture_") || cap_nid.starts_with("capture_")) && (cap_cid != cap_nid)),
+                          _ => false
+                        ),
+                        _ => false
+                      );
+                      if(((cached_is_some && !(current_is_some)) || (!(cached_is_some) && current_is_some)) || cap_ids_differ, {
                         rt_match = false;
                       }, {
                         if(!(are_types_compatible_exact(cached_ty, current_ty)), {
@@ -1904,6 +1912,18 @@ _spec_resolve_arg_ty :: (fn(t_in : TypeValue) -> TypeValue)({
   });
   if(is_some_type(cur), t_in, cur)
 });
+/// A forwarded closure param has no FuncVal; when its type resolved to a
+/// `capture_*` struct, push `clcap<i>_<struct id>` onto the specialization
+/// cache key so two layout-identical capture structs never share a spec.
+_push_forwarded_closure_key :: (fn(compile_time_args : ArrayList(EvalValue), cfi : usize, arg_ty : TypeValue) -> unit)(
+  match(
+    _spec_resolve_arg_ty(arg_ty),
+    .Struct({ id : cap_sid }) => if(cap_sid.starts_with("capture_"), {
+      compile_time_args.push(EvalValue.StrLit(`clcap${cfi.to_string()}_${cap_sid}`));
+    }),
+    _ => ()
+  )
+);
 create_specialized_function_inline :: (
   fn(
     original_func_val : EvalValue,
@@ -2152,9 +2172,21 @@ create_specialized_function_inline :: (
                   closure_fid_sig.push_str("_");
                   closure_fid_sig.push_string(sanitize_for_sig(cf_fid.clone()));
                 },
-                _ => ()
+                // A FORWARDED closure param (`outer :: (fn(make : Impl(Fn()
+                // -> String)))(inner(Lv.A, make))`) has no FuncVal — its
+                // identity is the CAPTURE STRUCT its type resolved to. Two
+                // closures capturing the same variables have structurally
+                // identical capture structs (anonymous, equal fields), so
+                // the exact-compat cache lookup below treated them as one
+                // type and the second helper called the FIRST closure's
+                // specialization: `(__yo_t18)(make)` where `make` is
+                // `__yo_t19` (issues/fixed/forwarded-closure-param-shares-specialization.md).
+                // Fold the capture struct id into the key, as clfid does for
+                // literals (the func_id's `_rtparam<i>_capture_…` segment
+                // already spells it, so the signature needs nothing more).
+                _ => _push_forwarded_closure_key(compile_time_args, cfi, cf_ae.arg_type)
               ),
-              .None => ()
+              .None => _push_forwarded_closure_key(compile_time_args, cfi, cf_ae.arg_type)
             ),
             .None => ()
           );
@@ -2200,6 +2232,9 @@ create_specialized_function_inline :: (
             `${func_id}_${sig}`,
             func_id
           );
+          if(sig.len() > usize(0), {
+            mark_fn_specialized(func_id.clone());
+          });
           // Register recursive self-reference in context so recursive calls
           // inside the body can find the specialized func_id.
           // Bind the inferred generic values (arg_values.forall_args, in
@@ -2706,6 +2741,20 @@ create_specialized_function_inline :: (
           // Declared param types (the SomeT `Impl(Fn(...))` for a closure param),
           // used below to keep a closure param CALLABLE during body eval.
           decl_param_types := match(func_type, .Func({ param_types : dpt }) => dpt, _ => ArrayList(TypeValue).new());
+          // The declared `inout(p)` flags. The runtime-placeholder re-bind below
+          // MUST carry them onto the new binding: `add_variable_to_env`
+          // hardcodes `is_ref : false`, and the re-bound Variable SHADOWS the
+          // correct parameter binding made by `check_param` (this file, ~1129)
+          // for the whole specialized body eval — so codegen's `_var_read_code`
+          // (codegen/exprs/atom.yo) rendered a by-`ref` param as a bare value
+          // while the C prototype (from the spec Func meta's `param_is_ref`,
+          // still true) kept it a pointer. Same defect, same fix as
+          // calls/function.yo:5265.
+          decl_param_is_ref := match(
+            func_type,
+            .Func({ meta : __fm_rb }) => __fm_rb.*.param_is_ref,
+            _ => ArrayList(bool).new()
+          );
           (rbp_i : usize) = usize(0);
           n_rbp := params.len();
           while(rbp_i < n_rbp, {
@@ -2908,6 +2957,10 @@ create_specialized_function_inline :: (
                 _rbc,
                 .Some(rbc_var) => {
                   rbc_var.is_parameter = true;
+                  if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
+                    rbc_var.is_ref = true;
+                    rbc_var.is_reassignable = true;
+                  });
                 },
                 .None => ()
               );
@@ -2932,6 +2985,10 @@ create_specialized_function_inline :: (
                     _rb,
                     .Some(rb_var) => {
                       rb_var.is_parameter = true;
+                      if(match(decl_param_is_ref.get(rbp_i), .Some(b) => b, .None => false), {
+                        rb_var.is_ref = true;
+                        rb_var.is_reassignable = true;
+                      });
                     },
                     .None => ()
                   );
@@ -3117,6 +3174,32 @@ create_specialized_function_inline :: (
           new_cap_names := ArrayList(String).new();
           new_cap_tys := ArrayList(TypeValue).new();
           new_cap_vals := ArrayList(EvalValue).new();
+          // Campaign 2 (plans/FUNCVAL_ENV_SHARING.md step 3): the derived
+          // FuncVal inherits the original's SHARED handle list and appends
+          // the generic-binding Variables looked up below — so its calls
+          // build the capture env from handles too. If the original never
+          // registered (env_key 0), stay on the flat fallback.
+          new_cap_vars := ArrayList(Variable).new();
+          (new_env_key : usize) = usize(0);
+          (have_cap_vars : bool) = false;
+          match(
+            get_funcval_cap_vars(__fvm2.*.env_key),
+            .Some(pv) => {
+              have_cap_vars = true;
+              (pvi : usize) = usize(0);
+              while(pvi < pv.len(), {
+                match(
+                  pv.get(pvi),
+                  .Some(ph) => {
+                    new_cap_vars.push(ph);
+                  },
+                  .None => ()
+                );
+                pvi = (pvi + usize(1));
+              });
+            },
+            .None => ()
+          );
           // Re-use existing captures from original function
           (oci : usize) = usize(0);
           n_oc := cap_names.len();
@@ -3154,6 +3237,9 @@ create_specialized_function_inline :: (
                       new_cap_names.push(label);
                       new_cap_tys.push(ev.ty);
                       new_cap_vals.push(v);
+                      if(have_cap_vars, {
+                        new_cap_vars.push(ev);
+                      });
                     },
                     .None => ()
                   );
@@ -3168,6 +3254,10 @@ create_specialized_function_inline :: (
           // Create the specialized function value — carries the fresh-id CLONE
           // (not the shared original body) so codegen walks this specialization's
           // own nodes and reads its own per-node ExprInfo / method-callee entries.
+          if(have_cap_vars, {
+            new_env_key = mint_funcval_env_key();
+            register_funcval_cap_vars(new_env_key, new_cap_vars);
+          });
           specialized_func_val := EvalValue.FuncVal(
             box(
               FuncValData(
@@ -3178,7 +3268,8 @@ create_specialized_function_inline :: (
                 body : cloned_body,
                 cap_names : new_cap_names,
                 cap_tys : new_cap_tys,
-                func_id : specialized_func_id
+                func_id : specialized_func_id,
+                env_key : new_env_key
               )
             ),
             new_cap_vals
@@ -3841,6 +3932,7 @@ evaluate_ctl_function_body_inline :: (
   orig_cap_tys := match(original_func_val, .FuncVal(__fvd9, _) => __fvd9.*.cap_tys, _ => ArrayList(TypeValue).new());
   orig_cap_vals := match(original_func_val, .FuncVal(_, cv) => cv, _ => ArrayList(EvalValue).new());
   orig_func_id := match(original_func_val, .FuncVal(__fvd10, _) => __fvd10.*.func_id, _ => String.from("__err_ctl"));
+  orig_env_key := match(original_func_val, .FuncVal(__fvd11, _) => __fvd11.*.env_key, _ => usize(0));
   // -------------------------------------------------------------------------
   // Determine concreteTypeForForall from context.
   // For function-body contexts, it's the enclosing function's return type.
@@ -4058,6 +4150,29 @@ evaluate_ctl_function_body_inline :: (
   ctl_cap_names := ArrayList(String).new();
   ctl_cap_tys := ArrayList(TypeValue).new();
   ctl_cap_vals := ArrayList(EvalValue).new();
+  // Campaign 2 step 3: inherit the shared handle list + mint one capture
+  // Variable per generic binding (see plans/FUNCVAL_ENV_SHARING.md).
+  ctl_cap_vars := ArrayList(Variable).new();
+  (ctl_env_key : usize) = usize(0);
+  (ctl_have_vars : bool) = false;
+  match(
+    get_funcval_cap_vars(orig_env_key),
+    .Some(pv) => {
+      ctl_have_vars = true;
+      (pvi : usize) = usize(0);
+      while(pvi < pv.len(), {
+        match(
+          pv.get(pvi),
+          .Some(ph) => {
+            ctl_cap_vars.push(ph);
+          },
+          .None => ()
+        );
+        pvi = (pvi + usize(1));
+      });
+    },
+    .None => ()
+  );
   (oci : usize) = usize(0);
   n_oc := orig_cap_names.len();
   while(oci < n_oc, {
@@ -4074,7 +4189,21 @@ evaluate_ctl_function_body_inline :: (
     ctl_cap_names.push(fl3.clone());
     ctl_cap_tys.push(ft3);
     ctl_cap_vals.push(create_type_value(concrete_type_for_forall));
+    if(ctl_have_vars, {
+      ctl_cap_vars.push(
+        make_capture_variable(
+          fl3.clone(),
+          ft3,
+          Option(EvalValue).Some(create_type_value(concrete_type_for_forall)),
+          specialized_env.module_path
+        )
+      );
+    });
     fi3 = (fi3 + usize(1));
+  });
+  if(ctl_have_vars, {
+    ctl_env_key = mint_funcval_env_key();
+    register_funcval_cap_vars(ctl_env_key, ctl_cap_vars);
   });
   ctl_func_val := EvalValue.FuncVal(
     box(
@@ -4086,7 +4215,8 @@ evaluate_ctl_function_body_inline :: (
         body : orig_body,
         cap_names : ctl_cap_names,
         cap_tys : ctl_cap_tys,
-        func_id : ctl_func_id.clone()
+        func_id : ctl_func_id.clone(),
+        env_key : ctl_env_key
       )
     ),
     ctl_cap_vals
@@ -4210,9 +4340,7 @@ validate_where_constraints_for_call :: (
                       dyn(
                         format_error_message(
                           tok,
-                          `Type ${type_to_string(bound_ty)} must NOT implement ${type_to_string(wce.trait_ty)}, but it does.`,
-                          false,
-                          .None
+                          `Type ${type_to_string(bound_ty)} must NOT implement ${type_to_string(wce.trait_ty)}, but it does.`
                         )
                       )
                     );
@@ -4223,9 +4351,7 @@ validate_where_constraints_for_call :: (
                       dyn(
                         format_error_message(
                           tok,
-                          `Type ${type_to_string(bound_ty)} does not implement required trait ${type_to_string(wce.trait_ty)}.`,
-                          false,
-                          .None
+                          `Type ${type_to_string(bound_ty)} does not implement required trait ${type_to_string(wce.trait_ty)}.`
                         )
                       )
                     );
@@ -4461,6 +4587,109 @@ _try_apply_early_where_clauses :: (
 )({
   eaw_exn := Exception(throw : ((_eaw_e) -> unwind(())));
   apply_where_clause_constraints(constraint_exprs, callee_env, ctx, eaw_exn);
+});
+/// C60 (issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md):
+/// for an `X.async(closure)` call, the expression whose TYPE is the effect
+/// bundle the nested future will be awaited with — the field-access BASE for
+/// `e.io.async(...)` (the bundle is `e`), the receiver itself for a bare
+/// `io.async(...)` variable receiver (the bundle IS that `Io` value).
+/// `.None` for any other receiver shape.
+_io_async_receiver_bundle_expr :: (fn(expr : AstExpr) -> Option(AstExpr))(
+  match(
+    expr,
+    .Atom(_, _) => Option(AstExpr).None,
+    .FnCall(_, callee_box, _, _, _) => match(
+      callee_box,
+      .Atom(_, _) => Option(AstExpr).None,
+      .FnCall(_, dot_box, dot_args, dot_infix, _) => cond(
+        (dot_infix == false) => Option(AstExpr).None,
+        (dot_args.len() != usize(2)) => Option(AstExpr).None,
+        true => match(
+          dot_box,
+          .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+          .Atom(_, dot_tok) => cond(
+            (dot_tok.kind != TokenKind.Dot) => Option(AstExpr).None,
+            true => match(
+              dot_args.get(usize(0)),
+              .None => Option(AstExpr).None,
+              .Some(recv) => match(
+                recv,
+                // `<base>.io.async(...)` — the bundle is the BASE.
+                .FnCall(_, r_dot_box, r_args, r_infix, _) => cond(
+                  (r_infix == false) => Option(AstExpr).None,
+                  (r_args.len() != usize(2)) => Option(AstExpr).None,
+                  true => match(
+                    r_dot_box,
+                    .FnCall(_, _, _, _, _) => Option(AstExpr).None,
+                    .Atom(_, r_tok) => cond(
+                      (r_tok.kind != TokenKind.Dot) => Option(AstExpr).None,
+                      true => r_args.get(usize(0))
+                    )
+                  )
+                ),
+                // Bare variable receiver: the bundle IS the receiver.
+                .Atom(_, _) => Option(AstExpr).Some(recv)
+              )
+            )
+          )
+        )
+      )
+    )
+  )
+);
+/// C60 guard: true when the io.async call's closure argument declares an
+/// ANNOTATED parameter (`(ctx : Ctx) => ...`). An annotation binds `E`
+/// through the argument-unification path, and the receiver-derived bind must
+/// yield to it — pre-binding `E := Io` from the receiver made the annotated
+/// `Ctx` param fail unification ("Cannot unify incompatible struct types").
+_io_async_closure_param_is_annotated :: (fn(expr : AstExpr) -> bool)(
+  match(
+    expr,
+    .Atom(_, _) => false,
+    .FnCall(_, _, ap_args, _, _) => match(
+      ap_args.get(usize(0)),
+      .None => false,
+      .Some(ap_closure) => match(
+        ap_closure,
+        .Atom(_, _) => false,
+        .FnCall(_, _, ap_cl_args, _, _) => match(
+          ap_cl_args.get(usize(0)),
+          .None => false,
+          .Some(ap_param) => ast_expr_is_fn_call_of(ap_param, ":", Option(usize).Some(usize(2)))
+        )
+      )
+    )
+  )
+);
+/// The already-evaluated type of `e`, from its stamped ExprInfo, falling back
+/// to the env binding for a bare variable. `.None` when unknown.
+_evaluated_expr_type :: (
+  fn(e : AstExpr, caller_env : Environment, ctx : EvalContext) -> Option(TypeValue)
+)({
+  from_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+    .Some(ei) => Option(TypeValue).Some(ei.ty),
+    .None => Option(TypeValue).None
+  );
+  match(
+    from_info,
+    .Some(t) => Option(TypeValue).Some(t),
+    .None => match(
+      e,
+      .Atom(_, e_tok) => {
+        e_vars := get_variables_from_env(caller_env, e_tok.value.to_string());
+        cond(
+          (e_vars.len() == usize(0)) => Option(TypeValue).None,
+          true => match(
+            e_vars.get(e_vars.len() - usize(1)),
+            .Some(e_v) => Option(TypeValue).Some(e_v.ty),
+            .None => Option(TypeValue).None
+          )
+        )
+      },
+      _ => Option(TypeValue).None
+    )
+  )
 });
 try_to_call_function_with_arguments :: (
   fn(
@@ -4729,9 +4958,7 @@ try_to_call_function_with_arguments :: (
           dyn(
             format_error_message(
               tok,
-              count_msg,
-              false,
-              .None
+              count_msg
             )
           )
         );
@@ -4743,12 +4970,15 @@ try_to_call_function_with_arguments :: (
         func_val,
         .Some(fv) => match(
           fv,
-          // `capture_env_for` memoises the rebuilt capture env per closure
-          // instance — this used to re-bind every captured name on EVERY call
-          // (~660 `add_variable_to_env` calls per call in a self-compile, the
+          // `capture_env_for` memoises the capture env per closure
+          // instance; with a registered `env_key` the frame holds the
+          // ORIGINAL Variable handles (plans/FUNCVAL_ENV_SHARING.md), else
+          // the flat rebuild re-binds every captured name (~660
+          // `add_variable_to_env` calls per call in a self-compile, the
           // top allocation site of the bootstrap). See env.yo.
           .FuncVal(__fvm3, cv) => capture_env_for(
             __fvm3.*.func_id,
+            __fvm3.*.env_key,
             __fvm3.*.cap_names,
             __fvm3.*.cap_tys,
             cv,
@@ -5302,6 +5532,74 @@ try_to_call_function_with_arguments :: (
         );
       });
       // ----------------------------------------------------------------
+      // Step 6b-nested (C60): an io.async call whose EXPECTED TYPE carries no
+      // concrete bundle — the idiomatic nested form `inner := io.async(...)`
+      // inside an enclosing async body — left `E` unbound above, so the inner
+      // closure's def-time eval failed on its SomeT bundle param
+      // (`No matching call: io.await(...)`) and the body shipped hollow
+      // (issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md).
+      // The nested future is awaited with the ENCLOSING bundle, so that
+      // bundle is the only consistent `E`. Derive it from the RECEIVER
+      // expression — `e` for `e.io.async(...)`, the receiver itself for a
+      // bare `io.async(...)` variable — and bind it exactly like the
+      // expected-type path, skipping when `E` is already concretely bound
+      // (so every already-working expected-type flow is untouched) or when
+      // the derived type is itself still a SomeT (an unbound outer trial).
+      if(is_io_async_call(expr) && !(_io_async_closure_param_is_annotated(expr)), {
+        match(
+          _io_async_receiver_bundle_expr(expr),
+          .Some(ne_bexpr) => match(
+            _evaluated_expr_type(ne_bexpr, caller_env, ctx),
+            .Some(ne_bty) => if(!(is_some_type(ne_bty)), {
+              (ne_i : usize) = usize(0);
+              while(ne_i < n_forall, {
+                ne_label := match(fl.get(ne_i), .Some(l) => l, .None => String.from(""));
+                if(ne_label == "E", {
+                  // Skip when already bound to a concrete (non-SomeType) value.
+                  ne_existing := get_variables_from_env(callee_env, ne_label.clone());
+                  (ne_already : bool) = false;
+                  if(ne_existing.len() > usize(0), {
+                    match(
+                      ne_existing.get(ne_existing.len() - usize(1)),
+                      .Some(ne_var) => match(
+                        ne_var.value.get(usize(0)),
+                        .Some(ne_val) => if(is_type_val(ne_val), {
+                          match(
+                            ne_val,
+                            .TypeVal(ne_tv) => if(!(is_some_type(ne_tv)), {
+                              ne_already = true;
+                            }),
+                            _ => ()
+                          );
+                        }),
+                        .None => ()
+                      ),
+                      .None => ()
+                    );
+                  });
+                  if(!(ne_already), {
+                    add_variable_to_env(
+                      callee_env,
+                      ne_label.clone(),
+                      t_type(),
+                      Option(EvalValue).Some(create_type_value(ne_bty.clone())),
+                      true,
+                      false,
+                      false,
+                      false,
+                      synthetic_token(ne_label.clone(), callee_env.module_path)
+                    );
+                  });
+                });
+                ne_i = (ne_i + usize(1));
+              });
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+      });
+      // ----------------------------------------------------------------
       // Step 6c: EARLY where-clause application — port of TS helper.ts:1368-
       // 1408. TS applies ALL the where-clause constraint exprs before the
       // argument loop when every `lhs <: rhs` LHS atom is a variable in
@@ -5824,6 +6122,71 @@ try_to_call_function_with_arguments :: (
           vai = (vai + usize(1));
         });
       });
+      // Step 7c: io.await/io.spawn EFFECT-BUNDLE contract check. The callee's
+      // `e : E` must be the future's OWN effect bundle: codegen's set_effect
+      // memcpy's sizeof(E-of-the-future's-state-machine) from the caller's
+      // bundle local, so a smaller/different record reads out of bounds
+      // (`io.await(fut_over_IoExn, { io })` — the ASan stack-buffer-overflow
+      // that broke every CI test leg). Neither generic unification nor
+      // `are_types_compatible` can catch it: the signature's two `E` mentions
+      // resolve through separate SomeT lineages, and struct compatibility is
+      // structurally lenient in BOTH directions
+      // (issues/generic-type-var-rebinds-per-argument.md). Enforced here by
+      // LAYOUT: when both the future's effect type and the effect argument
+      // are top-level structs, they must share the struct id or the exact
+      // field-label list (an anonymous `{ io, exn }` record has IoExn's
+      // layout and stays legal, per std/error's documented construction).
+      // Non-struct/unresolved sides skip — def-time generic bodies re-check
+      // at each concrete call.
+      if((is_io_await_call(expr) || is_io_spawn_call(expr)) && (arg_vals.len() >= usize(2)), {
+        ebc_fut_ty := match(arg_vals.get(usize(0)), .Some(ebc_f) => ebc_f.arg_type, .None => t_unit());
+        ebc_eff_ty := match(arg_vals.get(usize(1)), .Some(ebc_e) => ebc_e.arg_type, .None => t_unit());
+        match(
+          extract_future_trait_from_type(ebc_fut_ty),
+          .Some(ebc_ft) => match(
+            ebc_ft,
+            .FutureTraitT({ effect_types : ebc_ets }) => if(ebc_ets.len() == usize(1), {
+              ebc_te := match(ebc_ets.get(usize(0)), .Some(ebc_t0) => ebc_t0, .None => t_unit());
+              match(
+                ebc_te,
+                .Struct({ id : ebc_tid, field_labels : ebc_tlabels }) => match(
+                  ebc_eff_ty,
+                  .Struct({ id : ebc_eid, field_labels : ebc_elabels }) => {
+                    (ebc_layout_ok : bool) = (ebc_tid == ebc_eid);
+                    if(!(ebc_layout_ok) && (ebc_tlabels.len() == ebc_elabels.len()), {
+                      ebc_layout_ok = true;
+                      (ebc_li : usize) = usize(0);
+                      while(ebc_li < ebc_tlabels.len(), {
+                        ebc_tn := match(ebc_tlabels.get(ebc_li), .Some(x) => x, .None => String.from(""));
+                        ebc_en := match(ebc_elabels.get(ebc_li), .Some(x) => x, .None => String.from(""));
+                        if(ebc_tn != ebc_en, {
+                          ebc_layout_ok = false;
+                        });
+                        ebc_li = (ebc_li + usize(1));
+                      });
+                    });
+                    if(!(ebc_layout_ok), {
+                      ebc_arg := match(adjusted_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(ebc_arg),
+                            `Effect argument does not match the future's effect bundle:\n- The future's effect type: ${type_to_string(ebc_te)}\n- The argument's type      : ${type_to_string(ebc_eff_ty)}\nPass the future's own bundle (e.g. \`IoExn(io : io, exn : exn)\` or a record with exactly its fields, or forward \`e\` inside a handler) — a mismatched record corrupts the task's effect state.`
+                          )
+                        )
+                      );
+                    });
+                  },
+                  _ => ()
+                ),
+                _ => ()
+              );
+            }),
+            _ => ()
+          ),
+          .None => ()
+        );
+      });
       // v4.1: validate the PLACES bound to ref parameters (after argument
       // evaluation so the chain types are resolved). Mirrors TS
       // requireValidRefArgumentPlaces in tryToCallFunctionWithArguments.
@@ -6029,7 +6392,17 @@ try_to_call_function_with_arguments :: (
                           s9_ret_somes.get(s9_ri),
                           .Some(s9_rst) => match(
                             s9_rst,
-                            .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if(s9_rnm == s9_pnm, {
+                            // By-NAME match is only meaningful for real type
+                            // variables. Every `Impl(...)` annotation wrapper
+                            // is minted with the RESERVED name `Impl`
+                            // (builtins/impl_constraint.yo), so a closure
+                            // param `Impl(Fn(..))` and an `Impl(Future(..))`
+                            // return "matched" here and the call was typed as
+                            // the CLOSURE ARGUMENT's fn type — C27
+                            // (issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md).
+                            // Wrappers resolve through their own cells / the
+                            // rte re-eval below, never through a sibling's arg.
+                            .SomeT(_, s9_rnm, s9_rlvl, _, _, _, _, _, _, _, _) => if(((s9_rnm == s9_pnm) && (s9_rnm != "Impl")) && (s9_rnm.len() > usize(0)), {
                               subst_add(s9, s9_rnm.clone(), s9_rlvl, s9_ae.arg_type);
                               s9_added.push(s9_rnm.clone());
                               s9_any = true;
@@ -6075,7 +6448,11 @@ try_to_call_function_with_arguments :: (
                       );
                       s9_si2 = (s9_si2 + usize(1));
                     });
-                    if(!(s9_seen2), {
+                    // Same reservation as above: a wrapper named `Impl` has
+                    // no name-keyed env identity of its own (a sibling
+                    // wrapper's binding would answer), so it is left for the
+                    // cell / rte routes.
+                    if((!(s9_seen2)) && ((s9_rnm2 != "Impl") && (s9_rnm2.len() > usize(0))), {
                       s9_env_res := get_value_of_some_type_from_env(callee_env_m, s9_rst2);
                       if(!(is_some_type(s9_env_res)), {
                         subst_add(s9, s9_rnm2.clone(), s9_rlvl2, s9_env_res);
@@ -6306,9 +6683,7 @@ try_to_call_function_with_arguments :: (
                             dyn(
                               format_error_message(
                                 ast_expr_token(ua_expr),
-                                `Incompatible type for implicit parameter "${impl_label}"`,
-                                false,
-                                .None
+                                `Incompatible type for implicit parameter "${impl_label}"`
                               )
                             )
                           );
@@ -6383,9 +6758,7 @@ try_to_call_function_with_arguments :: (
               dyn(
                 format_error_message(
                   tok,
-                  `No "given" variable found for implicit parameter "${impl_label}"`,
-                  false,
-                  .None
+                  `No "given" variable found for implicit parameter "${impl_label}"`
                 )
               )
             );
@@ -6420,9 +6793,7 @@ try_to_call_function_with_arguments :: (
                 dyn(
                   format_error_message(
                     tok,
-                    `The "given" variable "${given_name}" has no compile-time value`,
-                    false,
-                    .None
+                    `The "given" variable "${given_name}" has no compile-time value`
                   )
                 )
               );

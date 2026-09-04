@@ -56,7 +56,7 @@ _inside_c_string_literal :: (fn(s : String, idx : usize) -> bool)({
         i = (i + usize(2));
       },
       (b == u8(34)) => {
-        in_str = !(in_str);
+        in_str = !in_str;
         i = (i + usize(1));
       },
       true => {
@@ -108,10 +108,10 @@ _contains_word_return :: (fn(s : String) -> bool)({
     match(
       _byte_index_of(s, word.clone(), from),
       .Some(idx) => {
-        before_ok := if(idx == usize(0), true, !(_is_word_byte(s.byte_at(idx - usize(1)))));
+        before_ok := if(idx == usize(0), true, !_is_word_byte(s.byte_at(idx - usize(1))));
         after_idx := (idx + wlen);
-        after_ok := if(after_idx >= slen, true, !(_is_word_byte(s.byte_at(after_idx))));
-        if((before_ok && after_ok) && !(_inside_c_string_literal(s, idx)), {
+        after_ok := if(after_idx >= slen, true, !_is_word_byte(s.byte_at(after_idx)));
+        if(before_ok && after_ok && !_inside_c_string_literal(s, idx), {
           return(true);
         }, {
           from = (idx + usize(1));
@@ -139,7 +139,7 @@ _is_or_pattern :: (fn(expr : AstExpr) -> bool)(
 );
 /// Flatten an or-pattern into its individual patterns. Mirrors `flattenOrPattern`.
 _flatten_or_pattern :: (fn(expr : AstExpr) -> ArrayList(AstExpr))(
-  if(!(_is_or_pattern(expr)), {
+  if(!_is_or_pattern(expr), {
     out := ArrayList(AstExpr).new();
     _p := out.push(expr);
     out
@@ -274,7 +274,7 @@ _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Func
         bline.push_string(raw_code.clone());
         bline.push_str(";");
         bem.emit_string_line(bline);
-        _bd := context.base.declared_c_var_names.add(btv.clone());
+        _bd := context.base.declared_c_var_names.insert(btv.clone());
       });
       final_code = btv;
     },
@@ -300,7 +300,7 @@ _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Func
           dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
           dline.push_str(";");
           dem.emit_string_line(dline);
-          _dd := context.base.declared_c_var_names.add(dtv.clone());
+          _dd := context.base.declared_c_var_names.insert(dtv.clone());
           final_code = dtv;
           dup_named = true;
         },
@@ -310,7 +310,7 @@ _arm_value_with_dups :: (fn(body_expr : AstExpr, indent : String, context : Func
     ),
     .None => ()
   );
-  if(!(dup_named), {
+  if(!dup_named, {
     match(
       bei.variable_name,
       .Some(_) => {
@@ -343,7 +343,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
     if(n > usize(0), {
       (j : usize) = usize(0);
       (stop : bool) = false;
-      while((j < (n - usize(1))) && !(stop), {
+      while((j < (n - usize(1))) && !stop, {
         match(
           begin_args.get(j),
           .Some(arg) => {
@@ -358,7 +358,7 @@ generate_case_body :: (fn(body_expr : AstExpr, indent : String, context : Functi
               .Some(aei0) => is_temp_variable_name(aei0.env.module_path.clone(), arg_code.clone()),
               .None => false
             );
-            if((arg_code.len() > usize(0)) && !(arm_bare_temp), {
+            if((arg_code.len() > usize(0)) && !arm_bare_temp, {
               line := indent.clone();
               line.push_string(arg_code);
               line.push_str(";");
@@ -406,7 +406,7 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
   body_code := generate_case_body(case_body, body_indent.clone(), context);
   assigned := match(
     temp_var_opt,
-    .Some(tv) => if((!(is_unit) && (body_code.len() > usize(0))) && !(_is_control_flow_code(body_code)), {
+    .Some(tv) => if(!is_unit && (body_code.len() > usize(0)) && !_is_control_flow_code(body_code), {
       line := body_indent.clone();
       line.push_string(tv.clone());
       line.push_str(" = ");
@@ -417,7 +417,7 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
     }, false),
     .None => false
   );
-  if(!(assigned) && (body_code.len() > usize(0)), {
+  if(!assigned && (body_code.len() > usize(0)), {
     // Same bare-temp-name skip as generate_case_body's statement loop: a
     // unit arm whose final statement emitted itself returns only its eval
     // temp name — emitting `temp;` here referenced an undeclared identifier
@@ -427,7 +427,7 @@ _emit_case_body_and_break :: (fn(case_body : AstExpr, indent : String, body_inde
       .Some(cbei) => is_temp_variable_name(cbei.env.module_path.clone(), body_code.clone()),
       .None => false
     );
-    if(!(fb_bare_temp), {
+    if(!fb_bare_temp, {
       line := body_indent.clone();
       line.push_string(body_code);
       line.push_str(";");
@@ -509,7 +509,7 @@ generate_primitive_match_expression :: (fn(expr : AstExpr, indent : String, cont
               ),
               .None => false
             );
-            if(!(emitted_any), {
+            if(!emitted_any, {
               // Fallback: literals from the flattened pattern expressions.
               flat := _flatten_or_pattern(case_value);
               nf := flat.len();
@@ -572,6 +572,33 @@ _variant_name :: (fn(case_value : AstExpr) -> String)(
 );
 /// Nullable-pointer-optimized enum match → if/else (null vs pointer case).
 /// Mirrors the `nullablePointerType` branch of `generateMatchExpression`.
+/// Add a name to the function's local-shadowed-variables set (creating it if
+/// absent). A shadowed name resolves in `generate_atom` to its sanitized
+/// SOURCE name (the arm-block C declaration), not the evaluator's temp.
+_shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  match(
+    context.local_shadowed_variables,
+    .Some(s) => {
+      _a := s.insert(name);
+    },
+    .None => {
+      ns := HashSet(String).new();
+      _a := ns.insert(name);
+      context.local_shadowed_variables = Option(HashSet(String)).Some(ns);
+    }
+  );
+});
+/// Remove a name from the local-shadowed-variables set (after an arm body, so
+/// the shadow does not leak to sibling arms / outer scope).
+_shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
+  match(
+    context.local_shadowed_variables,
+    .Some(s) => {
+      _r := s.remove(name);
+    },
+    .None => ()
+  );
+});
 _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext, matched_value_code : String, nullable_inner : TypeValue, is_ptr : bool, temp_var_opt : Option(String), is_unit : bool) -> String)({
   em := context.base.emitter;
   body_indent := indent.clone();
@@ -636,6 +663,120 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
             decl.push_string(matched_value_code.clone());
             decl.push_str(";");
             em.emit_string_line(decl);
+            // Shadow-register the binding like _emit_destructure_binds does
+            // for tagged-union arms: the arm body must resolve `q` to THIS
+            // local C declaration. Without it, a GENERIC-IMPL materialized
+            // arm body — whose ExprInfo carries an evaluator-stamped temp
+            // `variable_name` — rendered the read as a never-declared
+            // `_<module>__priv_temp_N` (the generic-impl face of
+            // issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
+            // Removed after the ptr-case body below.
+            _shadow_add(context, dvn.clone());
+            // STATE-MACHINE STORAGE PARITY: identifier READS of an
+            // sm-hoisted variable emit `sm->var_N` (atom.yo consults
+            // state_machine_variables), so when THIS pattern binding's
+            // variable was hoisted, the local decl above leaves the slot
+            // uninitialized and the arm's result reads garbage — the
+            // facet-2 loop-await rc=139
+            // (issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
+            // Resolve the binding's slot: env id (owning-alias + remapping,
+            // init_assignment.yo:206's steps) first, then a NAME scan over
+            // the hoister's map (_find_sm_var_id_by_name's recovery) —
+            // pattern bindings are often absent from the recorded env
+            // entirely, and env ids can be a different generation than the
+            // map keys.
+            if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
+              (smb_id : String) = String.new();
+              (smb_has : bool) = false;
+              match(
+                ptr_body,
+                .Some(smb_pb) => match(
+                  context.base.get_expr_info(smb_pb),
+                  .Some(smb_bei) => {
+                    smb_vars := get_variables_from_env(smb_bei.env, ast_expr_token(dvar).value.to_string());
+                    if(smb_vars.len() > usize(0), {
+                      match(
+                        smb_vars.get(smb_vars.len() - usize(1)),
+                        .Some(smb_var) => {
+                          smb_id = match(
+                            smb_var.is_owning_the_same_rc_value_as,
+                            .Some(ob) => ob.*.id.to_string(),
+                            .None => smb_var.id.to_string()
+                          );
+                          match(
+                            context.variable_id_remapping,
+                            .Some(rm) => match(
+                              rm.get(smb_id.clone()),
+                              .Some(mapped) => {
+                                smb_id = mapped;
+                              },
+                              .None => ()
+                            ),
+                            .None => ()
+                          );
+                          smb_has = match(
+                            context.state_machine_variables,
+                            .Some(smv) => smv.get(smb_id.clone()).is_some(),
+                            .None => false
+                          );
+                        },
+                        .None => ()
+                      );
+                    });
+                  },
+                  .None => ()
+                ),
+                .None => ()
+              );
+              if(!smb_has, {
+                match(
+                  context.state_machine_variables,
+                  .Some(smv2) => {
+                    smb_it := smv2.keys();
+                    (smb_more : bool) = true;
+                    while(smb_more, {
+                      match(
+                        smb_it.next(),
+                        .None => {
+                          smb_more = false;
+                        },
+                        .Some(smb_k) => match(
+                          smv2.get(smb_k.clone()),
+                          .Some(smb_cv) => {
+                            smb_is_local := match(smb_cv.kind, .Local => true, .Outer => false);
+                            if(smb_is_local && (smb_cv.base.name == ast_expr_token(dvar).value.to_string()), {
+                              smb_id = smb_k.clone();
+                              smb_has = true;
+                              smb_more = false;
+                            });
+                          },
+                          .None => ()
+                        )
+                      );
+                    });
+                  },
+                  .None => ()
+                );
+              });
+              if(smb_has, {
+                smb_field := match(
+                  context.state_machine_field_aliases,
+                  .Some(al) => match(
+                    al.get(smb_id.clone()),
+                    .Some(af) => af,
+                    .None => `var_${smb_id.clone()}`
+                  ),
+                  .None => `var_${smb_id.clone()}`
+                );
+                smb_store := body_indent.clone();
+                smb_store.push_str("sm->");
+                smb_store.push_string(smb_field);
+                smb_store.push_str(" = ");
+                smb_store.push_string(dvn.clone());
+                smb_store.push_str(";");
+                em.emit_string_line(smb_store);
+              });
+            });
           }),
           .None => ()
         ),
@@ -649,7 +790,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
     .Some(pb) => {
       body_code := generate_case_body(pb, body_indent.clone(), context);
       if(
-        (!(is_unit)) && !(_is_control_flow_code(body_code)),
+        !is_unit && !_is_control_flow_code(body_code),
         match(
           temp_var_opt,
           .Some(tv) => {
@@ -678,6 +819,23 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
     },
     .None => ()
   );
+  // Un-shadow the payload binding (added at its declaration above) so the
+  // shadow does not leak into the null arm or the outer scope.
+  match(
+    ptr_pattern,
+    .Some(pat2) => match(
+      pat2,
+      .FnCall(_, _, pargs2, _, _) => match(
+        pargs2.get(usize(0)),
+        .Some(dvar2) => if(ast_expr_is_atom(dvar2), {
+          _shadow_remove(context, sanitize_for_c_identifier(ast_expr_token(dvar2).value, false));
+        }),
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    ),
+    .None => ()
+  );
   mid := indent.clone();
   mid.push_str("} else {");
   em.emit_string_line(mid);
@@ -686,7 +844,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
     .Some(nb) => {
       body_code := generate_case_body(nb, body_indent.clone(), context);
       if(
-        (!(is_unit)) && !(_is_control_flow_code(body_code)),
+        !is_unit && !_is_control_flow_code(body_code),
         match(
           temp_var_opt,
           .Some(tv) => {
@@ -782,40 +940,13 @@ _gen_simple_enum_match :: (fn(expr : AstExpr, indent : String, context : Functio
   em.emit_string_line(close);
   if(is_unit, String.from(""), match(temp_var_opt, .Some(tv) => tv, .None => String.from("")))
 });
-/// Add a name to the function's local-shadowed-variables set (creating it if
-/// absent). A shadowed name resolves in `generate_atom` to its sanitized
-/// SOURCE name (the arm-block C declaration), not the evaluator's temp.
-_shadow_add :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
-  match(
-    context.local_shadowed_variables,
-    .Some(s) => {
-      _a := s.add(name);
-    },
-    .None => {
-      ns := HashSet(String).new();
-      _a := ns.add(name);
-      context.local_shadowed_variables = Option(HashSet(String)).Some(ns);
-    }
-  );
-});
-/// Remove a name from the local-shadowed-variables set (after an arm body, so
-/// the shadow does not leak to sibling arms / outer scope).
-_shadow_remove :: (fn(context : FunctionGenerationContext, name : String) -> unit)({
-  match(
-    context.local_shadowed_variables,
-    .Some(s) => {
-      _r := s.remove(name);
-    },
-    .None => ()
-  );
-});
 /// Remove the shadows a tagged-union arm's destructuring added, mirroring the
 /// var extraction in `_emit_destructure_binds` (labeled `label : var` → var is
 /// arg[1]; positional → the atom itself). Called after the arm body.
 _remove_arm_shadows :: (fn(params : ArrayList(AstExpr), context : FunctionGenerationContext) -> unit)({
   // Mirror the curly unwrap in _emit_destructure_binds so curly-bound vars are
   // also un-shadowed.
-  is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false)));
+  is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false));
   dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(p0), .None => params.clone()), params.clone());
   np := dparams.len();
   (pi : usize) = usize(0);
@@ -873,7 +1004,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
         // atoms bind positionally to the field at that index — correct when the
         // curly fields are in declaration order; `{a : alias}` `:` pairs bind by
         // label.)
-        is_curly := ((params.len() == usize(1)) && (match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false)));
+        is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false));
         dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => _args(p0), .None => params.clone()), params.clone());
         // Labeled if any param is a `:`(2) pair.
         (has_labeled : bool) = false;
@@ -899,7 +1030,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                 label := match(pargs.get(usize(0)), .Some(le) => if(ast_expr_is_atom(le), ast_expr_token(le).value, String.from("")), .None => String.from(""));
                 match(
                   pargs.get(usize(1)),
-                  .Some(var_expr) => if((ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_")) && (label.len() > usize(0)), {
+                  .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_") && (label.len() > usize(0)), {
                     // Find the field index for this label.
                     (fi : usize) = labels.len();
                     nl := labels.len();
@@ -916,7 +1047,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                     });
                     if(fi < labels.len(), {
                       ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                      if(!(is_unit_type(ftype)), {
+                      if(!is_unit_type(ftype), {
                         decl := body_indent.clone();
                         decl.push_string(get_type_string(ftype, context.base));
                         decl.push_str(" ");
@@ -951,7 +1082,7 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
               .Some(var_expr) => if(ast_expr_is_atom(var_expr) && !(ast_expr_token(var_expr).value == "_"), {
                 field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                if(!(is_unit_type(ftype)), {
+                if(!is_unit_type(ftype), {
                   decl := body_indent.clone();
                   decl.push_string(get_type_string(ftype, context.base));
                   decl.push_str(" ");
@@ -1123,7 +1254,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   is_unit := is_unit_type(value_type);
   em := context.base.emitter;
   if(
-    !(is_unit),
+    !is_unit,
     match(
       temp_var_opt,
       .Some(tv) => {
@@ -1158,7 +1289,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
           true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
         )
       }, false);
-      if(!(is_inout_atom) && !(matched_value_code == subject_var_name), {
+      if(!is_inout_atom && !(matched_value_code == subject_var_name), {
         decl := indent.clone();
         decl.push_string(get_type_string(match_value_type, context.base));
         decl.push_str(" ");
@@ -1167,7 +1298,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
         decl.push_string(matched_value_code.clone());
         decl.push_str(";");
         em.emit_string_line(decl);
-        _sd := context.base.declared_c_var_names.add(subject_var_name.clone());
+        _sd := context.base.declared_c_var_names.insert(subject_var_name.clone());
         matched_value_code = subject_var_name;
       });
       // The SUBJECT may carry a deferred `___dup` (begin-wrapped non-atom
@@ -1197,7 +1328,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   });
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(match_value_type);
-  is_ref_sem := (!(is_ptr) && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
+  is_ref_sem := (!is_ptr && (is_reference_struct_type(match_value_type) || is_reference_enum_type(match_value_type)));
   enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
   // Resolve a leaked recursive-enum SELF-SHELL to its finalized form. A shell
   // keeps `variant_names` (so the tag emits) but has EMPTY `variant_fields`/
@@ -1208,7 +1339,7 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   // The evaluator already resolves shells before reading variants; codegen must
   // too. Mirrors the resolve_enum_shell use in _type_key_at / get_type_string.
   enum_type := resolve_enum_shell(enum_type0);
-  if(!(is_enum_type(enum_type)), {
+  if(!is_enum_type(enum_type), {
     return(codegen_fatal_expr(String.from("\"match\" expression requires an enum type")));
   });
   match(context.base.get_type_c_name(type_key(enum_type)), .None => return(codegen_fatal_expr(String.from("\"match\" expression enum type has no C name"))), .Some(_) => ());

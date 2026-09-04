@@ -194,7 +194,7 @@ v := list(usize(0));             // 42
 
 ```rust
 (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
-map.set(i32(1), i32(100));
+map.insert(i32(1), i32(100));
 v := map(i32(1));               // 100
 &(map(i32(1))).* = i32(999);   // mutate in place
 // map(i32(99))                 // panics: key not found
@@ -206,7 +206,7 @@ Requires `K <: (Eq(K), Hash)`.
 
 ```rust
 (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
-map.set(i32(5), i32(500));
+map.insert(i32(5), i32(500));
 v := map(i32(5));               // 500
 &(map(i32(5))).* = i32(77);   // mutate in place
 // map(i32(99))                 // panics: key not found
@@ -233,7 +233,7 @@ O(1) random access, correctly handles ring buffer wrapping.
 b := s(usize(0));  // u8(72) — byte-level access ('H')
 ```
 
-Returns `u8` — byte-level indexing into the internal UTF-8 buffer. For character-level access, use the `chars()` iterator.
+Returns `u8` — byte-level indexing into the internal UTF-8 buffer. For character-level access, use the `chars()` iterator. All other string indices (`substring`, `index_of`, the `s(a..b)` sugar, …) are byte offsets too — see [STRINGS.md](./STRINGS.md) for the full contract.
 
 ## Error Handling
 

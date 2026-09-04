@@ -1,0 +1,50 @@
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+{ IoExn } :: import("std/error");
+
+Stepper :: trait(
+  step : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
+  (total : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
+    (
+      (self, io) ->
+        io.async((e) => {
+          out := ArrayList(u8).new();
+          (done : bool) = false;
+          while(!(done), {
+            n := e.io.await(Self.step(self, io), e);
+            if(n == usize(0), {
+              done = true;
+            }, {
+              out.push(u8(n));
+            });
+          });
+          (sum : usize) = usize(0);
+          (i : usize) = usize(0);
+          while(i < out.len(), i = (i + usize(1)), {
+            sum = (sum + usize(out(i)));
+          });
+          sum
+        })
+    )
+);
+Cnt :: ref(struct(left : usize));
+impl(
+  Cnt,
+  Stepper(
+    step : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        (n : usize) = self.left;
+        if(n > usize(0), {
+          self.left = (self.left - usize(1));
+        });
+        n
+      })
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  c := Cnt(left : usize(3));
+  s := io.await(c.total(io), { io });
+  assert(s == usize(6), "3+2+1 through a loop-until-done default");
+});
+export(main);

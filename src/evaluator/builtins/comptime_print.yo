@@ -45,9 +45,7 @@ evaluate_comptime_print :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Expected at least 1 argument for "comptime_print", got 0`,
-              false,
-              .None
+              `Expected at least 1 argument for "comptime_print", got 0`
             )
           )
         );
@@ -58,9 +56,7 @@ evaluate_comptime_print :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("comptime_print: expected FnCall"),
-            false,
-            .None
+            String.from("comptime_print: expected FnCall")
           )
         )
       );
@@ -94,9 +90,7 @@ evaluate_comptime_print :: (
           dyn(
             format_error_message(
               ast_expr_token(arg_expr),
-              `Failed to evaluate argument for "comptime_print": ${ast_expr_to_string(arg_expr)}`,
-              false,
-              .None
+              `Failed to evaluate argument for "comptime_print": ${ast_expr_to_string(arg_expr)}`
             )
           )
         );
@@ -123,7 +117,7 @@ evaluate_comptime_print :: (
     i = (i + usize(1));
   });
   // Print only when executing (not during function-definition validation).
-  if(!(ctx.is_validating_function_definition) && ctx.is_executing, {
+  if(!ctx.is_validating_function_definition && ctx.is_executing, {
     (j : usize) = usize(0);
     while(j < parts.len(), {
       part := match(parts.get(j), .Some(p) => p, .None => String.new());

@@ -106,7 +106,7 @@ is_effect_call_ :: (
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> bool
 )({
-  if(!(ast_expr_is_fn_call(expr.clone())), {
+  if(!ast_expr_is_fn_call(expr.clone()), {
     return(false);
   });
   func_expr := match(
@@ -138,13 +138,13 @@ is_effect_call_ :: (
         .None => Option(TypeValue).None
       );
       // When allowMissingType=false: require a function type
-      if(!(allow_missing_type), {
+      if(!allow_missing_type, {
         ok := match(
           func_type_opt,
           .Some(ty) => is_function_type(ty),
           .None => false
         );
-        if(!(ok), {
+        if(!ok, {
           return(false);
         });
       });
@@ -152,7 +152,7 @@ is_effect_call_ :: (
       if(allow_missing_type, {
         bad := match(
           func_type_opt,
-          .Some(ty) => !(is_function_type(ty)),
+          .Some(ty) => !is_function_type(ty),
           .None => false
         );
         if(bad, {
@@ -179,20 +179,20 @@ is_effect_call_ :: (
           .Some(info) => Option(TypeValue).Some(info.ty),
           .None => Option(TypeValue).None
         );
-        if(!(allow_missing_type), {
+        if(!allow_missing_type, {
           ok := match(
             func_type_opt,
             .Some(ty) => is_function_type(ty),
             .None => false
           );
-          if(!(ok), {
+          if(!ok, {
             return(false);
           });
         });
         if(allow_missing_type, {
           bad := match(
             func_type_opt,
-            .Some(ty) => !(is_function_type(ty)),
+            .Some(ty) => !is_function_type(ty),
             .None => false
           );
           if(bad, {
@@ -210,7 +210,7 @@ is_effect_call_ :: (
       while(go, {
         cur_clone := current.clone();
         is_dot_call := ast_expr_is_fn_call_of(cur_clone, ".", Option(usize).None);
-        if(!(is_dot_call), {
+        if(!is_dot_call, {
           go = false;
           break;
         });
@@ -276,7 +276,7 @@ is_effect_call_ :: (
           .None => String.from("")
         );
         fp_s := match(
-          fp.get((n - usize(1)) - i),
+          fp.get(n - usize(1) - i),
           .Some(s) => s,
           .None => String.from("")
         );
@@ -286,7 +286,7 @@ is_effect_call_ :: (
         });
         i = (i + usize(1));
       });
-      if(!(matched), {
+      if(!matched, {
         return(false);
       });
       // Verify the outermost "." expression type is a function
@@ -295,20 +295,20 @@ is_effect_call_ :: (
         .Some(info) => Option(TypeValue).Some(info.ty),
         .None => Option(TypeValue).None
       );
-      if(!(allow_missing_type), {
+      if(!allow_missing_type, {
         ok := match(
           outer_func_type_opt,
           .Some(ty) => is_function_type(ty),
           .None => false
         );
-        if(!(ok), {
+        if(!ok, {
           return(false);
         });
       });
       if(allow_missing_type, {
         bad := match(
           outer_func_type_opt,
-          .Some(ty) => !(is_function_type(ty)),
+          .Some(ty) => !is_function_type(ty),
           .None => false
         );
         if(bad, {
@@ -388,7 +388,7 @@ has_effect_in_spread_ :: (
         while(i < n, {
           label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
           ty := match(implicit_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if((label == effect_param_name) && ((is_function_type(ty.clone()) || is_module_type(ty.clone())) || is_struct_type(ty)), {
+          if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty)), {
             found = true;
             break;
           });
@@ -419,7 +419,7 @@ is_transitive_effect_call_ :: (
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> Option(bool)
 )({
-  if(!(ast_expr_is_fn_call(expr.clone())), {
+  if(!ast_expr_is_fn_call(expr.clone()), {
     return(Option(bool).None);
   });
   func_expr := match(
@@ -452,7 +452,7 @@ is_transitive_effect_call_ :: (
           ty := match(implicit_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
           is_spread := match(implicit_spreads.get(i), .Some(s) => s, .None => false);
           // Direct match: label matches and type is Func or effect record
-          if((label == effect_param_name) && ((is_function_type(ty.clone()) || is_module_type(ty.clone())) || is_struct_type(ty.clone())), {
+          if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
             found = Option(bool).Some(false);
             break;
           });
@@ -500,7 +500,7 @@ is_transitive_effect_call_ :: (
             label := match(implicit_labels.get(i2), .Some(l) => l, .None => String.from(""));
             ty := match(implicit_types.get(i2), .Some(t) => t, .None => TypeValue.Unit);
             is_spread := match(implicit_spreads.get(i2), .Some(s) => s, .None => false);
-            if((label == effect_param_name) && ((is_function_type(ty.clone()) || is_module_type(ty.clone())) || is_struct_type(ty.clone())), {
+            if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
               return(Option(bool).Some(true));
             });
             if(is_spread, {
@@ -548,7 +548,7 @@ detect_effect_expr_ :: (
     get_info : Impl(Fn(e : AstExpr) -> Option(ExprInfo))
   ) -> unit
 )({
-  if(!(ast_expr_is_fn_call(expr.clone())), {
+  if(!ast_expr_is_fn_call(expr.clone()), {
     return(());
   });
   // --- Check direct effect call ---
@@ -649,10 +649,12 @@ detect_effect_expr_ :: (
             while_nesting_depth : Option(usize).None,
             cond_branch_source_index : Option(usize).None,
             needs_own_cond_branch_field : Option(bool).None,
-            enclosing_while_expr : Option(AstExpr).None
+            enclosing_while_expr : Option(AstExpr).None,
+            cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
+            cond_branch_suspension_in_while : Option(ArrayList(bool)).None
           );
           key := ast_expr_token(expr.clone()).character.to_string();
-          effect_extras.set(
+          effect_extras.insert(
             key.clone(),
             EffectCallPointExtra_(
               operation_arg_types : operation_arg_types,
@@ -677,7 +679,7 @@ detect_effect_expr_ :: (
       // allowMissingType = false (strict check)
       get_info
     );
-    if(!(direct_strict), {
+    if(!direct_strict, {
       transitive_result := is_transitive_effect_call_(
         expr.clone(),
         effect_param_name.clone(),
@@ -746,10 +748,12 @@ detect_effect_expr_ :: (
                   while_nesting_depth : Option(usize).None,
                   cond_branch_source_index : Option(usize).None,
                   needs_own_cond_branch_field : Option(bool).None,
-                  enclosing_while_expr : Option(AstExpr).None
+                  enclosing_while_expr : Option(AstExpr).None,
+                  cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
+                  cond_branch_suspension_in_while : Option(ArrayList(bool)).None
                 );
                 key := ast_expr_token(expr.clone()).character.to_string();
-                effect_extras.set(
+                effect_extras.insert(
                   key.clone(),
                   EffectCallPointExtra_(
                     operation_arg_types : transitive_arg_types,
@@ -814,7 +818,7 @@ analyze_effect_call_points :: (
           get_info
         );
       }),
-      should_skip_body : dyn((expr) => is_io_async_call(expr))
+      should_skip_body : dyn(expr => is_io_async_call(expr))
     )
   );
   // Reconstruct typed EffectCallPoint list from base suspension points + side-channel

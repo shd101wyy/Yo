@@ -28,6 +28,7 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { sanitize_for_c_identifier, get_variable_name_for_codegen, get_enum_variant_c_name, can_optimize_as_nullable_pointer, type_key } :: import("../utils/index.yo");
 { generate_comptime_value } :: import("./comptime_value.yo");
+{ lookup_io_builtin_struct_field } :: import("../../expr_info.yo");
 /// True if `s` is all ASCII digits (non-empty).
 _all_digits :: (fn(s : String) -> bool)({
   // BYTE count — the loop reads byte_at; String.len() counts RUNES
@@ -241,7 +242,7 @@ _tuple_field_access :: (fn(object_type : TypeValue, object_code : String, field_
       (i : usize) = usize(0);
       (idx : usize) = usize(0);
       (found : bool) = false;
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           fls.get(i),
           .Some(lbl) => if(lbl == field_name, {
@@ -274,7 +275,7 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
   });
   object_expr := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
   field_expr := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
-  if(!(ast_expr_is_atom(field_expr)), {
+  if(!ast_expr_is_atom(field_expr), {
     return(String.from("/* ERROR: field name must be an identifier */"));
   });
   field_name := ast_expr_token(field_expr).value;
@@ -308,14 +309,26 @@ generate_field_access :: (fn(expr : AstExpr, indent : String, context : Function
     match(
       ei.value,
       .Some(fv) => if(
-        !(is_unknown_val(fv)),
-        if(!(is_struct_val(fv)), {
+        !is_unknown_val(fv),
+        if(!is_struct_val(fv), {
           return(generate_comptime_value(fv, ei.ty, context.base));
         })
       ),
       .None => ()
     );
     return(get_variable_name_for_codegen(field_name.clone(), Option(Environment).Some(ei.env)));
+  });
+  // The bare `Io` effect struct's `.io` member is the IDENTITY projection
+  // (evaluator twin in evaluator/exprs/property_access.yo): a bundle-style
+  // body (`e.io.await(f, e.io)`) whose effect bound to the bare Io emits
+  // `e`, not a nonexistent `e.io` field. Keyed on the io-builtin side
+  // table, so a user struct with an `io` field is untouched.
+  if((field_name == "io") && is_struct_type(object_type) && match(
+    object_type,
+    .Struct({ id : oid }) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
+    _ => false
+  ), {
+    return(object_code.clone());
   });
   // Newtype: accessing the single field returns the value itself (zero-cost).
   // A by-`ref` receiver is already dereferenced by generate_atom (`(*self)`), so

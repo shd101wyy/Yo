@@ -1,0 +1,33 @@
+//! The io.await/io.spawn effect-bundle contract
+//! (issues/fixed/io-await-effect-arg-not-checked-memcpy-overflow.md): the
+//! effect argument must have the future's own bundle layout. A smaller or
+//! different record used to be accepted silently — codegen memcpy'd
+//! sizeof(the future's E) out of it (ASan stack-buffer-overflow on every CI
+//! test leg, 2026-08-27).
+{ assert } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+
+give :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => usize(11))
+);
+test("mismatched effect records are rejected at check time", {
+  // A one-field record for an IoExn future: wrong layout.
+  comptime_expect_error(io.await(give(io), { io }));
+  // A bare Io for an IoExn future: wrong layout.
+  comptime_expect_error(io.await(give(io), io));
+  assert(true, "both rejected");
+});
+test("matching bundles still pass", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  a := io.await(give(io), IoExn(io : io, exn : exn));
+  // An anonymous record with EXACTLY the bundle's fields has its layout.
+  b := io.await(give(io), { io, exn });
+  assert((a == usize(11)) && (b == usize(11)), "typed and structural bundles both work");
+});

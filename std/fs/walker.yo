@@ -1,6 +1,6 @@
 //! Recursive directory traversal.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { walk, WalkEntry } :: import "std/fs/walker";
@@ -17,12 +17,25 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
+{ HashSet } :: import("../collections/hash_set");
 open(import("../string"));
 { Path } :: import("../path");
+{ glob_match } :: import("../glob");
+_file :: import("./file");
+/// follow_symlinks support gate. On Windows the follow path's
+/// canonical/is_dir through a DIRECTORY symlink dies with an unknown I/O
+/// error at the runtime layer (observed on the windows-latest CI leg), so
+/// following is disabled there until the primitives are verified —
+/// issues/walker-follow-symlinks-windows-unsupported.md. Symlink entries
+/// are still REPORTED on every platform; only the descent is gated.
+_FOLLOW_SUPPORTED :: cond(
+  (__yo_process_platform() == "windows") => false,
+  true => true
+);
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { FileType } :: import("./dir");
-{ DirEntry } :: import("./dir");
+{ DirEntry, remove_dir, remove_file } :: import("./dir");
 _dir :: import("./dir");
 /// Entry returned by the directory walker.
 WalkEntry :: struct(
@@ -31,12 +44,18 @@ WalkEntry :: struct(
   depth : u32,
   file_type : FileType
 );
+
 export(WalkEntry);
 /// Options controlling directory walk behavior.
 WalkOptions :: struct(
-  max_depth : ?(u32),
+  max_depth : Option(u32),
   follow_symlinks : bool,
-  include_dirs : bool
+  include_dirs : bool,
+  /// When set, only entries whose path RELATIVE TO THE WALK ROOT matches
+  /// this glob (std/glob semantics; `**` crosses separators) are returned.
+  /// Directories are still DESCENDED regardless, so `**/x.txt` finds deep
+  /// files even though intermediate dirs do not match.
+  pattern : Option(String)
 );
 impl(
   WalkOptions,
@@ -44,7 +63,8 @@ impl(
     Self(
       max_depth : .None,
       follow_symlinks : false,
-      include_dirs : true
+      include_dirs : true,
+      pattern : .None
     )
   )
 );
@@ -58,14 +78,69 @@ _join_path :: (fn(base : String, name : String) -> String)(
     true => `${base}/${name}`
   )
 );
+// Resolve a followed symlink: the canonical path of `lp`'s target when the
+// target is a directory, or "" otherwise (dangling links included). Its own
+// async fn so the walker's loops keep a SINGLE top-level await per body —
+// awaits nested in cond arms inside its while-in-while trip
+// issues/async-nested-cond-await-duplicate-while-labels.md.
+_canon_dir_target :: (fn(lp : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async(e => {
+    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
+    cond(
+      is_d => {
+        canon := e.io.await(_file.canonicalize(Path.new(lp), e.io), e);
+        return(canon.to_string());
+      },
+      true => ()
+    );
+    return(String.new());
+  })
+);
 // ============================================================================
 // Walk functions
 // ============================================================================
 // Walk a directory tree with custom options.
+/// Keep the entries whose ROOT-RELATIVE path matches `pattern` (byte prefix
+/// strip is exact — every entry path is `_join_path(root_s, ...)`). `.None`
+/// passes everything through.
+_filter_by_pattern :: (fn(results : ArrayList(WalkEntry), root_s : String, pattern : Option(String)) -> ArrayList(WalkEntry))({
+  pat := match(
+    pattern,
+    .Some(p) => p,
+    .None => {
+      return(results);
+    }
+  );
+  kept := ArrayList(WalkEntry).new();
+  prefix_len := (root_s.len() + usize(1));
+  (fi : usize) = usize(0);
+  while(fi < results.len(), fi = (fi + usize(1)), {
+    wentry := results(fi);
+    full := wentry.path.to_string();
+    rel := cond(
+      (full.len() > prefix_len) => full.substring(prefix_len, full.len()),
+      true => wentry.name.clone()
+    );
+    cond(
+      glob_match(pat.clone(), rel) => {
+        kept.push(wentry);
+      },
+      true => ()
+    );
+  });
+  kept
+});
 walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
-  io.async((e) => {
+  io.async(e => {
     results := ArrayList(WalkEntry).new();
+    // Canonical paths of directories entered VIA a followed symlink — the
+    // cycle guard for follow_symlinks (a link to an ancestor would otherwise
+    // recurse forever; the second traversal of any followed link is skipped).
+    followed := HashSet(String).new();
+    // Symlink entries of the CURRENT directory awaiting the follow decision
+    // (stat + canonicalize need awaits; see the .Symlink arm's note).
+    pending_links := ArrayList(String).new();
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path : String, depth : u32)).new();
     stack.push({ path : root_s, depth : u32(0) });
@@ -105,6 +180,27 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
                 // Push subdirectory for processing
                 stack.push({ path : entry_path, depth : (cur_depth + u32(1)) });
               },
+              .Symlink => {
+                // WalkOptions.follow_symlinks was declared and never read
+                // (plans/STD_API_AUDIT.md C9). Record the entry; the follow
+                // decision needs awaits, which are deferred to the
+                // pending-links pass below (awaits nested this deep trip
+                // issues/async-nested-cond-await-duplicate-while-labels.md).
+                results.push(
+                  WalkEntry(
+                    path : Path.new(entry_path),
+                    name : entry.name,
+                    depth : cur_depth,
+                    file_type : .Symlink
+                  )
+                );
+                cond(
+                  (options.follow_symlinks && _FOLLOW_SUPPORTED) => {
+                    pending_links.push(entry_path);
+                  },
+                  true => ()
+                );
+              },
               _ => {
                 results.push(
                   WalkEntry(
@@ -118,17 +214,144 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
             );
             i = (i + usize(1));
           });
+          // Follow-symlink pass for this directory's pending links: stat the
+          // target (is_dir follows links; a dangling link is simply false)
+          // and descend when it is a directory not already entered.
+          j := usize(0);
+          while(runtime(j < pending_links.len()), {
+            lp := pending_links(j);
+            canon_s := e.io.await(_canon_dir_target(lp, e.io), e);
+            cond(
+              (!canon_s.is_empty() && !followed.contains(canon_s)) => {
+                match(followed.insert(canon_s), .Ok(_) => (), .Err(_) => ());
+                stack.push({ path : lp, depth : (cur_depth + u32(1)) });
+              },
+              true => ()
+            );
+            j = (j + usize(1));
+          });
+          pending_links.clear();
         },
         true => ()
       );
     });
-    results
+    // Pattern post-filter runs in a SYNC helper: adding match/return control
+    // flow at this async body's tail reshaped the state machine into a hang
+    // (rc=124 on a plain walk) — the tail stays a single expression.
+    _filter_by_pattern(results, root_s, options.pattern)
   })
 });
-walk_with_cstr :: (fn(root : *(u8), options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
+walk_with_cstr :: (fn(root : *u8, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
   walk_with(Path.from_cstr(root), options, io)
 );
 /// Walk a directory tree with default options.
 walk :: (fn(root : Path, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk_with(root, WalkOptions.defaults(), io));
-walk_cstr :: (fn(root : *(u8), io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
-export(walk, walk_cstr, walk_with, walk_with_cstr);
+walk_cstr :: (fn(root : *u8, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
+/// Split a glob pattern into (static base dir, relative pattern): the base
+/// is everything up to the last `/` BEFORE the first metacharacter
+/// (`*`, `?`, `[`), or `.` when the pattern is relative with no static dir.
+_glob_split :: (fn(pattern : String) -> struct(base : String, rest : String))({
+  bs := pattern.as_bytes();
+  n := bs.len();
+  // First metacharacter position (n = none).
+  (meta : usize) = n;
+  (i : usize) = usize(0);
+  while((i < n) && (meta == n), {
+    b := match(bs.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      ((b == u8(42)) || ((b == u8(63)) || (b == u8(91)))) => {
+        meta = i;
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  // Last '/' before the first metacharacter.
+  (cut : Option(usize)) = Option(usize).None;
+  (j : usize) = usize(0);
+  while(j < meta, {
+    b := match(bs.get(j), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(47)) => {
+        cut = Option(usize).Some(j);
+      },
+      true => ()
+    );
+    j = (j + usize(1));
+  });
+  match(
+    cut,
+    .Some(at) => {
+      base0 := pattern.substring(usize(0), at);
+      base := cond(
+        base0.is_empty() => `/`.to_string(),
+        true => base0
+      );
+      { base : base, rest : pattern.substring(at + usize(1), n) }
+    },
+    .None => { base : `.`.to_string(), rest : pattern.clone() }
+  )
+});
+/// Expand a glob pattern against the filesystem — the Python/Node meaning:
+/// walk from the pattern's static prefix and return every matching path
+/// (files, dirs and symlinks alike; `**` crosses directories). Throws the
+/// walker's IoExn when the static base directory cannot be read.
+glob :: (fn(pattern : String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))({
+  parts := _glob_split(pattern);
+  io.async(e => {
+    opts := WalkOptions(
+      max_depth : .None,
+      follow_symlinks : false,
+      include_dirs : true,
+      pattern : Option(String).Some(parts.rest)
+    );
+    entries := e.io.await(walk_with(Path.new(parts.base), opts, e.io), e);
+    out := ArrayList(Path).new();
+    (i : usize) = usize(0);
+    while(runtime(i < entries.len()), {
+      wentry := entries(i);
+      out.push(wentry.path);
+      i = (i + usize(1));
+    });
+    out
+  })
+});
+export(walk, walk_cstr, walk_with, walk_with_cstr, glob);
+/// Recursively remove a directory and everything under it
+/// (`std::fs::remove_dir_all`). Does NOT follow symlinks — a symlinked
+/// directory is removed as a LINK, its target untouched.
+///
+/// Lives HERE rather than in `std/fs/dir` because the implementation is the
+/// walker (collect the whole tree, delete deepest-first) and `fs/walker`
+/// imports `fs/dir` — the reverse import would be a cycle. This is the same
+/// implementation the compiler ran in production as a private helper
+/// (src/fetch.yo) before it moved into std.
+remove_dir_all :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .None);
+    entries := e.io.await(walk_with(path, opts, e.io), e);
+    n := entries.len();
+    // Delete deepest entries first (reverse order from walk output).
+    while(n > usize(0), {
+      n = (n - usize(1));
+      match(
+        entries.get(n),
+        .None => (),
+        .Some(entry) =>
+          match(
+            entry.file_type,
+            .Directory => {
+              e.io.await(remove_dir(entry.path, e.io), e);
+            },
+            _ => {
+              e.io.await(remove_file(entry.path, e.io), e);
+            }
+          )
+      );
+    });
+    e.io.await(remove_dir(path, e.io), e);
+  })
+);
+/// `remove_dir_all` (`str` path variant).
+remove_dir_all_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(remove_dir_all(Path.new(String.from(path)), io));
+export(remove_dir_all, remove_dir_all_str);

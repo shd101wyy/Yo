@@ -40,10 +40,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # THE THIRD PIN. test.yml's lockstep note named only itself and release.yml,
-  # so this one sat on v0.2.4 while they moved to v0.2.7 and then v0.2.9 —
-  # the same silent drift that note was written about. Bump all THREE together.
-  SEED_VERSION: v0.2.11
+  # THE THIRD PIN. test.yml's lockstep note once named only itself and
+  # release.yml, so this one sat on v0.2.4 while they moved to v0.2.7 and
+  # then v0.2.9 — that drift is why the pins are now guarded (test.yml
+  # `changes` job) and bumped automatically at release time (release.yml
+  # publish-release). Full rationale: test.yml's SEED_VERSION comment.
+  SEED_VERSION: v0.2.23
   # See test.yml's APT_OPTS comment: a bare apt-get can hang forever on the
   # dpkg lock held by the runner's unattended-upgrades timer.
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
@@ -73,7 +75,7 @@ jobs:
       - name: Install liburing and GNU time
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev time
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -99,15 +101,19 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/yo-stage1 compile src/main.yo --release --allocator mimalloc \
+            /tmp/yo-stage1 compile src/main.yo --optimize 2 --allocator mimalloc \
               --std-path ./std --emit-c-to /tmp/yo-stage2.c --skip-c-compiler
           ls -la /tmp/yo-stage2.c
 
       - name: "Stage 2 binary: compile the emitted C"
         run: |
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config, libssl-dev installed
+          # with liburing above.
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/yo-stage2.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
           /tmp/yo-stage2 check std/assert.yo
 
@@ -116,7 +122,7 @@ jobs:
           echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/yo-stage2 compile src/main.yo --release --allocator mimalloc \
+            /tmp/yo-stage2 compile src/main.yo --optimize 2 --allocator mimalloc \
               --std-path ./std --emit-c-to /tmp/yo-stage3.c --skip-c-compiler
           ls -la /tmp/yo-stage3.c
 

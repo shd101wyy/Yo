@@ -99,7 +99,7 @@ resolve_module_path :: (
     module_path_to_import = Path.new(`${current_dir}/${module_path_to_import}`).to_string();
   });
   // 4. Non-relative, non-absolute paths: resolve relative to CWD.
-  if(!(Path.new(module_path_to_import.clone()).is_absolute()), {
+  if(!Path.new(module_path_to_import.clone()).is_absolute(), {
     cwd_result := match(
       cwd(),
       .Ok(p) => p.to_string(),
@@ -134,7 +134,7 @@ _find_project_root :: (fn(file_path : String) -> Option(String))({
   dir_path_opt := Path.new(file_path).parent();
   (result : Option(String)) = .None;
   (found : bool) = false;
-  while(!(found), {
+  while(!found, {
     match(
       dir_path_opt,
       .None => {
@@ -251,14 +251,12 @@ evaluate_import :: (
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
-  if(!(ast_expr_is_fn_call_of(expr, BK_IMPORT, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_IMPORT, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Expected `import` with exactly 1 argument."),
-          false,
-          .None
+          String.from("Expected `import` with exactly 1 argument.")
         )
       )
     );
@@ -274,9 +272,7 @@ evaluate_import :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              String.from("import: missing path argument."),
-              false,
-              .None
+              String.from("import: missing path argument.")
             )
           )
         );
@@ -288,9 +284,7 @@ evaluate_import :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("import: expected FnCall expression."),
-            false,
-            .None
+            String.from("import: expected FnCall expression.")
           )
         )
       );
@@ -308,9 +302,7 @@ evaluate_import :: (
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            String.from("import: failed to evaluate module path argument."),
-            false,
-            .None
+            String.from("import: failed to evaluate module path argument.")
           )
         )
       );
@@ -334,9 +326,7 @@ evaluate_import :: (
           dyn(
             format_error_message(
               ast_expr_token(module_arg),
-              String.from("Expected comptime_str for module path."),
-              false,
-              .None
+              String.from("Expected comptime_str for module path.")
             )
           )
         );
@@ -348,9 +338,7 @@ evaluate_import :: (
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            String.from("Expected comptime_str for module path."),
-            false,
-            .None
+            String.from("Expected comptime_str for module path.")
           )
         )
       );
@@ -370,9 +358,7 @@ evaluate_import :: (
       dyn(
         format_error_message(
           ast_expr_token(module_arg),
-          String.from("Importing the prelude module is not allowed — it is automatically loaded for every file."),
-          false,
-          .None
+          String.from("Importing the prelude module is not allowed — it is automatically loaded for every file.")
         )
       )
     );
@@ -397,9 +383,7 @@ evaluate_import :: (
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            `Ambiguous import("${base}": both "${base}.yo" and "${base}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`,
-            false,
-            .None
+            `Ambiguous import("${base}": both "${base}.yo" and "${base}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`
           )
         )
       );
@@ -410,9 +394,7 @@ evaluate_import :: (
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            `Module not found: tried "${base}.yo" and "${base}/index.yo"`,
-            false,
-            .None
+            `Module not found: tried "${base}.yo" and "${base}/index.yo"`
           )
         )
       );
@@ -446,9 +428,7 @@ evaluate_import :: (
         dyn(
           format_error_message(
             ast_expr_token(module_arg),
-            `Failed to import module "${module_path_to_import}":\n${err_msg}`,
-            false,
-            .None
+            `Failed to import module "${module_path_to_import}":\n${err_msg}`
           )
         )
       );

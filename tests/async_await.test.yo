@@ -9,11 +9,14 @@ open(import("std/fmt"));
 { Path } :: import("std/path");
 { exists } :: import("std/fs/file");
 { arch, Arch } :: import("std/process");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ sleep } :: import("std/sys/timer");
+{ Instant } :: import("std/time/instant");
 /// A `bool` future for `while` conditions: true while `v` is under `limit`.
 /// Taken as a top-level helper rather than an inline `io.async` closure — a
 /// closure capturing a mutable local, re-created every iteration, hits a
 /// separate capture/dup divergence in the self-hosted compiler
-/// (issues/await-in-branch-positions-matrix.md).
+/// (issues/fixed/await-in-branch-positions-matrix.md).
 future_lt :: (fn(v : i32, limit : i32, io : Io) -> Impl(Future(bool, Io)))({
   a := Box(i32)(v);
   b := Box(i32)(limit);
@@ -375,7 +378,7 @@ test("Test nested cond with await", {
         );
       },
       true => {
-        result.* = i32(-(1));
+        result.* = i32(-1);
       }
     );
     assert(result.* == i32(42), "nested cond should set result to 42");
@@ -438,7 +441,7 @@ test("Test async function with multiple awaits and early return", {
       );
       i.* = (i.* + 1);
     });
-    return(i32(-(1)));
+    return(i32(-1));
   });
   result := io.await(task, io);
   assert(result == i32(5), "should find value 5");
@@ -917,7 +920,7 @@ test("Test loop-local and captured values with continue across await", {
 // ---------------------------------------------------------------------------
 test("Test early return inside loop after continue", {
   i := Box(i32)(0);
-  found := Box(i32)(-(1));
+  found := Box(i32)(-1);
   reached_end := Box(bool)(false);
   task := io.async((io : Io) => {
     while(runtime(i.* < i32(10)), {
@@ -1516,7 +1519,7 @@ test("Test Future with single effect row spread", {
   )(f(e));
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         return(i32(99));
       }
     );
@@ -1537,7 +1540,7 @@ test("Test Future with single individual effect", {
   );
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(77));
       }
@@ -1561,13 +1564,13 @@ test("Test Future with multiple individual effects", {
   });
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(55));
       }
     );
     (log : Log) = (
-      (msg) -> {
+      msg -> {
         println(msg);
       }
     );
@@ -1606,13 +1609,13 @@ test("Test Future with multiple effect row spreads", {
   });
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(42));
       }
     );
     (log : Log) = (
-      (msg) -> {
+      msg -> {
         println(msg);
       }
     );
@@ -1636,7 +1639,7 @@ test("Test Future with mixed individual effect and spread", {
   EmptyBundle :: struct();
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         return(i32(33));
       }
@@ -1665,12 +1668,12 @@ test("Test explicit Future annotation with bundle effect struct", {
   Log :: (fn(msg : String) -> unit);
   Ctx :: struct(io : Io, raise : Raise, log : Log);
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(100));
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       println(msg);
     }
   );
@@ -1786,7 +1789,7 @@ test("Test unwind in async closure", {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> unit)({
       (raise : Raise) =
         (
-          (msg) -> {
+          msg -> {
             println(msg);
             unwind(());
           }
@@ -1808,7 +1811,7 @@ test("Test unwind in async closure", {
     test_unwind :: (fn(task : Impl(Future(i32, Ctx)), my_io : Io) -> i32)({
       (raise : Raise) =
         (
-          (msg) -> {
+          msg -> {
             println(msg);
             unwind(666);
           }
@@ -1858,7 +1861,7 @@ test("Test JoinHandle await returns None on unwind", {
   });
   (raise : Raise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );
@@ -1883,7 +1886,7 @@ test("Test JoinHandle two tasks one escapes", {
   });
   (raise : Raise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );
@@ -1910,7 +1913,7 @@ test("Test effect injection via io.await on sync future", {
   });
   (log1 : Log) =
     (
-      (msg) -> {
+      msg -> {
         print("Log1: ");
         println(msg);
       }
@@ -1930,14 +1933,14 @@ test("Test effect injection set-once via io.spawn then io.await", {
   });
   (log1 : Log) =
     (
-      (msg) -> {
+      msg -> {
         print("SpawnLog: ");
         println(msg);
       }
     );
   (log2 : Log) =
     (
-      (msg) -> {
+      msg -> {
         assert(false, "log2 should not be called (set-once semantics)");
       }
     );
@@ -1958,7 +1961,7 @@ test("Test effect injection via io.await on SM future", {
   });
   (log1 : Log) =
     (
-      (msg) -> {
+      msg -> {
         print("SMLog: ");
         println(msg);
       }
@@ -2073,7 +2076,7 @@ test("Test effect resume inside async closure", {
     r
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(10));
     }
   );
@@ -2101,7 +2104,7 @@ test("Test effect resume across multiple yields", {
     r
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(5));
     }
   );
@@ -2124,12 +2127,12 @@ test("Test two effects injected via io.await", {
     result
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(42));
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       unsafe(printf("log: "));
       println(msg);
     }
@@ -2152,12 +2155,12 @@ test("Test two effects injected via io.spawn", {
     result
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(7));
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       unsafe(printf("spawn-log: "));
       println(msg);
     }
@@ -2243,7 +2246,7 @@ test("Test unwind via injected effect aborts future", {
     });
     (raise : Raise) =
       (
-        (msg) -> {
+        msg -> {
           unwind(i32(77));
         }
       );
@@ -2268,7 +2271,7 @@ test("Test JoinHandle unwind via spawn-injected effect", {
   });
   (raise : Raise) =
     (
-      (msg) -> {
+      msg -> {
         unwind(());
       }
     );
@@ -2285,7 +2288,7 @@ test("Test given handler inside async closure with yields", {
   Raise :: (fn(msg : String) -> i32);
   task := io.async((io : Io) => {
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         return(i32(50));
       }
     );
@@ -2297,10 +2300,10 @@ test("Test given handler inside async closure with yields", {
     );
     a := might_fail(i32(5), raise);
     io.await(yield(io), io);
-    b := might_fail(i32(-(1)), raise);
+    b := might_fail(i32(-1), raise);
     io.await(yield(io), io);
     c := might_fail(i32(3), raise);
-    r := ((a + b) + c);
+    r := (a + b + c);
     r
   });
   result := io.await(task, io);
@@ -2364,7 +2367,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
     });
     (raise : Raise) =
       (
-        (msg) -> {
+        msg -> {
           unwind(i32(77));
         }
       );
@@ -2388,7 +2391,7 @@ test("SM opt: segment-local i32 vars are not in struct", {
     io.await(yield(io), io);
     c := i32(30);
     d := i32(40);
-    sum1 := ((a + c) + d);
+    sum1 := (a + c + d);
     io.await(yield(io), io);
     e := i32(50);
     result := ((sum1 + e) - sum0);
@@ -2447,7 +2450,7 @@ test("SM opt: multiple awaits with cross-boundary and local vars", {
     check2 := (persistent + local2);
     io.await(yield(io), io);
     // Segment 3: use all checks — checks cross boundaries since used here
-    return((check0 + check1) + check2);
+    return(check0 + check1 + check2);
   });
   r := io.await(task, io);
   // check0=101, check1=102, check2=103 → 101+102+103 = 306
@@ -2459,7 +2462,7 @@ test("SM opt: no await points means no struct fields needed", {
     a := i32(1);
     b := i32(2);
     c := i32(3);
-    return((a + b) + c);
+    return(a + b + c);
   });
   r := io.await(task, io);
   assert(r == i32(6), "no-await sync_fut_t should work with all locals");
@@ -2513,7 +2516,7 @@ test("SM opt: cond-with-await, non-branching segment locals", {
       true => ()
     );
     local_after := i32(9);
-    return((cross + sum0) + local_after);
+    return(cross + sum0 + local_after);
   });
   r := io.await(task, io);
   // sum0 = 107, result = 100 + 107 + 9 = 216
@@ -2550,7 +2553,7 @@ test("SM opt: cond-with-await, cross-boundary vars still work", {
     cond(
       true => {
         io.await(yield(io), io);
-        a = ((a + b) + c);
+        a = (a + b + c);
       },
       true => ()
     );
@@ -2591,7 +2594,7 @@ test("SM opt: temp future vars aliased to await_future fields", {
     io.await(yield(io), io);
     z := i32(30);
     io.await(yield(io), io);
-    return((x + y) + z);
+    return(x + y + z);
   });
   r := io.await(task, io);
   assert(r == i32(60), "temp future aliasing should compute 60");
@@ -2728,7 +2731,7 @@ test("Regression: cond with await in while loop body", {
   task := io.async((io : Io) => {
     counter := i32(0);
     done := false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       io.await(yield(io), io);
       counter = (counter + i32(1));
       cond(
@@ -2738,7 +2741,7 @@ test("Regression: cond with await in while loop body", {
         true => ()
       );
       cond(
-        !(done) => {
+        !done => {
           io.await(yield(io), io);
         },
         true => ()
@@ -2789,7 +2792,7 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
   task := io.async((io : Io) => {
     responses := i32(0);
     done := false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       // Simulate recv
       n := io.await(
         io.async((io : Io) => {
@@ -2809,7 +2812,7 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
         true => ()
       );
       cond(
-        !(done) => {
+        !done => {
           // Simulate send
           io.await(
             io.async((io : Io) => {
@@ -3925,7 +3928,7 @@ test("abort dispose skips awaitless-match pattern bindings (no double-drop)", {
   // assert(false) — reaching it means the throw path did not run.
   throw_exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         unwind(());
       }
     )
@@ -3987,7 +3990,7 @@ test("standalone await as the async body's own result", {
   tail_result :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
     io2.async((e : IoExn) => e.io.await(make_forty_two(e.io), e))
   );
-  exn := Exception(throw : ((_err) -> unwind(())));
+  exn := Exception(throw : (_err -> unwind(())));
   got := io.await(tail_result(io), IoExn(io : io, exn : exn));
   assert(got == i32(42));
 });
@@ -4134,7 +4137,7 @@ test("an outer non-awaiting while keeps a match arm's locals across a nested awa
 test("nested awaiting whiles over real I/O futures drop outer arm locals once per outer iteration", {
   // Real fs I/O is the load-bearing ingredient, and wasm32 has none the test
   // can stand on: `exists(".")` returns false under both compilers on
-  // wasm-wasi (pre-existing platform behavior, wasmtime preopen semantics),
+  // wasm32-wasip1 (pre-existing platform behavior, wasmtime preopen semantics),
   // so `got` stays false, the inner loop never runs, and the double-free
   // path this test guards is unreachable — the assertion would fail on the
   // platform for reasons unrelated to the bug. Same guard shape as
@@ -4188,7 +4191,572 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
       n
     })
   );
-  exn := Exception(throw : ((_err) -> unwind(())));
+  exn := Exception(throw : (_err -> unwind(())));
   got := io.await(probe(io, exn), IoExn(io : io, exn : exn));
   assert(got == usize(6), "3 outer x 2 inner, every pair visited exactly once");
+});
+// ─── shared cond await point: branches awaiting differently-shaped futures ───
+// Regression: a cond/match whose branches await shares ONE await point, and
+// everything hung off it (slot type, registration, extraction, target copy)
+// came from the REPRESENTATIVE branch only. Eight defect shapes catalogued in
+// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md;
+// the tests below pin each one. The helper futures are top-level so each gets
+// its own C state-machine type (that heterogeneity IS the point).
+shape_ten :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(i32(10))
+  })
+);
+shape_twenty :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    io.await(yield(io), io);
+    return(i32(20))
+  })
+);
+shape_str :: (fn(io : Io) -> Impl(Future(String, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(`hello`)
+  })
+);
+shape_unit :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(())
+  })
+);
+shape_val :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))({
+  b := Box(i32)(v);
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(b.*)
+  })
+});
+test("cond branches tail-await two DIFFERENT async fns (same result type)", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => aio.await(shape_twenty(aio), aio)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "first-branch future value survives");
+  assert(io.await(drive(false, io), io) == i32(20), "second-branch (differently-typed) future value survives");
+});
+test("cond branches await String-result and unit-result futures", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(usize, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => {
+          s := aio.await(shape_str(aio), aio);
+          s.len()
+        },
+        true => {
+          aio.await(shape_unit(aio), aio);
+          usize(0)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == usize(5), "String-result branch extracts through its own layout");
+  assert(io.await(drive(false, io), io) == usize(0), "unit-result branch neither corrupts nor deadlocks");
+});
+test("cond unit-result representative does not skip the other branch's binding", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => {
+          aio.await(shape_unit(aio), aio);
+          i32(0)
+        },
+        true => {
+          x := aio.await(shape_ten(aio), aio);
+          x + i32(1)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(0), "unit representative branch");
+  assert(io.await(drive(false, io), io) == i32(11), "bound branch's variable is written despite unit representative");
+});
+test("cond branch value IS the await (no remaining exprs)", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => i32(7)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "await-as-branch-value reaches the bound target");
+  assert(io.await(drive(false, io), io) == i32(7), "plain branch unaffected");
+});
+test("cond branches await two DIFFERENT named futures", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_val(i32(100), aio);
+      f2 := shape_val(i32(200), aio);
+      r := cond(
+        flag => {
+          x := aio.await(f1, aio);
+          x + i32(1)
+        },
+        true => {
+          y := aio.await(f2, aio);
+          y + i32(2)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "first named future awaited, not the representative's");
+  assert(io.await(drive(false, io), io) == i32(202), "second named future awaited, not the representative's");
+});
+test("cond mixes a named future branch with an anonymous one", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_val(i32(100), aio);
+      r := cond(
+        flag => {
+          x := aio.await(f1, aio);
+          x + i32(1)
+        },
+        true => {
+          y := aio.await(shape_val(i32(200), aio), aio);
+          y + i32(2)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "named branch");
+  assert(io.await(drive(false, io), io) == i32(202), "anonymous branch");
+});
+test("cond single branch binds from a named future", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_val(i32(100), aio);
+      r := cond(
+        flag => {
+          x := aio.await(f1, aio);
+          x + i32(1)
+        },
+        true => i32(7)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "named-future binding inside a cond branch compiles and runs");
+  assert(io.await(drive(false, io), io) == i32(7), "plain branch");
+});
+// Top-level like the other helpers: a LOCAL fn value creating the future hits
+// the separate, pre-existing capture divergence documented at the top of this
+// file (issues/fixed/await-in-branch-positions-matrix.md) — unrelated to the shared
+// await point.
+shape_started :: (fn(marker : Box(i32), io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    marker.* = (marker.* + 1);
+    io.await(yield(io), io);
+    return(())
+  })
+);
+test("not-taken branch's lazy named future is neither started nor awaited", {
+  drive := (fn(flag : bool, m : Box(i32), rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f1 := shape_started(m, aio);
+      r := cond(
+        flag => {
+          aio.await(f1, aio);
+          i32(1)
+        },
+        true => i32(2)
+      );
+      return(r)
+    })
+  );
+  m1 := Box(i32)(0);
+  assert(io.await(drive(true, m1, io), io) == i32(1), "awaiting branch value");
+  assert(m1.* == i32(1), "future ran when its branch was taken");
+  m2 := Box(i32)(0);
+  assert(io.await(drive(false, m2, io), io) == i32(2), "plain branch value");
+  assert(m2.* == i32(0), "lazy future must NOT be started when its branch was not taken");
+});
+test("tail cond (async body result) with await-as-branch-value", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async(
+      (aio : Io) => cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => i32(7)
+      )
+    )
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "await-as-value feeds sm->result");
+  assert(io.await(drive(false, io), io) == i32(7), "plain branch feeds sm->result");
+});
+test("tail cond with branches tail-awaiting two DIFFERENT async fns", {
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async(
+      (aio : Io) => cond(
+        flag => aio.await(shape_ten(aio), aio),
+        true => aio.await(shape_twenty(aio), aio)
+      )
+    )
+  );
+  assert(io.await(drive(true, io), io) == i32(10), "first branch");
+  assert(io.await(drive(false, io), io) == i32(20), "second, differently-typed branch");
+});
+test("match arms tail-await two DIFFERENT async fns", {
+  drive := (fn(o : Option(i32), rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := match(
+        o,
+        .Some => aio.await(shape_ten(aio), aio),
+        .None => aio.await(shape_twenty(aio), aio)
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(Option(i32).Some(i32(1)), io), io) == i32(10), "Some arm's future value survives");
+  assert(io.await(drive(Option(i32).None, io), io) == i32(20), "None arm's differently-typed future value survives");
+});
+test("nested cond arms await two DIFFERENT async fns", {
+  // The nested-branch shape that escaped the first classifier: the OUTER
+  // merge records one representative per outer branch, so the inner arms'
+  // heterogeneity is only visible via the flattened nested expr lists.
+  drive := (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      r := cond(
+        (n == usize(0)) => i32(1),
+        true => cond(
+          (n == usize(1)) => aio.await(shape_ten(aio), aio),
+          true => aio.await(shape_twenty(aio), aio)
+        )
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(usize(0), io), io) == i32(1), "plain outer branch");
+  assert(io.await(drive(usize(1), io), io) == i32(10), "nested first arm");
+  assert(io.await(drive(usize(2), io), io) == i32(20), "nested second, differently-typed arm");
+});
+test("cond mixes an anonymous branch with a named future branch (reverse order)", {
+  // The representative here is the ANONYMOUS branch, so the old
+  // representative-keyed slot guard would skip the NAMED branch's extraction.
+  drive := (fn(flag : bool, rio : Io) -> Impl(Future(i32, Io)))(
+    rio.async((aio : Io) => {
+      f2 := shape_val(i32(200), aio);
+      r := cond(
+        flag => {
+          x := aio.await(shape_val(i32(100), aio), aio);
+          x + i32(1)
+        },
+        true => {
+          y := aio.await(f2, aio);
+          y + i32(2)
+        }
+      );
+      return(r)
+    })
+  );
+  assert(io.await(drive(true, io), io) == i32(101), "anonymous branch");
+  assert(io.await(drive(false, io), io) == i32(202), "named branch extracted despite anonymous representative");
+});
+
+// ---------------------------------------------------------------------------
+// io.spawn from inside a LOOP. A JoinHandle used to hold a borrowed pointer to
+// the task's state machine, so the loop body's scope-end drop plus the
+// runtime's release-on-completion took the refcount to zero while handles
+// already collected still pointed at it — the awaits then polled freed memory
+// forever (100% CPU, no progress). A surviving handle now owns a reference.
+// The elapsed-time assertion is what distinguishes "concurrent" from a
+// serialized fallback; it is deliberately loose (4 x 250ms tasks must finish
+// well under the 1000ms a serial run would need).
+// issues/fixed/io-spawn-in-loop-or-recursion-hangs.md
+// ---------------------------------------------------------------------------
+test("Test spawn inside a loop runs tasks concurrently", {
+  t0 := Instant.now();
+  handles := ArrayList(JoinHandle(u64)).new();
+  (i : usize) = usize(0);
+  while(i < usize(4), {
+    task := io.async((io : Io) => {
+      _slept := io.await(sleep(u64(250)), io);
+      u64(1)
+    });
+    handles.push(io.spawn(task, io));
+    i = (i + usize(1));
+  });
+  (done : usize) = usize(0);
+  (j : usize) = usize(0);
+  while(j < handles.len(), {
+    match(
+      handles.get(j),
+      .Some(h) => match(
+        h.await(io),
+        .Some(_v) => {
+          done = (done + usize(1));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  elapsed := t0.elapsed().as_millis();
+  assert(done == usize(4), `all four spawned tasks must complete, got ${done.to_string()}`);
+  // 4 x 250ms: concurrent finishes near 250ms, serial needs 1000ms. 800ms
+  // leaves room for a loaded CI runner while still failing a serial fallback.
+  assert(elapsed < i64(800), `spawned tasks must run concurrently, took ${elapsed.to_string()}ms`);
+});
+// Regression (issues/async-future-result-never-dropped.md): a ref value
+// RETURNED from an io.async body must be disposed once the last reference
+// drops. The future OWNS its stored result (awaiters only DUP it out), and
+// the future's generated dispose used to skip the result slot entirely —
+// empty dispose for sync futures, a "/* Warning: no ___drop */" comment for
+// state machines — so an async-produced object's Dispose NEVER ran
+// (TempDir/TempFile cleanup-on-drop was dead code). The counter is
+// module-level on purpose: module-level mutables have program lifetime, so
+// they stay readable after the handles are gone (same idiom as rc.test.yo).
+(g_async_result_disposed : i32) = i32(0);
+AsyncMadeProbe :: ref(struct(id : i32));
+impl(
+  AsyncMadeProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_async_result_disposed = (g_async_result_disposed + i32(1));
+    })
+  )
+);
+make_async_made_probe :: (fn(id : i32, io : Io) -> Impl(Future(AsyncMadeProbe, Io)))(
+  io.async(io => AsyncMadeProbe(id : id))
+);
+test("async-produced ref result is disposed when the last reference drops", {
+  {
+    a := io.await(make_async_made_probe(i32(1), io), io);
+    assert(g_async_result_disposed == i32(0), "value alive while its scope is live");
+  };
+  assert(g_async_result_disposed == i32(1), "temp-future shape: disposed at scope end");
+  {
+    t := make_async_made_probe(i32(2), io);
+    b := io.await(t, io);
+  };
+  assert(g_async_result_disposed == i32(2), "named-future shape: disposed at scope end");
+  {
+    io.await(make_async_made_probe(i32(3), io), io);
+  };
+  assert(g_async_result_disposed == i32(3), "discarded await result is disposed with the future");
+});
+// Regression (same family as issues/async-future-result-never-dropped.md):
+// JoinHandle.await's result extraction must DUP the value out of the spawned
+// future — the old bare copy handed out a borrowed reference that became a
+// use-after-free once futures started dropping their results (it was what
+// broke the stage2/stage3 fixpoint: the compiler's own io.spawn users read
+// freed memory). Separate counter from the io.await probe above because all
+// tests in this file share one batch binary.
+(g_spawn_result_disposed : i32) = i32(0);
+SpawnMadeProbe :: ref(struct(id : i32));
+impl(
+  SpawnMadeProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_spawn_result_disposed = (g_spawn_result_disposed + i32(1));
+    })
+  )
+);
+make_spawn_probe :: (fn(id : i32, io : Io) -> Impl(Future(SpawnMadeProbe, Io)))(
+  io.async(io => SpawnMadeProbe(id : id))
+);
+test("spawned task's ref result is dup'd out and disposed exactly once", {
+  {
+    task := make_spawn_probe(i32(41), io);
+    handle := io.spawn(task, io);
+    r := handle.await(io);
+    v := r.unwrap();
+    assert(v.id == i32(41), "value readable after the handle released the future");
+    assert(g_spawn_result_disposed == i32(0), "still alive while v is in scope");
+  };
+  assert(g_spawn_result_disposed == i32(1), "disposed exactly once after scope end");
+});
+// Regression (issues/fixed/async-scope-end-drop-then-escape-double-drop.md):
+// a cross-boundary local of an async body is dropped inline when its scope
+// (here a cond branch that awaits) ends, and the state machine's dispose
+// function sweeps EVERY cross-boundary local again when the body escaped
+// (state == -2). An effect throw AFTER the branch closed therefore released
+// the branch's locals twice — std/http's `_fetch_once` freed its
+// `addrs`/`addr`/`stream` at the end of the transport branch, then a bad
+// status line threw and dispose decremented them again (heap-use-after-free
+// on Linux, where the runtime lived long enough to dispose the task). `main`
+// keeps its own reference here, so the over-release shows up as a Dispose
+// that runs while `shared` is still held.
+(g_branch_local_disposed : i32) = i32(0);
+BranchLocalProbe :: ref(struct(id : i32));
+impl(
+  BranchLocalProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_branch_local_disposed = (g_branch_local_disposed + i32(1));
+    })
+  )
+);
+BranchRaise :: (ctl(generic(T : Type), msg : String) -> T);
+BranchRaiseCtx :: struct(io : Io, raise : BranchRaise);
+throw_after_awaiting_branch :: (fn(shared : BranchLocalProbe, ctx : BranchRaiseCtx) -> Impl(Future(i32, BranchRaiseCtx)))(
+  ctx.io.async(c => {
+    seen := i32(0);
+    cond(
+      runtime(shared.id == i32(7)) => {
+        x := shared;
+        c.io.await(yield(c.io), c.io);
+        seen = x.id;
+      },
+      true => ()
+    );
+    c.raise(`throw after the branch scope closed`);
+    return(seen);
+  })
+);
+test("escape after an awaiting cond branch closed does not re-drop its locals", {
+  (raise : BranchRaise) =
+    (
+      msg -> {
+        unwind(());
+      }
+    );
+  ctx := BranchRaiseCtx(io : io, raise : raise);
+  shared := BranchLocalProbe(id : i32(7));
+  {
+    // The handle owns the task's state machine; its dispose (the sweep) runs
+    // when this block releases the handle.
+    handle := io.spawn(throw_after_awaiting_branch(shared, ctx), ctx);
+    result := handle.await(io);
+    assert(result.is_none(), "the task unwound");
+  };
+  assert(g_branch_local_disposed == i32(0), "shared is still held by the test; its branch-local copy must not have been released twice");
+  assert(shared.id == i32(7), "shared still readable");
+});
+// Regression (issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md):
+// a blocking waiter (top-level io.await, JoinHandle.await, std/async
+// combinators) is a loop over __yo_async_poll_step, re-checking its future
+// between steps. A step that RESUMED tasks may have completed that future,
+// yet poll_step went on to block in __yo_io_wait whenever the ready queue was
+// empty and any I/O was pending — here an unrelated 2 s timer, in std/http a
+// spawned server parked in accept. kqueue's 100 ms wait timeout turned the
+// hang into a silent stall on macOS; io_uring waited for the unrelated I/O.
+// The awaited chain needs two hops after the I/O completion (inner completes
+// in one step, outer in the next, then the queue is empty) — that is the
+// shape that reached the blocking wait.
+// The inner hop is a NESTED io.async — C60
+// (issues/fixed/nested-io-async-inside-io-async-body-fails-def-eval.md): the
+// effect-bundle generic now binds from the RECEIVER when the call has no
+// expected type, so the idiomatic inline form compiles (it used to need
+// hoisting to a top-level fn — the pre-fix spelling of this very test).
+two_hop_after_timer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async(io => {
+    inner := io.async(io => {
+      io.await(sleep(u64(1)), io);
+      return(i32(1));
+    });
+    v := io.await(inner, io);
+    return(v + i32(41));
+  })
+);
+test("a top-level await returns as soon as its future completes, despite unrelated pending I/O", {
+  parked := io.spawn(sleep(u64(2000)), io);
+  start := Instant.now();
+  v := io.await(two_hop_after_timer(io), io);
+  elapsed_ms := start.elapsed().as_millis();
+  eprintln(`  [event-loop test] await returned after ${elapsed_ms} ms`);
+  assert(v == i32(42), "chain result");
+  assert(elapsed_ms < i64(60), `await returned ${elapsed_ms} ms after starting; it must not wait for the unrelated 2 s timer (or kqueue's 100 ms wait timeout)`);
+  parked.abort();
+});
+// C60, richer-bundle shape: a nested `e.io.async(...)` inside an IoExn-bundled
+// body binds the inner `E` from the field-access BASE (`e`), so the inner
+// future types as Future(_, IoExn) and the enclosing `e.io.await(inner, e)`
+// awaits it with the same bundle.
+test("a nested e.io.async inside an IoExn async body compiles and awaits with the enclosing bundle", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  nested_with_bundle :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+    io.async(e => {
+      inner := e.io.async(e2 => {
+        e2.io.await(sleep(u64(1)), e2.io);
+        return(i32(2));
+      });
+      v := e.io.await(inner, e);
+      return(v + i32(40));
+    })
+  );
+  got := io.await(nested_with_bundle(io), IoExn(io : io, exn : t_exn));
+  assert(got == i32(42), "nested bundle chain result");
+});
+// Regression (issues/fixed/io-await-effect-bundle-ignored-inside-io-async.md, C56):
+// inside an io.async body, `e.io.await(fut, bundle)` must inject BUNDLE into
+// `fut` — the bundle named at the await supplies the awaited future's handlers
+// (docs/en-US/ALGEBRAIC_EFFECTS.md "Async + effects"), exactly as a top-level
+// `io.await(fut, bundle)` does. The state machine used to forward its own
+// bundle instead, so the inner handler never ran and the task's handler took
+// the throw. Handlers are capture-free, so the two are told apart by what they
+// DO: the inner one resumes with 7 (→ Some(8)), the task's own unwinds (→ None).
+BundleRaise :: (ctl(msg : String) -> i32);
+BundleCtx :: struct(io : Io, raise : BundleRaise);
+bundle_thrower :: (fn(ctx : BundleCtx) -> Impl(Future(i32, BundleCtx)))(
+  ctx.io.async(c => {
+    return(c.raise(`bang`));
+  })
+);
+bundle_outer_task :: (fn(ctx : BundleCtx) -> Impl(Future(i32, BundleCtx)))(
+  ctx.io.async(c => {
+    (inner_raise : BundleRaise) =
+      (
+        msg -> {
+          return(i32(7));
+        }
+      );
+    inner := BundleCtx(io : c.io, raise : inner_raise);
+    r := c.io.await(bundle_thrower(inner), inner);
+    return(r + i32(1));
+  })
+);
+test("io.await inside an async body injects the bundle named at the await, not the task's own", {
+  (outer_raise : BundleRaise) =
+    (
+      msg -> {
+        unwind(());
+      }
+    );
+  ctx := BundleCtx(io : io, raise : outer_raise);
+  handle := io.spawn(bundle_outer_task(ctx), ctx);
+  result := handle.await(io);
+  assert(result.is_some(), "the inner handler resumed the throw; the task's own (unwinding) handler must not have run");
+  assert(result.unwrap() == i32(8), "resumed value 7 + 1");
+});
+// ---------------------------------------------------------------------------
+// A module-level global referenced from an io.async closure body
+// (issues/module-global-referenced-inside-async-closure-undeclared.md):
+// module globals are NOT captures (they lower to process-global C symbols),
+// so the async body reaches the global directly — capturing it used to add
+// a phantom capture-struct member and fail the C compile.
+// ---------------------------------------------------------------------------
+module_global_counter := AtomicI32(i32(0));
+test("io.async closure body mutates a module-level global", {
+  if(arch == Arch.Wasm32, return(()));
+  task := io.async((io : Io) => {
+    module_global_counter.fetch_add(i32(6), MemoryOrder.Relaxed);
+    ()
+  });
+  io.await(task, io);
+  assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(6), "the async body reached the module global");
 });

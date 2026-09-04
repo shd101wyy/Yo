@@ -53,7 +53,9 @@ runs:
         # See test.yml's APT_OPTS comment — a bare apt-get can hang forever on
         # the dpkg lock held by the runner's unattended-upgrades timer.
         sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 update
-        sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y liburing-dev
+        # + OpenSSL dev: std/http in the compiler closure (D6 PR-3) puts OpenSSL
+        # headers into stage1.c, compiled by phase 2 below.
+        sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 install -y liburing-dev libssl-dev pkg-config
 
     - name: Install the seed compiler (previous release)
       uses: ./.github/actions/install-seed
@@ -96,7 +98,7 @@ runs:
         set +e
         sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
           env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
-            --release --allocator ${{ inputs.allocator }} --std-path ./std \
+            --optimize 2 --allocator ${{ inputs.allocator }} --std-path ./std \
             --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
         EMIT_RC=$?
         set -e
@@ -117,6 +119,7 @@ runs:
         clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
           /tmp/stage1.c $MIMALLOC \
           -lpthread -lm -luring \
+          $(pkg-config --cflags --libs openssl) \
           -o /tmp/yo-stage1
 
         # The binary does not live under yo-out/<triple>/bin/, so the

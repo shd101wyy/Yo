@@ -1,0 +1,138 @@
+//! Phase B1 gates (plans/INCREMENTAL_COMPILATION.md): an edit to an
+//! IMPORTED file must be visible to the next analysis of an importing
+//! document. Drives the real LSP analysis entry (`analyze_document`)
+//! against a temp two-file project through four states:
+//!
+//!   1. baseline — clean analysis, the import gets cached;
+//!   2. overlay set, NO invalidation — the stale cache still serves the
+//!      old module (pins the pre-B1 behavior the server now compensates
+//!      for by invalidating on every didOpen/didChange);
+//!   3. overlay + `mm_invalidate_document` — the importer's next analysis
+//!      FAILS, because the import re-evaluates from the editor's text in
+//!      which the export was renamed;
+//!   4. overlay forgotten + invalidated again — disk truth restored, the
+//!      analysis is clean again.
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+{ analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
+{
+  mm_set_open_document,
+  mm_forget_open_document,
+  mm_invalidate_document,
+  resolve_std_path
+} :: import("../../src/module_manager.yo");
+{ type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
+{ generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
+
+_IMPL_DOC :: "Point :: struct(x : i32);\nimpl(\n  Point,\n  get_x : (fn(self : Self) -> i32)(self.x)\n);\nmain :: (fn() -> unit)({\n  p := Point(x : i32(1));\n  _y := p.get_x();\n});\nexport(main);\n";
+_LIB_V1 :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
+_LIB_V2 :: "answer_renamed :: (fn() -> i32)(i32(42));\nexport(answer_renamed);\n";
+_APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n";
+
+/// One server-shaped analysis round of the impl doc: overlay + invalidate
+/// (purges the previous generation's registry entries) + analyze. Returns
+/// the outcome's `ok`.
+_impl_doc_round :: (fn(doc_path : String, std_path : String, io : Io) -> bool)({
+  mm_set_open_document(doc_path.clone(), String.from(_IMPL_DOC));
+  _inv := mm_invalidate_document(doc_path.clone());
+  out := ArrayList(AnalyzeOutcome).new();
+  _diags := analyze_document(doc_path.clone(), String.from(_IMPL_DOC), std_path.clone(), io, out);
+  match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
+});
+
+/// Analyze the app document; return the outcome's `ok`.
+_analyze_app_ok :: (fn(app_path : String, std_path : String, io : Io) -> bool)({
+  out := ArrayList(AnalyzeOutcome).new();
+  _diags := analyze_document(app_path.clone(), String.from(_APP), std_path.clone(), io, out);
+  match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
+});
+
+test("B1: imported-file edit visible after overlay + invalidation", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_b1_invalidation_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_V1), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
+  std_path := resolve_std_path();
+  // Make sure no earlier state for these paths leaks between runs.
+  mm_forget_open_document(lib_path.clone());
+  _pre := mm_invalidate_document(lib_path.clone());
+
+  // 1. Baseline: clean, and lib.yo is now cached.
+  assert(_analyze_app_ok(app_path.clone(), std_path.clone(), io), "baseline analysis should be ok");
+
+  // 2. Overlay WITHOUT invalidation: the cache still serves the old lib —
+  //    this pins why the LSP must invalidate on didChange.
+  mm_set_open_document(lib_path.clone(), String.from(_LIB_V2));
+  assert(
+    _analyze_app_ok(app_path.clone(), std_path.clone(), io),
+    "without invalidation the stale cached module is still served"
+  );
+
+  // 3. Invalidate: the import re-evaluates from the OVERLAY text, whose
+  //    export was renamed — the importer's analysis must now fail.
+  removed := mm_invalidate_document(lib_path.clone());
+  // The reverse-closure walk must have found the importing document as a
+  // dependent (the import-graph edge app → lib was recorded by the demand
+  // loader during the baseline analysis): lib itself + app ≥ 2 entries.
+  assert(removed.len() >= usize(2), "invalidation should remove the dependent importer too");
+  assert(
+    !_analyze_app_ok(app_path.clone(), std_path.clone(), io),
+    "after invalidation the renamed export must break the importer"
+  );
+
+  // 4. Forget the overlay + invalidate again: disk truth (v1) restored.
+  mm_forget_open_document(lib_path.clone());
+  _r2 := mm_invalidate_document(lib_path.clone());
+  assert(
+    _analyze_app_ok(app_path.clone(), std_path.clone(), io),
+    "after forgetting the overlay the disk version is clean again"
+  );
+});
+
+test("B2: repeated re-analysis keeps registry entry counts stable", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_b1_invalidation_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/impl_doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_IMPL_DOC), io), ioexn);
+  std_path := resolve_std_path();
+  // Round 1 establishes the doc's registry generation; every later round
+  // purges it (via the invalidation) before re-registering an identical
+  // one, so the totals must be FLAT across rounds. Before Phase B2 each
+  // round grew both registries by the doc's impl surface.
+  assert(_impl_doc_round(doc_path.clone(), std_path.clone(), io), "round 1 should analyze clean");
+  ttm1 := type_trait_methods_entry_count();
+  gi1 := generic_impl_entry_count();
+  assert(_impl_doc_round(doc_path.clone(), std_path.clone(), io), "round 2 should analyze clean");
+  ttm2 := type_trait_methods_entry_count();
+  gi2 := generic_impl_entry_count();
+  assert(_impl_doc_round(doc_path.clone(), std_path.clone(), io), "round 3 should analyze clean");
+  ttm3 := type_trait_methods_entry_count();
+  gi3 := generic_impl_entry_count();
+  assert(ttm2 == ttm1, `trait-method registry leaked: ${ttm1} -> ${ttm2}`);
+  assert(ttm3 == ttm2, `trait-method registry leaked: ${ttm2} -> ${ttm3}`);
+  assert(gi2 == gi1, `generic-impl registry leaked: ${gi1} -> ${gi2}`);
+  assert(gi3 == gi2, `generic-impl registry leaked: ${gi2} -> ${gi3}`);
+});

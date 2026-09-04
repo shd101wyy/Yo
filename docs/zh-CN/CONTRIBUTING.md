@@ -30,11 +30,11 @@ $ git submodule update --init --recursive
 $ yo check ./src
 ```
 
-从源码构建编译器。务必加上 `--release`：在 `-O0` 下，求值器中那些大函数的栈帧有好几
+从源码构建编译器。务必加上 `--optimize 2`：在 `-O0` 下，求值器中那些大函数的栈帧有好几
 兆字节，编译期的深度递归会耗尽栈空间。
 
 ```bash
-$ yo compile src/main.yo --release -o /tmp/yo-self-bin
+$ yo compile src/main.yo --optimize 2 -o /tmp/yo-self-bin
 ```
 
 > 没有监视重建的循环 —— 改动之后重新运行上面的 `yo compile`。
@@ -43,7 +43,7 @@ $ yo compile src/main.yo --release -o /tmp/yo-self-bin
 文件放在那里）：
 
 ```bash
-$ /tmp/yo-self-bin compile ./tmp/fixme.yo --release -o /tmp/fixme && /tmp/fixme
+$ /tmp/yo-self-bin compile ./tmp/fixme.yo --optimize 2 -o /tmp/fixme && /tmp/fixme
 ```
 
 用 `yo test` 运行测试套件：

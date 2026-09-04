@@ -1,0 +1,191 @@
+//! lsp/signature_help — textDocument/signatureHelp (plans/P4_LSP.md slice 5).
+//!
+//! Port of the attic `signature-help.ts` core: find the innermost function
+//! call enclosing the cursor, read the callee's `Func` type from its
+//! ExprInfo, and answer one signature whose parameters come from
+//! `FuncMeta.param_labels` / `Func.param_types`, with `activeParameter` =
+//! the number of arguments that START at or before the cursor, minus one.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/error"));
+{ Token, TokenKind } :: import("../token.yo");
+{ AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
+{ ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{ type_to_string } :: import("../types/string.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, jnum } :: import("./protocol.yo");
+
+/// Is position (row, col) at or after the token's start?
+_at_or_after :: (fn(t : Token, row : usize, col : usize) -> bool)(
+  (t.row < row) || ((t.row == row) && (t.column <= col))
+);
+
+/// The best (innermost, latest-starting) enclosing call: an FnCall whose
+/// callee token starts at or before the cursor. Returns (callee expr,
+/// active parameter index).
+_find_enclosing_call :: (
+  fn(
+    e : AstExpr,
+    row : usize,
+    col : usize,
+    best_callee : ArrayList(AstExpr),
+    best_active : ArrayList(usize),
+    best_row : ArrayList(usize),
+    best_col : ArrayList(usize)
+  ) -> unit
+)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, is_infix, tok) => {
+      // Operator/infix calls are not signature-help material. EVERY
+      // candidate is collected; the handler picks the innermost one whose
+      // callee actually has a Func type — the literally-innermost call is
+      // often a type-constructor argument like `i32(41)`, whose callee is
+      // a Type, not a fn (this bit the first draft: null inside
+      // `add_one(i32(41))`).
+      if(!is_infix && (tok.kind == TokenKind.Identifier), {
+        if(_at_or_after(tok, row, col), {
+          (active : usize) = usize(0);
+          (ai : usize) = usize(0);
+          while(ai < args.len(), {
+            match(
+              args.get(ai),
+              .Some(a) => {
+                at := ast_expr_token(a);
+                if(_at_or_after(at, row, col), {
+                  active = (ai + usize(1));
+                });
+              },
+              .None => ()
+            );
+            ai = (ai + usize(1));
+          });
+          best_callee.push(func_box);
+          best_active.push(cond((active > usize(0)) => (active - usize(1)), true => usize(0)));
+          best_row.push(tok.row);
+          best_col.push(tok.column);
+        });
+      });
+      recur(func_box, row, col, best_callee, best_active, best_row, best_col);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a2) => recur(a2, row, col, best_callee, best_active, best_row, best_col),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+/// Answer signatureHelp for (line, character), or `.None`.
+handle_signature_help :: (
+  fn(
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize
+  ) -> Option(JsonValue)
+)({
+  best_callee := ArrayList(AstExpr).new();
+  best_active := ArrayList(usize).new();
+  best_row := ArrayList(usize).new();
+  best_col := ArrayList(usize).new();
+  (ei : usize) = usize(0);
+  while(ei < exprs.len(), {
+    match(
+      exprs.get(ei),
+      .Some(e) => _find_enclosing_call(e, line, character, best_callee, best_active, best_row, best_col),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  // Innermost candidate whose callee is Func-typed: scan for the max
+  // (row, col) among candidates whose ExprInfo carries a Func.
+  (chosen : Option(usize)) = Option(usize).None;
+  (ch_row : usize) = usize(0);
+  (ch_col : usize) = usize(0);
+  (ci : usize) = usize(0);
+  while(ci < best_callee.len(), {
+    cand := match(
+      best_callee.get(ci),
+      .Some(c) => c,
+      .None => {
+        return(Option(JsonValue).None);
+      }
+    );
+    is_fn := match(
+      expr_info_table_get(info_table, ast_expr_id(cand)),
+      .Some(cinfo) => match(cinfo.ty, .Func(_, _, _, _, _, _, _) => true, _ => false),
+      .None => false
+    );
+    if(is_fn, {
+      r := best_row(ci);
+      c2 := best_col(ci);
+      take := (
+        chosen.is_none() ||
+          ((r > ch_row) || ((r == ch_row) && (c2 >= ch_col)))
+      );
+      if(take, {
+        chosen = Option(usize).Some(ci);
+        ch_row = r;
+        ch_col = c2;
+      });
+    });
+    ci = (ci + usize(1));
+  });
+  chosen_i := match(
+    chosen,
+    .Some(x) => x,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  callee := match(
+    best_callee.get(chosen_i),
+    .Some(c3) => c3,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  active := match(best_active.get(chosen_i), .Some(a) => a, .None => usize(0));
+  info := match(
+    expr_info_table_get(info_table, ast_expr_id(callee)),
+    .Some(i) => i,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  callee_name := ast_expr_token(callee).value;
+  match(
+    info.ty,
+    .Func(_, param_types, _, _, _, meta, _) => {
+      params := ArrayList(JsonValue).new();
+      (pi : usize) = usize(0);
+      while(pi < param_types.len(), {
+        pt := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+        plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
+        params.push(
+          jb().put("label", jstr(`${plabel} : ${type_to_string(pt)}`)).obj()
+        );
+        pi = (pi + usize(1));
+      });
+      (ty_str : String) = type_to_string(info.ty);
+      if(ty_str.starts_with(String.from("fn(")), {
+        ty_str = ty_str.substring(usize(2), ty_str.len());
+      });
+      sig := jb().put("label", jstr(`${callee_name}${ty_str}`)).put("parameters", JsonValue.Array(items : params)).obj();
+      sigs := ArrayList(JsonValue).new();
+      sigs.push(sig);
+      Option(JsonValue).Some(
+        jb().put("signatures", JsonValue.Array(items : sigs)).put("activeSignature", jnum(usize(0))).put("activeParameter", jnum(active)).obj()
+      )
+    },
+    _ => Option(JsonValue).None
+  )
+});
+export(handle_signature_help);

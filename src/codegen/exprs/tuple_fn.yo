@@ -70,8 +70,11 @@ _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstE
           ),
           .None => ()
         );
-        if(!(used_dup_temp), {
-          args_list.push_string(arg_code);
+        if(!used_dup_temp, {
+          // Twin of the comptime tuple literal: a `unit` element generates no C
+          // and its field is now a one-byte placeholder, so fill the dead byte
+          // rather than emitting `(__yo_t0){ 1,  }`.
+          args_list.push_string(if(arg_code.len() == usize(0), String.from("0"), arg_code));
         });
       },
       .None => ()

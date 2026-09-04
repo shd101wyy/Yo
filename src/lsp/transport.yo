@@ -1,0 +1,105 @@
+//! lsp/transport — LSP base-protocol framing over stdio.
+//!
+//! An editor speaks to a language server over a pipe with
+//! `Content-Length: N\r\n\r\n<N bytes of JSON>` framing (the LSP "base
+//! protocol"). The reader is a `BufReader(Stdin)` (`std/io/bufio` — the
+//! fd-based `std/sys/bufio` it replaced is deleted). `Stdin.read` passes a
+//! tracked offset, which matters for a redirected FILE and is ignored for a
+//! pipe: the runtime `fstat`s the fd and only `pread`s regular files, reading
+//! pipes/sockets/ttys sequentially, so positional reads never reach a pipe and
+//! ESPIPE cannot happen here. Writing goes through libc stdio,
+//! which BLOCK-buffers on a pipe, so every outgoing message is followed by
+//! an `fflush(stdout)` — without it the client waits forever on a reply
+//! that sits in the buffer.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ BufReader } :: import("std/io/bufio");
+{ Stdin } :: import("std/io/stdio");
+open(import("std/fmt"));
+{ fflush, stdout } :: import("std/libc/stdio");
+open(import("std/error"));
+
+/// Read one framed LSP message body from `reader`.
+///
+/// Returns `.Some(body)` for a complete message, `.None` on clean EOF
+/// (the client closed the pipe before any header — how editors that skip
+/// the `exit` notification terminate a server). A malformed frame
+/// (headers without Content-Length, or EOF mid-frame) throws.
+read_lsp_message :: (
+  fn(reader : BufReader(Stdin), io : Io, exn : Exception) -> Option(String)
+)({
+  (content_len : usize) = usize(0);
+  (saw_header : bool) = false;
+  (done_headers : bool) = false;
+  while(!done_headers, {
+    line_opt := io.await(reader.read_line(io), IoExn(io : io, exn : exn));
+    match(
+      line_opt,
+      .Some(raw_line) => {
+        // read_line strips the trailing \n; the base protocol
+        // terminates header lines with \r\n, so strip a trailing \r.
+        (line : String) = raw_line.clone();
+        if(line.ends_with(String.from("\r")), {
+          line = line.substring(usize(0), line.len() - usize(1));
+        });
+        cond(
+          (line.len() == usize(0)) => {
+            // Blank line: end of headers.
+            done_headers = true;
+          },
+          true => {
+            saw_header = true;
+            lower := line.to_lowercase();
+            if(lower.starts_with(String.from("content-length:")), {
+              value := line.substring(usize(15), line.len()).trim();
+              match(
+                value.parse_u64(),
+                .Some(n) => {
+                  content_len = usize(n);
+                },
+                .None => {
+                  exn.throw(dyn(`lsp: malformed Content-Length header: ${line}`));
+                }
+              );
+            });
+            // Content-Type and unknown headers are ignored.
+          }
+        );
+      },
+      .None => {
+        // EOF.
+        if(saw_header, {
+          exn.throw(dyn(`lsp: EOF inside a message frame's headers`));
+        });
+        return(Option(String).None);
+      }
+    );
+  });
+  if(content_len == usize(0), {
+    exn.throw(dyn(`lsp: frame without a Content-Length header`));
+  });
+  bytes_opt := io.await(reader.read_exact(content_len, io), IoExn(io : io, exn : exn));
+  match(
+    bytes_opt,
+    .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
+    .None => {
+      exn.throw(dyn(`lsp: EOF inside a message frame's body (expected ${content_len} bytes)`));
+      return(Option(String).None)
+    }
+  )
+});
+
+/// Write one framed LSP message to stdout and flush.
+///
+/// The Content-Length is the BYTE length of the body, not the character
+/// count — a multi-byte diagnostic message with the wrong count desyncs
+/// every following frame.
+write_lsp_message :: (fn(body : String) -> unit)({
+  byte_len := body.as_bytes().len();
+  print(`Content-Length: ${byte_len}\r\n\r\n`);
+  print(body);
+  _f := unsafe(fflush(.Some(stdout)));
+});
+
+export(read_lsp_message, write_lsp_message);

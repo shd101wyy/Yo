@@ -10,7 +10,7 @@ open(import("std/string"));
 { AnyError, Exception, IoExn } :: import("std/error");
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
-{ read_file, write_file, write_bytes, exists } :: import("std/fs/file");
+{ read, write_string, write, exists } :: import("std/fs/file");
 {
   DirEntry,
   FileType,
@@ -19,7 +19,7 @@ open(import("std/string"));
   remove_file,
   rename
 } :: import("std/fs/dir");
-{ walk, walk_with, WalkEntry, WalkOptions } :: import("std/fs/walker");
+{ remove_dir_all } :: import("std/fs/walker");
 { Sha256 } :: import("std/crypto/sha256");
 { hex_encode } :: import("std/encoding/hex");
 {
@@ -75,34 +75,6 @@ SIDECAR_FILENAME :: ".yo-content-hash";
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
-/// Recursive directory removal.
-/// Walks the tree (parents first), then deletes in reverse order.
-remove_dir_all :: (fn(path : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
-  io.async((e : IoExn) => {
-    opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true);
-    entries := e.io.await(walk_with(path, opts, e.io), e);
-    n := entries.len();
-    // Delete deepest entries first (reverse order from walk output)
-    while(n > usize(0), {
-      n = (n - usize(1));
-      match(
-        entries.get(n),
-        .None => (),
-        .Some(entry) =>
-          match(
-            entry.file_type,
-            .Directory => {
-              e.io.await(remove_dir(entry.path, e.io), e);
-            },
-            _ => {
-              e.io.await(remove_file(entry.path, e.io), e);
-            }
-          )
-      );
-    });
-    e.io.await(remove_dir(path, e.io), e);
-  })
-);
 /// Selection-sort a list of DirEntry values by name (ascending ASCII order).
 sort_dir_entries :: (fn(entries : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
   n := entries.len();
@@ -122,8 +94,8 @@ sort_dir_entries :: (fn(entries : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
     j := usize(0);
     while(j < n, {
       flag := match(added.get(j), .None => true, .Some(f) => f);
-      if(!(flag), {
-        if(!(found), {
+      if(!flag, {
+        if(!found, {
           min_idx = j;
           found = true;
         }, {
@@ -160,7 +132,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
   // Quick path: no CR in input
   has_cr := false;
   i := usize(0);
-  while((i < bytes.len()) && (!(has_cr)), {
+  while((i < bytes.len()) && !has_cr, {
     match(
       bytes.get(i),
       .None => (),
@@ -170,7 +142,7 @@ normalize_line_endings :: (fn(bytes : ArrayList(u8)) -> ArrayList(u8))({
     );
     i = (i + usize(1));
   });
-  if(!(has_cr), bytes, {
+  if(!has_cr, bytes, {
     out := ArrayList(u8).with_capacity(bytes.len());
     j := usize(0);
     while(j < bytes.len(), {
@@ -291,7 +263,7 @@ compute_content_hash :: (
           .None => false,
           .Some(c) => (c == u8(46)) // '.'
         );
-        if(!(is_hidden), {
+        if(!is_hidden, {
           // Hash "dir:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
           _push_str_bytes(prefix_bytes, "dir:");
@@ -331,7 +303,7 @@ compute_content_hash :: (
       }, {
         // File entry — skip the sidecar hash file
         is_sidecar := (entry_name == SIDECAR_FILENAME);
-        if(!(is_sidecar), {
+        if(!is_sidecar, {
           // Hash "file:rel_path\n"
           prefix_bytes := ArrayList(u8).new();
           _push_str_bytes(prefix_bytes, "file:");
@@ -342,7 +314,7 @@ compute_content_hash :: (
           abs_file := item.abs_path.clone();
           abs_file.push_str("/");
           abs_file.push_string(entry_name);
-          content := e.io.await(read_file(Path.new(abs_file), e.io), e);
+          content := e.io.await(read(Path.new(abs_file), e.io), e);
           normalized := normalize_line_endings(content);
           hasher = hasher.update(normalized);
         });
@@ -375,7 +347,7 @@ write_sidecar_hash :: (
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_content := content_hash.clone();
     sidecar_content.push_str("\n");
-    e.io.await(write_file(sidecar, sidecar_content, e.io), e);
+    e.io.await(write_string(sidecar, sidecar_content, e.io), e);
   })
 );
 /// Read the sidecar hash file, returning None if it doesn't exist or can't be read.
@@ -389,8 +361,8 @@ read_sidecar_hash :: (
   io.async((e : IoExn) => {
     sidecar := Path.new(cached_path).join(Path.new(String.from(SIDECAR_FILENAME)));
     sidecar_exists := e.io.await(exists(sidecar, e.io), e.io);
-    if(!(sidecar_exists), Option(String).None, {
-      content := e.io.await(read_file(sidecar, e.io), e);
+    if(!sidecar_exists, Option(String).None, {
+      content := e.io.await(read(sidecar, e.io), e);
       text := String.from_bytes(content).trim();
       Option(String).Some(text)
     })
@@ -421,7 +393,7 @@ inspect_cached_dep :: (
     cached_path := get_cached_dep_dir(cache_dir, dep_name, commit);
     path_exists := e.io.await(exists(Path.new(cached_path), e.io), e.io);
     if(
-      !(path_exists),
+      !path_exists,
       CachedDepState(
         status : CachedDepStatus.MissingPath,
         cached_path : cached_path,
@@ -541,7 +513,7 @@ clone_repo :: (
     clone_cmd.arg(url);
     clone_cmd.arg(temp_dir);
     clone_status := e.io.await(clone_cmd.status(e.io), e);
-    if(!(clone_status.success()), {
+    if(!clone_status.success(), {
       clone_fail_msg := String.from("git clone failed for ");
       clone_fail_msg.push_string(url);
       e.exn.throw(dyn(clone_fail_msg));
@@ -555,7 +527,7 @@ clone_repo :: (
     checkout_ok := false;
     checkout_st := e.io.await(checkout_cmd.status(e.io), e);
     checkout_ok = checkout_st.success();
-    if(!(checkout_ok), {
+    if(!checkout_ok, {
       // Shallow clone may not have the commit — fetch it explicitly
       fetch_cmd := Command.new(String.from("git"));
       fetch_cmd.arg(String.from("-C"));
@@ -572,7 +544,7 @@ clone_repo :: (
       checkout_cmd2.arg(String.from("checkout"));
       checkout_cmd2.arg(commit);
       checkout_st2 := e.io.await(checkout_cmd2.status(e.io), e);
-      if(!(checkout_st2.success()), {
+      if(!checkout_st2.success(), {
         checkout_fail_msg := String.from("git checkout failed for commit ");
         checkout_fail_msg.push_string(commit);
         e.exn.throw(dyn(checkout_fail_msg));
@@ -586,7 +558,7 @@ clone_repo :: (
     };
     git_dir_exists := e.io.await(exists(Path.new(git_dir_path), e.io), e.io);
     if(git_dir_exists, {
-      e.io.await(remove_dir_all(Path.new(git_dir_path), e.io, e.exn), e);
+      e.io.await(remove_dir_all(Path.new(git_dir_path), e.io), e);
     });
     // Atomic rename to final location
     e.io.await(rename(Path.new(temp_dir), Path.new(target_dir), e.io), e);
@@ -613,7 +585,7 @@ fetch_dep :: (
     ref_changed := match(
       existing_entry,
       .None => false,
-      .Some(ent) => (!(ent.ref == dep.ref))
+      .Some(ent) => !(ent.ref == dep.ref)
     );
     // Check if already up-to-date
     // The await is BOUND first and wrapped after. Written as
@@ -626,7 +598,7 @@ fetch_dep :: (
       existing_entry,
       .None => Option(CachedDepState).None,
       .Some(ent) => cond(
-        ((!(update)) && (ent.commit.len() > usize(0))) => {
+        (!update && (ent.commit.len() > usize(0))) => {
           inspected := e.io.await(inspect_cached_dep(cache_dir, dep.name, ent.commit, ent.hash, e.io, e.exn), e);
           Option(CachedDepState).Some(inspected)
         },
@@ -643,7 +615,7 @@ fetch_dep :: (
       .None => false,
       .Some(s) => match(s.status, .Ok => true, _ => false)
     );
-    up_to_date := (((!(update)) && (!(ref_changed))) && (entry_has_commit && cache_ok_opt));
+    up_to_date := (!update && !ref_changed && (entry_has_commit && cache_ok_opt));
     if(up_to_date, {
       cached_path := match(
         cached_state_opt,
@@ -651,7 +623,7 @@ fetch_dep :: (
         .Some(s) => s.cached_path
       );
       sub_path := cond(
-        (dep.path.is_empty()) => cached_path,
+        dep.path.is_empty() => cached_path,
         true => Path.new(cached_path).join(Path.new(dep.path)).to_string()
       );
       return(FetchDepResult(lock_file : lock_file, dep_path : sub_path));
@@ -664,7 +636,7 @@ fetch_dep :: (
       .None => false,
       .Some(ent) => (ent.commit == commit)
     );
-    if((!(update)) && commit_matches, {
+    if(!update && commit_matches, {
       state := match(
         cached_state_opt,
         .Some(s) => s,
@@ -696,7 +668,7 @@ fetch_dep :: (
           lock_file
         );
         sub_path := cond(
-          (dep.path.is_empty()) => state.cached_path,
+          dep.path.is_empty() => state.cached_path,
           true => Path.new(state.cached_path).join(Path.new(dep.path)).to_string()
         );
         return(FetchDepResult(lock_file : updated_lock, dep_path : sub_path));
@@ -704,7 +676,7 @@ fetch_dep :: (
       // Evict corrupt / hash-mismatch cache entry
       path_exists := e.io.await(exists(Path.new(state.cached_path), e.io), e.io);
       if(path_exists, {
-        e.io.await(remove_dir_all(Path.new(state.cached_path), e.io, e.exn), e);
+        e.io.await(remove_dir_all(Path.new(state.cached_path), e.io), e);
       });
     });
     // Clone the repo
@@ -722,7 +694,7 @@ fetch_dep :: (
     );
     updated_lock := upsert_lock_entry(lock_file, new_entry);
     sub_path := cond(
-      (dep.path.is_empty()) => cloned_path,
+      dep.path.is_empty() => cloned_path,
       true => Path.new(cloned_path).join(Path.new(dep.path)).to_string()
     );
     FetchDepResult(lock_file : updated_lock, dep_path : sub_path)
@@ -843,7 +815,7 @@ are_deps_cached :: (
                 match(state.status, .Ok => true, _ => false)
               })
           );
-          if(!(ok), {
+          if(!ok, {
             all_cached = false;
           });
         }

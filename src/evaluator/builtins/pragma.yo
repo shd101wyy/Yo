@@ -41,10 +41,12 @@ open(import("std/string"));
 pragma_kind_from_variant_name :: (fn(name : String) -> Option(Pragma))(
   cond(
     (name == "AllowUnsafe") => Option(Pragma).Some(.AllowUnsafe),
+    (name == "AllowMacroDef") => Option(Pragma).Some(.AllowMacroDef),
     (name == "SkipPrelude") => Option(Pragma).Some(.SkipPrelude),
     (name == "SkipWasm") => Option(Pragma).Some(.SkipWasm),
     (name == "SkipWasm32Emscripten") => Option(Pragma).Some(.SkipWasm32Emscripten),
     (name == "SkipWasm32Wasi") => Option(Pragma).Some(.SkipWasm32Wasi),
+    (name == "SkipWindows") => Option(Pragma).Some(.SkipWindows),
     // Formal-verification pragmas (Phase 0 of plans/FORMAL_VERIFICATION.md).
     // `NoContracts` is read by `wrap_function_body_with_contracts`;
     // `Verify`/`VerifyOrAssert` are registered only (the SMT verifier is a
@@ -75,7 +77,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
         .Atom(_, tok) => (tok.kind == TokenKind.Dot),
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(is_dot), return(Option(Pragma).None));
+      if(!is_dot, return(Option(Pragma).None));
       if(args.len() != usize(2), return(Option(Pragma).None));
       lhs_is_pragma := match(
         args.get(usize(0)),
@@ -86,7 +88,7 @@ recognize_pragma_arg :: (fn(arg : AstExpr) -> Option(Pragma))(
         ),
         .None => false
       );
-      if(!(lhs_is_pragma), return(Option(Pragma).None));
+      if(!lhs_is_pragma, return(Option(Pragma).None));
       match(
         args.get(usize(1)),
         .Some(rhs) => match(
@@ -111,7 +113,7 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   found := false;
   i := usize(0);
   n := program.len();
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       program.get(i),
       .Some(expr) => {
@@ -153,7 +155,7 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
 warn_verify_mode_not_implemented :: (fn(module_path : String, kind_name : String) -> unit)({
   key := `${module_path}|${kind_name}`;
   if(g_warned_verify_files.contains(key.clone()), return(()));
-  _added := g_warned_verify_files.add(key);
+  _added := g_warned_verify_files.insert(key);
   eprintln(
     `[warning] pragma(Pragma.${kind_name}) in ${module_path}: verify mode is not implemented yet (Phase 0 of plans/FORMAL_VERIFICATION.md). Contracts in this file will behave as if no pragma were set — they parse and (in later phases) lower to runtime asserts, but no proof obligations are generated.`
   );
@@ -185,9 +187,7 @@ evaluate_pragma :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected 1 arguments, got ${args.len()}:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected 1 arguments, got ${args.len()}:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -195,9 +195,21 @@ evaluate_pragma :: (
   arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
   // Fast path: the pre-scan already recognized and registered
   // `pragma(Pragma.SkipPrelude);` by AST shape — skip evaluation entirely.
+  // `AllowMacroDef` is ALSO handled by AST shape (registered here): it must
+  // work inside `SkipPrelude` files (the internal evaluator tests define
+  // macros in prelude-less snippets), where evaluating the argument cannot
+  // resolve `Pragma`.
   skip_fast := match(
     recognize_pragma_arg(arg),
-    .Some(k) => match(k, .SkipPrelude => true, _ => false),
+    .Some(k) => match(
+      k,
+      .SkipPrelude => true,
+      .AllowMacroDef => {
+        register_file_pragma(ast_expr_token(expr).module_path.clone(), Pragma.AllowMacroDef);
+        true
+      },
+      _ => false
+    ),
     .None => false
   );
   if(skip_fast, {
@@ -219,9 +231,7 @@ evaluate_pragma :: (
       dyn(
         format_error_message(
           ast_expr_token(arg),
-          `Failed to evaluate the argument of 'pragma(...)'.`,
-          false,
-          .None
+          `Failed to evaluate the argument of 'pragma(...)'.`
         )
       )
     ),
@@ -243,9 +253,7 @@ evaluate_pragma :: (
       dyn(
         format_error_message(
           ast_expr_token(arg),
-          `'pragma(...)' expects a 'Pragma.X' argument (e.g. 'pragma(Pragma.AllowUnsafe);'). Got value of type ${got_ty_str} from: ${ast_expr_to_string(arg)}`,
-          false,
-          .None
+          `'pragma(...)' expects a 'Pragma.X' argument (e.g. 'pragma(Pragma.AllowUnsafe);'). Got value of type ${got_ty_str} from: ${ast_expr_to_string(arg)}`
         )
       )
     ),
@@ -255,9 +263,7 @@ evaluate_pragma :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Unknown 'Pragma' variant '${vname}'. The compiler does not recognize this pragma — make sure the prelude's 'Pragma' enum and 'evaluator/memory_safety.yo' agree on the set of supported variants.`,
-            false,
-            .None
+            `Unknown 'Pragma' variant '${vname}'. The compiler does not recognize this pragma — make sure the prelude's 'Pragma' enum and 'evaluator/memory_safety.yo' agree on the set of supported variants.`
           )
         )
       ),

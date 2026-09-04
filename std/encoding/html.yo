@@ -3,15 +3,16 @@
 //! Decodes named (&amp;), decimal (&#38;), and hex (&#x26;) HTML character references.
 //! Uses Legacy mode — entities without trailing semicolon are also decoded.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
-//! { decode_html } :: import "std/encoding/html";
+//! { html_decode } :: import "std/encoding/html";
 //!
-//! result := decode_html(`&amp; &lt; &#38; &#x26;`);
+//! result := html_decode(`&amp; &lt; &#38; &#x26;`);
 //! assert((result == `& < & &`), "decoded entities");
 //! ```
 open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
 { HashMap } :: import("../collections/hash_map");
 { HashSet } :: import("../collections/hash_set");
 { is_valid_entity_code, from_code_point } :: import("./html_char_utils");
@@ -21,7 +22,7 @@ _state_initialized := false;
 _entity_map := HashMap(String, String).new();
 _legacy_set := HashSet(String).new();
 _ensure_init :: (fn() -> unit)({
-  if(!(_state_initialized), {
+  if(!_state_initialized, {
     _entity_map = _build_entity_map();
     _legacy_set = _build_legacy_set();
     _state_initialized = true;
@@ -30,54 +31,132 @@ _ensure_init :: (fn() -> unit)({
 // Parse a hex string to i32
 _parse_hex :: (fn(s : String) -> i32)({
   (result : i32) = i32(0);
-  (i : usize) = usize(0);
-  while(i < s.len(), {
-    c := s.at(i).unwrap();
-    result = (result * i32(16));
-    if((c >= rune(u32('0'))) && (c <= rune(u32('9'))), {
-      result = (result + (i32(c.to_u32()) - i32(48)));
-    }, if((c >= rune(u32('a'))) && (c <= rune(u32('f'))), {
-      result = (result + ((i32(c.to_u32()) - i32(97)) + i32(10)));
-    }, if((c >= rune(u32('A'))) && (c <= rune(u32('F'))), {
-      result = (result + ((i32(c.to_u32()) - i32(65)) + i32(10)));
-    })));
-    i = (i + usize(1));
+  it := s.chars();
+  while(runtime(true), {
+    match(
+      it.next(),
+      .None => {
+        break;
+      },
+      .Some(c) => {
+        result = (result * i32(16));
+        if((c >= rune(u32('0'))) && (c <= rune(u32('9'))), {
+          result = (result + (i32(c.to_u32()) - i32(48)));
+        }, if((c >= rune(u32('a'))) && (c <= rune(u32('f'))), {
+          result = (result + ((i32(c.to_u32()) - i32(97)) + i32(10)));
+        }, if((c >= rune(u32('A'))) && (c <= rune(u32('F'))), {
+          result = (result + ((i32(c.to_u32()) - i32(65)) + i32(10)));
+        })));
+      }
+    );
   });
   result
 });
 // Parse a decimal string to i32
 _parse_dec :: (fn(s : String) -> i32)({
   (result : i32) = i32(0);
-  (i : usize) = usize(0);
-  while(i < s.len(), {
-    c := s.at(i).unwrap();
-    result = ((result * i32(10)) + (i32(c.to_u32()) - i32(48)));
-    i = (i + usize(1));
+  it := s.chars();
+  while(runtime(true), {
+    match(
+      it.next(),
+      .None => {
+        break;
+      },
+      .Some(c) => {
+        result = ((result * i32(10)) + (i32(c.to_u32()) - i32(48)));
+      }
+    );
   });
   result
 });
 // Check if a character is an ASCII alphanumeric
 _is_alpha_numeric :: (fn(c : rune) -> bool)(
-  (((c >= rune(u32('a'))) && (c <= rune(u32('z')))) || ((c >= rune(u32('A'))) && (c <= rune(u32('Z'))))) || ((c >= rune(u32('0'))) && (c <= rune(u32('9'))))
+  ((c >= rune(u32('a'))) && (c <= rune(u32('z')))) || ((c >= rune(u32('A'))) && (c <= rune(u32('Z')))) || ((c >= rune(u32('0'))) && (c <= rune(u32('9'))))
 );
+// ---------------------------------------------------------------------------
+// A rune-indexed view of the input.
+//
+// `html_decode` is a BACKTRACKING scanner: it seeks forward over digits and
+// entity names, then walks `try_end` back down one rune at a time looking for
+// a legacy prefix. That needs random access by rune, which `chars()` alone
+// cannot give — so the input is materialized once as a table of
+// `(byte_offset, rune)` pairs and every index into it is a RUNE index, exactly
+// as the `at()`/`substring()` calls it replaces were.
+//
+// Two things fall out. The scanner no longer depends on `String`'s index basis
+// at all, so `plans/STD_API_AUDIT_D4_PLAN.md`'s byte flip cannot reach it
+// (§5.2 S1 — after the flip `at()` at a continuation byte is `.None`, and this
+// file `.unwrap()`ed it). And the O(n) rune walk that every `at(i)` performed
+// happens once instead of per character.
+// ---------------------------------------------------------------------------
+_char_table :: (fn(s : String) -> ArrayList(IterPair(usize, rune)))({
+  out := ArrayList(IterPair(usize, rune)).new();
+  it := s.char_indices();
+  while(runtime(true), {
+    match(
+      it.next(),
+      .None => {
+        break;
+      },
+      .Some(p) => {
+        out.push(p);
+      }
+    );
+  });
+  out
+});
+// The byte offset rune `index` starts at, or the string's byte length when
+// `index` is at or past the end. Both are rune boundaries, so `try_substring`
+// between any two of them always succeeds.
+_byte_offset_of :: (
+  fn(table : ArrayList(IterPair(usize, rune)), index : usize, total_bytes : usize) -> usize
+)(
+  match(
+    table.get(index),
+    .Some(p) => p._0,
+    .None => total_bytes
+  )
+);
+// `s.substring(start, end)` by RUNE index, resolved through the table. Same
+// result the character-indexed `substring` gives today, and independent of
+// which basis `substring` itself uses.
+_slice_runes :: (
+  fn(s : String, table : ArrayList(IterPair(usize, rune)), start : usize, end : usize) -> String
+)({
+  if(start >= end, {
+    return(String.new());
+  });
+  total_bytes := s.len();
+  start_byte := _byte_offset_of(table, start, total_bytes);
+  end_byte := _byte_offset_of(table, end, total_bytes);
+  if(start_byte >= end_byte, {
+    return(String.new());
+  });
+  match(
+    s.try_substring(start_byte, end_byte),
+    .Some(sub) => sub,
+    .None => String.new()
+  )
+});
 /// Decode HTML entities in a string.
 ///
 /// Supports named (`&amp;`), decimal (`&#38;`), and hexadecimal (`&#x26;`) character
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
-decode_html :: (fn(input : String) -> String)({
+html_decode :: (fn(input : String) -> String)({
   _ensure_init();
-  (len : usize) = input.len();
-  if(len == usize(0), {
+  if(input.chars().count() == usize(0), {
     return(input);
   });
   // Quick check: if no '&', return as-is
-  if(!(input.contains(`&`)), {
+  if(!input.contains(`&`), {
     return(input);
   });
+  table := _char_table(input);
+  (len : usize) = table.len();
   (result : String) = ``;
   (i : usize) = usize(0);
   while(i < len, {
-    c := input.at(i).unwrap();
+    c := table(i)._1;
     if(c != rune(u32('&')), {
       // Not an entity start, just append the character
       result = `${result}${from_code_point(i32(c.to_u32()))}`;
@@ -89,52 +168,32 @@ decode_html :: (fn(input : String) -> String)({
       if(i >= len, {
         result = `${result}&`;
       }, {
-        next := input.at(i).unwrap();
+        next := table(i)._1;
         if(next == rune(u32('#')), {
           // Numeric entity: &#N; or &#xN;
           i = (i + usize(1));
           if(i >= len, {
             result = `${result}&#`;
           }, {
-            hex_char := input.at(i).unwrap();
+            hex_char := table(i)._1;
             if((hex_char == rune(u32('x'))) || (hex_char == rune(u32('X'))), {
               // Hex: &#xHH;
               (digit_start : usize) = (i + usize(1));
               (digit_end : usize) = digit_start;
-              while(digit_end < len, {
-                dc := input.at(digit_end).unwrap();
+              (scanning : bool) = true;
+              while(scanning && (digit_end < len), {
+                dc := table(digit_end)._1;
                 if(((dc >= rune(u32('0'))) && (dc <= rune(u32('9')))) || (((dc >= rune(u32('a'))) && (dc <= rune(u32('f')))) || ((dc >= rune(u32('A'))) && (dc <= rune(u32('F'))))), {
                   digit_end = (digit_end + usize(1));
                 }, {
-                  // Done with hex digits, break out
-                  digit_end = (digit_end + usize(0));
-                  // Use a flag to break
-                  return_early := true;
-                  // TODO: proper break
-                  digit_end = (len + usize(1));
-                });
-              });
-              // Fix digit_end if it overflowed
-              if(digit_end > len, {
-                // We used the overflow trick - find actual end
-                digit_end = digit_start;
-                while(digit_end < len, {
-                  dc2 := input.at(digit_end).unwrap();
-                  if(((dc2 >= rune(u32('0'))) && (dc2 <= rune(u32('9')))) || (((dc2 >= rune(u32('a'))) && (dc2 <= rune(u32('f')))) || ((dc2 >= rune(u32('A'))) && (dc2 <= rune(u32('F'))))), {
-                    digit_end = (digit_end + usize(1));
-                  }, {
-                    digit_end = ((len + digit_end) + usize(1));
-                  });
-                });
-                if(digit_end > len, {
-                  digit_end = ((digit_end - len) - usize(1));
+                  scanning = false;
                 });
               });
               if(digit_end > digit_start, {
-                hex_str := input.substring(digit_start, digit_end);
+                hex_str := _slice_runes(input, table, digit_start, digit_end);
                 (code : i32) = _parse_hex(hex_str);
                 // Check for semicolon
-                if((digit_end < len) && (input.at(digit_end).unwrap() == rune(u32(';'))), {
+                if((digit_end < len) && (table(digit_end)._1 == rune(u32(';'))), {
                   i = (digit_end + usize(1));
                 }, {
                   i = digit_end;
@@ -143,7 +202,7 @@ decode_html :: (fn(input : String) -> String)({
                   result = `${result}${from_code_point(code)}`;
                 }, {
                   // Invalid code (e.g., surrogates) — keep original entity text
-                  (orig_hex : String) = input.substring(start, i);
+                  (orig_hex : String) = _slice_runes(input, table, start, i);
                   result = `${result}${orig_hex}`;
                 });
               }, {
@@ -155,22 +214,20 @@ decode_html :: (fn(input : String) -> String)({
               // Decimal: &#DD;
               (digit_start : usize) = i;
               (digit_end : usize) = digit_start;
-              while(digit_end < len, {
-                dc := input.at(digit_end).unwrap();
+              (scanning : bool) = true;
+              while(scanning && (digit_end < len), {
+                dc := table(digit_end)._1;
                 if((dc >= rune(u32('0'))) && (dc <= rune(u32('9'))), {
                   digit_end = (digit_end + usize(1));
                 }, {
-                  digit_end = ((len + digit_end) + usize(1));
+                  scanning = false;
                 });
               });
-              if(digit_end > len, {
-                digit_end = ((digit_end - len) - usize(1));
-              });
               if(digit_end > digit_start, {
-                dec_str := input.substring(digit_start, digit_end);
+                dec_str := _slice_runes(input, table, digit_start, digit_end);
                 (code : i32) = _parse_dec(dec_str);
                 // Check for semicolon
-                if((digit_end < len) && (input.at(digit_end).unwrap() == rune(u32(';'))), {
+                if((digit_end < len) && (table(digit_end)._1 == rune(u32(';'))), {
                   i = (digit_end + usize(1));
                 }, {
                   i = digit_end;
@@ -179,7 +236,7 @@ decode_html :: (fn(input : String) -> String)({
                   result = `${result}${from_code_point(code)}`;
                 }, {
                   // Invalid code (e.g., surrogates) — keep original entity text
-                  (orig_dec : String) = input.substring(start, i);
+                  (orig_dec : String) = _slice_runes(input, table, start, i);
                   result = `${result}${orig_dec}`;
                 });
               }, {
@@ -192,27 +249,19 @@ decode_html :: (fn(input : String) -> String)({
           // Named entity: &name; or &name (legacy)
           (name_start : usize) = i;
           (name_end : usize) = name_start;
-          while(name_end < len, {
-            nc := input.at(name_end).unwrap();
-            if(nc == rune(u32(';')), {
-              // Found semicolon — end of entity name
-              name_end = ((len + name_end) + usize(1));
-            }, if(_is_alpha_numeric(nc), {
+          (scanning : bool) = true;
+          while(scanning && (name_end < len), {
+            nc := table(name_end)._1;
+            if(_is_alpha_numeric(nc), {
               name_end = (name_end + usize(1));
             }, {
-              // Non-alphanumeric, non-semicolon — end of potential entity
-              name_end = ((len + name_end) + usize(1));
-            }));
+              // Semicolon or other non-alphanumeric — end of potential entity
+              scanning = false;
+            });
           });
-          // Decode the overflow trick
-          (found_end : bool) = false;
-          if(name_end > len, {
-            name_end = ((name_end - len) - usize(1));
-            found_end = true;
-          });
-          name_str := input.substring(name_start, name_end);
+          name_str := _slice_runes(input, table, name_start, name_end);
           // Check for semicolon at name_end
-          (has_semi : bool) = ((name_end < len) && (input.at(name_end).unwrap() == rune(u32(';'))));
+          (has_semi : bool) = ((name_end < len) && (table(name_end)._1 == rune(u32(';'))));
           if(has_semi, {
             // Try exact match with semicolon
             match(
@@ -231,8 +280,8 @@ decode_html :: (fn(input : String) -> String)({
             // Legacy mode: try progressively shorter names
             (matched : bool) = false;
             (try_end : usize) = name_end;
-            while((try_end > name_start) && !(matched), {
-              try_name := input.substring(name_start, try_end);
+            while((try_end > name_start) && !matched, {
+              try_name := _slice_runes(input, table, name_start, try_end);
               if(_legacy_set.contains(try_name), {
                 match(
                   _entity_map.get(try_name),
@@ -249,7 +298,7 @@ decode_html :: (fn(input : String) -> String)({
                 try_end = (try_end - usize(1));
               });
             });
-            if(!(matched), {
+            if(!matched, {
               // No legacy match — output '&' literally and continue
               result = `${result}&`;
               i = name_start;
@@ -261,4 +310,28 @@ decode_html :: (fn(input : String) -> String)({
   });
   result
 });
-export(decode_html, is_valid_entity_code, from_code_point);
+/// Escape a string for safe embedding in HTML text or attribute values:
+/// the five XSS-critical characters become entities (`&` `<` `>` `"` `'` →
+/// `&amp;` `&lt;` `&gt;` `&quot;` `&#39;`). Everything else — including all
+/// multibyte UTF-8 — passes through byte-identically, so
+/// `html_decode(html_encode(s)) == s` for any `s`
+/// (plans/STD_API_AUDIT.md D2 + §7 P0).
+html_encode :: (fn(input : String) -> String)({
+  out := String.with_capacity(input.len());
+  bytes := input.as_bytes();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(38)) => out.push_str("&amp;"),
+      (b == u8(60)) => out.push_str("&lt;"),
+      (b == u8(62)) => out.push_str("&gt;"),
+      (b == u8(34)) => out.push_str("&quot;"),
+      (b == u8(39)) => out.push_str("&#39;"),
+      true => out.push_byte(b)
+    );
+  });
+  out
+});
+export(html_decode, html_encode, is_valid_entity_code, from_code_point);

@@ -15,55 +15,18 @@
 pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
-{ GlobalAllocator } :: import("../allocator");
-{ malloc, free } :: GlobalAllocator;
 open(import("../fmt"));
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { TcpStream } :: import("../net/tcp");
+{ TlsStream } :: import("../crypto/tls");
 { IpAddr, SocketAddr } :: import("../net/addr");
 { lookup_host } :: import("../net/dns");
 { Url, UrlError } :: import("../url");
-{ HttpMethod, HttpHeader, HttpRequest, HttpResponse, parse_response, http_status_text } :: import("./http.yo");
-// ============================================================================
-// HttpError
-// ============================================================================
-/// HTTP client error variants.
-HttpError :: enum(
-  /// Failed to connect to the remote host.
-  ConnectionFailed(msg : String),
-  /// The URL could not be parsed.
-  InvalidUrl(msg : String),
-  /// The request timed out.
-  Timeout,
-  /// Too many HTTP redirects.
-  TooManyRedirects,
-  /// The URL scheme is not supported (only http/https).
-  UnsupportedScheme(scheme : String),
-  /// The response body exceeds the size limit.
-  ResponseTooLarge,
-  /// An unclassified HTTP error.
-  Other(msg : String)
-);
-impl(
-  HttpError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .ConnectionFailed(msg) => `HTTP connection failed: ${msg}`,
-          .InvalidUrl(msg) => `Invalid URL: ${msg}`,
-          .Timeout => `HTTP request timed out`,
-          .TooManyRedirects => `Too many redirects`,
-          .UnsupportedScheme(scheme) => `Unsupported scheme: ${scheme}`,
-          .ResponseTooLarge => `Response too large`,
-          .Other(msg) => `HTTP error: ${msg}`
-        )
-    )
-  )
-);
-impl(HttpError, Error());
-export(HttpError);
+{ Duration } :: import("../time/duration");
+{ yield } :: import("../async");
+{ sleep } :: import("../time/sleep");
+{ HttpMethod, HttpHeader, HttpRequest, HttpResponse, HttpError, parse_response, http_status_text } :: import("./http.yo");
+{ read_http_message } :: import("./wire.yo");
 // ============================================================================
 // FetchOptions
 // ============================================================================
@@ -72,17 +35,37 @@ FetchOptions :: ref(
   struct(
     method : HttpMethod,
     headers : ArrayList(HttpHeader),
-    body : String
+    body : String,
+    /// Deadline for the WHOLE request, redirects included — `.None` waits
+    /// forever. On expiry the in-flight connection is aborted and `fetch`
+    /// throws `HttpError.Timeout`.
+    timeout : Option(Duration),
+    /// How many 3xx `Location` hops to follow before throwing
+    /// `HttpError.TooManyRedirects`. `0` returns the first 3xx verbatim.
+    max_redirects : usize,
+    /// Ceiling on the raw response bytes (headers + body) buffered into
+    /// memory before `HttpError.ResponseTooLarge` is thrown; `0` = unlimited.
+    /// This client buffers the whole response into a `String`, so the
+    /// default (64 MiB) is what stands between an unbounded server and OOM.
+    max_response_bytes : usize
   )
 );
+/// Default redirect cap — what browsers and curl use.
+DEFAULT_MAX_REDIRECTS :: usize(10);
+/// Default response ceiling: 64 MiB.
+DEFAULT_MAX_RESPONSE_BYTES :: usize(67108864);
 impl(
   FetchOptions,
-  /// Create default options (GET, no headers, empty body).
+  /// Create default options (GET, no headers, empty body, no timeout,
+  /// 10 redirects, 64 MiB response ceiling).
   new : (fn() -> Self)(
     Self(
       method : .GET,
       headers : ArrayList(HttpHeader).new(),
-      body : ``
+      body : ``,
+      timeout : Option(Duration).None,
+      max_redirects : DEFAULT_MAX_REDIRECTS,
+      max_response_bytes : DEFAULT_MAX_RESPONSE_BYTES
     )
   ),
   /// Set the HTTP method.
@@ -99,162 +82,40 @@ impl(
   with_body : (fn(self : Self, body : String) -> Self)({
     self.body = body;
     self
+  }),
+  /// Give the whole request (redirects included) a deadline.
+  with_timeout : (fn(self : Self, limit : Duration) -> Self)({
+    self.timeout = Option(Duration).Some(limit);
+    self
+  }),
+  /// Cap the number of redirect hops followed (`0` = return 3xx verbatim).
+  with_max_redirects : (fn(self : Self, n : usize) -> Self)({
+    self.max_redirects = n;
+    self
+  }),
+  /// Cap the raw response bytes buffered into memory (`0` = unlimited).
+  with_max_response_bytes : (fn(self : Self, n : usize) -> Self)({
+    self.max_response_bytes = n;
+    self
   })
 );
-export(FetchOptions);
+export(FetchOptions, DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES);
 // ============================================================================
-// Internal helpers
+// Internal: one request/response exchange — no redirects, no deadline
 // ============================================================================
-// Find the position of \r\n\r\n (end of HTTP headers)
-_find_header_end :: (fn(data : ArrayList(u8)) -> usize)({
-  len := data.len();
-  cond(
-    (len < usize(4)) => {
-      return(usize(0));
-    },
-    true => ()
-  );
-  i := usize(0);
-  limit := (len - usize(3));
-  while(runtime(i < limit), {
-    cond(
-      (
-        (data(i) == u8(13)) &&
-          (
-            (data(i + usize(1)) == u8(10)) &&
-              (
-                (data(i + usize(2)) == u8(13)) &&
-                  (data(i + usize(3)) == u8(10))
-              )
-          )
-      ) => {
-        return(i);
-      },
-      true => ()
-    );
-    i = (i + usize(1));
-  });
-  usize(0)
-});
-// Parse Content-Length from headers; returns -1 if not found.
-_find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
-  // Build header string up to header_end
-  header_bytes := ArrayList(u8).new();
-  i := usize(0);
-  while(runtime(i < header_end), {
-    header_bytes.push(data(i));
-    i = (i + usize(1));
-  });
-  header_str := String.from_bytes(header_bytes).to_lowercase();
-  match(
-    header_str.index_of(`content-length:`),
-    .Some(pos) => {
-      val_start := (pos + usize(16));
-      // Find end of value by looking for \r\n after val_start
-      rest := header_str.substring(val_start, header_str.len());
-      match(
-        rest.index_of(`\r\n`),
-        .Some(eol) => {
-          val_str := rest.substring(usize(0), eol).trim();
-          match(
-            val_str.parse_i32(),
-            .Some(n) => n,
-            .None => i32(-(1))
-          )
-        },
-        .None => {
-          val_str := rest.trim();
-          match(
-            val_str.parse_i32(),
-            .Some(n) => n,
-            .None => i32(-(1))
-          )
-        }
-      )
-    },
-    .None => i32(-(1))
-  )
-});
-// ============================================================================
-// Internal: read full HTTP response from a TCP stream
-// ============================================================================
-_read_http_response :: (fn(stream : TcpStream, e : IoExn) -> String)({
-  buf_size := usize(8192);
-  buf := *(u8)(malloc(buf_size).unwrap());
-  result := ArrayList(u8).new();
-  // Read until connection closes or we've read the full response
-  done := false;
-  while(runtime(!(done)), {
-    n := e.io.await(stream.read(buf, buf_size, e.io), e);
-    cond(
-      (n <= i32(0)) => {
-        done = true;
-      },
-      true => {
-        i := usize(0);
-        while(runtime(i < usize(n)), {
-          result.push((buf.add(i)).*);
-          i = (i + usize(1));
-        });
-        // Check if we've received the full response by looking for
-        // Content-Length or end of chunked transfer
-        // For simplicity, check if the header section is complete
-        // and if Content-Length is satisfied
-        cond(
-          (result.len() > usize(4)) => {
-            // Check if we have a complete header section (\r\n\r\n)
-            header_end := _find_header_end(result);
-            cond(
-              (header_end > usize(0)) => {
-                // Check Content-Length
-                cl := _find_content_length(result, header_end);
-                cond(
-                  (cl >= i32(0)) => {
-                    body_start := (header_end + usize(4));
-                    body_len := (result.len() - body_start);
-                    cond(
-                      (body_len >= usize(cl)) => {
-                        done = true;
-                      },
-                      true => ()
-                    );
-                  },
-                  true => ()
-                );
-              },
-              true => ()
-            );
-          },
-          true => ()
-        );
-      }
-    );
-  });
-  free(.Some(*(void)(buf)));
-  String.from_bytes(result)
-});
-// ============================================================================
-// fetch — High-level async HTTP request (like JavaScript's fetch)
-// ============================================================================
-/// Perform an HTTP request with custom options.
-///
-/// # Example
-///
-/// ```rust
-/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`);
-/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
-/// ```
-fetch_with :: (
+_fetch_once :: (
   fn(url_str : String, opts : FetchOptions, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     // Parse URL
     url := Url.parse(url_str, e.exn);
     // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
     is_https := (scheme == `https`);
+    // Only http/https. https now speaks real TLS (std/crypto/tls, D6); other
+    // schemes are refused before any DNS or socket work.
     cond(
       (is_http || is_https) => (),
       true => {
@@ -271,26 +132,8 @@ fetch_with :: (
       }
     );
     // Determine port (default: 80 for http, 443 for https)
-    port := match(
-      url.port(),
-      .Some(p) => p,
-      .None => cond(
-        (scheme == `https`) => u16(443),
-        true => u16(80)
-      )
-    );
-    // Resolve hostname to IP
-    addrs := e.io.await(lookup_host(host, e.io), e);
-    cond(
-      (addrs.len() == usize(0)) => {
-        e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
-      },
-      true => ()
-    );
-    ip := addrs(usize(0));
-    addr := SocketAddr.new(ip, port);
-    // Connect
-    stream := e.io.await(TcpStream.connect(addr, e.io), e);
+    default_port := cond(is_https => u16(443), true => u16(80));
+    port := match(url.port(), .Some(p) => p, .None => default_port);
     // Build the request path (include query string if present)
     req_path := url.path();
     cond(
@@ -318,7 +161,7 @@ fetch_with :: (
     });
     // Set Content-Length if body is provided
     cond(
-      (!(opts.body.is_empty())) => {
+      !opts.body.is_empty() => {
         req.set_body(opts.body);
         req.set_header(`Content-Length`, `${opts.body.len()}`);
       },
@@ -326,13 +169,32 @@ fetch_with :: (
     );
     // Set Connection: close to ensure the server closes after response
     req.set_header(`Connection`, `close`);
-    // Send request
     req_str := req.to_string();
-    e.io.await(stream.write_string(req_str, e.io), e);
-    // Read response
-    raw_response := _read_http_response(stream, e);
-    // Close connection
-    e.io.await(stream.close(e.io), e);
+    // Transport: plaintext TCP for http, TLS for https. Both streams
+    // implement the D5 Reader trait, so the response reader is shared.
+    (raw_response : String) = ``;
+    cond(
+      is_https => {
+        tls := e.io.await(TlsStream.connect(host.clone(), port, e.io), e);
+        _wn := e.io.await(tls.write_string(req_str, e.io), e);
+        raw_response = e.io.await(read_http_message(tls, opts.max_response_bytes, false, e.io), e);
+        e.io.await(tls.close(e.io), e);
+      },
+      true => {
+        addrs := e.io.await(lookup_host(host, e.io), e);
+        cond(
+          (addrs.len() == usize(0)) => {
+            e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${host}`)));
+          },
+          true => ()
+        );
+        addr := SocketAddr.new(addrs(usize(0)), port);
+        stream := e.io.await(TcpStream.connect(addr, e.io), e);
+        e.io.await(stream.write_string(req_str, e.io), e);
+        raw_response = e.io.await(read_http_message(stream, opts.max_response_bytes, false, e.io), e);
+        e.io.await(stream.close(e.io), e);
+      }
+    );
     // Parse response
     match(
       parse_response(raw_response),
@@ -344,11 +206,170 @@ fetch_with :: (
     )
   })
 );
+// ============================================================================
+// Internal: redirects
+// ============================================================================
+/// Resolve a `Location` header against the URL the response came from.
+/// Absolute URLs pass through (a cross-scheme hop then fails in
+/// `_fetch_once`'s scheme check as `UnsupportedScheme` — C1's rule — rather
+/// than being downgraded); `/abs` and `rel` paths resolve against the origin
+/// and the base path's directory.
+_resolve_location :: (fn(base_str : String, location : String, exn : Exception) -> String)(
+  cond(
+    location.contains(`://`) => location,
+    true => {
+      base := Url.parse(base_str, exn);
+      origin := base.origin();
+      cond(
+        location.starts_with(`/`) => `${origin}${location}`,
+        true => {
+          base_path := base.path();
+          dir := match(
+            base_path.last_index_of(`/`),
+            .Some(i) => base_path.substring(usize(0), i + usize(1)),
+            .None => `/`
+          );
+          `${origin}${dir}${location}`
+        }
+      )
+    }
+  )
+);
+/// The options for the next hop. 303 always becomes a GET, and so do 301/302
+/// for a POST (what browsers and `fetch` do); 307/308 replay the request as
+/// is. Headers are shared — they are read-only from here on.
+_redirect_options :: (fn(opts : FetchOptions, status : i32) -> FetchOptions)({
+  is_post := match(opts.method, .POST => true, _ => false);
+  to_get := ((status == i32(303)) || (((status == i32(301)) || (status == i32(302))) && is_post));
+  FetchOptions(
+    method : cond(to_get => HttpMethod.GET, true => opts.method),
+    headers : opts.headers,
+    body : cond(to_get => ``, true => opts.body),
+    timeout : opts.timeout,
+    max_redirects : opts.max_redirects,
+    max_response_bytes : opts.max_response_bytes
+  )
+});
+/// Follow 3xx `Location` hops up to `opts.max_redirects`, then throw
+/// `TooManyRedirects`. A 3xx without a `Location` is returned as is.
+_fetch_follow :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async(e => {
+    current := url_str.clone();
+    hop_opts := opts;
+    hops := usize(0);
+    (result : Option(HttpResponse)) = Option(HttpResponse).None;
+    // A `done` flag rather than break/continue: the awaiting loop is a
+    // state machine (C24).
+    done := false;
+    while(runtime(!done), {
+      resp := e.io.await(_fetch_once(current.clone(), hop_opts, e.io), e);
+      location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
+      // `max_redirects == 0` means "do not follow": the first 3xx comes back
+      // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
+      // FOLLOWED, so the (max+1)th 3xx throws.
+      follow := (resp.is_redirect() && !location.is_empty() && (opts.max_redirects > usize(0)));
+      cond(
+        follow => {
+          cond(
+            (hops >= opts.max_redirects) => {
+              e.exn.throw(dyn(HttpError.TooManyRedirects));
+            },
+            true => ()
+          );
+          hops = (hops + usize(1));
+          current = _resolve_location(current, location, e.exn);
+          hop_opts = _redirect_options(hop_opts, resp.status_code);
+        },
+        true => {
+          result = Option(HttpResponse).Some(resp);
+          done = true;
+        }
+      );
+    });
+    match(result, .Some(r) => r, .None => HttpResponse.new(i32(0), ``))
+  })
+);
+// ============================================================================
+// Internal: the deadline race
+// ============================================================================
+// ============================================================================
+// fetch — High-level async HTTP request (like JavaScript's fetch)
+// ============================================================================
+/// Perform an HTTP request with custom options: follows redirects up to
+/// `opts.max_redirects`, refuses responses past `opts.max_response_bytes`,
+/// and — when `opts.timeout` is set — races the whole exchange against the
+/// deadline, throwing `HttpError.Timeout` if the deadline wins.
+///
+/// ## Example
+///
+/// ```rust
+/// opts := FetchOptions.new().with_method(.POST).with_body(`{"key": "value"}`).with_timeout(Duration.from_secs(i64(10)));
+/// resp := io.await(fetch_with(`http://example.com/api`, opts, io), { io, exn });
+/// ```
+fetch_with :: (
+  fn(url_str : String, opts : FetchOptions, io : Io) ->
+    Impl(Future(HttpResponse, IoExn))
+)(
+  io.async(e => {
+    (result : HttpResponse) = HttpResponse.new(i32(0), ``);
+    match(
+      opts.timeout,
+      .None => {
+        result = e.io.await(_fetch_follow(url_str, opts, e.io), e);
+      },
+      .Some(limit) => {
+        // Run the whole exchange as a spawned TASK raced against a spawned
+        // `sleep`, so the deadline can cut it off mid-connect or mid-read — an
+        // elapsed-time check inside the read loop could only fire BETWEEN
+        // awaits, which is exactly not the hung-server case a deadline exists
+        // for. The race is driven by awaiting `yield` (a real suspension
+        // point), NOT by `std/async`'s `timeout`/`JoinHandle.await`: those
+        // poll the event loop synchronously and, called from inside a task,
+        // nest the loop
+        // (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md). The
+        // body is the top-level `_fetch_follow`, not a closure nested here
+        // (C22). A while-with-await inside one arm of a match whose other arm
+        // awaits once was mis-emitted until C38
+        // (issues/fixed/while-await-inside-match-arm-missing-loop-field.md);
+        // this arm is that shape and doubles as its production pin.
+        h := e.io.spawn(_fetch_follow(url_str, opts, e.io), e);
+        dh := e.io.spawn(sleep(limit, e.io), e.io);
+        while(runtime(!h.is_finished() && !dh.is_finished()), {
+          e.io.await(yield(e.io), e.io);
+        });
+        cond(
+          h.is_finished() => {
+            // Finished first: the deadline task is cancelled and the handle,
+            // already terminal, is consumed without polling the loop.
+            dh.abort();
+            match(
+              h.await(e.io),
+              .Some(resp) => {
+                result = resp;
+              },
+              .None => {
+                e.exn.throw(dyn(HttpError.Other(`request task was aborted`)));
+              }
+            );
+          },
+          true => {
+            h.abort();
+            e.exn.throw(dyn(HttpError.Timeout));
+          }
+        );
+      }
+    );
+    result
+  })
+);
 export(fetch_with);
 /// Perform an HTTP GET request to the given URL string.
 /// Returns the `HttpResponse` on success.
 ///
-/// # Example
+/// ## Example
 ///
 /// ```rust
 /// resp := io.await(fetch(`http://example.com`, io), { io, exn });
@@ -358,8 +379,11 @@ fetch :: (
   fn(url_str : String, io : Io) ->
     Impl(Future(HttpResponse, IoExn))
 )(
-  io.async((e) => {
-    return(e.io.await(fetch_with(url_str, FetchOptions.new(), e.io), e));
+  io.async(e => {
+    // Hoisted: `io.await` directly inside `return(...)` is rejected by the
+    // async state-machine codegen (a restriction `yo check` cannot see).
+    resp := e.io.await(fetch_with(url_str, FetchOptions.new(), e.io), e);
+    return(resp);
   })
 );
 export(fetch);

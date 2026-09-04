@@ -1,0 +1,108 @@
+// C27 (issues/fixed/generic-impl-async-method-closure-param-return-type-collapse.md):
+// an INSTANCE method taking an `Impl(Fn(...))` closure param and returning an
+// `Impl(...)` wrapper (`Impl(Future(T))`, `Impl(ToString)`) had its call typed
+// as the closure's own fn type — both wrappers carry the reserved SomeT name
+// `Impl`, env resolution was name-keyed, and the return wrapper adopted the
+// closure param's concrete binding. Free functions and static methods were
+// never affected; generic and non-generic impls both were.
+{ assert } :: import("std/assert");
+{ ToString } :: import("std/fmt");
+{ IoExn, Exception } :: import("std/error");
+open(import("std/string"));
+Counter :: ref(struct(n : i32));
+impl(
+  Counter,
+  // closure param captured by the io.async body
+  apply_async : (fn(self : Self, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
+    io.async((io : Io) => {
+      return(f(self.n));
+    })
+  ),
+  // closure param NOT touched by the body — the collapse was signature-level
+  ignore_async : (fn(self : Self, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
+    io.async((io : Io) => {
+      return(self.n);
+    })
+  ),
+  // effectful future
+  apply_exn : (fn(self : Self, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32, IoExn)))(
+    io.async(e => {
+      return(f(self.n + i32(1)));
+    })
+  ),
+  // closure param in a LATER position
+  apply_k : (fn(self : Self, k : i32, f : Impl(Fn(x : i32) -> i32), io : Io) -> Impl(Future(i32)))(
+    io.async((io : Io) => {
+      return(f(k));
+    })
+  ),
+  // non-Future Impl return
+  describe : (fn(self : Self, f : Impl(Fn(x : i32) -> i32)) -> Impl(ToString))(
+    f(self.n)
+  )
+);
+// The original C27 shape: a GENERIC impl.
+Holder :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(struct(_value : T))
+);
+impl(
+  generic(T : Type),
+  Holder(T),
+  new : (fn(value : T) -> Self)(Self(_value : value)),
+  apply_async_t : (fn(self : Self, body : Impl(Fn(inout(v) : T) -> T), io : Io) -> Impl(Future(T)))(
+    io.async((io : Io) => {
+      r := body(self._value);
+      return(r);
+    })
+  ),
+  apply_async_r : (fn(generic(R : Type), self : Self, body : Impl(Fn(inout(v) : T) -> R), io : Io) -> Impl(Future(R)))(
+    io.async((io : Io) => {
+      r := body(self._value);
+      return(r);
+    })
+  )
+);
+inc :: (fn(x : i32) -> i32)(x + i32(1));
+test("instance method: closure param + Impl(Future) return is a future of the declared type", {
+  c := Counter(n : i32(10));
+  a := io.await(c.apply_async(x -> (x * i32(2)), io), io);
+  assert(a == i32(20), `apply_async: ${a}`);
+  b := io.await(c.ignore_async(x -> (x * i32(2)), io), io);
+  assert(b == i32(10), `ignore_async: ${b}`);
+  k := io.await(c.apply_k(i32(5), x -> (x + i32(1)), io), io);
+  assert(k == i32(6), `apply_k: ${k}`);
+  d := io.await(c.apply_async(inc, io), io);
+  assert(d == i32(11), `named fn as the closure arg: ${d}`);
+});
+test("instance method: closure param + Impl(Future(T, IoExn)) return awaits under IoExn", {
+  c := Counter(n : i32(1));
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  r := io.await(c.apply_exn(x -> (x * i32(10)), io), IoExn(io : io, exn : exn));
+  assert(r == i32(20), `apply_exn: ${r}`);
+});
+test("instance method: closure param + Impl(ToString) return", {
+  c := Counter(n : i32(7));
+  s := c.describe(x -> (x * i32(6))).to_string();
+  assert(s == "42", `describe: ${s}`);
+});
+test("generic impl (the original C27 repro): fixed-T and generic-R futures", {
+  h := Holder(i64).new(i64(10));
+  r := io.await(h.apply_async_t(v => (v + i64(1)), io), io);
+  assert(r == i64(11), `fixed-T future: ${r}`);
+  s := io.await(h.apply_async_r(v => `v=${v}`, io), io);
+  assert(s == "v=10", `generic-R future: ${s}`);
+});
+test("two differently-shaped closures through the same method get their own results", {
+  c := Counter(n : i32(3));
+  base := i32(100);
+  x := io.await(c.apply_async(v => (v + base), io), io);
+  y := io.await(c.apply_async(v -> (v * v), io), io);
+  assert((x == i32(103)) && (y == i32(9)), `${x} ${y}`);
+});

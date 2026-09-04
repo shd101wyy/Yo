@@ -1,0 +1,58 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+// D3.10 Stage 2 — the `${expr:spec}` template-string sugar
+// (plans/STD_API_AUDIT.md). A spec'd interpolation lowers to
+// `expr.format("<spec>")` instead of `expr.to_string()`; the spec is peeled off
+// the right end of the interpolation text by a backward walk over a closed
+// character set that excludes `)`, `]`, `}`, quotes, comma and whitespace.
+//
+// NOTE this file deliberately does NOT import std/fmt — the parser's auto-import
+// is what has to supply `format`, and that is half of what is under test.
+test("width, alignment and fill through the sugar", {
+  name := String.from("ada");
+  assert(`[${name:>8}]` == `[     ada]`, "right align");
+  assert(`[${name:<6}]` == `[ada   ]`, "left align");
+  assert(`[${name:^7}]` == `[  ada  ]`, "center");
+  assert(`[${name:*>6}]` == `[***ada]`, "custom fill");
+});
+test("numeric specs through the sugar", {
+  n := i32(255);
+  assert(`${n:x}` == `ff`, "lowercase hex");
+  assert(`${n:#06x}` == `0x00ff`, "alt hex, zero padded");
+  neg := i32(-42);
+  assert(`${neg:08}` == `-0000042`, "zero fill lands after the sign");
+});
+test("float precision through the sugar", {
+  pi := f64(3.14159);
+  assert(`${pi:.2}` == `3.14`, "two decimals");
+  assert(`${pi:>8.3}` == `   3.142`, "width applies after precision");
+});
+test("spec'd and unspec'd interpolations coexist in one template", {
+  // The auto-import is gated on whether ANY spec appeared, so a file with a
+  // spec imports std/fmt/format rather than std/fmt/to_string. Plain
+  // `.to_string()` interpolations must keep working in that file: the import is
+  // evaluated for its impl registrations, and format.yo imports to_string.
+  who := String.from("ada");
+  n := i32(7);
+  big := i32(255);
+  assert(`${who} scored ${n:>4}` == `ada scored    7`, "mixed in one template");
+  assert(`${big} and ${big:x}` == `255 and ff`, "same value, both channels");
+});
+test("a spec applies to a whole expression, not just a name", {
+  a := i32(20);
+  b := i32(22);
+  assert(`${(a + b):>6}` == `    42`, "parenthesized arithmetic");
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  assert(`${xs.len():>4}` == `   2`, "method call result");
+});
+test("a colon inside the expression is NOT a spec separator", {
+  // The backward walk stops on `)`, so it can never reach a colon that lives
+  // inside a call's arguments or inside a string literal. These are the shapes
+  // that actually occur in the tree.
+  assert(`${String.from(":")}` == `:`, "colon inside a string literal");
+  sep := String.from("a:b").replace(String.from(":"), String.from("-"));
+  assert(`${sep}` == `a-b`, "colon inside a nested call argument");
+});

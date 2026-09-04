@@ -1,0 +1,43 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+open(import("std/collections/array_list"));
+// `unit` in a C DECLARATION position — a by-value parameter, a struct field, a
+// tuple element, a generic instantiated at T = unit — used to be emitted as C
+// `void`, which is not an object type: "argument may not have 'void' type",
+// "field has incomplete type 'void'". Codegen now spells those positions with a
+// one-byte placeholder (get_storage_type_string) and fills the matching empty
+// argument slot. See issues/fixed/unit-typed-params-and-fields-emit-c-void.md.
+_takes_unit :: (fn(x : unit) -> i32)(i32(7));
+_generic_id :: (fn(generic(T : Type), x : T) -> i32)(i32(9));
+_UnitField :: struct(a : i32, b : unit);
+test("unit as a by-value parameter", {
+  assert(_takes_unit(()) == i32(7), "non-generic unit parameter");
+  assert(_generic_id(()) == i32(9), "generic instantiated at T = unit");
+});
+test("unit as a struct field", {
+  s := _UnitField(a : i32(1), b : ());
+  assert(s.a == i32(1), "the non-unit field survives");
+});
+test("unit inside a tuple", {
+  p := (i32(3), ());
+  assert(p.0 == i32(3), "the non-unit element survives");
+});
+test("unit as a generic container element", {
+  xs := ArrayList(unit).new();
+  xs.push(());
+  xs.push(());
+  assert(xs.len() == usize(2), "ArrayList(unit) stores elements");
+});
+test("unit printing (D3.8)", {
+  assert(().to_string() == "()", "unit stringifies");
+  println(());
+});
+test("unit as an enum payload still works", {
+  // The enum path already erased unit payloads before this change — this is the
+  // no-regression witness, not new behaviour.
+  o := Option(unit).Some(());
+  assert(o.is_some(), "Option(unit)");
+  r := Result(unit, String).Ok(());
+  assert(r.is_ok(), "Result(unit, E)");
+});

@@ -13,7 +13,7 @@ test("IpAddr.loopback_v4 returns 127.0.0.1", {
   addr := IpAddr.loopback_v4();
   assert(addr.is_loopback(), "should be loopback");
   assert(addr.is_v4(), "should be v4");
-  assert(!(addr.is_v6()), "should not be v6");
+  assert(!addr.is_v6(), "should not be v6");
   s := addr.to_string();
   unsafe(printf("  loopback_v4 = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `127.0.0.1`, "should be 127.0.0.1");
@@ -22,12 +22,12 @@ test("IpAddr.loopback_v6 returns ::1", {
   addr := IpAddr.loopback_v6();
   assert(addr.is_loopback(), "should be loopback");
   assert(addr.is_v6(), "should be v6");
-  assert(!(addr.is_v4()), "should not be v4");
+  assert(!addr.is_v4(), "should not be v4");
 });
 test("IpAddr.any_v4 returns 0.0.0.0", {
   addr := IpAddr.any_v4();
   assert(addr.is_v4(), "should be v4");
-  assert(!(addr.is_loopback()), "should not be loopback");
+  assert(!addr.is_loopback(), "should not be loopback");
   s := addr.to_string();
   unsafe(printf("  any_v4 = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `0.0.0.0`, "should be 0.0.0.0");
@@ -35,7 +35,7 @@ test("IpAddr.any_v4 returns 0.0.0.0", {
 test("IpAddr.parse_v4 valid address", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -50,7 +50,7 @@ test("IpAddr.parse_v4 valid address", {
 test("IpAddr.parse_v4 loopback", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -62,7 +62,7 @@ test("IpAddr.parse_v4 loopback", {
 test("IpAddr.parse_v4 invalid address", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -73,7 +73,7 @@ test("IpAddr.parse_v4 invalid address", {
 test("IpAddr.parse_v4 too few octets", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  correctly rejected\n"));
         unwind(());
       }
@@ -85,7 +85,7 @@ test("IpAddr.parse_v4 too few octets", {
 test("IpAddr.parse_v4 invalid char", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  correctly rejected\n"));
         unwind(());
       }
@@ -121,7 +121,7 @@ test("SocketAddr.any creates any address", {
 test("IpAddr V4 to_string various addresses", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -135,7 +135,7 @@ test("IpAddr V4 to_string various addresses", {
 test("SocketAddr with parsed IP", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }

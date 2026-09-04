@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ hash_one } :: import("std/hash");
 test("Test 'Box'", {
   // test `Box` Eq trait.
   {
@@ -124,6 +125,67 @@ test("Test 'Rc' and 'Dispose' traits", {
     )
   );
 });
+// S0 C6 (plans/STD_API_AUDIT.md §2): floats are not bit patterns and
+// unsigned integers have no negation. The prelude used to ship
+// BitAnd/BitOr/BitXor/BitNot impls for f32/f64 (C rejects float bitwise
+// operands, so using them could not even compile the emitted C) and Negate
+// impls for u8/u16/u32/u64/usize. All of them are compile errors now.
+test("float bitwise operators are compile errors", {
+  comptime_expect_error({
+    v := (f32(1.0) & f32(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f32(1.0) | f32(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f32(1.0) ^ f32(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := ~f32(1.0);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f64(1.0) & f64(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f64(1.0) | f64(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := (f64(1.0) ^ f64(2.0));
+    consume(v);
+  });
+  comptime_expect_error({
+    v := ~f64(1.0);
+    consume(v);
+  });
+});
+test("unsigned integer negation is a compile error", {
+  comptime_expect_error({
+    v := -u8(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -u16(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -u32(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -u64(1);
+    consume(v);
+  });
+  comptime_expect_error({
+    v := -usize(1);
+    consume(v);
+  });
+});
 test("Test 'MaybeUninit'", {
   {
     uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
@@ -152,4 +214,190 @@ test("Test 'MaybeUninit'", {
     assert(point.x == 2);
     assert(point.y == 99);
   };
+});
+// ============================================================================
+// S1 prelude traits (plans/STD_API_AUDIT.md D3.1–D3.3)
+// ============================================================================
+test("Default trait provides zero values, .None, and empty containers", {
+  { String } :: import("std/string");
+  { ArrayList } :: import("std/collections/array_list");
+  assert(i32.default() == i32(0), "i32 default");
+  assert(u64.default() == u64(0), "u64 default");
+  assert(f64.default() == f64(0.0), "f64 default");
+  assert(bool.default() == false, "bool default");
+  (o : Option(i32)) = Option(i32).default();
+  assert(o.is_none(), "Option default is None");
+  s := String.default();
+  assert(s.len() == usize(0), "String default is empty");
+  l := ArrayList(i32).default();
+  assert(l.len() == usize(0), "ArrayList default is empty");
+});
+test("Option.unwrap_or_default uses the payload type's Default", {
+  (x : Option(i32)) = .None;
+  assert(x.unwrap_or_default() == i32(0), "None yields default");
+  (y : Option(i32)) = .Some(i32(7));
+  assert(y.unwrap_or_default() == i32(7), "Some yields payload");
+});
+test("From and Into widen integers and floats losslessly", {
+  // A type carries several From impls, so bare `i64.from` is ambiguous by
+  // design (Yo has no overloading) — the explicit trait-dispatch form
+  // selects the source type. `into(T)` disambiguates via its type argument,
+  // like `try_into(T)`.
+  assert((i64 <: From(i32)).from(i32(5)) == i64(5), "From(i32) for i64");
+  assert((i32 <: From(i8)).from(i8(-8)) == i32(-8), "From(i8) for i32");
+  assert((u64 <: From(u8)).from(u8(255)) == u64(255), "From(u8) for u64");
+  assert((f64 <: From(f32)).from(f32(1.5)) == f64(1.5), "From(f32) for f64");
+  a := i32(5);
+  assert(a.into(i64) == i64(5), "i32 into i64");
+  b := u16(65535);
+  assert(b.into(u64) == u64(65535), "u16 into u64");
+  c := f32(2.5);
+  assert(c.into(f64) == f64(2.5), "f32 into f64");
+});
+test("Ord.cmp default derives a total order from < and ==", {
+  less := match(i32(1).cmp(i32(2)), .Less => true, _ => false);
+  assert(less, "1 cmp 2 is Less");
+  eq := match(i32(3).cmp(i32(3)), .Equal => true, _ => false);
+  assert(eq, "3 cmp 3 is Equal");
+  gt := match(u8(9).cmp(u8(4)), .Greater => true, _ => false);
+  assert(gt, "9 cmp 4 is Greater");
+});
+test("float cmp is total: NaNs equal each other and sort after +inf", {
+  zero := f64(0.0);
+  one := f64(1.0);
+  nan := (zero / zero);
+  inf := (one / zero);
+  assert(match(nan.cmp(one), .Greater => true, _ => false), "NaN cmp 1.0 is Greater");
+  assert(match(one.cmp(nan), .Less => true, _ => false), "1.0 cmp NaN is Less");
+  assert(match(nan.cmp(nan), .Equal => true, _ => false), "NaN cmp NaN is Equal");
+  assert(match(inf.cmp(nan), .Less => true, _ => false), "+inf cmp NaN is Less");
+  assert(match(one.cmp(one), .Equal => true, _ => false), "1.0 cmp 1.0 is Equal");
+  neg := -one;
+  assert(match(neg.cmp(one), .Less => true, _ => false), "-1.0 cmp 1.0 is Less");
+  zero32 := f32(0.0);
+  nan32 := (zero32 / zero32);
+  assert(match(nan32.cmp(f32(5.0)), .Greater => true, _ => false), "f32 NaN cmp is Greater");
+});
+// The no-PartialOrd decision's enforcement half: floats no longer hash, so
+// HashMap(f64, …) keys are a COMPILE error instead of a NaN/truncation
+// footgun (the old impl was `u64(i64(self))` — a truncating cast).
+test("float Hash is deleted — hashing a float is a compile error", {
+  comptime_expect_error({
+    f := f64(1.5);
+    h := hash_one(f);
+    consume(h);
+  });
+  comptime_expect_error({
+    g := f32(1.5);
+    h2 := hash_one(g);
+    consume(h2);
+  });
+});
+test("Option completion: expect, is_some_and, inspect, take, replace", {
+  some := Option(i32).Some(i32(7));
+  none := Option(i32).None;
+  assert(some.expect("must be some") == i32(7), "expect returns the value");
+  assert(some.is_some_and(v => (v > i32(5))), "is_some_and true");
+  assert(!some.is_some_and(v => (v > i32(10))), "is_some_and false predicate");
+  assert(!none.is_some_and(v => (v > i32(0))), "is_some_and on None");
+  // Closures capture locals BY VALUE, so observe the side effect through a
+  // reference-semantics container instead of a primitive local.
+  { ArrayList } :: import("std/collections/array_list");
+  seen := ArrayList(i32).new();
+  echoed := some.inspect(v => {
+    seen.push(v);
+  });
+  assert((seen.len() == usize(1)) && (seen.get(usize(0)).unwrap() == i32(7)), "inspect ran the callback");
+  assert(echoed.unwrap() == i32(7), "inspect returns the option");
+  (slot : Option(i32)) = Option(i32).Some(i32(1));
+  taken := slot.take();
+  assert(taken.unwrap() == i32(1), "take returns the old value");
+  assert(slot.is_none(), "take leaves None behind");
+  old := slot.replace(i32(2));
+  assert(old.is_none(), "replace returns the old (None) option");
+  assert(slot.unwrap() == i32(2), "replace installs the new value");
+});
+test("Option zip and transpose", {
+  a := Option(i32).Some(i32(1));
+  b := Option(u8).Some(u8(2));
+  pair := a.zip(b);
+  assert(pair.is_some(), "zip of two Somes is Some");
+  p := pair.unwrap();
+  assert((p._0 == i32(1)) && (p._1 == u8(2)), "zip pairs both values");
+  assert(a.zip(Option(u8).None).is_none(), "zip with None is None");
+  ok_inner := Option(Result(i32, u8)).Some(Result(i32, u8).Ok(i32(3)));
+  transposed := ok_inner.transpose();
+  assert(transposed.is_ok(), "Some(Ok) transposes to Ok");
+  assert(transposed.unwrap().unwrap() == i32(3), "transposed value survives");
+  err_inner := Option(Result(i32, u8)).Some(Result(i32, u8).Err(u8(9)));
+  assert(err_inner.transpose().is_err(), "Some(Err) transposes to Err");
+  empty := Option(Result(i32, u8)).None;
+  assert(empty.transpose().unwrap().is_none(), "None transposes to Ok(None)");
+});
+test("Result completion: unwrap_or, unwrap_or_default, expect, inspect, flatten, transpose", {
+  ok := Result(i32, u8).Ok(i32(4));
+  err := Result(i32, u8).Err(u8(1));
+  assert(ok.unwrap_or(i32(0)) == i32(4), "unwrap_or on Ok");
+  assert(err.unwrap_or(i32(0)) == i32(0), "unwrap_or on Err");
+  assert(err.unwrap_or_default() == i32(0), "unwrap_or_default uses Default");
+  assert(ok.expect("must be ok") == i32(4), "expect on Ok");
+  assert(err.expect_err("must be err") == u8(1), "expect_err on Err");
+  // Closures capture locals BY VALUE — observe via reference-semantics lists.
+  { ArrayList } :: import("std/collections/array_list");
+  seen_ok := ArrayList(i32).new();
+  seen_err := ArrayList(u8).new();
+  ok.inspect(v => {
+    seen_ok.push(v);
+  });
+  err.inspect_err(e => {
+    seen_err.push(e);
+  });
+  assert((seen_ok.len() == usize(1)) && (seen_ok.get(usize(0)).unwrap() == i32(4)), "inspect saw the Ok value");
+  assert((seen_err.len() == usize(1)) && (seen_err.get(usize(0)).unwrap() == u8(1)), "inspect_err saw the Err value");
+  nested := Result(Result(i32, u8), u8).Ok(Result(i32, u8).Ok(i32(5)));
+  assert(nested.flatten().unwrap() == i32(5), "flatten unwraps one level");
+  nested_err := Result(Result(i32, u8), u8).Err(u8(2));
+  assert(nested_err.flatten().is_err(), "flatten keeps the outer Err");
+  ok_some := Result(Option(i32), u8).Ok(Option(i32).Some(i32(6)));
+  assert(ok_some.transpose().unwrap().unwrap() == i32(6), "Ok(Some) transposes to Some(Ok)");
+  ok_none := Result(Option(i32), u8).Ok(Option(i32).None);
+  assert(ok_none.transpose().is_none(), "Ok(None) transposes to None");
+  err_r := Result(Option(i32), u8).Err(u8(3));
+  assert(err_r.transpose().unwrap().is_err(), "Err transposes to Some(Err)");
+});
+test("Option and Result order totally and hash consistently with Eq", {
+  none := Option(i32).None;
+  one := Option(i32).Some(i32(1));
+  two := Option(i32).Some(i32(2));
+  assert(none < one, "None sorts before Some");
+  assert(one < two, "Some orders by inner value");
+  assert(two > one, "> works");
+  assert(none <= none, "None <= None");
+  assert(two >= two, ">= reflexive");
+  assert(match(none.cmp(one), .Less => true, _ => false), "cmp default via <");
+  assert(match(one.cmp(one), .Equal => true, _ => false), "cmp Equal");
+  assert(hash_one(one) == hash_one(Option(i32).Some(i32(1))), "equal options hash equally");
+  assert(hash_one(none) != hash_one(one), "None and Some(1) hash differently");
+  ok1 := Result(i32, u8).Ok(i32(1));
+  ok2 := Result(i32, u8).Ok(i32(2));
+  err0 := Result(i32, u8).Err(u8(0));
+  assert(ok1 < ok2, "Ok orders by inner value");
+  assert(ok2 < err0, "every Ok sorts before every Err");
+  assert(err0 > ok1, "Err > Ok");
+  assert(match(ok1.cmp(err0), .Less => true, _ => false), "Result cmp default");
+  assert(hash_one(ok1) == hash_one(Result(i32, u8).Ok(i32(1))), "equal results hash equally");
+  assert(hash_one(ok1) != hash_one(err0), "Ok and Err hash differently");
+});
+test("Option and Result to_string render variant and payload", {
+  { println } :: import("std/fmt");
+  some := Option(i32).Some(i32(42));
+  none := Option(i32).None;
+  assert(some.to_string() == `Some(42)`, "Some renders payload");
+  assert(none.to_string() == `None`, "None renders bare");
+  assert(`${some}` == `Some(42)`, "options interpolate in templates");
+  ok := Result(i32, u8).Ok(i32(1));
+  err := Result(i32, u8).Err(u8(2));
+  assert(ok.to_string() == `Ok(1)`, "Ok renders payload");
+  assert(err.to_string() == `Err(2)`, "Err renders payload");
+  println(some);
 });

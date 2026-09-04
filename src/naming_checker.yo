@@ -112,7 +112,7 @@ is_upper_camel_case :: (fn(name : String, exn : Exception) -> bool)({
     return(false);
   });
   first := match(trimmed.as_bytes().get(usize(0)), .Some(b) => b, .None => u8(0));
-  (_is_upper_byte(first)) && (!(trimmed.contains(String.from("_"))))
+  _is_upper_byte(first) && !trimmed.contains(String.from("_"))
 });
 /// Check if the name is in `lowerCamelCase`.
 ///
@@ -127,7 +127,7 @@ is_lower_camel_case :: (fn(name : String, exn : Exception) -> bool)({
     return(false);
   });
   first := match(trimmed.as_bytes().get(usize(0)), .Some(b) => b, .None => u8(0));
-  (_is_lower_byte(first)) && (!(trimmed.contains(String.from("_"))))
+  _is_lower_byte(first) && !trimmed.contains(String.from("_"))
 });
 /// Check if the name is in `snake_case` (contains no uppercase letters).
 ///
@@ -139,14 +139,14 @@ is_snake_case :: (fn(name : String) -> bool)({
   n := bytes.len();
   (i : usize) = usize(0);
   (found_upper : bool) = false;
-  while((i < n) && (!(found_upper)), {
+  while((i < n) && !found_upper, {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     if(_is_upper_byte(b), {
       found_upper = true;
     });
     i = (i + usize(1));
   });
-  !(found_upper)
+  !found_upper
 });
 /// Check if the name is in `SCREAMING_SNAKE_CASE` — equivalent to
 /// `name == name.toUpperCase()` in TS.

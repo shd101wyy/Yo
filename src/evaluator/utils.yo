@@ -139,7 +139,7 @@ attach_temp_variable_to_expr :: (
       effective_ty := match(
         info.capture_type,
         .Some(cap_ty) => cond(
-          ((type_contains_rc_type(cap_ty)) && is_owning_the_rc_value) => cap_ty,
+          (type_contains_rc_type(cap_ty) && is_owning_the_rc_value) => cap_ty,
           true => info.ty
         ),
         .None => info.ty
@@ -154,7 +154,7 @@ attach_temp_variable_to_expr :: (
       // gets marked compile-time-only and codegen never declares it.
       has_inlinable_value := match(
         info.value,
-        .Some(iv) => !(is_unknown_val(iv)),
+        .Some(iv) => !is_unknown_val(iv),
         .None => false
       );
       is_ctonly := cond(_is_owning_rc => false, true => has_inlinable_value);
@@ -169,7 +169,7 @@ attach_temp_variable_to_expr :: (
             existing_var := match(existing_vars.get(existing_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(info.env));
             // Preserve borrowing: if variable was not owning, keep it not-owning.
             preserved_rc := cond(
-              (!(existing_var.is_owning_the_rc_value)) => false,
+              !existing_var.is_owning_the_rc_value => false,
               true => _is_owning_rc
             );
             existing_var.ty = effective_ty;
@@ -290,7 +290,7 @@ find_rc_value_owner_relationship :: (
               candidate_opt = Option(Variable).None;
               return(candidate_opt);
             });
-            visited_add_result := visited.add(cand.id);
+            visited_add_result := visited.insert(cand.id);
             candidate_opt = match(
               cand.is_owning_the_same_rc_value_as,
               .Some(next_box) => Option(Variable).Some(next_box.*),
@@ -373,9 +373,7 @@ throw_expr_is_implicit_variable_error :: (
               dyn(
                 format_error_message(
                   ast_expr_token(rhs),
-                  `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via  parameters.`,
-                  false,
-                  .None
+                  `Cannot use implicit variable "${var_name}" in assignment. Implicit variables must be passed via  parameters.`
                 )
               )
             );
@@ -418,7 +416,7 @@ require_expr_not_consumed :: (
             error_message : `Variable "${var_name}" is not defined.`
           )
         );
-        exn.throw(dyn(format_error_messages(entries, false, .None)));
+        exn.throw(dyn(format_error_messages(entries)));
       });
       v := match(vars.get(vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
       match(
@@ -437,10 +435,8 @@ require_expr_not_consumed :: (
           // reported 'use of moved value' with BOTH carets on the same
           // token (tests/imm_vec arms 14/17, surfaced by the Step-4a port).
           same_site := (
-            (
-              (consumed_tok.*.row == ast_expr_token(rhs).row)
-              && (consumed_tok.*.column == ast_expr_token(rhs).column)
-            )
+            (consumed_tok.*.row == ast_expr_token(rhs).row)
+            && (consumed_tok.*.column == ast_expr_token(rhs).column)
             && (consumed_tok.*.module_path == ast_expr_token(rhs).module_path)
           );
           if(same_site, {
@@ -459,7 +455,7 @@ require_expr_not_consumed :: (
               error_message : String.from("value moved here")
             )
           );
-          exn.throw(dyn(format_error_messages(entries, false, .None)));
+          exn.throw(dyn(format_error_messages(entries)));
         }
       );
     }
@@ -502,7 +498,7 @@ expect_expr_to_have_been_evaluated :: (
       entries.push(
         TokenAndError(token : ast_expr_token(expr), error_message : msg)
       );
-      exn.throw(dyn(format_error_messages(entries, false, .None)));
+      exn.throw(dyn(format_error_messages(entries)));
       // Unreachable. Provide a placeholder so the type checker is
       // satisfied.
       new_expr_info_placeholder_for_unreachable_(expr)
@@ -558,7 +554,7 @@ set_expr_as_consumed :: (
                 error_message : `Variable "${name}" is not defined.`
               )
             );
-            exn.throw(dyn(format_error_messages(entries, false, .None)));
+            exn.throw(dyn(format_error_messages(entries)));
           });
           v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
           match(
@@ -591,7 +587,7 @@ set_expr_as_consumed :: (
                     error_message : String.from("value moved here")
                   )
                 );
-                exn.throw(dyn(format_error_messages(entries, false, .None)));
+                exn.throw(dyn(format_error_messages(entries)));
               }
             )
           );
@@ -677,7 +673,7 @@ set_expr_as_needs_to_call_dup :: (
       // passes do, so the gate must also require inlinability.
       has_concrete_value := match(
         ei.value,
-        .Some(cv) => (!(is_unknown_val(cv)) && !(type_contains_rc_type(ei.ty))),
+        .Some(cv) => (!is_unknown_val(cv) && !type_contains_rc_type(ei.ty)),
         .None => false
       );
       if(has_concrete_value, {
@@ -691,25 +687,25 @@ set_expr_as_needs_to_call_dup :: (
               });
               // Non-owning RC temp (e.g. index-trait result): codegen does not
               // dup inline for these, so fall through to generate the dup.
-              if(!(v.is_owning_the_rc_value), {
+              if(!v.is_owning_the_rc_value, {
                 needs_dup_for_non_owning_rc_temp = true;
               });
             },
             .None => ()
           );
         });
-        if(!(needs_dup_for_non_owning_rc_temp), {
+        if(!needs_dup_for_non_owning_rc_temp, {
           return(());
         });
       });
       // --- Only RC-bearing types need dup/consume. ---
-      if(!(type_contains_rc_type(ei.ty)), {
+      if(!type_contains_rc_type(ei.ty), {
         return(());
       });
       // Owning temp already holding the value: ownership transfers ⇒ consume, no dup.
       if(is_temp_variable_name(ei.env.module_path, variable_name), {
         is_atom_with_other_name := (ast_expr_is_atom(rhs) && (ast_expr_token(rhs).value != variable_name));
-        if(!(is_atom_with_other_name), {
+        if(!is_atom_with_other_name, {
           match(
             find_variable_in_env(ei.env, variable_name),
             .Some(v) => {
@@ -752,7 +748,7 @@ set_expr_as_needs_to_call_dup :: (
       );
       // Stamp the USE SITE's source token for the dup/drop pair optimizer
       // (mirrors TS `__useSiteToken`, expr.ts:2577-2579).
-      g_dup_use_site_tokens.set(ast_expr_id(evaluated_dup), ast_expr_token(rhs));
+      g_dup_use_site_tokens.insert(ast_expr_id(evaluated_dup), ast_expr_token(rhs));
       // Stash the deferred dup expression on the rhs's ExprInfo (codegen emits it).
       dup_list := ArrayList(AstExpr).new();
       dup_list.push(evaluated_dup);
@@ -813,13 +809,13 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
       // only a value codegen actually INLINES has no C variable to dup.
       has_concrete_value := match(
         ei.value,
-        .Some(cv) => (!(is_unknown_val(cv)) && !(type_contains_rc_type(ei.ty))),
+        .Some(cv) => (!is_unknown_val(cv) && !type_contains_rc_type(ei.ty)),
         .None => false
       );
       if(has_concrete_value, {
         return(Option(AstExpr).None);
       });
-      if(!(type_contains_rc_type(ei.ty)), {
+      if(!type_contains_rc_type(ei.ty), {
         return(Option(AstExpr).None);
       });
       match(
@@ -885,7 +881,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
             ),
             .Atom(_, _) => ()
           );
-          g_dup_use_site_tokens.set(ast_expr_id(dup_expr), ast_expr_token(rhs));
+          g_dup_use_site_tokens.insert(ast_expr_id(dup_expr), ast_expr_token(rhs));
           dup_list := ArrayList(AstExpr).new();
           dup_list.push(dup_expr);
           ei.deferred_dup_expressions = Option(ArrayList(AstExpr)).Some(dup_list);
@@ -937,12 +933,12 @@ _place_root_is_runtime_variable :: (fn(e : AstExpr, env : Environment) -> bool)(
   while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
     r_args := match(root, .FnCall(_, _, __prv_ra, _, _) => __prv_ra, .Atom(_, _) => ArrayList(AstExpr).new());
     r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
-    if(!(ast_expr_is_atom(r_a1)), {
+    if(!ast_expr_is_atom(r_a1), {
       return(false);
     });
     root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
   });
-  if(!(ast_expr_is_atom(root)), {
+  if(!ast_expr_is_atom(root), {
     return(false);
   });
   vars := get_variables_from_env(env, ast_expr_token(root).value);
@@ -951,7 +947,7 @@ _place_root_is_runtime_variable :: (fn(e : AstExpr, env : Environment) -> bool)(
   });
   match(
     vars.get(vars.len() - usize(1)),
-    .Some(v) => !(v.is_compile_time_only),
+    .Some(v) => !v.is_compile_time_only,
     .None => false
   )
 });
@@ -962,7 +958,7 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
   // borrowed box and the caller read the recycled allocation. Requiring a
   // 2-arg dot missed every one of these. Widening is safe by construction:
   // the marker no-ops when the argument's temp already OWNS its value.
-  if(!(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
     if(ast_expr_is_atom(e), {
       return(false);
     });
@@ -971,19 +967,19 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
   });
   e_args := match(e, .FnCall(_, _, __aipp_a, _, _) => __aipp_a, .Atom(_, _) => ArrayList(AstExpr).new());
   e_a1 := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
-  if(!(ast_expr_is_atom(e_a1)), {
+  if(!ast_expr_is_atom(e_a1), {
     return(false);
   });
   (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
   while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
     r_args := match(root, .FnCall(_, _, __aipp_ra, _, _) => __aipp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
     r_a1 := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
-    if(!(ast_expr_is_atom(r_a1)), {
+    if(!ast_expr_is_atom(r_a1), {
       return(false);
     });
     root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
   });
-  if(!(ast_expr_is_atom(root)), {
+  if(!ast_expr_is_atom(root), {
     return(false);
   });
   vars := get_variables_from_env(env, ast_expr_token(root).value);
@@ -991,7 +987,7 @@ arg_is_rc_projection_place :: (fn(e : AstExpr, env : Environment) -> bool)({
     return(false);
   });
   v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => return(false));
-  !(v.is_compile_time_only)
+  !v.is_compile_time_only
 });
 // ---------------------------------------------------------------------------
 // doc_comment_lookup_key_from_token
@@ -1030,7 +1026,7 @@ consume_case_body_temp_var :: (
     var_name_opt,
     .None => (),
     .Some(var_name) => {
-      if(!(is_temp_variable_name(env.module_path, var_name)), {
+      if(!is_temp_variable_name(env.module_path, var_name), {
         return(());
       });
       vars := get_variables_from_env(env, var_name);
@@ -1097,9 +1093,7 @@ merge_and_check_envs :: (
           dyn(
             format_error_message(
               ast_expr_token(body),
-              `Expected the body of the case to be evaluated, but it is not.`,
-              false,
-              .None
+              `Expected the body of the case to be evaluated, but it is not.`
             )
           )
         );
@@ -1160,9 +1154,7 @@ merge_and_check_envs :: (
         dyn(
           format_error_message(
             ast_expr_token(match(bodies.get(ci), .Some(b) => b, .None => make_err_expr())),
-            `Case env is missing outer frames (has ${case_env.frames.len().to_string()}, need ${required_depth.to_string()}).`,
-            false,
-            .None
+            `Case env is missing outer frames (has ${case_env.frames.len().to_string()}, need ${required_depth.to_string()}).`
           )
         )
       );
@@ -1252,14 +1244,12 @@ merge_and_check_envs :: (
             // mismatch. (Mirrored in the per-column merge below.) See
             // issues/yo-self-p1-transpile-tail.md Candidate 3.
             case_var_k := match(case_frame.variables.get(kk), .Some(v) => v, .None => base_var);
-            if(((base_var.name != case_var_k.name) && !(is_temp_variable_name(env.module_path, base_var.name))) && !(is_temp_variable_name(env.module_path, case_var_k.name)), {
+            if((base_var.name != case_var_k.name) && !is_temp_variable_name(env.module_path, base_var.name) && !is_temp_variable_name(env.module_path, case_var_k.name), {
               exn.throw(
                 dyn(
                   format_error_message(
                     ast_expr_token(match(bodies.get(cj), .Some(b) => b, .None => make_err_expr())),
-                    `Frame level ${frame_i} has different variable names for different cases.`,
-                    false,
-                    .None
+                    `Frame level ${frame_i} has different variable names for different cases.`
                   )
                 )
               );
@@ -1391,7 +1381,7 @@ merge_and_check_envs :: (
                         ),
                         _ => false
                       );
-                      if(cb_id_conflict || !(are_types_compatible(cb_cc, cb_fc)), {
+                      if(cb_id_conflict || !are_types_compatible(cb_cc, cb_fc), {
                         cb_impl_conflict = true;
                         cb_entries := ArrayList(TokenAndError).new();
                         cb_entries.push(
@@ -1403,7 +1393,7 @@ Impl(...) uses static dispatch and requires the same concrete type in all branch
 Consider using Dyn(...) for dynamic dispatch if different concrete types are needed.`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(cb_entries, false, .None)));
+                        exn.throw(dyn(format_error_messages(cb_entries)));
                       });
                     },
                     .None => ()
@@ -1411,7 +1401,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
                   .None => ()
                 );
                 // General cross-case initialized-type compatibility.
-                if(!(cb_impl_conflict) && !(are_types_compatible(cb_cur_ty, cb_first_ty)), {
+                if(!cb_impl_conflict && !are_types_compatible(cb_cur_ty, cb_first_ty), {
                   cb_entries2 := ArrayList(TokenAndError).new();
                   cb_entries2.push(
                     TokenAndError(
@@ -1422,7 +1412,7 @@ First initialization: ${type_to_string(cb_first_ty)}
 Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                     )
                   );
-                  exn.throw(dyn(format_error_messages(cb_entries2, false, .None)));
+                  exn.throw(dyn(format_error_messages(cb_entries2)));
                 });
                 cb_k = (cb_k + usize(1));
               });
@@ -1442,9 +1432,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                       dyn(
                         format_error_message(
                           base_var.token,
-                          `Variable "${var_name}" might not be initialized in all cases.`,
-                          false,
-                          .None
+                          `Variable "${var_name}" might not be initialized in all cases.`
                         )
                       )
                     );
@@ -1473,7 +1461,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
               init_i = (init_i + usize(1));
             });
-            if(all_init && !(match(base_var.initialized_at_token, .Some(_) => true, .None => false)), {
+            if(all_init && !match(base_var.initialized_at_token, .Some(_) => true, .None => false), {
               first_tok := match(initialized_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(
                 first_tok,
@@ -1484,7 +1472,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
             });
             // Case 3: some init, some don't → error
-            if(any_init && !(all_init), {
+            if(any_init && !all_init, {
               err_list := ArrayList(TokenAndError).new();
               (ei : usize) = usize(0);
               while(ei < n_cases, {
@@ -1501,7 +1489,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                 };
                 ei = (ei + usize(1));
               });
-              exn.throw(dyn(format_error_messages(err_list, false, .None)));
+              exn.throw(dyn(format_error_messages(err_list)));
             });
           });
           // ---- Check consumed_at_token ----
@@ -1540,7 +1528,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
               cons_i = (cons_i + usize(1));
             });
-            if(all_consumed && !(match(base_var.consumed_at_token, .Some(_) => true, .None => false)), {
+            if(all_consumed && !match(base_var.consumed_at_token, .Some(_) => true, .None => false), {
               first_tok := match(consumed_at_tokens.get(usize(0)), .Some(v) => v, .None => Option(Token).None);
               match(
                 first_tok,
@@ -1551,7 +1539,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               );
             });
             // Case 3: partial consumption → error
-            if(any_consumed && !(all_consumed), {
+            if(any_consumed && !all_consumed, {
               err_list := ArrayList(TokenAndError).new();
               (eci : usize) = usize(0);
               while(eci < n_cases, {
@@ -1568,7 +1556,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
                 };
                 eci = (eci + usize(1));
               });
-              exn.throw(dyn(format_error_messages(err_list, false, .None)));
+              exn.throw(dyn(format_error_messages(err_list)));
             });
           });
           // ---- Check is_owning_the_rc_value ----
@@ -1589,12 +1577,12 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
             );
             ow_i = (ow_i + usize(1));
           });
-          if(all_owning && !(base_var.is_owning_the_rc_value), {
+          if(all_owning && !base_var.is_owning_the_rc_value, {
             base_var.is_owning_the_rc_value = true;
             base_var.is_owning_the_same_rc_value_as = Option(Box(Variable)).None;
           });
           // Partial ownership → error
-          if((any_owning && !(all_owning)) && !(base_var.is_owning_the_rc_value), {
+          if(any_owning && !all_owning && !base_var.is_owning_the_rc_value, {
             err_list := ArrayList(TokenAndError).new();
             (oei : usize) = usize(0);
             while(oei < n_cases, {
@@ -1611,7 +1599,7 @@ Conflicting initialization: ${type_to_string(cb_cur_ty)}`
               };
               oei = (oei + usize(1));
             });
-            exn.throw(dyn(format_error_messages(err_list, false, .None)));
+            exn.throw(dyn(format_error_messages(err_list)));
           });
           // ---- Handle variable ID reassignment across branches ----
           // If any branch has a different variable ID, generate a new one.
@@ -1657,7 +1645,7 @@ _try_resolve_last_var :: (fn(vars : ArrayList(Variable)) -> Option(EvalValue))(
         last.value.get(usize(0)),
         .None => Option(EvalValue).None,
         .Some(v) => cond(
-          ((is_unknown_val(v)) || (is_var_ref(v))) => Option(EvalValue).None,
+          (is_unknown_val(v) || is_var_ref(v)) => Option(EvalValue).None,
           true => Option(EvalValue).Some(v)
         )
       )
@@ -1845,11 +1833,11 @@ _parse_prefixed_int :: (fn(bytes : ArrayList(u8), start : usize, base : i64) -> 
 parse_raw_int :: (fn(raw : String) -> Option(i64))({
   stripped := raw.replace_all(`_`, ``);
   cond(
-    ((stripped.starts_with(`0x`)) || (stripped.starts_with(`0X`))) =>
+    (stripped.starts_with(`0x`) || stripped.starts_with(`0X`)) =>
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(16)),
-    ((stripped.starts_with(`0b`)) || (stripped.starts_with(`0B`))) =>
+    (stripped.starts_with(`0b`) || stripped.starts_with(`0B`)) =>
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(2)),
-    ((stripped.starts_with(`0o`)) || (stripped.starts_with(`0O`))) =>
+    (stripped.starts_with(`0o`) || stripped.starts_with(`0O`)) =>
       _parse_prefixed_int(stripped.as_bytes(), usize(2), i64(8)),
     true => stripped.parse_i64()
   )
@@ -1879,4 +1867,16 @@ export(attach_temp_variable_to_expr);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs);
 export(are_values_equal);
-export(parse_raw_int, parse_raw_float);
+/// Render an f64 with ROUND-TRIP precision (`%.17g`) for a FloatLit raw.
+/// The naive `v.to_string()` is C `%g` — SIX significant digits — and
+/// "normalizing" literals through it truncated every float constant in
+/// every program past the 6th digit (`0.6303102` and `0.6303103` became
+/// the SAME C constant `0.63031`). `%.17g` round-trips every IEEE double.
+f64_raw_roundtrip :: (fn(v : f64) -> String)({
+  { snprintf } :: import("std/libc/stdio");
+  buffer := Array(u8, usize(40)).fill(u8(0));
+  buffer_ptr := &buffer(usize(0));
+  _n := unsafe(snprintf(*(char)(buffer_ptr), usize(40), "%.17g", v));
+  String.from_cstr(buffer_ptr).unwrap()
+});
+export(parse_raw_int, parse_raw_float, f64_raw_roundtrip);

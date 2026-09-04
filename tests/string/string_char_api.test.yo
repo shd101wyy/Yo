@@ -1,0 +1,401 @@
+//! The rune-aware `String` vocabulary (D4, final Rust shape 2026-08-26):
+//! `chars()` / `char_indices()` composed with iterator methods (`count`,
+//! `nth`) for all rune work, plus `is_char_boundary`, `floor_char_boundary`,
+//! `ceil_char_boundary` and `try_substring`. The one-shot methods
+//! `char_len` / `char_substring` / `truncate_chars` were deleted; the tests
+//! below pin that the documented iterator idioms produce the same values.
+//!
+//! EVERY assertion here is against multibyte content with hand-computed byte
+//! offsets. That is the point: a byte-vs-rune basis error is invisible to
+//! ASCII input by construction, so an ASCII test of this API proves nothing
+//! (`plans/STD_API_AUDIT_D4_PLAN.md` §6.1-§6.2).
+//!
+//! The canonical subject covers all four UTF-8 widths in one string:
+//!
+//! ```text
+//!   rune   a      é         中           𝄞
+//!   width  1B     2B        3B           4B          10 bytes, 4 runes
+//!   bytes  61     C3 A9     E4 B8 AD     F0 9D 84 9E
+//!   offset 0      1  2      3  4  5      6  7  8  9
+//! ```
+{ assert } :: import("std/assert");
+open(import("std/fmt"));
+open(import("std/string"));
+open(import("std/collections/array_list"));
+/// The four-width subject string, rebuilt per test so nothing is shared.
+_subject :: (fn() -> String)(
+  `aé中𝄞`
+);
+// ===========================================================================
+// chars().count() — the rune count
+// ===========================================================================
+test("String chars().count() counts runes across all four UTF-8 widths", {
+  s := _subject();
+  assert(s.len() == usize(10), "subject must be 10 bytes");
+  assert(s.chars().count() == usize(4), "subject must be 4 runes");
+  // Pin the corpus: if these bytes ever change, every offset below is wrong.
+  assert(s.byte_at(usize(0)) == u8(0x61), "byte 0 is 'a'");
+  assert(s.byte_at(usize(1)) == u8(0xC3), "byte 1 leads 'é'");
+  assert(s.byte_at(usize(2)) == u8(0xA9), "byte 2 continues 'é'");
+  assert(s.byte_at(usize(3)) == u8(0xE4), "byte 3 leads '中'");
+  assert(s.byte_at(usize(4)) == u8(0xB8), "byte 4 continues '中'");
+  assert(s.byte_at(usize(5)) == u8(0xAD), "byte 5 continues '中'");
+  assert(s.byte_at(usize(6)) == u8(0xF0), "byte 6 leads '𝄞'");
+  assert(s.byte_at(usize(7)) == u8(0x9D), "byte 7 continues '𝄞'");
+  assert(s.byte_at(usize(8)) == u8(0x84), "byte 8 continues '𝄞'");
+  assert(s.byte_at(usize(9)) == u8(0x9E), "byte 9 continues '𝄞'");
+});
+test("String chars().count() holds the pre-flip rune counts — the D4 cross-PR golden", {
+  // PR 3 flipped `len()` to bytes. The rune count must be the SAME number
+  // it was before that flip, so this is the regression gate that isolates
+  // "did the rune count change?" (must be NO) from "did len() change?"
+  // (must be YES). Every value below was recorded in PR 1, when the rune
+  // count and `len()` still agreed, and is unchanged.
+  // (plans/STD_API_AUDIT_D4_PLAN.md §6.1 item 3.)
+  assert(_subject().chars().count() == usize(4), "four-width subject");
+  assert(`你好世界`.chars().count() == usize(4), "CJK");
+  assert(`héllo`.chars().count() == usize(5), "latin-1 supplement");
+  assert(`😀🎉`.chars().count() == usize(2), "astral emoji");
+  assert(`abc`.chars().count() == usize(3), "ASCII");
+  assert(String.new().chars().count() == usize(0), "empty");
+  // The other half of the gate: `len()` now DIFFERS from the rune count on
+  // exactly the multibyte cases, and still agrees on the ASCII ones.
+  assert(_subject().len() == usize(10), "four-width subject is 10 bytes");
+  assert(`你好世界`.len() == usize(12), "CJK is 12 bytes");
+  assert(`héllo`.len() == usize(6), "latin-1 supplement is 6 bytes");
+  assert(`😀🎉`.len() == usize(8), "astral emoji is 8 bytes");
+  assert(`abc`.len() == usize(3), "ASCII agrees in both bases");
+  assert(String.new().len() == usize(0), "empty agrees in both bases");
+  assert(`😀🎉`.len() == usize(8), "8 emoji bytes");
+});
+test("String chars().count() on the empty string", {
+  assert(String.new().chars().count() == usize(0), "empty is 0 runes");
+  assert(String.from("").chars().count() == usize(0), "from empty str is 0 runes");
+});
+// ===========================================================================
+// is_char_boundary — every byte of every width, including all four bytes of
+// the 4-byte sequence.
+// ===========================================================================
+test("String is_char_boundary marks every byte of the four-width subject", {
+  s := _subject();
+  assert(s.is_char_boundary(usize(0)), "0 starts 'a'");
+  assert(s.is_char_boundary(usize(1)), "1 starts 'é'");
+  assert(!s.is_char_boundary(usize(2)), "2 is inside 'é'");
+  assert(s.is_char_boundary(usize(3)), "3 starts '中'");
+  assert(!s.is_char_boundary(usize(4)), "4 is inside '中'");
+  assert(!s.is_char_boundary(usize(5)), "5 is inside '中'");
+  assert(s.is_char_boundary(usize(6)), "6 starts '𝄞'");
+  assert(!s.is_char_boundary(usize(7)), "7 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(8)), "8 is inside '𝄞'");
+  assert(!s.is_char_boundary(usize(9)), "9 is inside '𝄞'");
+  assert(s.is_char_boundary(usize(10)), "10 is the end, a boundary");
+  assert(!s.is_char_boundary(usize(11)), "11 is past the end");
+  assert(!s.is_char_boundary(usize(100)), "100 is far past the end");
+});
+test("String is_char_boundary over a standalone 4-byte sequence", {
+  // The 4-byte width alone, so the offsets are not shifted by anything else.
+  s := `𝄞`;
+  assert(s.len() == usize(4), "U+1D11E is 4 bytes");
+  assert(s.chars().count() == usize(1), "U+1D11E is 1 rune");
+  assert(s.is_char_boundary(usize(0)), "byte 0 is the lead");
+  assert(!s.is_char_boundary(usize(1)), "byte 1 is a continuation");
+  assert(!s.is_char_boundary(usize(2)), "byte 2 is a continuation");
+  assert(!s.is_char_boundary(usize(3)), "byte 3 is a continuation");
+  assert(s.is_char_boundary(usize(4)), "byte 4 is the end");
+  assert(!s.is_char_boundary(usize(5)), "byte 5 is past the end");
+});
+test("String is_char_boundary on the empty string", {
+  e := String.new();
+  assert(e.is_char_boundary(usize(0)), "0 is a boundary of the empty string");
+  assert(!e.is_char_boundary(usize(1)), "1 is past the empty string");
+});
+// ===========================================================================
+// floor_char_boundary / ceil_char_boundary
+// ===========================================================================
+test("String floor_char_boundary walks back to the rune start", {
+  s := _subject();
+  assert(s.floor_char_boundary(usize(0)) == usize(0), "0 -> 0");
+  assert(s.floor_char_boundary(usize(1)) == usize(1), "1 -> 1");
+  assert(s.floor_char_boundary(usize(2)) == usize(1), "2 -> 1 (inside 'é')");
+  assert(s.floor_char_boundary(usize(3)) == usize(3), "3 -> 3");
+  assert(s.floor_char_boundary(usize(4)) == usize(3), "4 -> 3 (inside '中')");
+  assert(s.floor_char_boundary(usize(5)) == usize(3), "5 -> 3 (inside '中')");
+  assert(s.floor_char_boundary(usize(6)) == usize(6), "6 -> 6");
+  assert(s.floor_char_boundary(usize(7)) == usize(6), "7 -> 6 (inside '𝄞')");
+  assert(s.floor_char_boundary(usize(8)) == usize(6), "8 -> 6 (inside '𝄞')");
+  assert(s.floor_char_boundary(usize(9)) == usize(6), "9 -> 6 (inside '𝄞')");
+  assert(s.floor_char_boundary(usize(10)) == usize(10), "10 -> 10 (the end)");
+  assert(s.floor_char_boundary(usize(11)) == usize(10), "11 clamps to the end");
+  assert(s.floor_char_boundary(usize(999)) == usize(10), "far past clamps");
+  assert(String.new().floor_char_boundary(usize(7)) == usize(0), "empty -> 0");
+});
+test("String ceil_char_boundary walks forward to the next rune start", {
+  s := _subject();
+  assert(s.ceil_char_boundary(usize(0)) == usize(0), "0 -> 0");
+  assert(s.ceil_char_boundary(usize(1)) == usize(1), "1 -> 1");
+  assert(s.ceil_char_boundary(usize(2)) == usize(3), "2 -> 3 (inside 'é')");
+  assert(s.ceil_char_boundary(usize(3)) == usize(3), "3 -> 3");
+  assert(s.ceil_char_boundary(usize(4)) == usize(6), "4 -> 6 (inside '中')");
+  assert(s.ceil_char_boundary(usize(5)) == usize(6), "5 -> 6 (inside '中')");
+  assert(s.ceil_char_boundary(usize(6)) == usize(6), "6 -> 6");
+  assert(s.ceil_char_boundary(usize(7)) == usize(10), "7 -> 10 (inside '𝄞')");
+  assert(s.ceil_char_boundary(usize(8)) == usize(10), "8 -> 10 (inside '𝄞')");
+  assert(s.ceil_char_boundary(usize(9)) == usize(10), "9 -> 10 (inside '𝄞')");
+  assert(s.ceil_char_boundary(usize(10)) == usize(10), "10 -> 10 (the end)");
+  assert(s.ceil_char_boundary(usize(11)) == usize(10), "11 clamps to the end");
+  assert(String.new().ceil_char_boundary(usize(7)) == usize(0), "empty -> 0");
+});
+test("String floor/ceil agree exactly on the boundaries themselves", {
+  // The invariant that makes them safe to use as a slicing pair:
+  // is_char_boundary(i)  <=>  floor(i) == i  <=>  ceil(i) == i.
+  s := _subject();
+  i := usize(0);
+  while(i <= s.len(), i = (i + usize(1)), {
+    on := s.is_char_boundary(i);
+    assert(s.floor_char_boundary(i) == i == on, "floor fixes exactly the boundaries");
+    assert(s.ceil_char_boundary(i) == i == on, "ceil fixes exactly the boundaries");
+    assert(s.is_char_boundary(s.floor_char_boundary(i)), "floor lands on a boundary");
+    assert(s.is_char_boundary(s.ceil_char_boundary(i)), "ceil lands on a boundary");
+  });
+});
+// ===========================================================================
+// char_indices
+// ===========================================================================
+test("String char_indices yields BYTE offsets, not character offsets", {
+  s := _subject();
+  it := s.char_indices();
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(0), "'a' starts at byte 0");
+      assert(p._1.to_u32() == u32(0x61), "'a' is U+0061");
+    },
+    .None => assert(false, "expected 'a'")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(1), "'é' starts at byte 1");
+      assert(p._1.to_u32() == u32(0xE9), "'é' is U+00E9");
+    },
+    .None => assert(false, "expected 'é'")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(3), "'中' starts at byte 3, not 2");
+      assert(p._1.to_u32() == u32(0x4E2D), "'中' is U+4E2D");
+    },
+    .None => assert(false, "expected '中'")
+  );
+  match(
+    it.next(),
+    .Some(p) => {
+      assert(p._0 == usize(6), "'𝄞' starts at byte 6, not 3");
+      assert(p._1.to_u32() == u32(0x1D11E), "'𝄞' is U+1D11E");
+    },
+    .None => assert(false, "expected '𝄞'")
+  );
+  match(it.next(), .Some(_) => assert(false, "expected exhaustion"), .None => ());
+});
+test("String char_indices offsets are exactly the char boundaries", {
+  // The §6.1 property: i is a char_indices key <=> is_char_boundary(i),
+  // for every i in [0, len()). (len() itself is a boundary but is
+  // not a key, since no rune starts there.)
+  s := _subject();
+  offsets := ArrayList(usize).new();
+  it := s.char_indices();
+  while(true, {
+    match(
+      it.next(),
+      .Some(p) => {
+        offsets.push(p._0);
+      },
+      .None => {
+        break;
+      }
+    );
+  });
+  assert(offsets.len() == s.chars().count(), "one key per rune");
+  i := usize(0);
+  while(i < s.len(), i = (i + usize(1)), {
+    assert(offsets.contains(i) == s.is_char_boundary(i), "key set matches the boundary set");
+  });
+  assert(!offsets.contains(s.len()), "no rune starts at the end offset");
+});
+test("String char_indices walks in lockstep with chars()", {
+  s := `héllo, 世界! 😀`;
+  ci := s.char_indices();
+  ch := s.chars();
+  expected_offset := usize(0);
+  seen := usize(0);
+  while(true, {
+    (finished : bool) = false;
+    match(
+      ci.next(),
+      .Some(p) => {
+        assert(p._0 == expected_offset, "offset advances by the encoded width");
+        match(
+          ch.next(),
+          .Some(r) => assert(p._1.to_u32() == r.to_u32(), "same rune from both iterators"),
+          .None => assert(false, "chars() ended early")
+        );
+        seen = (seen + usize(1));
+        // The next rune starts at the next boundary strictly after `p._0`.
+        expected_offset = s.ceil_char_boundary(p._0 + usize(1));
+      },
+      .None => {
+        match(ch.next(), .Some(_) => assert(false, "chars() ran long"), .None => ());
+        finished = true;
+      }
+    );
+    if(finished, {
+      break;
+    });
+  });
+  assert(seen == s.chars().count(), "both iterators yielded every rune");
+  assert(expected_offset == s.len(), "both iterators consumed every byte");
+});
+test("String char_indices on the empty string yields nothing", {
+  it := String.new().char_indices();
+  match(it.next(), .Some(_) => assert(false, "empty yields nothing"), .None => ());
+});
+// ===========================================================================
+// try_substring — BYTE offsets, refuses interior offsets
+// ===========================================================================
+test("String try_substring slices on rune boundaries", {
+  s := _subject();
+  assert(s.try_substring(usize(0), usize(1)).unwrap() == `a`, "[0,1) is 'a'");
+  assert(s.try_substring(usize(1), usize(3)).unwrap() == `é`, "[1,3) is 'é'");
+  assert(s.try_substring(usize(3), usize(6)).unwrap() == `中`, "[3,6) is '中'");
+  assert(s.try_substring(usize(6), usize(10)).unwrap() == `𝄞`, "[6,10) is '𝄞'");
+  assert(s.try_substring(usize(0), usize(10)).unwrap() == s, "[0,10) is the whole string");
+  assert(s.try_substring(usize(1), usize(6)).unwrap() == `é中`, "[1,6) spans two runes");
+  assert(s.try_substring(usize(0), usize(0)).unwrap() == String.new(), "[0,0) is empty");
+  assert(s.try_substring(usize(6), usize(6)).unwrap() == String.new(), "[6,6) is empty");
+  assert(s.try_substring(usize(10), usize(10)).unwrap() == String.new(), "[10,10) is empty");
+});
+test("String try_substring REFUSES an offset inside a rune", {
+  s := _subject();
+  // Inside the 2-byte 'é'.
+  assert(s.try_substring(usize(0), usize(2)).is_none(), "end 2 splits 'é'");
+  assert(s.try_substring(usize(2), usize(3)).is_none(), "start 2 splits 'é'");
+  // Inside the 3-byte '中'.
+  assert(s.try_substring(usize(3), usize(4)).is_none(), "end 4 splits '中'");
+  assert(s.try_substring(usize(3), usize(5)).is_none(), "end 5 splits '中'");
+  assert(s.try_substring(usize(4), usize(6)).is_none(), "start 4 splits '中'");
+  assert(s.try_substring(usize(5), usize(6)).is_none(), "start 5 splits '中'");
+  // Every interior byte of the 4-byte '𝄞'.
+  assert(s.try_substring(usize(6), usize(7)).is_none(), "end 7 splits '𝄞'");
+  assert(s.try_substring(usize(6), usize(8)).is_none(), "end 8 splits '𝄞'");
+  assert(s.try_substring(usize(6), usize(9)).is_none(), "end 9 splits '𝄞'");
+  assert(s.try_substring(usize(7), usize(10)).is_none(), "start 7 splits '𝄞'");
+  assert(s.try_substring(usize(8), usize(10)).is_none(), "start 8 splits '𝄞'");
+  assert(s.try_substring(usize(9), usize(10)).is_none(), "start 9 splits '𝄞'");
+});
+test("String try_substring refuses out-of-range and inverted ranges", {
+  s := _subject();
+  assert(s.try_substring(usize(0), usize(11)).is_none(), "end past the last byte");
+  assert(s.try_substring(usize(11), usize(12)).is_none(), "start past the last byte");
+  assert(s.try_substring(usize(6), usize(3)).is_none(), "start > end");
+  assert(s.try_substring(usize(10), usize(0)).is_none(), "start > end at the end");
+  assert(String.new().try_substring(usize(0), usize(0)).unwrap() == String.new(), "empty [0,0)");
+  assert(String.new().try_substring(usize(0), usize(1)).is_none(), "empty [0,1)");
+});
+test("String try_substring composes with floor/ceil to make any range safe", {
+  // The intended idiom: snap an arbitrary byte cut onto boundaries, then
+  // slice. This is what a byte-basis `truncate` has to do.
+  s := _subject();
+  cut := usize(8);
+  assert(s.try_substring(usize(0), cut).is_none(), "byte 8 splits a rune");
+  head := s.try_substring(usize(0), s.floor_char_boundary(cut)).unwrap();
+  assert(head == `aé中`, "floored cut keeps whole runes");
+  tail := s.try_substring(s.ceil_char_boundary(cut), s.len()).unwrap();
+  assert(tail == String.new(), "ceiled cut lands at the end here");
+  mid := s.try_substring(s.floor_char_boundary(cut), s.len()).unwrap();
+  assert(mid == `𝄞`, "floored start keeps the whole rune");
+});
+// ===========================================================================
+// Rune-indexed slicing via the ITERATOR idioms. `char_substring` and
+// `truncate_chars` were deleted (Rust-shape decision, 2026-08-26); these are
+// the documented compositions — `char_indices().nth(n)` is the byte offset
+// rune `n` starts at, `.None` means "at most n runes" — pinned to the exact
+// values the deleted methods returned.
+// ===========================================================================
+_rune_slice :: (fn(s : String, start : usize, end : usize) -> String)({
+  start_b := match(s.char_indices().nth(start), .Some(p) => p._0, .None => s.len());
+  end_b := match(s.char_indices().nth(end), .Some(p) => p._0, .None => s.len());
+  if(start_b >= end_b, {
+    return(String.new());
+  });
+  s.substring(start_b, end_b)
+});
+_truncate_runes :: (fn(s : String, max_runes : usize) -> String)(
+  match(
+    s.char_indices().nth(max_runes),
+    .Some(p) => s.substring(usize(0), p._0),
+    .None => s.clone()
+  )
+);
+test("rune slicing via char_indices().nth slices by RUNE index, not byte offset", {
+  s := _subject();
+  assert(_rune_slice(s, usize(0), usize(1)) == `a`, "rune 0");
+  assert(_rune_slice(s, usize(1), usize(2)) == `é`, "rune 1 is 2 bytes wide");
+  assert(_rune_slice(s, usize(2), usize(3)) == `中`, "rune 2 starts at byte 3");
+  assert(_rune_slice(s, usize(3), usize(4)) == `𝄞`, "rune 3 starts at byte 6");
+  assert(_rune_slice(s, usize(0), usize(4)) == s, "the whole string");
+  assert(_rune_slice(s, usize(1), usize(3)) == `é中`, "an interior run");
+  // A BYTE slice of the same numbers is something else entirely — that gap is
+  // exactly what D4's flip opens, and what the rune idiom closes.
+  assert(s.try_substring(usize(1), usize(3)).unwrap() == `é`, "BYTES 1..3 is just 'é'");
+  assert(_rune_slice(s, usize(1), usize(3)) == `é中`, "RUNES 1..3 is 'é中'");
+});
+test("rune slicing clamps exactly the way the deleted method did", {
+  s := _subject();
+  assert(_rune_slice(s, usize(0), usize(99)) == s, "end past the rune count clamps");
+  assert(_rune_slice(s, usize(2), usize(99)) == `中𝄞`, "clamped tail");
+  assert(_rune_slice(s, usize(4), usize(9)) == String.new(), "start at the rune count");
+  assert(_rune_slice(s, usize(9), usize(99)) == String.new(), "start past the rune count");
+  assert(_rune_slice(s, usize(2), usize(2)) == String.new(), "empty range");
+  assert(_rune_slice(s, usize(3), usize(1)) == String.new(), "inverted range");
+  assert(_rune_slice(String.new(), usize(0), usize(3)) == String.new(), "empty receiver");
+});
+test("truncation via char_indices().nth keeps whole runes and never lengthens", {
+  s := _subject();
+  assert(_truncate_runes(s, usize(0)) == String.new(), "zero runes");
+  assert(_truncate_runes(s, usize(1)) == `a`, "one rune");
+  assert(_truncate_runes(s, usize(2)) == `aé`, "two runes — 3 BYTES, not 2");
+  assert(_truncate_runes(s, usize(2)).len() == usize(3), "byte length of the cut");
+  assert(_truncate_runes(s, usize(3)) == `aé中`, "three runes");
+  assert(_truncate_runes(s, usize(4)) == s, "exactly the rune count");
+  assert(_truncate_runes(s, usize(5)) == s, "more than the rune count is a no-op");
+  assert(_truncate_runes(s, usize(999)) == s, "far more is still a no-op");
+  // The property that makes it safe for arbitrary text: every result is a
+  // prefix that ends on a rune boundary.
+  i := usize(0);
+  while(i <= usize(6), i = (i + usize(1)), {
+    cut := _truncate_runes(s, i);
+    assert(s.is_char_boundary(cut.len()), "the cut lands on a boundary");
+    assert(cut.chars().count() == if(i < usize(4), i, usize(4)), "rune count of the cut");
+  });
+});
+test("String split on the EMPTY separator stays character-based", {
+  // STD_API_AUDIT_D4_PLAN §5.2 S5: `split("")` means "split into characters".
+  // A byte split would hand back fragments that are not valid UTF-8.
+  s := _subject();
+  parts := s.split(String.new());
+  assert(parts.len() == usize(4), "four runes, four parts — not ten bytes");
+  assert(parts(usize(0)) == `a`, "part 0");
+  assert(parts(usize(1)) == `é`, "part 1");
+  assert(parts(usize(2)) == `中`, "part 2");
+  assert(parts(usize(3)) == `𝄞`, "part 3");
+  assert(parts(usize(1)).len() == usize(2), "'é' is two bytes");
+  assert(parts(usize(3)).len() == usize(4), "'𝄞' is four bytes");
+  rejoined := String.new();
+  i := usize(0);
+  while(i < parts.len(), i = (i + usize(1)), {
+    rejoined.push_string(parts(i));
+  });
+  assert(rejoined == s, "the parts concatenate back to the original");
+  assert(String.new().split(String.new()).len() == usize(0), "empty string, no parts");
+});

@@ -17,7 +17,7 @@ open(import("std/fmt"));
 { is_f32_type, is_f64_type } :: import("../../types/guards.yo");
 { Exception } :: import("std/error");
 { format_error_message } :: import("../../error.yo");
-{ parse_raw_float } :: import("../utils.yo");
+{ parse_raw_float, f64_raw_roundtrip } :: import("../utils.yo");
 evaluate_float_literal :: (
   fn(
     expr : AstExpr,
@@ -32,9 +32,7 @@ evaluate_float_literal :: (
       dyn(
         format_error_message(
           tok,
-          `Expected float literal, got ${tok.value}`,
-          false,
-          .None
+          `Expected float literal, got ${tok.value}`
         )
       )
     );
@@ -48,16 +46,16 @@ evaluate_float_literal :: (
         dyn(
           format_error_message(
             tok,
-            `Failed to parse float literal: ${tok.value}`,
-            false,
-            .None
+            `Failed to parse float literal: ${tok.value}`
           )
         )
       );
       f64(0.0) // unreachable
     }
   );
-  raw := parsed.to_string();
+  // ROUND-TRIP normalization — `to_string` is C `%g` (six significant
+  // digits) and silently truncated every literal past the 6th digit.
+  raw := f64_raw_roundtrip(parsed);
   // Determine type from expected_type context
   ty := match(
     ctx.expected_type,

@@ -1,0 +1,100 @@
+//! Non-cryptographic pseudo-random numbers — seedable, reproducible, fast
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 7). CLEARLY SEPARATE from
+//! `std/crypto/random`, which is the OS entropy source: use THAT for keys,
+//! tokens and anything an adversary must not predict; use THIS for
+//! simulations, property tests, shuffles and games, where reproducibility
+//! from a seed is the point.
+//!
+//! The generator is PCG-XSH-RR 64/32 (O'Neill, pcg-random.org) — 64-bit
+//! state, 32-bit output, period 2^64 per stream.
+//!
+//! ```rust
+//! { Rng } :: import "std/rand";
+//! rng := Rng.new(u64(42));
+//! d6 := rng.range(i64(1), i64(7)); // uniform in [1, 7)
+//! ```
+{ ArrayList } :: import("./collections/array_list");
+
+_PCG_MULT :: u64(6364136223846793005);
+/// Seedable PCG32 generator state.
+Rng :: ref(
+  struct(
+    _state : u64,
+    _inc : u64
+  )
+);
+impl(
+  Rng,
+  /// A generator on an explicit stream: distinct `stream` values give
+  /// statistically independent sequences for the same seed (the PCG
+  /// `initseq` parameter).
+  with_stream : (fn(seed : u64, stream : u64) -> Self)({
+    r := Self(_state : u64(0), _inc : ((stream << u64(1)) | u64(1)));
+    _d1 := r.next_u32();
+    r._state = (r._state + seed);
+    _d2 := r.next_u32();
+    r
+  }),
+  /// A generator on the default stream, seeded with `seed`. The same seed
+  /// always produces the same sequence.
+  new : (fn(seed : u64) -> Self)(
+    Self.with_stream(seed, u64(54))
+  ),
+  /// The next 32 uniformly random bits.
+  next_u32 : (fn(self : Self) -> u32)({
+    old := self._state;
+    self._state = ((old * _PCG_MULT) + self._inc);
+    xorshifted := u32(((old >> u64(18)) ^ old) >> u64(27));
+    rot := u32(old >> u64(59));
+    (xorshifted >> rot) | (xorshifted << ((u32(0) - rot) & u32(31)))
+  }),
+  /// The next 64 uniformly random bits (two 32-bit draws).
+  next_u64 : (fn(self : Self) -> u64)({
+    hi := u64(self.next_u32());
+    lo := u64(self.next_u32());
+    (hi << u64(32)) | lo
+  }),
+  /// A uniform float in `[0, 1)` (53 bits of precision — an exact division
+  /// by 2^53, not a hand-typed epsilon literal, which parsed LOW).
+  next_f64 : (fn(self : Self) -> f64)(
+    f64(self.next_u64() >> u64(11)) / f64(9007199254740992)
+  ),
+  /// A uniform value below `bound` — REJECTION-sampled, so it is exactly
+  /// uniform (no modulo bias; that bias is the C5 defect crypto/random had
+  /// to fix). `bound` must be non-zero.
+  next_below : (fn(self : Self, bound : u64) -> u64)({
+    // threshold = 2^64 mod bound; reject draws under it so the remaining
+    // range is an exact multiple of bound.
+    threshold := ((u64(0) - bound) % bound);
+    (r : u64) = self.next_u64();
+    while(r < threshold, {
+      r = self.next_u64();
+    });
+    r % bound
+  }),
+  /// A uniform integer in the half-open range `[low, high)`. Panics via
+  /// wrap if `high <= low` — validate at the call site.
+  range : (fn(self : Self, low : i64, high : i64) -> i64)({
+    span := u64(high - low);
+    low + i64(self.next_below(span))
+  }),
+  /// Fisher–Yates shuffle, in place.
+  shuffle : (fn(generic(T : Type), self : Self, xs : ArrayList(T)) -> unit)({
+    (i : usize) = xs.len();
+    while(i > usize(1), {
+      i = (i - usize(1));
+      j := usize(self.next_below(u64(i + usize(1))));
+      tmp := xs(i);
+      xs(i) = xs(j);
+      xs(j) = tmp;
+    });
+  }),
+  /// A uniformly chosen element, or `.None` for an empty list.
+  choice : (fn(generic(T : Type), self : Self, xs : ArrayList(T)) -> Option(T))(
+    cond(
+      (xs.len() == usize(0)) => Option(T).None,
+      true => xs.get(usize(self.next_below(u64(xs.len()))))
+    )
+  )
+);
+export(Rng);

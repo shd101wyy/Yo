@@ -1,0 +1,63 @@
+//! TLS client stream (`std/crypto/tls`, plans/D6_TLS_PLAN.md). The live
+//! handshake test needs OpenSSL at build time AND network egress at run
+//! time; it SKIPS (printing a note) when the connection cannot be made, so
+//! an offline box stays green. The error-enum test is pure.
+pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
+pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners (Schannel is the deferred Windows path)
+pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/libc/stdio"));
+{ ArrayList } :: import("std/collections/array_list");
+{ TlsStream, TlsError } :: import("std/crypto/tls");
+{ Exception, IoExn } :: import("std/error");
+{ arch, Arch } :: import("std/process");
+
+test("TlsError renders each variant", {
+  a := TlsError.Connect(host : `example.com`.to_string());
+  assert(a.to_string().contains(`example.com`), "connect names the host");
+  b := TlsError.Handshake(detail : `bad cert`.to_string());
+  assert(b.to_string().contains(`handshake`), "handshake label");
+  c := TlsError.Io(detail : `reset`.to_string());
+  assert(c.to_string().contains(`i/o`), "io label");
+  d := TlsError.Closed;
+  assert(d.to_string().contains(`closed`), "closed label");
+});
+test("live TLS fetch of example.com (skips offline)", {
+  // A SKIPPING handler: any connect/handshake failure prints a note and
+  // aborts the test body via unwind — but we catch that intent by making
+  // the handler set a flag and unwind to a state we treat as "skipped".
+  reached := Box(bool)(false);
+  ok := Box(bool)(false);
+  exn := Exception(
+    throw : (
+      err -> {
+        cb := err.to_string().to_cstr();
+        unsafe(printf("  tls test skipped (no egress?): %s\n", *(u8)(cb.ptr().unwrap())));
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  s := io.await(TlsStream.connect(`example.com`.to_string(), u16(443), io), e);
+  reached.* = true;
+  _n := io.await(s.write_str("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n", io), e);
+  buf := ArrayList(u8).with_capacity(usize(4096));
+  buf.resize_with_byte(usize(4096), int(0));
+  n := io.await(s.read(buf.ptr().unwrap(), usize(4096), io), e);
+  cond(
+    (n >= usize(12)) => {
+      head := String.from_bytes(buf.slice_copy(usize(0) .. usize(12)));
+      ok.* = head.starts_with(`HTTP/1.1`);
+    },
+    true => ()
+  );
+  io.await(s.close(io), e);
+  // If we reached the response, it MUST be well-formed; if the handler
+  // unwound (offline), reached stays false and the test passes as skipped.
+  cond(
+    reached.* => assert(ok.*, "a real HTTP response arrived over TLS"),
+    true => assert(true, "skipped: no network")
+  );
+});

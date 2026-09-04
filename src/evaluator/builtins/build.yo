@@ -87,6 +87,10 @@ BuildArtifact :: ref(
     /// including the one in tests/internal/build_runner.test.yo, which is the
     /// site the TS build-system tests could not see and CI caught.
     emit_c_to : String,
+    /// Split the emitted C into this many translation units (0 = off). See
+    /// plans/CHUNKED_C_EMISSION.md. Same "must be passed explicitly" caveat
+    /// as `emit_c_to` above: a `?=` default needs a compile-time-known value.
+    emit_chunks : usize,
     link_libraries : ArrayList(String),
     include_paths : ArrayList(String),
     library_paths : ArrayList(String),
@@ -245,6 +249,7 @@ impl(
         allocator : artifact.allocator,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
+        emit_chunks : artifact.emit_chunks,
         link_libraries : artifact.link_libraries,
         include_paths : artifact.include_paths,
         library_paths : artifact.library_paths,
@@ -272,6 +277,7 @@ impl(
         allocator : artifact.allocator,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
+        emit_chunks : artifact.emit_chunks,
         link_libraries : artifact.link_libraries,
         include_paths : artifact.include_paths,
         library_paths : artifact.library_paths,
@@ -299,6 +305,7 @@ impl(
         allocator : artifact.allocator,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
+        emit_chunks : artifact.emit_chunks,
         link_libraries : artifact.link_libraries,
         include_paths : artifact.include_paths,
         library_paths : artifact.library_paths,
@@ -788,9 +795,7 @@ _build_extract_string :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Build function: expected comptime_str for "${param}", got non-string`,
-              false,
-              .None
+              `Build function: expected comptime_str for "${param}", got non-string`
             )
           )
         );
@@ -802,9 +807,7 @@ _build_extract_string :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `Build function: expected comptime_str for "${param}", got undefined`,
-            false,
-            .None
+            `Build function: expected comptime_str for "${param}", got undefined`
           )
         )
       );
@@ -821,6 +824,18 @@ _build_extract_bool :: (
     _build_arg_value(args, idx, ctx),
     .Some(v) => match(v, .BoolVal(b) => b, .UnitVal => false, _ => true),
     .None => false
+  )
+);
+/// Arg `idx` as a `usize` when it is a compile-time integer literal, else
+/// `fallback`. Mirrors `_build_extract_bool`'s shape; used for
+/// `Executable.emit_chunks`, whose comptime_int arrives as `IntLit(raw)`.
+_build_extract_usize_or :: (
+  fn(args : ArrayList(AstExpr), idx : usize, fallback : usize, ctx : EvalContext) -> usize
+)(
+  match(
+    _build_arg_value(args, idx, ctx),
+    .Some(v) => match(v, .IntLit(raw) => match(raw.parse_u64(), .Some(n) => usize(n), .None => fallback), _ => fallback),
+    .None => fallback
   )
 );
 /// The variant name of arg `idx` when it is an enum value, else `.None`.
@@ -912,9 +927,7 @@ _build_require_args :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `${message}, got ${args.len()}`,
-          false,
-          .None
+          `${message}, got ${args.len()}`
         )
       )
     );
@@ -931,7 +944,8 @@ _build_new_artifact :: (
     optimize : String,
     allocator : String,
     sanitize : String,
-    emit_c_to : String
+    emit_c_to : String,
+    emit_chunks : usize
   ) -> BuildArtifact
 )(
   BuildArtifact(
@@ -943,6 +957,7 @@ _build_new_artifact :: (
     allocator : allocator,
     sanitize : sanitize,
     emit_c_to : emit_c_to,
+    emit_chunks : emit_chunks,
     link_libraries : ArrayList(String).new(),
     include_paths : ArrayList(String).new(),
     library_paths : ArrayList(String).new(),
@@ -1027,9 +1042,7 @@ evaluate_yo_build_functions :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `__yo_build_target_parse expects 1 argument (triple), got ${args.len()}`,
-            false,
-            .None
+            `__yo_build_target_parse expects 1 argument (triple), got ${args.len()}`
           )
         )
       );
@@ -1048,7 +1061,7 @@ evaluate_yo_build_functions :: (
     opt_desc := _build_extract_string(args, usize(1), "description", expr, ctx, exn);
     default_value := _build_extract_string(args, usize(2), "default", expr, ctx, exn);
     reg_opt := get_build_registry();
-    _do := reg_opt.declared_options.set(
+    _do := reg_opt.declared_options.insert(
       opt_name.clone(),
       BuildDeclaredOption(description : opt_desc, default_value : default_value.clone())
     );
@@ -1068,9 +1081,7 @@ evaluate_yo_build_functions :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `__yo_build_dep_module expects 2 arguments (dependency_name, module_name), got ${args.len()}`,
-            false,
-            .None
+            `__yo_build_dep_module expects 2 arguments (dependency_name, module_name), got ${args.len()}`
           )
         )
       );
@@ -1100,7 +1111,8 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         _build_extract_string_or(args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
         _build_extract_string_or(args, usize(5), "sanitize", String.from("none"), expr, ctx, exn),
-        _build_extract_string_or(args, usize(6), "emit_c_to", String.new(), expr, ctx, exn)
+        _build_extract_string_or(args, usize(6), "emit_c_to", String.new(), expr, ctx, exn),
+        _build_extract_usize_or(args, usize(7), usize(0), ctx)
       ),
       exn
     );
@@ -1116,7 +1128,8 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
         String.from("none"),
-        String.new()
+        String.new(),
+        usize(0)
       ),
       exn
     );
@@ -1132,7 +1145,8 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
         String.from("none"),
-        String.new()
+        String.new(),
+        usize(0)
       ),
       exn
     );
@@ -1324,9 +1338,7 @@ evaluate_yo_build_functions :: (
               dyn(
                 format_error_message(
                   ast_expr_token(expr),
-                  `Duplicate import name "${imp_name}" on artifact "${imp_artifact}". Already imported from module "${existing.module_name}".`,
-                  false,
-                  .None
+                  `Duplicate import name "${imp_name}" on artifact "${imp_artifact}". Already imported from module "${existing.module_name}".`
                 )
               )
             );
@@ -1375,9 +1387,7 @@ evaluate_yo_build_functions :: (
     dyn(
       format_error_message(
         ast_expr_token(expr),
-        `Unknown build function: ${ast_expr_token(expr).value}`,
-        false,
-        .None
+        `Unknown build function: ${ast_expr_token(expr).value}`
       )
     )
   );

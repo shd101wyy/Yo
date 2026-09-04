@@ -1,0 +1,34 @@
+// Reproducer: issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md
+//
+// A GENERIC implementor whose async method awaits `Self.<async method>` emits C
+// that clang rejects (the `Impl(...)` placeholder `__yo_t0` survives into the
+// emitted C, and one future comes out `_sync_fut_t`). The body here is provided
+// EXPLICITLY, so this is not the C16 trait-default bug; a `?=` default of the
+// same shape fails the same way, and a NON-generic implementor works.
+// Expected output after a fix: 10.
+{ IoExn } :: import("std/error");
+{ println } :: import("std/fmt");
+AR :: trait(
+  read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn))),
+  twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))
+);
+Wrap :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
+impl(
+  generic(T : Type),
+  Wrap(T),
+  AR(
+    read : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async((e) => usize(5))),
+    twice : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => {
+        a := e.io.await(Self.read(self, io), e);
+        b := e.io.await(Self.read(self, io), e);
+        a + b
+      })
+    )
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  w := Wrap(usize)(v : usize(1));
+  println(io.await(w.twice(io), io));
+});
+export(main);

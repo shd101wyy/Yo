@@ -2,18 +2,17 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
-{ Once } :: import("std/sync/once");
+{ Once, OnceCell } :: import("std/sync/once");
 { ArrayList } :: import("std/collections/array_list");
-{ Thread } :: import("std/thread");
+{ Thread, ThreadPool, spawn } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
-Worker :: import("std/worker");
 // ============================================================================
 // Basic operations
 // ============================================================================
 test("Once new is not done", {
   o := Once.new();
-  assert(!(o.is_done()), "new Once should not be done");
+  assert(!o.is_done(), "new Once should not be done");
 });
 test("Once call executes function", {
   o := Once.new();
@@ -40,7 +39,7 @@ test("Once call executes only once", {
 });
 test("Once is_done after call", {
   o := Once.new();
-  assert(!(o.is_done()), "should not be done before call");
+  assert(!o.is_done(), "should not be done before call");
   o.call(() => ());
   assert(o.is_done(), "should be done after call");
 });
@@ -90,17 +89,17 @@ test("Once call from multiple threads executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := AtomicI32(i32(0));
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -123,7 +122,7 @@ test("Once is_done visible across threads after call", {
   o.call(() => {
     counter.fetch_add(i32(1), MemoryOrder.Relaxed);
   });
-  t := Thread.spawn((io) => {
+  t := Thread.spawn(io => {
     assert(o.is_done(), "should see done from other thread");
     // Second call should be no-op
     o.call(() => {
@@ -138,27 +137,27 @@ test("Once multiple threads race to call", {
   o := Once.new();
   counter := AtomicI32(i32(0));
   // All threads start at the same time (no sleep)
-  t1 := Thread.spawn((io) => {
+  t1 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t2 := Thread.spawn((io) => {
+  t2 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t3 := Thread.spawn((io) => {
+  t3 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t4 := Thread.spawn((io) => {
+  t4 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
   });
-  t5 := Thread.spawn((io) => {
+  t5 := Thread.spawn(io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -172,28 +171,28 @@ test("Once multiple threads race to call", {
   assert(o.is_done(), "should be done");
 });
 // ============================================================================
-// Worker integration (atomic object — shared directly without Arc)
+// ThreadPool integration (atomic object — shared directly without Arc)
 // ============================================================================
-test("Once with Workers executes only once", {
+test("Once with pool tasks executes only once", {
   if(arch == Arch.Wasm32, return(()));
   o := Once.new();
   counter := AtomicI32(i32(0));
   wg := WaitGroup.new();
-  Worker.set_num_threads(2);
+  pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  Worker.spawn((io) => {
+  spawn(pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  Worker.spawn((io) => {
+  spawn(pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -202,4 +201,98 @@ test("Once with Workers executes only once", {
   wg.wait();
   assert(counter.load(MemoryOrder.Relaxed) == i32(1), "function should have executed only once across workers");
   assert(o.is_done(), "should be done");
+});
+
+// ============================================================================
+// OnceCell(T) — the value-carrying counterpart of Once (STD_API_AUDIT D7)
+// ============================================================================
+comptime_assert(
+  Type.impls(OnceCell(i32), Send),
+  "OnceCell(i32) should be Send"
+);
+comptime_expect_error({
+  NonSendObj :: ref(struct(x : i32));
+  Bad :: OnceCell(NonSendObj);
+});
+test("OnceCell new is empty", {
+  cell := OnceCell(i32).new();
+  assert(!cell.is_initialized(), "a fresh cell is not initialized");
+  assert(cell.get().is_none(), "get on a fresh cell is None");
+});
+test("OnceCell get_or_init stores and returns the value", {
+  cell := OnceCell(i32).new();
+  got := cell.get_or_init(() => i32(42));
+  assert(got == i32(42), "get_or_init returns the initializer's value");
+  assert(cell.is_initialized(), "the cell is initialized afterwards");
+  assert(cell.get().unwrap() == i32(42), "get returns the stored value");
+});
+test("OnceCell get_or_init runs the initializer exactly once", {
+  cell := OnceCell(i32).new();
+  runs := AtomicI32(i32(0));
+  first := cell.get_or_init(() => {
+    runs.fetch_add(i32(1), MemoryOrder.AcqRel);
+    i32(1)
+  });
+  second := cell.get_or_init(() => {
+    runs.fetch_add(i32(1), MemoryOrder.AcqRel);
+    i32(2)
+  });
+  third := cell.get_or_init(() => {
+    runs.fetch_add(i32(1), MemoryOrder.AcqRel);
+    i32(3)
+  });
+  assert(runs.load(MemoryOrder.Acquire) == i32(1), "only the first initializer runs");
+  assert(first == i32(1), "the first call returns its own value");
+  assert(second == i32(1), "the second call returns the stored value");
+  assert(third == i32(1), "the third call returns the stored value");
+});
+test("OnceCell holds a value struct", {
+  Point :: struct(x : i32, y : i32);
+  cell := OnceCell(Point).new();
+  p := cell.get_or_init(() => Point(i32(1), i32(2)));
+  assert(p.x == i32(1), "the struct value is stored");
+  q := cell.get_or_init(() => Point(i32(7), i32(8)));
+  assert(q.y == i32(2), "the stored struct is returned, not a new one");
+});
+test("OnceCell get_or_init from multiple threads initializes exactly once", {
+  if(arch == Arch.Wasm32, return(()));
+  cell := OnceCell(i32).new();
+  inits := AtomicI32(i32(0));
+  mismatches := AtomicI32(i32(0));
+  (racer : Impl(Fn() -> unit)) = (
+    () => {
+      got := cell.get_or_init(() => {
+        inits.fetch_add(i32(1), MemoryOrder.AcqRel);
+        i32(7)
+      });
+      if(got != i32(7), {
+        mismatches.fetch_add(i32(1), MemoryOrder.AcqRel);
+      });
+    }
+  );
+  t1 := Thread.spawn(io => racer());
+  t2 := Thread.spawn(io => racer());
+  t3 := Thread.spawn(io => racer());
+  t4 := Thread.spawn(io => racer());
+  // The main thread races too.
+  racer();
+  t1.join();
+  t2.join();
+  t3.join();
+  t4.join();
+  assert(inits.load(MemoryOrder.Acquire) == i32(1), "the initializer must run exactly once across 5 racing threads");
+  assert(mismatches.load(MemoryOrder.Acquire) == i32(0), "every thread must see the same value");
+  assert(cell.is_initialized(), "the cell is initialized");
+  assert(cell.get().unwrap() == i32(7), "the stored value survives the race");
+});
+// O7 residual (plans/STD_API_AUDIT.md §8): the sync containers carry the same
+// Acyclic requirement as the imm family — atomic RC cannot collect cycles, so
+// a cyclic ATOMIC payload would leak silently and unavoidably.
+test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles", {
+  // atomic() so the payload IS Send — a plain ref struct fails the Send bound
+  // first and the expect-error would pass vacuously without touching Acyclic.
+  CyclicNode :: atomic(ref(struct(v : i32, next : Option(Self))));
+  comptime_assert(Type.impls(CyclicNode, Send), "the pin payload must be Send so the error is Acyclic's");
+  comptime_expect_error(OnceCell(CyclicNode));
+  assert(true, "rejected at comptime");
 });

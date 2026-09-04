@@ -42,8 +42,8 @@ _hex4 :: (fn(a : rune, b : rune, c : rune, d : rune) -> u32)(
 /// time, mirroring the template-string escape table in `lexer.yo`. Without this,
 /// a literal `"\n"` flows through the comptime-string subsystem as a backslash +
 /// `n` (two chars) instead of a single newline — which breaks `to_expr()` /
-/// `generate_expr_from_code` on derive-generated source and `len()`/`starts_with`
-/// char counts.
+/// `generate_expr_from_code` on derive-generated source and every downstream
+/// length/prefix test.
 decode_str_lit_escapes :: (fn(raw : String) -> String)({
   chars := ArrayList(rune).new();
   {
@@ -175,9 +175,7 @@ evaluate_string_literal :: (
       dyn(
         format_error_message(
           tok,
-          `Expected string literal, got ${tok.value}`,
-          false,
-          .None
+          `Expected string literal, got ${tok.value}`
         )
       )
     );

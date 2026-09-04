@@ -1,0 +1,179 @@
+//! File-system change notifications (`fs.watch`, plans/STD_API_AUDIT.md §7 P1).
+//!
+//! A `Watcher` observes one path — a directory (entries created, removed,
+//! renamed or written) or a single file — through the runtime's native
+//! backend (inotify on Linux, kqueue on macOS, ReadDirectoryChangesW on
+//! Windows; the `std/sys/events` layer). Events are delivered on the event
+//! loop and queued inside the watcher; read them with the non-blocking
+//! `poll()` or the awaitable `next(io)`.
+//!
+//! ```rust
+//! { watch, WatchOptions, FsEventKind } :: import("std/fs/watch");
+//! w := watch(Path.new(`./logs`), WatchOptions.defaults(), exn);
+//! ev := io.await(w.next(io), io);          // Option(FsEvent) — .None once closed
+//! match(ev, .Some(e) => println(`${e.name} ${e.kind}`), .None => ());
+//! w.close();
+//! ```
+//!
+//! Event kinds follow the backend's (and libuv's) two-way split: `Rename`
+//! covers create / delete / move, `Change` covers a write or metadata change.
+//! `name` is the entry name relative to a watched directory (the file's own
+//! name when a file is watched) on every platform — on macOS the runtime
+//! diffs a snapshot of the directory and reports each changed entry; an
+//! event about the directory itself (or a vanished root) carries an empty
+//! name. Platforms coalesce differently, so a single write may surface as one
+//! or several `Change`s — treat the stream as "something happened", not as
+//! an exact journal.
+//!
+//! ## Stability
+//! unstable — new in v0.2.20; the API may still change until the next release (Windows delivery is an open issue).
+pragma(Pragma.AllowUnsafe);
+open(import("../string"));
+{ ArrayList } :: import("../collections/array_list");
+{ Path } :: import("../path");
+{ IoError } :: import("../sys/errors");
+{ Exception, IoExn } :: import("../error");
+{ ToString } :: import("../fmt");
+events :: import("../sys/events");
+{ yield } :: import("../async");
+/// What happened to the entry.
+FsEventKind :: enum(
+  /// Created, removed or moved (the backend's "rename" class).
+  Rename,
+  /// Contents or metadata changed.
+  Change
+);
+impl(
+  FsEventKind,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .Rename => String.from("rename"),
+          .Change => String.from("change")
+        )
+    )
+  )
+);
+/// One notification.
+FsEvent :: struct(
+  /// Entry name relative to the watched directory (or the watched file's
+  /// own name); empty when the backend reports no name.
+  name : String,
+  kind : FsEventKind
+);
+/// Watch settings.
+WatchOptions :: struct(
+  /// Watch the whole tree below a directory. Native on macOS/Windows; on
+  /// Linux inotify is per directory, so this is best-effort there.
+  recursive : bool
+);
+impl(
+  WatchOptions,
+  defaults : (fn() -> Self)(Self(recursive : false))
+);
+/// A live watch. Create with `watch`, drain with `poll`/`next`, and `close`
+/// when done — closing stops the native watch and makes `next` resolve
+/// `.None` for any waiter.
+Watcher :: ref(
+  struct(
+    _handle : events.FsEventHandle,
+    _root : Path,
+    _queue : ArrayList(FsEvent),
+    /// Index of the first unread event in `_queue`; the list is compacted
+    /// whenever it has been fully drained.
+    _head : usize,
+    _active : bool
+  )
+);
+/// The runtime callback: runs on the event loop thread, so touching the
+/// watcher's queue needs no lock. `user_data` is the `Watcher` handle itself.
+_on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
+  w := unsafe.cast(user_data, Watcher);
+  if(w._active, {
+    // SAFETY: every backend hands a NUL-terminated entry name (`""` when it
+    // has none — runtime_io_common's inotify/kqueue paths, the Windows
+    // notification loop) that lives for the duration of the callback; it is
+    // copied here. A name that is not UTF-8 is reported as empty rather than
+    // as a broken String.
+    name := match(
+      String.from_cstr(path),
+      .Ok(s) => s,
+      .Err(_) => String.new()
+    );
+    if((mask & events.FS_EVENT_RENAME) != i32(0), {
+      w._queue.push(FsEvent(name : name.clone(), kind : FsEventKind.Rename));
+    });
+    if((mask & events.FS_EVENT_CHANGE) != i32(0), {
+      w._queue.push(FsEvent(name : name, kind : FsEventKind.Change));
+    });
+  });
+});
+/// Start watching `path`. Throws the backend's `IoError` (e.g. `NotFound`)
+/// through `exn`.
+watch :: (fn(path : Path, opts : WatchOptions, exn : Exception) -> Watcher)({
+  w := Watcher(
+    _handle : events.fs_event_init(),
+    _root : path,
+    _queue : ArrayList(FsEvent).new(),
+    _head : usize(0),
+    _active : false
+  );
+  cstr_bytes := path.to_string().to_cstr();
+  cstr := cstr_bytes.ptr().unwrap();
+  flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
+  rc := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(w, *u8));
+  if(rc < i32(0), {
+    events.fs_event_close(w._handle);
+    exn.throw(dyn(IoError.from_errno(i32(0) - rc)));
+  });
+  w._active = true;
+  w
+});
+impl(
+  Watcher,
+  /// The watched path.
+  path : (fn(inout(self) : Self) -> Path)(self._root),
+  /// Whether the watch is still running.
+  is_active : (fn(inout(self) : Self) -> bool)(self._active),
+  /// Events queued and not yet read.
+  pending : (fn(inout(self) : Self) -> usize)(self._queue.len() - self._head),
+  /// Take the next queued event without waiting; `.None` when the queue is
+  /// empty.
+  poll : (fn(inout(self) : Self) -> Option(FsEvent))(
+    cond(
+      (self._head < self._queue.len()) => {
+        ev := self._queue(self._head);
+        self._head = (self._head + usize(1));
+        if(self._head == self._queue.len(), {
+          self._queue = ArrayList(FsEvent).new();
+          self._head = usize(0);
+        });
+        Option(FsEvent).Some(ev)
+      },
+      true => Option(FsEvent).None
+    )
+  ),
+  /// Wait for the next event. Resolves `.None` once the watcher is closed
+  /// and its queue drained. Suspends through `yield`, so it is safe inside
+  /// tasks (no nested event loop).
+  next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
+    io.async((io : Io) => {
+      while(runtime((self._head >= self._queue.len()) && self._active), {
+        io.await(yield(io), io);
+      });
+      self.poll()
+    })
+  ),
+  /// Stop the native watch. Queued events stay readable through `poll`;
+  /// `next` no longer waits.
+  close : (fn(inout(self) : Self) -> unit)({
+    if(self._active, {
+      self._active = false;
+      events.fs_event_stop(self._handle);
+      events.fs_event_close(self._handle);
+    });
+  })
+);
+export(FsEventKind, FsEvent, WatchOptions, Watcher, watch);

@@ -24,7 +24,7 @@ _(env : ident_dbg_env) :: import("std/env");
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
-{ EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage }
+{ EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved }
 :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_str, t_unit, t_bool, t_void, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
@@ -33,7 +33,7 @@ _(env : ident_dbg_env) :: import("std/env");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_unknown_val }
 :: import("../../value.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
-{ format_error_message, ErrorKind } :: import("../../error.yo");
+{ format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 /// Evaluate an identifier or operator expression.
 ///
@@ -208,9 +208,7 @@ evaluate_identifier_and_operator :: (
         dyn(
           format_error_message(
             token,
-            `Variable "${identifier_string}" not found.`,
-            false,
-            Option(ErrorKind).None
+            `Variable "${identifier_string}" not found.`
           )
         )
       );
@@ -224,9 +222,7 @@ evaluate_identifier_and_operator :: (
         dyn(
           format_error_message(
             token,
-            (String.from("Variable \"") + identifier_string) + String.from("\" is not initialized"),
-            false,
-            Option(ErrorKind).None
+            String.from("Variable \"") + identifier_string + String.from("\" is not initialized")
           )
         )
       );
@@ -288,16 +284,23 @@ evaluate_identifier_and_operator :: (
                 }),
                 .None => ()
               );
-              if(!(cap_is_inner) && (variable.frame_level < closure_frame_level), {
-                track_variable_usage(
+              if(ident_dbg_env.get(`YO_DEBUG_CAPTURE`).is_some(), {
+                cap_dbg_fi := match(found_frame_idx_out.get(usize(0)), .Some(v) => v.to_string(), .None => `?`.to_string());
+                cap_dbg_ev_top := match(sub_ctx.eval_env.frames.get(closure_frame_level - usize(1)), .Some(fr) => fr.id.to_string(), .None => `?`.to_string());
+                cap_dbg_cur_top := match(env.frames.get(env.frames.len() - usize(1)), .Some(fr2) => fr2.id.to_string(), .None => `?`.to_string());
+                eprintln(`[cap-fb] name=${variable.name} found_fi=${cap_dbg_fi} closure_fl=${closure_frame_level.to_string()} var_fl=${variable.frame_level.to_string()} inner=${cap_is_inner.to_string()} ev_top=${cap_dbg_ev_top} cur_frames=${env.frames.len().to_string()} cur_top=${cap_dbg_cur_top}`);
+              });
+              if(!cap_is_inner && (variable.frame_level < closure_frame_level), {
+                track_variable_usage_resolved(
                   variable.name,
                   variable.frame_level,
                   CaptureUsage.Own,
                   token,
-                  ctx
+                  ctx,
+                  Option(bool).Some(variable.is_compile_time_only)
                 );
               });
-              if(!(cap_is_inner) && (variable.frame_level >= closure_frame_level), {
+              if(!cap_is_inner && (variable.frame_level >= closure_frame_level), {
                 // Cross-generation outer variable (stamped deeper than this
                 // eval's frames): record it with a level INSIDE the current
                 // generation so the enrichment/access-rewriting math stays
@@ -306,12 +309,13 @@ evaluate_identifier_and_operator :: (
                 if(closure_frame_level > usize(0), {
                   cap_rec_level = (closure_frame_level - usize(1));
                 });
-                track_variable_usage(
+                track_variable_usage_resolved(
                   variable.name,
                   cap_rec_level,
                   CaptureUsage.Own,
                   token,
-                  ctx
+                  ctx,
+                  Option(bool).Some(variable.is_compile_time_only)
                 );
               });
             },
@@ -319,16 +323,62 @@ evaluate_identifier_and_operator :: (
           );
         },
         .AsyncBlock => {
-          async_frame_level := sub_ctx.eval_env.frame_count();
-          if(variable.frame_level < async_frame_level, {
-            track_variable_usage(
-              variable.name,
-              variable.frame_level,
-              CaptureUsage.Own,
-              token,
-              ctx
-            );
-          });
+          match(
+            ctx.captured_variables,
+            .Some(_) => {
+              async_frame_level := sub_ctx.eval_env.frame_count();
+              // Generation-safe INNER test — the SAME repair the FunctionBody
+              // arm above carries (the dyn+Impl(Fn) capture loss), which this
+              // arm never got: `variable.frame_level` is stamped at the
+              // variable's CREATION env, and for a SPECIALIZED generic fn's
+              // PARAMS that is a deep call-time generation, so the old
+              // `frame_level < async_frame_level` test wrongly classified
+              // them as inner and the async closure's capture struct dropped
+              // them — the emitted C then read `buf`/`size`/`io` as bare
+              // identifiers (loud clang failure) or garbage (rc=139).
+              // issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md.
+              // A variable is inner iff the frame the lookup FOUND it at is
+              // >= async_frame_level in the CURRENT env (same generation by
+              // construction).
+              (ab_is_inner : bool) = false;
+              match(
+                found_frame_idx_out.get(usize(0)),
+                .Some(ab_found_fi) => if(ab_found_fi >= async_frame_level, {
+                  ab_is_inner = true;
+                }),
+                .None => ()
+              );
+              if(!ab_is_inner && (variable.frame_level < async_frame_level), {
+                track_variable_usage_resolved(
+                  variable.name,
+                  variable.frame_level,
+                  CaptureUsage.Own,
+                  token,
+                  ctx,
+                  Option(bool).Some(variable.is_compile_time_only)
+                );
+              });
+              if(!ab_is_inner && (variable.frame_level >= async_frame_level), {
+                // Cross-generation outer variable: record it with a level
+                // inside the current generation so the enrichment /
+                // access-rewriting math stays in range (mirrors the
+                // FunctionBody arm).
+                (ab_rec_level : usize) = usize(0);
+                if(async_frame_level > usize(0), {
+                  ab_rec_level = (async_frame_level - usize(1));
+                });
+                track_variable_usage_resolved(
+                  variable.name,
+                  ab_rec_level,
+                  CaptureUsage.Own,
+                  token,
+                  ctx,
+                  Option(bool).Some(variable.is_compile_time_only)
+                );
+              });
+            },
+            .None => ()
+          );
         },
         _ => ()
       );

@@ -47,9 +47,7 @@ evaluate_comptime_list_value :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected at least one element in comptime_list, got ${n_args}`,
-          false,
-          .None
+          `Expected at least one element in comptime_list, got ${n_args}`
         )
       )
     );
@@ -80,14 +78,12 @@ evaluate_comptime_list_value :: (
       .Some(info) => info.value.is_some(),
       .None => false
     );
-    if(!(has_value), {
+    if(!has_value, {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Failed to evaluate expr_list element. Expected compile-time known value`,
-            false,
-            .None
+            `Failed to evaluate expr_list element. Expected compile-time known value`
           )
         )
       );
@@ -106,9 +102,7 @@ evaluate_comptime_list_value :: (
           dyn(
             format_error_message(
               ast_expr_token(arg),
-              `comptime_list element has no compile-time value`,
-              false,
-              .None
+              `comptime_list element has no compile-time value`
             )
           )
         );
@@ -123,16 +117,14 @@ evaluate_comptime_list_value :: (
       .None => Option(TypeValue).Some(arg_ty),
       .Some(ct) => {
         compat := are_types_compatible(arg_ty, ct);
-        if(!(compat), {
+        if(!compat, {
           ct_str := type_to_string(ct);
           arg_str := type_to_string(arg_ty);
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(arg),
-                `Mismatched element types in comptime_list. Expected element of type ${ct_str}, got ${arg_str}`,
-                false,
-                .None
+                `Mismatched element types in comptime_list. Expected element of type ${ct_str}, got ${arg_str}`
               )
             )
           );
@@ -150,9 +142,7 @@ evaluate_comptime_list_value :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `Failed to infer comptime_list element type`,
-            false,
-            .None
+            `Failed to infer comptime_list element type`
           )
         )
       );

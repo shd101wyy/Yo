@@ -192,9 +192,7 @@ _evaluate_constraint :: (
         ast_expr_token(constraint_expr),
         String.from(
           "Invalid asm constraint. Expected a register class (reg, imm, mem, ...), an explicit register name string, or raw(\"constraint\")."
-        ),
-        false,
-        .None
+        )
       )
     )
   );
@@ -210,9 +208,7 @@ _parse_special_operand :: (
       dyn(
         format_error_message(
           ast_expr_token(operand_expr),
-          `asm ${kind}() expects 1 or 2 arguments, got ${args.len().to_string()}.`,
-          false,
-          .None
+          `asm ${kind}() expects 1 or 2 arguments, got ${args.len().to_string()}.`
         )
       )
     );
@@ -257,9 +253,7 @@ _parse_operand :: (
       dyn(
         format_error_message(
           ast_expr_token(operand_expr),
-          `asm ${kind}() expects 1 to 3 arguments, got ${args.len().to_string()}.`,
-          false,
-          .None
+          `asm ${kind}() expects 1 to 3 arguments, got ${args.len().to_string()}.`
         )
       )
     );
@@ -311,9 +305,7 @@ _parse_operand :: (
         dyn(
           format_error_message(
             ast_expr_token(operand_expr),
-            `asm ${kind}() is missing its value/type argument.`,
-            false,
-            .None
+            `asm ${kind}() is missing its value/type argument.`
           )
         )
       );
@@ -363,9 +355,7 @@ _parse_operand :: (
               dyn(
                 format_error_message(
                   ast_expr_token(value_or_type_expr),
-                  `asm ${kind}() target variable '${var_name}' has type that is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`,
-                  false,
-                  .None
+                  `asm ${kind}() target variable '${var_name}' has type that is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`
                 )
               )
             );
@@ -419,9 +409,7 @@ _parse_operand :: (
             dyn(
               format_error_message(
                 ast_expr_token(value_or_type_expr),
-                `asm ${kind}() output type must be a primitive numeric, pointer, or bool type.`,
-                false,
-                .None
+                `asm ${kind}() output type must be a primitive numeric, pointer, or bool type.`
               )
             )
           );
@@ -444,9 +432,7 @@ _parse_operand :: (
       dyn(
         format_error_message(
           ast_expr_token(value_or_type_expr),
-          `asm ${kind}() last argument must be a type, variable, or _ (discard).`,
-          false,
-          .None
+          `asm ${kind}() last argument must be a type, variable, or _ (discard).`
         )
       )
     );
@@ -472,9 +458,7 @@ _parse_operand :: (
         dyn(
           format_error_message(
             ast_expr_token(value_or_type_expr),
-            `Failed to evaluate asm ${kind}() value expression.`,
-            false,
-            .None
+            `Failed to evaluate asm ${kind}() value expression.`
           )
         )
       );
@@ -486,9 +470,7 @@ _parse_operand :: (
       dyn(
         format_error_message(
           ast_expr_token(value_or_type_expr),
-          `asm ${kind}() value type is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`,
-          false,
-          .None
+          `asm ${kind}() value type is not valid for inline assembly. Must be a primitive numeric, pointer, or bool type.`
         )
       )
     );
@@ -534,9 +516,7 @@ _parse_asm_options :: (
           dyn(
             format_error_message(
               ast_expr_token(arg),
-              `Unknown asm_options flag: '${flag}'. Valid flags: pure, nomem, readonly, nostack, preserves_flags, att_syntax, intel_syntax, volatile, noreturn.`,
-              false,
-              .None
+              `Unknown asm_options flag: '${flag}'. Valid flags: pure, nomem, readonly, nostack, preserves_flags, att_syntax, intel_syntax, volatile, noreturn.`
             )
           )
         );
@@ -549,9 +529,7 @@ _parse_asm_options :: (
         dyn(
           format_error_message(
             ast_expr_token(option_expr),
-            String.from("asm_options() arguments must be flag identifiers (e.g., pure, nomem, noreturn)."),
-            false,
-            .None
+            String.from("asm_options() arguments must be flag identifiers (e.g., pure, nomem, noreturn).")
           )
         )
       );
@@ -578,7 +556,7 @@ _validate_template_placeholders :: (
             if(_str_in(operand_names, nm.clone()), {
               exn.throw(
                 dyn(
-                  format_error_message(tok, `Duplicate asm operand name: '${nm}'.`, false, .None)
+                  format_error_message(tok, `Duplicate asm operand name: '${nm}'.`)
                 )
               );
             });
@@ -655,9 +633,7 @@ _validate_template_placeholders :: (
                 dyn(
                   format_error_message(
                     tok,
-                    `asm template references positional operand {${ref_str}} but only ${operands.len().to_string()} operands are defined.`,
-                    false,
-                    .None
+                    `asm template references positional operand {${ref_str}} but only ${operands.len().to_string()} operands are defined.`
                   )
                 )
               );
@@ -668,9 +644,7 @@ _validate_template_placeholders :: (
                 dyn(
                   format_error_message(
                     tok,
-                    `asm template references undefined operand '{${ref_str}}'.`,
-                    false,
-                    .None
+                    `asm template references undefined operand '{${ref_str}}'.`
                   )
                 )
               );
@@ -707,9 +681,7 @@ evaluate_asm :: (
           tok,
           String.from(
             "'asm(...)' is not available in safe code.\n\nInline assembly can corrupt memory, violate calling conventions, and\nbreak the type system. To use it, declare at the top of this file:\n\n    pragma(Pragma.AllowUnsafe);"
-          ),
-          false,
-          .None
+          )
         )
       )
     );
@@ -726,9 +698,7 @@ evaluate_asm :: (
       dyn(
         format_error_message(
           tok,
-          String.from("asm() can only be called inside a function body or test block."),
-          false,
-          .None
+          String.from("asm() can only be called inside a function body or test block.")
         )
       )
     );
@@ -740,9 +710,7 @@ evaluate_asm :: (
       dyn(
         format_error_message(
           tok,
-          String.from("Cannot use \"asm\" during compile-time function evaluation analysis."),
-          false,
-          .None
+          String.from("Cannot use \"asm\" during compile-time function evaluation analysis.")
         )
       )
     );
@@ -754,9 +722,7 @@ evaluate_asm :: (
       dyn(
         format_error_message(
           tok,
-          String.from("asm() requires at least one argument (the assembly template string)."),
-          false,
-          .None
+          String.from("asm() requires at least one argument (the assembly template string).")
         )
       )
     );
@@ -806,9 +772,7 @@ evaluate_asm :: (
       dyn(
         format_error_message(
           first_tok,
-          String.from("First argument to asm() must be a compile-time string (the assembly template)."),
-          false,
-          .None
+          String.from("First argument to asm() must be a compile-time string (the assembly template).")
         )
       )
     );
@@ -824,9 +788,7 @@ evaluate_asm :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            String.from("asm() arguments after the template must be operand or option calls (in, out, inout, clobber, asm_options, etc.)."),
-            false,
-            .None
+            String.from("asm() arguments after the template must be operand or option calls (in, out, inout, clobber, asm_options, etc.).")
           )
         )
       );
@@ -842,9 +804,7 @@ evaluate_asm :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            String.from("asm() operand must be a named call like in(...), out(...), etc."),
-            false,
-            .None
+            String.from("asm() operand must be a named call like in(...), out(...), etc.")
           )
         )
       );
@@ -871,9 +831,7 @@ evaluate_asm :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(carg),
-                      `${call_name}() arguments must be compile-time strings (e.g., "memory", "cc", "rax").`,
-                      false,
-                      .None
+                      `${call_name}() arguments must be compile-time strings (e.g., "memory", "cc", "rax").`
                     )
                   )
                 );
@@ -891,9 +849,7 @@ evaluate_asm :: (
           dyn(
             format_error_message(
               ast_expr_token(arg),
-              `Unknown asm() operand or option: '${call_name}'. Expected: in, out, inout, lateout, inlateout, const_val, sym, clobber, clobber_abi, asm_options.`,
-              false,
-              .None
+              `Unknown asm() operand or option: '${call_name}'. Expected: in, out, inout, lateout, inlateout, const_val, sym, clobber, clobber_abi, asm_options.`
             )
           )
         );
@@ -1034,9 +990,7 @@ evaluate_global_asm :: (
           tok,
           String.from(
             "'global_asm(...)' is not available in safe code. Declare 'pragma(Pragma.AllowUnsafe);' at the top of the file to use inline assembly."
-          ),
-          false,
-          .None
+          )
         )
       )
     );
@@ -1048,9 +1002,7 @@ evaluate_global_asm :: (
       dyn(
         format_error_message(
           tok,
-          String.from("global_asm() requires at least one argument (the assembly string)."),
-          false,
-          .None
+          String.from("global_asm() requires at least one argument (the assembly string).")
         )
       )
     );
@@ -1082,9 +1034,7 @@ evaluate_global_asm :: (
       dyn(
         format_error_message(
           ast_expr_token(template_expr),
-          String.from("global_asm() argument must be a compile-time string."),
-          false,
-          .None
+          String.from("global_asm() argument must be a compile-time string.")
         )
       )
     );

@@ -57,29 +57,6 @@ static void __yo_worker_init_mutex(void) {
     ``
   );
   init_mutex_call := if(is_windows, `  __yo_worker_init_mutex();`, ``);
-  get_hardware_threads := cond(
-    is_windows =>
-      `  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  return (size_t)sysinfo.dwNumberOfProcessors;`,
-    is_macos =>
-      `  int count;
-  size_t size = sizeof(count);
-  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
-    return (size_t)count;
-  }
-  return 1;`,
-    true =>
-      `  long count = sysconf(_SC_NPROCESSORS_ONLN);
-  return count > 0 ? (size_t)count : 1;`
-  );
-  get_cpu_id := cond(
-    is_linux =>
-      `  int cpu = sched_getcpu();
-  return cpu;`,
-    is_windows => `  return (int)GetCurrentProcessorNumber();`,
-    true => `  return -1;`
-  );
   async_init_thread := if(
     uses_async,
     `
@@ -174,10 +151,17 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
   // Create OS thread
   int ret = __yo_raw_thread_create(&thread.handle, __yo_thread_entry, args);
   if (ret != 0) {
-    PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d)\\n", ret);
+    PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d); running inline\\n", ret);
+    // Same contract as __yo_worker_spawn's inline fallback: with no OS thread
+    // the closure would never run at all — its work silently dropped and its
+    // reference-counted captures never released, since the wrapper that drops
+    // and frees them IS the thread body
+    // (issues/fixed/wasi-thread-pool-submit-deadlock.md). Run it here, then
+    // hand back a zero handle that __yo_thread_join skips.
+    fn(closure);
     __yo_free(args);
-    // Return invalid thread handle (handle will be 0/NULL)
     thread.handle = (__YO_THREAD_TYPE){0};
+    return thread;
   }
 
   PARALLELISM_DEBUG("[THREAD] Spawned thread\\n");
@@ -186,6 +170,13 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
 
 // Wait for thread to complete
 static void __yo_thread_join(__yo_thread_t thread) {
+  // Zero handle: __yo_thread_spawn could not create a thread and already ran
+  // the task inline, so there is nothing to wait for — and pthread_join(0) is
+  // undefined (issues/fixed/wasi-thread-pool-submit-deadlock.md).
+  if (__YO_THREAD_HANDLE_IS_NULL(thread.handle)) {
+    PARALLELISM_DEBUG("[THREAD] Join on a null handle (task ran inline)\\n");
+    return;
+  }
   PARALLELISM_DEBUG("[THREAD] Joining thread\\n");
   __yo_raw_thread_join(thread.handle);
   PARALLELISM_DEBUG("[THREAD] Thread joined\\n");
@@ -400,20 +391,8 @@ static void __yo_worker_pool_shutdown(void) {
   PARALLELISM_DEBUG("[WORKER] Worker pool shutdown complete\\n");
 }
 
-// Get number of hardware threads (CPU cores)
-static size_t __yo_get_hardware_threads(void) {`
-  );
-  emitter.emit_string_line(get_hardware_threads);
-  emitter.emit_string_line(
-    `}
-
-// Get CPU ID that the current thread is running on
-// Returns -1 if CPU affinity information is not available
-static int __yo_get_cpu_id(void) {`
-  );
-  emitter.emit_string_line(get_cpu_id);
-  emitter.emit_string_line(
-    `}
+// __yo_get_hardware_threads / __yo_get_cpu_id are emitted by the sys runtime
+// (always present) — see runtime_io_common.yo.
 
 // Set the number of worker threads (must be called before first spawn)
 static void __yo_worker_set_num_threads(size_t num) {`
@@ -469,6 +448,23 @@ static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {`
   __YO_THREAD_SYNC_UNLOCK(&__yo_worker_pool_mutex);
 
   PARALLELISM_DEBUG("[WORKER] Spawning task on worker thread %zu\\n", thread_idx);
+
+  // No OS thread was created for this slot — __yo_worker_pool_init already
+  // recorded that as running == 0 (standalone WASI: pthread_create fails).
+  // Enqueueing here would put the task on a queue nothing is waiting on, and
+  // ThreadPool.join_all's per-worker sentinels would then never run: its
+  // drained.recv() blocked FOREVER with no diagnostic (a CI leg spun 3.4 h on
+  // one test — issues/fixed/wasi-thread-pool-submit-deadlock.md). Run the task
+  // on the submitting thread instead, so the work still happens and a drain
+  // always terminates. The spawn wrapper is thread-agnostic (call the closure,
+  // drop its captures, free them) and the per-task epilogue below belongs to the
+  // worker's own event loop, so it is deliberately NOT run here: draining the
+  // caller's loop from inside a submission would re-enter it.
+  if (!__yo_worker_threads[thread_idx].running) {
+    PARALLELISM_DEBUG("[WORKER] No thread for slot %zu; running task inline\\n", thread_idx);
+    fn(closure);
+    return;
+  }
 
   // Create task node
   __yo_worker_task_t* task = (__yo_worker_task_t*)__yo_malloc(sizeof(__yo_worker_task_t));

@@ -19,13 +19,13 @@ test("macro helpers: ExprVal Atom equality via __yo_expr_eq", {
   if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
-        (err) -> {
+        err -> {
           assert(false, "unexpected error");
           unwind(());
         }
       )
     );
-    src := String.from("pragma(Pragma.SkipPrelude);\nis_same :: (fn() -> unquote(Expr))(cond(__yo_expr_eq(quote(x), quote(x)) => quote(1), true => quote(0)));\nv :: is_same();\nexport(v);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\nis_same :: (fn() -> unquote(Expr))(cond(__yo_expr_eq(quote(x), quote(x)) => quote(1), true => quote(0)));\nv :: is_same();\nexport(v);\n");
     eval := Evaluator.new(String.from("<phase6f1>"), String.from("<no-std>"), noop_loader, src, exn);
     match(
       eval.get_module_error(),
@@ -91,7 +91,7 @@ test("macro helpers: gensym produces fresh atoms", {
   if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
-        (err) -> {
+        err -> {
           assert(false, "unexpected error");
           unwind(());
         }
@@ -102,7 +102,7 @@ test("macro helpers: gensym produces fresh atoms", {
     // evaluator matches TS; the legacy walker never truly evaluated this).
     // Freshness is still what's under test: both gensym'd bindings coexist
     // in one block, and `v` picks the second (4).
-    src := String.from("pragma(Pragma.SkipPrelude);\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) :: 3; unquote(b) :: 4; unquote(b) }) });\nv :: make_pair();\nexport(v);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) :: 3; unquote(b) :: 4; unquote(b) }) });\nv :: make_pair();\nexport(v);\n");
     eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, src, exn);
     match(
       eval.get_module_error(),
@@ -168,7 +168,7 @@ test("macro helpers: .cdr on ComptimeListVal", {
   if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
-        (err) -> {
+        err -> {
           assert(false, "unexpected error");
           unwind(());
         }
@@ -178,7 +178,7 @@ test("macro helpers: .cdr on ComptimeListVal", {
     // need the prelude, and TS rejects the old source under SkipPrelude (the
     // real module evaluator matches TS). car(cdr(args((3 + 4)))) = 4 still
     // exercises .cdr semantics (drops the first arg).
-    src := String.from("pragma(Pragma.SkipPrelude);\ncdr_first :: (fn(quote(e) : Expr) -> unquote(Expr))(__yo_comptime_list_car(__yo_comptime_list_cdr(__yo_expr_get_args(e))));\nv :: cdr_first((3 + 4));\nexport(v);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\ncdr_first :: (fn(quote(e) : Expr) -> unquote(Expr))(__yo_comptime_list_car(__yo_comptime_list_cdr(__yo_expr_get_args(e))));\nv :: cdr_first((3 + 4));\nexport(v);\n");
     eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, src, exn);
     match(
       eval.get_module_error(),

@@ -1,0 +1,181 @@
+//! Chunked C emission assembly gates (plans/CHUNKED_C_EMISSION.md step 2;
+//! src/codegen/chunk_assembly.yo).
+//!
+//! `assemble_chunks` takes the emitter's three buffers plus the recorded byte
+//! ranges and produces one shared header + N linkable translation units. Every
+//! rule of the linkage split is checked here on SYNTHETIC C text, so a
+//! regression is caught in seconds instead of via a 15-minute chunked
+//! self-build:
+//!
+//!   - declarations content must SURVIVE into the header (a `String`
+//!     out-parameter silently dropped the whole buffer once — `String` is a
+//!     value type with a lazily allocated buffer);
+//!   - a `static` function DEFINED in the declarations buffer keeps `static`
+//!     (per-TU copy) — it is in `header_defined`;
+//!   - an EXTERNAL function definition in the declarations buffer is
+//!     relocated to chunk 0 with a prototype left in the header (this is the
+//!     async state-machine `_set_effect`/`_resume`/`_dispose` class: a
+//!     definition in the header means "duplicate symbol" in every TU);
+//!   - a `static` function defined in the CODE buffer is dequalified to
+//!     external in BOTH its prototype and its definition, so any chunk can
+//!     call it;
+//!   - header-routed ranges (borrow primitives, the RC primitives, the
+//!     constructor/traverse block) travel verbatim into the header;
+//!   - a per-type RC helper name (`___dup`/`___drop`/`___dispose`) is
+//!     header-routed. NOTE this rule is currently INERT for real emissions:
+//!     emitted C names put a single underscore before the verb
+//!     (`__yo_dispose___yo_dyn_box___yo_tN`), and a whole self-build contains
+//!     only 8 such functions because RC drops lower to direct
+//!     `__yo_decr_rc(...)` calls (336k of them). Kept as a unit test of the
+//!     mechanism; see plans/CHUNKED_C_EMISSION.md audit finding F3.
+//!   - `chunk_globals` land in chunk 0 only;
+//!   - per-function ranges are distributed by name hash, each appearing in
+//!     EXACTLY ONE chunk;
+//!   - type-level constructs (`typedef ... { ... };`) are never mistaken for
+//!     relocatable definitions.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ ChunkRange } :: import("../../src/codegen/utils/index.yo");
+{ assemble_chunks } :: import("../../src/codegen/chunk_assembly.yo");
+_HEADERS :: "#include <stdio.h>\n";
+_DECLS :: "// decls-marker\ntypedef struct { int x; } T1;\nstatic inline int hdr_static_fn(int a) {\n  return a + 1;\n}\nvoid ext_def_fn(void* p) {\n  ext_marker();\n}\nstatic void proto_only_fn(int a);\n";
+_RUNTIME :: "static void proto_only_fn(int a) {\n  runtime_marker(a);\n}\n";
+_BORROW :: "static inline void borrow_x(void* p) {\n  borrow_marker(p);\n}\n";
+_FN_ALPHA :: "static inline int fn_alpha(void) {\n  return 1;\n}\n";
+_FN_BETA :: "static inline int fn_beta(void) {\n  return 2;\n}\n";
+_RC_DROP :: "static inline void T1___drop(void* p) {\n  rc_marker(p);\n}\n";
+_TAIL :: "int main(void) {\n  return 0;\n}\n";
+_GLOBALS :: "int g_shared;\n";
+/// True iff exactly `want` of `chunks` contain `needle`.
+_count_chunks_with :: (fn(chunks : ArrayList(String), needle : String) -> usize)({
+  (hits : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < chunks.len(), {
+    match(
+      chunks.get(i),
+      .Some(c) => if(c.contains(needle.clone()), {
+        hits = (hits + usize(1));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  hits
+});
+test("chunked emission: the linkage split assembles a header + N linkable units", {
+  // Code buffer = runtime ++ borrow ++ fn_alpha ++ fn_beta ++ rc_drop ++ tail.
+  // The ranges are byte offsets into exactly that concatenation.
+  code := String.new();
+  code.push_str(_RUNTIME);
+  borrow_start := code.len();
+  code.push_str(_BORROW);
+  borrow_end := code.len();
+  alpha_start := code.len();
+  code.push_str(_FN_ALPHA);
+  alpha_end := code.len();
+  beta_start := code.len();
+  code.push_str(_FN_BETA);
+  beta_end := code.len();
+  rc_start := code.len();
+  code.push_str(_RC_DROP);
+  rc_end := code.len();
+  code.push_str(_TAIL);
+  header_ranges := ArrayList(ChunkRange).new();
+  header_ranges.push(ChunkRange(c_name : String.from("__borrow_primitives"), start_b : borrow_start, end_b : borrow_end));
+  fn_ranges := ArrayList(ChunkRange).new();
+  fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end));
+  fn_ranges.push(ChunkRange(c_name : String.from("fn_beta"), start_b : beta_start, end_b : beta_end));
+  fn_ranges.push(ChunkRange(c_name : String.from("T1___drop"), start_b : rc_start, end_b : rc_end));
+  asm4 := assemble_chunks(
+    String.from(_HEADERS),
+    String.from(_DECLS),
+    code,
+    fn_ranges,
+    header_ranges,
+    String.from(_GLOBALS),
+    usize(4)
+  );
+  hdr := asm4.header_text.clone();
+  chunks := asm4.chunks;
+  assert(chunks.len() == usize(4), `expected 4 chunks, got ${chunks.len().to_string()}`);
+  chunk0 := match(chunks.get(usize(0)), .Some(c) => c, .None => String.new());
+  // 1. The declarations buffer must not be LOST (the value-type out-param bug).
+  assert(hdr.contains(String.from("// decls-marker")), "header lost the declarations buffer");
+  assert(hdr.contains(String.from("typedef struct { int x; } T1;")), "header lost a typedef");
+  // 2. A static definition IN the declarations stays static (per-TU copy).
+  assert(hdr.contains(String.from("static inline int hdr_static_fn")), "declarations-buffer static definition should stay static in the header");
+  assert(hdr.contains(String.from("return a + 1;")), "declarations-buffer static definition should keep its body in the header");
+  // 3. An EXTERNAL definition in the declarations is relocated to chunk 0,
+  //    prototype left behind. A body in the header = duplicate symbol per TU.
+  assert(hdr.contains(String.from("void ext_def_fn(void* p);")), "external declarations-buffer definition should leave a prototype in the header");
+  assert(!hdr.contains(String.from("ext_marker()")), "external declarations-buffer definition BODY must not stay in the header");
+  assert(chunk0.contains(String.from("void ext_def_fn(void* p) {")), "relocated external definition should land in chunk 0");
+  assert(chunk0.contains(String.from("ext_marker()")), "relocated external definition should carry its body");
+  // 4. A static function defined in the CODE buffer is dequalified on BOTH
+  //    sides so any chunk can call it.
+  assert(hdr.contains(String.from("void proto_only_fn(int a);")), "residue-defined function should get an external prototype");
+  assert(!hdr.contains(String.from("static void proto_only_fn(int a);")), "residue-defined function prototype should lose `static`");
+  assert(chunk0.contains(String.from("void proto_only_fn(int a) {")), "residue definition belongs to chunk 0");
+  assert(!chunk0.contains(String.from("static void proto_only_fn")), "residue definition should lose `static`");
+  // 5. Header-routed ranges travel verbatim (still static: per-TU copies).
+  assert(hdr.contains(String.from("static inline void borrow_x")), "borrow-primitive range should be header-routed and stay static");
+  assert(_count_chunks_with(chunks, String.from("borrow_marker")) == usize(0), "header-routed range must not also appear in a chunk");
+  // 6. RC helpers are header-routed (the RC hot path, per-TU copies).
+  assert(hdr.contains(String.from("T1___drop")), "RC helper should be header-routed");
+  assert(_count_chunks_with(chunks, String.from("rc_marker")) == usize(0), "RC helper must not also appear in a chunk");
+  // 7. chunk_globals (split cross-chunk statics) land in chunk 0 ONLY.
+  assert(chunk0.contains(String.from("int g_shared;")), "chunk_globals should be defined in chunk 0");
+  assert(_count_chunks_with(chunks, String.from("int g_shared;")) == usize(1), "chunk_globals must be defined exactly once");
+  // 8. Each per-function range lands in EXACTLY ONE chunk, dequalified.
+  assert(_count_chunks_with(chunks, String.from("fn_alpha(void)")) == usize(1), "fn_alpha must appear in exactly one chunk");
+  assert(_count_chunks_with(chunks, String.from("fn_beta(void)")) == usize(1), "fn_beta must appear in exactly one chunk");
+  assert(_count_chunks_with(chunks, String.from("static inline int fn_alpha")) == usize(0), "fn_alpha body should lose `static inline`");
+  assert(!hdr.contains(String.from("fn_alpha(void) {")), "a plain function body must not be header-routed");
+  // 9. The residue tail (main wrapper) stays in chunk 0, exactly once.
+  assert(_count_chunks_with(chunks, String.from("int main(void) {")) == usize(1), "the main wrapper must appear exactly once");
+  assert(chunk0.contains(String.from("int main(void) {")), "the main wrapper belongs to chunk 0 (residue)");
+});
+test("chunked emission: N=1 is degenerate — one unit holding everything", {
+  code := String.new();
+  code.push_str(_RUNTIME);
+  alpha_start := code.len();
+  code.push_str(_FN_ALPHA);
+  alpha_end := code.len();
+  fn_ranges := ArrayList(ChunkRange).new();
+  fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end));
+  asm1 := assemble_chunks(
+    String.from(_HEADERS),
+    String.from(_DECLS),
+    code,
+    fn_ranges,
+    ArrayList(ChunkRange).new(),
+    String.from(_GLOBALS),
+    usize(1)
+  );
+  assert(asm1.chunks.len() == usize(1), "N=1 must produce exactly one chunk");
+  only := match(asm1.chunks.get(usize(0)), .Some(c) => c, .None => String.new());
+  assert(only.contains(String.from("runtime_marker")), "N=1 chunk should hold the residue");
+  assert(only.contains(String.from("fn_alpha(void)")), "N=1 chunk should hold the function bodies");
+  assert(only.contains(String.from("int g_shared;")), "N=1 chunk should hold the split globals");
+  assert(asm1.header_text.contains(String.from("// decls-marker")), "N=1 header should still carry the declarations");
+});
+test("chunked emission: more chunks than functions leaves the extra units empty but valid", {
+  code := String.new();
+  alpha_start := code.len();
+  code.push_str(_FN_ALPHA);
+  alpha_end := code.len();
+  fn_ranges := ArrayList(ChunkRange).new();
+  fn_ranges.push(ChunkRange(c_name : String.from("fn_alpha"), start_b : alpha_start, end_b : alpha_end));
+  asm8 := assemble_chunks(
+    String.from(_HEADERS),
+    String.from(_DECLS),
+    code,
+    fn_ranges,
+    ArrayList(ChunkRange).new(),
+    String.new(),
+    usize(8)
+  );
+  assert(asm8.chunks.len() == usize(8), "N=8 must produce 8 chunks even with one function");
+  assert(_count_chunks_with(asm8.chunks, String.from("fn_alpha(void)")) == usize(1), "the single function lands in exactly one chunk");
+});

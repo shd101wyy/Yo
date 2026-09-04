@@ -17,7 +17,7 @@ fs_file :: import("std/fs/file");
 test("create_dir and remove_dir", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -44,7 +44,7 @@ test("create_dir and remove_dir", {
 test("create_dir_str", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -68,7 +68,7 @@ test("create_dir on existing returns error", {
   // Setup: create the directory
   setup_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception during setup");
         unwind(());
       }
@@ -84,7 +84,7 @@ test("create_dir on existing returns error", {
   // Second create should fail
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -99,7 +99,7 @@ test("create_dir on existing returns error", {
 test("create_dir_all creates nested directories", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -117,10 +117,39 @@ test("create_dir_all creates nested directories", {
   io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`)), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`)), io), IoExn(io : io, exn : exn));
 });
+test("create_dir_all creates nested directories with a multibyte component", {
+  // The ENOENT recovery path walks `path_s.as_bytes()` and hands each
+  // separator's BYTE offset to `substring`. While `substring` was rune-indexed
+  // that cut the prefix in the wrong place for any non-ASCII component, so
+  // `create_dir_all` created the WRONG parent and then failed or built the
+  // wrong tree (issues/fixed/mkdir-all-uses-a-byte-index-as-a-rune-index.md,
+  // plans/STD_API_AUDIT_D4_PLAN.md §5.1). Byte-indexing `substring` (D4 PR 3)
+  // makes the two agree. This test is ASCII-invariant by construction — it
+  // only discriminates because the component is multibyte.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  root := path_join(tmp, `yo_fs_dir_all_日本語`);
+  lvl1 := path_join(root, `sub1`);
+  nested := Path.new(path_join(lvl1, `sub2`));
+  io.await(fs_dir.create_dir_all(nested, io), IoExn(io : io, exn : exn));
+  assert(io.await(fs_file.exists(nested, io), io), "the full nested path must exist");
+  assert(io.await(fs_file.exists(Path.new(lvl1), io), io), "the middle level must exist");
+  assert(io.await(fs_file.exists(Path.new(root), io), io), "the multibyte root must exist");
+  io.await(fs_dir.remove_dir(nested, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(Path.new(lvl1), io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(Path.new(root), io), IoExn(io : io, exn : exn));
+});
 test("create_dir_all on existing directory succeeds", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -146,7 +175,7 @@ test("create_dir_all on existing directory succeeds", {
 test("remove_file removes a file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -154,18 +183,18 @@ test("remove_file removes a file", {
   );
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_dir_rm_file.txt`));
-  io.await(fs_file.write_file(fpath, String.from("to remove"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(fpath, String.from("to remove"), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
   unsafe(printf("  remove_file ok\n"));
   // Verify gone
   e := io.await(fs_file.exists(fpath, io), io);
-  assert(!(e), "file should not exist after remove");
+  assert(!e, "file should not exist after remove");
 });
 test("remove_file nonexistent returns error", {
   fpath := Path.new(`/nonexistent/yo_fs_rm_nope.txt`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -180,7 +209,7 @@ test("remove_file nonexistent returns error", {
 test("rename moves a file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -195,14 +224,14 @@ test("rename moves a file", {
     },
     true => ()
   );
-  io.await(fs_file.write_file(old_path, String.from("rename me"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(old_path, String.from("rename me"), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.rename(old_path, new_path, io), IoExn(io : io, exn : exn));
   unsafe(printf("  rename ok\n"));
   // Old should not exist
   old_ex := io.await(fs_file.exists(old_path, io), io);
-  assert(!(old_ex), "old path should not exist");
+  assert(!old_ex, "old path should not exist");
   // New should exist with correct content
-  s := io.await(fs_file.read_string(new_path, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(new_path, io), IoExn(io : io, exn : exn));
   assert(s == `rename me`, "renamed content mismatch");
   io.await(fs_dir.remove_file(new_path, io), IoExn(io : io, exn : exn));
 });
@@ -217,7 +246,7 @@ test("hard_link creates a link", {
   });
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -232,11 +261,11 @@ test("hard_link creates a link", {
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("link data"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(src, String.from("link data"), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.hard_link(src, dst, io), IoExn(io : io, exn : exn));
   unsafe(printf("  hard_link ok\n"));
   // Read via link
-  s := io.await(fs_file.read_string(dst, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(dst, io), IoExn(io : io, exn : exn));
   assert(s == `link data`, "link content mismatch");
   io.await(fs_dir.remove_file(src, io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(dst, io), IoExn(io : io, exn : exn));
@@ -250,7 +279,7 @@ test("symlink creates a symbolic link", {
   lnk := Path.new(path_join(tmp, `yo_fs_symlink_lnk.txt`));
   setup_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception during setup");
         unwind(());
       }
@@ -268,11 +297,11 @@ test("symlink creates a symbolic link", {
     },
     true => ()
   );
-  io.await(fs_file.write_file(src, String.from("symlink data"), io), IoExn(io : io, exn : setup_exn));
+  io.await(fs_file.write_string(src, String.from("symlink data"), io), IoExn(io : io, exn : setup_exn));
   // Symlink may fail with PermissionDenied on Windows
   sym_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         match(
           downcast(err, IoError),
           .Some(io_err) => match(
@@ -297,13 +326,13 @@ test("symlink creates a symbolic link", {
   // Read via symlink
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
     )
   );
-  s := io.await(fs_file.read_string(lnk, io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(lnk, io), IoExn(io : io, exn : exn));
   assert(s == `symlink data`, "symlink content mismatch");
   io.await(fs_dir.remove_file(lnk, io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(src, io), IoExn(io : io, exn : exn));
@@ -322,7 +351,7 @@ test("read_dir survives directories larger than one getdents buffer", {
   // platform.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -334,7 +363,7 @@ test("read_dir survives directories larger than one getdents buffer", {
   io.await(fs_dir.create_dir_all(dpath, io), IoExn(io : io, exn : exn));
   (i : usize) = usize(0);
   while(runtime(i < usize(200)), {
-    io.await(fs_file.write_file(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${i}.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
+    io.await(fs_file.write_string(Path.new(path_join(dname.clone(), `file_with_a_reasonably_long_name_${i}.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
     i = (i + usize(1));
   });
   entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
@@ -351,7 +380,7 @@ test("read_dir survives directories larger than one getdents buffer", {
 test("read_dir lists directory entries", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -361,8 +390,8 @@ test("read_dir lists directory entries", {
   dpath := Path.new(path_join(tmp, `yo_fs_read_dir`));
   io.await(fs_dir.create_dir_all(dpath, io), IoExn(io : io, exn : exn));
   // Create some files inside
-  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`)), String.from("a"), io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`)), String.from("b"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `a.txt`)), String.from("a"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `b.txt`)), String.from("b"), io), IoExn(io : io, exn : exn));
   // Create a subdirectory
   io.await(fs_dir.create_dir(Path.new(path_join(path_join(tmp, `yo_fs_read_dir`), `subdir`)), io), IoExn(io : io, exn : exn));
   entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
@@ -406,7 +435,7 @@ test("read_dir on nonexistent returns error", {
   dpath := Path.new(`/nonexistent/yo_fs_read_dir_nope`);
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }

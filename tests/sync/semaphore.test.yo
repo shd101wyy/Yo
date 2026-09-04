@@ -1,0 +1,314 @@
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+{ arch, Arch } :: import("std/process");
+{ Semaphore } :: import("std/sync/semaphore");
+{ Thread } :: import("std/thread");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+
+// ============================================================================
+// Single-threaded permit accounting
+// ============================================================================
+test("Semaphore new holds the requested permits", {
+  sem := Semaphore.new(i32(3));
+  assert(sem.available_permits() == i32(3), "new(3) should hold 3 permits");
+});
+test("Semaphore acquire and release round trip", {
+  sem := Semaphore.new(i32(2));
+  sem.acquire();
+  assert(sem.available_permits() == i32(1), "one permit taken");
+  sem.acquire();
+  assert(sem.available_permits() == i32(0), "both permits taken");
+  sem.release();
+  assert(sem.available_permits() == i32(1), "one permit returned");
+  sem.release();
+  assert(sem.available_permits() == i32(2), "both permits returned");
+});
+test("Semaphore try_acquire fails once the permits are gone", {
+  sem := Semaphore.new(i32(2));
+  assert(sem.try_acquire(), "first try_acquire should take a permit");
+  assert(sem.try_acquire(), "second try_acquire should take a permit");
+  assert(sem.try_acquire() == false, "third try_acquire must fail — no permits left");
+  assert(sem.available_permits() == i32(0), "count stays at 0 after a failed try_acquire");
+  sem.release();
+  assert(sem.try_acquire(), "try_acquire should succeed again after a release");
+});
+test("Semaphore release is not capped by the initial count", {
+  // A semaphore is a signalling device, not a lock: release may run more
+  // often than acquire, and the extra permits stay available.
+  sem := Semaphore.new(i32(1));
+  sem.release();
+  sem.release();
+  assert(sem.available_permits() == i32(3), "releases accumulate past the initial count");
+  sem.acquire();
+  sem.acquire();
+  sem.acquire();
+  assert(sem.available_permits() == i32(0), "all three permits are acquirable");
+});
+test("Semaphore with a negative initial count needs the deficit released first", {
+  sem := Semaphore.new(i32(-2));
+  assert(sem.available_permits() == i32(-2), "negative initial count is kept as-is");
+  assert(sem.try_acquire() == false, "cannot acquire against a deficit");
+  sem.release();
+  sem.release();
+  assert(sem.try_acquire() == false, "still at zero — the deficit is only just repaid");
+  sem.release();
+  assert(sem.try_acquire(), "the third release finally produces a permit");
+});
+test("Semaphore of one permit acquires and releases repeatedly", {
+  sem := Semaphore.new(i32(1));
+  i := i32(0);
+  while(runtime(i < i32(10)), {
+    sem.acquire();
+    assert(sem.available_permits() == i32(0), "the single permit is held");
+    sem.release();
+    i = (i + i32(1));
+  });
+  assert(sem.available_permits() == i32(1), "the permit is back at the end");
+});
+
+// ============================================================================
+// Bounded concurrency — the property the type exists for
+//
+// K permits must mean AT MOST K threads inside the region at any instant. The
+// holder count is observed from inside the region: any implementation that
+// hands out a permit it does not have (a `>= 0` test where `> 0` is meant, or
+// a waiter that stops re-checking the predicate after a wakeup) is caught by
+// `violations`, and `saw_full` proves the test was not vacuous — that the
+// region really did run K threads deep.
+// ============================================================================
+test("Semaphore never admits more holders than it has permits", {
+  if(arch == Arch.Wasm32, return(()));
+  sem := Semaphore.new(i32(2));
+  inside := AtomicI32(i32(0));
+  violations := AtomicI32(i32(0));
+  saw_full := AtomicI32(i32(0));
+  completed := AtomicI32(i32(0));
+  t1 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      cond(
+        (now > i32(2)) => {
+          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        (now == i32(2)) => {
+          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      sleep_blocking(Duration.from_millis(i64(1)));
+      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.release();
+      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i = (i + i32(1));
+    });
+  });
+  t2 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      cond(
+        (now > i32(2)) => {
+          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        (now == i32(2)) => {
+          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      sleep_blocking(Duration.from_millis(i64(1)));
+      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.release();
+      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i = (i + i32(1));
+    });
+  });
+  t3 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      cond(
+        (now > i32(2)) => {
+          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        (now == i32(2)) => {
+          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      sleep_blocking(Duration.from_millis(i64(1)));
+      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.release();
+      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i = (i + i32(1));
+    });
+  });
+  t4 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      now := (inside.fetch_add(i32(1), MemoryOrder.AcqRel) + i32(1));
+      cond(
+        (now > i32(2)) => {
+          violations.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        (now == i32(2)) => {
+          saw_full.fetch_add(i32(1), MemoryOrder.AcqRel);
+        },
+        true => ()
+      );
+      sleep_blocking(Duration.from_millis(i64(1)));
+      inside.fetch_sub(i32(1), MemoryOrder.AcqRel);
+      sem.release();
+      completed.fetch_add(i32(1), MemoryOrder.AcqRel);
+      i = (i + i32(1));
+    });
+  });
+  t1.join();
+  t2.join();
+  t3.join();
+  t4.join();
+  assert(violations.load(MemoryOrder.Acquire) == i32(0), "never more than 2 threads inside a 2-permit region");
+  assert(completed.load(MemoryOrder.Acquire) == i32(100), "all 4 threads x 25 passes must complete");
+  assert(saw_full.load(MemoryOrder.Acquire) > i32(0), "the region must really have run 2 deep — otherwise this test proves nothing");
+  assert(inside.load(MemoryOrder.Acquire) == i32(0), "no thread is left inside");
+  assert(sem.available_permits() == i32(2), "every permit is returned");
+});
+
+// ============================================================================
+// Wakeup — a blocked acquirer must be released by release(), and exactly one
+// waiter may pass per permit returned.
+//
+// This is the class of bug that hides until contention: an implementation that
+// forgets to signal leaves the waiters parked forever (the joins below hang),
+// and one whose wait loop is an `if` instead of a `while` lets EVERY waiter
+// through on a single permit (`passed == 1` catches that).
+// ============================================================================
+test("Semaphore blocked acquirers are woken one per released permit", {
+  if(arch == Arch.Wasm32, return(()));
+  sem := Semaphore.new(i32(2));
+  arrived := AtomicI32(i32(0));
+  passed := AtomicI32(i32(0));
+  // The main thread drains both permits and keeps them for the whole window.
+  sem.acquire();
+  sem.acquire();
+  assert(sem.available_permits() == i32(0), "the semaphore is exhausted");
+  t1 := Thread.spawn(io => {
+    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
+    sem.acquire();
+    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+  });
+  t2 := Thread.spawn(io => {
+    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
+    sem.acquire();
+    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+  });
+  t3 := Thread.spawn(io => {
+    arrived.fetch_add(i32(1), MemoryOrder.AcqRel);
+    sem.acquire();
+    passed.fetch_add(i32(1), MemoryOrder.AcqRel);
+  });
+  while(runtime(arrived.load(MemoryOrder.Acquire) < i32(3)), {
+    sleep_blocking(Duration.from_millis(i64(1)));
+  });
+  sleep_blocking(Duration.from_millis(i64(20)));
+  assert(passed.load(MemoryOrder.Acquire) == i32(0), "no acquirer may pass an exhausted semaphore");
+  // One permit back — exactly one waiter may take it.
+  sem.release();
+  waited := i32(0);
+  while(runtime((passed.load(MemoryOrder.Acquire) < i32(1)) && (waited < i32(30000))), {
+    sleep_blocking(Duration.from_millis(i64(1)));
+    waited = (waited + i32(1));
+  });
+  assert(passed.load(MemoryOrder.Acquire) >= i32(1), "release must wake a blocked acquirer");
+  sleep_blocking(Duration.from_millis(i64(20)));
+  assert(passed.load(MemoryOrder.Acquire) == i32(1), "one permit may release exactly one waiter");
+  sem.release();
+  sem.release();
+  t1.join();
+  t2.join();
+  t3.join();
+  assert(passed.load(MemoryOrder.Acquire) == i32(3), "every waiter is eventually admitted");
+  assert(sem.available_permits() == i32(0), "the three permits are held by the three threads");
+});
+
+// ============================================================================
+// Cross-thread signalling and mutual exclusion
+// ============================================================================
+test("Semaphore permit may be released by a thread that never acquired it", {
+  if(arch == Arch.Wasm32, return(()));
+  // Unlike a Mutex, a Semaphore is not owned by the acquirer: this is the
+  // "wait for a signal from elsewhere" use.
+  sem := Semaphore.new(i32(0));
+  signalled := AtomicI32(i32(0));
+  t := Thread.spawn(io => {
+    sleep_blocking(Duration.from_millis(i64(20)));
+    signalled.store(i32(1), MemoryOrder.Release);
+    sem.release();
+  });
+  sem.acquire(); // blocks until the other thread releases
+  assert(signalled.load(MemoryOrder.Acquire) == i32(1), "acquire must not return before the signalling store");
+  t.join();
+  assert(sem.available_permits() == i32(0), "the signalled permit was consumed");
+});
+test("Semaphore of one permit serializes a read-modify-write", {
+  if(arch == Arch.Wasm32, return(()));
+  // The counter is updated in two separate relaxed steps with a real gap in
+  // between, so any lost mutual exclusion shows up as lost updates.
+  sem := Semaphore.new(i32(1));
+  counter := AtomicI32(i32(0));
+  t1 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      v := counter.load(MemoryOrder.Relaxed);
+      sleep_blocking(Duration.from_millis(i64(1)));
+      counter.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.release();
+      i = (i + i32(1));
+    });
+  });
+  t2 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      v := counter.load(MemoryOrder.Relaxed);
+      sleep_blocking(Duration.from_millis(i64(1)));
+      counter.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.release();
+      i = (i + i32(1));
+    });
+  });
+  t3 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      v := counter.load(MemoryOrder.Relaxed);
+      sleep_blocking(Duration.from_millis(i64(1)));
+      counter.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.release();
+      i = (i + i32(1));
+    });
+  });
+  t4 := Thread.spawn(io => {
+    i := i32(0);
+    while(runtime(i < i32(25)), {
+      sem.acquire();
+      v := counter.load(MemoryOrder.Relaxed);
+      sleep_blocking(Duration.from_millis(i64(1)));
+      counter.store(v + i32(1), MemoryOrder.Relaxed);
+      sem.release();
+      i = (i + i32(1));
+    });
+  });
+  t1.join();
+  t2.join();
+  t3.join();
+  t4.join();
+  assert(counter.load(MemoryOrder.Acquire) == i32(100), "no update may be lost under a 1-permit semaphore");
+});

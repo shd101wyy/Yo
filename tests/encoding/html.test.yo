@@ -1,0 +1,92 @@
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ html_decode, html_encode, from_code_point } :: import("std/encoding/html");
+test("named entities decode", {
+  assert(html_decode(String.from("a &amp; b")) == `a & b`, "amp");
+  assert(html_decode(String.from("&lt;p&gt;")) == `<p>`, "lt/gt");
+  assert(html_decode(String.from("&quot;x&quot;")) == `"x"`, "quot");
+});
+test("entities from the static table decode", {
+  assert(html_decode(String.from("&forall;x")) == `∀x`, "forall (was mangled to `generic` in the old table)");
+  assert(html_decode(String.from("&AElig;")) == `Æ`, "first table entry");
+  assert(html_decode(String.from("&zwnj;")) == from_code_point(i32(8204)), "last table entry");
+  assert(
+    html_decode(String.from("&NotEqualTilde;")) == (from_code_point(i32(8770)) + from_code_point(i32(824))),
+    "two-code-point entity"
+  );
+});
+test("legacy entities decode without semicolon by longest prefix", {
+  assert(html_decode(String.from("&amp!")) == `&!`, "legacy amp, no semicolon");
+  assert(html_decode(String.from("&notin")) == `¬in`, "notin is not legacy; not is - longest legacy prefix wins");
+  assert(html_decode(String.from("&bogus")) == `&bogus`, "unknown name with no legacy prefix stays literal");
+});
+test("decimal numeric entities decode", {
+  assert(html_decode(String.from("&#65;")) == `A`, "decimal with semicolon");
+  assert(html_decode(String.from("&#65&#66;")) == `AB`, "unterminated decimal still decodes");
+  assert(html_decode(String.from("x&#65Zy")) == `xAZy`, "decimal terminated by non-digit");
+});
+test("hex numeric entities decode", {
+  assert(html_decode(String.from("&#x41;")) == `A`, "hex with semicolon");
+  assert(html_decode(String.from("&#X41;")) == `A`, "capital X form");
+  assert(html_decode(String.from("x&#x41Zy")) == `xAZy`, "hex terminated by non-digit");
+  assert(html_decode(String.from("&#x1F600;")) == `😀`, "supplementary-plane hex");
+});
+test("digits running to end of input decode", {
+  assert(html_decode(String.from("&#65")) == `A`, "decimal at EOF");
+  assert(html_decode(String.from("&#x41")) == `A`, "hex at EOF");
+});
+test("malformed numeric entities stay literal", {
+  assert(html_decode(String.from("&#x;")) == `&#x;`, "hex marker with no digits");
+  assert(html_decode(String.from("&#;")) == `&#;`, "no digits at all");
+  assert(html_decode(String.from("a & b")) == `a & b`, "bare ampersand passes through");
+  assert(html_decode(String.from("&")) == `&`, "trailing ampersand");
+  assert(html_decode(String.from("&#")) == `&#`, "trailing numeric marker");
+});
+test("invalid code points keep the original entity text", {
+  assert(html_decode(String.from("&#xD800;")) == `&#xD800;`, "surrogate kept literal");
+});
+// D4 (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S1). Every test above puts multibyte
+// content only in the DECODER'S OUTPUT; the INPUT is pure ASCII, so the
+// scanner's rune arithmetic is never exercised. `html_decode` is the
+// highest-risk file in the tree for the byte flip — it scans arbitrary HTML by
+// index — so these run multibyte text through the scanner itself, on both
+// sides of every entity form and in every backtracking arm.
+test("entities decode with multibyte text around them", {
+  assert(html_decode(String.from("中文 &amp; 日本語")) == `中文 & 日本語`, "named, CJK on both sides");
+  assert(html_decode(String.from("é&lt;é&gt;é")) == `é<é>é`, "2-byte runes between entities");
+  assert(html_decode(String.from("𝄞&#65;𝄞")) == `𝄞A𝄞`, "decimal between 4-byte runes");
+  assert(html_decode(String.from("𝄞&#x41;𝄞")) == `𝄞A𝄞`, "hex between 4-byte runes");
+  assert(html_decode(String.from("aé中𝄞&amp;aé中𝄞")) == `aé中𝄞&aé中𝄞`, "all four widths");
+  assert(html_decode(String.from("😀&#x1F600;😀")) == `😀😀😀`, "astral in and out");
+  assert(html_decode(String.from("é&#x4E2D;é")) == `é中é`, "hex naming a 3-byte rune");
+});
+test("the legacy backtracking arm survives multibyte input", {
+  // `&notin` decodes as `not` + `in`; the walk-back over `try_end` is the
+  // rune-indexed loop that a byte basis would break.
+  assert(html_decode(String.from("中&notin中")) == `中¬in中`, "longest legacy prefix, CJK around it");
+  assert(html_decode(String.from("é&bogus;é")) == `é&bogus;é`, "unknown named entity stays literal");
+  assert(html_decode(String.from("中&amp!中")) == `中&!中`, "legacy amp with no semicolon");
+});
+test("invalid code points keep their original text with multibyte around them", {
+  // The `keep original entity text` arm re-slices the INPUT between two
+  // scanner positions — the one place a wrong basis would corrupt bytes it
+  // never decoded.
+  assert(html_decode(String.from("𝄞&#xD800;𝄞")) == `𝄞&#xD800;𝄞`, "surrogate kept, astral around it");
+  assert(html_decode(String.from("中&#xDFFF;中")) == `中&#xDFFF;中`, "high surrogate kept");
+});
+test("truncated entities at the end of multibyte input", {
+  assert(html_decode(String.from("é&")) == `é&`, "trailing ampersand after a 2-byte rune");
+  assert(html_decode(String.from("中&#")) == `中&#`, "trailing numeric marker");
+  assert(html_decode(String.from("𝄞&#x")) == `𝄞&#x`, "trailing hex marker");
+  assert(html_decode(String.from("aé中𝄞")) == `aé中𝄞`, "no entity at all is returned unchanged");
+});
+
+test("html_encode escapes the five XSS-critical characters and nothing else", {
+  assert(html_encode(`<a href="x">&'s</a>`.to_string()) == `&lt;a href=&quot;x&quot;&gt;&amp;&#39;s&lt;/a&gt;`, "all five escaped");
+  plain := `héllo 你好 plain-text_09.~`.to_string();
+  assert(html_encode(plain.clone()) == plain, "multibyte and unreserved pass through");
+});
+test("html_decode(html_encode(s)) is the identity", {
+  s := `<script>alert("x & 'y' < z >")</script> é你`.to_string();
+  assert(html_decode(html_encode(s.clone())) == s, "round trip");
+});

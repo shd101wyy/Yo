@@ -2,6 +2,8 @@
 // Tests for derive(Type, Trait(Type)) — auto-generated trait implementations
 open(import("std/string"));
 open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ hash_one } :: import("std/hash");
 // === Basic struct for testing ===
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point));
@@ -39,9 +41,9 @@ test("derive Hash for struct", {
   p1 := Point(i32(1), i32(2));
   p2 := Point(i32(1), i32(2));
   p3 := Point(i32(3), i32(4));
-  h1 := p1.hash();
-  h2 := p2.hash();
-  h3 := p3.hash();
+  h1 := hash_one(p1);
+  h2 := hash_one(p2);
+  h3 := hash_one(p3);
   assert(h1 == h2, "equal points should have equal hashes");
   assert(h1 != h3, "different points should likely have different hashes");
 });
@@ -90,7 +92,7 @@ test("multiple derives in one call", {
   assert(c1 == c2, "same colors should be equal");
   assert(c1 != c3, "different colors should not be equal");
   // Hash
-  assert(c1.hash() == c2.hash(), "same colors should have same hash");
+  assert(hash_one(c1) == hash_one(c2), "same colors should have same hash");
   // Clone
   c4 := c1.clone();
   assert(c1 == c4, "cloned color should equal original");
@@ -128,8 +130,8 @@ test("derive Hash for fieldless enum", {
   d1 := Direction.North;
   d2 := Direction.North;
   d3 := Direction.South;
-  assert(d1.hash() == d2.hash(), "same direction should have same hash");
-  assert(d1.hash() != d3.hash(), "different directions should have different hashes");
+  assert(hash_one(d1) == hash_one(d2), "same direction should have same hash");
+  assert(hash_one(d1) != hash_one(d3), "different directions should have different hashes");
 });
 // === Test derive Clone for fieldless enum ===
 derive(Direction, Clone);
@@ -213,8 +215,8 @@ test("derive with multiple explicit trait args", {
   v1 := Vec3(i32(1), i32(2), i32(3));
   v2 := v1.clone();
   assert(v1 == v2, "mixed args: clone equals original");
-  h1 := v1.hash();
-  h2 := v2.hash();
+  h1 := hash_one(v1);
+  h2 := hash_one(v2);
   assert(h1 == h2, "mixed args: equal values same hash");
 });
 // ============================================================
@@ -398,4 +400,79 @@ test("built-in derive Eq for generic struct with generic/where", {
   b3 := DRGenericBox(i32)(i32(20));
   assert(b1 == b2, "equal boxes should be equal");
   assert(!(b1 == b3), "different boxes should not be equal");
+});
+// ============================================================
+// derive(Default) — STD_API_AUDIT D3.1
+// ============================================================
+// Every field takes its own type's default via `(FieldType <: Default).default()`.
+DefConfig :: struct(retries : i32, verbose : bool, ratio : f64);
+derive(DefConfig, Eq(DefConfig), Default);
+test("derive Default for struct of primitives", {
+  d := (DefConfig <: Default).default();
+  assert(d == DefConfig(i32(0), false, f64(0.0)), "every primitive field takes its own zero");
+});
+DefProfile :: struct(name : String, nickname : Option(String));
+derive(DefProfile, Default);
+test("derive Default reaches non-prelude and generic field types", {
+  d := (DefProfile <: Default).default();
+  assert(d.name.len() == usize(0), "String defaults to empty");
+  assert(d.nickname.is_none(), "Option defaults to None");
+});
+DefEmpty :: struct();
+derive(DefEmpty, Eq(DefEmpty), Default);
+test("derive Default for empty struct", {
+  assert((DefEmpty <: Default).default() == DefEmpty(), "a fieldless struct still gets a default");
+});
+DefInner :: struct(a : i32, b : usize);
+derive(DefInner, Eq(DefInner), Default);
+DefOuter :: struct(inner : DefInner, count : usize);
+derive(DefOuter, Eq(DefOuter), Default);
+test("derive Default nests through a derived field type", {
+  d := (DefOuter <: Default).default();
+  assert(d == DefOuter(DefInner(i32(0), usize(0)), usize(0)), "the inner default comes from ITS own derive");
+});
+DefGenericBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
+derive(generic(T), DefGenericBox(T), where(T <: Default), Default);
+test("derive Default for a generic struct with generic/where", {
+  b := (DefGenericBox(i32) <: Default).default();
+  assert(b.value == i32(0), "the field default resolves per instantiation");
+  c := (DefGenericBox(bool) <: Default).default();
+  assert(c.value == false, "a second instantiation resolves independently");
+});
+test("a derived Default feeds unwrap_or_default", {
+  (miss : Option(DefConfig)) = .None;
+  assert(miss.unwrap_or_default() == DefConfig(i32(0), false, f64(0.0)), "None unwraps to the derived default");
+});
+// ============================================================
+// derive(Clone) on a GENERIC struct
+// ============================================================
+// Used to fail outright: the struct branch built its constructor call from
+// `Type.to_comptime_string(T)`, a DISPLAY renderer that yields an unusable
+// `<struct:struct_yo_id_N>` placeholder for an instantiated generic. It now
+// constructs through `Self`.
+// issues/fixed/derive-rules-name-types-through-a-display-renderer.md
+CloneBox :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
+derive(generic(T), CloneBox(T), where(T <: Clone), Clone);
+test("derive Clone for a generic struct", {
+  b := CloneBox(i32)(i32(9));
+  c := b.clone();
+  assert(c.value == i32(9), "generic struct clones through Self");
+  s := CloneBox(String)(String.from("hi"));
+  t := s.clone();
+  assert(t.value == `hi`, "a second instantiation clones independently");
+});
+// A field whose type is a generic INSTANTIATION — the shape that made
+// derive(FromJson) fail, and the whole point of naming field types by index
+// rather than by rendering: `ArrayList(i32)` has no written name to render.
+DefWithList :: struct(items : ArrayList(i32), name : String, n : i32);
+derive(DefWithList, Default);
+test("derive Default reaches a generic-instantiated field type", {
+  d := (DefWithList <: Default).default();
+  assert(d.items.len() == usize(0), "ArrayList field defaults to empty");
+  assert(d.name.len() == usize(0), "String field defaults to empty");
+  assert(d.n == i32(0), "i32 field defaults to 0");
 });

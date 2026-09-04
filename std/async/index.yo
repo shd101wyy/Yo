@@ -1,0 +1,160 @@
+//! Async task utilities — cooperative `yield` and `JoinHandle` combinators
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 6).
+//!
+//! The combinators (`join_all`, `race`, `any`, `timeout`) are BLOCKING-POLL
+//! functions in the same sense as `JoinHandle.await`: they drive the event
+//! loop while they wait, so every spawned task keeps making progress. They
+//! take spawned handles, not futures — spawn at the call site:
+//!
+//! ```rust
+//! { join_all, timeout } :: import "std/async";
+//! { Duration } :: import "std/time/duration";
+//!
+//! h1 := io.spawn(fetch_a(io), io);
+//! h2 := io.spawn(fetch_b(io), io);
+//! handles := ArrayList(JoinHandle(String)).new();
+//! handles.push(h1);
+//! handles.push(h2);
+//! results := join_all(handles, io); // ArrayList(Option(String))
+//! ```
+//!
+//! For the async-safe `Channel` and `Mutex` (usable INSIDE tasks without
+//! parking the event loop the way `std/sync`'s blocking primitives do), see
+//! `std/async/channel` and `std/async/mutex`.
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("../collections/array_list");
+{ assert } :: import("../assert");
+{ Duration } :: import("../time/duration");
+IO_timer :: import("../sys/timer");
+extern(
+  "Yo",
+  /// One event-loop step: drain ready tasks, then poll (and, when idle with
+  /// pending I/O, wait for) I/O completions. The same primitive
+  /// `JoinHandle.await`'s poll loop is built on.
+  __yo_async_poll_step : (fn() -> unit)
+);
+/// Suspend the current async task until the next event-loop turn: drain the
+/// ready queue, then poll (and, when idle with pending I/O, block in) I/O.
+/// Implemented by awaiting a 1 ms timer — the same park `Mutex.lock`'s
+/// contended loop uses. The previous body (`return(())`) completed the
+/// future SYNCHRONOUSLY, so `io.await(yield(io), io)` never reached
+/// `__yo_async_poll_step`: a poll-until-finished loop built on it
+/// (`is_finished()` + `await yield()`) spun without ever polling I/O, and
+/// the polled task never progressed (the build smoke hang's spin component,
+/// issues/build-smoke-hangs-registry-perturbation.md).
+yield :: (fn(io : Io) -> Impl(Future(unit)))(
+  io.async((io : Io) => {
+    io.await(IO_timer.sleep(u64(1)), io);
+  })
+);
+/// Await every handle, in order, returning each task's result (`.None` for a
+/// task that was aborted). All tasks run concurrently on the loop — awaiting
+/// sequentially costs the SLOWEST task's wall time, not the sum. Each handle
+/// is consumed (a `JoinHandle` must be awaited at most once).
+join_all :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> ArrayList(Option(T)))({
+  out := ArrayList(Option(T)).with_capacity(handles.len());
+  (i : usize) = usize(0);
+  while(i < handles.len(), i = (i + usize(1)), {
+    h := handles(i);
+    r := h.await(io);
+    out.push(r);
+  });
+  out
+});
+/// Drive the loop until at least one handle is terminal (completed OR
+/// aborted) and return its index. The handles are NOT consumed: every one —
+/// winner and losers alike — must still be awaited exactly once by the
+/// caller (`abort` the losers first if their results are unwanted). Panics
+/// on an empty list.
+race :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> usize)({
+  assert(handles.len() > usize(0), "race: empty handle list");
+  (winner : Option(usize)) = Option(usize).None;
+  while(winner.is_none(), {
+    (i : usize) = usize(0);
+    while((i < handles.len()) && winner.is_none(), {
+      h := handles(i);
+      if(h.is_finished(), {
+        winner = Option(usize).Some(i);
+      });
+      i = (i + usize(1));
+    });
+    if(winner.is_none(), {
+      __yo_async_poll_step();
+    });
+  });
+  winner.unwrap()
+});
+/// Drive the loop until some handle COMPLETES (not merely aborts) and return
+/// its index, or `.None` once every handle is terminal without a completion.
+/// Like `race`, the handles are not consumed — award each exactly one await.
+/// Panics on an empty list.
+any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(usize))({
+  assert(handles.len() > usize(0), "any: empty handle list");
+  (result : Option(usize)) = Option(usize).None;
+  (decided : bool) = false;
+  while(decided == false, {
+    (terminal : usize) = usize(0);
+    (i : usize) = usize(0);
+    while((i < handles.len()) && (decided == false), {
+      h := handles(i);
+      s := h.state();
+      if(s == FutureState.Completed, {
+        result = Option(usize).Some(i);
+        decided = true;
+      });
+      if(s == FutureState.Aborted, {
+        terminal = (terminal + usize(1));
+      });
+      i = (i + usize(1));
+    });
+    if((decided == false) && (terminal == handles.len()), {
+      decided = true;
+    });
+    if(decided == false, {
+      __yo_async_poll_step();
+    });
+  });
+  result
+});
+/// Await `handle` with a deadline: its result if it finishes within `limit`
+/// (`.None` if it was aborted), otherwise `abort()` it and return `.None`.
+/// The handle is consumed either way. Millisecond granularity (the timer
+/// contract of `std/time/sleep`).
+///
+/// KNOWN RESIDUAL (bounded): when the task finishes BEFORE the deadline, the
+/// deadline timer stays armed in the I/O backend until it fires, and its
+/// future struct (~tens of bytes) is never reclaimed — see
+/// `issues/timeout-deadline-timer-future-leak.md`.
+timeout :: (fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Option(T))({
+  // The deadline is a spawned TASK, not a bare io-timer future: a raw
+  // `IoFuture` local would be auto-dropped at scope end while the backend
+  // still holds the armed timer (issues/pending-io-future-local-drop-uaf.md);
+  // inside a task the await machinery owns it correctly on every path.
+  ms := Box(u64)(u64(limit.as_millis()));
+  deadline_fut := io.async((io : Io) => {
+    io.await(IO_timer.sleep(ms.*), io);
+    return(());
+  });
+  dh := io.spawn(deadline_fut, io);
+  (waiting : bool) = true;
+  while(waiting, {
+    cond(
+      handle.is_finished() => {
+        waiting = false;
+      },
+      dh.is_finished() => {
+        handle.abort();
+        waiting = false;
+      },
+      true => __yo_async_poll_step()
+    );
+  });
+  // Consume the deadline handle exactly once. When the task finished first,
+  // the abort is a no-op and the await returns immediately; the aborted
+  // task's armed timer fires at `limit` into the resume entry guard, which
+  // releases the state machine then.
+  dh.abort();
+  _deadline_r := dh.await(io);
+  handle.await(io)
+});
+export(yield, join_all, race, any, timeout);

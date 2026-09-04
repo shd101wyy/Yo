@@ -1,0 +1,66 @@
+// Gated user-defined macros — `pragma(Pragma.AllowMacroDef);` opts this
+// file into DEFINING macros (plans/MACRO_POLICY.md Part 2). CALLING std
+// macros (`if`, `for`, collection literals) never needs the pragma; every
+// other test file proves that.
+//
+// This file also preserves the coverage the removed std `try` macro's test
+// file (tests/try_macro.test.yo) used to provide: a macro whose expansion
+// performs an early `return` in the CALLER's frame.
+pragma(Pragma.AllowMacroDef);
+open(import("std/string"));
+{ assert } :: import("std/assert");
+
+/// Local re-creation of the removed std `try` macro
+/// (plans/MACRO_POLICY.md Part 3.1).
+try_local :: (fn(quote(expr_to_try) : Expr) -> unquote(Expr))({
+  temp :: gensym("try_local");
+  quote({
+    unquote(temp) := unquote(expr_to_try);
+    match(
+      unquote(temp),
+      .Ok(value) => value,
+      .Err(error) => {
+        return(.Err(error));
+      }
+    )
+  })
+});
+
+/// Lazy-argument macro: the skipped branch must never be evaluated.
+unless :: (fn(quote(c) : Expr, quote(body) : Expr) -> unquote(Expr))(
+  quote(cond(unquote(c) => (), true => unquote(body)))
+);
+
+might_fail :: (fn(ok : bool) -> Result(i32, String))(
+  if(ok, Result(i32, String).Ok(i32(41)), Result(i32, String).Err(String.from("nope")))
+);
+
+chain :: (fn(ok : bool) -> Result(i32, String))({
+  v := try_local(might_fail(ok));
+  Result(i32, String).Ok(v + i32(1))
+});
+
+test("macro def under AllowMacroDef: caller-frame early return works", {
+  match(
+    chain(true),
+    .Ok(n) => assert(n == i32(42), "Ok value flows through try_local"),
+    .Err(_) => assert(false, "unexpected Err from chain(true)")
+  );
+  match(
+    chain(false),
+    .Ok(_) => assert(false, "unexpected Ok from chain(false)"),
+    .Err(e) => assert(e == "nope", "Err short-circuits the caller")
+  );
+});
+
+test("macro def under AllowMacroDef: skipped branch stays unevaluated", {
+  hits := i32(0);
+  unless(true, {
+    hits = (hits + i32(1));
+  });
+  assert(hits == i32(0), "unless(true, ...) must not run the body");
+  unless(false, {
+    hits = (hits + i32(1));
+  });
+  assert(hits == i32(1), "unless(false, ...) runs the body once");
+});

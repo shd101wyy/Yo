@@ -1,0 +1,47 @@
+// Reproducer for issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md (FIXED 2026-08-29)
+//
+// This file only fails once std/collections/hash_map.yo AND
+// std/collections/hash_set.yo have their never-constructed error variants
+// removed, so that HashMapError and HashSetError both become exactly
+//
+//   enum(AllocError(error : AllocError))
+//
+// Apply BOTH trims, then:
+//   YO_STD=$PWD/std yo check issues/repros/hashmap-hashset-error-enums-collide.yo
+//
+// Expected (bug): evaluation fails with
+//   Error: Type mismatch for type member "error":
+//   Expected: HashMapError
+//   Got:   HashSetError
+//   std/collections/hash_set.yo:219:25:  .Err(err) => .Err(err),
+//
+// Importing only ONE of the two modules passes, which is why
+// tests/collections/hash_map.test.yo does not catch it.
+{ HashMap } :: import("../../std/collections/hash_map.yo");
+{ HashSet } :: import("../../std/collections/hash_set.yo");
+{ assert } :: import("../../std/assert.yo");
+{ println } :: import("../../std/fmt/index.yo");
+
+main :: (fn() -> i32)({
+  m := HashMap(i32, i32).new();
+  r := m.insert(7, 42);
+  code := match(
+    r,
+    .Ok(_) => i32(0),
+    .Err(e) => match(e, .AllocError({ error }) => i32(1), _ => i32(2))
+  );
+  assert(code == i32(0), "insert must succeed");
+  s := HashSet(i32).new();
+  sr := s.insert(9);
+  scode := match(
+    sr,
+    .Ok(_) => i32(0),
+    .Err(e) => match(e, .AllocError({ error }) => i32(1), _ => i32(2))
+  );
+  assert(scode == i32(0), "set insert must succeed");
+  assert(m.get(7).is_some(), "key 7 present");
+  assert(s.contains(9), "elem 9 present");
+  println(`BOTH_MAPS_OK`);
+  i32(0)
+});
+export(main);

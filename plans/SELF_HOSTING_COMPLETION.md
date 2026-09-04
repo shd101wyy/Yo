@@ -294,6 +294,19 @@ evaluate bundling zig as Koka bundles nothing but suggests one).
 
 ## Phase 4 — LSP + VS Code integration
 
+> **FEATURE-COMPLETE 2026-08-22** (`P4_LSP.md` has the full record): `yo lsp`
+> serves stdio LSP — diagnostics at exact ranges (incl. the def-time swallow
+> class), hover, definition, document symbols, references, folding, rename,
+> formatting, signature help, completion (import-path / dot members / enum
+> dot-prefix / generic-impl methods / identifier+env+keyword) — and the VS
+> Code extension carries a plain-JS client (`yo.binPath`). Gated by the
+> `lsp-handshake` + `lsp-completion` cli-cases (real framed-protocol goldens).
+> The companion incremental-compilation Phase B landed alongside
+> (`plans/INCREMENTAL_COMPILATION.md`): per-edit module-cache invalidation
+> with an open-buffer overlay, and registry purge so re-analysis stops
+> leaking. Inlay hints deliberately dropped (the attic shipped them
+> disabled). Original scoping below.
+
 > **Working doc: [`P4_LSP.md`](P4_LSP.md) — SCOPED 2026-08-12.** Measured
 > sizing (4,730 lines across 14 files, `completion.ts` alone 1,541, plus a
 > transport layer TypeScript gets free from `vscode-languageserver/node`) and
@@ -362,7 +375,7 @@ from its merge.
 | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P1 CLI parity    | **COMPLETE** 2026-08-10                                                                                                                               |
 | P2 retire `src/` | 2.1/2.2/2.4 **DONE**; 2.3 **in review** (needs a v0.2.4 seed); 2.5 planned, 2.6 after it                                                              |
-| P3 distribution  | five bundles **shipping**; installers **landed**; `yo version` on Releases and static-musl **open** — and musl now has a second reason (NixOS/Alpine) |
+| P3 distribution  | **PROVEN by v0.2.14 (2026-08-21)**: six bundles (musl-only Linux, windows-arm64 included) + six per-target `yo.c`; installers landed; `yo version` on Releases; suite runs on all six targets — only the fresh-VM gate run remains (`P3_DISTRIBUTION.md`) |
 | P4 LSP           | **scoped**, blocked on the def-eval swallow                                                                                                           |
 
 The strict phase order has held with one exception worth noting: P3's

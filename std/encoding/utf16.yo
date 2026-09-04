@@ -2,7 +2,7 @@
 //!
 //! Converts between Yo's UTF-8 `str` and UTF-16 code units (`ArrayList(u16)`).
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { utf8_to_utf16, utf16_to_utf8 } :: import "std/encoding/utf16";
@@ -12,8 +12,9 @@
 //! ```
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
-{ EncodingError } :: import("./hex");
+{ EncodingError } :: import("./error");
 { Error, AnyError, Exception } :: import("../error");
+utf8 :: import("./utf8");
 // ============================================================================
 // UTF-8 → UTF-16
 // ============================================================================
@@ -21,42 +22,26 @@ open(import("../string"));
 ///
 /// Handles BMP characters directly and encodes supplementary characters as surrogate pairs.
 utf8_to_utf16 :: (fn(s : String) -> ArrayList(u16))({
+  bytes := s.as_bytes();
   out := ArrayList(u16).new();
   i := usize(0);
-  while(i < s.bytes_len(), {
-    b0 := u32(s.byte_at(i));
+  while(i < bytes.len(), {
+    // A malformed byte becomes U+FFFD and advances by one, so a corrupt input
+    // still terminates instead of walking off the buffer.
+    d := utf8.decode_lossy(bytes, i);
+    cp := d.code.to_u32();
     cond(
-      (b0 < u32(0x80)) => {
-        out.push(u16(b0));
-        i = (i + usize(1));
-      },
-      ((b0 & u32(0xE0)) == u32(0xC0)) => {
-        b1 := u32(s.byte_at(i + usize(1)));
-        cp := (((b0 & u32(0x1F)) << u32(6)) | (b1 & u32(0x3F)));
+      (cp < u32(0x10000)) => {
         out.push(u16(cp));
-        i = (i + usize(2));
-      },
-      ((b0 & u32(0xF0)) == u32(0xE0)) => {
-        b1 := u32(s.byte_at(i + usize(1)));
-        b2 := u32(s.byte_at(i + usize(2)));
-        cp := ((((b0 & u32(0x0F)) << u32(12)) | ((b1 & u32(0x3F)) << u32(6))) | (b2 & u32(0x3F)));
-        out.push(u16(cp));
-        i = (i + usize(3));
       },
       true => {
-        // 4-byte sequence → surrogate pair
-        b1 := u32(s.byte_at(i + usize(1)));
-        b2 := u32(s.byte_at(i + usize(2)));
-        b3 := u32(s.byte_at(i + usize(3)));
-        cp := (((((b0 & u32(0x07)) << u32(18)) | ((b1 & u32(0x3F)) << u32(12))) | ((b2 & u32(0x3F)) << u32(6))) | (b3 & u32(0x3F)));
+        // Supplementary plane → surrogate pair.
         cp2 := (cp - u32(0x10000));
-        hi := u16((cp2 >> u32(10)) + u32(0xD800));
-        lo := u16((cp2 & u32(0x3FF)) + u32(0xDC00));
-        out.push(hi);
-        out.push(lo);
-        i = (i + usize(4));
+        out.push(u16((cp2 >> u32(10)) + u32(0xD800)));
+        out.push(u16((cp2 & u32(0x3FF)) + u32(0xDC00)));
       }
     );
+    i = (i + d.width);
   });
   out
 });
@@ -89,27 +74,20 @@ utf16_to_utf8 :: (fn(data : ArrayList(u16), exn : Exception) -> String)({
           },
           true => ()
         );
-        cp := ((((w - u32(0xD800)) << u32(10)) + (w2 - u32(0xDC00))) + u32(0x10000));
-        // Encode as 4-byte UTF-8
-        out.push(u8(u32(0xF0) | (cp >> u32(18))));
-        out.push(u8(u32(0x80) | ((cp >> u32(12)) & u32(0x3F))));
-        out.push(u8(u32(0x80) | ((cp >> u32(6)) & u32(0x3F))));
-        out.push(u8(u32(0x80) | (cp & u32(0x3F))));
+        cp := (((w - u32(0xD800)) << u32(10)) + (w2 - u32(0xDC00)) + u32(0x10000));
+        utf8.encode_lossy_into(cp, out);
         i = (i + usize(2));
       },
-      (w < u32(0x80)) => {
-        out.push(u8(w));
-        i = (i + usize(1));
-      },
-      (w < u32(0x800)) => {
-        out.push(u8(u32(0xC0) | (w >> u32(6))));
-        out.push(u8(u32(0x80) | (w & u32(0x3F))));
-        i = (i + usize(1));
+      // A LOW surrogate that was not consumed by the branch above is
+      // unpaired. The old code let it fall through and wrote it out as a
+      // 3-byte CESU-8 sequence — invalid UTF-8 — despite this function's
+      // documented "throws on unpaired surrogates" contract.
+      ((w >= u32(0xDC00)) && (w <= u32(0xDFFF))) => {
+        exn.throw(dyn(EncodingError.InvalidChar(u8(0))));
       },
       true => {
-        out.push(u8(u32(0xE0) | (w >> u32(12))));
-        out.push(u8(u32(0x80) | ((w >> u32(6)) & u32(0x3F))));
-        out.push(u8(u32(0x80) | (w & u32(0x3F))));
+        // A BMP scalar: nothing is ever substituted here.
+        utf8.encode_lossy_into(w, out);
         i = (i + usize(1));
       }
     );

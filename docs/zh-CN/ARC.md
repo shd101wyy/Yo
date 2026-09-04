@@ -71,7 +71,7 @@ assert((b.(*) == c.(*)), "same shared value");
 
 shared := arc(i32(42));
 
-t := Thread.spawn(() => {
+t := Thread.spawn((io) => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
 });
 
@@ -97,6 +97,6 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 ## 相关文档
 
-- `docs/zh-CN/PARALLELISM.md` —— 线程与 Worker 模型
+- `docs/zh-CN/PARALLELISM.md` —— 线程与线程池模型
 - `docs/zh-CN/ISOLATED.md` —— `Iso(T)` 的唯一所有权
 - `docs/zh-CN/IMMUTABLE_COLLECTIONS.md` —— 基于 `atomic(ref(struct(...)))` 的持久化集合

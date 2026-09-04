@@ -3,11 +3,11 @@
 //! Provides low-level wrappers for signal registration and delivery.
 pragma(Pragma.AllowUnsafe);
 { __yo_signal_start, __yo_signal_stop, __yo_kill } :: import("./externs.yo");
-SignalHandler :: (fn(data : *(u8)) -> unit);
+SignalHandler :: (fn(data : *u8) -> unit);
 // Register a signal handler.
 // Returns 0 on success, -errno on failure.
 on_signal :: (fn(signum : i32, handler : SignalHandler) -> i32)(
-  __yo_signal_start(signum, unsafe.cast(handler, *(u8)))
+  __yo_signal_start(signum, unsafe.cast(handler, *u8))
 );
 // Remove a signal handler (reset to default).
 // Returns 0 on success, -errno on failure.

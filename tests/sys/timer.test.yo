@@ -37,3 +37,20 @@ test("Test Io timer", {
   io.await(task1, io);
   io.await(task2, io);
 });
+test("Test zero-length sleep completes", {
+  // sleep(0) must complete on the next loop turn on every runtime. Linux's
+  // timerfd variant regressed this: POSIX defines a zero it_value as
+  // DISARMING the timer, so the io_uring read never completed and the awaiter
+  // parked forever (issues/fixed/sleep-zero-disarms-linux-timerfd.md).
+  r0 := io.await(sleep(u64(0)), io);
+  assert(r0 >= i32(0), "sleep(0) awaited from a plain context should complete without error");
+  inner := Box(bool)(false);
+  t := io.async((io : Io) => {
+    r1 := io.await(sleep(u64(0)), io);
+    assert(r1 >= i32(0), "sleep(0) awaited inside a task should complete without error");
+    inner.* = true;
+  });
+  io.spawn(t, io);
+  io.await(t, io);
+  assert(inner.*, "the zero-sleep task body should have run to completion");
+});

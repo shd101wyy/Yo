@@ -6,7 +6,7 @@
 //!
 //! Elements must implement `Eq`, `Ord`, and `Send`.
 //!
-//! # Examples
+//! ## Examples
 //!
 //! ```rust
 //! { SortedSet } :: import "std/imm/sorted_set";
@@ -22,12 +22,14 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { List } :: import("./list.yo");
 /// Persistent immutable sorted set backed by a left-leaning red-black tree.
-SortedSet :: (fn(comptime(T) : Type, where(T <: (Eq(T), Ord(T), Send))) -> comptime(Type))(
+SortedSet :: (fn(comptime(T) : Type, where(T <: (Eq(T), Ord(T), Send, Acyclic))) -> comptime(Type))(
   struct(_inner : SortedMap(T, bool))
 );
+// O7: nesting support — see SortedMap's impl.
+impl(generic(T : Type), where(T <: (Eq(T), Ord(T), Send, Acyclic)), SortedSet(T), Acyclic());
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Ord(T), Send)),
+  where(T <: (Eq(T), Ord(T), Send, Acyclic)),
   SortedSet(T),
   /// Create an empty sorted set.
   new : (fn() -> Self)(
@@ -67,7 +69,7 @@ impl(
     (result : Self) = self;
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       match(
         cur.head(),
         .Some(elem) => {
@@ -87,7 +89,7 @@ impl(
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       match(
         cur.head(),
         .Some(elem) => {
@@ -109,11 +111,11 @@ impl(
     (result : Self) = Self.new();
     (cur : List(T)) = elems;
     (done : bool) = false;
-    while(runtime(!(done)), {
+    while(runtime(!done), {
       match(
         cur.head(),
         .Some(elem) => {
-          if(!(other.contains(elem)), {
+          if(!other.contains(elem), {
             result = result.insert(elem);
           });
           cur = cur.tail();
@@ -133,11 +135,11 @@ impl(
     elems := self.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while(runtime(result && !(cur.is_empty())), {
+    while(runtime(result && !cur.is_empty()), {
       match(
         cur.head(),
         .Some(elem) => {
-          if(!(other.contains(elem)), {
+          if(!other.contains(elem), {
             result = false;
           });
           cur = cur.tail();
@@ -160,7 +162,7 @@ impl(
     elems := smaller.to_list();
     (cur : List(T)) = elems;
     (result : bool) = true;
-    while(runtime(result && !(cur.is_empty())), {
+    while(runtime(result && !cur.is_empty()), {
       match(
         cur.head(),
         .Some(elem) => {
@@ -187,7 +189,7 @@ impl(
 );
 impl(
   generic(T : Type),
-  where(T <: (Eq(T), Ord(T), Send)),
+  where(T <: (Eq(T), Ord(T), Send, Acyclic)),
   SortedSet(T),
   Eq(SortedSet(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)(

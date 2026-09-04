@@ -1,6 +1,6 @@
 //! Chainable string builder for composing formatted output.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { Writer, Alignment } :: import "std/fmt/writer";
@@ -15,6 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { rune } :: import("../string/rune");
+utf8 :: import("../encoding/utf8");
 { snprintf } :: import("../libc/stdio");
 /// Text alignment for padded output.
 Alignment :: enum(Left, Right, Center);
@@ -68,33 +69,13 @@ impl(
   }),
   /// Append a Unicode code point encoded as UTF-8.
   write_rune : (fn(self : Self, r : rune) -> Self)({
-    v := u32(r.char);
-    cond(
-      (v < u32(0x80)) => {
-        self.buf.push(u8(v));
-      },
-      (v < u32(0x800)) => {
-        self.buf.push(u8(u32(0xC0) | (v >> u32(6))));
-        self.buf.push(u8(u32(0x80) | (v & u32(0x3F))));
-      },
-      (v < u32(0x10000)) => {
-        self.buf.push(u8(u32(0xE0) | (v >> u32(12))));
-        self.buf.push(u8(u32(0x80) | ((v >> u32(6)) & u32(0x3F))));
-        self.buf.push(u8(u32(0x80) | (v & u32(0x3F))));
-      },
-      true => {
-        self.buf.push(u8(u32(0xF0) | (v >> u32(18))));
-        self.buf.push(u8(u32(0x80) | ((v >> u32(12)) & u32(0x3F))));
-        self.buf.push(u8(u32(0x80) | ((v >> u32(6)) & u32(0x3F))));
-        self.buf.push(u8(u32(0x80) | (v & u32(0x3F))));
-      }
-    );
+    utf8.encode_into(r, self.buf);
     self
   }),
   /// Append a signed 64-bit integer in decimal.
   write_i64 : (fn(self : Self, n : i64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(24), "%lld", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -102,7 +83,7 @@ impl(
   /// Append an unsigned 64-bit integer in decimal.
   write_u64 : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(24), "%llu", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -110,7 +91,7 @@ impl(
   /// Append a 64-bit float with the given number of decimal places.
   write_f64 : (fn(self : Self, n : f64, precision : i32) -> Self)({
     buf := Array(u8, usize(64)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(64), "%.*f", precision, n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -125,7 +106,7 @@ impl(
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.
   write_hex : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(20)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(20), "%llx", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
@@ -133,7 +114,7 @@ impl(
   /// Append an unsigned 64-bit integer in octal.
   write_octal : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
-    buf_ptr := &(buf(usize(0)));
+    buf_ptr := &buf(usize(0));
     unsafe(snprintf(*(char)(buf_ptr), usize(24), "%llo", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)

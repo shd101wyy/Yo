@@ -67,3 +67,56 @@ test("where-clause inference with bool callback return type", {
     .Some(v) => assert(false, "should not produce a value")
   );
 });
+// --- where-bound generic over two collections: GC trace must not go
+// abstract-keyed (issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md).
+// A user IntoIterator-shaped trait (assoc Item/IntoIter + a where-clause tying
+// them) implemented on LinkedList and BTreeMap; instantiating one where-bound
+// generic at LinkedList and then a second at BTreeMap minted ERA-COPY
+// ArrayList(MapEntry(K',V')) identities from the failed impl-match trials,
+// whose GC traverse delegated to a never-emitted hard-generic trace spec —
+// "call to undeclared function yo_id_..._<raw SomeT ids>_..." at C compile.
+{ LinkedList, LinkedListIter } :: import("std/collections/linked_list");
+{ BTreeMap, BTreeMapIter, MapEntry } :: import("std/collections/btree_map");
+__WbInto :: trait(
+  Item : Type,
+  IntoIter : Type,
+  wb_into : (fn(self : Self) -> Self.IntoIter),
+  where(Self.IntoIter <: Iterator(Item := Self.Item))
+);
+impl(
+  generic(T : Type),
+  LinkedList(T),
+  __WbInto(
+    Item : T,
+    IntoIter : LinkedListIter(T),
+    wb_into : (fn(self : Self) -> LinkedListIter(T))(self.into_iter())
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  BTreeMap(K, V),
+  __WbInto(
+    Item : MapEntry(K, V),
+    IntoIter : BTreeMapIter(K, V),
+    wb_into : (fn(self : Self) -> BTreeMapIter(K, V))(self.into_iter())
+  )
+);
+__wb_sum :: (
+  fn(generic(C : Type), c : C, where(C <: __WbInto(Item := i32))) -> i32
+)(
+  c.wb_into().fold(i32(0), (acc, x) => (acc + x))
+);
+__wb_count :: (
+  fn(generic(C : Type), c : C, where(C <: __WbInto)) -> usize
+)(
+  c.wb_into().count()
+);
+test("where-bound generic over LinkedList then BTreeMap compiles and runs", {
+  ll := LinkedList(i32).new();
+  ll.push_back(i32(10));
+  ll.push_back(i32(20));
+  assert(__wb_sum(ll) == i32(30), "LinkedList through the Item-bound generic");
+  bt := BTreeMap(i32, i32).new();
+  bt.insert(i32(1), i32(10));
+  assert(__wb_count(bt) == usize(1), "BTreeMap through the bare bound");
+});

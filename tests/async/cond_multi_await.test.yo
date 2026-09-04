@@ -1,0 +1,68 @@
+//! A cond/match arm with TWO awaits, where the arm branches await
+//! DIFFERENTLY-shaped futures and the SECOND await's result is USED
+//! (issues/second-cond-internal-await-result-not-stored.md). The shared
+//! dispatch await point only modelled the representative branch: the other
+//! arm's second await was never POLLED (its future stayed cold, ->result
+//! null) and its result was never STORED — the binding slot was a null that
+//! SIGSEGVs. This is why every plain-HTTP request crashed (DNS await then
+//! connect await, connect result used).
+pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime end-to-end
+pragma(Pragma.SkipWasm32Wasi);
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+
+Wrap :: ref(struct(v : i32));
+_mk_i32 :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((io2 : Io) => {
+    return(i32(7));
+  })
+);
+_mk_wrap :: (fn(io : Io) -> Impl(Future(Wrap, IoExn)))(
+  io.async((io2 : Io) => {
+    return(Wrap(v : i32(42)));
+  })
+);
+_mk_other :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((io2 : Io) => {
+    return(i32(3));
+  })
+);
+// The two arms await differently-shaped futures at position 1 (i32 vs Wrap),
+// and each USES its second await's result.
+_run :: (fn(flag : bool, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    (out : i32) = i32(0);
+    cond(
+      flag => {
+        a := e.io.await(_mk_i32(e.io), e);
+        b := e.io.await(_mk_other(e.io), e);
+        out = (a + b); // uses the second await (b)
+      },
+      true => {
+        n := e.io.await(_mk_i32(e.io), e);
+        w := e.io.await(_mk_wrap(e.io), e);
+        out = (n + w.v); // uses the second await (w) — the crash site
+      }
+    );
+    out
+  })
+);
+
+test("second await result is stored in each differently-shaped cond arm", {
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  // The Wrap arm: n(7) + w.v(42) = 49 — used to SIGSEGV (w null).
+  r_http := io.await(_run(false, io), e);
+  assert(r_http == i32(49), "Wrap-arm second await (w.v) read correctly");
+  // The i32 arm: a(7) + b(3) = 10.
+  r_https := io.await(_run(true, io), e);
+  assert(r_https == i32(10), "i32-arm second await (b) read correctly");
+});

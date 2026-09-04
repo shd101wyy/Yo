@@ -114,7 +114,7 @@ type_id_or_empty :: (fn(t : TypeValue) -> String)(
     // `Type.get_info(...)` dispatch resolves. Without this id the prelude's
     // `impl(Type, ...)` registration was silently skipped and every
     // `Type.*` reflection method soft-fell to `unit` under check.
-    .TypeUni(level) => ((String.from("Type(") + level.to_string()) + String.from(")")),
+    .TypeUni(level) => (String.from("Type(") + level.to_string() + String.from(")")),
     _ => String.from("")
   )
 );
@@ -156,22 +156,113 @@ MethodEntry :: ref(
 /// Module-level storage: `type id` → list of method entries.
 (_type_trait_methods : HashMap(String, ArrayList(MethodEntry))) =
   HashMap(String, ArrayList(MethodEntry)).new();
+/// Owner tags, parallel to `_type_trait_methods` (same key, same index):
+/// the `file://` abs path of the module whose evaluation registered the
+/// entry (`""` outside any module load — never purged). Enables
+/// `purge_type_trait_methods_owned_by` so LSP re-analysis stops leaking a
+/// registry generation per edit (plans/INCREMENTAL_COMPILATION.md Phase B2).
+(_type_trait_method_owners : HashMap(String, ArrayList(String))) =
+  HashMap(String, ArrayList(String)).new();
+/// The module currently being evaluated, as far as registration ownership
+/// is concerned. MAINTAINED BY module_loader's register_loading /
+/// unregister_loading (the loading-stack top) — the state lives HERE, and
+/// the loader pushes into it, because importing module_loader from this
+/// module would close the module_loader → env → type_trait_methods cycle.
+(_registration_owner : String) = String.new();
+set_registration_owner :: (fn(owner : String) -> unit)({
+  _registration_owner = owner;
+});
+/// The current owner tag ("" outside any module evaluation). Read by this
+/// module's own registration and by impl.yo's generic-impl registry.
+registration_owner :: (fn() -> String)(_registration_owner.clone());
 /// Append `entry` to the method list for `type_id`. The list is
-/// created on demand.
+/// created on demand. The owner tag is read from the module-loader's
+/// loading stack HERE so registration call sites stay unchanged.
 register_type_trait_method :: (
   fn(type_id : String, entry : MethodEntry) -> unit
 )({
+  owner := _registration_owner.clone();
   match(
-    _type_trait_methods.get(type_id),
+    _type_trait_methods.get(type_id.clone()),
     .Some(list) => {
       list.push(entry);
     },
     .None => {
       fresh := ArrayList(MethodEntry).new();
       fresh.push(entry);
-      ___set := _type_trait_methods.set(type_id, fresh);
+      ___set := _type_trait_methods.insert(type_id.clone(), fresh);
     }
   );
+  match(
+    _type_trait_method_owners.get(type_id.clone()),
+    .Some(olist) => {
+      olist.push(owner);
+    },
+    .None => {
+      ofresh := ArrayList(String).new();
+      ofresh.push(owner);
+      ___oset := _type_trait_method_owners.insert(type_id, ofresh);
+    }
+  );
+});
+/// Drop every method entry registered by `owner` (a `file://` abs module
+/// path). Called with each module the LSP invalidates, right before its
+/// re-evaluation re-registers the surviving impls under fresh type ids.
+purge_type_trait_methods_owned_by :: (fn(owner : String) -> unit)({
+  if(owner.len() == usize(0), {
+    return(());
+  });
+  it := _type_trait_methods.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.get(key.clone()),
+        .Some(list) => match(
+          _type_trait_method_owners.get(key.clone()),
+          .Some(olist) => {
+            (i : usize) = olist.len();
+            while(i > usize(0), {
+              i = (i - usize(1));
+              hit := match(olist.get(i), .Some(o) => (o == owner), .None => false);
+              if(hit && (i < list.len()), {
+                list.drain(i .. (i + usize(1)));
+                olist.drain(i .. (i + usize(1)));
+              });
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+});
+/// Total registered method entries across all type ids (LSP leak gate).
+type_trait_methods_entry_count :: (fn() -> usize)({
+  (total : usize) = usize(0);
+  it := _type_trait_methods.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(key) => match(
+        _type_trait_methods.get(key),
+        .Some(list) => {
+          total = (total + list.len());
+        },
+        .None => ()
+      ),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  total
 });
 /// Return all method entries registered for `type_id`, or an empty
 /// list when nothing has been registered.
@@ -215,7 +306,7 @@ register_provisional_trait_method :: (
     .None => {
       fresh := ArrayList(MethodEntry).new();
       fresh.push(entry);
-      ___set := _provisional_trait_methods.set(type_id, fresh);
+      ___set := _provisional_trait_methods.insert(type_id, fresh);
     }
   );
 });
@@ -272,12 +363,45 @@ get_type_trait_methods_by_name :: (
   });
   result
 });
+/// INHERENT-method definition sites, keyed by `type_id` + NUL-free
+/// separator + `label`, valued by the defining token's
+/// `module_path:row:column`. This is how the duplicate-inherent-method
+/// rejection (plans/FUNCTION_OVERLOADING_POLICY.md,
+/// issues/fixed/duplicate-inherent-method-impls-not-rejected.md) tells a GENUINE
+/// second definition (different source site) from the loader's idempotent
+/// re-evaluation and from a generic impl re-registering per instantiation
+/// (both replay the SAME site). Keyed separately from `_type_trait_methods`
+/// so codegen-time synthetic registrations (codegen/functions/collection.yo)
+/// never participate.
+(_inherent_method_sites : HashMap(String, String)) = HashMap(String, String).new();
 /// Drop all registered methods. Used by test harnesses to reset
 /// global state between runs. Mirrors the cleanup helpers in
 /// `evaluator/values/impl.yo` for the generic-impl registry.
 clear_type_trait_methods :: (fn() -> unit)({
   fresh := HashMap(String, ArrayList(MethodEntry)).new();
   _type_trait_methods = fresh;
+  fresh_sites := HashMap(String, String).new();
+  _inherent_method_sites = fresh_sites;
+});
+/// Record `site` as the defining site of inherent method `label` on
+/// `type_id`. Returns `.Some(previous_site)` when the pair was already
+/// defined at a DIFFERENT site — a genuine duplicate the caller must
+/// reject — and `.None` for a fresh definition or a same-site replay.
+note_inherent_method_site :: (
+  fn(type_id : String, label : String, site : String) -> Option(String)
+)({
+  key := `${type_id}\n${label}`;
+  match(
+    _inherent_method_sites.get(key.clone()),
+    .Some(prev) => cond(
+      (prev == site) => Option(String).None,
+      true => Option(String).Some(prev)
+    ),
+    .None => {
+      ___ins := _inherent_method_sites.insert(key, site);
+      Option(String).None
+    }
+  )
 });
 /// Trait-method DEFAULT values (`?=` defaults). yo-self's `TraitT` does not store
 /// per-field default values (divergence — trait_type.yo:6-8), so the trait
@@ -287,10 +411,10 @@ clear_type_trait_methods :: (fn() -> unit)({
 /// overriding a defaulted method (e.g. `Error.source ?= (self) -> .None`).
 (_trait_method_defaults : HashMap(String, EvalValue)) = HashMap(String, EvalValue).new();
 register_trait_default :: (fn(trait_id : String, label : String, value : EvalValue) -> unit)({
-  _trait_method_defaults.set((trait_id + String.from("::")) + label, value);
+  _trait_method_defaults.insert(trait_id + String.from("::") + label, value);
 });
 get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue))(
-  _trait_method_defaults.get((trait_id + String.from("::")) + label)
+  _trait_method_defaults.get(trait_id + String.from("::") + label)
 );
 /// Forward-shell → real-method func_id REDIRECT (`shell_func_id` → `real_func_id`,
 /// both Strings — NOT FuncVals, since EvalValue has no `.clone()` and `clone_value`
@@ -303,7 +427,7 @@ get_trait_default :: (fn(trait_id : String, label : String) -> Option(EvalValue)
 /// parser.yo's recursive `get_program` emitting a shell's unevaluated body.
 (_shell_redirect : HashMap(String, String)) = HashMap(String, String).new();
 register_shell_redirect :: (fn(shell_func_id : String, real_func_id : String) -> unit)({
-  _shell_redirect.set(shell_func_id, real_func_id);
+  _shell_redirect.insert(shell_func_id, real_func_id);
 });
 get_shell_redirect :: (fn(shell_func_id : String) -> Option(String))(
   _shell_redirect.get(shell_func_id)
@@ -315,11 +439,16 @@ export(
   register_shell_redirect,
   get_shell_redirect,
   register_type_trait_method,
+  note_inherent_method_site,
   get_type_trait_methods_for_type,
   get_type_trait_methods_by_name,
   clear_type_trait_methods,
   register_provisional_trait_method,
   get_provisional_trait_methods_by_name,
   clear_provisional_trait_methods,
-  type_id_or_empty
+  type_id_or_empty,
+  set_registration_owner,
+  registration_owner,
+  purge_type_trait_methods_owned_by,
+  type_trait_methods_entry_count
 );

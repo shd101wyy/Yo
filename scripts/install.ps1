@@ -1,6 +1,6 @@
 # Installation script for Yo on Windows (PowerShell); use -Help to see options.
 #
-#   irm https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.ps1 | iex
+#   irm https://shd101wyy.github.io/Yo/install.ps1 | iex
 #
 # Installs a prebuilt release bundle. Yo is self-hosted: the bundle carries the
 # native compiler plus the standard library and the vendored mimalloc sources,
@@ -94,6 +94,30 @@ function Get-OsArch {
   }
 }
 
+# The published asset name for this host, in canonical target-triple form
+# (plans/RELEASE_ASSET_TRIPLES.md). Kept in step with
+# scripts/release_asset_triple.sh and src/version_cache.yo; this script is
+# fetched standalone over HTTP, so it carries its own copy of the mapping.
+function Get-HostTriple {
+  switch (Get-OsArch) {
+    'windows-x64'   { return 'x86_64-pc-windows-msvc' }
+    'windows-arm64' { return 'aarch64-pc-windows-msvc' }
+    default         { return $null }
+  }
+}
+
+# $true when the asset exists, so the caller can prefer the triple name and fall
+# back to the pre-triple short name on releases up to and including v0.2.18.
+function Test-AssetExists {
+  param([string]$Url)
+  try {
+    Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -ErrorAction Stop | Out-Null
+    return $true
+  } catch {
+    return $false
+  }
+}
+
 # ---------------------------------------------------------------------------
 # Dependencies
 #
@@ -182,7 +206,15 @@ function Test-CToolchain {
   $src = Join-Path $tmp 'probe.c'
   "#include <stdio.h>`nint main(void) { return 0; }" | Set-Content -Path $src -Encoding UTF8
   $out = Join-Path $tmp 'probe.exe'
+  # 'Continue' around every native 2>&1 capture: while this script's global
+  # $ErrorActionPreference = 'Stop' is in force, Windows PowerShell 5.1 turns
+  # the first line a native command writes to stderr under 2>&1 into a
+  # TERMINATING NativeCommandError at the call site — killing the script with
+  # an opaque message before the $LASTEXITCODE check below can report the real
+  # failure. 'Continue' keeps those lines in $log instead.
+  $ErrorActionPreference = 'Continue'
   $log = & clang $src -o $out 2>&1
+  $ErrorActionPreference = 'Stop'
   if ($LASTEXITCODE -eq 0) { return }
   Warn @"
 clang is on PATH but cannot build a C program on this machine, so 'yo compile'
@@ -264,7 +296,16 @@ Pass a version explicitly, e.g. -Version v0.2.3
 
 function Install-Dist {
   $osarch = Get-OsArch
-  $bundle = "yo-$Version-$osarch"
+  # Triple name first; the short name is what every release up to v0.2.18 has.
+  $bundle = $null
+  $triple = Get-HostTriple
+  if ($triple) {
+    $candidate = "yo-$Version-$triple"
+    if (Test-AssetExists "$DistBaseUrl/$Version/$candidate.tar.gz") {
+      $bundle = $candidate
+    }
+  }
+  if (-not $bundle) { $bundle = "yo-$Version-$osarch" }
   $url    = "$DistBaseUrl/$Version/$bundle.tar.gz"
   $target = Join-Path (Join-Path (Join-Path $Prefix 'lib') 'yo') $Version
   $binDir = Join-Path $Prefix 'bin'
@@ -358,23 +399,35 @@ function Verify-Install {
   }
   $tmp = New-TempDir
   $src = Join-Path $tmp 'hello.yo'
-  @'
+  $hello = @'
 open(import("std/fmt"));
 main :: (fn() -> unit)({
   println(`Yo is installed`);
 });
 export(main);
-'@ | Set-Content -Path $src -Encoding UTF8
+'@
+  # BOM-less on purpose: the Yo lexer rejects a source file starting with a
+  # UTF-8 BOM, and this verification runs against the RELEASED binary, which
+  # cannot be assumed to tolerate one. Windows PowerShell 5.1's
+  # `Set-Content -Encoding UTF8` ALWAYS prepends a BOM (PS 7 does not), so use
+  # .NET's UTF8Encoding($false) default instead.
+  [System.IO.File]::WriteAllText($src, $hello)
 
   $exe = Join-Path (Join-Path (Join-Path (Join-Path (Join-Path $Prefix 'lib') 'yo') $Version) 'bin') 'yo.exe'
   $out = Join-Path $tmp 'hello.exe'
   Info 'Verifying (compiling a hello world)..'
+  # See Test-CToolchain: 'Continue' keeps yo's stderr in $log instead of
+  # throwing NativeCommandError under $ErrorActionPreference = 'Stop' (PS 5.1).
+  $ErrorActionPreference = 'Continue'
   $log = & $exe compile $src -o $out 2>&1
+  $ErrorActionPreference = 'Stop'
   if ($LASTEXITCODE -ne 0) {
     Warn ($log | Out-String)
     Fail 'The install is present but cannot compile. See the output above.'
   }
+  $ErrorActionPreference = 'Continue'
   $printed = (& $out 2>&1 | Out-String).Trim()
+  $ErrorActionPreference = 'Stop'
   if ($printed -ne 'Yo is installed') {
     Fail "Verification FAILED: the compiled program printed '$printed'"
   }

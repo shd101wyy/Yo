@@ -11,7 +11,7 @@ dir :: import("std/sys/dir");
 { sleep } :: import("std/sys/timer");
 { AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
 // Callback that records event type into user_data (pointer to i32)
-on_fs_event_record :: (fn(path : *(u8), events_mask : i32, user_data : *(u8)) -> unit)({
+on_fs_event_record :: (fn(path : *u8, events_mask : i32, user_data : *u8) -> unit)({
   ptr := *(i32)(user_data);
   ptr.* = (ptr.* | events_mask);
   unsafe(printf("  fs_event callback: path=%s events=%d\n", path, events_mask));

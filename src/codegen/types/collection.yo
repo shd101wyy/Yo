@@ -75,7 +75,7 @@ _intern_type_c_name :: (fn(key : String) -> String)(
     .Some(existing) => existing,
     .None => {
       id := `__yo_t${_g_type_c_name_intern.len().to_string()}`;
-      _g_type_c_name_intern.set(key.clone(), id.clone());
+      _g_type_c_name_intern.insert(key.clone(), id.clone());
       id
     }
   )
@@ -92,7 +92,7 @@ _struct_some_type_is_only_in_function_fields :: (
       if(visited.contains(id.clone()), {
         return(true); // cyclic reference is fine
       });
-      _a := visited.add(id.clone());
+      _a := visited.insert(id.clone());
       (ok : bool) = true;
       n := field_types.len();
       (i : usize) = usize(0);
@@ -126,7 +126,7 @@ _enum_some_type_is_only_in_function_fields :: (
       if(visited.contains(id.clone()), {
         return(true);
       });
-      _a := visited.add(id.clone());
+      _a := visited.insert(id.clone());
       (ok : bool) = true;
       nv := variant_fields.len();
       (vi : usize) = usize(0);
@@ -245,7 +245,7 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
         aliased = true;
       }),
       .None => {
-        g_stable_to_key.set(stable.clone(), tk.clone());
+        g_stable_to_key.insert(stable.clone(), tk.clone());
       }
     );
     if(!(aliased), {
@@ -383,9 +383,9 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
   });
 });
 /// Collect any pointer POINTEE found directly in `ft` or one level inside an
-/// enum variant of `ft`. Covers `*(T)` and the nullable-pointer `?*(T)` (=
+/// enum variant of `ft`. Covers `*(T)` and the nullable-pointer `?(*(T))` (=
 /// `Option(*(T))`) shapes used by container `data` fields. One level only (no
-/// deep enum recursion) — sufficient for `data : ?*(Bucket)` / `?*(T)` and
+/// deep enum recursion) — sufficient for `data : ?(*(MapEntry))` / `?(*(T))` and
 /// guaranteed terminating; `collect_type`'s already-collected guard handles the
 /// rest. (Defined before collect_pointer_pointees — Yo has no forward refs.)
 _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit)(
@@ -416,13 +416,13 @@ _collect_field_pointees :: (fn(ft : TypeValue, context : CodeGenContext) -> unit
 );
 /// SECOND PASS (run after collect_required_types, before generate_type_
 /// declarations): register the pointee types behind pointer FIELDS of
-/// already-registered structs. A container like `HashMap.data : ?*(Bucket(K,V))`
-/// or `ArrayList.data : ?*(T)` lowers to `T*`, so emitting the OWNER struct's
+/// already-registered structs. A container like `HashMap.data : ?(*(MapEntry(K,V)))`
+/// or `ArrayList.data : ?(*(T))` lowers to `T*`, so emitting the OWNER struct's
 /// typedef calls get_type_string(T) and REQUIRES `T` registered. The main
 /// collection reaches `T` only via the container's generated dup/drop bodies; for
 /// the async/effect-codegen value types whose dup/drop involve recursive members
 /// (AstExpr / Box(Self) self-shells), that path does NOT fire in the self-compile,
-/// leaving e.g. `Bucket(usize, WhileLoopInfo)` unregistered → "type not collected
+/// leaving e.g. `MapEntry(usize, WhileLoopInfo)` unregistered → "type not collected
 /// before lowering" panic. Running as a SEPARATE pass (not inline in collect_type)
 /// leaves the MAIN collection ORDER untouched, so it cannot perturb the
 /// order-sensitive lazy array-struct registration. Fixpoint loop handles
@@ -689,7 +689,7 @@ collect_required_types :: (fn(module_value : EvalValue, context : CodeGenContext
     while(ki < nk, {
       key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
       if(!(processed.contains(key.clone())), {
-        _p := processed.add(key.clone());
+        _p := processed.insert(key.clone());
         found_new = true;
         match(
           context.get_function_entry(key.clone()),

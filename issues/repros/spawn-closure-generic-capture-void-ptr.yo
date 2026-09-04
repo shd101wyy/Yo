@@ -1,0 +1,39 @@
+// Repro: a value whose type comes from an ENCLOSING generic function's type
+// parameter is emitted as `void*` in a spawn closure's capture struct, so the
+// C compiler rejects the emitted code.
+//
+//   yo compile issues/repros/spawn-closure-generic-capture-void-ptr.yo --release -o /tmp/r.out
+//
+// Emitted capture struct (the `v : T` field is `void*`, `ch` is fine only
+// because Channel is a pointer-shaped ref type):
+//
+//   struct __yo_t23_struct { //  : <struct:capture_yo_id_7371>
+//     __yo_t24* ch;
+//     void* v;
+//   };
+//
+//   error: incompatible pointer to integer conversion passing 'void *' to
+//          parameter of type 'int32_t'
+//
+// The same shape WITHOUT a spawn (pass the closure to an ordinary function
+// that calls it) compiles and runs correctly, so this is specific to the
+// parallelism lowering, not to closures in general.
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+pragma(Pragma.AllowUnsafe);
+{ Channel } :: import("std/sync/channel");
+{ Thread } :: import("std/thread");
+{ assert } :: import("std/assert");
+run :: (fn(generic(T : Type), v : T, where(T <: Send)) -> T)({
+  ch := Channel(T).new(usize(1));
+  t := Thread.spawn((io : Io) => {
+    ch.send(v);
+    ()
+  });
+  t.join();
+  match(ch.recv(), .Some(x) => x, .None => __yo_panic("no result"))
+});
+main :: (fn() -> unit)({
+  v := run(i32(42));
+  assert(v == i32(42), "result should be 42");
+});
+export(main);

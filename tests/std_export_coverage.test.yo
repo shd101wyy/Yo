@@ -1,0 +1,174 @@
+//! S5 stability freeze — exported std surface that no test named before
+//! (plans/STD_API_AUDIT.md §9, "Test coverage of the exported surface").
+//! Each block exercises an export at runtime with a pinned expectation, so
+//! marking it stable is backed by a test rather than a name grep.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ hmac_sha1, hmac_sha256, hmac_sha512 } :: import("std/crypto/hmac");
+{ hex_encode } :: import("std/encoding/hex");
+{ json_parse_bytes, json_parse_string, json_stringify_pretty, json_stringify, JsonValue } :: import("std/encoding/json");
+{ Exception } :: import("std/error");
+log :: import("std/log");
+{ PATH_SEPARATOR, PATH_DELIMITER } :: import("std/path");
+{ stdin } :: import("std/io/stdio");
+{ get_hardware_threads, get_cpu_id } :: import("std/thread");
+{ to_lowercase_bytes, to_uppercase_bytes } :: import("std/string/unicode");
+{ is_valid_entity_code, from_code_point } :: import("std/encoding/html");
+{ step_len, sequence_len } :: import("std/encoding/utf8");
+{ bench, BenchResult } :: import("std/testing/bench");
+{ DEFAULT_KEY_0, DEFAULT_KEY_1, hash_one_with_keys, hash_one } :: import("std/hash");
+{ DEFAULT_MAX_REDIRECTS, DEFAULT_MAX_RESPONSE_BYTES, FetchOptions } :: import("std/http/client");
+// --- crypto/hmac: the named-algorithm wrappers (RFC 2202 / RFC 4231 style
+// vectors, key "key", message "The quick brown fox jumps over the lazy dog").
+test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
+  key := String.from("key").as_bytes();
+  msg := String.from("The quick brown fox jumps over the lazy dog").as_bytes();
+  assert(hex_encode(hmac_sha1(key, msg)) == "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", "HMAC-SHA1");
+  assert(hex_encode(hmac_sha256(key, msg)) == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", "HMAC-SHA256");
+  assert(hex_encode(hmac_sha512(key, msg)) == "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a", "HMAC-SHA512");
+  assert(hmac_sha1(key, msg).len() == usize(20), "sha1 digest size");
+  assert(hmac_sha512(key, msg).len() == usize(64), "sha512 digest size");
+});
+// --- encoding/json: the byte / String entry points and pretty printing.
+test("json_parse_bytes, json_parse_string, json_stringify_pretty", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  src := `{"a": [1, 2, {"b": true}], "c": "x"}`;
+  v1 := json_parse_bytes(src.as_bytes(), exn);
+  v2 := json_parse_string(src, exn);
+  assert(json_stringify(v1) == json_stringify(v2), "bytes and String entry points agree");
+  pretty := json_stringify_pretty(v1, usize(2));
+  assert(pretty.contains("\n"), "pretty output is multi-line");
+  assert(pretty.contains(`  "a": [`), "two-space indent under the root");
+  assert(pretty.contains(`      "b": true`), "nested objects indent further");
+  // pretty output parses back to the same value
+  back := json_parse_string(pretty, exn);
+  assert(json_stringify(back) == json_stringify(v1), "pretty round-trips");
+  four := json_stringify_pretty(v1, usize(4));
+  assert(four.contains(`    "a": [`), "indent width is honoured");
+});
+// --- fmt: eprint writes to stderr without a newline (no crash, returns unit).
+test("eprint", {
+  eprint("std_export_coverage: eprint ok ");
+  eprint(i32(42));
+  eprint("\n");
+  assert(true, "eprint accepted str and i32");
+});
+// --- log: the *_target and *_lazy families, gated by the level.
+test("log target/lazy families respect the level", {
+  prev := log.get_level();
+  log.set_level(log.Level.Warn);
+  assert(!log.enabled(log.Level.Info), "Info disabled at Warn");
+  assert(log.enabled(log.Level.Warn), "Warn enabled at Warn");
+  // Below the level: the message closure must NOT run.
+  ran := ArrayList(i32).new();
+  log.debug_lazy(() => {
+    ran.push(i32(1));
+    String.from("never built")
+  });
+  log.trace_lazy(() => {
+    ran.push(i32(1));
+    String.from("never built")
+  });
+  assert(ran.len() == usize(0), "lazy messages below the level are not built");
+  // At/above the level: the closure runs (output goes to stderr).
+  log.warn_lazy(() => {
+    ran.push(i32(2));
+    String.from("std_export_coverage: warn_lazy ran")
+  });
+  assert(ran.len() == usize(1), "warn_lazy built its message");
+  log.log_lazy(log.Level.Error, () => String.from("std_export_coverage: log_lazy Error ran"));
+  log.warn_target("coverage", "std_export_coverage: warn_target");
+  log.info_target("coverage", "suppressed");
+  log.debug_target("coverage", "suppressed");
+  log.trace_target("coverage", "suppressed");
+  log.log_target(log.Level.Error, "coverage", i32(7));
+  log.set_level(prev);
+});
+// --- path constants.
+test("PATH_SEPARATOR and PATH_DELIMITER are the platform bytes", {
+  sep := PATH_SEPARATOR;
+  del := PATH_DELIMITER;
+  assert((sep == u8(47)) || (sep == u8(92)), "separator is / or \\");
+  assert((del == u8(58)) || (del == u8(59)), "delimiter is : or ;");
+  assert(((sep == u8(47)) && (del == u8(58))) || ((sep == u8(92)) && (del == u8(59))), "they pair per platform");
+});
+// --- io/stdio: a Stdin handle can be constructed (reading needs input).
+test("stdin() constructs a handle", {
+  s := stdin();
+  consume(s);
+  assert(true, "stdin handle");
+});
+// --- thread: hardware queries.
+test("get_hardware_threads and get_cpu_id", {
+  n := get_hardware_threads();
+  assert(n >= usize(1), "at least one hardware thread");
+  id := get_cpu_id();
+  // -1 is the documented "platform cannot say" answer (macOS, WASM).
+  assert(id >= i32(-1), "cpu id is a core index or -1");
+  assert(id < i32(n), "a reported core index is below the hardware thread count");
+});
+// --- string/unicode: the LEAF byte-level case-mapping tables behind
+// String.to_lowercase/to_uppercase (the String-method coverage lives in
+// tests/string/string.test.yo). The C-locale `towlower` this module once
+// called maps ASCII only — `ÉCOLE` came back as `École`
+// (issues/fixed/unicode-case-mapping-was-locale-dependent.md).
+test("to_lowercase_bytes / to_uppercase_bytes", {
+  assert(String.from_bytes(to_lowercase_bytes(String.from("ÉCOLE").as_bytes())) == "école", "Latin-1 lower (was École under the C locale)");
+  assert(String.from_bytes(to_uppercase_bytes(String.from("straße").as_bytes())) == "STRASSE", "ß expands under uppercase");
+  assert(String.from_bytes(to_lowercase_bytes(String.from("日本語 123").as_bytes())) == "日本語 123", "uncased scripts and digits pass through");
+  assert(String.from_bytes(to_uppercase_bytes(String.new().as_bytes())) == "", "empty in, empty out");
+});
+// --- encoding/html: entity code validation + from_code_point.
+test("is_valid_entity_code", {
+  assert(is_valid_entity_code(i32(65)), "'A'");
+  assert(is_valid_entity_code(i32(0x1F600)), "emoji");
+  assert(!is_valid_entity_code(i32(0xD800)), "surrogate is not a valid code point");
+  assert(!is_valid_entity_code(i32(0x110000)), "beyond U+10FFFF");
+  assert(!is_valid_entity_code(i32(0)), "NUL is rejected");
+  assert(from_code_point(i32(233)) == "é", "from_code_point encodes UTF-8");
+});
+// --- encoding/utf8: step_len never returns 0 (advances past a stray byte).
+test("step_len", {
+  assert(step_len(u8(65)) == usize(1), "ascii");
+  assert(step_len(u8(0xC3)) == usize(2), "2-byte lead");
+  assert(step_len(u8(0xE2)) == usize(3), "3-byte lead");
+  assert(step_len(u8(0xF0)) == usize(4), "4-byte lead");
+  assert(sequence_len(u8(0x80)) == usize(0), "a continuation byte is not a sequence start");
+  assert(step_len(u8(0x80)) == usize(1), "…but step_len still advances by one");
+  assert(step_len(u8(0xFF)) == usize(1), "invalid lead advances by one");
+});
+// --- testing/bench: runs the body `iterations` times and reports timings.
+test("bench", {
+  count := ArrayList(i32).new();
+  r := bench(String.from("coverage"), u64(25), () => {
+    count.push(i32(1));
+  });
+  assert(count.len() == usize(25), "body ran once per iteration");
+  assert(r.name == "coverage", "name");
+  assert(r.iterations == u64(25), "iterations");
+  assert(r.min_ns <= r.max_ns, "min <= max");
+  assert(r.total_ns >= r.max_ns, "total covers the slowest iteration");
+  assert(r.avg_ns >= r.min_ns, "avg >= min");
+});
+// --- hash: the default keys are what new() uses.
+test("DEFAULT_KEY_1 pairs with DEFAULT_KEY_0", {
+  s := String.from("k");
+  assert(hash_one_with_keys(s, DEFAULT_KEY_0, DEFAULT_KEY_1) == hash_one(s), "explicit default keys == hash_one");
+});
+// --- http/client: the documented defaults are what FetchOptions.new() carries.
+test("FetchOptions defaults match the exported constants", {
+  o := FetchOptions.new();
+  assert(o.max_redirects == DEFAULT_MAX_REDIRECTS, "max_redirects default");
+  assert(o.max_response_bytes == DEFAULT_MAX_RESPONSE_BYTES, "max_response_bytes default");
+  assert(DEFAULT_MAX_REDIRECTS == usize(10), "10 redirects (browsers' ballpark)");
+  assert(DEFAULT_MAX_RESPONSE_BYTES == (usize(64) * (usize(1024) * usize(1024))), "64 MiB");
+});

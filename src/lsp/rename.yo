@@ -1,0 +1,108 @@
+//! lsp/rename — textDocument/rename (plans/P4_LSP.md slice 5).
+//!
+//! Port of the attic `rename.ts`: rename all same-file references by name.
+//! Produces a WorkspaceEdit whose `changes` map the document uri to one
+//! TextEdit per occurrence (deduplicated by position — the same Atom can be
+//! reachable through several AST paths).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
+open(import("std/error"));
+{ Token, TokenKind } :: import("../token.yo");
+{ tokenize } :: import("../lexer.yo");
+{ AstExpr } :: import("../expr.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, j_range } :: import("./protocol.yo");
+{ _find_token_at } :: import("./hover.yo");
+
+_collect_rename_edits :: (
+  fn(
+    e : AstExpr,
+    old_name : String,
+    new_name : String,
+    seen : HashSet(String),
+    out : ArrayList(JsonValue)
+  ) -> unit
+)({
+  match(
+    e,
+    .Atom(_, tok) => {
+      if(tok.value == old_name, {
+        key := `${tok.row}:${tok.column}`;
+        if(!seen.contains(key.clone()), {
+          _a := seen.insert(key);
+          out.push(
+            // RUNE column + RUNE width (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11). A byte width here would
+            // make the replaced range overrun a multibyte identifier.
+            jb().put("range", j_range(tok.row, tok.column, tok.row, tok.column + old_name.chars().count())).put("newText", jstr(new_name.clone())).obj()
+          );
+        });
+      });
+    },
+    .FnCall(_, func_box, args, _, _) => {
+      recur(func_box, old_name, new_name, seen, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, old_name, new_name, seen, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+/// Build the WorkspaceEdit for renaming the symbol at (line, character), or
+/// `.None` when there is nothing renameable under the cursor.
+handle_rename :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    uri : String,
+    exprs : ArrayList(AstExpr),
+    line : usize,
+    character : usize,
+    new_name : String
+  ) -> Option(JsonValue)
+)({
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(Option(JsonValue).None)
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  if((target.kind != TokenKind.Identifier) || (new_name.len() == usize(0)), {
+    return(Option(JsonValue).None);
+  });
+  edits := ArrayList(JsonValue).new();
+  seen := HashSet(String).new();
+  (ei : usize) = usize(0);
+  while(ei < exprs.len(), {
+    match(
+      exprs.get(ei),
+      .Some(e) => _collect_rename_edits(e, target.value.clone(), new_name.clone(), seen, edits),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  if(edits.len() == usize(0), {
+    return(Option(JsonValue).None);
+  });
+  changes_keys := ArrayList(String).new();
+  changes_vals := ArrayList(JsonValue).new();
+  changes_keys.push(uri.clone());
+  changes_vals.push(JsonValue.Array(items : edits));
+  Option(JsonValue).Some(
+    jb().put("changes", JsonValue.Object(keys : changes_keys, values : changes_vals)).obj()
+  )
+});
+export(handle_rename);

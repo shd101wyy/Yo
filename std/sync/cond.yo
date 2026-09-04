@@ -1,14 +1,14 @@
 //! Condition variable for thread synchronization.
 pragma(Pragma.AllowUnsafe);
-{ __YO_THREAD_SYNC_TYPE, mutex_t } :: import("./mutex");
+{ __YO_THREAD_SYNC_TYPE } :: import("./mutex");
 extern(
   "Yo",
   __YO_COND_TYPE : Type,
   __yo_cond_create : (fn() -> __YO_COND_TYPE),
-  __yo_cond_wait : (fn(cv : *(__YO_COND_TYPE), mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
-  __yo_cond_signal : (fn(cv : *(__YO_COND_TYPE)) -> unit),
-  __yo_cond_broadcast : (fn(cv : *(__YO_COND_TYPE)) -> unit),
-  __yo_cond_destroy : (fn(cv : *(__YO_COND_TYPE)) -> unit)
+  __yo_cond_wait : (fn(cv : *__YO_COND_TYPE, mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_cond_signal : (fn(cv : *__YO_COND_TYPE) -> unit),
+  __yo_cond_broadcast : (fn(cv : *__YO_COND_TYPE) -> unit),
+  __yo_cond_destroy : (fn(cv : *__YO_COND_TYPE) -> unit)
 );
 // SAFETY: __YO_COND_TYPE is an opaque C-level condition variable
 // (pthread_cond_t or equivalent). It carries its own internal
@@ -16,28 +16,6 @@ extern(
 // trivially Acyclic — opaque C types don't participate in ARC.
 impl(__YO_COND_TYPE, Send());
 impl(__YO_COND_TYPE, Acyclic());
-/// Low-level condition variable (manual lifetime via `destroy`).
-cond_t :: newtype(
-  cv : __YO_COND_TYPE
-);
-impl(
-  cond_t,
-  new : (fn() -> Self)({
-    return(Self(__yo_cond_create()));
-  }),
-  wait : (fn(inout(self) : Self, inout(mutex) : mutex_t) -> unit)({
-    return(__yo_cond_wait(&(self.cv), &(mutex.mutex)));
-  }),
-  signal : (fn(inout(self) : Self) -> unit)({
-    return(__yo_cond_signal(&(self.cv)));
-  }),
-  broadcast : (fn(inout(self) : Self) -> unit)({
-    return(__yo_cond_broadcast(&(self.cv)));
-  }),
-  destroy : (fn(inout(self) : Self) -> unit)({
-    return(__yo_cond_destroy(&(self.cv)));
-  })
-);
 /// Reference-counted condition variable with automatic cleanup via `Dispose`.
 /// Uses atomic reference counting for safe cross-thread sharing.
 Cond :: atomic(
@@ -52,25 +30,22 @@ impl(
   new : (fn() -> Self)({
     return(Self(__yo_cond_create()));
   }),
-  wait : (fn(self : Self, handle : *(__YO_THREAD_SYNC_TYPE)) -> unit)({
-    return(__yo_cond_wait(&(self.cv), handle));
+  wait : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
+    return(__yo_cond_wait(&self.cv, handle));
   }),
   signal : (fn(self : Self) -> unit)({
-    return(__yo_cond_signal(&(self.cv)));
+    return(__yo_cond_signal(&self.cv));
   }),
   broadcast : (fn(self : Self) -> unit)({
-    return(__yo_cond_broadcast(&(self.cv)));
+    return(__yo_cond_broadcast(&self.cv));
   })
 );
 impl(
   Cond,
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      return(__yo_cond_destroy(&(self.cv)));
+      return(__yo_cond_destroy(&self.cv));
     })
   )
 );
-export(
-  cond_t,
-  Cond
-);
+export(Cond);

@@ -6,21 +6,21 @@ pragma(Pragma.AllowUnsafe);
 { __yo_sync_getsockname, __yo_sync_getpeername, __yo_sync_getsockopt, __yo_sync_setsockopt } :: import("./externs.yo");
 // Get local address of a socket.
 // Writes the address into `addr` buffer and updates `addrlen` with actual size.
-getsockname :: (fn(sockfd : i32, addr : *(u8), addrlen : *(u32)) -> i32)(
+getsockname :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32)(
   __yo_sync_getsockname(sockfd, addr, addrlen)
 );
 // Get remote peer address of a connected socket.
 // Writes the address into `addr` buffer and updates `addrlen` with actual size.
-getpeername :: (fn(sockfd : i32, addr : *(u8), addrlen : *(u32)) -> i32)(
+getpeername :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32)(
   __yo_sync_getpeername(sockfd, addr, addrlen)
 );
 // Get socket option value.
 // `optlen` should be initialized with input buffer size and is updated on return.
-getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : *(u32)) -> i32)(
+getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> i32)(
   __yo_sync_getsockopt(sockfd, level, optname, optval, optlen)
 );
 // Set socket option value.
-setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : u32) -> i32)(
+setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> i32)(
   __yo_sync_setsockopt(sockfd, level, optname, optval, optlen)
 );
 export(

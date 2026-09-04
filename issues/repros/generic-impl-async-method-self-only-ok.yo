@@ -1,0 +1,23 @@
+{ assert } :: import("std/assert");
+Holder :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(struct(_value : T))
+);
+impl(
+  generic(T : Type),
+  Holder(T),
+  new : (fn(value : T) -> Self)(Self(_value : value)),
+  // No closure param — capture only self
+  value_async : (fn(self : Self, io : Io) -> Impl(Future(T)))(
+    io.async((io : Io) => {
+      r := self._value;
+      return(r);
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  h := Holder(i64).new(i64(10));
+  f := h.value_async(io);
+  r := io.await(f, io);
+  assert(r == i64(10), "self-only capture works");
+});
+export(main);

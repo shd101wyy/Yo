@@ -5,6 +5,7 @@ open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind, Token, is_operator_char, is_identifier_start, is_identifier_continue } :: import("./token.yo");
+{ format_lexer_error } :: import("./error.yo");
 // Identifier/operator INTERN table: one canonical String instance per
 // distinct token text, so every same-named token shares one buffer and
 // downstream `String ==` hits the interned ptr+len fast path
@@ -21,33 +22,41 @@ intern_token_str :: (fn(s : String) -> String)(
     g_token_intern.get(s),
     .Some(canonical) => canonical,
     .None => {
-      g_token_intern.set(s, s);
+      g_token_intern.insert(s, s);
       s
     }
   )
 );
-/// An error produced by the lexer during tokenization.
-LexerError :: ref(
-  struct(
-    message : String,
-    row : usize,
-    column : usize,
-    character : usize
-  )
+/// The CLOSED operator token set (plans/OPERATOR_SET_AND_PRECEDENCE.md).
+/// A run of operator characters is split greedily against these two tables
+/// (longest match first) instead of becoming one arbitrary token — so
+/// `**i32` lexes as `*`,`*`,`i32` (there is no `**` token), and an unknown
+/// run is a LEX error instead of a phantom user-operator. The dot family
+/// (`.` `..` `..=` `...` `...#`) has its own branch in `tokenize` and never
+/// reaches this split. New operators are added HERE, deliberately, like
+/// keywords. The retired pointer-arithmetic family (`&+`/`&-`/`&/`,
+/// plans/archive/POINTER_OPERATORS_TO_TRAITS_AND_METHODS.md) is NOT in the
+/// table — the last writers were migrated to `.add`/`.sub` 2026-08-21, so
+/// `p &+ n` now lexes as `p`,`&`,`+`,`n` and fails loudly at parse
+/// (mixed adjacent operators need parens).
+_is_two_char_operator :: (fn(s : String) -> bool)(
+  (s == "!=") || ((s == "&&") || ((s == "->") || ((s == "::") || ((s == ":=") || ((s == "<:") || ((s == "<<") || ((s == "<=") || ((s == "==") || ((s == "=>") || ((s == ">=") || ((s == ">>") || ((s == "?=") || (s == "||")))))))))))))
 );
-impl(
-  LexerError,
-  ToString(
-    to_string : (fn(inout(self) : Self) -> String)(
-      `lexer error at ${self.row}:${self.column}: ${self.message}`
-    )
-  )
+_is_one_char_operator :: (fn(s : String) -> bool)(
+  (s == "!") || ((s == "#") || ((s == "%") || ((s == "&") || ((s == "*") || ((s == "+") || ((s == "-") || ((s == "/") || ((s == ":") || ((s == "<") || ((s == "=") || ((s == ">") || ((s == "?") || ((s == "^") || ((s == "|") || (s == "~")))))))))))))))
 );
-impl(LexerError, Error());
+/// An error produced by the lexer during tokenization. Deleted in P1 of
+/// plans/ERROR_DIAGNOSTICS_OVERHAUL.md: the lexer now throws the same
+/// structured `YoError` diagnostic as every other stage (`format_lexer_error`
+/// in src/error.yo), so its errors carry the module path, the source line
+/// and a 1-based anchor like the parser's and evaluator's do.
 /// Tokenizes `input` into a list of `Token`s.
 ///
 /// `module_path` is the source file path included in each token for error reporting.
-/// Throws a `LexerError` (as `AnyError`) via `exn` on invalid input.
+/// A leading UTF-8 BOM (U+FEFF) is skipped: rows, columns and `character` are as
+/// if the file had none (`byte_offset` still counts the 3 BOM bytes in `input`).
+/// Throws a structured `YoError` diagnostic (`format_lexer_error`) via `exn`
+/// on invalid input.
 tokenize :: (
   fn(
     input : String,
@@ -57,20 +66,41 @@ tokenize :: (
 )({
   tokens := ArrayList(Token).new();
   chars := ArrayList(rune).new();
+  // `char_byte_offsets(k)` is the BYTE offset in `input` at which `chars(k)`
+  // starts. `Token.character` is the rune index `k`, which is NOT a valid
+  // index into `input` now that `String` is byte-indexed — every consumer
+  // that slices `input` reads `Token.byte_offset` instead
+  // (issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
+  // One `char_indices()` pass fills both lists; `chars()` and `char_indices()`
+  // stop at the same byte on malformed input, so they stay in lockstep.
+  char_byte_offsets := ArrayList(usize).new();
   {
-    c_iter := input.chars();
+    c_iter := input.char_indices();
     while(true, {
       match(
         c_iter.next(),
         .None => {
           break;
         },
-        .Some(r) => {
-          chars.push(r);
+        .Some(pair) => {
+          // A leading UTF-8 BOM (EF BB BF) decodes to U+FEFF and would be
+          // absorbed into the first identifier/keyword ("Variable
+          // '<BOM>open' not found"), so skip it — byte 0 only; elsewhere
+          // U+FEFF is an ordinary identifier rune. Windows PowerShell 5.1
+          // (`Set-Content -Encoding UTF8`) and several Windows editors emit
+          // BOM'd UTF-8 (issues/fixed/lexer-rejects-leading-utf8-bom.md).
+          is_leading_bom := ((pair._0 == usize(0)) && (pair._1.char == u32(0xFEFF)));
+          if(!is_leading_bom, {
+            char_byte_offsets.push(pair._0);
+            chars.push(pair._1);
+          });
         }
       );
     });
   };
+  // One-past-the-end byte offset, so a token that starts at EOF still gets a
+  // usable (empty-slice) offset rather than 0.
+  input_byte_len := input.len();
   null_rune := rune(u32(0));
   n := chars.len();
   i := usize(0);
@@ -80,6 +110,7 @@ tokenize :: (
     c := chars.get(i).unwrap_or(null_rune);
     col := (i - line_start);
     char_idx := i;
+    byte_idx := char_byte_offsets.get(i).unwrap_or(input_byte_len);
     next_c := chars.get(i + usize(1)).unwrap_or(null_rune);
     is_fwd_slash := (c.char == u32(0x2F));
     next_is_slash := (next_c.char == u32(0x2F));
@@ -112,34 +143,69 @@ tokenize :: (
         });
         dot_str := dot_sb.to_string();
         kind := cond(((j - i) == usize(1)) => TokenKind.Dot, true => TokenKind.Operator);
-        tokens.push(Token(kind : kind, value : dot_str, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : dot_str, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = j;
       },
       // Non-comment operator characters
-      ((is_operator_char(c)) && !(is_comment_start)) => {
+      (is_operator_char(c) && !is_comment_start) => {
         j := i;
         op_sb := StringBuilder.new();
         while(j < n, {
           cj := chars.get(j).unwrap_or(null_rune);
-          is_op_cont := ((is_operator_char(cj)) && (cj.char != u32(0x2E)));
-          if(!(is_op_cont), {
+          is_op_cont := (is_operator_char(cj) && (cj.char != u32(0x2E)));
+          if(!is_op_cont, {
             break;
           });
           op_sb.write_rune(cj);
           j = (j + usize(1));
         });
         op_str := op_sb.to_string();
-        tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str), row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        // Closed-set split (see _is_two_char_operator above): greedy
+        // longest-match over the run. Every operator char is ASCII, so one
+        // operator char is one byte AND one rune: the same `k` advances
+        // `column`, `character` and `byte_offset` alike, and `op_str`'s
+        // byte-indexed `slice_copy` cuts exactly `k` chars in.
+        (k : usize) = usize(0);
+        run_len := op_str.len();
+        while(k < run_len, {
+          (tok_len : usize) = usize(0);
+          if((k + usize(2)) <= run_len, {
+            if(_is_two_char_operator(op_str.slice_copy(k .. (k + usize(2)))), {
+              tok_len = usize(2);
+            });
+          });
+          if(tok_len == usize(0), {
+            if(_is_one_char_operator(op_str.slice_copy(k .. (k + usize(1)))), {
+              tok_len = usize(1);
+            });
+          });
+          if(tok_len == usize(0), {
+            exn.throw(
+              dyn(
+                format_lexer_error(
+                  module_path,
+                  input,
+                  line,
+                  col + k,
+                  `unknown operator in '${op_str}': Yo has a closed operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md); separate the operators with spaces or parentheses`
+                )
+              )
+            );
+            break;
+          });
+          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(op_str.slice_copy(k .. (k + tok_len))), row : line, column : (col + k), character : (char_idx + k), byte_offset : (byte_idx + k), module_path : module_path, input : input));
+          k = (k + tok_len);
+        });
         i = j;
       },
       // Whitespace
-      (c.is_whitespace()) => {
+      c.is_whitespace() => {
         k := i;
         ws_sb := StringBuilder.new();
         ws_start_ln := line;
         while(k < n, {
           ck := chars.get(k).unwrap_or(null_rune);
-          if(!(ck.is_whitespace()), {
+          if(!ck.is_whitespace(), {
             break;
           });
           ws_sb.write_rune(ck);
@@ -150,11 +216,11 @@ tokenize :: (
           k = (k + usize(1));
         });
         ws_str := ws_sb.to_string();
-        tokens.push(Token(kind : TokenKind.Whitespace, value : ws_str, row : ws_start_ln, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Whitespace, value : ws_str, row : ws_start_ln, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = k;
       },
       // Line comment: //, ///, //!
-      ((is_fwd_slash) && next_is_slash) => {
+      (is_fwd_slash && next_is_slash) => {
         third_c := chars.get(i + usize(2)).unwrap_or(null_rune);
         fourth_c := chars.get(i + usize(3)).unwrap_or(null_rune);
         (comment_kind : TokenKind) = cond(
@@ -173,11 +239,11 @@ tokenize :: (
           k = (k + usize(1));
         });
         cm_str := cm_sb.to_string();
-        tokens.push(Token(kind : comment_kind, value : cm_str, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : comment_kind, value : cm_str, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = k;
       },
       // Block comment: /*, /**, /*!
-      ((is_fwd_slash) && next_is_star) => {
+      (is_fwd_slash && next_is_star) => {
         third_bc := chars.get(i + usize(2)).unwrap_or(null_rune);
         fourth_bc := chars.get(i + usize(3)).unwrap_or(null_rune);
         (block_kind : TokenKind) = cond(
@@ -221,35 +287,35 @@ tokenize :: (
           );
         });
         if(nesting > usize(0), {
-          exn.throw(dyn(LexerError(message : `unterminated block comment`, row : bc_start_ln, column : col, character : char_idx)));
+          exn.throw(dyn(format_lexer_error(module_path, input, bc_start_ln, col, `unterminated block comment`)));
         });
         cm_str := cm_sb.to_string();
-        tokens.push(Token(kind : block_kind, value : cm_str, row : bc_start_ln, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : block_kind, value : cm_str, row : bc_start_ln, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = k;
       },
       // ( ) [ ] { }
       (c.char == u32(0x28)) => {
-        tokens.push(Token(kind : TokenKind.LParen, value : `(`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LParen, value : `(`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x29)) => {
-        tokens.push(Token(kind : TokenKind.RParen, value : `)`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RParen, value : `)`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x5B)) => {
-        tokens.push(Token(kind : TokenKind.LBracket, value : `[`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LBracket, value : `[`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x5D)) => {
-        tokens.push(Token(kind : TokenKind.RBracket, value : `]`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RBracket, value : `]`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x7B)) => {
-        tokens.push(Token(kind : TokenKind.LCurlyBracket, value : `{`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.LCurlyBracket, value : `{`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x7D)) => {
-        tokens.push(Token(kind : TokenKind.RCurlyBracket, value : `}`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.RCurlyBracket, value : `}`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Char literal: '...'
@@ -300,12 +366,12 @@ tokenize :: (
           );
         });
         char_is_valid := ((utf16_len == usize(1)) || ((utf16_len == usize(2)) && first_is_backslash));
-        if(!(char_is_valid), {
-          exn.throw(dyn(LexerError(message : `invalid char literal: expected char to have length 1`, row : line, column : col, character : char_idx)));
+        if(!char_is_valid, {
+          exn.throw(dyn(format_lexer_error(module_path, input, line, col, `invalid char literal: expected char to have length 1`)));
         });
         val_sb.write_byte(u8(0x27));
         tok_val := val_sb.to_string();
-        tokens.push(Token(kind : TokenKind.CharLit, value : tok_val, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.CharLit, value : tok_val, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // String literal: "..."
@@ -341,7 +407,7 @@ tokenize :: (
         str_closed;
         val_sb.write_byte(u8(0x22));
         tok_val := val_sb.to_string();
-        tokens.push(Token(kind : TokenKind.StringLit, value : tok_val, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.StringLit, value : tok_val, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Template string: `...`
@@ -416,7 +482,7 @@ tokenize :: (
               );
             },
             // Start of interpolation ${
-            (((brace_depth == usize(0)) && (ck.char == u32(0x24))) && (nck.char == u32(0x7B))) => {
+            ((brace_depth == usize(0)) && (ck.char == u32(0x24)) && (nck.char == u32(0x7B))) => {
               ts_sb.write_str("${");
               brace_depth = usize(1);
               k = (k + usize(2));
@@ -454,24 +520,24 @@ tokenize :: (
             }
           );
         });
-        if(!(template_closed), {
-          exn.throw(dyn(LexerError(message : `unterminated template string`, row : line, column : col, character : char_idx)));
+        if(!template_closed, {
+          exn.throw(dyn(format_lexer_error(module_path, input, line, col, `unterminated template string`)));
         });
         ts_val := ts_sb.to_string();
-        tokens.push(Token(kind : TokenKind.TemplateString, value : ts_val, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.TemplateString, value : ts_val, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Comma and semicolon
       (c.char == u32(0x2C)) => {
-        tokens.push(Token(kind : TokenKind.Comma, value : `,`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Comma, value : `,`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       (c.char == u32(0x3B)) => {
-        tokens.push(Token(kind : TokenKind.Semicolon, value : `;`, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : TokenKind.Semicolon, value : `;`, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = (i + usize(1));
       },
       // Number literals (integer and float)
-      (c.is_digit()) => {
+      c.is_digit() => {
         j := i;
         num_sb := StringBuilder.new();
         num_sb.write_rune(c);
@@ -506,8 +572,8 @@ tokenize :: (
           is_hex => {
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
-              is_hex_d := (((dj.is_digit()) || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46)))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66))));
-              if(!(is_hex_d), {
+              is_hex_d := (dj.is_digit() || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66))));
+              if(!is_hex_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -518,7 +584,7 @@ tokenize :: (
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
               is_bin_d := ((dj.char == u32(0x30)) || (dj.char == u32(0x31)));
-              if(!(is_bin_d), {
+              if(!is_bin_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -529,7 +595,7 @@ tokenize :: (
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
               is_oct_d := ((dj.char >= u32(0x30)) && (dj.char <= u32(0x37)));
-              if(!(is_oct_d), {
+              if(!is_oct_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -539,8 +605,8 @@ tokenize :: (
           true => {
             while(j < n, {
               dj := chars.get(j).unwrap_or(null_rune);
-              is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
-              if(!(is_dec_d), {
+              is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
+              if(!is_dec_d, {
                 break;
               });
               num_sb.write_rune(dj);
@@ -549,7 +615,7 @@ tokenize :: (
           }
         );
         is_float := false;
-        is_decimal := ((!(is_hex)) && ((!(is_bin)) && (!(is_oct))));
+        is_decimal := (!is_hex && (!is_bin && !is_oct));
         // Float: decimal point followed by a digit
         if(is_decimal, {
           dot_check := chars.get(j).unwrap_or(null_rune);
@@ -570,8 +636,8 @@ tokenize :: (
               j = next_j;
               while(j < n, {
                 dj := chars.get(j).unwrap_or(null_rune);
-                is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
-                if(!(is_dec_d), {
+                is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
+                if(!is_dec_d, {
                   break;
                 });
                 num_sb.write_rune(dj);
@@ -605,8 +671,8 @@ tokenize :: (
               });
               while(j < n, {
                 dj := chars.get(j).unwrap_or(null_rune);
-                is_dec_d := ((dj.is_digit()) || (dj.char == u32(0x5F)));
-                if(!(is_dec_d), {
+                is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
+                if(!is_dec_d, {
                   break;
                 });
                 num_sb.write_rune(dj);
@@ -617,18 +683,18 @@ tokenize :: (
         });
         num_str := num_sb.to_string();
         kind := cond(is_float => TokenKind.Float, true => TokenKind.Integer);
-        tokens.push(Token(kind : kind, value : num_str, row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : num_str, row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = j;
       },
       // Identifier or Bool keyword
-      (is_identifier_start(c)) => {
+      is_identifier_start(c) => {
         j := i;
         id_sb := StringBuilder.new();
         id_sb.write_rune(c);
         j = (j + usize(1));
         while(j < n, {
           cj := chars.get(j).unwrap_or(null_rune);
-          if(!(is_identifier_continue(cj)), {
+          if(!is_identifier_continue(cj), {
             break;
           });
           id_sb.write_rune(cj);
@@ -647,11 +713,12 @@ tokenize :: (
         if((id_str == `forall`) || (id_str == `∀`), {
           exn.throw(
             dyn(
-              LexerError(
-                message : `\`${id_str}\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`,
-                row : line,
-                column : col,
-                character : char_idx
+              format_lexer_error(
+                module_path,
+                input,
+                line,
+                col,
+                `\`${id_str}\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`
               )
             )
           );
@@ -661,16 +728,21 @@ tokenize :: (
           (id_str == `false`) => TokenKind.Bool,
           true => TokenKind.Identifier
         );
-        tokens.push(Token(kind : kind, value : intern_token_str(id_str), row : line, column : col, character : char_idx, module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : intern_token_str(id_str), row : line, column : col, character : char_idx, byte_offset : byte_idx, module_path : module_path, input : input));
         i = j;
       },
       // Unknown character: error
       true => {
-        exn.throw(dyn(LexerError(message : `unexpected character`, row : line, column : col, character : char_idx)));
+        exn.throw(dyn(format_lexer_error(module_path, input, line, col, `unexpected character`)));
         i = (i + usize(1));
       }
     );
   });
   tokens
 });
-export(LexerError, tokenize);
+// _is_two_char_operator is exported for the formatter: with the closed
+// operator set, two adjacent operator tokens re-lex differently ONLY when
+// their concatenation is in this table, so the formatter's prefix-chain
+// tightening (`?*i32`, `**i32`) consults it instead of assuming every
+// operator pair would merge (the retired maximal-munch behavior).
+export(tokenize, _is_two_char_operator);

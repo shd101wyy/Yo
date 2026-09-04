@@ -1,0 +1,43 @@
+// Helpers in another module that FORWARD an `Impl(Fn)` parameter into one
+// shared function must each get their own specialization when called with
+// differently-capturing closures
+// (issues/fixed/forwarded-closure-param-shares-specialization.md, C50). Two
+// closures capturing the same variables have layout-identical capture structs;
+// the specialization cache once treated them as one type and the second
+// helper called the first closure's body — a C type error here, a wrong
+// closure call in the layout-identical case.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+m :: import("./closure_forward/mod.yo");
+test("each forwarding helper runs the closure it was given", {
+  seen := ArrayList(i32).new();
+  a := m.outer_a(() => {
+    seen.push(i32(1));
+    String.from("a")
+  });
+  b := m.outer_b(() => {
+    seen.push(i32(2));
+    String.from("b")
+  });
+  c := m.outer_c(() => {
+    seen.push(i32(3));
+    String.from("c")
+  });
+  assert(a == "", "level A is off: closure not run");
+  assert(b == "b", "outer_b ran ITS closure");
+  assert(c == "c", "outer_c ran ITS closure");
+  assert(seen.len() == usize(2), "exactly the two enabled closures ran");
+  assert((seen(usize(0)) == i32(2)) && (seen(usize(1)) == i32(3)), "in order, with their own captures");
+});
+test("a capture-free closure and a capturing one through the same helper", {
+  tag := String.from("T");
+  x := m.outer_b(() => String.from("plain"));
+  y := m.outer_b(() => `cap ${tag}`);
+  assert(x == "plain", "capture-free");
+  assert(y == "cap T", "capturing");
+  // the same closure shape forwarded twice still works
+  z := m.outer_c(() => `cap ${tag}`);
+  assert(z == "cap T", "second helper, same capture shape");
+});

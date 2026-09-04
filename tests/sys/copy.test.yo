@@ -18,7 +18,7 @@ test("copyfile copies file contents", {
   dst_path := dst_path_c.ptr().unwrap();
   io.await(dir.unlink(AT_FDCWD, dst_path, i32(0)), io);
   io.await(dir.unlink(AT_FDCWD, src_path, i32(0)), io);
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   src_fd := io.await(file.openat(AT_FDCWD, src_path, write_flags, i32(0o644)), io);
   assert(src_fd >= i32(0));
   data := *(u8)("copyfile data");
@@ -54,7 +54,7 @@ test("sendfile transfers bytes", {
   dst_path := dst_path_c.ptr().unwrap();
   io.await(dir.unlink(AT_FDCWD, dst_path, i32(0)), io);
   io.await(dir.unlink(AT_FDCWD, src_path, i32(0)), io);
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   src_fd := io.await(file.openat(AT_FDCWD, src_path, write_flags, i32(0o644)), io);
   assert(src_fd >= i32(0));
   data := *(u8)("sendfile ok");

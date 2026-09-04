@@ -3,12 +3,10 @@
 //! Parses a subset of TOML into a `TomlValue` tree.
 //! Supports: strings, integers, booleans, table sections, comments.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { toml_parse, TomlValue } :: import "std/encoding/toml";
-//! // Or via the encoding index:
-//! { toml_parse, TomlValue } :: import "std/encoding";
 //! ```
 pragma(Pragma.AllowUnsafe);
 open(import("../string"));
@@ -54,7 +52,7 @@ impl(
     self.get(key).is_some()
   ),
   /// Insert or update a key-value pair in the table.
-  set : (fn(self : Self, key : String, value : TomlValue) -> unit)(
+  insert : (fn(self : Self, key : String, value : TomlValue) -> unit)(
     match(
       self,
       .Table(keys, values) => {
@@ -71,7 +69,7 @@ impl(
           );
         });
         cond(
-          (!(found)) => {
+          !found => {
             keys.push(key);
             values.push(value);
           },

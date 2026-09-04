@@ -28,7 +28,9 @@ _(env : fncall_dbg_env) :: import("std/env");
   ast_expr_is_atom,
   ast_expr_is_atom_of,
   BF_DOT,
-  is_function_boundary_arrow
+  is_function_boundary_arrow,
+  desugar_if_calls,
+  BF_YO_AS
 } :: import("../../expr.yo");
 { is_auto_generated_expansion } :: import("../memory_safety.yo");
 {
@@ -66,7 +68,7 @@ _(env : fncall_dbg_env) :: import("std/env");
   capture_env_for
 } :: import("../../env.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
-{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes } :: import("../types/function.yo");
+{ get_func_param_defaults, get_func_param_default_exprs, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell } :: import("../../types/creators.yo");
@@ -95,7 +97,7 @@ _(env : fncall_dbg_env) :: import("std/env");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete } :: import("../../types/utils.yo");
 { type_id_or_empty, get_type_trait_methods_by_name, MethodEntry } :: import("../values/type_trait_methods.yo");
-{ evaluate_comptime_fn_call, resolve_recursive_type_ref } :: import("./comptime_fn.yo");
+{ evaluate_comptime_fn_call, resolve_recursive_type_ref, canonicalize_instantiation_via_ctfe_memo } :: import("./comptime_fn.yo");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
@@ -153,7 +155,7 @@ _call_result_unknown :: (fn(ty : TypeValue, env : Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, nm)
 });
 { format_error_message } :: import("../../error.yo");
-{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places } :: import("../../types/flowability.yo");
+{ require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Exception } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
 { assert, panic } :: import("std/assert");
@@ -387,6 +389,24 @@ _try_find_receiver_method :: (
 // `ctx.self_type` for the next body. Mirrors TS `context.SelfType =
 // dereferencedReceiverType`. Returns `.None` for non-static-method callees.
 // ---------------------------------------------------------------------------
+/// `(T <: Trait).static_method()` evaluates its dot-receiver to the TRAIT, with
+/// the real receiver parked in the trait's `is_concrete` slot (subtype_of.yo
+/// stores it there — TS called the field `receiverType`). `Self` inside the
+/// method body must be `T`, not the trait: binding the trait instead makes a
+/// `Self(field : ...)` constructor read as a trait IMPLEMENTATION and fail with
+/// "Receiver type is undefined when implementing trait". Unwrap one level so
+/// the explicit-dispatch form agrees with the plain `T.static_method()` form.
+_unwrap_trait_receiver :: (fn(t : TypeValue) -> TypeValue)(
+  match(
+    t,
+    .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => match(
+      is_concrete,
+      .Some(r) => r.clone(),
+      .None => t.clone()
+    ),
+    _ => t.clone()
+  )
+);
 _static_dot_receiver_self_type :: (
   fn(callee : AstExpr, ctx : EvalContext) -> Option(TypeValue)
 )({
@@ -411,7 +431,7 @@ _static_dot_receiver_self_type :: (
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)),
     .Some(ri) => match(
       ri.value,
-      .Some(rv) => match(rv, .TypeVal(ib) => Option(TypeValue).Some(ib), _ => Option(TypeValue).None),
+      .Some(rv) => match(rv, .TypeVal(ib) => Option(TypeValue).Some(_unwrap_trait_receiver(ib)), _ => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     .None => Option(TypeValue).None
@@ -631,6 +651,7 @@ _build_receiver_call_args :: (
           row : recv_tok.row,
           column : recv_tok.column,
           character : recv_tok.character,
+          byte_offset : recv_tok.byte_offset,
           module_path : recv_tok.module_path.clone(),
           input : recv_tok.input.clone()
         )
@@ -972,9 +993,7 @@ _try_expand_call_overload :: (
         format_error_message(
           ast_expr_token(call_expr),
           `No matching call found with arguments:
-${ast_expr_to_string(call_expr)}`,
-          false,
-          .None
+${ast_expr_to_string(call_expr)}`
         )
       )
     );
@@ -1596,42 +1615,23 @@ _funcval_bind_foralls :: (
         );
       });
     });
-    // Fallback: bind the i-th generic param from the receiver's i-th type
-    // argument when it could not be inferred from call arguments.
-    // yo-self-only mechanism (TS resolves impl generics via specializedType,
-    // never positionally) — restrict it to Type-kinded binders: pairing a
-    // VALUE binder (`generic(N : usize)`) with a receiver TYPE argument
-    // stamps `N := TypeVal(elem)` and the body throws unify(usize, Type)
-    // (the imm_list/imm_vec hollow batch main).
-    fa_kind_is_type := match(forall_kinds.get(fa_i), .Some(k) => is_type_0(k), .None => true);
-    if((!(fa_bound) && fa_kind_is_type) && (fa_i < recv_type_args.len()), {
-      match(
-        recv_type_args.get(fa_i),
-        .Some(rta) => {
-          fa_bound_names.push(fa_name.clone());
-          fa_bound_types.push(rta.clone());
-          _add_forall_rt := add_variable_to_env(
-            fresh_env,
-            fa_name,
-            TypeValue.TypeUni(usize(0)),
-            Option(EvalValue).Some(EvalValue.TypeVal(rta)),
-            true,
-            false,
-            false,
-            false,
-            synthetic_token(fa_name, env.module_path)
-          );
-          fa_bound = true;
-        },
-        .None => ()
-      );
-    });
     // Capture fallback (STATIC generic-impl methods, e.g.
     // `ArrayList(u8).new`): no arg binds `T` and the receiver Struct may
     // not carry `type_arguments`, but the generic-impl resolver injected
     // the impl's generic binding (`T = u8`) into this FuncVal's CAPTURES
     // (`_inject_forall_captures`, appended at the tail). Bind `T` from that
     // capture so the body / specialization concretize.
+    //
+    // ORDER MATTERS: captures come from the impl resolver's PATTERN
+    // unification, so they are authoritative; the positional
+    // receiver-type-args fallback below is a stand-in that only holds when
+    // the impl's foralls happen to align 1:1 with the constructor's params.
+    // For `impl(generic(V), HashMap(String, V), FromJson(...))` the single
+    // forall V sits at receiver position 1, and positional-first bound
+    // `V := String` (type_arguments[0]) — dispatching every
+    // `HashMap(String, i32).from_json` value decode to String's impl
+    // ("expected a string"). See
+    // issues/generic-impl-fromjson-container-decode-failures.md.
     if(!(fa_bound), {
       (fcap_i : usize) = usize(0);
       while((fcap_i < cap_names.len()) && !(fa_bound), {
@@ -1661,20 +1661,29 @@ _funcval_bind_foralls :: (
               },
               .TypeVal(ctb) => {
                 cap_ty := ctb;
-                fa_bound_names.push(fa_name.clone());
-                fa_bound_types.push(cap_ty.clone());
-                _add_forall_cap := add_variable_to_env(
-                  fresh_env,
-                  fa_name,
-                  TypeValue.TypeUni(usize(0)),
-                  Option(EvalValue).Some(EvalValue.TypeVal(cap_ty)),
-                  true,
-                  false,
-                  false,
-                  false,
-                  synthetic_token(fa_name, env.module_path)
-                );
-                fa_bound = true;
+                // Bind from the capture only when it is CONCRETE. A capture
+                // can hold a still-unresolved SomeT (a def-time trial's own
+                // binder echoed back) — binding that here poisons the body
+                // (`ArrayList(u8).with_capacity` regressed to "member
+                // _bytes ... Got: Type(1)" when captures ran first
+                // unconditionally); an unresolved capture falls through to
+                // the positional receiver-type-args fallback below.
+                if(!(type_contains_some_type_deep(cap_ty.clone())), {
+                  fa_bound_names.push(fa_name.clone());
+                  fa_bound_types.push(cap_ty.clone());
+                  _add_forall_cap := add_variable_to_env(
+                    fresh_env,
+                    fa_name,
+                    TypeValue.TypeUni(usize(0)),
+                    Option(EvalValue).Some(EvalValue.TypeVal(cap_ty)),
+                    true,
+                    false,
+                    false,
+                    false,
+                    synthetic_token(fa_name, env.module_path)
+                  );
+                  fa_bound = true;
+                });
               },
               _ => ()
             ),
@@ -1683,6 +1692,37 @@ _funcval_bind_foralls :: (
         });
         fcap_i = (fcap_i + usize(1));
       });
+    });
+    // Fallback: bind the i-th generic param from the receiver's i-th type
+    // argument when it could not be inferred from call arguments OR from an
+    // injected capture (see ORDER MATTERS above).
+    // yo-self-only mechanism (TS resolves impl generics via specializedType,
+    // never positionally) — restrict it to Type-kinded binders: pairing a
+    // VALUE binder (`generic(N : usize)`) with a receiver TYPE argument
+    // stamps `N := TypeVal(elem)` and the body throws unify(usize, Type)
+    // (the imm_list/imm_vec hollow batch main).
+    fa_kind_is_type := match(forall_kinds.get(fa_i), .Some(k) => is_type_0(k), .None => true);
+    if((!(fa_bound) && fa_kind_is_type) && (fa_i < recv_type_args.len()), {
+      match(
+        recv_type_args.get(fa_i),
+        .Some(rta) => {
+          fa_bound_names.push(fa_name.clone());
+          fa_bound_types.push(rta.clone());
+          _add_forall_rt := add_variable_to_env(
+            fresh_env,
+            fa_name,
+            TypeValue.TypeUni(usize(0)),
+            Option(EvalValue).Some(EvalValue.TypeVal(rta)),
+            true,
+            false,
+            false,
+            false,
+            synthetic_token(fa_name, env.module_path)
+          );
+          fa_bound = true;
+        },
+        .None => ()
+      );
     });
     fa_i = (fa_i + usize(1));
   });
@@ -1789,13 +1829,21 @@ _evaluate_funcval_runtime_call :: (
                   );
                   if(((!(_ac_p_generic) && !(_ac_a_generic)) && !(_ac_a_comptime))
                   && !(are_types_compatible(_ac_pty, _ac_aty)), {
+                    // C19: a concrete/concrete argument-type mismatch (e.g. C
+                    // `int` where `i32` is declared) is ALWAYS a hard error.
+                    // Flag the flow-violation channel so an async-closure-body
+                    // swallow re-raises it at check time instead of leaving
+                    // codegen an unresolved receiver type it splices verbatim
+                    // into C. Same guard as C18 / helper.yo's overload re-raise.
+                    _ac_mmsg := `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"`;
+                    if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+                      flag_flow_violation(_ac_mmsg.clone());
+                    });
                     exn.throw(
                       dyn(
                         format_error_message(
                           ast_expr_token(expr),
-                          `Cannot unify incompatible types:\nExpected: "${type_to_string(_ac_pty)}"\nGiven: "${type_to_string(_ac_aty)}"`,
-                          false,
-                          .None
+                          _ac_mmsg
                         )
                       )
                     );
@@ -2205,11 +2253,23 @@ _evaluate_funcval_runtime_call :: (
         // "has_generic_return" (declarations.yo skip2), so e.g. the
         // specialized `Thread.spawn -> Self` would never be emitted.
         // Resolve `Self` to the concrete static-dot receiver here (the
-        // body constructs that concrete type). Gated to a SomeT return so
-        // concrete returns are untouched.
-        if(is_some_type(resolved_ret), {
+        // body constructs that concrete type). Gated to a SomeT return
+        // NAMED "Self" — only the `-> Self` shape means the receiver. A
+        // reserved-name wrapper return (`Impl(Future(...))` on a generic
+        // implementor's `Self.read(...)` await chain) is NOT the receiver:
+        // clobbering it re-registered the spec's return as the receiver
+        // struct, so the emitted C returned `Wrap(usize)` while the body
+        // built a `_sync_fut_t*` (C23,
+        // issues/fixed/generic-implementor-async-method-awaiting-self-emits-uncompilable-c.md).
+        // Concrete returns are untouched as before.
+        ret_some_is_self := match(
+          resolved_ret,
+          .SomeT({ name : sdr_nm }) => (sdr_nm == "Self"),
+          _ => false
+        );
+        if(ret_some_is_self, {
           resolved_ret = spec_st.clone();
-        }, {
+        }, if(is_some_type(resolved_ret), (), {
           // Gap-6 attempt-8(a): a PATTERN-ERA `Self` return instance (baked
           // at impl def-eval; unresolved `T#N` only in type_arguments) is
           // swapped for the concrete receiver instance — the receiver IS the
@@ -2227,7 +2287,7 @@ _evaluate_funcval_runtime_call :: (
             },
             .None => ()
           );
-        });
+        }));
         ctx.self_type = Option(TypeValue).Some(spec_st);
       },
       .None => match(
@@ -2419,6 +2479,49 @@ _evaluate_funcval_runtime_call :: (
       if((get_all_some_types(spec_ty_fixed).len() > usize(0)) && (spec_fid.len() > usize(0)), {
         eprintln(`[abstract-spec] fid=${spec_fid} trial=${in_def_time_trial().to_string()}`);
       });
+    });
+    // Re-bridge a wrapper return (`-> Impl(Future(R))`) to THIS
+    // specialization's async block. The bridge above ran before the mint and
+    // read the ORIGINAL FuncVal's body ExprInfo — one shared body expr whose
+    // stamp is whichever specialization was evaluated LAST — so two calls
+    // with different `R` both pointed at the second spec's future struct and
+    // the first caller's `->result` read the wrong C type
+    // (issues/future-wrapper-return-shared-across-specializations.md).
+    // The spec's body is a fresh-id clone with its own stamp: read that.
+    if(is_some_type(resolved_ret), {
+      match(
+        spec_fv,
+        .FuncVal(rb_fvd, _) => match(
+          expr_info_table_get(ctx.expr_info_table, ast_expr_id(rb_fvd.*.body)),
+          .Some(rb_binfo) => {
+            (rb_conc : TypeValue) = rb_binfo.ty;
+            match(
+              rb_conc,
+              .SomeT({ id : rb_bid, resolved_concrete : rb_bcell }) => match(
+                rb_bcell.get(usize(0)),
+                .Some(rb_inner) => {
+                  rb_conc = rb_inner;
+                },
+                .None => match(
+                  lookup_some_resolved_concrete(rb_bid),
+                  .Some(rb_g) => {
+                    rb_conc = rb_g;
+                  },
+                  .None => ()
+                )
+              ),
+              _ => ()
+            );
+            if(!(is_unit_type(rb_conc)), {
+              resolved_ret = _with_resolved_concrete(resolved_ret, rb_conc);
+              out_rt.ty = resolved_ret;
+              out_rt.value = Option(EvalValue).Some(_call_result_unknown(resolved_ret, env));
+            });
+          },
+          .None => ()
+        ),
+        _ => ()
+      );
     });
     spec_callee_info := new_expr_info(env, spec_ty_fixed);
     spec_callee_info.value = Option(EvalValue).Some(spec_fv);
@@ -2670,9 +2773,7 @@ evaluate_function_call :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `No matching call found for operator "${op_name}" with receiver type "${type_to_string(receiver_ty)}"`,
-            false,
-            .None
+            `No matching call found for operator "${op_name}" with receiver type "${type_to_string(receiver_ty)}"`
           )
         )
       );
@@ -2828,6 +2929,18 @@ evaluate_function_call :: (
           });
         });
       });
+      // Era repair for the operator's stamped RESULT type (the trait-operator
+      // half of the recursive-instantiation era class): a trait method
+      // declared `-> Range(Self)` registers a substitution-era instance
+      // (substitute() keeps the trait-definition era's struct id — see
+      // canonicalize_instantiation_via_ctfe_memo), so `usize(1)..usize(5)`
+      // was stamped with a Range(usize) no impl is registered on and
+      // `.next()`/`.count()`/`for` on an op-built range found no methods
+      // (issues/fixed/range-op-result-era-split-blocks-iteration.md). The helper.yo
+      // rte era repair can't fire here — the method's recorded return is
+      // already SomeT-free at call time. Route the stamp through the ctor
+      // memo's canonical instantiation instead.
+      resolved_ret = canonicalize_instantiation_via_ctfe_memo(resolved_ret);
       // CTFE-execute comptime-returning operators (e.g. ComptimeSub(usize)'s
       // `(-)`, `__yo_comptime_usize_sub`). Like the `.method()` arm, the
       // operator dispatch resolves only the return TYPE via `try_to_call`
@@ -3182,9 +3295,7 @@ C functions are outside Yo's type-checking reach — wrong argument types, contr
 
 Fix: wrap the call:
 
-  unsafe(${ast_expr_to_string(expr)})`,
-          false,
-          .None
+  unsafe(${ast_expr_to_string(expr)})`
         )
       )
     );
@@ -3207,9 +3318,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    `Expected 1 body argument for function definition, got ${args.len()}`,
-                    false,
-                    .None
+                    `Expected 1 body argument for function definition, got ${args.len()}`
                   )
                 )
               );
@@ -3234,9 +3343,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: closure creation failed"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: closure creation failed")
                     )
                   )
                 );
@@ -3296,9 +3403,7 @@ Fix: wrap the call:
                           dyn(
                             format_error_message(
                               tok,
-                              String.from("evaluate_function_call: SomeT closure creation failed"),
-                              false,
-                              .None
+                              String.from("evaluate_function_call: SomeT closure creation failed")
                             )
                           )
                         );
@@ -3311,9 +3416,7 @@ Fix: wrap the call:
                       dyn(
                         format_error_message(
                           tok,
-                          String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)"),
-                          false,
-                          .None
+                          String.from("evaluate_function_call: TypeVal SomeT callee without FnTrait (Phase 4)")
                         )
                       )
                     );
@@ -3343,9 +3446,7 @@ Fix: wrap the call:
                       dyn(
                         format_error_message(
                           tok,
-                          String.from("evaluate_function_call: DynT closure creation failed"),
-                          false,
-                          .None
+                          String.from("evaluate_function_call: DynT closure creation failed")
                         )
                       )
                     );
@@ -3358,9 +3459,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: TypeVal DynT callee without FnTrait (Phase 4)")
                     )
                   )
                 );
@@ -3417,8 +3516,8 @@ Fix: wrap the call:
             );
             // Faithful port of TS function.ts:1020 (`typeFields: value.value.fields`):
             // the struct VALUE's `field_types` carry the CONCRETE type arguments
-            // (e.g. `HashSet(String)` → `data : ?*(String)`), whereas the registry
-            // template from `get_struct_fields(struct_id)` keeps the generic `?*(T)`.
+            // (e.g. `HashSet(String)` → `data : ?(*(String))`), whereas the registry
+            // template from `get_struct_fields(struct_id)` keeps the generic `?(*(T))`.
             // yo-self splits field METADATA (defaults — in the registry) from field
             // TYPES (on the `TypeValue.Struct` value), so take each registry field
             // but OVERRIDE its `ty` with the value's substituted type (matched by
@@ -3600,9 +3699,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: EnumT callee has no selected variant"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: EnumT callee has no selected variant")
                     )
                   )
                 );
@@ -3630,9 +3727,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    `evaluate_function_call: enum variant not found: ${variant_name}`,
-                    false,
-                    .None
+                    `evaluate_function_call: enum variant not found: ${variant_name}`
                   )
                 )
               );
@@ -3818,9 +3913,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: pointer cast expects 1 argument"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: pointer cast expects 1 argument")
                     )
                   )
                 );
@@ -3836,9 +3929,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("evaluate_function_call: pointer type conversion failed"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: pointer type conversion failed")
                     )
                   )
                 );
@@ -3860,9 +3951,7 @@ Fix: wrap the call:
                     dyn(
                       format_error_message(
                         tok,
-                        String.from("evaluate_function_call: numeric cast expects 1 argument"),
-                        false,
-                        .None
+                        String.from("evaluate_function_call: numeric cast expects 1 argument")
                       )
                     )
                   );
@@ -3878,9 +3967,7 @@ Fix: wrap the call:
                     dyn(
                       format_error_message(
                         tok,
-                        String.from("evaluate_function_call: numeric type conversion failed"),
-                        false,
-                        .None
+                        String.from("evaluate_function_call: numeric type conversion failed")
                       )
                     )
                   );
@@ -3892,9 +3979,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)"),
-                    false,
-                    .None
+                    String.from("evaluate_function_call: TypeVal callee with unsupported type (Phase 5)")
                   )
                 )
               );
@@ -3911,6 +3996,7 @@ Fix: wrap the call:
         cap_names := __fvm7.*.cap_names;
         cap_tys := __fvm7.*.cap_tys;
         func_id_fv := __fvm7.*.func_id;
+        fv_env_key := __fvm7.*.env_key;
         n_p := param_names.len();
         n_ev := evidence_names.len();
         (n_a : usize) = args.len();
@@ -3944,9 +4030,7 @@ Fix: wrap the call:
                 dyn(
                   format_error_message(
                     tok,
-                    `Partial application: expected ${pa_pt.len()} argument(s), got ${n_a}`,
-                    false,
-                    .None
+                    `Partial application: expected ${pa_pt.len()} argument(s), got ${n_a}`
                   )
                 )
               );
@@ -4255,7 +4339,7 @@ Fix: wrap the call:
           if(n_required_reg != n_p, {
             fv_count_msg = `Argument count mismatch: expected ${(n_required_reg + n_ev)}..${(n_p + n_ev)}, got ${n_a}`;
           });
-          exn.throw(dyn(format_error_message(tok, fv_count_msg, false, .None)));
+          exn.throw(dyn(format_error_message(tok, fv_count_msg)));
         });
         // Number of regular args actually supplied (the rest of `n_a` are
         // evidence args, which follow the regulars in `evaled_arg_infos`).
@@ -4391,9 +4475,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(cl_label_expr),
-                      `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`,
-                      false,
-                      .None
+                      `Expected identifier for label, got:\n${ast_expr_to_string(cl_label_expr)}`
                     )
                   )
                 );
@@ -4405,9 +4487,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(cl_label_expr),
-                      String.from("Named argument call is not allowed for this parameter (it has no label)."),
-                      false,
-                      .None
+                      String.from("Named argument call is not allowed for this parameter (it has no label).")
                     )
                   )
                 );
@@ -4417,9 +4497,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(cl_label_expr),
-                      `Named argument is not supported. Label is only used for readibility.\n    Expected label "${cl_param_label}" at the argument position, but got "${cl_label}".`,
-                      false,
-                      .None
+                      `Named argument is not supported. Label is only used for readibility.\n    Expected label "${cl_param_label}" at the argument position, but got "${cl_label}".`
                     )
                   )
                 );
@@ -4710,9 +4788,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       ast_expr_token(arg_expr),
-                      String.from("evaluate_function_call: arg not evaluated"),
-                      false,
-                      .None
+                      String.from("evaluate_function_call: arg not evaluated")
                     )
                   )
                 );
@@ -5001,11 +5077,15 @@ Fix: wrap the call:
           });
         });
         // Build (or reuse) the function body's lexical environment from the
-        // FuncVal's flat capture snapshot. Memoised per closure instance by
-        // `capture_env_for` — re-binding every captured name on every call was
-        // 31 M `Variable` constructions per self-emit from this site alone.
+        // FuncVal's capture snapshot, memoised per closure instance by
+        // `capture_env_for`. With a registered `env_key` the frame holds the
+        // ORIGINAL Variable handles (plans/FUNCVAL_ENV_SHARING.md); the flat
+        // triple rebuild is the fallback (re-binding every captured name on
+        // every call was 31 M `Variable` constructions per self-emit from
+        // this site alone).
         fresh_env := capture_env_for(
           func_id_fv,
+          fv_env_key,
           cap_names,
           cap_tys,
           cap_vals,
@@ -5023,7 +5103,8 @@ Fix: wrap the call:
               body : body_box,
               cap_names : cap_names,
               cap_tys : cap_tys,
-              func_id : random_id(env.module_path)
+              func_id : random_id(env.module_path),
+              env_key : fv_env_key
             )
           ),
           cap_vals
@@ -5143,7 +5224,7 @@ Fix: wrap the call:
           // Narrow guard — only comptime_str args against a concrete,
           // non-comptime-string, non-`SomeT` declared param. This avoids
           // touching comptime type-parameter args (e.g.
-          // `(?*) :: (fn(comptime(T):Type)->…)(Option(*(T)))`), which must keep
+          // a `(fn(comptime(T):Type)->…)(Option(*(T)))`-style alias), which must keep
           // their `Type` value so `*(T)` resolves.
           bind_decl_pt := match(fv_param_types.get(pi), .Some(t) => t, .None => t_unit());
           // Resolve a generic-`SomeT` declared param type to its concrete binding
@@ -5185,7 +5266,18 @@ Fix: wrap the call:
           // the field → undeclared `get_info` in the emitted C). TS binds
           // isCompileTimeOnly from the PARAMETER declaration, never from
           // arg-value presence (helper.ts:573).
-          (is_ct : bool) = match(arg_info.value, .Some(av) => !(is_func_val(av)), .None => false);
+          // An UnknownVal argument is a RUNTIME value (type known, value not
+          // — the project-wide meaning of UnknownVal, and TS helper.ts:36's
+          // own words: "A runtime value is either undefined (no value) or a
+          // runtime-only UnknownValue"). Binding such a param compile-time-
+          // only excluded it from closure-capture tracking, so a generic
+          // fn's async closure emitted the param as a bare undeclared C
+          // identifier (issues/async-loop-awaiting-buffer-taking-method-
+          // state-machine-corruption.md, facet 1). TS derives the binding's
+          // isCompileTimeOnly from the DECLARED param flag alone
+          // (helper.ts:671); the value-derived heuristic here keeps genuine
+          // comptime VALUES comptime but must not claim runtime unknowns.
+          (is_ct : bool) = match(arg_info.value, .Some(av) => (!(is_func_val(av)) && !(is_unknown_val(av))), .None => false);
           if((is_comptime_string_type(arg_info.ty) && (!(is_some_type(resolved_decl_pt)))) && (!(is_comptime_string_type(resolved_decl_pt))), {
             bind_ty = resolved_decl_pt.clone();
             bind_val = Option(EvalValue).Some(create_unknown_val(resolved_decl_pt));
@@ -5213,9 +5305,7 @@ Fix: wrap the call:
                     ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr)),
                     `Incompatible type with expected type:
 - Expected: ${type_to_string(resolved_decl_pt)}
-- Actual  : ${type_to_string(etc_arg_ty)}`,
-                    false,
-                    .None
+- Actual  : ${type_to_string(etc_arg_ty)}`
                   )
                 )
               );
@@ -5442,7 +5532,29 @@ Fix: wrap the call:
         // path regardless of the declared return type (TS function.ts:1932
         // `isMacroCall` always calls tryToCallFunctionWithArguments with an
         // executing context).
-        if(((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || all_args_are_types) || fv_is_macro, {
+        // `all_args_are_types` alone must NOT divert an ORDINARY function whose
+        // parameters merely HAPPEN to all be comptime types. The CTFE arm cannot
+        // resolve a return type that NAMES a comptime parameter (its repair is
+        // value-space only), and it CTFE-EXECUTES a runtime body — so
+        // `(fn(comptime(C) : Type, where(C <: Default)) -> C)` came back
+        // under-resolved and `(fn(comptime(C) : Type) -> i32)` ran its body at
+        // compile time. See
+        // issues/fixed/comptime-type-argument-alone-does-not-bind-the-generic.md.
+        //
+        // Consult the callee's DECLARED signature rather than the recorded
+        // (possibly specialized) one: every real type constructor is declared
+        // `-> comptime(Type)`, which is exactly the case this disjunct was added
+        // for, while the two broken shapes declare `-> C` and `-> i32`. Dropping
+        // the disjunct entirely is NOT safe — it is what keeps a repeat
+        // constructor call memoized and stamped with `constructor_func_id`, and
+        // losing that fragments type identity (the era-split class fixed in
+        // #247).
+        declared_ret_is_type := match(
+          get_func_type(func_id_fv.clone()),
+          .Func({ result : d_result, meta : __fmd }) => (is_type_hierarchy_type(d_result) || __fmd.*.result_is_comptime_only),
+          _ => false
+        );
+        if(((is_type_hierarchy_type(ret_type) || callee_result_is_comptime) || (all_args_are_types && declared_ret_is_type)) || fv_is_macro, {
           ct_arg_entries := ArrayList(ArgEntry).new();
           (ct_ai : usize) = usize(0);
           while(ct_ai < evaled_arg_infos.len(), {
@@ -5524,7 +5636,10 @@ Fix: wrap the call:
                 // CTFE result still references the tree, and id-preserving
                 // copies alias ExprInfo-table entries (see the
                 // template-clone comment in builtins/quote.yo).
-                expanded_expr := evaluate_expression_raw(clone_expr_fresh_ids(expanded_box), ct_result.caller_env, ctx, exn);
+                // Desugar `if(...)` calls the expansion may contain (from a
+                // quote template — load-time desugaring skips quote bodies —
+                // or from a cons-built tree) so codegen sees `cond` here too.
+                expanded_expr := evaluate_expression_raw(desugar_if_calls(clone_expr_fresh_ids(expanded_box)), ct_result.caller_env, ctx, exn);
                 exp_info := match(
                   expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr)),
                   .Some(i) => i,
@@ -5557,9 +5672,7 @@ Fix: wrap the call:
                   dyn(
                     format_error_message(
                       tok,
-                      String.from("Expected macro function to return an Expr value."),
-                      false,
-                      .None
+                      String.from("Expected macro function to return an Expr value.")
                     )
                   )
                 );
@@ -6025,6 +6138,21 @@ Fix: wrap the call:
             _ => ()
           );
         });
+        // C54 body half (the `_`-fallback arm's runtime-call tail — where an
+        // UnknownVal callee like a valueless closure param `body(...)` is
+        // stamped): a result still mentioning the enclosing fn's OWN forall
+        // binder must not ship the bare SomeT to codegen — codegen resolves a
+        // SomeT through the GLOBAL registry keyed by the forall id, so the
+        // LAST specialization's `R` renders every caller
+        // (issues/future-wrapper-return-shared-across-specializations.md;
+        // the develop-HEAD ASan red is the same clobber on `E`). Resolve
+        // through the CALL's env, where the enclosing specialization binds
+        // the binder concretely; a legitimately-unbound binder keeps the
+        // original type.
+        rt_rt_resolved := _resolve_some_types_deep(ret_type_rt, call_result_rt.caller_env);
+        if(!(is_some_type(rt_rt_resolved)) && !(is_unit_type(rt_rt_resolved)), {
+          ret_type_rt = rt_rt_resolved;
+        });
         out_rt := new_expr_info(call_result_rt.caller_env, ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
@@ -6039,7 +6167,15 @@ Fix: wrap the call:
         // name, so the FSM struct typedef the code references is never
         // declared (sys/timer flag-on: `unknown type name
         // 'async_block_yo_id_6035_state_t'`).
-        attach_temp_variable_to_expr(expr, true, ctx);
+        // `__yo_as` (`unsafe.cast`) yields a BORROWED view, not a fresh +1 — see the
+        // valueless-callee branch below and
+        // issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md.
+        rt_is_yo_as := match(
+          callee_ty,
+          .Func({ meta : __fm_rt_as }) => match(__fm_rt_as.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
+          _ => false
+        );
+        attach_temp_variable_to_expr(expr, !(rt_is_yo_as), ctx);
         return(expr);
       }
     ),
@@ -6098,6 +6234,7 @@ Fix: wrap the call:
                   row : recv_tok.row,
                   column : recv_tok.column,
                   character : recv_tok.character,
+                  byte_offset : recv_tok.byte_offset,
                   module_path : recv_tok.module_path.clone(),
                   input : recv_tok.input.clone()
                 )
@@ -6368,6 +6505,85 @@ Fix: wrap the call:
             ),
             .None => ()
           );
+          // Recursive-instantiation era repair, METHOD-dispatch arm — the twin
+          // of the trait-operator arm above. A declared return like
+          // `-> IterRev(Self)` is resolved per call by substitution, and
+          // `substitute()` KEEPS the def-era struct id (types/substitution.yo).
+          // For an adaptor instantiated over ITSELF that means the outer
+          // instance and its own type ARGUMENT carry ONE id, so `type_key`'s
+          // id-keyed cycle guard reads the argument as a back-edge and renders
+          // it as the bare sid — splitting the call site from the
+          // specialization, whose own era repair had already adopted the ctor
+          // memo's CANONICAL instance. The mint half has an era-suspect
+          // trigger; this caller-side path has none, so adopt the canonical
+          // instantiation here. AFTER the receiver adopt, never before.
+          // issues/fixed/nested-same-adaptor-instantiation-identity-split.md
+          m_out_ty = canonicalize_instantiation_via_ctfe_memo(m_out_ty);
+          // Wrapper return (`-> Impl(Future(R))`): bridge the call's result to
+          // THIS callee's async block, like the FuncVal arm's
+          // `_with_resolved_concrete` bridge. Without it the caller's wrapper
+          // carried no per-value cell and codegen fell back to the GLOBAL
+          // registration for the DECLARED wrapper id — shared by every
+          // specialization of the method, last writer wins — so two `R`s
+          // through one method cast both futures to the second spec's struct
+          // (issues/future-wrapper-return-shared-across-specializations.md).
+          // Prefer the specialization (its body is a fresh-id clone with its
+          // own stamp); a non-generic method's own body is unique anyway.
+          if(is_some_type(m_out_ty), {
+            m_bridge_fv := match(
+              call_result_m.specialized_function_value,
+              .Some(m_sfv) => Option(EvalValue).Some(m_sfv),
+              .None => method_info.method_val_opt
+            );
+            match(
+              m_bridge_fv,
+              .Some(m_bfv) => match(
+                m_bfv,
+                .FuncVal(m_bfvd, _) => match(
+                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(m_bfvd.*.body)),
+                  .Some(m_binfo) => {
+                    (m_conc : TypeValue) = m_binfo.ty;
+                    match(
+                      m_conc,
+                      .SomeT({ id : m_bid, resolved_concrete : m_bcell }) => match(
+                        m_bcell.get(usize(0)),
+                        .Some(m_inner) => {
+                          m_conc = m_inner;
+                        },
+                        .None => match(
+                          lookup_some_resolved_concrete(m_bid),
+                          .Some(m_g) => {
+                            m_conc = m_g;
+                          },
+                          .None => ()
+                        )
+                      ),
+                      _ => ()
+                    );
+                    if(!(is_unit_type(m_conc)), {
+                      m_out_ty = _with_resolved_concrete(m_out_ty, m_conc);
+                    });
+                  },
+                  .None => ()
+                ),
+                _ => ()
+              ),
+              .None => ()
+            );
+          });
+          // C54 body half: the Call-trait method's result (a closure-param
+          // call `body(...)` on an `Impl(Fn(...) -> R)` receiver) is the
+          // forall `R` itself. Stamping the bare SomeT hands codegen the
+          // GLOBAL registry — keyed by the forall id shared by EVERY
+          // specialization — so the LAST specialization's `R` renders every
+          // caller (issues/future-wrapper-return-shared-across-specializations.md;
+          // the develop-HEAD ASan red is the same clobber on `E`). Resolve
+          // through the CALL's env, where the enclosing specialization binds
+          // R concretely; a legitimately-unbound R keeps the original type.
+          m_rt_resolved := _resolve_some_types_deep(m_out_ty, call_result_m.caller_env);
+          if(!(is_some_type(m_rt_resolved)) && !(is_unit_type(m_rt_resolved)), {
+            m_out_ty = m_rt_resolved;
+          });
           out_m := new_expr_info(call_result_m.caller_env, m_out_ty);
           out_m.value = m_result_val;
           out_m.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_m.runtime_arg_exprs_in_order);
@@ -6496,9 +6712,7 @@ Fix: wrap the call:
                 format_error_message(
                   ast_expr_token(func_expr),
                   `No matching call found with arguments:
-${ast_expr_to_string(expr)}`,
-                  false,
-                  .None
+${ast_expr_to_string(expr)}`
                 )
               )
             );
@@ -6581,13 +6795,41 @@ ${ast_expr_to_string(expr)}`,
           if(in_def_time_trial() && fncall_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
             eprintln(`[call-none] ret=${type_to_string(ret_type_none)} callee=${ast_expr_to_string(func_expr)} callee_ty=${type_to_string(callee_ty_none)}`);
           });
+          // C54 body half: a call whose result still mentions the enclosing
+          // fn's OWN forall binder (the closure param `body : Impl(Fn(...) -> R)`
+          // called inside a SPECIALIZATION's body, params bound valueless)
+          // must not ship the bare SomeT to codegen — codegen resolves a
+          // SomeT through the GLOBAL registry keyed by the forall id, so the
+          // LAST specialization's `R := i64` renders the FIRST
+          // specialization's call
+          // (issues/future-wrapper-return-shared-across-specializations.md;
+          // the develop-HEAD ASan red is the same clobber on `E`). Resolve
+          // through the CALL's env, where the enclosing specialization binds
+          // R concretely. Keep the ORIGINAL type when it stays abstract —
+          // the def-time body of a still-generic fn legitimately leaves R
+          // unbound, and the resolver may hand back a re-identified SomeT we
+          // do not want to adopt (id-keyed side tables).
+          rt_none_resolved := _resolve_some_types_deep(ret_type_none, call_result_none.caller_env);
+          if(!(is_some_type(rt_none_resolved)) && !(is_unit_type(rt_none_resolved)), {
+            ret_type_none = rt_none_resolved;
+          });
           out_none := new_expr_info(call_result_none.caller_env, ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(ret_type_none, callee_env));
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
           out_none.deferred_drop_expressions = call_result_none.deferred_drop_expressions;
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_none);
           // Same temp attachment as the method arm (TS function.ts:2263).
-          attach_temp_variable_to_expr(expr, true, ctx);
+          // The result temp is OWNING (+1 the callee produced) — except for
+          // `__yo_as` (`unsafe.cast`): a cast conjures no new object, it is a
+          // BORROWED view of the caller's. Treating `w := unsafe.cast(ud, W)`
+          // as owned made the callee's scope-end drop free the caller's `W`
+          // (issues/fixed/unsafe-cast-to-rc-type-is-treated-as-owned.md).
+          none_is_yo_as := match(
+            callee_ty_none,
+            .Func({ meta : __fm_none }) => match(__fm_none.*.extern_name, .Some(en) => (en == BF_YO_AS), .None => false),
+            _ => false
+          );
+          attach_temp_variable_to_expr(expr, !(none_is_yo_as), ctx);
           return(expr);
         }
       )

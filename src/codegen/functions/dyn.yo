@@ -28,7 +28,7 @@ _func_val_id :: (fn(v : EvalValue) -> String)(
 );
 /// True for the reserved dyn-method labels (___dup/___drop/___dispose/dispose).
 _is_reserved_dyn_label :: (fn(label : String) -> bool)(
-  ((label == "___dup") || (label == "___drop")) || ((label == "___dispose") || (label == "dispose"))
+  (label == "___dup") || (label == "___drop") || ((label == "___dispose") || (label == "dispose"))
 );
 /// Sanitized C field name of the single field of a Box(T) data type ("*").
 _box_field_name :: (fn(data_type : TypeValue) -> String)(
@@ -43,7 +43,7 @@ _dyn_impl_keys :: (fn(context : FunctionGenerationContext) -> ArrayList(String))
   out := ArrayList(String).new();
   it := context.base.dyn_impls.keys();
   (done : bool) = false;
-  while(!(done), {
+  while(!done, {
     match(
       it.next(),
       .Some(k) => {
@@ -71,8 +71,8 @@ generate_dyn_dup_drop :: (fn(context : FunctionGenerationContext) -> unit)({
       .Some(impl_entry) => {
         dyn_key := type_key(impl_entry.dyn_type.clone());
         dyn_c := match(context.base.get_type_c_name(dyn_key.clone()), .Some(cn) => cn, .None => `__yo_dyn_${dyn_key}`);
-        if(!(generated.contains(dyn_c.clone())), {
-          _g := generated.add(dyn_c.clone());
+        if(!generated.contains(dyn_c.clone()), {
+          _g := generated.insert(dyn_c.clone());
           em.emit_string_line(`${dyn_c} __yo_dup_${dyn_c}(${dyn_c} dyn) {`);
           em.emit_line("  if (dyn.data) {");
           em.emit_line("    __yo_incr_rc(dyn.data);");
@@ -122,14 +122,14 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
         concrete_key := type_key(dyn_concrete_res.clone());
         concrete_c := match(context.base.get_type_c_name(concrete_key.clone()), .Some(cn) => cn, .None => `unknown_${concrete_key}`);
         box_name := `__yo_dyn_box_${concrete_c}`;
-        if(!(generated.contains(box_name.clone())), {
-          _g := generated.add(box_name.clone());
+        if(!generated.contains(box_name.clone()), {
+          _g := generated.insert(box_name.clone());
           value_str := get_type_string(dyn_concrete_res.clone(), context.base);
           // Late-registered dyn impl (registered during body generation, after
           // the type-decl phase's box pass): emit the missing typedef into the
           // DECLARATIONS section now — see CodeGenContext.dyn_box_typedefs.
-          if(!(context.base.dyn_box_typedefs.contains(box_name.clone())), {
-            _g3 := context.base.dyn_box_typedefs.add(box_name.clone());
+          if(!context.base.dyn_box_typedefs.contains(box_name.clone()), {
+            _g3 := context.base.dyn_box_typedefs.insert(box_name.clone());
             em.emit_declaration_line("typedef struct {");
             em.emit_declaration_line("  __yo_ref_header_t header;");
             em.emit_declaration_string_line(`  ${value_str} value;`);
@@ -195,7 +195,7 @@ _emit_wrapper_call :: (fn(em : Emitter, cname : String, first_arg : String, n_pa
   });
   call.push_str(");");
   line := String.from("  ");
-  if(!(is_void), {
+  if(!is_void, {
     line.push_str("return ");
   });
   line.push_string(call);
@@ -355,7 +355,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
                     cc_fn := match(cc_info, .Some(mp) => mp.function_c_name.clone(), .None => String.from(""));
                     call := String.from("  ");
-                    if(!(is_void), {
+                    if(!is_void, {
                       call.push_str("return ");
                     });
                     call.push_string(cc_fn);
@@ -369,7 +369,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     });
                     call.push_str(");");
                     em.emit_declaration_string_line(call);
-                  }, if(is_boxed && !(is_some_type(resolve_some_type_to_concrete(impl_entry.concrete_type.clone()))), {
+                  }, if(is_boxed && !is_some_type(resolve_some_type_to_concrete(impl_entry.concrete_type.clone())), {
                     // Gated on a RESOLVED inner: an unresolved-SomeT payload's
                     // Box field degenerates to `void*` in C, so the fat-pointer
                     // `.call` below is invalid ("member reference base type
@@ -382,7 +382,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
                     // General fat-pointer path: box->field.call(box->field.data, args...).
                     call := String.from("  ");
-                    if(!(is_void), {
+                    if(!is_void, {
                       call.push_str("return ");
                     });
                     call.push_str("box->");
@@ -426,7 +426,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
         (mi : usize) = usize(0);
         while(mi < nt, {
           skip := match(req_traits.get(mi), .Some(rt) => is_fn_trait_type(rt.clone()), .None => true);
-          if(!(skip), {
+          if(!skip, {
             match(
               impl_entry.trait_values.get(mi),
               .Some(trait_val) => match(
@@ -441,7 +441,7 @@ generate_dyn_wrapper_functions :: (fn(context : FunctionGenerationContext) -> un
                     // `||` mis-scopes its drop — TS-compiler bug).
                     label_reserved := _is_reserved_dyn_label(label.clone());
                     is_reserved := ((label == "Self") || label_reserved);
-                    if(!(is_reserved), {
+                    if(!is_reserved, {
                       match(
                         field_values.get(fi),
                         .Some(opt_fv) => match(
@@ -538,15 +538,15 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
       .Some(impl_entry) => {
         concrete_cname := match(context.base.get_type_c_name(type_key(impl_entry.concrete_type.clone())), .Some(cn) => cn, .None => `unknown_${type_key(impl_entry.concrete_type.clone())}`);
         typeid_name := `__yo_typeid_${concrete_cname}`;
-        if(!(generated.contains(typeid_name.clone())) && !(context.base.type_id_static_names.contains(typeid_name.clone())), {
-          _g := generated.add(typeid_name.clone());
-          _n := context.base.type_id_static_names.add(typeid_name.clone());
-          _s := context.base.type_id_statics.set(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
-          em.emit_declaration_string_line(`static const char ${typeid_name} = 0; // TypeId for ${concrete_cname}`);
+        if(!generated.contains(typeid_name.clone()) && !context.base.type_id_static_names.contains(typeid_name.clone()), {
+          _g := generated.insert(typeid_name.clone());
+          _n := context.base.type_id_static_names.insert(typeid_name.clone());
+          _s := context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          context.base.emit_typeid_static(typeid_name.clone(), ` // TypeId for ${concrete_cname}`);
         }, {
           // Name already emitted by the typeid/downcast expression emitters —
           // still record the key mapping so vtables reference the shared static.
-          _s2 := context.base.type_id_statics.set(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
+          _s2 := context.base.type_id_statics.insert(type_key(impl_entry.concrete_type.clone()), typeid_name.clone());
         });
       },
       .None => ()
@@ -580,8 +580,31 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
           match(
             req_traits.get(mi),
             .Some(rt) => if(is_fn_trait_type(rt.clone()), {
-              em.emit_declaration_string_line(`  .call = __yo_wrap_${impl_key}_call,`);
-              _p := processed.add(String.from("call"));
+              // Cast to the vtable's declared member type: the wrapper's C
+              // return type is the IMPL's registered result (a Future-returning
+              // method's own sync-future/state-machine struct), while the
+              // member is declared with the trait's generic interface type —
+              // layout-compatible (the SM begins with the future header) but
+              // distinct C types, and clang rejects the bare initializer
+              // ("incompatible function pointer types").
+              match(
+                rt,
+                .FnTraitT({ call_param_labels : cpl2, call_param_types : cpt2, call_result : cres2 }) => {
+                  cast_ret := get_type_string(cres2, context.base);
+                  cast_params := String.from("void*");
+                  (cpi : usize) = usize(0);
+                  while(cpi < cpl2.len(), {
+                    cast_params.push_str(", ");
+                    cast_params.push_string(match(cpt2.get(cpi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
+                    cpi = (cpi + usize(1));
+                  });
+                  em.emit_declaration_string_line(`  .call = (${cast_ret} (*)(${cast_params}))__yo_wrap_${impl_key}_call,`);
+                },
+                _ => {
+                  em.emit_declaration_string_line(`  .call = __yo_wrap_${impl_key}_call,`);
+                }
+              );
+              _p := processed.insert(String.from("call"));
             }, {
               match(
                 rt,
@@ -594,9 +617,9 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                     // mis-scopes their drops — TS-compiler bug).
                     label_reserved := _is_reserved_dyn_label(label.clone());
                     label_processed := processed.contains(label.clone());
-                    is_skip := (((label == "Self") || label_reserved) || label_processed);
-                    if(!(is_skip), {
-                      _p := processed.add(label.clone());
+                    is_skip := ((label == "Self") || label_reserved || label_processed);
+                    if(!is_skip, {
+                      _p := processed.insert(label.clone());
                       // Only emit a slot for a method whose first param is `self`.
                       has_self := match(
                         field_types.get(fi),
@@ -604,7 +627,30 @@ generate_dyn_vtables :: (fn(context : FunctionGenerationContext) -> unit)({
                         .None => false
                       );
                       if(has_self, {
-                        em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${label},`);
+                        // Same cast as `.call` above: member type = the
+                        // TRAIT's declared signature, wrapper type = the
+                        // impl's registered one.
+                        match(
+                          field_types.get(fi),
+                          .Some(mft) => match(
+                            mft,
+                            .Func({ param_types : mpt, result : mres }) => {
+                              cast_ret := get_type_string(mres, context.base);
+                              cast_params := String.from("void*");
+                              (mpi : usize) = usize(1);
+                              while(mpi < mpt.len(), {
+                                cast_params.push_str(", ");
+                                cast_params.push_string(match(mpt.get(mpi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
+                                mpi = (mpi + usize(1));
+                              });
+                              em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = (${cast_ret} (*)(${cast_params}))__yo_wrap_${impl_key}_${label},`);
+                            },
+                            _ => {
+                              em.emit_declaration_string_line(`  .${sanitize_for_c_identifier(label.clone(), false)} = __yo_wrap_${impl_key}_${label},`);
+                            }
+                          ),
+                          .None => ()
+                        );
                       });
                     });
                     fi = (fi + usize(1));

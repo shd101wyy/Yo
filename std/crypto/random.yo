@@ -2,7 +2,7 @@
 //! Uses OS entropy sources (getrandom on Linux, arc4random_buf on macOS,
 //! BCryptGenRandom on Windows, getentropy on WASI).
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { random_u64, uuid_v4 } :: import "std/crypto/random";
@@ -50,11 +50,11 @@ export(CryptoError);
 { EINTR } :: import("../libc/errno");
 extern(
   "Yo",
-  __yo_getrandom : (fn(buf : *(u8), buflen : usize, flags : u32) -> isize),
+  __yo_getrandom : (fn(buf : *u8, buflen : usize, flags : u32) -> isize),
   __yo_errno : (fn() -> i32),
-  __yo_arc4random_buf : (fn(buf : *(u8), nbytes : usize) -> unit),
-  __yo_bcrypt_gen_random : (fn(buf : *(u8), size : u32) -> i32),
-  __yo_getentropy : (fn(buf : *(u8), buflen : usize) -> i32)
+  __yo_arc4random_buf : (fn(buf : *u8, nbytes : usize) -> unit),
+  __yo_bcrypt_gen_random : (fn(buf : *u8, size : u32) -> i32),
+  __yo_getentropy : (fn(buf : *u8, buflen : usize) -> i32)
 );
 // ============================================================================
 // Fill a buffer with cryptographically secure random bytes.
@@ -130,7 +130,7 @@ export(random_bytes);
 // ============================================================================
 random_u32 :: (fn(exn : Exception) -> u32)({
   buf := Array(u8, usize(4)).fill(u8(0));
-  random_bytes(RawSlice(u8)(ptr : &(buf(usize(0))), len : usize(4)), exn);
+  random_bytes(RawSlice(u8)(ptr : &buf(usize(0)), len : usize(4)), exn);
   u32(buf(usize(0))) |
     (u32(buf(usize(1))) << u32(8)) |
       (u32(buf(usize(2))) << u32(16)) |
@@ -141,17 +141,42 @@ random_u64 :: (fn(exn : Exception) -> u64)({
   hi := u64(random_u32(exn));
   lo | (hi << u64(32))
 });
+// Return a uniform random f64 in the half-open range [0.0, 1.0).
+// Uses the top 53 bits (the double mantissa width): every result is exactly
+// representable and 1.0 is unreachable. The old version divided by u64::MAX,
+// which produced the CLOSED range [0.0, 1.0] and results rounded off the
+// 53-bit grid (plans/STD_API_AUDIT.md C5).
 random_f64 :: (fn(exn : Exception) -> f64)(
-  f64(random_u64(exn)) / f64(18446744073709551615.0)
+  f64(random_u64(exn) >> u64(11)) / f64(9007199254740992.0)
 );
 // Return a random integer in the half-open range [min, max).
+// Uniform via rejection sampling: `r % span` alone over-weights the low
+// residues whenever span does not divide 2^64 — a bias defect in a module
+// advertising cryptographic security (plans/STD_API_AUDIT.md C5). Draws
+// above the largest span-multiple are rejected and redrawn; the retry
+// probability is < 2^-1 per draw even in the worst case.
 random_range :: (fn(min : i64, max : i64, exn : Exception) -> i64)({
   span := (max - min);
   cond(
     (span <= i64(0)) => min,
     true => {
+      uspan := u64(span);
+      // Largest multiple of `uspan` representable in u64, as a rejection
+      // threshold: accept r only below it. (u64::MAX = 2^64 - 1, so the
+      // count of full spans is ((MAX - (uspan - 1)) / uspan) + 1 — computed
+      // as MAX - (MAX % uspan) unless uspan divides 2^64 exactly.)
+      max_u64 := u64(18446744073709551615);
+      rem := ((max_u64 % uspan) + u64(1));
+      limit := cond(
+        (rem == uspan) => max_u64,
+        // uspan divides 2^64: no bias, accept everything
+        true => (max_u64 - rem)
+      );
       r := random_u64(exn);
-      min + i64(r % u64(span))
+      while(runtime(r > limit), {
+        r = random_u64(exn);
+      });
+      min + i64(r % uspan)
     }
   )
 });
@@ -163,7 +188,7 @@ export(random_u32, random_u64, random_f64, random_range);
 uuid_v4 :: (fn(exn : Exception) -> String)({
   bytes := ArrayList(u8).with_capacity(usize(16));
   buf := Array(u8, usize(16)).fill(u8(0));
-  random_bytes(RawSlice(u8)(ptr : &(buf(usize(0))), len : usize(16)), exn);
+  random_bytes(RawSlice(u8)(ptr : &buf(usize(0)), len : usize(16)), exn);
   // Set version bits (v4)
   buf(usize(6)) = ((buf(usize(6)) & u8(0x0F)) | u8(0x40));
   // Set variant bits

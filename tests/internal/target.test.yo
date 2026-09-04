@@ -7,14 +7,19 @@ open(import("std/string"));
   Abi,
   TargetInfo,
   HostInfo,
+  SUPPORTED_TARGETS,
   arch_to_str,
+  arch_triple_str,
   os_to_str,
+  os_triple_str,
+  os_vendor_str,
   abi_to_str,
   parse_arch,
   parse_os,
   parse_abi,
   pointer_size_for_arch,
   detect_host,
+  host_target,
   parse_target,
   clang_triple,
   is_target_windows,
@@ -26,17 +31,52 @@ open(import("std/string"));
   is_target_musl,
   is_target_posix
 } :: import("../../src/target.yo");
+// A TargetInfo to return from the `.Err` arm of a match that has already
+// asserted `.Ok` — never read.
+_dummy :: (fn() -> TargetInfo)(
+  TargetInfo(arch : Arch.X86_64, os : Os.Linux, abi : Option(Abi).None, pointer_size_bits : u32(0), triple : String.new())
+);
+_ok_s :: (fn(triple : String) -> TargetInfo)({
+  result := parse_target(triple.clone());
+  match(
+    result,
+    .Ok(v) => v,
+    .Err(e) => {
+      assert(false, `expected "${triple}" to parse: ${e}`);
+      _dummy()
+    }
+  )
+});
+_ok :: (fn(triple : str) -> TargetInfo)(_ok_s(String.from(triple)));
+_err :: (fn(triple : str) -> String)({
+  result := parse_target(String.from(triple));
+  match(
+    result,
+    .Ok(v) => {
+      assert(false, `expected "${triple}" to be rejected, parsed as ${v.triple}`);
+      String.new()
+    },
+    .Err(e) => e
+  )
+});
 // ---------------------------------------------------------------------------
-// arch_to_str / os_to_str / abi_to_str
+// The two vocabularies: cfg names vs triple words
 // ---------------------------------------------------------------------------
-test("arch_to_str: all variants", {
+test("arch_to_str: cfg names (what __yo_process_arch returns)", {
   assert(arch_to_str(Arch.X86_64) == "x86_64", "x86_64");
   assert(arch_to_str(Arch.Aarch64) == "aarch64", "aarch64");
   assert(arch_to_str(Arch.X86) == "x86", "x86");
   assert(arch_to_str(Arch.Arm) == "arm", "arm");
   assert(arch_to_str(Arch.Wasm32) == "wasm32", "wasm32");
 });
-test("os_to_str: all variants", {
+test("arch_triple_str: triple words (i686, not x86)", {
+  assert(arch_triple_str(Arch.X86_64) == "x86_64", "x86_64");
+  assert(arch_triple_str(Arch.Aarch64) == "aarch64", "aarch64");
+  assert(arch_triple_str(Arch.X86) == "i686", "i686");
+  assert(arch_triple_str(Arch.Arm) == "arm", "arm");
+  assert(arch_triple_str(Arch.Wasm32) == "wasm32", "wasm32");
+});
+test("os_to_str: cfg names (what __yo_process_platform returns)", {
   assert(os_to_str(Os.Linux) == "linux", "linux");
   assert(os_to_str(Os.Macos) == "macos", "macos");
   assert(os_to_str(Os.Windows) == "windows", "windows");
@@ -44,41 +84,55 @@ test("os_to_str: all variants", {
   assert(os_to_str(Os.Wasi) == "wasi", "wasi");
   assert(os_to_str(Os.Emscripten) == "emscripten", "emscripten");
 });
+test("os_triple_str / os_vendor_str: triple words", {
+  assert(os_triple_str(Os.Macos) == "darwin", "darwin");
+  assert(os_vendor_str(Os.Macos) == "apple", "apple");
+  assert(os_triple_str(Os.Windows) == "windows", "windows");
+  assert(os_vendor_str(Os.Windows) == "pc", "pc");
+  assert(os_triple_str(Os.Linux) == "linux", "linux");
+  assert(os_vendor_str(Os.Linux) == "unknown", "unknown");
+  assert(os_triple_str(Os.FreeBSD) == "freebsd", "freebsd");
+  assert(os_vendor_str(Os.FreeBSD) == "unknown", "unknown");
+  assert(os_triple_str(Os.Emscripten) == "emscripten", "emscripten");
+  assert(os_vendor_str(Os.Emscripten) == "unknown", "unknown");
+  assert(os_triple_str(Os.Wasi) == "wasip1", "wasip1");
+  assert(os_vendor_str(Os.Wasi) == "", "wasi has no vendor");
+});
 test("abi_to_str: all variants", {
   assert(abi_to_str(Abi.Gnu) == "gnu", "gnu");
   assert(abi_to_str(Abi.Musl) == "musl", "musl");
   assert(abi_to_str(Abi.Msvc) == "msvc", "msvc");
-  assert(abi_to_str(Abi.Wasm_) == "wasm", "wasm");
+  assert(abi_to_str(Abi.P1) == "p1", "p1");
 });
 // ---------------------------------------------------------------------------
-// parse_arch / parse_os / parse_abi
+// parse_arch / parse_os / parse_abi parse TRIPLE words
 // ---------------------------------------------------------------------------
-test("parse_arch: valid inputs", {
-  assert(parse_arch(String.from("x86_64")).is_some(), "x86_64 is Some");
-  assert(parse_arch(String.from("aarch64")).is_some(), "aarch64 is Some");
-  assert(parse_arch(String.from("wasm32")).is_some(), "wasm32 is Some");
-});
-test("parse_arch: invalid input returns None", {
+test("parse_arch: triple words", {
+  assert(parse_arch(String.from("x86_64")) == Option(Arch).Some(Arch.X86_64), "x86_64");
+  assert(parse_arch(String.from("aarch64")) == Option(Arch).Some(Arch.Aarch64), "aarch64");
+  assert(parse_arch(String.from("i686")) == Option(Arch).Some(Arch.X86), "i686 is X86");
+  assert(parse_arch(String.from("wasm32")) == Option(Arch).Some(Arch.Wasm32), "wasm32");
+  assert(parse_arch(String.from("x86")).is_none(), "x86 is the cfg name, not a triple word");
   assert(parse_arch(String.from("mips")).is_none(), "mips is None");
   assert(parse_arch(String.from("")).is_none(), "empty is None");
 });
-test("parse_os: valid inputs", {
-  assert(parse_os(String.from("linux")).is_some(), "linux is Some");
-  assert(parse_os(String.from("macos")).is_some(), "macos is Some");
-  assert(parse_os(String.from("windows")).is_some(), "windows is Some");
-  assert(parse_os(String.from("emscripten")).is_some(), "emscripten is Some");
-});
-test("parse_os: invalid input returns None", {
+test("parse_os: triple words", {
+  assert(parse_os(String.from("linux")) == Option(Os).Some(Os.Linux), "linux");
+  assert(parse_os(String.from("darwin")) == Option(Os).Some(Os.Macos), "darwin is Macos");
+  assert(parse_os(String.from("windows")) == Option(Os).Some(Os.Windows), "windows");
+  assert(parse_os(String.from("wasip1")) == Option(Os).Some(Os.Wasi), "wasip1 is Wasi");
+  assert(parse_os(String.from("emscripten")) == Option(Os).Some(Os.Emscripten), "emscripten");
+  assert(parse_os(String.from("macos")).is_none(), "macos is the cfg name, not a triple word");
+  assert(parse_os(String.from("wasi")).is_none(), "wasi is the cfg name, not a triple word");
   assert(parse_os(String.from("solaris")).is_none(), "solaris is None");
 });
-test("parse_abi: valid inputs", {
-  assert(parse_abi(String.from("gnu")).is_some(), "gnu is Some");
-  assert(parse_abi(String.from("musl")).is_some(), "musl is Some");
-  assert(parse_abi(String.from("msvc")).is_some(), "msvc is Some");
-  assert(parse_abi(String.from("wasm")).is_some(), "wasm is Some");
-});
-test("parse_abi: invalid input returns None", {
-  assert(parse_abi(String.from("unknown")).is_none(), "unknown is None");
+test("parse_abi: environment words", {
+  assert(parse_abi(String.from("gnu")) == Option(Abi).Some(Abi.Gnu), "gnu");
+  assert(parse_abi(String.from("musl")) == Option(Abi).Some(Abi.Musl), "musl");
+  assert(parse_abi(String.from("msvc")) == Option(Abi).Some(Abi.Msvc), "msvc");
+  assert(parse_abi(String.from("p1")) == Option(Abi).Some(Abi.P1), "p1");
+  assert(parse_abi(String.from("wasm")).is_none(), "wasm is not an environment");
+  assert(parse_abi(String.from("unknown")).is_none(), "unknown is a vendor, not an environment");
 });
 // ---------------------------------------------------------------------------
 // pointer_size_for_arch
@@ -93,148 +147,172 @@ test("pointer_size_for_arch: 32-bit arches", {
   assert(pointer_size_for_arch(Arch.Wasm32) == u32(32), "wasm32 is 32-bit");
 });
 // ---------------------------------------------------------------------------
-// parse_target
+// parse_target — every supported target round-trips to itself
 // ---------------------------------------------------------------------------
-test("parse_target: two-part triple (arch-os)", {
-  result := parse_target(String.from("x86_64-linux"));
-  assert(result.is_ok(), "x86_64-linux is Ok");
-  ti := match(
-    result,
-    .Ok(v) => v,
-    .Err(_) => {
-      assert(false, "not err");
-      TargetInfo(arch : Arch.X86_64, os : Os.Linux, abi : Option(Abi).None, pointer_size_bits : u32(0), triple : String.new())
-    }
-  );
-  assert(ti.arch == Arch.X86_64, "arch is x86_64");
-  assert(ti.os == Os.Linux, "os is linux");
-  assert(ti.pointer_size_bits == u32(64), "pointer is 64 bit");
-});
-test("parse_target: three-part triple (arch-os-abi)", {
-  result := parse_target(String.from("x86_64-linux-musl"));
-  assert(result.is_ok(), "x86_64-linux-musl is Ok");
-  ti := match(
-    result,
-    .Ok(v) => v,
-    .Err(_) => {
-      assert(false, "not err");
-      TargetInfo(arch : Arch.X86_64, os : Os.Linux, abi : Option(Abi).None, pointer_size_bits : u32(0), triple : String.new())
-    }
-  );
+test("parse_target: linux gnu/musl (env required)", {
+  ti := _ok("x86_64-unknown-linux-gnu");
   assert(ti.arch == Arch.X86_64, "arch");
   assert(ti.os == Os.Linux, "os");
-  assert(ti.abi == Option(Abi).Some(Abi.Musl), "abi is musl");
-  assert(ti.triple == "x86_64-linux-musl", "triple string");
+  assert(ti.abi == Option(Abi).Some(Abi.Gnu), "abi gnu");
+  assert(ti.pointer_size_bits == u32(64), "64-bit");
+  assert(ti.triple == "x86_64-unknown-linux-gnu", "triple round-trips");
+  musl := _ok("aarch64-unknown-linux-musl");
+  assert(musl.arch == Arch.Aarch64, "arch");
+  assert(musl.abi == Option(Abi).Some(Abi.Musl), "abi musl");
+  assert(musl.triple == "aarch64-unknown-linux-musl", "triple round-trips");
+  assert(is_target_musl(musl), "is musl");
+  assert(!is_target_musl(ti), "gnu is not musl");
+  i686 := _ok("i686-unknown-linux-gnu");
+  assert(i686.arch == Arch.X86, "i686 is X86");
+  assert(i686.pointer_size_bits == u32(32), "32-bit");
+  assert(i686.triple == "i686-unknown-linux-gnu", "triple round-trips");
 });
-test("parse_target: wasm shorthand", {
-  result := parse_target(String.from("wasm-wasi"));
-  assert(result.is_ok(), "wasm-wasi is Ok");
-  ti := match(
-    result,
-    .Ok(v) => v,
-    .Err(_) => {
-      assert(false, "not err");
-      TargetInfo(arch : Arch.X86_64, os : Os.Linux, abi : Option(Abi).None, pointer_size_bits : u32(0), triple : String.new())
-    }
-  );
+test("parse_target: apple-darwin (no env)", {
+  ti := _ok("aarch64-apple-darwin");
+  assert(ti.arch == Arch.Aarch64, "arch");
+  assert(ti.os == Os.Macos, "os is Macos");
+  assert(ti.abi == Option(Abi).None, "no env");
+  assert(ti.triple == "aarch64-apple-darwin", "triple round-trips");
+  assert(is_target_macos(ti), "is macos");
+  assert(is_target_posix(ti), "is posix");
+  x := _ok("x86_64-apple-darwin");
+  assert(x.arch == Arch.X86_64, "arch");
+  assert(x.triple == "x86_64-apple-darwin", "triple round-trips");
+});
+test("parse_target: pc-windows msvc/gnu (env required)", {
+  ti := _ok("x86_64-pc-windows-msvc");
+  assert(ti.os == Os.Windows, "os");
+  assert(ti.abi == Option(Abi).Some(Abi.Msvc), "abi msvc");
+  assert(ti.triple == "x86_64-pc-windows-msvc", "triple round-trips");
+  assert(is_target_windows(ti), "is windows");
+  assert(!is_target_posix(ti), "not posix");
+  arm := _ok("aarch64-pc-windows-msvc");
+  assert(arm.arch == Arch.Aarch64, "arch");
+  assert(arm.triple == "aarch64-pc-windows-msvc", "triple round-trips");
+  mingw := _ok("x86_64-pc-windows-gnu");
+  assert(mingw.abi == Option(Abi).Some(Abi.Gnu), "abi gnu");
+  assert(mingw.triple == "x86_64-pc-windows-gnu", "triple round-trips");
+});
+test("parse_target: unknown-freebsd (no env)", {
+  ti := _ok("x86_64-unknown-freebsd");
+  assert(ti.os == Os.FreeBSD, "os");
+  assert(ti.abi == Option(Abi).None, "no env");
+  assert(ti.triple == "x86_64-unknown-freebsd", "triple round-trips");
+  assert(is_target_posix(ti), "is posix");
+});
+test("parse_target: wasm32-wasip1 (the two-component form)", {
+  ti := _ok("wasm32-wasip1");
   assert(ti.arch == Arch.Wasm32, "arch is wasm32");
   assert(ti.os == Os.Wasi, "os is wasi");
+  assert(ti.abi == Option(Abi).Some(Abi.P1), "env is p1");
+  assert(ti.pointer_size_bits == u32(32), "32-bit");
+  assert(ti.triple == "wasm32-wasip1", "triple round-trips");
+  assert(is_target_wasm(ti), "is wasm");
+  assert(is_target_standalone_wasi(ti), "is standalone wasi");
+  assert(!is_target_emscripten(ti), "not emscripten");
+  assert(!is_target_posix(ti), "not posix");
 });
-test("parse_target: aarch64-macos (no ABI)", {
-  result := parse_target(String.from("aarch64-macos"));
-  assert(result.is_ok(), "aarch64-macos is Ok");
-  ti := match(
-    result,
-    .Ok(v) => v,
-    .Err(_) => {
-      assert(false, "not err");
-      TargetInfo(arch : Arch.X86_64, os : Os.Linux, abi : Option(Abi).None, pointer_size_bits : u32(0), triple : String.new())
-    }
-  );
-  assert(ti.abi == Option(Abi).None, "no ABI for macos");
-  assert(ti.triple == "aarch64-macos", "triple string");
+test("parse_target: wasm32-unknown-emscripten", {
+  ti := _ok("wasm32-unknown-emscripten");
+  assert(ti.arch == Arch.Wasm32, "arch is wasm32");
+  assert(ti.os == Os.Emscripten, "os is emscripten");
+  assert(ti.abi == Option(Abi).None, "no env");
+  assert(ti.triple == "wasm32-unknown-emscripten", "triple round-trips");
+  assert(is_target_wasm(ti), "is wasm");
+  assert(is_target_emscripten(ti), "is emscripten");
+  assert(!is_target_standalone_wasi(ti), "not standalone wasi");
 });
-test("parse_target: invalid triple returns Err", {
-  result := parse_target(String.from("badarch-linux"));
-  assert(result.is_err(), "invalid arch returns Err");
+// ---------------------------------------------------------------------------
+// parse_target — rejections. The old vendor-less vocabulary and the
+// `wasm-*` shorthands are NOT aliases: every one is an error naming the
+// supported set.
+// ---------------------------------------------------------------------------
+test("parse_target: the pre-triple spellings are rejected", {
+  assert(_err("x86_64-linux-gnu").contains(String.from("Supported targets:")), "x86_64-linux-gnu names the supported set");
+  assert(_err("aarch64-macos").contains(String.from("Supported targets:")), "aarch64-macos");
+  assert(_err("x86_64-windows-msvc").contains(String.from("Supported targets:")), "x86_64-windows-msvc");
+  assert(_err("wasm32-wasi").contains(String.from("Supported targets:")), "wasm32-wasi");
+  assert(_err("wasm-wasi").contains(String.from("Supported targets:")), "wasm-wasi");
+  assert(_err("wasm-emscripten").contains(String.from("Supported targets:")), "wasm-emscripten");
+  assert(_err("wasm32-emscripten").contains(String.from("Supported targets:")), "wasm32-emscripten");
 });
-test("parse_target: abi=none overrides default", {
-  result := parse_target(String.from("x86_64-linux-none"));
-  assert(result.is_ok(), "x86_64-linux-none is Ok");
-  ti := match(
-    result,
-    .Ok(v) => v,
-    .Err(_) => {
-      assert(false, "not err");
-      TargetInfo(arch : Arch.X86_64, os : Os.Linux, abi : Option(Abi).None, pointer_size_bits : u32(0), triple : String.new())
-    }
-  );
-  assert(ti.abi == Option(Abi).None, "abi=none gives None");
+test("parse_target: the retired vendor-less spellings get a did-you-mean", {
+  assert(_err("x86_64-linux-gnu").contains(`did you mean "x86_64-unknown-linux-gnu"`), "x86_64-linux-gnu");
+  assert(_err("aarch64-linux-musl").contains(`did you mean "aarch64-unknown-linux-musl"`), "aarch64-linux-musl");
+  assert(_err("x86_64-linux").contains(`did you mean "x86_64-unknown-linux-gnu"`), "x86_64-linux defaults the hint to gnu");
+  assert(_err("aarch64-macos").contains(`did you mean "aarch64-apple-darwin"`), "aarch64-macos");
+  assert(_err("x86_64-windows-msvc").contains(`did you mean "x86_64-pc-windows-msvc"`), "x86_64-windows-msvc");
+  assert(_err("x86_64-windows").contains(`did you mean "x86_64-pc-windows-msvc"`), "x86_64-windows defaults the hint to msvc");
+  assert(_err("wasm32-wasi").contains(`did you mean "wasm32-wasip1"`), "wasm32-wasi");
+  assert(_err("wasm32-emscripten").contains(`did you mean "wasm32-unknown-emscripten"`), "wasm32-emscripten");
+  assert(_err("x86_64-freebsd").contains(`did you mean "x86_64-unknown-freebsd"`), "x86_64-freebsd");
+  assert(_err("wasm-wasi").contains(`did you mean "wasm32-wasip1" or "wasm32-unknown-emscripten"`), "wasm-wasi");
+  assert(_err("wasm-emscripten").contains(`did you mean "wasm32-wasip1" or "wasm32-unknown-emscripten"`), "wasm-emscripten");
+});
+test("parse_target: the error carries the whole supported list", {
+  e := _err("x86_64-linux");
+  assert(e.contains(String.from(SUPPORTED_TARGETS)), "lists SUPPORTED_TARGETS");
+  assert(String.from(SUPPORTED_TARGETS).contains(String.from("aarch64-apple-darwin")), "list has darwin");
+  assert(String.from(SUPPORTED_TARGETS).contains(String.from("wasm32-wasip1")), "list has wasip1");
+});
+test("parse_target: arity", {
+  assert(_err("x86_64").contains(String.from("expected <arch>-<vendor>-<os>[-<env>]")), "one component");
+  assert(_err("x86_64-unknown-linux-gnu-extra").contains(String.from("expected <arch>-<vendor>-<os>[-<env>]")), "five components");
+  assert(_err("").contains(String.from("expected <arch>-<vendor>-<os>[-<env>]")), "empty");
+});
+test("parse_target: unknown words", {
+  assert(_err("mips-unknown-linux-gnu").contains(`unknown architecture "mips"`), "arch");
+  assert(_err("x86_64-unknown-solaris").contains(`unknown OS "solaris"`), "os");
+  assert(_err("x86_64-unknown-linux-uclibc").contains(`unknown environment "uclibc"`), "env");
+});
+test("parse_target: the vendor must be the OS's vendor", {
+  assert(_err("aarch64-unknown-darwin").contains(`vendor "unknown" does not go with "darwin" (expected "apple")`), "darwin wants apple");
+  assert(_err("x86_64-unknown-windows-msvc").contains(`expected "pc"`), "windows wants pc");
+  assert(_err("x86_64-pc-linux-gnu").contains(`expected "unknown"`), "linux wants unknown");
+});
+test("parse_target: env is required where it disambiguates, forbidden elsewhere", {
+  assert(_err("x86_64-unknown-linux").contains(String.from("linux needs an environment: -gnu or -musl")), "linux without env");
+  assert(_err("x86_64-pc-windows").contains(String.from("windows needs an environment: -msvc or -gnu")), "windows without env");
+  assert(_err("aarch64-apple-darwin-gnu").contains(String.from("darwin takes no environment")), "darwin with env");
+  assert(_err("wasm32-unknown-emscripten-gnu").contains(String.from("emscripten takes no environment")), "emscripten with env");
+  assert(_err("x86_64-unknown-linux-msvc").contains(`linux takes the environment gnu or musl, not "msvc"`), "msvc on linux");
+  assert(_err("x86_64-pc-windows-musl").contains(`windows takes the environment msvc or gnu, not "musl"`), "musl on windows");
+  assert(_err("x86_64-unknown-linux-p1").contains(`not "p1"`), "p1 is wasi-only");
+});
+test("parse_target: wasm32 and the wasm OSes go together", {
+  assert(_err("wasm32-unknown-linux-gnu").contains(`architecture "wasm32" does not go with "linux"`), "wasm32 on linux");
+  assert(_err("x86_64-unknown-emscripten").contains(`architecture "x86_64" does not go with "emscripten"`), "x86_64 on emscripten");
+  assert(_err("x86_64-wasip1").contains(`WASI targets are wasm32 only, not "x86_64"`), "x86_64 wasip1");
+  assert(_err("wasm32-unknown-wasip1").contains(String.from("WASI is spelled wasm32-wasip1")), "three-component wasi");
 });
 // ---------------------------------------------------------------------------
 // clang_triple
 // ---------------------------------------------------------------------------
-test("clang_triple: linux gnu", {
-  ti := TargetInfo(
-    arch : Arch.X86_64,
-    os : Os.Linux,
-    abi : Option(Abi).Some(Abi.Gnu),
-    pointer_size_bits : u32(64),
-    triple : String.from("x86_64-linux-gnu")
-  );
-  s := clang_triple(ti);
-  assert(s == "x86_64-linux-gnu", "linux gnu clang triple");
-});
-test("clang_triple: macos", {
-  ti := TargetInfo(
-    arch : Arch.Aarch64,
-    os : Os.Macos,
-    abi : Option(Abi).None,
-    pointer_size_bits : u32(64),
-    triple : String.from("aarch64-macos")
-  );
-  s := clang_triple(ti);
-  assert(s == "aarch64-apple-darwin", "macos clang triple");
-});
-test("clang_triple: wasi", {
-  ti := TargetInfo(
-    arch : Arch.Wasm32,
-    os : Os.Wasi,
-    abi : Option(Abi).Some(Abi.Wasm_),
-    pointer_size_bits : u32(32),
-    triple : String.from("wasm32-wasi")
-  );
-  s := clang_triple(ti);
-  assert(s == "wasm32-wasi", "wasi clang triple");
+test("clang_triple: the canonical triple, except mingw and wasi", {
+  assert(clang_triple(_ok("x86_64-unknown-linux-gnu")) == "x86_64-unknown-linux-gnu", "linux gnu");
+  assert(clang_triple(_ok("aarch64-unknown-linux-musl")) == "aarch64-unknown-linux-musl", "linux musl");
+  assert(clang_triple(_ok("aarch64-apple-darwin")) == "aarch64-apple-darwin", "darwin");
+  assert(clang_triple(_ok("x86_64-pc-windows-msvc")) == "x86_64-pc-windows-msvc", "msvc");
+  assert(clang_triple(_ok("x86_64-pc-windows-gnu")) == "x86_64-w64-mingw32", "mingw is LLVM's w64-mingw32");
+  assert(clang_triple(_ok("x86_64-unknown-freebsd")) == "x86_64-unknown-freebsd", "freebsd");
+  assert(clang_triple(_ok("wasm32-wasip1")) == "wasm32-wasi", "wasi is LLVM's wasm32-wasi");
+  assert(clang_triple(_ok("wasm32-unknown-emscripten")) == "wasm32-unknown-emscripten", "emscripten");
 });
 // ---------------------------------------------------------------------------
-// Convenience queries
+// Host
 // ---------------------------------------------------------------------------
-test("is_target_* queries", {
-  linux_ti := TargetInfo(
-    arch : Arch.X86_64,
-    os : Os.Linux,
-    abi : Option(Abi).Some(Abi.Gnu),
-    pointer_size_bits : u32(64),
-    triple : String.from("x86_64-linux-gnu")
-  );
-  wasm_ti := TargetInfo(
-    arch : Arch.Wasm32,
-    os : Os.Wasi,
-    abi : Option(Abi).Some(Abi.Wasm_),
-    pointer_size_bits : u32(32),
-    triple : String.from("wasm32-wasi")
-  );
-  assert(is_target_linux(linux_ti), "linux is linux");
-  assert(!(is_target_windows(linux_ti)), "linux is not windows");
-  assert(is_target_posix(linux_ti), "linux is posix");
-  assert(is_target_wasm(wasm_ti), "wasi is wasm");
-  assert(is_target_standalone_wasi(wasm_ti), "wasi is standalone_wasi");
-  assert(!(is_target_posix(wasm_ti)), "wasm is not posix");
+test("host_target: a supported, round-tripping triple", {
+  host := host_target();
+  assert(String.from(SUPPORTED_TARGETS).contains(host.triple), `host triple ${host.triple} is in the supported list`);
+  again := _ok_s(host.triple);
+  assert(again.triple == host.triple, "host triple round-trips");
+  assert(again.arch == host.arch, "arch round-trips");
+  assert(again.os == host.os, "os round-trips");
+  assert(again.abi == host.abi, "abi round-trips");
 });
-test("detect_host: returns HostInfo with valid fields", {
+test("detect_host: agrees with host_target", {
   host := detect_host();
-  // Just verify the returned value is structurally valid (non-zero pointer_size would prove it)
-  // We can't assert a specific OS/arch since tests run on different machines
-  assert(true, "detect_host returned without panic");
+  ti := host_target();
+  assert(host.platform == ti.os, "platform");
+  assert(host.arch == ti.arch, "arch");
 });

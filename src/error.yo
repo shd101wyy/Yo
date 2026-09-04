@@ -1,38 +1,162 @@
 //! Error types and formatting utilities for the Yo compiler.
 //!
-//! Mirrors `src/error.ts`.
+//! P1 of plans/ERROR_DIAGNOSTICS_OVERHAUL.md: `YoError` carries structured
+//! `Diagnostic` values (code/severity/message/span/source-line); the human
+//! text — including the location block — is RENDERED from that data at the
+//! edge, never baked into the message string. The single-message and batch
+//! builders keep taking a `Token` (+ verbatim message), so the ~1000
+//! emission sites across the evaluator are untouched by the restructure.
 open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { Token } :: import("./token.yo");
-{ assert, panic } :: import("std/assert");
-/// The kind of a compiler error.
-///
-/// Mirrors `ErrorKind` in `src/error.ts`.
-ErrorKind :: enum(
-  Overflow
-);
-derive(ErrorKind, Clone, Eq(ErrorKind), ToString);
-/// A token paired with an error message for error reporting.
-///
-/// Mirrors `TokenAndError` in `src/error.ts`.
+{ assert } :: import("std/assert");
+{
+  Severity,
+  Span,
+  Diagnostic,
+  render_diagnostics_human
+} :: import("./diagnostics.yo");
+/// A token paired with an error message for error reporting — the input
+/// currency of the batch builder (ownership-flow errors collect several
+/// related locations in one group).
 TokenAndError :: struct(
   token : Token,
   error_message : String
 );
 derive(TokenAndError, Clone);
 /// A token paired with a warning message for warning reporting.
-///
-/// Mirrors the inline `{ token; warningMessage }` type in `formatWarningMessages`.
 TokenAndWarning :: struct(
   token : Token,
   warning_message : String
 );
 derive(TokenAndWarning, Clone);
-/// Get the source line at the token's position with a caret indicator.
-///
-/// Mirrors `getLineAtToken` in `src/error.ts`.
+/// The `Span` of a token: its module path, 0-based row/rune column, and the
+/// token's rune length as the underline (D5 — the caret used to sit at the
+/// token's MIDDLE; it now underlines the whole token from its start).
+_span_of_token :: (fn(token : Token) -> Span)(
+  Span(
+    path : token.module_path,
+    row : token.row,
+    col : token.column,
+    len : token.value.chars().count()
+  )
+);
+/// The source line at the token's row ("" when the row is out of range).
+_source_line_of_token :: (fn(token : Token) -> String)({
+  lines := token.input.split(String.from("\n"));
+  match(
+    lines.get(token.row),
+    .Some(line) => line,
+    .None => String.new()
+  )
+});
+/// One diagnostic entry from a token + verbatim message.
+_diagnostic_of_token :: (
+  fn(token : Token, severity : Severity, error_message : String) -> Diagnostic
+)(
+  Diagnostic(
+    code : Option(String).None,
+    severity : severity,
+    message : error_message.trim(),
+    span : _span_of_token(token),
+    source_line : _source_line_of_token(token)
+  )
+);
+/// Compiler error: a group of diagnostics — entry 0 the primary error,
+/// every later entry a related location rendered as a `note:` block
+/// (D6 — they used to render with an `Error:` prefix).
+YoError :: ref(
+  struct(
+    diagnostics : ArrayList(Diagnostic)
+  )
+);
+impl(
+  YoError,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      render_diagnostics_human(self.diagnostics)
+    )
+  )
+);
+impl(YoError, Error());
+/// Wrap one diagnostic as a single-entry `YoError`.
+_yo_error_of :: (fn(entry : Diagnostic) -> YoError)({
+  entries := ArrayList(Diagnostic).new();
+  entries.push(entry);
+  YoError(diagnostics : entries)
+});
+/// Create a `YoError` from a single token and error message.
+format_error_message :: (fn(token : Token, error_message : String) -> YoError)(
+  _yo_error_of(_diagnostic_of_token(token, Severity.Error, error_message))
+);
+/// Create a `YoError` with a path anchor but no snippet — end-of-input and
+/// other position-less parser errors.
+format_raw_error :: (fn(module_path : String, error_message : String) -> YoError)(
+  _yo_error_of(
+    Diagnostic(
+      code : Option(String).None,
+      severity : Severity.Error,
+      message : error_message.trim(),
+      span : Span(path : module_path, row : usize(0), col : usize(0), len : usize(0)),
+      source_line : String.new()
+    )
+  )
+);
+/// Create a `YoError` from a list of token + error message pairs: the first
+/// entry is the primary error, every later entry renders as a note.
+format_error_messages :: (fn(token_and_error_list : ArrayList(TokenAndError)) -> YoError)({
+  assert(token_and_error_list.len() > usize(0), "token_and_error_list must not be empty");
+  entries := ArrayList(Diagnostic).new();
+  (i : usize) = usize(0);
+  while(i < token_and_error_list.len(), {
+    match(
+      token_and_error_list.get(i),
+      .Some(entry) => {
+        if(i == usize(0), {
+          entries.push(_diagnostic_of_token(entry.token, Severity.Error, entry.error_message));
+        }, {
+          entries.push(_diagnostic_of_token(entry.token, Severity.Note, entry.error_message));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  YoError(diagnostics : entries)
+});
+/// A lexer error as a `YoError` diagnostic group. The lexer's internal
+/// struct carries no file context (D3), so the throw site supplies the
+/// module path, the full input (for the source line), and the 0-based
+/// row/rune column.
+format_lexer_error :: (
+  fn(
+    module_path : String,
+    input : String,
+    row : usize,
+    column : usize,
+    message : String
+  ) -> YoError
+)({
+  lines := input.split(String.from("\n"));
+  line := match(
+    lines.get(row),
+    .Some(l) => l,
+    .None => String.new()
+  );
+  _yo_error_of(
+    Diagnostic(
+      code : Option(String).None,
+      severity : Severity.Error,
+      message : message.trim(),
+      span : Span(path : module_path, row : row, col : column, len : usize(1)),
+      source_line : line
+    )
+  )
+});
+/// Get the source line at the token's position with a caret indicator
+/// (the legacy pre-P1 block, still used by the warnings path).
 get_line_at_token :: (fn(token : Token) -> String)({
   lines := token.input.split(String.from("\n"));
   row_line := match(
@@ -40,16 +164,21 @@ get_line_at_token :: (fn(token : Token) -> String)({
     .Some(line) => line,
     .None => String.new()
   );
-  caret_col := (token.column + (token.value.len() / usize(2)));
+  // `token.column` is a RUNE column (src/lexer.yo indexes an ArrayList(rune)),
+  // so the half-width offset added to it has to be a rune count too — say so,
+  // rather than inheriting whatever basis `len()` happens to have
+  // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S7).
+  caret_col := (token.column + (token.value.chars().count() / usize(2)));
   spaces := String.from(" ").repeat(caret_col);
   row_plus1 := (token.row + usize(1));
   col_plus1 := (token.column + usize(1));
   `${token.module_path}:${row_plus1}:${col_plus1}:\n${row_line}\n${spaces}^`
 });
-/// Get the source line at a given position with a caret indicator.
-///
-/// Mirrors `getLineAtPosition` in `src/error.ts`.
-get_line_at_position :: (fn(module_path : String, input_string : String, row : usize, column : usize) -> String)({
+/// Get the source line at a given position with a caret indicator
+/// (the legacy pre-P1 block).
+get_line_at_position :: (
+  fn(module_path : String, input_string : String, row : usize, column : usize) -> String
+)({
   lines := input_string.split(String.from("\n"));
   row_line := match(
     lines.get(row),
@@ -61,90 +190,11 @@ get_line_at_position :: (fn(module_path : String, input_string : String, row : u
   col_plus1 := (column + usize(1));
   `${module_path}:${row_plus1}:${col_plus1}:\n  \n${row_line}\n${spaces}^`
 });
-/// Lexer error with character index, message, and row.
-///
-/// Mirrors `YoLexerError` in `src/error.ts`.
-YoLexerError :: ref(
-  struct(
-    character_index : usize,
-    message : String,
-    row : usize
-  )
-);
-impl(
-  YoLexerError,
-  ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      row_plus1 := (self.row + usize(1));
-      `Lexer Error at row ${row_plus1}: ${self.message}`
-    })
-  )
-);
-impl(YoLexerError, Error());
-/// Compiler error with a list of token + error message pairs.
-///
-/// Mirrors `YoError` in `src/error.ts`.
-YoError :: ref(
-  struct(
-    token_and_error_list : ArrayList(TokenAndError),
-    is_assertion_error : bool,
-    kind : Option(ErrorKind)
-  )
-);
-impl(
-  YoError,
-  ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      parts := ArrayList(String).new();
-      n := self.token_and_error_list.len();
-      (i : usize) = usize(0);
-      while(i < n, {
-        match(
-          self.token_and_error_list.get(i),
-          .Some(entry) => {
-            line := get_line_at_token(entry.token);
-            parts.push(`Error: ${entry.error_message}\n${line}`);
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      sep := String.from("\n\n");
-      sep.join(parts)
-    })
-  )
-);
-impl(YoError, Error());
-/// Create a `YoError` from a single token and error message.
-///
-/// Mirrors `formatErrorMessage` in `src/error.ts`.
-format_error_message :: (fn(token : Token, error_message : String, is_assertion_error : bool, kind : Option(ErrorKind)) -> YoError)({
-  line := get_line_at_token(token);
-  trimmed := error_message.trim();
-  full_message := `${trimmed}\n\n${line}`;
-  entries := ArrayList(TokenAndError).new();
-  entries.push(TokenAndError(token : token, error_message : full_message));
-  YoError(
-    token_and_error_list : entries,
-    is_assertion_error : is_assertion_error,
-    kind : kind
-  )
-});
-/// Create a `YoError` from a list of token + error message pairs.
-///
-/// Mirrors `formatErrorMessages` in `src/error.ts`.
-format_error_messages :: (fn(token_and_error_list : ArrayList(TokenAndError), is_assertion_error : bool, kind : Option(ErrorKind)) -> YoError)({
-  assert(token_and_error_list.len() > usize(0), "token_and_error_list must not be empty");
-  YoError(
-    token_and_error_list : token_and_error_list,
-    is_assertion_error : is_assertion_error,
-    kind : kind
-  )
-});
-/// Format warning messages into a single string.
-///
-/// Mirrors `formatWarningMessages` in `src/error.ts`.
-format_warning_messages :: (fn(warning_message : Option(String), token_and_warning_list : ArrayList(TokenAndWarning)) -> String)({
+/// Format warning messages into a single string (legacy pre-P1 block; the
+/// warnings channel itself is P4, plans/ERROR_DIAGNOSTICS_OVERHAUL.md §7).
+format_warning_messages :: (
+  fn(warning_message : Option(String), token_and_warning_list : ArrayList(TokenAndWarning)) -> String
+)({
   parts := ArrayList(String).new();
   n := token_and_warning_list.len();
   (i : usize) = usize(0);
@@ -167,12 +217,12 @@ format_warning_messages :: (fn(warning_message : Option(String), token_and_warni
     .None => warnings
   )
 });
-/// Print a `YoError` to stderr.
-///
-/// Mirrors `printYoError` in `src/error.ts`.
-print_yo_error :: (fn(inout(error) : YoError) -> unit)(
-  eprintln(error.to_string())
-);
-export(ErrorKind, TokenAndError, TokenAndWarning, YoLexerError, YoError);
+export(TokenAndError, TokenAndWarning, YoError);
 export(get_line_at_token, get_line_at_position);
-export(format_error_message, format_error_messages, format_warning_messages, print_yo_error);
+export(
+  format_error_message,
+  format_error_messages,
+  format_lexer_error,
+  format_raw_error,
+  format_warning_messages
+);

@@ -1,0 +1,220 @@
+//! Hashing — the `Hasher` implementations behind the prelude's `Hash` trait
+//! (plans/STD_API_AUDIT.md D3.9, plans/HASHER_REDESIGN.md).
+//!
+//! The split is Rust's: a type's `Hash` impl says WHICH bytes make up its
+//! identity (`hash(self, hasher)` feeds them in), and a `Hasher` says how those
+//! bytes become a `u64` (`write`/`write_u*` accumulate, `finish` reads out).
+//! Any `Hash` value can therefore be hashed by any algorithm, and one hasher
+//! can consume a whole sequence of values (a tuple, a struct's fields, a
+//! collection's elements).
+//!
+//! - `SipHasher13` — SipHash-1-3, keyed, the algorithm `HashMap`/`HashSet`
+//!   drive (as in Rust). With the default keys it is deterministic across
+//!   runs; a map built with `with_keys` is keyed per instance.
+//! - `Fnv1aHasher` — FNV-1a, unkeyed and tiny; for short identifiers where
+//!   speed beats collision resistance.
+//! - `DefaultHasher` — the alias `HashMap` uses (`SipHasher13`).
+//! - `hash_one(value)` — the one-liner: hash a single value with the default
+//!   hasher and default keys.
+pragma(Pragma.AllowUnsafe);
+/// The keys `SipHasher13.new()` (and therefore `HashMap.new()`,
+/// `HashSet.new()` and `hash_one`) start from. Fixed rather than random so a
+/// program's hash values — and the iteration order of its maps — are the same
+/// on every run; `HashMap.with_keys` opts a map into per-instance keys.
+DEFAULT_KEY_0 :: u64(0);
+DEFAULT_KEY_1 :: u64(0);
+/// SipHash-1-3 (one compression round per 8-byte block, three finalization
+/// rounds) with a 128-bit key, streaming: bytes may arrive in any grouping
+/// and the result depends only on their concatenation.
+///
+/// `finish` may be called at any point and does not reset the state.
+SipHasher13 :: struct(
+  k0 : u64,
+  k1 : u64,
+  v0 : u64,
+  v1 : u64,
+  v2 : u64,
+  v3 : u64,
+  /// Up to 7 pending bytes, little-endian packed.
+  tail : u64,
+  /// How many bytes `tail` holds.
+  ntail : usize,
+  /// Total bytes written.
+  length : usize
+);
+_rotl64 :: (fn(x : u64, n : u64) -> u64)((x << n) | (x >> (u64(64) - n)));
+impl(
+  SipHasher13,
+  /// A hasher with the default keys (`DEFAULT_KEY_0`, `DEFAULT_KEY_1`).
+  new : (fn() -> Self)(Self.new_with_keys(DEFAULT_KEY_0, DEFAULT_KEY_1)),
+  /// A hasher keyed by `k0`, `k1`.
+  new_with_keys : (fn(k0 : u64, k1 : u64) -> Self)(
+    Self(
+      k0 : k0,
+      k1 : k1,
+      v0 : (k0 ^ u64(0x736f6d6570736575)),
+      v1 : (k1 ^ u64(0x646f72616e646f6d)),
+      v2 : (k0 ^ u64(0x6c7967656e657261)),
+      v3 : (k1 ^ u64(0x7465646279746573)),
+      tail : u64(0),
+      ntail : usize(0),
+      length : usize(0)
+    )
+  ),
+  /// Forget everything written so far, keeping the keys.
+  reset : (fn(inout(self) : Self) -> unit)({
+    self.v0 = (self.k0 ^ u64(0x736f6d6570736575));
+    self.v1 = (self.k1 ^ u64(0x646f72616e646f6d));
+    self.v2 = (self.k0 ^ u64(0x6c7967656e657261));
+    self.v3 = (self.k1 ^ u64(0x7465646279746573));
+    self.tail = u64(0);
+    self.ntail = usize(0);
+    self.length = usize(0);
+  }),
+  _round : (fn(inout(self) : Self) -> unit)({
+    self.v0 = (self.v0 + self.v1);
+    self.v1 = _rotl64(self.v1, u64(13));
+    self.v1 = (self.v1 ^ self.v0);
+    self.v0 = _rotl64(self.v0, u64(32));
+    self.v2 = (self.v2 + self.v3);
+    self.v3 = _rotl64(self.v3, u64(16));
+    self.v3 = (self.v3 ^ self.v2);
+    self.v0 = (self.v0 + self.v3);
+    self.v3 = _rotl64(self.v3, u64(21));
+    self.v3 = (self.v3 ^ self.v0);
+    self.v2 = (self.v2 + self.v1);
+    self.v1 = _rotl64(self.v1, u64(17));
+    self.v1 = (self.v1 ^ self.v2);
+    self.v2 = _rotl64(self.v2, u64(32));
+  }),
+  /// Absorb one full 8-byte block (little-endian value `m`).
+  _compress : (fn(inout(self) : Self, m : u64) -> unit)({
+    self.v3 = (self.v3 ^ m);
+    self._round();
+    self.v0 = (self.v0 ^ m);
+  }),
+  _push_byte : (fn(inout(self) : Self, b : u8) -> unit)({
+    self.tail = (self.tail | (u64(b) << (u64(8) * u64(self.ntail))));
+    self.ntail = (self.ntail + usize(1));
+    if(self.ntail == usize(8), {
+      self._compress(self.tail);
+      self.tail = u64(0);
+      self.ntail = usize(0);
+    });
+  })
+);
+impl(
+  SipHasher13,
+  Hasher(
+    write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit)({
+      self.length = (self.length + size);
+      i := usize(0);
+      while(i < size, i = (i + usize(1)), {
+        // SAFETY: the caller hands us `size` readable bytes at `buf`; `i`
+        // stays below `size`.
+        self._push_byte(unsafe((buf.add(i)).*));
+      });
+    }),
+    // A whole block at once when nothing is pending — the common case for
+    // integer keys, and byte-identical to feeding the 8 little-endian bytes.
+    write_u64 : (fn(inout(self) : Self, v : u64) -> unit)({
+      cond(
+        (self.ntail == usize(0)) => {
+          self.length = (self.length + usize(8));
+          self._compress(v);
+        },
+        true => {
+          self.length = (self.length + usize(8));
+          k := usize(0);
+          while(k < usize(8), k = (k + usize(1)), {
+            self._push_byte(u8((v >> (u64(8) * u64(k))) & u64(255)));
+          });
+        }
+      );
+    }),
+    // The narrower writes are spelled out rather than left to the trait
+    // defaults: they avoid a stack round-trip per integer, and — until the
+    // SEED compiler carries C43 (issues/fixed/trait-default-inout-self-bound-by-value.md)
+    // — the compiler's own HashMaps, compiled BY the seed, must not execute an
+    // `inout(self)` trait default (plans/HASHER_REDESIGN.md, "seed gating").
+    write_u8 : (fn(inout(self) : Self, v : u8) -> unit)({
+      self.length = (self.length + usize(1));
+      self._push_byte(v);
+    }),
+    write_u16 : (fn(inout(self) : Self, v : u16) -> unit)({
+      self.length = (self.length + usize(2));
+      self._push_byte(u8(v & u16(255)));
+      self._push_byte(u8(v >> u16(8)));
+    }),
+    write_u32 : (fn(inout(self) : Self, v : u32) -> unit)({
+      self.length = (self.length + usize(4));
+      k := usize(0);
+      while(k < usize(4), k = (k + usize(1)), {
+        self._push_byte(u8((v >> (u32(8) * u32(k))) & u32(255)));
+      });
+    }),
+    write_usize : (fn(inout(self) : Self, v : usize) -> unit)(self.write_u64(u64(v))),
+    write_i8 : (fn(inout(self) : Self, v : i8) -> unit)(self.write_u8(u8(v))),
+    write_i16 : (fn(inout(self) : Self, v : i16) -> unit)(self.write_u16(u16(v))),
+    write_i32 : (fn(inout(self) : Self, v : i32) -> unit)(self.write_u32(u32(v))),
+    write_i64 : (fn(inout(self) : Self, v : i64) -> unit)(self.write_u64(u64(v))),
+    write_isize : (fn(inout(self) : Self, v : isize) -> unit)(self.write_u64(u64(v))),
+    finish : (fn(inout(self) : Self) -> u64)({
+      b := (((u64(self.length) & u64(255)) << u64(56)) | self.tail);
+      v0 := self.v0;
+      v1 := self.v1;
+      v2 := self.v2;
+      v3 := self.v3;
+      // Finalize on a copy so `finish` does not consume the state.
+      s := Self(k0 : self.k0, k1 : self.k1, v0 : v0, v1 : v1, v2 : v2, v3 : v3, tail : u64(0), ntail : usize(0), length : usize(0));
+      s._compress(b);
+      s.v2 = (s.v2 ^ u64(255));
+      s._round();
+      s._round();
+      s._round();
+      ((s.v0 ^ s.v1) ^ s.v2) ^ s.v3
+    })
+  )
+);
+/// FNV-1a over the written bytes: 64-bit offset basis, prime
+/// 1099511628211. Unkeyed and fast; not collision-resistant against an
+/// adversary — pick `SipHasher13` for anything an attacker can feed.
+Fnv1aHasher :: struct(state : u64);
+impl(
+  Fnv1aHasher,
+  new : (fn() -> Self)(Self(state : u64(14695981039346656037)))
+);
+impl(
+  Fnv1aHasher,
+  Hasher(
+    write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit)({
+      i := usize(0);
+      while(i < size, i = (i + usize(1)), {
+        // SAFETY: `size` readable bytes at `buf`, `i < size`.
+        self.state = ((self.state ^ u64(unsafe((buf.add(i)).*))) * u64(1099511628211));
+      });
+    }),
+    finish : (fn(inout(self) : Self) -> u64)(self.state)
+  )
+);
+/// The hasher `HashMap`/`HashSet`/`hash_one` use.
+DefaultHasher :: SipHasher13;
+/// Hash one value with `DefaultHasher` and the default keys.
+///
+/// ```rust
+/// h := hash_one(String.from("key"));
+/// assert(hash_one(i32(1)) == hash_one(i32(1)), "deterministic");
+/// ```
+hash_one :: (fn(generic(T : Type), inout(value) : T, where(T <: Hash)) -> u64)({
+  h := DefaultHasher.new();
+  value.hash(h);
+  h.finish()
+});
+/// Hash one value with `DefaultHasher` keyed by `k0`, `k1` — what a
+/// `HashMap.with_keys(k0, k1)` computes for its keys.
+hash_one_with_keys :: (fn(generic(T : Type), inout(value) : T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
+  h := DefaultHasher.new_with_keys(k0, k1);
+  value.hash(h);
+  h.finish()
+});
+export(DEFAULT_KEY_0, DEFAULT_KEY_1, SipHasher13, Fnv1aHasher, DefaultHasher, hash_one, hash_one_with_keys);

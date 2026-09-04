@@ -63,7 +63,7 @@ open(import("std/fmt"));
 /// Set the target pointer size in bits. Must be positive and divisible by 8.
 /// Mirrors `setTargetPointerSize` in `src/types/utils.ts`.
 set_target_pointer_size :: (fn(bits : u32) -> unit)(
-  if((bits == u32(0)) || (!((bits % u32(8)) == u32(0))), (), // invalid pointer size: silently ignore
+  if((bits == u32(0)) || !((bits % u32(8)) == u32(0)), (), // invalid pointer size: silently ignore
   {
     g_target_pointer_size_bits = bits;
   })
@@ -108,19 +108,19 @@ get_integer_type_range :: (fn(ty : TypeValue) -> Option(IntRange))(
     ty,
     .Int(bits : b, signed : s) => cond(
       // signed variants
-      ((s) && (b == u8(8))) => .Some({ min : i64(-(128)), max : u64(127) }),
-      ((s) && (b == u8(16))) => .Some({ min : i64(-(32768)), max : u64(32767) }),
-      ((s) && (b == u8(32))) => .Some({ min : i64(-(2147483648)), max : u64(2147483647) }),
-      ((s) && (b == u8(64))) => .Some({ min : i64(-(9223372036854775808)), max : u64(9223372036854775807) }),
+      (s && (b == u8(8))) => .Some({ min : i64(-128), max : u64(127) }),
+      (s && (b == u8(16))) => .Some({ min : i64(-32768), max : u64(32767) }),
+      (s && (b == u8(32))) => .Some({ min : i64(-2147483648), max : u64(2147483647) }),
+      (s && (b == u8(64))) => .Some({ min : i64(-9223372036854775808), max : u64(9223372036854775807) }),
       // unsigned variants
-      (!(s) && (b == u8(8))) => .Some({ min : i64(0), max : u64(255) }),
-      (!(s) && (b == u8(16))) => .Some({ min : i64(0), max : u64(65535) }),
-      (!(s) && (b == u8(32))) => .Some({ min : i64(0), max : u64(4294967295) }),
-      (!(s) && (b == u8(64))) => .Some({ min : i64(0), max : u64(18446744073709551615) }),
+      (!s && (b == u8(8))) => .Some({ min : i64(0), max : u64(255) }),
+      (!s && (b == u8(16))) => .Some({ min : i64(0), max : u64(65535) }),
+      (!s && (b == u8(32))) => .Some({ min : i64(0), max : u64(4294967295) }),
+      (!s && (b == u8(64))) => .Some({ min : i64(0), max : u64(18446744073709551615) }),
       true => .None
     ),
     .Usize => .Some({ min : i64(0), max : u64(18446744073709551615) }),
-    .Isize => .Some({ min : i64(-(9223372036854775808)), max : u64(9223372036854775807) }),
+    .Isize => .Some({ min : i64(-9223372036854775808), max : u64(9223372036854775807) }),
     _ => .None
   )
 );
@@ -157,9 +157,7 @@ prohibit_void_type :: (fn(ty : TypeValue, token : Token, exn : Exception) -> uni
         dyn(
           format_error_message(
             token,
-            `Void type is not allowed here. Void is only usable as a function return type.`,
-            false,
-            .None
+            `Void type is not allowed here. Void is only usable as a function return type.`
           )
         )
       );
@@ -272,7 +270,7 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
   // already covers them.
   match(
     ty,
-    .Struct({ is_reference_semantics : rb_ref, is_source_namespace : rb_ns }) => if(rb_ref && !(rb_ns), {
+    .Struct({ is_reference_semantics : rb_ref, is_source_namespace : rb_ns }) => if(rb_ref && !rb_ns, {
       return(Option(bool).Some(true));
     }),
     _ => ()
@@ -297,7 +295,7 @@ type_implements_runtime_builtin :: (fn(ty : TypeValue) -> Option(bool))({
       match(
         rb_base,
         .Struct({ is_reference_semantics : rb2_ref, is_source_namespace : rb2_ns }) => cond(
-          (rb2_ref && !(rb2_ns)) => Option(bool).Some(true),
+          (rb2_ref && !rb2_ns) => Option(bool).Some(true),
           true => Option(bool).None
         ),
         _ => match(
@@ -392,7 +390,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
     // Depth limit — conservative: return false at max depth
     (depth > u32(8)) => false,
     // Direct RC type
-    (is_rc_type(ty)) => true,
+    is_rc_type(ty) => true,
     true => match(
       ty,
       // Array — recurse on element type
@@ -402,7 +400,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < fields.len()) && !(found), {
+        while((i < fields.len()) && !found, {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -420,7 +418,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
       .Union(name : _, field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < fields.len()) && !(found), {
+        while((i < fields.len()) && !found, {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -438,7 +436,7 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
       .Struct({ field_types : fields }) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < fields.len()) && !(found), {
+        while((i < fields.len()) && !found, {
           match(
             fields.get(i),
             .Some(ft) => {
@@ -456,12 +454,12 @@ _type_contains_rc_inner :: (fn(ty_in : TypeValue, depth : u32) -> bool)({
       .EnumT({ variant_fields : all_fields }) => {
         (found : bool) = false;
         (vi : usize) = usize(0);
-        while((vi < all_fields.len()) && !(found), {
+        while((vi < all_fields.len()) && !found, {
           match(
             all_fields.get(vi),
             .Some(v_fields) => {
               (fi : usize) = usize(0);
-              while((fi < v_fields.len()) && !(found), {
+              while((fi < v_fields.len()) && !found, {
                 match(
                   v_fields.get(fi),
                   .Some(ft) => {
@@ -530,7 +528,7 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Struct({ field_types : fields }) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < fields.len()) && !(found), {
+        while((i < fields.len()) && !found, {
           match(
             fields.get(i),
             .Some(ft) => if(recur(ft, depth + u32(1)), {
@@ -545,7 +543,7 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < fields.len()) && !(found), {
+        while((i < fields.len()) && !found, {
           match(
             fields.get(i),
             .Some(ft) => if(recur(ft, depth + u32(1)), {
@@ -560,7 +558,7 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .Union(name : _, field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < fields.len()) && !(found), {
+        while((i < fields.len()) && !found, {
           match(
             fields.get(i),
             .Some(ft) => if(recur(ft, depth + u32(1)), {
@@ -575,12 +573,12 @@ _type_is_control_bound_inner :: (fn(ty : TypeValue, depth : u32) -> bool)(
       .EnumT({ variant_fields : all_fields }) => {
         (found : bool) = false;
         (vi : usize) = usize(0);
-        while((vi < all_fields.len()) && !(found), {
+        while((vi < all_fields.len()) && !found, {
           match(
             all_fields.get(vi),
             .Some(v_fields) => {
               (fi : usize) = usize(0);
-              while((fi < v_fields.len()) && !(found), {
+              while((fi < v_fields.len()) && !found, {
                 match(
                   v_fields.get(fi),
                   .Some(ft) => if(recur(ft, depth + u32(1)), {
@@ -621,7 +619,7 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
   (i : usize) = usize(0);
   n := visited.len();
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       visited.get(i),
       .Some(v) => if(v == id, {
@@ -642,7 +640,7 @@ _id_already_visited :: (fn(visited : ArrayList(String), id : String) -> bool)({
 /// itself pushed onto `visited`), so no separate mutually-recursive entry is
 /// needed. The enum branch carries the same visited guard the struct path has
 /// (a recursive `ref(enum(… Self …))` would otherwise loop forever).
-/// Extract the element type a container holds behind its `?*(E)` heap buffer field
+/// Extract the element type a container holds behind its `?(*(E))` heap buffer field
 /// — the pointee `E` of the Option-wrapped pointer. Mirrors `bufferElementType` in
 /// src/types/utils.ts. Used to see through a container to its elements both for
 /// cycle detection and for the Acyclic auto-derive. A bare `*(E)` is intentionally
@@ -699,7 +697,7 @@ _type_refs_back_to_cyclic :: (
           v2.push(sid);
           (found : bool) = false;
           (i : usize) = usize(0);
-          while((i < sfields.len()) && !(found), {
+          while((i < sfields.len()) && !found, {
             match(
               sfields.get(i),
               .Some(ft) => if(recur(ft, sid, v2), {
@@ -709,12 +707,12 @@ _type_refs_back_to_cyclic :: (
             );
             i = (i + usize(1));
           });
-          // Container buffer-walk: a `?*(E)` field holds elements the field walk
+          // Container buffer-walk: a `?(*(E))` field holds elements the field walk
           // above cannot see (raw pointer); trace the element type so element cycles
           // (`ArrayList(Self)` etc.) are detected.
-          if(!(found), {
+          if(!found, {
             (bi : usize) = usize(0);
-            while((bi < sfields.len()) && !(found), {
+            while((bi < sfields.len()) && !found, {
               match(
                 sfields.get(bi),
                 .Some(ft) => match(
@@ -737,7 +735,7 @@ _type_refs_back_to_cyclic :: (
       true => {
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < sfields.len()) && !(found), {
+        while((i < sfields.len()) && !found, {
           match(
             sfields.get(i),
             .Some(ft) => if(recur(ft, original_id, visited), {
@@ -762,12 +760,12 @@ _type_refs_back_to_cyclic :: (
         v2.push(eid);
         (found : bool) = false;
         (vi : usize) = usize(0);
-        while((vi < vfs.len()) && !(found), {
+        while((vi < vfs.len()) && !found, {
           match(
             vfs.get(vi),
             .Some(vf) => {
               (fi : usize) = usize(0);
-              while((fi < vf.len()) && !(found), {
+              while((fi < vf.len()) && !found, {
                 match(
                   vf.get(fi),
                   .Some(ft) => if(recur(ft, original_id, v2), {
@@ -792,7 +790,7 @@ _type_refs_back_to_cyclic :: (
     .Tuple({ field_types : tf }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < tf.len()) && !(found), {
+      while((i < tf.len()) && !found, {
         match(
           tf.get(i),
           .Some(ft) => if(recur(ft, original_id, visited), {
@@ -807,7 +805,7 @@ _type_refs_back_to_cyclic :: (
     .Union({ field_types : uf }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < uf.len()) && !(found), {
+      while((i < uf.len()) && !found, {
         match(
           uf.get(i),
           .Some(ft) => if(recur(ft, original_id, visited), {
@@ -843,7 +841,7 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
         visited.push(sid);
         (found : bool) = false;
         (i : usize) = usize(0);
-        while((i < fields.len()) && !(found), {
+        while((i < fields.len()) && !found, {
           match(
             fields.get(i),
             .Some(ft) => if(_type_refs_back_to_cyclic(ft, sid, visited), {
@@ -853,12 +851,12 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
           );
           i = (i + usize(1));
         });
-        // Container buffer-walk: a `?*(E)` field holds elements the field walk
+        // Container buffer-walk: a `?(*(E))` field holds elements the field walk
         // above cannot see (raw pointer); trace the element type so element cycles
         // (`ArrayList(Self)` etc.) are detected.
-        if(!(found), {
+        if(!found, {
           (bi : usize) = usize(0);
-          while((bi < fields.len()) && !(found), {
+          while((bi < fields.len()) && !found, {
             match(
               fields.get(bi),
               .Some(ft) => match(
@@ -887,12 +885,12 @@ can_type_form_rc_cycle :: (fn(ty : TypeValue) -> bool)(
         visited.push(eid);
         (found : bool) = false;
         (vi : usize) = usize(0);
-        while((vi < vfs.len()) && !(found), {
+        while((vi < vfs.len()) && !found, {
           match(
             vfs.get(vi),
             .Some(vf) => {
               (fi : usize) = usize(0);
-              while((fi < vf.len()) && !(found), {
+              while((fi < vf.len()) && !found, {
                 match(
                   vf.get(fi),
                   .Some(ft) => if(_type_refs_back_to_cyclic(ft, eid, visited), {
@@ -925,9 +923,9 @@ type_uses_small_rc_header :: (
   fn(ty : TypeValue, needs_cycle_gc : bool, is_atomic : bool) -> bool
 )(
   cond(
-    !(needs_cycle_gc) => false,
+    !needs_cycle_gc => false,
     is_atomic => false,
-    true => !(can_type_form_rc_cycle(ty))
+    true => !can_type_form_rc_cycle(ty)
   )
 );
 /// Return `true` if the type needs type-inference to resolve fully
@@ -992,7 +990,7 @@ type_contains_some_type :: (fn(ty : TypeValue) -> bool)(
           );
           cst_i = (cst_i + usize(1));
         });
-        !(cst_has_fn_or_fut)
+        !cst_has_fn_or_fut
       }
     ),
     .TypeAppT(constructor : _) => true,
@@ -1148,7 +1146,7 @@ fields_have_incompatible_contexts :: (fn(fts : ArrayList(TypeValue)) -> bool)({
     // skip below).
     (rt_only : bool) = match(
       ft,
-      .Struct({ is_reference_semantics : fo_ref, is_source_namespace : fo_ns }) => (fo_ref && !(fo_ns)),
+      .Struct({ is_reference_semantics : fo_ref, is_source_namespace : fo_ns }) => (fo_ref && !fo_ns),
       _ => false
     );
     if(rt_only, {
@@ -1275,7 +1273,7 @@ type_somes_all_resolve_concrete :: (fn(ty : TypeValue) -> bool)({
 /// structure, so a SomeT nested under `Option`/`Ptr`/a field is detected.
 ///
 /// That difference is not cosmetic: an `ArrayList(E)` left generic has field
-/// `?*(E)`, which the top-level test calls concrete. `compute_needs_cycle_gc`
+/// `?(*(E))`, which the top-level test calls concrete. `compute_needs_cycle_gc`
 /// then accepts the generic ArrayList as a CYCLE ROOT and switches the whole
 /// program to the heavy Bacon-Rajan runtime, where TS stays on the lightweight
 /// RC path — which in turn stamps `dispose_fn` with a bare generic id that is
@@ -1299,7 +1297,7 @@ type_contains_some_type_deep :: (fn(ty : TypeValue) -> bool)({
   n := sts.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       sts.get(i),
       .Some(st) => if(type_contains_some_type(st), {
@@ -1368,7 +1366,7 @@ _max_field_alignment :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
   (unknown : bool) = false;
   (i : usize) = usize(0);
   n := fts.len();
-  while((i < n) && !(unknown), {
+  while((i < n) && !unknown, {
     ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
       _align_via_slot(ft),
@@ -1393,7 +1391,7 @@ _aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
   (unknown : bool) = false;
   (i : usize) = usize(0);
   n := fts.len();
-  while((i < n) && !(unknown), {
+  while((i < n) && !unknown, {
     ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
       _size_via_slot(ft),
@@ -1487,7 +1485,7 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
         (unknown : bool) = false;
         (vi : usize) = usize(0);
         n_v := evf.len();
-        while((vi < n_v) && !(unknown), {
+        while((vi < n_v) && !unknown, {
           vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           match(
             _max_field_alignment(vf),
@@ -1500,7 +1498,21 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
           );
           vi = (vi + usize(1));
         });
-        cond(unknown => Option(usize).None, true => Option(usize).Some(acc))
+        cond(
+          unknown => Option(usize).None,
+          // The C representation carries an int-typed tag (`__yo_tN_tag tag;`
+          // — a C enum, 4 bytes / 4-aligned on every supported target), so a
+          // value-semantics enum is at least 4-aligned REGARDLESS of its
+          // payload alignments. The size arm below already assumes this
+          // (`struct_align_bits = max(32, …)`). DELIBERATE DIVERGENCE from
+          // TS: getAlignmentOfType (attic utils.ts:1789) omits the tag, so an
+          // enum whose payloads align below 4 (e.g. Array(u16, 8) → 2)
+          // reported alignment 2, a struct embedding it skipped C's tail
+          // padding (evaluator 22 B vs C 24 B), and every sizeof-based buffer
+          // walk over such structs corrupted the heap —
+          // issues/fixed/enum-alignment-ignores-tag-heap-corruption.md.
+          true => Option(usize).Some(_max_usize(acc, usize(4)))
+        )
       }
     ),
     _ => .None
@@ -1573,7 +1585,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
       (unknown : bool) = false;
       (i : usize) = usize(0);
       n := ufts.len();
-      while((i < n) && !(unknown), {
+      while((i < n) && !unknown, {
         ft := match(ufts.get(i), .Some(t) => t, .None => TypeValue.Unit);
         match(
           recur(ft),
@@ -1602,7 +1614,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
         (unknown : bool) = false;
         (vi : usize) = usize(0);
         n_v := evf.len();
-        while((vi < n_v) && !(unknown), {
+        while((vi < n_v) && !unknown, {
           vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           match(
             _aggregate_size(vf),
@@ -1667,7 +1679,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .Struct({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;
-        while((i < fts.len()) && !(found), {
+        while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
@@ -1679,7 +1691,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .Tuple({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;
-        while((i < fts.len()) && !(found), {
+        while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
@@ -1691,7 +1703,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .Union({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;
-        while((i < fts.len()) && !(found), {
+        while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
@@ -1703,10 +1715,10 @@ _type_repr_contains_raw_ptr :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .EnumT({ variant_fields : vfs }) => {
         (vi : usize) = usize(0);
         (found : bool) = false;
-        while((vi < vfs.len()) && !(found), {
+        while((vi < vfs.len()) && !found, {
           vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
-          while((fi < vf.len()) && !(found), {
+          while((fi < vf.len()) && !found, {
             ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
             if(recur(ft, depth - usize(1)), {
               found = true;
@@ -1741,7 +1753,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .Struct({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;
-        while((i < fts.len()) && !(found), {
+        while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
@@ -1753,7 +1765,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .Tuple({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;
-        while((i < fts.len()) && !(found), {
+        while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
@@ -1765,7 +1777,7 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .Union({ field_types : fts }) => {
         (i : usize) = usize(0);
         (found : bool) = false;
-        while((i < fts.len()) && !(found), {
+        while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
           if(recur(ft, depth - usize(1)), {
             found = true;
@@ -1777,10 +1789,10 @@ _type_provides_slice_source :: (fn(ty : TypeValue, depth : usize) -> bool)(
       .EnumT({ variant_fields : vfs }) => {
         (vi : usize) = usize(0);
         (found : bool) = false;
-        while((vi < vfs.len()) && !(found), {
+        while((vi < vfs.len()) && !found, {
           vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
-          while((fi < vf.len()) && !(found), {
+          while((fi < vf.len()) && !found, {
             ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
             if(recur(ft, depth - usize(1)), {
               found = true;
@@ -1822,6 +1834,36 @@ export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types);
+/// True when any PARAM of this `Func` type still contains a SomeT under a RAW
+/// scan — the per-object resolution cell is deliberately NOT consulted
+/// (unlike `type_contains_some_type`). Used to recognise the def-era ORIGINAL
+/// of a function the evaluator has specialized: its `Impl(Fn)` param renders
+/// as whichever capture struct the cell last held, so only its
+/// specializations are emitted
+/// (issues/fixed/forwarded-closure-param-shares-specialization.md).
+func_params_have_raw_some_type :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .Func({ param_types }) => {
+      (found : bool) = false;
+      (i : usize) = usize(0);
+      while((i < param_types.len()) && !found, {
+        match(
+          param_types.get(i),
+          .Some(pt) => if(get_all_some_types(pt).len() > usize(0), {
+            found = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+);
+export(func_params_have_raw_some_type);
+
 export(fields_have_incompatible_contexts);
 export(type_somes_all_resolve_concrete);
 export(type_contains_some_type_deep);

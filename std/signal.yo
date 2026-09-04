@@ -1,0 +1,102 @@
+//! High-level signal handling.
+//!
+//! Wraps `std/sys/signal` with a typed `Signal` enum.
+//!
+//! ## Example
+//!
+//! ```rust
+//! { on_signal, off_signal, Signal, SignalHandler } :: import "std/signal";
+//!
+//! handler :: (fn(data: *(u8)) -> unit)({ println("Caught SIGINT"); });
+//! on_signal(.Interrupt, handler);
+//! ```
+{ IoError } :: import("./sys/errors");
+{ on_signal : _on_signal, off_signal : _off_signal, SignalHandler } :: import("./sys/signal");
+{ platform, Platform } :: import("./process");
+{ Error, AnyError, Exception } :: import("./error");
+// ============================================================================
+// Signal enum
+// ============================================================================
+/// Portable signal identifiers.
+Signal :: enum(
+  /// SIGINT — interrupt from keyboard (Ctrl-C).
+  Interrupt,
+  /// SIGTERM — termination request.
+  Terminate,
+  /// SIGHUP — terminal hangup.
+  Hangup,
+  /// SIGUSR1 — user-defined signal 1.
+  User1,
+  /// SIGUSR2 — user-defined signal 2.
+  User2,
+  /// SIGPIPE — broken pipe.
+  Pipe,
+  /// SIGALRM — timer alarm.
+  Alarm,
+  /// SIGCHLD — child process status change.
+  Child
+);
+export(Signal);
+_signal_num :: (fn(sig : Signal) -> i32)(
+  match(
+    sig,
+    .Interrupt => cond(
+      (platform == Platform.Macos) => i32(2),
+      true => i32(2)
+    ),
+    .Terminate => cond(
+      (platform == Platform.Macos) => i32(15),
+      true => i32(15)
+    ),
+    .Hangup => cond(
+      (platform == Platform.Macos) => i32(1),
+      true => i32(1)
+    ),
+    .User1 => cond(
+      (platform == Platform.Macos) => i32(30),
+      true => i32(10)
+    ),
+    .User2 => cond(
+      (platform == Platform.Macos) => i32(31),
+      true => i32(12)
+    ),
+    .Pipe => cond(
+      (platform == Platform.Macos) => i32(13),
+      true => i32(13)
+    ),
+    .Alarm => cond(
+      (platform == Platform.Macos) => i32(14),
+      true => i32(14)
+    ),
+    .Child => cond(
+      (platform == Platform.Macos) => i32(20),
+      true => i32(17)
+    )
+  )
+);
+// ============================================================================
+// on_signal / off_signal
+// ============================================================================
+/// Register a handler for the given signal.
+on_signal :: (fn(sig : Signal, handler : SignalHandler, exn : Exception) -> unit)({
+  num := _signal_num(sig);
+  r := _on_signal(num, handler);
+  cond(
+    (r < i32(0)) => {
+      exn.throw(dyn(IoError.from_errno(i32(0) - r)));
+    },
+    true => ()
+  );
+});
+/// Remove the handler for the given signal.
+off_signal :: (fn(sig : Signal, exn : Exception) -> unit)({
+  num := _signal_num(sig);
+  r := _off_signal(num);
+  cond(
+    (r < i32(0)) => {
+      exn.throw(dyn(IoError.from_errno(i32(0) - r)));
+    },
+    true => ()
+  );
+});
+export(SignalHandler, on_signal, off_signal);

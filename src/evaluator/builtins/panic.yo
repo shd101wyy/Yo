@@ -47,9 +47,7 @@ evaluate_panic :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("__yo_panic() can only be called inside a function body or test block"),
-            false,
-            .None
+            String.from("__yo_panic() can only be called inside a function body or test block")
           )
         )
       );
@@ -62,9 +60,7 @@ evaluate_panic :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Cannot use \"__yo_panic\" during compile-time function evaluation analysis. Functions containing \"__yo_panic\" cannot be evaluated at compile time."),
-          false,
-          .None
+          String.from("Cannot use \"__yo_panic\" during compile-time function evaluation analysis. Functions containing \"__yo_panic\" cannot be evaluated at compile time.")
         )
       )
     );
@@ -121,9 +117,7 @@ evaluate_panic :: (
           dyn(
             format_error_message(
               ast_expr_token(msg_expr),
-              String.from("Failed to evaluate panic message"),
-              false,
-              .None
+              String.from("Failed to evaluate panic message")
             )
           )
         );
@@ -156,20 +150,18 @@ evaluate_panic :: (
           ),
           .None => is_comptime_string_type(msg_type)
         );
-        // *(u8) — C string pointer (e.g. from String.to_c_str())
+        // *(u8) — C string pointer (e.g. a String's to_cstr().ptr())
         is_ptr_to_u8 := match(
           msg_type,
           .Pointer(pointee) => is_u8_type(pointee),
           _ => false
         );
-        if(!(is_str) && !(is_comptime_str) && !(is_ptr_to_u8), {
+        if(!is_str && !is_comptime_str && !is_ptr_to_u8, {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(msg_expr),
-                String.from("__yo_panic message must be comptime_str, str, or *(u8)"),
-                false,
-                .None
+                String.from("__yo_panic message must be comptime_str, str, or *(u8)")
               )
             )
           );

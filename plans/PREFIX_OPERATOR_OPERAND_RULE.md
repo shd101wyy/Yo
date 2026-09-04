@@ -1,6 +1,42 @@
 # Prefix operators bind one postfix expression — and the dot is whitespace-insensitive
 
-**Proposed 2026-08-09.** Design decision, not yet implemented. Companion to
+**Rule 1 IMPLEMENTED 2026-08-21** (`parse_prefix_operand` /
+`parse_expression` in `src/parser.yo`, on the closed-operator-set branch —
+see `plans/OPERATOR_SET_AND_PRECEDENCE.md`): a bare prefix-capable
+operator (`-` `!` `~` `&` `*` `?` `^`) binds one postfix expression;
+parenthesized operator atoms (`(!)`) stay values; the no-whitespace `(`
+form stays the operator-call path (`-(a)`, multi-arg `-(a, b)`); nested
+bare prefixes chain (`**i32` = `*(*(i32))`, `- -1`). Verified by a
+whole-corpus AST diff (20,757 statements — only parser.yo's own edit
+differs) plus `tests/prefix_operators.test.yo`. NOTE the doc's `--`
+paragraph is superseded: under the closed operator set `--` is not a
+token, so even tight `3--3` splits and parses. **Rule 2 (whitespace-
+insensitive dot) and the formatter spacing canonicalization remain
+UNIMPLEMENTED** — their "TS is still the referee" premise predates the
+P2.5 retirement, so that half needs re-planning before it lands.
+**Seed constraint: LIFTED 2026-09-02** — v0.2.21 (released 2026-09-01)
+carries this rule, so the seed accepts paren-less forms (verified empirically:
+`-x`, `-1`, `?*`-style chains all pass `yo check`). The historical constraint
+read: `src/` and `std/` must keep PARENTHESIZED prefix calls until a release
+with this rule becomes the seed — the seed binary rejects paren-less forms.
+
+**Formatter prefix-CHAIN tightening (added 2026-08-21, same branch):**
+the internal formatter fixture corpus caught that
+`prefix_operator_needs_leading_space` still forced a space after ANY
+operator — a maximal-munch-era rule ("any operator pair could merge") —
+so `?*(u8)` emitted as `? *(u8)`. With the closed set, adjacency only
+re-lexes differently when the concatenation is in `_is_two_char_operator`
+(now exported from `src/lexer.yo` as the single source of truth), so the
+rule was refined: a prefix chain drops the space (`?*i32`, `**i32`,
+`?*(u8)`, `!!x`) when the PREVIOUS operator is itself in prefix position
+(judged via prev_prev, because the no-space path TRIMS the buffer —
+tightening after an INFIX operator would corrupt `x & *p` into `x &*p`),
+EXCEPT `& &x` (`&&` is a token) and `- -1` (kept spaced: `--1` reads as a
+C decrement). Fixture fallout, same commit: 15/16 migrated off the
+retired `&+` (grouped-infix intent preserved with `ptr + 1`); 41/42
+(`?*(u8)` tight) pass byte-identically once the chain rule fires.
+
+Originally proposed 2026-08-09. Companion to
 [`OPERATOR_ASSOCIATIVITY.md`](OPERATOR_ASSOCIATIVITY.md) (Yo's no-precedence
 philosophy) and [`P1_CLI_PARITY.md`](P1_CLI_PARITY.md) §6 (the `fmt`
 divergence, whose "space before `.`" class this rule resolves).

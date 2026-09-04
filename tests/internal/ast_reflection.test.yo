@@ -23,7 +23,7 @@ test("AST reflection: ExprVal.is_atom() returns true for atoms", {
   if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
-        (err) -> {
+        err -> {
           assert(false, "unexpected error");
           unwind(());
         }
@@ -32,7 +32,7 @@ test("AST reflection: ExprVal.is_atom() returns true for atoms", {
     // Raw builtin `__yo_expr_is_atom` — the `.is_atom()` method sugar needs
     // the prelude, and TS rejects it under SkipPrelude (the real module
     // evaluator matches TS; the legacy walker never truly evaluated it).
-    src := String.from("pragma(Pragma.SkipPrelude);\ncheck_atom :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_is_atom(e) => quote(1), true => quote(0)));\nr :: check_atom(42);\nexport(r);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\ncheck_atom :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_is_atom(e) => quote(1), true => quote(0)));\nr :: check_atom(42);\nexport(r);\n");
     eval := Evaluator.new(
       String.from("<phase6d1>"),
       String.from("<no-std>"),
@@ -104,14 +104,14 @@ test("AST reflection: ExprVal.is_fn_call() returns true for fn calls", {
   if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
-        (err) -> {
+        err -> {
           assert(false, "unexpected error");
           unwind(());
         }
       )
     );
     // Raw builtin `__yo_expr_is_fn_call` (see the SkipPrelude note above).
-    src := String.from("pragma(Pragma.SkipPrelude);\ncheck_call :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_is_fn_call(e) => quote(1), true => quote(0)));\nr :: check_call((1 + 2));\nexport(r);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\ncheck_call :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_is_fn_call(e) => quote(1), true => quote(0)));\nr :: check_call((1 + 2));\nexport(r);\n");
     eval := Evaluator.new(
       String.from("<phase6d2>"),
       String.from("<no-std>"),
@@ -183,7 +183,7 @@ test("AST reflection: get_callee and get_args extract structure", {
   if(MACRO_DISPATCH_ENABLED, {
     exn := Exception(
       throw : (
-        (err) -> {
+        err -> {
           assert(false, "unexpected error");
           unwind(());
         }
@@ -193,7 +193,7 @@ test("AST reflection: get_callee and get_args extract structure", {
     // We just verify that get_args returns something whose .len() is 2.
     // Raw builtins — `.get_args().len() == 2` needs the prelude. Structure
     // is asserted instead: callee is `+` AND car(args) is `3` → 1.
-    src := String.from("pragma(Pragma.SkipPrelude);\nprobe :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_eq(__yo_expr_get_callee(e), quote(+)) => cond(__yo_expr_eq(__yo_comptime_list_car(__yo_expr_get_args(e)), quote(3)) => quote(1), true => quote(0)), true => quote(0)));\nv :: probe((3 + 4));\nexport(v);\n");
+    src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\nprobe :: (fn(quote(e) : Expr) -> unquote(Expr))(cond(__yo_expr_eq(__yo_expr_get_callee(e), quote(+)) => cond(__yo_expr_eq(__yo_comptime_list_car(__yo_expr_get_args(e)), quote(3)) => quote(1), true => quote(0)), true => quote(0)));\nv :: probe((3 + 4));\nexport(v);\n");
     eval := Evaluator.new(
       String.from("<phase6d3>"),
       String.from("<no-std>"),

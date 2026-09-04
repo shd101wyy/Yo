@@ -120,7 +120,7 @@ first := numbers(usize(0));  // → i32  (value)
 numbers(usize(0)) = i32(99);
 
 // When you need the pointer explicitly:
-ptr := &(numbers(usize(0)));  // → *(i32)
+ptr := &numbers(usize(0));  // → *(i32)
 ptr.* = i32(100);
 
 // Safe access:
@@ -136,7 +136,7 @@ match(numbers.get(usize(0)),
 // ✓ v := numbers(usize(0));
 
 counts := HashMap(String, i32).new();
-counts.set(`yo`, i32(1));
+counts.insert(`yo`, i32(1));
 ```
 
 | Type             | Use when                                 |
@@ -172,7 +172,7 @@ counter.* = (counter.* + i32(1));
 
 - Use `Box(T)` or `box(value)` for owned heap allocation
 - Use `*(T)` for raw pointers
-- Model nullable pointers as `Option(*(T))` or `?*(T)`, not sentinel integers
+- Model nullable pointers as `?*T` (= `?(*(T))`) or the explicit `Option(*T)`, not sentinel integers
 - Constructor syntax: `Box(T)(value)` — NOT `Box(T).new(value)`
 - Single-payload reference-semantics values may use `(*) : T`; access the payload with `value.*`.
   This is a value payload accessor for reference-semantics values, while pointer dereference
@@ -265,11 +265,19 @@ impl(generic(T), where(T <: ToString), Box(T),
 - `generic(T)` + `where(T <: Trait)` for generic impls
 - Trait impls: `impl(MyType, MyTrait(args), : trait_field_bindings...)`
 
-### Method overloading: inherent NO, trait YES
+### Overloading: functions NO, inherent methods NO (policy), trait YES
 
-Inherent methods cannot be overloaded — a second same-name inherent method is
-rejected ("Method already defined" across impl blocks, "variable shadowing"
-within one). But **trait-provided methods may share a name** with an inherent
+Function overloading does not exist (Rust stance,
+plans/FUNCTION_OVERLOADING_POLICY.md): rebinding a name is rejected
+everywhere, and an exported `Call` tuple of ≥2 candidates (an overload set)
+is rejected outside std/prelude.yo — the prelude's runtime/comptime operator
+pairs (`Call :: (neg, comptime_neg)`) are the ONLY sanctioned overload sets.
+A single-function `Call` (callable module) is fine. Duplicate same-name
+inherent methods are REJECTED (2026-08-21): a second `impl(T, m : ...)` for
+the same (type, name) from a different source site errors with
+`Method "X" is already defined for this type`
+(plans/backlog/DUPLICATE_INHERENT_METHOD_REJECTION.md). But
+**trait-provided methods may share a name** with an inherent
 method and with same-name methods from other traits; dispatch picks by
 argument types. This is how std gives `String` both `contains(String)`
 (inherent) and `contains(str)` (via the `StrPattern` trait), and both
@@ -317,7 +325,7 @@ println(value);
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq, Hash, Clone, Ord, ToString);
+derive(Point, Eq, Hash, Clone, Ord, ToString, Default);
 
 p1 := Point(1, 2);
 p2 := p1.clone();
@@ -436,9 +444,10 @@ transform :: (fn(values : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)
 ```
 
 - `(params) => expr` creates a closure
-- `Impl(Fn(params) -> ReturnType)` is the closure type
-- Closures capture: value types by copy, reference-semantics types by reference
-- Each closure has a unique type
+- `Impl(Fn(params) -> ReturnType)` is the STATIC closure type — monomorphized, capture struct by value, direct call, no allocation or refcount on the closure itself
+- `Dyn(Fn(params) -> ReturnType)` is the TYPE-ERASED closure type — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer; wrap the value with `dyn(...)`
+- Closures capture: value types by copy, reference-semantics types by reference (the captured value carries the refcount, not the `Impl` closure)
+- Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures — use `Dyn(Fn(...))` for that, and for struct fields, where `Impl(Fn(...))` is rejected outright
 
 ## Iterator and for loop
 

@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 // SockAddr - Socket address buffer with pointer and length
 // ============================================================================
 SockAddr :: struct(
-  buf : *(u8),
+  buf : *u8,
   len : u32
 );
 export(SockAddr);
@@ -58,7 +58,7 @@ socket :: (fn(domain : i32, sock_type : i32, protocol : i32) -> IoFuture)(
 );
 // Bind a socket to a local address.
 // Returns 0 on success, -errno on failure.
-bind :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IoFuture)(
+bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_bind_start(sockfd, addr, addrlen)
 );
 // Listen for incoming connections on a socket.
@@ -70,22 +70,22 @@ listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
 // Accept an incoming connection on a listening socket.
 // Returns the new connection fd on success, -errno on failure.
 // addr/addrlen can be used to retrieve the peer address.
-accept :: (fn(sockfd : i32, addr : *(u8), addrlen : *(u32)) -> IoFuture)(
+accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture)(
   __yo_async_accept_start(sockfd, addr, addrlen)
 );
 // Connect to a remote address.
 // Returns 0 on success, -errno on failure.
-connect :: (fn(sockfd : i32, addr : *(u8), addrlen : u32) -> IoFuture)(
+connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_connect_start(sockfd, addr, addrlen)
 );
 // Send data on a connected socket.
 // Returns number of bytes sent on success, -errno on failure.
-send :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IoFuture)(
+send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
 // Receive data from a connected socket.
 // Returns number of bytes received on success (0 = peer closed), -errno on failure.
-recv :: (fn(sockfd : i32, buf : *(u8), len : usize, flags : i32) -> IoFuture)(
+recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
 // Shut down part of a full-duplex connection.
@@ -104,12 +104,12 @@ close :: (fn(fd : i32) -> IoFuture)(
 // ============================================================================
 // Set a socket option (raw).
 // Returns 0 on success, -errno on failure.
-setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : u32) -> IoFuture)(
+setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> IoFuture)(
   __yo_async_setsockopt_start(sockfd, level, optname, optval, optlen)
 );
 // Get a socket option (raw).
 // Returns 0 on success, -errno on failure.
-getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optlen : *(u32)) -> IoFuture)(
+getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> IoFuture)(
   __yo_async_getsockopt_start(sockfd, level, optname, optval, optlen)
 );
 // ============================================================================
@@ -118,7 +118,7 @@ getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *(u8), optl
 // Create an IPv4 socket address (sockaddr_in) from an IP string and port.
 // The IP string must be a null-terminated C string (e.g. "127.0.0.1").
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
-make_sockaddr_in :: (fn(ip : *(u8), port : u16) -> SockAddr)({
+make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in_size();
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
@@ -134,7 +134,7 @@ make_sockaddr_in :: (fn(ip : *(u8), port : u16) -> SockAddr)({
 // Create an IPv6 socket address (sockaddr_in6) from an IP string and port.
 // The IP string must be a null-terminated C string (e.g. "::1").
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
-make_sockaddr_in6 :: (fn(ip : *(u8), port : u16) -> SockAddr)({
+make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in6_size();
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
@@ -182,16 +182,24 @@ free_sockaddr :: (fn(addr : SockAddr) -> unit)(
   free(.Some(*(void)(addr.buf)))
 );
 // Get the port number from an IPv4 socket address buffer.
-get_port_in :: (fn(addr : *(u8)) -> u16)(
+get_port_in :: (fn(addr : *u8) -> u16)(
   __yo_sockaddr_in_get_port(addr)
 );
 // Get the IPv4 address as a u32 from a socket address buffer.
-get_addr_in :: (fn(addr : *(u8)) -> u32)(
+get_addr_in :: (fn(addr : *u8) -> u32)(
   __yo_sockaddr_in_get_addr(addr)
 );
 // Get the address family from a socket address buffer.
-get_family :: (fn(addr : *(u8)) -> u16)(
+get_family :: (fn(addr : *u8) -> u16)(
   __yo_sockaddr_get_family(addr)
+);
+// Get the port number from an IPv6 socket address buffer (host byte order).
+get_port_in6 :: (fn(addr : *u8) -> u16)(
+  __yo_sockaddr_in6_get_port(addr)
+);
+// Copy the 16-byte IPv6 address (network byte order) out of a sockaddr_in6.
+get_addr_in6 :: (fn(addr : *u8, out : *u8) -> unit)(
+  __yo_sockaddr_in6_get_addr(addr, out)
 );
 // ============================================================================
 // Byte Order Helpers
@@ -220,6 +228,8 @@ export(
   get_port_in,
   get_addr_in,
   get_family,
+  get_port_in6,
+  get_addr_in6,
   htons,
   ntohs,
   htonl,

@@ -72,9 +72,7 @@ evaluate_downcast :: (
       dyn(
         format_error_message(
           ast_expr_token(dyn_expr),
-          String.from("Failed to evaluate dyn value argument for downcast."),
-          false,
-          .None
+          String.from("Failed to evaluate dyn value argument for downcast.")
         )
       )
     );
@@ -82,14 +80,12 @@ evaluate_downcast :: (
   dyn_info := match(dyn_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
   cur_env = dyn_info.env;
   dyn_type := dyn_info.ty;
-  if(!(is_dyn_type(dyn_type)), {
+  if(!is_dyn_type(dyn_type), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(dyn_expr),
-          `downcast expects a Dyn type as first argument, got ${type_to_string(dyn_type)}.`,
-          false,
-          .None
+          `downcast expects a Dyn type as first argument, got ${type_to_string(dyn_type)}.`
         )
       )
     );
@@ -109,23 +105,19 @@ evaluate_downcast :: (
       dyn(
         format_error_message(
           ast_expr_token(type_expr),
-          String.from("Failed to evaluate type argument for downcast."),
-          false,
-          .None
+          String.from("Failed to evaluate type argument for downcast.")
         )
       )
     );
   });
   type_info := match(type_info_opt, .Some(i) => i, .None => new_expr_info(cur_env, TypeValue.Unit));
   cur_env = type_info.env;
-  if(!(is_type_value(type_info.value)), {
+  if(!is_type_value(type_info.value), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(type_expr),
-          `downcast expects a type as second argument, got ${type_to_string(type_info.ty)}.`,
-          false,
-          .None
+          `downcast expects a type as second argument, got ${type_to_string(type_info.ty)}.`
         )
       )
     );

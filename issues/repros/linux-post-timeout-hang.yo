@@ -1,0 +1,159 @@
+// Standalone repro for the Linux-only stall after a fetch_with TIMEOUT
+// (tests/http/http.test.yo hangs on the test AFTER "fetch throws Timeout";
+// #350's hollow sweep rc=124). Mirrors that test, then does one more
+// listener + fetch. Compile with --debug-async-await to trace the runtime.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+{ fetch_with, FetchOptions } :: import("std/http");
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ SocketAddr } :: import("std/net/addr");
+{ Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+{ ArrayList } :: import("std/collections/array_list");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+_read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e) => {
+    buf := *(u8)(malloc(usize(4096)).unwrap());
+    n := e.io.await(stream.read(buf, usize(4096), e.io), e);
+    bytes := ArrayList(u8).new();
+    i := usize(0);
+    while(runtime(i < n), {
+      bytes.push((buf.add(i)).*);
+      i = (i + usize(1));
+    });
+    free(.Some(*(void)(buf)));
+    String.from_bytes(bytes)
+  })
+);
+_serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    s := e.io.await(listener.accept(e.io), e);
+    eprintln(`  [silent server] accepted`);
+    _req := e.io.await(_read_request(s, e.io), e);
+    eprintln(`  [silent server] got request, holding`);
+    e.io.await(sleep(hold, e.io), e.io);
+    eprintln(`  [silent server] hold over, closing`);
+    e.io.await(s.close(e.io), e);
+    eprintln(`  [silent server] closed`);
+    return(());
+  })
+);
+_serve_one :: (fn(listener : TcpListener, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e) => {
+    s := e.io.await(listener.accept(e.io), e);
+    eprintln(`  [second server] accepted`);
+    _req := e.io.await(_read_request(s, e.io), e);
+    _w := e.io.await(s.write_string(`HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok`, e.io), e);
+    e.io.await(s.close(e.io), e);
+    eprintln(`  [second server] responded`);
+    return(());
+  })
+);
+_hex :: (fn(n : usize) -> String)({
+  digits := `0123456789abcdef`;
+  cond(
+    (n == usize(0)) => `0`,
+    true => {
+      s := String.new();
+      m := n;
+      while(m > usize(0), m = (m / usize(16)), {
+        s = `${digits.substring(m % usize(16), (m % usize(16)) + usize(1))}${s}`;
+      });
+      s
+    }
+  )
+});
+_chunked :: (fn(chunks : ArrayList(String), trailer : String) -> String)({
+  out := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
+  i := usize(0);
+  while(i < chunks.len(), i = (i + usize(1)), {
+    c := chunks(i);
+    out = `${out}${_hex(c.as_bytes().len())}\r\n${c}\r\n`;
+  });
+  `${out}0\r\n${trailer}\r\n`
+});
+_serve_scripted :: (
+  fn(listener : TcpListener, responses : ArrayList(String), seen : ArrayList(String), io : Io) ->
+    Impl(Future(unit, IoExn))
+)(
+  io.async((e) => {
+    k := usize(0);
+    while(runtime(k < responses.len()), {
+      s := e.io.await(listener.accept(e.io), e);
+      eprintln(`  [scripted server] accepted #${k}`);
+      req := e.io.await(_read_request(s, e.io), e);
+      seen.push(req);
+      _w := e.io.await(s.write_string(responses(k), e.io), e);
+      e.io.await(s.close(e.io), e);
+      eprintln(`  [scripted server] responded #${k}`);
+      k = (k + usize(1));
+    });
+    return(());
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  timeout_exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`  [timeout] handler: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  exn := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`  [main] unexpected: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // --- phase 1: the Timeout race (as in the test) ---
+  l1 := io.await(TcpListener.bind(SocketAddr.loopback(u16(19964)), io), IoExn(io : io, exn : exn));
+  _s1 := io.spawn(_serve_silent(l1, Duration.from_millis(i64(400)), io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  eprintln(`  [timeout] fetching`);
+  _p1 := io.spawn(fetch_with(`http://127.0.0.1:19964/hang`, opts, io), IoExn(io : io, exn : timeout_exn));
+  _r1 := _p1.await(io);
+  eprintln(`  [timeout] phase 1 done`);
+  // --- phase 2: a fresh listener and a plain fetch (where the test hangs) ---
+  eprintln(`  [phase2] binding`);
+  l2 := io.await(TcpListener.bind(SocketAddr.loopback(u16(19965)), io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase2] bound; spawning server`);
+  s2 := io.spawn(_serve_one(l2, io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase2] fetching`);
+  r2 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase2] got ${r2.status_code} body=[${r2.body}]`);
+  s2.await(io);
+  io.await(l2.close(io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase2] done`);
+  // --- phase 3: the chunked test body, statement by statement ---
+  eprintln(`  [phase3] start`);
+  addr3 := SocketAddr.loopback(u16(19966));
+  eprintln(`  [phase3] addr`);
+  l3 := io.await(TcpListener.bind(addr3, io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] bound`);
+  chunks := ArrayList(String).new();
+  chunks.push(`hello, `);
+  chunks.push(`chunked `);
+  chunks.push(`world — 16+ bytes so a size needs two hex digits`);
+  eprintln(`  [phase3] chunks built; hex(50)=${_hex(usize(50))}`);
+  responses := ArrayList(String).new();
+  responses.push(_chunked(chunks, `X-Trailer: t\r\n`));
+  eprintln(`  [phase3] response 1 built (${responses(usize(0)).len()} bytes)`);
+  responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
+  seen := ArrayList(String).new();
+  srv3 := io.spawn(_serve_scripted(l3, responses, seen, io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] server spawned; fetching /one`);
+  c1 := io.await(fetch_with(`http://127.0.0.1:19966/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] /one → ${c1.status_code} body=[${c1.body}]`);
+  c2 := io.await(fetch_with(`http://127.0.0.1:19966/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] /two → ${c2.status_code} body=[${c2.body}]`);
+  srv3.await(io);
+  io.await(l3.close(io), IoExn(io : io, exn : exn));
+  eprintln(`  [phase3] done`);
+});
+export(main);

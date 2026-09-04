@@ -1,0 +1,99 @@
+//! Typed standard-stream handles — `stdin()` / `stdout()` / `stderr()`
+//! (`plans/STD_API_AUDIT.md` §D5).
+//!
+//! Each handle wraps its well-known file descriptor (0/1/2) and implements
+//! the async `Reader`/`Writer` traits from `std/io`, so code written against
+//! the traits works on the standard streams the same way it works on a
+//! `File` or a `TcpStream`. This is the typed replacement for the
+//! `BufReader.new(i32(0))` magic number.
+//!
+//! The handles are UNBUFFERED: every `read`/`write` is one async syscall.
+//! Each handle keeps a sequential offset the way `std/sys/bufio` does —
+//! required when a standard stream is REDIRECTED to a regular file (the
+//! async runtime writes positionally there); for pipes and terminals the
+//! offset is ignored.
+pragma(Pragma.AllowUnsafe);
+{ Reader, Writer } :: import("./index");
+{ IoExn } :: import("../error");
+{ IoError } :: import("../sys/errors");
+IO_file :: import("../sys/file");
+
+/// The process's standard input (fd 0).
+Stdin :: ref(struct(_offset : u64));
+/// The process's standard output (fd 1).
+Stdout :: ref(struct(_offset : u64));
+/// The process's standard error (fd 2).
+Stderr :: ref(struct(_offset : u64));
+/// Handle to standard input.
+stdin :: (fn() -> Stdin)(Stdin(_offset : u64(0)));
+/// Handle to standard output.
+stdout :: (fn() -> Stdout)(Stdout(_offset : u64(0)));
+/// Handle to standard error.
+stderr :: (fn() -> Stderr)(Stderr(_offset : u64(0)));
+impl(
+  Stdin,
+  /// fd 0, for interop with fd-based APIs (e.g. `BufReader.new`).
+  fd : (fn(self : Self) -> i32)(
+    i32(0)
+  )
+);
+impl(
+  Stdout,
+  /// fd 1, for interop with fd-based APIs (e.g. `BufWriter.new`).
+  fd : (fn(self : Self) -> i32)(
+    i32(1)
+  )
+);
+impl(
+  Stderr,
+  /// fd 2, for interop with fd-based APIs.
+  fd : (fn(self : Self) -> i32)(
+    i32(2)
+  )
+);
+impl(
+  Stdin,
+  Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async(e => {
+        result := e.io.await(IO_file.read(i32(0), buf, u32(size), self._offset), e.io);
+        n := IoError.check(result, e.exn);
+        self._offset = (self._offset + u64(n));
+        usize(n)
+      })
+    )
+  )
+);
+impl(
+  Stdout,
+  Writer(
+    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async(e => {
+        result := e.io.await(IO_file.write(i32(1), buf, u32(size), self._offset), e.io);
+        n := IoError.check(result, e.exn);
+        self._offset = (self._offset + u64(n));
+        usize(n)
+      })
+    ),
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      io.async(e => ())
+    )
+  )
+);
+impl(
+  Stderr,
+  Writer(
+    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async(e => {
+        result := e.io.await(IO_file.write(i32(2), buf, u32(size), self._offset), e.io);
+        n := IoError.check(result, e.exn);
+        self._offset = (self._offset + u64(n));
+        usize(n)
+      })
+    ),
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      io.async(e => ())
+    )
+  )
+);
+export(Stdin, Stdout, Stderr, stdin, stdout, stderr);

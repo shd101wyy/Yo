@@ -50,7 +50,7 @@ open(import("std/string"));
 // ---------------------------------------------------------------------------
 (g_extern_c_includes : HashMap(String, String)) = HashMap(String, String).new();
 record_c_include_for_extern :: (fn(name : String, header : String) -> unit)({
-  _r := g_extern_c_includes.set(name, header);
+  _r := g_extern_c_includes.insert(name, header);
 });
 /// The C header a `c_include`d extern symbol was declared under, if any.
 get_c_include_for_extern :: (fn(name : String) -> Option(String))(
@@ -64,14 +64,12 @@ evaluate_c_include :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected c_include, got ${ast_expr_token(expr).value}`,
-          false,
-          .None
+          `Expected c_include, got ${ast_expr_token(expr).value}`
         )
       )
     );
@@ -82,7 +80,7 @@ evaluate_c_include :: (
   // call-site gate in `function.yo` catches actual calls, but type-level
   // uses (an imported extern Type in a field/trait bound) would slip
   // through. Mirrors `c-include.ts:46-66`.
-  if(!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone()))), {
+  if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(expr).module_path.clone())), {
     exn.throw(
       dyn(
         format_error_message(
@@ -95,9 +93,7 @@ type-checking reach. To use them, declare at the top of this file:
     pragma(Pragma.AllowUnsafe);
 
 User code should normally call stdlib wrappers (e.g. functions in
-'std/sys', 'std/fs') instead of pulling in C headers directly.`,
-          false,
-          .None
+'std/sys', 'std/fs') instead of pulling in C headers directly.`
         )
       )
     );
@@ -106,14 +102,12 @@ User code should normally call stdlib wrappers (e.g. functions in
   all_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // First arg must be an atom (the C header file string literal, e.g. "<stdio.h>").
   first_arg_opt := all_args.get(usize(0));
-  if(!(match(first_arg_opt, .Some(a) => ast_expr_is_atom(a), .None => false)), {
+  if(!match(first_arg_opt, .Some(a) => ast_expr_is_atom(a), .None => false), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;"),
-          false,
-          .None
+          String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;")
         )
       )
     );
@@ -136,9 +130,7 @@ User code should normally call stdlib wrappers (e.g. functions in
           dyn(
             format_error_message(
               ast_expr_token(c_header_file_arg),
-              `Expected string for C header file argument`,
-              false,
-              .None
+              `Expected string for C header file argument`
             )
           )
         );
@@ -150,9 +142,7 @@ User code should normally call stdlib wrappers (e.g. functions in
         dyn(
           format_error_message(
             ast_expr_token(c_header_file_arg),
-            `Failed to evaluate C header file argument`,
-            false,
-            .None
+            `Failed to evaluate C header file argument`
           )
         )
       );
@@ -171,9 +161,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;"),
-          false,
-          .None
+          String.from("Expected C header file as first argument to c_include, such as:\n\nc_include \"<stdio.h>\" ...;")
         )
       )
     );
@@ -189,7 +177,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while((dup_idx < field_labels.len()) && !(has_dup), {
+    while((dup_idx < field_labels.len()) && !has_dup, {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == result.label, {
         has_dup = true;
@@ -210,9 +198,7 @@ User code should normally call stdlib wrappers (e.g. functions in
         dyn(
           format_error_message(
             err_tok,
-            `Duplicate label "${result.label}" in module`,
-            false,
-            .None
+            `Duplicate label "${result.label}" in module`
           )
         )
       );

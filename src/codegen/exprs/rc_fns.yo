@@ -98,7 +98,23 @@ generate_drop :: (fn(expr : AstExpr, indent : String, context : FunctionGenerati
     .Some(value_arg) => {
       value_code := _call_generate_expr(value_arg, indent.clone(), context);
       value_type := resolve_some_type_param_type(value_arg, _ty(value_arg, context), context);
-      generate_drop_code_for_value(value_code, value_type, context)
+      drop_code := generate_drop_code_for_value(value_code.clone(), value_type, context);
+      // A local that lives in an async state machine (`sm->var_N`) is dropped
+      // inline when its scope ends, but the state machine's dispose function
+      // ALSO sweeps every cross-boundary local when the body escaped
+      // (state == -2) — it cannot know which scopes had already closed. So an
+      // escape AFTER a closed scope re-dropped the field: `_fetch_once`'s
+      // `addrs`/`addr`/`stream` were released at the end of their cond branch,
+      // then `parse_response` threw and dispose decremented them again
+      // (heap-use-after-free; issues/fixed/async-scope-end-drop-then-escape-double-drop.md).
+      // Clear the field right after the inline drop so the sweep's guards
+      // (`!= NULL`, `.data != NULL`, enum tag) see an empty slot. `memset`
+      // covers every field shape (pointer, Option/Result, dyn) uniformly.
+      in_sm_field := match(context.in_async_state_machine, .Some(_) => value_code.starts_with("sm->var_"), .None => false);
+      cond(
+        ((drop_code.len() > usize(0)) && in_sm_field) => `${drop_code}; memset(&(${value_code}), 0, sizeof(${value_code}))`,
+        true => drop_code
+      )
     },
     .None => codegen_fatal_expr(String.from("___drop requires exactly 1 argument"))
   )
@@ -122,7 +138,7 @@ generate_yo_drop_array_element :: (fn(expr : AstExpr, indent : String, context :
   array_code := _call_generate_expr(array_arg, indent.clone(), context);
   index_code := _call_generate_expr(index_arg, indent.clone(), context);
   array_type := _ty(array_arg, context);
-  if(!(is_array_type(array_type)), {
+  if(!is_array_type(array_type), {
     return(codegen_fatal_expr(String.from("__yo_drop_array_element requires an array type")));
   });
   element_type := match(array_type, .Array(el, _, _) => el, _ => return(codegen_fatal_expr(String.from("__yo_drop_array_element requires an array type"))));
@@ -188,7 +204,7 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
   array_code := _call_generate_expr(array_arg, indent.clone(), context);
   index_code := _call_generate_expr(index_arg, indent.clone(), context);
   array_type := _ty(array_arg, context);
-  if(!(is_array_type(array_type)), {
+  if(!is_array_type(array_type), {
     return(codegen_fatal_expr(String.from("__yo_dup_array_element requires an array type")));
   });
   element_type := match(array_type, .Array(el, _, _) => el, _ => return(codegen_fatal_expr(String.from("__yo_dup_array_element requires an array type"))));
@@ -272,7 +288,7 @@ generate_yo_drop_tuple_element :: (fn(expr : AstExpr, indent : String, context :
   tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
   _idx := _call_generate_expr(index_arg, indent.clone(), context);
   tuple_type := _ty(tuple_arg, context);
-  if(!(is_tuple_type(tuple_type)), {
+  if(!is_tuple_type(tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a tuple type")));
   });
   raw := match(context.base.get_expr_info(index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_drop_tuple_element requires a constant index"))));
@@ -309,7 +325,7 @@ generate_yo_dup_tuple_element :: (fn(expr : AstExpr, indent : String, context : 
   tuple_code := _call_generate_expr(tuple_arg, indent.clone(), context);
   _idx := _call_generate_expr(index_arg, indent.clone(), context);
   tuple_type := _ty(tuple_arg, context);
-  if(!(is_tuple_type(tuple_type)), {
+  if(!is_tuple_type(tuple_type), {
     return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a tuple type")));
   });
   raw := match(context.base.get_expr_info(index_arg), .Some(iei) => match(iei.value, .Some(v) => match(v, .IntLit(r) => r, _ => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index")))), .None => return(codegen_fatal_expr(String.from("__yo_dup_tuple_element requires a constant index"))));

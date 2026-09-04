@@ -2,14 +2,14 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 test("Test simple functions", {
   {
-    swap :: (fn(a : *(i32), b : *(i32)) -> unit)({
+    swap :: (fn(a : *i32, b : *i32) -> unit)({
       temp := a.*;
       a.* = b.*;
       b.* = temp;
     });
     x := 5;
     y := 10;
-    swap(&(x), &(y));
+    swap(&x, &y);
     assert(x == 10);
     assert(y == 5);
   };
@@ -236,9 +236,9 @@ test("Test callback regular function", {
   use_cb :: (fn(v : i32, cb : (fn(u : i32) -> i32)) -> i32)({
     return(cb(v));
   });
-  x := use_cb(10, (u) -> (u + 1));
+  x := use_cb(10, u -> (u + 1));
   assert(x == 11);
-  y := use_cb(20, (u) -> (u * 2));
+  y := use_cb(20, u -> (u * 2));
   assert(y == 40);
 });
 test("Test Impl closure callback", {
@@ -246,12 +246,12 @@ test("Test Impl closure callback", {
     return(cb(v));
   });
   a := 2;
-  x := use_cb(10, (u) => ((u + 1) + a)); // capture variable 'a'
+  x := use_cb(10, u => (u + 1 + a)); // capture variable 'a'
   assert(x == 13);
-  y := use_cb(20, (u) => (u * 2)); // capture nothing
+  y := use_cb(20, u => (u * 2)); // capture nothing
   assert(y == 40);
   b := Box(i32)(5);
-  z := use_cb(10, (u) => ((u + 1) + b.*)); // capture variable 'a'
+  z := use_cb(10, u => (u + 1 + b.*)); // capture variable 'a'
   assert(z == 16);
 });
 test("Test Dyn closure callback", {
@@ -259,12 +259,12 @@ test("Test Dyn closure callback", {
     return(cb(v));
   });
   a := 2;
-  x := use_cb(10, dyn((u) => ((u + 1) + a))); // capture variable 'a'
+  x := use_cb(10, dyn(u => (u + 1 + a))); // capture variable 'a'
   assert(x == 13);
-  y := use_cb(20, dyn((u) => (u * 2))); // capture nothing
+  y := use_cb(20, dyn(u => (u * 2))); // capture nothing
   assert(y == 40);
   b := Box(i32)(5);
-  z := use_cb(10, dyn((u) => ((u + 1) + b.*))); // capture variable 'b'
+  z := use_cb(10, dyn(u => (u + 1 + b.*))); // capture variable 'b'
   assert(z == 16);
 });
 test("Test Dyn closure callback with manual boxing", {
@@ -272,12 +272,12 @@ test("Test Dyn closure callback with manual boxing", {
     return(cb(v));
   });
   a := 2;
-  x := use_cb(10, dyn(box((u) => ((u + 1) + a)))); // capture variable 'a'
+  x := use_cb(10, dyn(box(u => (u + 1 + a)))); // capture variable 'a'
   assert(x == 13);
-  y := use_cb(20, dyn(box((u) => (u * 2)))); // capture nothing
+  y := use_cb(20, dyn(box(u => (u * 2)))); // capture nothing
   assert(y == 40);
   b := Box(i32)(5);
-  z := use_cb(10, dyn(box((u) => ((u + 1) + b.*)))); // capture variable 'b'
+  z := use_cb(10, dyn(box(u => (u + 1 + b.*)))); // capture variable 'b'
   assert(z == 16);
 });
 test("Test the `where` scoping in functions", {
@@ -440,7 +440,7 @@ test("Test generic functions", {
   {
     // Test with compile-time variable and anonymous function - should infer types automatically
     comptime(id) : (fn(generic(T : Type), x : T) -> T);
-    id = ((a) -> a);
+    id = (a -> a);
     x := id(true);
     y := id(12);
     z := id(3.14);
@@ -515,15 +515,15 @@ test("Test generic functions", {
         callback : (fn(v : T) -> T)
       ) -> T
     )(callback(x));
-    a := generic_fn(1, (x) -> (x + 1));
-    b := generic_fn(true, (x) -> !(x));
+    a := generic_fn(1, x -> (x + 1));
+    b := generic_fn(true, x -> !x);
     assert(a == 2);
     assert(b == false);
   };
 });
 test("Test generic function callback", {
   generic_fn :: (fn(generic(T : Type), x : T, callback : (fn(v : T) -> T)) -> T)(callback(x));
-  assert(generic_fn(2, (x) -> (x + 16)) == 18); // anonymous function
+  assert(generic_fn(2, x -> (x + 16)) == 18); // anonymous function
   assert(generic_fn(2, (fn(y : i32) -> i32)(y + 18)) == 20); // regular function
 });
 test("Test 'recur'", {
@@ -606,20 +606,29 @@ test("Test comptime function", {
     p4 :: comptime_add_points(p1, p2); // allowed, comptime
   };
 });
-test("Test function overloading using module Call", {
+test("Test function overloading using module Call is rejected", {
+  // Function overloading is not supported (Rust stance): an exported `Call`
+  // holding a TUPLE of two or more candidates is an overload set, and only
+  // std/prelude.yo's runtime/comptime operator pairs may define one
+  // (plans/FUNCTION_OVERLOADING_POLICY.md).
+  comptime_expect_error(
+    add_overloaded :: impl({
+      add1 :: (fn(x : i32) -> i32)(x);
+      add2 :: (fn(x : i32, y : i32) -> i32)(x + y);
+      Call :: (add1, add2);
+      export(Call);
+    })
+  );
+  // A SINGLE-function `Call` is not an overload set: calling the module
+  // like a function stays supported.
   add :: impl({
-    add1 :: (fn(x : i32) -> i32)(x);
     add2 :: (fn(x : i32, y : i32) -> i32)(x + y);
-    add3 :: (fn(x : i32, y : i32, z : i32) -> i32)((x + y) + z);
-    add4 :: (fn(x : i32, y : i32, z : i32, w : i32) -> i32)(((x + y) + z) + w);
-    Call :: (add1, add2, add3); // Allow calling the module like a function
+    Call :: add2;
     export(Call);
   });
-  assert(add(1) == 1);
   assert(add(2, 3) == 5);
-  assert(add(3, 4, 5) == 12);
   comptime_expect_error(
-    add(4, 5, 6, 7) // This will not work because add4 is not used in "Call".
+    add(4, 5, 6) // Wrong arity for the single Call function.
   );
 });
 test("Test mutual recursion", {
@@ -678,16 +687,16 @@ test("Partial application on comptime value functions", {
   is_equal :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(bool))(a == b);
   is_five :: is_equal(i32(5), _);
   comptime_assert(is_five(i32(5)), "5 == 5");
-  comptime_assert(!(is_five(i32(3))), "5 != 3");
+  comptime_assert(!is_five(i32(3)), "5 != 3");
   // Boolean function, _ on first position
   equals_seven :: is_equal(_, i32(7));
   comptime_assert(equals_seven(i32(7)), "7 == 7");
-  comptime_assert(!(equals_seven(i32(0))), "0 != 7");
+  comptime_assert(!equals_seven(i32(0)), "0 != 7");
   ();
 });
 test("Partial application with multiple placeholders", {
   // 3-arg function, _ on first and third positions
-  add3 :: (fn(comptime(a) : i32, comptime(b) : i32, comptime(c) : i32) -> comptime(i32))((a + b) + c);
+  add3 :: (fn(comptime(a) : i32, comptime(b) : i32, comptime(c) : i32) -> comptime(i32))(a + b + c);
   fix_middle :: add3(_, i32(100), _);
   result :: fix_middle(i32(1), i32(2));
   comptime_assert(result == i32(103), "1 + 100 + 2 = 103");
@@ -752,7 +761,7 @@ test("Partial application on type constructors with multiple params", {
   FullType2 :: MidBool(i32, u8);
   t2 := FullType2(i32(10), false, u8(5));
   assert(t2.first == i32(10), "first = 10");
-  assert(!(t2.second), "second = false");
+  assert(!t2.second, "second = false");
   // Fix last type: LastU8(A, B) = Triple(A, B, u8)
   LastU8 :: Triple(_, _, u8);
   FullType3 :: LastU8(i32, bool);
@@ -779,20 +788,20 @@ test("Partial application preserves return type", {
 });
 test("Chained unwrap call on Option of function type", {
   MyStruct :: struct(x : i32);
-  MyFn :: (fn(s : *(MyStruct), a : i32) -> bool);
-  my_fn :: (fn(s : *(MyStruct), a : i32) -> bool)(
+  MyFn :: (fn(s : *MyStruct, a : i32) -> bool);
+  my_fn :: (fn(s : *MyStruct, a : i32) -> bool)(
     (s.*.x + a) > i32(0)
   );
-  chained_call :: (fn(opt : Option(MyFn), s : *(MyStruct), a : i32) -> bool)({
+  chained_call :: (fn(opt : Option(MyFn), s : *MyStruct, a : i32) -> bool)({
     return(opt.unwrap()(s, a));
   });
   (s : MyStruct) = MyStruct(x : i32(10));
   (opt : Option(MyFn)) = .Some(my_fn);
-  result := chained_call(opt, &(s), i32(1));
+  result := chained_call(opt, &s, i32(1));
   assert(result, "chained unwrap()() should return true");
   // Also verify two-step works
   fn_val := opt.unwrap();
-  result2 := fn_val(&(s), i32(2));
+  result2 := fn_val(&s, i32(2));
   assert(result2, "two-step unwrap should return true");
   ();
 });
@@ -812,7 +821,7 @@ test("Short-circuit operators with RC temporaries", {
   result_or2 := ((c.len() > usize(0)) || (make_str("never").len() == usize(999)));
   assert(result_or2, "|| should short-circuit");
   result_and2 := ((make_str("").len() > usize(0)) && (make_str("never").len() > usize(0)));
-  assert(!(result_and2), "&& should short-circuit on false");
+  assert(!result_and2, "&& should short-circuit on false");
   ();
 });
 // TODO:
@@ -840,3 +849,28 @@ test "Test variadic function", {
   ();
 };
 */
+// ---------------------------------------------------------------------------
+// Binding a UNIT-returning call. `x := f()` where f returns unit used to emit
+// `void x = ;` — an incomplete-type error plus an empty initializer — for a
+// program `yo check` accepted, so the only symptom was a raw C error naming a
+// generated temp. The call must still RUN (it can have side effects); only the
+// value-less declaration is dropped.
+// issues/fixed/binding-a-unit-returning-call-emits-invalid-c.md
+// ---------------------------------------------------------------------------
+_unit_bump :: (fn(b : Box(i32), by : i32) -> unit)({
+  b.* = (b.* + by);
+});
+test("Binding a unit-returning call compiles and still runs the call", {
+  counter := Box(i32)(0);
+  // The binding form that used to emit invalid C.
+  _r := _unit_bump(counter, i32(7));
+  assert(counter.* == i32(7), "bound unit call must still execute");
+  // A second binding in the same scope (each needs its own temp).
+  _s := _unit_bump(counter, i32(3));
+  assert(counter.* == i32(10), "second bound unit call must also execute");
+  // The same lowering one scope deeper.
+  {
+    _t := _unit_bump(counter, i32(5));
+    assert(counter.* == i32(15), "nested-scope bound unit call must execute");
+  };
+});

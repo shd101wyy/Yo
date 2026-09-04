@@ -5,7 +5,7 @@
 //!
 //! All elements must implement `Send` to guarantee thread safety.
 //!
-//! # Examples
+//! ## Examples
 //!
 //! ```rust
 //! { List } :: import "std/imm/list";
@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc, free } :: GlobalAllocator;
 { memcpy } :: import("../libc/string.yo");
 /// Internal cons cell — atomic object for thread-safe structural sharing.
-ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+ListNode :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -35,21 +35,25 @@ ListNode :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 // SAFETY: Manual Acyclic impl — ListNode is self-referential, so auto-derivation skips it.
 // This is safe because ListNode is immutable: all operations create new nodes and never
 // mutate existing ones, making it impossible to form cycles at runtime.
-impl(generic(T : Type), where(T <: Send), ListNode(T), Acyclic());
+impl(generic(T : Type), where(T <: (Send, Acyclic)), ListNode(T), Acyclic());
 /// Persistent immutable singly-linked list.
 ///
 /// A value-type wrapper around an optional chain of `ListNode` atomic objects.
 /// Cheap to copy (just a pointer + length). All "modification" operations
 /// return a new `List` that shares structure with the original.
-List :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+List :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   struct(
     _head : Option(ListNode(T)),
     _len : usize
   )
 );
+// The PUBLIC wrapper is Acyclic too (O7): an Acyclic element list cannot
+// form a cycle, and this is what lets a List nest as another imm
+// container's element.
+impl(generic(T : Type), where(T <: (Send, Acyclic)), List(T), Acyclic());
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   List(T),
   /// Create an empty list.
   new : (fn() -> Self)(
@@ -137,7 +141,7 @@ impl(
     result
   }),
   /// Apply a function to each element, producing a new list. O(n).
-  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: Send)) -> List(U))({
+  map : (fn(generic(U : Type), self : Self, f : Impl(Fn(a : T) -> U), where(U <: (Send, Acyclic))) -> List(U))({
     (result : List(U)) = List(U).new();
     (current : Option(ListNode(T))) = self._head;
     while(runtime(current.is_some()), {
@@ -214,7 +218,7 @@ impl(
 /// Equality: two lists are equal if they have the same length and elements.
 impl(
   generic(T : Type),
-  where(T <: (Send, Eq(T))),
+  where(T <: (Send, Acyclic, Eq(T))),
   List(T),
   Eq(List(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)({
@@ -255,11 +259,11 @@ impl(
 /// dereferences before any drop runs.
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   List(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._len, "imm.List: index out of bounds");
       (current : Option(ListNode(T))) = self._head;
       i := usize(0);
@@ -268,7 +272,7 @@ impl(
           current,
           .Some(node) => {
             if(i == idx, {
-              return(unsafe(&(node._value)));
+              return(unsafe(&node._value));
             });
             current = node._next;
             i = (i + usize(1));

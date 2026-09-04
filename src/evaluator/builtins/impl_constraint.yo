@@ -55,9 +55,7 @@ evaluate_impl_constraint :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          String.from("Impl requires at least one trait argument."),
-          false,
-          .None
+          String.from("Impl requires at least one trait argument.")
         )
       )
     );
@@ -106,9 +104,7 @@ evaluate_impl_constraint :: (
               dyn(
                 format_error_message(
                   ast_expr_token(module_expr),
-                  String.from("Failed to evaluate Impl argument."),
-                  false,
-                  .None
+                  String.from("Failed to evaluate Impl argument.")
                 )
               )
             );
@@ -117,14 +113,12 @@ evaluate_impl_constraint :: (
         );
         cur_env = mod_info.env;
         // Expect a TypeVal containing a trait type
-        if(!(is_type_value(mod_info.value)), {
+        if(!is_type_value(mod_info.value), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(module_expr),
-                `Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`,
-                false,
-                .None
+                `Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`
               )
             )
           );
@@ -138,14 +132,12 @@ evaluate_impl_constraint :: (
           ),
           .None => TypeValue.TypeUni(usize(0))
         );
-        if(!(is_trait_type(trait_tv)), {
+        if(!is_trait_type(trait_tv), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(module_expr),
-                `Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`,
-                false,
-                .None
+                `Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`
               )
             )
           );
@@ -165,9 +157,7 @@ evaluate_impl_constraint :: (
               dyn(
                 format_error_message(
                   ast_expr_token(module_expr),
-                  String.from("Impl can only have one Concrete(T) specifier"),
-                  false,
-                  .None
+                  String.from("Impl can only have one Concrete(T) specifier")
                 )
               )
             );

@@ -1,7 +1,8 @@
 //! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
+{ SIZE_MAX } :: import("../libc/stdint.yo");
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 /// Error variants for ArrayList operations.
 ArrayListError :: enum(
@@ -17,7 +18,7 @@ ArrayListError :: enum(
 ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
-      _ptr : ?*(T),
+      _ptr : ?(*(T)),
       _length : usize,
       _capacity : usize
     )
@@ -29,6 +30,12 @@ impl(
   len : (fn(self : Self) -> usize)({
     return(self._length);
   }),
+  /**
+  * True when the list contains no elements.
+  */
+  is_empty : (fn(self : Self) -> bool)({
+    return(self._length == usize(0));
+  }),
   capacity : (fn(self : Self) -> usize)({
     return(self._capacity);
   }),
@@ -36,7 +43,7 @@ impl(
   * Get a pointer to the underlying data buffer
   * Returns .None if the list is empty or has no allocated buffer
   */
-  ptr : (fn(self : Self) -> ?*(T))(
+  ptr : (fn(self : Self) -> ?(*(T)))(
     self._ptr
   ),
   /**     * Directly set the length of the ArrayList
@@ -117,6 +124,14 @@ impl(
     cond(
       (cap == usize(0)) =>
         Self.new(),
+      // `sizeof(T) * cap` is computed in usize and WRAPS. Without this guard a
+      // capacity from untrusted input (a length prefix off a socket, say) hands
+      // malloc a tiny — or zero — size while the list still reports `cap`, so
+      // the first pushes write outside the allocation: silent heap corruption
+      // (issues/fixed/collection-capacity-overflow-unchecked.md). Rust's
+      // `Vec::with_capacity` panics with "capacity overflow" here too.
+      size_would_overflow(T, cap) =>
+        __yo_panic("ArrayList.with_capacity: capacity overflow"),
       true => {
         ptr_result := malloc(sizeof(T) * cap);
         match(
@@ -282,98 +297,119 @@ impl(
     )
   ),
   /**
-  * Remove elements from the ArrayList starting at index, removing count elements
-  * Returns the number of elements actually removed
+  * Removes the elements in `r.start .. r.end` (half-open) and returns them
+  * as a fresh ArrayList(T), in order. Rust `Vec::drain` parity for the
+  * failure contract: an inverted range or an end past the length panics —
+  * the old `remove(start, count)` silently clamped the count, which hid
+  * caller bugs. (§5: the two-argument spelling is gone; use this, or the
+  * single-index `remove`.)
   */
-  remove : (fn(self : Self, start : usize, (count : usize) ?= 1) -> Result(usize, ArrayListError))(
-    // Check if start index is valid
+  drain : (fn(self : Self, r : Range(usize)) -> Self)({
+    if((r.start > r.end) || (r.end > self._length), {
+      __yo_panic("ArrayList.drain: invalid range for this length");
+    });
+    count := (r.end - r.start);
+    out := Self.new();
     cond(
-      (start >= self._length) =>
-        .Err(.IndexOutOfBounds(index : start, length : self._length)),
-      true => {
-        // Calculate actual number of elements to remove
-        // (can't remove more than what's available)
-        available := (self._length - start);
-        actual_count := cond(
-          (count > available) => available,
-          true => count
-        );
-        // If removing 0 elements, just return success
-        cond(
-          (actual_count == usize(0)) => .Ok(usize(0)),
-          true =>
-            match(
-              self._ptr,
-              .None => __yo_panic("ArrayList has length but no ptr"),
-              .Some(_ptr) => {
-                // Shift remaining elements left to fill the gap
-                // We need to move elements from [start + actual_count, length) to [start, ...)
-                elements_after := ((self._length - start) - actual_count);
-                new_length := (self._length - actual_count);
+      (count == usize(0)) => out,
+      true =>
+        match(
+          self._ptr,
+          .None => __yo_panic("ArrayList has length but no ptr"),
+          .Some(_ptr) => {
+            // Collect the drained elements FIRST: get dups each one, so the
+            // shift below can drop the originals with balanced RCs. (ci, not
+            // i: the shift arms below redeclare i in their own scopes.)
+            ci := usize(0);
+            while(ci < count, ci = (ci + usize(1)), {
+              match(
+                self.get(r.start + ci),
+                .Some(e) => out.push(e),
+                .None => __yo_panic("ArrayList.drain: get failed inside bounds")
+              );
+            });
+            // Shift remaining elements left to fill the gap
+            // We need to move elements from [r.start + count, length) to [r.start, ...)
+            elements_after := ((self._length - r.start) - count);
+            cond(
+              (elements_after > usize(0)) => {
+                src_ptr := _ptr.add(r.start + count);
+                dst_ptr := _ptr.add(r.start);
                 cond(
-                  (elements_after > usize(0)) => {
-                    src_ptr := _ptr.add(start + actual_count);
-                    dst_ptr := _ptr.add(start);
-                    cond(
-                      Type.contains_rc_type(T) => {
-                        // For RC types, iterate and properly manage RC
-                        // The assignment dst.* = src.* will:
-                        // 1. Dup src.* (RC+1)
-                        // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
-                        // 3. Write to dst.*
-                        i := usize(0);
-                        while(i < elements_after, i = (i + usize(1)), {
-                          dst := dst_ptr.add(i);
-                          src := src_ptr.add(i);
-                          dst.* = src.*;
-                        });
-                        // Drop the non-overlapping tail stale pointers
-                        j := usize(0);
-                        tail_start := (start + elements_after);
-                        tail_count := actual_count;
-                        while(j < tail_count, j = (j + usize(1)), {
-                          tail_ptr := _ptr.add(tail_start + j);
-                          unsafe.drop(tail_ptr.*);
-                        });
-                      },
-                      true => {
-                        // For non-RC types, use fast memmove
-                        element_size := sizeof(T);
-                        bytes_to_move := (elements_after * element_size);
-                        dst_void := *(void)(dst_ptr);
-                        src_void := *(void)(src_ptr);
-                        // SAFETY: dst_ptr and src_ptr both point into self._ptr's
-                        // contiguous element buffer. `elements_after = self._length - (start + actual_count)`
-                        // counts elements still in-bounds after the remove range,
-                        // so `bytes_to_move = elements_after * sizeof(T)` stays within
-                        // the allocated buffer. memmove handles overlap.
-                        unsafe(memmove(dst_void, src_void, bytes_to_move));
-                      }
-                    );
+                  Type.contains_rc_type(T) => {
+                    // For RC types, iterate and properly manage RC
+                    // The assignment dst.* = src.* will:
+                    // 1. Dup src.* (RC+1)
+                    // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
+                    // 3. Write to dst.*
+                    i := usize(0);
+                    while(i < elements_after, i = (i + usize(1)), {
+                      dst := dst_ptr.add(i);
+                      src := src_ptr.add(i);
+                      dst.* = src.*;
+                    });
+                    // Drop the non-overlapping tail stale pointers
+                    j := usize(0);
+                    tail_start := (r.start + elements_after);
+                    while(j < count, j = (j + usize(1)), {
+                      tail_ptr := _ptr.add(tail_start + j);
+                      unsafe.drop(tail_ptr.*);
+                    });
                   },
                   true => {
-                    // No elements to shift, just drop the removed elements
-                    cond(
-                      Type.contains_rc_type(T) => {
-                        i := usize(0);
-                        while(i < actual_count, i = (i + usize(1)), {
-                          element_ptr := _ptr.add(start + i);
-                          unsafe.drop(element_ptr.*);
-                        });
-                      },
-                      true => ()
-                    );
+                    // For non-RC types, use fast memmove
+                    element_size := sizeof(T);
+                    bytes_to_move := (elements_after * element_size);
+                    dst_void := *(void)(dst_ptr);
+                    src_void := *(void)(src_ptr);
+                    // SAFETY: dst_ptr and src_ptr both point into self._ptr's
+                    // contiguous element buffer. `elements_after = self._length - (r.start + count)`
+                    // counts elements still in-bounds after the drain range,
+                    // so `bytes_to_move = elements_after * sizeof(T)` stays within
+                    // the allocated buffer. memmove handles overlap.
+                    unsafe(memmove(dst_void, src_void, bytes_to_move));
                   }
                 );
-                // Update length
-                self._length = new_length;
-                .Ok(actual_count)
+              },
+              true => {
+                // No elements to shift, just drop the drained elements
+                cond(
+                  Type.contains_rc_type(T) => {
+                    i := usize(0);
+                    while(i < count, i = (i + usize(1)), {
+                      element_ptr := _ptr.add(r.start + i);
+                      unsafe.drop(element_ptr.*);
+                    });
+                  },
+                  true => ()
+                );
               }
-            )
+            );
+            // Update length
+            self._length = (self._length - count);
+            out
+          }
         )
-      }
     )
-  ),
+  }),
+  /**
+  * Removes and returns the element at `idx`, shifting the tail left.
+  * Panics if `idx` is out of bounds (the `Index` impl's contract).
+  */
+  remove : (fn(self : Self, idx : usize) -> T)({
+    if(idx >= self._length, {
+      __yo_panic("ArrayList.remove: index out of bounds");
+    });
+    match(
+      self.get(idx),
+      .Some(elem) => {
+        // get dup'd the element; drain drops the original — RC balanced.
+        _r := self.drain(idx .. (idx + usize(1)));
+        elem
+      },
+      .None => __yo_panic("ArrayList.remove: get failed after bounds check")
+    )
+  }),
   /**
   * Create a new ArrayList containing a slice of elements from start to end (exclusive)
   * Similar to array slicing in many languages: array[start:end]
@@ -430,13 +466,25 @@ impl(
   ensure_total_capacity : (fn(self : Self, min_cap : usize) -> unit)({
     cond(
       (min_cap <= self._capacity) => (),
+      // Same wrap as `with_capacity` — and the doubling loop below has a second
+      // face: once `cap * 2` wraps to 0 the loop can never reach `min_cap`, so
+      // an oversized request SPINS FOREVER instead of failing
+      // (issues/fixed/collection-capacity-overflow-unchecked.md).
+      size_would_overflow(T, min_cap) =>
+        __yo_panic("ArrayList.ensure_total_capacity: capacity overflow"),
       true => {
         new_capacity := cond(
           (self._capacity == usize(0)) => min_cap,
           true => {
             cap := self._capacity;
+            // `min_cap` is known not to overflow `sizeof(T) * min_cap`, but the
+            // doubling itself can still wrap. Fall back to `min_cap` in that
+            // one case; every reachable growth keeps the usual doubling.
             while(cap < min_cap, {
-              cap = (cap * usize(2));
+              cap = cond(
+                (cap > (SIZE_MAX / usize(2))) => min_cap,
+                true => (cap * usize(2))
+              );
             });
             cap
           }
@@ -605,7 +653,12 @@ impl(
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _list : ArrayList(T),
-    _index : usize
+    _index : usize,
+    /// How many elements `next_back` has already taken off the END. A COUNTER
+    /// rather than a back cursor, so the forward guard keeps reading
+    /// `_list._length` LIVE — pushing during a forward-only walk still extends
+    /// it exactly as before.
+    _back_taken : usize
   )
 );
 impl(
@@ -615,7 +668,7 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._index >= self._list._length) => .None,
+        ((self._index + self._back_taken) >= self._list._length) => .None,
         true => {
           value := self._list.get(self._index);
           self._index = (self._index + usize(1));
@@ -627,9 +680,44 @@ impl(
 );
 impl(
   generic(T : Type),
+  ArrayListIter(T),
+  DoubleEndedIterator(
+    Item : T,
+    next_back : (fn(inout(self) : Self) -> Option(T))(
+      cond(
+        ((self._index + self._back_taken) >= self._list._length) => .None,
+        true => {
+          self._back_taken = (self._back_taken + usize(1));
+          self._list.get(self._list._length - self._back_taken)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
   ArrayList(T),
-  into_iter : (fn(self : Self) -> ArrayListIter(T))(
-    ArrayListIter(T)(_list : self, _index : usize(0))
+  IntoIterator(
+    Item : T,
+    IntoIter : ArrayListIter(T),
+    into_iter : (fn(self : Self) -> ArrayListIter(T))(
+      ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  /**
+  * Non-consuming iteration over a shared handle: yields each element by
+  * value (each dup'd), leaving the list intact — for(list.iter(), ...)
+  * where into_iter would move the list. HashMap.keys/values established
+  * the shape: the receiver arrives RC-dup'd at the method boundary, so
+  * moving it into the iterator is balanced. Live-length semantics are the
+  * iterator's own (see ArrayListIter).
+  */
+  iter : (fn(self : Self) -> ArrayListIter(T))(
+    ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
   )
 );
 impl(
@@ -713,39 +801,104 @@ impl(
     );
   })
 );
+/// In-place heapsort over raw storage with a caller-supplied strict "less"
+/// — O(n log n) worst case, no allocation, no recursion. NOT stable (equal
+/// elements may reorder); shared by `sort` and `sort_by`. The sift-down is
+/// written inline in both phases: a nested named fn cannot capture `ptr`/
+/// `less`, and a bare closure binding has no target type to infer from.
+_heapsort_by :: (
+  fn(generic(T : Type), ptr : *(T), n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> unit
+)({
+  // Phase 1: heapify (sift-down from the last parent to the root).
+  (i : usize) = (n / usize(2));
+  while(i > usize(0), {
+    i = (i - usize(1));
+    (root : usize) = i;
+    (going : bool) = true;
+    while(going, {
+      child := ((root * usize(2)) + usize(1));
+      cond(
+        (child >= n) => {
+          going = false;
+        },
+        true => {
+          (largest : usize) = child;
+          cond(
+            (((child + usize(1)) < n) && less((ptr.add(child)).*, (ptr.add(child + usize(1))).*)) => {
+              largest = (child + usize(1));
+            },
+            true => ()
+          );
+          cond(
+            less((ptr.add(root)).*, (ptr.add(largest)).*) => {
+              tmp := (ptr.add(root)).*;
+              (ptr.add(root)).* = (ptr.add(largest)).*;
+              (ptr.add(largest)).* = tmp;
+              root = largest;
+            },
+            true => {
+              going = false;
+            }
+          );
+        }
+      );
+    });
+  });
+  // Phase 2: pop the max to the tail, shrinking the heap.
+  (end : usize) = n;
+  while(end > usize(1), {
+    end = (end - usize(1));
+    head := (ptr.add(usize(0))).*;
+    (ptr.add(usize(0))).* = (ptr.add(end)).*;
+    (ptr.add(end)).* = head;
+    (root : usize) = usize(0);
+    (going : bool) = true;
+    while(going, {
+      child := ((root * usize(2)) + usize(1));
+      cond(
+        (child >= end) => {
+          going = false;
+        },
+        true => {
+          (largest : usize) = child;
+          cond(
+            (((child + usize(1)) < end) && less((ptr.add(child)).*, (ptr.add(child + usize(1))).*)) => {
+              largest = (child + usize(1));
+            },
+            true => ()
+          );
+          cond(
+            less((ptr.add(root)).*, (ptr.add(largest)).*) => {
+              tmp := (ptr.add(root)).*;
+              (ptr.add(root)).* = (ptr.add(largest)).*;
+              (ptr.add(largest)).* = tmp;
+              root = largest;
+            },
+            true => {
+              going = false;
+            }
+          );
+        }
+      );
+    });
+  });
+});
 impl(
   generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
   /**
-  * Sort elements in ascending order using insertion sort
+  * Sort elements in ascending order (heapsort — see _heapsort_by).
   */
   sort : (fn(self : Self) -> unit)({
+    // Heapsort (was O(n²) insertion sort — plans/STD_API_AUDIT.md §7
+    // collections row): O(n log n) worst case, in place, not stable.
     cond(
       (self._length <= usize(1)) => (),
       true =>
         match(
           self._ptr,
-          .Some(_ptr) => {
-            i := usize(1);
-            while(i < self._length, i = (i + usize(1)), {
-              key := (_ptr.add(i)).*;
-              j := i;
-              shifting := cond(
-                (j > usize(0)) => ((_ptr.add(j - usize(1))).* > key),
-                true => false
-              );
-              while(shifting, (), {
-                (_ptr.add(j)).* = (_ptr.add(j - usize(1))).*;
-                j = (j - usize(1));
-                shifting = cond(
-                  (j > usize(0)) => ((_ptr.add(j - usize(1))).* > key),
-                  true => false
-                );
-              });
-              (_ptr.add(j)).* = key;
-            });
-          },
+          .Some(_ptr) => _heapsort_by(_ptr, self._length, (a, b) => (a < b)),
           .None => ()
         )
     );
@@ -787,6 +940,16 @@ impl(
         }
       )
     })
+  )
+);
+/// Default implementation — the empty list.
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
   )
 );
 /// Clone implementation for ArrayList — deep-clones each element.
@@ -839,7 +1002,7 @@ __array_list_build_pushes :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprLis
 /// The element type `T` is inferred from the first element via `typeof`, so
 /// at least one element is required.
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// xs := array_list(i32(1), i32(2), i32(3));
 /// names := array_list(`alice`, `bob`);
@@ -896,6 +1059,105 @@ impl(
       out.push(self(i));
     });
     out
+  })
+);
+/// Build an `ArrayList(T)` from any iterator of `T` — the target of
+/// `it.collect(ArrayList(T))`. The iteration loop lives in the blanket
+/// `collect` (std/prelude.yo); these two statics are the seed and the step.
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  FromIterator(
+    Elem : T,
+    from_iter_new : (fn() -> Self)(
+      ArrayList(T).new()
+    ),
+    from_iter_add : (fn(acc : Self, item : T) -> Self)({
+      acc.push(item);
+      acc
+    })
+  )
+);
+
+// ============================================================================
+// Real sort (heapsort), sort_by, binary_search, retain, extend
+// (plans/STD_API_AUDIT.md §7 collections row)
+// ============================================================================
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  /// Sort ascending by a strict "less" closure — `less(a, b)` true when `a`
+  /// must come before `b`. Heapsort: O(n log n) worst case, in place, not
+  /// stable.
+  sort_by : (fn(self : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
+    cond(
+      (self._length <= usize(1)) => (),
+      true => match(
+        self._ptr,
+        .Some(_ptr) => _heapsort_by(_ptr, self._length, less),
+        .None => ()
+      )
+    );
+  }),
+  /// Keep only the elements `pred` accepts, in place and in order; the
+  /// rejected elements are dropped. Built on `remove` (backward walk), whose
+  /// RC handling is the module's proven path — the first cut compacted
+  /// through raw pointers and double-released RC elements (the Linux-ASan
+  /// heap-use-after-free on PR #313's first run; local ASan is
+  /// non-functional, so CI was the first to see it).
+  retain : (fn(self : Self, pred : Impl(Fn(v : T) -> bool)) -> unit)({
+    (i : usize) = self.len();
+    while(i > usize(0), {
+      i = (i - usize(1));
+      v := self(i);
+      cond(
+        pred(v) => (),
+        true => {
+          _r := self.drain(i .. (i + usize(1)));
+        }
+      );
+    });
+  }),
+  /// Append a copy of every element of `other`.
+  extend : (fn(self : Self, other : ArrayList(T)) -> unit)({
+    (i : usize) = usize(0);
+    n := other.len();
+    while(i < n, i = (i + usize(1)), {
+      self.push(other(i));
+    });
+  })
+);
+impl(
+  generic(T : Type),
+  where(T <: Ord(T)),
+  ArrayList(T),
+  /// Binary search over a SORTED list (ascending, `sort`'s order):
+  /// `.Ok(index)` of a matching element (any one of an equal run), or
+  /// `.Err(insertion_index)` where the value would keep the order.
+  binary_search : (fn(self : Self, value : T) -> Result(usize, usize))({
+    (lo : usize) = usize(0);
+    (hi : usize) = self.len();
+    (found : Option(usize)) = Option(usize).None;
+    while((lo < hi) && found.is_none(), {
+      mid := (lo + ((hi - lo) / usize(2)));
+      cur := self(mid);
+      cond(
+        (cur < value) => {
+          lo = (mid + usize(1));
+        },
+        (value < cur) => {
+          hi = mid;
+        },
+        true => {
+          found = Option(usize).Some(mid);
+        }
+      );
+    });
+    match(
+      found,
+      .Some(at) => Result(usize, usize).Ok(at),
+      .None => Result(usize, usize).Err(lo)
+    )
   })
 );
 export(array_list);

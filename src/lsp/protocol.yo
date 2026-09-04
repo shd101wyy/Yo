@@ -1,0 +1,151 @@
+//! lsp/protocol — small JSON-RPC / LSP payload construction helpers.
+//!
+//! `std/encoding/json`'s `JsonValue.Object(keys, values)` is the wire type;
+//! these helpers keep the server's handlers readable. `JsonObjBuilder` is a
+//! ref struct, so `put` chains without copies.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ JsonValue } :: import("std/encoding/json");
+
+/// Chainable JSON object builder.
+JsonObjBuilder :: ref(
+  struct(
+    keys : ArrayList(String),
+    values : ArrayList(JsonValue)
+  )
+);
+impl(
+  JsonObjBuilder,
+  put : (fn(self : Self, key : str, v : JsonValue) -> Self)({
+    self.keys.push(String.from(key));
+    self.values.push(v);
+    return(self);
+  }),
+  obj : (fn(self : Self) -> JsonValue)(
+    JsonValue.Object(keys : self.keys, values : self.values)
+  )
+);
+/// Fresh builder.
+jb :: (fn() -> JsonObjBuilder)(
+  JsonObjBuilder(
+    keys : ArrayList(String).new(),
+    values : ArrayList(JsonValue).new()
+  )
+);
+/// JSON string value.
+jstr :: (fn(s : String) -> JsonValue)(JsonValue.Str(value : s));
+/// JSON number value from a usize.
+jnum :: (fn(n : usize) -> JsonValue)(JsonValue.Number(value : f64(n)));
+/// LSP Position (0-based line/character).
+j_position :: (fn(line : usize, character : usize) -> JsonValue)(
+  jb().put("line", jnum(line)).put("character", jnum(character)).obj()
+);
+/// LSP Range.
+j_range :: (
+  fn(start_line : usize, start_col : usize, end_line : usize, end_col : usize) -> JsonValue
+)(
+  jb().put("start", j_position(start_line, start_col)).put("end", j_position(end_line, end_col)).obj()
+);
+/// LSP Diagnostic with Error severity and source "yo".
+j_diagnostic :: (
+  fn(
+    start_line : usize,
+    start_col : usize,
+    end_line : usize,
+    end_col : usize,
+    message : String
+  ) -> JsonValue
+)(
+  jb().put("range", j_range(start_line, start_col, end_line, end_col)).put("severity", jnum(usize(1))).put("source", jstr(String.from("yo"))).put("message", jstr(message)).obj()
+);
+/// A JSON-RPC response carrying `result` for request `id`.
+j_response :: (fn(id : JsonValue, result : JsonValue) -> JsonValue)(
+  jb().put("jsonrpc", jstr(String.from("2.0"))).put("id", id).put("result", result).obj()
+);
+/// A JSON-RPC error response for request `id`.
+j_error_response :: (fn(id : JsonValue, code : i64, message : String) -> JsonValue)(
+  jb().put("jsonrpc", jstr(String.from("2.0"))).put("id", id).put(
+    "error",
+    jb().put("code", JsonValue.Number(value : f64(code))).put("message", jstr(message)).obj()
+  ).obj()
+);
+/// BYTE offset within `line` of RUNE column `col`.
+///
+/// This server's positions are RUNE (UTF-32) columns: the lexer materializes
+/// `input.chars()` and stores that loop's counter as `Token.column`
+/// (`src/lexer.yo`), and every handler serves those straight to the client.
+/// `String` is BYTE-indexed (`plans/STD_API_AUDIT_D4_PLAN.md` D4), so a
+/// handler that SLICES a line — rather than just comparing columns — has to
+/// convert first, or it cuts at the wrong place (and, at a non-boundary,
+/// panics).
+///
+/// `col` at or past the line's rune count clamps to the line's byte length,
+/// which is a boundary.
+///
+/// **Pre-existing gap this does NOT fix:** the LSP spec's default
+/// `positionEncoding` is UTF-16, so a rune column is already the wrong unit on
+/// the wire for astral-plane characters (`plans/STD_API_AUDIT_D4_PLAN.md`
+/// §5.4). This pair keeps the server's INTERNAL basis coherent, which is what
+/// D4 requires; the UTF-16 correction is a separate, protocol-visible change.
+rune_col_to_byte_offset :: (fn(line : String, col : usize) -> usize)({
+  (seen : usize) = usize(0);
+  it := line.char_indices();
+  while(true, {
+    match(
+      it.next(),
+      .None => {
+        break;
+      },
+      .Some(p) => {
+        if(seen == col, {
+          return(p._0);
+        });
+        seen = (seen + usize(1));
+      }
+    );
+  });
+  line.len()
+});
+/// RUNE column within `line` of the first rune starting at or after BYTE
+/// offset `off` — the inverse of `rune_col_to_byte_offset` for any `off` that
+/// is a rune boundary.
+///
+/// An offset past the end clamps to the line's rune count.
+byte_offset_to_rune_col :: (fn(line : String, off : usize) -> usize)({
+  (col : usize) = usize(0);
+  it := line.char_indices();
+  while(true, {
+    match(
+      it.next(),
+      .None => {
+        break;
+      },
+      .Some(p) => {
+        if(p._0 >= off, {
+          return(col);
+        });
+        col = (col + usize(1));
+      }
+    );
+  });
+  col
+});
+/// A JSON-RPC notification.
+j_notification :: (fn(method : str, params : JsonValue) -> JsonValue)(
+  jb().put("jsonrpc", jstr(String.from("2.0"))).put("method", jstr(String.from(method))).put("params", params).obj()
+);
+
+export(
+  rune_col_to_byte_offset,
+  byte_offset_to_rune_col,
+  JsonObjBuilder,
+  jb,
+  jstr,
+  jnum,
+  j_position,
+  j_range,
+  j_diagnostic,
+  j_response,
+  j_error_response,
+  j_notification
+);

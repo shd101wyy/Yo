@@ -93,14 +93,23 @@ Digit              ::= '0'..'9'
 ;; Example: 3 `add` 4
 BacktickIdentifier ::= '`' Identifier '`'
 
-;; Operators
-;; Dot operator has special handling - can only combine with other dots
-Operator      ::= DotOperator | NonDotOperator
-DotOperator   ::= '.' '.'*
-NonDotOperator ::= OperatorChar+ (excluding any '.')
+;; Operators — Yo has a CLOSED operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md).
+;; A run of operator characters is split greedily against the table below,
+;; longest match first; a run containing no table operator is a lex error.
+;; So `**x` lexes as '*' '*' 'x' — there is no `**` token. New operators are
+;; added to the compiler deliberately, like keywords.
+Operator      ::= DotOperator | TableOperator
+DotOperator   ::= '.' | '..' | '..=' | '...' | '...#'
 
-OperatorChar  ::= '!' | '#' | '$' | '%' | '&' | '*' | '+' | '-' | '.' | '/'
-                | ':' | '<' | '=' | '>' | '?' | '@' | '\\' | '^' | '|' | '~'
+TableOperator ::= ;; two-character (matched first)
+                  '!=' | '&&' | '->' | '::' | ':=' | '<:' | '<<' | '<='
+                | '==' | '=>' | '>=' | '>>' | '?=' | '||'
+                  ;; one-character
+                | '!' | '#' | '%' | '&' | '*' | '+' | '-' | '/'
+                | ':' | '<' | '=' | '>' | '?' | '^' | '|' | '~'
+
+;; RESERVED operators — lexable but can never be bound or overloaded:
+;; '=' ':=' '::' ':' '=>' '->' '<:' '?=' '&&' '||' '#' '...#' '..' '..=' '...'
 ```
 
 ## Composite Expressions
@@ -169,7 +178,7 @@ Modifiers wrap the **label**, never the type:
 ```abnf
 Parameter ::= ParameterLabel ':' Type
 ParameterLabel ::=
-  | Identifier                  ;; by value (object types: a shared handle)
+  | Identifier                  ;; by value (reference-semantics types: a shared handle)
   | 'inout' '(' Identifier ')'  ;; second-class reference to a caller lvalue (binding write-back)
   | 'own' '(' Identifier ')'    ;; consumes the caller's handle (move)
   | 'comptime' '(' Identifier ')' ;; compile-time-only parameter
@@ -219,7 +228,8 @@ Separator ::= ',' | ';'
 
    - Valid: `func(arg1, arg2)`
    - Invalid: `func (arg1, arg2)` or `func arg1, arg2`
-   - Prefix operators are calls too: write `&(x)`, `!(ready)`, `return(value)`, `return()`, `unwind(value)`, or `unwind()`
+   - Control-flow keywords are calls: write `return(value)`, `return()`, `unwind(value)`, or `unwind()`
+   - Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind exactly ONE postfix expression (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-1`, `!ready`, `&x`, `?*T`, and `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`), and the parenthesized call form (`-(x)`) is unchanged
 
 3. **Infix operators**: no precedence
    - A chain of the same operator is left-associative: `a + b + c` ⇒ `(a + b) + c`

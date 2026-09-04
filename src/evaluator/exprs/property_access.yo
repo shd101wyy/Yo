@@ -36,6 +36,7 @@ _(env : pa_dbg_env) :: import("std/env");
   expr_info_table_set,
   expr_info_origin_type,
   expr_info_set_origin_type,
+  lookup_io_builtin_struct_field,
   ComptimeRef
 } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env } :: import("../../env.yo");
@@ -100,7 +101,7 @@ _attach_owned_temp_for_rc_unit_variant :: (
     ctx : EvalContext
   ) -> unit
 )({
-  if(!(is_reference_enum_type(ty)), return(()));
+  if(!is_reference_enum_type(ty), return(()));
   has_payload_variant := match(
     ty,
     .EnumT({ variant_fields }) => {
@@ -123,7 +124,7 @@ _attach_owned_temp_for_rc_unit_variant :: (
     },
     _ => false
   );
-  if(!(has_payload_variant), return(()));
+  if(!has_payload_variant, return(()));
   attach_temp_variable_to_expr(expr, true, ctx);
 });
 /// Return the last index in `labels` where `labels[i] == name`, or `.None`.
@@ -327,14 +328,12 @@ evaluate_property_access :: (
 )({
   (env : Environment) = env_in;
   // Guard: must be a "." function call.
-  if(!(ast_expr_is_fn_call_of(expr, BF_DOT, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BF_DOT, .None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "." for property access, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected "." for property access, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -347,7 +346,7 @@ evaluate_property_access :: (
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-    if((ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value == "Type")) && ast_expr_is_atom(prop_expr), {
+    if(ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value == "Type") && ast_expr_is_atom(prop_expr), {
       kind_name := ast_expr_token(prop_expr).value.clone();
       (is_kind : bool) = cond(
         (kind_name == "Struct") => true,
@@ -384,14 +383,12 @@ evaluate_property_access :: (
       }
     );
     // Property must be an identifier atom.
-    if(!(ast_expr_is_atom(prop_expr_1)) || !(is_valid_variable_name(prop_expr_1)), {
+    if(!ast_expr_is_atom(prop_expr_1) || !is_valid_variable_name(prop_expr_1), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(prop_expr_1),
-            `Expected identifier for enum variant access, got:\n${ast_expr_to_string(prop_expr_1)}`,
-            false,
-            .None
+            `Expected identifier for enum variant access, got:\n${ast_expr_to_string(prop_expr_1)}`
           )
         )
       );
@@ -405,23 +402,19 @@ evaluate_property_access :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              String.from("Failed to infer enum variant type."),
-              false,
-              .None
+              String.from("Failed to infer enum variant type.")
             )
           )
         );
         return(expr);
       },
       .Some(exp_ctx_1) => {
-        if(!(is_enum_type(exp_ctx_1.ty)), {
+        if(!is_enum_type(exp_ctx_1.ty), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                String.from("Failed to infer enum variant type."),
-                false,
-                .None
+                String.from("Failed to infer enum variant type.")
               )
             )
           );
@@ -444,9 +437,7 @@ evaluate_property_access :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(prop_expr_1),
-                      `Enum variant "${variant_name_1}" not found in enum`,
-                      false,
-                      .None
+                      `Enum variant "${variant_name_1}" not found in enum`
                     )
                   )
                 );
@@ -469,7 +460,7 @@ evaluate_property_access :: (
                   .Some(vf) => (vf.len() > usize(0)),
                   .None => false
                 );
-                if(!(has_fields_1), {
+                if(!has_fields_1, {
                   // Fieldless variant: Color.Red
                   dot_vname_1 := `.${ variant_name_1 }`;
                   ev_1 := EvalValue.EnumVal(dot_vname_1, ArrayList(EvalValue).new());
@@ -495,9 +486,7 @@ evaluate_property_access :: (
               dyn(
                 format_error_message(
                   ast_expr_token(expr),
-                  String.from("Failed to infer enum variant type."),
-                  false,
-                  .None
+                  String.from("Failed to infer enum variant type.")
                 )
               )
             );
@@ -511,14 +500,12 @@ evaluate_property_access :: (
   // -------------------------------------------------------------------------
   // 2-arg form: `.(object, property)`
   // -------------------------------------------------------------------------
-  if(!(ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(expr, BF_DOT, .Some(usize(2))), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "." with 2 arguments, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected "." with 2 arguments, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -558,7 +545,7 @@ evaluate_property_access :: (
     },
     .None => ()
   );
-  if((ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*")) && pa_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
+  if(ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*") && pa_dbg_env.get(`YO_DEBUG_CTFE`).is_some(), {
     pa_deref_obj_ty := match(
       obj_info_opt,
       .Some(pd_oi) => type_to_string(pd_oi.ty),
@@ -578,7 +565,7 @@ evaluate_property_access :: (
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
           // Files under std/ and src/ are implicitly unsafe-capable.
           // Mirrors `property-access.ts:298-310`.
-          if((!(ctx.unsafe_context)) && (!(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())))), {
+          if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -587,9 +574,7 @@ evaluate_property_access :: (
 
 Wrap as: unsafe(${ast_expr_to_string(object_expr)}.*)
 
-Raw pointer operations may dereference invalid memory.`,
-                  false,
-                  .None
+Raw pointer operations may dereference invalid memory.`
                 )
               )
             );
@@ -713,11 +698,11 @@ Raw pointer operations may dereference invalid memory.`,
     // so without this path the lookup falls through to the runtime
     // method-dispatch slow path and the comptime value is lost.
     if(ast_expr_is_atom(property_expr) &&
-      !(is_enum_type(type_val_inner)) &&
-        !(is_struct_type(type_val_inner)) &&
-          !(is_union_type(type_val_inner)) &&
-            !(is_module_type(type_val_inner)) &&
-              !(is_some_type(type_val_inner)), {
+      !is_enum_type(type_val_inner) &&
+        !is_struct_type(type_val_inner) &&
+          !is_union_type(type_val_inner) &&
+            !is_module_type(type_val_inner) &&
+              !is_some_type(type_val_inner), {
       prim_type_id := type_id_or_empty(type_val_inner);
       if(prim_type_id != "", {
         prim_prop_name := ast_expr_token(property_expr).value;
@@ -725,7 +710,7 @@ Raw pointer operations may dereference invalid memory.`,
         if(prim_methods.len() > usize(0), {
           (pm_idx : usize) = usize(0);
           (pm_done : bool) = false;
-          while((pm_idx < prim_methods.len()) && !(pm_done), {
+          while((pm_idx < prim_methods.len()) && !pm_done, {
             match(
               prim_methods.get(pm_idx),
               .Some(pm) => match(
@@ -785,7 +770,7 @@ Raw pointer operations may dereference invalid memory.`,
     // the context (`current_impl_trait_field_*`). Scoped to literal `Self`
     // receivers — the only spelling these in-impl references use — so
     // unrelated TypeVal property accesses are untouched.
-    if((ast_expr_is_atom(property_expr) && ast_expr_is_atom(object_expr)) &&
+    if(ast_expr_is_atom(property_expr) && ast_expr_is_atom(object_expr) &&
       (ast_expr_token(object_expr).value == "Self"), {
       wt_prop := ast_expr_token(property_expr).value;
       n_wt := ctx.current_impl_trait_field_labels.len();
@@ -815,14 +800,12 @@ Raw pointer operations may dereference invalid memory.`,
     });
     // --- TypeVal + EnumT --------------------------------------------------
     if(is_enum_type(type_val_inner), {
-      if(!(ast_expr_is_atom(property_expr)), {
+      if(!ast_expr_is_atom(property_expr), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(property_expr),
-              `Expected identifier for enum variant, got:\n${ast_expr_to_string(property_expr)}`,
-              false,
-              .None
+              `Expected identifier for enum variant, got:\n${ast_expr_to_string(property_expr)}`
             )
           )
         );
@@ -878,9 +861,7 @@ Raw pointer operations may dereference invalid memory.`,
                 dyn(
                   format_error_message(
                     ast_expr_token(property_expr),
-                    `Enum variant "${variant_name_tv}" not found in enum`,
-                    false,
-                    .None
+                    `Enum variant "${variant_name_tv}" not found in enum`
                   )
                 )
               );
@@ -903,7 +884,7 @@ Raw pointer operations may dereference invalid memory.`,
                 .Some(vf) => (vf.len() > usize(0)),
                 .None => false
               );
-              if(!(has_fields_tv), {
+              if(!has_fields_tv, {
                 dot_tv_vname := `.${ variant_name_tv }`;
                 ev_tv_en := EvalValue.EnumVal(dot_tv_vname, ArrayList(EvalValue).new());
                 out_tv_en := new_expr_info(env, new_en_tv);
@@ -931,14 +912,12 @@ Raw pointer operations may dereference invalid memory.`,
     });
     // --- TypeVal + Struct or Union (replaces TS `typeValue.value.trait`) ---
     if(is_struct_type(type_val_inner) || is_union_type(type_val_inner), {
-      if(!(is_valid_variable_name(property_expr)), {
+      if(!is_valid_variable_name(property_expr), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
-              false,
-              .None
+              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`
             )
           )
         );
@@ -1062,7 +1041,7 @@ Raw pointer operations may dereference invalid memory.`,
         if(registry_methods.len() > usize(0), {
           (rm_idx : usize) = usize(0);
           (rm_done : bool) = false;
-          while((rm_idx < registry_methods.len()) && !(rm_done), {
+          while((rm_idx < registry_methods.len()) && !rm_done, {
             match(
               registry_methods.get(rm_idx),
               .Some(rm) => {
@@ -1099,14 +1078,12 @@ Raw pointer operations may dereference invalid memory.`,
     });
     // --- TypeVal + ModuleT ------------------------------------------------
     if(is_module_type(type_val_inner), {
-      if(!(is_valid_variable_name(property_expr)), {
+      if(!is_valid_variable_name(property_expr), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
-              false,
-              .None
+              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`
             )
           )
         );
@@ -1145,14 +1122,12 @@ Raw pointer operations may dereference invalid memory.`,
     // Phase 3 skip: receiverType block (TS lines 651-723).
     is_plain_trait_type := match(type_val_inner, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
     if(is_plain_trait_type, {
-      if(!(is_valid_variable_name(property_expr)), {
+      if(!is_valid_variable_name(property_expr), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`,
-              false,
-              .None
+              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`
             )
           )
         );
@@ -1318,7 +1293,7 @@ Raw pointer operations may dereference invalid memory.`,
         (st_found : bool) = false;
         (st_idx : usize) = usize(0);
         st_n := candidate_traits.len();
-        while((st_idx < st_n) && !(st_found), {
+        while((st_idx < st_n) && !st_found, {
           st_trait := match(candidate_traits.get(st_idx), .Some(t) => t, .None => t_unit());
           if(is_trait_type(st_trait), {
             st_labels := match(
@@ -1430,15 +1405,45 @@ Raw pointer operations may dereference invalid memory.`,
   // bound into the closure's body_eval_env by evaluate_anonymous_function.
   if(is_some_type(base_ty), {
     resolved_recv := get_value_of_some_type_from_env(env, base_ty);
-    if(!(is_some_type(resolved_recv)), {
+    if(!is_some_type(resolved_recv), {
       base_ty = resolve_struct_shell(resolved_recv);
     });
   });
   obj_val_main := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
   // -------------------------------------------------------------------------
+  // `.io` on the bare `Io` effect struct is the IDENTITY projection.
+  // The bundle-style body form (`e.io.await(f, e.io)`) is written against an
+  // effect BUNDLE ({io, exn}), but when an io.async closure's effect binds
+  // `E` to the bare `Io` (Step 6b-nested derives it from the receiver), `e`
+  // IS the Io and the projection must total — identity — or the body fails
+  // its def-time trial ("No matching call found" on `(e.io).await`), was
+  // historically swallowed into a runs-nothing future, and is now rejected
+  // by the async poison gate
+  // (issues/io-async-bare-e-closure-body-never-evaluates.md). Only `io` is
+  // total: `.exn` on a bare Io stays a field-miss (there is no exception
+  // capability to project). Identity is keyed on the io-builtin side table,
+  // so a user struct that merely has an `io` field is untouched.
+  if(is_struct_type(base_ty) && ast_expr_is_atom(property_expr) && (ast_expr_token(property_expr).value == "io"), {
+    io_proj_sid := match(base_ty, .Struct({ id : ips }) => ips, _ => String.from(""));
+    if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
+      out_io := new_expr_info(env, base_ty);
+      out_io.value = obj_val_main;
+      out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name, .None => Option(String).None);
+      out_io.path_collection = match(
+        obj_info_opt,
+        .Some(oi_pc) => oi_pc.path_collection,
+        .None => ArrayList(ArrayList(String)).new()
+      );
+      out_io.is_accessing_property = Option(bool).Some(true);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_io);
+      expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_io);
+      return(expr);
+    });
+  });
+  // -------------------------------------------------------------------------
   // Struct / Tuple / Union field access
   // -------------------------------------------------------------------------
-  if((is_tuple_type(base_ty) || is_struct_type(base_ty)) || is_union_type(base_ty), {
+  if(is_tuple_type(base_ty) || is_struct_type(base_ty) || is_union_type(base_ty), {
     fields_labels := match(
       base_ty,
       .Tuple(labels, _) => labels,
@@ -1456,14 +1461,12 @@ Raw pointer operations may dereference invalid memory.`,
     if(ast_expr_is_atom(property_expr), {
       // --- Integer index access (tuple fields only) -----------------------
       if(ast_expr_token(property_expr).kind == TokenKind.Integer, {
-        if(!(is_tuple_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit()))), {
+        if(!is_tuple_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(property_expr),
-                String.from("Accessing tuple field by index is only allowed for tuples."),
-                false,
-                .None
+                String.from("Accessing tuple field by index is only allowed for tuples.")
               )
             )
           );
@@ -1477,9 +1480,7 @@ Raw pointer operations may dereference invalid memory.`,
               dyn(
                 format_error_message(
                   ast_expr_token(property_expr),
-                  `Expected integer for tuple index, got:\n${ast_expr_to_string(property_expr)}`,
-                  false,
-                  .None
+                  `Expected integer for tuple index, got:\n${ast_expr_to_string(property_expr)}`
                 )
               )
             );
@@ -1493,9 +1494,7 @@ Raw pointer operations may dereference invalid memory.`,
                 dyn(
                   format_error_message(
                     ast_expr_token(property_expr),
-                    `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(base_ty)}`,
-                    false,
-                    .None
+                    `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(base_ty)}`
                   )
                 )
               );
@@ -1564,9 +1563,7 @@ Raw pointer operations may dereference invalid memory.`,
                 dyn(
                   format_error_message(
                     ast_expr_token(property_expr),
-                    `Module field "${label_str}" not found in module type`,
-                    false,
-                    .None
+                    `Module field "${label_str}" not found in module type`
                   )
                 )
               );
@@ -1705,9 +1702,7 @@ Raw pointer operations may dereference invalid memory.`,
           dyn(
             format_error_message(
               ast_expr_token(property_expr),
-              `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(property_expr)}`,
-              false,
-              .None
+              `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(property_expr)}`
             )
           )
         );
@@ -1735,9 +1730,7 @@ Raw pointer operations may dereference invalid memory.`,
                 dyn(
                   format_error_message(
                     ast_expr_token(property_expr),
-                    `Module field "${mod_label}" not found in module type`,
-                    false,
-                    .None
+                    `Module field "${mod_label}" not found in module type`
                   )
                 )
               );
@@ -1829,14 +1822,12 @@ Raw pointer operations may dereference invalid memory.`,
   // -------------------------------------------------------------------------
   if(is_enum_type(base_ty), {
     if(ast_expr_is_atom(property_expr), {
-      if(!(is_valid_variable_name(property_expr)), {
+      if(!is_valid_variable_name(property_expr), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(property_expr),
-              `Expected identifier for enum variant property, got:\n${ast_expr_to_string(property_expr)}`,
-              false,
-              .None
+              `Expected identifier for enum variant property, got:\n${ast_expr_to_string(property_expr)}`
             )
           )
         );

@@ -134,6 +134,7 @@ test("recognizes known sections", {
   assert(is_known_section(`returns`), "returns is known");
   assert(is_known_section(`errors`), "errors is known");
   assert(is_known_section(`panics`), "panics is known");
+  assert(is_known_section(`stability`), "stability is known (module freeze marker)");
   assert(is_known_section(`examples`), "examples is known");
   assert(is_known_section(`safety`), "safety is known");
   assert(is_known_section(`deprecated`), "deprecated is known");
@@ -144,7 +145,31 @@ test("is_known_section is case-insensitive", {
   assert(is_known_section(`Panics`), "Panics is known");
 });
 test("rejects unknown sections", {
-  assert(!(is_known_section(`notes`)), "notes is not known");
-  assert(!(is_known_section(`see also`)), "see also is not known");
-  assert(!(is_known_section(`todo`)), "todo is not known");
+  assert(!is_known_section(`notes`), "notes is not known");
+  assert(!is_known_section(`see also`), "see also is not known");
+  assert(!is_known_section(`todo`), "todo is not known");
+});
+test("parses a module-level ## Stability section", {
+  parsed := parse_doc_comment(`CSV reader and writer.\n\n## Stability\nunstable — new in v0.2.20; the API may still change.`);
+  assert(parsed.summary == `CSV reader and writer.`, "summary unaffected");
+  st := match(parsed.sections.get(`stability`), .Some(v) => v, .None => ``);
+  assert(st.starts_with(`unstable`), `stability section content: ${st}`);
+});
+test("parses single-# well-known sections (# Examples, # Returns) like ## ones", {
+  result := parse_doc_comment(`Adds two numbers.\n\n# Examples\n\n\`\`\`rust\nadd(1, 2)\n\`\`\`\n\n# Returns\n\nThe sum.`);
+  assert(result.sections.contains_key(`examples`), "# Examples is a section");
+  assert(result.sections.contains_key(`returns`), "# Returns is a section");
+  assert(result.sections.get(`returns`).unwrap() == `The sum.`, "returns content");
+  assert(result.description == `Adds two numbers.`, "description excludes the sections");
+});
+test("an arbitrary single-# heading stays description content", {
+  result := parse_doc_comment(`Intro.\n\n# Notes\n\nSome notes.`);
+  assert(result.sections.len() == usize(0), "# Notes is not a well-known section");
+  assert(result.description.contains(`# Notes`), "kept in the description");
+  assert(result.description.contains(`Some notes.`), "with its text");
+});
+test("a # line inside a fenced code block is not a heading", {
+  result := parse_doc_comment(`Run it.\n\n## Examples\n\n\`\`\`sh\n# Examples of flags\nyo build\n\`\`\`\n\nDone.`);
+  assert(result.sections.len() == usize(1), "only the real ## Examples section");
+  assert(result.sections.get(`examples`).unwrap().contains(`# Examples of flags`), "the shell comment stays inside the section");
 });

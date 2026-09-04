@@ -1,6 +1,6 @@
 //! Wall-clock date and time in UTC.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { DateTime } :: import "std/time/datetime";
@@ -13,6 +13,9 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("../fmt");
 { CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
 { snprintf } :: import("../libc/stdio");
+{ panic } :: import("../assert");
+{ Duration } :: import("./duration");
+{ ArrayList } :: import("../collections/array_list");
 /// Calendar date and time with nanosecond precision.
 /// Values are in UTC unless `utc_offset_secs` is non-zero.
 DateTime :: struct(
@@ -97,10 +100,18 @@ _from_unix_secs :: (fn(secs : i64, nanos : i64) -> DateTime)({
 impl(
   DateTime,
   // Current UTC date/time.
+  // Panics if the realtime clock fails — a broken clock must not silently
+  // yield the epoch (plans/STD_API_AUDIT.md C10).
   now_utc : (fn() -> Self)({
     sec := i64(0);
     nsec := i64(0);
-    clock_gettime(CLOCK_REALTIME, &(sec), &(nsec));
+    rc := clock_gettime(CLOCK_REALTIME, &(sec), &(nsec));
+    // cond + panic (not assert) so the message String is only built on the
+    // failure path.
+    cond(
+      (rc == i32(0)) => (),
+      true => panic(`DateTime.now_utc: clock_gettime(CLOCK_REALTIME) failed (rc=${rc})`)
+    );
     _from_unix_secs(sec, nsec)
   }),
   // Current local date/time (UTC offset not resolved; same as now_utc for now).
@@ -196,23 +207,331 @@ impl(
   DateTime,
   ToString(
     to_string : (fn(inout(self) : Self) -> String)({
-      buf := Array(u8, usize(32)).fill(u8(0));
+      // RFC3339 offset rendering: "Z" only for UTC; a non-zero
+      // `utc_offset_secs` renders as ±HH:MM. This used to hardcode "Z" for
+      // EVERY value, stringifying offset datetimes as if they were UTC
+      // (plans/STD_API_AUDIT.md C4).
+      buf := Array(u8, usize(48)).fill(u8(0));
       buf_ptr := &(buf(usize(0)));
-      unsafe(
-        snprintf(
-          *(char)(buf_ptr),
-          usize(32),
-          "%04d-%02u-%02uT%02u:%02u:%02uZ",
-          self.year,
-          self.month,
-          self.day,
-          self.hour,
-          self.minute,
-          self.second
-        )
+      cond(
+        (self.utc_offset_secs == i32(0)) => {
+          unsafe(
+            snprintf(
+              *(char)(buf_ptr),
+              usize(48),
+              "%04d-%02u-%02uT%02u:%02u:%02uZ",
+              self.year,
+              self.month,
+              self.day,
+              self.hour,
+              self.minute,
+              self.second
+            )
+          );
+        },
+        true => {
+          off := self.utc_offset_secs;
+          is_neg := (off < i32(0));
+          abs_off := cond(is_neg => (i32(0) - off), true => off);
+          off_h := (abs_off / i32(3600));
+          off_m := ((abs_off % i32(3600)) / i32(60));
+          cond(
+            is_neg => {
+              unsafe(
+                snprintf(
+                  *(char)(buf_ptr),
+                  usize(48),
+                  "%04d-%02u-%02uT%02u:%02u:%02u-%02d:%02d",
+                  self.year,
+                  self.month,
+                  self.day,
+                  self.hour,
+                  self.minute,
+                  self.second,
+                  off_h,
+                  off_m
+                )
+              );
+            },
+            true => {
+              unsafe(
+                snprintf(
+                  *(char)(buf_ptr),
+                  usize(48),
+                  "%04d-%02u-%02uT%02u:%02u:%02u+%02d:%02d",
+                  self.year,
+                  self.month,
+                  self.day,
+                  self.hour,
+                  self.minute,
+                  self.second,
+                  off_h,
+                  off_m
+                )
+              );
+            }
+          );
+        }
       );
       String.from_cstr(buf_ptr).unwrap()
     })
+  )
+);
+
+// ============================================================================
+// RFC 3339 parse / format, component ctor, arithmetic, Eq/Ord
+// (plans/STD_API_AUDIT.md §7 time row)
+// ============================================================================
+/// Typed parse/construction errors (D1 style, mirrors PercentError).
+DateTimeError :: enum(
+  /// The text does not match RFC 3339 `date-time`; `index` is the BYTE
+  /// offset where matching failed.
+  InvalidFormat(index : usize),
+  /// A parsed/constructed component is outside its calendar range; `field`
+  /// names it ("month", "day", "hour", "minute", "second", "offset").
+  OutOfRange(field : str)
+);
+impl(
+  DateTimeError,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      match(
+        self,
+        .InvalidFormat(index) => `invalid RFC 3339 date-time at byte ${index.to_string()}`,
+        .OutOfRange(field) => `date-time component out of range: ${String.from(field)}`
+      )
+    )
+  )
+);
+export(DateTimeError);
+/// Days in `month` of `year` (leap-aware). 0 for an invalid month.
+_days_in :: (fn(year : i32, month : u8) -> u8)(
+  cond(
+    ((month < u8(1)) || (month > u8(12))) => u8(0),
+    ((month == u8(2)) && _is_leap_year(year)) => u8(29),
+    true => _DAYS_IN_MONTH(usize(month) - usize(1))
+  )
+);
+/// Range-validate a component set (leap-aware days; second 60 admitted for
+/// leap seconds, as RFC 3339 requires; offset within ±23:59).
+_validate :: (fn(dt : DateTime) -> Option(DateTimeError))(
+  cond(
+    ((dt.month < u8(1)) || (dt.month > u8(12))) => Option(DateTimeError).Some(DateTimeError.OutOfRange("month")),
+    (
+      (dt.day < u8(1)) || (
+        dt.day > _days_in(
+          dt.year,
+          dt.month
+        )
+      )
+    ) => Option(DateTimeError).Some(DateTimeError.OutOfRange("day")),
+    (dt.hour > u8(23)) => Option(DateTimeError).Some(DateTimeError.OutOfRange("hour")),
+    (dt.minute > u8(59)) => Option(DateTimeError).Some(DateTimeError.OutOfRange("minute")),
+    (dt.second > u8(60)) => Option(DateTimeError).Some(DateTimeError.OutOfRange("second")),
+    (dt.nanosecond > u32(999999999)) => Option(DateTimeError).Some(DateTimeError.OutOfRange("nanosecond")),
+    ((dt.utc_offset_secs > i32(86399)) || (dt.utc_offset_secs < i32(-86399))) => Option(DateTimeError).Some(DateTimeError.OutOfRange("offset")),
+    true => Option(DateTimeError).None
+  )
+);
+/// Parse exactly `count` ASCII digits at `at`; .None on any non-digit.
+_digits :: (fn(bs : ArrayList(u8), at : usize, count : usize) -> Option(i64))({
+  (acc : i64) = i64(0);
+  (i : usize) = usize(0);
+  while(i < count, i = (i + usize(1)), {
+    b := match(bs.get(at + i), .Some(x) => x, .None => u8(0));
+    cond(
+      ((b < u8(48)) || (b > u8(57))) => {
+        return(Option(i64).None);
+      },
+      true => ()
+    );
+    acc = ((acc * i64(10)) + i64(b - u8(48)));
+  });
+  Option(i64).Some(acc)
+});
+_byte_is :: (fn(bs : ArrayList(u8), at : usize, a : u8, b : u8) -> bool)(
+  match(bs.get(at), .Some(x) => ((x == a) || (x == b)), .None => false)
+);
+impl(
+  DateTime,
+  /// Component constructor with calendar validation (leap-aware days,
+  /// leap-second 60 admitted, offset within a day).
+  new : (
+    fn(year : i32, month : u8, day : u8, hour : u8, minute : u8, second : u8, (nanosecond : u32) ?= u32(0), (utc_offset_secs : i32) ?= i32(0)) -> Result(DateTime, DateTimeError)
+  )({
+    dt := DateTime(
+      year : year,
+      month : month,
+      day : day,
+      hour : hour,
+      minute : minute,
+      second : second,
+      nanosecond : nanosecond,
+      utc_offset_secs : utc_offset_secs
+    );
+    match(
+      _validate(dt),
+      .Some(e) => Result(DateTime, DateTimeError).Err(e),
+      .None => Result(DateTime, DateTimeError).Ok(dt)
+    )
+  }),
+  /// Parse an RFC 3339 `date-time`: `YYYY-MM-DDTHH:MM:SS[.f...][Z|±HH:MM]`.
+  /// Lowercase `t`/`z` are accepted (the RFC permits them); fractional
+  /// seconds keep nanosecond precision (digits beyond 9 are truncated);
+  /// calendar ranges are validated leap-aware.
+  parse : (fn(text : String) -> Result(DateTime, DateTimeError))({
+    bs := text.as_bytes();
+    n := bs.len();
+    err :: (fn(at : usize) -> Result(DateTime, DateTimeError))(
+      Result(DateTime, DateTimeError).Err(DateTimeError.InvalidFormat(index : at))
+    );
+    dash := u8(45);
+    colon := u8(58);
+    year := match(_digits(bs, usize(0), usize(4)), .Some(v) => v, .None => return(err(usize(0))));
+    if(!(_byte_is(bs, usize(4), dash, dash)), return(err(usize(4))));
+    month := match(_digits(bs, usize(5), usize(2)), .Some(v) => v, .None => return(err(usize(5))));
+    if(!(_byte_is(bs, usize(7), dash, dash)), return(err(usize(7))));
+    day := match(_digits(bs, usize(8), usize(2)), .Some(v) => v, .None => return(err(usize(8))));
+    // 'T' | 't' | ' ' (the space form is an RFC 3339 §5.6 NOTE allowance).
+    sep_ok := (_byte_is(bs, usize(10), u8(84), u8(116)) || _byte_is(bs, usize(10), u8(32), u8(32)));
+    if(!(sep_ok), return(err(usize(10))));
+    hour := match(_digits(bs, usize(11), usize(2)), .Some(v) => v, .None => return(err(usize(11))));
+    if(!(_byte_is(bs, usize(13), colon, colon)), return(err(usize(13))));
+    minute := match(_digits(bs, usize(14), usize(2)), .Some(v) => v, .None => return(err(usize(14))));
+    if(!(_byte_is(bs, usize(16), colon, colon)), return(err(usize(16))));
+    second := match(_digits(bs, usize(17), usize(2)), .Some(v) => v, .None => return(err(usize(17))));
+    (at : usize) = usize(19);
+    (nanos : i64) = i64(0);
+    // Optional fraction: '.' then 1+ digits.
+    cond(
+      _byte_is(bs, at, u8(46), u8(46)) => {
+        at = (at + usize(1));
+        (digits_seen : usize) = usize(0);
+        (scale : i64) = i64(100000000);
+        (going : bool) = true;
+        while(going, {
+          b := match(bs.get(at), .Some(x) => x, .None => u8(0));
+          cond(
+            ((b >= u8(48)) && (b <= u8(57))) => {
+              if(digits_seen < usize(9), {
+                nanos = (nanos + (i64(b - u8(48)) * scale));
+                scale = (scale / i64(10));
+              });
+              digits_seen = (digits_seen + usize(1));
+              at = (at + usize(1));
+            },
+            true => {
+              going = false;
+            }
+          );
+        });
+        if(digits_seen == usize(0), return(err(at)));
+      },
+      true => ()
+    );
+    // Offset: 'Z'/'z' or ±HH:MM. REQUIRED by the grammar.
+    (offset : i32) = i32(0);
+    cond(
+      _byte_is(bs, at, u8(90), u8(122)) => {
+        at = (at + usize(1));
+      },
+      (_byte_is(bs, at, u8(43), u8(43)) || _byte_is(bs, at, dash, dash)) => {
+        neg := _byte_is(bs, at, dash, dash);
+        oh := match(_digits(bs, at + usize(1), usize(2)), .Some(v) => v, .None => return(err(at + usize(1))));
+        if(!(_byte_is(bs, at + usize(3), colon, colon)), return(err(at + usize(3))));
+        om := match(_digits(bs, at + usize(4), usize(2)), .Some(v) => v, .None => return(err(at + usize(4))));
+        if(om > i64(59), return(Result(DateTime, DateTimeError).Err(DateTimeError.OutOfRange(field : "offset"))));
+        raw := i32((oh * i64(3600)) + (om * i64(60)));
+        offset = cond(neg => (i32(0) - raw), true => raw);
+        at = (at + usize(6));
+      },
+      true => return(err(at))
+    );
+    if(at != n, return(err(at)));
+    DateTime.new(i32(year), u8(month), u8(day), u8(hour), u8(minute), u8(second), u32(nanos), offset)
+  }),
+  /// Unix seconds of the INSTANT this value names — unlike `to_unix`, which
+  /// reads the wall-clock fields as if they were UTC, this subtracts the
+  /// UTC offset. Equal instants at different offsets agree here.
+  to_unix_utc : (fn(inout(self) : Self) -> i64)(
+    self.to_unix() - i64(self.utc_offset_secs)
+  ),
+  /// This value shifted forward by `d` (offset preserved; nanoseconds carry).
+  add : (fn(inout(self) : Self, d : Duration) -> Self)({
+    total_nanos := (i64(self.nanosecond) + (d.as_nanos() % i64(1000000000)));
+    carry := (total_nanos / i64(1000000000));
+    off := self.utc_offset_secs;
+    base := DateTime.from_unix((self.to_unix() + d.as_secs()) + carry, total_nanos % i64(1000000000));
+    DateTime(
+      year : base.year,
+      month : base.month,
+      day : base.day,
+      hour : base.hour,
+      minute : base.minute,
+      second : base.second,
+      nanosecond : base.nanosecond,
+      utc_offset_secs : off
+    )
+  }),
+  /// This value shifted backward by `d`.
+  sub : (fn(inout(self) : Self, d : Duration) -> Self)({
+    (nanos : i64) = (i64(self.nanosecond) - (d.as_nanos() % i64(1000000000)));
+    (borrow : i64) = i64(0);
+    cond(
+      (nanos < i64(0)) => {
+        nanos = (nanos + i64(1000000000));
+        borrow = i64(1);
+      },
+      true => ()
+    );
+    off := self.utc_offset_secs;
+    base := DateTime.from_unix((self.to_unix() - d.as_secs()) - borrow, nanos);
+    DateTime(
+      year : base.year,
+      month : base.month,
+      day : base.day,
+      hour : base.hour,
+      minute : base.minute,
+      second : base.second,
+      nanosecond : base.nanosecond,
+      utc_offset_secs : off
+    )
+  })
+);
+/// INSTANT equality/order: values naming the same moment compare equal even
+/// at different UTC offsets (`2026-01-01T01:00:00+01:00` ==
+/// `2026-01-01T00:00:00Z`). Fieldwise comparison would call them unequal.
+impl(
+  DateTime,
+  Eq(DateTime)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      (lhs.to_unix_utc() == rhs.to_unix_utc()) && (lhs.nanosecond == rhs.nanosecond)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs == rhs)
+    )
+  )
+);
+impl(
+  DateTime,
+  Ord(DateTime)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)({
+      ls := lhs.to_unix_utc();
+      rs := rhs.to_unix_utc();
+      cond(
+        (ls != rs) => (ls < rs),
+        true => (lhs.nanosecond < rhs.nanosecond)
+      )
+    }),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(rhs < lhs)
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      rhs < lhs
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs < rhs)
+    )
   )
 );
 export(DateTime);

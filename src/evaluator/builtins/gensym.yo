@@ -59,9 +59,7 @@ evaluate_gensym :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Expected "gensym" with 0 or 1 argument, got more`,
-              false,
-              .None
+              `Expected "gensym" with 0 or 1 argument, got more`
             )
           )
         );
@@ -77,9 +75,7 @@ evaluate_gensym :: (
             dyn(
               format_error_message(
                 ast_expr_token(prefix_arg),
-                `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(prefix_arg)}`,
-                false,
-                .None
+                `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(prefix_arg)}`
               )
             )
           );
@@ -90,14 +86,12 @@ evaluate_gensym :: (
       match(
         prefix_info.value,
         .Some(pv) => {
-          if(!(is_str_lit(pv)), {
+          if(!is_str_lit(pv), {
             exn.throw(
               dyn(
                 format_error_message(
                   ast_expr_token(prefix_arg),
-                  `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`,
-                  false,
-                  .None
+                  `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`
                 )
               )
             );
@@ -121,9 +115,7 @@ evaluate_gensym :: (
             dyn(
               format_error_message(
                 ast_expr_token(prefix_arg),
-                `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`,
-                false,
-                .None
+                `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`
               )
             )
           );
@@ -145,6 +137,7 @@ evaluate_gensym :: (
       row : tok.row,
       column : tok.column,
       character : tok.character,
+      byte_offset : tok.byte_offset,
       module_path : tok.module_path.clone(),
       input : tok.input.clone()
     )

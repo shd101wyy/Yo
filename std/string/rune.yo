@@ -25,7 +25,7 @@ impl(
   ),
   /// Check if this is a whitespace character (space, tab, newline, or carriage return).
   is_whitespace : (fn(self : Self) -> bool)(
-    ((self.char == 0x20) || (self.char == 0x09)) || ((self.char == 0x0A) || (self.char == 0x0D))
+    (self.char == 0x20) || (self.char == 0x09) || ((self.char == 0x0A) || (self.char == 0x0D))
   ),
   /// Check if this is an ASCII digit ('0' to '9').
   is_digit : (fn(self : Self) -> bool)(
@@ -59,6 +59,9 @@ impl(
   ),
   /// Null character (U+0000).
   NUL : Self(0x00),
+  /// Replacement character (U+FFFD) — what a lossy decoder substitutes for an
+  /// invalid byte sequence. See `std/encoding/utf8`'s `decode_lossy`.
+  REPLACEMENT : Self(0xFFFD),
   /// Horizontal tab (U+0009).
   TAB : Self(0x09),
   /// Line feed / newline (U+000A).

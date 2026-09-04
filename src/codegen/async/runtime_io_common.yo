@@ -555,6 +555,60 @@ static int32_t __yo_isatty(int32_t fd) {
       generate_platform_sys_runtime_wasm(emitter);
     });
   });
+  // ---------------------------------------------------------------------------
+  // Hardware queries — emitted UNCONDITIONALLY. `std/thread.get_hardware_threads`
+  // and `get_cpu_id` are plain functions any program may call; their bodies used
+  // to live in the async runtime (`__yo_thread_get_hardware_threads`) and the
+  // parallelism runtime (`__yo_get_hardware_threads`, `__yo_get_cpu_id`), so a
+  // program using neither had a dangling extern
+  // (issues/fixed/get-hardware-threads-links-only-with-async-runtime.md).
+  // ---------------------------------------------------------------------------
+  hw_include := cond(
+    is_target_macos(target_info) => String.from("#include <sys/sysctl.h>"),
+    is_target_linux(target_info) => String.from("#include <sched.h>"),
+    true => String.from("")
+  );
+  hw_threads_body := cond(
+    is_target_windows(target_info) =>
+      `  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  return (size_t)sysinfo.dwNumberOfProcessors;`,
+    is_target_macos(target_info) =>
+      `  int count;
+  size_t size = sizeof(count);
+  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
+    return (size_t)count;
+  }
+  return 1;`,
+    is_target_wasm(target_info) => String.from("  return 1;  // WASM is single-threaded"),
+    true =>
+      `  long count = sysconf(_SC_NPROCESSORS_ONLN);
+  return count > 0 ? (size_t)count : 1;`
+  );
+  cpu_id_body := cond(
+    is_target_linux(target_info) =>
+      `  int cpu = sched_getcpu();
+  return cpu;`,
+    is_target_windows(target_info) => String.from("  return (int)GetCurrentProcessorNumber();"),
+    true => String.from("  return -1;")
+  );
+  emitter.emit_string_line(
+    `
+// ============================================================================
+// Hardware queries (std/thread: get_hardware_threads, get_cpu_id)
+// ============================================================================
+${hw_include}
+// Number of hardware threads (CPU cores)
+static size_t __yo_get_hardware_threads(void) {
+${hw_threads_body}
+}
+// The name std/thread declares (historically the async runtime's copy).
+static size_t __yo_thread_get_hardware_threads(void) { return __yo_get_hardware_threads(); }
+// CPU the current thread runs on; -1 when the platform cannot say.
+static int __yo_get_cpu_id(void) {
+${cpu_id_body}
+}`
+  );
 });
 /// Timer, directory scanning, DNS, process, FS events, poll, and the tick
 /// function. 1:1 port of `generateAsyncRuntimeIOCommon`. macOS + Linux per the
@@ -650,7 +704,13 @@ ${timer_dispose_init}
   struct itimerspec its = {0};
   its.it_value.tv_sec = (time_t)(milliseconds / 1000);
   its.it_value.tv_nsec = (long)((milliseconds % 1000) * 1000000);
-  
+  if (milliseconds == 0) {
+    // POSIX defines a zero it_value as DISARMING the timer, so sleep(0)
+    // would never fire. Arm for 1 ns instead — completes on the next loop
+    // turn like the kqueue/Windows/wasm runtimes.
+    its.it_value.tv_nsec = 1;
+  }
+
   if (timerfd_settime(tfd, 0, &its, NULL) < 0) {
     int err = errno;
     future->result = -err;
@@ -792,7 +852,7 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
       });
     });
   });
-  if(!(is_windows), {
+  if(!is_windows, {
     // --- Directory scanning operations ---
     emitter.emit_string_line(
       `
@@ -1124,8 +1184,21 @@ static uint8_t* __yo_addrinfo_next(uint8_t* ai) {
 
 extern char** environ;
 
-static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
-                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+// posix_spawn_file_actions_addchdir_np: macOS 10.15+, glibc 2.29+, musl 1.2.5+.
+// Declared weak so a libc without it still links; the call site checks the
+// address and reports ENOSYS instead of silently spawning in the wrong cwd.
+#if !defined(__APPLE__)
+extern int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t*, const char*) __attribute__((weak));
+#endif
+
+// The spawn shim with a working directory (NULL = inherit the parent's).
+//  Command.current_dir  (std/process) is the consumer; it is generation-gated
+// on this symbol existing in the SEED's emitted runtime, so std keeps calling
+// the 6-argument  __yo_async_spawn_start  wrapper below until the seed carries
+// this (plans/backlog/SEED_VERSION_AUTOMATION.md).
+static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                                  int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd,
+                                                  const uint8_t* cwd) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
 
@@ -1135,6 +1208,24 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
 
   posix_spawn_file_actions_t actions;
   posix_spawn_file_actions_init(&actions);
+
+  if (cwd) {
+#if !defined(__APPLE__)
+    if (!posix_spawn_file_actions_addchdir_np) {
+      posix_spawn_file_actions_destroy(&actions);
+      future->result = -ENOSYS;
+      atomic_init(&future->state, -1);
+      return future;
+    }
+#endif
+    int cd = posix_spawn_file_actions_addchdir_np(&actions, (const char*)cwd);
+    if (cd != 0) {
+      posix_spawn_file_actions_destroy(&actions);
+      future->result = -cd;
+      atomic_init(&future->state, -1);
+      return future;
+    }
+  }
 
   if (stdin_fd >= 0) {
     posix_spawn_file_actions_adddup2(&actions, stdin_fd, 0);
@@ -1162,6 +1253,13 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
   atomic_init(&future->state, -1);
 
   return future;
+}
+
+// Inherit the parent's working directory. This is the symbol std declares
+// today; keep it until the seed emits __yo_async_spawn_start_cwd.
+static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+  return __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, NULL);
 }
 
 static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
@@ -1315,28 +1413,42 @@ static __yo_fs_event_entry_t* __yo_fs_event_snapshot_dir(const char* path, int* 
   return head;
 }
 
+// Directory watches: diff the entry snapshot and report EACH changed entry
+// by name — created/removed → 1 (rename class), modified → 2 (change class)
+// — through the callback, the way inotify and ReadDirectoryChangesW name
+// their entries. Returns the number of callbacks made (0 when nothing
+// changed); the directory itself vanishing is one nameless rename event.
+// File watches: returns the event mask for the caller to report (no
+// callback here).
 static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
   int __yo_event = 0;
 
   if (handle->is_dir) {
     int snap_err = 0;
+    int emitted = 0;
     __yo_fs_event_entry_t* next_entries = __yo_fs_event_snapshot_dir(handle->path, &snap_err);
     if (snap_err != 0) {
-      if (snap_err == ENOENT) {
-        __yo_event |= 1;
+      if (snap_err == ENOENT && handle->callback && handle->active) {
+        handle->callback("", 1, handle->user_data);
+        emitted++;
       }
-      return __yo_event;
+      return emitted;
     }
 
     __yo_fs_event_entry_t* ne = next_entries;
     while (ne) {
       __yo_fs_event_entry_t* oe = __yo_fs_event_find_entry(handle->entries, ne->name);
+      int ev = 0;
       if (!oe) {
-        __yo_event |= 1;
+        ev = 1;
       } else if ((oe->mtime_sec != ne->mtime_sec) ||
                  (oe->mtime_nsec != ne->mtime_nsec) ||
                  (oe->size != ne->size)) {
-        __yo_event |= 2;
+        ev = 2;
+      }
+      if (ev != 0 && handle->callback && handle->active) {
+        handle->callback(ne->name, ev, handle->user_data);
+        emitted++;
       }
       ne = ne->next;
     }
@@ -1344,14 +1456,17 @@ static int __yo_fs_event_detect_snapshot_changes(__yo_fs_event_t* handle) {
     __yo_fs_event_entry_t* oe = handle->entries;
     while (oe) {
       if (!__yo_fs_event_find_entry(next_entries, oe->name)) {
-        __yo_event |= 1;
+        if (handle->callback && handle->active) {
+          handle->callback(oe->name, 1, handle->user_data);
+          emitted++;
+        }
       }
       oe = oe->next;
     }
 
     __yo_fs_event_free_entries(handle->entries);
     handle->entries = next_entries;
-    return __yo_event;
+    return emitted;
   }
 
   struct stat st;
@@ -1736,7 +1851,19 @@ static void __yo_poll_close(void* h) {
     while (fse) {
       __yo_fs_event_t* next = fse->next;
       if (fse->active && fse->watch_fd >= 0) {
-        int __yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+        // Directory: the snapshot diff already reported each changed entry by
+        // name; the vnode's own kqueue flags then only add a nameless event
+        // when the diff saw nothing (e.g. an attribute change on the directory
+        // itself). File: the diff returns the mask and the event is reported
+        // under the file's own name.
+        int __yo_event = 0;
+        int named = 0;
+        if (fse->is_dir) {
+          named = __yo_fs_event_detect_snapshot_changes(fse);
+          count += named;
+        } else {
+          __yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+        }
 
         struct kevent ev;
         struct timespec ts = {0, 0};
@@ -1750,9 +1877,14 @@ static void __yo_poll_close(void* h) {
           }
         }
 
-        if (__yo_event != 0) {
+        if (__yo_event != 0 && named == 0) {
           if (fse->callback && fse->active) {
-            fse->callback("", __yo_event, fse->user_data);
+            const char* own = "";
+            if (!fse->is_dir && fse->path) {
+              const char* slash = strrchr(fse->path, '/');
+              own = slash ? slash + 1 : fse->path;
+            }
+            fse->callback(own, __yo_event, fse->user_data);
             count++;
           }
         }
@@ -1816,4 +1948,160 @@ ${macos_tick}
     );
   });
 });
-export(generate_sys_runtime, generate_async_runtime_io_common, AsyncRuntimeOptions);
+
+generate_tls_runtime :: (fn(emitter : Emitter) -> unit)({
+  emitter.emit_string(
+    `\n`
+    +
+      `// === TLS backend (std/crypto/tls ABI) ===\n`
+      +
+        `#if !defined(_WIN32) && !defined(__wasm__)\n`
+        +
+          `#include <openssl/ssl.h>\n`
+          +
+            `#include <openssl/bio.h>\n`
+            +
+              `#include <openssl/err.h>\n`
+              +
+                `// Weak canary (the shipped macOS bundle weak-links OpenSSL — a hard\n`
+                +
+                  `// LC_LOAD_DYLIB would keep the yo binary from even LAUNCHING on a\n`
+                  +
+                    `// Mac without brew openssl): a missing dylib leaves every OpenSSL\n`
+                    +
+                      `// symbol NULL, and __yo_tls_available() must report that honestly\n`
+                      +
+                        `// instead of a constant 1. The redeclaration only attaches the\n`
+                        +
+                          `// attribute; the type is the header's own.\n`
+                          +
+                            `extern SSL_CTX* SSL_CTX_new(const SSL_METHOD*) __attribute__((weak));\n`
+                            +
+                              `\n`
+                              +
+                                `void* __yo_tls_ctx_new(void) {\n`
+                                +
+                                  `  SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());\n`
+                                  +
+                                    `  if (!ctx) return NULL;\n`
+                                    +
+                                      `  SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);\n`
+                                      +
+                                        `  SSL_CTX_set_default_verify_paths(ctx);\n`
+                                        +
+                                          `  return ctx;\n`
+                                          +
+                                            `}\n`
+                                            +
+                                              `void* __yo_tls_ssl_new(void* ctx, const char* hostname) {\n`
+                                              +
+                                                `  SSL* ssl = SSL_new((SSL_CTX*)ctx);\n`
+                                                +
+                                                  `  if (!ssl) return NULL;\n`
+                                                  +
+                                                    `  BIO* rbio = BIO_new(BIO_s_mem());\n`
+                                                    +
+                                                      `  BIO* wbio = BIO_new(BIO_s_mem());\n`
+                                                      +
+                                                        `  if (!rbio || !wbio) {\n`
+                                                        +
+                                                          `    if (rbio) BIO_free(rbio);\n`
+                                                          +
+                                                            `    if (wbio) BIO_free(wbio);\n`
+                                                            +
+                                                              `    SSL_free(ssl);\n`
+                                                              +
+                                                                `    return NULL;\n`
+                                                                +
+                                                                  `  }\n`
+                                                                  +
+                                                                    `  SSL_set_bio(ssl, rbio, wbio);\n`
+                                                                    +
+                                                                      `  SSL_set_connect_state(ssl);\n`
+                                                                      +
+                                                                        `  SSL_set1_host(ssl, hostname);\n`
+                                                                        +
+                                                                          `  SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, 0, (void*)hostname);\n`
+                                                                          +
+                                                                            `  return ssl;\n`
+                                                                            +
+                                                                              `}\n`
+                                                                              +
+                                                                                `int __yo_tls_handshake(void* ssl) { return SSL_do_handshake((SSL*)ssl); }\n`
+                                                                                +
+                                                                                  `int __yo_tls_get_error(void* ssl, int ret) { return SSL_get_error((SSL*)ssl, ret); }\n`
+                                                                                  +
+                                                                                    `int __yo_tls_read(void* ssl, void* buf, int num) { return SSL_read((SSL*)ssl, buf, num); }\n`
+                                                                                    +
+                                                                                      `int __yo_tls_write(void* ssl, const void* buf, int num) { return SSL_write((SSL*)ssl, buf, num); }\n`
+                                                                                      +
+                                                                                        `int __yo_tls_shutdown(void* ssl) { return SSL_shutdown((SSL*)ssl); }\n`
+                                                                                        +
+                                                                                          `void __yo_tls_free(void* ssl, void* ctx) { SSL_free((SSL*)ssl); SSL_CTX_free((SSL_CTX*)ctx); }\n`
+                                                                                          +
+                                                                                            `void* __yo_tls_rbio(void* ssl) { return SSL_get_rbio((SSL*)ssl); }\n`
+                                                                                            +
+                                                                                              `void* __yo_tls_wbio(void* ssl) { return SSL_get_wbio((SSL*)ssl); }\n`
+                                                                                              +
+                                                                                                `size_t __yo_tls_bio_pending(void* bio) { return BIO_ctrl_pending((BIO*)bio); }\n`
+                                                                                                +
+                                                                                                  `int __yo_tls_bio_read(void* bio, void* buf, int len) { return BIO_read((BIO*)bio, buf, len); }\n`
+                                                                                                  +
+                                                                                                    `int __yo_tls_bio_write(void* bio, const void* buf, int len) { return BIO_write((BIO*)bio, buf, len); }\n`
+                                                                                                    +
+                                                                                                      `void __yo_tls_err_string(char* buf, size_t len) {\n`
+                                                                                                      +
+                                                                                                        `  unsigned long code = ERR_get_error();\n`
+                                                                                                        +
+                                                                                                          `  if (code == 0) { snprintf(buf, len, \"no error in the OpenSSL queue\"); return; }\n`
+                                                                                                          +
+                                                                                                            `  ERR_error_string_n(code, buf, len);\n`
+                                                                                                            +
+                                                                                                              `}\n`
+                                                                                                              +
+                                                                                                                `int __yo_tls_available(void) { return &SSL_CTX_new != NULL; }\n`
+                                                                                                                +
+                                                                                                                  `#else\n`
+                                                                                                                  +
+                                                                                                                    `void* __yo_tls_ctx_new(void) { return NULL; }\n`
+                                                                                                                    +
+                                                                                                                      `void* __yo_tls_ssl_new(void* ctx, const char* hostname) { (void)ctx; (void)hostname; return NULL; }\n`
+                                                                                                                      +
+                                                                                                                        `int __yo_tls_handshake(void* ssl) { (void)ssl; return -1; }\n`
+                                                                                                                        +
+                                                                                                                          `int __yo_tls_get_error(void* ssl, int ret) { (void)ssl; return ret; }\n`
+                                                                                                                          +
+                                                                                                                            `int __yo_tls_read(void* ssl, void* buf, int num) { (void)ssl; (void)buf; (void)num; return -1; }\n`
+                                                                                                                            +
+                                                                                                                              `int __yo_tls_write(void* ssl, const void* buf, int num) { (void)ssl; (void)buf; (void)num; return -1; }\n`
+                                                                                                                              +
+                                                                                                                                `int __yo_tls_shutdown(void* ssl) { (void)ssl; return 0; }\n`
+                                                                                                                                +
+                                                                                                                                  `void __yo_tls_free(void* ssl, void* ctx) { (void)ssl; (void)ctx; }\n`
+                                                                                                                                  +
+                                                                                                                                    `void* __yo_tls_rbio(void* ssl) { (void)ssl; return NULL; }\n`
+                                                                                                                                    +
+                                                                                                                                      `void* __yo_tls_wbio(void* ssl) { (void)ssl; return NULL; }\n`
+                                                                                                                                      +
+                                                                                                                                        `size_t __yo_tls_bio_pending(void* bio) { (void)bio; return 0; }\n`
+                                                                                                                                        +
+                                                                                                                                          `int __yo_tls_bio_read(void* bio, void* buf, int len) { (void)bio; (void)buf; (void)len; return 0; }\n`
+                                                                                                                                          +
+                                                                                                                                            `int __yo_tls_bio_write(void* bio, const void* buf, int len) { (void)bio; (void)buf; (void)len; return 0; }\n`
+                                                                                                                                            +
+                                                                                                                                              `void __yo_tls_err_string(char* buf, size_t len) { snprintf(buf, len, \"TLS is not available in this build (Windows Schannel / wasm backends pending, D6)\"); }\n`
+                                                                                                                                              +
+                                                                                                                                                `int __yo_tls_available(void) { return 0; }\n`
+                                                                                                                                                +
+                                                                                                                                                  `#endif\n`
+                                                                                                                                                  +
+                                                                                                                                                    `\n`
+  );
+});
+
+export(
+  generate_tls_runtime,
+  generate_sys_runtime,
+  generate_async_runtime_io_common,
+  AsyncRuntimeOptions
+);

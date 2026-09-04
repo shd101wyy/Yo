@@ -1,7 +1,9 @@
+pragma(Pragma.AllowUnsafe); // unsafe(printf) in the Windows skip guards
 pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
 pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { assert } :: import("std/assert");
-{ Command, ExitStatus, Output } :: import("std/process/command");
+open(import("std/libc/stdio"));
+{ Command, ExitStatus, Output, Child, Stdio } :: import("std/process/command");
 { Exception, AnyError, IoExn } :: import("std/error");
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
@@ -9,7 +11,7 @@ open(import("std/string"));
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -30,12 +32,12 @@ test("Command.new + status (echo exits 0)", {
   );
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
   assert(st.success(), "echo should succeed");
-  assert(st.code() == i32(0), "echo exit code 0");
+  assert(st.code().unwrap() == i32(0), "echo exit code 0");
 });
 test("Command.output captures stdout", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -65,7 +67,7 @@ test("Command.output captures stdout", {
 test("Command.status non-zero exit", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -81,6 +83,321 @@ test("Command.status non-zero exit", {
     true => Command.new(`false`)
   );
   st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
-  assert(!(st.success()), "should not be success");
-  assert(st.code() == i32(1), "exit code 1");
+  assert(!st.success(), "should not be success");
+  assert(st.code().unwrap() == i32(1), "exit code 1");
+});
+test("an abnormally-terminated child reports a signal, not an I/O error", {
+  // Windows used to return GetExitCodeProcess's DWORD cast to int32_t from
+  // waitpid: an NTSTATUS-shaped code (abort()/fastfail = 0xC0000409,
+  // cmd.exe "exit -1" = 0xFFFFFFFF) is NEGATIVE as i32, which
+  // Command.output/status's IoError.check read as -errno and turned into an
+  // unmapped IoError.Other ("unknown I/O error") — so 'yo test' died at the
+  // first failed test instead of reporting it
+  // (issues/fixed/yo-test-failing-child-windows-unknown-io-error.md). Both
+  // sides terminate via SIGTERM: cmd's exit -1 is ExitProcess(0xFFFFFFFF),
+  // which the runtime encodes as the default NTSTATUS mapping (SIGTERM).
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(`exit`);
+      c.arg(`-1`);
+      c
+    },
+    true => {
+      c := Command.new(`sh`);
+      c.arg(`-c`);
+      c.arg(`kill -TERM $$`);
+      c
+    }
+  );
+  out := io.await(cmd.output(io), e);
+  assert(!out.status.success(), "abnormal termination is not a success");
+  assert(out.status.code().is_none(), "signal death has NO exit code");
+  assert(out.status.signal() == i32(15), "SIGTERM recorded");
+});
+
+// ============================================================================
+// S3 P0 item 5: Child / spawn / Stdio / env (plans/STD_API_AUDIT.md)
+// ============================================================================
+test("spawn with piped stdin/stdout: write, EOF, read back, wait", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/cat`.to_string());
+  cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  assert(child.pid() > i32(0), "got a pid");
+  payload := `piped héllo`.to_string().as_bytes();
+  n := io.await(child.write_stdin(payload, io), e);
+  assert(n == usize(12), "wrote 12 UTF-8 bytes");
+  io.await(child.close_stdin(io), e);
+  out := io.await(child.read_stdout_to_end(io), e);
+  assert(out.len() == usize(12), "cat echoed everything");
+  assert(out(usize(0)) == u8(112), "p");
+  st := io.await(child.wait(io), e);
+  assert(st.success(), "cat exits 0");
+  assert(st.code().unwrap() == i32(0), "code Some(0)");
+});
+test("env override and env_clear reach the child", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/sh`.to_string());
+  cmd.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
+  cmd.env(`YO_CMD_TEST`.to_string(), `injected`.to_string());
+  out := io.await(cmd.output(io), e);
+  s := String.from_bytes(out.stdout);
+  assert(s.starts_with("injected-"), "override visible, HOME inherited");
+  assert(s.len() > usize(9), "HOME non-empty when inherited");
+  cmd2 := Command.new(`/bin/sh`.to_string());
+  cmd2.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
+  cmd2.env(`YO_CMD_TEST`.to_string(), `only`.to_string()).env_clear();
+  out2 := io.await(cmd2.output(io), e);
+  s2 := String.from_bytes(out2.stdout);
+  assert(s2 == `only-`, "env_clear drops HOME, keeps the override");
+});
+test("a signal death is code None, not exit 0", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/sleep`.to_string());
+  cmd.arg(`5`.to_string());
+  child := io.await(cmd.spawn(io), e);
+  k := child.kill(i32(9));
+  assert(k == i32(0), "kill delivered");
+  st := io.await(child.wait(io), e);
+  assert(st.code().is_none(), "signal death has NO exit code");
+  assert(st.signal() == i32(9), "SIGKILL recorded");
+  assert(st.success() == false, "not a success");
+});
+test("Stdio.Null discards child stdout", {
+  // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
+  // /bin/* paths besides — see issues/s3-fs-wrappers-windows-semantics-audit.md
+  // for the recorded Windows-coverage debt).
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/echo`.to_string());
+  cmd.arg(`discarded`.to_string()).stdout(Stdio.Null);
+  child := io.await(cmd.spawn(io), e);
+  st := io.await(child.wait(io), e);
+  assert(st.success(), "echo to /dev/null exits 0");
+});
+
+// ============================================================================
+// Command.current_dir — GENERATION A (runtime symbol only)
+// ============================================================================
+// `__yo_async_spawn_start_cwd` is the spawn shim with a working directory.
+// std cannot declare it yet: `yo build` compiles std with the SEED's emitted
+// runtime, which predates the symbol (plans/backlog/SEED_VERSION_AUTOMATION.md).
+// Tests run under the FRESH binary, so this file declares the extern itself
+// and proves the symbol spawns in the requested directory on every platform.
+// Generation B (after the seed bump) switches std/sys/process to it and adds
+// `Command.current_dir`.
+{ IoFuture } :: import("std/sys/future");
+IO_process :: import("std/sys/process");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+{ create_dir_all_str, remove_dir, remove_file } :: import("std/fs/dir");
+{ exists } :: import("std/fs/file");
+{ Path } :: import("std/path");
+extern(
+  "Yo",
+  __yo_async_spawn_start_cwd : (
+    fn(
+      file : *u8,
+      argv : *?*u8,
+      envp : ?*?*u8,
+      stdin_fd : i32,
+      stdout_fd : i32,
+      stderr_fd : i32,
+      cwd : ?*u8
+    ) -> IoFuture
+  )
+);
+test("__yo_async_spawn_start_cwd runs the child in the requested directory (current_dir generation A)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  dir := `yo_cwd_probe_dir`;
+  io.await(create_dir_all_str("yo_cwd_probe_dir", io), e);
+  // The child creates `marker.txt` in ITS cwd; the assertion is path-free.
+  storage := ArrayList(ArrayList(u8)).new();
+  cond(
+    (platform == Platform.Windows) => {
+      storage.push(`cmd.exe`.to_cstr());
+      storage.push(`/C`.to_cstr());
+      storage.push(`type nul > marker.txt`.to_cstr());
+    },
+    true => {
+      storage.push(`/bin/sh`.to_cstr());
+      storage.push(`-c`.to_cstr());
+      storage.push(`touch marker.txt`.to_cstr());
+    }
+  );
+  argc := storage.len();
+  argv_raw := malloc(sizeof(?*u8) * (argc + usize(1))).unwrap();
+  argv_buf := *(?*u8)(argv_raw);
+  j := usize(0);
+  while(runtime(j < argc), {
+    (argv_buf.add(j)).* = storage(j).ptr();
+    j = (j + usize(1));
+  });
+  (argv_buf.add(argc)).* = .None;
+  program_cstr := (argv_buf.add(usize(0))).*.unwrap();
+  cwd_c := dir.to_cstr();
+  pid := io.await(__yo_async_spawn_start_cwd(program_cstr, argv_buf, .None, i32(-1), i32(-1), i32(-1), cwd_c.ptr()), io);
+  assert(pid > i32(0), `spawn with cwd should return a pid, got ${pid}`);
+  status := io.await(IO_process.waitpid(pid, i32(0)), io);
+  assert(IO_process.exit_status(status) == i32(0), `child should exit 0, status ${status}`);
+  marker := Path.new(`yo_cwd_probe_dir/marker.txt`);
+  made := io.await(exists(marker, io), io);
+  assert(made, "the child must have run inside yo_cwd_probe_dir");
+  free(.Some(argv_raw));
+  io.await(remove_file(marker, io), e);
+  io.await(remove_dir(Path.new(dir), io), e);
+});
+// Generation B (the v0.2.20 seed carries the runtime symbol): the std surface.
+test("Command.current_dir runs the child in the requested directory (generation B)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  dir := `yo_cwd_probe_dir_b`;
+  io.await(create_dir_all_str("yo_cwd_probe_dir_b", io), e);
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(`type nul > marker.txt`);
+      c
+    },
+    true => {
+      c := Command.new(`/bin/sh`);
+      c.arg(`-c`);
+      c.arg(`touch marker.txt`);
+      c
+    }
+  );
+  cmd.current_dir(dir.to_string());
+  st := io.await(cmd.status(io), e);
+  assert(st.success(), "child exited 0");
+  marker := Path.new(`yo_cwd_probe_dir_b/marker.txt`);
+  made := io.await(exists(marker, io), io);
+  assert(made, "the child must have run inside yo_cwd_probe_dir_b");
+  io.await(remove_file(marker, io), e);
+  io.await(remove_dir(Path.new(dir), io), e);
+});
+// Regression (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md):
+// `output` used to drain stdout to EOF and only then stderr, so a child that
+// writes more than the pipe buffer (64 KiB) to stderr while stdout is still
+// open blocked in write(2) forever and the parent blocked in read — a silent
+// deadlock (the test runner runs every test child through `output`). Both
+// pipes are drained concurrently now: ~310 KiB of stderr, then one stdout
+// line, must complete with everything captured.
+test("Command.output drains stdout and stderr concurrently (large stderr does not deadlock)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := cond(
+    (platform == Platform.Windows) => {
+      // Same flood in cmd: ~305 KiB of stderr, then one stdout line. The
+      // runtime parks empty-pipe reads instead of blocking the loop
+      // (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md),
+      // so this exercises the parked-read path end to end.
+      c := Command.new(`cmd.exe`);
+      c.arg(`/C`);
+      c.arg(
+        `(for /L %i in (1,1,5000) do @echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2) & echo ok`
+      );
+      c
+    },
+    true => {
+      c := Command.new(`sh`);
+      c.arg(`-c`);
+      c.arg(`i=0; while [ $i -lt 5000 ]; do echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2; i=$((i+1)); done; echo ok`);
+      c
+    }
+  );
+  out := io.await(cmd.output(io), e);
+  assert(out.status.success(), "child exited 0");
+  assert(out.stderr.len() >= usize(300000), `stderr fully captured (got ${out.stderr.len()} bytes)`);
+  assert(out.stdout.len() >= usize(2), "stdout captured after the stderr flood");
+  assert(out.stdout(usize(0)) == u8(111), "o");
+  assert(out.stdout(usize(1)) == u8(107), "k");
 });

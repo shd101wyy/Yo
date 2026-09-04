@@ -12,6 +12,7 @@ fs_walker :: import("std/fs/walker");
 fs_dir :: import("std/fs/dir");
 fs_file :: import("std/fs/file");
 { temp_dir, path_join } :: import("../helper");
+{ platform, Platform } :: import("std/process");
 // ============================================================================
 // Helper to set up a test directory tree
 // ============================================================================
@@ -29,10 +30,10 @@ _setup_walk_tree :: (fn(root : String, io : Io, exn : Exception) -> unit)({
   io.await(fs_dir.create_dir_all(Path.new(sub), io), IoExn(io : io, exn : exn));
   deep := path_join(sub, `deep`);
   io.await(fs_dir.create_dir_all(Path.new(deep), io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), String.from("a"), io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), String.from("b"), io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(Path.new(path_join(sub, `c.txt`)), String.from("c"), io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(Path.new(path_join(deep, `d.txt`)), String.from("d"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(root, `a.txt`)), String.from("a"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(root, `b.txt`)), String.from("b"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(sub, `c.txt`)), String.from("c"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(deep, `d.txt`)), String.from("d"), io), IoExn(io : io, exn : exn));
 });
 _cleanup_walk_tree :: (fn(root : String, io : Io, exn : Exception) -> unit)({
   sub := path_join(root, `sub`);
@@ -51,7 +52,7 @@ _cleanup_walk_tree :: (fn(root : String, io : Io, exn : Exception) -> unit)({
 test("walk lists all entries recursively", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -79,7 +80,7 @@ test("walk lists all entries recursively", {
 test("walk_with max_depth limits traversal", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -91,7 +92,8 @@ test("walk_with max_depth limits traversal", {
   opts := WalkOptions(
     max_depth : .Some(u32(0)),
     follow_symlinks : false,
-    include_dirs : true
+    include_dirs : true,
+    pattern : .None
   );
   entries := io.await(fs_walker.walk_with(Path.new(root), opts, io), IoExn(io : io, exn : exn));
   unsafe(printf("  entries at depth 0 = %lld\n", i64(entries.len())));
@@ -111,7 +113,7 @@ test("walk_with max_depth limits traversal", {
 test("walk_with include_dirs false excludes directories", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -123,7 +125,8 @@ test("walk_with include_dirs false excludes directories", {
   opts := WalkOptions(
     max_depth : .None,
     follow_symlinks : false,
-    include_dirs : false
+    include_dirs : false,
+    pattern : .None
   );
   entries := io.await(fs_walker.walk_with(Path.new(root), opts, io), IoExn(io : io, exn : exn));
   unsafe(printf("  file-only entries = %lld\n", i64(entries.len())));
@@ -144,7 +147,7 @@ test("walk_with include_dirs false excludes directories", {
 // ============================================================================
 test("WalkOptions.defaults has expected values", {
   opts := WalkOptions.defaults();
-  assert(!(opts.follow_symlinks), "follow_symlinks should be false");
+  assert(!opts.follow_symlinks, "follow_symlinks should be false");
   assert(opts.include_dirs, "include_dirs should be true");
   max_is_none := match(opts.max_depth, .None => true, _ => false);
   assert(max_is_none, "max_depth should be None");
@@ -155,7 +158,7 @@ test("WalkOptions.defaults has expected values", {
 test("walk nonexistent returns error", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unsafe(printf("  got expected error\n"));
         unwind(());
       }
@@ -170,7 +173,7 @@ test("walk nonexistent returns error", {
 test("walk_cstr works with C string path", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -181,10 +184,116 @@ test("walk_cstr works with C string path", {
   root_cstr := root.to_cstr();
   root_c := root_cstr.ptr().unwrap();
   io.await(fs_dir.create_dir_all(Path.new(root), io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_file(Path.new(path_join(root, `x.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(root, `x.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
   entries := io.await(fs_walker.walk_cstr(root_c, io), IoExn(io : io, exn : exn));
   unsafe(printf("  walk_cstr entries = %lld\n", i64(entries.len())));
   assert(entries.len() == usize(1), "expected 1 entry");
   io.await(fs_dir.remove_file(Path.new(path_join(root, `x.txt`)), io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_dir(Path.new(root), io), IoExn(io : io, exn : exn));
+});
+test("walk_with follow_symlinks descends through directory symlinks", {
+  cond(
+    ((platform == Platform.Emscripten) || (platform == Platform.Windows)) => {
+      // Emscripten's FS emulation does not resolve symlinked directories
+      // through is_dir/realpath (observed on the wasm CI leg of PR #229), and
+      // on Windows the follow path is gated off in the walker until its
+      // primitives are verified —
+      // issues/walker-follow-symlinks-windows-unsupported.md.
+      unsafe(printf("  SKIP: follow_symlinks unsupported on this platform\n"));
+    },
+    true => {
+      // plans/STD_API_AUDIT.md C9: WalkOptions.follow_symlinks was declared and
+      // never read — a symlinked directory's contents never appeared. Tree:
+      //   root/real/inner.txt
+      //   root/link -> root/real
+      // With follow_symlinks the walk must surface link's target contents.
+      exn := Exception(
+        throw : (
+          err -> {
+            assert(false, `unexpected exception: ${err.to_string()}`);
+            unwind(());
+          }
+        )
+      );
+      root := path_join(temp_dir(), `yo_walker_follow_test`);
+      real := path_join(root, `real`);
+      lnk := path_join(root, `link`);
+      // Idempotent setup: a previously failed run leaves the tree behind and
+      // symlink() throws EEXIST.
+      lnk_exists := io.await(fs_file.exists(Path.new(lnk), io), io);
+      cond(
+        lnk_exists => {
+          io.await(fs_dir.remove_file(Path.new(lnk), io), IoExn(io : io, exn : exn));
+        },
+        true => ()
+      );
+      inner_exists := io.await(fs_file.exists(Path.new(path_join(real, `inner.txt`)), io), io);
+      cond(
+        inner_exists => {
+          io.await(fs_dir.remove_file(Path.new(path_join(real, `inner.txt`)), io), IoExn(io : io, exn : exn));
+        },
+        true => ()
+      );
+      io.await(fs_dir.create_dir_all(Path.new(real), io), IoExn(io : io, exn : exn));
+      io.await(fs_file.write_string(Path.new(path_join(real, `inner.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
+      io.await(fs_dir.symlink(Path.new(real), Path.new(lnk), io), IoExn(io : io, exn : exn));
+      opts := WalkOptions(max_depth : .None, follow_symlinks : true, include_dirs : true, pattern : .None);
+      entries := io.await(fs_walker.walk_with(Path.new(root), opts, io), IoExn(io : io, exn : exn));
+      found_via_link := false;
+      i := usize(0);
+      while(runtime(i < entries.len()), {
+        p := entries(i).path.to_string();
+        unsafe(printf("  entry: %s\n", p.to_cstr().ptr().unwrap()));
+        cond(
+          (p.contains(`/link/`) && p.ends_with(`inner.txt`)) => {
+            found_via_link = true;
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      assert(found_via_link, "follow_symlinks must surface link/inner.txt");
+      // The walk terminated at all — with a link cycle this would hang; covered
+      // implicitly by the followed-set guard. Cleanup:
+      io.await(fs_dir.remove_file(Path.new(lnk), io), IoExn(io : io, exn : exn));
+      io.await(fs_dir.remove_file(Path.new(path_join(real, `inner.txt`)), io), IoExn(io : io, exn : exn));
+      io.await(fs_dir.remove_dir(Path.new(real), io), IoExn(io : io, exn : exn));
+      io.await(fs_dir.remove_dir(Path.new(root), io), IoExn(io : io, exn : exn));
+    }
+  );
+});
+// ============================================================================
+// pattern option + glob() expansion (plans/STD_API_AUDIT.md D8 glob row)
+// ============================================================================
+test("walk_with pattern filters relative paths; glob() expands", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  base := temp_dir();
+  root := path_join(base, `yo_glob_root`.to_string());
+  io.await(fs_dir.create_dir_all(Path.new(path_join(root.clone(), `sub/inner`.to_string())), io), e);
+  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `a.txt`.to_string())), `a`.to_string(), io), e);
+  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `b.log`.to_string())), `b`.to_string(), io), e);
+  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `sub/inner/c.txt`.to_string())), `c`.to_string(), io), e);
+  // Shallow pattern: only the root-level .txt file.
+  opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .Some(`*.txt`.to_string()));
+  shallow := io.await(fs_walker.walk_with(Path.new(root.clone()), opts, io), e);
+  assert(shallow.len() == usize(1), "only a.txt matches *.txt");
+  assert(shallow(usize(0)).name == `a.txt`, "the right file");
+  // Deep pattern: ** crosses directories.
+  opts2 := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .Some(`**.txt`.to_string()));
+  deep := io.await(fs_walker.walk_with(Path.new(root.clone()), opts2, io), e);
+  assert(deep.len() == usize(2), "a.txt and sub/inner/c.txt");
+  // glob(): pattern carries the static base.
+  found := io.await(fs_walker.glob(`${root}/**.txt`.to_string(), io), e);
+  assert(found.len() == usize(2), "glob finds both txt files");
+  found2 := io.await(fs_walker.glob(`${root}/*.log`.to_string(), io), e);
+  assert(found2.len() == usize(1), "glob finds the log");
+  io.await(fs_walker.remove_dir_all(Path.new(root), io), e);
 });

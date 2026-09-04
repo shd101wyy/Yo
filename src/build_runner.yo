@@ -17,10 +17,15 @@ open(import("std/fmt"));
 // Imported under an alias: `args` collides with the `args` parameter/field used
 // throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
 _(args : proc_args) :: import("std/env");
-{ exists } :: import("std/fs/file");
+{ exists, read, write_string } :: import("std/fs/file");
+{ read_dir, DirEntry } :: import("std/fs/dir");
+{ sha256_hex } :: import("std/crypto/sha256");
+{ CURRENT_YO_VERSION } :: import("./version.yo");
+_(env : proc_env) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
-{ Command } :: import("std/process/command");
-{ mm_load_yo_file, mm_reset, get_std_path_override } :: import("./module_manager.yo");
+{ Command, Output, ExitStatus } :: import("std/process/command");
+{ yield } :: import("std/async");
+{ mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 {
   ArtifactKind,
@@ -94,27 +99,59 @@ ExecutionContext :: ref(
 /// `getGitVersion` (src/build-runner.ts:1417-1429), whose entire body is a
 /// try/catch returning undefined — the version is decoration on the "Building …"
 /// line, never a reason to fail a build.
+_git_output_task :: (fn(cmd : Command, io : Io) -> Impl(Future(Output, IoExn)))(
+  io.async((e : IoExn) => {
+    // Local swallow handler: a missing git / spawn failure must unwind THIS
+    // task (read as `.None` at the JoinHandle below), never reach the
+    // build's own handler and fail the build. The unwind payload must match
+    // the future's payload type — any other type fails def-eval and silently
+    // hollows this SM (the C22-adjacent swallow hole); the value itself is
+    // discarded, the task aborts either way.
+    swallow := Exception(
+      throw : (
+        (_e) -> unwind(
+          Output(
+            status : ExitStatus(raw : i32(0)),
+            stdout : ArrayList(u8).new(),
+            stderr : ArrayList(u8).new()
+          )
+        )
+      )
+    );
+    e.io.await(cmd.output(e.io), IoExn(io : e.io, exn : swallow))
+  })
+);
 _git_version :: (
   fn(
     project_dir : String,
     io : Io,
     exn : Exception
-  ) -> Option(String)
-)({
-  // `git -C <dir>` rather than a cwd on the Command — `std/process/command.yo`
-  // has no `current_dir`, and this is git's own equivalent of TS's
-  // `execSync(..., { cwd: projectDir })`.
-  cmd := Command.new(String.from("git"));
-  cmd.arg(String.from("-C"));
-  cmd.arg(project_dir);
-  cmd.arg(String.from("describe"));
-  cmd.arg(String.from("--tags"));
-  cmd.arg(String.from("--always"));
-  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
-  if(!(out.status.success()), return(Option(String).None));
-  v := String.from_bytes(out.stdout).trim();
-  if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
-});
+  ) -> Impl(Future(Option(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    // `git -C <dir>` rather than a cwd on the Command — `std/process/command.yo`
+    // has no `current_dir`, and this is git's own equivalent of TS's
+    // `execSync(..., { cwd: projectDir })`. The output future runs as a
+    // SPAWNED TASK polled with is_finished + yield: a blocking await from
+    // inside a task nests the event loop (C37), and awaiting an aborted
+    // future directly would discard this closure's continuation.
+    cmd := Command.new(String.from("git"));
+    cmd.arg(String.from("-C"));
+    cmd.arg(project_dir);
+    cmd.arg(String.from("describe"));
+    cmd.arg(String.from("--tags"));
+    cmd.arg(String.from("--always"));
+    t := e.io.spawn(_git_output_task(cmd, e.io), e);
+    while(runtime(!(t.is_finished())), {
+      e.io.await(yield(e.io), e.io);
+    });
+    out_opt := t.await(e.io);
+    out := match(out_opt, .Some(o) => o, .None => return(Option(String).None));
+    if(!(out.status.success()), return(Option(String).None));
+    v := String.from_bytes(out.stdout).trim();
+    if(v.len() == usize(0), Option(String).None, Option(String).Some(v))
+  })
+);
 /// The compiler binary to invoke for sub-steps (artifact compiles, test runs).
 ///
 /// `src/build-runner.ts` compiles IN PROCESS (`codeGenerator.compileModule`) —
@@ -211,7 +248,7 @@ _walk_dag :: (
   ) -> unit
 )({
   if(visited.contains_key(name), return(()));
-  visited.set(name, true);
+  visited.insert(name, true);
   match(
     registry.resolve_dependency(name.clone()),
     .None => {
@@ -229,19 +266,19 @@ _walk_dag :: (
           recur(registry, nodes, visited, linked);
           i = (i + usize(1));
         });
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
       },
       .Test(_t) => {
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Test, depends_on : ArrayList(String).new()));
       },
       .Run(run_step) => {
         deps := ArrayList(String).new();
         deps.push(run_step.artifact_name);
         recur(registry, nodes, visited, run_step.artifact_name);
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
       },
       .Doc(_d) => {
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Doc, depends_on : ArrayList(String).new()));
       },
       .Step(step) => {
         deps := ArrayList(String).new();
@@ -253,7 +290,7 @@ _walk_dag :: (
           recur(registry, nodes, visited, dep_name);
           i = (i + usize(1));
         });
-        nodes.set(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
+        nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
       }
     )
   );
@@ -295,11 +332,11 @@ _dfs_cycle :: (
     name : String
   ) -> Option(String)
 )({
-  color.set(name, _COLOR_GRAY);
+  color.insert(name, _COLOR_GRAY);
   match(
     node_map.get(name),
     .None => {
-      color.set(name, _COLOR_BLACK);
+      color.insert(name, _COLOR_BLACK);
       return(Option(String).None);
     },
     .Some(node) => {
@@ -326,7 +363,7 @@ _dfs_cycle :: (
       });
     }
   );
-  color.set(name, _COLOR_BLACK);
+  color.insert(name, _COLOR_BLACK);
   Option(String).None
 });
 /// Detect cycles in a DAG via DFS. Returns the cycle node name if found.
@@ -336,13 +373,13 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
   n := dag.len();
   while(i < n, {
     node := dag(i);
-    node_map.set(node.name, node);
+    node_map.insert(node.name, node);
     i = (i + usize(1));
   });
   color := HashMap(String, i32).new();
   i = usize(0);
   while(i < n, {
-    color.set(dag(i).name, _COLOR_WHITE);
+    color.insert(dag(i).name, _COLOR_WHITE);
     i = (i + usize(1));
   });
   i = usize(0);
@@ -366,6 +403,210 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
 // Artifact compilation
 // ---------------------------------------------------------------------------
 /// Compile a build artifact by invoking the Yo compiler.
+// ---------------------------------------------------------------------------
+// Artifact input cache (plans/INCREMENTAL_COMPILATION.md Phase A).
+// A compile is SKIPPED when the sha256 over (child argv + compiler version +
+// every project/std `.yo` file + yo.lock) matches the stamp recorded next to
+// the output on the last successful compile. Approximations, documented:
+// the system C compiler and vendor C sources are NOT stamped (the compiler
+// version + argv covers the yo side); delete yo-out or set
+// YO_BUILD_NO_CACHE=1 to bypass.
+// ---------------------------------------------------------------------------
+_read_dir_task :: (fn(dir : String, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(
+  io.async((e : IoExn) => {
+    // Local swallow handler: read_dir on a FILE (or a vanished dir) unwinds
+    // THIS task, read as `.None` at the JoinHandle below — that failure IS
+    // the dir-vs-file test, so no stat is needed (the readdir-order lesson
+    // still applies: names are sorted by the consumer). The unwind payload
+    // must match the future's payload type or def-eval fails and silently
+    // hollows this SM; the value is discarded, the task aborts either way.
+    swallow := Exception(throw : ((_e) -> unwind(ArrayList(DirEntry).new())));
+    e.io.await(read_dir(Path.new(dir.clone()), e.io), IoExn(io : e.io, exn : swallow))
+  })
+);
+/// Collect `*.yo` files under `dir`, skipping build outputs and VCS/tooling
+/// directories. Names are sorted per directory for a deterministic stamp —
+/// read_dir order is platform-dependent (the readdir-order lesson). Each
+/// directory's read_dir runs as a spawned task polled with is_finished +
+/// yield (a blocking await from inside a task nests the event loop, C37);
+/// breadth-first over a worklist, which visits exactly the recursion's set.
+_cache_collect_yo_files :: (
+  fn(dir : String, out : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    work := ArrayList(String).new();
+    work.push(dir.clone());
+    (wi : usize) = usize(0);
+    while(wi < work.len(), {
+      d := work(wi).clone();
+      wi = (wi + usize(1));
+      t := e.io.spawn(_read_dir_task(d.clone(), e.io), e);
+      while(runtime(!(t.is_finished())), {
+        e.io.await(yield(e.io), e.io);
+      });
+      entries := match(t.await(e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
+      names := ArrayList(String).new();
+      (i : usize) = usize(0);
+      while(i < entries.len(), {
+        match(
+          entries.get(i),
+          .Some(en) => {
+            names.push(en.name.clone());
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      names.sort();
+      (j : usize) = usize(0);
+      while(j < names.len(), {
+        name := names(j);
+        skip := (
+          (name == "yo-out") ||
+            ((name == ".git") || ((name == "node_modules") || (name.starts_with(String.from("tmp")))))
+        );
+        if(!(skip), {
+          full := Path.new(d.clone()).join(Path.new(name.clone())).to_string();
+          cond(
+            name.ends_with(String.from(".yo")) => {
+              out.push(full);
+            },
+            true => {
+              // Directories are queued; the next round's read_dir on a FILE
+              // unwinds its task (skipped above), so no stat is needed here.
+              if(!(name.contains(String.from("."))), {
+                work.push(full);
+              });
+            }
+          );
+        });
+        j = (j + usize(1));
+      });
+    });
+  })
+);
+_read_bytes_task :: (fn(path : String, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+  io.async((e : IoExn) => {
+    // Local swallow handler: an unreadable file unwinds THIS task, read as
+    // `.None` at the JoinHandle below. The unwind payload must match the
+    // future's payload type or def-eval fails and silently hollows this SM;
+    // the value is discarded, the task aborts either way.
+    swallow := Exception(throw : ((_e) -> unwind(ArrayList(u8).new())));
+    e.io.await(read(Path.new(path.clone()), e.io), IoExn(io : e.io, exn : swallow))
+  })
+);
+/// Read a file into the stamp accumulator; `.None` (file vanished mid-walk)
+/// disables the cache for this artifact rather than mis-stamping it.
+_cache_read_file :: (
+  fn(path : String, io : Io) -> Impl(Future(Option(ArrayList(u8)), IoExn))
+)(
+  io.async((e : IoExn) => {
+    t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
+    while(runtime(!(t.is_finished())), {
+      e.io.await(yield(e.io), e.io);
+    });
+    match(
+      t.await(e.io),
+      .Some(bytes) => Option(ArrayList(u8)).Some(bytes),
+      .None => Option(ArrayList(u8)).None
+    )
+  })
+);
+/// Append `s2` and a newline to the stamp accumulator. A module-level fn
+/// rather than a local closure, so the io.async body using it stays a plain
+/// statement sequence.
+_stamp_push_str :: (fn(dst : ArrayList(u8), s2 : String) -> unit)({
+  b := s2.as_bytes();
+  (bi : usize) = usize(0);
+  while(bi < b.len(), {
+    dst.push(b(bi));
+    bi = (bi + usize(1));
+  });
+  dst.push(u8(10));
+});
+/// The artifact's input stamp, or "" when stamping failed (cache disabled).
+_artifact_input_stamp :: (
+  fn(argv : ArrayList(String), project_dir : String, io : Io) -> Impl(Future(String, IoExn))
+)(
+  io.async((e : IoExn) => {
+    acc := ArrayList(u8).new();
+    _stamp_push_str(acc, `yo-version ${CURRENT_YO_VERSION}`);
+    sep := String.from(" ");
+    _stamp_push_str(acc, `argv ${sep.join(argv)}`);
+    files := ArrayList(String).new();
+    e.io.await(_cache_collect_yo_files(project_dir.clone(), files, e.io), e);
+    std_root := resolve_std_path();
+    if(std_root.len() > usize(0), {
+      e.io.await(
+        _cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), files, e.io),
+        e
+      );
+    });
+    lock_path := Path.new(project_dir.clone()).join(Path.new(String.from("yo.lock"))).to_string();
+    files.push(lock_path);
+    (fi : usize) = usize(0);
+    while(fi < files.len(), {
+      fpath := files(fi);
+      bytes_opt := e.io.await(_cache_read_file(fpath.clone(), e.io), e);
+      match(
+        bytes_opt,
+        .Some(bytes) => {
+          _stamp_push_str(acc, `${fpath} ${sha256_hex(bytes)}`);
+        },
+        .None => {
+          // yo.lock legitimately may not exist; any OTHER unreadable input
+          // disables the cache.
+          if(!(fpath.ends_with(String.from("yo.lock"))), {
+            return(String.new());
+          });
+        }
+      );
+      fi = (fi + usize(1));
+    });
+    sha256_hex(acc)
+  })
+);
+/// Read the recorded stamp next to an output, `.None` when absent.
+_read_stamp :: (fn(path : String, io : Io) -> Impl(Future(Option(String), IoExn)))(
+  io.async((e : IoExn) => {
+    t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
+    while(runtime(!(t.is_finished())), {
+      e.io.await(yield(e.io), e.io);
+    });
+    match(
+      t.await(e.io),
+      .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
+      .None => Option(String).None
+    )
+  })
+);
+_write_string_task :: (fn(path : String, data : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    // Local swallow handler: stamp write failures unwind THIS task, read as
+    // `.None` at the JoinHandle below (the cache is an optimization). The
+    // unwind payload matches the future's payload — write_string's own
+    // unit — or def-eval fails and silently hollows this SM.
+    swallow := Exception(throw : ((_e) -> unwind(())));
+    e.io.await(write_string(Path.new(path.clone()), data.clone(), e.io), IoExn(io : e.io, exn : swallow))
+  })
+);
+/// Record the stamp; failures are silent (the cache is an optimization).
+/// An EMPTY stamp (cache disabled or stamping failed) is still written: it
+/// truncates the previous stamp, making the next build a guaranteed cache
+/// miss — which is the correct outcome in both of those cases anyway.
+_write_stamp :: (fn(path : String, stamp : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    t := e.io.spawn(_write_string_task(path.clone(), stamp.clone(), e.io), e);
+    while(runtime(!(t.is_finished())), {
+      e.io.await(yield(e.io), e.io);
+    });
+    match(
+      t.await(e.io),
+      .Some(_u) => (),
+      .None => ()
+    )
+  })
+);
 compile_artifact :: (
   fn(
     artifact : BuildArtifact,
@@ -413,12 +654,13 @@ compile_artifact :: (
       ctx.registry.modules(usize(0)).name,
       artifact.name.clone()
     );
+    git_v := e.io.await(_git_version(ctx.project_dir.clone(), e.io, e.exn), e);
     version_suffix := match(
-      _git_version(ctx.project_dir.clone(), e.io, e.exn),
+      git_v,
       .Some(v) => ` ${v}`,
       .None => String.new()
     );
-    rel_output := Path.new(output_path.to_string()).relative_from(Path.new(ctx.project_dir.clone()));
+    rel_output := Path.new(output_path.to_string()).strip_prefix(Path.new(ctx.project_dir.clone()));
     lib_suffix := match(artifact.kind, .StaticLibrary => ".a", _ => "");
     println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
     cmd := Command.new(_self_exe());
@@ -459,7 +701,7 @@ compile_artifact :: (
     // builds for the host.
     //
     // Run 31875845879 is what that looks like: `yo build` for
-    // Wasm32_Emscripten produced yo-out/wasm32-emscripten/bin/hello-world.html
+    // Wasm32_Unknown_Emscripten produced yo-out/wasm32-unknown-emscripten/bin/hello-world.html
     // that was an 18 KB EXECUTABLE ELF — clang building natively, with the
     // wasm-shaped path and extension applied around it. No .js, no .wasm.
     //
@@ -503,7 +745,7 @@ compile_artifact :: (
     i = usize(0);
     n = artifact.include_paths.len();
     while(i < n, {
-      cmd.arg(String.from("--include"));
+      cmd.arg(String.from("-I"));
       cmd.arg(artifact.include_paths(i));
       i = (i + usize(1));
     });
@@ -513,10 +755,8 @@ compile_artifact :: (
     // every level except debug/release-safe, `mapOptimize` sends
     // release-safe/-small to -O2 and release-fast to -O3, allocator is passed
     // unconditionally, sanitize only when not "none".
-    is_release := ((artifact.optimize != "debug") && (artifact.optimize != "release-safe"));
-    if(is_release, {
-      cmd.arg(String.from("--release"));
-    });
+    // Only `--optimize <level>` is emitted: `yo compile` has no `--release`
+    // flag any more (it was a pure alias of `--optimize 2`, removed 2026-08-28).
     optimize_num := cond(
       (artifact.optimize == "release-safe") => String.from("2"),
       (artifact.optimize == "release-fast") => String.from("3"),
@@ -536,6 +776,14 @@ compile_artifact :: (
     if(artifact.emit_c_to.len() > usize(0), {
       cmd.arg(String.from("--emit-c-to"));
       cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(artifact.emit_c_to.clone())).to_string());
+    });
+    // Chunked C emission (plans/CHUNKED_C_EMISSION.md): 0 = off, which is the
+    // default, so an unset field adds nothing to the child argv and the
+    // emission stays byte-identical. The Phase A artifact stamp hashes this
+    // argv, so flipping the field invalidates the build cache for free.
+    if(artifact.emit_chunks > usize(0), {
+      cmd.arg(String.from("--emit-chunks"));
+      cmd.arg(artifact.emit_chunks.to_string());
     });
     if(artifact.sanitize != "none", {
       cmd.arg(String.from("--sanitize"));
@@ -582,11 +830,48 @@ compile_artifact :: (
     // with: …" lines and every clang diagnostic land on the build's own stdout.
     // Capturing them hid compile errors from the user entirely unless the whole
     // step failed.
+    // Every await-bearing step below is a TOP-LEVEL statement of this
+    // async closure ON PURPOSE: an await nested inside an if-branch here
+    // silently lost its continuation (the cache-skip block after it never
+    // ran) — issues/async-await-in-nested-if-drops-continuation.md. The
+    // unconditional exists()/read are harmless when the cache is disabled.
+    cache_enabled := match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v != "1"), .None => true);
+    // The stamp is computed unconditionally (a top-level await on purpose —
+    // see the comment above) and only USED when the cache is enabled; the
+    // walk is exactly the work a cached build needs, and YO_BUILD_NO_CACHE
+    // remains the escape hatch for it.
+    stamp_raw := e.io.await(_artifact_input_stamp(cmd._args, ctx.project_dir.clone(), e.io), e);
+    stamp := cond(
+      cache_enabled => stamp_raw,
+      true => String.new()
+    );
+    stamp_path := `${output_path.to_string()}.inputs-sha256`;
+    // The static-library child appends `.a` itself (the same suffix the
+    // Building line shows), so the existence probe must too — without it a
+    // static-library artifact could never cache-hit.
+    out_exists := e.io.await(exists(Path.new(`${output_path.to_string()}${lib_suffix}`), e.io), e.io);
+    prev_stamp := e.io.await(_read_stamp(stamp_path.clone(), e.io), e);
+    stamp_matches := match(prev_stamp, .Some(prev) => (prev == stamp), .None => false);
+    use_cache := (((cache_enabled && (stamp.len() > usize(0))) && out_exists) && stamp_matches);
+    if(use_cache, {
+      println(`  (cached: inputs unchanged, skipping compile)`);
+      return(Result(unit, String).Ok(()));
+    });
     st := e.io.await(cmd.status(e.io), e);
-    if(st.success(), Result(unit, String).Ok(()), {
-      code := st.code();
-      Result(unit, String).Err(`Compilation failed (exit ${code})`)
-    })
+    // The write decision is DATA, not a branch: an empty stamp (cache off or
+    // stamping failed) is written as-is and truncates — see _write_stamp.
+    stamp_to_write := cond(
+      ((st.success() && cache_enabled) && (stamp.len() > usize(0))) => stamp.clone(),
+      true => String.new()
+    );
+    _ := e.io.await(_write_stamp(stamp_path.clone(), stamp_to_write, e.io), e);
+    cond(
+      st.success() => Result(unit, String).Ok(()),
+      true => {
+        code := st.code().unwrap_or(i32(-1));
+        Result(unit, String).Err(`Compilation failed (exit ${code})`)
+      }
+    )
   })
 );
 // ---------------------------------------------------------------------------
@@ -659,7 +944,7 @@ run_executable :: (
     st := e.io.await(cmd.status(e.io), e);
     _cd_back := chdir(Path.new(prev_dir));
     if(st.success(), Result(unit, String).Ok(()), {
-      code := st.code();
+      code := st.code().unwrap_or(i32(-1));
       Result(unit, String).Err(`Executable exited with code ${code}`)
     })
   })
@@ -710,18 +995,24 @@ run_test_suite :: (
       );
       exi = (exi + usize(1));
     });
-    if(suite.verbose, cmd.arg(String.from("--verbose")));
-    if(suite.bail, cmd.arg(String.from("--bail")));
+    if(suite.verbose, {
+      _arg_c := cmd.arg(String.from("--verbose"));
+    });
+    if(suite.bail, {
+      _arg_c := cmd.arg(String.from("--bail"));
+    });
     if(suite.parallel > i32(1), {
       cmd.arg(String.from("--parallel"));
       cmd.arg(suite.parallel.to_string());
     });
-    if(ctx.verbose, cmd.arg(String.from("--verbose")));
+    if(ctx.verbose, {
+      _arg_c := cmd.arg(String.from("--verbose"));
+    });
     // Streamed, not captured — `runTestSuite` in src/build-runner.ts inherits
     // stdio, so the test runner's own report is the point of running it.
     st := e.io.await(cmd.status(e.io), e);
     if(st.success(), Result(unit, String).Ok(()), {
-      code := st.code();
+      code := st.code().unwrap_or(i32(-1));
       Result(unit, String).Err(`Tests failed (exit ${code})`)
     })
   })
@@ -901,7 +1192,7 @@ execute_dag :: (
     while(i < n, {
       node := dag(i);
       if(!(in_degree.contains_key(node.name)), {
-        in_degree.set(node.name, i32(0));
+        in_degree.insert(node.name, i32(0));
       });
       j := usize(0);
       nd := node.depends_on.len();
@@ -918,7 +1209,7 @@ execute_dag :: (
         });
         if(dep_in_dag, {
           cur := in_degree.get(node.name).unwrap_or(i32(0));
-          in_degree.set(node.name, cur + i32(1));
+          in_degree.insert(node.name, cur + i32(1));
         });
         j = (j + usize(1));
       });
@@ -944,14 +1235,14 @@ execute_dag :: (
       while(k < rn, {
         node := ready(k);
         result := e.io.await(execute_node(node, ctx, e.io, e.exn), e);
-        results.set(node.name, result);
+        results.insert(node.name, result);
         k = (k + usize(1));
       });
       // Mark complete and update in-degrees
       k = usize(0);
       while(k < rn, {
         completed_name := ready(k).name;
-        completed.set(completed_name, true);
+        completed.insert(completed_name, true);
         // Decrement in-degree of all not-yet-completed nodes that depend on this
         m := usize(0);
         while(m < n, {
@@ -963,7 +1254,7 @@ execute_dag :: (
               dep := other.depends_on(j);
               if(dep == completed_name, {
                 cur := in_degree.get(other.name).unwrap_or(i32(1));
-                in_degree.set(other.name, cur - i32(1));
+                in_degree.insert(other.name, cur - i32(1));
               });
               j = (j + usize(1));
             });
@@ -1061,7 +1352,7 @@ print_build_summary :: (
       j := usize(0);
       while(j < n, {
         nd := dag(j);
-        node_map.set(nd.name, nd);
+        node_map.insert(nd.name, nd);
         j = (j + usize(1));
       });
       _print_summary_node(dag(i), results, node_map, String.new(), String.new(), true);

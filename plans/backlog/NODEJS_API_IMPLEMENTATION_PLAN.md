@@ -18,8 +18,7 @@ This document outlines the plan to implement Node.js-like APIs in Yo, making it 
 | `std/async.yo`                   | Async primitives | ✅ Basic    | `yield`                      |
 | `std/time.yo`                    | Time utilities   | ⚠️ Minimal  | Only `sleep`                 |
 | `std/sync.yo`                    | Sync primitives  | ⚠️ Basic    | Mutex, etc.                  |
-| `std/thread.yo`                  | Threading        | ⚠️ Basic    |                              |
-| `std/worker.yo`                  | Worker threads   | ⚠️ Basic    |                              |
+| `std/thread.yo`                  | Threading        | ⚠️ Basic    | `Thread` + `ThreadPool` (`std/worker.yo` merged in 2026-08-26) |
 
 ### libc Bindings Available
 

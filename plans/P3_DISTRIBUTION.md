@@ -5,6 +5,51 @@
 as `P1_CLI_PARITY.md`/`P2_RETIRE_SRC.md`: measured numbers, live status,
 traps recorded as found. Drafted 2026-08-11; **item 1 landed 2026-08-12**.
 
+## Status 2026-08-21 — every item PROVEN by shipped releases; only the gate run remains
+
+**v0.2.14 (2026-08-21) is the first release through the fully reworked
+machinery, and every leg was green on the first dispatch:**
+
+- **musl-only Linux** (#190): `linux-x64-musl` + `linux-arm64-musl` are the
+  ONLY Linux bundles — the glibc `seed-bundles` job is deleted. `install.sh`
+  is musl-first with a pre-musl fallback; `version_cache` retries the pre-musl
+  name on 404 (x64: v0.2.7+, arm64: v0.2.12+ have musl assets).
+- **Per-target portable `yo.c`** (#193): six `yo-v0.2.14-<target>.c.gz`
+  assets published; the merged assembly is kept as a gate but no longer
+  uploaded (download/disk win 30→6 MiB — compile time measured at 1%).
+- **windows-arm64** is a full, non-experimental leg (first bundle shipped in
+  v0.2.13; second in v0.2.14).
+
+**Asset names move to canonical target triples** from the release after v0.2.18
+— `yo-v0.2.19-aarch64-apple-darwin.tar.gz`,
+`yo-v0.2.19-x86_64-pc-windows-msvc.tar.gz`,
+`yo-v0.2.19-x86_64-unknown-linux-musl.tar.gz` and the matching `.c.gz` stems.
+The Windows bundles really are MSVC-ABI, and the unqualified `windows-x64` said
+nothing about that while Linux already qualified itself with `-musl`. The
+compiler's own `--target` vocabulary is NOT affected. Full decision, the mapping
+table, and where the name is produced and consumed:
+`plans/RELEASE_ASSET_TRIPLES.md`.
+
+**The language suite now runs on ALL SIX targets, per PR** — Linux both
+arches natively, and macos-arm64/macos-x64/windows-x64/windows-arm64 via the
+cross-emit chain in test.yml (`suite-candidate` → `suite-cross-emit` →
+`test-native`; the candidate cross-emits per-target C, native runners compile
+and run the full corpus). The route landed as the weekly
+`suite-cross-targets.yml` (#194) and was promoted into test.yml per-PR on
+2026-08-21 after three consecutive all-green runs (the weekly workflow is
+deleted as superseded). Its first runs surfaced and then gated two real
+Windows bugs:
+`issues/fixed/test-runner-windows-batch-cleanup-exe-lock.md` (#195) and
+`issues/fixed/native-windows-compile-trusts-clang-default-triple.md` (#196 —
+an x64 LLVM under Windows-on-ARM emulation defaults to x86_64, so native
+Windows compiles now pin `--target=` explicitly). Run 3 (32421399142): all
+four native legs green.
+
+Still open before this doc can close: the **Gate** below (fresh-VM
+`curl … | sh` → `yo init && yo build test` per platform, Alpine included) has
+not been executed in its literal form, and item 1's optional `--vscode` flag
+remains unbuilt.
+
 ## CRITICAL PATH 2026-08-15 — cutting a release is now the blocker
 
 Four P3 deliverables are built, committed and CI-verified, and every one of them
@@ -311,7 +356,8 @@ Checklist status, against the three items named above:
 
 Measured against the **shipped v0.2.12 bundles** by
 `.github/workflows/probe-musl-stack.yml` (dispatch-only; runs 32340613649 and
-32340649947). Both bundles were confirmed `statically linked` before the probe
+32340649947; the workflow was removed 2026-08-21 after the same probe script
+became a per-PR step in test.yml's musl job — the results stand recorded here). Both bundles were confirmed `statically linked` before the probe
 ran:
 
 | target | `YO_MAIN_STACK_MB=1` | `=64` | verdict |
@@ -331,6 +377,31 @@ reporting a confident, meaningless pass.
 A/B runs disagree on sign), the emitted C is byte-identical, and static-linking
 caveats do not apply because the compiler shells out to `curl` rather than
 linking a resolver. Nothing remains to measure.
+
+### Musl-only migration — EXECUTED 2026-08-20 (branch `release/musl-only-linux`)
+
+The migration is a REMOVAL, not a rename — the musl bundles keep their `-musl`
+suffix and the glibc bundles stop being published:
+
+- `release.yml`: the glibc `seed-bundles` job (its only two legs were
+  linux-x64/linux-arm64) is DELETED. What it carried moved into `musl-bundle`,
+  which is now THE Linux release leg pair: the stage-2 re-emit gate runs
+  against the static candidate, and the portable-c arms (`linux-x64`,
+  `linux-arm64`, system-allocator flavored as before) are emitted at the end
+  of that job. `portable-c` and `publish-release` needs rewired.
+- `install.sh`: musl-first on EVERY Linux (the static bundle runs on glibc
+  hosts too), with the glibc name as a fallback for releases that predate the
+  musl legs (x64: v0.2.7+, arm64: v0.2.12+).
+- `src/version_cache.yo`: `host_bundle_name` appends `-musl` on Linux;
+  `download_version` falls back to the pre-musl name on 404 so old versions
+  stay installable.
+- `install-seed` action: Linux seeds are the musl bundles (static — no
+  liburing.so needed to run them).
+- `test.yml` musl job: the stack-sizing probe
+  (`scripts/bootstrap/probe-stack-sizing.sh`) now runs per PR inside Alpine —
+  the gate this section answered, kept honest continuously.
+
+First release with no glibc Linux bundles: the one cut after this lands.
 
 ### The question, and the two attempts that failed to answer it (historical)
 

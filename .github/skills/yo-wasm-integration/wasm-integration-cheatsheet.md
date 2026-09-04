@@ -6,9 +6,9 @@ Patterns for building Yo libraries as WebAssembly modules and consuming them fro
 
 | Target               | Command                                            | Output                        |
 | -------------------- | -------------------------------------------------- | ----------------------------- |
-| Emscripten (browser) | `yo compile src/api.yo --cc emcc --release -o api` | `.js` + `.wasm`               |
-| WASI (standalone)    | `yo compile src/api.yo --target wasm-wasi -o api`  | `.wasm` (runs via `wasmtime`) |
-| Native (testing)     | `yo compile src/api.yo --release -o api`           | Native binary                 |
+| Emscripten (browser) | `yo compile src/api.yo --cc emcc --optimize 2 -o api` | `.js` + `.wasm`               |
+| WASI (standalone)    | `yo compile src/api.yo --target wasm32-wasip1 -o api`  | `.wasm` (runs via `wasmtime`) |
+| Native (testing)     | `yo compile src/api.yo --optimize 2 -o api`           | Native binary                 |
 
 ## WASM API design pattern
 
@@ -94,7 +94,7 @@ build :: import("std/build");
 wasm_api :: build.executable({
   name: "my_lib_wasm_api",
   root: "./src/wasm_api.yo",
-  target: build.CompilationTarget.Wasm32_Emscripten,
+  target: build.CompilationTarget.Wasm32_Unknown_Emscripten,
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.System
 });
@@ -104,7 +104,7 @@ install :: build.step("install", "Build WASM module");
 install.depend_on(wasm_api);
 ```
 
-Available targets: `Wasm32_Emscripten`, `Wasm32_Wasi`, `X86_64_Linux_Gnu`, `Aarch64_Macos`, etc.
+Available targets: `Wasm32_Unknown_Emscripten`, `Wasm32_Wasip1`, `X86_64_Unknown_Linux_Gnu`, `Aarch64_Apple_Darwin`, etc.
 Available optimizations: `Debug`, `ReleaseSafe`, `ReleaseFast`, `ReleaseSmall`.
 Available allocators: `Mimalloc` (default), `System`.
 
@@ -225,13 +225,13 @@ function readStringWithStoredLength(mod, ptr, lenPtr) {
 
 ```bash
 # Test native first (fast iteration, AddressSanitizer)
-yo compile src/wasm_api.yo --release --sanitize address -o test && ./test
+yo compile src/wasm_api.yo --optimize 2 --sanitize address -o test && ./test
 
 # Test Emscripten WASM
-yo compile src/wasm_api.yo --cc emcc --release -o npm/my_lib_wasm_api
+yo compile src/wasm_api.yo --cc emcc --optimize 2 -o npm/my_lib_wasm_api
 
 # Test WASI
-yo compile src/wasm_api.yo --target wasm-wasi -o test.wasm && wasmtime test.wasm
+yo compile src/wasm_api.yo --target wasm32-wasip1 -o test.wasm && wasmtime test.wasm
 
 # Run npm package tests
 cd npm && node -e "const m = require('.'); m.createRenderer().render('hello').then(console.log)"
@@ -248,6 +248,6 @@ cd npm && node -e "const m = require('.'); m.createRenderer().render('hello').th
 - **WASM memory growth**: Always use `-sALLOW_MEMORY_GROWTH=1` for dynamic allocations.
 - **Trailing null bytes**: If your Yo code writes null-terminated strings, the JavaScript reader must know to stop at `\0` or use explicit length.
 - **Native testing first**: Always debug with `--sanitize address` on native before switching to WASM — error messages are much clearer.
-- **The output EXTENSION picks emcc's output format — `--target` does not.** `emcc -o out.bin` emits **JavaScript** even under `--target wasm-wasi`; you get a standalone module only from `-o out.wasm` (and JS glue + a sibling `.wasm` from `-o out.js`). A pipeline that names its artifact with an unrecognized extension silently produces the wrong kind of output, and the failure surfaces much later as `permission denied` when something tries to `execve` the JS. Verify with `file <artifact>` before blaming the runner. This is what broke the self-hosted test runner's wasm batches (`issues/yo-self-test-runner-cannot-run-wasm-batches.md`).
+- **The output EXTENSION picks emcc's output format — `--target` does not.** `emcc -o out.bin` emits **JavaScript** even under `--target wasm32-wasip1`; you get a standalone module only from `-o out.wasm` (and JS glue + a sibling `.wasm` from `-o out.js`). A pipeline that names its artifact with an unrecognized extension silently produces the wrong kind of output, and the failure surfaces much later as `permission denied` when something tries to `execve` the JS. Verify with `file <artifact>` before blaming the runner. This is what broke the self-hosted test runner's wasm batches (`issues/yo-self-test-runner-cannot-run-wasm-batches.md`).
 - **A wasm artifact is not executable**: WASI runs under `wasmtime` (grant `--dir` per directory it touches — deny-by-default — and pass env with `--env`, since the guest inherits nothing), Emscripten under `node`.
 - **Don't pass `-fsanitize=address` to emcc.** Decide from the _resolved_ compiler, not the `--c-compiler` flag: selecting wasm via `--target` alone leaves the flag empty, so a string test like `cc != "emcc"` wrongly reports a native build.

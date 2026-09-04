@@ -1,0 +1,29 @@
+//! The key/value entry shared by every map in the standard library.
+//!
+//! `HashMap`, `BTreeMap`, `OrderedMap` and `imm.Map` each used to declare their
+//! own identical `struct(key, value)` under a different name — `Bucket`,
+//! `BTreeEntry`, `OrderedMapEntry` and `Pair` respectively. One concept with
+//! four names meant an entry could not move between maps, and a reader could
+//! not tell from a signature whether two of them were the same shape. They are
+//! now this one type (plans/STD_API_AUDIT.md D2, §5).
+//!
+//! Not to be confused with the prelude's `IterPair(A, B)`, which is
+//! `struct(_0, _1)` — a POSITIONAL pair produced by `zip`. A map entry is
+//! named: it has a `key` and a `value`.
+//!
+//! ## Example
+//!
+//! ```rust
+//! { MapEntry } :: import("std/collections/entry");
+//!
+//! e := MapEntry(String, i32)(key : `hits`, value : i32(3));
+//! println(e.value);
+//! ```
+/// A single key/value entry in a map.
+MapEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    key : K,
+    value : V
+  )
+);
+export(MapEntry);

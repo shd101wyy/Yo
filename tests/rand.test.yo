@@ -1,0 +1,88 @@
+//! std/rand — seedable PCG-XSH-RR 64/32, pinned to the pcg-random.org
+//! reference sequence for (seed 42, stream 54)
+//! (plans/STD_API_AUDIT.md §7 P0 item 7).
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ Rng } :: import("std/rand");
+
+test("PCG32 reference sequence for seed 42, stream 54", {
+  r := Rng.with_stream(u64(42), u64(54));
+  assert(r.next_u32() == u32(0xa15c02b7), "draw 1");
+  assert(r.next_u32() == u32(0x7b47f409), "draw 2");
+  assert(r.next_u32() == u32(0xba1d3330), "draw 3");
+  assert(r.next_u32() == u32(0x83d2f293), "draw 4");
+  assert(r.next_u32() == u32(0xbfa4784b), "draw 5");
+  assert(r.next_u32() == u32(0xcbed606e), "draw 6");
+});
+test("same seed reproduces; different stream diverges", {
+  a := Rng.new(u64(7));
+  b := Rng.new(u64(7));
+  assert(a.next_u64() == b.next_u64(), "reproducible");
+  c := Rng.with_stream(u64(7), u64(99));
+  d := Rng.new(u64(7));
+  assert(c.next_u64() != d.next_u64(), "streams independent");
+});
+test("next_u64 and next_f64 compose from the reference draws", {
+  r := Rng.with_stream(u64(42), u64(54));
+  assert(r.next_u64() == ((u64(0xa15c02b7) << u64(32)) | u64(0x7b47f409)), "hi<<32 | lo of draws 1-2");
+  r2 := Rng.with_stream(u64(42), u64(54));
+  f := r2.next_f64();
+  assert((f >= f64(0.6303102)) && (f < f64(0.6303103)), "53-bit float in [0,1)");
+});
+test("next_below and range stay in bounds and hit every residue", {
+  r := Rng.new(u64(123));
+  seen := ArrayList(bool).new();
+  (si : usize) = usize(0);
+  while(si < usize(6), si = (si + usize(1)), {
+    seen.push(false);
+  });
+  (i : usize) = usize(0);
+  while(i < usize(200), i = (i + usize(1)), {
+    v := r.range(i64(1), i64(7));
+    assert((v >= i64(1)) && (v < i64(7)), "die roll in [1,7)");
+    seen(usize(v - i64(1))) = true;
+  });
+  (all_hit : bool) = true;
+  (ci : usize) = usize(0);
+  while(ci < usize(6), ci = (ci + usize(1)), {
+    cond(
+      seen(ci) => (),
+      true => {
+        all_hit = false;
+      }
+    );
+  });
+  assert(all_hit, "200 rolls hit all six faces");
+});
+test("shuffle permutes in place; choice picks a member", {
+  r := Rng.new(u64(9));
+  xs := ArrayList(i32).new();
+  (i : usize) = usize(0);
+  while(i < usize(20), i = (i + usize(1)), {
+    xs.push(i32(i));
+  });
+  r.shuffle(xs);
+  assert(xs.len() == usize(20), "length preserved");
+  // Every original element still present exactly once.
+  (sum : i32) = i32(0);
+  (moved : bool) = false;
+  (j : usize) = usize(0);
+  while(j < usize(20), j = (j + usize(1)), {
+    sum = (sum + xs(j));
+    cond(
+      (xs(j) != i32(j)) => {
+        moved = true;
+      },
+      true => ()
+    );
+  });
+  assert(sum == i32(190), "same multiset (sum 0..19)");
+  assert(moved, "at least one element moved (20! odds say always)");
+  match(
+    r.choice(xs),
+    .Some(v) => assert((v >= i32(0)) && (v < i32(20)), "choice is a member"),
+    .None => assert(false, "non-empty choice")
+  );
+  empty := ArrayList(i32).new();
+  assert(r.choice(empty).is_none(), "empty choice is None");
+});

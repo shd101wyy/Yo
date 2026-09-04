@@ -20,14 +20,10 @@ generate_typeid :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   type_c_name := match(context.base.get_type_c_name(type_id.clone()), .Some(cn) => cn, .None => get_type_string(ty, context.base));
   static_var_name := String.from("__yo_typeid_");
   static_var_name.push_string(sanitize_for_c_identifier(type_c_name, false));
-  if(!(context.base.type_id_static_names.contains(static_var_name.clone())), {
-    _n := context.base.type_id_static_names.add(static_var_name.clone());
-    _r := context.base.type_id_statics.set(type_id.clone(), static_var_name.clone());
-    decl := String.from("static const char ");
-    decl.push_string(static_var_name.clone());
-    decl.push_str(" = 0;");
-    em := context.base.emitter;
-    em.emit_declaration_string_line(decl);
+  if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
+    _n := context.base.type_id_static_names.insert(static_var_name.clone());
+    _r := context.base.type_id_statics.insert(type_id.clone(), static_var_name.clone());
+    context.base.emit_typeid_static(static_var_name.clone(), String.new());
   });
   context.base.add_c_include(String.from("<stdint.h>"));
   out := String.from("(uintptr_t)&");

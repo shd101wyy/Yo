@@ -70,9 +70,7 @@ evaluate_yo_array_fill :: (
         dyn(
           format_error_message(
             ast_expr_token(array_type_arg),
-            String.from("__yo_array_fill: failed to evaluate array type argument"),
-            false,
-            .None
+            String.from("__yo_array_fill: failed to evaluate array type argument")
           )
         )
       );
@@ -94,23 +92,19 @@ evaluate_yo_array_fill :: (
         dyn(
           format_error_message(
             ast_expr_token(array_type_arg),
-            String.from("__yo_array_fill expects first argument to be an ArrayType"),
-            false,
-            .None
+            String.from("__yo_array_fill expects first argument to be an ArrayType")
           )
         )
       );
       TypeValue.TypeUni(usize(0))
     }
   );
-  if(!(is_array_type(array_type_tv)), {
+  if(!is_array_type(array_type_tv), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(array_type_arg),
-          `__yo_array_fill expects first argument to be an ArrayType, got ${type_to_string(array_type_tv)}`,
-          false,
-          .None
+          `__yo_array_fill expects first argument to be an ArrayType, got ${type_to_string(array_type_tv)}`
         )
       )
     );
@@ -137,9 +131,7 @@ evaluate_yo_array_fill :: (
         dyn(
           format_error_message(
             ast_expr_token(fill_value_arg),
-            String.from("Failed to evaluate fill value"),
-            false,
-            .None
+            String.from("Failed to evaluate fill value")
           )
         )
       );
@@ -148,14 +140,12 @@ evaluate_yo_array_fill :: (
   );
   cur_env = fv_info.env;
   // Check type compatibility of fill value with element type.
-  if(!(are_types_compatible(fv_info.ty, element_type)), {
+  if(!are_types_compatible(fv_info.ty, element_type), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(fill_value_arg),
-          `Fill value type ${type_to_string(fv_info.ty)} is not compatible with array element type ${type_to_string(element_type)}`,
-          false,
-          .None
+          `Fill value type ${type_to_string(fv_info.ty)} is not compatible with array element type ${type_to_string(element_type)}`
         )
       )
     );
@@ -169,9 +159,7 @@ evaluate_yo_array_fill :: (
         dyn(
           format_error_message(
             ast_expr_token(fill_value_arg),
-            String.from("__yo_array_fill expects second argument to be a compile-time known value, got runtime value"),
-            false,
-            .None
+            String.from("__yo_array_fill expects second argument to be a compile-time known value, got runtime value")
           )
         )
       );

@@ -9,7 +9,7 @@
 //! This mirrors `src/version.ts`.
 open(import("std/string"));
 { Path } :: import("std/path");
-{ exists, read_string } :: import("std/fs/file");
+{ exists, read_to_string } :: import("std/fs/file");
 { AnyError, Exception, IoExn } :: import("std/error");
 /// The name of the version pin file.
 YO_VERSION_FILE :: ".yo-version";
@@ -19,7 +19,7 @@ YO_VERSION_FILE :: ".yo-version";
 /// version"). It used to have to match the now-deleted root `package.json`.
 ///
 /// Update this constant when the compiler version changes.
-CURRENT_YO_VERSION :: "0.2.12";
+CURRENT_YO_VERSION :: "0.2.23";
 /// Get the current Yo version string.
 current_yo_version :: (fn() -> str)(CURRENT_YO_VERSION);
 // ---------------------------------------------------------------------------
@@ -36,7 +36,7 @@ _all_digits :: (fn(s : String, start : usize, end_pos : usize) -> bool)({
       .None => false,
       .Some(b) => ((b >= u8(48)) && (b <= u8(57)))
     );
-    if(!(is_digit), {
+    if(!is_digit, {
       ok = false;
     });
     i = (i + usize(1));
@@ -107,9 +107,9 @@ parse_yo_version :: (fn(content : String) -> Result(String, String))({
               .Some(b) => ((b >= u8(48)) && (b <= u8(57)))
             )
           );
-          if(!(major_ok)
-          || !(minor_ok)
-          || !(patch_ok), {
+          if(!major_ok
+          || !minor_ok
+          || !patch_ok, {
             return(.Err(`Invalid version "${version}" in .yo-version. Expected semver like "0.1.12".`));
           });
           .Ok(version)
@@ -139,7 +139,7 @@ find_yo_version_file :: (
         result = .Some(candidate);
         keep_going = false;
       });
-      if(!(found), {
+      if(!found, {
         parent_opt := current.parent();
         match(
           parent_opt,
@@ -173,7 +173,7 @@ read_yo_version :: (
       path_opt,
       .None => Option(String).None,
       .Some(path) => {
-        content := e.io.await(read_string(path, e.io), e);
+        content := e.io.await(read_to_string(path, e.io), e);
         match(
           parse_yo_version(content),
           // msg.clone(): the abort-dispose of this state machine replays the

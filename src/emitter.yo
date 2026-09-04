@@ -51,7 +51,7 @@ _emitter_is_minted_temp :: (fn(cn : String) -> bool)({
 /// parens (not in `<type> <name> =` position), so genuine never-declared phantoms
 /// are never recorded. See issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
 _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> unit)({
-  if(!(line.contains(String.from("_temp_"))), {
+  if(!line.contains(String.from("_temp_")), {
     return(());
   });
   eq_opt := line.index_of(String.from(" = "));
@@ -85,7 +85,7 @@ _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> un
       });
       name := line.substring(ns, eq);
       if(_emitter_is_minted_temp(name.clone()), {
-        _r := set.add(name);
+        _r := set.insert(name);
       });
     }
   )
@@ -94,7 +94,7 @@ _emitter_record_declared_temp :: (fn(set : HashSet(String), line : String) -> un
 /// sentinel — i.e. close one C block, discarding the names it declared.
 _emitter_pop_block :: (fn(stack : ArrayList(String)) -> unit)({
   (done : bool) = false;
-  while(!(done) && (stack.len() > usize(0)), {
+  while(!done && (stack.len() > usize(0)), {
     match(
       stack.pop(),
       .Some(v) => if(v == "{", {
@@ -174,7 +174,7 @@ _emitter_track_scope :: (fn(stack : ArrayList(String), line : String) -> unit)({
   // before their C declaration (the regex.test.yo `undeclared m2` cluster).
   // ASCII structural bytes cannot occur inside UTF-8 continuation sequences,
   // so a plain byte scan is exact. See issues/fixed/yo-self-emitter-scope-scan-chars-vs-bytes.md.
-  n := line.bytes_len();
+  n := line.len();
   (i : usize) = usize(0);
   (in_str : bool) = false;
   (in_chr : bool) = false;

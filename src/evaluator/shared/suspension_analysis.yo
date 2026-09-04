@@ -103,7 +103,15 @@ extract_target_variable_id :: (
     },
     .Some(x) => x
   );
-  if(!(ast_expr_is_fn_call_of(pe.clone(), ":=", Option(usize).None)), {
+  // `:=` binds a fresh target; `=` re-assigns an existing one. BOTH make the
+  // await's result land in the LHS variable, and codegen's extraction writes
+  // it through this target id — without the `=` arm, a cond/match branch's
+  // `out = e.io.await(...)` extracted NO target, the branch's future store
+  // was skipped, and the whole awaiting branch silently no-oped (the
+  // sibling-cond wrong-value bug found by D5's BufReader bypass test).
+  is_define := ast_expr_is_fn_call_of(pe.clone(), ":=", Option(usize).None);
+  is_assign := ast_expr_is_fn_call_of(pe.clone(), "=", Option(usize).Some(usize(2)));
+  if(!(is_define || is_assign), {
     return(Option(String).None);
   });
   // Extract args[0] from the FnCall
@@ -214,7 +222,7 @@ _capture_env_variable :: (
       },
       .Some(v) => v
     );
-    if(!(variable.is_compile_time_only) && !(captured_variables.contains_key(variable.id.to_string())), {
+    if(!variable.is_compile_time_only && !captured_variables.contains_key(variable.id.to_string()), {
       // The SSA-remapping key includes the DECLARATION SITE, not just
       // `name:frame_level`. Those two alone conflate a reassignment (`x = …`,
       // which re-stamps the same declaration with a fresh id and so must share
@@ -240,7 +248,7 @@ _capture_env_variable :: (
             .None => String.from(""),
             .Some(id) => id
           );
-          variable_id_remapping.set(variable.id.to_string(), orig_id);
+          variable_id_remapping.insert(variable.id.to_string(), orig_id);
         },
         // Case 2/3: owner capture or normal capture
         // Single match to avoid double field access (move safety).
@@ -250,7 +258,7 @@ _capture_env_variable :: (
             // Case 2: variable shares RC with an owner — capture the owner
             .Some(owner_box) => {
               owner_var := owner_box.*;
-              if(!(captured_variables.contains_key(owner_var.id.to_string())), {
+              if(!captured_variables.contains_key(owner_var.id.to_string()), {
                 owner_captured := SuspensionCapturedVariable(
                   id : owner_var.id.to_string(),
                   name : owner_var.name.clone(),
@@ -258,11 +266,11 @@ _capture_env_variable :: (
                   is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
                   decl_site : `${owner_var.token.module_path}:${owner_var.token.row.to_string()}:${owner_var.token.column.to_string()}`
                 );
-                captured_variables.set(owner_var.id.to_string(), owner_captured);
+                captured_variables.insert(owner_var.id.to_string(), owner_captured);
                 captured_variable_ids_in_order.push(owner_var.id.to_string());
                 owner_nfk := `${owner_var.name}:${owner_var.frame_level}`;
-                if(!(name_frame_to_original_id.contains_key(owner_nfk.clone())), {
-                  name_frame_to_original_id.set(owner_nfk, owner_var.id.to_string());
+                if(!name_frame_to_original_id.contains_key(owner_nfk.clone()), {
+                  name_frame_to_original_id.insert(owner_nfk, owner_var.id.to_string());
                 });
               });
             },
@@ -280,10 +288,10 @@ _capture_env_variable :: (
                 is_owning_the_same_rc_value_as : Option(Box(SuspensionCapturedVariable)).None,
                 decl_site : `${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
               );
-              captured_variables.set(variable.id.to_string(), sc);
+              captured_variables.insert(variable.id.to_string(), sc);
               captured_variable_ids_in_order.push(variable.id.to_string());
-              if(!(name_frame_to_original_id.contains_key(name_frame_key.clone())), {
-                name_frame_to_original_id.set(name_frame_key, variable.id.to_string());
+              if(!name_frame_to_original_id.contains_key(name_frame_key.clone()), {
+                name_frame_to_original_id.insert(name_frame_key, variable.id.to_string());
               });
             }
           );
@@ -451,7 +459,7 @@ walk_expr_ :: (
           // variables declared inside one branch don't leak into subsequent branches.
           saved_keys := ArrayList(String).new();
           saved_vals := ArrayList(String).new();
-          for(name_frame_to_original_id.iter_ptr(), (entry_ptr) => {
+          for(name_frame_to_original_id.iter(), entry_ptr => {
             k := unsafe(entry_ptr.*).key.clone();
             v := unsafe(entry_ptr.*).value.clone();
             saved_keys.push(k);
@@ -512,7 +520,7 @@ walk_expr_ :: (
               },
               .Some(v) => v
             );
-            name_frame_to_original_id.set(k2, v2);
+            name_frame_to_original_id.insert(k2, v2);
             si = (si + usize(1));
           });
           // Compute max depth across all branches
@@ -547,7 +555,7 @@ walk_expr_ :: (
               (rep_opt : Option(SuspensionPoint)) = Option(SuspensionPoint).None;
               (found_rep : bool) = false;
               (bpi2 : usize) = usize(0);
-              while((bpi2 < n_branches) && !(found_rep), {
+              while((bpi2 < n_branches) && !found_rep, {
                 branch2 := match(
                   per_branch_points.get(bpi2),
                   .None => {
@@ -583,6 +591,69 @@ walk_expr_ :: (
                   if(pos > usize(0), {
                     rep.cond_branch_source_index = Option(usize).Some(first_index_b);
                   });
+                  // Record EVERY branch's suspension expr at this position —
+                  // the representative alone cannot type the shared slot or
+                  // drive per-branch registration/extraction when branches
+                  // suspend on differently-shaped futures. See
+                  // issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
+                  branch_exprs := ArrayList(AstExpr).new();
+                  branch_in_while := ArrayList(bool).new();
+                  (bpi3 : usize) = usize(0);
+                  while(bpi3 < n_branches, {
+                    branch3 := match(
+                      per_branch_points.get(bpi3),
+                      .None => {
+                        bpi3 = n_branches;
+                        return(());
+                      },
+                      .Some(b) => b
+                    );
+                    if(pos < branch3.len(), {
+                      match(
+                        branch3.get(pos),
+                        .Some(p3) => {
+                          // A branch whose point at this position is ITSELF a
+                          // merged representative (a nested cond/match with
+                          // awaiting arms) stands in for all of its arms'
+                          // suspensions — flatten its list, or a nested match
+                          // whose arms await different futures classifies as
+                          // uniform and keeps a concretely-typed shared slot.
+                          // Inner merges run before outer ones, so the nested
+                          // list is already fully flattened.
+                          // A point already inside a `while` of its own arm
+                          // (the while walker flagged it before this merge —
+                          // inner exprs are walked first) is a looping branch.
+                          p3_in_while := match(p3.is_inside_while, .Some(b) => b, .None => false);
+                          match(
+                            p3.cond_branch_suspension_exprs,
+                            .Some(nested) => {
+                              nested_in_while := match(p3.cond_branch_suspension_in_while, .Some(l) => l, .None => ArrayList(bool).new());
+                              (ni : usize) = usize(0);
+                              while(ni < nested.len(), {
+                                match(
+                                  nested.get(ni),
+                                  .Some(ne) => {
+                                    branch_exprs.push(ne);
+                                    branch_in_while.push(p3_in_while || match(nested_in_while.get(ni), .Some(b) => b, .None => false));
+                                  },
+                                  .None => ()
+                                );
+                                ni = (ni + usize(1));
+                              });
+                            },
+                            .None => {
+                              branch_exprs.push(p3.expr);
+                              branch_in_while.push(p3_in_while);
+                            }
+                          );
+                        },
+                        .None => ()
+                      );
+                    });
+                    bpi3 = (bpi3 + usize(1));
+                  });
+                  rep.cond_branch_suspension_exprs = Option(ArrayList(AstExpr)).Some(branch_exprs);
+                  rep.cond_branch_suspension_in_while = Option(ArrayList(bool)).Some(branch_in_while);
                   points.push(rep);
                 }
               );

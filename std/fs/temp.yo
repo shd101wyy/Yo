@@ -1,6 +1,11 @@
 //! RAII-managed temporary files and directories.
 //!
-//! # Example
+//! Both types clean up on drop (`Dispose`), BEST-EFFORT: errors are ignored,
+//! and directory removal is non-recursive (same as `remove` — it succeeds
+//! only when the directory is empty). Call `remove(io)` explicitly when you
+//! need to observe removal errors.
+//!
+//! ## Example
 //!
 //! ```rust
 //! { TempDir } :: import "std/fs/temp";
@@ -8,7 +13,7 @@
 //! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   dir := io.await(TempDir.new(io), { io, exn });
 //!   println(dir.path());
-//!   io.await(dir.remove(io), { io, exn });
+//!   io.await(dir.remove(io), { io, exn });  // or let Dispose clean up on drop
 //! });
 //! ```
 pragma(Pragma.AllowUnsafe);
@@ -25,27 +30,7 @@ IO_temp :: import("../sys/temp");
 IO_file :: import("../sys/file");
 { memcpy } :: import("../libc/string");
 { platform, Platform } :: import("../process");
-{ env } :: import("../env");
-_default_tmp_dir :: (fn() -> String)(
-  cond(
-    (platform == Platform.Windows) => {
-      temp := env.get(`TEMP`);
-      match(
-        temp,
-        .Some(v) => v,
-        .None => {
-          tmp := env.get(`TMP`);
-          match(
-            tmp,
-            .Some(v2) => v2,
-            .None => `C:\\Temp`
-          )
-        }
-      )
-    },
-    true => `/tmp`
-  )
-);
+{ temp_dir } :: import("../env");
 /// Temporary directory that can be cleaned up with `remove`.
 TempDir :: ref(
   struct(
@@ -57,7 +42,7 @@ impl(
   TempDir,
   // Create a temporary directory in the given parent directory.
   new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempDir, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
@@ -88,7 +73,7 @@ impl(
   ),
   // Create a temporary directory in the system temp dir.
   new : (fn(io : Io) -> Impl(Future(TempDir, IoExn)))(
-    TempDir.new_in(Path.new(_default_tmp_dir()), io)
+    TempDir.new_in(Path.new(temp_dir()), io)
   ),
   // Get the path of the temporary directory.
   path : (fn(self : Self) -> Path)(
@@ -98,7 +83,7 @@ impl(
   remove : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     self_path := self._path;
     io.async(
-      (e) =>
+      e =>
         cond(
           self._removed => (),
           true => {
@@ -108,6 +93,37 @@ impl(
         )
     )
   })
+);
+// Dispose: best-effort removal on drop (plans/STD_API_AUDIT.md C12).
+// Errors are ignored and the removal is non-recursive (parity with
+// `remove`) — use `remove(io)` to observe failures.
+impl(
+  TempDir,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        self._removed => (),
+        true => {
+          path_cstr_bytes := self._path.to_string().to_cstr();
+          path_cstr := path_cstr_bytes.ptr().unwrap();
+          cond(
+            (platform == Platform.Windows) => {
+              { _rmdir } :: import("../libc/windows");
+              // SAFETY: path_cstr points at the NUL-terminated bytes of
+              // path_cstr_bytes, alive for this whole block.
+              unsafe(_rmdir(*(char)(path_cstr)));
+            },
+            true => {
+              { rmdir } :: import("../libc/unistd");
+              // SAFETY: as above — NUL-terminated, alive for the call.
+              unsafe(rmdir(*(char)(path_cstr)));
+            }
+          );
+          self._removed = true;
+        }
+      );
+    })
+  )
 );
 export(TempDir);
 /// Temporary file backed by a `File` handle.
@@ -122,7 +138,7 @@ impl(
   TempFile,
   // Create a temporary file in the given parent directory.
   new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempFile, IoExn)))(
-    io.async((e) => {
+    io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
@@ -146,13 +162,13 @@ impl(
       path_str := String.from_cstr(buf).unwrap();
       free(.Some(*(void)(buf)));
       path := Path.new(path_str);
-      file := _file_mod.File(_fd : fd, _path : path, _is_closed : false);
+      file := _file_mod.File(_fd : fd, _path : path, _is_closed : false, _pos : u64(0));
       TempFile(_file : file, _path : path, _removed : false)
     })
   ),
   // Create a temporary file in the system temp dir.
   new : (fn(io : Io) -> Impl(Future(TempFile, IoExn)))(
-    TempFile.new_in(Path.new(_default_tmp_dir()), io)
+    TempFile.new_in(Path.new(temp_dir()), io)
   ),
   // Get the underlying File object.
   file : (fn(self : Self) -> _file_mod.File)(
@@ -167,7 +183,7 @@ impl(
     self_file := self._file;
     self_path := self._path;
     io.async(
-      (e) =>
+      e =>
         cond(
           self._removed => (),
           true => {
@@ -178,5 +194,44 @@ impl(
         )
     )
   })
+);
+// Dispose: best-effort close + unlink on drop (plans/STD_API_AUDIT.md C12).
+// Errors are ignored — use `remove(io)` to observe failures. The fd is
+// closed FIRST so Windows can delete the file (POSIX allows unlinking an
+// open file; Windows does not).
+impl(
+  TempFile,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        self._removed => (),
+        true => {
+          cond(
+            self._file._is_closed => (),
+            true => {
+              IO_file.close_sync(self._file._fd);
+              self._file._is_closed = true;
+            }
+          );
+          path_cstr_bytes := self._path.to_string().to_cstr();
+          path_cstr := path_cstr_bytes.ptr().unwrap();
+          cond(
+            (platform == Platform.Windows) => {
+              { _unlink } :: import("../libc/windows");
+              // SAFETY: path_cstr points at the NUL-terminated bytes of
+              // path_cstr_bytes, alive for this whole block.
+              unsafe(_unlink(*(char)(path_cstr)));
+            },
+            true => {
+              { unlink } :: import("../libc/unistd");
+              // SAFETY: as above — NUL-terminated, alive for the call.
+              unsafe(unlink(*(char)(path_cstr)));
+            }
+          );
+          self._removed = true;
+        }
+      );
+    })
+  )
 );
 export(TempFile);

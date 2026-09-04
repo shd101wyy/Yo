@@ -19,7 +19,7 @@ IO_tcp :: import("std/sys/tcp");
 test("UdpSocket bind and close", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -34,7 +34,7 @@ test("UdpSocket bind and close", {
 test("UdpSocket local_addr", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -49,7 +49,7 @@ test("UdpSocket local_addr", {
 test("UdpSocket send_to and recv", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -67,13 +67,13 @@ test("UdpSocket send_to and recv", {
   data.push(u8(108)); // l
   data.push(u8(111)); // o
   n := io.await(client.send_to(data, server_addr, io), IoExn(io : io, exn : exn));
-  unsafe(printf("  sent = %d\n", n));
-  assert(n == i32(5), "should send 5 bytes");
+  unsafe(printf("  sent = %zu\n", n));
+  assert(n == usize(5), "should send 5 bytes");
   // Server receives
   recv_buf := *(u8)(malloc(usize(256)).unwrap());
   nr := io.await(server.recv(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
-  unsafe(printf("  received = %d\n", nr));
-  assert(nr == i32(5), "should receive 5 bytes");
+  unsafe(printf("  received = %zu\n", nr));
+  assert(nr == usize(5), "should receive 5 bytes");
   assert((recv_buf.add(usize(0))).* == u8(72), "H");
   assert((recv_buf.add(usize(1))).* == u8(101), "e");
   assert((recv_buf.add(usize(2))).* == u8(108), "l");
@@ -86,7 +86,7 @@ test("UdpSocket send_to and recv", {
 test("UdpSocket recv_from gets source address", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -107,8 +107,8 @@ test("UdpSocket recv_from gets source address", {
   src_addr_len := *(u32)(malloc(usize(4)).unwrap());
   src_addr_len.* = u32(128);
   nr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len, io), IoExn(io : io, exn : exn));
-  unsafe(printf("  received = %d\n", nr));
-  assert(nr == i32(2), "should receive 2 bytes");
+  unsafe(printf("  received = %zu\n", nr));
+  assert(nr == usize(2), "should receive 2 bytes");
   assert((recv_buf.add(usize(0))).* == u8(65), "A");
   assert((recv_buf.add(usize(1))).* == u8(66), "B");
   // Verify source address family
@@ -127,7 +127,7 @@ test("UdpSocket recv_from gets source address", {
 test("UdpSocket set_broadcast", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -137,4 +137,27 @@ test("UdpSocket set_broadcast", {
   io.await(sock.set_broadcast(true, io), IoExn(io : io, exn : exn));
   unsafe(printf("  broadcast ok\n"));
   io.await(sock.close(io), IoExn(io : io, exn : exn));
+});
+test("UDP bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
+  // plans/STD_API_AUDIT.md C2: udp's _make_sockaddr had the same hardcoded
+  // "::1" as tcp's, so binding 2001:db8::1 silently bound the loopback.
+  segs := Array(u16, usize(8)).fill(u16(0));
+  segs(usize(0)) = u16(8193);
+  // 0x2001
+  segs(usize(1)) = u16(3512);
+  // 0x0db8
+  segs(usize(7)) = u16(1);
+  doc_addr := SocketAddr.new(IpAddr.V6(segs), u16(0));
+  exn := Exception(
+    throw : (
+      err -> {
+        msg := err.to_string();
+        unsafe(printf("  bind(2001:db8::1) correctly failed: %s\n", msg.to_cstr().ptr().unwrap()));
+        unwind(());
+      }
+    )
+  );
+  sock := io.await(UdpSocket.bind(doc_addr, io), IoExn(io : io, exn : exn));
+  io.await(sock.close(io), IoExn(io : io, exn : exn));
+  assert(false, "UDP bind to non-local 2001:db8::1 must fail — the sockaddr was hardcoded to ::1");
 });

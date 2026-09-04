@@ -8,6 +8,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc, free } :: GlobalAllocator;
 { memcpy, memcmp } :: import("../libc/string.yo");
 { rune } :: import("../string/rune.yo");
+utf8 :: import("../encoding/utf8.yo");
 std_string :: import("../string");
 { ToString } :: import("../fmt/to_string.yo");
 imm_list :: import("./list.yo");
@@ -18,26 +19,29 @@ _alloc_bytes :: (fn(n : usize) -> *(u8))(
   match(
     malloc(n),
     .Some(p) => *(u8)(p),
-    .None => __yo_panic("imm.String: allocation failed")
+    .None => __yo_panic("ImmString: allocation failed")
   )
 );
 /// Immutable, thread-safe UTF-8 string.
 ///
 /// Uses atomic RC — cheap to clone, safe to share across threads.
-/// No mutable operations. All "modification" methods return a new String.
+/// No mutable operations. All "modification" methods return a new ImmString.
 ///
 /// Empty strings are zero-allocation (null pointer, zero length).
-String :: atomic(
+ImmString :: atomic(
   ref(
     struct(
-      _ptr : ?*(u8),
+      _ptr : ?(*(u8)),
       _len : usize,
       _capacity : usize
     )
   )
 );
+// O7: raw bytes cannot reference anything — an ImmString is trivially
+// Acyclic, which is what admits it as an imm-container element / Arc payload.
+impl(ImmString, Acyclic());
 impl(
-  String,
+  ImmString,
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       match(
@@ -49,7 +53,7 @@ impl(
   )
 );
 impl(
-  String,
+  ImmString,
   /// Create a new empty string (zero allocation).
   new : (fn() -> Self)(
     Self(_ptr : .None, _len : usize(0), _capacity : usize(0))
@@ -66,7 +70,7 @@ impl(
   }),
   /// Create a string from a standard (mutable) String by copying its bytes.
   from_string : (fn(s : std_string.String) -> Self)({
-    slen := s.bytes_len();
+    slen := s.len();
     if(slen == usize(0), {
       return(Self(_ptr : .None, _len : usize(0), _capacity : usize(0)));
     });
@@ -75,31 +79,21 @@ impl(
     unsafe(memcpy(*(void)(ptr), *(void)(rb.ptr), slen));
     return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
   }),
-  /// Byte length of the string.
-  bytes_len : (fn(self : Self) -> usize)(
+  /// Number of BYTES in this string's UTF-8 encoding — O(1).
+  ///
+  /// **BYTE basis**, the unit every index on this type speaks: `slice`,
+  /// `index_of`, `byte_at` and `at` all take or return byte offsets, and it
+  /// agrees with `std/string`'s `String.len()`, `str.len()` and Rust's
+  /// `str::len()`.
+  ///
+  /// For "how many runes" use `chars().count()` (O(n)); to walk runes together with
+  /// the byte offset each one starts at, use `char_indices()`.
+  /// (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this returned a RUNE count
+  /// before that flip, and a `bytes_len()` alias carried the byte count; the
+  /// alias was DELETED with the flip because it had no consumer left.)
+  len : (fn(self : Self) -> usize)(
     self._len
   ),
-  /// Number of Unicode characters (runes) in the string.
-  len : (fn(self : Self) -> usize)({
-    if(self._len == usize(0), {
-      return(usize(0));
-    });
-    count := usize(0);
-    i := usize(0);
-    match(
-      self._ptr,
-      .None => (),
-      .Some(p) => {
-        while(i < self._len, i = (i + usize(1)), {
-          (b : u8) = (p.add(i)).*;
-          if((b & u8(0xC0)) != u8(0x80), {
-            count = (count + usize(1));
-          });
-        });
-      }
-    );
-    count
-  }),
   /// Check if the string is empty.
   is_empty : (fn(self : Self) -> bool)(
     self._len == usize(0)
@@ -287,13 +281,13 @@ impl(
     self.index_of(needle, usize(0)).is_some()
   ),
   /// Split the string by a separator, returning an immutable List of Strings.
-  split : (fn(self : Self, sep : Self) -> imm_list.List(String))({
-    result := imm_list.List(String).new();
+  split : (fn(self : Self, sep : Self) -> imm_list.List(ImmString))({
+    result := imm_list.List(ImmString).new();
     if(sep._len == usize(0), {
       return(result.prepend(self));
     });
     pos := usize(0);
-    segments := imm_list.List(String).new();
+    segments := imm_list.List(ImmString).new();
     while(runtime(true), {
       match(
         self.index_of(sep, pos),
@@ -538,84 +532,218 @@ impl(
         return(.None);
       },
       .Some(p) => {
+        // This buffer is raw memory, not an `ArrayList(u8)`, so the bytes are
+        // fetched here and handed to the shared core. `decode_parts` exists
+        // for exactly this: copying into a list to decode one rune would cost
+        // an allocation per rune.
+        (rest : usize) = (self._len - byte_index);
+        (available : usize) = cond(
+          (rest > usize(4)) => usize(4),
+          true => rest
+        );
         (b0 : u8) = (p.add(byte_index)).*;
-        if((b0 & u8(0x80)) == u8(0), {
-          return(.Some(rune(char : u32(b0))));
-        });
-        if((b0 & u8(0xE0)) == u8(0xC0), {
-          if((byte_index + usize(1)) >= self._len, {
-            return(.None);
-          });
-          (b1 : u8) = (p.add(byte_index + usize(1))).*;
-          (code : u32) = (((u32(b0) & u32(0x1F)) << u32(6)) | (u32(b1) & u32(0x3F)));
-          return(.Some(rune(char : code)));
-        });
-        if((b0 & u8(0xF0)) == u8(0xE0), {
-          if((byte_index + usize(2)) >= self._len, {
-            return(.None);
-          });
-          (b1 : u8) = (p.add(byte_index + usize(1))).*;
-          (b2 : u8) = (p.add(byte_index + usize(2))).*;
-          (code : u32) = ((((u32(b0) & u32(0x0F)) << u32(12)) | ((u32(b1) & u32(0x3F)) << u32(6))) | (u32(b2) & u32(0x3F)));
-          return(.Some(rune(char : code)));
-        });
-        if((b0 & u8(0xF8)) == u8(0xF0), {
-          if((byte_index + usize(3)) >= self._len, {
-            return(.None);
-          });
-          (b1 : u8) = (p.add(byte_index + usize(1))).*;
-          (b2 : u8) = (p.add(byte_index + usize(2))).*;
-          (b3 : u8) = (p.add(byte_index + usize(3))).*;
-          (code : u32) = (((((u32(b0) & u32(0x07)) << u32(18)) | ((u32(b1) & u32(0x3F)) << u32(12))) | ((u32(b2) & u32(0x3F)) << u32(6))) | (u32(b3) & u32(0x3F)));
-          return(.Some(rune(char : code)));
-        });
-        return(.None);
+        (b1 : u8) = cond(
+          (available > usize(1)) => (p.add(byte_index + usize(1))).*,
+          true => u8(0)
+        );
+        (b2 : u8) = cond(
+          (available > usize(2)) => (p.add(byte_index + usize(2))).*,
+          true => u8(0)
+        );
+        (b3 : u8) = cond(
+          (available > usize(3)) => (p.add(byte_index + usize(3))).*,
+          true => u8(0)
+        );
+        match(
+          utf8.decode_parts(b0, b1, b2, b3, available, byte_index),
+          .Ok(d) => .Some(d.code),
+          .Err(_) => .None
+        )
       }
     )
   }),
-  /// Get the Unicode character (rune) at a given character index.
-  at : (fn(self : Self, index : usize) -> Option(rune))({
-    if(self._len == usize(0), {
-      return(.None);
-    });
-    match(
-      self._ptr,
-      .None => {
-        return(.None);
-      },
-      .Some(p) => {
-        char_count := usize(0);
-        byte_index := usize(0);
-        while(byte_index < self._len, (), {
-          if(char_count == index, {
-            return(self._decode_rune_at(byte_index));
-          });
-          (b : u8) = (p.add(byte_index)).*;
-          cond(
-            ((b & u8(0x80)) == u8(0)) => {
-              byte_index = (byte_index + usize(1));
-            },
-            ((b & u8(0xE0)) == u8(0xC0)) => {
-              byte_index = (byte_index + usize(2));
-            },
-            ((b & u8(0xF0)) == u8(0xE0)) => {
-              byte_index = (byte_index + usize(3));
-            },
-            true => {
-              byte_index = (byte_index + usize(4));
-            }
+  /// Decode the rune that STARTS at byte offset `index`.
+  ///
+  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this took a
+  /// rune index before the flip; it now mirrors `std/string`'s `String.at`).
+  /// `.None` is returned for the three ways a byte offset can fail to name a
+  /// rune: at or past `len()`, inside a rune (a UTF-8 continuation byte), or
+  /// on bytes that do not decode.
+  ///
+  /// `while(i < s.len(), { s.at(i) })` therefore visits continuation bytes and
+  /// yields `.None` at each of them — use `char_indices()` (or `chars()`) to
+  /// walk runes.
+  at : (fn(self : Self, index : usize) -> Option(rune))(
+    self._decode_rune_at(index)
+  )
+);
+/// === Rune-aware indexing (D4 vocabulary) ===
+///
+/// The same six additions `std/string/string.yo` grew, plus the rune iterator
+/// this type never had. Offsets are **BYTES** throughout — the rune count
+/// is `chars().count()` — and since D4 PR 4 flipped `len()` and `at()`, that
+/// is the basis the WHOLE type speaks: this block is the rune vocabulary on
+/// top of it. See `plans/STD_API_AUDIT_D4_PLAN.md`.
+///
+/// `char_indices` is built on `std/encoding/utf8` and inherits its
+/// malformed-input behaviour: `char_indices` and `chars` stop at
+/// the first sequence that will not decode. The boundary functions and
+/// `try_substring` are pure byte classification and cannot fail.
+/// Rune iterator for `ImmString` — created by `chars()`.
+ImmStringChars :: struct(
+  _string : ImmString,
+  _byte_index : usize
+);
+impl(
+  ImmStringChars,
+  Iterator(
+    Item : rune,
+    next : (fn(inout(self) : Self) -> Option(rune))(
+      cond(
+        (self._byte_index >= self._string.len()) => .None,
+        true => match(
+          self._string.byte_at(self._byte_index),
+          .Some(first_byte) => {
+            offset := self._byte_index;
+            self._byte_index = (offset + utf8.step_len(first_byte));
+            self._string._decode_rune_at(offset)
+          },
+          .None => .None
+        )
+      )
+    )
+  )
+);
+/// `(byte_offset, rune)` iterator for `ImmString` — created by
+/// `char_indices()`. Walks in lockstep with `ImmStringChars`.
+ImmStringCharIndices :: struct(
+  _string : ImmString,
+  _byte_index : usize
+);
+impl(
+  ImmStringCharIndices,
+  Iterator(
+    Item : IterPair(usize, rune),
+    next : (fn(inout(self) : Self) -> Option(IterPair(usize, rune)))(
+      cond(
+        (self._byte_index >= self._string.len()) => .None,
+        true => match(
+          self._string.byte_at(self._byte_index),
+          .Some(first_byte) => {
+            offset := self._byte_index;
+            self._byte_index = (offset + utf8.step_len(first_byte));
+            match(
+              self._string._decode_rune_at(offset),
+              .Some(r) => .Some(IterPair(usize, rune)(_0 : offset, _1 : r)),
+              .None => .None
+            )
+          },
+          .None => .None
+        )
+      )
+    )
+  )
+);
+impl(
+  ImmString,
+  /// Iterate the string's runes.
+  chars : (fn(self : Self) -> ImmStringChars)(
+    ImmStringChars(_string : self, _byte_index : usize(0))
+  ),
+  /// Iterate `(byte_offset, rune)` pairs — Rust's `char_indices()`.
+  char_indices : (fn(self : Self) -> ImmStringCharIndices)(
+    ImmStringCharIndices(_string : self, _byte_index : usize(0))
+  ),
+  /// True when byte offset `index` sits on a rune boundary.
+  ///
+  /// `0` and `len()` are always boundaries; an index past the end never
+  /// is. Mirrors Rust's `str::is_char_boundary`.
+  is_char_boundary : (fn(self : Self, index : usize) -> bool)(
+    cond(
+      (index == usize(0)) => true,
+      (index == self._len) => true,
+      (index > self._len) => false,
+      true => match(
+        self.byte_at(index),
+        .Some(b) => utf8.is_boundary(b),
+        .None => false
+      )
+    )
+  ),
+  /// The largest byte offset `<= index` that sits on a rune boundary.
+  ///
+  /// `index` is clamped to `len()` first, so the answer is always a
+  /// boundary of THIS string.
+  floor_char_boundary : (fn(self : Self, index : usize) -> usize)(
+    cond(
+      (index >= self._len) => self._len,
+      true => {
+        i := index;
+        while(i > usize(0), {
+          (on_boundary : bool) = match(
+            self.byte_at(i),
+            .Some(b) => utf8.is_boundary(b),
+            .None => true
           );
-          char_count = (char_count + usize(1));
+          if(on_boundary, {
+            break;
+          });
+          i = (i - usize(1));
         });
-        return(.None);
+        i
       }
     )
+  ),
+  /// The smallest byte offset `>= index` that sits on a rune boundary.
+  ///
+  /// `index` at or past `len()` clamps to `len()`, which is a
+  /// boundary, so this always terminates on a valid one.
+  ceil_char_boundary : (fn(self : Self, index : usize) -> usize)(
+    cond(
+      (index >= self._len) => self._len,
+      true => {
+        i := index;
+        while(i < self._len, {
+          (on_boundary : bool) = match(
+            self.byte_at(i),
+            .Some(b) => utf8.is_boundary(b),
+            .None => true
+          );
+          if(on_boundary, {
+            break;
+          });
+          i = (i + usize(1));
+        });
+        i
+      }
+    )
+  ),
+  /// Byte-range slice that REFUSES a bad range instead of clamping it —
+  /// Rust's `s.get(start..end)`, and the checked counterpart of `slice`.
+  ///
+  /// `.None` for `start > end`, for `end` past `len()`, and for an
+  /// endpoint inside a rune (which would produce invalid UTF-8). An empty but
+  /// valid range yields `.Some` of the empty string.
+  try_substring : (fn(self : Self, start : usize, end : usize) -> Option(Self))({
+    if(start > end, {
+      return(.None);
+    });
+    if(end > self._len, {
+      return(.None);
+    });
+    if(!(self.is_char_boundary(start)), {
+      return(.None);
+    });
+    if(!(self.is_char_boundary(end)), {
+      return(.None);
+    });
+    return(.Some(self.slice(start, end)));
   })
 );
 /// Equality by byte content.
 impl(
-  String,
-  Eq(String)(
+  ImmString,
+  Eq(ImmString)(
     (==) : (fn(self : Self, other : Self) -> bool)({
       if(self._len != other._len, {
         return(false);
@@ -645,7 +773,7 @@ impl(
 // TODO: Eq(str) impl — "Variable str not found" inside impl blocks for atomic object types.
 // Provide eq_str method instead.
 impl(
-  String,
+  ImmString,
   /// Compare with a `str` for equality.
   eq_str : (fn(self : Self, other : str) -> bool)({
     other_len := other.len();
@@ -664,8 +792,8 @@ impl(
 );
 /// Lexicographic ordering.
 impl(
-  String,
-  Ord(String)(
+  ImmString,
+  Ord(ImmString)(
     (<) : (fn(self : Self, other : Self) -> bool)({
       min_len := _min(self._len, other._len);
       if(min_len > usize(0), {
@@ -697,33 +825,27 @@ impl(
     })
   )
 );
-/// FNV-1a hash over the string's bytes.
+/// Feeds the string's bytes then a 0xFF terminator — the same bytes as
+/// `String`'s impl, so an `ImmString` and a `String` with equal contents hash
+/// alike under one hasher.
 impl(
-  String,
+  ImmString,
   Hash(
-    (hash) : (fn(inout(self) : Self) -> u64)({
-      h := u64(14695981039346656037);
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
       match(
         self._ptr,
         .None => (),
-        .Some(p) => {
-          i := usize(0);
-          while(i < self._len, i = (i + usize(1)), {
-            // SAFETY: `p` points at the Rc-managed UTF-8 byte
-            // buffer of length `self._len`; the loop guard
-            // `i < self._len` keeps `p &+ i` inside the allocation.
-            h = (h ^ u64(unsafe((p.add(i)).*)));
-            h = (h * u64(1099511628211));
-          });
-        }
+        // SAFETY: `p` points at the Rc-managed UTF-8 byte buffer of length
+        // `self._len`.
+        .Some(p) => hasher.write(p, self._len)
       );
-      h
+      hasher.write_u8(u8(255));
     })
   )
 );
 /// ToString returns a std.String for compatibility with println/print.
 impl(
-  String,
+  ImmString,
   ToString(
     to_string : (fn(inout(self) : Self) -> std_string.String)({
       bytes := ArrayList(u8).new();
@@ -736,4 +858,4 @@ impl(
     })
   )
 );
-export(String);
+export(ImmString, ImmStringChars, ImmStringCharIndices);

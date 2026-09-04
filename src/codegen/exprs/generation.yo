@@ -203,7 +203,7 @@ _is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGeneration
   match(
     expr,
     .FnCall(_, _, op_args, is_infix, _) => if(
-      (is_infix && (op_args.len() == usize(2))) && _operator_inline_name(_func_name(expr)).is_some(),
+      is_infix && (op_args.len() == usize(2)) && _operator_inline_name(_func_name(expr)).is_some(),
       match(
         op_args.get(usize(0)),
         // Gated to primitive operands so custom overloads on non-primitive
@@ -253,7 +253,7 @@ _is_primitive_unary_operator :: (fn(expr : AstExpr, context : FunctionGeneration
   match(
     expr,
     .FnCall(_, _, op_args, is_infix, _) => if(
-      ((!(is_infix)) && (op_args.len() == usize(1)))
+      !is_infix && (op_args.len() == usize(1))
       && match(
         _operator_inline_name(_func_name(expr)),
         .Some(inline_nm) => (inline_nm == BF_YO_OP_NOT),
@@ -349,11 +349,32 @@ _generate_io_spawn :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // Inject the bundle effect into the future's SM before cold-starting.
   emit_io_spawn_effect_injection(expr, spawn_var.clone(), indent.clone(), context);
   is_io_future := match(context.base.get_expr_info(future_arg), .Some(ei) => is_io_future_type(ei.ty), .None => false);
-  if(!(is_io_future), {
+  if(!is_io_future, {
     em.emit_string_line(`${indent.clone()}if (${spawn_state_var.clone()} == 0 && ${spawn_var.clone()}->__yo_resume_fn) {`);
     em.emit_string_line(`${indent.clone()}  __yo_incr_rc((void*)${spawn_var.clone()});`);
     em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->__yo_resume_fn((void*)${spawn_var.clone()});`);
     em.emit_string_line(`${indent.clone()}}`);
+  });
+  // OWNERSHIP. The JoinHandle used to be a pure borrowed view, which made it
+  // dangle whenever the future's owning binding died before the await — and a
+  // LOOP BODY is such a scope, so `handles.push(io.spawn(io.async(...), io))`
+  // inside a `while` hung forever at 100% CPU. Measured refcount history of
+  // the hanging case: 1 on creation, 2 after the cold-start incr below, back
+  // to 1 at the loop body's scope-end drop, then 0 when the task COMPLETES and
+  // the runtime releases the running reference — freeing the state machine
+  // while every handle already collected still pointed at it, so the await
+  // polled freed memory forever.
+  //
+  // So a surviving handle takes its own reference, released by
+  // `JoinHandle.await` (see generate_join_handle_await). Only when the spawn's
+  // result is actually BOUND: an unbound statement-level `io.spawn(...)` has no
+  // handle to keep alive (that is exactly what an absent `variable_name`
+  // means here — see the spawn_suffix comment above), and incrementing for a
+  // discarded compound literal would leak the task, which is today's correct
+  // fire-and-forget behaviour.
+  // See issues/fixed/io-spawn-in-loop-or-recursion-hangs.md.
+  if(name_suffix.len() > usize(0), {
+    em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
   });
   match(
     join_handle_type_name,
@@ -392,12 +413,12 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
   // rvalue spill: if the callee is a function call returning a temporary (not an
   // atom, not a `.` property access which yields an lvalue), store it into a temp
   // first so we can take its address. Keyed by ast id for a unique temp name.
-  if(ast_expr_is_fn_call(callee) && (!(ast_expr_is_atom(callee)) && !(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))))), {
+  if(ast_expr_is_fn_call(callee) && (!ast_expr_is_atom(callee) && !ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2)))), {
     match(
       context.base.get_expr_info(callee),
       .Some(cei) => {
         already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen(vn, Option(Environment).Some(cei.env))), .None => false);
-        if(!(already_var), {
+        if(!already_var, {
           callee_type := get_type_string(cei.ty, context.base);
           temp_name := `__yo_idx_tmp_${ast_expr_id(callee).to_string()}`;
           em := context.base.emitter;
@@ -465,15 +486,15 @@ _materialize_owned_rc_comptime_value :: (
   var_name := match(ei.variable_name, .Some(vn) => vn, .None => String.from(""));
   if(var_name.len() == usize(0), return(comptime_code));
   // Only shapes that actually malloc need an owner (see the predicate's doc).
-  if(!(comptime_value_allocates_rc_object(value, ei.ty)), return(comptime_code));
-  if(!(is_temp_variable_name(ei.env.module_path, var_name)), return(comptime_code));
+  if(!comptime_value_allocates_rc_object(value, ei.ty), return(comptime_code));
+  if(!is_temp_variable_name(ei.env.module_path, var_name), return(comptime_code));
   vars := get_variables_from_env(ei.env, var_name.clone());
   is_owning := match(
     vars.get(vars.len() - usize(1)),
     .Some(v) => v.is_owning_the_rc_value,
     .None => false
   );
-  if(!(is_owning), return(comptime_code));
+  if(!is_owning, return(comptime_code));
   c_name := get_variable_name_for_codegen(var_name.clone(), Option(Environment).Some(ei.env));
   line := indent.clone();
   line.push_string(get_variable_type_string(ei.ty, c_name.clone(), context.base));
@@ -686,9 +707,9 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   match(
     ei.value,
     .Some(v) => {
-      is_plain_comptime := ((!(is_unknown_val(v)) && !(is_unit_type(ei.ty))) && !(has_any_control_flow(ei.control_flow)));
+      is_plain_comptime := (!is_unknown_val(v) && !is_unit_type(ei.ty) && !has_any_control_flow(ei.control_flow));
       is_runtime_ctor := ((is_struct_val(v) || is_enum_val(v)) && ctor_has_runtime_args);
-      if(is_plain_comptime && !(is_runtime_ctor), {
+      if(is_plain_comptime && !is_runtime_ctor, {
         comptime_code := generate_comptime_value(v, ei.ty, context.base);
         // A struct/enum value whose rendering carries an UNFILLABLE HOLE
         // (`/* skip generating value */` from a nested UnknownVal payload)
@@ -703,7 +724,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
         // path re-generates the arm (cond → ctor → template) as the same
         // runtime string-building TS emits.
         skip_hole := ((is_struct_val(v) || is_enum_val(v)) && comptime_code.contains(String.from("/* skip generating value */")));
-        if(!(skip_hole), {
+        if(!skip_hole, {
           return(_materialize_owned_rc_comptime_value(ei, v, comptime_code, indent.clone(), context));
         });
       });
@@ -759,7 +780,7 @@ generate_func_call :: (fn(expr : AstExpr, indent : String, context : FunctionGen
   // construction is Phase 3; closure-type annotations fall through).
   if(ast_expr_is_fn_call_of(expr, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(expr, "=>>", Option(usize).Some(usize(2))), {
     is_closure_type := match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => ast_expr_is_fn_call_of(a0, BK_FN, Option(usize).None), .None => false), .Atom(_, _) => false);
-    if(!(is_closure_type), {
+    if(!is_closure_type, {
       return(_anon_fn_value(expr, indent.clone(), context, "Anonymous closure missing function value"));
     });
   });

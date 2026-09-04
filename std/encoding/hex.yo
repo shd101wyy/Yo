@@ -2,7 +2,7 @@
 //!
 //! Converts between raw bytes (`ArrayList(u8)`) and hex strings.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { hex_encode, hex_decode } :: import "std/encoding/hex";
@@ -12,33 +12,8 @@
 //! ```
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
+{ EncodingError } :: import("./error");
 { Error, AnyError, Exception } :: import("../error");
-{ ToString } :: import("../fmt");
-// ============================================================================
-// Error type
-// ============================================================================
-/// Encoding/decoding error type.
-EncodingError :: enum(
-  /// Invalid character encountered during decoding.
-  InvalidChar(ch : u8),
-  /// Input string has odd length (hex requires even length).
-  OddLength
-);
-impl(
-  EncodingError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .InvalidChar(ch) => `encoding error: invalid character ${ch}`,
-          .OddLength => `encoding error: odd length`
-        )
-    )
-  )
-);
-impl(EncodingError, Error());
-export(EncodingError);
 // ============================================================================
 // Encoding
 // ============================================================================
@@ -78,14 +53,14 @@ _hex_nibble :: (fn(c : u8, exn : Exception) -> u8)(
 /// Decode a hexadecimal string to bytes. Throws via `Exception` on invalid input.
 hex_decode :: (fn(s : String, exn : Exception) -> ArrayList(u8))({
   cond(
-    ((s.bytes_len() % usize(2)) != usize(0)) => {
+    ((s.len() % usize(2)) != usize(0)) => {
       exn.throw(dyn(EncodingError.OddLength));
     },
     true => ()
   );
-  out := ArrayList(u8).with_capacity(s.bytes_len() / usize(2));
+  out := ArrayList(u8).with_capacity(s.len() / usize(2));
   i := usize(0);
-  while(i < s.bytes_len(), i = (i + usize(2)), {
+  while(i < s.len(), i = (i + usize(2)), {
     hi := _hex_nibble(s.byte_at(i), exn);
     lo := _hex_nibble(s.byte_at(i + usize(1)), exn);
     out.push((hi << u8(4)) | lo);

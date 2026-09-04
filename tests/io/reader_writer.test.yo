@@ -1,8 +1,29 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ Reader } :: import("std/io/reader");
-{ Writer } :: import("std/io/writer");
 { Exception } :: import("std/error");
+// Byte-level Reader/Writer traits. These used to live in `std/io/{reader,writer}.yo`
+// and were deleted there (zero implementors outside this file, and the D5 async
+// redesign replaces their shape) — they are kept here because the trait-impl
+// machinery this file exercises (a user trait whose methods take raw `*(u8)`
+// params plus an `Exception`, implemented on a plain struct) has no other test.
+Reader :: trait(
+  /// Read up to `size` bytes into buffer `buf`.
+  /// Returns the number of bytes actually read (0 at end-of-stream).
+  read :
+    (
+      fn(inout(self) : Self, buf : *u8, size : usize, exn : Exception) -> usize
+    )
+);
+Writer :: trait(
+  /// Write bytes from buffer. Returns number of bytes written.
+  write :
+    (fn(inout(self) : Self, buf : *u8, size : usize, exn : Exception) -> usize),
+  /// Flush any buffered data to the underlying destination.
+  flush :
+    (
+      fn(inout(self) : Self, exn : Exception) -> unit
+    )
+);
 // Simple fixed-size byte buffer for testing Reader and Writer traits
 TestBuf :: struct(
   _data : Array(u8, 64),
@@ -18,10 +39,10 @@ impl(
 impl(
   TestBuf,
   Writer(
-    write : (fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
+    write : (fn(inout(self) : Self, buf : *u8, size : usize, exn : Exception) -> usize)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
-        ((&(self._data(0))).add(self._len + i)).* = (buf.add(i)).*;
+        ((&self._data(0)).add(self._len + i)).* = (buf.add(i)).*;
       });
       self._len = (self._len + size);
       size
@@ -34,7 +55,7 @@ impl(
 impl(
   TestBuf,
   Reader(
-    read : (fn(inout(self) : Self, buf : *(u8), size : usize, exn : Exception) -> usize)({
+    read : (fn(inout(self) : Self, buf : *u8, size : usize, exn : Exception) -> usize)({
       available := (self._len - self._pos);
       to_read := cond(
         (size < available) => size,
@@ -42,7 +63,7 @@ impl(
       );
       i := usize(0);
       while(i < to_read, i = (i + usize(1)), {
-        (buf.add(i)).* = ((&(self._data(0))).add(self._pos + i)).*;
+        (buf.add(i)).* = ((&self._data(0)).add(self._pos + i)).*;
       });
       self._pos = (self._pos + to_read);
       to_read
@@ -52,7 +73,7 @@ impl(
 test("Write and read bytes through traits", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -62,6 +83,6 @@ test("Write and read bytes through traits", {
   written := buf.write(*(u8)("Hello"), usize(5), exn);
   assert(written == usize(5), "should write 5 bytes");
   read_buf := Array(u8, 16).fill(0);
-  n := buf.read(&(read_buf(0)), usize(16), exn);
+  n := buf.read(&read_buf(0), usize(16), exn);
   assert(n == usize(5), "should read 5 bytes");
 });

@@ -3,7 +3,8 @@ open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind, find_matching_bracket } :: import("../../src/token.yo");
-{ LexerError, tokenize } :: import("../../src/lexer.yo");
+{ tokenize } :: import("../../src/lexer.yo");
+{ YoError } :: import("../../src/error.yo");
 { assert, panic } :: import("std/assert");
 // Tokenize source, panicking on any lexer error.
 lex_or_panic :: (fn(source : String, exn : Exception) -> ArrayList(Token))(
@@ -32,7 +33,7 @@ non_ws :: (fn(toks : ArrayList(Token)) -> ArrayList(Token))({
 test("Single identifier", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -52,7 +53,7 @@ test("Single identifier", {
 test("Identifier with digits and underscore", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -72,7 +73,7 @@ test("Identifier with digits and underscore", {
 test("Bool literals true and false", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -101,7 +102,7 @@ test("Bool literals true and false", {
 test("Decimal integer", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -121,7 +122,7 @@ test("Decimal integer", {
 test("Hex integer", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -141,7 +142,7 @@ test("Hex integer", {
 test("Binary integer", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -161,7 +162,7 @@ test("Binary integer", {
 test("Octal integer", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -181,7 +182,7 @@ test("Octal integer", {
 test("Float with decimal point", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -204,7 +205,7 @@ test("Bare exponent stays Integer (TS parity)", {
   // `1e10` is Integer("1e10"); only a decimal point makes a Float.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -224,7 +225,7 @@ test("Bare exponent stays Integer (TS parity)", {
 test("Float with negative exponent", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -245,7 +246,7 @@ test("Float with negative exponent", {
 test("Double-quoted string literal", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -265,7 +266,7 @@ test("Double-quoted string literal", {
 test("Template string content", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -291,7 +292,7 @@ test("Template string content", {
 test("Arrow operator", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -311,7 +312,7 @@ test("Arrow operator", {
 test("Dot token", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -331,7 +332,7 @@ test("Dot token", {
 test("Range operator ..", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -351,7 +352,7 @@ test("Range operator ..", {
 test("Range-inclusive operator ..=", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -371,7 +372,7 @@ test("Range-inclusive operator ..=", {
 test("All bracket kinds", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -389,7 +390,7 @@ test("All bracket kinds", {
 test("Comma and semicolon", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -404,7 +405,7 @@ test("Comma and semicolon", {
 test("Single-line comment //", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -424,7 +425,7 @@ test("Single-line comment //", {
 test("Outer doc-line comment ///", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -444,7 +445,7 @@ test("Outer doc-line comment ///", {
 test("Inner doc comment //!", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -461,7 +462,7 @@ test("Inner doc comment //!", {
 test("Block comment /* */", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -481,7 +482,7 @@ test("Block comment /* */", {
 test("Nested block comment", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -498,7 +499,7 @@ test("Nested block comment", {
 test("Doc block comment /**", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -516,7 +517,7 @@ test("Doc block comment /**", {
 test("Token row tracking across newlines", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -549,7 +550,7 @@ test("Token row tracking across newlines", {
 test("Column offset within a line", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -572,7 +573,7 @@ test("Column offset within a line", {
 test("find_matching_bracket basic paren", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -590,7 +591,7 @@ test("find_matching_bracket basic paren", {
 test("find_matching_bracket nested parens", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -608,7 +609,7 @@ test("find_matching_bracket nested parens", {
 test("find_matching_bracket curly", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -625,7 +626,7 @@ test("find_matching_bracket curly", {
 test("find_matching_bracket returns None for non-bracket", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -641,7 +642,7 @@ test("Unterminated string auto-closes at EOF (TS parity)", {
   // to end-of-input and the token is pushed with the closing quote appended.
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected error");
         unwind(());
       }
@@ -661,14 +662,18 @@ test("Unterminated string auto-closes at EOF (TS parity)", {
     }
   );
 });
-test("Unterminated block comment raises LexerError", {
+test("Unterminated block comment raises a lexer diagnostic", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `unterminated block comment`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => {
+            s := ye.to_string();
+            assert(s.contains(`unterminated block comment`), "wrong error message");
+            assert(s.contains(`--> test.yo:`), "D3: lexer diagnostics carry the file");
+          },
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }
@@ -677,14 +682,14 @@ test("Unterminated block comment raises LexerError", {
   tokenize(`/* unterminated`, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
-test("Unterminated template string raises LexerError", {
+test("Unterminated template string raises a lexer diagnostic", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `unterminated template string`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`unterminated template string`), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }
@@ -701,7 +706,7 @@ test("Unterminated template string raises LexerError", {
 test("Tokenize x : (fn() -> i32) yields correct bracket count", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected lexer error");
         unwind(());
       }
@@ -743,11 +748,11 @@ test("Tokenize x : (fn() -> i32) yields correct bracket count", {
 test("forall is reserved for verification quantifiers", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `\`forall\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`\`forall\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }
@@ -759,11 +764,11 @@ test("forall is reserved for verification quantifiers", {
 test("∀ is reserved for verification quantifiers", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         match(
-          downcast(err, LexerError),
-          .Some(le) => assert(le.message == `\`∀\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`, "wrong error message"),
-          .None => assert(false, "expected LexerError")
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`\`∀\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
       }
@@ -775,7 +780,7 @@ test("∀ is reserved for verification quantifiers", {
 test("exists is NOT reserved — tokenizes as a plain identifier", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected lexer error");
         unwind(());
       }
@@ -795,7 +800,7 @@ test("exists is NOT reserved — tokenizes as a plain identifier", {
 test("generic tokenizes as a plain identifier (the binder survives)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected lexer error");
         unwind(());
       }
@@ -811,4 +816,233 @@ test("generic tokenizes as a plain identifier (the binder survives)", {
       assert(tok.value == `generic`, "value must be 'generic'");
     }
   );
+});
+// ─── Closed operator set (plans/OPERATOR_SET_AND_PRECEDENCE.md) ─────────────
+test("closed operator set: ** splits into two * tokens", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`a ** b`, exn));
+  assert(toks.len() == usize(4), "expected 4 tokens: a * * b");
+  (first_star_col : usize) = usize(0);
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Operator, "expected Operator");
+      assert(tok.value == `*`, "first * of the split");
+      first_star_col = tok.column;
+    }
+  );
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no token at 2"),
+    .Some(tok) => {
+      assert(tok.value == `*`, "second * of the split");
+      assert(tok.column == (first_star_col + usize(1)), "split pieces keep their own columns");
+    }
+  );
+});
+test("closed operator set: greedy longest match splits <<= into << and =", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`a <<= b`, exn));
+  assert(toks.len() == usize(4), "expected 4 tokens: a << = b");
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => assert(tok.value == `<<`, "greedy 2-char match first")
+  );
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no token at 2"),
+    .Some(tok) => assert(tok.value == `=`, "then the 1-char remainder")
+  );
+});
+test("closed operator set: ?* splits into ? and * (Option of pointer)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`?*`, exn));
+  assert(toks.len() == usize(2), "?* splits into ? *");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token at 0"),
+    .Some(tok) => assert(tok.value == `?`, "? is the Option alias")
+  );
+  toks2 := non_ws(lex_or_panic(`??`, exn));
+  assert(toks2.len() == usize(2), "?? splits into ? ?");
+});
+test("closed operator set: retired &+ splits into & and +", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  toks := non_ws(lex_or_panic(`p &+ n`, exn));
+  assert(toks.len() == usize(4), "expected 4 tokens: p & + n");
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => assert(tok.value == `&`, "retired &+ is no single token")
+  );
+});
+test("closed operator set: unknown operator run is a lex error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  _toks := tokenize(`a @@ b`, `test.yo`, exn);
+  assert(false, "expected a LexerError for '@@'");
+});
+// ─── Token.byte_offset (D4 PR 3) ─────────────────────────────────────────────
+test("Token.byte_offset is a BYTE offset while character stays a rune index", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // `名` and `前` are 3 bytes each, so every token after the string literal
+  // has byte_offset > character. `Token.character` is the lexer's
+  // `input.chars()` counter; `Token.byte_offset` is what may index `input`
+  // (issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
+  src := `a := "名前"; b := 1;`;
+  toks := non_ws(lex_or_panic(src, exn));
+  // a  :=  "名前"  ;  b  :=  1  ;  → 8 tokens
+  assert(toks.len() == usize(8), "expected 8 non-whitespace tokens");
+  match(
+    toks.get(usize(2)),
+    .None => assert(false, "no token at 2"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.StringLit, "token 2 is the string literal");
+      assert(tok.character == usize(5), "rune index of the opening quote");
+      assert(tok.byte_offset == usize(5), "byte offset agrees before any multibyte");
+    }
+  );
+  match(
+    toks.get(usize(3)),
+    .None => assert(false, "no token at 3"),
+    .Some(tok) => {
+      assert(tok.value == `;`, "token 3 is the semicolon");
+      // "a := \"名前\"" is 5 + 1 + 6 + 1 = 13 bytes but 5 + 1 + 2 + 1 = 9 runes.
+      assert(tok.character == usize(9), "rune index after the literal");
+      assert(tok.byte_offset == usize(13), "byte offset after the literal");
+    }
+  );
+  // Every token's byte_offset must index `input` back to its own first byte.
+  (i : usize) = usize(0);
+  while(i < toks.len(), {
+    match(
+      toks.get(i),
+      .None => (),
+      .Some(tok) => {
+        assert(tok.input.is_char_boundary(tok.byte_offset), "byte_offset is a rune boundary");
+        assert(
+          tok.input.starts_with(tok.value.substring(usize(0), usize(1)), tok.byte_offset),
+          "byte_offset points at the token's own first byte"
+        );
+      }
+    );
+    i = (i + usize(1));
+  });
+});
+test("Token.byte_offset tracks a multibyte operator run correctly", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // The operator-run splitter advances `column`, `character` and
+  // `byte_offset` by the same `k`, which is only sound because every
+  // operator char is one ASCII byte.
+  src := `名 <= 名`;
+  toks := non_ws(lex_or_panic(src, exn));
+  assert(toks.len() == usize(3), "名 <= 名");
+  match(
+    toks.get(usize(1)),
+    .None => assert(false, "no token at 1"),
+    .Some(tok) => {
+      assert(tok.value == `<=`, "the operator token");
+      assert(tok.character == usize(2), "rune index 2");
+      assert(tok.byte_offset == usize(4), "byte offset 4 (名 is 3 bytes + space)");
+    }
+  );
+});
+// ─── Leading UTF-8 BOM ───────────────────────────────────────────────────────
+test("Leading UTF-8 BOM is skipped, not lexed into the first token", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  // Windows PowerShell 5.1 (`Set-Content -Encoding UTF8`) and several Windows
+  // editors write EF BB BF before an otherwise-ASCII file; decoded, that is
+  // U+FEFF, which used to be absorbed into the first identifier ("Variable
+  // '<BOM>open' not found" — issues/fixed/lexer-rejects-leading-utf8-bom.md).
+  sb := StringBuilder.new();
+  sb.write_rune(rune(u32(0xFEFF)));
+  sb.write_str("open(1)");
+  src := sb.to_string();
+  toks := non_ws(lex_or_panic(src, exn));
+  assert(toks.len() == usize(4), "open ( 1 ) — 4 non-whitespace tokens");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token at 0"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.value == `open`, "value must be 'open' with no BOM rune");
+      assert(tok.row == usize(0), "row must not count the BOM");
+      assert(tok.column == usize(0), "column must not count the BOM");
+      assert(tok.character == usize(0), "rune index must not count the BOM");
+      assert(
+        tok.byte_offset == usize(3),
+        "byte_offset still points past the 3 BOM bytes in input"
+      );
+    }
+  );
+});
+test("BOM-only input tokenizes to an empty stream", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  sb := StringBuilder.new();
+  sb.write_rune(rune(u32(0xFEFF)));
+  toks := non_ws(lex_or_panic(sb.to_string(), exn));
+  assert(toks.len() == usize(0), "expected 0 tokens");
 });

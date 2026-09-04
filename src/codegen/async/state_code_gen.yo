@@ -15,22 +15,411 @@ open(import("std/string"));
 { AwaitPoint, CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { split_body_at_suspension_points, contains_suspension_expr } :: import("../shared/suspension_codegen.yo");
-{ is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
+{ is_io_async_call, is_io_await_call, extract_future_trait_from_type, get_future_variable_id_ } :: import("../../evaluator/async/await_analysis.yo");
 { extract_target_variable_id } :: import("../../evaluator/shared/suspension_analysis.yo");
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
-{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion } :: import("../../expr_info.yo");
+{ expr_info_primitive_pattern_values, expr_info_is_primitive_match, lookup_macro_expansion, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { FunctionGenerationContext, SmWhileBreakInfo, SmWhileContinueInfo, WhileLoopInfo, OuterWhileLoop, CondBranchPostWhileExprs, CondBranch, ChainedCondBranches, AsyncCondBranchInfo, merge_cond_branch_post_while_exprs } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { _call_generate_cond_with_await, _call_generate_match_with_await, _call_generate_while_with_await, register_fsm_emitters } :: import("./_fsm.yo");
 { get_variables_from_env } :: import("../../env.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { emit_async_future_completion } :: import("../exprs/async_completion.yo");
-{ is_unit_type, is_enum_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_enum_type, is_some_type, is_concrete_trait_type, is_extern_type_name } :: import("../../types/guards.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
 { get_type_string, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, type_key } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { generate_comptime_value } :: import("../exprs/comptime_value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+/// True when `ty` is an io.async/io.await Future SomeType (vs an extern
+/// `__yo_io_future_t`). Mirrors `isIoFutureType` (state-machine.ts:496).
+///
+/// TS has TWO signals:
+///   (1) `resolvedConcreteType` is itself an EXTERN SomeType — an extern C type
+///       like `__yo_io_future_t` (so NOT a state-machine Future).
+///   (2) any required trait is a `Concrete(...)` trait.
+/// Branch (2) is ported faithfully. Branch (1) is a DOCUMENTED GAP: yo-self's
+/// `SomeT` has no `is_extern` field, so although the resolved concrete type is
+/// available via `g_some_resolved_concrete`, its extern-ness is unrepresentable
+/// (a second SomeT model gap alongside resolved-concrete; see
+/// plans/archive/BOOTSTRAPPING_CODEGEN.md Phase 5 #3 — needs a `g_some_is_extern`
+/// side-table or a SomeT field). The `lookup_some_resolved_concrete` read is kept
+/// to mark the wiring point. Inert until the FSM emitters call this.
+is_io_future_type :: (fn(ty : TypeValue) -> bool)({
+  if(!(is_some_type(ty)), {
+    return(false);
+  });
+  // Branch (1): resolved concrete is an extern SomeType (TS
+  // state-machine.ts:521-527, `resolvedConcreteType.isExtern`). No longer a
+  // model gap: an extern opaque type IS a SomeT whose NAME is registered in
+  // the extern-type-name set, so extern-ness is `is_extern_type_name(name)`.
+  // This branch became LOAD-BEARING once Impl's `Concrete(T)` support landed:
+  // the marker now moves into the resolved-concrete cell (as in TS) instead
+  // of sitting in required_trait_types, so branch (2) alone no longer fires
+  // for `IoFuture` — and misclassifying an io future as a lazy sync future
+  // emits a `->__yo_resume_fn` cold-start on `__yo_io_future_t`, which has no
+  // such member (the fs/gc batch C errors).
+  some_id := match(ty, .SomeT({ id }) => id, _ => String.from(""));
+  rc_cell := match(ty, .SomeT({ resolved_concrete : io_src }) => io_src.get(usize(0)), _ => Option(TypeValue).None);
+  rc_final := match(
+    rc_cell,
+    .Some(io_r) => Option(TypeValue).Some(io_r),
+    .None => lookup_some_resolved_concrete(some_id)
+  );
+  match(
+    rc_final,
+    .Some(io_rcv) => match(
+      io_rcv,
+      .SomeT({ name : io_enm }) => if(is_extern_type_name(io_enm), {
+        return(true);
+      }),
+      _ => ()
+    ),
+    .None => ()
+  );
+  // Branch (2): any required trait is a `Concrete(...)` trait.
+  rts := match(ty, .SomeT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
+  (i : usize) = usize(0);
+  while(i < rts.len(), {
+    rt := match(rts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    if(is_concrete_trait_type(rt), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Collect every `io.await` call expr inside a cond/match branch VALUE, in
+/// source order. Does not descend into nested `io.async` bodies (their awaits
+/// belong to that block's own state machine) or into a found await's own
+/// arguments (nested awaits are rejected upstream). Companion walker to
+/// `_find_branch_await_target_variable_id`.
+collect_branch_await_exprs :: (
+  fn(expr : AstExpr, out : ArrayList(AstExpr)) -> unit
+)({
+  if(!(ast_expr_is_fn_call(expr)), {
+    return(());
+  });
+  if(is_io_async_call(expr.clone()), {
+    return(());
+  });
+  if(is_io_await_call(expr.clone()), {
+    out.push(expr);
+    return(());
+  });
+  // A macro call (`if`, ...) keeps its macro head in the AST; the exprs the
+  // evaluator ANNOTATED live in the expansion. Walking the raw args here
+  // collects await exprs with no ExprInfo, which the access builder cannot
+  // type. Every tree walk in this family follows the expansion.
+  match(
+    lookup_macro_expansion(ast_expr_id(expr)),
+    .Some(me) => {
+      recur(me, out);
+      return(());
+    },
+    .None => ()
+  );
+  match(
+    expr,
+    .Atom(_, _) => (),
+    .FnCall(_, f, args, _, _) => {
+      recur(f, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+/// The future argument (arg 0) of an `io.await(...)` call expr.
+await_call_future_arg :: (fn(await_expr : AstExpr) -> Option(AstExpr))(
+  match(
+    await_expr,
+    .FnCall(_, _, a, _, _) => a.get(usize(0)),
+    .Atom(_, _) => Option(AstExpr).None
+  )
+);
+/// Whether ANY awaiting branch of this merged cond/match point suspends
+/// inside a `while` of its own arm (the per-branch flags the suspension
+/// analysis records next to `cond_branch_suspension_exprs`). The state struct
+/// must declare `while_loop_<index>_active` for such a point even when the
+/// representative arm does not loop
+/// (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
+cond_await_point_any_branch_in_while :: (fn(sp : SuspensionPoint) -> bool)(
+  match(
+    sp.cond_branch_suspension_in_while,
+    .Some(flags) => {
+      (i : usize) = usize(0);
+      while(i < flags.len(), {
+        if(match(flags.get(i), .Some(b) => b, .None => false), {
+          return(true);
+        });
+        i = (i + usize(1));
+      });
+      false
+    },
+    .None => false
+  )
+);
+/// The per-branch loop flag for the branch whose suspension expr is `ae`
+/// (matched by expr id against `cond_branch_suspension_exprs`); `false` when
+/// the point records no branch information or `ae` is not one of its exprs.
+cond_branch_expr_in_while :: (fn(sp : SuspensionPoint, ae : AstExpr) -> bool)({
+  exprs := match(
+    sp.cond_branch_suspension_exprs,
+    .Some(e) => e,
+    .None => {
+      return(false);
+    }
+  );
+  flags := match(
+    sp.cond_branch_suspension_in_while,
+    .Some(f) => f,
+    .None => {
+      return(false);
+    }
+  );
+  target := ast_expr_id(ae);
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => if(ast_expr_id(e) == target, {
+        return(match(flags.get(i), .Some(b) => b, .None => false));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  false
+});
+/// DISPATCH-mode decision for a shared cond/match await point.
+///
+/// A cond/match whose branches await shares ONE await point; the slot type,
+/// registration and extraction historically came from the point's
+/// REPRESENTATIVE branch only, which miscompiles every branch shaped
+/// differently from it (eight shapes catalogued in
+/// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md).
+///
+/// Returns true when the branches do NOT all await a same-typed ANONYMOUS
+/// future — any named-future branch (shapes 5-8: the "was the await branch
+/// taken" NULL guard is meaningless for a bound variable, and `:=`-await of a
+/// var stored into an undeclared slot) or any future-type mismatch (shapes
+/// 1-3). Every site that touches the point's future (slot declaration, branch
+/// stores, suspension registration, result extraction, branch continuation)
+/// MUST consult this one predicate — mixing modes emits ill-typed C.
+cond_await_point_needs_dispatch :: (
+  fn(await_point : AwaitPoint, context : FunctionGenerationContext) -> bool
+)({
+  exprs := match(
+    await_point.base.cond_branch_suspension_exprs,
+    .Some(e) => e,
+    .None => {
+      return(false);
+    }
+  );
+  // NOTE a single awaiting branch is not automatically uniform: it still
+  // needs dispatch when it awaits a NAMED future (shapes 7/8), so fall
+  // through to the per-expr checks whenever any entry exists.
+  if(exprs.len() == usize(0), {
+    return(false);
+  });
+  // Branches that disagree on loop-ness need per-branch continuations: the
+  // looping arm's await must re-check `while_loop_N_active` and jump to
+  // `after_while_loop_N` when broken, the plain arm's must not
+  // (issues/fixed/while-await-inside-match-arm-missing-loop-field.md).
+  match(
+    await_point.base.cond_branch_suspension_in_while,
+    .Some(flags) => {
+      (any_true : bool) = false;
+      (any_false : bool) = false;
+      (fi : usize) = usize(0);
+      while(fi < flags.len(), {
+        if(match(flags.get(fi), .Some(b) => b, .None => false), {
+          any_true = true;
+        }, {
+          any_false = true;
+        });
+        fi = (fi + usize(1));
+      });
+      if(any_true && any_false, {
+        return(true);
+      });
+    },
+    .None => ()
+  );
+  (first_type : Option(String)) = Option(String).None;
+  (i : usize) = usize(0);
+  n := exprs.len();
+  while(i < n, {
+    e := match(
+      exprs.get(i),
+      .Some(x) => x,
+      // Unreachable (i < n) — classify conservatively as uniform.
+      .None => {
+        return(false);
+      }
+    );
+    // Effects share SuspensionPoint; only io.await exprs are classified here.
+    if(ast_expr_is_fn_call(e) && is_io_await_call(e.clone()), {
+      match(
+        await_call_future_arg(e),
+        .Some(fa) => {
+          // A named future: an identifier atom. The dispatch path accesses it
+          // through its own state-machine field instead of the shared slot.
+          if(ast_expr_is_atom(fa) && (ast_expr_token(fa).kind == TokenKind.Identifier), {
+            return(true);
+          });
+          // Compare the exact C name the slot declaration derives
+          // (get_type_string of the ARG's type — exprs/async.yo:753).
+          match(
+            context.base.get_expr_info(fa),
+            .Some(ei) => {
+              tname := get_type_string(ei.ty, context.base);
+              match(
+                first_type,
+                .Some(ft0) => if(!(ft0 == tname), {
+                  return(true);
+                }),
+                .None => {
+                  first_type = Option(String).Some(tname);
+                }
+              );
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  false
+});
+/// Per-branch future access for a dispatch-mode await point: how the resume
+/// function reaches THIS branch's future. `access` is a C expression valid
+/// wherever `sm` is; `is_named` marks a named-future branch (no slot store, no
+/// slot decref — the future's lifetime belongs to its binding).
+CondBranchFutureAccess :: ref(
+  struct(
+    access : String,
+    is_named : bool,
+    is_io_future : bool,
+    /// The branch future's result type (the T of Future(T, ...)).
+    result_type : Option(TypeValue)
+  )
+);
+/// Resolve a named awaited future to the C field the resume function reads it
+/// through: outer capture -> `__capture.<id>`, Phase-1b alias wins, local ->
+/// `var_<id>`. Returns None when the id is not a state-machine variable and has
+/// no alias (the caller falls back to the shared slot).
+resolve_future_var_field :: (
+  fn(fvid : String, context : FunctionGenerationContext) -> Option(String)
+)({
+  kind_hint := match(
+    context.state_machine_variables,
+    .Some(m) => match(
+      m.get(fvid),
+      .Some(cv) => match(
+        cv.kind,
+        .Outer => Option(String).Some(String.from("outer")),
+        .Local => Option(String).Some(String.from("local"))
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  );
+  match(
+    kind_hint,
+    .Some(k) => Option(String).Some(get_state_machine_field_name(fvid, Option(String).Some(k), context.state_machine_field_aliases)),
+    .None => match(
+      context.state_machine_field_aliases,
+      .Some(a) => match(
+        a.get(fvid),
+        .Some(al) => Option(String).Some(al.clone()),
+        .None => Option(String).None
+      ),
+      .None => Option(String).None
+    )
+  )
+});
+/// Build the future access for one awaiting branch of a dispatch-mode point.
+/// `await_expr` is the branch's own `io.await` call at this point's depth.
+cond_branch_future_access :: (
+  fn(await_expr : AstExpr, await_point : AwaitPoint, context : FunctionGenerationContext) -> Option(CondBranchFutureAccess)
+)({
+  fa := match(
+    await_call_future_arg(await_expr.clone()),
+    .Some(x) => x,
+    .None => {
+      return(Option(CondBranchFutureAccess).None);
+    }
+  );
+  fa_ty := match(
+    context.base.get_expr_info(fa),
+    .Some(ei) => Option(TypeValue).Some(ei.ty),
+    .None => Option(TypeValue).None
+  );
+  result_type := match(
+    fa_ty,
+    .Some(t) => match(
+      extract_future_trait_from_type(t.clone()),
+      .Some(ft) => match(ft, .FutureTraitT(output : ob) => Option(TypeValue).Some(ob), _ => Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    .None => Option(TypeValue).None
+  );
+  // Named future — access via its own field.
+  if(ast_expr_is_atom(fa) && (ast_expr_token(fa).kind == TokenKind.Identifier), {
+    match(
+      get_future_variable_id_(fa.clone(), (e : AstExpr) => context.base.get_expr_info(e)),
+      .Some(fvid) => match(
+        resolve_future_var_field(fvid, context),
+        .Some(field) => if(!(field == `await_future_${await_point.base.index.to_string()}`), {
+          return(
+            Option(CondBranchFutureAccess).Some(
+              CondBranchFutureAccess(
+                access : `sm->${field}`,
+                is_named : true,
+                is_io_future : match(fa_ty, .Some(t) => is_io_future_type(t), .None => false),
+                result_type : result_type
+              )
+            )
+          );
+        }),
+        // Not captured into the struct — fall through to the slot access below.
+        // (A Phase-1b temp aliased to the slot itself resolves to the slot's
+        // own name and is likewise treated as anonymous: the slot is `void*`
+        // in dispatch mode, so it must be accessed through the branch cast.)
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  // Anonymous future — the branch stored it into the shared `void*` slot;
+  // access through a cast to this branch's exact state type (the same C name
+  // the non-dispatch slot declaration would use: get_type_string of the ARG).
+  c_type := match(
+    fa_ty,
+    .Some(t) => get_type_string(t, context.base),
+    .None => {
+      return(Option(CondBranchFutureAccess).None);
+    }
+  );
+  Option(CondBranchFutureAccess).Some(
+    CondBranchFutureAccess(
+      access : `((${c_type})sm->await_future_${await_point.base.index.to_string()})`,
+      is_named : false,
+      is_io_future : match(fa_ty, .Some(t) => is_io_future_type(t), .None => false),
+      result_type : result_type
+    )
+  )
+});
 /// A contiguous run of body expressions that execute in one FSM state, ending
 /// at an await (or the final segment). Mirrors `StateSegment`
 /// (state-code-gen.ts:47). yo-self's `split_body_at_suspension_points` collapses
@@ -406,7 +795,7 @@ emit_hoisted_await_future_store :: (
     args.get(usize(0)),
     .Some(future_expr) => {
       future_code := _call_generate_expr(future_expr, indent, context);
-      em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+      em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
     },
     .None => ()
   );
@@ -635,6 +1024,29 @@ Bind it to a local first:
   `${where}\`io.await\` is not supported in this position inside an \`io.async\` block (expression: ${expr_tag}${fn_note}).
 Hoist it into a local first: \`result := io.await(f, io);\``
 });
+/// True for `x = io.await(...)` where `x` is a plain identifier — the ONE
+/// `=` shape the := arm must also take (no future store existed for it
+/// anywhere). `target = cond/match(...await...)` and deref/field targets keep
+/// flowing to the dedicated `=` arm below (target_assignment_code channel) —
+/// intercepting them broke the primitive-match write-back
+/// (`result.* = match(...)`, async_await tests 53/54).
+_is_ident_bare_await_reassign :: (fn(expr : AstExpr) -> bool)({
+  if(!(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, "=", Option(usize).Some(usize(2)))), {
+    return(false);
+  });
+  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  lhs_ok := match(
+    args.get(usize(0)),
+    .Some(lhs) => (ast_expr_is_atom(lhs) && (ast_expr_token(lhs).kind == TokenKind.Identifier)),
+    .None => false
+  );
+  rhs_ok := match(
+    args.get(usize(1)),
+    .Some(rhs) => (ast_expr_is_fn_call(rhs) && is_io_await_call(rhs)),
+    .None => false
+  );
+  lhs_ok && rhs_ok
+});
 generate_await_expression :: (
   fn(
     expr : AstExpr,
@@ -659,7 +1071,7 @@ generate_await_expression :: (
         .None => {
           future_code := _call_generate_expr(future_expr, indent, context);
           em.emit_string_line(`${indent}// Store pattern-matched Future for await ${idx_s}`);
-          em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+          em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
         },
         .Some(_) => {
           em.emit_string_line(`${indent}// Prepare for await (future already stored in state machine variable)`);
@@ -668,8 +1080,12 @@ generate_await_expression :: (
     );
     return();
   });
-  // Assignment with await: varName := await/cond/match(...)
-  if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+  // Assignment with await: varName := await/cond/match(...) — and the
+  // RE-assignment form `varName = await(...)` (identifier target, bare-await
+  // value ONLY — see _is_ident_bare_await_reassign), which fell through
+  // every arm and emitted NOTHING (no future store), silently no-oping the
+  // await.
+  if(ast_expr_is_fn_call(expr) && (ast_expr_is_fn_call_of(expr, ":=", Option(usize).None) || _is_ident_bare_await_reassign(expr)), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(
       args.get(usize(0)),
@@ -695,7 +1111,7 @@ generate_await_expression :: (
                 .None => {
                   future_code := _call_generate_expr(future_expr, indent, context);
                   em.emit_string_line(`${indent}// Store Future for await (assignment)`);
-                  em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+                  em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
                 },
                 .Some(_) => {
                   em.emit_string_line(`${indent}// Store Future for await (assignment) - future already in state machine`);
@@ -805,7 +1221,7 @@ _register_await_substitutions :: (
   fn(expr : AstExpr, await_point : AwaitPoint, value : String, subs : HashMap(usize, String)) -> unit
 )({
   if(is_io_await_call(expr) && contains_await_expr(expr, await_point.base.expr), {
-    subs.set(ast_expr_id(expr), value.clone());
+    subs.insert(ast_expr_id(expr), value.clone());
   });
   match(
     expr,
@@ -849,8 +1265,31 @@ generate_state_segment_code :: (
   (had_substitution : bool) = false;
   (previous_substitution : String) = String.new();
   (substitution_key : usize) = usize(0);
+  (registered_substitution : bool) = false;
   match(
     segment.hoisted_await_point,
+    .Some(hp) => {
+      // An effectively-unit hoisted await has NO `await_result_N`: the state
+      // struct never allocates the field and the extraction never writes it
+      // (both guard on the same predicate — `_await_result_is_unit` in
+      // exprs/async.yo, inlined in state_machine.yo's extraction). Registering
+      // `sm->await_result_N` here anyway made the completion segment of
+      // `io.async((e) => e.io.await(<unit future>, e))` read a nonexistent
+      // struct member. Skip the substitution instead: `generate_await` then
+      // renders "", and both emit paths below skip empty code.
+      hp_is_unit := (
+        is_unit_type(hp.result_type) || (
+          is_some_type(hp.result_type) && match(hp.result_type, .SomeT({ id }) => lookup_some_resolved_concrete(id).is_none(), _ => false)
+        )
+      );
+      if(!(hp_is_unit), {
+        registered_substitution = true;
+      });
+    },
+    .None => ()
+  );
+  match(
+    if(registered_substitution, segment.hoisted_await_point, Option(AwaitPoint).None),
     .Some(hp) => {
       if(context.await_result_substitutions.is_none(), {
         context.await_result_substitutions = Option(HashMap(usize, String)).Some(HashMap(usize, String).new());
@@ -867,7 +1306,7 @@ generate_state_segment_code :: (
       );
       hp_idx_s := hp.base.index.to_string();
       sub_value := `sm->await_result_${hp_idx_s}`;
-      subs.set(substitution_key, sub_value);
+      subs.insert(substitution_key, sub_value);
       // The hoisted expression may hold a DIFFERENT node for the same await —
       // an `if` is generated through its macro expansion, whose `io.await` node
       // has its own ExprId. Register every matching await node in the
@@ -933,13 +1372,14 @@ generate_state_segment_code :: (
     i = (i + usize(1));
   });
   // Restore the substitution — segments are generated in sequence and the map
-  // is shared across the whole async block.
+  // is shared across the whole async block. (Nothing to restore when the
+  // effectively-unit guard above skipped registration.)
   match(
-    segment.hoisted_await_point,
+    if(registered_substitution, segment.hoisted_await_point, Option(AwaitPoint).None),
     .Some(_) => match(
       context.await_result_substitutions,
       .Some(subs) => if(had_substitution, {
-        subs.set(substitution_key, previous_substitution);
+        subs.insert(substitution_key, previous_substitution);
       }, {
         _r := subs.remove(substitution_key);
       }),
@@ -1076,7 +1516,7 @@ generate_while_body_with_await :: (
           .Some(future_expr) => {
             future_code := _call_generate_expr(future_expr, indent, context);
             em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
-            em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+            em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
           },
           .None => ()
         );
@@ -1094,7 +1534,7 @@ generate_while_body_with_await :: (
           .None => {
             future_code := _call_generate_expr(future_expr, indent, context);
             em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
-            em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
+            em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
           },
           .Some(_) => ()
         ),
@@ -1231,7 +1671,7 @@ generate_while_with_await :: (
       context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(HashMap(usize, WhileLoopInfo).new());
     });
     cmap := match(context.async_while_loop_info, .Some(m) => m, .None => HashMap(usize, WhileLoopInfo).new());
-    cmap.set(
+    cmap.insert(
       await_point.base.index,
       WhileLoopInfo(
         condition_expr : condition_expr,
@@ -1293,7 +1733,7 @@ generate_while_with_await :: (
             body_exprs_after_await : body_exprs_after_await
           )
         );
-        info_map.set(await_point.base.index, inner);
+        info_map.insert(await_point.base.index, inner);
       },
       // This outer loop suspends BEFORE control ever reaches the nested loop,
       // so the nested loop is emitted by the resume state, not by the body
@@ -1303,7 +1743,7 @@ generate_while_with_await :: (
       // fresh index via while_loop_origin_index (they would otherwise default
       // to the await index, which names the inner loop).
       .None => {
-        info_map.set(
+        info_map.insert(
           await_point.base.index,
           WhileLoopInfo(
             condition_expr : condition_expr,
@@ -1322,7 +1762,7 @@ generate_while_with_await :: (
       }
     );
   }, {
-    info_map.set(
+    info_map.insert(
       await_point.base.index,
       WhileLoopInfo(
         condition_expr : condition_expr,
@@ -1341,6 +1781,18 @@ generate_while_with_await :: (
   });
   context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(info_map);
 });
+/// Whether THIS branch's await reads a named future through its own field
+/// (dispatch mode only). Must agree with `cond_branch_future_access` — the
+/// store decision and the access decision are two halves of one contract.
+_branch_future_is_named :: (
+  fn(await_expr : AstExpr, await_point : AwaitPoint, context : FunctionGenerationContext) -> bool
+)(
+  match(
+    cond_branch_future_access(await_expr, await_point, context),
+    .Some(a) => a.is_named,
+    .None => false
+  )
+);
 /// Emit a single cond/match branch body (a `begin` block) up to its first await:
 /// pre-await expressions emit normally, the await stores its Future (or delegates
 /// to a nested cond/match/while), and post-await expressions are returned for the
@@ -1351,6 +1803,10 @@ generate_cond_branch_with_await :: (
   em := context.base.emitter;
   remaining_exprs := ArrayList(AstExpr).new();
   idx_s := await_point.base.index.to_string();
+  // Dispatch-mode points access each branch's future through its own shape:
+  // a NAMED branch future is read via its own field (no slot store), an
+  // anonymous one is stored into the shared `void*` slot.
+  dispatch_mode := cond_await_point_needs_dispatch(await_point, context);
   // A branch body that is NOT a `begin` block — e.g. `.Some(v) => cond(...)`,
   // where the arm body is a bare `cond` with the await inside it.
   //
@@ -1379,8 +1835,12 @@ generate_cond_branch_with_await :: (
         if(branch_has_await(expr), {
           found_await = true;
           is_last := (i == (n - usize(1)));
-          // varName := await(futureExpr)
-          if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, ":=", Option(usize).None), {
+          // varName := await(futureExpr) — and `varName = await(...)`
+          // (identifier target, bare-await value; see the same extension in
+          // generate_await_expression and in extract_target_variable_id —
+          // all three must agree or the branch future store is silently
+          // skipped).
+          if(ast_expr_is_fn_call(expr) && (ast_expr_is_fn_call_of(expr, ":=", Option(usize).None) || _is_ident_bare_await_reassign(expr)), {
             a_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
             match(
               a_args.get(usize(1)),
@@ -1388,11 +1848,16 @@ generate_cond_branch_with_await :: (
                 v_args := match(value_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
                 match(
                   v_args.get(usize(0)),
-                  .Some(future_expr) => {
+                  .Some(future_expr) => if(dispatch_mode && _branch_future_is_named(value_expr, await_point, context), {
+                    // Named future: the branch's own field holds it — storing
+                    // it into the slot would hand the slot an unowned
+                    // reference (the extraction decref would over-release it).
+                    em.emit_string_line(`${indent}// Await will use this branch's named Future (dispatch)`);
+                  }, {
                     future_code := _call_generate_expr(future_expr, indent, context);
                     em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
-                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
-                  },
+                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+                  }),
                   .None => ()
                 );
               }),
@@ -1402,19 +1867,27 @@ generate_cond_branch_with_await :: (
             // Standalone await.
             if(ast_expr_is_fn_call(expr) && is_io_await_call(expr), {
               s_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+              // In dispatch mode the named/anonymous decision is PER BRANCH —
+              // the representative's future_variable_id says nothing about
+              // this branch (issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md).
+              branch_named := (dispatch_mode && _branch_future_is_named(expr, await_point, context));
               match(
                 s_args.get(usize(0)),
-                .Some(future_expr) => match(
-                  await_point.future_variable_id,
-                  .None => {
-                    future_code := _call_generate_expr(future_expr, indent, context);
-                    em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
-                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = ${future_code};`);
-                  },
-                  .Some(fv) => {
-                    em.emit_string_line(`${indent}// Await will use Future from sm->var_${fv}`);
-                  }
-                ),
+                .Some(future_expr) => if(branch_named, {
+                  em.emit_string_line(`${indent}// Await will use this branch's named Future (dispatch)`);
+                }, {
+                  match(
+                    cond(dispatch_mode => Option(String).None, true => await_point.future_variable_id),
+                    .None => {
+                      future_code := _call_generate_expr(future_expr, indent, context);
+                      em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
+                      em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+                    },
+                    .Some(fv) => {
+                      em.emit_string_line(`${indent}// Await will use Future from sm->var_${fv}`);
+                    }
+                  );
+                }),
                 .None => ()
               );
             }, {
@@ -1759,7 +2232,7 @@ _attach_cond_branch_post_while :: (
             )
           )
         );
-        wmap.set(idx, winfo);
+        wmap.insert(idx, winfo);
       },
       .None => ()
     ),
@@ -1791,7 +2264,14 @@ _find_branch_await_target_variable_id :: (
   if(is_io_async_call(expr.clone()), {
     return(Option(String).None);
   });
-  if(ast_expr_is_fn_call_of(expr.clone(), ":=", Option(usize).None), {
+  // `:=` binds a fresh target and `=` re-assigns an existing one — BOTH land
+  // the await's result in the LHS (extract_target_variable_id already accepts
+  // both). Missing the `=` arm left `raw_response = e.io.await(...)` in a
+  // cond arm with no destination: the branch's future was awaited and its
+  // result dropped (issues/fixed/async-cond-dispatch-skips-chained-sibling-arm.md).
+  is_define := ast_expr_is_fn_call_of(expr.clone(), ":=", Option(usize).None);
+  is_assign := ast_expr_is_fn_call_of(expr.clone(), "=", Option(usize).Some(usize(2)));
+  if(is_define || is_assign, {
     match(
       match(expr.clone(), .FnCall(_, _, a, _, _) => a.get(usize(1)), .Atom(_, _) => Option(AstExpr).None),
       .Some(rhs) => if(ast_expr_is_fn_call(rhs) && is_io_await_call(rhs.clone()), {
@@ -1829,7 +2309,11 @@ _find_branch_await_target_variable_id :: (
 });
 _make_cond_branch :: (
   fn(index : usize, value : AstExpr, has_await : bool, remaining : Option(ArrayList(AstExpr)), context : FunctionGenerationContext) -> CondBranch
-)(
+)({
+  branch_awaits := ArrayList(AstExpr).new();
+  if(has_await, {
+    collect_branch_await_exprs(value.clone(), branch_awaits);
+  });
   CondBranch(
     index : index,
     value : value,
@@ -1839,9 +2323,13 @@ _make_cond_branch :: (
     await_target_variable_id : cond(
       has_await => _find_branch_await_target_variable_id(value.clone(), context),
       true => Option(String).None
+    ),
+    await_exprs : cond(
+      has_await => Option(ArrayList(AstExpr)).Some(branch_awaits),
+      true => Option(ArrayList(AstExpr)).None
     )
   )
-);
+});
 /// The destination the await-branch registration names for the branch's LAST
 /// remaining expression. The value an await-carrying arm computes AFTER its
 /// await never leaves the resume segment unless the registration names one:
@@ -1900,7 +2388,7 @@ _set_cond_branch_target :: (
   if(entry.target_assignment_code.is_none(), {
     entry.target_assignment_code = target;
   });
-  m.set(idx, entry);
+  m.insert(idx, entry);
   context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
 });
 /// Store the cond/match branch info at `idx` unless a nested cond already stored
@@ -1912,15 +2400,82 @@ _store_cond_branch_info :: (
     idx : usize,
     branches : ArrayList(CondBranch),
     target_variable_id : Option(String),
-    target_assignment_code : Option(String)
+    target_assignment_code : Option(String),
+    /// Dispatch-mode points UNION branch records instead of overwriting:
+    /// dispatch codes are per-function unique, and the registration/extraction
+    /// switches need a case for EVERY awaiting arm at any nesting level —
+    /// overwriting the nested cond's records left its live codes caseless
+    /// (the `default:` skipped the await entirely). Uniform points keep the
+    /// overwrite: their nested remaining code rides `chained_branches`, and a
+    /// union would double-emit it.
+    merge_branches : bool
   ) -> unit
 )({
   if(context.async_cond_branch_info.is_none(), {
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
   });
+  if(merge_branches, {
+    cmap0 := match(context.async_cond_branch_info, .Some(m) => m, .None => HashMap(usize, AsyncCondBranchInfo).new());
+    match(
+      cmap0.get(idx),
+      .Some(existing) => {
+        // Union by dispatch code; entry-level fields (targets) take the
+        // OUTER store's values — it runs last and owns the value flow.
+        (bi : usize) = usize(0);
+        while(bi < existing.branches.len(), {
+          match(
+            existing.branches.get(bi),
+            .Some(eb) => {
+              (dup : bool) = false;
+              (ni : usize) = usize(0);
+              while((ni < branches.len()) && !(dup), {
+                match(
+                  branches.get(ni),
+                  .Some(nb) => if(nb.index == eb.index, {
+                    dup = true;
+                  }),
+                  .None => ()
+                );
+                ni = (ni + usize(1));
+              });
+              if(!(dup), {
+                branches.push(eb);
+              });
+            },
+            .None => ()
+          );
+          bi = (bi + usize(1));
+        });
+        cmap0.insert(
+          idx,
+          AsyncCondBranchInfo(
+            branches : branches,
+            target_variable_id : target_variable_id,
+            target_assignment_code : target_assignment_code,
+            cond_branch_field_index : existing.cond_branch_field_index,
+            chained_branches : existing.chained_branches
+          )
+        );
+      },
+      .None => {
+        cmap0.insert(
+          idx,
+          AsyncCondBranchInfo(
+            branches : branches,
+            target_variable_id : target_variable_id,
+            target_assignment_code : target_assignment_code,
+            cond_branch_field_index : Option(usize).None,
+            chained_branches : Option(ArrayList(ChainedCondBranches)).None
+          )
+        );
+      }
+    );
+    context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(cmap0);
+    return(());
+  });
   if(!(_cond_inner_has_remaining_code(context, idx)), {
     cmap := match(context.async_cond_branch_info, .Some(m) => m, .None => HashMap(usize, AsyncCondBranchInfo).new());
-    cmap.set(
+    cmap.insert(
       idx,
       AsyncCondBranchInfo(
         branches : branches,
@@ -2085,7 +2640,7 @@ generate_cond_with_await :: (
       },
       .None => ()
     );
-    _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, _registration_target_assignment(cond_expr, context, target_variable_id.clone(), target_assignment_code.clone()));
+    _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, _registration_target_assignment(cond_expr, context, target_variable_id.clone(), target_assignment_code.clone()), cond_await_point_needs_dispatch(await_point, context));
     return();
   });
   // General if-else chain.
@@ -2167,7 +2722,7 @@ generate_cond_with_await :: (
     em.emit_string_line(`${current_indent}}`);
     cd = (cd + usize(1));
   });
-  _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, _registration_target_assignment(cond_expr, context, target_variable_id.clone(), target_assignment_code.clone()));
+  _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, _registration_target_assignment(cond_expr, context, target_variable_id.clone(), target_assignment_code.clone()), cond_await_point_needs_dispatch(await_point, context));
 });
 /// Index of the variant named `variant_name` in the enum's parallel arrays, or
 /// `.None`. Replaces TS `enumType.variants.find(v => v.name === ...)`.
@@ -2336,11 +2891,16 @@ generate_primitive_match_with_await :: (
   });
   em.emit_string_line(`${indent}}`);
   // Primitive match always stores branch info (TS sets unconditionally).
+  // Dispatch-mode points merge instead — nested arm records must survive.
+  if(cond_await_point_needs_dispatch(await_point, context), {
+    _store_cond_branch_info(context, await_point.base.index, branches_with_await, target_variable_id, _registration_target_assignment(match_expr, context, target_variable_id.clone(), target_assignment_code.clone()), true);
+    return(());
+  });
   if(context.async_cond_branch_info.is_none(), {
     context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(HashMap(usize, AsyncCondBranchInfo).new());
   });
   pmap := match(context.async_cond_branch_info, .Some(m) => m, .None => HashMap(usize, AsyncCondBranchInfo).new());
-  pmap.set(
+  pmap.insert(
     await_point.base.index,
     AsyncCondBranchInfo(
       branches : branches_with_await,
@@ -2373,7 +2933,7 @@ _push_cond_branch :: (fn(context : FunctionGenerationContext, idx : usize, branc
     )
   );
   entry.branches.push(branch);
-  m.set(idx, entry);
+  m.insert(idx, entry);
   context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
 });
 /// The state-machine variable id whose captured-variable name is `name`, or
@@ -2428,18 +2988,45 @@ _resolve_pattern_binding_sm_field :: (
       .Some(ei) => {
         vars := get_variables_from_env(ei.env, binding_name.clone());
         if(vars.len() > usize(0), {
-          env_id := match(vars.get(vars.len() - usize(1)), .Some(v) => v.id.to_string(), .None => String.from(""));
-          return(
-            match(
-              context.state_machine_variables,
-              .Some(m) => match(
-                m.get(env_id.clone()),
-                .Some(_) => Option(String).Some(env_id),
-                .None => Option(String).None
-              ),
-              .None => Option(String).None
-            )
+          // Owning-alias deref + id remapping, the same two steps the READ
+          // side (atom.yo) and init_assignment.yo:206 apply — without them
+          // an env hit resolved a different id spelling than the map key.
+          (env_id : String) = match(
+            vars.get(vars.len() - usize(1)),
+            .Some(v) => match(
+              v.is_owning_the_same_rc_value_as,
+              .Some(ob) => ob.*.id.to_string(),
+              .None => v.id.to_string()
+            ),
+            .None => String.from("")
           );
+          match(
+            context.variable_id_remapping,
+            .Some(rm) => match(
+              rm.get(env_id.clone()),
+              .Some(mapped) => {
+                env_id = mapped;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+          env_hit := match(
+            context.state_machine_variables,
+            .Some(m) => m.get(env_id.clone()).is_some(),
+            .None => false
+          );
+          if(env_hit, {
+            return(Option(String).Some(env_id));
+          });
+          // A same-named env hit whose id is NOT in the map is a
+          // STALE-GENERATION binding (yo-self def-time envs are copies);
+          // fall through to the name scan instead of declaring a local the
+          // reads will never see — the facet-2 loop-await rc=139: the
+          // pattern binding declared `q` locally while the arm's reads
+          // consulted the hoisted `sm->var_N` slot, which stayed
+          // uninitialized
+          // (issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
         });
       },
       .None => ()
@@ -2515,20 +3102,23 @@ _push_chained_match_arm :: (
       chained_branches : Option(ArrayList(ChainedCondBranches)).None
     )
   );
+  chained_awaits := ArrayList(AstExpr).new();
+  collect_branch_await_exprs(case_body.clone(), chained_awaits);
   cb := CondBranch(
     index : case_index,
     value : case_body,
     has_await : true,
     remaining_exprs : Option(ArrayList(AstExpr)).Some(remaining),
     deferred_drop_expressions : match(context.base.get_expr_info(case_body), .Some(ei) => ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None),
-    await_target_variable_id : Option(String).None
+    await_target_variable_id : Option(String).None,
+    await_exprs : Option(ArrayList(AstExpr)).Some(chained_awaits)
   );
   chained := match(entry.chained_branches, .Some(c) => c, .None => ArrayList(ChainedCondBranches).new());
   bl := ArrayList(CondBranch).new();
   bl.push(cb);
   chained.push(ChainedCondBranches(branches : bl, cond_branch_field_index : idx));
   entry.chained_branches = Option(ArrayList(ChainedCondBranches)).Some(chained);
-  m.set(idx, entry);
+  m.insert(idx, entry);
   context.async_cond_branch_info = Option(HashMap(usize, AsyncCondBranchInfo)).Some(m);
 });
 /// Handle one match case body at `case_index`: a branch with await delegates to
@@ -2552,6 +3142,18 @@ _emit_match_case_await_or_value :: (
   if(branch_has_await(case_body), {
     branch_count_before := _cond_entry_branch_count(context, await_point.base.index);
     remaining := generate_cond_branch_with_await(case_body, await_point, indent, context);
+    if(remaining.len() == usize(0), {
+      // Tail-await arm (the await IS the arm's value): record it anyway —
+      // dispatch-mode registration/extraction and the uniform target handover
+      // key off this record; without it the arm has no case and its value is
+      // silently dropped. Skip only when a NESTED cond/match claimed the
+      // dispatch slot during the recursion above (its arm records are the
+      // live ones).
+      if(!(_cond_entry_branch_count(context, await_point.base.index) > branch_count_before), {
+        _push_cond_branch(context, await_point.base.index, _make_cond_branch(case_index, case_body, true, Option(ArrayList(AstExpr)).Some(remaining), context));
+      });
+      _set_cond_branch_target(context, await_point.base.index, _registration_target_assignment(match_expr, context, target_variable_id.clone(), target_assignment_code.clone()));
+    });
     if(remaining.len() > usize(0), {
       // A NESTED match inside this arm claims the dispatch slot: its
       // `sm->cond_branch_N = …` assignment overwrites this arm's, so a `case`
@@ -2590,7 +3192,7 @@ _emit_match_case_await_or_value :: (
                   )
                 )
               );
-              wm.set(await_point.base.index, winfo);
+              wm.insert(await_point.base.index, winfo);
               context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);
               true
             },
@@ -2930,5 +3532,15 @@ export(
   generate_cond_with_await,
   generate_primitive_match_with_await,
   generate_match_with_await,
-  register_fsm_emitters_impl
+  register_fsm_emitters_impl,
+  is_io_future_type,
+  collect_branch_await_exprs,
+  _find_branch_await_target_variable_id,
+  await_call_future_arg,
+  cond_await_point_needs_dispatch,
+  CondBranchFutureAccess,
+  resolve_future_var_field,
+  cond_branch_future_access,
+  cond_await_point_any_branch_in_while,
+  cond_branch_expr_in_while
 );

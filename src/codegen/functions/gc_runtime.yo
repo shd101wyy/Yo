@@ -20,7 +20,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BF_UNWIND } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_unit_type } :: import("../../types/guards.yo");
-{ get_type_string } :: import("../utils/index.yo");
+{ get_type_string, ChunkRange } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { TargetInfo, is_target_windows } :: import("../../target.yo");
 // ---------------------------------------------------------------------------
@@ -38,7 +38,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(expr : AstExpr, context : Function
         args.get(usize(0)),
         .Some(arg0) => match(
           context.base.get_expr_info(arg0),
-          .Some(ei) => if(!(is_unit_type(ei.ty)), {
+          .Some(ei) => if(!is_unit_type(ei.ty), {
             _a := out.push(get_type_string(ei.ty, context.base));
           }),
           .None => ()
@@ -115,7 +115,7 @@ collect_unwind_value_ctypes :: (fn(context : FunctionGenerationContext) -> unit)
             match(
               found.get(fj),
               .Some(s) => {
-                _r := into.add(s.clone());
+                _r := into.insert(s.clone());
               },
               .None => ()
             );
@@ -146,12 +146,23 @@ emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
     .None => true
   );
   if(empty, {
-    em.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+    // Chunked emission: one TLS definition (chunk 0), extern in the header —
+    // the buffer is written/read from every chunk's unwind paths.
+    if(context.base.chunk_mode, {
+      em.emit_declaration_line("extern _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+      cgb := context.base;
+      cgb.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) char __yo_unwind_value[64];\n"));
+    }, {
+      em.emit_declaration_line("static _Thread_local _Alignas(16) char __yo_unwind_value[64];  // Thread-local buffer for unwind value storage");
+    });
     return();
   });
   decl := String.from("// Thread-local buffer for unwind value storage, sized (via a union) to the\n");
   decl.push_str("// largest unwound value in the program so 'unwind(v)' never overflows it.\n");
-  decl.push_str("static _Thread_local _Alignas(16) union {\n");
+  // Chunked emission: the union type must be NAMED (a typedef) so the header's
+  // extern declaration and chunk 0's definition agree on one type — two
+  // anonymous unions are incompatible redeclarations in the including TU.
+  decl.push_str(if(context.base.chunk_mode, "typedef union {\n", "static _Thread_local _Alignas(16) union {\n"));
   decl.push_str("    char __pad[64];\n");
   match(
     context.unwind_value_c_types,
@@ -178,8 +189,16 @@ emit_unwind_value_buffer :: (fn(context : FunctionGenerationContext) -> unit)({
     },
     .None => ()
   );
-  decl.push_str("} __yo_unwind_value_storage;\n");
-  decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
+  if(context.base.chunk_mode, {
+    decl.push_str("} __yo_unwind_value_storage_t;\n");
+    decl.push_str("extern _Thread_local _Alignas(16) __yo_unwind_value_storage_t __yo_unwind_value_storage;\n");
+    decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
+    cgb2 := context.base;
+    cgb2.chunk_globals.push_string(String.from("_Thread_local _Alignas(16) __yo_unwind_value_storage_t __yo_unwind_value_storage;\n"));
+  }, {
+    decl.push_str("} __yo_unwind_value_storage;\n");
+    decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
+  });
   em.emit_declaration_string_line(decl);
 });
 // ---------------------------------------------------------------------------
@@ -226,6 +245,12 @@ generate_lightweight_rc_functions :: (fn(context : FunctionGenerationContext) ->
   em := context.base.emitter;
   // Forward-declare the dispose dispatch function (defined after all dispose functions).
   em.emit_declaration_line("static void __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch");
+  // Chunked emission: the RC primitives are the hot path and must be per-TU
+  // `static inline` copies, not one external definition in chunk 0 (measured
+  // 16.5% slower). This whole block is header-routable as-is: it touches only
+  // the object header, `__yo_free` and the externally-declared
+  // `__yo_dispose_dispatch`.
+  rc_lw_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
   em.emit_string_line(
     `// Lightweight reference counting — no cycle detection needed
 // Uses type_id dispatch instead of function pointer for dispose
@@ -250,6 +275,12 @@ static inline void* __yo_incr_rc(void* ptr) {
   return ptr;
 }`
   );
+  if(context.base.chunk_mode, {
+    cgb6 := context.base;
+    cgb6.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__rc_primitives_lightweight"), start_b : rc_lw_start, end_b : em.code.as_bytes().len())
+    );
+  });
   em.emit_string_line(
     `
 // Atomic reference counting functions for Iso types (thread-safe)
@@ -277,7 +308,13 @@ static void __yo_decr_rc_atomic(void* ptr) {
 }`
   );
   // Effect unwind flag and value buffer (always needed).
-  em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  if(context.base.chunk_mode, {
+    em.emit_declaration_line("extern _Thread_local int __yo_effect_escaped;  // Thread-local flag for effect record unwind detection");
+    cgb3 := context.base;
+    cgb3.chunk_globals.push_string(String.from("_Thread_local int __yo_effect_escaped = 0;\n"));
+  }, {
+    em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  });
   emit_unwind_value_buffer(context);
   // No-op GC functions so references elsewhere compile.
   em.emit_string_line(
@@ -305,6 +342,10 @@ static void __yo_init_process_cleanup(void) {}`
 generate_full_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   ti := context.base.target_info;
+  // `__yo_decr_rc`'s tracked tail is emitted AFTER it (and, under
+  // --emit-chunks, in a different translation unit), so it needs a forward
+  // declaration.
+  em.emit_declaration_line("static void __yo_decr_rc_tracked(void* ptr); // Tracked-object RC decrement (out-of-line)");
   // Non-atomic (GC-aware) + atomic reference counting.
   em.emit_string_line(
     `// Non-atomic reference counting functions (thread-local)
@@ -316,12 +357,27 @@ static _Thread_local int __yo_gc_collecting = 0;
 // GC tracking state + thresholds (declared here so __yo_decr_rc, below, can buffer
 // possible cycle roots and trigger collection — Bacon-Rajan).
 static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
-static size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold (floor)
-static size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
-static size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive Nx-live)
-static size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a percent of post-collection live (default 200 = 2x-live). Lower to cap peak memory on constrained boxes; raise for fewer (but larger) scans. Env: YO_GC_FULL_PCT.
-
-static inline void __yo_decr_rc(void* ptr) {
+// THREAD-LOCAL like the rest of the GC state: these are mutated by the
+// adaptive re-threshold after every collection, and process-global copies
+// raced across worker threads (TSan on the sync-primitives leg; the env-read
+// once-flag below was the first face). Per-thread adaptation is the
+// per-thread collector's design intent anyway.
+static _Thread_local size_t __yo_gc_min_threshold = 256;       // Minimum / configured collection threshold (floor)
+static _Thread_local size_t __yo_gc_collect_threshold = 256;   // Incremental: collect when possible_roots reaches this
+static _Thread_local size_t __yo_gc_full_threshold = 256;      // Full: allocation-driven full-heap scan when tracked_count reaches this (adaptive Nx-live)
+static _Thread_local size_t __yo_gc_full_pct = 200;            // Full-scan growth factor as a percent of post-collection live (default 200 = 2x-live). Lower to cap peak memory on constrained boxes; raise for fewer (but larger) scans. Env: YO_GC_FULL_PCT.
+`
+  );
+  // Chunked emission: the RC primitives are THE hot path (__yo_decr_rc has
+  // profiled at 54% of a self-compile), so under --emit-chunks they must be
+  // duplicated into every translation unit as `static inline` rather than left
+  // external in chunk 0 — MEASURED: an N=4 chunked self-build with them
+  // external ran 16.5% slower (102.2s vs 87.7s on check ./src). Only the
+  // untracked FAST PATH is inlined; the tracked tail below reads the
+  // thread-local GC state above, so it stays out-of-line in chunk 0.
+  rc_prims_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
+  em.emit_string_line(
+    `static inline void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
 
@@ -346,7 +402,32 @@ static inline void __yo_decr_rc(void* ptr) {
     }
     return;
   }
+  // Tracked object: the cycle-collector bookkeeping — and the thread-local
+  // GC state it reads — lives out-of-line, so THIS function needs nothing
+  // but the object header. That is what lets it be duplicated as a per-TU
+  // static inline under --emit-chunks (plans/CHUNKED_C_EMISSION.md); a
+  // single-file build inlines the tail back into its only call site.
+  __yo_decr_rc_tracked(ptr);
+}
 
+static inline void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
+  header->ref_count++;
+  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)header->ref_count);
+  return ptr;
+}`
+  );
+  if(context.base.chunk_mode, {
+    cgb5 := context.base;
+    cgb5.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__rc_primitives"), start_b : rc_prims_start, end_b : em.code.as_bytes().len())
+    );
+  });
+  em.emit_string_line(
+    `
+static void __yo_decr_rc_tracked(void* ptr) {
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   // Tracked object. During GC collection, skip it: the GC handles tracked
   // objects' lifecycle via trial deletion — decrementing here would
   // double-count the reference removal.
@@ -386,14 +467,6 @@ static inline void __yo_decr_rc(void* ptr) {
   }
 }
 
-static inline void* __yo_incr_rc(void* ptr) {
-  if (ptr == NULL) return NULL;
-  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
-  header->ref_count++;
-  GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)header->ref_count);
-  return ptr;
-}
-
 // Atomic reference counting functions for Iso types (thread-safe)
 // Memory ordering follows the standard Arc pattern (Rust, Swift, C++ shared_ptr):
 //   - Increment: relaxed (no ordering needed for new reference creation)
@@ -422,7 +495,13 @@ static void __yo_decr_rc_atomic(void* ptr) {
 }`
   );
   // Effect-unwind flag + value buffer (declaration section).
-  em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  if(context.base.chunk_mode, {
+    em.emit_declaration_line("extern _Thread_local int __yo_effect_escaped;  // Thread-local flag for effect record unwind detection");
+    cgb3 := context.base;
+    cgb3.chunk_globals.push_string(String.from("_Thread_local int __yo_effect_escaped = 0;\n"));
+  }, {
+    em.emit_declaration_line("static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for effect record unwind detection");
+  });
   emit_unwind_value_buffer(context);
   // Per-thread GC tracking state + adaptive thresholds.
   em.emit_string_line(
@@ -519,7 +598,7 @@ static void __yo_init_thread_gc() {
   // both the live threshold and the adaptive floor. Default (env unset) keeps
   // the adaptive 256 behavior. Mirrors the YO_MAIN_STACK_MB knob.
   {
-    static int __yo_gc_thr_env_read = 0;
+    static _Thread_local int __yo_gc_thr_env_read = 0;
     if (!__yo_gc_thr_env_read) {
       __yo_gc_thr_env_read = 1;
       const char* __yo_gc_thr = getenv("YO_GC_THRESHOLD");
@@ -957,9 +1036,12 @@ static void __yo_init_process_cleanup(void) {
   }, {
     em.emit_string_line(
       `static void __yo_init_process_cleanup(void) {
-  static bool cleanup_initialized = false;
-  if (cleanup_initialized) return;
-  cleanup_initialized = true;
+  // Atomic once-guard: every spawned thread runs this via __yo_gc_init_thread,
+  // so a plain static bool is a data race (TSan: read/write of
+  // 'cleanup_initialized' from two worker threads). The Windows branch uses
+  // InitOnceExecuteOnce; this is the POSIX/wasm equivalent.
+  static _Atomic bool cleanup_initialized = false;
+  if (atomic_exchange_explicit(&cleanup_initialized, true, memory_order_acq_rel)) return;
   atexit(__yo_process_cleanup);
 }`
     );
@@ -972,7 +1054,17 @@ static void __yo_init_process_cleanup(void) {
 /// runtime when needs_cycle_gc, else the lightweight (type-tag) path. Mirrors
 /// `generateAtomicGCRuntimeFunctions`.
 generate_atomic_gc_runtime_functions :: (fn(context : FunctionGenerationContext) -> unit)({
+  // Chunked emission: the borrow primitives are the per-container-access hot
+  // path, have no prototypes anywhere, and are called from every chunk —
+  // route them into the shared header (per-TU `static inline` copies).
+  bp_start := if(context.base.chunk_mode, context.base.emitter.code.as_bytes().len(), usize(0));
   generate_borrow_runtime_primitives(context);
+  if(context.base.chunk_mode, {
+    cgb4 := context.base;
+    cgb4.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__borrow_primitives"), start_b : bp_start, end_b : context.base.emitter.code.as_bytes().len())
+    );
+  });
   if(context.base.needs_cycle_gc, {
     generate_full_gc_runtime_functions(context);
   }, {

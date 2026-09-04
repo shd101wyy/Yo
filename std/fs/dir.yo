@@ -2,7 +2,7 @@
 //!
 //! Wraps low-level `std/sys/dir` with typed APIs using the `Exception` effect.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { create_dir, remove_dir, read_dir } :: import "std/fs/dir";
@@ -57,7 +57,7 @@ export(DirEntry);
 // ============================================================================
 /// Create a directory at the given path.
 create_dir :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)), e.io);
@@ -74,7 +74,7 @@ create_dir_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
 /// Create a directory and all missing parent directories.
 /// Does not error if the directory already exists.
 create_dir_all :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     path_s := path.to_string();
     cstr_bytes := path_s.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -159,7 +159,7 @@ create_dir_all_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
 );
 /// Remove an empty directory. Throws if the directory is not empty.
 remove_dir :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.unlink(AT_FDCWD, cstr, AT_REMOVEDIR), e.io);
@@ -174,7 +174,7 @@ remove_dir_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
 );
 /// Remove a file at the given path.
 remove_file :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.unlink(AT_FDCWD, cstr, i32(0)), e.io);
@@ -187,7 +187,7 @@ remove_file :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
 remove_file_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(remove_file(Path.new(String.from(path)), io));
 /// Rename or move a file or directory from `from` to `to`.
 rename :: (fn(from : Path, to : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     from_cstr_bytes := from.to_string().to_cstr();
     from_cstr := from_cstr_bytes.ptr().unwrap();
     to_cstr_bytes := to.to_string().to_cstr();
@@ -202,7 +202,7 @@ rename :: (fn(from : Path, to : Path, io : Io) -> Impl(Future(unit, IoExn)))(
 rename_str :: (fn(from : str, to : str, io : Io) -> Impl(Future(unit, IoExn)))(rename(Path.new(String.from(from)), Path.new(String.from(to)), io));
 /// Create a hard link from `src` to `dst`.
 hard_link :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     src_cstr_bytes := src.to_string().to_cstr();
     src_cstr := src_cstr_bytes.ptr().unwrap();
     dst_cstr_bytes := dst.to_string().to_cstr();
@@ -217,7 +217,7 @@ hard_link :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
 hard_link_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn)))(hard_link(Path.new(String.from(src)), Path.new(String.from(dst)), io));
 /// Create a symbolic link at `dst` pointing to `src`.
 symlink :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     src_cstr_bytes := src.to_string().to_cstr();
     src_cstr := src_cstr_bytes.ptr().unwrap();
     dst_cstr_bytes := dst.to_string().to_cstr();
@@ -230,13 +230,42 @@ symlink :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
   })
 );
 symlink_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn)))(symlink(Path.new(String.from(src)), Path.new(String.from(dst)), io));
+/// Read a symlink's target (`std::fs::read_link`). Throws for a path that is
+/// not a symlink (EINVAL) — like Rust.
+read_link :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
+  io.async(e => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    bufsize := usize(4096);
+    buf := *(u8)(malloc(bufsize).unwrap());
+    n := IO_dir.readlink(AT_FDCWD, cstr, buf, bufsize);
+    cond(
+      (n < i32(0)) => {
+        free(.Some(*(void)(buf)));
+        e.exn.throw(dyn(IoError.from_errno(i32(0) - n)))
+      },
+      true => {
+        target_bytes := ArrayList(u8).with_capacity(usize(n));
+        (rli : usize) = usize(0);
+        while(rli < usize(n), rli = (rli + usize(1)), {
+          target_bytes.push((buf.add(rli)).*);
+        });
+        free(.Some(*(void)(buf)));
+        Path.new(String.from_bytes(target_bytes))
+      }
+    )
+  })
+);
+/// `read_link` (`str` path variant).
+read_link_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(read_link(Path.new(String.from(path)), io));
+
 // ============================================================================
 // Directory listing
 // ============================================================================
 /// Read all entries from a directory, returning an `ArrayList(DirEntry)`.
 /// Skips the `.` and `..` entries.
 read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     // Open the directory
@@ -313,5 +342,7 @@ export(
   symlink,
   symlink_str,
   read_dir,
-  read_dir_str
+  read_dir_str,
+  read_link,
+  read_link_str
 );

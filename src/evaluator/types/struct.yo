@@ -64,9 +64,7 @@ evaluate_struct_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected "struct" or "newtype", got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -77,7 +75,7 @@ evaluate_struct_type :: (
   // twin (see there for the full rationale): re-evaluation generations of a
   // module-level struct declaration share one identity; CTFE instantiations
   // (generic constructors) keep eval-fresh ids so distinct instantiations
-  // never share (the recorded tk2/Bucket hazard of the unconditional swap).
+  // never share (the recorded tk2/MapEntry hazard of the unconditional swap).
   struct_id := if(
     ctx.ctfe_depth == usize(0),
     `struct_decl_${ast_expr_id(expr).to_string()}_${env.module_path.replace(String.from("/"), String.from("_")).replace(String.from("."), String.from("_")).replace(String.from(":"), String.from("_"))}`,
@@ -137,7 +135,7 @@ evaluate_struct_type :: (
     // Check for duplicate labels
     (dup_idx : usize) = usize(0);
     (has_dup : bool) = false;
-    while((dup_idx < field_labels.len()) && !(has_dup), {
+    while((dup_idx < field_labels.len()) && !has_dup, {
       existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
       if(existing == field.label, {
         has_dup = true;
@@ -155,9 +153,39 @@ evaluate_struct_type :: (
         dyn(
           format_error_message(
             err_tok,
-            `Duplicate label "${field.label}" in struct`,
-            false,
-            .None
+            `Duplicate label "${field.label}" in struct`
+          )
+        )
+      );
+    });
+    // RESERVED MEMBER. A reference struct's emitted C layout is
+    // `{ __yo_ref_header_t header; <user fields...> }`, so a user field named
+    // `header` produced TWO members with that name: "duplicate member
+    // 'header'", and every `x.header` access silently resolved to the RC
+    // header instead — cascading into incompatible-type errors at the
+    // constructor, the traversal function and each use site. It type-checked
+    // cleanly, so the only symptom was a wall of C errors naming generated
+    // temps. `header` is the ONLY injected member (ref_count, gc_flags,
+    // type_id, dispose_fn and friends live INSIDE the header struct, so they
+    // do not collide), and value structs inject nothing — hence the
+    // is_reference_semantics guard. Rejecting here means `yo check` catches it
+    // with a source location. See
+    // issues/fixed/ref-struct-field-named-header-collides-with-rc-header.md.
+    // `!(field.is_comptime)`: a comptime field is ERASED from the C layout
+    // (get_runtime_struct_fields drops it), so `ref(struct(header :: 1))`
+    // cannot collide and must stay legal.
+    if(is_reference_semantics && !field.is_comptime && (field.label == "header"), {
+      res_args := match(arg, .FnCall(_, _, a3, _, _) => a3, .Atom(_, _) => ArrayList(AstExpr).new());
+      res_tok := if(
+        ast_expr_is_fn_call(arg),
+        match(res_args.get(usize(0)), .Some(fe2) => ast_expr_token(fe2), .None => ast_expr_token(arg)),
+        ast_expr_token(arg)
+      );
+      exn.throw(
+        dyn(
+          format_error_message(
+            res_tok,
+            String.from("\"header\" is a reserved field name in a reference struct: the generated C layout already carries a `header` member (the reference-count header), so a field of that name would collide with it. Rename the field.")
           )
         )
       );
@@ -165,7 +193,7 @@ evaluate_struct_type :: (
     field_labels.push(field.label.clone());
     field_types.push(field.ty);
     field_comptime_flags.push(field.is_comptime);
-    if(!(field.is_comptime), {
+    if(!field.is_comptime, {
       runtime_field_types.push(field.ty);
     });
     fields.push(field);
@@ -200,9 +228,7 @@ evaluate_struct_type :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`,
-                false,
-                .None
+                `Arc(Iso(T)) is not allowed.\n  - Arc is for shared ownership; Iso is for unique ownership. The composition is contradictory.\n  - If you want a "one of many threads races to claim a value" pattern, build a Oneshot(T) primitive on top of Mutex + Option (or wait for std/sync to expose one).`
               )
             )
           );
@@ -217,9 +243,7 @@ evaluate_struct_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Newtype struct must have exactly one field, but got ${fields.len()} fields.`,
-          false,
-          .None
+          `Newtype struct must have exactly one field, but got ${fields.len()} fields.`
         )
       )
     );
@@ -305,9 +329,7 @@ evaluate_struct_type :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Type ${type_to_string(struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`,
-          false,
-          .None
+          `Type ${type_to_string(struct_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
         )
       )
     );

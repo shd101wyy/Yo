@@ -24,7 +24,7 @@ test("Test fn unwind and return via using parameter", {
         // `unwind` is only allowed in a `ctl(...) -> ret` function value (see ctl typing rule 1).
       }
     );
-    (i64(8) + i64(safe_divide(1, 0, raise))) + (i64(10) + i64(safe_divide(10, 2, raise)))
+    i64(8) + i64(safe_divide(1, 0, raise)) + (i64(10) + i64(safe_divide(10, 2, raise)))
   });
   // Returns 42 — continuation is discarded
   // Handle the effect — with resume (invoking continuation)
@@ -35,7 +35,7 @@ test("Test fn unwind and return via using parameter", {
       println(msg2);
       return(i32(42));
     });
-    (i64(8) + i64(safe_divide(1, 0, raise))) + i64(10)
+    i64(8) + i64(safe_divide(1, 0, raise)) + i64(10)
   });
   // Returns 60 — return(42) continues after the raise call site
   result1 := raise_const();
@@ -111,7 +111,7 @@ test("unwind argument built by a may-unwind call", {
     )
   );
   eval_wrapper :: (fn(n : i32) -> ErrNode)({
-    (raise : Raise2) = ((msg) -> unwind(make_err_node()));
+    (raise : Raise2) = (msg -> unwind(make_err_node()));
     try_eval(n, raise)
   });
   (acc : usize) = usize(0);
@@ -380,7 +380,7 @@ test("Test early return inside loop after fn resume", {
         true => ()
       );
     });
-    return(i32(-(1)));
+    return(i32(-1));
   });
   result := find_first_odd();
   assert(result == i32(5), "first odd value >= 5 should be 5");
@@ -397,7 +397,7 @@ test("Test two different fn types in same scope (Log + Raise)", {
     }
   );
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(i32(42));
     }
@@ -417,7 +417,7 @@ test("Test single-level effect propagation via using parameter", {
     )
   );
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(i32(0));
     }
@@ -437,7 +437,7 @@ test("Test two-level effect propagation via using parameter", {
     safe_divide(a, b, raise) + i32(10)
   );
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(i32(0));
     }
@@ -457,7 +457,7 @@ test("Test two-level effect propagation via using parameter with unwind", {
     safe_divide(a, b, raise) + i32(10)
   );
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       unwind(());
     }
@@ -474,7 +474,7 @@ test("Test given variable shadowing (inner scope shadows outer)", {
     )
   );
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(0));
     }
   );
@@ -482,13 +482,13 @@ test("Test given variable shadowing (inner scope shadows outer)", {
   assert(result1 == i32(0), "outer handler should return 0");
   result2 := {
     (raise_inner : Raise) = (
-      (msg) -> {
-        return(i32(-(1)));
+      msg -> {
+        return(i32(-1));
       }
     );
     safe_divide(20, 0, raise_inner)
   };
-  assert(result2 == i32(-(1)), "inner handler should shadow outer and return -1");
+  assert(result2 == i32(-1), "inner handler should shadow outer and return -1");
   result3 := safe_divide(30, 0, raise);
   assert(result3 == i32(0), "outer handler should still work after inner scope");
 });
@@ -503,7 +503,7 @@ test("Test given variable shadowing (inner scope shadows outer) with unwind", {
   );
   // Define `raise` at top level
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(i32(0));
     }
@@ -511,7 +511,7 @@ test("Test given variable shadowing (inner scope shadows outer) with unwind", {
   {
     // Define a new handler that unwinds; pass it explicitly to safe_divide.
     (raise2 : Raise) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         unwind(());
       }
@@ -535,7 +535,7 @@ test("Test effect polymorphism with using spread", {
     ) -> T
   )(f(e));
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(i32(42));
     }
@@ -557,7 +557,7 @@ test("Test effect polymorphism with using spread and unwind", {
     ) -> T
   )(f(e));
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       unwind(());
     }
@@ -578,7 +578,7 @@ test("Test struct-record effect with unwind", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           unwind(());
         }
@@ -600,7 +600,7 @@ test("Test struct-record effect with resume", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           return(i32(0));
         }
@@ -628,7 +628,7 @@ test("Test nested struct-record effect with unwind", {
     errors : Errors(
       raise :
         (
-          (msg) -> {
+          msg -> {
             println(msg);
             unwind(());
           }
@@ -655,7 +655,7 @@ test("Test nested struct-record effect with resume", {
     errors : Errors(
       raise :
         (
-          (msg) -> {
+          msg -> {
             println(msg);
             return(i32(0));
           }
@@ -680,7 +680,7 @@ test("Test struct record labeled name : Type with unwind", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           unwind(());
         }
@@ -702,7 +702,7 @@ test("Test struct record labeled name : Type with resume", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           return(i32(0));
         }
@@ -735,13 +735,13 @@ test("Test multiple effect row spreads with resume", {
     f1(e1)
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(i32(42));
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(());
     }
@@ -771,13 +771,13 @@ test("Test multiple effect row spreads with unwind", {
     f1(e1)
   });
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       unwind(());
     }
   );
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(());
     }
@@ -789,7 +789,7 @@ test("Test closure with using() effect - resume", {
   Log :: (fn(msg : String) -> unit);
   x := Box(i32)(0);
   (log : Log) = (
-    (msg) -> {
+    msg -> {
       println(msg);
       return(());
     }
@@ -816,7 +816,7 @@ test("Test closure with using() effect - unwind", {
   run_test :: (fn() -> i32)({
     x := Box(i32)(0);
     (log : Log) = (
-      (msg) -> {
+      msg -> {
         println(msg);
         unwind(i32(99));
       }
@@ -851,13 +851,13 @@ test("Effect row polymorphism with E : Type.Struct spread", {
   });
   (yield : Yield) =
     (
-      (v) -> {
+      v -> {
         return(v);
       }
     );
   (log : Log) =
     (
-      (v) -> {
+      v -> {
         println(v);
       }
     );
@@ -890,13 +890,13 @@ test("Effect row inline typed declaration name : Type", {
   });
   (yield : Yield) =
     (
-      (v) -> {
+      v -> {
         return(v);
       }
     );
   (log : Log) =
     (
-      (v) -> {
+      v -> {
         println(v);
       }
     );
@@ -930,7 +930,7 @@ test("Mixed unwind and return in effect handler", {
   });
   (yield : Yield) =
     (
-      (v) ->
+      v ->
         cond(
           (v > 2) => {
             unwind(());
@@ -942,7 +942,7 @@ test("Mixed unwind and return in effect handler", {
     );
   (log : Log) =
     (
-      (v) -> {
+      v -> {
         println(v);
       }
     );
@@ -986,7 +986,7 @@ test("Transitive SM while loop with break", {
   });
   (yield : Yield) =
     (
-      (v) -> {
+      v -> {
         return(v * i32(2));
       }
     );
@@ -1020,7 +1020,7 @@ test("Transitive SM while loop with continue", {
   });
   (yield : Yield) =
     (
-      (v) -> {
+      v -> {
         return(v);
       }
     );
@@ -1061,7 +1061,7 @@ test("Transitive SM while loop with mixed continue and break", {
   });
   (yield : Yield) =
     (
-      (v) -> {
+      v -> {
         return(v);
       }
     );
@@ -1093,7 +1093,7 @@ test("Transitive SM while loop with step expr and continue", {
   });
   (yield : Yield) =
     (
-      (v) -> {
+      v -> {
         return(v);
       }
     );
@@ -1120,11 +1120,11 @@ test("Transitive SM while loop with early return", {
         true => ()
       );
     });
-    return(i32(-(1)));
+    return(i32(-1));
   });
   (yield : Yield) =
     (
-      (v) -> {
+      v -> {
         return(v * i32(3));
       }
     );
@@ -1318,7 +1318,7 @@ test("Struct-record effect with generic handler — early return after resume in
         true => ()
       );
     });
-    return(i32(-(1)));
+    return(i32(-1));
   });
   result := find_first_positive();
   // counter: 0→-3→0, 1→-2→0, 2→-1→0, 3→0, 4→1>0 → return 1
@@ -1453,13 +1453,13 @@ test("Test three-level effect propagation via using parameter", {
     level2(x, raise) + i32(10)
   );
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(0));
     }
   );
   result1 := level1(i32(5), raise);
   assert(result1 == i32(21), "3-level propagation: 5*2+1+10 = 21");
-  result2 := level1(i32(-(1)), raise);
+  result2 := level1(i32(-1), raise);
   assert(result2 == i32(11), "3-level propagation with raise: 0+1+10 = 11");
 });
 // ---------------------------------------------------------------------------
@@ -1482,11 +1482,11 @@ test("Test three-level effect propagation with unwind", {
   );
   run_test :: (fn() -> i32)({
     (raise : Raise) = (
-      (msg) -> {
+      msg -> {
         unwind(i32(99));
       }
     );
-    level1(i32(-(1)), raise)
+    level1(i32(-1), raise)
   });
   result := run_test();
   assert(result == i32(99), "3-level unwind: should get 99");
@@ -1508,15 +1508,15 @@ test("Test struct-record effect unwind with non-unit value", {
     (raise_mod : Raise) = Raise(
       raise :
         (
-          (msg) -> {
-            unwind(i32(-(1)));
+          msg -> {
+            unwind(i32(-1));
           }
         )
     );
     safe_divide(10, 0, raise_mod)
   });
   result := run_test();
-  assert(result == i32(-(1)), "struct-record unwind non-unit: should get -1");
+  assert(result == i32(-1), "struct-record unwind non-unit: should get -1");
 });
 // ---------------------------------------------------------------------------
 // Struct-record effect with multiple functions
@@ -1537,21 +1537,21 @@ test("Test struct-record effect with multiple function members", {
   (logger : Logger) = Logger(
     info :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           return(i32(1));
         }
       ),
     warn :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           return(i32(1));
         }
       ),
     count :
       (
-        (current) -> {
+        current -> {
           return(current);
         }
       )
@@ -1580,7 +1580,7 @@ test("Test multiple struct-record effects in same scope", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           return(i32(0));
         }
@@ -1589,7 +1589,7 @@ test("Test multiple struct-record effects in same scope", {
   (log_mod : Log) = Log(
     log :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           return(i32(1));
         }
@@ -1620,7 +1620,7 @@ test("Test effect handler conditional resume or unwind based on argument", {
             return(i32(0));
           },
           true => {
-            unwind(i32(-(1)));
+            unwind(i32(-1));
           }
         );
       }
@@ -1632,7 +1632,7 @@ test("Test effect handler conditional resume or unwind based on argument", {
     return(sum.*);
   });
   result := run_test();
-  assert(result == i32(-(1)), "conditional resume/unwind: third call escapes with -1");
+  assert(result == i32(-1), "conditional resume/unwind: third call escapes with -1");
 });
 // ---------------------------------------------------------------------------
 // Recursive function with effects (recur + using)
@@ -1646,7 +1646,7 @@ test("Test recursive function with effect via recur", {
     )
   );
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(0));
     }
   );
@@ -1666,7 +1666,7 @@ test("Test recursive function with effect unwind during recursion", {
   );
   run_test :: (fn() -> i32)({
     (raise : Raise) = (
-      (val) -> {
+      val -> {
         cond(
           (val == i32(3)) => {
             unwind(i32(42));
@@ -1695,7 +1695,7 @@ test("Test effect with Option return type", {
     )
   );
   (lookup : Lookup) = (
-    (key) -> {
+    key -> {
       return(
         cond(
           (key > 0) => Option(i32).Some(key * i32(10)),
@@ -1704,11 +1704,11 @@ test("Test effect with Option return type", {
       );
     }
   );
-  result1 := get_or_default(i32(3), i32(-(1)), lookup);
+  result1 := get_or_default(i32(3), i32(-1), lookup);
   assert(result1 == i32(30), "option effect: key=3 -> 30");
-  result2 := get_or_default(i32(0), i32(-(1)), lookup);
-  assert(result2 == i32(-(1)), "option effect: key=0 -> default -1");
-  result3 := get_or_default(i32(-(5)), i32(99), lookup);
+  result2 := get_or_default(i32(0), i32(-1), lookup);
+  assert(result2 == i32(-1), "option effect: key=0 -> default -1");
+  result3 := get_or_default(i32(-5), i32(99), lookup);
   assert(result3 == i32(99), "option effect: key=-5 -> default 99");
 });
 // ---------------------------------------------------------------------------
@@ -1732,7 +1732,7 @@ test("Test effect polymorphism with struct-record effect spread", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           return(i32(77));
         }
       )
@@ -1768,7 +1768,7 @@ test("Test transitive SM with struct-record effect in while loop", {
   (counter : Counter) = Counter(
     increment :
       (
-        (current) -> {
+        current -> {
           return(current + i32(1));
         }
       )
@@ -1785,7 +1785,7 @@ test("regular fn struct handler cannot capture outer runtime variable", {
   outer_val := i32(42);
   comptime_expect_error(
     (r : Raise) = Raise(
-      raise : ((msg) -> outer_val)
+      raise : (msg -> outer_val)
     )
   );
 });
@@ -1802,7 +1802,7 @@ test("Test struct-based effect with unwind", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           unwind(());
         }
@@ -1824,7 +1824,7 @@ test("Test struct-based effect with resume", {
   (raise_mod : Raise) = Raise(
     raise :
       (
-        (msg) -> {
+        msg -> {
           println(msg);
           return(i32(0));
         }
@@ -1841,7 +1841,7 @@ test("ctl rule 1: unwind in fn body is rejected", {
   comptime_expect_error(
     (fn() -> (fn(msg : String) -> i32))({
       (handler : (fn(msg : String) -> i32)) = (
-        (msg) -> {
+        msg -> {
           unwind(i32(0));
         }
       );
@@ -1857,7 +1857,7 @@ test("ctl rule 8: cannot return a control-bound value", {
   comptime_expect_error(
     (fn() -> (ctl(msg : String) -> i32))({
       (handler : (ctl(msg : String) -> i32)) = (
-        (msg) -> {
+        msg -> {
           unwind(i32(0));
         }
       );
@@ -1871,7 +1871,7 @@ test("ctl rule 8: cannot return a struct containing ctl field", {
   comptime_expect_error(
     (fn() -> Holder)({
       (handler : (ctl(msg : String) -> i32)) = (
-        (msg) -> {
+        msg -> {
           unwind(i32(0));
         }
       );
@@ -1879,11 +1879,30 @@ test("ctl rule 8: cannot return a struct containing ctl field", {
     })()
   );
 });
+// Rule 8 is enforced on the DECLARED result type at DEFINITION time — the
+// two tests above error even before their call. That includes the
+// expression-bodied `fn() -> Exception` helper shape, whose def-eval trial
+// failure used to be SWALLOWED: the helper shipped, and its handler's emitted
+// body was silently missing the `unwind`
+// (issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md).
+test("ctl rule 8: fn result type containing a ctl field is rejected at definition", {
+  comptime_expect_error(
+    (fn() -> Exception)(
+      Exception(
+        throw : (
+          err -> {
+            unwind(());
+          }
+        )
+      )
+    )
+  );
+});
 // Rule 8 (escape boundary 2): module-level binding type cannot be
 // control-bound. Module-level bindings outlive every call frame.
 comptime_expect_error(
   (escaped_handler : (ctl(msg : String) -> i32)) = (
-    (msg) -> {
+    msg -> {
       unwind(i32(0));
     }
   )
@@ -1891,12 +1910,12 @@ comptime_expect_error(
 // Rule 11: pointer to control-bound type is forbidden at the type level.
 test("ctl rule 11: cannot form a pointer to a ctl type", {
   Raise :: (ctl(msg : String) -> i32);
-  comptime_expect_error(PtrToCtl :: *(Raise));
+  comptime_expect_error(PtrToCtl :: *Raise);
 });
 // Rule 11: pointer to a struct containing ctl is also forbidden.
 test("ctl rule 11: cannot form a pointer to a control-bound struct", {
   Holder :: struct(cf : (ctl(msg : String) -> i32));
-  comptime_expect_error(PtrToHolder :: *(Holder));
+  comptime_expect_error(PtrToHolder :: *Holder);
 });
 // Rule 3: closure body cannot contain `unwind`. Closures are heap
 // values that may outlive their enclosing frame; `unwind` requires
@@ -1916,7 +1935,7 @@ test("ctl rule 4: closure cannot capture a ctl-typed value", {
   comptime_expect_error(
     (fn() -> i32)({
       (raise : Raise) = (
-        (msg) -> {
+        msg -> {
           unwind(i32(0));
         }
       );
@@ -1952,7 +1971,7 @@ test("ctl rule 5: ctl is not a subtype of fn", {
   comptime_expect_error(
     (fn() -> PureRaise)({
       (raise : Raise) = (
-        (msg) -> {
+        msg -> {
           unwind(i32(0));
         }
       );
@@ -1967,7 +1986,7 @@ test("ctl rule 5: ctl is not a subtype of fn", {
 test("ctl rule 5: fn is a subtype of ctl", {
   Raise :: (ctl(msg : String) -> i32);
   (raise : Raise) = (
-    (msg) -> {
+    msg -> {
       return(i32(42));
     }
   );
@@ -2044,7 +2063,7 @@ test("Test escape path does not drop the unwound call's result temp", {
   outcome :: (fn() -> i32)({
     exn := Exception(
       throw : (
-        (err) -> {
+        err -> {
           unwind(i32(99));
         }
       )

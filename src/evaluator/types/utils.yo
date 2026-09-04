@@ -50,7 +50,7 @@ _all_fields_implement_send :: (fn(field_types : ArrayList(TypeValue), env : Envi
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!(type_implements_send(ft, env)), {
+    if(!type_implements_send(ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -63,14 +63,14 @@ _all_fields_implement_acyclic :: (fn(field_types : ArrayList(TypeValue), env : E
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!(type_implements_acyclic(ft, env)), {
+    if(!type_implements_acyclic(ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
   });
   all_ok
 });
-/// True if every `?*(E)` buffer element type held by the struct's fields is itself
+/// True if every `?(*(E))` buffer element type held by the struct's fields is itself
 /// Acyclic. A container is Acyclic only if its element is (the field walk can't see
 /// the buffer, and this derive can run before a self-referential element's own
 /// cycle status is known, so `ArrayList(Node)` is correctly withheld from Acyclic
@@ -84,7 +84,7 @@ _all_buffer_elements_acyclic :: (fn(field_types : ArrayList(TypeValue), env : En
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
       buffer_element_type(ft),
-      .Some(elem) => if(!(type_implements_acyclic(elem, env)), {
+      .Some(elem) => if(!type_implements_acyclic(elem, env), {
         all_ok = false;
       }),
       .None => ()
@@ -99,7 +99,7 @@ _all_fields_implement_comptime :: (fn(field_types : ArrayList(TypeValue), env : 
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!(type_implements_comptime(ft, env)), {
+    if(!type_implements_comptime(ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -112,7 +112,7 @@ _all_fields_implement_runtime :: (fn(field_types : ArrayList(TypeValue), env : E
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!(type_implements_runtime_full(ft, env)), {
+    if(!type_implements_runtime_full(ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -146,7 +146,7 @@ auto_derive_traits_for_struct_type :: (
   // Send.
   // Object types: auto-derive Send only if atomic.
   // Struct (value) types: all fields must be Send.
-  if(!(is_reference_semantics && !(is_atomic_rc)), {
+  if(!(is_reference_semantics && !is_atomic_rc), {
     if(_all_fields_implement_send(field_types, env), {
       register_type_trait(struct_id, "Send", env);
     });
@@ -160,14 +160,14 @@ auto_derive_traits_for_struct_type :: (
   // Struct (value) types: all fields Acyclic.
   is_acyclic := if(
     is_reference_semantics,
-    _all_buffer_elements_acyclic(field_types, env) && !(can_type_form_rc_cycle(self_type)),
+    _all_buffer_elements_acyclic(field_types, env) && !can_type_form_rc_cycle(self_type),
     _all_fields_implement_acyclic(field_types, env)
   );
   if(is_acyclic, {
     register_type_trait(struct_id, "Acyclic", env);
   });
   // Comptime — object types never; struct types if all fields Comptime.
-  if(!(is_reference_semantics), {
+  if(!is_reference_semantics, {
     if(_all_fields_implement_comptime(field_types, env), {
       register_type_trait(struct_id, "Comptime", env);
     });
@@ -294,7 +294,7 @@ enforce_atomic_object_send :: (
     exn : Exception
   ) -> unit
 )({
-  if(!(type_implements_send(struct_ty, env)), {
+  if(!type_implements_send(struct_ty, env), {
     (non_send_fields : String) = String.from("");
     n := field_labels.len();
     (i : usize) = usize(0);
@@ -314,7 +314,7 @@ enforce_atomic_object_send :: (
       // loop body trips the TS drop-emission bug — see _is_dots_atom's note).
       ft_somes := get_all_some_types(ft);
       ft_is_generic := (is_some_type(ft) || (ft_somes.len() > usize(0)));
-      if((!(ft_is_generic)) && !(type_implements_send(ft, env)), {
+      if(!ft_is_generic && !type_implements_send(ft, env), {
         if(non_send_fields.len() > usize(0), {
           non_send_fields = non_send_fields.concat(String.from("\n"));
         });
@@ -328,9 +328,7 @@ enforce_atomic_object_send :: (
         dyn(
           format_error_message(
             error_token,
-            `atomic object must implement Send (all fields must be Send), but ${type_to_string(struct_ty)} has non-Send fields:\n${non_send_fields}\nUse "object" instead if thread safety is not needed.`,
-            false,
-            .None
+            `atomic object must implement Send (all fields must be Send), but ${type_to_string(struct_ty)} has non-Send fields:\n${non_send_fields}\nUse "object" instead if thread safety is not needed.`
           )
         )
       );

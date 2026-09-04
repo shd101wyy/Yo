@@ -92,9 +92,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
       dyn(
         format_error_message(
           ast_expr_token(module_expr),
-          String.from("Failed to implement the module. Too many fields provided."),
-          false,
-          .None
+          String.from("Failed to implement the module. Too many fields provided.")
         )
       )
     );
@@ -120,14 +118,12 @@ try_to_implement_module_with_arguments_by_module_type :: (
       arg_expr_opt := arg_exprs.get(j);
       arg_expr := match(arg_expr_opt, .Some(a) => a, .None => module_expr);
       // Each arg must be a `label: value` colon call.
-      if(!(ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2)))), {
+      if(!ast_expr_is_fn_call_of(arg_expr, ":", .Some(usize(2))), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(arg_expr),
-              `Expected member label, but got:\n${ast_expr_to_string(arg_expr)}`,
-              false,
-              .None
+              `Expected member label, but got:\n${ast_expr_to_string(arg_expr)}`
             )
           )
         );
@@ -139,7 +135,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
         label_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."), false, .None)));
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing label sub-expr."))));
           arg_expr
         }
       );
@@ -147,18 +143,16 @@ try_to_implement_module_with_arguments_by_module_type :: (
         value_sub_opt,
         .Some(s) => s,
         .None => {
-          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."), false, .None)));
+          exn.throw(dyn(format_error_message(ast_expr_token(arg_expr), String.from("Label arg missing value sub-expr."))));
           arg_expr
         }
       );
-      if(!(ast_expr_is_atom(label_sub)), {
+      if(!ast_expr_is_atom(label_sub), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(label_sub),
-              `Expected identifier for label, got:\n${ast_expr_to_string(label_sub)}`,
-              false,
-              .None
+              `Expected identifier for label, got:\n${ast_expr_to_string(label_sub)}`
             )
           )
         );
@@ -180,14 +174,12 @@ try_to_implement_module_with_arguments_by_module_type :: (
         );
         li = (li + usize(1));
       });
-      if(!(label_exists_in_type), {
+      if(!label_exists_in_type, {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(label_sub),
-              `Module member with label "${label_tok}" does not exist in the module type.`,
-              false,
-              .None
+              `Module member with label "${label_tok}" does not exist in the module type.`
             )
           )
         );
@@ -206,9 +198,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
             dyn(
               format_error_message(
                 ast_expr_token(value_sub),
-                `Failed to evaluate module member "${field_label}".`,
-                false,
-                .None
+                `Failed to evaluate module member "${field_label}".`
               )
             )
           );
@@ -217,14 +207,12 @@ try_to_implement_module_with_arguments_by_module_type :: (
         set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn);
         caller_env = arg_info.env;
         arg_type := arg_info.ty;
-        if(!(are_types_compatible(arg_type, field_type)), {
+        if(!are_types_compatible(arg_type, field_type), {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(value_sub),
-                `Type mismatch for the module member "${field_label}":\nExpected: ${type_to_string(field_type)}\nGot:   ${type_to_string(arg_type)}`,
-                false,
-                .None
+                `Type mismatch for the module member "${field_label}":\nExpected: ${type_to_string(field_type)}\nGot:   ${type_to_string(arg_type)}`
               )
             )
           );
@@ -238,14 +226,12 @@ try_to_implement_module_with_arguments_by_module_type :: (
       });
       j = (j + usize(1));
     }); // end inner loop over argExprs
-    if(!(found_arg), {
+    if(!found_arg, {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(module_expr),
-            `Module member "${field_label}" is not provided and has no required/default value.`,
-            false,
-            .None
+            `Module member "${field_label}" is not provided and has no required/default value.`
           )
         )
       );

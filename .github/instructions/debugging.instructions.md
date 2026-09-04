@@ -18,6 +18,36 @@ Key facts:
 - An expr-info whose value is `.None` means the value is a **runtime value**, not an `UnknownVal`.
 - `EvalValue.UnknownVal(ty, is_runtime_only)` is a compile-time value where we only know its type but not the real value.
 
+## Swallowed definition-time errors (`YO_DEBUG_SWALLOW=1`)
+
+The evaluator evaluates function and closure bodies at DEFINITION time behind a
+"def-eval wall": a failing body is swallowed so a yo-self porting gap cannot
+reject valid code. The cost is that a body which fails to evaluate produces NO
+diagnostic — codegen simply has no `ExprInfo`s for it and emits
+`// Failed to transpile` markers (rewritten to `abort()` since PR #275). That is
+the single most common cause of a hollow function, and `YO_DEBUG_SWALLOW=1` is
+the fastest way to see which body failed and why:
+
+| line | emitted by | covers |
+| --- | --- | --- |
+| `[trial] <pos>` / `[swallow] <err>` | `evaluator/calls/function_type.yo` | named `fn`/`ctl` bodies |
+| `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous_function.yo` | closure (`=>`) and `->` bodies, including every `io.async` closure |
+| `[shell-head-swallow] <err>` | `evaluator/values/impl.yo` | impl forward-shell signature evaluation |
+| `[mat-default-swallow] <err>` | `evaluator/values/impl.yo` | the per-impl materialization of a trait `?=` default |
+
+A `[…swallow]` line belongs to the most recent `[…trial]` line above it (the
+swallow handlers are capture-free `->` effect handlers, so they cannot print the
+owner themselves). Output is large — redirect stderr and grep:
+
+```bash
+YO_DEBUG_SWALLOW=1 yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2 2>swallow.txt
+grep -n 'swallow' swallow.txt | tail
+```
+
+Sibling channels, same shape: `YO_DEBUG_CTFE` / `YO_DEBUG_CTFE2` (CTFE call
+failures), `YO_DEBUG_DISPATCH` (method dispatch), `YO_DEBUG_BIND=<name>`
+(type-variable binding), `YO_DEBUG_RRE` (return-type re-evaluation).
+
 ## GDB for generated C code
 
 - Run `gdb` on `./a.out` to debug generated C code.
@@ -26,7 +56,7 @@ Key facts:
 ## Output debugging
 
 - Always use `| head` or `| tail` to limit command output.
-- If a command produces no output for a long time, redirect: `yo compile tmp/fixme.yo --release &> compile_output.txt`
+- If a command produces no output for a long time, redirect: `yo compile tmp/fixme.yo --optimize 2 &> compile_output.txt`
 
 ## Evaluator-only checking
 
@@ -39,7 +69,7 @@ CI's ubuntu job with `Direct leak of N byte(s)` is invisible in a local macOS
 ASan run. Reproduce locally with the macOS `leaks` tool instead:
 
 ```bash
-yo compile repro.yo --release -o repro_bin
+yo compile repro.yo --optimize 2 -o repro_bin
 leaks --atExit -- ./repro_bin   # "0 leaks for 0 total leaked bytes" = clean
 ```
 
@@ -90,3 +120,31 @@ Each `.test.yo` file has its own import set. Check whether a test file imports `
 - Files with `open(import("std/fmt"))` → `println` available
 - Files without it → use `assert` only, or add the import
 - Match the existing style of the test file when adding new tests
+
+## `YO_DEBUG_CAPTURE=1` — the closure-capture pipeline channels
+
+Added 2026-08-26 while fixing the generic-fn async-closure capture loss
+(issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md).
+All are stderr prints, active only with `YO_DEBUG_CAPTURE` set:
+
+- `[cap-fb]` (exprs/identifer_and_operator.yo) — every FunctionBody-arm
+  capture classification: name, the frame the lookup found it at, the ctx
+  snapshot's frame count, the stamped frame level, the inner verdict, plus
+  the eval_env/current-env top-frame ids (generation mismatches show here).
+- `[cap-track]` (context.yo) — track_variable_usage's gate decisions:
+  re-found frame, own-param top-frame exclusion, compile-time-only flag.
+- `[cap-enr]` (utils/closure.yo) — enrichment input per name: recorded
+  level, env frame count, how many same-named bindings were found and how
+  many are comptime.
+- `[cap-reg]` / `[fid-src]` (function_value.yo) — every capture-struct
+  registration (fid, source key, field list) and every fid→source-key mint.
+- `[fbctx-closure-call]` / `[fbctx-fnty-rp]` / `[fbctx-fnty-flow]`
+  (calls/closure_type.yo, calls/function_type.yo) — which site created a
+  FunctionBody evaluation context.
+
+Read them together: a name that is `inner=false` in `[cap-fb]`, survives
+`[cap-track]`, appears in `[cap-enr]`, and still misses the `[cap-reg]`
+field list pins the drop to capture-struct creation; a name missing from
+`[cap-track]` was never tracked (classifier); `cto=true` in `[cap-track]`
+against a runtime binding was the UnknownVal-argument mis-port this channel
+was built to catch.

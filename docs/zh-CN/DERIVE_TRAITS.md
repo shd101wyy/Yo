@@ -2,13 +2,13 @@
 
 `derive` 是一个编译期内建函数，可以自动为结构体和枚举类型生成特征实现。它的功能类似于 Rust 的 `#[derive(...)]` 属性，但使用函数调用语法。
 
-所有五个标准可派生特征（Eq、Hash、Clone、Ord、ToString）都是**自宿主的**——它们的派生规则使用 `derive_rule` 机制直接在 Yo 中编写，而非在编译器中硬编码。
+所有六个标准可派生特征（Eq、Hash、Clone、Ord、ToString、Default）都是**自宿主的**——它们的派生规则使用 `derive_rule` 机制直接在 Yo 中编写，而非在编译器中硬编码。
 
 ## 基本用法
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 
 main :: (fn() -> unit) {
   p1 := Point(i32(1), i32(2));
@@ -45,12 +45,20 @@ assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
 
 ### Hash
 
-通过使用 FNV 风格哈希组合（`h * 31 + field_hash`）组合所有字段的哈希值来生成哈希函数。对于枚举类型，变体索引也会包含在哈希中。
+生成 `hash(self, hasher)` —— Rust 风格的 `Hash` 方法，把值的"身份"字节喂给任意 `Hasher`。结构体按声明顺序喂入每个字段；枚举先喂入变体序号（`u64`），再喂入该变体的字段。具体算法由 hasher 决定：`HashMap`/`HashSet` 使用 SipHash-1-3（`std/hash` 的 `DefaultHasher`），`hash_one(value)` 用它对单个值求哈希。
 
 ```rust
+{ hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point 现在实现了 Hash 特征
+h := hash_one(Point(i32(1), i32(2)));   // 单个值 → u64
+hasher := DefaultHasher.new();          // 或把多个值流式喂进同一个 hasher
+Point(i32(1), i32(2)).hash(hasher);
+Point(i32(3), i32(4)).hash(hasher);
+combined := hasher.finish();
 ```
+
+（按派生的 `Eq`）相等的值喂入完全相同的字节，因此在任何 hasher 下哈希都相同。字段类型必须实现 `Hash`；浮点数刻意不实现。
 
 ### Clone
 
@@ -85,6 +93,22 @@ derive(Point, ToString);
 p := Point(i32(1), i32(2));
 // p.to_string() 返回 "Point(1, 2)"
 ```
+
+### Default
+
+生成一个各字段均取其自身类型默认值的值。**仅支持结构体**——枚举没有公认的默认变体，这种实现需要手写。
+
+```rust
+Config :: struct(retries : i32, verbose : bool, name : String);
+derive(Config, Default);
+
+d := (Config <: Default).default();
+// Config(retries : 0, verbose : false, name : "")
+```
+
+每个字段类型都必须实现 `Default`。字段类型为泛型实例化（如 `ArrayList(i32)`、`Option(T)`）同样可用：派生规则通过结构体自身的字段列表取得字段类型，而非按名称引用，因此实现处无需任何额外的作用域引入。
+
+与 `Option.unwrap_or_default`、`Result.unwrap_or_default` 配合使用。
 
 ## 多个特征
 
@@ -235,9 +259,9 @@ derive(generic(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))),
 
 ### 自宿主标准派生
 
-所有五个标准特征都使用相同的 `derive_rule` 机制：
+所有六个标准特征都使用相同的 `derive_rule` 机制：
 
-- **Eq、Clone、Hash、Ord** — 派生规则定义在 `std/prelude.yo` 中
+- **Eq、Clone、Hash、Ord、Default** — 派生规则定义在 `std/prelude.yo` 中
 - **ToString** — 派生规则定义在 `std/fmt/to_string.yo` 中（ToString 特征定义所在）
 
 这些实现使用基于字符串的代码生成，通过 `comptime_str` 和 `.to_expr()` 在编译期构建 impl 代码块。

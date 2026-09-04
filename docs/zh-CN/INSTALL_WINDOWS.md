@@ -28,7 +28,7 @@ $ scoop install llvm
 
 ```bash
 $ choco install zig
-$ yo compile main.yo --cc zig --release -o main
+$ yo compile main.yo --cc zig --optimize 2 -o main
 ```
 
 对于系统库发现，安装 **vcpkg**：

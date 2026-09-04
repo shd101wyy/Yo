@@ -1,0 +1,825 @@
+//! lsp/server — the `yo lsp` language server (plans/P4_LSP.md slice 1 + 2).
+//!
+//! Speaks LSP over stdio: base-protocol framing (transport.yo), JSON-RPC
+//! dispatch, the initialize handshake, FULL text-document sync, and push
+//! diagnostics on open/change (diagnostics.yo). One message is handled at a
+//! time — the protocol methods served so far are all sequential-safe.
+//!
+//! Every message is handled inside `_handle_message`, whose LOCAL exception
+//! handler turns a malformed frame or JSON body into a skipped message
+//! instead of a dead server (`unwind` exits the INSTALLING function, so the
+//! handler must live in the per-message helper, not the loop).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+open(import("std/error"));
+open(import("std/fmt"));
+{ JsonValue, json_parse_string, json_stringify } :: import("std/encoding/json");
+{ read_lsp_message, write_lsp_message } :: import("./transport.yo");
+{
+  jb,
+  jstr,
+  jnum,
+  j_diagnostic,
+  j_range,
+  j_response,
+  j_error_response,
+  j_notification
+} :: import("./protocol.yo");
+{ analyze_document, LspDiag, AnalyzeOutcome } :: import("./diagnostics.yo");
+{ handle_hover } :: import("./hover.yo");
+{ handle_definition } :: import("./definition.yo");
+{ handle_document_symbols } :: import("./symbols.yo");
+{ handle_references } :: import("./references.yo");
+{ handle_folding_ranges } :: import("./folding.yo");
+{ handle_rename } :: import("./rename.yo");
+{ handle_signature_help } :: import("./signature_help.yo");
+{ handle_completion } :: import("./completion.yo");
+{ format_yo_source } :: import("../formatter.yo");
+{ resolve_std_path, mm_invalidate_document, mm_set_open_document, mm_forget_open_document } :: import("../module_manager.yo");
+{ BufReader } :: import("std/io/bufio");
+{ Stdin, stdin } :: import("std/io/stdio");
+
+/// Per-document retained analysis: editor text + the last evaluation's
+/// program/ExprInfo (read by hover and the later feature slices).
+DocState :: ref(
+  struct(
+    text : String,
+    entry_abs : String,
+    outcome : AnalyzeOutcome
+  )
+);
+
+/// `shutdown` latch: the LSP spec's `exit` notification exits 0 only when a
+/// `shutdown` request preceded it. Module-level because it must survive
+/// across `_handle_message` calls.
+(g_shutdown_requested : bool) = false;
+
+/// Decode one %XX escape byte value; `.None` when the two chars after `%`
+/// are not hex.
+_hex_val :: (fn(b : u8) -> Option(u8))(
+  cond(
+    ((b >= u8(48)) && (b <= u8(57))) => Option(u8).Some(b - u8(48)),
+    ((b >= u8(97)) && (b <= u8(102))) => Option(u8).Some((b - u8(97)) + u8(10)),
+    ((b >= u8(65)) && (b <= u8(70))) => Option(u8).Some((b - u8(65)) + u8(10)),
+    true => Option(u8).None
+  )
+);
+
+/// file:// URI → filesystem path: strip the scheme and percent-decode
+/// (editors escape spaces and non-ASCII in document URIs).
+uri_to_fs_path :: (fn(uri : String) -> String)({
+  (s : String) = uri.clone();
+  if(s.starts_with(String.from("file://")), {
+    s = s.substring(usize(7), s.len());
+  });
+  bytes := s.as_bytes();
+  out := ArrayList(u8).new();
+  n := bytes.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    b := bytes(i);
+    cond(
+      ((b == u8(37)) && ((i + usize(2)) < n)) => {
+        h1 := _hex_val(bytes(i + usize(1)));
+        h2 := _hex_val(bytes(i + usize(2)));
+        match(
+          h1,
+          .Some(v1) => match(
+            h2,
+            .Some(v2) => {
+              out.push((v1 * u8(16)) + v2);
+              i = (i + usize(3));
+            },
+            .None => {
+              out.push(b);
+              i = (i + usize(1));
+            }
+          ),
+          .None => {
+            out.push(b);
+            i = (i + usize(1));
+          }
+        );
+      },
+      true => {
+        out.push(b);
+        i = (i + usize(1));
+      }
+    );
+  });
+  String.from_bytes(out)
+});
+export(uri_to_fs_path);
+
+/// Read a string field out of a JSON object; empty string when absent.
+_jfield_str :: (fn(v : JsonValue, key : str) -> String)(
+  match(
+    v.get(String.from(key)),
+    .Some(f) => match(f, .Str(x) => x, _ => String.new()),
+    .None => String.new()
+  )
+);
+
+/// Analyze `text` as the document at `uri`, retain the analysis state for
+/// feature requests, and push publishDiagnostics.
+_analyze_and_publish :: (
+  fn(uri : String, text : String, std_path : String, docs : HashMap(String, DocState), io : Io) -> unit
+)({
+  fs_path := uri_to_fs_path(uri.clone());
+  // Phase B1 (plans/INCREMENTAL_COMPILATION.md): the editor holds this
+  // file's newest text — record it as the loader's open-buffer overlay,
+  // then drop any cached module built from an older version PLUS every
+  // transitive dependent. Together these make an edit to an IMPORTED file
+  // visible to the next analysis of any importing document (previously:
+  // invisible until the server restarted).
+  mm_set_open_document(fs_path.clone(), text.clone());
+  _inv := mm_invalidate_document(fs_path.clone());
+  out_state := ArrayList(AnalyzeOutcome).new();
+  diags := analyze_document(fs_path.clone(), text.clone(), std_path, io, out_state);
+  match(
+    out_state.get(usize(0)),
+    .Some(oc) => {
+      _st := docs.insert(
+        uri.clone(),
+        DocState(text : text.clone(), entry_abs : fs_path.clone(), outcome : oc)
+      );
+    },
+    .None => ()
+  );
+  items := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < diags.len(), {
+    match(
+      diags.get(i),
+      .Some(d) => {
+        items.push(j_diagnostic(d.row, d.col, d.row, d.end_col, d.message));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : items)).obj();
+  write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
+});
+
+/// Send an empty diagnostics list for `uri` (clears squiggles on close).
+_publish_empty :: (fn(uri : String) -> unit)({
+  params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : ArrayList(JsonValue).new())).obj();
+  write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
+});
+
+/// signatureHelp trigger characters: "(" and ",".
+_sig_triggers :: (fn() -> ArrayList(JsonValue))({
+  ts := ArrayList(JsonValue).new();
+  ts.push(jstr(String.from("(")));
+  ts.push(jstr(String.from(",")));
+  ts
+});
+
+/// completion trigger characters: member access and import-path strings.
+_completion_triggers :: (fn() -> ArrayList(JsonValue))({
+  ts := ArrayList(JsonValue).new();
+  ts.push(jstr(String.from(".")));
+  ts.push(jstr(String.from("\"")));
+  ts.push(jstr(String.from("/")));
+  ts
+});
+
+/// The `initialize` response: full-document sync; push diagnostics carry no
+/// capability flag. Feature providers (hover, completion, …) arrive with
+/// their P4 slices.
+_initialize_result :: (fn() -> JsonValue)(
+  jb().put("capabilities", jb().put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
+    "serverInfo",
+    // No `version` field on purpose: it is optional in the protocol, the
+    // client can ask `yo --version`, and a version here would churn the
+    // lsp cli-case golden on every release bump.
+    jb().put("name", jstr(String.from("yo-lsp"))).obj()
+  ).obj()
+);
+
+/// Whole-document formatting via `yo fmt`'s format_yo_source. Returns the
+/// LSP result: an ARRAY with one whole-document TextEdit, an EMPTY array
+/// when already canonical, or Null (own unwind frame) when the source does
+/// not parse — the client keeps the buffer untouched.
+_format_document :: (fn(text : String, doc_abs : String) -> JsonValue)({
+  fmt_exn := Exception(
+    throw : (
+      _err -> unwind(JsonValue.Null)
+    )
+  );
+  formatted := format_yo_source(text.clone(), doc_abs.clone(), fmt_exn);
+  if(formatted == text, {
+    return(JsonValue.Array(items : ArrayList(JsonValue).new()));
+  });
+  line_count := text.split(String.from("\n")).len();
+  edits := ArrayList(JsonValue).new();
+  edits.push(
+    jb().put("range", j_range(usize(0), usize(0), line_count, usize(0))).put("newText", jstr(formatted)).obj()
+  );
+  JsonValue.Array(items : edits)
+});
+
+/// Handle one JSON-RPC message. Returns 0 = keep serving, 10 = exit(0),
+/// 11 = exit(1) (`exit` without a preceding `shutdown`).
+_handle_message :: (
+  fn(
+    body : String,
+    docs : HashMap(String, DocState),
+    std_path : String,
+    io : Io
+  ) -> i32
+)({
+  local_exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`yo-lsp: skipping malformed message: ${err.to_string()}`);
+        unwind(i32(0))
+      }
+    )
+  );
+  v := json_parse_string(body, local_exn);
+  method := _jfield_str(v, "method");
+  id_opt := v.get(String.from("id"));
+  cond(
+    (method == String.from("initialize")) => {
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, _initialize_result()))),
+        .None => ()
+      );
+    },
+    (method == String.from("initialized")) => (),
+    (method == String.from("shutdown")) => {
+      g_shutdown_requested = true;
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, JsonValue.Null))),
+        .None => ()
+      );
+    },
+    (method == String.from("exit")) => {
+      return(cond(g_shutdown_requested => i32(10), true => i32(11)));
+    },
+    (method == String.from("textDocument/hover")) => {
+      (hover_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_hover(st.text, st.entry_abs, st.outcome.exprs, st.outcome.info_table, line, character),
+              .Some(h) => {
+                hover_result = h;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, hover_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/definition")) => {
+      (def_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_definition(st.text, st.entry_abs, st.outcome.exprs, st.outcome.info_table, line, character),
+              .Some(loc) => {
+                def_result = loc;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, def_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/documentSymbol")) => {
+      (sym_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              sym_result = handle_document_symbols(st.outcome.exprs);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, sym_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/references")) => {
+      (refs_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              refs_result = handle_references(st.text, st.entry_abs, uri.clone(), st.outcome.exprs, line, character);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, refs_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/foldingRange")) => {
+      (fold_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              fold_result = handle_folding_ranges(st.text, st.entry_abs);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, fold_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/rename")) => {
+      (rn_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          new_name := _jfield_str(params, "newName");
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_rename(st.text, st.entry_abs, uri.clone(), st.outcome.exprs, line, character, new_name),
+              .Some(we) => {
+                rn_result = we;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, rn_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/formatting")) => {
+      (fmt_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              fmt_result = _format_document(st.text, st.entry_abs);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, fmt_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/signatureHelp")) => {
+      (sh_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => match(
+              handle_signature_help(st.outcome.exprs, st.outcome.info_table, line, character),
+              .Some(sh) => {
+                sh_result = sh;
+              },
+              .None => ()
+            ),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, sh_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/completion")) => {
+      (comp_result : JsonValue) = JsonValue.Null;
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          (line : usize) = usize(0);
+          (character : usize) = usize(0);
+          match(
+            params.get(String.from("position")),
+            .Some(pos) => {
+              match(
+                pos.get(String.from("line")),
+                .Some(lv) => match(
+                  lv,
+                  .Number(ln) => {
+                    line = usize(ln);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+              match(
+                pos.get(String.from("character")),
+                .Some(cv) => match(
+                  cv,
+                  .Number(cn) => {
+                    character = usize(cn);
+                  },
+                  _ => ()
+                ),
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+          match(
+            docs.get(uri.clone()),
+            .Some(st) => {
+              comp_result = handle_completion(st.text, st.entry_abs, std_path.clone(), st.outcome.exprs, st.outcome.info_table, line, character, io);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(json_stringify(j_response(id, comp_result))),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/didOpen")) => {
+      match(
+        v.get(String.from("params")),
+        .Some(params) => match(
+          params.get(String.from("textDocument")),
+          .Some(td) => {
+            uri := _jfield_str(td, "uri");
+            text := _jfield_str(td, "text");
+            if(uri.len() > usize(0), {
+              _analyze_and_publish(uri, text, std_path.clone(), docs, io);
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/didChange")) => {
+      match(
+        v.get(String.from("params")),
+        .Some(params) => {
+          uri := match(
+            params.get(String.from("textDocument")),
+            .Some(td) => _jfield_str(td, "uri"),
+            .None => String.new()
+          );
+          // Full sync: the last contentChanges entry's `text` is the whole
+          // document (we advertise TextDocumentSyncKind.Full).
+          text_opt := match(
+            params.get(String.from("contentChanges")),
+            .Some(changes) => match(
+              changes,
+              .Array(items) => cond(
+                (items.len() > usize(0)) => match(
+                  items.get(items.len() - usize(1)),
+                  .Some(last) => Option(String).Some(_jfield_str(last, "text")),
+                  .None => Option(String).None
+                ),
+                true => Option(String).None
+              ),
+              _ => Option(String).None
+            ),
+            .None => Option(String).None
+          );
+          match(
+            text_opt,
+            .Some(text) => if(uri.len() > usize(0), {
+              _analyze_and_publish(uri, text, std_path.clone(), docs, io);
+            }),
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    },
+    (method == String.from("textDocument/didClose")) => {
+      match(
+        v.get(String.from("params")),
+        .Some(params) => match(
+          params.get(String.from("textDocument")),
+          .Some(td) => {
+            uri := _jfield_str(td, "uri");
+            if(uri.len() > usize(0), {
+              _r := docs.remove(uri.clone());
+              // Phase B1: the disk becomes this file's truth again — drop
+              // the open-buffer overlay and anything cached from it.
+              closed_fs := uri_to_fs_path(uri.clone());
+              mm_forget_open_document(closed_fs.clone());
+              _inv2 := mm_invalidate_document(closed_fs);
+              _publish_empty(uri);
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+    },
+    method.starts_with(String.from("$/")) => (),
+    true => {
+      // Unknown REQUESTS get MethodNotFound; unknown notifications are
+      // ignored per the JSON-RPC spec.
+      match(
+        id_opt,
+        .Some(id) => write_lsp_message(
+          json_stringify(
+            j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
+          )
+        ),
+        .None => ()
+      );
+    }
+  );
+  i32(0)
+});
+
+/// `yo lsp` entry: serve LSP over stdio until `exit` or EOF.
+run_lsp_server :: (fn(io : Io, exn : Exception) -> unit)({
+  reader := BufReader(Stdin).new(stdin());
+  docs := HashMap(String, DocState).new();
+  std_path := resolve_std_path();
+  // No startup banner: the cli-case harness merges stderr into stdout, and
+  // stderr/stdout interleaving is not deterministic. Real editors surface
+  // server liveness through the initialize handshake.
+  (running : bool) = true;
+  (exit_code : i32) = i32(0);
+  while(running, {
+    msg_opt := read_lsp_message(reader, io, exn);
+    match(
+      msg_opt,
+      .None => {
+        // Clean EOF: client is gone.
+        running = false;
+      },
+      .Some(body) => {
+        action := _handle_message(body, docs, std_path.clone(), io);
+        if(action == i32(10), {
+          running = false;
+        });
+        if(action == i32(11), {
+          running = false;
+          exit_code = i32(1);
+        });
+      }
+    );
+  });
+  if(exit_code != i32(0), {
+    exn.throw(dyn(`lsp: exit notification received without a shutdown request`));
+  });
+});
+export(run_lsp_server);

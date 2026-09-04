@@ -3,7 +3,7 @@
 #-----------------------------------------------------------------------------
 # Installation script for Yo on Linux and macOS; use -h to see options.
 #
-#   curl -fsSL https://raw.githubusercontent.com/shd101wyy/Yo/develop/scripts/install.sh | sh
+#   curl -fsSL https://shd101wyy.github.io/Yo/install.sh | sh
 #
 # Installs a prebuilt release bundle. Yo is self-hosted: the bundle carries the
 # native compiler plus the standard library and the vendored mimalloc sources,
@@ -588,23 +588,54 @@ is_musl() {
   [ "$OSDISTRO" = "alpine" ]
 }
 
+# The published asset name for this host, in canonical target-triple form
+# (plans/RELEASE_ASSET_TRIPLES.md). Kept in step with
+# scripts/release_asset_triple.sh and src/version_cache.yo — this file is
+# fetched standalone over HTTP, so it cannot source either of them.
+host_triple() {
+  case "$OSNAME-$arch" in
+    macos-x64)    echo "x86_64-apple-darwin";;
+    macos-arm64)  echo "aarch64-apple-darwin";;
+    linux-x64)    echo "x86_64-unknown-linux-musl";;
+    linux-arm64)  echo "aarch64-unknown-linux-musl";;
+    *) return 1;;
+  esac
+}
+
 install_dist() {
-  # On musl, prefer the static musl bundle and fall back to the glibc one.
-  # The fallback still matters even though the musl leg is no longer
-  # experimental (promoted 2026-08-17; it gates publication) and now covers
-  # arm64 as well as x64 (2026-08-19): a release older than either change
-  # legitimately lacks the bundle for this arch, and a hard failure would be
-  # worse than the loader warning the glibc path already prints.
-  bundle="yo-$VERSION-$OSARCH"
-  if [ "$OSNAME" = "linux" ] && is_musl; then
-    musl_bundle="yo-$VERSION-$OSARCH-musl"
-    if download_probe "$YO_DIST_BASE_URL/$VERSION/$musl_bundle.tar.gz"; then
-      info "musl libc detected — using the static musl bundle."
-      bundle="$musl_bundle"
-    else
-      warn "musl libc detected, but $VERSION publishes no $musl_bundle bundle."
-      warn "Falling back to the glibc bundle, which will NOT run here."
-      warn "Prefer:  --from-source   (compiles yo.c with your own toolchain)"
+  # Releases after v0.2.18 name their assets by target triple; v0.2.18 and
+  # earlier carry only the short form, so probe for the triple and fall back.
+  # This BRIDGES the changeover — it is what keeps `curl | sh` installing the
+  # current release — and is removable once nothing in use predates it
+  # (plans/RELEASE_ASSET_TRIPLES.md).
+  #
+  # Linux is musl-only (2026-08-20): the static musl bundle is THE Linux
+  # bundle — it runs on glibc and musl systems alike, so it is preferred on
+  # EVERY Linux, not just detected-musl ones. The probe + glibc fallback
+  # stays for releases that predate the musl legs (x64: v0.2.7+,
+  # arm64: v0.2.12+); on a glibc host that fallback is fully functional,
+  # on a musl host it will not run — hence the differentiated warning.
+  bundle=""
+  if triple="$(host_triple)"; then
+    triple_bundle="yo-$VERSION-$triple"
+    if download_probe "$YO_DIST_BASE_URL/$VERSION/$triple_bundle.tar.gz"; then
+      bundle="$triple_bundle"
+    fi
+  fi
+  if [ -z "$bundle" ]; then
+    bundle="yo-$VERSION-$OSARCH"
+    if [ "$OSNAME" = "linux" ]; then
+      musl_bundle="yo-$VERSION-$OSARCH-musl"
+      if download_probe "$YO_DIST_BASE_URL/$VERSION/$musl_bundle.tar.gz"; then
+        info "Using the static musl Linux bundle (runs on glibc and musl alike)."
+        bundle="$musl_bundle"
+      elif is_musl; then
+        warn "musl libc detected, but $VERSION publishes no $musl_bundle bundle."
+        warn "Falling back to the glibc bundle, which will NOT run here."
+        warn "Prefer:  --from-source   (compiles yo.c with your own toolchain)"
+      else
+        info "$VERSION predates the static musl bundles — using its glibc bundle."
+      fi
     fi
   fi
   url="$YO_DIST_BASE_URL/$VERSION/$bundle.tar.gz"
@@ -629,7 +660,7 @@ install_dist() {
     if ! download_file "$url" "$YO_TEMP_DIR/$bundle.tar.gz"; then
       stop "Unable to download: $url
   There may be no bundle for this platform ($OSARCH) at $VERSION.
-  Available targets: linux-x64, linux-arm64, macos-arm64, macos-x64.
+  Available targets: linux-x64-musl, linux-arm64-musl, macos-arm64, macos-x64, windows-x64.
   Pick another release with --version=<tag>, or build from source."
     fi
 
@@ -690,8 +721,16 @@ pick_c_compiler() {
 }
 
 install_from_source() {
-  cfile="yo-$VERSION.c.gz"
+  # Per-target split (2026-08-21): releases publish one ~6 MiB
+  # yo-<v>-<target>.c.gz per platform instead of the ~30 MiB merged file.
+  # Older releases only have the merged yo-<v>.c.gz — probe, then fall back.
+  cfile="yo-$VERSION-$OSARCH.c.gz"
   curl_url="$YO_DIST_BASE_URL/$VERSION/$cfile"
+  if ! download_probe "$curl_url"; then
+    info "$VERSION predates the per-target yo.c split — using the merged file."
+    cfile="yo-$VERSION.c.gz"
+    curl_url="$YO_DIST_BASE_URL/$VERSION/$cfile"
+  fi
   src_url="https://github.com/$YO_REPO/archive/refs/tags/$VERSION.tar.gz"
   target="$PREFIX/lib/yo/$VERSION"
   bindir="$PREFIX/bin"

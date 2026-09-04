@@ -19,7 +19,7 @@ open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Path } :: import("std/path");
-{ write_file } :: import("std/fs/file");
+{ write_string } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
 { Exception, IoExn } :: import("std/error");
 {
@@ -60,7 +60,7 @@ _doc_md_options :: (fn() -> Options)({
 });
 _render_markdown :: (fn(text : String) -> String)({
   (opts : Options) = _doc_md_options();
-  markdown_to_html(text.clone(), &(opts))
+  markdown_to_html(text.clone(), &opts)
 });
 // ── HTML escaping ────────────────────────────────────────────────────
 _escape_html :: (fn(text : String) -> String)({
@@ -183,7 +183,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(t.name.clone(), `${fname}.html#type-${t.name}`);
+      links.insert(t.name.clone(), `${fname}.html#type-${t.name}`);
       i = (i + usize(1));
     });
     i = usize(0);
@@ -195,7 +195,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(tr.name.clone(), `${fname}.html#trait-${tr.name}`);
+      links.insert(tr.name.clone(), `${fname}.html#trait-${tr.name}`);
       i = (i + usize(1));
     });
     i = usize(0);
@@ -207,7 +207,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(f.name.clone(), `${fname}.html#fn-${f.name}`);
+      links.insert(f.name.clone(), `${fname}.html#fn-${f.name}`);
       i = (i + usize(1));
     });
     i = usize(0);
@@ -219,7 +219,7 @@ _build_symbol_links :: (fn(model : DocModel) -> HashMap(String, String))({
           break;
         }
       );
-      links.set(c.name.clone(), `${fname}.html#const-${c.name}`);
+      links.insert(c.name.clone(), `${fname}.html#const-${c.name}`);
       i = (i + usize(1));
     });
     mi = (mi + usize(1));
@@ -248,7 +248,7 @@ _linkify_type :: (
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     // Word-boundary check: previous byte must not be a word byte.
     prev_word := if(i > usize(0), _is_word_byte(match(bytes.get(i - usize(1)), .Some(x) => x, .None => u8(0))), false);
-    if(_is_upper(b) && !(prev_word), {
+    if(_is_upper(b) && !prev_word, {
       // scan the identifier
       (j : usize) = i;
       while((j < n) && _is_word_byte(match(bytes.get(j), .Some(x) => x, .None => u8(0))), {
@@ -355,7 +355,7 @@ _first_sentence :: (fn(text : String) -> String)({
   (result : String) = line.clone();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
     if((b == u8(46)) || ((b == u8(33)) || (b == u8(63))), {
       // skip closers: ` " ' ) ] } >  (’ ” are multibyte; handled as bytes 0xE2..)
@@ -401,10 +401,17 @@ _first_sentence :: (fn(text : String) -> String)({
     });
     i = (i + usize(1));
   });
-  // Cap at 120 CHARS (TS slice(0,120) is UTF-16 units; doc text is ASCII-ish)
-  if(result.len() > usize(120), {
-    result = result.substring(usize(0), usize(120)).trim();
-  });
+  // Cap at 120 CHARS (TS slice(0,120) is UTF-16 units; doc text is ASCII-ish).
+  // Doc text is arbitrary human prose, so the cut must land on a rune
+  // boundary — a fixed byte cut would emit invalid UTF-8 into the search
+  // index (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S6).
+  match(
+    result.char_indices().nth(usize(120)),
+    .Some(pair) => {
+      result = result.substring(usize(0), pair._0).trim();
+    },
+    .None => ()
+  );
   result
 });
 _first_sentence_opt :: (fn(doc : Option(String)) -> Option(String))(
@@ -572,7 +579,7 @@ _render_sidebar :: (fn(model : DocModel, active_module : Option(String)) -> Stri
         .None => {
           lst := ArrayList(DocModule).new();
           lst.push(m);
-          groups.set(g.clone(), lst);
+          groups.insert(g.clone(), lst);
           group_keys.push(g);
         }
       );
@@ -1036,7 +1043,7 @@ _render_impl_blocks :: (
   fn(impls_opt : Option(ArrayList(DocImpl)), all_methods : ArrayList(DocFunction), parent_name : String, links : HashMap(String, String), current_mod_file : Option(String), use_links : bool) -> String
 )({
   has_impls := match(impls_opt, .Some(im) => (im.len() > usize(0)), .None => false);
-  if(!(has_impls) && (all_methods.len() == usize(0)), {
+  if(!has_impls && (all_methods.len() == usize(0)), {
     return(String.new());
   });
   methods_by_name := HashMap(String, DocFunction).new();
@@ -1049,7 +1056,7 @@ _render_impl_blocks :: (
         break;
       }
     );
-    methods_by_name.set(m.name.clone(), m);
+    methods_by_name.insert(m.name.clone(), m);
     i = (i + usize(1));
   });
   claimed := HashMap(String, bool).new();
@@ -1112,7 +1119,7 @@ _render_impl_blocks :: (
             },
             .None => ()
           );
-          claimed.set(nm, true);
+          claimed.insert(nm, true);
           ni = (ni + usize(1));
         });
         if(impl_methods.len() > usize(0), {
@@ -1128,7 +1135,7 @@ _render_impl_blocks :: (
               break;
             }
           );
-          if(!(methods_by_name.contains_key(nm.clone())), {
+          if(!methods_by_name.contains_key(nm.clone()), {
             unresolved.push(`<code>${_escape_html(nm)}</code>`);
           });
           ni = (ni + usize(1));
@@ -1153,7 +1160,7 @@ _render_impl_blocks :: (
         break;
       }
     );
-    if(!(claimed.contains_key(m.name.clone())), {
+    if(!claimed.contains_key(m.name.clone()), {
       unclaimed.push(m);
     });
     i = (i + usize(1));
@@ -1404,7 +1411,7 @@ _render_index_content :: (fn(model : DocModel) -> String)({
         .None => {
           lst := ArrayList(DocModule).new();
           lst.push(m);
-          groups.set(g.clone(), lst);
+          groups.insert(g.clone(), lst);
           group_keys.push(g);
         }
       );
@@ -1466,6 +1473,14 @@ _render_module_content :: (
   html := `<div class="breadcrumb"><a href="../index.html">Home</a> &rsaquo; ${_escape_html(m.name)}</div>`;
   html.push_string(`<h1>Module <code>${_escape_html(m.name)}</code></h1>`);
   html.push_string(`<div class="module-path">${_escape_html(m.path)}</div>`);
+  match(
+    m.stability,
+    .None => (),
+    .Some(st) => {
+      level := match(st.split(` `).get(usize(0)), .Some(w) => w.to_lowercase(), .None => st.to_lowercase());
+      html.push_string(`<div class="stability stability-${_escape_html(level)}"><strong>Stability: ${_escape_html(st)}</strong> — stable modules only change additively; this one may still change.</div>`);
+    }
+  );
   html.push_string(_render_doc(m.doc));
   if(m.types.len() > usize(0), {
     html.push_str("<h2>Types</h2>\n<div class=\"item-list\">");
@@ -1568,7 +1583,7 @@ _replace_occurrences :: (fn(text : String, from : String, to : String, first_onl
   out := ArrayList(u8).new();
   (pos : usize) = usize(0);
   (done : bool) = false;
-  while(!(done), {
+  while(!done, {
     match(
       _find_bytes_from(hay, needle, pos),
       .Some(idx) => {
@@ -1640,7 +1655,7 @@ render_doc_site :: (
   index_content := _render_index_content(model);
   index_sidebar := _render_sidebar(model, Option(String).None);
   index_page := _wrap_page(`${model.name} — Documentation`, index_content, index_sidebar, _search_index_json(search_idx), css_text, js_text);
-  io.await(write_file(Path.new(`${output_dir}/index.html`), index_page, io), ioexn);
+  io.await(write_string(Path.new(`${output_dir}/index.html`), index_page, io), ioexn);
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
@@ -1655,7 +1670,7 @@ render_doc_site :: (
     mod_content := _render_module_content(m, symbol_links);
     mod_search := _fix_search_index_for_module_page(search_idx);
     mod_page := _wrap_page(`${m.name} — ${model.name}`, mod_content, mod_sidebar, _search_index_json(mod_search), css_text, js_text);
-    io.await(write_file(Path.new(`${module_dir}/${fname}.html`), mod_page, io), ioexn);
+    io.await(write_string(Path.new(`${module_dir}/${fname}.html`), mod_page, io), ioexn);
     mi = (mi + usize(1));
   });
 });

@@ -1,0 +1,29 @@
+//! The assert_eq / assert_ne / assert_approx family (`plans/STD_API_AUDIT.md`
+//! §7 testing row: diff-printing assertions). Failure paths abort the
+//! process, so only the passing contracts are pinned here; the message
+//! format is exercised manually.
+{ assert, assert_eq, assert_ne, assert_approx } :: import("std/assert");
+open(import("std/string"));
+
+test("assert_eq passes on equal values across types", {
+  assert_eq(i32(42), i32(42));
+  assert_eq(u64(0), u64(0), "zeroes");
+  assert_eq(`yo`.to_string(), `yo`.to_string(), "strings");
+  assert_eq(true, true);
+  assert(true, "reached");
+});
+test("assert_ne passes on distinct values", {
+  assert_ne(i32(1), i32(2));
+  assert_ne(`a`.to_string(), `b`.to_string(), "strings differ");
+  assert(true, "reached");
+});
+test("assert_approx tolerates rounding at the default epsilon", {
+  third := (f64(1) / f64(3));
+  assert_approx(third * f64(3), f64(1));
+  assert_approx(f64(0.1) + f64(0.2), f64(0.3));
+  // Explicit epsilon for a large magnitude.
+  assert_approx(f64(1000000000), f64(1000000001), f64(2));
+  // Exact equality is trivially approx-equal.
+  assert_approx(f64(5), f64(5));
+  assert(true, "reached");
+});

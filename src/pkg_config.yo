@@ -49,7 +49,7 @@ _split_whitespace :: (fn(s : String) -> ArrayList(String))({
     );
     is_ws := _is_ws_byte(b);
     cond(
-      ((!(in_token)) && (!(is_ws))) => {
+      (!in_token && !is_ws) => {
         start = k;
         in_token = true;
       },
@@ -94,7 +94,7 @@ parse_cflags :: (fn(raw : String) -> PkgConfigResult)({
       flag.starts_with(String.from("-D")) => {
         result.c_flags.push(flag);
       },
-      (!(flag.is_empty())) => {
+      !flag.is_empty() => {
         result.c_flags.push(flag);
       },
       true => ()
@@ -119,7 +119,7 @@ parse_ldflags_into :: (fn(raw : String, result : PkgConfigResult) -> PkgConfigRe
       flag.starts_with(String.from("-l")) => {
         result.link_libraries.push(flag.substring(usize(2), flag.len()));
       },
-      (!(flag.is_empty())) => {
+      !flag.is_empty() => {
         result.ld_flags.push(flag);
       },
       true => ()
@@ -131,13 +131,13 @@ parse_ldflags_into :: (fn(raw : String, result : PkgConfigResult) -> PkgConfigRe
 /// Build a fallback PkgConfigResult from user-provided paths when pkg-config fails.
 build_fallback :: (fn(lib : BuildSystemLibrary) -> PkgConfigResult)({
   result := _empty_result();
-  if(!(lib.fallback_include.is_empty()), {
+  if(!lib.fallback_include.is_empty(), {
     result.include_paths.push(lib.fallback_include.clone());
   });
-  if(!(lib.fallback_lib.is_empty()), {
+  if(!lib.fallback_lib.is_empty(), {
     result.library_paths.push(lib.fallback_lib.clone());
   });
-  if(!(lib.fallback_link.is_empty()), {
+  if(!lib.fallback_link.is_empty(), {
     // May contain multiple libs separated by spaces
     link_tokens := _split_whitespace(lib.fallback_link);
     lt_n := link_tokens.len();
@@ -145,7 +145,7 @@ build_fallback :: (fn(lib : BuildSystemLibrary) -> PkgConfigResult)({
     while(lt_k < lt_n, {
       tok_opt := link_tokens.get(lt_k);
       tok := match(tok_opt, .None => String.new(), .Some(p) => p);
-      if(!(tok.is_empty()), {
+      if(!tok.is_empty(), {
         result.link_libraries.push(tok);
       });
       lt_k = (lt_k + usize(1));
@@ -160,7 +160,7 @@ apply_system_library_metadata :: (fn(lib : BuildSystemLibrary, result : PkgConfi
   while(k < n, {
     def_opt := lib.defines.get(k);
     def := match(def_opt, .None => String.new(), .Some(p) => p);
-    if(!(def.is_empty()), {
+    if(!def.is_empty(), {
       result.defines.push(def);
     });
     k = (k + usize(1));
@@ -185,7 +185,7 @@ _append_all_unique :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> u
   while(s_k < s_n, {
     elem_opt := src.get(s_k);
     elem := match(elem_opt, .None => String.new(), .Some(p) => p);
-    if(!(elem.is_empty()), {
+    if(!elem.is_empty(), {
       // Check if already present
       d_k := usize(0);
       d_n := dst.len();
@@ -199,7 +199,7 @@ _append_all_unique :: (fn(dst : ArrayList(String), src : ArrayList(String)) -> u
         });
         d_k = (d_k + usize(1));
       });
-      if(!(found), {
+      if(!found, {
         dst.push(elem);
       });
     });
@@ -245,7 +245,7 @@ query_pkg_config :: (
     cflags_cmd.arg(String.from("--cflags"));
     cflags_cmd.arg(pkg_name);
     cflags_out := e.io.await(cflags_cmd.output(e.io), e);
-    if(!(cflags_out.status.success()), {
+    if(!cflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
     });
     // Run pkg-config --libs
@@ -253,7 +253,7 @@ query_pkg_config :: (
     ldflags_cmd.arg(String.from("--libs"));
     ldflags_cmd.arg(pkg_name);
     ldflags_out := e.io.await(ldflags_cmd.output(e.io), e);
-    if(!(ldflags_out.status.success()), {
+    if(!ldflags_out.status.success(), {
       return(Option(PkgConfigResult).None);
     });
     cflags_raw := String.from_bytes(cflags_out.stdout).trim();

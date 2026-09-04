@@ -12,10 +12,10 @@ P :: struct(x : i32, y : i32);
 // `caller` references `callee` which is defined later in the same impl.
 impl(
   P,
-  caller : (fn(self : *(Self)) -> i32)(
+  caller : (fn(self : *Self) -> i32)(
     self.callee()
   ),
-  callee : (fn(self : *(Self)) -> i32)(
+  callee : (fn(self : *Self) -> i32)(
     self.x
   )
 );
@@ -29,13 +29,13 @@ test("forward call within single impl", {
 Q :: struct(n : i32);
 impl(
   Q,
-  is_even : (fn(self : *(Self)) -> bool)(
+  is_even : (fn(self : *Self) -> bool)(
     cond(
       (self.n == i32(0)) => true,
       true => Q(n : (self.n - i32(1))).is_odd()
     )
   ),
-  is_odd : (fn(self : *(Self)) -> bool)(
+  is_odd : (fn(self : *Self) -> bool)(
     cond(
       (self.n == i32(0)) => false,
       true => Q(n : (self.n - i32(1))).is_even()
@@ -45,22 +45,22 @@ impl(
 test("mutual recursion in single impl", {
   assert(Q(n : i32(4)).is_even(), "4 is even");
   assert(Q(n : i32(5)).is_odd(), "5 is odd");
-  assert(!(Q(n : i32(7)).is_even()), "7 is not even");
+  assert(!Q(n : i32(7)).is_even(), "7 is not even");
 });
 // ---------- Test 3: forward call with effect parameters ----------
 //
 // The parser case: methods carry `exn : Exception` and forward-call
 // each other.
 MyErr :: ref(struct(msg : String));
-impl(MyErr, ToString(to_string : ((self) -> `my err`)));
+impl(MyErr, ToString(to_string : (self -> `my err`)));
 impl(MyErr, Error());
 R :: struct(v : i32);
 impl(
   R,
-  outer : (fn(self : *(Self), exn : Exception) -> i32)(
+  outer : (fn(self : *Self, exn : Exception) -> i32)(
     self.inner(exn)
   ),
-  inner : (fn(self : *(Self), exn : Exception) -> i32)(
+  inner : (fn(self : *Self, exn : Exception) -> i32)(
     cond(
       (self.v < i32(0)) => exn.throw(dyn(MyErr(msg : `neg`))),
       true => self.v
@@ -90,13 +90,13 @@ test("forward call with effect params", {
 S :: ref(struct(tag : i32));
 impl(
   S,
-  s_even : (fn(self : *(Self), i : i32, exn : Exception) -> bool)(
+  s_even : (fn(self : *Self, i : i32, exn : Exception) -> bool)(
     cond(
       (i == i32(0)) => true,
       true => self.s_odd(i - i32(1), exn)
     )
   ),
-  s_odd : (fn(self : *(Self), i : i32, exn : Exception) -> bool)(
+  s_odd : (fn(self : *Self, i : i32, exn : Exception) -> bool)(
     cond(
       (i == i32(0)) => false,
       true => self.s_even(i - i32(1), exn)
@@ -114,7 +114,7 @@ test("mutual recursion with effect params (specialization-cycle)", {
   );
   assert(s.s_even(i32(10), exn), "10 is even");
   assert(s.s_odd(i32(11), exn), "11 is odd");
-  assert(!(s.s_even(i32(7), exn)), "7 is not even");
+  assert(!s.s_even(i32(7), exn), "7 is not even");
 });
 // ---------- Test 5: shell merge does not emit duplicate orphan FunctionValue
 //

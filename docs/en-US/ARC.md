@@ -4,19 +4,19 @@
 It is **not** a compiler built-in anymore. In the current design, `Arc` is defined
 in `std/prelude.yo` as a thin `atomic(ref(struct(...)))` wrapper, so `Arc` and
 `arc(...)` are available everywhere through the prelude. `Arc(T)` itself requires
-`T <: Send`, which keeps `Arc` from laundering non-thread-safe values into a
+`T <: (Send, Acyclic)`, which keeps `Arc` from laundering non-thread-safe values into a
 thread-shareable wrapper.
 
 ## Current definition
 
 ```rust
-Arc :: (fn(comptime(V) : Type, where(V <: Send)) -> comptime(Type))
+Arc :: (fn(comptime(V) : Type, where(V <: (Send, Acyclic))) -> comptime(Type))
   atomic(ref(struct(
     (*) : V
   )))
 ;
 
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: Send)) -> Arc(V))
+arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Acyclic))) -> Arc(V))
   Arc(V)(value)
 ;
 ```
@@ -71,11 +71,11 @@ assert((b.(*) == c.(*)), "same shared value");
 ### Cross-thread sharing
 
 ```rust
-{ Thread } :: import "std/thread";
+{ Thread } :: import("std/thread");
 
 shared := arc(i32(42));
 
-t := Thread.spawn(() => {
+t := Thread.spawn((io) => {
   assert((shared.(*) == i32(42)), "thread sees shared value");
 });
 
@@ -101,6 +101,6 @@ assert((shared.(*) == i32(42)), "main still sees shared value");
 
 ## Related docs
 
-- `docs/en-US/PARALLELISM.md` — thread and worker model
+- `docs/en-US/PARALLELISM.md` — thread and thread-pool model
 - `docs/en-US/ISOLATED.md` — unique ownership with `Iso(T)`
 - `docs/en-US/IMMUTABLE_COLLECTIONS.md` — persistent collections built on `atomic(ref(struct(...)))`

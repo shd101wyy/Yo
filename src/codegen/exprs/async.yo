@@ -15,7 +15,7 @@
 //! key — yo-self `Func` types carry no `.id`).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ await_is_while_condition } :: import("../async/state_code_gen.yo");
+{ await_is_while_condition, cond_await_point_needs_dispatch, cond_await_point_any_branch_in_while } :: import("../async/state_code_gen.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 {
@@ -68,10 +68,11 @@ open(import("std/string"));
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
-{ get_drop_function_for_type, get_dup_function_for_type } :: import("./drop_dup.yo");
+{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
+{ Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_evidence_parameters } :: import("../functions/declarations.yo");
+{ get_evidence_parameters, awaited_future_c_type_override } :: import("../functions/declarations.yo");
 {
   type_key,
   get_type_string,
@@ -79,7 +80,8 @@ open(import("std/string"));
   get_variable_type_string,
   get_variable_name_for_codegen,
   scope_stack_contains,
-  mark_uses_parallelism
+  mark_uses_parallelism,
+  mark_uses_tls
 } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 {
@@ -97,6 +99,7 @@ open(import("std/string"));
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
+{ codegen_fatal } :: import("../constants.yo");
 { panic, assert } :: import("std/assert");
 /// One injectable effect-field mapping: the effect label (possibly dotted for
 /// nested bundle fields) and the C access path into the future's capture/bundle.
@@ -106,6 +109,30 @@ EffectFieldMapping :: ref(struct(effect_label : String, access_path : String));
 /// async prefixes). Mirrors `isAsyncRuntimeExternName` (async.ts:1659).
 is_async_runtime_extern_name :: (fn(name : String) -> bool)(
   (name.starts_with("__yo_poll_") || name.starts_with("__yo_fs_event_")) || name.starts_with("__yo_async_")
+);
+/// The FIRST effect type of an io.async call's own recorded Future trait type,
+/// when it is CONCRETE (not a SomeT). This is the per-call stamp: for the
+/// unannotated-receiver shapes (`io.async((e) => ...)` / `e2.io.async(...)`),
+/// C60 (#362) binds the builtin's forall E from the RECEIVER at eval time, so
+/// the substituted result records THIS call's concrete bundle type — never the
+/// shared forall E's global last-winner. Used to type the closure's bundle
+/// param slot (slot 0) so the SM's set_effect copies exactly the bytes the
+/// await site's bundle temp holds (the E-class Io/IoExn overread). Concrete-
+/// only on purpose: a SomeT effect instance renders through cells whose
+/// side-effects change otherwise-identical emission (breaks the fixpoint).
+_io_async_call_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeValue))(
+  match(
+    future_trait_type,
+    .FutureTraitT({ effect_types : ets }) => match(
+      ets.get(usize(0)),
+      .Some(e0) => cond(
+        is_some_type(e0) => Option(TypeValue).None,
+        true => Option(TypeValue).Some(e0.clone())
+      ),
+      .None => Option(TypeValue).None
+    ),
+    _ => Option(TypeValue).None
+  )
 );
 /// Append `(label, path)` to `mappings` unless an identical entry exists. Mirrors
 /// the inner `addMapping` of `getInjectableFutureEffectFieldMappings`.
@@ -356,14 +383,27 @@ _first_struct_effect_type :: (fn(future_trait_type : TypeValue) -> Option(TypeVa
   Option(TypeValue).None
 });
 /// The capitalized last dotted segment of `label` (e.g. `errors.raise` → `Raise`).
+///
+/// **Cuts by RUNE, not by byte.** `label` is a user-written effect-bundle field
+/// path (`io.async`, `exn.throw`, or any field name the user chose), and Yo
+/// identifiers may start with a non-ASCII rune (`src/token.yo`
+/// `is_identifier_start`: `c.char >= 0xA0`). Since
+/// `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 made `substring` byte-indexed and
+/// non-boundary-PANICKING, `substring(0, 1)` on such a label aborted the whole
+/// compiler with `String.substring: end is not on a UTF-8 character boundary`
+/// and no source location. `ceil_char_boundary(1)` is the byte width of the
+/// FIRST rune (1 for ASCII, snapped up to the rune's end otherwise), so
+/// slicing at it restores exactly the pre-flip cut, which is what this
+/// function always meant.
 _capitalize_last_segment :: (fn(label : String) -> String)({
   parts := label.split(".");
   last := if(parts.len() > usize(0), match(parts.get(parts.len() - usize(1)), .Some(p) => p, .None => label.clone()), label.clone());
   if(last.len() == usize(0), {
     return(last);
   });
-  head := last.substring(usize(0), usize(1)).to_uppercase();
-  head.push_string(last.substring(usize(1), last.len()));
+  first_end := last.ceil_char_boundary(usize(1));
+  head := last.substring(usize(0), first_end).to_uppercase();
+  head.push_string(last.substring(first_end, last.len()));
   head
 });
 /// Emit the future's `set_effect` callback: a `strcmp(field, …)` chain that copies
@@ -734,7 +774,19 @@ emit_async_block_struct_definition :: (
     while(ai2 < aps.len(), {
       match(
         aps.get(ai2),
-        .Some(ap) => match(
+        // Dispatch-mode cond point: branches store differently-shaped futures
+        // into ONE slot, so it is declared type-erased and every access casts
+        // to the running branch's exact type (dispatched on cond_branch_N).
+        // Declared even when the REPRESENTATIVE awaited a named variable —
+        // other branches may be anonymous (shape 6). See
+        // issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
+        .Some(ap) => if(cond_await_point_needs_dispatch(ap, context), {
+          if(!(emitted_header), {
+            em.emit_declaration_line("  // Future references for awaits");
+            emitted_header = true;
+          });
+          em.emit_declaration_string_line(`  void* await_future_${ap.base.index.to_string()};  // erased: cond branches await differently-shaped futures`);
+        }, match(
           ap.future_variable_id,
           .Some(_) => (),
           .None => {
@@ -750,7 +802,17 @@ emit_async_block_struct_definition :: (
                     .Some(ei) => ei.ty,
                     .None => __yo_panic("Internal error: await expression missing type info for future argument")
                   );
-                  awaited_future_type_c_name := get_type_string(future_type, context.base);
+                  (awaited_future_type_c_name : String) = get_type_string(future_type, context.base);
+                  // Prefer the CALLEE's emitted return spelling — the stamped
+                  // future type can be a stale trial-era machine that is
+                  // never defined (see awaited_future_c_type_override).
+                  match(
+                    awaited_future_c_type_override(future_expr, context.base),
+                    .Some(af_ovr) => {
+                      awaited_future_type_c_name = af_ovr;
+                    },
+                    .None => ()
+                  );
                   if(!(emitted_header), {
                     em.emit_declaration_line("  // Future references for awaits");
                     emitted_header = true;
@@ -761,7 +823,7 @@ emit_async_block_struct_definition :: (
               );
             });
           }
-        ),
+        )),
         .None => ()
       );
       ai2 = (ai2 + usize(1));
@@ -797,7 +859,7 @@ emit_async_block_struct_definition :: (
   while(ai4 < aps.len(), {
     match(
       aps.get(ai4),
-      .Some(ap) => if(match(ap.base.is_inside_while, .Some(b) => b, .None => false), {
+      .Some(ap) => if(match(ap.base.is_inside_while, .Some(b) => b, .None => false) || cond_await_point_any_branch_in_while(ap.base), {
         if(!(while_emitted), {
           em.emit_declaration_line("  // Loop state tracking for while loops with await");
           while_emitted = true;
@@ -867,10 +929,10 @@ _add_deferred_dep :: (
     dependents.get(dep_struct_name.clone()),
     .Some(ds) => {
       if(ds.contains(b_struct_name.clone()), return());
-      _r := ds.add(b_struct_name.clone());
-      _r2 := dependents.set(dep_struct_name, ds);
+      _r := ds.insert(b_struct_name.clone());
+      _r2 := dependents.insert(dep_struct_name, ds);
       cur := match(indegree.get(b_struct_name.clone()), .Some(n) => n, .None => usize(0));
-      _r3 := indegree.set(b_struct_name, cur + usize(1));
+      _r3 := indegree.insert(b_struct_name, cur + usize(1));
     },
     .None => ()
   );
@@ -958,7 +1020,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     match(
       blocks.get(i),
       .Some(b) => {
-        _r := by_struct_name.set(b.struct_name.clone(), b);
+        _r := by_struct_name.insert(b.struct_name.clone(), b);
       },
       .None => ()
     );
@@ -972,8 +1034,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
     match(
       blocks.get(i2),
       .Some(b) => {
-        _r := dependents.set(b.struct_name.clone(), HashSet(String).new());
-        _r2 := indegree.set(b.struct_name.clone(), usize(0));
+        _r := dependents.insert(b.struct_name.clone(), HashSet(String).new());
+        _r2 := indegree.insert(b.struct_name.clone(), usize(0));
       },
       .None => ()
     );
@@ -1016,7 +1078,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
             dit.next(),
             .Some(m) => {
               next := (match(indegree.get(m.clone()), .Some(d) => d, .None => usize(0)) - usize(1));
-              _r := indegree.set(m.clone(), next);
+              _r := indegree.insert(m.clone(), next);
               if(next == usize(0), {
                 queue.push(m);
               });
@@ -1103,7 +1165,7 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
 /// its deferred-dup path is deliberately skipped inside a state machine. The
 /// result was an unbalanced drop: a future re-created each iteration of a loop
 /// freed the captured value under the loop (rc=139).
-/// See issues/await-in-branch-positions-matrix.md.
+/// See issues/fixed/await-in-branch-positions-matrix.md.
 _rc_field_retain_line :: (fn(field_ref : String, field_type : TypeValue, indent : String, context : FunctionGenerationContext) -> Option(String))(
   cond(
     is_dyn_type(field_type) => Option(String).Some(`${indent.clone()}if ((${field_ref.clone()}).data != NULL) { __yo_incr_rc((void*)(${field_ref.clone()}).data); }`),
@@ -1222,7 +1284,6 @@ generate_async_block_state_dispose_function :: (
   em.emit_line("");
   // Drop the result field if it contains GC-managed data (state == -1 = completed).
   if(!(is_unit_type(result_type)) && type_contains_rc_type(result_type), {
-    result_type_c_name := get_type_string(result_type, context.base);
     em.emit_line("  // Drop result field if it was set (state == -1 means completed)");
     em.emit_line("  int final_state = sm->state;");
     em.emit_line("  if (final_state == -1) {");
@@ -1230,7 +1291,19 @@ generate_async_block_state_dispose_function :: (
     match(
       get_drop_function_for_type(result_type, context),
       .Some(drop_fn) => em.emit_string_line(`    ${drop_fn}(sm->result);`),
-      .None => em.emit_string_line(`    /* Warning: No ___drop function found for result type ${result_type_c_name} */`)
+      // INLINE drop, not a warning comment. yo-self synthesizes no ___drop
+      // methods (see drop_dup.yo), so `.None` is the ONLY path here — the
+      // old warning meant every state machine whose RC result was completed
+      // never dropped its owned result reference: the awaiter's copy is a
+      // DUP, so the future's own count leaked the value (Dispose of an
+      // async-produced object never ran —
+      // issues/async-future-result-never-dropped.md).
+      .None => {
+        drop_code := generate_drop_code_for_value(String.from("sm->result"), result_type, context);
+        if(drop_code.len() > usize(0), {
+          em.emit_string_line(`    ${drop_code};`);
+        });
+      }
     );
     em.emit_line("  }");
   });
@@ -1457,7 +1530,7 @@ _build_async_capture_struct_literal :: (
               // RECORDED atom expr here (async.ts:330-335); yo-self
               // capture-struct fields carry no per-field exprs, so the C name
               // of the same-named variable at the io.async call site is the
-              // faithful equivalent for the std-internal shapes (read_file's
+              // faithful equivalent for the std-internal shapes (read's
               // `.path = path, .io = io` — enclosing-fn params). The RC +1
               // for the whole struct comes from the dup wrap below
               // (used_deferred_dups stays false), mirroring TS's
@@ -1644,6 +1717,21 @@ io_async_closure_body :: (fn(expr : AstExpr, context : FunctionGenerationContext
     .None => Option(AstExpr).None
   )
 });
+/// Diagnostic for an `io.async` closure body that reached codegen with NO
+/// ExprInfo — its evaluation was deferred at definition time (the anon-body
+/// trial swallowed an error inside it) and never completed. Emitting the
+/// future anyway produces one that runs nothing and silently completes —
+/// the vacuous pass this poison gate turns into a compile error. Mirrors the
+/// "a diagnostic the C compiler can skip is not a diagnostic" stance of
+/// `codegen_fatal_expr` (constants.yo).
+_hollow_async_body_message :: (fn(body : AstExpr, via_fsm : bool) -> String)({
+  t := ast_expr_token(body);
+  where := `${t.module_path}:${(t.row + usize(1)).to_string()}:${(t.column + usize(1)).to_string()}: `;
+  kind := if(via_fsm, String.from("state-machine"), String.from("sync-future"));
+
+  `${where}this \`io.async\` closure's body was never fully evaluated — an error inside it was deferred at definition time and never re-checked, so the emitted ${kind} future would run nothing and silently complete.
+Fix the error inside the body. Common causes: a type error the deferred trial swallowed, a forward reference (move the definition above its use), or a call with the wrong argument count.`
+});
 generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), analysis_in : Option(AwaitAnalysisResult), indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: async block missing ExprInfo */")));
   // The io.async closure body is extracted ONCE by the dispatcher (via
@@ -1658,6 +1746,18 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(x) => Option(AstExpr).Some(x), .None => Option(AstExpr).None), _ => Option(AstExpr).None)
   );
   body_expr := match(body_expr_opt, .Some(b) => b, .None => return(String.from("/* Error: async requires exactly 1 argument */")));
+  // POISON GATE (partially-hollow body, FSM path): the io.async closure's
+  // body block must carry ExprInfo — a deferred trial that swallowed an
+  // error leaves the block unevaluated even when earlier statements (e.g.
+  // the first `io.await`) registered await analysis and routed the state
+  // machine, whose segments would then silently truncate at the hole.
+  if(is_io_async, {
+    match(
+      context.base.get_expr_info(body_expr),
+      .None => codegen_fatal(_hollow_async_body_message(body_expr, true)),
+      .Some(_) => ()
+    );
+  });
   future_type := ei.ty;
   if(!(type_implements_future(future_type)), {
     return(String.from("/* Error: async block must have Future type */"));
@@ -1797,7 +1897,7 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
         // load-bearing for `return(x)`-tailed bodies, whose body ExprInfo
         // type is the FUTURE itself — taking it made the SM's result field
         // (and the return temp) the SM struct pointer instead of the output
-        // (fs/file read_string: `__yo_t17* result`).
+        // (fs/file read_to_string: `__yo_t17* result`).
         (resolved_via_fn_ret : bool) = false;
         match(
           lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
@@ -1883,9 +1983,22 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
           (i : usize) = usize(0);
           while(i < pts.len(), {
             pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-            ctype := get_type_string(pt, context.base);
+            // Slot 0 (the bundle param) must render THIS call's effect. The
+            // registry type's param-0 can be the io.async builtin's SHARED
+            // forall E — its global fallback resolves to whichever
+            // specialization was evaluated LAST, so the SM's set_effect copies
+            // IoExn-sized bytes out of an Io-sized injection temp (the E-class
+            // overread). `future_trait_type` is THIS call's own recorded type
+            // (ei.ty above) — the same per-call stamp the await site types its
+            // bundle temp from, so both sides agree by construction.
+            pt_slot := if(
+              (i == usize(0)) && is_some_type(pt),
+              match(_io_async_call_effect_type(future_trait_type), .Some(et) => et, .None => pt),
+              pt
+            );
+            ctype := get_type_string(pt_slot, context.base);
             pname := match(pls.get(i), .Some(l) => if(l.len() > usize(0), l, `param_${i.to_string()}`), .None => `param_${i.to_string()}`);
-            closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname, param_type : pt));
+            closure_param_slots.push(ClosureParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype, param_name : pname, param_type : pt_slot));
             i = (i + usize(1));
           });
         },
@@ -1963,7 +2076,7 @@ _copy_string_map :: (fn(src : HashMap(String, String)) -> HashMap(String, String
     match(
       it.next(),
       .Some(e) => {
-        _r := out.set(e.key.clone(), e.value.clone());
+        _r := out.insert(e.key.clone(), e.value.clone());
       },
       .None => {
         go = false;
@@ -2034,7 +2147,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     match(
       fcvs.get(fi),
       .Some(v) => {
-        _r := sm_var_map.set(v.base.id.to_string(), v);
+        _r := sm_var_map.insert(v.base.id.to_string(), v);
       },
       .None => ()
     );
@@ -2050,7 +2163,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
         match(
           cap_fields.get(cfi),
           .Some(field) => {
-            _r := sm_var_map.set(field.label.clone(), _make_sm_captured_variable(field.label.clone(), field.label.clone(), field.ty, CapturedVariableKind.Outer));
+            _r := sm_var_map.insert(field.label.clone(), _make_sm_captured_variable(field.label.clone(), field.label.clone(), field.ty, CapturedVariableKind.Outer));
           },
           .None => ()
         );
@@ -2068,7 +2181,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     match(
       osa_it.next(),
       .Some(e) => {
-        _r := merged_aliases.set(e.key.clone(), e.value.clone());
+        _r := merged_aliases.insert(e.key.clone(), e.value.clone());
       },
       .None => {
         ogo = false;
@@ -2080,7 +2193,7 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
     match(
       cps.get(cp2),
       .Some(slot) => {
-        _r := merged_aliases.set(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
+        _r := merged_aliases.insert(`__closure_param_${cp2.to_string()}`, slot.field_name.clone());
       },
       .None => ()
     );
@@ -2285,6 +2398,16 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
     }),
     .None => ()
   );
+  // TLS backend extern (D6): any __yo_tls_ call drags the TLS runtime (and
+  // its OpenSSL headers on unix) into the emitted C — gated so TLS-free
+  // programs link neither.
+  match(
+    _called_extern_name(expr, context),
+    .Some(name) => if(name.starts_with(String.from("__yo_tls_")), {
+      mark_uses_tls();
+    }),
+    .None => ()
+  );
   // Recurse into arguments.
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   (i : usize) = usize(0);
@@ -2457,6 +2580,24 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       .None => match(cei.value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
     )
   );
+  // POISON GATE (fully-hollow body, sync-future path): a deferred anon-body
+  // trial that swallowed an error leaves the closure's body block with NO
+  // ExprInfo; with no awaits discovered the call routes HERE, and the
+  // sync-future stub below would run nothing and silently complete (the C22
+  // `_sync_fut_t` class — handover §0c). Reject it instead.
+  match(
+    closure_fn_val,
+    .Some(fv) => match(
+      fv,
+      .FuncVal(__fvdh, _) => match(
+        context.base.get_expr_info(__fvdh.*.body),
+        .None => codegen_fatal(_hollow_async_body_message(__fvdh.*.body, false)),
+        .Some(_) => ()
+      ),
+      _ => ()
+    ),
+    .None => ()
+  );
   closure_function_c_name := match(
     closure_fn_val,
     .Some(fv) => match(fv, .FuncVal(__fvd6, _) => match(context.base.get_function_entry(__fvd6.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None),
@@ -2481,7 +2622,16 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
       (i : usize) = usize(0);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        ctype := get_type_string(pt, context.base);
+        // Same per-call rule as the FSM slot collection above: slot 0 is the
+        // bundle param; when the closure's recorded Func type still carries
+        // the io.async builtin's SHARED forall E, render THIS call's Future
+        // effect instead of the global last-winner.
+        pt_slot := if(
+          (i == usize(0)) && is_some_type(pt),
+          match(_io_async_call_effect_type(future_trait_type), .Some(et) => et, .None => pt),
+          pt
+        );
+        ctype := get_type_string(pt_slot, context.base);
         sync_param_slots.push(SyncParamSlot(field_name : `__yo_param_${i.to_string()}`, c_type : ctype));
         i = (i + usize(1));
       });
@@ -2588,8 +2738,28 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   capture_drop_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_drop_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
   capture_dup_fn := match(eff_capture_type, .Some(cap_ty) => if(type_contains_rc_type(cap_ty), get_dup_function_for_type(cap_ty, context), Option(String).None), .None => Option(String).None);
   result_drop_fn := get_drop_function_for_type(result_type, context);
+  // INLINE result-drop fallback: yo-self synthesizes no ___drop methods (see
+  // drop_dup.yo), so `result_drop_fn` is `.None` for every RC result type —
+  // the dispose used to come out EMPTY and the future's owned result
+  // reference leaked (awaiters only ever DUP it out): Dispose of an object
+  // produced inside io.async never ran
+  // (issues/async-future-result-never-dropped.md). The inline generator
+  // side-emits multi-line code (enum switches, array loops) into
+  // `context.base.emitter`, but this dispose goes into the DECLARATIONS
+  // buffer — capture the side lines through a temp emitter and re-emit them.
+  (result_inline_side : String) = String.from("");
+  (result_inline_stmt : String) = String.from("");
+  if(match(result_drop_fn, .Some(_) => false, .None => true) && (!(is_unit_type(result_type)) && type_contains_rc_type(result_type)), {
+    temp_em := Emitter.new();
+    saved_em := context.base.emitter;
+    context.base.emitter = temp_em;
+    result_inline_stmt = generate_drop_code_for_value(String.from("sm->result"), result_type, context);
+    context.base.emitter = saved_em;
+    result_inline_side = temp_em.print();
+  });
+  has_result_inline := ((result_inline_stmt.len() > usize(0)) || (result_inline_side.trim().len() > usize(0)));
   em.emit_declaration_string_line(`void ${dispose_function_name.clone()}(void* ptr) {`);
-  has_drop := (match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false));
+  has_drop := ((match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false)) || has_result_inline);
   if(has_drop, {
     em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
     match(
@@ -2598,6 +2768,11 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         em.emit_declaration_line("  // Drop captured variables (future owns its references)");
         em.emit_declaration_string_line(`  ${drop_fn}(sm->__capture);`);
       },
+      // NO inline fallback for the capture, deliberately: the sync-future
+      // constructor copies capture fields WITHOUT a dup when capture_dup_fn
+      // is `.None` (see the `__capture = ${lit}` emission below), so the
+      // capture is borrowed, and dropping it here would over-release. The
+      // dup/drop pair for captures is tracked in the same issue doc.
       .None => ()
     );
     match(
@@ -2607,7 +2782,22 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
         em.emit_declaration_string_line(`    ${drop_fn}(sm->result);`);
         em.emit_declaration_line("  }");
       },
-      .None => ()
+      .None => if(has_result_inline, {
+        em.emit_declaration_line("  if (sm->state == -1) {");
+        side_lines := result_inline_side.split("\n");
+        (sli : usize) = usize(0);
+        while(sli < side_lines.len(), {
+          sline := match(side_lines.get(sli), .Some(l) => l.trim(), .None => String.from(""));
+          if(sline.len() > usize(0), {
+            em.emit_declaration_string_line(`    ${sline}`);
+          });
+          sli = (sli + usize(1));
+        });
+        if(result_inline_stmt.len() > usize(0), {
+          em.emit_declaration_string_line(`    ${result_inline_stmt};`);
+        });
+        em.emit_declaration_line("  }");
+      })
     );
   });
   em.emit_declaration_line("}");

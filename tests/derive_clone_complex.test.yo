@@ -53,7 +53,7 @@ test("derive Clone for struct with Option field (None)", {
   orig := WithOption(maybe : .None, required : false);
   c := orig.clone();
   match(c.maybe, .Some(_) => assert(false, "should be None"), .None => ());
-  assert(!(c.required), "bool cloned");
+  assert(!c.required, "bool cloned");
 });
 // ===== 5. Struct with Box(T) field =====
 Boxed :: struct(inner : Box(i32), label : String);
@@ -69,7 +69,7 @@ WithMap :: struct(data : HashMap(String, i32));
 derive(WithMap, Clone);
 test("derive Clone for struct with HashMap field", {
   m := HashMap(String, i32).new();
-  m.set(`key`, i32(100));
+  m.insert(`key`, i32(100));
   orig := WithMap(data : m);
   c := orig.clone();
   got := c.data.get(`key`);

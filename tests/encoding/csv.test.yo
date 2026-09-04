@@ -1,0 +1,100 @@
+// std/encoding/csv — RFC 4180 reader/writer (plans/STD_API_AUDIT.md §7 P1).
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/encoding/csv"));
+_rows :: (fn(text : String) -> ArrayList(ArrayList(String)))(
+  match(
+    csv_parse(text),
+    .Ok(r) => r,
+    .Err(e) => {
+      assert(false, `unexpected csv error: ${e}`);
+      ArrayList(ArrayList(String)).new()
+    }
+  )
+);
+_field :: (fn(rows : ArrayList(ArrayList(String)), r : usize, f : usize) -> String)(rows(r)(f));
+test("simple records, LF and CRLF terminators, optional final terminator", {
+  a := _rows(String.from("a,b,c\n1,2,3\n"));
+  assert(a.len() == usize(2), "two records");
+  assert(a(usize(0)).len() == usize(3), "three fields");
+  assert(_field(a, usize(1), usize(2)) == "3", "last field");
+  b := _rows(String.from("a,b\r\n1,2"));
+  assert(b.len() == usize(2), "CRLF + unterminated last record");
+  assert(_field(b, usize(1), usize(1)) == "2", "field after CRLF");
+  c := _rows(String.from(""));
+  assert(c.len() == usize(0), "empty input has no records");
+  d := _rows(String.from("\n"));
+  assert(d.len() == usize(1), "a lone terminator is one empty record");
+  assert(d(usize(0)).len() == usize(1), "with one empty field");
+  assert(_field(d, usize(0), usize(0)) == "", "which is empty");
+});
+test("quoted fields: delimiters, newlines and doubled quotes inside", {
+  r := _rows(String.from("name,quote\n\"Doe, John\",\"He said \"\"hi\"\"\"\n\"multi\nline\",x\n"));
+  assert(r.len() == usize(3), "three records");
+  assert(_field(r, usize(1), usize(0)) == "Doe, John", "comma inside quotes");
+  assert(_field(r, usize(1), usize(1)) == "He said \"hi\"", "doubled quotes become one");
+  assert(_field(r, usize(2), usize(0)) == "multi\nline", "newline inside quotes");
+  e := _rows(String.from("\"\",x\n"));
+  assert(_field(e, usize(0), usize(0)) == "", "empty quoted field");
+  assert(_field(e, usize(0), usize(1)) == "x", "field after empty quoted field");
+});
+test("empty fields and trailing delimiters are preserved", {
+  r := _rows(String.from("a,,c\n,,\nx,\n"));
+  assert(r(usize(0)).len() == usize(3), "a,,c has 3 fields");
+  assert(_field(r, usize(0), usize(1)) == "", "middle empty");
+  assert(r(usize(1)).len() == usize(3), ",, is 3 empty fields");
+  assert(r(usize(2)).len() == usize(2), "x, is 2 fields");
+  assert(_field(r, usize(2), usize(1)) == "", "trailing empty");
+});
+test("typed errors with byte positions", {
+  e1 := csv_parse(String.from("\"ab\"c,d\n"));
+  assert(match(e1, .Err(e) => match(e, .UnexpectedAfterQuote({ pos, byte }) => ((pos == usize(4)) && (byte == u8(99))), _ => false), .Ok(_) => false), "byte after closing quote");
+  e2 := csv_parse(String.from("a,\"unterminated\n"));
+  assert(match(e2, .Err(e) => match(e, .UnterminatedQuote({ start }) => (start == usize(2)), _ => false), .Ok(_) => false), "unterminated quote");
+  e3 := csv_parse(String.from("a\rb\n"));
+  assert(match(e3, .Err(e) => match(e, .BareCarriageReturn({ pos }) => (pos == usize(1)), _ => false), .Ok(_) => false), "bare CR");
+  msg := match(e3, .Err(e) => e.to_string(), .Ok(_) => String.new());
+  assert(msg == "bare carriage return at byte 1", "ToString");
+});
+test("strict parsing rejects uneven records", {
+  ok := csv_parse_strict(String.from("a,b\n1,2\n"), CsvOptions.default());
+  assert(match(ok, .Ok(r) => (r.len() == usize(2)), .Err(_) => false), "even records pass");
+  bad := csv_parse_strict(String.from("a,b\n1\n"), CsvOptions.default());
+  assert(match(bad, .Err(e) => match(e, .UnevenRecord({ record, expected, found }) => ((record == usize(1)) && (expected == usize(2)) && (found == usize(1))), _ => false), .Ok(_) => false), "uneven record reported with its index");
+});
+test("other delimiters (TSV, semicolon)", {
+  t := match(csv_parse_with(String.from("a\tb\n1\t2\n"), CsvOptions.with_delimiter(u8(9))), .Ok(r) => r, .Err(_) => ArrayList(ArrayList(String)).new());
+  assert(_field(t, usize(1), usize(1)) == "2", "tab delimiter");
+  s := match(csv_parse_with(String.from("a;b,c\n"), CsvOptions.with_delimiter(u8(59))), .Ok(r) => r, .Err(_) => ArrayList(ArrayList(String)).new());
+  assert(s(usize(0)).len() == usize(2), "semicolon delimiter keeps the comma in the field");
+  assert(_field(s, usize(0), usize(1)) == "b,c", "comma is data here");
+});
+test("writer quotes only when needed and round-trips", {
+  rows := ArrayList(ArrayList(String)).new();
+  r0 := ArrayList(String).new();
+  r0.push(String.from("name"));
+  r0.push(String.from("note"));
+  rows.push(r0);
+  r1 := ArrayList(String).new();
+  r1.push(String.from("Doe, John"));
+  r1.push(String.from("said \"hi\"\nthen left"));
+  rows.push(r1);
+  r2 := ArrayList(String).new();
+  r2.push(String.from("plain"));
+  r2.push(String.from(""));
+  rows.push(r2);
+  text := csv_write(rows);
+  assert(text == "name,note\n\"Doe, John\",\"said \"\"hi\"\"\nthen left\"\nplain,\n", "quoting rules");
+  back := _rows(text);
+  assert(back.len() == usize(3), "round-trip record count");
+  assert(_field(back, usize(1), usize(1)) == "said \"hi\"\nthen left", "round-trip field");
+  assert(_field(back, usize(2), usize(1)) == "", "round-trip empty field");
+  crlf := csv_write_with(rows, CsvOptions(delimiter : u8(44), line_ending : LineEnding.CrLf));
+  assert(crlf.as_bytes().len() == (text.as_bytes().len() + usize(3)), "CRLF adds one byte per record");
+  tsv := csv_write_with(rows, CsvOptions.with_delimiter(u8(9)));
+  assert(tsv.starts_with("name\tnote\n"), "tab delimiter in output");
+  assert(tsv.contains("\"said"), "quote/newline still force quoting under TSV");
+  assert(tsv.contains("Doe, John\t"), "comma is not special under TSV");
+});

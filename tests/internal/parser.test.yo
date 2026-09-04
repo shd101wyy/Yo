@@ -2,8 +2,10 @@ open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
+{ StringBuilder } :: import("std/string/string_builder");
 { AstExpr, ast_expr_to_string, ast_expr_is_atom, ast_expr_is_fn_call, make_err_expr } :: import("../../src/expr.yo");
-{ ParseError, parse, extract_source_line, generate_expr_from_code } :: import("../../src/parser.yo");
+{ parse, extract_source_line, make_parse_error, generate_expr_from_code } :: import("../../src/parser.yo");
+{ Token, TokenKind } :: import("../../src/token.yo");
 { assert, panic } :: import("std/assert");
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 // Check that two String values are equal; fails with msg if not.
@@ -29,7 +31,7 @@ only_expr :: (fn(prog : ArrayList(AstExpr)) -> AstExpr)({
 test("Parse single identifier", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -43,7 +45,7 @@ test("Parse single identifier", {
 test("Parse integer literal", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -57,7 +59,7 @@ test("Parse integer literal", {
 test("Parse float literal", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -71,7 +73,7 @@ test("Parse float literal", {
 test("Parse bool literal true", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -85,7 +87,7 @@ test("Parse bool literal true", {
 test("Parse string literal", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -100,7 +102,7 @@ test("Parse string literal", {
 test("Parse operator atom", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -115,7 +117,7 @@ test("Parse operator atom", {
 test("Parse unit value ()", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -129,7 +131,7 @@ test("Parse unit value ()", {
 test("Parse parenthesized expression (x)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -143,7 +145,7 @@ test("Parse parenthesized expression (x)", {
 test("Parse parenthesized infix (a + b)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -157,7 +159,7 @@ test("Parse parenthesized infix (a + b)", {
 test("Parse top-level infix a + b", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -172,7 +174,7 @@ test("Parse top-level infix a + b", {
 test("Parse no-arg function call f()", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -186,7 +188,7 @@ test("Parse no-arg function call f()", {
 test("Parse function call f(a, b)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -200,7 +202,7 @@ test("Parse function call f(a, b)", {
 test("Reject whitespace-separated call f a, b", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -211,7 +213,7 @@ test("Reject whitespace-separated call f a, b", {
 test("Parse nested function call f(g(x))", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -226,7 +228,7 @@ test("Parse nested function call f(g(x))", {
 test("Parse member access obj.field", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -240,7 +242,7 @@ test("Parse member access obj.field", {
 test("Parse method call obj.method(x)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -254,7 +256,7 @@ test("Parse method call obj.method(x)", {
 test("Parse chained member access a.b.c", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -269,7 +271,7 @@ test("Parse chained member access a.b.c", {
 test("Parse begin block { x; y; }", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -283,7 +285,7 @@ test("Parse begin block { x; y; }", {
 test("Parse begin block { x; y } no trailing semicolon", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -296,7 +298,7 @@ test("Parse begin block { x; y } no trailing semicolon", {
 test("Parse single-statement block { x; }", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -309,7 +311,7 @@ test("Parse single-statement block { x; }", {
 test("Parse anonymous struct { x: 1, y: 2 }", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -322,7 +324,7 @@ test("Parse anonymous struct { x: 1, y: 2 }", {
 test("Parse shorthand anonymous struct { x, y }", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -335,7 +337,7 @@ test("Parse shorthand anonymous struct { x, y }", {
 test("Parse single-field shorthand anonymous struct { x }", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -349,7 +351,7 @@ test("Parse single-field shorthand anonymous struct { x }", {
 test("Parse array value [1, 2, 3]", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -363,7 +365,7 @@ test("Parse array value [1, 2, 3]", {
 test("Parse Slice type [T]", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -376,7 +378,7 @@ test("Parse Slice type [T]", {
 test("Parse Array type [T; N]", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -390,7 +392,7 @@ test("Parse Array type [T; N]", {
 test("Parse tuple value (a, b)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -405,7 +407,7 @@ test("Parse tuple value (a, b)", {
 test("Parse Tuple type (a; b)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -421,7 +423,7 @@ test("Parse Tuple type (a; b)", {
 test("Parse two top-level expressions separated by semicolon", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -443,7 +445,7 @@ test("Parse two top-level expressions separated by semicolon", {
 test("Parse trailing semicolon appends unit expression", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -465,7 +467,7 @@ test("Parse trailing semicolon appends unit expression", {
 test("Parse empty program", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -477,7 +479,7 @@ test("Parse empty program", {
 test("Parse comment-only program", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -490,7 +492,7 @@ test("Parse comment-only program", {
 test("Parse dot-prefixed identifier .Some", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -505,7 +507,7 @@ test("Parse dot-prefixed identifier .Some", {
 test("Parse dot-prefixed call .Ok(x)", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -520,7 +522,7 @@ test("Parse dot-prefixed call .Ok(x)", {
 test("Parse assignment-like x = y", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -534,7 +536,7 @@ test("Parse assignment-like x = y", {
 test("Parse multi-level dot chain a.b.c.d", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -548,7 +550,7 @@ test("Parse multi-level dot chain a.b.c.d", {
 test("Parse function call with multiple args and nested call", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -574,18 +576,21 @@ test("extract_source_line: out-of-range returns empty string", {
   result := extract_source_line(src, usize(99));
   assert_str_eq(result, String.from(""), "out-of-range row should return(empty string)");
 });
-test("ParseError.to_string: format with source line", {
-  err := ParseError(
-    message : String.from("unexpected token: }"),
+test("make_parse_error renders via the shared renderer", {
+  tok := Token(
+    kind : TokenKind.Identifier,
+    value : String.from("}"),
     row : usize(3),
     column : usize(0),
+    character : usize(0),
     module_path : String.from("test.yo"),
-    source_line : String.from("}")
+    input : String.from("a\nb\nc\n}")
   );
-  s := err.to_string();
+  s := make_parse_error(tok, String.from("unexpected token: }")).to_string();
   assert(s.contains(String.from("error: unexpected token: }")), "should contain error message");
-  assert(s.contains(String.from("--> test.yo:4:0")), "should show row+1=4 in location");
+  assert(s.contains(String.from("--> test.yo:4:1")), "should show row+1=4, col+1=1 in location");
   assert(s.contains(String.from("4 | }")), "should show source line with row+1");
+  assert(s.contains(String.from("4 | }")), "source line");
 });
 // ---------------------------------------------------------------------------
 // generate_expr_from_code
@@ -593,7 +598,7 @@ test("ParseError.to_string: format with source line", {
 test("generate_expr_from_code: integer literal produces atom", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -605,7 +610,7 @@ test("generate_expr_from_code: integer literal produces atom", {
 test("generate_expr_from_code: identifier produces atom", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -617,7 +622,7 @@ test("generate_expr_from_code: identifier produces atom", {
 test("generate_expr_from_code: function call produces fn call expr", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected parse error");
         unwind(());
       }
@@ -633,7 +638,7 @@ test("generate_expr_from_code: function call produces fn call expr", {
 test("Parse colon : with parenthesized -> RHS", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -645,7 +650,7 @@ test("Parse colon : with parenthesized -> RHS", {
 test("Parse ?= with parenthesized -> RHS", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -657,7 +662,7 @@ test("Parse ?= with parenthesized -> RHS", {
 test("Parse := with parenthesized -> RHS", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -669,7 +674,7 @@ test("Parse := with parenthesized -> RHS", {
 test("Parse ?= with multi-line parenthesized -> RHS", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -688,7 +693,7 @@ test("Parse ?= with multi-line parenthesized -> RHS", {
 test("Parse colon : with multi-line parenthesized -> RHS in struct field", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -706,4 +711,77 @@ test("Parse colon : with multi-line parenthesized -> RHS in struct field", {
   );
   e := only_expr(prog);
   assert(ast_expr_is_fn_call(e), "colon with multi-line parens should produce FnCall");
+});
+// ─── Template-string spec peeling (`_peel_spec`) ──────────────────────────────
+// `plans/STD_API_AUDIT_D4_PLAN.md` §5.2 S4. `_peel_spec` splits `${expr:spec}`
+// by walking an `ArrayList(rune)` backwards and then cutting `text`. Those two
+// index bases have to agree, and BEFORE the D4 migration they agreed only by
+// accident — `substring` happened to be rune-indexed. Every pre-existing test
+// in this file is ASCII, where the accident is invisible; these are multibyte
+// on BOTH sides of the cut, so a byte/rune confusion in the peel shows up as a
+// mangled expression text or a mangled spec.
+//
+// The parse of a template string yields two top-level exprs: the injected
+// `import("std/fmt/format")` and the rendering call, whose printed form
+// (`(<expr>.format)("<spec>")`) shows exactly where the peel cut.
+_ts :: (fn(inner : str) -> String)({
+  sb := StringBuilder.new();
+  sb.write_byte(u8(96));
+  sb.write_str(inner);
+  sb.write_byte(u8(96));
+  sb.to_string()
+});
+// `exn` is passed in rather than built here: the file's other tests build the
+// throwing handler INSIDE the `test(...)` body, and a `(err) -> { …; unwind(()); }`
+// closure hoisted into a top-level helper emits a `Failed to transpile` stub
+// under the seed compiler (issues/ftt-stub-in-live-closure-falls-off-non-void-function.md).
+_parse_ts :: (fn(inner : str, exn : Exception) -> String)({
+  prog := parse(_ts(inner), `test.yo`, exn);
+  assert(prog.len() == usize(2), "template string should parse to import + rendering");
+  match(
+    prog.get(usize(1)),
+    .Some(e) => ast_expr_to_string(e),
+    .None => String.new()
+  )
+});
+test("Peel a format spec off a MULTIBYTE template expression", {
+  exn := Exception(
+    throw : (
+      err -> {
+        panic("unexpected parse error in a template string");
+      }
+    )
+  );
+  assert_str_eq(_parse_ts("${x:>8}", exn), `(x.format)(">8")`, "ASCII control case");
+  assert_str_eq(_parse_ts("${名前:>8}", exn), `(名前.format)(">8")`, "3-byte runes before the colon");
+  assert_str_eq(_parse_ts("${名前:.2}", exn), `(名前.format)(".2")`, "precision spec after 3-byte runes");
+  assert_str_eq(_parse_ts("${é:#08x}", exn), `(é.format)("#08x")`, "2-byte rune before the colon");
+  assert_str_eq(_parse_ts("${a.名前:^10.4}", exn), `((a.名前).format)("^10.4")`, "dotted path with a multibyte segment");
+});
+test("A spaced colon-pair stays a colon-pair with multibyte content", {
+  exn := Exception(
+    throw : (
+      err -> {
+        panic("unexpected parse error in a template string");
+      }
+    )
+  );
+  // The `space before the colon` guard reads `tc(k - 2)`, a RUNE index; the
+  // whole point of S4 is that the cut that follows agrees with it.
+  assert_str_eq(_parse_ts("${名前 : y}", exn), `((名前 : y).to_string)()`, "spaced colon is not a spec");
+  assert_str_eq(_parse_ts("${名前}", exn), `(名前.to_string)()`, "no spec at all");
+});
+test("Peeling survives multibyte literal text around the interpolation", {
+  exn := Exception(
+    throw : (
+      err -> {
+        panic("unexpected parse error in a template string");
+      }
+    )
+  );
+  assert_str_eq(
+    _parse_ts("中${名前:>8}文", exn),
+    `((("中".to_string)().(+))((名前.format)(">8")).(+))(("文".to_string)())`,
+    "multibyte literal segments on both sides"
+  );
 });

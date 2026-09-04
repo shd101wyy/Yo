@@ -3,7 +3,7 @@
 //! Wraps `std/sys/process` with a fluent API for constructing argv, capturing
 //! stdout/stderr through pipes, and waiting for the child to exit.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { Command } :: import "std/process/command";
@@ -26,6 +26,11 @@ IO_process :: import("../sys/process");
 IO_file :: import("../sys/file");
 IO_pipe :: import("../sys/pipe");
 { GlobalAllocator } :: import("../allocator");
+{ yield } :: import("../async");
+// Raw fcntl shims, NOT std/sys/fcntl: that module imports sys/constants, which
+// imports std/process — a cycle back into this file.
+{ __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl, __yo_sync_fcntl_setfd } :: import("../sys/externs.yo");
+{ O_NONBLOCK, FD_CLOEXEC } :: import("../libc/fcntl");
 { malloc, free } :: GlobalAllocator;
 { stdout, fflush } :: import("../libc/stdio");
 // ============================================================================
@@ -42,10 +47,14 @@ ExitStatus :: struct(
 );
 impl(
   ExitStatus,
-  /// Returns the process exit code (0..255 on Unix). Returns 0 when the
-  /// process was terminated by a signal.
-  code : (fn(self : Self) -> i32)(
-    IO_process.exit_status(self.raw)
+  /// The process exit code (0..255 on Unix), or `.None` when the process
+  /// was TERMINATED BY A SIGNAL — a signal death is not an exit code of 0
+  /// (plans/STD_API_AUDIT.md §4 process row).
+  code : (fn(self : Self) -> Option(i32))(
+    cond(
+      (IO_process.term_signal(self.raw) != i32(0)) => Option(i32).None,
+      true => Option(i32).Some(IO_process.exit_status(self.raw))
+    )
   ),
   /// Returns the signal number that terminated the process, or 0 if the
   /// process exited normally.
@@ -74,17 +83,34 @@ Output :: ref(
 // ============================================================================
 // Command
 // ============================================================================
+/// What to do with one of the child's standard streams
+/// (`plans/STD_API_AUDIT.md` §7 P0 item 5).
+Stdio :: enum(
+  /// Share the parent's stream (the default).
+  Inherit,
+  /// Connect a pipe; the parent end is on the returned `Child`.
+  Piped,
+  /// Redirect to /dev/null.
+  Null
+);
+export(Stdio);
 /// Builder for a child-process invocation.
 ///
-/// Construct with `Command.new(program)`, then chain mutating builder methods
-/// (`arg`, `args`, `env_clear`) before invoking `status()` or `output()`.
+/// Construct with `Command.new(program)`, then chain builder methods
+/// (`arg`, `args`, `env`, `env_clear`, `stdin`, `stdout`, `stderr` — each
+/// returns `Self`, and `Command` is a ref type, so chaining and
+/// statement-style calls both work) before `status()` / `output()` /
+/// `spawn()`.
 Command :: ref(
   struct(
     _program : String,
     _args : ArrayList(String),
-    _stdin_fd : i32,
-    _stdout_fd : i32,
-    _stderr_fd : i32
+    _env_overrides : ArrayList(String),
+    _env_clear : bool,
+    _stdin : Stdio,
+    _stdout : Stdio,
+    _stderr : Stdio,
+    _cwd : Option(String)
   )
 );
 impl(
@@ -96,18 +122,21 @@ impl(
     Self(
       _program : program,
       _args : ArrayList(String).new(),
-      _stdin_fd : i32(-(1)),
-      _stdout_fd : i32(-(1)),
-      _stderr_fd : i32(-(1))
+      _env_overrides : ArrayList(String).new(),
+      _env_clear : false,
+      _stdin : Stdio.Inherit,
+      _stdout : Stdio.Inherit,
+      _stderr : Stdio.Inherit,
+      _cwd : Option(String).None
     )
   ),
   /// Append a single argument to the argv list.
-  arg : (fn(inout(self) : Self, a : String) -> unit)({
+  arg : (fn(self : Self, a : String) -> Self)({
     self._args.push(a);
-    ()
+    self
   }),
   /// Append multiple arguments to the argv list.
-  args : (fn(inout(self) : Self, more : ArrayList(String)) -> unit)({
+  args : (fn(self : Self, more : ArrayList(String)) -> Self)({
     n := more.len();
     i := usize(0);
     while(runtime(i < n), {
@@ -120,6 +149,43 @@ impl(
       );
       i = (i + usize(1));
     });
+    self
+  }),
+  /// Set an environment variable for the child (overrides an inherited one).
+  env : (fn(self : Self, key : String, value : String) -> Self)({
+    entry := key;
+    entry.push_str("=");
+    entry.push_string(value);
+    self._env_overrides.push(entry);
+    self
+  }),
+  /// Start the child from an EMPTY environment (only `env()` entries).
+  /// Run the child with `dir` as its working directory. POSIX uses
+  /// posix_spawn_file_actions_addchdir_np (spawn reports ENOSYS on a libc
+  /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
+  /// Windows passes lpCurrentDirectory.
+  current_dir : (fn(self : Self, dir : String) -> Self)({
+    self._cwd = Option(String).Some(dir);
+    self
+  }),
+  env_clear : (fn(self : Self) -> Self)({
+    self._env_clear = true;
+    self
+  }),
+  /// Configure the child's stdin.
+  stdin : (fn(self : Self, mode : Stdio) -> Self)({
+    self._stdin = mode;
+    self
+  }),
+  /// Configure the child's stdout.
+  stdout : (fn(self : Self, mode : Stdio) -> Self)({
+    self._stdout = mode;
+    self
+  }),
+  /// Configure the child's stderr.
+  stderr : (fn(self : Self, mode : Stdio) -> Self)({
+    self._stderr = mode;
+    self
   })
 );
 // ============================================================================
@@ -145,8 +211,72 @@ _build_cstr_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
   });
   return(storage);
 });
+// Build the child environment as owned NUL-terminated "KEY=VALUE" strings:
+// the parent's `environ` (unless env_clear), with `env()` overrides replacing
+// same-KEY entries and appending new ones.
+_build_env_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
+  { environ } :: import("../libc/unistd");
+  storage := ArrayList(ArrayList(u8)).new();
+  keys := ArrayList(String).new();
+  // Overrides FIRST so an inherited same-key entry is skipped below.
+  n := self._env_overrides.len();
+  i := usize(0);
+  while(runtime(i < n), {
+    match(
+      self._env_overrides.get(i),
+      .Some(entry) => {
+        match(
+          entry.index_of("=", usize(0)),
+          .Some(eq) => keys.push(entry.substring(usize(0), eq)),
+          .None => keys.push(entry.clone())
+        );
+        storage.push(entry.to_cstr());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(!self._env_clear, {
+    (ei : usize) = usize(0);
+    (env_done : bool) = false;
+    while(runtime(!env_done), {
+      slot := (environ.add(ei)).*;
+      match(
+        slot,
+        .None => {
+          env_done = true;
+        },
+        .Some(entry_ptr) => {
+          entry := String.from_cstr(*(u8)(entry_ptr)).unwrap();
+          key := match(
+            entry.index_of("=", usize(0)),
+            .Some(eq2) => entry.substring(usize(0), eq2),
+            .None => entry.clone()
+          );
+          (overridden : bool) = false;
+          (ki : usize) = usize(0);
+          while(runtime(ki < keys.len()), {
+            match(
+              keys.get(ki),
+              .Some(k) => if(k == key, {
+                overridden = true;
+              }),
+              .None => ()
+            );
+            ki = (ki + usize(1));
+          });
+          if(!overridden, {
+            storage.push(entry.to_cstr());
+          });
+          ei = (ei + usize(1));
+        }
+      );
+    });
+  });
+  return(storage);
+});
 // Spawn the child with the given inherited/redirected fds and return the pid.
-// Builds argv as a fixed `?*(u8)` array on the heap. Caller is responsible for
+// Builds argv as a fixed `?(*(u8))` array on the heap. Caller is responsible for
 // freeing `argv_buf` AND keeping `storage` alive until after `__yo_async_spawn_start`
 // returns the pid (since the kernel reads argv synchronously inside the syscall).
 _spawn_with_fds :: (
@@ -164,6 +294,16 @@ _spawn_with_fds :: (
   // boundary; the resulting `storage` ArrayList is Rc/heap-allocated and
   // can be moved into the closure's capture struct.
   storage := _build_cstr_storage(self);
+  env_storage := _build_env_storage(self);
+  use_envp := (self._env_clear || (self._env_overrides.len() > usize(0)));
+  // The cwd C string is built OUTSIDE the async closure for the same reason
+  // as `storage`: it must be an Rc value the capture struct can own, and it
+  // must stay alive until the spawn call reads it.
+  cwd_cstr := match(
+    self._cwd,
+    .Some(cd) => Option(ArrayList(u8)).Some(cd.to_cstr()),
+    .None => Option(ArrayList(u8)).None
+  );
   // Flush our own stdout BEFORE creating the child. `print`/`println` go through
   // C `fwrite(..., stdout)` (std/fmt/index.yo), which is BLOCK-buffered when
   // stdout is a pipe — while the child inherits the raw fd and writes straight
@@ -176,16 +316,16 @@ _spawn_with_fds :: (
   // doc-json and doc-markdown all reported `rc=0; stdout` DIFFs whose line SETS
   // were identical and only the interleaving differed — the compiler's own lines
   // vs a child `git`/compiler process's.
-  // `fflush` takes `?*(FILE)` (C's `fflush(NULL)` flushes every stream), so the
+  // `fflush` takes `?(*(FILE))` (C's `fflush(NULL)` flushes every stream), so the
   // non-optional `stdout` needs wrapping. Only stdout is flushed — the measured
   // defect — rather than passing `.None` to flush all streams.
   unsafe(fflush(.Some(stdout)));
-  io.async((e) => {
+  io.async(e => {
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.
-    argv_bytes := (sizeof(?*(u8)) * (argc + usize(1)));
+    argv_bytes := (sizeof(?*u8) * (argc + usize(1)));
     argv_raw := malloc(argv_bytes).unwrap();
-    argv_buf := *(?*(u8))(argv_raw);
+    argv_buf := *(?*u8)(argv_raw);
     // Fill argv pointers from each owning ArrayList(u8) in storage.
     j := usize(0);
     while(runtime(j < argc), {
@@ -209,16 +349,86 @@ _spawn_with_fds :: (
     (argv_buf.add(argc)).* = .None;
     // Resolve program path C string (always present — _build_cstr_storage pushes program first).
     program_cstr := (argv_buf.add(usize(0))).*.unwrap();
-    pid := e.io.await(IO_process.spawn(program_cstr, argv_buf, .None, stdin_fd, stdout_fd, stderr_fd), e.io);
-    // Free argv buffer (storage is dropped naturally at scope end).
+    // envp: NULL inherits the parent environment; a built block replaces it
+    // (inherited entries + overrides, or overrides alone under env_clear).
+    (envp_raw : ?*void) = ?(*void).None;
+    (envp_arg : ?*?*u8) = .None;
+    if(use_envp, {
+      envc := env_storage.len();
+      envp_bytes := (sizeof(?*u8) * (envc + usize(1)));
+      envp_mem := malloc(envp_bytes).unwrap();
+      envp_raw = .Some(envp_mem);
+      envp_buf := *(?*u8)(envp_mem);
+      (ej : usize) = usize(0);
+      while(runtime(ej < envc), {
+        match(
+          env_storage.get(ej),
+          .Some(es) => match(
+            es.ptr(),
+            .Some(ep) => {
+              (envp_buf.add(ej)).* = .Some(ep);
+            },
+            .None => {
+              (envp_buf.add(ej)).* = .None;
+            }
+          ),
+          .None => {
+            (envp_buf.add(ej)).* = .None;
+          }
+        );
+        ej = (ej + usize(1));
+      });
+      (envp_buf.add(envc)).* = .None;
+      envp_arg = .Some(envp_buf);
+    });
+    (cwd_ptr : ?*u8) = .None;
+    match(
+      cwd_cstr,
+      .Some(cc) => {
+        cwd_ptr = cc.ptr();
+      },
+      .None => ()
+    );
+    pid := e.io.await(IO_process.spawn_cwd(program_cstr, argv_buf, envp_arg, stdin_fd, stdout_fd, stderr_fd, cwd_ptr), e.io);
+    // Free argv/envp buffers (storage lists drop naturally at scope end).
     free(.Some(argv_raw));
+    match(
+      envp_raw,
+      .Some(em) => free(.Some(em)),
+      .None => ()
+    );
     IoError.check(pid, e.exn)
   })
+});
+// Configure the PARENT's end of a pipe shared with a child.
+//  * FD_CLOEXEC: pipe fds are inherited by default, so a later spawned child
+//    would hold a copy of this end — a stdin write end never sees EOF after
+//    close_stdin (the cat-pipe deadlock), a stdout read end keeps the pipe open.
+//  * O_NONBLOCK (POSIX): the kqueue runtime services pipes with a plain
+//    read(2)/write(2) first and registers EVFILT_READ/WRITE only on EAGAIN, so a
+//    BLOCKING pipe end parks the whole event-loop thread — `output`'s stdout
+//    drain then never let the stderr drain run and a child filling the 64 KiB
+//    stderr pipe deadlocked
+//    (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md).
+//    io_uring reads are asynchronous either way. On Windows the runtime parks
+//    an empty-pipe read on the event-loop tick instead of blocking (anonymous
+//    pipes cannot use overlapped I/O), so O_NONBLOCK is neither needed nor
+//    settable there — PIPE_NOWAIT would turn an empty pipe into an error
+//    (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md).
+_mark_parent_end :: (fn(fd : i32, exn : Exception) -> unit)({
+  IoError.check(__yo_sync_fcntl_setfd(fd, i32(FD_CLOEXEC)), exn);
+  cond(
+    (__yo_process_platform() == "windows") => (),
+    true => {
+      flags := IoError.check(__yo_sync_fcntl_getfl(fd), exn);
+      IoError.check(__yo_sync_fcntl_setfl(fd, flags | i32(O_NONBLOCK)), exn);
+    }
+  );
 });
 // Read all available bytes from `fd` into a freshly returned ArrayList(u8)
 // until EOF (read returns 0).
 _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     buf_size := usize(4096);
     buf := *(u8)(malloc(buf_size).unwrap());
     out := ArrayList(u8).new();
@@ -254,9 +464,9 @@ impl(
     // `self : Self` is a value-copy of the Rc-counted Command object, so the
     // closure can freely capture it. (Was `inout(self)` previously, which is a
     // second-class reference and can't be captured across an async boundary.)
-    io.async((e) => {
+    io.async(e => {
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-(1)), i32(-(1)), i32(-(1)), io),
+        _spawn_with_fds(self, i32(-1), i32(-1), i32(-1), io),
         e
       );
       raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
@@ -269,7 +479,7 @@ impl(
   output : (fn(self : Self, io : Io) -> Impl(Future(Output, IoExn)))(
     // `self : Self` is a value-copy of the Rc-counted Command object; the
     // closure can freely capture it instead of needing `inout(self)`.
-    io.async((e) => {
+    io.async(e => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := *(i32)(out_fd_buf.as_ptr());
@@ -293,17 +503,40 @@ impl(
       );
       err_read := (err_fd.add(usize(0))).*;
       err_write := (err_fd.add(usize(1))).*;
+      _mark_parent_end(out_read, e.exn);
+      _mark_parent_end(err_read, e.exn);
       // Spawn child with the write ends of both pipes.
       pid := e.io.await(
-        _spawn_with_fds(self, i32(-(1)), out_write, err_write, io),
+        _spawn_with_fds(self, i32(-1), out_write, err_write, io),
         e
       );
       // Close write ends in parent so reads see EOF when child exits.
       e.io.await(IO_file.close(out_write), e.io);
       e.io.await(IO_file.close(err_write), e.io);
-      // Drain both pipes sequentially.
+      // Drain both pipes CONCURRENTLY. Draining stdout to EOF first deadlocked
+      // on any child that filled the 64 KiB stderr pipe before closing stdout
+      // (it blocks in write(2); we block in read) —
+      // issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md.
+      // stderr runs as a spawned task; stdout is awaited directly; the stderr
+      // handle is then polled with is_finished() + awaited `yield` and
+      // consumed only once terminal (a blocking JoinHandle.await from inside a
+      // task would nest the event loop, C37).
+      err_task := e.io.spawn(_drain_fd(err_read, io), e);
       stdout_buf := e.io.await(_drain_fd(out_read, io), e);
-      stderr_buf := e.io.await(_drain_fd(err_read, io), e);
+      while(runtime(!err_task.is_finished()), {
+        e.io.await(yield(e.io), e.io);
+      });
+      stderr_buf := match(
+        err_task.await(e.io),
+        .Some(b) => b,
+        .None => {
+          // The drain task unwound: its IoError already went to `e.exn`
+          // (a throw inside a spawned task reaches the enclosing handlers);
+          // if that handler resumed, report the pipe as unreadable here.
+          e.exn.throw(dyn(IoError.from_errno(i32(5))));
+          ArrayList(u8).new()
+        }
+      );
       e.io.await(IO_file.close(out_read), e.io);
       e.io.await(IO_file.close(err_read), e.io);
       raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
@@ -316,4 +549,207 @@ impl(
     })
   )
 );
-export(Command, ExitStatus, Output);
+// ============================================================================
+// Child (spawn without waiting)
+// ============================================================================
+/// A running child process, returned by `Command.spawn`. Pipe fds exist for
+/// the streams configured `Stdio.Piped`; `wait()` reaps the child.
+Child :: ref(
+  struct(
+    _pid : i32,
+    _stdin_fd : Option(i32),
+    _stdout_fd : Option(i32),
+    _stderr_fd : Option(i32),
+    _reaped : bool
+  )
+);
+impl(
+  Child,
+  /// The child's process id.
+  pid : (fn(self : Self) -> i32)(
+    self._pid
+  ),
+  /// Write bytes into the child's piped stdin. Requires `stdin(Stdio.Piped)`.
+  write_stdin : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
+    fd_opt := self._stdin_fd;
+    io.async(e => {
+      fd := match(
+        fd_opt,
+        .Some(f) => f,
+        .None => {
+          e.exn.throw(dyn(IoError.BadFileDescriptor));
+          i32(-1)
+        }
+      );
+      n := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)), e.io);
+      usize(IoError.check(n, e.exn))
+    })
+  }),
+  /// Close the child's stdin pipe — the EOF the child is usually waiting for.
+  close_stdin : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    fd_opt := self._stdin_fd;
+    io.async(e => {
+      match(
+        fd_opt,
+        .Some(f) => {
+          e.io.await(IO_file.close(f), e.io);
+          self._stdin_fd = Option(i32).None;
+        },
+        .None => ()
+      );
+    })
+  }),
+  /// Read the child's piped stdout to EOF. Requires `stdout(Stdio.Piped)`.
+  read_stdout_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
+    fd_opt := self._stdout_fd;
+    io.async(e => {
+      fd := match(
+        fd_opt,
+        .Some(f) => f,
+        .None => {
+          e.exn.throw(dyn(IoError.BadFileDescriptor));
+          i32(-1)
+        }
+      );
+      out := e.io.await(_drain_fd(fd, e.io), e);
+      out
+    })
+  }),
+  /// Read the child's piped stderr to EOF. Requires `stderr(Stdio.Piped)`.
+  read_stderr_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
+    fd_opt := self._stderr_fd;
+    io.async(e => {
+      fd := match(
+        fd_opt,
+        .Some(f) => f,
+        .None => {
+          e.exn.throw(dyn(IoError.BadFileDescriptor));
+          i32(-1)
+        }
+      );
+      out := e.io.await(_drain_fd(fd, e.io), e);
+      out
+    })
+  }),
+  /// Send a signal to the child (e.g. 15 = SIGTERM, 9 = SIGKILL).
+  kill : (fn(self : Self, signum : i32) -> i32)(
+    IO_process.kill(self._pid, signum)
+  ),
+  /// Wait for the child to exit and return its status. Closes any pipe fds
+  /// still open on this handle.
+  wait : (fn(self : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(
+    io.async(e => {
+      match(
+        self._stdin_fd,
+        .Some(sf) => {
+          e.io.await(IO_file.close(sf), e.io);
+          self._stdin_fd = Option(i32).None;
+        },
+        .None => ()
+      );
+      match(
+        self._stdout_fd,
+        .Some(of) => {
+          e.io.await(IO_file.close(of), e.io);
+          self._stdout_fd = Option(i32).None;
+        },
+        .None => ()
+      );
+      match(
+        self._stderr_fd,
+        .Some(ef) => {
+          e.io.await(IO_file.close(ef), e.io);
+          self._stderr_fd = Option(i32).None;
+        },
+        .None => ()
+      );
+      raw := e.io.await(IO_process.waitpid(self._pid, i32(0)), e.io);
+      IoError.check(raw, e.exn);
+      self._reaped = true;
+      ExitStatus(raw : raw)
+    })
+  )
+);
+// One end-pair of a configured stream: (child_fd, parent_fd), -1 = absent.
+// SYNC — pipe(2) is synchronous and /dev/null opens through the sync shim.
+_stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i32, usize(2)))({
+  out := Array(i32, usize(2))(i32(-1), i32(-1));
+  match(
+    mode,
+    .Inherit => (),
+    .Null => {
+      devnull := `/dev/null`.to_string().to_cstr();
+      f := IO_file.open_sync(devnull.ptr().unwrap(), i32(2), i32(0));
+      out(usize(0)) = IoError.check(f, exn);
+    },
+    .Piped => {
+      fd_buf := MaybeUninit(Array(i32, usize(2))).new();
+      fds := *(i32)(fd_buf.as_ptr());
+      pr := IO_pipe.pipe(fds);
+      cond(
+        (pr < i32(0)) => exn.throw(dyn(IoError.from_errno(i32(0) - pr))),
+        true => ()
+      );
+      rd := (fds.add(usize(0))).*;
+      wr := (fds.add(usize(1))).*;
+      cond(
+        child_reads => {
+          // Child reads (stdin): child gets the READ end.
+          out(usize(0)) = rd;
+          out(usize(1)) = wr;
+        },
+        true => {
+          out(usize(0)) = wr;
+          out(usize(1)) = rd;
+        }
+      );
+      _mark_parent_end(out(usize(1)), exn);
+    }
+  );
+  out
+});
+impl(
+  Command,
+  /// Spawn the child WITHOUT waiting. Streams configured `Stdio.Piped` get
+  /// pipes whose parent ends live on the returned `Child`; `Inherit` shares
+  /// the parent's stream; `Null` redirects to /dev/null. Call `wait()` to
+  /// reap.
+  spawn : (fn(self : Self, io : Io) -> Impl(Future(Child, IoExn)))(
+    io.async(e => {
+      in_pair := _stdio_fds(self._stdin, true, e.exn);
+      out_pair := _stdio_fds(self._stdout, false, e.exn);
+      err_pair := _stdio_fds(self._stderr, false, e.exn);
+      pid := e.io.await(
+        _spawn_with_fds(self, in_pair(usize(0)), out_pair(usize(0)), err_pair(usize(0)), io),
+        e
+      );
+      // Close the CHILD ends in the parent (the child holds its own copies).
+      cond(
+        (in_pair(usize(0)) >= i32(0)) => {
+          e.io.await(IO_file.close(in_pair(usize(0))), e.io);
+        },
+        true => ()
+      );
+      cond(
+        (out_pair(usize(0)) >= i32(0)) => {
+          e.io.await(IO_file.close(out_pair(usize(0))), e.io);
+        },
+        true => ()
+      );
+      cond(
+        (err_pair(usize(0)) >= i32(0)) => {
+          e.io.await(IO_file.close(err_pair(usize(0))), e.io);
+        },
+        true => ()
+      );
+      Child(
+        _pid : pid,
+        _stdin_fd : cond((in_pair(usize(1)) >= i32(0)) => Option(i32).Some(in_pair(usize(1))), true => Option(i32).None),
+        _stdout_fd : cond((out_pair(usize(1)) >= i32(0)) => Option(i32).Some(out_pair(usize(1))), true => Option(i32).None),
+        _stderr_fd : cond((err_pair(usize(1)) >= i32(0)) => Option(i32).Some(err_pair(usize(1))), true => Option(i32).None),
+        _reaped : false
+      )
+    })
+  )
+);
+export(Command, ExitStatus, Output, Child);

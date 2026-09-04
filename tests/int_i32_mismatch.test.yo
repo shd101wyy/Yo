@@ -1,0 +1,45 @@
+//! C19 (issues/fixed/int-vs-i32-mismatch-reaches-codegen-and-emits-malformed-c.md):
+//! passing a C `int` where `i32` is declared is a hard type mismatch. It was
+//! caught in plain calls but SWALLOWED inside `io.async` closure bodies (the
+//! C18 def-eval blind spot), so codegen got an unresolved receiver type and
+//! spliced a Yo type expression verbatim into C. The mismatch now flags the
+//! flow-violation channel so the swallow re-raises it at check time.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ EINVAL } :: import("std/libc/errno");
+{ IoError } :: import("std/sys/errors");
+{ Exception, IoExn } :: import("std/error");
+
+test("int where i32 is declared is rejected inside an io.async closure", {
+  // EINVAL is a C `int`; from_errno wants i32. Bare, inside io.async — the
+  // shape that used to reach codegen and emit malformed C.
+  comptime_expect_error(
+    (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
+      io2.async(e => {
+        _bad := IoError.from_errno(EINVAL); // int where i32 declared
+        i32(0)
+      })
+    )
+  );
+  assert(true, "rejected");
+});
+test("the explicit i32(EINVAL) cast still compiles and runs", {
+  give :: (fn(io2 : Io) -> Impl(Future(i32, IoExn)))(
+    io2.async(e => {
+      // A real errno path would throw; here just confirm the typed call
+      // builds and the future completes.
+      _err := IoError.from_errno(i32(EINVAL));
+      i32(42)
+    })
+  );
+  exn := Exception(
+    throw : (
+      _e -> {
+        assert(false, "unexpected");
+        unwind(());
+      }
+    )
+  );
+  r := io.await(give(io), IoExn(io : io, exn : exn));
+  assert(r == i32(42), "typed errno path builds");
+});

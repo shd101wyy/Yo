@@ -1,0 +1,54 @@
+//! `std/allocator`'s allocation-size guard.
+//!
+//! `size_would_overflow` shipped exported and UNUSED while every collection
+//! computed `sizeof(T) * count` unchecked, so a count from untrusted input
+//! wrapped and handed malloc a tiny size while the container still reported the
+//! requested capacity — silent heap corruption
+//! (issues/fixed/collection-capacity-overflow-unchecked.md). It is now the
+//! guard in `ArrayList.with_capacity` / `ensure_total_capacity` and in
+//! `HashMap`/`HashSet`'s `_alloc_with_capacity`, so its boundaries are pinned
+//! here.
+{ assert } :: import("std/assert");
+{ size_would_overflow, layout_of } :: import("std/allocator");
+{ SIZE_MAX } :: import("std/libc/stdint");
+
+test("size_would_overflow at the exact boundary", {
+  // A one-byte element can never overflow: count IS the byte count.
+  assert(size_would_overflow(u8, SIZE_MAX) == false, "u8 * SIZE_MAX fits");
+  // 8 * (SIZE_MAX / 8) is the largest u64 count that fits.
+  assert(
+    size_would_overflow(u64, SIZE_MAX / usize(8)) == false,
+    "u64 * (SIZE_MAX / 8) fits"
+  );
+  assert(
+    size_would_overflow(u64, (SIZE_MAX / usize(8)) + usize(1)),
+    "one element past the boundary overflows"
+  );
+});
+test("size_would_overflow catches the wrap-to-zero cases", {
+  // The count whose byte size is exactly 2^BITS, i.e. 0 after wrapping — the
+  // malloc(0) case that corrupted the heap before the guard existed. Derived
+  // from the real width: `usize` is 64 bits on the hosts but 32 on wasm32, and
+  // `usize(1) << usize(61)` is meaningless there.
+  bits :: (sizeof(usize) * usize(8));
+  assert(
+    size_would_overflow(u64, usize(1) << (bits - usize(3))),
+    "an 8-byte element count of 2^(BITS-3) wraps to zero"
+  );
+  assert(
+    size_would_overflow(u32, usize(1) << (bits - usize(2))),
+    "a 4-byte element count of 2^(BITS-2) wraps to zero"
+  );
+  assert(size_would_overflow(u64, SIZE_MAX), "u64 * SIZE_MAX overflows");
+});
+test("size_would_overflow accepts ordinary counts", {
+  assert(size_would_overflow(u64, usize(0)) == false, "0 elements");
+  assert(size_would_overflow(u64, usize(1)) == false, "1 element");
+  assert(size_would_overflow(u64, usize(1000000)) == false, "a million u64");
+  assert(size_would_overflow(u8, usize(1000000)) == false, "a million bytes");
+});
+test("layout_of reports a type's size and alignment", {
+  l :: layout_of(u64);
+  assert(l.size == usize(8), "u64 is 8 bytes");
+  assert(l.alignment == alignof(u64), "u64 alignment matches alignof");
+});

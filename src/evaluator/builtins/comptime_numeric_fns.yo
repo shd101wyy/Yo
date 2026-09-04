@@ -30,18 +30,18 @@ open(import("std/string"));
   is_float_type,
   is_comptime_float_type
 } :: import("../../types/guards.yo");
-{ format_error_message, ErrorKind } :: import("../../error.yo");
+{ format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { IntRange, get_integer_type_range, get_integer_type_bits } :: import("../../types/utils.yo");
 { Token } :: import("../../token.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
-{ parse_raw_int, parse_raw_float } :: import("../utils.yo");
+{ parse_raw_int, parse_raw_float, f64_raw_roundtrip } :: import("../utils.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // str_lit_quote: wrap an unquoted string with double-quote chars.
 // ---------------------------------------------------------------------------
 str_lit_quote :: (fn(s : String) -> String)(
-  (String.from("\"") + s) + String.from("\"")
+  String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // apply_bounds: clamp i64 to the representable range of type `ty`.
@@ -51,19 +51,19 @@ apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
   match(
     ty,
     .Int(bits, signed) => cond(
-      ((bits == u8(8)) && !(signed)) => {
+      ((bits == u8(8)) && !signed) => {
         abs_n := if(n >= i64(0), n, i64(0) - n);
         abs_n % i64(256)
       },
       ((bits == u8(8)) && signed) =>
-        if(n > i64(127), i64(127), if(n < i64(-(128)), i64(-(128)), n)),
-      ((bits == u8(16)) && !(signed)) => {
+        if(n > i64(127), i64(127), if(n < i64(-128), i64(-128), n)),
+      ((bits == u8(16)) && !signed) => {
         abs_n := if(n >= i64(0), n, i64(0) - n);
         abs_n % i64(65536)
       },
       ((bits == u8(16)) && signed) =>
-        if(n > i64(32767), i64(32767), if(n < i64(-(32768)), i64(-(32768)), n)),
-      ((bits == u8(32)) && !(signed)) => {
+        if(n > i64(32767), i64(32767), if(n < i64(-32768), i64(-32768), n)),
+      ((bits == u8(32)) && !signed) => {
         abs_n := if(n >= i64(0), n, i64(0) - n);
         abs_n % i64(4294967296)
       },
@@ -71,7 +71,7 @@ apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
         if(
           n > i64(2147483647),
           i64(2147483647),
-          if(n < i64(-(2147483648)), i64(-(2147483648)), n)
+          if(n < i64(-2147483648), i64(-2147483648), n)
         ),
       true => n
     ),
@@ -86,9 +86,9 @@ apply_bounds :: (fn(n : i64, ty : TypeValue) -> i64)(
 bit_not_int :: (fn(n : i64, ty : TypeValue) -> i64)(
   match(
     ty,
-    .ComptimeInt => ((i64(0) - n) - i64(1)),
-    .Usize => ((i64(0) - n) - i64(1)),
-    .Isize => ((i64(0) - n) - i64(1)),
+    .ComptimeInt => (i64(0) - n - i64(1)),
+    .Usize => (i64(0) - n - i64(1)),
+    .Isize => (i64(0) - n - i64(1)),
     .Int(bits, signed) => cond(
       (bits == u8(8)) => {
         n_lower := (n & i64(255));
@@ -117,9 +117,9 @@ bit_not_int :: (fn(n : i64, ty : TypeValue) -> i64)(
           result_u
         )
       },
-      true => ((i64(0) - n) - i64(1))
+      true => (i64(0) - n - i64(1))
     ),
-    _ => ((i64(0) - n) - i64(1))
+    _ => (i64(0) - n - i64(1))
   )
 );
 // ---------------------------------------------------------------------------
@@ -218,9 +218,7 @@ check_int_overflow :: (
             token,
             `Integer overflow in compile-time evaluation
   ${ua.to_string()} ${u_symbol} ${ub.to_string()} = ${uv.to_string()}
-  Result ${uv.to_string()} exceeds ${type_to_string(ty)} range [0, ${rng.max.to_string()}]`,
-            false,
-            Option(ErrorKind).Some(ErrorKind.Overflow)
+  Result ${uv.to_string()} exceeds ${type_to_string(ty)} range [0, ${rng.max.to_string()}]`
           )
         )
       );
@@ -245,9 +243,7 @@ check_int_overflow :: (
           token,
           `Integer overflow in compile-time evaluation
   ${a.to_string()} ${op_symbol} ${b.to_string()} = ${value.to_string()}
-  Result ${value.to_string()} exceeds ${type_to_string(ty)} range [${rng.min.to_string()}, ${rng.max.to_string()}]`,
-          false,
-          Option(ErrorKind).Some(ErrorKind.Overflow)
+  Result ${value.to_string()} exceeds ${type_to_string(ty)} range [${rng.min.to_string()}, ${rng.max.to_string()}]`
         )
       )
     );
@@ -260,7 +256,9 @@ make_float_val :: (fn(v : f64, ty : TypeValue) -> EvalValue)(
   if(
     is_c_compatible_type(ty),
     create_unknown_val(ty),
-    EvalValue.FloatLit(v.to_string())
+    // ROUND-TRIP rendering — see f64_raw_roundtrip (utils.yo): plain
+    // to_string is %g and truncated computed comptime floats to 6 digits.
+    EvalValue.FloatLit(f64_raw_roundtrip(v))
   )
 );
 // ---------------------------------------------------------------------------
@@ -283,9 +281,7 @@ eval_numeric_arg :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`,
-            false,
-            .None
+            `Expected numeric value for comptime numeric argument, got:\n${ast_expr_to_string(arg)}`
           )
         )
       );
@@ -318,59 +314,59 @@ evaluate_yo_comptime_numeric_functions :: (
   (numeric_type : TypeValue) = TypeValue.ComptimeInt;
   (prefix_len : usize) = usize(0);
   cond(
-    (fn_name.starts_with(`__yo_comptime_usize_`)) => {
+    fn_name.starts_with(`__yo_comptime_usize_`) => {
       numeric_type = TypeValue.Usize;
       prefix_len = usize(20);
     },
-    (fn_name.starts_with(`__yo_comptime_isize_`)) => {
+    fn_name.starts_with(`__yo_comptime_isize_`) => {
       numeric_type = TypeValue.Isize;
       prefix_len = usize(20);
     },
-    (fn_name.starts_with(`__yo_comptime_float_`)) => {
+    fn_name.starts_with(`__yo_comptime_float_`) => {
       numeric_type = TypeValue.ComptimeFloat;
       prefix_len = usize(20);
     },
-    (fn_name.starts_with(`__yo_comptime_u16_`)) => {
+    fn_name.starts_with(`__yo_comptime_u16_`) => {
       numeric_type = TypeValue.Int(u8(16), false);
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_i16_`)) => {
+    fn_name.starts_with(`__yo_comptime_i16_`) => {
       numeric_type = TypeValue.Int(u8(16), true);
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_u32_`)) => {
+    fn_name.starts_with(`__yo_comptime_u32_`) => {
       numeric_type = TypeValue.Int(u8(32), false);
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_i32_`)) => {
+    fn_name.starts_with(`__yo_comptime_i32_`) => {
       numeric_type = TypeValue.Int(u8(32), true);
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_u64_`)) => {
+    fn_name.starts_with(`__yo_comptime_u64_`) => {
       numeric_type = TypeValue.Int(u8(64), false);
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_i64_`)) => {
+    fn_name.starts_with(`__yo_comptime_i64_`) => {
       numeric_type = TypeValue.Int(u8(64), true);
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_int_`)) => {
+    fn_name.starts_with(`__yo_comptime_int_`) => {
       numeric_type = TypeValue.ComptimeInt;
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_f32_`)) => {
+    fn_name.starts_with(`__yo_comptime_f32_`) => {
       numeric_type = TypeValue.Float(u8(32));
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_f64_`)) => {
+    fn_name.starts_with(`__yo_comptime_f64_`) => {
       numeric_type = TypeValue.Float(u8(64));
       prefix_len = usize(18);
     },
-    (fn_name.starts_with(`__yo_comptime_u8_`)) => {
+    fn_name.starts_with(`__yo_comptime_u8_`) => {
       numeric_type = TypeValue.Int(u8(8), false);
       prefix_len = usize(17);
     },
-    (fn_name.starts_with(`__yo_comptime_i8_`)) => {
+    fn_name.starts_with(`__yo_comptime_i8_`) => {
       numeric_type = TypeValue.Int(u8(8), true);
       prefix_len = usize(17);
     },
@@ -388,7 +384,7 @@ evaluate_yo_comptime_numeric_functions :: (
     }
   );
   // ---- 5. Unary operations (neg, bit_not, to_comptime_string). -----------
-  is_unary := (((op_s == "neg") || (op_s == "bit_not")) || (op_s == "to_comptime_string"));
+  is_unary := ((op_s == "neg") || (op_s == "bit_not") || (op_s == "to_comptime_string"));
   if(is_unary, {
     arg0 := match(
       args.get(usize(0)),
@@ -409,9 +405,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Cannot apply negation to unsigned type: ${fn_name}`,
-                false,
-                .None
+                `Cannot apply negation to unsigned type: ${fn_name}`
               )
             )
           );
@@ -481,9 +475,7 @@ evaluate_yo_comptime_numeric_functions :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Unexpected unary comptime numeric operation: ${op}`,
-              false,
-              .None
+              `Unexpected unary comptime numeric operation: ${op}`
             )
           )
         );
@@ -540,7 +532,7 @@ evaluate_yo_comptime_numeric_functions :: (
         .None => Option(f64).None
       );
       cond(
-        (((op_s == "add") || (op_s == "sub")) || ((op_s == "mul") || (op_s == "div"))) => {
+        ((op_s == "add") || (op_s == "sub") || ((op_s == "mul") || (op_s == "div"))) => {
           match(
             lhs_f,
             .Some(a) => match(
@@ -551,9 +543,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(arg1),
-                        `Division by zero in comptime float operation: ${fn_name}`,
-                        false,
-                        .None
+                        `Division by zero in comptime float operation: ${fn_name}`
                       )
                     )
                   );
@@ -576,8 +566,8 @@ evaluate_yo_comptime_numeric_functions :: (
           );
         },
         (
-          ((op_s == "eq") || (op_s == "neq")) ||
-            (((op_s == "lt") || (op_s == "lte")) || ((op_s == "gt") || (op_s == "gte")))
+          (op_s == "eq") || (op_s == "neq") ||
+            ((op_s == "lt") || (op_s == "lte") || ((op_s == "gt") || (op_s == "gte")))
         ) => {
           result_ty = t_bool();
           match(
@@ -609,9 +599,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Modulo operation not supported for floating point types: ${fn_name}`,
-                false,
-                .None
+                `Modulo operation not supported for floating point types: ${fn_name}`
               )
             )
           );
@@ -621,9 +609,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Unexpected binary comptime float operation: ${op}`,
-                false,
-                .None
+                `Unexpected binary comptime float operation: ${op}`
               )
             )
           );
@@ -650,7 +636,7 @@ evaluate_yo_comptime_numeric_functions :: (
         .None => Option(i64).None
       );
       cond(
-        (((op_s == "add") || (op_s == "sub")) || (op_s == "mul")) => {
+        ((op_s == "add") || (op_s == "sub") || (op_s == "mul")) => {
           match(
             lhs_n,
             .Some(a) => match(
@@ -687,9 +673,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(arg1),
-                        `Division by zero in comptime integer operation: ${fn_name}`,
-                        false,
-                        .None
+                        `Division by zero in comptime integer operation: ${fn_name}`
                       )
                     )
                   );
@@ -716,9 +700,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(arg1),
-                        `Modulo by zero in comptime integer operation: ${fn_name}`,
-                        false,
-                        .None
+                        `Modulo by zero in comptime integer operation: ${fn_name}`
                       )
                     )
                   );
@@ -735,8 +717,8 @@ evaluate_yo_comptime_numeric_functions :: (
           );
         },
         (
-          ((op_s == "eq") || (op_s == "neq")) ||
-            (((op_s == "lt") || (op_s == "lte")) || ((op_s == "gt") || (op_s == "gte")))
+          (op_s == "eq") || (op_s == "neq") ||
+            ((op_s == "lt") || (op_s == "lte") || ((op_s == "gt") || (op_s == "gte")))
         ) => {
           result_ty = t_bool();
           match(
@@ -763,7 +745,7 @@ evaluate_yo_comptime_numeric_functions :: (
             }
           );
         },
-        (((op_s == "bit_and") || (op_s == "bit_or")) || (op_s == "bit_xor")) => {
+        ((op_s == "bit_and") || (op_s == "bit_or") || (op_s == "bit_xor")) => {
           match(
             lhs_n,
             .Some(a) => match(
@@ -811,9 +793,7 @@ evaluate_yo_comptime_numeric_functions :: (
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Unexpected binary comptime integer operation: ${op}`,
-                false,
-                .None
+                `Unexpected binary comptime integer operation: ${op}`
               )
             )
           );

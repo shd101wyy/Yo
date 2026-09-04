@@ -37,7 +37,7 @@ Use this skill when you need to:
 - Use `generic(T : Type)` for generic type parameters, `comptime(x) : T` for compile-time parameters.
 - Use `where(T <: Trait)` to constrain type parameters.
 - Effect parameters are explicit: name them in the function signature (e.g. `raise : Raise`, `exn : Exception`) and pass them at the call site. Install a handler locally with `name := Constructor(...)` for struct effects, or `(name : EffectType) = ((args) -> { ... })` when the RHS is a bare lambda that needs the `ctl(...) -> R` annotation.
-- Use `(params) => expr` for closures; `Impl(Fn(...) -> T)` for the closure type.
+- Use `(params) => expr` for closures. Two closure TYPES, and they differ at runtime: `Impl(Fn(...) -> T)` is monomorphized — capture struct passed by value, direct call, no allocation or refcount — while `Dyn(Fn(...) -> T)` is type-erased — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer, and wrapped at the value with `dyn(...)`. `Impl(Fn(...))` is REJECTED as a struct/enum/union field type (its size is capture-dependent); use `Dyn(Fn(...))` there, or make the containing type generic over the closure type.
 - Every executable needs `export(main);`.
 - Import sibling modules with relative paths like `./file.yo`.
 - Do not import `std/prelude`; it is loaded automatically.
@@ -47,7 +47,7 @@ Use this skill when you need to:
 
 - `return expr` is invalid; use `return(expr)` or `return()` for unit.
 - Nested patterns like `.Ok(.Some(x))` are not supported; match in stages.
-- Unary operators need parenthesized operands: `!(ready)`, `&(value)`.
+- Unary operators bind ONE postfix expression, written bare: `!ready`, `&value`, `-p.a`, `?*T` (= `?(*(T))`); only an INFIX operand needs parens (`-(1 + 2)`).
 - Use `while(true, { ... })` for infinite runtime loops; use `while(comptime(cond), { ... })` only for compile-time unrolling.
 - A single-expression lambda body should not be wrapped in `{ ... }` unless semicolons make it a begin block.
 - `"hello"` is `comptime_str` inside `comptime` functions, not `str`. In runtime code, `"hello"` is always `str`.

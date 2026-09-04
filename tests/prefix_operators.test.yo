@@ -1,0 +1,59 @@
+// PREFIX_OPERATOR_OPERAND_RULE.md Rule 1: a bare prefix-capable operator
+// (`-` `!` `~` `&` `*` `?` `^`) followed by a primary binds exactly ONE
+// postfix expression — `-1`, `!x`, `?*T`, `3 - -3` — with parenthesized
+// spellings (`-(1)`) unchanged and parenthesized operator ATOMS (`(!)`)
+// still values. The pragma is for the raw-pointer TYPES used in the
+// `?*T`/`**T` assertions.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ assert } :: import("std/assert");
+
+identity :: (fn(x : i32) -> i32)(x);
+Pair :: struct(a : i32, b : i32);
+
+my_not :: (!);
+
+test("prefix minus: -1, 3 - -3, - -1, 3--3", {
+  x := -1;
+  assert(x == -1, "-1 is -(1)");
+  assert((-1 + 2) == 1, "-1 + 2 groups as (-1) + 2");
+  assert((3 - -3) == 6, "3 - -3");
+  assert((3 - -3) == 6, "3 - -(3) unchanged");
+  assert(- -1 == 1, "- -1 is -(-(1))");
+  assert((3 - -3) == 6, "3--3: -- is not a token, it splits");
+});
+
+test("prefix operand is one postfix expression", {
+  assert(-identity(2) == -2, "-f(x) binds the call");
+  p := Pair(a : 7, b : 0);
+  assert(-p.a == -7, "-p.a binds the dot chain");
+  assert((-identity(2) + 5) == 3, "then infix applies to the prefix result");
+});
+
+test("prefix ! and ~", {
+  flag := false;
+  assert(!flag, "!x");
+  assert(!false == true, "!false literal");
+  v := cond(!flag => i32(1), true => i32(2));
+  assert(v == i32(1), "!x in a cond arm condition");
+  assert(~u8(0) == u8(255), "~x complement");
+});
+
+test("prefix & address-of", {
+  x := i32(41);
+  p := &x;
+  q := &x;
+  assert(unsafe(p.*) == unsafe(q.*), "&x is &(x)");
+});
+
+test("prefix type constructors: ?T, *T, ?*T, **T", {
+  __a :: comptime_assert(__yo_are_types_equal(?i32, Option(i32)), "?T is Option(T)");
+  __b :: comptime_assert(__yo_are_types_equal(*i32, *i32), "*T is *(T)");
+  __c :: comptime_assert(__yo_are_types_equal(?*i32, ?*i32), "?*T composes Option(*(T))");
+  __d :: comptime_assert(__yo_are_types_equal(**i32, **i32), "**T is *(*(T))");
+  assert(true, "comptime type assertions evaluated");
+});
+
+test("parenthesized operator atoms stay values", {
+  assert(my_not(false), "(!) bound as a value and called");
+});

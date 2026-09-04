@@ -33,7 +33,7 @@ IO_dns :: import("../sys/dns");
 // ============================================================================
 /// Resolve a hostname to a list of IP addresses.
 lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
@@ -63,6 +63,20 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
               d := (addr_ptr.add(usize(7))).*;
               addrs.push(.V4(a, b, c, d));
             },
+            (family == AF_INET6) => {
+              // Extract IPv6 address bytes (was silently DROPPED — every
+              // AAAA record vanished; plans/STD_API_AUDIT.md C3).
+              // sockaddr_in6: family(2) + port(2) + flowinfo(4) + addr(16)
+              segs := Array(u16, usize(8)).fill(u16(0));
+              k := usize(0);
+              while(runtime(k < usize(8)), {
+                hi := u16((addr_ptr.add(usize(8) + (k * usize(2)))).*);
+                lo := u16((addr_ptr.add(usize(8) + (k * usize(2)) + usize(1))).*);
+                segs(k) = ((hi << u16(8)) | lo);
+                k = (k + usize(1));
+              });
+              addrs.push(.V6(segs));
+            },
             true => ()
           );
           cur = IO_dns.addrinfo_next(ai);
@@ -84,7 +98,7 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
 );
 /// Resolve a hostname and port to a list of socket addresses.
 resolve :: (fn(host : String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))(
-  io.async((e) => {
+  io.async(e => {
     addrs := e.io.await(lookup_host(host, io), e);
     result := ArrayList(SocketAddr).new();
     i := usize(0);

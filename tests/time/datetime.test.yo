@@ -1,9 +1,10 @@
 pragma(Pragma.AllowUnsafe);
-{ assert } :: import("std/assert");
+{ assert, panic } :: import("std/assert");
 open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
-{ DateTime } :: import("std/time/datetime");
+{ DateTime, DateTimeError } :: import("std/time/datetime");
+{ Duration } :: import("std/time/duration");
 // ============================================================================
 // DateTime tests
 // ============================================================================
@@ -66,7 +67,7 @@ test("DateTime.is_leap_year", {
   assert(dt_leap.is_leap_year(), "2024 should be leap year");
   // 2023 is not a leap year
   dt_non := DateTime.from_unix(i64(1672531200), i64(0)); // 2023-01-01
-  assert(!(dt_non.is_leap_year()), "2023 should not be leap year");
+  assert(!dt_non.is_leap_year(), "2023 should not be leap year");
   // 1900 is not a leap year (divisible by 100 but not 400)
   dt_1900 := DateTime(
     year : i32(1900),
@@ -78,7 +79,7 @@ test("DateTime.is_leap_year", {
     nanosecond : u32(0),
     utc_offset_secs : i32(0)
   );
-  assert(!(dt_1900.is_leap_year()), "1900 should not be leap year");
+  assert(!dt_1900.is_leap_year(), "1900 should not be leap year");
   // 2000 is a leap year (divisible by 400)
   dt_2000 := DateTime(
     year : i32(2000),
@@ -130,4 +131,118 @@ test("DateTime.to_string ISO 8601 format", {
   s := dt.to_string();
   unsafe(printf("  epoch string = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `1970-01-01T00:00:00Z`, "epoch should format as ISO 8601");
+});
+test("to_string renders the UTC offset instead of lying with Z", {
+  // plans/STD_API_AUDIT.md C4: to_string hardcoded the "Z" suffix, so a
+  // DateTime carrying a non-zero utc_offset_secs stringified as if it were
+  // UTC. RFC3339: "Z" only when the offset is zero, ±HH:MM otherwise.
+  dt_utc := DateTime(
+    year : i32(2026),
+    month : u8(8),
+    day : u8(22),
+    hour : u8(10),
+    minute : u8(30),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(0)
+  );
+  assert(dt_utc.to_string() == `2026-08-22T10:30:00Z`, "zero offset keeps the Z suffix");
+  dt_plus := DateTime(
+    year : i32(2026),
+    month : u8(8),
+    day : u8(22),
+    hour : u8(18),
+    minute : u8(30),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(28800)
+  );
+  assert(dt_plus.to_string() == `2026-08-22T18:30:00+08:00`, "positive offset renders +HH:MM");
+  dt_minus := DateTime(
+    year : i32(2026),
+    month : u8(8),
+    day : u8(22),
+    hour : u8(4),
+    minute : u8(0),
+    second : u8(0),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(-16200)
+  );
+  assert(dt_minus.to_string() == `2026-08-22T04:00:00-04:30`, "negative offset renders -HH:MM incl. minutes");
+});
+/// Panic-with-DateTime for match arms that must not take the Err path.
+panic_dt :: (fn() -> DateTime)({
+  panic("unexpected DateTime parse error");
+  DateTime(year : i32(0), month : u8(1), day : u8(1), hour : u8(0), minute : u8(0), second : u8(0), nanosecond : u32(0), utc_offset_secs : i32(0))
+});
+// ============================================================================
+// RFC 3339 parse / format, ctor validation, arithmetic, Eq/Ord
+// (plans/STD_API_AUDIT.md §7 time row)
+// ============================================================================
+test("parse accepts the RFC 3339 shapes", {
+  a := match(DateTime.parse(`2026-02-26T17:41:24Z`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(a.year == i32(2026), "year");
+  assert(a.month == u8(2), "month");
+  assert(a.day == u8(26), "day");
+  assert(a.hour == u8(17), "hour");
+  assert(a.second == u8(24), "second");
+  assert(a.utc_offset_secs == i32(0), "Z offset");
+  b := match(DateTime.parse(`2026-02-26t17:41:24z`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(b == a, "lowercase t/z accepted and equal");
+  c := match(DateTime.parse(`2026-02-26 17:41:24Z`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(c == a, "space separator (RFC 5.6 NOTE) accepted");
+  f := match(DateTime.parse(`2026-02-26T17:41:24.5Z`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(f.nanosecond == u32(500000000), "fraction .5 = 500ms in nanos");
+  g := match(DateTime.parse(`2026-02-26T17:41:24.123456789123Z`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(g.nanosecond == u32(123456789), "sub-nanosecond digits truncate");
+});
+test("parse handles numeric offsets as instants", {
+  utc := match(DateTime.parse(`2026-01-01T00:00:00Z`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  plus1 := match(DateTime.parse(`2026-01-01T01:00:00+01:00`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  minus230 := match(DateTime.parse(`2025-12-31T21:30:00-02:30`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(plus1.utc_offset_secs == i32(3600), "offset +01:00 parsed");
+  assert(minus230.utc_offset_secs == i32(-9000), "offset -02:30 parsed");
+  assert(utc == plus1, "same instant across offsets is Eq");
+  assert(utc == minus230, "negative offset instant equal too");
+  assert(utc.to_unix_utc() == plus1.to_unix_utc(), "to_unix_utc agrees");
+});
+test("parse rejects malformed and out-of-range text", {
+  assert(match(DateTime.parse(`2026-13-01T00:00:00Z`.to_string()), .Ok(_) => false, .Err(e) => match(e, .OutOfRange(_) => true, _ => false)), "month 13");
+  assert(match(DateTime.parse(`2026-02-30T00:00:00Z`.to_string()), .Ok(_) => false, .Err(e) => match(e, .OutOfRange(_) => true, _ => false)), "Feb 30");
+  assert(match(DateTime.parse(`2024-02-29T00:00:00Z`.to_string()), .Ok(_) => true, .Err(_) => false), "Feb 29 leap OK");
+  assert(match(DateTime.parse(`2026-02-26T17:41:24`.to_string()), .Ok(_) => false, .Err(e) => match(e, .InvalidFormat(_) => true, _ => false)), "missing offset");
+  assert(match(DateTime.parse(`2026/02/26T17:41:24Z`.to_string()), .Ok(_) => false, .Err(e) => match(e, .InvalidFormat(_) => true, _ => false)), "wrong separators");
+  assert(match(DateTime.parse(`2026-02-26T17:41:24.Z`.to_string()), .Ok(_) => false, .Err(e) => match(e, .InvalidFormat(_) => true, _ => false)), "empty fraction");
+  assert(match(DateTime.parse(`2026-02-26T17:41:24Zx`.to_string()), .Ok(_) => false, .Err(e) => match(e, .InvalidFormat(_) => true, _ => false)), "trailing junk");
+});
+test("parse round-trips to_string", {
+  src := `2026-02-26T17:41:24Z`.to_string();
+  dt := match(DateTime.parse(src.clone()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(dt.to_string() == src, "UTC round-trip");
+  src2 := `2026-02-26T17:41:24+05:30`.to_string();
+  dt2 := match(DateTime.parse(src2.clone()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(dt2.to_string() == src2, "offset round-trip");
+});
+test("new validates components", {
+  assert(match(DateTime.new(i32(2026), u8(2), u8(29), u8(0), u8(0), u8(0)), .Ok(_) => false, .Err(_) => true), "2026 not leap");
+  assert(match(DateTime.new(i32(2024), u8(2), u8(29), u8(0), u8(0), u8(0)), .Ok(_) => true, .Err(_) => false), "2024 leap");
+  assert(match(DateTime.new(i32(2026), u8(6), u8(1), u8(23), u8(59), u8(60)), .Ok(_) => true, .Err(_) => false), "leap second admitted");
+  assert(match(DateTime.new(i32(2026), u8(6), u8(1), u8(24), u8(0), u8(0)), .Ok(_) => false, .Err(_) => true), "hour 24 rejected");
+});
+test("add and sub shift by Duration and keep the offset", {
+  dt := match(DateTime.parse(`2026-02-28T23:30:00+02:00`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  later := dt.add(Duration.from_secs(i64(3600)));
+  assert(later.day == u8(1), "rolls into March 1 wall-clock");
+  assert(later.month == u8(3), "month rolled");
+  assert(later.utc_offset_secs == i32(7200), "offset preserved");
+  back := later.sub(Duration.from_secs(i64(3600)));
+  assert(back == dt, "add then sub round-trips");
+});
+test("Ord compares instants", {
+  early := match(DateTime.parse(`2026-01-01T00:00:00Z`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  late_wallclock_early_instant := match(DateTime.parse(`2026-01-01T05:00:00+06:00`.to_string()), .Ok(v) => v, .Err(_) => panic_dt());
+  assert(late_wallclock_early_instant < early, "instant order beats wall-clock order");
+  assert(early > late_wallclock_early_instant, "reverse");
+  assert(early >= early, "reflexive >=");
+  assert(early <= early, "reflexive <=");
 });

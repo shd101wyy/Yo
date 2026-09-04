@@ -111,12 +111,12 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
           callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
           (callee_code : String) = _call_generate_expr(callee_expr, indent.clone(), context);
           // Spill an rvalue callee into a temp (can't address an rvalue).
-          if(ast_expr_is_fn_call(callee_expr) && (!(ast_expr_is_atom(callee_expr)) && !(ast_expr_is_fn_call_of(callee_expr, BF_DOT, Option(usize).None))), {
+          if(ast_expr_is_fn_call(callee_expr) && (!ast_expr_is_atom(callee_expr) && !ast_expr_is_fn_call_of(callee_expr, BF_DOT, Option(usize).None)), {
             match(
               context.base.get_expr_info(callee_expr),
               .Some(cei) => {
                 is_already_var := match(cei.variable_name, .Some(vn) => (callee_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(cei.env))), .None => false);
-                if(!(is_already_var), {
+                if(!is_already_var, {
                   callee_type := get_type_string(cei.ty, context.base);
                   temp_name := String.from("__yo_ptr_idx_tmp_");
                   temp_name.push_string(random_id(String.from("")));
@@ -174,12 +174,12 @@ generate_address_of :: (fn(expr : AstExpr, indent : String, context : FunctionGe
   });
   arg_code := _call_generate_expr(arg, indent.clone(), context);
   // Rvalue function-call operand → spill into a named temp first.
-  if(ast_expr_is_fn_call(arg) && (!(ast_expr_is_atom(arg)) && !(ast_expr_is_fn_call_of(arg, BF_DOT, Option(usize).None))), {
+  if(ast_expr_is_fn_call(arg) && (!ast_expr_is_atom(arg) && !ast_expr_is_fn_call_of(arg, BF_DOT, Option(usize).None)), {
     match(
       arg_ei_opt,
       .Some(arg_ei) => {
         is_already_var := match(arg_ei.variable_name, .Some(vn) => (arg_code == get_variable_name_for_codegen(vn.clone(), Option(Environment).Some(arg_ei.env))), .None => false);
-        if(!(is_already_var), {
+        if(!is_already_var, {
           arg_type_str := get_type_string(arg_ei.ty, context.base);
           temp_name := match(
             arg_ei.variable_name,

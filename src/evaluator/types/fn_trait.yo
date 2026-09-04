@@ -58,14 +58,12 @@ evaluate_fn_trait_type :: (
   ) -> AstExpr
 )({
   // expr is the `->` expression with Fn(...) on the left and return type on the right
-  if(!(ast_expr_is_fn_call_of(expr, "->", .Some(usize(2)))), {
+  if(!ast_expr_is_fn_call_of(expr, "->", .Some(usize(2))), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected -> operator for Fn trait type, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected -> operator for Fn trait type, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -73,15 +71,13 @@ evaluate_fn_trait_type :: (
   expr_args := _fn_trait_call_args(expr);
   fn_call_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   return_type_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-  if((!(ast_expr_is_fn_call(fn_call_expr))) ||
-    !(ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None)), {
+  if(!ast_expr_is_fn_call(fn_call_expr) ||
+    !ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(fn_call_expr),
-          `Expected Fn(...) for function trait, got:\n${ast_expr_to_string(fn_call_expr)}`,
-          false,
-          .None
+          `Expected Fn(...) for function trait, got:\n${ast_expr_to_string(fn_call_expr)}`
         )
       )
     );
@@ -104,14 +100,12 @@ evaluate_fn_trait_type :: (
   return_type := match(
     ret_info_opt,
     .Some(info) => {
-      if(!(is_type_value(info.value)), {
+      if(!is_type_value(info.value), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(return_type_expr),
-              `Expected a type for Fn return type, got:\n${ast_expr_to_string(return_type_expr)}`,
-              false,
-              .None
+              `Expected a type for Fn return type, got:\n${ast_expr_to_string(return_type_expr)}`
             )
           )
         );
@@ -127,9 +121,7 @@ evaluate_fn_trait_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("Failed to evaluate return type for Fn trait."),
-            false,
-            .None
+            String.from("Failed to evaluate return type for Fn trait.")
           )
         )
       );

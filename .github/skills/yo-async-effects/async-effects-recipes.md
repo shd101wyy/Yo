@@ -96,7 +96,7 @@ safe_divide :: (fn(x : i32, y : i32, raise : Raise) -> i32)(
 resume_example :: (fn() -> i32)({
   // No `unwind` in this body — type the binding as the same Raise (a `ctl` is also a `fn`-compatible value when not unwinding).
   // Use plain `fn(...) -> i32` if you want to forbid unwind altogether at this site.
-  (raise : Raise) = ((msg) -> {
+  (raise : Raise) = (msg -> {
     println(msg);
     return(i32(0));
   });
@@ -105,7 +105,7 @@ resume_example :: (fn() -> i32)({
 });
 
 escape_example :: (fn() -> i32)({
-  (raise : Raise) = ((msg) -> {
+  (raise : Raise) = (msg -> {
     println(msg);
     unwind(i32(-1));
   });
@@ -211,9 +211,9 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 
   ```rust
   // ✗ nested inside a larger expression — bind it first
-  if(!(io.await(exists(p, io), io)), { ... });
+  if(!io.await(exists(p, io), io), { ... });
   found := io.await(exists(p, io), io);
-  if(!(found), { ... });                                    // ✓
+  if(!found, { ... });                                      // ✓
 
   // ✗ a LATER cond branch: `cond` is lazy, so hoisting would await even when
   //   an earlier branch matches. Bind it first (evaluates unconditionally).
@@ -226,7 +226,7 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   Historically the unsupported shapes were a **silent** miscompile: `rc=0` and
   a segfaulting binary with the branch body dropped. See
   `issues/fixed/yo-self-init-segfaults-on-first-run.md` and
-  `issues/await-in-branch-positions-matrix.md`.
+  `issues/fixed/await-in-branch-positions-matrix.md`.
 
 ## Exception (non-resumable)
 
@@ -249,7 +249,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
 
 main :: (fn() -> unit)({
   exn := Exception(
-    throw : ((err) -> {
+    throw : (err -> {
       println(`Error: ${err}`);
       unwind(());
     })
@@ -278,18 +278,18 @@ When an exception is thrown inside an async operation (e.g., `cmd.status()` or `
 { Command, ExitStatus, Output } :: import("std/process/command");
 
 // Check if a tool is available — returns false if it throws (e.g., not found)
-try_exn := Exception(throw: ((err) -> {
+try_exn := Exception(throw: (err -> {
   return(ExitStatus(raw: i32(1)));  // resume with "failed" exit status
 }));
 status := io.await(cmd.status(io, try_exn), io);
 available := status.success();  // false if exception was swallowed
 
 // For cmd.output(), resume with a failed Output:
-out_exn := Exception(throw: ((err) -> {
+out_exn := Exception(throw: (err -> {
   return(Output(status: ExitStatus(raw: i32(1)), stdout: ArrayList(u8).new(), stderr: ArrayList(u8).new()));
 }));
 out := io.await(cmd.output(io, out_exn), io);
-if((!(out.status.success())), { return(); });  // handle failure
+if(!out.status.success(), { return(); });  // handle failure
 ```
 
 Key: the `return` inside the handler resumes the _effect invocation site_ with the provided value. The calling code then sees the fallback as if the operation returned normally. Use `unwind` only when the enclosing function returns `unit` (e.g., test bodies).
@@ -309,7 +309,7 @@ safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
 
 main :: (fn() -> unit)({
   exn := ResumableException(i32)(
-    throw : ((err) -> {
+    throw : (err -> {
       println(`Recovering from: ${err}`);
       return(i32(0));
     })

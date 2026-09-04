@@ -27,10 +27,14 @@ _(env : proc_env) :: import("std/env");
   fetch_remote_versions
 } :: import("./version_cache.yo");
 { Regex } :: import("std/regex");
+{ run_lsp_server } :: import("./lsp/server.yo");
 { Path } :: import("std/path");
-{ read_file, write_file, exists } :: import("std/fs/file");
+{ read, write_string, exists } :: import("std/fs/file");
+{ sha256_hex } :: import("std/crypto/sha256");
 { metadata } :: import("std/fs/metadata");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
+{ sleep_blocking } :: import("std/time/sleep");
+{ Duration } :: import("std/time/duration");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -57,6 +61,7 @@ _(env : proc_env) :: import("std/env");
 {
   ModuleLoadOutcome,
   resolve_std_path,
+  get_std_path_override,
   set_std_path_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
@@ -64,14 +69,17 @@ _(env : proc_env) :: import("std/env");
   mm_resolve_entry_abs,
   mm_eval_entry_exprs,
   mm_load_file,
-  mm_preload_prelude
+  mm_preload_prelude,
+  _take_load_error
 } :: import("./module_manager.yo");
+{ YoError } :: import("./error.yo");
 { eval_context_new } :: import("./evaluator/context.yo");
 { register_evaluate_expression, set_evaluator_deadline } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
+{ run_check_watch, run_watch_once, watch_snapshot, wait_for_change } :: import("./check_watch.yo");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
-{ host_target, set_current_target, parse_target, TargetInfo, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
+{ host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size } :: import("./types/utils.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
 { get_needs_intel_asm_syntax, get_uses_parallelism } :: import("./codegen/utils/index.yo");
@@ -329,7 +337,7 @@ collect_module_deps :: (
   (effective_path : String) = path_str.clone();
   (effective_base : String) = base_dir.clone();
   if(path_str.starts_with("std/"), {
-    if(std_base.bytes_len() == usize(0), {
+    if(std_base.len() == usize(0), {
       return(());
     });
     rest := path_str.substring(usize(4), path_str.len());
@@ -345,7 +353,7 @@ collect_module_deps :: (
   // When std_base is empty, also skip paths that resolve into std/ (e.g.
   // relative imports like "../string" from within std/imm/). With std_base
   // set, std/ resolves into std_base and these paths should be followed.
-  if((std_base.bytes_len() == usize(0)) &&
+  if((std_base.len() == usize(0)) &&
     abs_path_raw.clone().starts_with(String.from("std/")), {
     return(());
   });
@@ -395,7 +403,7 @@ collect_module_deps :: (
     .Some(p) => p.to_string()
   );
   // Read and parse the imported module
-  src_bytes := io.await(read_file(Path.new(abs_path.clone()), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read(Path.new(abs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   mod_exprs := parse(src, mod_base_dir.clone(), exn);
   // Recursively collect dependencies of this module first (post-order DFS)
@@ -610,9 +618,37 @@ check_single_file :: (
     io : Io,
     exn : Exception
   ) -> bool
-)(
-  mm_load_file(input_path, std_path, true, io, exn).ok
+)({
+  outcome := mm_load_file(input_path, std_path, true, io, exn);
+  if(!(outcome.ok), {
+    // The loader's handlers only stash the rendered diagnostic (the P1
+    // single-print rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2) — check's
+    // own edge prints it here, exactly once, anchored at the failing file.
+    match(
+      _take_load_error(),
+      .Some(rendered) => eprintln(rendered),
+      .None => eprintln(`check: error in: ${input_path} (no diagnostic recorded)`)
+    );
+  });
+  outcome.ok
+});
+/// The argv entry following index `i` (the value of a `--flag value` pair), or
+/// "" if `i` is the last argument. Used by the `compile` flag parser.
+_arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
+  if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
 );
+/// Like `_arg_val`, but a MISSING trailing value is an error instead of `""`
+/// (mirrors yargs `requiresArg` behavior — `yo compile -o` with nothing after
+/// silently produced an empty output name and a `.c` sidecar named `.c`).
+_arg_val_req :: (
+  fn(argv : ArrayList(String), i : usize, flag : String, exn : Exception) -> String
+)({
+  if((i + usize(1)) < argv.len(), {
+    return(argv(i + usize(1)));
+  });
+  exn.throw(dyn(`compile: option '${flag}' requires a value`));
+  String.from("")
+});
 /// Run the `check` subcommand — evaluator-only.
 ///
 /// Accepts either a single `.yo` file or a directory. For a directory
@@ -637,6 +673,9 @@ run_check :: (
   // options are errors — TS's yargs is .strict() (yo-cli.ts:1348).
   (target_path : String) = String.new();
   excludes := ArrayList(String).new();
+  (watch : bool) = false;
+  (watch_once : bool) = false;
+  (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     a := argv(ai);
@@ -650,8 +689,21 @@ run_check :: (
           ai = (ai + usize(1));
         });
       },
+      (a == "--watch") => {
+        watch = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--watch-once") => {
+        watch_once = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--poll-ms") => {
+        pv := _arg_val_req(argv, ai, String.from("--poll-ms"), exn);
+        poll_ms = match(pv.parse_u64(), .Some(n) => n, .None => u64(200));
+        ai = (ai + usize(2));
+      },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH]`));
+        exn.throw(dyn(`check: unknown option '${a}'. Usage: yo check <input.yo | dir> [--exclude PATH] [--watch | --watch-once] [--poll-ms N]`));
       },
       true => {
         target_path = a.clone();
@@ -695,26 +747,17 @@ run_check :: (
     passed := (total - failed);
     println(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
   });
+  // Watch modes survive a failing initial pass — that is their whole point.
+  // (Phase C, plans/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
+  if(watch_once, {
+    run_watch_once(files, std_path.clone(), io, exn);
+  });
+  if(watch, {
+    run_check_watch(files, std_path.clone(), poll_ms, io, exn);
+  });
   if(failed > usize(0), {
     exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
   });
-});
-/// The argv entry following index `i` (the value of a `--flag value` pair), or
-/// "" if `i` is the last argument. Used by the `compile` flag parser.
-_arg_val :: (fn(argv : ArrayList(String), i : usize) -> String)(
-  if((i + usize(1)) < argv.len(), argv(i + usize(1)), String.from(""))
-);
-/// Like `_arg_val`, but a MISSING trailing value is an error instead of `""`
-/// (mirrors yargs `requiresArg` behavior — `yo compile -o` with nothing after
-/// silently produced an empty output name and a `.c` sidecar named `.c`).
-_arg_val_req :: (
-  fn(argv : ArrayList(String), i : usize, flag : String, exn : Exception) -> String
-)({
-  if((i + usize(1)) < argv.len(), {
-    return(argv(i + usize(1)));
-  });
-  exn.throw(dyn(`compile: option '${flag}' requires a value`));
-  String.from("")
 });
 /// How far the arg cursor advances for a value option: 1 when the value was
 /// attached (`--flag=value`), 2 for the space form.
@@ -839,13 +882,55 @@ _path_has_extension :: (fn(p : String) -> bool)({
   // character (path.extname(".bashrc") === "" in Node).
   last_dot > (last_slash + isize(1))
 });
+/// One removal attempt under a swallowing handler (the `unwind` needs its own
+/// fn boundary, same pattern as `_probe_liburing`). Success is signalled by
+/// the push; a throw of any kind leaves `ok` empty.
+_try_remove_once :: (fn(path : String, io : Io, ok : ArrayList(bool)) -> unit)({
+  try_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  io.await(remove_file(Path.new(path.clone()), io), IoExn(io : io, exn : try_exn));
+  ok.push(true);
+});
+/// Remove a test-batch artifact, tolerating Windows's just-exited-executable
+/// lock. Deleting a batch `.exe` ~40 ms after its last test child exits can
+/// return "permission denied" while the process object (or a Defender scan)
+/// still holds the file — first hit on the windows-arm64 suite run
+/// 32402145272, where the raw `remove_file` throw aborted the whole run two
+/// files in. Retries with a growing pause (~3 s total budget); a FINAL
+/// failure downgrades to a warning, because a leaked temp artifact must
+/// never abort a test run. (The TS runner's cleanup was equally non-fatal
+/// only by never having run the suite on Windows.)
+_remove_batch_artifact :: (fn(path : String, io : Io) -> unit)({
+  (attempt : usize) = usize(0);
+  (removed : bool) = false;
+  (pause_ms : usize) = usize(25);
+  while(!(removed) && (attempt < usize(8)), {
+    ok := ArrayList(bool).new();
+    _try_remove_once(path.clone(), io, ok);
+    removed = (ok.len() > usize(0));
+    attempt = (attempt + usize(1));
+    // No pause after the FINAL failed attempt — it would only delay the warning.
+    if(!(removed) && (attempt < usize(8)), {
+      sleep_blocking(Duration.from_millis(i64(pause_ms)));
+      pause_ms = (pause_ms * usize(2));
+    });
+  });
+  if(!(removed), {
+    println(`  warning: could not remove batch artifact ${path} (still locked?) — leaving it behind`);
+  });
+});
 /// Is liburing available for linking? Mirrors `isLiburingAvailable` in
 /// `src/compiler-utils.ts`: probe `pkg-config --exists liburing`.
 ///
 /// LOAD-BEARING ON LINUX. `codegen/async/runtime_io_linux.yo` emits io_uring
 /// calls guarded by `#if __has_include(<liburing.h>)`, so when the header IS
 /// present the emitted C references `io_uring_*` and the LINK fails without
-/// `-luring`. That is exactly how tests/sys/bufio, tests/fs/{file,temp,walker},
+/// `-luring`. That is exactly how tests/io/bufio, tests/fs/{file,temp,walker},
 /// async_await and imm_string failed in CI with "undefined reference to
 /// io_uring_peek_batch_cqe" etc. while passing on macOS, which uses kqueue and
 /// never references those symbols. TS adds the flag in TWO places
@@ -856,6 +941,92 @@ _path_has_extension :: (fn(p : String) -> bool)({
 /// at all, in which case spawning throws (TS wraps the same probe in try/catch).
 /// A swallowed probe leaves `out` empty, read as "not available", so a box
 /// without liburing still links — matching TS, which warns and omits the flag.
+/// OpenSSL discovery for `std/crypto/tls` (plans/D6_TLS_PLAN.md): run
+/// `pkg-config --cflags --libs openssl`, retrying under the Homebrew keg
+/// pkg-config paths on failure (brew does not put keg `.pc` dirs on the
+/// default path). Pushes `-I` dirs into `includes`, `-L` dirs into
+/// `libdirs`, and `true` into `ok` on success. Same swallowing-handler
+/// stance as `_probe_liburing`: no pkg-config / no openssl simply leaves
+/// `ok` empty and only tls users fail (at their own link) — everything
+/// else is unaffected. Result cached process-wide.
+(g_openssl_probe : Option(bool)) = Option(bool).None;
+(g_openssl_includes : ArrayList(String)) = ArrayList(String).new();
+(g_openssl_libdirs : ArrayList(String)) = ArrayList(String).new();
+_probe_openssl :: (fn(io : Io) -> bool)({
+  match(
+    g_openssl_probe,
+    .Some(p) => {
+      return(p);
+    },
+    .None => ()
+  );
+  probe_exn := Exception(
+    throw : (
+      (_e) -> {
+        unwind(());
+      }
+    )
+  );
+  (flags : Option(String)) = Option(String).None;
+  probe := Command.new(String.from("pkg-config"));
+  probe.arg(String.from("--cflags"));
+  probe.arg(String.from("--libs"));
+  probe.arg(String.from("openssl"));
+  out := io.await(probe.output(io), IoExn(io : io, exn : probe_exn));
+  cond(
+    (out.status.raw == i32(0)) => {
+      flags = Option(String).Some(String.from_bytes(out.stdout));
+    },
+    true => ()
+  );
+  // Homebrew keg fallbacks (macOS): apple/arm and intel prefixes.
+  (ki : usize) = usize(0);
+  kegs := ArrayList(String).new();
+  kegs.push(String.from("/opt/homebrew/opt/openssl/lib/pkgconfig"));
+  kegs.push(String.from("/usr/local/opt/openssl/lib/pkgconfig"));
+  while((ki < kegs.len()) && flags.is_none(), {
+    keg := kegs(ki);
+    kprobe := Command.new(String.from("pkg-config"));
+    kprobe.env(String.from("PKG_CONFIG_PATH"), keg);
+    kprobe.arg(String.from("--cflags"));
+    kprobe.arg(String.from("--libs"));
+    kprobe.arg(String.from("openssl"));
+    kout := io.await(kprobe.output(io), IoExn(io : io, exn : probe_exn));
+    cond(
+      (kout.status.raw == i32(0)) => {
+        flags = Option(String).Some(String.from_bytes(kout.stdout));
+      },
+      true => ()
+    );
+    ki = (ki + usize(1));
+  });
+  match(
+    flags,
+    .Some(fl) => {
+      toks := fl.trim().split(String.from(" "));
+      (ti : usize) = usize(0);
+      while(ti < toks.len(), {
+        t := toks(ti);
+        cond(
+          (t.starts_with("-I") && (t.len() > usize(2))) => {
+            g_openssl_includes.push(t.substring(usize(2), t.len()));
+          },
+          (t.starts_with("-L") && (t.len() > usize(2))) => {
+            g_openssl_libdirs.push(t.substring(usize(2), t.len()));
+          },
+          true => ()
+        );
+        ti = (ti + usize(1));
+      });
+      g_openssl_probe = Option(bool).Some(true);
+      true
+    },
+    .None => {
+      g_openssl_probe = Option(bool).Some(false);
+      false
+    }
+  )
+});
 _probe_liburing :: (fn(io : Io, out : ArrayList(bool)) -> unit)({
   probe_exn := Exception(
     throw : (
@@ -900,7 +1071,7 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
   );
   probe_src := `${base}.asan_probe.c`;
   probe_bin := `${base}.asan_probe`;
-  io.await(write_file(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
+  io.await(write_string(Path.new(probe_src.clone()), String.from("int main(void) { return 0; }\n"), io), IoExn(io : io, exn : probe_exn));
   cc_cmd := Command.new(String.from("cc"));
   cc_cmd.arg(String.from("-x"));
   cc_cmd.arg(String.from("c"));
@@ -932,6 +1103,222 @@ _asan_runtime_is_usable :: (fn(base : String, io : Io) -> bool)({
   g_asan_usable = Option(bool).Some(usable);
   usable
 });
+/// Zero-pad a chunk index to 3 digits (`7` → `"007"`) for the
+/// `<base>_chunkNNN.c` file names of `--emit-chunks`.
+_pad3 :: (fn(i : usize) -> String)({
+  s := i.to_string();
+  cond(
+    (s.len() >= usize(3)) => s,
+    (s.len() == usize(2)) => `0${s}`,
+    true => `00${s}`
+  )
+});
+/// Records the C-compiler argv as it is assembled, so the chunked path can
+/// replay EXACTLY the same flags for per-chunk `cc -c` jobs. The method name
+/// and signature deliberately match `Command.arg`, so `run_compile`'s ~99
+/// flag-assembly call sites are untouched — and therefore cannot drift or
+/// reorder the single-file argv, which the bootstrap gates depend on.
+CcArgv :: ref(struct(recorded : ArrayList(String)));
+impl(
+  CcArgv,
+  new : (fn() -> Self)(
+    Self(recorded : ArrayList(String).new())
+  ),
+  arg : (fn(inout(self) : Self, a : String) -> unit)({
+    _p := self.recorded.push(a);
+    ()
+  })
+);
+/// Build a runnable `Command` from a recorded argv.
+_cc_command :: (fn(program : String, argv : ArrayList(String)) -> Command)({
+  c := Command.new(program.clone());
+  (i : usize) = usize(0);
+  while(i < argv.len(), {
+    match(
+      argv.get(i),
+      .Some(a) => {
+        _arg_c := c.arg(a.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  c
+});
+/// Single-quote `s` for POSIX `sh`, escaping embedded single quotes as
+/// `'\''`. Flag values can carry user text (`-D`, `-I`, `--cflags`), so the
+/// generated compile script must never let them reach the shell unquoted.
+_sh_quote :: (fn(s : String) -> String)({
+  out := String.from("'");
+  b := s.as_bytes();
+  (i : usize) = usize(0);
+  while(i < b.len(), {
+    ch := match(b.get(i), .Some(x) => x, .None => u8(0));
+    if(ch == u8(39), {
+      out.push_str("'\\''");
+    }, {
+      out.push_byte(ch);
+    });
+    i = (i + usize(1));
+  });
+  out.push_str("'");
+  out
+});
+/// Read a file's bytes, or `.None` when unreadable.
+_chunk_read :: (fn(path : String, io : Io) -> Option(ArrayList(u8)))({
+  rd_exn := Exception(throw : ((_e) -> unwind(Option(ArrayList(u8)).None)));
+  bytes := io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : rd_exn));
+  Option(ArrayList(u8)).Some(bytes)
+});
+/// Recorded stamp beside an object file, `.None` when absent.
+_chunk_read_stamp :: (fn(path : String, io : Io) -> Option(String))(
+  match(_chunk_read(path, io), .Some(b) => Option(String).Some(String.from_bytes(b)), .None => Option(String).None)
+);
+/// Record a stamp; failures are silent (the cache is only an optimization).
+_chunk_write_stamp :: (fn(path : String, stamp : String, io : Io) -> unit)({
+  wr_exn := Exception(throw : ((_e) -> unwind(())));
+  io.await(write_string(Path.new(path.clone()), stamp.clone(), io), IoExn(io : io, exn : wr_exn));
+});
+/// Compile the chunk `.c` files to `.o` in PARALLEL and return the object
+/// paths, honouring a content-addressed cache.
+///
+/// Parallelism is done by generating a POSIX `sh` script rather than by
+/// spawning children from Yo: `io.spawn` in a loop currently hangs
+/// (issues/fixed/io-spawn-in-loop-or-recursion-hangs.md), and one `sh` child running
+/// `cc ... & ... ; wait` needs no async machinery at all. Failures are
+/// detected per job (`wait $pid`), since bare `wait` always reports success.
+/// On a WINDOWS host there is no `sh`, so the compiles run sequentially — the
+/// `.o` cache still applies.
+///
+/// Cache key per chunk: sha256(text hash of `shared.h ++ chunk.c` computed at
+/// emission time, the compile flags, and the compiler version) — so a flag
+/// change or a type renumbering invalidates every chunk, which is the
+/// intended behaviour. `YO_BUILD_NO_CACHE=1` disables it.
+_compile_chunks_parallel :: (
+  fn(
+    cc : String,
+    flags : ArrayList(String),
+    chunk_c_files : ArrayList(String),
+    chunk_text_hashes : ArrayList(String),
+    out_base : String,
+    jobs : usize,
+    force_recompile : bool,
+    hits_out : ArrayList(usize),
+    io : Io,
+    exn : Exception
+  ) -> ArrayList(String)
+)({
+  objs := ArrayList(String).new();
+  no_cache := (force_recompile || match(proc_env.get(`YO_BUILD_NO_CACHE`), .Some(v) => (v == "1"), .None => false));
+  flags_key := String.from(" ").join(flags);
+  // Per-chunk decision: reuse the cached `.o`, or add a compile line.
+  lines := ArrayList(String).new();
+  stamps := ArrayList(String).new();
+  stamp_paths := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < chunk_c_files.len(), {
+    cf := match(chunk_c_files.get(i), .Some(x) => x, .None => String.new());
+    obj := `${cf.substring(usize(0), cf.len() - usize(2))}.o`;
+    objs.push(obj.clone());
+    text_hash := match(chunk_text_hashes.get(i), .Some(h) => h, .None => String.new());
+    stamp_src := ArrayList(u8).new();
+    sb := `${text_hash}\n${flags_key}\n${CURRENT_YO_VERSION}`.as_bytes();
+    (si : usize) = usize(0);
+    while(si < sb.len(), {
+      stamp_src.push(match(sb.get(si), .Some(x) => x, .None => u8(0)));
+      si = (si + usize(1));
+    });
+    stamp := sha256_hex(stamp_src);
+    stamp_path := `${obj}.inputs-sha256`;
+    obj_exists := io.await(exists(Path.new(obj.clone()), io), io);
+    cached := (!(no_cache) && (obj_exists && match(_chunk_read_stamp(stamp_path.clone(), io), .Some(prev) => (prev == stamp), .None => false)));
+    if(!(cached), {
+      cmdline := String.new();
+      cmdline.push_string(_sh_quote(cc.clone()));
+      (fi : usize) = usize(0);
+      while(fi < flags.len(), {
+        cmdline.push_str(" ");
+        cmdline.push_string(_sh_quote(match(flags.get(fi), .Some(f) => f, .None => String.new())));
+        fi = (fi + usize(1));
+      });
+      cmdline.push_str(" -c ");
+      cmdline.push_string(_sh_quote(cf.clone()));
+      cmdline.push_str(" -o ");
+      cmdline.push_string(_sh_quote(obj.clone()));
+      lines.push(cmdline);
+      stamps.push(stamp);
+      stamp_paths.push(stamp_path);
+    });
+    i = (i + usize(1));
+  });
+  hits := (chunk_c_files.len() - lines.len());
+  hits_out.push(hits);
+  println(`chunks: ${chunk_c_files.len().to_string()} unit(s), ${hits.to_string()} cached, ${lines.len().to_string()} to compile (jobs=${jobs.to_string()})`);
+  if(lines.len() == usize(0), {
+    return(objs);
+  });
+  windows_host := is_target_windows(host_target());
+  cond(
+    windows_host => {
+      // No `sh`: compile sequentially, one Command per chunk.
+      (li : usize) = usize(0);
+      while(li < chunk_c_files.len(), {
+        cf := match(chunk_c_files.get(li), .Some(x) => x, .None => String.new());
+        obj := match(objs.get(li), .Some(x) => x, .None => String.new());
+        seq := _cc_command(cc.clone(), flags);
+        seq.arg(String.from("-c"));
+        seq.arg(cf.clone());
+        seq.arg(String.from("-o"));
+        seq.arg(obj.clone());
+        sst := io.await(seq.status(io), IoExn(io : io, exn : exn));
+        if(sst.raw != i32(0), {
+          exn.throw(dyn(`compile: C compiler failed (exit ${sst.code().unwrap_or(i32(-1)).to_string()}) on ${cf}`));
+          return(objs);
+        });
+        li = (li + usize(1));
+      });
+    },
+    true => {
+      // One `sh` child; `cc` jobs run in background waves of `jobs`, and each
+      // job's status is collected individually.
+      script := String.from("pids=\"\"\nrc=0\n");
+      (li : usize) = usize(0);
+      (in_wave : usize) = usize(0);
+      while(li < lines.len(), {
+        script.push_string(match(lines.get(li), .Some(l) => l, .None => String.new()));
+        script.push_str(" & pids=\"$pids $!\"\n");
+        in_wave = (in_wave + usize(1));
+        if(in_wave >= jobs, {
+          script.push_str("for p in $pids; do wait $p || rc=1; done\npids=\"\"\n");
+          in_wave = usize(0);
+        });
+        li = (li + usize(1));
+      });
+      script.push_str("for p in $pids; do wait $p || rc=1; done\nexit $rc\n");
+      script_path := `${out_base}_chunks_compile.sh`;
+      io.await(write_string(Path.new(script_path.clone()), script, io), IoExn(io : io, exn : exn));
+      shcmd := Command.new(String.from("sh"));
+      shcmd.arg(script_path.clone());
+      shst := io.await(shcmd.status(io), IoExn(io : io, exn : exn));
+      if(shst.raw != i32(0), {
+        exn.throw(dyn(`compile: C compiler failed (exit ${shst.code().unwrap_or(i32(-1)).to_string()}) compiling chunks — see ${script_path}`));
+        return(objs);
+      });
+    }
+  );
+  // Only stamp AFTER a successful compile, so a failed build never leaves a
+  // stamp that would make the next run skip a missing/partial object.
+  (wi : usize) = usize(0);
+  while(wi < stamp_paths.len(), {
+    _chunk_write_stamp(
+      match(stamp_paths.get(wi), .Some(p) => p, .None => String.new()),
+      match(stamps.get(wi), .Some(s) => s, .None => String.new()),
+      io
+    );
+    wi = (wi + usize(1));
+  });
+  objs
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -954,6 +1341,10 @@ run_compile :: (
   (target_triple : String) = String.from("");
   (sysroot : String) = String.from("");
   (allocator : String) = String.from("system");
+  (emit_chunks : usize) = usize(0);
+  (chunk_no_lto : bool) = false;
+  // --jobs J: parallel per-chunk `cc -c` jobs (chunked emission only).
+  (jobs : usize) = usize(8);
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
@@ -974,7 +1365,6 @@ run_compile :: (
   (compile_timeout_ms : String) = String.new();
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
-  (release : bool) = false;
   (debug_gc : bool) = false;
   (debug_parallelism : bool) = false;
   (debug_async_await : bool) = false;
@@ -1140,12 +1530,28 @@ run_compile :: (
         ai = (ai + usize(1));
       },
       (a == "--release") => {
-        release = true;
-        ai = (ai + usize(1));
+        // Removed 2026-08-28: it was a pure alias of `--optimize 2` (no
+        // profile, no NDEBUG, no warning difference). Say so instead of
+        // failing as an unknown flag.
+        exn.throw(dyn(String.from("compile: --release was removed; use --optimize 2 (it was exactly that)")));
       },
       (a == "--debug-gc") => {
         debug_gc = true;
         ai = (ai + usize(1));
+      },
+      (a == "--no-chunk-lto") => {
+        chunk_no_lto = true;
+        ai = (ai + usize(1));
+      },
+      (a == "--jobs") => {
+        jv := _arg_val_req(argv, ai, String.from("--jobs"), exn);
+        jobs = match(jv.parse_u64(), .Some(n) => if(n > u64(0), usize(n), usize(1)), .None => usize(8));
+        ai = (ai + usize(2));
+      },
+      (a == "--emit-chunks") => {
+        ecv := _arg_val_req(argv, ai, String.from("--emit-chunks"), exn);
+        emit_chunks = match(ecv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        ai = (ai + usize(2));
       },
       (a == "--debug-parallelism") => {
         debug_parallelism = true;
@@ -1205,6 +1611,18 @@ run_compile :: (
   if((emcc_environment != "") && ((emcc_environment != "web") && (emcc_environment != "node")), {
     exn.throw(dyn(`compile: invalid --emcc-environment "${emcc_environment}". Choices: web, node`));
   });
+  // Chunked emission drives multiple TU inputs through the executable link
+  // line; the static-library path compiles ONE input to ONE `.o`.
+  if((emit_chunks >= usize(1)) && static_library, {
+    exn.throw(dyn(String.from("compile: --emit-chunks is not supported with --static-library")));
+  });
+  // Both flags decide what C files get WRITTEN, so the combination is
+  // ambiguous rather than merely redundant: `--emit-c-to` names ONE file, and
+  // the chunked path writes a header plus N chunks. (`--emit-c`, which only
+  // PRINTS the single-file equivalent, stays allowed.)
+  if((emit_chunks >= usize(1)) && (emit_c_to.len() > usize(0)), {
+    exn.throw(dyn(String.from("compile: --emit-c-to writes one C file and --emit-chunks writes a header plus N chunks — pass only one")));
+  });
   // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
   // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
   // for the first available compiler instead of assuming clang.
@@ -1222,9 +1640,9 @@ run_compile :: (
       }
     );
   });
-  // emcc implies wasm32-emscripten when no target was given (yo-cli.ts:488-490).
+  // emcc implies wasm32-unknown-emscripten when no target was given (yo-cli.ts:488-490).
   if((cc == "emcc") && (target_triple == ""), {
-    target_triple = String.from("wasm32-emscripten");
+    target_triple = String.from("wasm32-unknown-emscripten");
   });
   // Arm the cooperative evaluator deadline before anything is evaluated. A
   // malformed value disarms rather than failing the compile: this is runner
@@ -1249,7 +1667,7 @@ run_compile :: (
     ),
     .Ok(t) => t,
     .Err(e) => {
-      exn.throw(dyn(`compile: invalid --target "${target_triple}": ${e}`));
+      exn.throw(dyn(`compile: ${e}`));
       return(())
     }
   );
@@ -1335,6 +1753,15 @@ run_compile :: (
   // it survives) and `target` are the only values the link line needs.
   // ---------------------------------------------------------------------
   (c_path : String) = String.new();
+  // Chunked emission: every written chunk `.c` (all become cc inputs), plus a
+  // content hash per chunk taken AT WRITE TIME (the `.o` cache key's text
+  // half — hashing here avoids re-reading ~140 MB back off disk at link time).
+  chunk_c_files := ArrayList(String).new();
+  chunk_text_hashes := ArrayList(String).new();
+  // Whether the chunk `.o` cache actually served anything, plus the compile
+  // flag prefix — both needed to retry without the cache if the link fails.
+  (chunk_used_cache : bool) = false;
+  chunk_link_flags := ArrayList(String).new();
   {
     clear_module_cache();
     mm_clear_prelude_env();
@@ -1344,7 +1771,7 @@ run_compile :: (
     // Quiet: `compile` has no `check:` chatter.
     mm_preload_prelude(std_path.clone(), false, io, exn);
     // Read + parse the input module.
-    src_bytes := io.await(read_file(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
+    src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
     exprs := parse(src, input_path.clone(), exn);
     // Demand-driven module loading. The entry module's eval context reuses the
@@ -1353,9 +1780,17 @@ run_compile :: (
     // collected functions — the prelude's, every imported module's, and the entry
     // module's. `mm_eval_entry_exprs` applies it from the published slot.
     entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
-    outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, io, exn);
+    outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, exn);
     if(!(outcome.ok), {
-      exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`));
+      // The eval failure's rendered diagnostic is in the loader's stash (its
+      // handlers no longer print — the P1 single-print rule). Rethrow it so
+      // the top-level handler prints it once, WITH the underlying text (the
+      // old wrapper dropped it, D2).
+      match(
+        _take_load_error(),
+        .Some(rendered) => exn.throw(dyn(rendered)),
+        .None => exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`))
+      );
       return(());
     });
     module_value := outcome.module_value;
@@ -1368,7 +1803,8 @@ run_compile :: (
     // Generate C11 from the evaluated module. A static library has no main()
     // wrapper (is_library = true). Allocator + debug-logging flags are threaded
     // through to the code generator (mirrors CodeGeneratorC.compileModule).
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn);
+    chunk_parts := ArrayList(String).new();
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks);
     // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
@@ -1405,7 +1841,39 @@ run_compile :: (
         .None => ()
       );
     });
-    io.await(write_file(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+    cond(
+      (emit_chunks >= usize(1)) => {
+        // Chunked emission (plans/CHUNKED_C_EMISSION.md step 2): parts[0] is
+        // the shared header, parts[1..] the linkage-split translation-unit
+        // bodies. Each chunk #includes the header BY BASENAME (quoted
+        // includes resolve relative to the including file, and the files are
+        // siblings by construction — a full relative path would double the
+        // directory prefix). Every chunk file becomes a cc input.
+        shared_h := `${c_base}_shared.h`;
+        shared_h_base := match(Path.new(shared_h.clone()).file_name(), .Some(bn) => bn, .None => shared_h.clone());
+        io.await(
+          write_string(Path.new(shared_h.clone()), match(chunk_parts.get(usize(0)), .Some(x) => x, .None => String.new()), io),
+          IoExn(io : io, exn : exn)
+        );
+        (pi2 : usize) = usize(1);
+        while(pi2 < chunk_parts.len(), {
+          cf := `${c_base}_chunk${_pad3(pi2 - usize(1))}.c`;
+          cbody := String.new();
+          cbody.push_str("#include \"");
+          cbody.push_string(shared_h_base.clone());
+          cbody.push_str("\"\n");
+          cbody.push_string(match(chunk_parts.get(pi2), .Some(x) => x, .None => String.new()));
+          io.await(write_string(Path.new(cf.clone()), cbody.clone(), io), IoExn(io : io, exn : exn));
+          chunk_c_files.push(cf);
+          chunk_text_hashes.push(sha256_hex(cbody.as_bytes()));
+          pi2 = (pi2 + usize(1));
+        });
+        c_path = match(chunk_c_files.get(usize(0)), .Some(x) => x.clone(), .None => c_path.clone());
+      },
+      true => {
+        io.await(write_string(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
+      }
+    );
   };
   // The scope above has dropped the AST, the evaluated module, the env, the
   // eval context and the 140 MB C string. The module-manager GLOBALS still
@@ -1422,7 +1890,11 @@ run_compile :: (
   });
   // ----- assemble the C-compiler invocation (mirrors src/codegen/index.ts) ---
   std_root := resolve_std_path();
-  cmd := Command.new(cc.clone());
+  // Flags are RECORDED rather than pushed straight into a Command, so the
+  // chunked path can replay the identical flag list for per-chunk `cc -c`
+  // jobs. `CcArgv.arg` matches `Command.arg`, so every assembly call site
+  // below is unchanged.
+  cmd := CcArgv.new();
   // `zig` is invoked as `zig cc ...`.
   if(cc == "zig", {
     cmd.arg(String.from("cc"));
@@ -1437,16 +1909,58 @@ run_compile :: (
   if(get_needs_intel_asm_syntax() && !(is_target_wasm(target)), {
     cmd.arg(String.from("-masm=intel"));
   });
-  // Optimization + warnings: explicit --optimize wins over --release; the
-  // default and explicit `--optimize 0` use -O0 with the noisy warnings
-  // suppressed (mirrors the TS option logic).
+  // Optimization + warnings. `--optimize` is the ONE mechanism here: an empty
+  // or "0" level means the -O0 default, anything else is an optimized build.
+  //
+  // WARNINGS ARE NOT PURELY A FUNCTION OF THE OPTIMIZATION LEVEL. Generated C is
+  // full of harmless noise (unused temporaries, redundant parens, pointer-sign
+  // on string literals), so an optimized build silences it wholesale and then
+  // re-enables the few diagnostics that can ONLY mean the code GENERATOR
+  // emitted something inconsistent with its own prototypes.
+  //
+  // THE BLANKET FLAG MUST BE `-Wno-everything`, NOT `-w`. `-w` is ABSOLUTE: no
+  // later `-W…` or even `-Werror=…` can bring a diagnostic back, so the
+  // re-enable list below was decorative for as long as it sat after `-w`.
+  // MEASURED (clang 21.1.7, 2026-08-25) on a two-line file passing a `char *`
+  // to an `int *` parameter:
+  //   -Wincompatible-pointer-types                 -> warning
+  //   -w -Wincompatible-pointer-types              -> SILENT
+  //   -w -Werror=incompatible-pointer-types        -> SILENT
+  //   -Wno-everything -Wincompatible-pointer-types -> warning (comes back)
+  // The two int/implicit-decl entries appeared to work only because clang 16+
+  // made them errors BY DEFAULT, and `-w` cannot suppress an error — they
+  // would fire with or without this list. See
+  // issues/fixed/release-builds-suppress-all-c-warnings.md, whose fix this
+  // makes effective for the first time.
+  //
+  // This is not hypothetical: a specialized generic's `inout` parameter lost its
+  // by-ref binding, so codegen passed a `T**` where its own prototype said `T*`.
+  // That is only -Wincompatible-pointer-types, `-w` swallowed it, and the
+  // program silently returned an uninitialised value — a formatted string came
+  // back as padding with no body. See
+  // issues/fixed/specialized-inout-param-loses-ref-with-comptime-arg.md and
+  // issues/release-builds-suppress-all-c-warnings.md. A pointer-type mismatch
+  // between generated code and its own generated prototype is never noise:
+  // both sides are written by this compiler.
+  //
+  // `-Werror=return-type` is on the list for the same reason, and must be
+  // -Werror rather than a bare -W because a warning would still let the build
+  // succeed. A function whose body codegen could not transpile becomes
+  // `// Failed to transpile` COMMENTS with no return statement, and falling
+  // off the end of a value-returning function is undefined behaviour — that is
+  // how a missed rename inside an `io.async` closure made std/fs/walker's walk
+  // silently return an empty list with `check`, `build` and the whole suite
+  // green. See issues/ftt-stub-in-live-closure-falls-off-non-void-function.md.
+  //
+  // The -O0 arm below needs no such re-enabling — `-Wall` and clang's
+  // defaults already include all three.
   cond(
-    ((optimize == "") && release) => {
-      cmd.arg(String.from("-w"));
-      cmd.arg(String.from("-O2"));
-    },
     ((optimize != "") && (optimize != "0")) => {
-      cmd.arg(String.from("-w"));
+      cmd.arg(String.from("-Wno-everything"));
+      cmd.arg(String.from("-Wincompatible-pointer-types"));
+      cmd.arg(String.from("-Wint-conversion"));
+      cmd.arg(String.from("-Wimplicit-function-declaration"));
+      cmd.arg(String.from("-Werror=return-type"));
       cmd.arg(`-O${optimize}`);
     },
     true => {
@@ -1459,9 +1973,30 @@ run_compile :: (
       cmd.arg(String.from("-Wno-unused-label"));
       cmd.arg(String.from("-Wno-unused-value"));
       cmd.arg(String.from("-Wno-parentheses-equality"));
+      cmd.arg(String.from("-Werror=return-type"));
       cmd.arg(String.from("-O0"));
     }
   );
+  // Chunked emission needs ThinLTO **at -O1 and above**, and there it is NOT an
+  // optional tuning knob (plans/CHUNKED_C_EMISSION.md). Splitting the program
+  // into N translation units externalizes every generated function, so an
+  // optimizing build can no longer internalize or dead-strip them: MEASURED on
+  // an N=4 self-build at -O2, the binary went 9 MB / 3.5k symbols -> 24 MB /
+  // 7.2k symbols and ran 14.2% SLOWER on `check ./src` (102.8s vs 90.0s).
+  // `-flto=thin` gives the linker back the cross-module inlining and the same
+  // build runs 87.4s — slightly FASTER than single-file.
+  //
+  // At -O0 the opposite is true: clang neither inlines nor dead-strips there,
+  // so externalization costs nothing (MEASURED: +12% symbols, and `check ./std`
+  // 40.2s chunked vs 40.7s single-file — identical) while the parallel C phase
+  // is 3.3x faster (5.5s vs 18.2s). Paying for a thin-link at -O0 would spend
+  // that win on nothing, so LTO tracks the OPTIMIZATION LEVEL rather than the
+  // chunk flag. The condition mirrors the -O selection above exactly.
+  // Not for wasm: emcc's LTO story is separate and chunked wasm is out of scope.
+  chunk_lto_wanted := ((optimize != "") && (optimize != "0"));
+  if((emit_chunks >= usize(1)) && (chunk_lto_wanted && (!(chunk_no_lto) && !(is_target_wasm(target)))), {
+    cmd.arg(String.from("-flto=thin"));
+  });
   if(debug_symbols, {
     cmd.arg(String.from("-g"));
   });
@@ -1489,7 +2024,9 @@ run_compile :: (
         eprintln(String.from("AddressSanitizer is not functional with this compiler setup (likely a version mismatch between clang and the ASAN runtime library). Skipping sanitizer. Install a matching ASAN runtime or use --cc with a compatible compiler."));
       });
     },
-    (sanitize == "leak") => cmd.arg(String.from("-fsanitize=leak")),
+    (sanitize == "leak") => {
+      _arg_c := cmd.arg(String.from("-fsanitize=leak"));
+    },
     (sanitize == "thread") => {
       cmd.arg(String.from("-fsanitize=thread"));
       cmd.arg(String.from("-fno-omit-frame-pointer"));
@@ -1499,17 +2036,35 @@ run_compile :: (
   // -I include paths, -D defines, -L library search paths.
   (ii : usize) = usize(0);
   while(ii < include_paths.len(), {
-    match(include_paths.get(ii), .Some(p) => cmd.arg(`-I${p}`), .None => ());
+    match(
+      include_paths.get(ii),
+      .Some(p) => {
+        _arg_c := cmd.arg(`-I${p}`);
+      },
+      .None => ()
+    );
     ii = (ii + usize(1));
   });
   (di : usize) = usize(0);
   while(di < defines.len(), {
-    match(defines.get(di), .Some(d) => cmd.arg(`-D${d}`), .None => ());
+    match(
+      defines.get(di),
+      .Some(d) => {
+        _arg_c := cmd.arg(`-D${d}`);
+      },
+      .None => ()
+    );
     di = (di + usize(1));
   });
   (li : usize) = usize(0);
   while(li < library_paths.len(), {
-    match(library_paths.get(li), .Some(p) => cmd.arg(`-L${p}`), .None => ());
+    match(
+      library_paths.get(li),
+      .Some(p) => {
+        _arg_c := cmd.arg(`-L${p}`);
+      },
+      .None => ()
+    );
     li = (li + usize(1));
   });
   // Arbitrary custom flags (--cflags "a b c").
@@ -1517,7 +2072,13 @@ run_compile :: (
     parts := cflags.split(" ");
     (ci : usize) = usize(0);
     while(ci < parts.len(), {
-      match(parts.get(ci), .Some(f) => if(f.len() > usize(0), cmd.arg(f.clone())), .None => ());
+      match(
+        parts.get(ci),
+        .Some(f) => if(f.len() > usize(0), {
+          _arg_c := cmd.arg(f.clone());
+        }),
+        .None => ()
+      );
       ci = (ci + usize(1));
     });
   });
@@ -1538,10 +2099,26 @@ run_compile :: (
   });
   // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
   // which handles its own target internally (codegen/index.ts:636-641) — it
-  // rejects `--target=wasm32-emscripten`.
+  // rejects `--target=wasm32-unknown-emscripten`.
   if(cc != "emcc", {
     if(target_triple != "", {
-      cmd.arg(`--target=${target_triple}`);
+      // The canonical triple is what LLVM speaks, except MinGW
+      // (`<arch>-w64-mingw32`) and WASI (`wasm32-wasi`) — `clang_triple`
+      // owns those spellings, so never hand clang the raw --target string.
+      cmd.arg(`--target=${clang_triple(target)}`);
+    }, {
+      // Native compiles trust the C compiler's DEFAULT triple to equal the
+      // host. On Windows that trust is misplaced: an x86_64 LLVM build runs
+      // transparently under Windows-on-ARM emulation and defaults to
+      // x86_64-pc-windows-msvc, so a native compile on an arm64 host would
+      // silently produce an x64 binary while every comptime platform/arch
+      // constant had already folded for arm64 (first hit: suite run
+      // 32413596987, where tests/asm.test.yo's aarch64 inline-asm templates
+      // reached an x64-targeting clang). Pin the resolved host triple
+      // explicitly — clang only; gcc has no --target flag.
+      if(is_target_windows(target) && cc.contains("clang"), {
+        cmd.arg(`--target=${clang_triple(target)}`);
+      });
     });
     if(sysroot != "", {
       cmd.arg(`--sysroot=${sysroot}`);
@@ -1587,9 +2164,9 @@ run_compile :: (
     cmd.arg(c_path.clone());
     cmd.arg(String.from("-o"));
     cmd.arg(obj_path.clone());
-    cst := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+    cst := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
-      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().to_string()}) on ${c_path}`));
+      exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
       return(())
     });
     ar_out := if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
@@ -1599,15 +2176,58 @@ run_compile :: (
     arcmd.arg(obj_path.clone());
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
-      exn.throw(dyn(`compile: ar failed (exit ${ast.code().to_string()}) creating ${ar_out}`));
+      exn.throw(dyn(`compile: ar failed (exit ${ast.code().unwrap_or(i32(-1)).to_string()}) creating ${ar_out}`));
     });
     return(())
   });
-  // Executable: source + externs, output, then link libraries.
-  cmd.arg(c_path.clone());
+  // Executable: source + externs, output, then link libraries. Chunked
+  // emission passes every chunk `.c` — cc compiles each TU and links them in
+  // the one invocation (parallel per-chunk `cc -c` + a `.o` cache is step 3).
+  cond(
+    (chunk_c_files.len() > usize(0)) => {
+      // Everything recorded so far is the COMPILE flag set; replay it for one
+      // `cc -c` per chunk, in parallel and behind the `.o` cache, then link
+      // the objects with the same command line.
+      chunk_hits := ArrayList(usize).new();
+      chunk_objs := _compile_chunks_parallel(
+        cc.clone(),
+        cmd.recorded,
+        chunk_c_files,
+        chunk_text_hashes,
+        output.clone(),
+        jobs,
+        false,
+        chunk_hits,
+        io,
+        exn
+      );
+      chunk_link_flags = cmd.recorded;
+      chunk_used_cache = match(chunk_hits.get(usize(0)), .Some(h) => (h > usize(0)), .None => false);
+      (cci : usize) = usize(0);
+      while(cci < chunk_objs.len(), {
+        match(
+          chunk_objs.get(cci),
+          .Some(f) => {
+            _arg_c := cmd.arg(f.clone());
+          },
+          .None => ()
+        );
+        cci = (cci + usize(1));
+      });
+    },
+    true => {
+      _arg_c := cmd.arg(c_path.clone());
+    }
+  );
   (ei : usize) = usize(0);
   while(ei < externs.len(), {
-    match(externs.get(ei), .Some(f) => cmd.arg(f.clone()), .None => ());
+    match(
+      externs.get(ei),
+      .Some(f) => {
+        _arg_c := cmd.arg(f.clone());
+      },
+      .None => ()
+    );
     ei = (ei + usize(1));
   });
   cmd.arg(String.from("-o"));
@@ -1636,9 +2256,38 @@ run_compile :: (
       cmd.arg(String.from("-luring"));
     });
   });
+  // OpenSSL for std/crypto/tls — the same probe-and-add stance as liburing
+  // (plans/D6_TLS_PLAN.md): when pkg-config finds it, its include/lib dirs
+  // and -lssl -lcrypto are added so a program importing the tls module
+  // compiles and links; when absent, only tls users fail, at their own
+  // build, with the linker naming the missing library.
+  if(!(is_target_windows(target)) && !(is_target_wasm(target)), {
+    if(_probe_openssl(io), {
+      (oi : usize) = usize(0);
+      while(oi < g_openssl_includes.len(), {
+        oinc := match(g_openssl_includes.get(oi), .Some(x) => x, .None => String.new());
+        _arg_c := cmd.arg(`-I${oinc}`);
+        oi = (oi + usize(1));
+      });
+      (ol : usize) = usize(0);
+      while(ol < g_openssl_libdirs.len(), {
+        olib := match(g_openssl_libdirs.get(ol), .Some(x) => x, .None => String.new());
+        _arg_c := cmd.arg(`-L${olib}`);
+        ol = (ol + usize(1));
+      });
+      cmd.arg(String.from("-lssl"));
+      cmd.arg(String.from("-lcrypto"));
+    });
+  });
   (xi : usize) = usize(0);
   while(xi < libraries.len(), {
-    match(libraries.get(xi), .Some(lib) => cmd.arg(`-l${lib}`), .None => ());
+    match(
+      libraries.get(xi),
+      .Some(lib) => {
+        _arg_c := cmd.arg(`-l${lib}`);
+      },
+      .None => ()
+    );
     xi = (xi + usize(1));
   });
   if(is_target_windows(target), {
@@ -1648,9 +2297,35 @@ run_compile :: (
     // (OpenProcessToken/LookupPrivilegeValueA); harmless when unused.
     cmd.arg(String.from("-ladvapi32"));
   });
-  st := io.await(cmd.status(io), IoExn(io : io, exn : exn));
+  st := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
   if(st.raw != i32(0), {
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().to_string()}) on ${c_path}`));
+    // A chunk `.o` can be present with a matching stamp yet unusable (a
+    // truncated or clobbered file — the stamp records the INPUTS, so it cannot
+    // detect that). Rather than make the user discover `YO_BUILD_NO_CACHE=1`,
+    // treat a link failure after cache hits as a poisoned cache: recompile
+    // every chunk from source and link once more. A second failure is real.
+    if(chunk_used_cache, {
+      eprintln(String.from("compile: link failed with cached chunk objects — recompiling all chunks and retrying"));
+      retry_hits := ArrayList(usize).new();
+      _r := _compile_chunks_parallel(
+        cc.clone(),
+        chunk_link_flags,
+        chunk_c_files,
+        chunk_text_hashes,
+        output.clone(),
+        jobs,
+        true,
+        retry_hits,
+        io,
+        exn
+      );
+      st2 := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
+      if(st2.raw != i32(0), {
+        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
+      });
+      return(())
+    });
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
   });
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
@@ -1814,7 +2489,7 @@ run_test :: (
   // corresponding wasm target is selected (via --target or --cc emcc).
   wasm_target_kind := cond(
     test_target.starts_with("wasm") => test_target.clone(),
-    (test_cc == "emcc") => String.from("wasm32-emscripten"),
+    (test_cc == "emcc") => String.from("wasm32-unknown-emscripten"),
     true => String.from("")
   );
   // HOW a compiled batch must be built and run. A wasm artifact is NOT a host
@@ -1833,7 +2508,7 @@ run_test :: (
   run_is_emcc := ((wasm_target_kind != "") && !(run_is_wasi));
   // The extension is LOAD-BEARING, not cosmetic: emcc selects its OUTPUT
   // FORMAT from it. With the flat `.bin` name this runner used, even
-  // `--target wasm-wasi` produced JS glue and the standalone `.wasm` the leg
+  // `--target wasm32-wasip1` produced JS glue and the standalone `.wasm` the leg
   // needs was never emitted — after which the failure merely LOOKS like a
   // missing run-command branch. Verified locally with emcc 4.0.12: `-o X.bin`
   // yields `JavaScript source` for BOTH wasm targets.
@@ -1849,7 +2524,7 @@ run_test :: (
       parse_target(wasm_target_kind.clone()),
       .Ok(t) => t,
       .Err(e) => {
-        exn.throw(dyn(`test: invalid --target "${wasm_target_kind}": ${e}`));
+        exn.throw(dyn(`test: ${e}`));
         host_target()
       }
     );
@@ -1864,7 +2539,7 @@ run_test :: (
     while(sfi < files.len(), {
       sf := match(files.get(sfi), .Some(f) => f, .None => String.from(""));
       sfi = (sfi + usize(1));
-      sf_bytes := io.await(read_file(Path.new(sf.clone()), io), IoExn(io : io, exn : exn));
+      sf_bytes := io.await(read(Path.new(sf.clone()), io), IoExn(io : io, exn : exn));
       sf_src := String.from_bytes(sf_bytes);
       sf_lines := sf_src.split("\n");
       (skip_this : bool) = false;
@@ -1891,6 +2566,41 @@ run_test :: (
     });
     files = kept_files;
   });
+  // Native Windows skip: files carrying `pragma(Pragma.SkipWindows)` are
+  // dropped when the test runner is on a Windows host (a POSIX-only or
+  // not-yet-ported platform dependency — e.g. std/crypto/tls needs OpenSSL,
+  // absent on the Windows runners). Mirrors the wasm pre-scan above.
+  if(is_target_windows(host_target()), {
+    win_kept := ArrayList(String).new();
+    (win_skipped : usize) = usize(0);
+    (wfi : usize) = usize(0);
+    while(wfi < files.len(), {
+      wf := match(files.get(wfi), .Some(f) => f, .None => String.from(""));
+      wfi = (wfi + usize(1));
+      wf_bytes := io.await(read(Path.new(wf.clone()), io), IoExn(io : io, exn : exn));
+      wf_src := String.from_bytes(wf_bytes);
+      wf_lines := wf_src.split("\n");
+      (win_skip : bool) = false;
+      (wli : usize) = usize(0);
+      while((wli < wf_lines.len()) && ((wli < usize(50)) && !(win_skip)), {
+        wline := match(wf_lines.get(wli), .Some(l) => l, .None => String.from(""));
+        wli = (wli + usize(1));
+        wstripped := wline.replace(String.from(" "), String.from("")).replace(String.from("\t"), String.from(""));
+        if(wstripped.contains("pragma(Pragma.SkipWindows)"), {
+          win_skip = true;
+        });
+      });
+      if(win_skip, {
+        win_skipped = (win_skipped + usize(1));
+      }, {
+        win_kept.push(wf);
+      });
+    });
+    if(win_skipped > usize(0), {
+      println(`Skipping ${win_skipped.to_string()} test file(s) with pragma(Pragma.SkipWindows) on the Windows host`);
+    });
+    files = win_kept;
+  });
   if(files.len() == usize(0), {
     println(String.from("No test files found."));
     return(());
@@ -1904,7 +2614,7 @@ run_test :: (
     fi = (fi + usize(1));
     println(``);
     println(`${file}`);
-    src_bytes := io.await(read_file(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
+    src_bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
     prog := parse(src, file.clone(), exn);
     tests := ArrayList(TestDecl).new();
@@ -2012,7 +2722,7 @@ run_test :: (
         // that was never written throws `file or directory not found` and
         // aborts the rest of the cleanup with it.
         tmp_c := if(run_is_wasi || run_is_emcc, `${batch_base}.c`, `${tmp_bin}.c`);
-        io.await(write_file(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
+        io.await(write_string(Path.new(tmp_yo.clone()), prog_src.clone(), io), IoExn(io : io, exn : exn));
         // Compile the batch in a CHILD PROCESS, not in-process.
         //
         // WHY: `run_compile` creates a fresh ExprInfoTable, but compiler state lives
@@ -2053,6 +2763,21 @@ run_test :: (
           ccmd.arg(String.from("--target"));
           ccmd.arg(test_target.clone());
         });
+        // `--std-path` is a GLOBAL flag: main strips it from argv before
+        // subcommand dispatch and stashes it with the module manager, so the
+        // RUNNER honours it — but the child `compile` is spawned with a fresh
+        // argv that never carried it, and falls back to YO_STD / exe-walk-up /
+        // ./std. The runner then evaluated against one std and compiled the
+        // batch against another, silently.
+        // See issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md.
+        match(
+          get_std_path_override(),
+          .Some(sp) => {
+            ccmd.arg(String.from("--std-path"));
+            ccmd.arg(sp);
+          },
+          .None => ()
+        );
         // Cooperative compile deadline, ported from TS's test runner
         // (`src/test-runner.ts:544`, SEQUENTIAL_COMPILE_TIMEOUT_MS). TS arms
         // it in-process; we compile in a CHILD, so it travels as a flag. A
@@ -2094,7 +2819,7 @@ run_test :: (
           .None => String.from("address")
         );
         // `run_is_wasi` is part of the emcc test, not just the literal cc
-        // string: the WASI leg selects its compiler with `--target wasm-wasi`
+        // string: the WASI leg selects its compiler with `--target wasm32-wasip1`
         // and never sets `--c-compiler`, so `test_cc` is "" and this gate used
         // to hand `-fsanitize=address` to emcc. TS never does, because it
         // resolves the cc first and reads `isEmcc` off the RESULT.
@@ -2104,7 +2829,7 @@ run_test :: (
         });
         bst := io.await(ccmd.status(io), IoExn(io : io, exn : exn));
         if(bst.raw != i32(0), {
-          exn.throw(dyn(`test: batch compile failed (exit ${bst.code().to_string()}) for ${tmp_yo}`));
+          exn.throw(dyn(`test: batch compile failed (exit ${bst.code().unwrap_or(i32(-1)).to_string()}) for ${tmp_yo}`));
         });
         // Run each test: YO_TEST_INDEX in the PARENT env (the spawn runtime
         // passes environ through when envp is NULL). The ASan run environment
@@ -2132,11 +2857,17 @@ run_test :: (
         (lsan_supp_file : String) = String.from("");
         if(use_asan, {
           _sv_asan := proc_env.set(String.from("ASAN_OPTIONS"), if(leak_verdict, String.from("detect_leaks=1"), String.from("detect_leaks=0")));
+          // Every test child runs with the nested-event-loop guard ARMED: a blocking
+          // await inside a task (C37) is a deterministic panic under `yo test`, while
+          // ordinary programs stay relaxed until the compiler's own build scheduler is
+          // made async — measured 2026-08-29: strict mode is clean here
+          // (issues/retired/compiler-build-runner-nests-event-loop.md).
+          _sv_strict := proc_env.set(String.from("YO_ASYNC_STRICT"), String.from("1"));
           // macOS: suppress the well-known system-library leak reports
           // (getMacOSLsanSuppressions, compiler-utils.ts:334-341).
           if(is_target_macos(host_ti), {
             lsan_supp_file = `${tmp_bin}.lsan_supp.txt`;
-            io.await(write_file(Path.new(lsan_supp_file.clone()), String.from("leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"), io), IoExn(io : io, exn : exn));
+            io.await(write_string(Path.new(lsan_supp_file.clone()), String.from("leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"), io), IoExn(io : io, exn : exn));
             _sv_lsan := proc_env.set(String.from("LSAN_OPTIONS"), `suppressions=${lsan_supp_file}`);
           });
           // Windows + clang: the ASan runtime DLL directory must be on PATH
@@ -2262,15 +2993,19 @@ run_test :: (
         // failing batch's .yo/.c can be inspected — batch-only miscompiles
         // (the collections residuals) are unreproducible otherwise.
         if(proc_env.get(`YO_KEEP_BATCH`).is_none(), {
-          io.await(remove_file(Path.new(tmp_yo.clone()), io), IoExn(io : io, exn : exn));
-          io.await(remove_file(Path.new(tmp_bin.clone()), io), IoExn(io : io, exn : exn));
-          io.await(remove_file(Path.new(tmp_c.clone()), io), IoExn(io : io, exn : exn));
+          // Tolerant removal (retry + warn), NOT a raw remove_file: Windows
+          // holds a just-exited batch .exe for a few ms (process reaping /
+          // Defender), and the raw throw aborted the whole suite — see
+          // _remove_batch_artifact.
+          _remove_batch_artifact(tmp_yo.clone(), io);
+          _remove_batch_artifact(tmp_bin.clone(), io);
+          _remove_batch_artifact(tmp_c.clone(), io);
           // Emscripten's second output: the JS glue at `tmp_bin` is paired
           // with a sibling `<base>.wasm` that no other cleanup path names, so
           // without this every emcc batch leaks one file into the test tree
           // (TS tracks it as `testWasmPath`, test-runner.ts:459).
           if(run_is_emcc, {
-            io.await(remove_file(Path.new(`${batch_base}.wasm`), io), IoExn(io : io, exn : exn));
+            _remove_batch_artifact(`${batch_base}.wasm`, io);
           });
         });
         batch_start = batch_end;
@@ -2409,7 +3144,7 @@ run_fmt :: (
           match(
             result.changed.get(cidx),
             .Some(c) => eprintln(
-              Path.new(c.clone()).relative_from(Path.new(fmt_cwd.clone())).to_string()
+              Path.new(c.clone()).strip_prefix(Path.new(fmt_cwd.clone())).to_string()
             ),
             .None => ()
           );
@@ -2450,7 +3185,7 @@ run_cache :: (
       present := io.await(exists(Path.new(cache_dir.clone()), io), io);
       cond(
         present => {
-          io.await(remove_dir_all(Path.new(cache_dir.clone()), io, exn), IoExn(io : io, exn : exn));
+          io.await(remove_dir_all(Path.new(cache_dir.clone()), io), IoExn(io : io, exn : exn));
           println(`Removed cache directory: ${cache_dir}`);
         },
         true => println(`Cache directory does not exist: ${cache_dir}`)
@@ -2569,6 +3304,20 @@ run_install_cmd :: (
 /// Flag contract mirrors `src/yo-cli.ts:927-…`:
 ///   yo build [steps..] [--cc <c>] [-t|--target <triple>] [--sysroot <dir>]
 ///            [--build-file <path>] [--list-steps] [--dry-run] [--verbose|-v]
+/// One watch-mode build round: a full `run_build` whose failure is reported
+/// but never exits the loop (`unwind` returns `false` from THIS fn).
+_build_round_watch :: (fn(opts : BuildOptions, io : Io) -> bool)({
+  swallow := Exception(
+    throw : (
+      (err) -> {
+        eprintln(`build: FAILED — ${err.to_string()}`);
+        unwind(false)
+      }
+    )
+  );
+  io.await(run_build(opts, io, swallow), IoExn(io : io, exn : swallow));
+  true
+});
 ///            [--summary] [-D<name>=<value>]
 run_build_cmd :: (
   fn(
@@ -2587,6 +3336,8 @@ run_build_cmd :: (
   (dry_run : bool) = false;
   (verbose : bool) = false;
   (summary : bool) = false;
+  (watch : bool) = false;
+  (poll_ms : u64) = u64(200);
   (ai : usize) = usize(2);
   while(ai < argv.len(), {
     arg := argv(ai);
@@ -2634,16 +3385,24 @@ run_build_cmd :: (
       (arg == "--summary") => {
         summary = true;
       },
+      (arg == "--watch") => {
+        watch = true;
+      },
+      (arg == "--poll-ms") => {
+        pv := _arg_val_req(argv, ai, String.from("--poll-ms"), exn);
+        poll_ms = match(pv.parse_u64(), .Some(n) => n, .None => u64(200));
+        ai = (ai + usize(1));
+      },
       // `-Dname=value` sets a build option declared by `build.option(...)`.
       (arg.starts_with(String.from("-D")) && (arg.len() > usize(2))) => {
         body := arg.substring(usize(2), arg.len());
         match(
           body.index_of(String.from("=")),
           .Some(pos) => {
-            _di := defines.set(body.substring(usize(0), pos), body.substring(pos + usize(1), body.len()));
+            _di := defines.insert(body.substring(usize(0), pos), body.substring(pos + usize(1), body.len()));
           },
           .None => {
-            _di := defines.set(body.clone(), String.from("true"));
+            _di := defines.insert(body.clone(), String.from("true"));
           }
         );
       },
@@ -2656,25 +3415,40 @@ run_build_cmd :: (
     );
     ai = (ai + usize(1));
   });
-  io.await(
-    run_build(
-      BuildOptions(
-        steps : steps,
-        c_compiler : c_compiler,
-        target_triple : target_triple,
-        sysroot : sysroot,
-        build_file : build_file,
-        list_steps : list_steps,
-        dry_run : dry_run,
-        verbose : verbose,
-        summary : summary,
-        defines : defines
-      ),
-      io,
-      exn
-    ),
-    IoExn(io : io, exn : exn)
+  opts := BuildOptions(
+    steps : steps,
+    c_compiler : c_compiler,
+    target_triple : target_triple,
+    sysroot : sysroot,
+    build_file : build_file,
+    list_steps : list_steps,
+    dry_run : dry_run,
+    verbose : verbose,
+    summary : summary,
+    defines : defines
   );
+  if(!(watch), {
+    io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
+    return(());
+  });
+  // `yo build --watch` (Phase C, plans/INCREMENTAL_COMPILATION.md): a thin
+  // loop — every round is a full `run_build`, and the Phase A inputs-sha256
+  // artifact cache makes unchanged artifacts a no-op. Evaluator state is NOT
+  // kept warm across rounds: artifacts compile in child processes anyway,
+  // and `run_compile`'s self-containment invariant (fresh ExprInfoTable per
+  // compile) is exactly what a warm parent would violate. A failing round
+  // does not exit the loop.
+  _first := _build_round_watch(opts, io);
+  watch_files := collect_check_files(String.from("."), ArrayList(String).new(), io, exn);
+  stats := HashMap(String, String).new();
+  watch_snapshot(watch_files, stats, io);
+  println(`build: watching ${watch_files.len().to_string()} file(s), polling every ${poll_ms.to_string()}ms — Ctrl-C to exit`);
+  while(true, {
+    changed := wait_for_change(watch_files, stats, poll_ms, io);
+    println(`build: ${changed.len().to_string()} file(s) changed — rebuilding`);
+    _ok := _build_round_watch(opts, io);
+    ()
+  });
 });
 /// Parse `yo doc [path] [options]` argv and run the doc command. Flag
 /// surface mirrors the yargs definition in `src/yo-cli.ts` ("doc [path]"):
@@ -2929,7 +3703,7 @@ run_version_cmd :: (
           exn.throw(dyn(`Error: Yo version ${version_to_pin} is not available. Run \`yo version list --remote\` to see the published releases.`));
         });
       });
-      io.await(write_file(Path.new(`${version_cwd}/.yo-version`), `${version_to_pin}\n`, io), IoExn(io : io, exn : exn));
+      io.await(write_string(Path.new(`${version_cwd}/.yo-version`), `${version_to_pin}\n`, io), IoExn(io : io, exn : exn));
       println(`Pinned Yo version to ${version_to_pin} in .yo-version`);
     },
     (action == "install") => {
@@ -3019,12 +3793,15 @@ yo compile <file> [options]      Compile a '.yo' file
 Examples:
   $ yo compile main.yo -o app
   $ yo compile main.yo -cc clang -o app
-  $ yo compile main.yo --target x86_64-linux-gnu -o app
+  $ yo compile main.yo --target x86_64-unknown-linux-gnu -o app
   $ yo compile main.yo -l m -o app
   $ yo compile main.yo -I./include -L./lib -l mylib -o app
-  $ yo compile main.yo --release -D NDEBUG -o app
+  $ yo compile main.yo --optimize 2 -D NDEBUG -o app
   $ yo compile main.yo -g -o app_debug
-  $ yo compile main.yo --release -s --cflags='-march=native' -o app
+  $ yo compile main.yo --optimize 2 -s --cflags='-march=native' -o app
+  $ yo compile main.yo --optimize 2 --emit-chunks 16 -o app
+                                 Split the emitted C into 16 translation units
+                                 (opt-in; implies -flto=thin, --no-chunk-lto opts out)
 
 yo build [steps] [options]       Build project using build.yo
 Examples:
@@ -3082,15 +3859,293 @@ Examples:
   $ yo version clean               Remove all cached versions
 
 yo --help                        Show this help message
+yo <subcommand> --help           Show help for a subcommand
 yo --version                     Show version number`
   );
   h
 });
+/// Per-subcommand help text (`yo <subcommand> --help`). Returns `.None` for
+/// an unknown subcommand (the caller falls back to the top-level usage).
+_subcommand_help_text :: (fn(subcmd : String) -> Option(String))(
+  cond(
+    (subcmd == "compile") => Option(String).Some(
+      `Usage: yo compile <file.yo> [options]
+
+Compile a '.yo' source file to a native executable (via C11).
+
+Options:
+  -o <path>                 Output binary path
+  --optimize <level>        C optimization level (0|1|2|3); default is -O0.
+                            Use 2 for real builds. Any level above 0 also
+                            enables the ThinLTO pairing that --emit-chunks
+                            requires.
+  -g, --debug-symbols       Emit debug symbols
+  -s, --strip               Strip the output binary
+  --cc, --c-compiler <cc>   C compiler to use (clang|gcc|zig|emcc)
+  -t, --target <triple>     Cross-compile target (e.g. x86_64-unknown-linux-gnu, wasm32-wasip1)
+  --sysroot <dir>           Sysroot for cross-compilation
+  --cflags '<flags>'        Extra flags passed to the C compiler
+  -D, --define <N[=V]>      Preprocessor define for the C compile
+  -I <dir> / -L <dir>       Include / library search path
+  -l <name>                 Link a library
+  --extern <spec>           Extern library spec (pkg-config integration)
+  --static                  Static link
+  --static-library          Build a static library instead of an executable
+  --sanitize <kind>         Sanitizer (address|thread|undefined)
+  --disable-sanitize        Drop sanitizer flags added by defaults
+  --allocator <name>        Allocator (system|mimalloc)
+  --emit-c                  Print the generated C to stdout and stop
+  --emit-c-to <path>        Write the generated C to a file and stop
+  --skip-c-compiler         Generate C but skip the C compile
+  --skip-codegen            Evaluate only (no C generation)
+  --emit-chunks <n>         Split emitted C into n translation units (implies -flto=thin)
+  --no-chunk-lto            Opt out of ThinLTO for chunked builds
+  --jobs <n>                Parallel C compiles for chunked builds
+  --compile-timeout-ms <ms> C compiler timeout
+  --emcc-environment <env>  Emscripten environment (node|web)
+  --debug-gc / --debug-async-await / --debug-parallelism
+                            Runtime debug logging in the emitted binary
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo compile main.yo -o app
+  $ yo compile main.yo --optimize 2 --target x86_64-unknown-linux-gnu -o app
+  $ yo compile main.yo --emit-c --skip-c-compiler --optimize 2`
+    ),
+    (subcmd == "build") => Option(String).Some(
+      `Usage: yo build [steps...] [options]
+
+Build the project described by build.yo (default step: install).
+
+Options:
+  --list-steps              Show the available build steps
+  --summary                 Print the build summary tree
+  --dry-run                 Resolve the build graph without running it
+  --build-file <path>       Use an alternate build.yo
+  --cc, --c-compiler <cc>   C compiler to use
+  -t, --target <triple>     Cross-compile target
+  --sysroot <dir>           Sysroot for cross-compilation
+  -D<name>=<value>          Pass an option to build.yo
+  --watch                   Rebuild on source changes
+  --poll-ms <ms>            Watch poll interval
+  -v, --verbose             Verbose output
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo build                Build all artifacts
+  $ yo build run            Build and run the application
+  $ yo build test           Run the test suite
+  $ yo build -Dstrip=true   Pass a build option`
+    ),
+    (subcmd == "test") => Option(String).Some(
+      `Usage: yo test [path] [options]
+
+Run *.test.yo files (a file, a directory tree, or the whole workspace).
+
+Options:
+  -b, --bail                Stop after the first failure
+  -v, --verbose             Show detailed output and errors
+  --test-name-pattern <s>   Run only tests whose name contains <s>
+  --exclude <path>          Exclude a directory/file (repeatable)
+  -p, --parallel <n>        Accepted for compatibility (v1 runs sequentially)
+  --test-batch-size <n>     Tests per generated C batch (default 100)
+  --cc, --c-compiler <cc>   C compiler for test binaries
+  --target <triple>         Run tests for a cross target (e.g. wasm32-wasip1)
+  --disable-sanitize        Skip AddressSanitizer linkage
+  -k, --keep-generated-files  Keep generated batch files
+  --profile                 Print per-phase timing
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo test                       All tests in the workspace
+  $ yo test ./tests --bail
+  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"`
+    ),
+    (subcmd == "check") => Option(String).Some(
+      `Usage: yo check <file-or-dir> [options]
+
+Type-check .yo files with the evaluator only (no C generation). Note the
+async state-machine restrictions are enforced in codegen, so check passes
+over them — use 'yo compile --skip-c-compiler' to catch that class.
+
+Options:
+  --exclude <path>          Exclude a directory/file (repeatable)
+  --watch                   Re-check on source changes
+  --watch-once              One watch iteration (for scripting)
+  --poll-ms <ms>            Watch poll interval
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo check ./src
+  $ yo check ./std --exclude std/libc`
+    ),
+    (subcmd == "fmt") => Option(String).Some(
+      `Usage: yo fmt [paths...] [options]
+
+Format Yo source files in place.
+
+Options:
+  --check                   Report unformatted files without writing (rc=1 if any)
+
+Examples:
+  $ yo fmt                  Format all .yo files under the current directory
+  $ yo fmt src tests
+  $ yo fmt --check ./src ./std ./tests`
+    ),
+    (subcmd == "doc") => Option(String).Some(
+      `Usage: yo doc [path] [options]
+
+Generate API documentation for .yo files.
+
+Options:
+  -o, --output <dir>        Output directory (default: ./yo-out/doc)
+  -f, --format <fmt>        Output format (html|json, default html)
+  --title <s>               Documentation site title
+  --document-private        Include underscore-private items
+  -v, --verbose             Verbose output
+  --std-path <dir>          Override the std library directory
+
+Examples:
+  $ yo doc ./std
+  $ yo doc ./src/main.yo -o docs --format json`
+    ),
+    (subcmd == "init") => Option(String).Some(
+      `Usage: yo init [dir] [options]
+
+Initialize a new Yo project (build.yo, src/, .gitignore).
+
+Options:
+  --name <s>                Project name (default: directory name)
+
+Examples:
+  $ yo init
+  $ yo init my-project --name my-project`
+    ),
+    (subcmd == "fetch") => Option(String).Some(
+      `Usage: yo fetch [options]
+
+Fetch the git dependencies declared in build.yo into the global cache and
+write yo.lock (stale lock entries are pruned automatically).
+
+Options:
+  -u, --update              Re-resolve refs to the latest commits
+  -v, --verbose             Show detailed fetch progress
+  --build-file <path>       Use an alternate build.yo
+
+Examples:
+  $ yo fetch
+  $ yo fetch --update`
+    ),
+    (subcmd == "install") => Option(String).Some(
+      `Usage: yo install <package> [options]
+
+Add a dependency to build.yo and fetch it. Accepts GitHub shorthands,
+pinned versions, and local paths.
+
+Options:
+  -v, --verbose             Show detailed progress
+  --build-file <path>       Use an alternate build.yo
+
+Examples:
+  $ yo install user/repo               Latest semver tag from GitHub
+  $ yo install user/repo@v1.0.0        Pinned version
+  $ yo install github.com/user/repo    Full form
+  $ yo install ./path/to/dep           Local path dependency`
+    ),
+    (subcmd == "cache") => Option(String).Some(
+      `Usage: yo cache <action>
+
+Manage the global dependency cache (~/.cache/yo/deps).
+
+Actions:
+  path                      Print the global cache directory
+  clean                     Remove all cached dependencies
+
+Examples:
+  $ yo cache path
+  $ yo cache clean`
+    ),
+    (subcmd == "version") => Option(String).Some(
+      `Usage: yo version [action] [options]
+
+Show or manage Yo toolchain versions. With no action, prints the current
+version and the project's .yo-version pin (if any).
+
+Actions:
+  pin [version]             Pin the project to a version via .yo-version
+                            (defaults to the current version; a named version
+                            is validated against the published releases)
+  install <version>         Pre-download a version into the version cache
+  list                      List cached versions
+  list --remote             List published releases (GitHub Releases);
+                            marks (current) and (cached)
+  clean [version]           Remove one cached version, or all of them
+
+Options:
+  --remote                  With 'list': query the published releases
+
+Examples:
+  $ yo version
+  $ yo version pin 0.2.16
+  $ yo version list --remote
+  $ yo version install 0.2.16
+  $ yo version clean 0.2.14`
+    ),
+    (subcmd == "lsp") => Option(String).Some(
+      `Usage: yo lsp
+
+Run the Yo language server on stdio (diagnostics, hover, definition,
+symbols, references, folding, rename, formatting, signature help,
+completion). Used by editor clients such as the VS Code extension.`
+    ),
+    (subcmd == "unsafe-report") => Option(String).Some(
+      `Usage: yo unsafe-report [path] [options]
+
+Scan for unsafe(...) sites and report them with their // SAFETY: comments.
+
+Options:
+  --json                    Machine-readable output
+
+Example:
+  $ yo unsafe-report ./std`
+    ),
+    (subcmd == "public-safe-report") => Option(String).Some(
+      `Usage: yo public-safe-report [path] [options]
+
+Report public top-level fn(...) declarations that leak raw pointers
+(the stdlib public-boundary rule).
+
+Options:
+  --json                    Machine-readable output
+
+Example:
+  $ yo public-safe-report ./std`
+    ),
+    true => Option(String).None
+  )
+);
 main :: (fn(io : Io) -> unit)({
   exn := Exception(
     throw : (
       (err) -> {
-        eprintln(`yo: error: ${err.to_string()}`);
+        // A structured YoError renders itself (severity header + --> anchor)
+        // — print it bare. Anything else keeps the yo: error: wrapper,
+        // unless it is a rendered diagnostic rethrown as a string (compile's
+        // eval-failure rethrow) — no doubled prefixes (P1, D4).
+        match(
+          downcast(err, YoError),
+          .Some(ye) => {
+            eprintln(ye.to_string());
+          },
+          .None => {
+            text := err.to_string();
+            if(text.starts_with(String.from("error: ")), {
+              eprintln(text);
+            }, {
+              eprintln(`yo: error: ${text}`);
+            });
+          }
+        );
         unsafe(exit(int(1)));
         unwind();
       }
@@ -3141,6 +4196,32 @@ main :: (fn(io : Io) -> unit)({
     unsafe(exit(int(1)));
   });
   subcmd := argv(usize(1));
+  // Per-subcommand `--help` / `-h`: answered LOCALLY, before the .yo-version
+  // pre-dispatch (help must not require a cached binary or a network). The
+  // scan stops at `--` so pass-through arguments (e.g. a program's own
+  // --help after `--`) are never intercepted. Unknown subcommands fall back
+  // to the top-level usage text.
+  (help_wanted : bool) = false;
+  (help_i : usize) = usize(2);
+  while((help_i < argv.len()) && !(help_wanted), {
+    help_a := argv(help_i);
+    if(help_a == "--", {
+      help_i = argv.len();
+    }, {
+      if((help_a == "--help") || (help_a == "-h"), {
+        help_wanted = true;
+      });
+      help_i = (help_i + usize(1));
+    });
+  });
+  if(help_wanted, {
+    match(
+      _subcommand_help_text(subcmd),
+      .Some(t) => println(t),
+      .None => println(_top_level_help_text())
+    );
+    return(());
+  });
   // .yo-version PRE-DISPATCH (src/yo-cli.ts:118-195 parity): before any
   // subcommand runs, a project pinning a DIFFERENT version re-dispatches to
   // that version's cached native binary. Skipped for `version` itself, for
@@ -3176,7 +4257,9 @@ main :: (fn(io : Io) -> unit)({
       .None => ()
     );
   });
-  if(subcmd == "compile", {
+  if(subcmd == "lsp", {
+    run_lsp_server(io, exn);
+  }, if(subcmd == "compile", {
     run_compile(argv, io, exn);
   }, if(subcmd == "test", {
     run_test(argv, io, exn);
@@ -3203,7 +4286,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "version", {
     run_version_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|unsafe-report|public-safe-report> ...`));
-  })))))))))))));
+    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report> ...`));
+  }))))))))))))));
 });
 export(main);

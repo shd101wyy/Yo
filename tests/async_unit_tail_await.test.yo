@@ -1,0 +1,102 @@
+//! Regression
+//! (issues/fixed/unit-tail-await-of-trait-default-reads-missing-await-result.md):
+//! an `io.async` body that IS a tail await of an effectively-unit future —
+//! unit reached through a where-bound trait default, i.e. an unresolved SomeT
+//! — emitted `sm->await_result_N;` in the completion segment while the state
+//! struct (correctly) never declares that field for unit results, so clang
+//! failed with "no member named 'await_result_0'". Fixed by giving the
+//! completion-segment substitution the same effectively-unit guard the struct
+//! allocator and the extraction already had.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ IoExn, Exception } :: import("std/error");
+
+Sink :: trait(
+  put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn))),
+  (put_all : (fn(self : Self, v : u8, io : Io) -> Impl(Future(unit, IoExn)))) ?=
+    (
+      (self, v, io) ->
+        io.async(e => {
+          n := e.io.await(Self.put(self, v, io), e);
+          assert(n == usize(1), "one put");
+          ()
+        })
+    )
+);
+Tally :: ref(struct(count : u8));
+impl(
+  Tally,
+  Sink(
+    put : (fn(self : Self, v : u8, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async(e => {
+        self.count = (self.count + v);
+        usize(1)
+      })
+    )
+  )
+);
+// THE pre-fix failing shape: the closure body IS the tail await of the unit
+// default, reached through a where bound (unresolved-SomeT result type).
+put_all_generic :: (
+  fn(generic(S : Type), s : S, v : u8, io : Io, where(S <: Sink)) -> Impl(Future(unit, IoExn))
+)(
+  io.async(e => e.io.await(s.put_all(v, io), e))
+);
+// Concrete control: a REAL-unit tail await always worked — pin that the fix
+// did not disturb it. The closure params are ANNOTATED (`(io2 : Io)`) on
+// purpose: a BARE `e =>` param leaves the effect bundle unbound at the
+// def-time trial, so `e.io.await` cannot resolve there — that body used to
+// be silently swallowed and the future compiled to a runs-nothing stub
+// (caught by the async poison gate; see
+// issues/io-async-bare-e-closure-body-never-evaluates.md).
+inner_unit :: (fn(io : Io) -> Impl(Future(unit)))(
+  io.async((io2 : Io) => ())
+);
+outer_unit :: (fn(io : Io) -> Impl(Future(unit)))(
+  io.async((io2 : Io) => io2.await(inner_unit(io), io2))
+);
+test("generic tail await of a unit trait default compiles and runs", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  t := Tally(count : u8(0));
+  io.await(put_all_generic(t, u8(5), io), t_e);
+  io.await(put_all_generic(t, u8(7), io), t_e);
+  assert(t.count == u8(12), "both puts landed");
+});
+test("concrete unit tail await control still works", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  io.await(outer_unit(io), t_e);
+  assert(true, "completed");
+});
+// The bare-(e) form (issues/io-async-bare-e-closure-body-never-evaluates.md):
+// an UNANNOTATED closure param with a bundle-style `e.io.await(...)` body.
+// The `.io` projection on a bare `Io` receiver is identity, so the body
+// evaluates at def time and the future actually RUNS it — before the root
+// fix this shape compiled to a runs-nothing future (silently, pre-#390) or
+// was rejected by the poison gate (post-#390). The awaited VALUE proves the
+// body executed end to end.
+test("bare-e closure with e.io.await body runs", {
+  inner7 :: (fn(io : Io) -> Impl(Future(i32)))(
+    io.async((io2 : Io) => i32(7))
+  );
+  outer7 :: (fn(io : Io) -> Impl(Future(i32)))(
+    io.async(e => e.io.await(inner7(io), e.io))
+  );
+  v := io.await(outer7(io), io);
+  assert(v == i32(7), "the bare-e closure body must actually run");
+});

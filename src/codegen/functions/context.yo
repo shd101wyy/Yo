@@ -120,7 +120,7 @@ merge_cond_branch_post_while_exprs :: (
     existing,
     .None => incoming,
     .Some(ex) => {
-      guards_disagree := ((!(ex.branch_index == incoming.branch_index)) || (!(ex.cond_branch_field_index == incoming.cond_branch_field_index)));
+      guards_disagree := (!(ex.branch_index == incoming.branch_index) || !(ex.cond_branch_field_index == incoming.cond_branch_field_index));
       merged_exprs := ArrayList(AstExpr).new();
       (i : usize) = usize(0);
       while(i < ex.exprs.len(), {
@@ -189,7 +189,7 @@ merge_cond_branch_post_while_exprs :: (
           (merged_drops.len() > usize(0)) => Option(ArrayList(AstExpr)).Some(merged_drops),
           true => Option(ArrayList(AstExpr)).None
         ),
-        skip_cond_branch_check : Option(bool).Some((ex_skip || in_skip) || guards_disagree)
+        skip_cond_branch_check : Option(bool).Some(ex_skip || in_skip || guards_disagree)
       )
     }
   )
@@ -223,7 +223,14 @@ CondBranch :: ref(
     /// — every other arm's binding was left unassigned and read a
     /// zero-initialised field. Recorded per branch and assigned inside that
     /// branch's `case`. See issues/fixed/async-await-in-nested-match-arms.md.
-    await_target_variable_id : Option(String)
+    await_target_variable_id : Option(String),
+    /// THIS branch's own `io.await` call exprs, in source order. A shared cond
+    /// await point stands in for one await per awaiting branch, and those can
+    /// await futures of different C types or named vs anonymous futures — the
+    /// dispatch-mode emitters access each branch's future through its own
+    /// exact shape instead of the representative's. See
+    /// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
+    await_exprs : Option(ArrayList(AstExpr))
   )
 );
 /// A chained cond/match continuation: an outer cond's remaining code that shares
@@ -455,7 +462,7 @@ resolve_var_name_in_context :: (
       (found : bool) = false;
       key_iter := vars.keys();
       (more : bool) = true;
-      while(more && !(found), {
+      while(more && !found, {
         match(
           key_iter.next(),
           .None => {

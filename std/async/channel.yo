@@ -1,0 +1,144 @@
+//! Async (event-loop) channel — deliver values BETWEEN TASKS on one thread's
+//! event loop without parking it (`plans/STD_API_AUDIT.md` §7 P0 item 6 /
+//! D7). `std/sync/channel`'s blocking `recv()` inside a future parks the
+//! entire single-threaded loop — every task, including the sender that would
+//! have unblocked it. This channel's `send`/`recv` are futures instead: the
+//! waiting task suspends and the loop keeps running.
+//!
+//! NOT thread-safe — same-thread tasks only (no `Send` bound, no atomics, by
+//! design: Yo's async runtime is per-thread). Across OS threads use
+//! `std/sync/channel`.
+//!
+//! A blocked `send`/`recv` re-checks on a 1ms timer tick (the millisecond
+//! granularity of the timer contract), so cross-task handoff latency is up
+//! to 1ms when the channel has to wait; the fast path (space/data already
+//! available) never suspends.
+//!
+//! ```rust
+//! { Channel } :: import "std/async/channel";
+//! ch := Channel(i32).new(usize(8));
+//! producer := io.spawn(io.async((io : Io) => {
+//!   _s := io.await(ch.send(i32(42), io), io);
+//!   return(());
+//! }), io);
+//! v := io.await(ch.recv(io), io); // .Some(42)
+//! ```
+{ ArrayList } :: import("../collections/array_list");
+{ assert } :: import("../assert");
+IO_timer :: import("../sys/timer");
+
+/// A bounded FIFO channel for same-thread async tasks.
+Channel :: (fn(comptime(T) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      _buf : ArrayList(T),
+      _capacity : usize,
+      _closed : bool
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  Channel(T),
+  /// A channel holding at most `capacity` buffered values (must be > 0).
+  new : (fn(capacity : usize) -> Self)({
+    assert(capacity > usize(0), "Channel.new: capacity must be > 0");
+    Self(_buf : ArrayList(T).new(), _capacity : capacity, _closed : false)
+  }),
+  /// Send a value, suspending while the buffer is full. Resolves to
+  /// `.Ok(())` once buffered, or `.Err(value)` if the channel is (or
+  /// becomes) closed — the failed value is handed back.
+  send : (fn(self : Self, value : T, io : Io) -> Impl(Future(Result(unit, T))))(
+    io.async((io : Io) => {
+      (waiting : bool) = true;
+      while(waiting, {
+        cond(
+          self._closed => {
+            waiting = false;
+          },
+          (self._buf.len() < self._capacity) => {
+            waiting = false;
+          },
+          true => ()
+        );
+        if(waiting, {
+          io.await(IO_timer.sleep(u64(1)), io);
+        });
+      });
+      cond(
+        self._closed => return(Result(unit, T).Err(value)),
+        true => {
+          // No suspension between the capacity check and this push, so no
+          // other task can interleave (single-threaded cooperative loop).
+          self._buf.push(value);
+          return(Result(unit, T).Ok(()));
+        }
+      );
+    })
+  ),
+  /// Receive the oldest value, suspending while the channel is empty.
+  /// Resolves to `.None` once the channel is closed AND drained.
+  recv : (fn(self : Self, io : Io) -> Impl(Future(Option(T))))(
+    io.async((io : Io) => {
+      (waiting : bool) = true;
+      while(waiting, {
+        cond(
+          (self._buf.len() > usize(0)) => {
+            waiting = false;
+          },
+          self._closed => {
+            waiting = false;
+          },
+          true => ()
+        );
+        if(waiting, {
+          io.await(IO_timer.sleep(u64(1)), io);
+        });
+      });
+      cond(
+        (self._buf.len() > usize(0)) => {
+          v := self._buf.remove(usize(0));
+          return(Option(T).Some(v));
+        },
+        true => return(Option(T).None)
+      );
+    })
+  ),
+  /// Try to send without suspending: `.Ok(())` if buffered, `.Err(value)`
+  /// if the channel is full or closed.
+  try_send : (fn(self : Self, value : T) -> Result(unit, T))(
+    cond(
+      self._closed => Result(unit, T).Err(value),
+      (self._buf.len() >= self._capacity) => Result(unit, T).Err(value),
+      true => {
+        self._buf.push(value);
+        Result(unit, T).Ok(())
+      }
+    )
+  ),
+  /// Try to receive without suspending: `.None` when the buffer is empty
+  /// (closed or not).
+  try_recv : (fn(self : Self) -> Option(T))(
+    cond(
+      (self._buf.len() > usize(0)) => {
+        v := self._buf.remove(usize(0));
+        Option(T).Some(v)
+      },
+      true => Option(T).None
+    )
+  ),
+  /// Close the channel: pending and future `send`s fail with `.Err`;
+  /// `recv` keeps draining buffered values, then resolves `.None`.
+  close : (fn(self : Self) -> unit)({
+    self._closed = true;
+  }),
+  /// True once `close()` has been called.
+  is_closed : (fn(self : Self) -> bool)(
+    self._closed
+  ),
+  /// Number of values currently buffered.
+  len : (fn(self : Self) -> usize)(
+    self._buf.len()
+  )
+);
+export(Channel);

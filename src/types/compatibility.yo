@@ -636,9 +636,9 @@ _compat_impl :: (
     // STRUCTURALLY (equal field labels + recursively-exact field types), with a
     // cycle guard. All yo-self structs carry an empty `name` (struct.yo sets
     // `""`), so name-only would treat ALL anonymous structs as equal — that
-    // caused a comptime-fn cache collision where `(?*)(Bucket(String,
+    // caused a comptime-fn cache collision where `(?*)(MapEntry(String,
     // ArrayList(ME)))` hit a cached `(?*)(ME)` entry (both name=""), collapsing
-    // HashMap's `data` field to `?*(ME)`. Structural exact comparison
+    // HashMap's `data` field to `?(*(ME))`. Structural exact comparison
     // distinguishes them (e.g. labels `[key, value]` vs `[name, kind]`).
     .Struct({ id : aid, name : aname, field_labels : alabels, field_types : atypes, is_reference_semantics : aref, is_atomic_rc : aatomic, is_newtype : anew, constructor_func_id : acfid, type_arguments : ata }) => match(
       expected,
@@ -663,6 +663,48 @@ _compat_impl :: (
         // treats a generic SomeT as compatible). See
         // issues/yo-self-recursive-enum-nested-member-shell.md.
         !(require_exact) => cond(
+          // Two instantiations of one constructor whose CONCRETE recorded type
+          // arguments disagree are different types even under the lenient rule — `Carrier(AErr)`
+          // was assignable to `Carrier(BErr)` through the equal-name fast
+          // accept below (issues/fixed/lenient-generic-enum-compatibility-by-name.md).
+          // A SomeT on either side of a position keeps it a wildcard (a
+          // def-time placeholder, an unresolved instantiation), so
+          // `Box(V)` vs `Box(i32)` is untouched; only two SomeT-free payloads
+          // that are not themselves non-exact-compatible disagree. The
+          // placeholder is NOT read through its resolution cell: cells are
+          // per-SomeT identity and can carry an EARLIER call's binding
+          // (a first cut did, and two eras of one iterator instantiation
+          // "disagreed"); substitution already rewrites an instantiation's
+          // payloads concretely where it can.
+          ({
+            (pay_differ : bool) = false;
+            pa := ata;
+            pe := eta;
+            // Cycle guard: a recursive instantiation (`Node(T)` holding
+            // `Node(T)`) re-enters this comparison through its own type
+            // arguments — an already-open pair is not a disagreement.
+            vkey_pay := ((aid + String.from("=>pay")) + eid);
+            if(((pa.len() > usize(0)) && (pa.len() == pe.len())) && !(_visited_contains(visited, vkey_pay)), {
+              visited.push(vkey_pay);
+              (pi : usize) = usize(0);
+              while((pi < pa.len()) && !(pay_differ), {
+                pat := match(pa.get(pi), .Some(v) => v, .None => TypeValue.Unit);
+                pet := match(pe.get(pi), .Some(v) => v, .None => TypeValue.Unit);
+                // A `Type` kind marker in an argument slot is a comptime
+                // VALUE binder's bookkeeping (recorded as `Type` in one era
+                // and `unit` in another — tests/iterator_combinators
+                // `__ii_sum`), never a payload type: skip the position.
+                pa_kind := (match(pat, .TypeUni(_) => true, _ => false) || match(pet, .TypeUni(_) => true, _ => false));
+                if(((!(pa_kind)) && !(type_contains_some_type(pat))) && !(type_contains_some_type(pet)), {
+                  if(!(recur(pat, pet, false, visited)), {
+                    pay_differ = true;
+                  });
+                });
+                pi = (pi + usize(1));
+              });
+            });
+            pay_differ
+          }) => false,
           (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))) => true,
           ((!(type_contains_some_type(actual)) && !(type_contains_some_type(expected))) && !((acfid.len() > usize(0)) && (acfid == ecfid))) => false,
           (alabels.len() != elabels.len()) => false,
@@ -851,7 +893,57 @@ _compat_impl :: (
         // (resolve_enum_shell), so the shell-identity case the id compare
         // once served compares structurally on the finalized forms.
         .EnumT(eid, ename, evns, evfs, _, evls, _, _, _) => cond(
-          !(require_exact) => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0))),
+          // Lenient mode: equal (or empty) names, EXCEPT when the variant
+          // payloads disagree concretely — `Result(i32, AErr)` and
+          // `Result(i32, BErr)` are both "Result" but carry different error
+          // enums (issues/fixed/lenient-generic-enum-compatibility-by-name.md).
+          // SomeT-bearing positions stay wildcards; variant lists of different
+          // length are left to the old rule (an empty-name reconstruction may
+          // be partial).
+          !(require_exact) => cond(
+            ({
+              (vp_differ : bool) = false;
+              vkey_vp := ((aid + String.from("=>vp")) + eid);
+              if((avns.len() == evns.len()) && !(_visited_contains(visited, vkey_vp)), {
+                visited.push(vkey_vp);
+                (vpi : usize) = usize(0);
+                while((vpi < avfs.len()) && !(vp_differ), {
+                  vafl := match(avfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+                  vefl := match(evfs.get(vpi), .Some(v) => v, .None => ArrayList(TypeValue).new());
+                  if(vafl.len() == vefl.len(), {
+                    (vfi : usize) = usize(0);
+                    while((vfi < vafl.len()) && !(vp_differ), {
+                      vat := match(vafl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
+                      vet := match(vefl.get(vfi), .Some(v) => v, .None => TypeValue.Unit);
+                      va_kind := (match(vat, .TypeUni(_) => true, _ => false) || match(vet, .TypeUni(_) => true, _ => false));
+                      if(((!(va_kind)) && !(type_contains_some_type(vat))) && !(type_contains_some_type(vet)), {
+                        if(!(recur(vat, vet, false, visited)), {
+                          vp_differ = true;
+                        });
+                      });
+                      vfi = (vfi + usize(1));
+                    });
+                  });
+                  vpi = (vpi + usize(1));
+                });
+              });
+              vp_differ
+            }) => false,
+            true => (((aname == ename) || (aname.len() == usize(0))) || (ename.len() == usize(0)))
+          ),
+          // Nominal REJECT (exact only): two DECLARED enums with different
+          // names are different types however alike their variants are. The
+          // name is stamped by the `Name :: enum(...)` binding
+          // (initialization_assignment.yo), so re-registered eras of ONE
+          // declaration still share it and keep converging structurally,
+          // and generic instantiations (`Option(i32)`/`Option(String)`)
+          // share "Option" and are still told apart by the field compare
+          // below. Without this, `HashMapError` and `HashSetError` reduced
+          // to the same single variant became ONE type to the CTFE memo —
+          // `Result(unit, HashSetError)` was served the
+          // `Result(unit, HashMapError)` instance
+          // (issues/fixed/structurally-identical-error-enums-in-two-generic-impls-collide.md).
+          (((aname.len() > usize(0)) && (ename.len() > usize(0))) && (aname != ename)) => false,
           (avns.len() != evns.len()) => false,
           true => {
             vkey := ((aid + String.from("=>")) + eid);

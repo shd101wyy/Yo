@@ -17,7 +17,7 @@ fs_dir :: import("std/fs/dir");
 test("TempDir.new creates a directory", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -35,12 +35,12 @@ test("TempDir.new creates a directory", {
   unsafe(printf("  removed ok\n"));
   // Verify removed
   e2 := io.await(fs_file.exists(td.path(), io), io);
-  assert(!(e2), "temp dir should not exist after remove");
+  assert(!e2, "temp dir should not exist after remove");
 });
 test("TempDir.new_in creates in specified parent", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -58,7 +58,7 @@ test("TempDir.new_in creates in specified parent", {
 test("TempDir.remove is idempotent", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -76,7 +76,7 @@ test("TempDir.remove is idempotent", {
 test("TempFile.new creates a file", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -94,12 +94,12 @@ test("TempFile.new creates a file", {
   unsafe(printf("  removed ok\n"));
   // Verify removed
   e2 := io.await(fs_file.exists(tf.path(), io), io);
-  assert(!(e2), "temp file should not exist after remove");
+  assert(!e2, "temp file should not exist after remove");
 });
 test("TempFile.new_in creates in specified parent", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -117,7 +117,7 @@ test("TempFile.new_in creates in specified parent", {
 test("TempFile.file returns usable File", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -129,7 +129,7 @@ test("TempFile.file returns usable File", {
   n := io.await(f.write_string(`temp file content`, io), IoExn(io : io, exn : exn));
   unsafe(printf("  wrote %d bytes\n", n));
   // Read it back using the path
-  s := io.await(fs_file.read_string(tf.path(), io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(tf.path(), io), IoExn(io : io, exn : exn));
   unsafe(printf("  read: %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `temp file content`, "temp file content mismatch");
   io.await(tf.remove(io), IoExn(io : io, exn : exn));
@@ -137,7 +137,7 @@ test("TempFile.file returns usable File", {
 test("TempFile.remove is idempotent", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -148,4 +148,61 @@ test("TempFile.remove is idempotent", {
   // Second remove should succeed (no-op)
   io.await(tf.remove(io), IoExn(io : io, exn : exn));
   unsafe(printf("  second remove ok\n"));
+});
+// ============================================================================
+// Dispose (S0 C12, plans/STD_API_AUDIT.md §2): dropping a TempDir/TempFile
+// without calling remove() must clean it up best-effort.
+// ============================================================================
+test("TempDir Dispose removes the directory on drop", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  (p : Path) = Path.new(``);
+  {
+    td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+    p = td.path();
+    e := io.await(fs_file.exists(p, io), io);
+    assert(e, "temp dir exists while the TempDir is alive");
+  };
+  e2 := io.await(fs_file.exists(p, io), io);
+  assert(!e2, "temp dir is removed by Dispose on drop");
+});
+test("TempFile Dispose removes the file on drop", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  (p : Path) = Path.new(``);
+  {
+    tf := io.await(TempFile.new(io), IoExn(io : io, exn : exn));
+    p = tf.path();
+    e := io.await(fs_file.exists(p, io), io);
+    assert(e, "temp file exists while the TempFile is alive");
+  };
+  e2 := io.await(fs_file.exists(p, io), io);
+  assert(!e2, "temp file is removed by Dispose on drop");
+});
+test("TempDir Dispose after remove is a no-op", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  {
+    td := io.await(TempDir.new(io), IoExn(io : io, exn : exn));
+    io.await(td.remove(io), IoExn(io : io, exn : exn));
+  };
+  unsafe(printf("  dispose-after-remove ok\n"));
 });

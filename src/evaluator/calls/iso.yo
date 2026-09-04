@@ -39,7 +39,7 @@ _struct_has_deref_field :: (fn(t : TypeValue) -> bool)(
     .Struct({ field_labels : fls }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
-      while((i < fls.len()) && !(found), {
+      while((i < fls.len()) && !found, {
         match(
           fls.get(i),
           .Some(l) => if(l == "*", {
@@ -78,9 +78,7 @@ evaluate_iso_type_call :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `evaluate_iso_type_call: expected FnCall expr`,
-            false,
-            .None
+            `evaluate_iso_type_call: expected FnCall expr`
           )
         )
       );
@@ -95,9 +93,7 @@ evaluate_iso_type_call :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `Iso requires exactly one argument`,
-            false,
-            .None
+            `Iso requires exactly one argument`
           )
         )
       );
@@ -111,9 +107,7 @@ evaluate_iso_type_call :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `Failed to evaluate the argument expression for Iso`,
-          false,
-          .None
+          `Failed to evaluate the argument expression for Iso`
         )
       )
     );
@@ -124,14 +118,12 @@ evaluate_iso_type_call :: (
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
   env.input_string = arg_info.env.input_string;
   // Check that the argument is a type value.
-  if(!(is_type_value(arg_info.value)), {
+  if(!is_type_value(arg_info.value), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `Iso expects a type as argument`,
-          false,
-          .None
+          `Iso expects a type as argument`
         )
       )
     );
@@ -155,9 +147,7 @@ evaluate_iso_type_call :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Iso(Arc(T)) is not allowed.\n  - To send an Arc handle across a thread, send the Arc directly — the spawn closure already consumes it. Iso adds nothing.\n  - If you want unique-owned heap data, use Iso(Box(T)) or Iso(...your struct...).`,
-          false,
-          .None
+          `Iso(Arc(T)) is not allowed.\n  - To send an Arc handle across a thread, send the Arc directly — the spawn closure already consumes it. Iso adds nothing.\n  - If you want unique-owned heap data, use Iso(Box(T)) or Iso(...your struct...).`
         )
       )
     );
@@ -266,9 +256,7 @@ evaluate_iso_value_call :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `Iso value constructor requires exactly one argument`,
-            false,
-            .None
+            `Iso value constructor requires exactly one argument`
           )
         )
       );
@@ -286,9 +274,7 @@ evaluate_iso_value_call :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `Failed to evaluate argument for Iso value constructor`,
-          false,
-          .None
+          `Failed to evaluate argument for Iso value constructor`
         )
       )
     );
@@ -313,9 +299,7 @@ evaluate_iso_value_call :: (
               dyn(
                 format_error_message(
                   ast_expr_token(arg_expr),
-                  `Variable ${var_name} not found in env.`,
-                  false,
-                  .None
+                  `Variable ${var_name} not found in env.`
                 )
               )
             );
@@ -328,22 +312,18 @@ evaluate_iso_value_call :: (
             dyn(
               format_error_message(
                 ast_expr_token(arg_expr),
-                `Cannot isolate variable ${var_name} because its type may form RC cycles.`,
-                false,
-                .None
+                `Cannot isolate variable ${var_name} because its type may form RC cycles.`
               )
             )
           );
         });
         // Check that the variable owns its RC value.
-        if(!(variable.is_owning_the_rc_value), {
+        if(!variable.is_owning_the_rc_value, {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(arg_expr),
-                `Cannot isolate variable ${var_name} because it does not own its RC value.`,
-                false,
-                .None
+                `Cannot isolate variable ${var_name} because it does not own its RC value.`
               )
             )
           );
@@ -359,9 +339,7 @@ evaluate_iso_value_call :: (
             dyn(
               format_error_message(
                 ast_expr_token(arg_expr),
-                `Cannot isolate ${var_name}, also owned by: ${alias_list}\nIso requires unique ownership (no aliases). Drop other aliases first.`,
-                false,
-                .None
+                `Cannot isolate ${var_name}, also owned by: ${alias_list}\nIso requires unique ownership (no aliases). Drop other aliases first.`
               )
             )
           );
@@ -371,9 +349,7 @@ evaluate_iso_value_call :: (
           dyn(
             format_error_message(
               ast_expr_token(arg_expr),
-              `Variable ${var_name} not found in the environment.`,
-              false,
-              .None
+              `Variable ${var_name} not found in the environment.`
             )
           )
         );

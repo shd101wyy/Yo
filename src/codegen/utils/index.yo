@@ -68,9 +68,18 @@ mark_uses_parallelism :: (fn() -> unit)({
   g_uses_parallelism = true;
 });
 get_uses_parallelism :: (fn() -> bool)(g_uses_parallelism);
+// TLS runtime flag (D6): set when any __yo_tls_ extern is called, read by
+// generate_async_runtime to emit the TLS backend only for programs that use
+// it. Same lifetime reasoning as g_uses_parallelism above.
+(g_uses_tls : bool) = false;
+mark_uses_tls :: (fn() -> unit)({
+  g_uses_tls = true;
+});
+get_uses_tls :: (fn() -> bool)(g_uses_tls);
 { ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, is_module_level_global, module_global_c_suffix, lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 {
   AstExpr,
+  BF_ADDRESS_OF,
   BF_UNSAFE,
   BF_DROP,
   BF_DUP,
@@ -144,6 +153,11 @@ DynImplEntry :: ref(
     trait_values : ArrayList(EvalValue)
   )
 );
+/// A byte range of the emitter's `code` buffer holding one complete emitted
+/// function (recorded AFTER its generate_function call returns — extents are
+/// final only then; see plans/CHUNKED_C_EMISSION.md "Ground truth"). Sliced
+/// post-emission by `assemble_chunks` into per-chunk translation units.
+ChunkRange :: ref(struct(c_name : String, start_b : usize, end_b : usize));
 /// The base C code generation context. See header above.
 CodeGenContext :: ref(
   struct(
@@ -206,6 +220,19 @@ CodeGenContext :: ref(
     /// ("redefinition of __yo_typeid___yo_tN" — the lexer batch). Shared by
     /// the typeid/downcast expression emitters and the Dyn vtable pass.
     type_id_static_names : HashSet(String),
+    /// C names of type BODIES the on-demand declare hook already emitted
+    /// (_on_demand_collect_and_declare, codegen_c.yo). The declaration passes
+    /// (types/generation.yo) SKIP these — one C name must have exactly one
+    /// definition, and a type first resolved lazily DURING a pass (e.g. a dyn
+    /// method's Future-trait return type minted while its vtable renders) is
+    /// emitted by the hook and would be re-emitted when the pass iteration
+    /// reaches it ("redefinition of __yo_tN_struct", the dyn batch). Populated
+    /// ONLY by the hook — the passes never mark — so on a tree where the hook
+    /// never fires before/during the passes the emitted C is byte-identical
+    /// (dedup must NOT change emission or interning order: a prior fix that
+    /// re-keyed emissions was retracted for renumbering the type table — see
+    /// issues/fixed/dyn-async-future-trait-body-emitted-twice.md).
+    on_demand_body_cnames : HashSet(String),
     /// __yo_dyn_box_* typedefs already emitted. Shared between the type-decl
     /// phase's box pass and the function phase's ctor pass: dyn impls register
     /// LAZILY (at use sites during body generation), so a box first seen by
@@ -253,7 +280,24 @@ CodeGenContext :: ref(
     // type maps to the FIRST registration's key (collect_type's stable-identity
     // dedup). Consulted by get_type_entry/get_type_c_name on a primary miss so
     // value sites keyed under either render resolve to ONE C type.
-    type_key_aliases : HashMap(String, String)
+    type_key_aliases : HashMap(String, String),
+    /// Chunked C emission (plans/CHUNKED_C_EMISSION.md, `--emit-chunks N`).
+    /// When true, emission records byte ranges + splits file-scope statics so
+    /// `assemble_chunks` can produce N linkable translation units. MUST stay
+    /// false by default: the single-file emission is gated byte-identical.
+    chunk_mode : bool,
+    /// Per-function `code`-buffer byte ranges (chunk_mode only), recorded
+    /// around each generate_function call in emission order.
+    chunk_fn_ranges : ArrayList(ChunkRange),
+    /// `code`-buffer byte ranges routed VERBATIM into the shared header
+    /// (chunk_mode only): the constructor/traverse block — per-TU `static`
+    /// copies, called from every chunk.
+    chunk_header_ranges : ArrayList(ChunkRange),
+    /// File-scope definitions for chunk 0 (chunk_mode only): the single-
+    /// definition side of split statics — typeid chars, dyn vtables, TLS
+    /// unwind/effect buffers, the argv shim, module-level vars. Their extern
+    /// declarations go to the declarations section (the shared header).
+    chunk_globals : String
   )
 );
 impl(
@@ -295,6 +339,7 @@ impl(
       inside_match : false,
       type_id_statics : HashMap(String, String).new(),
       type_id_static_names : HashSet(String).new(),
+      on_demand_body_cnames : HashSet(String).new(),
       dyn_box_typedefs : HashSet(String).new(),
       dyn_impls : HashMap(String, DynImplEntry).new(),
       current_module_id : Option(String).None,
@@ -304,9 +349,37 @@ impl(
       declared_c_var_names : HashSet(String).new(),
       declared_scopes : ArrayList(String).new(),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
-      type_key_aliases : HashMap(String, String).new()
+      type_key_aliases : HashMap(String, String).new(),
+      chunk_mode : false,
+      chunk_fn_ranges : ArrayList(ChunkRange).new(),
+      chunk_header_ranges : ArrayList(ChunkRange).new(),
+      chunk_globals : String.new()
     )
   ),
+  /// Emit a `__yo_typeid_*` static char whose ADDRESS is the runtime TypeId.
+  /// Chunked emission splits it — extern in the header, one definition in
+  /// chunk 0 — because per-TU copies would give the same type a different
+  /// address in every chunk (address identity IS the semantics). `comment` is
+  /// appended verbatim when non-empty (the dyn vtable pass labels its ids).
+  emit_typeid_static : (fn(self : Self, static_var_name : String, comment : String) -> unit)({
+    if(self.chunk_mode, {
+      decl := String.from("extern const char ");
+      decl.push_string(static_var_name.clone());
+      decl.push_str(";");
+      decl.push_string(comment.clone());
+      self.emitter.emit_declaration_string_line(decl);
+      def := String.from("const char ");
+      def.push_string(static_var_name);
+      def.push_str(" = 0;\n");
+      self.chunk_globals.push_string(def);
+    }, {
+      decl := String.from("static const char ");
+      decl.push_string(static_var_name);
+      decl.push_str(" = 0;");
+      decl.push_string(comment);
+      self.emitter.emit_declaration_string_line(decl);
+    });
+  }),
   /// Allocate (or reuse) the type-tag id for a dispose function's C name.
   /// Mirrors the disposeTypeIds get-or-assign in generateRefStructConstructorFunctions.
   dispose_type_id_for : (fn(self : Self, dispose_c_name : String) -> usize)(
@@ -316,7 +389,7 @@ impl(
       .None => {
         id := self.next_dispose_type_id;
         self.next_dispose_type_id = (id + usize(1));
-        _r := self.dispose_type_ids.set(dispose_c_name.clone(), id);
+        _r := self.dispose_type_ids.insert(dispose_c_name.clone(), id);
         id
       }
     )
@@ -325,14 +398,14 @@ impl(
   register_type : (
     fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
   )({
-    _r := self.types.set(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
+    _r := self.types.insert(id, CodegenTypeEntry(ty : ty, c_name : c_name, c_include : c_include));
     ()
   }),
   /// Alias an EVOLVED type_key render to an already-registered key (the
   /// stable-identity dedup in collect_type). One level only — the target is
   /// always a PRIMARY registered key.
   register_type_alias : (fn(self : Self, alias_id : String, target_id : String) -> unit)({
-    _r := self.type_key_aliases.set(alias_id, target_id);
+    _r := self.type_key_aliases.insert(alias_id, target_id);
     ()
   }),
   /// Look up a registered type entry by id (following one alias level).
@@ -370,10 +443,10 @@ impl(
     // Record first-registration order (insertion order) so codegen emits
     // functions deterministically, mirroring TS `for..in` semantics rather
     // than HashMap bucket order. Re-registration keeps the original position.
-    if(!(self.functions.contains_key(func_id.clone())), {
+    if(!self.functions.contains_key(func_id.clone()), {
       _o := self.function_order.push(func_id.clone());
     });
-    _r := self.functions.set(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
+    _r := self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
     ()
   }),
   /// True if a function with this func_id is already registered.
@@ -401,7 +474,7 @@ impl(
   has_function_with_c_name : (fn(self : Self, c_name : String) -> bool)({
     vals := self.functions.values();
     (found : bool) = false;
-    while(!(found), {
+    while(!found, {
       match(
         vals.next(),
         .Some(entry) => if(entry.c_name == c_name, {
@@ -414,26 +487,26 @@ impl(
   }),
   /// Record an exported function's label → func_id mapping (stable C name).
   set_exported_function_label : (fn(self : Self, func_id : String, label : String) -> unit)({
-    _r := self.exported_function_labels.set(func_id, label);
+    _r := self.exported_function_labels.insert(func_id, label);
     ()
   }),
   /// Register a dyn() usage (idempotent on key).
   register_dyn_impl : (fn(self : Self, key : String, entry : DynImplEntry) -> unit)({
-    _r := self.dyn_impls.set(key, entry);
+    _r := self.dyn_impls.insert(key, entry);
     ()
   }),
   /// Register an extern function.
   register_extern_function : (
     fn(self : Self, id : String, ty : TypeValue, c_name : String, c_include : Option(String)) -> unit
   )({
-    _r := self.extern_functions.set(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
+    _r := self.extern_functions.insert(id, CodegenExternFnEntry(ty : ty, c_name : c_name, c_include : c_include));
     ()
   }),
   /// Register an array struct type (idempotent).
   register_array_struct_type : (
     fn(self : Self, c_name : String, child_type : String, length : i64) -> unit
   )({
-    _r := self.array_struct_types.set(c_name, ArrayStructInfo(child_type : child_type, length : length));
+    _r := self.array_struct_types.insert(c_name, ArrayStructInfo(child_type : child_type, length : length));
     ()
   }),
   /// True if an array struct type with this C name is registered.
@@ -444,7 +517,7 @@ impl(
   register_iso_type : (
     fn(self : Self, c_name : String, child_type_c_name : String, iso_type : TypeValue) -> unit
   )({
-    _r := self.iso_types.set(
+    _r := self.iso_types.insert(
       c_name,
       IsoTypeInfo(
         child_type_c_name : child_type_c_name,
@@ -463,7 +536,7 @@ impl(
   ),
   /// Add a C include header.
   add_c_include : (fn(self : Self, include : String) -> unit)({
-    _r := self.c_includes.add(include);
+    _r := self.c_includes.insert(include);
     ()
   })
 );
@@ -496,7 +569,7 @@ get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeSt
           .Some(flags) => match(flags.get(fi), .Some(f) => f, .None => false),
           .None => false
         );
-        if(!(is_comptime), {
+        if(!is_comptime, {
           label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
           ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           result.push(RuntimeStructField(label : label, ty : ty));
@@ -513,59 +586,75 @@ get_runtime_struct_fields :: (fn(struct_type : TypeValue) -> ArrayList(RuntimeSt
 _build_c_reserved_words :: (fn() -> HashSet(String))({
   words := HashSet(String).new();
   // C keywords
-  _w0 := words.add(String.from("auto"));
-  _w1 := words.add(String.from("break"));
-  _w2 := words.add(String.from("case"));
-  _w3 := words.add(String.from("char"));
-  _w4 := words.add(String.from("const"));
-  _w5 := words.add(String.from("continue"));
-  _w6 := words.add(String.from("default"));
-  _w7 := words.add(String.from("do"));
-  _w8 := words.add(String.from("double"));
-  _w9 := words.add(String.from("else"));
-  _w10 := words.add(String.from("enum"));
-  _w11 := words.add(String.from("extern"));
-  _w12 := words.add(String.from("float"));
-  _w13 := words.add(String.from("for"));
-  _w14 := words.add(String.from("goto"));
-  _w15 := words.add(String.from("if"));
-  _w16 := words.add(String.from("inline"));
-  _w17 := words.add(String.from("int"));
-  _w18 := words.add(String.from("long"));
-  _w19 := words.add(String.from("register"));
-  _w20 := words.add(String.from("restrict"));
-  _w21 := words.add(String.from("return"));
-  _w22 := words.add(String.from("short"));
-  _w23 := words.add(String.from("signed"));
-  _w24 := words.add(String.from("sizeof"));
-  _w25 := words.add(String.from("static"));
-  _w26 := words.add(String.from("struct"));
-  _w27 := words.add(String.from("switch"));
-  _w28 := words.add(String.from("typedef"));
-  _w29 := words.add(String.from("union"));
-  _w30 := words.add(String.from("unsigned"));
-  _w31 := words.add(String.from("void"));
-  _w32 := words.add(String.from("volatile"));
-  _w33 := words.add(String.from("while"));
+  _w0 := words.insert(String.from("auto"));
+  _w1 := words.insert(String.from("break"));
+  _w2 := words.insert(String.from("case"));
+  _w3 := words.insert(String.from("char"));
+  _w4 := words.insert(String.from("const"));
+  _w5 := words.insert(String.from("continue"));
+  _w6 := words.insert(String.from("default"));
+  _w7 := words.insert(String.from("do"));
+  _w8 := words.insert(String.from("double"));
+  _w9 := words.insert(String.from("else"));
+  _w10 := words.insert(String.from("enum"));
+  _w11 := words.insert(String.from("extern"));
+  _w12 := words.insert(String.from("float"));
+  _w13 := words.insert(String.from("for"));
+  _w14 := words.insert(String.from("goto"));
+  _w15 := words.insert(String.from("if"));
+  _w16 := words.insert(String.from("inline"));
+  _w17 := words.insert(String.from("int"));
+  _w18 := words.insert(String.from("long"));
+  _w19 := words.insert(String.from("register"));
+  _w20 := words.insert(String.from("restrict"));
+  _w21 := words.insert(String.from("return"));
+  _w22 := words.insert(String.from("short"));
+  _w23 := words.insert(String.from("signed"));
+  _w24 := words.insert(String.from("sizeof"));
+  _w25 := words.insert(String.from("static"));
+  _w26 := words.insert(String.from("struct"));
+  _w27 := words.insert(String.from("switch"));
+  _w28 := words.insert(String.from("typedef"));
+  _w29 := words.insert(String.from("union"));
+  _w30 := words.insert(String.from("unsigned"));
+  _w31 := words.insert(String.from("void"));
+  _w32 := words.insert(String.from("volatile"));
+  _w33 := words.insert(String.from("while"));
   // C11 keywords
-  _w34 := words.add(String.from("_Alignas"));
-  _w35 := words.add(String.from("_Alignof"));
-  _w36 := words.add(String.from("_Atomic"));
-  _w37 := words.add(String.from("_Bool"));
-  _w38 := words.add(String.from("_Complex"));
-  _w39 := words.add(String.from("_Generic"));
-  _w40 := words.add(String.from("_Imaginary"));
-  _w41 := words.add(String.from("_Noreturn"));
-  _w42 := words.add(String.from("_Static_assert"));
-  _w43 := words.add(String.from("_Thread_local"));
+  _w34 := words.insert(String.from("_Alignas"));
+  _w35 := words.insert(String.from("_Alignof"));
+  _w36 := words.insert(String.from("_Atomic"));
+  _w37 := words.insert(String.from("_Bool"));
+  _w38 := words.insert(String.from("_Complex"));
+  _w39 := words.insert(String.from("_Generic"));
+  _w40 := words.insert(String.from("_Imaginary"));
+  _w41 := words.insert(String.from("_Noreturn"));
+  _w42 := words.insert(String.from("_Static_assert"));
+  _w43 := words.insert(String.from("_Thread_local"));
   // Common standard library macros that expand to complex expressions
-  _w44 := words.add(String.from("errno"));
-  _w45 := words.add(String.from("stdin"));
-  _w46 := words.add(String.from("stdout"));
-  _w47 := words.add(String.from("stderr"));
-  _w48 := words.add(String.from("NULL"));
-  _w49 := words.add(String.from("true"));
-  _w50 := words.add(String.from("false"));
+  _w44 := words.insert(String.from("errno"));
+  _w45 := words.insert(String.from("stdin"));
+  _w46 := words.insert(String.from("stdout"));
+  _w47 := words.insert(String.from("stderr"));
+  _w48 := words.insert(String.from("NULL"));
+  _w49 := words.insert(String.from("true"));
+  _w50 := words.insert(String.from("false"));
+  // Legacy Windows macros: windef.h defines these to NOTHING, so a user
+  // local named `near` emitted verbatim became `if ()` in the windows
+  // cross-emit (PR #218's windows leg;
+  // issues/fixed/emitted-c-locals-collide-with-windows-macros.md). The
+  // extern-C escape hatch in sanitize_for_c_identifier still lets real C
+  // symbols keep their names.
+  _w51 := words.insert(String.from("near"));
+  _w52 := words.insert(String.from("far"));
+  _w53 := words.insert(String.from("pascal"));
+  _w54 := words.insert(String.from("cdecl"));
+  _w55 := words.insert(String.from("IN"));
+  _w56 := words.insert(String.from("OUT"));
+  _w57 := words.insert(String.from("OPTIONAL"));
+  _w58 := words.insert(String.from("interface"));
+  _w59 := words.insert(String.from("small"));
+  _w60 := words.insert(String.from("hyper"));
   words
 });
 _c_reserved_words := _build_c_reserved_words();
@@ -602,7 +691,7 @@ sanitize_for_c_identifier :: (fn(s : String, is_extern_c : bool) -> String)({
     });
     i = (i + usize(1));
   });
-  if(!(is_extern_c) && _c_reserved_words.contains(sanitized), {
+  if(!is_extern_c && _c_reserved_words.contains(sanitized), {
     prefixed := String.from("__yo_c_reserved_");
     prefixed.push_string(sanitized);
     return(prefixed);
@@ -643,38 +732,146 @@ _unwrap_unsafe :: (fn(e : AstExpr) -> AstExpr)(
     )
   )
 );
+/// Local helper: is substituting the CALLER's argument codes for this body
+/// call's own arguments sound?
+///
+/// Every consumer of `is_function_value_with_only_builtin_yo_inline_function_call`
+/// ELIDES the wrapper function and emits the builtin at the call site with the
+/// caller's already-generated argument codes (`other_fn_call.yo`, `ptr_fns.yo`,
+/// `generation.yo`; `declarations.yo` then skips emitting the definition). The
+/// emitters in `inline_fns.yo` read `_a(args, 0)` / `_a(args, 1)` — those are the
+/// CALL SITE's arguments. The body's own argument list never reaches them.
+///
+/// So a wrapper is transparent exactly when its PARAMETERS, in order, are what
+/// the builtin's value slots should receive. Checking the callee NAME alone —
+/// which is all this predicate used to do — silently miscompiled every wrapper
+/// that computed anything:
+///
+///     half_sleep :: (fn(ms : usize) -> unit)(__yo_ms_sleep(ms / usize(2)));
+///
+/// emitted `usleep((<caller's ms>) * 1000)` — the `/ usize(2)` discarded, no
+/// diagnostic from check, codegen or clang. See
+/// issues/fixed/inline-builtin-alias-drops-body-arguments.md.
+///
+/// The rule, derived from the four non-identity aliases that actually exist in
+/// the tree (all in `std/prelude.yo`, all deliberate) rather than from first
+/// principles:
+///
+///   `(self, idx) -> __yo_array_index(&(self), idx)`                   :5679
+///   `()          -> __yo_maybe_uninit_new(Self)`                      :8019
+///   `(self)      -> __yo_maybe_uninit_as_ptr(Self, BaseType, &(self))`:8021
+///   `(self)      -> __yo_maybe_uninit_assume_init(Self, BaseType, self)`:8025
+///
+/// 1. Unwrap `&(x)` and `unsafe(x)` — both are transparent at the C level for
+///    these builtins' operands.
+/// 2. DROP any bare identifier that names no parameter. Those are the TYPE
+///    arguments above (`Self`, `BaseType`); the emitters take their type
+///    information from the expression's `ExprInfo`, never from these.
+/// 3. What remains must be exactly the parameter list, in order. A COMPUTED
+///    argument survives step 1, is not an identifier, and so fails here — that
+///    is the discarded-computation case. Reordering (`(a, b) -> sub(b, a)`)
+///    fails too.
+///
+/// Known imprecision, deliberate: a bare identifier that is a GLOBAL rather
+/// than a parameter is dropped by step 2 as if it were a type argument. No such
+/// alias exists in the tree, and one would fail LOUDLY rather than silently —
+/// the emitter would render an empty operand (`usleep(() * 1000)`), which is
+/// invalid C.
+_inline_unwrap_transparent :: (fn(e : AstExpr) -> AstExpr)({
+  inner := _unwrap_unsafe(e);
+  match(
+    inner,
+    .Atom(_, _) => inner,
+    .FnCall(_, _, addr_args, _, _) => if(
+      ast_expr_is_fn_call_of(inner, BF_ADDRESS_OF, .None) && (addr_args.len() == usize(1)),
+      match(addr_args.get(usize(0)), .Some(a) => a, .None => inner),
+      inner
+    )
+  )
+});
+_inline_body_passes_params_through :: (fn(call : AstExpr, fv : EvalValue) -> bool)({
+  args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(false));
+  params := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.params, _ => return(false));
+  nparams := params.len();
+  // Walk the body arguments, dropping type arguments, and require the ones that
+  // remain to line up with the parameters in order.
+  (pi : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arg := _inline_unwrap_transparent(match(args.get(i), .Some(a) => a, .None => return(false)));
+    name := match(
+      arg,
+      .Atom(_, tok) => tok.value,
+      .FnCall(_, _, _, _, _) => return(false)
+    );
+    // Is this identifier one of the parameters at all?
+    (is_param : bool) = false;
+    (j : usize) = usize(0);
+    while(j < nparams, {
+      match(
+        params.get(j),
+        .Some(p) => if(p == name, {
+          is_param = true;
+        }),
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    if(is_param, {
+      // It must be the NEXT parameter still unconsumed.
+      expected := match(params.get(pi), .Some(p) => p, .None => String.from(""));
+      if(expected != name, {
+        return(false);
+      });
+      pi = (pi + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  // Every parameter must have been forwarded.
+  pi == nparams
+});
 /// Check if a function value's body only calls a single builtin
 /// `__yo_op_xxx`-style inline function (optionally wrapped in `unsafe` and/or
-/// a single-expression `begin`). Returns the operator name, or `.None`.
+/// a single-expression `begin`) AND passes its own parameters straight through
+/// to it. Returns the operator name, or `.None`.
 /// `__yo_as` casts are excluded (they need real call handling).
-/// Mirrors `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`.
+/// Mirrors `isFunctionValueWithOnlyBuiltinYoInlineFunctionCall`, plus the
+/// pass-through requirement TS also lacks (see
+/// `_inline_body_passes_params_through`).
 is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(fv : EvalValue) -> Option(String)
 )({
   body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
   body := _unwrap_unsafe(body_box);
-  operator_name := match(
+  // The call node the operator name comes from — needed by the pass-through
+  // check below, which must inspect THAT call's arguments and not the
+  // `begin`/`unsafe` wrapper's.
+  call_node := match(
     body,
-    .Atom(_, _) => Option(String).None,
-    .FnCall(_, _, body_args, _, _) => if(ast_expr_is_fn_call_of(body, BK_BEGIN, .None) && (body_args.len() == usize(1)), {
-      inner := _unwrap_unsafe(match(body_args.get(usize(0)), .Some(a) => a, .None => body));
-      match(
-        _fn_call_callee_name(inner),
-        .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
-        .None => Option(String).None
-      )
-    }, match(
-      _fn_call_callee_name(body),
-      .Some(callee) => if(is_builtin_yo_inline_function(callee), .Some(callee), .None),
-      .None => Option(String).None
-    ))
+    .Atom(_, _) => body,
+    // NOTE the then-branch is NOT braced. A `{ ... }` holding a single
+    // expression with no trailing semicolon parses as a STRUCT LITERAL, not a
+    // block (`{ ... } without semicolons is parsed as a struct literal`).
+    .FnCall(_, _, body_args, _, _) => if(
+      ast_expr_is_fn_call_of(body, BK_BEGIN, .None) && (body_args.len() == usize(1)),
+      _unwrap_unsafe(match(body_args.get(usize(0)), .Some(a) => a, .None => body)),
+      body
+    )
   );
+  operator_name := match(
+    _fn_call_callee_name(call_node),
+    .Some(callee) => if(is_builtin_yo_inline_function(callee), Option(String).Some(callee), Option(String).None),
+    .None => Option(String).None
+  );
+  op := match(operator_name, .Some(o) => o, .None => return(.None));
   // Don't inline __yo_as — it needs proper call handling for complex args.
-  match(
-    operator_name,
-    .Some(op) => if(op == BF_YO_AS, Option(String).None, .Some(op)),
-    .None => .None
-  )
+  if(op == BF_YO_AS, {
+    return(.None);
+  });
+  if(!_inline_body_passes_params_through(call_node, fv), {
+    return(.None);
+  });
+  Option(String).Some(op)
 });
 /// Check if an enum can be optimized as a nullable pointer. Returns the
 /// pointer variant's field type if so, `.None` otherwise. Requires exactly
@@ -841,7 +1038,7 @@ _some_t_requires_future :: (fn(t : TypeValue) -> bool)(
       (found : bool) = false;
       (i : usize) = usize(0);
       n := rtts.len();
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           rtts.get(i),
           .Some(rt) => match(
@@ -922,7 +1119,7 @@ _gts_stack_contains :: (fn(sid : String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   n := g_gts_some_stack.len();
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       g_gts_some_stack.get(i),
       .Some(x) => if(x == sid, {
@@ -1015,7 +1212,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         array_type_name.push_string(sanitize_for_c_identifier(element_type_string.clone(), false));
         array_type_name.push_str("_");
         array_type_name.push_string(length.to_string());
-        if(!(context.has_array_struct_type(array_type_name.clone())), {
+        if(!context.has_array_struct_type(array_type_name.clone()), {
           context.register_array_struct_type(array_type_name.clone(), element_type_string, i64(length));
         });
         array_type_name
@@ -1068,16 +1265,25 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
         });
         g_gts_some_stack.push(sid.clone());
         gts_out := recur(rct, context);
-        g_gts_some_stack.remove(g_gts_some_stack.len() - usize(1), usize(1));
+        g_gts_some_stack.drain((g_gts_some_stack.len() - usize(1)) .. g_gts_some_stack.len());
         gts_out
       },
       // An `extern("Yo", X : Type)` opaque type is a SomeT placeholder that
       // codegen emits as a concrete C typedef named X (e.g. `__yo_thread_t`,
       // hard-coded in the parallelism runtime) — lower it to that name, not
       // `void*`. Mirrors TS lowering an extern SomeType to its C name.
+      // A heap-backed extern future reached WITHOUT a resolved-concrete
+      // cell — e.g. a NAMED local bound to an `IoFuture` in a sync function:
+      // the evaluator collapses the variable's type to the BARE extern SomeT
+      // (no Future requirement left), so it is recognized here by the
+      // runtime's contractual future type name, exactly as this function's
+      // own unregistered-extern fallback below hard-codes it. Same TS rule
+      // as the resolved branch above (utils/index.ts:660-668): pointer, not
+      // the bare struct — every use site (`->state`, drops) is pointer-shaped
+      // (issues/fixed/io-future-named-local-declared-by-value.md).
       .None => if(
         is_extern_type_name(snm),
-        snm.clone(),
+        if(_some_t_requires_future(t) || (snm == "__yo_io_future_t"), `${snm.clone()}*`, snm.clone()),
         match(
           context.get_type_c_name(type_key(t)),
           .Some(cn) => cn,
@@ -1129,7 +1335,7 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
       clean := _strip_stars(child_c_name.clone()).trim();
       iso_name := String.from("Iso_");
       iso_name.push_string(sanitize_for_c_identifier(clean, false));
-      if(!(context.has_iso_type(iso_name.clone())), {
+      if(!context.has_iso_type(iso_name.clone()), {
         context.register_iso_type(iso_name.clone(), child_c_name.clone(), t);
       });
       iso_name
@@ -1153,6 +1359,24 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     }
   )
 );
+/// C type string in a STORAGE position — a parameter, a struct/tuple/union
+/// field, a local, or a cast target. C has no zero-sized object type, so a type
+/// whose spelling is exactly `void` (`unit`, `void`, or a SomeT that RESOLVES to
+/// either — `get_type_string` walks the resolution chain, `is_unit_type` does
+/// not) is spelled as a one-byte placeholder that is declared and never read.
+/// RETURN position keeps `get_type_string`, where `void` is legal, and pointer
+/// types spell `void*` rather than `void`, so both are untouched.
+///
+/// The guard fires only where today's output is already invalid C
+/// (`void x` / `void f(void x)` / `void b;`), which is what keeps the emitted C
+/// for every currently-compiling program byte-identical. See
+/// issues/fixed/unit-typed-params-and-fields-emit-c-void.md; the existing 1-byte
+/// precedents are `generate_future_trait_declaration` (types/generation.yo) and
+/// the await result slot (exprs/await.yo).
+get_storage_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)({
+  s := get_type_string(t, context);
+  if(s == `void`, String.from("uint8_t"), s)
+});
 /// True iff `cn` appears in the emitter-maintained block-scope stack
 /// (`CodeGenContext.declared_scopes`) — i.e. its C variable was declared before
 /// this emission point AND its enclosing C block is still open (a closed
@@ -1168,7 +1392,7 @@ scope_stack_contains :: (fn(stack : ArrayList(String), cn : String) -> bool)({
   n := stack.len();
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < n) && !(found), {
+  while((i < n) && !found, {
     match(
       stack.get(i),
       .Some(nm) => if(nm == cn, {
@@ -1190,7 +1414,7 @@ get_variable_type_string :: (
   c_name := sanitize_for_c_identifier(var_name, false);
   // Record the declared C name (choke-point for every typed declaration) so the
   // deferred-drop pass can skip drops for temps that were never materialized.
-  _dv := context.declared_c_var_names.add(c_name.clone());
+  _dv := context.declared_c_var_names.insert(c_name.clone());
   result.push_string(c_name);
   result
 });
@@ -1206,8 +1430,10 @@ get_enum_variant_c_name :: (
       // leading `.` of the `.Variant` source form (e.g. `.Green`); the match
       // path reads clean names from `EnumT.variant_names`, so this only bites
       // the value path. Strip it — a leading `.` is never part of a C
-      // identifier. Variant names are ASCII identifiers, so the rune-indexed
-      // substring(1, len) is byte-safe here.
+      // identifier. The `.` is one ASCII byte, so `substring(1, len)` names
+      // the same cut whether `substring` counts bytes (it does, since
+      // plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3) or runes, and byte 1 is always
+      // a rune boundary here — this holds even for a non-ASCII variant name.
       clean := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
       result := enum_c_name.to_uppercase();
       result.push_str("_");
@@ -1257,7 +1483,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
             .Some(gty) => (type_key(gty) == type_key(variable.ty)),
             .None => false
           );
-          is_extern_c := ((is_extern_c_fn) || (is_extern_c_glob));
+          is_extern_c := (is_extern_c_fn || is_extern_c_glob);
           var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
           // A generated fn_* name shadowing a local → prefer the original name.
           if((var_name != variable_name) && var_name.starts_with(String.from("fn_")), {
@@ -1304,7 +1530,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
               mg_i = (mg_i + usize(1));
             });
           };
-          if((!(is_extern_c) && !(mg_any_param)) && is_module_level_global(variable.token.module_path, variable.name), {
+          if(!is_extern_c && !mg_any_param && is_module_level_global(variable.token.module_path, variable.name), {
             return(`${var_name}${module_global_c_suffix(variable.token.module_path)}`);
           });
           var_name
@@ -1461,7 +1687,10 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
   )
 );
 export(
+  mark_uses_tls,
+  get_uses_tls,
   CodeGenContext,
+  ChunkRange,
   CodegenTypeEntry,
   CodegenFunctionEntry,
   ImplClosureCallInfo,
@@ -1473,6 +1702,7 @@ export(
   get_runtime_struct_fields,
   type_key,
   get_type_string,
+  get_storage_type_string,
   get_variable_type_string,
   get_enum_variant_c_name,
   sanitize_for_c_identifier,

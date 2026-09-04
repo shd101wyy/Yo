@@ -170,7 +170,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     // Look up by the FULL type_key, not the bare struct id: the registry is
     // keyed by type_key(t), and for a cfid-empty struct with field types the
     // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
-    // while type_key collapsed such structs to their sid (the Bucket visit-fn
+    // while type_key collapsed such structs to their sid (the MapEntry visit-fn
     // collision). TS looks up by struct id because TS ids are per-instantiation
     // AND are the registry key; type_key is yo-self's equivalent identity.
     capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)), .Some(n) => n, .None => return(codegen_fatal_expr(String.from("Capture type not found for closure"))));
@@ -253,7 +253,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
     em.emit_string_line(decl);
     // Register the impl-closure-call mapping (key = concrete capture struct id).
     key := match(resolve_some_type_to_concrete(capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
-    _r := context.base.impl_closure_call_map.set(
+    _r := context.base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -284,7 +284,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
       )
     );
     key := concrete_id;
-    _r := context.base.impl_closure_call_map.set(
+    _r := context.base.impl_closure_call_map.insert(
       key,
       ImplClosureCallInfo(
         function_c_name : function_c_name,
@@ -329,7 +329,7 @@ register_impl_closure_call_mappings :: (fn(context : FunctionGenerationContext) 
                 match(
                   context.base.functions.get(fid.clone()),
                   .Some(entry) => {
-                    _r := context.base.impl_closure_call_map.set(
+                    _r := context.base.impl_closure_call_map.insert(
                       key,
                       ImplClosureCallInfo(
                         function_c_name : entry.c_name,

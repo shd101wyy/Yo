@@ -226,15 +226,15 @@ Yo uses **complete thread isolation** - spawned tasks run on separate threads wi
 x := 42;
 node := Node(1, .None);  // Cycle-forming type, stays on this thread
 
-// Spawn isolated task - runs on different thread
-task := Task(i32, unit).spawn((parent) -> async {
-  // ❌ CANNOT access node here - completely isolated!
-  // ✅ Can only receive copies of value types
-  value := await parent.recv();
+// Spawn an isolated OS thread — `Thread.spawn` from std/thread.
+// (There is no `Task` type; the async API is `io.async` / `io.await` / `io.spawn`,
+// which are single-threaded and do NOT create threads.)
+handle := Thread.spawn((io) => {
+  // The plain ref(...) `node` above is thread-local and cannot be captured here.
+  // Only Send values cross: value types, Arc(T), and the std/imm structures.
+  ()
 });
-
-await task.send(x);  // Send COPY of x (value type)
-// Cannot send node - reference types stay on their thread
+handle.join();
 ```
 
 **What can be sent between threads (value types only):**
@@ -247,9 +247,9 @@ await task.send(x);  // Send COPY of x (value type)
 | Enums with value payloads        | ✅ Yes    | Value type, copied              |
 | `ref(struct(...))`               | ❌ No     | Reference counted, thread-local |
 | Closures                         | ❌ No     | May capture references          |
-| `*T` (pointers)                  | ❌ No     | Not safe across threads         |
+| `*(T)` (pointers)                | ❌ No     | Not safe across threads         |
 
-**Key Design Decision:** Reference types (`ref(struct(...))`) **never** cross thread boundaries. This means:
+**Key Design Decision:** PLAIN (non-atomic) reference types (`ref(struct(...))`) are thread-local and never cross thread boundaries. The ATOMIC forms — `atomic(ref(...))`, i.e. `Arc`, `std/sync` and `std/imm` — are `Send` and are shared across threads with atomic RC (and are therefore not cycle-collected). This means:
 
 - Each thread's GC only tracks objects created on that thread
 - No cross-thread GC coordination needed
@@ -259,31 +259,28 @@ await task.send(x);  // Send COPY of x (value type)
 **Common patterns:**
 
 ```rust
-// ✅ Message passing with value types
-task := Task(Message, Response).spawn((parent) -> async {
-  msg := await parent.recv();  // Receives COPY of Message
-  await parent.send(Response(ok: true));
+{ Thread } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
+
+// ✅ Message passing with Send values, over a channel
+main :: (fn(io : Io) -> unit)({
+  // The main thread owns the cycle-forming structure; it stays here.
+  tree := ComplexTree();
+
+  ch := Channel(i32).new();
+  worker := Thread.spawn((io) => {
+    // Only Send values cross: value types, Arc(T), std/imm structures.
+    ch.send(expensive_computation());
+    ()
+  });
+
+  match(ch.recv(), .Some(result) => tree.update(result), .None => ());
+  worker.join();
 });
-
-// ✅ Each thread owns its complex data
-main :: (fn() -> unit) {
-  // Main thread owns complex data structures
-  tree := ComplexTree();  // Has cycles, stays on main thread
-
-  async {
-    // Spawn worker for CPU-intensive computation
-    task := Task(Array(i32), i32).spawn((parent) -> async {
-      data := await parent.recv();
-      result := expensive_computation(data);
-      await parent.send(result);
-    });
-
-    await task.send([1, 2, 3, 4, 5]);  // Send value array
-    result := await task.recv();       // Receive value result
-    tree.update(result);               // Update local data
-  };
-};
 ```
+
+Each thread runs its own independent event loop, so a spawned thread can still
+use `io.async` / `io.await` without contention. See `PARALLELISM.md`.
 
 **GC Collection Process:**
 
@@ -353,18 +350,20 @@ Global impact: Zero (other threads continue running)
 ## API
 
 ```rust
-// Runtime cycle collection control
-gc_collect :: (fn() -> unit);  // Trigger immediate collection
-gc_set_threshold :: (fn(threshold: usize) -> unit);  // Set collection frequency
-gc_get_stats :: (fn() -> GCStats);  // Get collection statistics
+{ collect, tracked_count } :: import("std/gc");
 
-GCStats :: struct(
-  collections: usize,
-  objects_collected: usize,
-  objects_tracked: usize,
-  last_pause_ns: u64,
-);
+collect();          // Trigger an immediate cycle collection
+tracked_count();    // u64 — objects currently tracked by the collector
 ```
+
+That is the whole surface (`std/gc.yo`). There is no statistics struct and no
+threshold-setting function; collection frequency is tuned with environment
+variables read by the emitted runtime:
+
+| Variable | Effect |
+|---|---|
+| `YO_GC_THRESHOLD` | Raises the allocation threshold that triggers a collection — or DISABLES the collector entirely |
+| `YO_GC_FULL_PCT` | Full-scan growth factor, as a percent of post-collection live set (default 200, i.e. 2x-live). Lower to cap peak memory; raise for fewer but larger scans |
 
 ## Compiler Support
 

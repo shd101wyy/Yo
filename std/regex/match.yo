@@ -8,20 +8,24 @@ RegexMatch :: ref(
   struct(
     _value : String,
     _index : usize,
+    _end : usize,
     _input : String,
     _groups : ArrayList(Option(String)),
+    _group_spans : ArrayList(Option(Range(usize))),
     _group_names : ArrayList(GroupNameEntry)
   )
 );
 impl(
   RegexMatch,
   // Create a match result
-  new : (fn(value : String, index : usize, input : String, groups : ArrayList(Option(String)), group_names : ArrayList(GroupNameEntry)) -> Self)(
+  new : (fn(value : String, index : usize, end : usize, input : String, groups : ArrayList(Option(String)), group_spans : ArrayList(Option(Range(usize))), group_names : ArrayList(GroupNameEntry)) -> Self)(
     Self(
       _value : value,
       _index : index,
+      _end : end,
       _input : input,
       _groups : groups,
+      _group_spans : group_spans,
       _group_names : group_names
     )
   ),
@@ -29,9 +33,28 @@ impl(
   value : (fn(self : Self) -> String)(
     self._value
   ),
-  // Get the start position (character index) of the match
+  /// Start position of the match as a **byte** offset into the input.
+  ///
+  /// **Basis change (D4, 2026-08-26):** this used to be a *character*
+  /// (rune) index; it is now a **byte** index, matching `String`'s
+  /// byte-indexed API. The offset is always on a UTF-8 character
+  /// boundary (a valid pattern cannot match at a continuation byte), so
+  /// it can be fed directly to `String.substring` / `index_of` on the
+  /// input. Use `input().substring(usize(0), m.index()).chars().count()` if
+  /// a rune count is really needed.
   index : (fn(self : Self) -> usize)(
     self._index
+  ),
+  /// End position of the match as a **byte** offset into the input
+  /// (exclusive — the offset of the first byte AFTER the match). Always
+  /// on a UTF-8 character boundary, for the same reason as `index()`.
+  /// `span()` is `index() .. end()`.
+  end : (fn(self : Self) -> usize)(
+    self._end
+  ),
+  /// The whole match as a byte range `index() .. end()` into the input.
+  span : (fn(self : Self) -> Range(usize))(
+    self._index .. self._end
   ),
   // Get the original input string
   input : (fn(self : Self) -> String)(
@@ -45,6 +68,23 @@ impl(
         actual_idx := (idx - usize(1));
         cond(
           (actual_idx < self._groups.len()) => self._groups(actual_idx),
+          true => .None
+        )
+      }
+    )
+  ),
+  /// Capture group's byte range into the input (1-based, mirroring
+  /// `group()`; group 0 is the full match's `span()`), or `.None` when
+  /// the group did not participate in the match or the index is out of
+  /// range. A participating group's range satisfies
+  /// `input().substring(r.start, r.end) == group(idx).unwrap()`.
+  group_span : (fn(self : Self, idx : usize) -> Option(Range(usize)))(
+    cond(
+      (idx == usize(0)) => .Some(self.span()),
+      true => {
+        actual_idx := (idx - usize(1));
+        cond(
+          (actual_idx < self._group_spans.len()) => self._group_spans(actual_idx),
           true => .None
         )
       }

@@ -1,6 +1,6 @@
 //! Monotonic clock instant for measuring elapsed time.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { Instant } :: import "std/time/instant";
@@ -13,6 +13,7 @@
 pragma(Pragma.AllowUnsafe);
 { Duration } :: import("./duration");
 { CLOCK_MONOTONIC, clock_gettime } :: import("../sys/clock");
+{ panic } :: import("../assert");
 /// Snapshot from the monotonic clock. Use `elapsed` to measure durations.
 Instant :: struct(
   secs : i64,
@@ -21,11 +22,20 @@ Instant :: struct(
 impl(
   Instant,
   // Capture the current monotonic time.
+  // Panics if the monotonic clock fails — like Rust's `Instant::now`, a
+  // broken clock must not silently yield the epoch
+  // (plans/STD_API_AUDIT.md C10).
   now : (fn() -> Self)({
     clk := CLOCK_MONOTONIC;
     out_s := i64(0);
     out_ns := i64(0);
-    clock_gettime(clk, &(out_s), &(out_ns));
+    rc := clock_gettime(clk, &out_s, &out_ns);
+    // cond + panic (not assert) so the message String is only built on the
+    // failure path — now() is hot.
+    cond(
+      (rc == i32(0)) => (),
+      true => panic(`Instant.now: clock_gettime(CLOCK_MONOTONIC) failed (rc=${rc})`)
+    );
     Self(secs : out_s, nanos : out_ns)
   }),
   // Duration between this instant and an earlier one.
@@ -43,5 +53,65 @@ impl(
     current := Instant.now();
     current.duration_since(self)
   })
+);
+
+// ============================================================================
+// add/sub(Duration) + Eq/Ord (plans/STD_API_AUDIT.md §7 time row)
+// ============================================================================
+impl(
+  Instant,
+  /// This instant shifted forward by `d`.
+  add : (fn(inout(self) : Self, d : Duration) -> Self)({
+    total := (self.nanos + (d.as_nanos() % i64(1000000000)));
+    carry := (total / i64(1000000000));
+    Self(
+      secs : (self.secs + d.as_secs() + carry),
+      nanos : (total % i64(1000000000))
+    )
+  }),
+  /// This instant shifted backward by `d` (clamps at the clock's zero, the
+  /// same non-negative stance as `duration_since`).
+  sub : (fn(inout(self) : Self, d : Duration) -> Self)({
+    self_ns := ((self.secs * i64(1000000000)) + self.nanos);
+    d_ns := d.as_nanos();
+    cond(
+      (self_ns <= d_ns) => Self(secs : i64(0), nanos : i64(0)),
+      true => {
+        left := (self_ns - d_ns);
+        Self(secs : (left / i64(1000000000)), nanos : (left % i64(1000000000)))
+      }
+    )
+  })
+);
+impl(
+  Instant,
+  Eq(Instant)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs == rhs)
+    )
+  )
+);
+impl(
+  Instant,
+  Ord(Instant)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      cond(
+        (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
+        true => (lhs.nanos < rhs.nanos)
+      )
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(rhs < lhs)
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      rhs < lhs
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs < rhs)
+    )
+  )
 );
 export(Instant);

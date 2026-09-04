@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 open(import("std/libc/stdio.yo"));
 MyBox :: ref(
   struct(
@@ -33,7 +34,7 @@ test("Test ClosureType({...}) to create closure value", {
 test("Test anonymous closure value =>", {
   x := 1;
   (closure : Impl(Fn(y : i32) -> i32)) = (
-    (y) => {
+    y => {
       x = (x + y);
       return(x);
     }
@@ -57,7 +58,7 @@ test("Test multiple expected errors", {
       some_cond() => {
         a := 1;
         closure = (
-          (y) => {
+          y => {
             return(y + a);
           }
         );
@@ -65,7 +66,7 @@ test("Test multiple expected errors", {
       true => {
         b := 1;
         closure = (
-          (y) => {
+          y => {
             return(y + b);
           }
         );
@@ -78,7 +79,7 @@ test("Test multiple expected errors", {
       some_cond() => {
         a := 1;
         closure = (
-          (y) => {
+          y => {
             return(y + a);
           }
         );
@@ -86,7 +87,7 @@ test("Test multiple expected errors", {
       true => {
         a := 2;
         closure = (
-          (y) => {
+          y => {
             return(y + a);
           }
         );
@@ -98,13 +99,13 @@ test("Test multiple expected errors", {
       cond(
         some_cond() => {
           a := 1;
-          (y) => {
+          y => {
             return(y + a);
           }
         },
         true => {
           a := 2;
-          (y) => {
+          y => {
             return(y + a);
           }
         }
@@ -115,19 +116,19 @@ test("Test multiple expected errors", {
     a := 1;
     b := 2;
     closure : Impl(Fn(y : i32) -> i32);
-    closure = ((y) => (y + a));
-    closure = ((y) => (y + b));
+    closure = (y => (y + a));
+    closure = (y => (y + b));
   }, "cannot reassign to variable of Impl");
   comptime_expect_error({
     a := 1;
-    (closure : Impl(Fn(y : i32) -> i32)) = ((y) => (y + a));
-    closure = ((y) => (y + a));
+    (closure : Impl(Fn(y : i32) -> i32)) = (y => (y + a));
+    closure = (y => (y + a));
   }, "cannot reassign to variable of Impl");
 });
 test("Test closure with Dyn", {
   x := 1;
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
-    box((y) => {
+    box(y => {
       x = (x + y);
       return(x);
     })
@@ -170,7 +171,7 @@ test("Test closure captured Rc survives nested early return", {
         return(x.*);
       }
     );
-    return(i32(-(1)));
+    return(i32(-1));
   });
   closure2 := closure;
   result := closure(4);
@@ -184,7 +185,7 @@ test("Test anonymous closure value with Impl that captures Rc object", {
   x := MyBox(1);
   ClosureType :: Impl(Fn(y : i32) -> i32);
   (closure : ClosureType) = (
-    (y) => {
+    y => {
       x.* = (x.* + y);
       return(x.*);
     }
@@ -200,7 +201,7 @@ test("Test anonymous closure value with Impl that captures Rc object", {
 test("Test anonymous closure value with Dyn that captures Rc object", {
   x := MyBox(1);
   (closure : Dyn(Fn(y : i32) -> i32)) = dyn(
-    box((y) => {
+    box(y => {
       x.* = (x.* + y);
       return(x.*);
     })
@@ -215,7 +216,7 @@ test("Test anonymous closure value with Dyn that captures Rc object", {
 });
 test("Test anonymous closure value with Dyn that captures Rc object with auto boxing", {
   x := MyBox(1);
-  (closure : Dyn(Fn(y : i32) -> i32)) = dyn((y) => {
+  (closure : Dyn(Fn(y : i32) -> i32)) = dyn(y => {
     // without explicitly calling `box`
     x.* = (x.* + y);
     return(x.*);
@@ -227,4 +228,52 @@ test("Test anonymous closure value with Dyn that captures Rc object with auto bo
   unsafe(printf("Final result: %d\n", result));
   assert(x.* == 5, "Captured boxed variable should be 5");
   assert(x.* == result, "Expected final result to be 5");
+});
+// Regression (issues/fixed/arrow-fn-literal-result-type-not-inferred.md, C55):
+// a `->` fn literal passed where a result type variable must be inferred
+// (`Option.map`'s `B`, a user method's `Impl(Fn(..) -> R)`) binds it exactly
+// like a `=>` closure does. The binding used to be gated on "is a closure" to
+// keep ctl effect handlers' per-call-site `ResumeType` unbound; the gate now
+// excludes only ctl types, so the first method call on the result resolves.
+ArrowApply :: struct(base : i64);
+impl(
+  ArrowApply,
+  apply : (fn(generic(R : Type), self : Self, f : Impl(Fn(v : i64) -> R)) -> R)(f(self.base))
+);
+test("a -> fn literal binds the result type variable of Option.map and of an Impl(Fn) method", {
+  o := Option(i64).Some(i64(2));
+  s := o.map(x -> `v=${x}`).unwrap();
+  assert(s.to_string() == `v=2`, "Option.map result usable through a -> literal");
+  assert(s.len() == usize(3), "String methods resolve on the mapped value");
+  a := ArrowApply(base : i64(20));
+  t := a.apply(v -> `n=${v + i64(1)}`);
+  assert(t.to_string() == `n=21`, "method generic R bound by a -> literal");
+  n := a.apply(v -> (v * i64(2)));
+  assert((n + i64(1)) == i64(41), "and by a numeric -> literal");
+});
+
+// ---------------------------------------------------------------------------
+// Module-level globals are NOT captures (issues/module-global-referenced-
+// inside-async-closure-undeclared.md, fixed in the capture tracker): a
+// module global lowers to a process-global C symbol, so referencing one
+// from inside a closure must emit the global directly — capturing it added
+// a phantom capture-struct member and the C compile failed with
+// "no member named 'counter_m<hash>'".
+// ---------------------------------------------------------------------------
+module_global_counter := AtomicI32(i32(0));
+run_it :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+test("a closure referencing a module-level global compiles and mutates it", {
+  run_it(() => {
+    module_global_counter.fetch_add(i32(3), MemoryOrder.Relaxed);
+    ()
+  });
+  assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(3), "the inline closure reached the module global");
+});
+test("a named module-level fn still reaches the global", {
+  bump_again :: (fn() -> unit)({
+    module_global_counter.fetch_add(i32(4), MemoryOrder.Relaxed);
+    ()
+  });
+  run_it(bump_again);
+  assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(4), "named module fn reached the global");
 });

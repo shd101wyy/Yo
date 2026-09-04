@@ -1,7 +1,7 @@
 //! Wait for a group of tasks to complete, similar to Go's `sync.WaitGroup`.
 pragma(Pragma.AllowUnsafe);
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { WaitGroup } :: import "std/sync/waitgroup";
@@ -10,13 +10,13 @@ pragma(Pragma.AllowUnsafe);
 //! wg := WaitGroup.new();
 //! wg.add(i32(3));
 //! i := i32(0);
-//! while runtime((i < i32(3))), {
-//!   t := Thread.spawn(() => {
+//! while(i < i32(3), {
+//!   t := Thread.spawn((io) => {
 //!     // ... do work ...
 //!     wg.done();
 //!   });
 //!   i = (i + i32(1));
-//! };
+//! });
 //! wg.wait();  // blocks until all 3 tasks call done()
 //! ```
 { Mutex } :: import("./mutex");
@@ -66,7 +66,7 @@ impl(
   }),
   // Decrement the counter by one (equivalent to add(-1)).
   done : (fn(self : Self) -> unit)(
-    self.add(i32(-(1)))
+    self.add(i32(-1))
   ),
   // Block until the counter reaches zero.
   wait : (fn(self : Self) -> unit)({

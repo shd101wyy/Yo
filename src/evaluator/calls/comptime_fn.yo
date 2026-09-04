@@ -88,7 +88,7 @@ _(env : ctfe_dbg_env) :: import("std/env");
 /// diverging one level up (the imm_sorted_map/imm_threading caller-arg
 /// struct-to-struct casts). Enums carry no type_arguments; their cfid match
 /// falls back to pairwise era-equal variant FIELD lists. Concrete same-shape
-/// but different-ctor types still take the EXACT fallback (the Bucket/ME
+/// but different-ctor types still take the EXACT fallback (the MapEntry/ME
 /// cache-collision hazard).
 _ctfe_types_era_equal :: (fn(aty : TypeValue, bty : TypeValue, d : usize) -> bool)({
   if(d > usize(6), {
@@ -226,10 +226,10 @@ _ctfe_args_equal :: (
           // compatibility. Mirrors TS comptime-fn.ts:159-164 (`requireExactMatch
           // =true`). Lenient `are_types_compatible` treats two distinct
           // same-shaped structs as equal (e.g. a user `object(name, kind)` vs
-          // `Bucket(key, value)`), causing a CACHE COLLISION: a later
-          // `(?*)(Bucket(String, ArrayList(ME)))` wrongly hit a cached
+          // `MapEntry(key, value)`), causing a CACHE COLLISION: a later
+          // `(?*)(MapEntry(String, ArrayList(ME)))` wrongly hit a cached
           // `(?*)(ME)` entry and returned `Option(*(ME))` — making
-          // `HashMap(.., ArrayList(<RC>)).new()`'s data field `?*(ME)` and
+          // `HashMap(.., ArrayList(<RC>)).new()`'s data field `?(*(ME))` and
           // failing method resolution. See
           // issues/fixed/phase3-nested-generic-method-resolution-unit.md.
           true => are_types_compatible_exact(aty, bty)
@@ -332,6 +332,103 @@ _arg_vals_equal :: (fn(a : ArrayList(EvalValue), b : ArrayList(EvalValue)) -> bo
     i = (i + usize(1));
   });
   ok
+});
+/// Canonicalize a SUBSTITUTION-ERA nominal instantiation through the CTFE
+/// ctor memo. `substitute()` rewrites a struct instance's type_arguments IN
+/// PLACE while KEEPING the def-era `id`/`constructor_func_id`
+/// (types/substitution.yo, Struct arm) — so a trait method declared as
+/// `-> Range(Self)` registers, for every concrete impl, a return instance
+/// whose id is the TRAIT-DEFINITION era's, distinct from the instance the
+/// ctor memo hands every ordinary `Range(usize)` call. A call site stamped
+/// with that era instance can never dispatch impls registered on the memo
+/// instance (the range-op era split,
+/// issues/fixed/range-op-result-era-split-blocks-iteration.md). Given such a type,
+/// return the memo's canonical instance for the SAME (ctor, concrete args)
+/// instantiation when one exists; otherwise return the input unchanged.
+/// Struct-only and top-level-only — the demonstrated class is a nominal
+/// struct return. Type arguments carrying SomeTs are excluded (per-call
+/// closure families keep their capture identity), and the abstract memo
+/// entry (SomeT args) can never match a concrete key, so only a genuine
+/// concrete instantiation of the same constructor is ever adopted.
+canonicalize_instantiation_via_ctfe_memo :: (fn(ty : TypeValue) -> TypeValue)({
+  sid := match(ty, .Struct({ id : x }) => x, _ => String.from(""));
+  if(sid.len() == usize(0), {
+    return(ty);
+  });
+  tyargs := match(ty, .Struct({ type_arguments : t }) => t, _ => ArrayList(TypeValue).new());
+  if(tyargs.len() == usize(0), {
+    return(ty);
+  });
+  // The memo lookup key: each concrete type argument as a TypeVal argument.
+  want_args := ArrayList(EvalValue).new();
+  {
+    (cvi : usize) = usize(0);
+    n_ta := tyargs.len();
+    while(cvi < n_ta, {
+      match(
+        tyargs.get(cvi),
+        .Some(t2) => {
+          if(type_contains_some_type(t2), {
+            return(ty);
+          });
+          want_args.push(EvalValue.TypeVal(t2));
+        },
+        .None => {
+          return(ty);
+        }
+      );
+      cvi = (cvi + usize(1));
+    });
+  };
+  cfid := match(
+    lookup_struct_ctor_fid(sid),
+    .Some(f) => f,
+    .None => match(ty, .Struct({ constructor_func_id : c }) => c, _ => String.from(""))
+  );
+  if(cfid.len() == usize(0), {
+    return(ty);
+  });
+  // Find the ctor's bucket, then an era-equal-arg entry with a resolved value.
+  (canon_bucket : Option(ComptimeFnCacheEntry)) = Option(ComptimeFnCacheEntry).None;
+  {
+    (bi : usize) = usize(0);
+    n_b := g_comptime_fn_caches.len();
+    while((bi < n_b) && canon_bucket.is_none(), {
+      match(
+        g_comptime_fn_caches.get(bi),
+        .Some(e) => if(e.func_id == cfid, {
+          canon_bucket = Option(ComptimeFnCacheEntry).Some(e);
+        }),
+        .None => ()
+      );
+      bi = (bi + usize(1));
+    });
+  };
+  match(
+    canon_bucket,
+    .Some(bucket) => {
+      (ci : usize) = usize(0);
+      n := bucket.caches.len();
+      while(ci < n, {
+        match(
+          bucket.caches.get(ci),
+          .Some(cache) => if(_arg_vals_equal(cache.arg_values, want_args), {
+            match(
+              _resolved_type_of(cache.value),
+              .Some(rt) => if(is_struct_type(rt), {
+                return(rt);
+              }),
+              .None => ()
+            );
+          }),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+    },
+    .None => ()
+  );
+  ty
 });
 /// Resolve a recursion-placeholder `SomeT` to its actual type. Mirrors TS
 /// `resolveRecursiveTypeRef` (`function.ts:133`): (1) the cache entry of the
@@ -522,9 +619,7 @@ evaluate_comptime_fn_call :: (
               .Some(e) => ast_expr_token(e),
               .None => ast_expr_token(make_err_expr())
             ),
-            String.from("evaluate_comptime_fn_call: function_value is not a FuncVal"),
-            false,
-            .None
+            String.from("evaluate_comptime_fn_call: function_value is not a FuncVal")
           )
         )
       );
@@ -667,9 +762,7 @@ evaluate_comptime_fn_call :: (
             .Some(e) => ast_expr_token(e),
             .None => ast_expr_token(make_err_expr())
           ),
-          String.from("Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly."),
-          false,
-          .None
+          String.from("Failed to call the function for compile-time. Some arguments are not compile-time evaluated correctly.")
         )
       )
     );
@@ -1039,7 +1132,7 @@ evaluate_comptime_fn_call :: (
       match(
         g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
-          entry.caches.remove(temp_cache_index, usize(1));
+          entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         },
         .None => ()
       );
@@ -1047,9 +1140,7 @@ evaluate_comptime_fn_call :: (
         dyn(
           format_error_message(
             ast_expr_token(body_expr),
-            String.from("Function body is not evaluated correctly"),
-            false,
-            .None
+            String.from("Function body is not evaluated correctly")
           )
         )
       );
@@ -1064,7 +1155,7 @@ evaluate_comptime_fn_call :: (
       match(
         g_comptime_fn_caches.get(the_entry_idx),
         .Some(entry) => {
-          entry.caches.remove(temp_cache_index, usize(1));
+          entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         },
         .None => ()
       );
@@ -1072,9 +1163,7 @@ evaluate_comptime_fn_call :: (
         dyn(
           format_error_message(
             ast_expr_token(body_expr),
-            String.from("Function body is not evaluated correctly. Expected to return(a compile-time known value.)"),
-            false,
-            .None
+            String.from("Function body is not evaluated correctly. Expected to return(a compile-time known value.)")
           )
         )
       );
@@ -1191,7 +1280,7 @@ evaluate_comptime_fn_call :: (
         // placeholder by removing it and pushing the finalized entry.
         // (Recursive sub-calls only append AFTER temp_cache_index, so it is
         // still the correct slot to drop; lookups match by content, not index.)
-        entry.caches.remove(temp_cache_index, usize(1));
+        entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
         entry.caches.push(updated_cache);
       },
       .None => ()
@@ -1200,7 +1289,7 @@ evaluate_comptime_fn_call :: (
     match(
       g_comptime_fn_caches.get(the_entry_idx),
       .Some(entry) => {
-        entry.caches.remove(temp_cache_index, usize(1));
+        entry.caches.drain(temp_cache_index .. (temp_cache_index + usize(1)));
       },
       .None => ()
     );
@@ -1219,3 +1308,4 @@ evaluate_comptime_fn_call :: (
 export(evaluate_comptime_fn_call);
 export(ComptimeFnCallResult);
 export(RecursiveTypeRef, lookup_recursive_type_ref, resolve_recursive_type_ref);
+export(canonicalize_instantiation_via_ctfe_memo);

@@ -15,7 +15,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { AnyError, Exception, IoExn } :: import("std/error");
-{ exists, read_string, write_file } :: import("std/fs/file");
+{ exists, read_to_string, write_string } :: import("std/fs/file");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -50,7 +50,7 @@ impl(
 _strip_quotes :: (fn(s : String) -> String)({
   n := s.len();
   cond(
-    (((n >= usize(2)) && s.starts_with(String.from("\""))) && s.ends_with(String.from("\""))) => s.substring(usize(1), n - usize(1)),
+    ((n >= usize(2)) && s.starts_with(String.from("\"")) && s.ends_with(String.from("\""))) => s.substring(usize(1), n - usize(1)),
     true => s
   )
 });
@@ -184,13 +184,13 @@ read_lock_file :: (
     exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
     file_exists := e.io.await(exists(lock_path, e.io), e.io);
     cond(
-      (!(file_exists)) => LockFile.empty(),
+      !file_exists => LockFile.empty(),
       true => {
-        content := e.io.await(read_string(lock_path, e.io), e);
+        content := e.io.await(read_to_string(lock_path, e.io), e);
         parse_lock_file(content)
       }
     )
@@ -205,10 +205,10 @@ save_lock_file :: (
     exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
-  io.async((e) => {
+  io.async(e => {
     lock_path := project_dir.join(Path.new(String.from("yo.lock")));
     content := write_lock_file_content(lock);
-    e.io.await(write_file(lock_path, content, e.io), e);
+    e.io.await(write_string(lock_path, content, e.io), e);
   })
 );
 // ---------------------------------------------------------------------------
@@ -258,7 +258,7 @@ upsert_lock_entry :: (fn(lock : LockFile, entry : LockEntry) -> LockFile)({
     );
     i = (i + usize(1));
   });
-  if(!(replaced), {
+  if(!replaced, {
     new_deps.push(entry);
   });
   LockFile(dependencies : new_deps)

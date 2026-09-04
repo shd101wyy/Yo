@@ -20,6 +20,7 @@
 //! skip (Gap 2).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ Emitter } :: import("../../emitter.yo");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
@@ -30,7 +31,7 @@ open(import("std/string"));
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
 { get_func_type, is_closure_fn, get_closure_capture_info, is_effect_record_member } :: import("../../function_value.yo");
-{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ get_type_string, get_variable_type_string, sanitize_for_c_identifier, get_variable_name_for_codegen, ChunkRange, get_uses_tls } :: import("../utils/index.yo");
 { get_shell_redirect } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { generate_function_prototype, should_skip_function_codegen, _async_override_return_type } :: import("./declarations.yo");
@@ -40,11 +41,94 @@ open(import("std/string"));
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
-{ generate_sys_runtime, AsyncRuntimeOptions } :: import("../async/runtime_io_common.yo");
+{ generate_sys_runtime, AsyncRuntimeOptions, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
 { generate_parallelism_runtime } :: import("../parallelism/runtime.yo");
 { generate_ref_struct_constructor_functions, generate_ref_enum_constructor_functions, generate_closure_constructor_functions } :: import("./constructors.yo");
 { codegen_fatal } :: import("../constants.yo");
+
+// Insert `attr_line` on its own line immediately before the FIRST declaration
+// of `c_name` (clang requires the GNU error attribute on the first
+// declaration, not just the definition). Searches headers, then declarations,
+// then the code buffer up to `code_limit_b` (the definition site already
+// carries the attribute inline). The needle is ` <name>(` — every prototype
+// and definition spells the name after a space, and prototypes precede any
+// call. No hit is fine: the definition was the first declaration.
+_insert_attr_before_first_decl :: (
+  fn(em : Emitter, c_name : String, attr_line : String, code_limit_b : usize) -> unit
+)({
+  needle := ` ${c_name}(`;
+  nb := needle.as_bytes();
+  nlen := nb.len();
+  (bi : usize) = usize(0);
+  while(bi < usize(3), {
+    hay_s := cond(
+      (bi == usize(0)) => em.headers.clone(),
+      (bi == usize(1)) => em.declarations.clone(),
+      true => em.code.clone()
+    );
+    hay := hay_s.as_bytes();
+    limit := cond((bi == usize(2)) => code_limit_b, true => hay.len());
+    if(limit >= nlen, {
+      last_start := (limit - nlen);
+      (si : usize) = usize(0);
+      while(si <= last_start, {
+        (mi : usize) = usize(0);
+        (all_eq : bool) = true;
+        while((mi < nlen) && all_eq, {
+          a := match(hay.get(si + mi), .Some(b0) => b0, .None => u8(0));
+          b := match(nb.get(mi), .Some(b1) => b1, .None => u8(1));
+          if(a != b, {
+            all_eq = false;
+          });
+          mi = (mi + usize(1));
+        });
+        if(all_eq, {
+          // Walk back to the start of this line.
+          (ls : usize) = si;
+          while((ls > usize(0)) && match(hay.get(ls - usize(1)), .Some(cb) => (cb != u8(10)), .None => false), {
+            ls = (ls - usize(1));
+          });
+          out := ArrayList(u8).new();
+          (ci : usize) = usize(0);
+          while(ci < ls, {
+            out.push(match(hay.get(ci), .Some(cb) => cb, .None => u8(0)));
+            ci = (ci + usize(1));
+          });
+          ab := attr_line.as_bytes();
+          (ai : usize) = usize(0);
+          while(ai < ab.len(), {
+            out.push(match(ab.get(ai), .Some(cb) => cb, .None => u8(0)));
+            ai = (ai + usize(1));
+          });
+          out.push(u8(10));
+          (ci2 : usize) = ls;
+          total := hay.len();
+          while(ci2 < total, {
+            out.push(match(hay.get(ci2), .Some(cb) => cb, .None => u8(0)));
+            ci2 = (ci2 + usize(1));
+          });
+          new_s := String.from_bytes(out);
+          cond(
+            (bi == usize(0)) => {
+              em.headers = new_s;
+            },
+            (bi == usize(1)) => {
+              em.declarations = new_s;
+            },
+            true => {
+              em.code = new_s;
+            }
+          );
+          return(());
+        });
+        si = (si + usize(1));
+      });
+    });
+    bi = (bi + usize(1));
+  });
+});
+
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
@@ -75,6 +159,28 @@ _copy_expr_list :: (fn(opt : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))(
     .None => ()
   );
   out
+});
+/// A ctl handler (effect-record-member fn) can complete its body WITHOUT
+/// `return(...)`/`unwind(...)` — an implicit RESUME WITH UNIT. Its C
+/// signature, rendered from the UNRESOLVED ResumeType SomeT (the erm decl
+/// passes body=None), is a `void*`-family pointer, while the body side
+/// resolves the result to unit and emits a statement tail with NO `return` —
+/// `-Werror=return-type` (PR #275, load-bearing against FTT stubs) rightly
+/// rejects the fall-through. Close it with the unit resume payload, exactly
+/// the value the escaped-branch epilogue already returns. Emitted only when
+/// the signature-side rendering is a pointer, so a genuinely `void` C
+/// signature never gains an illegal return
+/// (issues/fixed/ctl-handler-unit-tail-missing-c-return.md).
+_emit_erm_unit_resume_tail :: (fn(function_type : TypeValue, indent : String, context : FunctionGenerationContext) -> unit)({
+  if(!context.is_effect_record_member_function, {
+    return(());
+  });
+  ret_c := match(function_type, .Func({ result : erm_r }) => get_type_string(erm_r, context.base), _ => String.from("void"));
+  if(ret_c.ends_with("*"), {
+    erm_em := context.base.emitter;
+    erm_line := `${indent.clone()}return (${ret_c.clone()}){0};  // implicit unit resume (ctl handler fall-through)`;
+    erm_em.emit_string_line(erm_line);
+  });
 });
 /// Generate a function's body with proper return handling. Mirrors
 /// `generateFunctionBody` (corpus path).
@@ -116,7 +222,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
     if(n > usize(0), {
       (find_return : bool) = false;
       (i : usize) = usize(0);
-      while((i < (n - usize(1))) && !(find_return), {
+      while((i < (n - usize(1))) && !find_return, {
         match(
           args.get(i),
           .Some(arg) => {
@@ -125,13 +231,13 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             });
             arg_code := _call_generate_expr(arg, indent.clone(), context);
             skip_temp := match(context.base.get_expr_info(arg), .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), arg_code.clone()), .None => false);
-            if((arg_code.len() > usize(0)) && !(skip_temp), {
+            if((arg_code.len() > usize(0)) && !skip_temp, {
               line := indent.clone();
               line.push_string(arg_code);
               line.push_str(";");
               em.emit_string_line(line);
             });
-            if(!(find_return), {
+            if(!find_return, {
               match(
                 context.base.get_expr_info(arg),
                 .Some(aei) => if(has_any_control_flow(aei.control_flow), {
@@ -145,7 +251,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
         );
         i = (i + usize(1));
       });
-      if(!(find_return), {
+      if(!find_return, {
         match(
           args.get(n - usize(1)),
           .Some(last_expr) => {
@@ -160,7 +266,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             if(result_is_unit, {
               u_code := _call_generate_expr(last_expr, indent.clone(), context);
               u_skip_temp := match(context.base.get_expr_info(last_expr), .Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()), .None => false);
-              if((u_code.len() > usize(0)) && !(u_skip_temp), {
+              if((u_code.len() > usize(0)) && !u_skip_temp, {
                 u_line := indent.clone();
                 u_line.push_string(u_code);
                 u_line.push_str(";");
@@ -294,7 +400,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
             });
             has_drops := match(context.base.get_expr_info(body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
             mat_ty := cond(
-              ((has_drops && (!(result_is_unit))) && (expr_code.len() > usize(0))) => ret_ty_opt,
+              (has_drops && !result_is_unit && (expr_code.len() > usize(0))) => ret_ty_opt,
               true => Option(TypeValue).None
             );
             match(
@@ -331,7 +437,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
     // Non-begin (bare tail-expression) body. Since _trial_eval_fn_body routes
     // every fn body through evaluate_begin_expression, the body node carries
     // the begin scope-end drops on its SHARED id. When the body is a bare
-    // `=` / `:=` STATEMENT (e.g. `___ := map.set(...)` — the whole body of a
+    // `=` / `:=` STATEMENT (e.g. `___ := map.insert(...)` — the whole body of a
     // unit fn like evaluator/types/field.yo register_struct_fields), the
     // drops must be flushed AFTER the statement, mirroring TS's begin path
     // order for a unit tail (generation.ts:1688-1695: statement first, drops
@@ -355,7 +461,7 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
     // They are emitted at the correct function-level points below / inside
     // generate_implicit_return_statement (see drop_dup.yo
     // _drop_target_is_parameter).
-    if(!(is_stmt_binding), {
+    if(!is_stmt_binding, {
       generate_deferred_drop_expressions(body_expr, indent.clone(), context, true);
     });
     if(result_is_unit, {
@@ -377,6 +483,10 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
       generate_implicit_return_statement(body_expr, indent.clone(), context);
     });
   });
+  // Both body shapes (begin and non-begin) can fall through with a unit tail
+  // in a pointer-returning ctl handler; a path that already returned makes
+  // this unreachable, which is legal C.
+  _emit_erm_unit_resume_tail(function_type, indent.clone(), context);
 });
 /// Generate a single function (signature + linkage + body). Mirrors `generateFunction`.
 /// Comma-separated parameter names for a thunk's forwarding call, matching the
@@ -431,8 +541,33 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       async_override := _async_override_return_type(function_type, Option(AstExpr).Some(body_box), context.base);
       prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, async_override, is_closure_fn(func_id.clone()));
       is_exported := ((c_function_name == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
-      is_rc := (!(is_exported) && ((c_function_name.contains("___drop")) || ((c_function_name.contains("___dup")) || (c_function_name.contains("___dispose")))));
-      linkage := if(is_exported, String.from(""), if(is_rc, String.from("static inline __attribute__((always_inline)) "), String.from("static inline ")));
+      // Non-exported functions are `static inline` and exported ones carry no
+      // linkage prefix. A third arm used to give "RC helpers" `always_inline`,
+      // keyed on the C name CONTAINING `___drop` / `___dup` / `___dispose`.
+      // It never did what it meant to: the real per-type helpers are named
+      // `__yo_dispose___yo_dyn_box___yo_tN` — one underscore before the verb —
+      // so the predicate missed every one of them, and they are reached ONLY
+      // through the stored `header.dispose_fn` pointer anyway (verified:
+      // prototype + assignment + definition, zero direct call sites), which no
+      // attribute can inline.
+      //
+      // It was not strictly UNREACHABLE, which is the more interesting reason
+      // to delete it: a specialization's signature folds every non-alnum byte
+      // to `_` and joins the parts with `_` (compute_compile_time_signature),
+      // so a mangled name CAN land on the triple-underscore shape by
+      // coincidence — meaning the arm applied `always_inline` to whichever
+      // arbitrary function happened to mangle that way, which is worse than
+      // not applying it at all. Empirically it fires for nothing: zero
+      // code-position `always_inline` in a 143 MB self-emission and in the
+      // test-suite batch emissions. And dropping the attribute can only
+      // relax — `always_inline` on a function clang cannot inline is a hard
+      // error, so removing it never introduces one.
+      //
+      // `declarations.yo` must keep the same two arms: a prototype/definition
+      // linkage mismatch is "static declaration follows non-static" at every
+      // call site.
+      // See issues/fixed/rc-helper-always-inline-linkage-branch-never-fires.md.
+      linkage := if(is_exported, String.from(""), String.from("static inline "));
       open := linkage;
       open.push_string(prototype);
       open.push_str(" {");
@@ -535,7 +670,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
                 _p
               }
             );
-            _dp := context.base.declared_c_var_names.add(_pnm.clone());
+            _dp := context.base.declared_c_var_names.insert(_pnm.clone());
             _dps := context.base.declared_scopes.push(_pnm);
             _pi = (_pi + usize(1));
           });
@@ -589,7 +724,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         if(total_b >= (stub_mark_b + nlen), {
           (si : usize) = stub_mark_b;
           last_start := (total_b - nlen);
-          while((si <= last_start) && !(stub_found_ftt), {
+          while((si <= last_start) && !stub_found_ftt, {
             (mi : usize) = usize(0);
             (all_eq : bool) = true;
             while((mi < nlen) && all_eq, {
@@ -601,7 +736,30 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
               mi = (mi + usize(1));
             });
             if(all_eq, {
-              stub_found_ftt = true;
+              // REJECT STRING-LITERAL MATCHES. The needle is not only a marker,
+              // it is also DATA inside this compiler: several files build or
+              // compare it with `"// Failed to transpile"` (codegen/exprs/
+              // generation.yo, inline_fns.yo, assignment.yo, dyn.yo, return.yo,
+              // other_fn_call.yo). On a SELF-compile an unanchored scan matches
+              // that source text and mistakes working emitter functions for
+              // stubs — measured: generalizing the rewrite without this check
+              // replaced 7 substantial `(expr, indent, context)` functions with
+              // abort() and stage 3 died with SIGABRT.
+              //
+              // The discriminator is the byte BEFORE the match. Every literal
+              // occurrence in emitted C is preceded by the opening quote
+              // (`(const uint8_t*)"// Failed to transpile"`), and a real marker
+              // never is. Do NOT line-anchor instead: a genuine marker can sit
+              // mid-line, as in `return // Failed to transpile x * i32(2);`,
+              // which anchoring would miss — and that one produces a `return`
+              // with no expression, i.e. C that does not even parse.
+              prev_ok := cond(
+                (si == usize(0)) => true,
+                true => match(sb.get(si - usize(1)), .Some(qv) => (qv != u8(34)), .None => true)
+              );
+              if(prev_ok, {
+                stub_found_ftt = true;
+              });
             });
             si = (si + usize(1));
           });
@@ -616,21 +774,35 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
       // hollow-sweep detector calls HOLLOW (a batch `__yo_user_main` that is a
       // marker reports every test as passed while running no assertions).
       //
-      // Markers elsewhere are NOT gated here: the degrade guards keep the C
-      // valid, and the stub rewrite just below deletes the ones that land on
-      // dead superseded originals. Gating those too was tried and reverted — it
-      // failed tests/fn.test.yo and tests/algebraic_effects.test.yo, whose
-      // markers are exactly that dead code.
+      // Markers elsewhere are NOT made FATAL here: gating those was tried and
+      // reverted — it failed tests/fn.test.yo and tests/algebraic_effects.test.yo,
+      // whose markers are dead superseded-generic code that never runs.
+      //
+      // But "never runs" does not make the C VALID. A marker in a NON-VOID
+      // function leaves a value-returning C function with no return statement,
+      // and falling off the end of one is undefined behaviour whether or not
+      // anything calls it — clang rejects it under -Werror=return-type
+      // regardless of liveness. So those bodies are REWRITTEN to abort() below,
+      // exactly as the superseded-generic path already does: the C becomes
+      // valid, dead stubs stay harmless, and a LIVE stub aborts loudly instead
+      // of returning whatever was in the return register. Measured: 6 such
+      // functions in the tests/ batch corpus today.
+      // See issues/ftt-stub-in-live-closure-falls-off-non-void-function.md.
       if(stub_found_ftt && (c_function_name == "__yo_user_main"), {
         codegen_fatal(
           `Failed to transpile part of main's body — the emitted C for "${c_function_name}" contains an untranspiled expression, so the program would run without it`
         );
       });
-      if(stub_found_ftt && fid_fully_specialized(func_id.clone()), {
-        // RARE path (superseded generic original): rebuild the prefix from
-        // bytes once. Byte-exact equivalent of the former char-indexed
-        // `substring(0, stub_mark)` — stub_mark_b was taken at the same
-        // buffer position.
+      stub_is_superseded := fid_fully_specialized(func_id.clone());
+      stub_ret_unit := match(
+        function_type,
+        .Func({ result : stub_r }) => is_unit_type(resolve_some_type_to_concrete(stub_r.clone())),
+        _ => true
+      );
+      if(stub_found_ftt && (stub_is_superseded || !stub_ret_unit), {
+        // Rebuild the prefix from bytes once. Byte-exact equivalent of the
+        // former char-indexed `substring(0, stub_mark)` — stub_mark_b was taken
+        // at the same buffer position.
         pb := em.code.as_bytes();
         prefix_bytes := ArrayList(u8).new();
         (pi : usize) = usize(0);
@@ -639,8 +811,29 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
           pi = (pi + usize(1));
         });
         em.code = String.from_bytes(prefix_bytes);
+        // The error attribute makes the C COMPILER the deadness oracle: the
+        // build fails IFF a call to the stub survives — a dead generic
+        // original (no callers) compiles clean, while a LIVE stub (a body
+        // whose definition-time evaluation failed and was swallowed — run
+        // yo check with YO_DEBUG_SWALLOW=1 to see the error it hit) becomes
+        // a compile error at every call instead of an rc=134 abort with no
+        // diagnostic. Text scans cannot decide liveness here: closures and
+        // their callers live in the declarations buffer, prototypes
+        // double-count, and fid_fully_specialized is not a deadness proof
+        // (issues/fixed/closure-nested-inside-io-async-closure-body-emits-abort-stub.md).
+        // Every supported C compiler is gcc/clang-family (clang, gcc,
+        // zig cc, emcc), so the GNU error attribute is always available.
+        stub_attr := `__attribute__((error("yo: the body of ${c_function_name} failed to transpile — its definition-time evaluation failed and was swallowed (run yo check with YO_DEBUG_SWALLOW=1); this call would abort at runtime")))`;
+        _insert_attr_before_first_decl(em, c_function_name.clone(), stub_attr.clone(), stub_mark_b);
+        em.emit_string_line(stub_attr);
         em.emit_string_line(open.clone());
-        em.emit_string_line(String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"));
+        em.emit_string_line(
+          if(
+            stub_is_superseded,
+            String.from("  abort(); /* superseded generic original: all call sites dispatch a specialization */"),
+            String.from("  abort(); /* untranspilable body in a value-returning fn: aborting beats falling off the end (UB) */")
+          )
+        );
         em.emit_string_line(String.from("}"));
       });
     },
@@ -664,7 +857,7 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
     // branch, so on macOS the id is never allocated and __yo_timer_future_dispose
     // (Linux-only) is never referenced by the dispose-dispatch switch. See
     // AsyncRuntimeOptions for why this is a value, not a callback.
-    timer_dispose_type_id := if(!(context.base.needs_cycle_gc) && is_target_linux(context.base.target_info), Option(i64).Some(i64(context.base.dispose_type_id_for(String.from("__yo_timer_future_dispose")))), Option(i64).None);
+    timer_dispose_type_id := if(!context.base.needs_cycle_gc && is_target_linux(context.base.target_info), Option(i64).Some(i64(context.base.dispose_type_id_for(String.from("__yo_timer_future_dispose")))), Option(i64).None);
     opts := AsyncRuntimeOptions(
       needs_cycle_gc : context.base.needs_cycle_gc,
       timer_dispose_type_id : timer_dispose_type_id
@@ -677,11 +870,28 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
   if(context.uses_parallelism, {
     generate_parallelism_runtime(context.base.emitter, context.base.debug_parallelism, context.base.target_info, context.uses_async);
   });
+  // TLS backend: emitted independently of uses_async — a SYNC program probing
+  // tls_available() must still link the __yo_tls_ ABI. Target selection
+  // (OpenSSL vs stubs) lives in the emitted C's preprocessor guard, so wasm
+  // and Windows get stubs from the same emission.
+  if(get_uses_tls(), {
+    generate_tls_runtime(context.base.emitter);
+  });
   collect_unwind_value_ctypes(context);
   generate_atomic_gc_runtime_functions(context);
+  // Chunked emission: the constructor/traverse block is routed VERBATIM into
+  // the shared header (per-TU `static` copies — constructors are called from
+  // every chunk, and each TU's constructors take the address of that TU's own
+  // traverse copy, which is only ever CALLED through the stored pointer).
+  ctor_block_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
   generate_ref_struct_constructor_functions(context);
   generate_ref_enum_constructor_functions(context);
   generate_closure_constructor_functions(context);
+  if(context.base.chunk_mode, {
+    context.base.chunk_header_ranges.push(
+      ChunkRange(c_name : String.from("__ctor_block"), start_b : ctor_block_start, end_b : em.code.as_bytes().len())
+    );
+  });
   // Iterate in INSERTION order (function_order), NOT HashMap bucket order, so
   // body emission — and the specializations created during it — are ordered
   // deterministically across the TS-compiled s1 and self-compiled s2. Index by
@@ -701,8 +911,18 @@ generate_all_functions :: (fn(context : FunctionGenerationContext) -> unit)({
           // function" / "static declaration follows non-static" at call sites
           // preceding the definition. Mirrors TS generateAllFunctions
           // (generation.ts:583-661), which applies the full skip set here too.
-          if(!(should_skip_function_codegen(fid, entry.c_name.clone(), entry.value, context.base)), {
+          if(!should_skip_function_codegen(fid, entry.c_name.clone(), entry.value, context.base), {
+            // Chunked emission: record this function's `code`-buffer byte
+            // range AFTER the call returns — generate_function may truncate
+            // the buffer tail (superseded-stub rewrite), so the extent is
+            // final only then. Ranges are non-overlapping and ascending.
+            fn_start := if(context.base.chunk_mode, em.code.as_bytes().len(), usize(0));
             generate_function(entry.value, entry.c_name, context);
+            if(context.base.chunk_mode, {
+              context.base.chunk_fn_ranges.push(
+                ChunkRange(c_name : entry.c_name.clone(), start_b : fn_start, end_b : em.code.as_bytes().len())
+              );
+            });
           });
         },
         .None => ()
@@ -751,7 +971,7 @@ ModuleLevelVarEntry :: struct(
 /// atom, for `(x : T) = v` the binding's atom. Returns None for other shapes.
 /// Mirrors the `varAtom` resolution in TS `emitModuleLevelVariableDeclarations`.
 _module_init_var_atom :: (fn(init_expr : AstExpr) -> Option(AstExpr))({
-  if(!(ast_expr_is_fn_call(init_expr)), {
+  if(!ast_expr_is_fn_call(init_expr), {
     return(Option(AstExpr).None);
   });
   init_args := _args(init_expr);
@@ -822,14 +1042,27 @@ emit_module_level_variable_declarations :: (
             // slot wiring from the module init (the self-compiled binary's
             // sizeof() folds all failed — the stage2/stage3 fixpoint residue).
             dedup_key := `${c_var_name}#${ast_expr_token(init_expr).character.to_string()}`;
-            if(!(seen.contains(dedup_key.clone())), {
-              _s := seen.add(dedup_key.clone());
-              if(!(seen.contains(c_var_name.clone())), {
-                _s2 := seen.add(c_var_name.clone());
+            if(!seen.contains(dedup_key.clone()), {
+              _s := seen.insert(dedup_key.clone());
+              if(!seen.contains(c_var_name.clone()), {
+                _s2 := seen.insert(c_var_name.clone());
                 c_type_str := get_type_string(vi.ty, context.base);
-                em.emit_declaration_string_line(
-                  `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
-                );
+                // Chunked emission: module-level vars are read/written from
+                // every chunk — one definition (chunk 0), extern in the header.
+                if(context.base.chunk_mode, {
+                  em.emit_declaration_string_line(
+                    `extern ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                  );
+                  cgb := context.base;
+                  cgb.chunk_globals.push_string(
+                    `${c_type_str} ${c_var_name};
+`
+                  );
+                }, {
+                  em.emit_declaration_string_line(
+                    `static ${c_type_str} ${c_var_name}; // module-level mutable variable`
+                  );
+                });
               });
               rhs := match(_args(init_expr).get(usize(1)), .Some(e) => e, .None => make_err_expr());
               _p := result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));
@@ -883,7 +1116,7 @@ generate_main_wrapper :: (fn(context : FunctionGenerationContext, module_vars : 
       }
     );
   });
-  if(!(found), {
+  if(!found, {
     return();
   });
   main_call_args := _main_call_args(main_func_id, context);

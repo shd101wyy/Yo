@@ -79,7 +79,7 @@ _str_unquote :: (fn(raw : String) -> String)({
 });
 /// Add surrounding `"..."` around a string value.
 _str_quote :: (fn(s : String) -> String)(
-  (String.from("\"") + s) + String.from("\"")
+  String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // _check_range_type
@@ -100,7 +100,7 @@ _try_ctfe_range_ctor :: (
 )({
   local_exn := Exception(
     throw : (
-      (_e) -> unwind(())
+      _e -> unwind(())
     )
   );
   ct_args := ArrayList(ArgEntry).new();
@@ -227,7 +227,7 @@ _cached_range_type :: (
 _check_range_type :: (
   fn(arg_type : TypeValue, env : Environment, ctx : EvalContext) -> _RangeCheck
 )({
-  if(!(is_struct_type(arg_type.clone())), {
+  if(!is_struct_type(arg_type.clone()), {
     return(_RangeCheck(is_range : false, is_inclusive : false));
   });
   // The TYPE CONSTRUCTOR's id is the discriminator, not the shape.
@@ -304,7 +304,7 @@ _extract_range_indices :: (
           return(Option(_IdxRange).None);
         }
       );
-      if(!(is_int_lit(start_field)) || !(is_int_lit(end_field)), {
+      if(!is_int_lit(start_field) || !is_int_lit(end_field), {
         return(Option(_IdxRange).None);
       });
       start_raw := match(
@@ -491,7 +491,7 @@ _find_index_method :: (
                       // faithful port must swap.
                       p1_compatible := are_types_compatible(arg_type, p1);
                       ret_is_ptr := is_pointer_type(ret_ty);
-                      if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
+                      if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         found = Option(_IndexMethodEntry).Some(m);
                       });
                     },
@@ -544,9 +544,7 @@ _try_comptime_element_access :: (
             dyn(
               format_error_message(
                 ast_expr_token(arg_expr),
-                String.from("Invalid integer literal for array/slice index"),
-                false,
-                .None
+                String.from("Invalid integer literal for array/slice index")
               )
             )
           );
@@ -558,9 +556,7 @@ _try_comptime_element_access :: (
           dyn(
             format_error_message(
               ast_expr_token(arg_expr),
-              `Array/slice index out of bounds: ${idx_raw}`,
-              false,
-              .None
+              `Array/slice index out of bounds: ${idx_raw}`
             )
           )
         );
@@ -579,9 +575,7 @@ _try_comptime_element_access :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(arg_expr),
-                      `Array index out of bounds: ${idx_raw}. Expected index in range [0, ${(arr_len - usize(1))}].`,
-                      false,
-                      .None
+                      `Array index out of bounds: ${idx_raw}. Expected index in range [0, ${(arr_len - usize(1))}].`
                     )
                   )
                 );
@@ -594,9 +588,7 @@ _try_comptime_element_access :: (
                     dyn(
                       format_error_message(
                         ast_expr_token(arg_expr),
-                        String.from("Array index out of bounds"),
-                        false,
-                        .None
+                        String.from("Array index out of bounds")
                       )
                     )
                   );
@@ -697,9 +689,7 @@ _try_comptime_array_index :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("Failed to evaluate index argument"),
-            false,
-            .None
+            String.from("Failed to evaluate index argument")
           )
         )
       );
@@ -743,16 +733,14 @@ _compute_comptime_string_index :: (
   if(is_unknown_val(arg_value), {
     return(EvalValue.StrLit(_str_quote(String.from(""))));
   });
-  if(!(is_range), {
+  if(!is_range, {
     // Single character access
-    if(!(is_int_lit(arg_value)), {
+    if(!is_int_lit(arg_value), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("Expected comptime_int index for comptime string index"),
-            false,
-            .None
+            String.from("Expected comptime_int index for comptime string index")
           )
         )
       );
@@ -766,9 +754,7 @@ _compute_comptime_string_index :: (
           dyn(
             format_error_message(
               ast_expr_token(arg_expr),
-              String.from("Invalid integer literal for string index"),
-              false,
-              .None
+              String.from("Invalid integer literal for string index")
             )
           )
         );
@@ -780,9 +766,7 @@ _compute_comptime_string_index :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            `String index out of bounds: ${idx_raw}`,
-            false,
-            .None
+            `String index out of bounds: ${idx_raw}`
           )
         )
       );
@@ -794,25 +778,41 @@ _compute_comptime_string_index :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            `String index out of bounds: ${idx_raw}. Expected index in range [0, ${(str_len - usize(1))}].`,
-            false,
-            .None
+            `String index out of bounds: ${idx_raw}. Expected index in range [0, ${(str_len - usize(1))}].`
           )
         )
       );
     });
-    char_str := str_value.substring(idx_usize, idx_usize + usize(1));
+    // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c): the index is
+    // a BYTE offset and must sit on a rune boundary (a mid-rune offset is a
+    // compile error, where the runtime `substring` panics). The result stays
+    // a 1-rune StrLit — the rune STARTING at that byte, mirroring the runtime
+    // `at(i)` — because a comptime_str is text, not a byte buffer. Runtime
+    // `s(i)` yields the u8 instead; that result-TYPE split predates D4 and is
+    // deliberate (docs/en-US/STRINGS.md).
+    if(!str_value.is_char_boundary(idx_usize), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(arg_expr),
+            `String index ${idx_raw} is not on a UTF-8 character boundary`
+          )
+        )
+      );
+    });
+    char_str := str_value.substring(
+      idx_usize,
+      str_value.ceil_char_boundary(idx_usize + usize(1))
+    );
     return(EvalValue.StrLit(_str_quote(char_str)));
   });
   // Range access
-  if(!(is_struct_val(arg_value)), {
+  if(!is_struct_val(arg_value), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          String.from("Expected comptime Range value for comptime string range index"),
-          false,
-          .None
+          String.from("Expected comptime Range value for comptime string range index")
         )
       )
     );
@@ -826,9 +826,7 @@ _compute_comptime_string_index :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("Expected numeric start/end in Range for comptime string range index"),
-            false,
-            .None
+            String.from("Expected numeric start/end in Range for comptime string range index")
           )
         )
       );
@@ -843,9 +841,7 @@ _compute_comptime_string_index :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `String slice start index out of bounds: ${start_idx}. Expected index in range [0, ${str_len}].`,
-          false,
-          .None
+          `String slice start index out of bounds: ${start_idx}. Expected index in range [0, ${str_len}].`
         )
       )
     );
@@ -855,9 +851,31 @@ _compute_comptime_string_index :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `String slice end index out of bounds: ${end_idx}. Expected index in range [${start_idx}, ${str_len}].`,
-          false,
-          .None
+          `String slice end index out of bounds: ${end_idx}. Expected index in range [${start_idx}, ${str_len}].`
+        )
+      )
+    );
+  });
+  // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c): comptime
+  // `s(a..b)` slices BYTES, matching the runtime `substring`. Out-of-range is
+  // already a compile error above; a mid-rune endpoint is one too, where the
+  // runtime `substring` panics.
+  if(!str_value.is_char_boundary(start_idx), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `String slice start index ${start_idx} is not on a UTF-8 character boundary`
+        )
+      )
+    );
+  });
+  if(!str_value.is_char_boundary(end_idx), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(arg_expr),
+          `String slice end index ${end_idx} is not on a UTF-8 character boundary`
         )
       )
     );
@@ -892,9 +910,7 @@ _try_comptime_string_index :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("Failed to evaluate index argument for comptime string indexing"),
-            false,
-            .None
+            String.from("Failed to evaluate index argument for comptime string indexing")
           )
         )
       );
@@ -909,9 +925,7 @@ _try_comptime_string_index :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("Failed to evaluate index argument for comptime string indexing"),
-            false,
-            .None
+            String.from("Failed to evaluate index argument for comptime string indexing")
           )
         )
       );
@@ -976,7 +990,7 @@ _specialize_index_method :: (
   margs := ArrayList(AstExpr).new();
   _a0 := margs.push(recv);
   _a1 := margs.push(idx_expr);
-  inner_exn := Exception(throw : ((_err) -> unwind(())));
+  inner_exn := Exception(throw : (_err -> unwind(())));
   r := try_to_call_function_with_arguments(mv, mty, expr, recv, margs, caller_env, ctx, true, false, false, inner_exn);
   match(
     r.specialized_function_value,
@@ -1065,7 +1079,7 @@ _find_comptime_index_method :: (
                       // compatible. Only fires when both sides carry a constructor id.
                       p1_compatible := (_ctor_ids_agree(arg_type, p1) && are_types_compatible(arg_type, p1));
                       ret_is_ptr := is_pointer_type(ci_result);
-                      if(((p0_is_ptr || p0_is_ref) && p1_compatible) && ret_is_ptr, {
+                      if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         // Comptime-parameter gate (TS index-trait.ts:414).
                         ci_flags := match(
                           m.method_value,
@@ -1186,12 +1200,12 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   ct_fn_value := match(ct_method.method_value, .Some(mv) => mv, .None => EvalValue.UnitVal);
-  if(!(is_func_val(ct_fn_value)), {
+  if(!is_func_val(ct_fn_value), {
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)` (TS index-trait.ts:539-545).
   ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r, _ => t_unit());
-  if(!(is_pointer_type(ct_ret_type)), {
+  if(!is_pointer_type(ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
   output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
@@ -1408,9 +1422,7 @@ try_to_call_with_index_trait :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Index trait expects exactly 1 argument, got ${arg_exprs.len()}.`,
-          false,
-          .None
+          `Index trait expects exactly 1 argument, got ${arg_exprs.len()}.`
         )
       )
     );
@@ -1423,9 +1435,7 @@ try_to_call_with_index_trait :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("Index trait: missing argument"),
-            false,
-            .None
+            String.from("Index trait: missing argument")
           )
         )
       );
@@ -1491,7 +1501,7 @@ try_to_call_with_index_trait :: (
   //    `ComptimeIndex(usize)`. Mirrors TS index-trait.ts:255-274.
   match(
     self_value,
-    .Some(sv_ct) => if((!(is_unknown_val(sv_ct)) && array_val.is_none()) && string_raw_opt.is_none(), {
+    .Some(sv_ct) => if(!is_unknown_val(sv_ct) && array_val.is_none() && string_raw_opt.is_none(), {
       match(
         _try_comptime_custom_type_index(
           expr,
@@ -1530,9 +1540,7 @@ try_to_call_with_index_trait :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            String.from("Failed to evaluate index argument"),
-            false,
-            .None
+            String.from("Failed to evaluate index argument")
           )
         )
       );
@@ -1572,9 +1580,7 @@ try_to_call_with_index_trait :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            String.from("Type does not implement Index for the given argument type."),
-            false,
-            .None
+            String.from("Type does not implement Index for the given argument type.")
           )
         )
       );

@@ -1,0 +1,389 @@
+//! TLS client streams over OpenSSL — `plans/D6_TLS_PLAN.md` (the O2
+//! decision: one `TlsStream` implementing the D5 `Reader`/`Writer` traits).
+//!
+//! Requires OpenSSL 1.1.1+/3.x at BUILD time: the compiler probes
+//! `pkg-config openssl` (with Homebrew keg fallbacks) and adds the include
+//! and link flags; without it, importing this module fails at the C step
+//! with the linker naming the missing library. Windows is not covered yet
+//! (Schannel is part of the Windows platform audit).
+//!
+//! Integration model: the TCP socket belongs to Yo's per-thread async
+//! runtime, so OpenSSL never sees the fd. The SSL object speaks through two
+//! MEMORY BIOs; this module pumps ciphertext between them and the
+//! `TcpStream` around every handshake/read/write step.
+//!
+//! ```rust
+//! { TlsStream } :: import "std/crypto/tls";
+//! s := io.await(TlsStream.connect(`example.com`.to_string(), u16(443), io), e);
+//! _n := io.await(s.write_str("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n", io), e);
+//! n := io.await(s.read(buf.ptr().unwrap(), buf.capacity(), io), e);
+//! io.await(s.close(io), e);
+//! ```
+pragma(Pragma.AllowUnsafe);
+{ ArrayList } :: import("../collections/array_list");
+open(import("../string"));
+{ Path } :: import("../path");
+{ IoError } :: import("../sys/errors");
+{ Error, AnyError, Exception, IoExn } :: import("../error");
+{ TcpStream } :: import("../net/tcp");
+{ SocketAddr, IpAddr } :: import("../net/addr");
+{ lookup_host } :: import("../net/dns");
+IoTraits :: import("../io");
+{ ToString } :: import("../fmt");
+
+extern(
+  "Yo",
+  // The TLS backend ABI (D6). OpenSSL on unix targets; ABI stubs on Windows
+  // until the Schannel row of the Windows platform audit lands — the
+  // implementation is selected per TARGET at C-compile time and emitted only
+  // when a __yo_tls_ extern is called.
+  __yo_tls_ctx_new : (fn() -> ?*void),
+  __yo_tls_ssl_new : (fn(ctx : *void, hostname : *char) -> ?*void),
+  __yo_tls_handshake : (fn(ssl : *void) -> int),
+  __yo_tls_get_error : (fn(ssl : *void, ret : int) -> int),
+  __yo_tls_read : (fn(ssl : *void, buf : *void, num : int) -> int),
+  __yo_tls_write : (fn(ssl : *void, buf : *void, num : int) -> int),
+  __yo_tls_shutdown : (fn(ssl : *void) -> int),
+  __yo_tls_free : (fn(ssl : *void, ctx : *void) -> unit),
+  __yo_tls_rbio : (fn(ssl : *void) -> *void),
+  __yo_tls_wbio : (fn(ssl : *void) -> *void),
+  __yo_tls_bio_pending : (fn(bio : *void) -> usize),
+  __yo_tls_bio_read : (fn(bio : *void, buf : *void, len : int) -> int),
+  __yo_tls_bio_write : (fn(bio : *void, buf : *void, len : int) -> int),
+  __yo_tls_err_string : (fn(buf : *char, len : usize) -> unit),
+  __yo_tls_available : (fn() -> bool)
+);
+/// True when this build's TLS backend can connect (unix + OpenSSL).
+tls_available :: (fn() -> bool)(unsafe(__yo_tls_available()));
+export(tls_available);
+_SSL_VERIFY_PEER :: (fn() -> int)(int(1));
+_SSL_CTRL_SET_TLSEXT_HOSTNAME :: (fn() -> int)(int(55));
+// SSL_get_error results.
+_SSL_ERROR_WANT_READ :: (fn() -> int)(int(2));
+_SSL_ERROR_WANT_WRITE :: (fn() -> int)(int(3));
+_SSL_ERROR_ZERO_RETURN :: (fn() -> int)(int(6));
+// Ciphertext pump chunk.
+_PUMP_CAP :: (fn() -> usize)(usize(16384));
+/// TLS failures, D1 style. `Handshake`/`Io` carry OpenSSL's own message.
+TlsError :: enum(
+  /// The TCP connection could not be established or resolved.
+  Connect(host : String),
+  /// The handshake failed (certificate verification failures land here —
+  /// OpenSSL reports them through the handshake result).
+  Handshake(detail : String),
+  /// A read/write failed after the session was established.
+  Io(detail : String),
+  /// The peer closed the TLS session (clean close_notify) during an
+  /// operation that needed data.
+  Closed
+);
+impl(
+  TlsError,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      match(
+        self,
+        .Connect(host) => `tls: could not connect to ${host}`,
+        .Handshake(detail) => `tls handshake failed: ${detail}`,
+        .Io(detail) => `tls i/o failed: ${detail}`,
+        .Closed => `tls session closed by peer`.to_string()
+      )
+    )
+  )
+);
+export(TlsError);
+/// Last backend error as text (empty queue → a fixed note).
+_ssl_err_string :: (fn() -> String)({
+  buf := ArrayList(u8).with_capacity(usize(256));
+  buf.resize_with_byte(usize(256), int(0));
+  unsafe(__yo_tls_err_string(*(char)(buf.ptr().unwrap()), usize(256)));
+  String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown TLS error`.to_string())
+});
+_throw_tls :: (fn(err : TlsError, exn : Exception) -> unit)(
+  exn.throw(dyn(err))
+);
+/// A connected TLS client stream.
+TlsStream :: ref(
+  struct(
+    _tcp : TcpStream,
+    _ctx : *void,
+    _ssl : *void,
+    // Owned by _ssl after SSL_set_bio; kept for the pumps.
+    _rbio : *void,
+    _wbio : *void,
+    _closed : bool
+  )
+);
+/// Drain the write BIO (ciphertext OpenSSL produced) into the socket.
+_flush_wbio :: (fn(s : TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
+  tcp := s._tcp;
+  wbio := s._wbio;
+  io.async(e => {
+    buf := ArrayList(u8).with_capacity(_PUMP_CAP());
+    buf.resize_with_byte(_PUMP_CAP(), int(0));
+    (pending : usize) = unsafe(__yo_tls_bio_pending(wbio));
+    while(pending > usize(0), {
+      n := unsafe(__yo_tls_bio_read(wbio, *(void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
+      cond(
+        (n > int(0)) => {
+          // write_all over the raw chunk.
+          (sent : usize) = usize(0);
+          (want : usize) = usize(n);
+          while(sent < want, {
+            w := e.io.await(tcp.write(buf.ptr().unwrap().add(sent), want - sent, e.io), e);
+            sent = (sent + w);
+          });
+        },
+        true => ()
+      );
+      pending = unsafe(__yo_tls_bio_pending(wbio));
+    });
+    return(());
+  })
+});
+/// Feed one socket read into the read BIO. Returns the byte count (0 = EOF).
+_feed_rbio :: (fn(s : TlsStream, io : Io) -> Impl(Future(usize, IoExn)))({
+  tcp := s._tcp;
+  rbio := s._rbio;
+  io.async(e => {
+    buf := ArrayList(u8).with_capacity(_PUMP_CAP());
+    buf.resize_with_byte(_PUMP_CAP(), int(0));
+    n := e.io.await(tcp.read(buf.ptr().unwrap(), _PUMP_CAP(), e.io), e);
+    cond(
+      (n > usize(0)) => {
+        _w := unsafe(__yo_tls_bio_write(rbio, *(void)(buf.ptr().unwrap()), int(n)));
+      },
+      true => ()
+    );
+    return(n);
+  })
+});
+impl(
+  TlsStream,
+  /// Connect to `host:port` and complete a TLS handshake. Certificate
+  /// verification and hostname checking are ON (the system trust store via
+  /// `SSL_CTX_set_default_verify_paths`); SNI is sent.
+  connect : (fn(host : String, port : u16, io : Io) -> Impl(Future(TlsStream, IoExn)))(
+    io.async(e => {
+      // 1. TCP.
+      addrs := e.io.await(lookup_host(host, e.io), e);
+      cond(
+        (addrs.len() == usize(0)) => {
+          _throw_tls(TlsError.Connect(host : host.clone()), e.exn);
+        },
+        true => ()
+      );
+      addr := SocketAddr.new(addrs(usize(0)), port);
+      tcp := e.io.await(TcpStream.connect(addr, e.io), e);
+      // 2. Backend objects (verify + trust store + SNI + hostname pin are
+      // configured inside __yo_tls_ssl_new).
+      host_c := host.to_cstr();
+      ctx_opt := unsafe(__yo_tls_ctx_new());
+      if(ctx_opt.is_none(), {
+        _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
+      });
+      ctx := ctx_opt.unwrap();
+      ssl_opt := unsafe(__yo_tls_ssl_new(ctx, *(char)(host_c.ptr().unwrap())));
+      if(ssl_opt.is_none(), {
+        _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
+      });
+      ssl := ssl_opt.unwrap();
+      rbio := unsafe(__yo_tls_rbio(ssl));
+      wbio := unsafe(__yo_tls_wbio(ssl));
+      s := TlsStream(_tcp : tcp, _ctx : ctx, _ssl : ssl, _rbio : rbio, _wbio : wbio, _closed : false);
+      // 3. Handshake pump. Awaits sit ONE branch under the while — deeper
+      // nesting is an unsupported async shape (the closure FTTs to an abort
+      // stub; see issues/ftt-stub-in-live-closure-falls-off-non-void-function.md).
+      (done : bool) = false;
+      while(!done, {
+        rc := unsafe(__yo_tls_handshake(ssl));
+        e.io.await(_flush_wbio(s, e.io), e);
+        (need_read : bool) = false;
+        cond(
+          (rc == int(1)) => {
+            done = true;
+          },
+          true => {
+            err := unsafe(__yo_tls_get_error(ssl, rc));
+            cond(
+              (err == _SSL_ERROR_WANT_READ()) => {
+                need_read = true;
+              },
+              (err == _SSL_ERROR_WANT_WRITE()) => (),
+              true => {
+                _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
+              }
+            );
+          }
+        );
+        if(need_read, {
+          got := e.io.await(_feed_rbio(s, e.io), e);
+          cond(
+            (got == usize(0)) => {
+              _throw_tls(TlsError.Handshake(detail : `peer closed during handshake`.to_string()), e.exn);
+            },
+            true => ()
+          );
+        });
+      });
+      return(s);
+    })
+  ),
+  /// Read decrypted bytes into `buf`. 0 = the peer closed the session.
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    ssl := self._ssl;
+    io.async(e => {
+      (out : usize) = usize(0);
+      (settled : bool) = false;
+      while(!settled, {
+        rc := unsafe(__yo_tls_read(ssl, *(void)(buf), int(size)));
+        (act : int) = int(0);
+        cond(
+          (rc > int(0)) => {
+            out = usize(rc);
+            settled = true;
+          },
+          true => {
+            err := unsafe(__yo_tls_get_error(ssl, rc));
+            cond(
+              (err == _SSL_ERROR_ZERO_RETURN()) => {
+                out = usize(0);
+                settled = true;
+              },
+              (err == _SSL_ERROR_WANT_READ()) => {
+                act = int(1);
+              },
+              (err == _SSL_ERROR_WANT_WRITE()) => {
+                act = int(2);
+              },
+              true => {
+                _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
+                settled = true;
+              }
+            );
+          }
+        );
+        // One post-cond await block (the handshake loop's proven shape; two
+        // separate awaiting `if`s after the cond trip the async state
+        // machine — issues/async-postwhile-multiple-await-ifs.md). WANT_READ
+        // (act 1) flushes then feeds; WANT_WRITE (act 2) only flushes.
+        if(act > int(0), {
+          e.io.await(_flush_wbio(self, e.io), e);
+          (got : usize) = usize(1);
+          if(act == int(1), {
+            got = e.io.await(_feed_rbio(self, e.io), e);
+          });
+          cond(
+            (got == usize(0)) => {
+              out = usize(0);
+              settled = true;
+            },
+            true => ()
+          );
+        });
+      });
+      return(out);
+    })
+  }),
+  /// Write plaintext; returns the byte count accepted (all of `size` on
+  /// success — SSL_write is all-or-nothing by default).
+  write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    ssl := self._ssl;
+    io.async(e => {
+      (out : usize) = usize(0);
+      (settled : bool) = false;
+      while(!settled, {
+        rc := unsafe(__yo_tls_write(ssl, *(void)(buf), int(size)));
+        e.io.await(_flush_wbio(self, e.io), e);
+        (need_read : bool) = false;
+        cond(
+          (rc > int(0)) => {
+            out = usize(rc);
+            settled = true;
+          },
+          true => {
+            err := unsafe(__yo_tls_get_error(ssl, rc));
+            cond(
+              (err == _SSL_ERROR_WANT_READ()) => {
+                need_read = true;
+              },
+              (err == _SSL_ERROR_WANT_WRITE()) => (),
+              true => {
+                _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
+                settled = true;
+              }
+            );
+          }
+        );
+        if(need_read, {
+          got := e.io.await(_feed_rbio(self, e.io), e);
+          cond(
+            (got == usize(0)) => {
+              _throw_tls(TlsError.Closed, e.exn);
+              settled = true;
+            },
+            true => ()
+          );
+        });
+      });
+      return(out);
+    })
+  }),
+  /// Write a `str`; returns the byte count written.
+  write_str : (fn(self : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
+    s := String.from(data);
+    sb := s.as_bytes();
+    io.async(e => {
+      n := e.io.await(self.write(sb.ptr().unwrap(), sb.len(), e.io), e);
+      return(n);
+    })
+  }),
+  /// Write a `String` (matches TcpStream.write_string); byte count written.
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))({
+    sb := data.as_bytes();
+    io.async(e => {
+      n := e.io.await(self.write(sb.ptr().unwrap(), sb.len(), e.io), e);
+      return(n);
+    })
+  }),
+  /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
+  /// objects — the stream must not be used afterwards.
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    io.async(e => {
+      cond(
+        self._closed => (),
+        true => {
+          self._closed = true;
+          _sd := unsafe(__yo_tls_shutdown(self._ssl));
+          e.io.await(_flush_wbio(self, e.io), e);
+          // __yo_tls_free releases both BIOs (owned by the SSL object) and
+          // the context.
+          unsafe(__yo_tls_free(self._ssl, self._ctx));
+          e.io.await(self._tcp.close(e.io), e);
+        }
+      );
+      return(());
+    })
+  )
+);
+export(TlsStream);
+// === std/io async trait impls (D5) ===
+impl(
+  TlsStream,
+  IoTraits.Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+impl(
+  TlsStream,
+  IoTraits.Writer(
+    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.write(buf, size, io)
+    ),
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      _flush_wbio(self, io)
+    )
+  )
+);

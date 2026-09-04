@@ -2,13 +2,13 @@
 
 `derive` is a compile-time builtin that automatically generates trait implementations for struct and enum types. It works similarly to Rust's `#[derive(...)]` attribute but uses function call syntax.
 
-All five standard derivable traits (Eq, Hash, Clone, Ord, ToString) are **self-hosted** — their derive rules are written in Yo using the `derive_rule` mechanism, not hardcoded in the compiler.
+All six standard derivable traits (Eq, Hash, Clone, Ord, ToString, Default) are **self-hosted** — their derive rules are written in Yo using the `derive_rule` mechanism, not hardcoded in the compiler.
 
 ## Basic Usage
 
 ```rust
 Point :: struct(x : i32, y : i32);
-derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString);
+derive(Point, Eq(Point), Hash, Clone, Ord(Point), ToString, Default);
 
 main :: (fn() -> unit) {
   p1 := Point(i32(1), i32(2));
@@ -45,12 +45,20 @@ assert((.Circle(i32(5)) == .Circle(i32(5))), "same circle");
 
 ### Hash
 
-Generates a hash function by combining the hashes of all fields using FNV-style hash combining (`h * 31 + field_hash`). For enums, the variant index is included in the hash.
+Generates `hash(self, hasher)` — the Rust-style `Hash` method that feeds a value's identity into any `Hasher`. A struct feeds every field in declaration order; an enum feeds its variant index (as `u64`) and then that variant's fields. The algorithm is the hasher's business: `HashMap`/`HashSet` drive SipHash-1-3 (`std/hash`'s `DefaultHasher`), and `hash_one(value)` hashes a single value with it.
 
 ```rust
+{ hash_one, DefaultHasher } :: import("std/hash");
 derive(Point, Hash);
 // Point now implements the Hash trait
+h := hash_one(Point(i32(1), i32(2)));   // one value → u64
+hasher := DefaultHasher.new();          // or stream several values into one hasher
+Point(i32(1), i32(2)).hash(hasher);
+Point(i32(3), i32(4)).hash(hasher);
+combined := hasher.finish();
 ```
+
+Equal values (by the derived `Eq`) feed identical bytes, so they hash alike under every hasher. Field types must implement `Hash`; floats deliberately do not.
 
 ### Clone
 
@@ -85,6 +93,22 @@ derive(Point, ToString);
 p := Point(i32(1), i32(2));
 // p.to_string() returns "Point(1, 2)"
 ```
+
+### Default
+
+Generates a value with every field set to its own type's default. **Structs only** — an enum has no canonical default variant, so write that impl by hand.
+
+```rust
+Config :: struct(retries : i32, verbose : bool, name : String);
+derive(Config, Default);
+
+d := (Config <: Default).default();
+// Config(retries : 0, verbose : false, name : "")
+```
+
+Each field type must implement `Default`. Field types that are generic instantiations work too — `ArrayList(i32)`, `Option(T)` and so on — because the rule reaches each field's type through the struct's own field list rather than by naming it, so nothing needs to be in scope at the impl site.
+
+Pairs with `Option.unwrap_or_default` and `Result.unwrap_or_default`.
 
 ## Multiple Traits
 
@@ -235,9 +259,9 @@ When `derive(Type, Trait)` is called:
 
 ### Self-Hosted Standard Derives
 
-All five standard traits use the same `derive_rule` mechanism:
+All six standard traits use the same `derive_rule` mechanism:
 
-- **Eq, Clone, Hash, Ord** — derive rules defined in `std/prelude.yo`
+- **Eq, Clone, Hash, Ord, Default** — derive rules defined in `std/prelude.yo`
 - **ToString** — derive rule defined in `std/fmt/to_string.yo` (where the ToString trait is defined)
 
 These implementations use string-based code generation with `comptime_str` and `.to_expr()` to build impl blocks at compile time.

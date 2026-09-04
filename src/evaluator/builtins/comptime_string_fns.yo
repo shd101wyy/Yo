@@ -56,7 +56,7 @@ open(import("std/string"));
 str_lit_unquote :: (fn(raw : String) -> String)(str_lit_unquote_bytes(raw));
 // Wrap an unquoted string with quote chars to produce a StrLit.raw.
 str_lit_quote :: (fn(s : String) -> String)(
-  (String.from("\"") + s) + String.from("\"")
+  String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // Helper — evaluate one argument and validate it is comptime_str type.
@@ -79,23 +79,19 @@ eval_comptime_str_arg :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Expected comptime_str type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
-            false,
-            .None
+            `Expected comptime_str type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`
           )
         )
       );
       new_expr_info(env, t_comptime_string())
     }
   );
-  if(!(is_comptime_string_type(info.ty)), {
+  if(!is_comptime_string_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg),
-          `Expected comptime_str type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
-          false,
-          .None
+          `Expected comptime_str type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`
         )
       )
     );
@@ -123,23 +119,19 @@ eval_comptime_int_arg :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            `Expected comptime_int type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
-            false,
-            .None
+            `Expected comptime_int type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`
           )
         )
       );
       new_expr_info(env, t_comptime_int())
     }
   );
-  if(!(is_comptime_int_type(info.ty)), {
+  if(!is_comptime_int_type(info.ty), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg),
-          `Expected comptime_int type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`,
-          false,
-          .None
+          `Expected comptime_int type for comptime_str argument, got:\n${ast_expr_to_string(arg)}`
         )
       )
     );
@@ -186,6 +178,11 @@ evaluate_yo_comptime_string_functions :: (
             av,
             .StrLit(raw) => {
               unquoted := str_lit_unquote(raw);
+              // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c):
+              // comptime `len` counts BYTES, matching the runtime
+              // `String.len()` / `str.len()` after the D4 flip. This was
+              // pinned to `char_len` in PR 2 so the flip could not change the
+              // comptime language silently; PR 7 is the deliberate alignment.
               EvalValue.IntLit(unquoted.len().to_string())
             },
             _ => create_unknown_val(t_comptime_int())
@@ -217,9 +214,7 @@ evaluate_yo_comptime_string_functions :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              String.from("Unexpected comptime_str unary function"),
-              false,
-              .None
+              String.from("Unexpected comptime_str unary function")
             )
           )
         );
@@ -242,9 +237,7 @@ evaluate_yo_comptime_string_functions :: (
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `"${BF_COMPTIME_STRING_SLICE}" expects 2 or 3 arguments, got ${n_args.to_string()}`,
-            false,
-            .None
+            `"${BF_COMPTIME_STRING_SLICE}" expects 2 or 3 arguments, got ${n_args.to_string()}`
           )
         )
       );
@@ -313,7 +306,41 @@ evaluate_yo_comptime_string_functions :: (
                   ),
                   .None => unquoted.len()
                 );
-                sliced := unquoted.substring(start_idx, end_idx);
+                // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c):
+                // comptime `slice` takes BYTE offsets, matching the runtime
+                // `substring`. Out-of-range clamps, as this builtin always
+                // has; an offset INSIDE a rune is a compile error here where
+                // the runtime `substring` panics.
+                total_bytes := unquoted.len();
+                start_b := cond(
+                  (start_idx > total_bytes) => total_bytes,
+                  true => start_idx
+                );
+                end_b := cond(
+                  (end_idx > total_bytes) => total_bytes,
+                  true => end_idx
+                );
+                if(!unquoted.is_char_boundary(start_b), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `comptime slice start ${start_b} is not on a UTF-8 character boundary`
+                      )
+                    )
+                  );
+                });
+                if(!unquoted.is_char_boundary(end_b), {
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(expr),
+                        `comptime slice end ${end_b} is not on a UTF-8 character boundary`
+                      )
+                    )
+                  );
+                });
+                sliced := unquoted.substring(start_b, end_b);
                 EvalValue.StrLit(str_lit_quote(sliced))
               },
               _ => create_unknown_val(t_comptime_string())
@@ -436,9 +463,7 @@ evaluate_yo_comptime_string_functions :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Unexpected function call for comptime_str operations:\n${ast_expr_to_string(expr)}`,
-              false,
-              .None
+              `Unexpected function call for comptime_str operations:\n${ast_expr_to_string(expr)}`
             )
           )
         );

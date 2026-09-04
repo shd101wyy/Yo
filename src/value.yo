@@ -24,7 +24,15 @@ FuncValData :: struct(
   body : AstExpr,
   cap_names : ArrayList(String),
   cap_tys : ArrayList(TypeValue),
-  func_id : String
+  func_id : String,
+  // Frozen def-scope registry key (plans/FUNCVAL_ENV_SHARING.md): key into
+  // env.yo's `g_funcval_def_envs` side table — the TS shape stores the
+  // definition Environment on the function type (`FunctionType.env`), but an
+  // `Environment` field cannot live here (env.yo imports value.yo). `usize(0)`
+  // = absent: call paths fall back to the flat-capture rebuild
+  // (`capture_env_for`). Clones share the key on purpose — TS derivations
+  // share the env object (`{...functionType, env: functionType.env}`).
+  (env_key : usize) ?= usize(0)
 );
 derive(FuncValData, Clone);
 /// The compile-time representation of an evaluated expression.
@@ -243,7 +251,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         b,
         .EnumVal(bv, bfs) =>
           cond(
-            (!(av == bv)) => false,
+            !(av == bv) => false,
             (afs.len() != bfs.len()) => false,
             true => {
               n := afs.len();
@@ -293,7 +301,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         b,
         .StructVal(btn, bnames, bvals) =>
           cond(
-            (!(atn == btn)) => false,
+            !(atn == btn) => false,
             (anames.len() != bnames.len()) => false,
             (avals.len() != bvals.len()) => false,
             true => {
@@ -308,7 +316,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                       bnames.get(sf_i),
                       .Some(bn_s) => {
                         cond(
-                          (!(an_s == bn_s)) => {
+                          !(an_s == bn_s) => {
                             sf_ok = false;
                           },
                           true => ()
@@ -329,7 +337,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                       bvals.get(sf_i),
                       .Some(bv) => {
                         cond(
-                          (!(recur(av, bv))) => {
+                          !recur(av, bv) => {
                             sf_ok = false;
                           },
                           true => ()
@@ -426,7 +434,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
         b,
         .TraitVal(btn, bfnames, bfvals) =>
           cond(
-            (!(atn == btn)) => false,
+            !(atn == btn) => false,
             (afnames.len() != bfnames.len()) => false,
             (afvals.len() != bfvals.len()) => false,
             true => {
@@ -441,7 +449,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                       bfnames.get(tr_i),
                       .Some(bn_s) => {
                         cond(
-                          (!(an_s == bn_s)) => {
+                          !(an_s == bn_s) => {
                             tr_ok = false;
                           },
                           true => ()
@@ -465,7 +473,7 @@ eval_value_eq :: (fn(a : EvalValue, b : EvalValue) -> bool)(
                           (ao.is_none() && bo.is_none()) => (),
                           (ao.is_some() && bo.is_some()) => {
                             cond(
-                              (!(recur(ao.unwrap(), bo.unwrap()))) => {
+                              !recur(ao.unwrap(), bo.unwrap()) => {
                                 tr_ok = false;
                               },
                               true => ()

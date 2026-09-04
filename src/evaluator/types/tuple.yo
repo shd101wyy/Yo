@@ -65,7 +65,7 @@ evaluate_tuple_elements_type :: (
     if(field.label.len() > usize(0), {
       (dup_idx : usize) = usize(0);
       (has_dup : bool) = false;
-      while((dup_idx < field_labels.len()) && !(has_dup), {
+      while((dup_idx < field_labels.len()) && !has_dup, {
         existing := match(field_labels.get(dup_idx), .Some(l) => l, .None => String.from(""));
         if(existing == field.label, {
           has_dup = true;
@@ -83,9 +83,7 @@ evaluate_tuple_elements_type :: (
           dyn(
             format_error_message(
               err_tok,
-              `Duplicate label "${field.label}" in tuple`,
-              false,
-              .None
+              `Duplicate label "${field.label}" in tuple`
             )
           )
         );
@@ -156,9 +154,7 @@ evaluate_tuple_type :: (
         dyn(
           format_error_message(
             ast_expr_token(arg),
-            String.from("Tuple type cannot have default value."),
-            false,
-            .None
+            String.from("Tuple type cannot have default value.")
           )
         )
       );

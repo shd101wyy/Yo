@@ -27,6 +27,27 @@ _make_str_4 :: (fn(b0 : u8, b1 : u8, b2 : u8, b3 : u8) -> String)({
   arr.push(b3);
   String.from_bytes(arr)
 });
+/// Run `utf16_to_utf8` over "A" + an unpaired LOW surrogate and report whether
+/// it threw. The handler `unwind`s out of this function, so the trailing
+/// `false` is only reached when nothing was thrown.
+///
+/// The old decoder let a lone low surrogate fall through and wrote it out as a
+/// 3-byte CESU-8 sequence — invalid UTF-8 — despite the documented "throws on
+/// unpaired surrogates" contract.
+_lone_low_surrogate_throws :: (fn() -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(true);
+      }
+    )
+  );
+  data := ArrayList(u16).new();
+  data.push(u16(0x0041));
+  data.push(u16(0xDC00));
+  utf16_to_utf8(data, exn);
+  false
+});
 // ===== UTF-8 to UTF-16 =====
 test("utf8_to_utf16 empty string", {
   result := utf8_to_utf16(String.from(""));
@@ -67,7 +88,7 @@ test("utf8_to_utf16 four-byte UTF-8 surrogate pair", {
 test("utf16_to_utf8 empty", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -80,7 +101,7 @@ test("utf16_to_utf8 empty", {
 test("utf16_to_utf8 ASCII", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -98,7 +119,7 @@ test("utf16_to_utf8 ASCII", {
 test("utf16_to_utf8 BMP character", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -117,7 +138,7 @@ test("utf16_to_utf8 BMP character", {
 test("utf16_to_utf8 surrogate pair", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -139,7 +160,7 @@ test("utf16_to_utf8 surrogate pair", {
 test("utf16 roundtrip ASCII", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -153,7 +174,7 @@ test("utf16 roundtrip ASCII", {
 test("utf16 roundtrip two-byte", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -168,7 +189,7 @@ test("utf16 roundtrip two-byte", {
 test("utf16 roundtrip surrogate pair", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -184,4 +205,7 @@ test("utf16 roundtrip surrogate pair", {
   assert(bytes(usize(1)) == u8(0x9F), "roundtrip byte 1");
   assert(bytes(usize(2)) == u8(0x98), "roundtrip byte 2");
   assert(bytes(usize(3)) == u8(0x80), "roundtrip byte 3");
+});
+test("utf16_to_utf8 rejects an unpaired low surrogate", {
+  assert(_lone_low_surrogate_throws(), "an unpaired low surrogate should throw");
 });

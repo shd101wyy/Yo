@@ -140,7 +140,7 @@ test("is_effect_call_: atom is not a call => false", {
     true,
     get_info_none
   );
-  assert(!(result), "atom should not be an effect call");
+  assert(!result, "atom should not be an effect call");
 });
 test("is_effect_call_: call to matching name, allow_missing_type=true => true", {
   // raise(x) — func name matches effect param, get_info returns None
@@ -165,7 +165,7 @@ test("is_effect_call_: call to matching name, allow_missing_type=false => false 
     false,
     get_info_none
   );
-  assert(!(result), "raise(x) should not match when type is unknown and allow_missing_type=false");
+  assert(!result, "raise(x) should not match when type is unknown and allow_missing_type=false");
 });
 test("is_effect_call_: call to non-matching name => false", {
   // foo(x) — func name does not match "raise"
@@ -177,7 +177,7 @@ test("is_effect_call_: call to non-matching name => false", {
     true,
     get_info_none
   );
-  assert(!(result), "foo(x) should not match raise");
+  assert(!result, "foo(x) should not match raise");
 });
 test("is_effect_call_: dotted call with field_path match => true", {
   // ctl.raise(x) with field_path = Some(["raise"])
@@ -205,7 +205,7 @@ test("is_effect_call_: dotted call with wrong field_path => false", {
     true,
     get_info_none
   );
-  assert(!(result), "ctl.other(x) should not match field_path=[raise]");
+  assert(!result, "ctl.other(x) should not match field_path=[raise]");
 });
 // ---------------------------------------------------------------------------
 // has_effect_in_spread_: EffectsRowT detection
@@ -260,7 +260,7 @@ test("has_effect_in_spread_: direct EffectsRowT with non-matching name => false"
     String.from("raise"),
     env
   );
-  assert(!(result), "EffectsRowT without 'raise' should return(false)");
+  assert(!result, "EffectsRowT without 'raise' should return(false)");
 });
 test("has_effect_in_spread_: non-effects-row type (unit) => false", {
   env := make_empty_env();
@@ -270,7 +270,7 @@ test("has_effect_in_spread_: non-effects-row type (unit) => false", {
     String.from("raise"),
     env
   );
-  assert(!(result), "unit type should return(false for has_effect_in_spread_)");
+  assert(!result, "unit type should return(false for has_effect_in_spread_)");
 });
 test("has_effect_in_spread_: bool type => false", {
   env := make_empty_env();
@@ -280,7 +280,7 @@ test("has_effect_in_spread_: bool type => false", {
     String.from("raise"),
     env
   );
-  assert(!(result), "bool type should return(false for has_effect_in_spread_)");
+  assert(!result, "bool type should return(false for has_effect_in_spread_)");
 });
 // ---------------------------------------------------------------------------
 // is_transitive_effect_call_: basic structural tests
@@ -319,7 +319,7 @@ test("analyze_effect_call_points: atom body => no effect call points", {
     Option(ArrayList(String)).None,
     get_info_none
   );
-  assert(!(result.has_effects), "atom body should have no effects");
+  assert(!result.has_effects, "atom body should have no effects");
   assert(result.effect_call_points.len() == usize(0), "no effect call points");
   assert(result.captured_variables.len() == usize(0), "no captured vars");
 });
@@ -334,7 +334,7 @@ test("analyze_effect_call_points: non-effect call body => no effect call points"
     Option(ArrayList(String)).None,
     get_info_none
   );
-  assert(!(result.has_effects), "non-effect call should have no effects");
+  assert(!result.has_effects, "non-effect call should have no effects");
   assert(result.effect_call_points.len() == usize(0), "no effect call points for foo(x)");
 });
 test("analyze_effect_call_points: effect call but no type info => no suspension point", {
@@ -375,7 +375,7 @@ test("analyze_effect_call_points: result field_path is preserved", {
     get_info_none
   );
   has_path := match(result.effect_field_path, .Some(_) => true, .None => false);
-  assert(!(has_path), "None field_path should be preserved as None");
+  assert(!has_path, "None field_path should be preserved as None");
 });
 test("analyze_effect_call_points: include_transitive=false does not change empty result", {
   body := make_ident("unit");

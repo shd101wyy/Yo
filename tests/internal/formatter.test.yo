@@ -11,7 +11,7 @@ open(import("std/error"));
 _fmt :: (fn(src : String) -> String)({
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "formatter threw");
         unwind(String.new());
       }
@@ -59,7 +59,7 @@ fs_file :: import("std/fs/file");
 test("format_yo_source: fixture corpus from formatter.test.ts", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         println(`  unexpected io error: ${err}`);
         assert(false, "fixture io failed");
         unwind(());
@@ -77,8 +77,8 @@ test("format_yo_source: fixture corpus from formatter.test.ts", {
       entries.get(i),
       .Some(e) => if(e.name.ends_with(`.input`), {
         base := e.name.substring(usize(0), e.name.len() - usize(6));
-        input := io.await(fs_file.read_string(Path.new(`${dir}/${base}.input`), io), ioexn);
-        expected := io.await(fs_file.read_string(Path.new(`${dir}/${base}.expected`), io), ioexn);
+        input := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.input`), io), ioexn);
+        expected := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.expected`), io), ioexn);
         got := _fmt(input);
         if(got != expected, {
           println(`  FIXTURE FAILED: ${base}`);
@@ -93,4 +93,168 @@ test("format_yo_source: fixture corpus from formatter.test.ts", {
   println(`  ${checked.to_string()} fixtures checked`);
   assert(failed == usize(0), "some formatter fixtures diverged (see above)");
   assert(checked >= usize(46), "fixture corpus missing (cwd must be the repo root)");
+});
+test("format_yo_source: a template string AFTER a multibyte character survives", {
+  // `read_raw_template_string` re-reads the template literal out of `input`
+  // by byte offset. It used to be handed `Token.character` — a RUNE index —
+  // and re-walked the buffer to convert; D4 PR 3 gave `Token` a real
+  // `byte_offset` and deleted that walk. Either way the failure mode is the
+  // same class: with a multibyte character EARLIER in the file the slice
+  // starts early and swallows the source before the backtick, producing
+  // non-parseable output at rc=0
+  // (issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md — 23 of
+  // 40 sampled std files with a backtick came out broken).
+  //
+  // The em dash below is what makes this test discriminating; the same source
+  // with an ASCII hyphen passes under a broken conversion.
+  src := String.from("//! doc — with an em dash\nf :: (fn(x : String) -> String)(`v=${x}`);\nexport(f);\n");
+  out := _fmt(src);
+  assert(out.contains(String.from("`v=${x}`")), "the template literal is intact");
+  assert(!out.contains(String.from("`v=${x}`;\n`")), "no duplicated tail");
+  assert(_fmt(out) == out, "and formatting is idempotent");
+});
+test("format_yo_source: multibyte content inside a template string is preserved", {
+  src := String.from("g :: (fn() -> String)(`名前 → ${String.new()}`);\nexport(g);\n");
+  out := _fmt(src);
+  assert(out.contains(String.from("名前 → ${String.new()}")), "multibyte body intact");
+  assert(_fmt(out) == out, "idempotent");
+});
+// ---------------------------------------------------------------------------
+// Paren elision (plans/FMT_PAREN_ELISION.md D1-D3) — the decision table.
+// `_fmt` runs format_yo_source, whose re-parse gate is the
+// meaning-preservation backstop; these pin the canonical OUTPUTS.
+// ---------------------------------------------------------------------------
+test("fmt elision D1: atom-like groups in infix-operand position", {
+  src := String.from("f :: (fn(x : i32, y : i32) -> i32)((x) + (y));\nexport(f);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(x + y)")), "operand parens around atoms elide");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D1: atom group after a non-allow-list operator", {
+  src := String.from("f :: (fn(x : i32, y : i32) -> i32)(x - (y));\nexport(f);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(x - y)")), "RHS atom group elides after infix -");
+});
+test("fmt elision D1: prefix-result group elides after :=", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := (-x);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -x;")), "(-x) elides to -x on := RHS");
+});
+test("fmt elision D2: left same-operator group flattens", {
+  src := String.from("f :: (fn() -> i32)(((1 + 2) + 3));\nexport(f);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(1 + 2 + 3)")), "((1 + 2) + 3) flattens to (1 + 2 + 3)");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D2: flatten inside a retained := group", {
+  src := String.from("main :: (fn() -> unit)({\n  y := (((1 + 2) + 3));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := (1 + 2 + 3);")), "one level kept, inner flattened");
+});
+test("fmt elision D3: prefix call parens elide", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := -(x);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -x;")), "-(x) elides to -x");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D3: prefix chains normalize to the bare form", {
+  src := String.from("T :: ?(*(i32));\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("T :: ?*i32;")), "?(*(i32)) elides to ?*i32");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D3: prefix call over a dot-chain elides", {
+  src := String.from("main :: (fn() -> unit)({\n  p := Pair(a : 7);\n  y := -(p.a);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -p.a;")), "-(p.a) elides to -p.a");
+});
+test("fmt elision D3: prefix call in argument position elides", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  sink(-(x) + 2);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(-x + 2)")), "-(x) + 2 elides to -x + 2 in an argument");
+});
+test("fmt elision R1: := RHS infix chain keeps its group", {
+  src := String.from("main :: (fn() -> unit)({\n  y := (1 + 2);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := (1 + 2);")), "y := 1 + 2 is illegal — group stays");
+  assert(_fmt(out.clone()) == out, "stable");
+});
+test("fmt elision R2: right operand groups stay", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(3 + (4 - 5));\n  sink(3 + (4 + 5));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(3 + (4 - 5))")), "mixed right group stays");
+  assert(out.contains(String.from("sink(3 + (4 + 5))")), "same-op right group stays");
+});
+test("fmt elision R3: mixed-operator left group stays", {
+  src := String.from("main :: (fn() -> unit)({\n  sink((3 + 4) - 5);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink((3 + 4) - 5)")), "mixed operators need the group");
+});
+test("fmt elision R3: prefix call with infix argument stays", {
+  src := String.from("main :: (fn() -> unit)({\n  y := -((1 + 2));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -(1 + 2);")), "prefix binds ONE postfix expr — call parens stay");
+});
+test("fmt elision R4: multi-arg operator call stays", {
+  src := String.from("main :: (fn() -> unit)({\n  y := -((1, 2));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -((1, 2));")), "comma argument keeps BOTH paren levels");
+});
+test("fmt elision: operator atom stays parenthesized", {
+  src := String.from("my_not :: (!);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("my_not :: (!);")), "(!) is a value, not a grouping");
+});
+test("fmt elision: comment inside a candidate group blocks elision", {
+  src := String.from("main :: (fn() -> unit)({\n  y := ((/* keep */ 1 + 2));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("/* keep */")), "comment preserved");
+  assert(_fmt(out.clone()) == out, "idempotent with the comment inside");
+});
+test("fmt elision D3: op((x)) elides both levels in ONE pass", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := -((x));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("y := -x;")), "-((x)) reaches -x in one pass (idempotence)");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D1: prefix-result group elides after an infix operator", {
+  src := String.from("main :: (fn() -> unit)({\n  x := 10;\n  y := 3;\n  sink((x) - (-y));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(x - -y)")), "(x) - (-y) elides to x - -y");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt elision D2: flatten in call-argument position", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(((1 + 2) + 3));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink(1 + 2 + 3)")), "arg-position ((1+2)+3) flattens fully");
+});
+test("fmt elision: parenthesized dot-deref sugar still canonicalizes", {
+  src := String.from("main :: (fn() -> unit)({\n  assert(a.(*) == 99);\n  assert(c.(*).count == 10);\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("a.* == 99")), "a.(*) canonicalizes to a.*");
+  assert(out.contains(String.from("c.*.count")), "c.(*).count canonicalizes to c.*.count");
+});
+test("fmt elision: quote argument with macro splices keeps its group (gate-conservative)", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  expr := quote((lhs.(#(field)) == rhs.(#(field))));\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("quote((lhs.(#(field)) == rhs.(#(field))))")),
+    "exprs_are_equal cannot prove splice trees equal — the group stays"
+  );
+  assert(_fmt(out.clone()) == out, "and that is a fixed point");
+});
+test("fmt elision D2: prefix operands are not chain operators", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  if(((exp_enum_id != giv_enum_id) && !(same_enum_ctor)) && !(same_variants), {\n    return(1);\n  });\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(
+    out.contains(
+      String.from("if((exp_enum_id != giv_enum_id) && !same_enum_ctor && !same_variants, {")
+    ),
+    "((A) && !b) && !c flattens fully — the ! operands do not split the && chain"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
 });

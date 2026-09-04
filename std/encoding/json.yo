@@ -2,7 +2,7 @@
 //!
 //! Provides a dynamically-typed JSON value tree.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { json_parse, json_stringify, JsonValue } :: import "std/encoding/json";
@@ -13,12 +13,15 @@
 //! println(json_stringify(v));
 //! ```
 pragma(Pragma.AllowUnsafe);
+pragma(Pragma.AllowMacroDef);
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
+{ HashMap } :: import("../collections/hash_map");
 { assert } :: import("../assert");
 { snprintf } :: import("../libc/stdio");
 { Error, AnyError, Exception } :: import("../error");
 { ToString } :: import("../fmt");
+utf8 :: import("./utf8");
 // ============================================================================
 // JsonError
 // ============================================================================
@@ -212,20 +215,34 @@ export(JsonValue, JsonKV);
 // ============================================================================
 // Parser state
 // ============================================================================
+/// One hex digit's value, or 255 for a non-hex byte.
+_hex_digit :: (fn(b : u8) -> u8)(
+  cond(
+    ((b >= u8(48)) && (b <= u8(57))) => (b - u8(48)),
+    ((b >= u8(97)) && (b <= u8(102))) => (b - u8(87)),
+    ((b >= u8(65)) && (b <= u8(70))) => (b - u8(55)),
+    true => u8(255)
+  )
+);
+
 _Parser :: ref(
   struct(
-    src : str,
+    // BYTES, not `str`: `str` is the STATIC string view and a runtime
+    // String cannot become one (plans/archive/SLICE_REWORK.md), so a
+    // str-typed parser could never parse runtime input — an HTTP body, an
+    // LSP frame. Both public entry points funnel into bytes.
+    src : ArrayList(u8),
     pos : usize
   )
 );
 impl(
   _Parser,
-  new : (fn(src : str) -> Self)(
+  new : (fn(src : ArrayList(u8)) -> Self)(
     Self(src : src, pos : usize(0))
   ),
   peek : (fn(self : Self) -> Option(u8))(
     cond(
-      (self.pos < self.src.len()) => .Some(self.src.bytes(self.pos)),
+      (self.pos < self.src.len()) => .Some(self.src(self.pos)),
       true => .None
     )
   ),
@@ -263,6 +280,30 @@ impl(
         )
     )
   }),
+  /// Four hex digits after `\u`, as a code unit. `.Err(.InvalidUnicode)`
+  /// on a short read or a non-hex byte.
+  parse_hex4 : (fn(self : Self) -> Result(u32, JsonError))({
+    (cp : u32) = u32(0);
+    (i : usize) = usize(0);
+    while(i < usize(4), {
+      match(
+        self.peek(),
+        .None => {
+          return(.Err(.UnexpectedEnd));
+        },
+        .Some(h) => {
+          d := _hex_digit(h);
+          if(d == u8(255), {
+            return(.Err(.InvalidUnicode));
+          });
+          self.advance();
+          cp = ((cp * u32(16)) + u32(d));
+        }
+      );
+      i = (i + usize(1));
+    });
+    .Ok(cp)
+  }),
   parse_string : (fn(self : Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
@@ -290,22 +331,84 @@ impl(
                 .Some(e) => {
                   self.advance();
                   cond(
-                    (e == u8(110)) => bytes.push(u8(10)),
-                    // \n
-                    (e == u8(116)) => bytes.push(u8(9)),
-                    // \t
-                    (e == u8(114)) => bytes.push(u8(13)),
-                    // \r
-                    (e == u8(34)) => bytes.push(u8(34)),
-                    // \"
-                    (e == u8(92)) => bytes.push(u8(92)),
-                    // \\
-                    (e == u8(47)) => bytes.push(u8(47)),
-                    // \/
-                    (e == u8(98)) => bytes.push(u8(8)),
-                    // \b
-                    (e == u8(102)) => bytes.push(u8(12)),
-                    // \f
+                    (e == u8(110)) => {
+                      bytes.push(u8(10)); // \n
+                    },
+                    (e == u8(116)) => {
+                      bytes.push(u8(9)); // \t
+                    },
+                    (e == u8(114)) => {
+                      bytes.push(u8(13)); // \r
+                    },
+                    (e == u8(34)) => {
+                      bytes.push(u8(34)); // \"
+                    },
+                    (e == u8(92)) => {
+                      bytes.push(u8(92)); // \\
+                    },
+                    (e == u8(47)) => {
+                      bytes.push(u8(47)); // \/
+                    },
+                    (e == u8(98)) => {
+                      bytes.push(u8(8)); // \b
+                    },
+                    (e == u8(102)) => {
+                      bytes.push(u8(12)); // \f
+                    },
+                    (e == u8(117)) => {
+                      // \uXXXX — with surrogate-pair handling: a high
+                      // surrogate must be followed by `\uDC00`-`\uDFFF`,
+                      // and a lone low surrogate is invalid (JSON spec /
+                      // RFC 8259 §7).
+                      (cp : u32) = match(
+                        self.parse_hex4(),
+                        .Ok(v) => v,
+                        .Err(err) => {
+                          return(.Err(err));
+                        }
+                      );
+                      if((cp >= u32(0xD800)) && (cp <= u32(0xDBFF)), {
+                        bs := match(
+                          self.peek(),
+                          .Some(x) => x,
+                          .None => {
+                            return(.Err(.UnexpectedEnd));
+                          }
+                        );
+                        if(bs != u8(92), {
+                          return(.Err(.InvalidUnicode));
+                        });
+                        self.advance();
+                        bu := match(
+                          self.peek(),
+                          .Some(x2) => x2,
+                          .None => {
+                            return(.Err(.UnexpectedEnd));
+                          }
+                        );
+                        if(bu != u8(117), {
+                          return(.Err(.InvalidUnicode));
+                        });
+                        self.advance();
+                        lo := match(
+                          self.parse_hex4(),
+                          .Ok(v2) => v2,
+                          .Err(err2) => {
+                            return(.Err(err2));
+                          }
+                        );
+                        if((lo < u32(0xDC00)) || (lo > u32(0xDFFF)), {
+                          return(.Err(.InvalidUnicode));
+                        });
+                        cp = ((u32(0x10000) + ((cp - u32(0xD800)) * u32(1024))) + (lo - u32(0xDC00)));
+                      });
+                      if((cp >= u32(0xDC00)) && (cp <= u32(0xDFFF)), {
+                        return(.Err(.InvalidUnicode));
+                      });
+                      // Surrogate halves were already rejected above, so
+                      // `cp` is a scalar and nothing is substituted here.
+                      utf8.encode_lossy_into(cp, bytes);
+                    },
                     true => {
                       return(.Err(.InvalidEscape));
                     }
@@ -323,8 +426,22 @@ impl(
     });
     .Ok(String.from_bytes(bytes))
   }),
+  /// RFC 8259 section 6:
+  ///
+  ///     number = [ minus ] int [ frac ] [ exp ]
+  ///     int    = zero / ( digit1-9 *DIGIT )
+  ///     frac   = decimal-point 1*DIGIT
+  ///     exp    = e [ minus / plus ] 1*DIGIT
+  ///
+  /// This VALIDATES the grammar before handing the span to `atof`. It used to
+  /// scan the same characters without checking any of them and always return
+  /// `.Ok(atof(...))`, so `"1."`, `"1e"`, `"01"` and `"+1"` were all accepted —
+  /// and since `_parse_value` routes every unrecognized leading byte here, an
+  /// empty span made `"hello"` and `"<html>"` parse as the NUMBER 0
+  /// (issues/fixed/json-number-parser-accepts-invalid-and-any-garbage.md).
   parse_number : (fn(self : Self) -> Result(f64, JsonError))({
     start := self.pos;
+    // [ minus ] — a leading '+' is NOT part of the grammar.
     match(
       self.peek(),
       .Some(c) => {
@@ -336,18 +453,51 @@ impl(
       },
       .None => ()
     );
-    while(runtime(true), {
+    // int = zero / ( digit1-9 *DIGIT ) — at least one digit is required, and a
+    // leading zero may not be followed by another digit ("01").
+    leading_zero := match(
+      self.peek(),
+      .Some(c) =>
+        cond(
+          (c == u8(48)) => {
+            // '0'
+            self.advance();
+            true
+          },
+          ((c >= u8(49)) && (c <= u8(57))) => {
+            self.advance();
+            false
+          },
+          true => return(.Err(.InvalidNumber))
+        ),
+      .None => return(.Err(.InvalidNumber))
+    );
+    if(leading_zero == false, {
+      while(runtime(true), {
+        match(
+          self.peek(),
+          .Some(d) => {
+            cond(
+              ((d >= u8(48)) && (d <= u8(57))) => self.advance(),
+              true => break
+            );
+          },
+          .None => break
+        );
+      });
+    });
+    if(leading_zero, {
       match(
         self.peek(),
-        .Some(c) => {
-          cond(
-            ((c >= u8(48)) && (c <= u8(57))) => self.advance(),
-            true => break
-          );
+        .Some(d) => {
+          if((d >= u8(48)) && (d <= u8(57)), {
+            return(.Err(.InvalidNumber));
+          });
         },
-        .None => break
+        .None => ()
       );
     });
+    // [ frac ] = decimal-point 1*DIGIT
     match(
       self.peek(),
       .Some(c) => {
@@ -355,6 +505,17 @@ impl(
           (c == u8(46)) => {
             // '.'
             self.advance();
+            match(
+              self.peek(),
+              .Some(d) => {
+                if((d < u8(48)) || (d > u8(57)), {
+                  return(.Err(.InvalidNumber));
+                });
+              },
+              .None => {
+                return(.Err(.InvalidNumber));
+              }
+            );
             while(runtime(true), {
               match(
                 self.peek(),
@@ -373,6 +534,7 @@ impl(
       },
       .None => ()
     );
+    // [ exp ] = e [ minus / plus ] 1*DIGIT
     match(
       self.peek(),
       .Some(c) => {
@@ -389,6 +551,17 @@ impl(
                 );
               },
               .None => ()
+            );
+            match(
+              self.peek(),
+              .Some(d) => {
+                if((d < u8(48)) || (d > u8(57)), {
+                  return(.Err(.InvalidNumber));
+                });
+              },
+              .None => {
+                return(.Err(.InvalidNumber));
+              }
             );
             while(runtime(true), {
               match(
@@ -412,7 +585,7 @@ impl(
     num_buf := ArrayList(u8).with_capacity(num_len + usize(1));
     j := usize(0);
     while(j < num_len, j = (j + usize(1)), {
-      num_buf.push(self.src.bytes(start + j));
+      num_buf.push(self.src(start + j));
     });
     num_buf.push(u8(0));
     num_ptr := *(char)(num_buf.ptr().unwrap());
@@ -605,16 +778,33 @@ _parse_value :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
 // ============================================================================
 // Public API
 // ============================================================================
-/// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
-json_parse :: (fn(s : str, exn : Exception) -> JsonValue)({
-  p := _Parser.new(s);
+/// Parse JSON bytes into a `JsonValue` tree. Throws via `Exception` on invalid input.
+json_parse_bytes :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)({
+  p := _Parser.new(bytes);
   match(
     _parse_value(p),
     .Ok(v) => v,
     .Err(e) => exn.throw(dyn(e))
   )
 });
-export(json_parse);
+/// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
+json_parse :: (fn(s : str, exn : Exception) -> JsonValue)({
+  bytes := ArrayList(u8).new();
+  n := s.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    bytes.push(s.bytes(i));
+    i = (i + usize(1));
+  });
+  json_parse_bytes(bytes, exn)
+});
+/// Parse a runtime `String` of JSON into a `JsonValue` tree. Throws via
+/// `Exception` on invalid input. (`json_parse` takes the STATIC `str` view;
+/// runtime input — an HTTP body, an LSP frame — arrives as `String`.)
+json_parse_string :: (fn(s : String, exn : Exception) -> JsonValue)(
+  json_parse_bytes(s.as_bytes(), exn)
+);
+export(json_parse, json_parse_bytes, json_parse_string);
 // ============================================================================
 // Serialisation
 // ============================================================================
@@ -818,3 +1008,419 @@ json_stringify_pretty :: (fn(value : JsonValue, indent : usize) -> String)(
   )
 );
 export(json_stringify, json_stringify_pretty);
+// ============================================================================
+// ToJson / FromJson — typed (de)serialisation through JsonValue
+// ============================================================================
+/// Serialise a value to a `JsonValue` tree. Implement (or later, derive)
+/// this to make a type encodable; the text form always goes through
+/// `json_stringify`, so formatting stays centralized.
+ToJson :: trait(
+  to_json : (fn(inout(self) : Self) -> JsonValue)
+);
+/// Deserialise a value from a `JsonValue` tree. Returns `Result` rather
+/// than throwing: decode failures are ordinary values a caller matches
+/// on, and `JsonError` can grow structured variants without breaking
+/// this signature. Call as `T.from_json(v)` or through `json_decode`.
+FromJson :: trait(
+  from_json : (fn(v : JsonValue) -> Result(Self, JsonError))
+);
+/// Call `T.from_json(v)` through a where-constrained helper — the shape
+/// the container impls below use for their element/value decodes. (During
+/// development this also worked around a forall-binding-order evaluator
+/// bug, fixed alongside this module — see
+/// issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
+_from_json_of :: (fn(comptime(T) : Type, v : JsonValue, where(T <: FromJson)) -> Result(T, JsonError))(
+  T.from_json(v)
+);
+/// Shared integer decode: `.Number` whose value is integral and within
+/// [lo, hi], as an i64. (JSON numbers are IEEE 754 doubles — integers
+/// beyond 2^53 cannot round-trip through JSON text at all.)
+_decode_int :: (fn(v : JsonValue, lo : f64, hi : f64) -> Result(i64, JsonError))(
+  match(
+    v,
+    .Number(n) => cond(
+      (f64(i64(n)) != n) => .Err(.Other(`expected an integer, got a non-integral number`)),
+      ((n < lo) || (n > hi)) => .Err(.Other(`integer out of range`)),
+      true => .Ok(i64(n))
+    ),
+    _ => .Err(.Other(`expected a number`))
+  )
+);
+impl(
+  bool,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Bool(value : self))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(v, .Bool(b) => .Ok(b), _ => .Err(.Other(`expected a bool`)))
+    )
+  )
+);
+impl(
+  i8,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(i8.MIN), f64(i8.MAX)), .Ok(n) => .Ok(i8(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  i16,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(i16.MIN), f64(i16.MAX)), .Ok(n) => .Ok(i16(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  i32,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(i32.MIN), f64(i32.MAX)), .Ok(n) => .Ok(i32(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  i64,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(i64.MIN), f64(i64.MAX)), .Ok(n) => .Ok(n), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  u8,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(0), f64(u8.MAX)), .Ok(n) => .Ok(u8(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  u16,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(0), f64(u16.MAX)), .Ok(n) => .Ok(u16(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  u32,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(0), f64(u32.MAX)), .Ok(n) => .Ok(u32(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  u64,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      // 2^53 is the last contiguous integer a double holds; larger u64s
+      // cannot survive JSON's number representation anyway.
+      match(_decode_int(v, f64(0), f64(9007199254740992)), .Ok(n) => .Ok(u64(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  usize,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(0), f64(9007199254740992)), .Ok(n) => .Ok(usize(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  isize,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(_decode_int(v, f64(i64.MIN), f64(i64.MAX)), .Ok(n) => .Ok(isize(n)), .Err(e) => .Err(e))
+    )
+  )
+);
+impl(
+  f32,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(v, .Number(n) => .Ok(f32(n)), _ => .Err(.Other(`expected a number`)))
+    )
+  )
+);
+impl(
+  f64,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Number(value : self))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(v, .Number(n) => .Ok(n), _ => .Err(.Other(`expected a number`)))
+    )
+  )
+);
+impl(
+  String,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Str(value : self.clone()))),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(v, .Str(s) => .Ok(s.clone()), _ => .Err(.Other(`expected a string`)))
+    )
+  )
+);
+// `str` is encode-only: a runtime String cannot become the static view.
+impl(
+  str,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(JsonValue.Str(value : String.from(self))))
+);
+// JsonValue round-trips through itself, so generic code can hold raw JSON.
+impl(
+  JsonValue,
+  ToJson(to_json : (fn(inout(self) : Self) -> JsonValue)(self)),
+  FromJson(from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(.Ok(v)))
+);
+impl(
+  generic(T : Type),
+  where(T <: ToJson),
+  Option(T),
+  ToJson(
+    to_json : (fn(inout(self) : Self) -> JsonValue)(
+      match(self, .Some(x) => x.to_json(), .None => JsonValue.Null)
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: FromJson),
+  Option(T),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(
+        v,
+        .Null => .Ok(Option(T).None),
+        _ => match(_from_json_of(T, v), .Ok(x) => .Ok(Option(T).Some(x)), .Err(e) => .Err(e))
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: ToJson),
+  ArrayList(T),
+  ToJson(
+    to_json : (fn(inout(self) : Self) -> JsonValue)({
+      items := ArrayList(JsonValue).new();
+      (i : usize) = usize(0);
+      while(i < self.len(), {
+        match(
+          self.get(i),
+          .Some(x) => {
+            items.push(x.to_json());
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      JsonValue.Array(items : items)
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: FromJson),
+  ArrayList(T),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(
+        v,
+        .Array(items) => {
+          out := Self.new();
+          (i : usize) = usize(0);
+          while(i < items.len(), {
+            match(
+              items.get(i),
+              .Some(jv) => match(
+                _from_json_of(T, jv),
+                .Ok(x) => {
+                  out.push(x);
+                },
+                .Err(e) => {
+                  return(.Err(e));
+                }
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          .Ok(out)
+        },
+        _ => .Err(.Other(`expected an array`))
+      )
+    )
+  )
+);
+impl(
+  generic(V : Type),
+  where(V <: ToJson),
+  HashMap(String, V),
+  ToJson(
+    to_json : (fn(inout(self) : Self) -> JsonValue)({
+      keys := ArrayList(String).new();
+      values := ArrayList(JsonValue).new();
+      it := self.keys();
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .Some(k) => {
+            match(
+              self.get(k.clone()),
+              .Some(x) => {
+                keys.push(k.clone());
+                values.push(x.to_json());
+              },
+              .None => ()
+            );
+          },
+          .None => {
+            go = false;
+          }
+        );
+      });
+      JsonValue.Object(keys : keys, values : values)
+    })
+  )
+);
+impl(
+  generic(V : Type),
+  where(V <: FromJson),
+  HashMap(String, V),
+  FromJson(
+    from_json : (fn(v : JsonValue) -> Result(Self, JsonError))(
+      match(
+        v,
+        .Object(keys, values) => {
+          out := Self.new();
+          (i : usize) = usize(0);
+          while(i < keys.len(), {
+            k := match(keys.get(i), .Some(key_s) => key_s, .None => String.new());
+            match(
+              values.get(i),
+              .Some(jv) => match(
+                _from_json_of(V, jv),
+                .Ok(decoded_v) => {
+                  _s := out.insert(k, decoded_v);
+                },
+                .Err(e) => {
+                  return(.Err(e));
+                }
+              ),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          .Ok(out)
+        },
+        _ => .Err(.Other(`expected an object`))
+      )
+    )
+  )
+);
+/// Parse a JSON `String` into a `JsonValue`, as a `Result` (no Exception
+/// plumbing — the decode-side counterpart of `json_stringify`).
+json_parse_result :: (fn(s : String) -> Result(JsonValue, JsonError))({
+  p := _Parser.new(s.as_bytes());
+  _parse_value(p)
+});
+/// Serialise any `ToJson` value to JSON text.
+json_encode :: (fn(generic(T : Type), v : T, where(T <: ToJson)) -> String)(
+  json_stringify(v.to_json())
+);
+/// Parse JSON text and decode it into `T`:
+/// `json_decode(Point, s)` → `Result(Point, JsonError)`.
+json_decode :: (fn(comptime(T) : Type, s : String, where(T <: FromJson)) -> Result(T, JsonError))(
+  match(json_parse_result(s), .Ok(v) => T.from_json(v), .Err(e) => .Err(e))
+);
+export(ToJson, FromJson, json_parse_result, json_encode, json_decode);
+// ============================================================================
+// derive(ToJson) / derive(FromJson) — struct derives
+// ============================================================================
+// v1 scope: STRUCTS. Enums need an agreed representation (externally-tagged
+// vs tag-field) before a derive can commit to one; until then deriving on an
+// enum is a comptime error. The generated impls reference `JsonValue`,
+// `JsonError`, `ToJson`/`FromJson`, `ArrayList` and `String` — the deriving
+// module must have them in scope (import this module and
+// std/collections/array_list).
+__derive_to_json :: (
+  fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+)({
+  info :: Type.get_info(T);
+  comptime_assert(info.is_struct(), "derive(ToJson) supports structs only (enum representation is not decided yet)");
+  fields :: Type.get_struct_fields(T);
+  fc :: fields.len();
+  pushes :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      acc + (((("__djt_keys.push(String.from(\"" + fname) + "\")); __djt_values.push(self.") + fname) + ".to_json()); ")
+    })
+  );
+  body :: (("({ __djt_keys := ArrayList(String).new(); __djt_values := ArrayList(JsonValue).new(); " + pushes) + "JsonValue.Object(keys : __djt_keys, values : __djt_values) })");
+  body_expr :: __yo_comptime_string_to_expr(body);
+  ctx.make_impl(
+    quote(
+      ToJson(to_json : ((self) -> #(body_expr)))
+    )
+  )
+});
+derive_rule(ToJson, __derive_to_json);
+__derive_from_json :: (
+  fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr)
+)({
+  info :: Type.get_info(T);
+  comptime_assert(info.is_struct(), "derive(FromJson) supports structs only (enum representation is not decided yet)");
+  fields :: Type.get_struct_fields(T);
+  fc :: fields.len();
+  type_name :: Type.to_comptime_string(T);
+  extracts :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      // Reach the field's type as a VALUE, by index into the struct's own
+      // field list. Naming it with `Type.to_comptime_string` does not work:
+      // that is a DISPLAY renderer and yields an unusable `<enum:…>` /
+      // `<struct:…>` placeholder for an instantiated generic, so a struct with
+      // an `Option(T)` / `ArrayList(T)` / any generic field could not derive
+      // FromJson at all. Indexing needs no name and no import at the use site.
+      ftype :: (("(Type.get_struct_fields(Self).get(" + fi.to_comptime_string()) + ").field_type <: FromJson)");
+      acc + (((((((((("__djf_" + fname) + " := match(v.get(String.from(\"") + fname) + "\")), .Some(__djf_j) => match(") + ftype) + ".from_json(__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field ") + fname) + " in ") + type_name) + "\")))); }); ")
+    })
+  );
+  ctor_args :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      part :: ((fname + " : __djf_") + fname);
+      cond(
+        (acc == "") => part,
+        true => ((acc + ", ") + part)
+      )
+    })
+  );
+  body :: (((("({ " + extracts) + ".Ok(Self(") + ctor_args) + ")) })");
+  ctx.make_impl(
+    quote(
+      FromJson(from_json : ((v) -> #(body.to_expr())))
+    )
+  )
+});
+derive_rule(FromJson, __derive_from_json);

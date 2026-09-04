@@ -1,0 +1,78 @@
+//! Phase C gates (plans/INCREMENTAL_COMPILATION.md — the revised, in-process
+//! watch mode; src/check_watch.yo): a `watch_round` over changed DISK files
+//! must invalidate the changed modules' reverse closure and re-check exactly
+//! the affected entry files, error→fix→clean, with registry sizes stable
+//! across repeated rounds (the long-lived-process guarantee).
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+{ watch_round } :: import("../../src/check_watch.yo");
+{ mm_load_file, mm_invalidate_document, resolve_std_path } :: import("../../src/module_manager.yo");
+{ type_trait_methods_entry_count } :: import("../../src/evaluator/values/type_trait_methods.yo");
+{ generic_impl_entry_count } :: import("../../src/evaluator/values/impl.yo");
+
+_LIB_OK :: "answer :: (fn() -> i32)(i32(41));\nexport(answer);\n";
+_LIB_RENAMED :: "answer_renamed :: (fn() -> i32)(i32(42));\nexport(answer_renamed);\n";
+_APP :: "{ answer } :: import(\"./lib.yo\");\nmain :: (fn() -> unit)({\n  _x := answer();\n});\nexport(main);\n";
+
+/// One watch round with `lib.yo` as the changed file. Returns failed count.
+_round :: (
+  fn(lib_path : String, files : ArrayList(String), std_path : String, io : Io, exn : Exception) -> usize
+)({
+  changed := ArrayList(String).new();
+  changed.push(lib_path.clone());
+  watch_round(changed, files, std_path, io, exn)
+});
+
+test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_check_watch_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  lib_path := `${dir}/lib.yo`;
+  app_path := `${dir}/app.yo`;
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
+  io.await(write_string(Path.new(app_path.clone()), String.from(_APP), io), ioexn);
+  std_path := resolve_std_path();
+  // Drop any earlier state for these paths (suite processes are reused).
+  _pre1 := mm_invalidate_document(lib_path.clone());
+  _pre2 := mm_invalidate_document(app_path.clone());
+  files := ArrayList(String).new();
+  files.push(app_path.clone());
+  files.push(lib_path.clone());
+  // Initial pass: both clean, both cached (mm_load_file registers entries).
+  assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial app check should pass");
+  assert(mm_load_file(lib_path.clone(), std_path.clone(), true, io, exn).ok, "initial lib check should pass");
+  // 1. Break lib on DISK (rename the export) -> the round must recheck the
+  //    reverse closure and fail exactly the importer.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_RENAMED), io), ioexn);
+  failed1 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed1 == usize(1), `broken lib: expected 1 failed, got ${failed1.to_string()}`);
+  // 2. Fix lib on disk -> the next round is clean again.
+  io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
+  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  assert(failed2 == usize(0), `fixed lib: expected 0 failed, got ${failed2.to_string()}`);
+  // 3. Long-lived-process guarantee: repeated rounds keep the registry
+  //    sizes flat (B2 purge-on-invalidation, consumed by watch_round).
+  ttm_before := type_trait_methods_entry_count();
+  gi_before := generic_impl_entry_count();
+  (r : usize) = usize(0);
+  while(r < usize(5), {
+    _f := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+    r = (r + usize(1));
+  });
+  ttm_after := type_trait_methods_entry_count();
+  gi_after := generic_impl_entry_count();
+  assert(ttm_after == ttm_before, `type_trait_methods grew across rounds: ${ttm_before.to_string()} -> ${ttm_after.to_string()}`);
+  assert(gi_after == gi_before, `generic impls grew across rounds: ${gi_before.to_string()} -> ${gi_after.to_string()}`);
+});

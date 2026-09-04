@@ -104,27 +104,94 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
   __yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
-// Process all ready tasks in the queue (non-blocking).
-static void __yo_async_run_ready_tasks(void) {
-  while (__yo_thread_async_queue.head) {
+// How many task resume functions are on the C stack right now. Zero at the
+// top level (async main's loop, a synchronous await in main or a test body,
+// JoinHandle.await / the std/async combinators called from there). Non-zero
+// means the event loop is being driven from INSIDE a task — see
+// __yo_async_poll_step.
+// Per THREAD: every worker thread (std/sync ThreadPool, Thread.spawn) runs its
+// own event loop over its own thread-local queue, and a task resuming on one
+// thread must not make a blocking await on another look nested (the first CI
+// run of the guard aborted tests/thread_pool.test.yo exactly that way).
+static __thread int __yo_async_task_depth = 0;
+
+static int __yo_async_strict_cached = -1;
+static int __yo_async_strict_nesting(void) {
+  if (__yo_async_strict_cached < 0) {
+    const char* v = getenv("YO_ASYNC_STRICT");
+    __yo_async_strict_cached = (v && v[0] && v[0] != '0') ? 1 : 0;
+  }
+  return __yo_async_strict_cached;
+}
+
+// Process the tasks that are ready NOW (non-blocking). Bounded to the queue
+// length at entry: a task that re-enqueues itself on every resume (a loop
+// awaiting 'yield', a poll-until-finished race) would otherwise keep this
+// drain busy forever and the I/O poll that follows in __yo_async_poll_step
+// would never run — timers and sockets starve and the program spins
+// (issues/fixed/async-yield-loop-starves-io-poll.md). Continuations queued
+// during this step run in the next step, after one I/O poll.
+// Returns the number of tasks resumed, so the caller knows whether anything a
+// blocking waiter watches may have changed in this step.
+static int __yo_async_run_ready_tasks(void) {
+  int budget = (int)__yo_thread_async_queue.count;
+  int ran = 0;
+  while (__yo_thread_async_queue.head && budget > 0) {
+    ran++;
+    budget--;
     __yo_continuation_t* cont = __yo_thread_async_queue.head;
     __yo_thread_async_queue.head = cont->next;
     if (!__yo_thread_async_queue.head) {
       __yo_thread_async_queue.tail = NULL;
     }
     __yo_thread_async_queue.count--;
-    cont->resume_fn(cont->state_machine);
+    { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
     cont->next = __yo_cont_free_list;
     __yo_cont_free_list = cont;
   }
+  return ran;
 }
 
 // One step of the event loop: drain task queue, then poll/wait for I/O.
 static void __yo_async_poll_step(void) {
-  __yo_async_run_ready_tasks();
+  // Re-entrancy guard (C37, issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md).
+  // Every blocking wait — an io.await in a NON-io.async function,
+  // JoinHandle.await, std/async's join_all/race/any/timeout — is a loop over
+  // this function. Reached from inside a task it nests the event loop: every
+  // task below on the C stack is frozen until the awaited I/O completes, and
+  // when that I/O depends on one of them the program deadlocks silently (or a
+  // frozen frame is resumed underneath itself). Fail here, deterministically,
+  // at the first offending call instead.
+  // Armed by YO_ASYNC_STRICT=1 (the test runner sets it for every test child,
+  // so tests/ is enforced). Off by default for now: the compiler's own build
+  // scheduler still drives spawned tasks that call plain awaiting helpers
+  // (issues/retired/compiler-build-runner-nests-event-loop.md); those nestings cannot
+  // deadlock (their I/O never depends on a sibling task) but the guard cannot
+  // tell. Flip the default once that is refactored.
+  if (__yo_async_task_depth > 0 && __yo_async_strict_nesting()) {
+    fprintf(stderr,
+      "panic: a blocking await ran inside an async task: an io.await in a "
+      "non-io.async function, JoinHandle.await, or a std/async combinator "
+      "(join_all/race/any/timeout) was called from a spawned or awaited task. "
+      "That nests the event loop and can deadlock. Make the function an "
+      "io.async future and await it; to race tasks from inside a task, poll "
+      "is_finished() and await yield().\\n");
+    fflush(stderr);
+    abort();
+  }
+  int ran = __yo_async_run_ready_tasks();
   if (__yo_io_initialized) {
     __yo_io_poll();
-    if (!__yo_thread_async_queue.head && __yo_has_pending_io()) {
+    // Block for I/O only in a step where NOTHING ran. A resumed task may have
+    // completed the very future the caller is waiting on (every blocking
+    // waiter — a top-level io.await, JoinHandle.await, the std/async
+    // combinators — re-checks its predicate between steps, not inside one);
+    // blocking here anyway parks the thread on unrelated pending I/O, e.g. a
+    // spawned server's accept that nobody will ever connect to. kqueue's
+    // 100 ms wait timeout hid this on macOS; io_uring_wait_cqe waits forever
+    // (issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md).
+    // Same rule as __yo_async_wait_all's !tasks_processed.
+    if (ran == 0 && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
       __yo_io_wait();
     }
   }
@@ -150,18 +217,26 @@ static void __yo_async_run_until_complete(void* future_ptr) {
         __yo_thread_async_queue.tail = NULL;
       }
       __yo_thread_async_queue.count--;
-      cont->resume_fn(cont->state_machine);
+      { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
       cont->next = __yo_cont_free_list;
       __yo_cont_free_list = cont;
       tasks_run++;
     }
     __yo_io_poll();
-    if (!__yo_thread_async_queue.head && __yo_has_pending_io()) {
+    // Re-read the state BEFORE blocking: the drain above may have completed
+    // the main future while other I/O (a parked accept, a timer) stays
+    // pending — waiting on it would keep the process alive after main
+    // returned (the Linux-only "loop stays alive" hang; same rule as
+    // __yo_async_poll_step).
+    __future_state = future->state;
+    if (__future_state == -1 || __future_state == -2) {
+      break;
+    }
+    if (tasks_run == 0 && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
       __yo_io_wait();
       __future_state = future->state;
       continue;
     }
-    __future_state = future->state;
     if (!__yo_thread_async_queue.head) {
       if (!__yo_has_pending_io()) {
         if (__future_state != -1 && __future_state != -2) {
@@ -198,7 +273,7 @@ static void __yo_async_wait_all(void) {
         __yo_thread_async_queue.tail = NULL;
       }
       __yo_thread_async_queue.count--;
-      cont->resume_fn(cont->state_machine);
+      { __yo_async_task_depth++; cont->resume_fn(cont->state_machine); __yo_async_task_depth--; }
       __yo_free(cont);
       tasks_processed = true;
     }
@@ -221,32 +296,11 @@ static void __yo_async_wait_all(void) {
 // ============================================================================
 // Concurrency Helper Functions (from std/concurrency.yo)
 // ============================================================================
-static size_t __yo_thread_get_hardware_threads(void) {`
-  );
-  // hardware-threads body (runtime-core.ts:316-332).
-  cond(
-    is_target_windows(target_info) => emitter.emit_string_line(
-      `  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  return (size_t)sysinfo.dwNumberOfProcessors;`
-    ),
-    is_target_macos(target_info) => emitter.emit_string_line(
-      `  int count;
-  size_t size = sizeof(count);
-  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
-    return (size_t)count;
-  }
-  return 1;`
-    ),
-    is_target_wasm(target_info) => emitter.emit_string_line(`  return 1;  // WASM is single-threaded`),
-    true => emitter.emit_string_line(
-      `  long count = sysconf(_SC_NPROCESSORS_ONLN);
-  return count > 0 ? (size_t)count : 1;`
-    )
-  );
-  emitter.emit_string_line(
-    `}
-
+// __yo_thread_get_hardware_threads / __yo_get_hardware_threads / __yo_get_cpu_id
+// are emitted by the ALWAYS-present sys runtime (runtime_io_common.yo) — a
+// program that uses neither async nor threads still calls
+// std/thread.get_hardware_threads
+// (issues/fixed/get-hardware-threads-links-only-with-async-runtime.md).
 static void __yo_thread_set_maximum_threads(size_t num) {
   ASYNC_DEBUG("[CONCURRENCY] set_maximum_threads(%zu) - no-op for async/await\\n", num);
   (void)num;
@@ -292,6 +346,31 @@ static __yo_yield_future_t __yo_async_yield(void) {
   future.continuation_fn = NULL;
   future.continuation_sm = NULL;
   return future;
+}
+
+// JoinHandle introspection/cancellation — every spawned future starts with
+// this common header (the same layout JoinHandle.await casts to).
+typedef struct {
+  __yo_ref_header_t header;
+  int state;
+} __yo_spawned_future_header_t;
+
+// Non-blocking FutureState read: positive step indices read as Running (1),
+// matching io.state's mapping (0 Pending, -1 Completed, -2 Aborted).
+static int32_t __yo_join_handle_state_raw(void* fut) {
+  int s = ((__yo_spawned_future_header_t*)fut)->state;
+  return (s > 0) ? 1 : s;
+}
+
+// Cancel a spawned task: mark a non-terminal state machine Aborted. Its
+// pending continuation (if any) fires into the resume function's aborted-entry
+// guard, which releases the resume-path reference instead of resuming.
+// Terminal tasks (Completed/Aborted) are left untouched.
+static void __yo_join_handle_abort_raw(void* fut) {
+  __yo_spawned_future_header_t* h = (__yo_spawned_future_header_t*)fut;
+  if (h->state >= 0) {
+    h->state = -2;
+  }
 }`
   );
 });

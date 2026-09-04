@@ -430,8 +430,12 @@ impl(
 impl(
   generic(T : Type),
   LinkedList(T),
-  into_iter : (fn(self : Self) -> LinkedListIter(T))(
-    LinkedListIter(T)(_current : self.head)
+  IntoIterator(
+    Item : T,
+    IntoIter : LinkedListIter(T),
+    into_iter : (fn(self : Self) -> LinkedListIter(T))(
+      LinkedListIter(T)(_current : self.head)
+    )
   )
 );
 /**
@@ -448,14 +452,14 @@ impl(
   generic(T : Type),
   LinkedListIterPtr(T),
   Iterator(
-    Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    Item : *T,
+    next : (fn(inout(self) : Self) -> Option(*T))(
       match(
         self._current,
         .None => .None,
         .Some(node) => {
           self._current = node.next;
-          .Some(&(node.value))
+          .Some(&node.value)
         }
       )
     )
@@ -477,7 +481,7 @@ impl(
   LinkedList(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *(Self.Output))({
+    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self.length, "LinkedList: index out of bounds");
       (current : Option(Node(T))) = self.head;
       i := usize(0);
@@ -490,7 +494,7 @@ impl(
               // at `self.head`; while `self` is borrowed (inout(self))
               // every node we've walked stays alive, so `&node.value`
               // is a valid borrow into Rc storage.
-              return(unsafe(&(node.value)));
+              return(unsafe(&node.value));
             });
             current = node.next;
             i = (i + usize(1));

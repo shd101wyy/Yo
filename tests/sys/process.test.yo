@@ -14,8 +14,8 @@ test("spawn and waitpid", {
   assert(pr == i32(0), "pipe failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
-  argv_uninit := MaybeUninit(Array(?*(u8), usize(5))).new();
-  argv := *(?*(u8))(argv_uninit.as_ptr());
+  argv_uninit := MaybeUninit(Array(?*u8, usize(5))).new();
+  argv := *(?*u8)(argv_uninit.as_ptr());
   cond(
     (platform == Platform.Windows) => {
       (argv.add(usize(0))).* = .Some(*(u8)("cmd.exe"));
@@ -34,7 +34,7 @@ test("spawn and waitpid", {
     (platform == Platform.Windows) => *(u8)("cmd.exe"),
     true => *(u8)("echo")
   );
-  pid := io.await(process.spawn(file_path, argv, .None, i32(-(1)), write_fd, i32(-(1))), io);
+  pid := io.await(process.spawn(file_path, argv, .None, i32(-1), write_fd, i32(-1)), io);
   unsafe(printf("  pid = %d\n", pid));
   assert(pid > i32(0), "spawn failed");
   c1 := io.await(file.close(write_fd), io);

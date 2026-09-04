@@ -31,7 +31,7 @@ main :: (fn() -> unit)({
         tmp := temp_dir();
         fpath := Path.new(path_join(tmp, `yo_bufio_read_partial.txt`));
         io.await(fs_file.write_file(fpath, String.from("hello world"), io), IoExn(io : io, exn : exn));
-        f := io.await(File.open(fpath,.Read, io), IoExn(io : io, exn : exn));
+        f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
         fd := f.fd();
         reader := BufReader.new(fd);
         buf := *(u8)(malloc(usize(20)).unwrap());
@@ -42,7 +42,7 @@ main :: (fn() -> unit)({
             unsafe(printf("  first read: %d bytes: ", n));
             (di : usize) = usize(0);
             while(di < usize(5), {
-              unsafe(printf("%c", i32((buf &+ di).*)));
+              unsafe(printf("%c", i32(buf.add(di).*)));
               di = (di + usize(1));
             });
             unsafe(printf("\n"));
@@ -60,13 +60,13 @@ main :: (fn() -> unit)({
             unsafe(printf("  second read: %d bytes: ", n));
             (dj : usize) = usize(0);
             while(dj < usize(6), {
-              unsafe(printf("[%d]", i32((buf &+ dj).*)));
+              unsafe(printf("[%d]", i32(buf.add(dj).*)));
               dj = (dj + usize(1));
             });
             unsafe(printf("\n"));
             assert(n == i32(6), "should read remaining 6 bytes");
-            assert((buf &+ usize(0)).* == u8(32), "first byte should be space");
-            assert((buf &+ usize(5)).* == u8(100), "last byte should be 'd'");
+            assert(buf.add(usize(0)).* == u8(32), "first byte should be space");
+            assert(buf.add(usize(5)).* == u8(100), "last byte should be 'd'");
           },
           .Err(e) => assert(false, "second read failed")
         );

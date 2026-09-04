@@ -60,11 +60,15 @@ env:
   # seed-driven jobs at the download, which is exactly what happened on the
   # first push of this pin.
   #
-  # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml: bump ALL THREE as
-  # part of each release's follow-up (the deliberate-pin rationale — chain
-  # auditability, bad-release containment, reproducible re-runs — is recorded
-  # in plans/P2_5_RETIRE_EXECUTION.md step 24). This one had silently drifted
-  # to v0.2.4 while release.yml advanced to v0.2.7.
+  # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml (the
+  # deliberate-pin rationale — chain auditability, bad-release containment,
+  # reproducible re-runs — is recorded in plans/P2_5_RETIRE_EXECUTION.md
+  # step 24). This one had silently drifted to v0.2.4 while release.yml
+  # advanced to v0.2.7. Since 2026-08-21 the lockstep is AUTOMATED: the
+  # `changes` job above guards the three pins against divergence, and
+  # release.yml's publish-release pushes the bump for every published
+  # release (plans/backlog/SEED_VERSION_AUTOMATION.md). Manual edits remain
+  # for ROLLING BACK a bad seed.
   #
   # v0.2.9 -> v0.2.11 (2026-08-20). v0.2.9 was cut eight hours BEFORE #145
   # (memoize _inject_forall_captures), so it peaks at ~28.4 GB compiling this
@@ -77,7 +81,15 @@ env:
   #
   # The raised timeouts (#137, #167) stay. They now buy headroom rather than
   # bare survival, and the cliff they guard is still there for the next seed.
-  SEED_VERSION: v0.2.11
+  #
+  # v0.2.13 -> v0.2.14 (2026-08-21): first payload of the release-time
+  # auto-bump; v0.2.14's bundle matrix is complete on all six targets.
+  #
+  # v0.2.14 -> v0.2.15 (2026-08-22, MANUAL): the auto-bump's first live
+  # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
+  # "Workflows: read and write" permission, which any push touching
+  # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
+  SEED_VERSION: v0.2.23
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -102,6 +114,102 @@ jobs:
   # matrix, which meant `npm install -g @vscode/vsce` ran on all five legs to
   # serve one Linux-only packaging concern. Isolated here so the matrix legs can
   # become toolchain-free (P2.5 steps 17-19).
+  # Docs-only fast path. A PR (or develop push) whose diff is confined to
+  # Markdown and docs/ cannot change compiler behavior, so the heavy jobs
+  # below skip themselves — SKIPPED satisfies branch-protection required
+  # checks, so docs-only PRs merge green in minutes instead of an hour (or,
+  # worse, getting admin-merged past CI, which is what raced the release
+  # green-gate on 2026-08-20). This is deliberately NOT `paths-ignore` on the
+  # workflow trigger: a workflow that never runs leaves its required checks
+  # "expected" forever and blocks the merge outright.
+  #
+  # The classification is CONSERVATIVE: any failure to compute the diff (no
+  # usable base after a force-push, compare API error, or a diff so large the
+  # file list may be truncated) counts as a code change and runs everything.
+  # docs-site and vscode-extension stay unconditional — docs are exactly the
+  # site job's input, and both are cheap.
+  changes:
+    name: Classify the diff (docs-only fast path)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      # SEED_VERSION consistency guard (plans/backlog/SEED_VERSION_AUTOMATION.md):
+      # the pin is hand-duplicated in THREE workflows, and divergence silently
+      # splits the trust chain (PRs validated against one seed, release
+      # artifacts built from another — it HAS happened: fixpoint-arm64 sat on
+      # v0.2.4 while the others moved to v0.2.9). This job is the earliest
+      # always-running gate, so the guard lives here as a STEP — deliberately
+      # not a new job, because the branch-protection required-checks list is
+      # maintained by hand and a new job would need a manual edit there.
+      - name: Checkout workflows (SEED_VERSION guard)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/workflows
+          sparse-checkout-cone-mode: false
+      - name: SEED_VERSION consistency guard
+        run: |
+          set -euo pipefail
+          pins=$(grep -hE '^[[:space:]]*SEED_VERSION: v' \
+            .github/workflows/test.yml \
+            .github/workflows/release.yml \
+            .github/workflows/fixpoint-arm64.yml | awk '{print $2}')
+          count=$(printf '%s\n' "$pins" | wc -l)
+          uniq_count=$(printf '%s\n' "$pins" | sort -u | wc -l)
+          if [ "$count" -ne 3 ] || [ "$uniq_count" -ne 1 ]; then
+            echo "::error::SEED_VERSION pins diverge or are missing (found: $(printf '%s ' $pins)) — the three workflows must carry the SAME pin. See test.yml's SEED_VERSION comment and plans/backlog/SEED_VERSION_AUTOMATION.md."
+            exit 1
+          fi
+          echo "SEED_VERSION consistent across the three workflows: $(printf '%s' "$pins" | head -1)"
+      - id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            pull_request)
+              BASE="${{ github.event.pull_request.base.sha }}"
+              HEAD="${{ github.event.pull_request.head.sha }}"
+              ;;
+            push)
+              BASE="${{ github.event.before }}"
+              HEAD="${{ github.sha }}"
+              ;;
+            *)
+              echo "event ${{ github.event_name }} — running everything"
+              echo "code=true" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "no usable base — running everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! FILES=$(gh api --paginate "repos/${{ github.repository }}/compare/${BASE}...${HEAD}" --jq '.files[].filename'); then
+            echo "compare API failed — running everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "changed files:"; echo "$FILES"
+          # The compare API caps the per-response file list; a list this long
+          # may be incomplete, so it cannot prove docs-only.
+          if [ "$(printf '%s\n' "$FILES" | wc -l)" -ge 3000 ]; then
+            echo "diff too large to classify — running everything"
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CODE=false
+          for f in $FILES; do
+            case "$f" in
+              *.md|docs/*) ;;
+              *) CODE=true; break ;;
+            esac
+          done
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "classification: code=$CODE"
+
   vscode-extension:
     name: VS Code extension (package + Marketplace dry-run)
     runs-on: ubuntu-latest
@@ -175,12 +283,17 @@ jobs:
           submodules: recursive
 
       # The seed links liburing dynamically and cannot start without it.
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
-      - name: Install the seed compiler (previous release)
+      # Back on env.SEED_VERSION as of the v0.2.16 seed. This was pinned to
+      # v0.2.14 while v0.2.15 was the seed: that seed's evaluator deep-cloned
+      # the source into every AST node (fixed in #207, but a fix only reaches
+      # a BINARY at the next release) and OOM'd the 7 GB runner on the
+      # markdown_yo closure this site build compiles.
+      - name: Install the seed compiler (site builder)
         uses: ./.github/actions/install-seed
         with:
           version: ${{ env.SEED_VERSION }}
@@ -188,10 +301,18 @@ jobs:
       # The same two commands release.yml runs, with the version read from the
       # same source of truth the release computes its bump from.
       - name: Generate documentation website
+        env:
+          YO_STD: ${{ github.workspace }}/std
         run: |
+          # YO_STD: the SEED's BUNDLED std predates the tree's API (the D2/S2
+          # renames — `insert`, `read_to_string` — landed 2026-08-25); the
+          # vendored markdown_yo and build_site.yo speak the TREE std, so both
+          # the site-builder compile and the `yo doc` runs the site binary
+          # spawns must resolve std from the checkout, exactly like the
+          # `yo build` bootstrap does.
           VERSION=$(perl -ne 'print $1 if /^CURRENT_YO_VERSION :: "([^"]+)";/' src/version.yo)
           [ -n "$VERSION" ] || { echo "::error::could not read CURRENT_YO_VERSION from src/version.yo"; exit 1; }
-          yo compile scripts/build_site.yo --release -o /tmp/build-site
+          yo compile scripts/build_site.yo --optimize 2 -o /tmp/build-site
           /tmp/build-site --output yo-out/site --version "v$VERSION" --yo yo
 
       # A site build that emits nothing exits 0 exactly as happily as one that
@@ -212,6 +333,8 @@ jobs:
           retention-days: 7
 
   test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 360
     env:
@@ -227,16 +350,16 @@ jobs:
       YO_TEST_LEAK_VERDICT: "0"
     strategy:
       fail-fast: false
-      # One leg per release-bundle target (see release.yml's seed matrix):
-      # linux-x64, linux-arm64, macos-arm64, macos-x64 (macos-26-intel is
-      # the last Intel label GitHub offers), windows-x64.
+      # The two LINUX release-bundle targets (musl bundles — Linux is
+      # musl-only). These are the only runners that can host the ~15 GB
+      # stage-1 self-build (32 GB swapfile). The other four release targets —
+      # macos-arm64, macos-x64, windows-x64, windows-arm64 — run the SAME
+      # suite in the `test-native` job below, under a tree-built compiler
+      # delivered by cross-emit (suite-candidate -> suite-cross-emit).
       matrix:
         os:
           - ubuntu-latest
           - ubuntu-24.04-arm
-          - macos-latest
-          - macos-26-intel
-          - windows-latest
 
     steps:
       - name: Checkout repository
@@ -256,7 +379,6 @@ jobs:
       # self-build onto the suite runners. Locally the same build succeeds on
       # 16 GB *because ~10 GB of swap is available*; the runner has 3 GB.
       - name: Add swap space
-        if: runner.os == 'Linux'
         run: |
           sudo fallocate -l 32G /mnt/swapfile
           sudo chmod 600 /mnt/swapfile
@@ -264,24 +386,17 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
-        if: runner.os == 'Linux'
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
-
-      - name: Install LLVM/Clang
-        if: runner.os == 'Windows'
-        run: |
-          choco install llvm -y
-          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # P2.5 step 18: the matrix legs are now bun/node-FREE. The previous
       # release (the bootstrap seed) builds stage-1 from THIS checkout, and
       # stage-1 — the compiler these sources describe — does every remaining
       # job: fmt, the build-system smoke, and the language corpus. That is the
       # same trust chain the other self-hosted jobs use ("previous release
-      # builds current compiler"), now extended to all five release targets.
+      # builds current compiler").
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
         with:
@@ -294,7 +409,7 @@ jobs:
       # release target, which is what caught the Windows POSIX-isms at v0.2.0
       # (issues/fixed/windows-native-selfhosted-build-fails.md).
       # P2.5 step 24b (user directive): `yo build` is the canonical yo-self
-      # builder. VERIFIED equivalent to the raw `compile --release --allocator
+      # builder. VERIFIED equivalent to the raw `compile --optimize 2 --allocator
       # mimalloc` it replaces — build.yo carries the same flags (ReleaseSmall +
       # Mimalloc) and the two routes land 16 bytes apart on an 8.8 MB binary;
       # the residual ~0.77% byte delta also appears between two SAME-route
@@ -302,7 +417,7 @@ jobs:
       # it is path noise, not a route difference.
       # `--std-path ./std` stays load-bearing and IS forwarded to the child
       # compile (build_runner.yo:426-432).
-      # WHY THIS IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
+      # WHY THE SELF-BUILD IS LINUX-ONLY (settled 2026-08-15, run 31856743929).
       # The self-build peaks above 15 GB: on ubuntu-latest it climbed to
       # 15,541 MB of 15,988 and sat at ~300 MB free for four minutes before its
       # own allocation failed (dmesg showed NO oom-kill), dying inside the
@@ -313,22 +428,10 @@ jobs:
       # Making the heavy build Linux-only is not a concession, it is this
       # repo's existing architecture. EVERY other self-building job here is
       # ubuntu-latest — bootstrap-fixpoint, -stage3, bootstrap-self-test, the
-      # self-hosted differential, the musl leg, tsan and the hollow sweep. This
-      # matrix was the ONLY job attempting a self-build on macOS/Windows, and
-      # the only one failing.
-      #
-      # COVERAGE COST, stated plainly: on macOS/Windows the suite now runs
-      # under the SEED against THIS checkout's std (--std-path ./std). That
-      # covers std changes and platform-specific runtime/codegen behaviour, but
-      # NOT a PR's own compiler changes on those platforms — those are proven
-      # at release time by release.yml's seed-bundles, which builds natively on
-      # all five targets. Restoring per-PR macOS compiler coverage needs either
-      # the emit's memory footprint brought down (plans/backlog/
-      # YO_SELF_ENV_SHARING.md: def-time envs COPY what TS SHARES, 7.4 M live
-      # Variables) or paid larger runners. Both are out of scope here and are
-      # recorded in issues/test-matrix-stage1-silent-failure.md.
+      # self-hosted differential, the musl leg, tsan and the hollow sweep.
+      # macOS/Windows get a tree-built compiler anyway, via cross-emit — see
+      # `suite-candidate` / `suite-cross-emit` / `test-native` below.
       - name: "Stage 1: build the self-hosted compiler with the SEED (`yo build`)"
-        if: runner.os == 'Linux'
         shell: bash
         run: |
           echo "::group::pre-build environment"
@@ -422,7 +525,7 @@ jobs:
           set +e
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 "$YO_BIN" compile src/main.yo \
-              --release --allocator mimalloc --std-path ./std \
+              --optimize 2 --allocator mimalloc --std-path ./std \
               --emit-c --skip-c-compiler -o /tmp/stage1 > /dev/null
           EMIT_RC=$?
           set -e
@@ -434,14 +537,18 @@ jobs:
           ls -la /tmp/stage1.c
 
           # Phase 2 — fresh process, so the emit arena is already gone.
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into stage1.c — libssl-dev is installed with liburing above, and
+          # the flags resolve via pkg-config (the -luring line's precedent).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage1.c vendor/mimalloc/src/static.c \
             -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage1
 
           # The binary no longer lives under yo-out/<triple>/bin/, so the
           # exe-relative walk-up finds no std — and `./std` stops resolving the
-          # moment a later step cd's into the scratch project. Pin YO_STD to the
+          # moment a later step cd's into a scratch project. Pin YO_STD to the
           # checkout, exactly as the macOS/Windows leg does.
           echo "S1=/tmp/yo-stage1" >> "$GITHUB_ENV"
           echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
@@ -449,11 +556,39 @@ jobs:
           # loading, std discovery).
           YO_STD="$PWD/std" /tmp/yo-stage1 check std/assert.yo
 
+      - name: "Stage 2: the tree-built compiler builds itself (self-application)"
+        # A codegen fix in THIS tree only reaches a compiler's OWN compiled-in
+        # async machinery one generation later: stage-1's C text was EMITTED by
+        # the seed's older codegen. The smoke step below runs the compiler's
+        # own build runner (self-application), so it must run stage-2 — the
+        # generation whose C the tree's codegen emitted (the 2026-09-01
+        # missing-tail-completion hang was invisible at stage-1 and dead at
+        # stage-2; issues/build-smoke-hangs-registry-perturbation.md). The
+        # corpus gains the same correctness. Stage-1 carries the
+        # arena-release fix, so no memory cage is needed here.
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          YO_STD="$PWD/std" /tmp/yo-stage1 compile src/main.yo \
+            --optimize 2 --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage2.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
+            -o /tmp/yo-stage2
+          echo "S1=/tmp/yo-stage2" >> "$GITHUB_ENV"
+          # Same fail-fast as stage-1.
+          YO_STD="$PWD/std" /tmp/yo-stage2 check std/assert.yo
+
       # MUST be `if: always()`. The stage-1 shell dies together with `yo build`
       # (proven in run 31854687362), so this is the only place the forensics
       # can be printed at all.
       - name: "Stage 1 post-mortem (always runs)"
-        if: always() && runner.os == 'Linux'
+        if: always()
         shell: bash
         run: |
           echo "--- memory samples during the build (last 15) ---"
@@ -473,34 +608,10 @@ jobs:
           echo "--- partial yo-out tree: was the 142 MB .c emitted before the failure? ---"
           ls -lR yo-out 2>/dev/null | head -40 || echo "(no yo-out)"
 
-      # macOS/Windows: no self-build (see the note above). These legs run the
-      # checks that do NOT require a current compiler — `fmt --check` and the
-      # build-system smoke test — under the seed, against this checkout's std.
-      # They do NOT run the language suite; see the "Run tests" note for why
-      # that is impossible rather than merely expensive.
-      - name: "Stage 1 (macOS/Windows): use the seed as the compiler under test"
-        if: runner.os != 'Linux'
-        shell: bash
-        run: |
-          SEED="$(command -v yo || true)"
-          if [ -z "$SEED" ]; then
-            echo "::error::the seed compiler is not on PATH"
-            exit 1
-          fi
-          echo "S1=$SEED" >> "$GITHUB_ENV"
-          # LOAD-BEARING. std resolution is --std-path -> YO_STD -> a walk-up
-          # from the executable -> ./std. A stage-1 binary lives at
-          # yo-out/<triple>/bin/yo, so its walk-up lands on THIS checkout's std
-          # for free. The seed lives at $RUNNER_TEMP/yo-seed/bin/yo, so its
-          # walk-up finds the seed's OWN bundled std instead — and the suite
-          # would then silently test the released std, not the PR's, making the
-          # stated coverage of these legs a lie. YO_STD (rather than adding
-          # --std-path to each invocation) covers every subcommand, including
-          # the child compiles that `yo build run` spawns in the smoke test.
-          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
-          YO_STD="$PWD/std" "$SEED" check std/assert.yo
-
+      # ubuntu-latest ONLY: formatting is platform- and arch-independent, so
+      # one tree-built-formatter verdict settles it for every leg.
       - name: Check the formatted code
+        if: matrix.os == 'ubuntu-latest'
         shell: bash
         run: |
           "$S1" fmt --check ./std ./tests ./src
@@ -522,30 +633,311 @@ jobs:
       # sequential), so this is serial: MEASURED at 17.5 min for all 188 files on
       # an M4 (2742 passed / 2742, no `Failed to transpile` markers), i.e. ~20x
       # inside this job's 360-min timeout — no directory sharding needed.
-      # LINUX ONLY, and this is not a cost decision — it is a correctness one.
-      # The language suite contains REGRESSION TESTS for compiler bugs, so it
-      # can only ever be run by the compiler built from THIS checkout. Running
-      # it under the seed fails by construction on every test added since the
-      # seed was released: run 31861036285 died on "standalone await as the
-      # async body's own result" (tests/async_await.test.yo:3974), added by
-      # 15cf7bc4f with the tail-await result-loss codegen fix — a fix v0.2.4
-      # does not have, so the test correctly fails there. Any allowlist for
-      # that would need editing on every compiler fix and would invert the
-      # meaning of the suite.
-      #
-      # Since only Linux can host the stage-1 build (see the note above), the
-      # suite is Linux-only per PR. macOS/Windows compiler coverage: this
-      # job's own legs run the SEED natively (fmt --check over the whole
-      # tree, init + build run), and release.yml smoke-tests every bundle
-      # natively on its own target. Since P2.5 step-24 option A the macOS
-      # bundles are CROSS-EMITTED (their Yo->C runs on Linux; only the C
-      # compile + smoke are native) — the mac runners cannot hold the
-      # ~12.2 GB self-emit.
+      # The suite MUST run under a compiler built from THIS checkout — it
+      # contains REGRESSION TESTS for compiler bugs, so the seed fails it by
+      # construction on every test newer than the seed (run 31861036285 died
+      # on "standalone await as the async body's own result",
+      # tests/async_await.test.yo:3974 — a fix the seed does not have). Any
+      # allowlist would need editing on every compiler fix and would invert
+      # the meaning of the suite. The four macOS/Windows targets run this
+      # same invocation in `test-native` below, under the cross-emitted
+      # tree-built compiler.
       - name: Run tests
-        if: runner.os == 'Linux'
         shell: bash
         run: |
-          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang
+          # 2026-09-03: the windows-latest / windows-11-arm images' mingw64
+          # toolchain lost libasan ("cannot find -lasan" on every batch),
+          # so ASan is disabled on Windows until the images ship it again —
+          # macOS/Linux keep the sanitizer (issues/windows-images-lost-libasan.md).
+          case "$RUNNER_OS" in
+            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
+            *) TEST_SAN_FLAG="" ;;
+          esac
+          "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
+
+  # ---------------------------------------------------------------------
+  # The four NON-LINUX release targets: full language suite per PR, under a
+  # TREE-BUILT compiler, via cross-emit (promoted 2026-08-21 from the weekly
+  # suite-cross-targets.yml, which this chain replaced — three consecutive
+  # all-green runs, having first surfaced the exe-lock cleanup bug #195 and
+  # the x64-clang-under-WoA default-triple bug #196).
+  #
+  # Why cross-emit: the suite contains regression tests coupled to THIS
+  # tree's compiler, so the seed cannot run it — and the macOS runners
+  # (~7 GB) cannot host the ~15 GB self-build that would produce a
+  # tree-built compiler natively. So Linux (with the swapfile) builds the
+  # CANDIDATE once, four Linux legs cross-emit per-target C with it, and
+  # each target runner compiles that C natively and runs the FULL suite
+  # against this checkout's std. This exercises the per-platform async
+  # runtimes (~5,900 lines of macOS/Windows io backends) at suite depth.
+  #
+  # The CANDIDATE does the cross-emit, not the seed — same rule and reason
+  # as release.yml's seed-cross-emit (a pre-f7b5cc460 seed would bake the
+  # HOST's platform constants into the target's C), and it means the C that
+  # reaches the native runners was emitted by the PR's OWN codegen.
+  suite-candidate:
+    name: Build the suite candidate (Linux, shared by the cross-emits)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Same memory treatment as every self-emitting job (see release.yml's
+      # seed-cross-emit for the 16 min vs 159 min zswap measurement).
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+
+      - name: Install liburing (needed to run the seed's compiled children; + OpenSSL dev for std/http in the compiler closure)
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+
+      - name: Install the seed compiler (previous release)
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: Build the candidate compiler (previous seed, native)
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std -o yo-candidate
+
+      - name: "Stage 2: the candidate compiles the tree (self-application)"
+        # A codegen fix in THIS tree only reaches a compiler's OWN compiled-in
+        # async machinery one generation later: the stage-1 candidate's C text
+        # was EMITTED by the seed's older codegen. Every cross-emitted suite
+        # compiler below runs its own build runner in the smoke step
+        # (self-application), so the shared candidate must be stage-2 — the
+        # generation whose C the tree's codegen emitted (the 2026-09-01
+        # missing-tail-completion hang was invisible at stage-1 and dead at
+        # stage-2; issues/build-smoke-hangs-registry-perturbation.md).
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          YO_STD="$PWD/std" ./yo-candidate compile src/main.yo \
+            --optimize 2 --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage2.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
+            -o yo-candidate
+
+      # Built ONCE and shared: the retired weekly workflow rebuilt the
+      # candidate inside each of its four cross-emit legs — at per-PR
+      # frequency that is three redundant ~50-minute self-builds.
+      - name: Upload the candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-candidate
+          path: yo-candidate
+          retention-days: 1
+          if-no-files-found: error
+
+  suite-cross-emit:
+    name: Cross-emit suite compiler (${{ matrix.target }})
+    needs: [changes, suite-candidate]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-arm64
+            yo_target: aarch64-apple-darwin
+          - target: macos-x64
+            yo_target: x86_64-apple-darwin
+          - target: windows-x64
+            yo_target: x86_64-pc-windows-msvc
+          - target: windows-arm64
+            yo_target: aarch64-pc-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The cross-emit itself is a full-tree emit (~12-15 GB peak) — same
+      # memory treatment as the candidate build above.
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+
+      - name: Install liburing (needed to run the candidate)
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev
+
+      - name: Download the candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: suite-candidate
+
+      # --allocator system so the native leg needs no vendored-mimalloc link
+      # line: this binary exists to RUN the suite, not to be measured.
+      - name: "Cross-emit the suite compiler C (${{ matrix.yo_target }})"
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          chmod +x yo-candidate
+          mkdir -p cross
+          ./yo-candidate compile src/main.yo --optimize 2 --allocator system \
+            --std-path ./std --target ${{ matrix.yo_target }} \
+            --emit-c --skip-c-compiler -o "cross/yo-${{ matrix.target }}" > /dev/null
+          ls -la "cross/yo-${{ matrix.target }}.c"
+
+      - name: Upload the emitted C
+        uses: actions/upload-artifact@v4
+        with:
+          name: suite-c-${{ matrix.target }}
+          path: cross/yo-${{ matrix.target }}.c
+          retention-days: 1
+          if-no-files-found: error
+
+  # Job NAME is `test (<os>)` on purpose: these four legs carry the required
+  # status-check contexts "test (macos-latest)" and "test (windows-latest)"
+  # (ruleset 13548862) that the `test` matrix carried before it went
+  # Linux-only — renaming them would silently drop two required checks.
+  #
+  # `!cancelled()` is LOAD-BEARING: with a plain `if`, an upstream cross-emit
+  # failure would SKIP these legs, and a skipped required check SATISFIES the
+  # ruleset — a red emit would become a mergeable PR. Instead the legs always
+  # run (for code PRs) and fail fast in the artifact download when their C
+  # never arrived.
+  test-native:
+    name: test (${{ matrix.os }})
+    needs: [changes, suite-cross-emit]
+    if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    env:
+      YO_MAIN_STACK_MB: "4096"
+      # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
+      # crash detection stays armed.
+      YO_TEST_LEAK_VERDICT: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: macos-arm64
+          - os: macos-26-intel
+            target: macos-x64
+          - os: windows-latest
+            target: windows-x64
+          # windows-11-arm doubles as the strictest C-conformance runner: it
+          # installs clang 22 (no pre-installed LLVM, unlike windows-latest's
+          # 20), where -Wincompatible-pointer-types is a default ERROR.
+          - os: windows-11-arm
+            target: windows-arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download the cross-emitted C
+        uses: actions/download-artifact@v4
+        with:
+          name: suite-c-${{ matrix.target }}
+          path: cross
+
+      - name: Install LLVM/Clang
+        if: runner.os == 'Windows'
+        run: |
+          choco install llvm -y
+          echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # Same flag set as release.yml's native legs. `--target=` is explicit on
+      # Windows for the same reason it is there: chocolatey's clang default
+      # target is not guaranteed to be this runner's (windows-11-arm installs
+      # an x86_64 LLVM build that runs under WoA emulation and defaults to
+      # x86_64-pc-windows-msvc — issues/fixed/
+      # native-windows-compile-trusts-clang-default-triple.md).
+      - name: Compile the suite compiler natively
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            case "${{ matrix.target }}" in
+              windows-x64)   CT=x86_64-pc-windows-msvc ;;
+              windows-arm64) CT=aarch64-pc-windows-msvc ;;
+            esac
+            clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              --target=$CT \
+              "cross/yo-${{ matrix.target }}.c" \
+              -lws2_32 -lbcrypt -ladvapi32 \
+              -o yo-suite.exe
+            ./yo-suite.exe --version
+          else
+            # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+            # and symbols into the macOS cross C; the runner's brew openssl@3
+            # keg is not on the default search path. Hard link is fine for a
+            # test binary (release.yml weak-links the SHIPPED bundle instead).
+            SSL_PREFIX="$(brew --prefix openssl@3)"
+            clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+              "cross/yo-${{ matrix.target }}.c" \
+              -I"$SSL_PREFIX/include" -L"$SSL_PREFIX/lib" -lssl -lcrypto \
+              -o yo-suite
+            ./yo-suite --version
+          fi
+          # YO_STD pins this checkout's std for every later step (the binary
+          # sits in the repo root, so its walk-up would find ./std anyway; the
+          # pin makes it explicit and survives cd).
+          echo "YO_STD=$PWD/std" >> "$GITHUB_ENV"
+
+      # Under the TREE-BUILT compiler — strictly stronger than the seed-based
+      # smoke these legs ran before 2026-08-21: it exercises the PR's build
+      # runner and codegen natively, including the child compiles `build run`
+      # spawns.
+      - name: Build system smoke test
+        shell: bash
+        run: |
+          if [ -f yo-suite.exe ]; then YO="$PWD/yo-suite.exe"; else YO="$PWD/yo-suite"; fi
+          "$YO" init ./tmp/hello-world --name hello-world
+          cd tmp/hello-world
+          "$YO" build run
+
+      # The full language corpus, natively, under the TREE-BUILT compiler —
+      # the same invocation as the Linux "Run tests" step.
+      - name: Run tests
+        shell: bash
+        run: |
+          if [ -f yo-suite.exe ]; then YO=./yo-suite.exe; else YO=./yo-suite; fi
+          # 2026-09-03: windows images' mingw64 lost libasan — see the twin
+          # note in the `test` job (issues/windows-images-lost-libasan.md).
+          case "$RUNNER_OS" in
+            Windows) TEST_SAN_FLAG="--disable-sanitize" ;;
+            *) TEST_SAN_FLAG="" ;;
+          esac
+          "$YO" test ./tests --exclude tests/internal --exclude tests/cli-cases --bail --verbose --c-compiler clang $TEST_SAN_FLAG
 
   # Bootstrap fixpoint, split into TWO jobs so each self-emit gets a fresh
   # 16 GB box (a single job's stage-3 starved the runner agent after the
@@ -560,6 +952,8 @@ jobs:
   # byte-identical, first held at 65ebcdbb2.
   bootstrap-fixpoint:
     name: Bootstrap fixpoint (yo-self self-compile)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -584,7 +978,9 @@ jobs:
       - name: Install liburing and GNU time
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev time
+          # + OpenSSL dev: this job compiles stage-2 itself (std/http in the
+          # compiler closure puts OpenSSL headers into the emitted C).
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
 
       # 2.3 CI migration (P2_RETIRE_SRC.md §2.3): NO bun/node in this job —
       # the SEED (previous release) builds stage-1. The trust chain becomes
@@ -643,7 +1039,7 @@ jobs:
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/yo-stage1 compile src/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
+            /tmp/yo-stage1 compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage2
           kill $SAMPLER || true
           markers=$(grep -cE '^\s*// (Failed to transpile|Unknown type:)' /tmp/yo-stage2.c || true)
           echo "stage-2 markers: $markers"
@@ -676,7 +1072,9 @@ jobs:
           fi
 
       - name: "Stage 2: compile the emitted C with clang"
-        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o /tmp/yo-stage2-bin -luring
+        # $(pkg-config ... openssl): std/http in the compiler closure puts OpenSSL
+        # headers into the emitted C (libssl-dev installed with liburing above).
+        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-bin -luring
 
       - name: Upload stage-2 artifacts for the stage-3 job
         uses: actions/upload-artifact@v4
@@ -735,7 +1133,7 @@ jobs:
           SAMPLER=$!
           sudo systemd-run --scope -p MemoryHigh=11G -p MemoryMax=14G \
             env YO_MAIN_STACK_MB=4096 nice -n 10 /usr/bin/time -v \
-            /tmp/stage2/yo-stage2-bin compile src/main.yo --release --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
+            /tmp/stage2/yo-stage2-bin compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --allocator mimalloc -o /tmp/yo-stage3
           kill $SAMPLER || true
           if cmp -s /tmp/stage2/yo-stage2.c /tmp/yo-stage3.c; then
             echo "FIXPOINT_HOLDS: stage-2 and stage-3 C are byte-identical"
@@ -779,6 +1177,8 @@ jobs:
   # batch reporting passes while running nothing.
   bootstrap-self-test:
     name: Self-hosted `test` subcommand (yo-self tier-1 gates)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -804,10 +1204,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # P2.5 step 23: bun/node are GONE from this job. GATE 2 and GATE 7 used
       # the TS CLI as the differential's reference side, which is why bun
@@ -900,6 +1300,8 @@ jobs:
   # src/main.yo) and takes ~22 min after a ~5 min stage-1 build.
   compiler-internal-tests-selfhosted:
     name: Compiler internal tests (tests/internal, self-hosted differential shard ${{ matrix.shard }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
     # closed by this change) with the SAME selection the retired TS arm used:
@@ -939,10 +1341,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # 2.3: NO bun/node — this job runs only the self-hosted binary; the
       # SEED builds stage-1. (The Setup Bun / Setup Node.js steps that used to
@@ -1024,6 +1426,8 @@ jobs:
   # only does C->binary. That avoids gcompat entirely.
   build-linux-musl-static:
     name: Static musl Linux bundle (build + run, no publish)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # Also seed-driven, so the same v0.2.9 slowdown applies (see the TSan job).
     timeout-minutes: 120
@@ -1071,7 +1475,7 @@ jobs:
         env:
           YO_MAIN_STACK_MB: "4096"
         run: |
-          yo compile src/main.yo --release --allocator mimalloc --std-path ./std \
+          yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std \
             --emit-c --skip-c-compiler -o yo-musl
           ls -la yo-musl.c
 
@@ -1083,16 +1487,29 @@ jobs:
             # 31855893056). Debian splits static libs into a -static package;
             # Alpine ships liburing.a inside liburing-dev. Assert it is really
             # there rather than discovering its absence as a link error.
-            apk add --no-cache build-base linux-headers liburing-dev
+            apk add --no-cache build-base linux-headers liburing-dev openssl-dev openssl-libs-static
             test -f /usr/lib/liburing.a || {
               echo "::error::liburing-dev did not provide /usr/lib/liburing.a; -static -luring cannot work"
               find / -name "liburing.a" 2>/dev/null | head
               exit 1
             }
+            # std/http in the compiler closure (D6 PR-3) puts OpenSSL into the
+            # emitted C. Alpine splits the archives out of openssl-dev (headers +
+            # .so) into openssl-libs-static — without it the assert below fires
+            # (the PR 364 first run hit this). Static here means the artifact
+            # needs NO openssl on the host. Same assert-the-.a stance as
+            # liburing. NOTE: no apostrophes in here — the whole script is
+            # single-quoted for docker sh -euc, and one in the PR 364 comment
+            # broke the quoting (the musl leg died on "syntax error near
+            # unexpected token )" before reaching apk).
+            test -f /usr/lib/libssl.a || {
+              echo "::error::openssl-libs-static did not provide /usr/lib/libssl.a; -static -lssl cannot work"
+              exit 1
+            }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
               -I vendor/mimalloc/include \
-              -static -luring -lpthread -lm \
+              -static -luring -lssl -lcrypto -lpthread -lm \
               -o yo-musl
           '
 
@@ -1100,7 +1517,7 @@ jobs:
       # liburing the emitter silently swaps the whole async runtime for stubs
       # (src/codegen/async/runtime_io_linux.yo:1465) whose init prints
       # "liburing not available, async I/O disabled" — and since the compiler
-      # reads every source file through io.await(read_file(...)), such a binary
+      # reads every source file through io.await(read(...)), such a binary
       # links, ships, and then compiles NOTHING. So io_uring presence is
       # asserted explicitly, not assumed.
       - name: Assert the bundle is static AND has working async I/O
@@ -1128,8 +1545,28 @@ jobs:
           '
           echo "static + io_uring confirmed."
 
+      # The one gate the musl-only migration waited on, now wired in per PR.
+      # scripts/bootstrap/probe-stack-sizing.sh proves BOTH directions (a 1 MB
+      # stack must overflow, 64 MB must pass), so a binary that silently
+      # ignores YO_MAIN_STACK_MB cannot pass — and it encodes the LLVM
+      # accumulator-tail-call trap that defeats naive recursion probes. It
+      # must run INSIDE Alpine: the property under test belongs to the musl
+      # build (musl threads default to ~128 KB stacks against glibc's 8 MB),
+      # and a host-side run would compile the probe against glibc and pass
+      # vacuously (plans/P3_DISTRIBUTION.md item 3's method note).
+      - name: Assert YO_MAIN_STACK_MB is honored by the static binary
+        run: |
+          docker run --rm --security-opt seccomp=unconfined \
+            -v "$PWD:/w" -w /w alpine:3.20 sh -euc '
+              apk add --no-cache build-base liburing-dev bash
+              export YO_STD=/w/std
+              bash scripts/bootstrap/probe-stack-sizing.sh /w/yo-musl
+            '
+
   test-tsan:
     name: ThreadSanitizer (sync primitives — Linux/Clang)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     # 60 was enough while this job's stage-1 fitted in RAM (16 min on the
     # v0.2.4 seed). The SEED_VERSION bump below pushes it over 16 GB, so it now
@@ -1162,10 +1599,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       - name: Install the seed compiler (previous release)
         uses: ./.github/actions/install-seed
@@ -1204,8 +1641,14 @@ jobs:
         run: /tmp/yo-stage1 test ./tests/sync --parallel 1 --bail --verbose --c-compiler clang
 
   test-wasm32_emscripten:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # 32 min is this leg's real cost; 360 was inherited headroom that let a
+    # DEADLOCKED test burn 3.4 h unnoticed on the sibling WASI leg
+    # (issues/wasi-thread-pool-submit-deadlock.md). 90 keeps ~2.8x margin and
+    # turns a hang into a timely failure.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -1242,18 +1685,44 @@ jobs:
         with:
           seed-version: ${{ env.SEED_VERSION }}
 
+      # Same rule as the ubuntu test job and the shared suite candidate: the
+      # smoke step runs the compiler's own build runner (self-application), so
+      # it must run STAGE-2 — the generation whose C the tree's codegen
+      # emitted. Stage-1's C text was emitted by the SEED's older codegen; the
+      # 2026-09-01 missing-tail-completion hang was invisible at stage-1 and,
+      # combined with the tree's parking yield, hung THIS job's smoke for the
+      # full 90 min (run 33477750650;
+      # issues/build-smoke-hangs-registry-perturbation.md). The wasm TEST
+      # suite below stays on stage-1: its children are cross-compiled by the
+      # tree's codegen either way.
+      - name: Build stage-2 for the smoke
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          YO_STD="$PWD/std" "$S1" compile src/main.yo \
+            --optimize 2 --allocator mimalloc --std-path ./std \
+            --emit-c --skip-c-compiler -o /tmp/stage2 > /dev/null
+          # std/http in the compiler closure (D6 PR-3) puts OpenSSL headers
+          # into the emitted C — flags via pkg-config (libssl-dev installed
+          # with liburing above).
+          clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
+            /tmp/stage2.c vendor/mimalloc/src/static.c \
+            -I vendor/mimalloc/include -lpthread -lm -luring \
+            $(pkg-config --cflags --libs openssl) \
+            -o /tmp/yo-stage2
+
       - name: Build system smoke test (WASM)
         run: |
-          "$S1" init ./tmp/hello-world --name hello-world
+          /tmp/yo-stage2 init ./tmp/hello-world --name hello-world
           cd tmp/hello-world
-          sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Emscripten });|' build.yo
+          sed -i 's|exe :: build.executable({ name: "hello-world", root: "./src/main.yo" });|exe :: build.executable({ name: "hello-world", root: "./src/main.yo", target: build.CompilationTarget.Wasm32_Unknown_Emscripten });|' build.yo
           # List what emcc actually produced on failure. `build run` executes
           # node on the .js shim emcc emits beside the .html, so "Cannot find
           # module ...hello-world.js" says nothing about WHY it is missing —
           # and each round-trip here costs a stage-1 build. Run 31874422392
           # burned a cycle on exactly that.
           set +e
-          "$S1" build run
+          /tmp/yo-stage2 build run
           RC=$?
           set -e
           if [ "$RC" -ne 0 ]; then
@@ -1270,8 +1739,12 @@ jobs:
             --parallel 2 --bail --verbose --c-compiler emcc --profile
 
   test-wasm32_wasi:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    # See the emscripten leg: 360 let a deadlocked test spin for 3.4 h here
+    # (issues/wasi-thread-pool-submit-deadlock.md) before anyone looked.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -1321,7 +1794,7 @@ jobs:
       - name: Run WASI tests
         run: |
           "$S1" test ./tests --exclude tests/internal --exclude tests/cli-cases \
-            --parallel 2 --bail --verbose --target wasm-wasi --profile
+            --parallel 2 --bail --verbose --target wasm32-wasip1 --profile
 
   # Full-corpus HOLLOW SWEEP under the self-hosted binary.
   #
@@ -1349,6 +1822,8 @@ jobs:
   # battery. They are allowlisted with that note.
   hollow-sweep:
     name: Full-corpus hollow sweep (all 188 language files, self-hosted)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -1374,10 +1849,10 @@ jobs:
           sudo swapon /mnt/swapfile
           free -h
 
-      - name: Install liburing
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
           sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y liburing-dev
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
       # 2.3: NO bun/node — the sweep scores only the self-hosted binary; the
       # SEED builds stage-1.

@@ -23,6 +23,7 @@ _mk_artifact :: (fn(kind : ArtifactKind, name : String, root : String) -> BuildA
     allocator : String.from(""),
     sanitize : String.from(""),
     emit_c_to : String.from(""),
+    emit_chunks : usize(0),
     link_libraries : ArrayList(String).new(),
     include_paths : ArrayList(String).new(),
     library_paths : ArrayList(String).new(),
@@ -78,7 +79,7 @@ test("build_dag: empty step produces a single-node DAG", {
 test("build_dag: step with artifact dependencies", {
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected registry error");
         unwind(());
       }
@@ -98,7 +99,7 @@ test("build_dag: step with artifact dependencies", {
 test("build_dag: linked artifacts create edges", {
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected registry error");
         unwind(());
       }
@@ -120,7 +121,7 @@ test("build_dag: linked artifacts create edges", {
 test("build_dag: run step depends on its artifact", {
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected registry error");
         unwind(());
       }
@@ -144,7 +145,7 @@ test("build_dag: run step depends on its artifact", {
 test("build_dag: nested steps are walked transitively", {
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected registry error");
         unwind(());
       }
@@ -167,7 +168,7 @@ test("build_dag: nested steps are walked transitively", {
 test("build_dag: deduplicates shared dependencies", {
   exn := Exception(
     throw : (
-      (_err) -> {
+      _err -> {
         assert(false, "unexpected registry error");
         unwind(());
       }

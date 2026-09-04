@@ -1,0 +1,109 @@
+//! lsp/definition — textDocument/definition (plans/P4_LSP.md slice 3).
+//!
+//! Port of the attic `definition.ts` VARIABLE channel: token at position →
+//! best Atom candidate → its ExprInfo env → the selected variable's
+//! `initialized_at_token` → an LSP Location. The TS file's further channels
+//! (struct-field definitions, enum-variant constructors, import-path
+//! strings) are recorded follow-ups — the variable channel already covers
+//! locals, functions, types, and imported names bound with `::`.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+open(import("std/error"));
+{ Token, TokenKind } :: import("../token.yo");
+{ tokenize } :: import("../lexer.yo");
+{ AstExpr, ast_expr_id } :: import("../expr.yo");
+{ ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ get_variables_from_env } :: import("../env.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, j_range } :: import("./protocol.yo");
+{
+  _find_token_at,
+  _collect_candidates,
+  _best_candidate,
+  _select_best_variable
+} :: import("./hover.yo");
+
+/// A token's module_path as an LSP file:// uri. Module paths arrive either
+/// as `file:///abs` (import-resolved) or plain `/abs`.
+_module_path_to_uri :: (fn(mp : String) -> String)(
+  cond(
+    mp.starts_with(String.from("file://")) => mp,
+    true => `file://${mp}`
+  )
+);
+
+/// Resolve the definition Location for (line, character), or `.None`.
+handle_definition :: (
+  fn(
+    text : String,
+    doc_abs : String,
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    line : usize,
+    character : usize
+  ) -> Option(JsonValue)
+)({
+  lex_exn := Exception(
+    throw : (
+      _err -> unwind(Option(JsonValue).None)
+    )
+  );
+  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  target := match(
+    _find_token_at(tokens, line, character),
+    .Some(t) => t,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  cands := ArrayList(AstExpr).new();
+  (ei : usize) = usize(0);
+  while(ei < exprs.len(), {
+    match(
+      exprs.get(ei),
+      .Some(e) => _collect_candidates(e, target, cands),
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  expr := match(
+    _best_candidate(cands, info_table),
+    .Some(x) => x,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  info := match(
+    expr_info_table_get(info_table, ast_expr_id(expr)),
+    .Some(i) => i,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  vars := get_variables_from_env(info.env, target.value.clone());
+  if(vars.len() == usize(0), {
+    return(Option(JsonValue).None);
+  });
+  sv := match(
+    _select_best_variable(vars, target),
+    .Some(v) => v,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  def_tok := match(
+    sv.initialized_at_token,
+    .Some(t2) => t2,
+    .None => {
+      return(Option(JsonValue).None);
+    }
+  );
+  Option(JsonValue).Some(
+    jb().put("uri", jstr(_module_path_to_uri(def_tok.module_path.clone()))).put(
+      "range",
+      // RUNE column + RUNE width (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+      j_range(def_tok.row, def_tok.column, def_tok.row, def_tok.column + def_tok.value.chars().count())
+    ).obj()
+  )
+});
+export(handle_definition);

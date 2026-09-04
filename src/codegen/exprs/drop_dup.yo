@@ -28,6 +28,7 @@ open(import("std/string"));
 { random_id, is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
+{ should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_type_string, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -105,7 +106,20 @@ get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGeneratio
         v,
         .FuncVal(__fvd2, _) => match(
           context.base.get_function_entry(__fvd2.*.func_id),
-          .Some(e) => Option(String).Some(e.c_name),
+          // A registry hit whose spec the function emitter SKIPS (hard-generic
+          // — its signature still carries unresolvable SomeTs) must not be
+          // delegated to: the traverse would call a never-emitted C name
+          // ("call to undeclared function ...", raw SomeT ids in the mangled
+          // name). This state is reached by ERA-COPY type identities minted
+          // during failed where-bound generic-impl trials (never constructed
+          // at runtime — the field-walk fallback is inert for them); the
+          // trials themselves are the open under-resolution family,
+          // issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md.
+          .Some(e) => cond(
+            should_skip_function_codegen(__fvd2.*.func_id, e.c_name.clone(), v, context.base) =>
+              Option(String).None,
+            true => Option(String).Some(e.c_name)
+          ),
           .None => Option(String).None
         ),
         _ => Option(String).None
@@ -120,10 +134,10 @@ get_trace_function_for_type :: (fn(type : TypeValue, context : FunctionGeneratio
 /// `resolveSomeTypeParamType` (the SomeType.resolvedConcreteType branches are
 /// Gap-6-deferred — yo-self has no such field).
 resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue, context : FunctionGenerationContext) -> TypeValue)({
-  if(!(is_some_type(value_type)), {
+  if(!is_some_type(value_type), {
     return(value_type);
   });
-  if(!(ast_expr_is_atom(value_arg)), {
+  if(!ast_expr_is_atom(value_arg), {
     return(value_type);
   });
   ft := match(context.current_function_type, .Some(t) => t, .None => return(value_type));
@@ -140,7 +154,7 @@ resolve_some_type_param_type :: (fn(value_arg : AstExpr, value_type : TypeValue,
           .Some(lbl) => if(lbl == var_name, {
             match(
               pts.get(i),
-              .Some(pt) => if(!(is_some_type(pt)), {
+              .Some(pt) => if(!is_some_type(pt), {
                 return(pt);
               }),
               .None => ()
@@ -165,7 +179,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
   // arms — a silent no-op drop/dup for any recursive enum value (the json
   // element-loss family).
   concrete_type := resolve_enum_shell(resolve_struct_shell(value_type));
-  if(!(type_contains_rc_type(concrete_type)), {
+  if(!type_contains_rc_type(concrete_type), {
     return(String.from(""));
   });
   em := context.base.emitter;
@@ -381,7 +395,7 @@ generate_drop_code_for_value :: (fn(value_code : String, value_type : TypeValue,
     // INLINE — the same rationale as the value-enum arm above (yo-self lowers
     // RC ops directly instead of synthesizing per-type ___drop methods; TS
     // calls the synthesized fn_..___drop here). Previously the missing-method
-    // case silently emitted NOTHING, so value-struct locals (e.g. Bucket(K, V)
+    // case silently emitted NOTHING, so value-struct locals (e.g. MapEntry(K, V)
     // in HashMap.set) never released their RC fields at scope end.
     is_struct_type(concrete_type) => match(
       get_drop_function_for_type(concrete_type, context),
@@ -619,7 +633,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
         ci = (ci + usize(1));
       });
       cond(
-        !(has_rc) => value_code.clone(),
+        !has_rc => value_code.clone(),
         true => {
           temp_var := String.from("temp_dup_struct_");
           temp_var.push_string(random_id(String.from("")));
@@ -731,7 +745,7 @@ generate_dup_code_for_value :: (fn(value_code : String, value_type : TypeValue, 
                       ed_fname := sanitize_for_c_identifier(ed_flabel, false);
                       ed_access := `(${ed_temp.clone()}).data.${ed_vname.clone()}.${ed_fname}`;
                       ed_fd := recur(ed_access.clone(), ed_ft, context);
-                      if((ed_fd.len() > usize(0)) && (!(ed_fd == ed_access)), {
+                      if((ed_fd.len() > usize(0)) && !(ed_fd == ed_access), {
                         ed_line := String.from("    ");
                         ed_line.push_string(ed_access);
                         ed_line.push_str(" = ");
@@ -834,7 +848,7 @@ generate_deferred_drop_expressions :: (
             drops.get(i),
             .Some(drop_expr) => {
               param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(drop_expr, context), false);
-              param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !(param_target)));
+              param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !param_target));
               skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures));
               // Skip a drop whose target TEMP was never emitted as a C declaration
               // (declaration elided while its deferred-drop survived) — emitting
@@ -847,11 +861,11 @@ generate_deferred_drop_expressions :: (
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(nm) => {
                   cn := sanitize_for_c_identifier(nm, false);
-                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !(context.base.declared_c_var_names.contains(cn))
+                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
                 },
                 .None => false
               );
-              if(!(skip_capture) && !(undeclared_temp), {
+              if(!skip_capture && !undeclared_temp, {
                 sc_skip := match(
                   context.short_circuit_handled_drop_var_names,
                   .Some(handled) => match(
@@ -864,7 +878,7 @@ generate_deferred_drop_expressions :: (
                   ),
                   .None => false
                 );
-                if(!(sc_skip), {
+                if(!sc_skip, {
                   code := _call_generate_expr(drop_expr, indent.clone(), context);
                   if(code.len() > usize(0), {
                     line := indent.clone();
@@ -911,11 +925,11 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
                 get_deferred_dup_target_atom_name(dup_expr),
                 .Some(dnm) => {
                   dcn := sanitize_for_c_identifier(dnm, false);
-                  (is_temp_variable_name(ei.env.module_path.clone(), dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && (!(context.base.declared_c_var_names.contains(dcn)))
+                  (is_temp_variable_name(ei.env.module_path.clone(), dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.contains(dcn)
                 },
                 .None => false
               );
-              if(!(dup_undeclared_temp), {
+              if(!dup_undeclared_temp, {
                 code := _call_generate_expr(dup_expr, indent.clone(), context);
                 if(code.len() > usize(0), {
                   // A SYNTHESIZED dup (aliasing Stage 0's borrow marker —
@@ -931,7 +945,7 @@ generate_deferred_dup_expressions :: (fn(expr : AstExpr, indent : String, contex
                       ddei.variable_name,
                       .Some(ddvn) => {
                         ddtn := get_variable_name_for_codegen(ddvn.clone(), Option(Environment).Some(ddei.env));
-                        if((!(ddtn == code)) && (!(context.base.declared_c_var_names.contains(ddtn.clone()))), Option(String).Some(get_variable_type_string(ddei.ty, ddvn, context.base)), Option(String).None)
+                        if(!(ddtn == code) && !context.base.declared_c_var_names.contains(ddtn.clone()), Option(String).Some(get_variable_type_string(ddei.ty, ddvn, context.base)), Option(String).None)
                       },
                       .None => Option(String).None
                     ),
@@ -990,7 +1004,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
             (match(ei.is_anonymous_function_definition, .Some(b) => b, .None => false) && ei.capture_type.is_some())
         );
         (fallback_code_2 : String) = fallback_code.clone();
-        if(!(src_is_closure_ctor), {
+        if(!src_is_closure_ctor, {
           match(
             ei.variable_name,
             .Some(src_vn) => {
@@ -1045,7 +1059,7 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // `Some(bucket.value)`), the temp is a never-declared phantom → materialize.
         needs_materialize := match(
           dup_result_name,
-          .None => ((ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some()) && (fallback_code_2 != t_name)),
+          .None => (ast_expr_is_fn_call_of(expr, BF_DOT, Option(usize).Some(usize(2))) && dup_target.is_some() && (fallback_code_2 != t_name)),
           .Some(_) => false
         );
         cond(

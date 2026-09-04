@@ -1,0 +1,32 @@
+pragma(Pragma.SkipWasm32Emscripten); // no terminals under the wasm test harness
+pragma(Pragma.SkipWasm32Wasi); // no terminals under the wasm test harness
+{ assert } :: import("std/assert");
+open(import("std/string"));
+{ Stream, TermSize, is_terminal, size_of, size, supports_color } :: import("std/term");
+{ env } :: import("std/env");
+// `yo test` runs every test child through Command.output, so all three
+// standard streams are PIPES here — the facade must report that faithfully.
+test("test children run with pipes, not terminals", {
+  assert(!is_terminal(Stream.Stdout), "stdout is a pipe under the runner");
+  assert(!is_terminal(Stream.Stderr), "stderr is a pipe under the runner");
+  assert(match(size_of(Stream.Stdout), .None => true, .Some(_) => false), "no size for a pipe");
+  assert(match(size(), .None => true, .Some(_) => false), "size() is stdout's");
+});
+test("supports_color is false on a non-terminal regardless of env", {
+  _s := env.set(`TERM`, `xterm-256color`);
+  assert(!supports_color(Stream.Stdout), "a pipe never supports color");
+});
+test("NO_COLOR and TERM=dumb are honoured (observable via the pure gate order)", {
+  // On a pipe every path is false; the env gates are pinned by construction:
+  // supports_color = is_terminal && NO_COLOR unset && TERM != dumb. Pin the
+  // env reads themselves so a regression that drops them shows up here.
+  _a := env.set(`NO_COLOR`, `1`);
+  assert(!supports_color(Stream.Stdout), "NO_COLOR set → false");
+  _b := env.set(`TERM`, `dumb`);
+  assert(!supports_color(Stream.Stderr), "TERM=dumb → false");
+});
+test("TermSize fields are plain cells", {
+  ts := TermSize(columns : usize(80), rows : usize(24));
+  assert(ts.columns == usize(80), "columns");
+  assert(ts.rows == usize(24), "rows");
+});

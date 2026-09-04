@@ -583,7 +583,7 @@ ast_expr_is_fn_call_of :: (fn(e : AstExpr, func_name : str, arg_count : Option(u
         .Atom(_, tok) => (tok.value == func_name),
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(func_name_matches), {
+      if(!func_name_matches, {
         return(false);
       });
       count_ok := match(
@@ -621,7 +621,7 @@ ast_expr_is_fn_call_of_any :: (fn(e : AstExpr, func_names : ArrayList(str), arg_
         },
         .FnCall(_, _, _, _, _) => false
       );
-      if(!(func_name_in_list), {
+      if(!func_name_in_list, {
         return(false);
       });
       count_ok := match(
@@ -650,7 +650,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
       e2,
       .Atom(_, _) => false,
       .FnCall(_, func2, args2, _, _) => {
-        if(!(recur(func1, func2)), {
+        if(!recur(func1, func2), {
           return(false);
         });
         n1 := args1.len();
@@ -662,7 +662,7 @@ exprs_are_equal :: (fn(e1 : AstExpr, e2 : AstExpr) -> bool)(
         while(i < n1, {
           a1 := match(args1.get(i), .Some(a) => a, .None => make_err_expr());
           a2 := match(args2.get(i), .Some(a) => a, .None => make_err_expr());
-          if(!(recur(a1, a2)), {
+          if(!recur(a1, a2), {
             return(false);
           });
           i = (i + usize(1));
@@ -771,26 +771,22 @@ expect_expr_to_be_fn_call_of :: (
     exn : Exception
   ) -> unit
 )({
-  if(!(ast_expr_is_fn_call(expr)), {
+  if(!ast_expr_is_fn_call(expr), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected function call, got atom:\n${ast_expr_to_string(expr)}`
         )
       )
     );
   });
-  if(!(ast_expr_is_fn_call_of(expr, func_name, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, func_name, .None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected function call of "${String.from(func_name)}", got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected function call of "${String.from(func_name)}", got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -808,9 +804,7 @@ expect_expr_to_be_fn_call_of :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
-              false,
-              .None
+              `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`
             )
           )
         );
@@ -829,26 +823,22 @@ expect_expr_to_be_fn_call_of_any :: (
     exn : Exception
   ) -> unit
 )({
-  if(!(ast_expr_is_fn_call(expr)), {
+  if(!ast_expr_is_fn_call(expr), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected function call, got atom:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected function call, got atom:\n${ast_expr_to_string(expr)}`
         )
       )
     );
   });
-  if(!(ast_expr_is_fn_call_of_any(expr, func_names, .None)), {
+  if(!ast_expr_is_fn_call_of_any(expr, func_names, .None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected function call of one of the expected names, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected function call of one of the expected names, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -866,9 +856,7 @@ expect_expr_to_be_fn_call_of_any :: (
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`,
-              false,
-              .None
+              `Expected ${n.to_string()} arguments, got ${actual.to_string()}:\n${ast_expr_to_string(expr)}`
             )
           )
         );
@@ -877,8 +865,241 @@ expect_expr_to_be_fn_call_of_any :: (
     .None => ()
   )
 });
+/// Synthesize a token for a desugared node, inheriting position and
+/// provenance from `ref_tok` so errors keep pointing at the source site.
+_synth_desugar_tok :: (fn(kind : TokenKind, value : str, ref_tok : Token) -> Token)(
+  Token(
+    kind : kind,
+    value : String.from(value),
+    row : ref_tok.row,
+    column : ref_tok.column,
+    character : ref_tok.character,
+    byte_offset : ref_tok.byte_offset,
+    // SHARE module_path and input — never .clone() them. String.clone()
+    // deep-copies the buffer, and `input` is the ENTIRE SOURCE FILE: the
+    // original desugar cloned it into every synthesized (and, worse, every
+    // REBUILT) node's token, giving each AST node a private copy of the
+    // file. Measured on `yo check` of the vendor/markdown_yo closure:
+    // 16.5s/3.1GB -> 60s/7.0GB — the v0.2.15 evaluator regression. Sharing
+    // also restores the __yo_ptr_eq fast path in String's Eq, which
+    // begin.yo's _m3_tokens_comparable (`left.input == right.input`) relies
+    // on — with per-node copies every comparability check memcmp'd the
+    // whole file (issues/desugar-token-clones-evaluator-regression.md).
+    module_path : ref_tok.module_path,
+    input : ref_tok.input
+  )
+);
+/// Unwrap an optional `label : value` wrapper on an `if` argument.
+/// `.Some(value)` when the arg is unlabeled or carries the expected label;
+/// `.None` when it carries a DIFFERENT label — the caller then bails out of
+/// the rewrite and the prelude `if` macro path reports the proper
+/// label-mismatch error.
+_unwrap_if_label :: (fn(arg : AstExpr, label : str) -> Option(AstExpr))({
+  if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
+    return(Option(AstExpr).Some(arg));
+  });
+  pair_args := match(
+    arg,
+    .FnCall(_, _, pa, _, _) => pa,
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  );
+  label_matches := match(
+    pair_args.get(usize(0)),
+    .Some(label_expr) => match(
+      label_expr,
+      .Atom(_, ltok) => (ltok.value == label),
+      .FnCall(_, _, _, _, _) => false
+    ),
+    .None => false
+  );
+  cond(
+    label_matches => match(
+      pair_args.get(usize(1)),
+      .Some(v) => Option(AstExpr).Some(v),
+      .None => Option(AstExpr).None
+    ),
+    true => Option(AstExpr).None
+  )
+});
+/// Desugar `if(c, t)` / `if(c, t, e)` / labeled `if(c, then : t, else : e)`
+/// calls into the builtin `cond(c => t, true => e)` form, recursively,
+/// WITHOUT descending into `quote(...)` subtrees (quoted ASTs are
+/// user-visible comptime values; code spliced OUT of them is desugared at
+/// the splice sites in evaluator/calls/function.yo and
+/// evaluator/builtins/derive.yo instead).
+///
+/// This runs on every freshly parsed program (parser.yo `parse`,
+/// evaluator/index.yo `Evaluator.new`), so downstream passes — codegen,
+/// the async state machine, the dup/drop optimizer — see a real `cond`
+/// node instead of an `if` macro head and never need the
+/// `ExprInfo.macro_expansion` side-table for `if` (plans/MACRO_POLICY.md
+/// Part 3.2).
+///
+/// Anything this walk does NOT rewrite (odd arity, mismatched labels,
+/// dynamically constructed `if` calls that reach evaluation without a
+/// splice hook) falls back to the prelude's `if` macro, which is retained
+/// for seed-generation compatibility — the failure mode is the previous
+/// behavior, never a new error.
+///
+/// The rewritten node KEEPS the original call's ExprId (the rewrite runs
+/// before any ExprInfo for the node is written, and the `if` node it
+/// replaces is discarded); synthesized inner nodes mint fresh ids.
+/// Allocation-free pre-scan: does `e` contain a 2- or 3-arg `if(...)` call
+/// anywhere outside quote(...)? The desugar rebuild only pays for itself on
+/// trees that actually carry one — an if-free subtree is returned unchanged
+/// by the copy-on-write check below, so parsing a module with no `if` costs
+/// one read-only walk instead of a full AST reconstruction.
+_contains_if_call :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, BK_QUOTE, .None), {
+        return(false);
+      });
+      n_args := args.len();
+      if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
+        return(true);
+      });
+      if(recur(func_box), {
+        return(true);
+      });
+      (ci : usize) = usize(0);
+      while(ci < n_args, {
+        match(
+          args.get(ci),
+          .Some(a) => if(recur(a), {
+            return(true);
+          }),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      false
+    }
+  )
+);
+desugar_if_calls :: (fn(e : AstExpr) -> AstExpr)(
+  match(
+    e,
+    .Atom(_, _) => e,
+    .FnCall(id, func_box, args, is_infix, tok) => {
+      if(ast_expr_is_fn_call_of(e, BK_QUOTE, .None), {
+        return(e);
+      });
+      // COPY-ON-WRITE: an if-free subtree is returned UNCHANGED instead of
+      // being reconstructed node by node (fresh ArrayList + FnCall + token
+      // per node, for every module ever parsed). Paired with the token-
+      // sharing fix in _synth_desugar_tok — the two together close the
+      // v0.2.15 evaluator regression
+      // (issues/desugar-token-clones-evaluator-regression.md).
+      if(!_contains_if_call(e), {
+        return(e);
+      });
+      n_args := args.len();
+      if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
+        cond_arg := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+        then_opt := _unwrap_if_label(
+          match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+          "then"
+        );
+        (else_opt : Option(AstExpr)) = Option(AstExpr).None;
+        (labels_ok : bool) = then_opt.is_some();
+        if(n_args == usize(3), {
+          else_opt = _unwrap_if_label(
+            match(args.get(usize(2)), .Some(a) => a, .None => make_err_expr()),
+            "else"
+          );
+          labels_ok = (labels_ok && else_opt.is_some());
+        });
+        if(labels_ok, {
+          then_expr := match(then_opt, .Some(t) => t, .None => make_err_expr());
+          arrow1_args := ArrayList(AstExpr).new();
+          arrow1_args.push(recur(cond_arg));
+          arrow1_args.push(recur(then_expr));
+          arrow1 := AstExpr.FnCall(
+            alloc_global_expr_id(),
+            AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", tok)),
+            arrow1_args,
+            true,
+            tok
+          );
+          else_expr := match(
+            else_opt,
+            .Some(ee) => recur(ee),
+            .None => {
+              unit_tok := _synth_desugar_tok(TokenKind.Identifier, BK_TUPLE, tok);
+              AstExpr.FnCall(
+                alloc_global_expr_id(),
+                AstExpr.Atom(alloc_global_expr_id(), unit_tok),
+                ArrayList(AstExpr).new(),
+                false,
+                unit_tok
+              )
+            }
+          );
+          arrow2_args := ArrayList(AstExpr).new();
+          arrow2_args.push(AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Bool, "true", tok)));
+          arrow2_args.push(else_expr);
+          arrow2 := AstExpr.FnCall(
+            alloc_global_expr_id(),
+            AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Operator, "=>", tok)),
+            arrow2_args,
+            true,
+            tok
+          );
+          cond_args := ArrayList(AstExpr).new();
+          cond_args.push(arrow1);
+          cond_args.push(arrow2);
+          return(
+            AstExpr.FnCall(
+              id,
+              AstExpr.Atom(alloc_global_expr_id(), _synth_desugar_tok(TokenKind.Identifier, BK_COND, tok)),
+              cond_args,
+              false,
+              tok
+            )
+          );
+        });
+      });
+      new_args := ArrayList(AstExpr).new();
+      (di : usize) = usize(0);
+      dn := args.len();
+      while(di < dn, {
+        match(
+          args.get(di),
+          .Some(a) => {
+            new_args.push(recur(a));
+          },
+          .None => ()
+        );
+        di = (di + usize(1));
+      });
+      AstExpr.FnCall(id, recur(func_box), new_args, is_infix, tok)
+    }
+  )
+);
+/// Desugar every top-level statement of a freshly parsed program.
+/// Returns a new statement list (ArrayList has no in-place `set`).
+desugar_program_if_calls :: (fn(program : ArrayList(AstExpr)) -> ArrayList(AstExpr))({
+  out := ArrayList(AstExpr).new();
+  (pi : usize) = usize(0);
+  pn := program.len();
+  while(pi < pn, {
+    match(
+      program.get(pi),
+      .Some(s) => {
+        out.push(desugar_if_calls(s));
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  out
+});
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
+export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);
@@ -916,6 +1137,7 @@ wrap_body_in_begin :: (fn(body : AstExpr) -> AstExpr)({
     row : tok.row,
     column : tok.column,
     character : tok.character,
+    byte_offset : tok.byte_offset,
     module_path : tok.module_path,
     input : tok.input
   );

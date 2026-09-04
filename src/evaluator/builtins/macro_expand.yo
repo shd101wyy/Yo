@@ -51,7 +51,7 @@ evaluate_macro_expand :: (
     expr,
     .FnCall(_, _, a, _, _) => a,
     _ => {
-      exn.throw(dyn(format_error_message(tok, String.from("macro_expand: expected FnCall"), false, .None)));
+      exn.throw(dyn(format_error_message(tok, String.from("macro_expand: expected FnCall"))));
       return(expr);
     }
   );
@@ -62,9 +62,7 @@ evaluate_macro_expand :: (
       dyn(
         format_error_message(
           tok,
-          `"macro_expand" expects 1 or 2 arguments, but got ${n}`,
-          false,
-          .None
+          `"macro_expand" expects 1 or 2 arguments, but got ${n}`
         )
       )
     );
@@ -85,9 +83,7 @@ evaluate_macro_expand :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            `Failed to evaluate the argument expression for "macro_expand"`,
-            false,
-            .None
+            `Failed to evaluate the argument expression for "macro_expand"`
           )
         )
       );
@@ -95,14 +91,12 @@ evaluate_macro_expand :: (
     }
   );
   cur_env := arg_info.env;
-  if(!(is_expr_type(arg_info.ty)), {
+  if(!is_expr_type(arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(arg_info.ty)}`,
-          false,
-          .None
+          `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(arg_info.ty)}`
         )
       )
     );
@@ -126,37 +120,31 @@ evaluate_macro_expand :: (
           dyn(
             format_error_message(
               ast_expr_token(level_arg),
-              `Failed to evaluate the level argument expression for "macro_expand"`,
-              false,
-              .None
+              `Failed to evaluate the level argument expression for "macro_expand"`
             )
           )
         );
         return(expr);
       }
     );
-    if(!(is_comptime_int_type(level_info.ty)), {
+    if(!is_comptime_int_type(level_info.ty), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(level_arg),
-            `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(level_info.ty)}`,
-            false,
-            .None
+            `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(level_info.ty)}`
           )
         )
       );
     });
     // Extract the integer value from IntLit.
     lv_opt := level_info.value;
-    if(!(is_int_lit(match(lv_opt, .Some(v) => v, .None => EvalValue.UnitVal))), {
+    if(!is_int_lit(match(lv_opt, .Some(v) => v, .None => EvalValue.UnitVal)), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(level_arg),
-            `The level argument for "macro_expand" must be a comptime_int value`,
-            false,
-            .None
+            `The level argument for "macro_expand" must be a comptime_int value`
           )
         )
       );
@@ -177,9 +165,7 @@ evaluate_macro_expand :: (
         dyn(
           format_error_message(
             ast_expr_token(level_arg),
-            `The level argument for "macro_expand" must be non-negative, but got: ${lv_parsed}`,
-            false,
-            .None
+            `The level argument for "macro_expand" must be non-negative, but got: ${lv_parsed}`
           )
         )
       );
@@ -199,7 +185,7 @@ evaluate_macro_expand :: (
         (should_continue : bool) = true;
         while(should_continue, {
           // Check if it's a function call.
-          if(!(ast_expr_is_fn_call(current_expr)), {
+          if(!ast_expr_is_fn_call(current_expr), {
             should_continue = false;
           });
           if(should_continue, {
@@ -246,7 +232,7 @@ evaluate_macro_expand :: (
                       if(same, {
                         should_continue = false;
                       });
-                      if(!(same), {
+                      if(!same, {
                         current_expr = new_expr;
                         expansion_count = (expansion_count + i64(1));
                         expanded_ok = true;

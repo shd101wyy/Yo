@@ -213,6 +213,15 @@ impl(String, Dispose(
 
 **Naming note**: Within the `imm` module, the type is simply `String`. Users import it as `{ String } :: import "std/imm/string"` or can alias it: `ImmString :: import "std/imm/string".String`. This avoids conflict with the existing `std/string` `String` because Yo uses explicit imports — users choose which `String` to bring into scope.
 
+> **SUPERSEDED (2026-08-26, D4 PR 5 — `plans/STD_API_AUDIT.md` §D4):** the type
+> is now exported as **`ImmString`** (`std/imm/string.yo`), and its iterators as
+> `ImmStringChars` / `ImmStringCharIndices`. The same-name approach above turned
+> out to be exactly the hazard the audit measured: the two `String` types
+> disagreed on their index basis, and the name collision itself caused a real
+> compiler bug (`issues/fixed/generic-impl-method-cache-key-collision.md`). The
+> alias consumers were writing by hand (`{ String : ImmString } :: ...`) became
+> the export.
+
 **API** — mirrors `std/string.String` but with no mutation methods:
 
 | Method         | Signature                                          | Description                          |
@@ -810,8 +819,8 @@ The builder uses a mutable internal representation during construction, then "fr
 ## Resolved Decisions
 
 1. **Module path**: `std/imm` — short and ergonomic for imports.
-2. **Type names**: Bare names (`List`, `Vec`, `Map`, `String`, `Set`, `SortedMap`, `SortedSet`) — no `Imm` prefix. Users disambiguate via explicit imports.
-3. **`imm.String` vs `std/string.String`**: They are separate types. `imm.String` is for thread-safe sharing; `std/string.String` remains the mutable single-threaded string. No deprecation or replacement planned.
+2. **Type names**: Bare names (`List`, `Vec`, `Map`, `String`, `Set`, `SortedMap`, `SortedSet`) — no `Imm` prefix. Users disambiguate via explicit imports. **PARTIALLY REVERSED for the string (2026-08-26, D4 PR 5): the string type is now `ImmString`** — see the superseded naming note in §2 above; the collections keep their bare names.
+3. **`imm.String` vs `std/string.String`**: They are separate types. The immutable one (**`ImmString`** since 2026-08-26) is for thread-safe sharing; `std/string.String` remains the mutable single-threaded string. No deprecation or replacement planned.
 4. **`std/sync` migration**: Complete. All sync primitives (Mutex, Cond, Once, RwLock, WaitGroup, Channel) use `atomic object` and auto-derive `Send`.
 5. **Builder API location**: Builders live in the same file as each collection (not separate files).
 6. **`SortedSet(T)`**: Included — wrapper around `SortedMap(T, bool)`, added to Phase 5.

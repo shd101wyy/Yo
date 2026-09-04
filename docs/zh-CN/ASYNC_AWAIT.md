@@ -459,7 +459,7 @@ task := io.async((io : Io)=> {
 
 ```rust
 // ✓ 支持
-cond(needs_write => { io.await(write_file(p, data, io), io); }, true => ());
+cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
 if(io.await(exists(p, io), io), { ... });
 cond(io.await(ready(io), io) => ..., true => ...);
 match(io.await(num(io), io), 42 => ..., _ => ...);
@@ -573,7 +573,7 @@ int main(int argc, char** argv) {
 
 **I/O 初始化是惰性的**：`__yo_io_init()` 在首次实际 I/O 操作（文件打开、socket 连接等）时才被调用，而非程序启动时。这意味着仅使用 `yield()` 和纯计算的程序不会产生任何 I/O 初始化开销。
 
-类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread.spawn` 或 `worker.spawn` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
+类似地，**并行运行时**（线程池、Worker 创建、硬件检测）仅在程序使用 `Thread.spawn` 或 `std/thread` 的 `spawn(pool, cb)` 时才生成。非并行程序可节省约 450 行生成的 C 代码。
 
 **同步系统辅助函数**（stat/dirent 访问器、sendfile/copyfile、同步文件操作、mmap/madvise、fcntl、flock、socket 地址辅助函数、信号处理器、TTY）始终通过 `generateSysRuntime()` 生成，其中包括跨平台辅助函数和平台特定的同步辅助函数（`generatePlatformSysRuntime{MacOS,Linux,Windows}`）。这些**不依赖 IoFuture**。所有函数均为 `static`，因此未使用的函数会被 C 编译器的死代码消除机制剥离。这确保了使用信号、stat、mmap、TTY 等功能的非异步程序在编译时不会引入完整的异步运行时。
 
@@ -588,7 +588,7 @@ int main(int argc, char** argv) {
 
 #### WASM 异步支持
 
-WASM 目标（通过 emcc 的 `wasm32-emscripten`）支持核心异步调度器和真正的定时器支持——`io.async()`、`io.await()`、`io.spawn()`、`JoinHandle.await()` 和 `sleep()`（来自 `std/sys/timer`）均可正常工作。调度器使用 NODERAWFS 的 POSIX I/O 进行文件操作，使用排序定时器队列实现非阻塞 sleep。
+WASM 目标（通过 emcc 的 `wasm32-unknown-emscripten`）支持核心异步调度器和真正的定时器支持——`io.async()`、`io.await()`、`io.spawn()`、`JoinHandle.await()` 和 `sleep()`（来自 `std/sys/timer`）均可正常工作。调度器使用 NODERAWFS 的 POSIX I/O 进行文件操作，使用排序定时器队列实现非阻塞 sleep。
 
 WASM 上可用的功能：
 

@@ -10,7 +10,7 @@ open(import("std/fmt"));
 
 test("multibyte assert message emits valid C", {
   assert(true, "absent name → None");
-  assert(!(false), "em-dash — and arrow → in one message");
+  assert(!false, "em-dash — and arrow → in one message");
 });
 
 test("multibyte strings as call arguments", {
@@ -19,6 +19,9 @@ test("multibyte strings as call arguments", {
   );
   out := describe(true, String.from("π ≈ 3.14159 → ok"));
   assert(out == "π ≈ 3.14159 → ok", "multibyte string arg roundtrip");
-  assert(out.len() == usize(16), "rune length of multibyte string");
+  // `len()` is the BYTE count since plans/STD_API_AUDIT_D4_PLAN.md D4 PR 3;
+  // the rune count is what this used to assert (π 2B, ≈ 3B, → 3B, rest ASCII).
+  assert(out.chars().count() == usize(16), "rune length of multibyte string");
+  assert(out.len() == usize(21), "byte length of multibyte string");
   assert(out.as_bytes().len() == usize(21), "byte length of multibyte string");
 });

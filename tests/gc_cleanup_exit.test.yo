@@ -36,7 +36,7 @@ test("exit with live tracked chain terminates cleanly (no GC teardown double-fre
   );
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -47,5 +47,5 @@ test("exit with live tracked chain terminates cleanly (no GC teardown double-fre
   out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
   st := out.status;
   assert(st.signal() == i32(0), `child must exit, not die on a signal (got signal ${st.signal()})`);
-  assert(st.code() != i32(0), `child must exit non-zero (got ${st.code()})`);
+  assert(st.code().unwrap_or(i32(-1)) != i32(0), `child must exit non-zero (got ${st.code().unwrap_or(i32(-1))})`);
 });

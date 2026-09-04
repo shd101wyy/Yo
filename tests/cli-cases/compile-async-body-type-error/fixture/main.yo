@@ -1,0 +1,15 @@
+open(import("std/string"));
+open(import("std/fmt"));
+{ yield } :: import("std/async");
+
+do_bad :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    b := (i32(1) && i32(2));
+    println(b.to_string());
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  io.await(do_bad(io), io);
+});
+export(main);

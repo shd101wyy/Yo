@@ -36,10 +36,10 @@ test("is_local_path: /abs/path is local", {
   assert(is_local_path(String.from("/abs/path")), "/abs is local");
 });
 test("is_local_path: user/repo is not local", {
-  assert(!(is_local_path(String.from("user/repo"))), "user/repo is not local");
+  assert(!is_local_path(String.from("user/repo")), "user/repo is not local");
 });
 test("is_local_path: https:// is not local", {
-  assert(!(is_local_path(String.from("https://github.com/user/repo"))), "https url not local");
+  assert(!is_local_path(String.from("https://github.com/user/repo")), "https url not local");
 });
 // ---------------------------------------------------------------------------
 // _url_to_dep_name
@@ -67,10 +67,10 @@ test("_is_all_digits: all digits", {
   assert(_is_all_digits(String.from("123")), "123 all digits");
 });
 test("_is_all_digits: empty string is false", {
-  assert(!(_is_all_digits(String.from(""))), "empty is false");
+  assert(!_is_all_digits(String.from("")), "empty is false");
 });
 test("_is_all_digits: has letter", {
-  assert(!(_is_all_digits(String.from("12a3"))), "letter makes it false");
+  assert(!_is_all_digits(String.from("12a3")), "letter makes it false");
 });
 test("_is_all_digits: single zero", {
   assert(_is_all_digits(String.from("0")), "single 0 is digits");
@@ -203,7 +203,7 @@ test("parse_package_specifier: user/repo shorthand", {
   result := parse_package_specifier(String.from("user/myrepo"));
   match(
     result,
-    .Err(msg) => assert_dyn(false, msg),
+    .Err(msg) => assert(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -223,7 +223,7 @@ test("parse_package_specifier: user/repo@v1.2.3 pinned", {
   result := parse_package_specifier(String.from("user/myrepo@v1.2.3"));
   match(
     result,
-    .Err(msg) => assert_dyn(false, msg),
+    .Err(msg) => assert(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -242,7 +242,7 @@ test("parse_package_specifier: full https URL", {
   result := parse_package_specifier(String.from("https://github.com/user/repo.git"));
   match(
     result,
-    .Err(msg) => assert_dyn(false, msg),
+    .Err(msg) => assert(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Path(_, _) => assert(false, "expected Git"),
@@ -257,7 +257,7 @@ test("parse_package_specifier: local path", {
   result := parse_package_specifier(String.from("./my-lib"));
   match(
     result,
-    .Err(msg) => assert_dyn(false, msg),
+    .Err(msg) => assert(false, msg),
     .Ok(pkg) => match(
       pkg,
       .Git(_, _, _) => assert(false, "expected Path"),
@@ -295,7 +295,7 @@ test("dependency_exists_in_deps_file: not present returns false", {
   content := String.from(
     "other :: build.dependency(url: \"https://github.com/u/other.git\", ref: \"v1.0.0\");\n"
   );
-  assert(!(dependency_exists_in_deps_file(content, String.from("mylib"))), "mylib not found");
+  assert(!dependency_exists_in_deps_file(content, String.from("mylib")), "mylib not found");
 });
 // ---------------------------------------------------------------------------
 // parse_dependency_names

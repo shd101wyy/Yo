@@ -1,7 +1,21 @@
+pragma(Pragma.SkipWasm32Emscripten); // https needs a network stack + TLS
+pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
+pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
 { assert } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");
+{ fetch, fetch_with, FetchOptions } :: import("std/http/client");
+{ Exception, IoExn } :: import("std/error");
+{ println } :: import("std/fmt");
 open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ SocketAddr } :: import("std/net/addr");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+pragma(Pragma.AllowUnsafe);
 test("HttpRequest build GET request", {
   req := HttpRequest.new(HttpMethod.GET, `/index.html`);
   req.set_host(`example.com`);
@@ -90,4 +104,410 @@ test("HttpMethod enum values", {
   assert(m_del.to_string() == `DELETE`, "DELETE to_string");
   assert(m_head.to_string() == `HEAD`, "HEAD to_string");
   assert(m_patch.to_string() == `PATCH`, "PATCH to_string");
+});
+test("fetch still refuses an unsupported scheme", {
+  // http and https are supported (https over TLS as of D6); anything else
+  // must throw UnsupportedScheme BEFORE any DNS or socket work. ftp:// to
+  // 127.0.0.1:1 would be an instant connection-refused if it slipped past
+  // the scheme check.
+  exn := Exception(
+    throw : (
+      err -> {
+        msg := err.to_string();
+        assert(msg.contains(`Unsupported scheme`), `expected UnsupportedScheme, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  _r := io.await(fetch(`ftp://127.0.0.1:1/`, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch(ftp) must throw UnsupportedScheme");
+});
+test("fetch over https returns a real response (skips offline)", {
+  // https now speaks TLS (D6). Skips when the connection can't be made so
+  // an offline box stays green.
+  reached := Box(bool)(false);
+  ok := Box(bool)(false);
+  exn := Exception(
+    throw : (
+      err -> {
+        println(`  https fetch skipped (no egress?): ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  resp := io.await(fetch(`https://example.com`.to_string(), io), IoExn(io : io, exn : exn));
+  reached.* = true;
+  status_ok := (resp.status_code == i32(200));
+  body_ok := (resp.body.len() > usize(0));
+  good := (status_ok && body_ok);
+  ok.* = good;
+  cond(
+    reached.* => assert(ok.*, `expected a 200 with a body over https, got ${resp.status_code}`),
+    true => assert(true, "skipped: no network")
+  );
+});
+
+// ============================================================================
+// C33 — the three HttpError variants that used to be unreachable
+// (issues/http-client-error-variants-never-raised.md). Each test runs a tiny
+// loopback server as a spawned task and drives `fetch_with` on the test's
+// own stack, so a thrown HttpError lands in the test's handler.
+// ============================================================================
+// Read one request off an accepted stream (a single read is enough for the
+// small requests fetch_with sends). An io.async future, not a plain fn with an
+// await inside — the latter is a nested blocking event loop and deadlocks
+// when called from the server TASK while the client waits underneath it
+// (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md).
+_read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async(e => {
+    buf := *(u8)(malloc(usize(4096)).unwrap());
+    n := e.io.await(stream.read(buf, usize(4096), e.io), e);
+    bytes := ArrayList(u8).new();
+    i := usize(0);
+    while(runtime(i < n), {
+      bytes.push((buf.add(i)).*);
+      i = (i + usize(1));
+    });
+    free(.Some(*(void)(buf)));
+    String.from_bytes(bytes)
+  })
+);
+// Serve `responses` in order, one connection each, recording every request
+// line into `seen`. Runs as a spawned task.
+_serve_scripted :: (
+  fn(listener : TcpListener, responses : ArrayList(String), seen : ArrayList(String), io : Io) ->
+    Impl(Future(unit, IoExn))
+)(
+  io.async(e => {
+    k := usize(0);
+    while(runtime(k < responses.len()), {
+      s := e.io.await(listener.accept(e.io), e);
+      req := e.io.await(_read_request(s, e.io), e);
+      seen.push(req);
+      _w := e.io.await(s.write_string(responses(k), e.io), e);
+      e.io.await(s.close(e.io), e);
+      k = (k + usize(1));
+    });
+    return(());
+  })
+);
+_redirect_to :: (fn(location : String) -> String)(
+  `HTTP/1.1 302 Found\r\nLocation: ${location}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`
+);
+_ok_body :: (fn(body : String) -> String)(
+  `HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`
+);
+test("fetch follows redirects, resolving relative and absolute-path Locations", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19960));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(_redirect_to(`next`)); // relative → /dir/next
+  responses.push(_redirect_to(`/final`)); // absolute path → /final
+  responses.push(_ok_body(`done`));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  assert(resp.status_code == i32(200), `final status should be 200, got ${resp.status_code}`);
+  assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
+  assert(seen.len() == usize(3), `three requests should have been made, saw ${seen.len()}`);
+  assert(seen(usize(0)).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen(usize(0))}`);
+  assert(seen(usize(1)).starts_with(`GET /dir/next HTTP/1.1`), `relative Location must resolve against the base directory: ${seen(usize(1))}`);
+  assert(seen(usize(2)).starts_with(`GET /final HTTP/1.1`), `absolute-path Location must resolve against the origin: ${seen(usize(2))}`);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("fetch throws TooManyRedirects past max_redirects", {
+  exn := Exception(
+    throw : (
+      err -> {
+        msg := err.to_string();
+        assert(msg.contains(`Too many redirects`), `expected TooManyRedirects, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19961));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(_redirect_to(`/again`));
+  responses.push(_redirect_to(`/again`));
+  responses.push(_redirect_to(`/again`));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  // max_redirects 2: hop 0 → hop 1 → hop 2 is the third 3xx, one too many.
+  opts := FetchOptions.new().with_max_redirects(usize(2));
+  _r := io.await(fetch_with(`http://127.0.0.1:19961/start`, opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw TooManyRedirects");
+});
+test("fetch with max_redirects 0 returns the 3xx verbatim", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19962));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(_redirect_to(`/elsewhere`));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_max_redirects(usize(0));
+  resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, opts, io), IoExn(io : io, exn : exn));
+  assert(resp.status_code == i32(302), `the 3xx itself should come back, got ${resp.status_code}`);
+  assert(match(resp.get_header(`Location`), .Some(l) => (l == "/elsewhere"), .None => false), "Location header should be preserved");
+  assert(seen.len() == usize(1), "exactly one request");
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("fetch throws ResponseTooLarge past max_response_bytes", {
+  exn := Exception(
+    throw : (
+      err -> {
+        msg := err.to_string();
+        assert(msg.contains(`Response too large`), `expected ResponseTooLarge, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19963));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  body := String.new();
+  i := usize(0);
+  while(runtime(i < usize(300)), {
+    body.push_str("x");
+    i = (i + usize(1));
+  });
+  responses := ArrayList(String).new();
+  responses.push(_ok_body(body));
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_max_response_bytes(usize(100));
+  _r := io.await(fetch_with(`http://127.0.0.1:19963/big`, opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw ResponseTooLarge");
+});
+test("fetch default response ceiling is 64 MiB and 0 lifts it", {
+  d := FetchOptions.new();
+  assert(d.max_response_bytes == usize(67108864), "default ceiling is 64 MiB");
+  assert(d.max_redirects == usize(10), "default redirect cap is 10");
+  assert(match(d.timeout, .None => true, .Some(_) => false), "no deadline by default");
+  unlimited := FetchOptions.new().with_max_response_bytes(usize(0));
+  assert(unlimited.max_response_bytes == usize(0), "0 = unlimited");
+});
+// A server that accepts and then never answers — the case a deadline exists
+// for: fetch is parked inside a read that will not return on its own.
+_serve_silent :: (fn(listener : TcpListener, hold : Duration, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    s := e.io.await(listener.accept(e.io), e);
+    _req := e.io.await(_read_request(s, e.io), e);
+    e.io.await(sleep(hold, e.io), e.io);
+    e.io.await(s.close(e.io), e);
+    return(());
+  })
+);
+test("fetch throws Timeout when the server never answers", {
+  exn := Exception(
+    throw : (
+      err -> {
+        msg := err.to_string();
+        assert(msg.contains(`timed out`), `expected Timeout, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19964));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  server := io.spawn(_serve_silent(listener, Duration.from_millis(i64(400)), io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  _r := io.await(fetch_with(`http://127.0.0.1:19964/hang`, opts, io), IoExn(io : io, exn : exn));
+  assert(false, "fetch must throw Timeout");
+});
+// ============================================================================
+// Transfer-Encoding: chunked (plans/STD_API_AUDIT.md §7 P1 "chunked client";
+// issues/fixed/http-client-does-not-decode-chunked-bodies.md). The body must
+// be the concatenated chunk DATA — no hex sizes, no chunk extensions, no
+// trailers — and the read must stop at the terminating `0\r\n\r\n`.
+// ============================================================================
+_hex :: (fn(n : usize) -> String)({
+  digits := `0123456789abcdef`;
+  cond(
+    (n == usize(0)) => `0`,
+    true => {
+      s := String.new();
+      m := n;
+      while(m > usize(0), m = (m / usize(16)), {
+        s = `${digits.substring(m % usize(16), (m % usize(16)) + usize(1))}${s}`;
+      });
+      s
+    }
+  )
+});
+_chunked :: (fn(chunks : ArrayList(String), trailer : String) -> String)({
+  out := `HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n`;
+  i := usize(0);
+  while(i < chunks.len(), i = (i + usize(1)), {
+    c := chunks(i);
+    out = `${out}${_hex(c.as_bytes().len())}\r\n${c}\r\n`;
+  });
+  `${out}0\r\n${trailer}\r\n`
+});
+test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19965));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  chunks := ArrayList(String).new();
+  chunks.push(`hello, `);
+  chunks.push(`chunked `);
+  chunks.push(`world — 16+ bytes so a size needs two hex digits`);
+  responses := ArrayList(String).new();
+  responses.push(_chunked(chunks, `X-Trailer: t\r\n`));
+  // Same body, but the first chunk carries a chunk extension (`;name=value`)
+  // and sizes use UPPER-case hex — both legal per RFC 9112 §7.1.
+  responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n7;ext=1\r\nhello, \r\nA\r\nchunked!!!\r\n0\r\n\r\n`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  assert(r1.status_code == i32(200), `status ${r1.status_code}`);
+  assert(r1.body == "hello, chunked world — 16+ bytes so a size needs two hex digits", `decoded body, got "${r1.body}"`);
+  assert(r1.get_header(`Transfer-Encoding`).is_some(), `the header itself is kept`);
+  r2 := io.await(fetch_with(`http://127.0.0.1:19965/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  assert(r2.body == "hello, chunked!!!", `chunk extension + upper-case size, got "${r2.body}"`);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+// The throwing fetch runs as its OWN spawned task: its handler unwinds that
+// task only, `JoinHandle.await` then yields `.None` for the unwound task, and
+// the test joins the server and closes the listener on the normal path.
+// Unwinding out of the test body itself left the server task parked in
+// `accept` on a never-closed listener, which keeps the Linux event loop alive
+// after the last test — the process never exited (hollow sweep rc=124).
+test("a malformed chunk size is a typed HttpError, not a garbage body", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): it can only unwind.
+  chunk_exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19966));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(`HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\nzz\r\nhello\r\n0\r\n\r\n`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  client := io.spawn(fetch_with(`http://127.0.0.1:19966/bad`, FetchOptions.new(), io), IoExn(io : io, exn : chunk_exn));
+  outcome := client.await(io);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(match(outcome, .None => true, .Some(r) => false), `a non-hex chunk size must throw (task unwound → None)`);
+  assert(seen.len() == usize(1), "the server saw exactly one request");
+});
+// A garbage status line surfaces as `HttpError.Other("Invalid status line")`.
+// Also the production pin for
+// issues/fixed/async-scope-end-drop-then-escape-double-drop.md: `_fetch_once`
+// throws AFTER its transport branch (addrs/addr/stream) has closed, and the
+// state machine's dispose used to release those locals a second time — the
+// heap-use-after-free behind the Linux crash of this file's sweep. The client
+// runs as its own task so the test body survives the throw and the task's
+// dispose happens while the test is still watching.
+test("fetch throws Other on a garbage status line, and the aborted task disposes cleanly", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): it can only unwind.
+  garbage_exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19967));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(`garbage\r\n\r\n`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  (outcome : Option(HttpResponse)) = Option(HttpResponse).None;
+  {
+    client := io.spawn(fetch_with(`http://127.0.0.1:19967/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : garbage_exn));
+    outcome = client.await(io);
+  };
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(match(outcome, .None => true, .Some(r) => false), `a garbage status line must throw (task unwound → None)`);
+  assert(seen.len() == usize(1), "the server saw exactly one request");
+});
+// `body : String` is a byte-transparent buffer (String is unvalidated bytes;
+// len()/substring are byte-indexed since D4), so HTTP bodies may carry
+// arbitrary binary: NULs, invalid UTF-8 (a lone 0x80 continuation byte, an
+// 0xFF), and embedded CRLFs must survive fetch verbatim. Pins the audit's
+// "binary bodies" row.
+test("fetch round-trips a binary body byte-for-byte", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  payload := ArrayList(u8).new();
+  payload.push(u8(0x80)); // a bare continuation byte — invalid UTF-8 first
+  payload.push(u8(0));
+  payload.push(u8(13));
+  payload.push(u8(10));
+  payload.push(u8(13));
+  payload.push(u8(10));
+  payload.push(u8(0xFF));
+  payload.push(u8(65));
+  body := String.from_bytes(payload);
+  addr := SocketAddr.loopback(u16(19968));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(`HTTP/1.1 200 OK\r\nContent-Length: ${body.len()}\r\nConnection: close\r\n\r\n${body}`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  r := io.await(fetch_with(`http://127.0.0.1:19968/bin`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(r.status_code == i32(200), "200");
+  got := r.body.as_bytes();
+  assert(got.len() == usize(8), `body is 8 bytes (got ${got.len()})`);
+  assert(got(usize(0)) == u8(0x80), "leading continuation byte survives");
+  assert(got(usize(1)) == u8(0), "NUL survives");
+  assert(got(usize(2)) == u8(13), "embedded CR survives");
+  assert(got(usize(6)) == u8(0xFF), "0xFF survives");
+  assert(got(usize(7)) == u8(65), "trailing ASCII");
 });

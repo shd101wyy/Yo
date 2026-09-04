@@ -1,0 +1,279 @@
+//! `yo check --watch` — Phase C (revised) of plans/INCREMENTAL_COMPILATION.md.
+//!
+//! Long-lived incremental checking on the Phase B machinery: after the
+//! initial full pass (run by `run_check` in main.yo), this loop polls the
+//! checked files' mtime/size, and on a change runs ONE incremental round:
+//! `mm_invalidate_document` (B1 reverse-closure drop + B2 registry purge)
+//! for each changed file, then re-checks ONLY the entry files whose module
+//! key fell out of the cache. Everything else is a module-cache hit, so a
+//! leaf edit re-checks in LSP-edit time (~tens of ms) instead of a full
+//! `check ./src` (~95 s).
+//!
+//! v1 scope (deliberate):
+//!   - The file SET is fixed at startup — a newly created `.yo` file needs a
+//!     watch restart. Deleted files are invalidated and dropped from the set.
+//!   - Polling only (default 200 ms). The `std/sys/events` fs_event layer is
+//!     a wakeup-only signal on macOS (no path in the callback) and per-dir on
+//!     Linux, so the mtime sweep would still be the source of truth — the
+//!     sweep alone is ~1-3 ms for a src/-sized set, so v1 skips the extra
+//!     platform surface.
+//!   - Editing the prelude (or anything under the std path) exits with a
+//!     restart message: the cached prelude env is deliberately outside
+//!     `mm_invalidate_document`'s reach, and an in-process prelude reload
+//!     double-registers the owner-less prelude registrations.
+//!   - `--watch-once`: deterministic test mode — instead of watching, read
+//!     changed filesystem paths from stdin (one per line, EOF-terminated),
+//!     run exactly ONE round, and exit with the round's failure count. Used
+//!     by the cli-case harness, which cannot mutate files concurrently.
+pragma(Pragma.AllowUnsafe);
+{ String } :: import("std/string");
+{ println, eprintln } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
+{ metadata } :: import("std/fs/metadata");
+{ Path } :: import("std/path");
+{ IoExn, Exception } :: import("std/error");
+{ exit } :: import("std/process");
+{ stdout, fflush } :: import("std/libc/stdio");
+{ Instant } :: import("std/time/instant");
+sleep_mod :: import("std/sys/timer");
+{ BufReader } :: import("std/io/bufio");
+{ Stdin, stdin } :: import("std/io/stdio");
+{
+  mm_load_file,
+  mm_invalidate_document,
+  mm_resolve_entry_abs,
+  _take_load_error
+} :: import("./module_manager.yo");
+/// `"${mtime}:${size}"` for a path, or `.None` when the stat fails (file
+/// deleted / transient editor rename). One string keeps the sweep's compare
+/// and store to a single map.
+_stat_key :: (fn(p : String, io : Io) -> Option(String))({
+  swallow := Exception(throw : (_e -> unwind(Option(String).None)));
+  md := io.await(metadata(Path.new(p.clone()), io), IoExn(io : io, exn : swallow));
+  Option(String).Some(`${md.modified_time().to_string()}:${md.size().to_string()}`)
+});
+/// One incremental round: invalidate every changed path (B1+B2), then
+/// re-check the entry files whose module key fell out of the cache, in the
+/// (sorted) order of `files`. Returns the number of failed files.
+watch_round :: (
+  fn(
+    changed : ArrayList(String),
+    files : ArrayList(String),
+    std_path : String,
+    io : Io,
+    exn : Exception
+  ) -> usize
+)({
+  round_t0 := Instant.now();
+  removed := HashSet(String).new();
+  (ci : usize) = usize(0);
+  while(ci < changed.len(), {
+    match(
+      changed.get(ci),
+      .Some(p) => {
+        // Canonicalize: `collect_check_files` yields paths relative to the
+        // CWD for a relative target (`yo check ./src --watch`), while the
+        // module cache keys absolute `file://` paths. Resolve through the
+        // same helper the cache-hit guard uses, then strip the scheme —
+        // `mm_invalidate_document` re-prefixes it.
+        p_key := mm_resolve_entry_abs(p.clone(), std_path.clone());
+        p_abs := p_key.replace(String.from("file://"), String.new());
+        dropped := mm_invalidate_document(p_abs);
+        (di : usize) = usize(0);
+        while(di < dropped.len(), {
+          match(
+            dropped.get(di),
+            .Some(k) => {
+              _a := removed.insert(k);
+              ()
+            },
+            .None => ()
+          );
+          di = (di + usize(1));
+        });
+      },
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  (failed : usize) = usize(0);
+  (rechecked : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    match(
+      files.get(fi),
+      .Some(fp) => {
+        key := mm_resolve_entry_abs(fp.clone(), std_path.clone());
+        if(removed.contains(key), {
+          rechecked = (rechecked + usize(1));
+          ok := mm_load_file(fp.clone(), std_path.clone(), true, io, exn).ok;
+          cond(
+            ok => println(`watch: ${fp} — OK`),
+            true => {
+              // The loader's handlers only stash the rendered diagnostic (the
+              // P1 single-print rule) — the watch round owns the print.
+              match(
+                _take_load_error(),
+                .Some(rendered) => eprintln(rendered),
+                .None => ()
+              );
+              failed = (failed + usize(1));
+              println(`watch: ${fp} — FAILED`);
+            }
+          );
+        });
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  round_ms := round_t0.elapsed().as_millis();
+  println(`watch: rechecked ${rechecked.to_string()} file(s), ${failed.to_string()} failed (${round_ms.to_string()}ms)`);
+  // Watch runs are killed, piped, and read by harnesses — flush per round so
+  // buffered stdout is never lost (`fflush` takes `?(*(FILE))`).
+  unsafe(fflush(.Some(stdout)));
+  failed
+});
+/// Read changed paths from stdin (one per line, until EOF), run ONE round,
+/// exit with the round's failure count. The harness-facing `--watch-once`.
+run_watch_once :: (
+  fn(
+    files : ArrayList(String),
+    std_path : String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  changed := ArrayList(String).new();
+  rd := BufReader(Stdin).new(stdin());
+  (eof : bool) = false;
+  while(!eof, {
+    // The generic BufReader throws through IoExn instead of returning a
+    // Result, so a read error propagates rather than silently ending the list
+    // of changed files (D5: plans/STD_API_AUDIT.md).
+    match(
+      io.await(rd.read_line(io), IoExn(io : io, exn : exn)),
+      .Some(line) => {
+        t := line.trim();
+        if(t.len() > usize(0), {
+          changed.push(t);
+        });
+      },
+      .None => {
+        eof = true;
+      }
+    );
+  });
+  failed := watch_round(changed, files, std_path, io, exn);
+  exit(failed);
+});
+/// Fill `stats` with the current `"${mtime}:${size}"` per path.
+watch_snapshot :: (
+  fn(files : ArrayList(String), stats : HashMap(String, String), io : Io) -> unit
+)({
+  (si : usize) = usize(0);
+  while(si < files.len(), {
+    match(
+      files.get(si),
+      .Some(p) => match(
+        _stat_key(p.clone(), io),
+        .Some(k) => {
+          _a := stats.insert(p.clone(), k);
+          ()
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    si = (si + usize(1));
+  });
+});
+/// Block (polling every `poll_ms`, debounced) until at least one of `files`
+/// changes on disk; returns the changed set and updates `stats`. A stat MISS
+/// (deleted file) reports the path once, then stops reporting it.
+wait_for_change :: (
+  fn(
+    files : ArrayList(String),
+    stats : HashMap(String, String),
+    poll_ms : u64,
+    io : Io
+  ) -> ArrayList(String)
+)({
+  while(true, {
+    _t := io.await(sleep_mod.sleep(poll_ms), io);
+    changed := ArrayList(String).new();
+    (wi : usize) = usize(0);
+    while(wi < files.len(), {
+      match(
+        files.get(wi),
+        .Some(p) => match(
+          _stat_key(p.clone(), io),
+          .Some(k) => {
+            prev := match(stats.get(p.clone()), .Some(sv) => sv, .None => String.new());
+            if(!(prev == k), {
+              _b := stats.insert(p.clone(), k);
+              changed.push(p.clone());
+            });
+          },
+          .None => {
+            if(stats.get(p.clone()).is_some(), {
+              _c := stats.remove(p.clone());
+              changed.push(p.clone());
+            });
+          }
+        ),
+        .None => ()
+      );
+      wi = (wi + usize(1));
+    });
+    if(changed.len() > usize(0), {
+      // Debounce: editors write-then-rename; give the burst a beat to finish.
+      _d := io.await(sleep_mod.sleep(u64(50)), io);
+      return(changed);
+    });
+  });
+  ArrayList(String).new()
+});
+/// The live watch loop: poll mtime/size at `poll_ms`, debounce, round.
+run_check_watch :: (
+  fn(
+    files : ArrayList(String),
+    std_path : String,
+    poll_ms : u64,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  stats := HashMap(String, String).new();
+  watch_snapshot(files, stats, io);
+  println(`watch: watching ${files.len().to_string()} file(s), polling every ${poll_ms.to_string()}ms — Ctrl-C to exit`);
+  unsafe(fflush(.Some(stdout)));
+  while(true, {
+    changed := wait_for_change(files, stats, poll_ms, io);
+    // The std path (prelude and everything under it) is outside the
+    // invalidation machinery's reach — restart instead of corrupting.
+    (std_edit : bool) = false;
+    (pi : usize) = usize(0);
+    while(pi < changed.len(), {
+      match(
+        changed.get(pi),
+        .Some(p) => {
+          if(p.contains(std_path.clone()) || p.ends_with(String.from("prelude.yo")), {
+            std_edit = true;
+          });
+        },
+        .None => ()
+      );
+      pi = (pi + usize(1));
+    });
+    if(std_edit, {
+      println(String.from("watch: a std/prelude file changed — restart the watch (the cached prelude env cannot be invalidated in-process)"));
+      exit(usize(2));
+    });
+    _r := watch_round(changed, files, std_path, io, exn);
+    ()
+  });
+});
+export(watch_round, run_watch_once, run_check_watch, watch_snapshot, wait_for_change);

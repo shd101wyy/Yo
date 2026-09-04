@@ -1,0 +1,52 @@
+// Repro: a wrapper closure that forwards its own `io : Io` parameter to a
+// captured task closure is emitted with a STALE `Io` C type. Each `Io`
+// instantiation is a distinct C struct (its fields are generic fn types), so
+// two differently-shaped task closures in one program collide.
+//
+//   yo compile issues/repros/spawn-wrapper-forwarded-io-crosses-specializations.yo \
+//       --release -o /tmp/r.out
+//
+//   error: passing '__yo_t17' to parameter of incompatible type '__yo_t2'
+//   error: passing '__yo_t2'  to parameter of incompatible type '__yo_t17'
+//
+// The two emitted wrappers are SWAPPED: each got the other specialization's
+// task function. Replacing `cb(io)` with `cb(__yo_builtin_io)` makes this
+// two-shape case compile (both are a zero-initialized `Io` at runtime — codegen
+// passes `(Io){0}` into every spawn closure and resolves `io.async`/`io.await`
+// statically), but it only moves the problem: with four shapes the
+// `__yo_builtin_io` node is itself pinned to one `Io` type and the crossing
+// comes back.
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+pragma(Pragma.AllowUnsafe);
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ yield } :: import("std/async");
+{ assert } :: import("std/assert");
+extern(
+  "Yo",
+  __yo_thread_t : Type,
+  __yo_thread_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
+  __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
+);
+submit :: (fn(cb : Impl(Fn(io : Io) -> unit, Send), n : AtomicI32) -> __yo_thread_t)(
+  __yo_thread_spawn((io : Io) => {
+    cb(io);
+    n.fetch_add(i32(1), MemoryOrder.AcqRel);
+    ()
+  })
+);
+main :: (fn() -> unit)({
+  n := AtomicI32(i32(0));
+  t1 := submit((io) => (), n);
+  t2 := submit((io) => {
+    task := io.async((io : Io) => {
+      io.await(yield(io), io);
+      return(i32(1));
+    });
+    io.await(task, io);
+    ()
+  }, n);
+  __yo_thread_join(t1);
+  __yo_thread_join(t2);
+  assert(n.load(MemoryOrder.Acquire) == i32(2), "both ran");
+});
+export(main);

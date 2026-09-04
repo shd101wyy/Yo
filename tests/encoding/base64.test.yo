@@ -61,7 +61,7 @@ test("base64_encode_url no padding", {
 test("base64_decode empty string", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -73,7 +73,7 @@ test("base64_decode empty string", {
 test("base64_decode Hello", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -90,7 +90,7 @@ test("base64_decode Hello", {
 test("base64_decode no padding", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -105,7 +105,7 @@ test("base64_decode no padding", {
 test("base64_decode invalid character error", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(());
       }
     )
@@ -117,7 +117,7 @@ test("base64_decode invalid character error", {
 test("base64 roundtrip", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -140,7 +140,7 @@ test("base64 roundtrip", {
 test("base64 url roundtrip", {
   exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         assert(false, "unexpected exception");
         unwind(());
       }
@@ -157,52 +157,49 @@ test("base64 url roundtrip", {
   assert(decoded(usize(1)) == u8(0xFF), "url roundtrip byte 1");
   assert(decoded(usize(2)) == u8(0xFE), "url roundtrip byte 2");
 });
-// ===== String-level API Tests =====
-test("encode_string empty", {
-  result := base64_encode_string(String.new());
-  assert(result == "", "empty string should encode to empty");
+// ===== Text payloads go through the byte API =====
+// The former `base64_encode_string` / `base64_decode_string` pair was deleted
+// (plans/STD_API_AUDIT.md §6): the first was `base64_encode(s.as_bytes())`,
+// the second returned a stringly-typed `Result(String, String)` and silently
+// skipped whitespace. Text is bytes in, bytes out, then `String.from_utf8`.
+test("encode a String's bytes", {
+  assert(base64_encode(String.new().as_bytes()) == "", "empty");
+  assert(base64_encode(String.from("f").as_bytes()) == "Zg==", "f");
+  assert(base64_encode(String.from("fo").as_bytes()) == "Zm8=", "fo");
+  assert(base64_encode(String.from("foo").as_bytes()) == "Zm9v", "foo");
+  assert(base64_encode(String.from("foobar").as_bytes()) == "Zm9vYmFy", "foobar");
+  assert(base64_encode(String.from("Hello, World!").as_bytes()) == "SGVsbG8sIFdvcmxkIQ==", "Hello, World!");
 });
-test("encode_string f to Zg==", {
-  result := base64_encode_string(`f`);
-  assert(result == "Zg==", "f should encode to Zg==");
+test("decode to a String through from_utf8", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected decode error");
+        unwind(());
+      }
+    )
+  );
+  s := String.from_utf8(base64_decode(String.from("SGVsbG8sIFdvcmxkIQ=="), exn));
+  assert(match(s, .Ok(v) => (v == "Hello, World!"), .Err(_) => false), "Hello, World!");
+  // "w6k=" is 0xC3 0xA9 — U+00E9, valid UTF-8.
+  m := String.from_utf8(base64_decode(String.from("w6k="), exn));
+  assert(match(m, .Ok(v) => ((v.chars().count() == usize(1)) && (v.len() == usize(2))), .Err(_) => false), "one rune, two bytes");
+  // "/w==" is the single byte 0xFF, never valid UTF-8: the byte decode is fine,
+  // the String conversion is the honest error.
+  bad := String.from_utf8(base64_decode(String.from("/w=="), exn));
+  assert(match(bad, .Ok(_) => false, .Err(_) => true), "a non-UTF-8 payload is a StringError, not a broken String");
 });
-test("encode_string fo to Zm8=", {
-  result := base64_encode_string(`fo`);
-  assert(result == "Zm8=", "fo should encode to Zm8=");
-});
-test("encode_string foo to Zm9v", {
-  result := base64_encode_string(`foo`);
-  assert(result == "Zm9v", "foo should encode to Zm9v");
-});
-test("encode_string foobar to Zm9vYmFy", {
-  result := base64_encode_string(`foobar`);
-  assert(result == "Zm9vYmFy", "foobar should encode to Zm9vYmFy");
-});
-test("encode_string Hello, World!", {
-  result := base64_encode_string(`Hello, World!`);
-  assert(result == "SGVsbG8sIFdvcmxkIQ==", "Hello, World! should encode to SGVsbG8sIFdvcmxkIQ==");
-});
-test("decode_string empty", {
-  result := base64_decode_string(String.new());
-  assert(result.is_ok(), "empty string should decode ok");
-  assert(result.unwrap() == "", "empty string should decode to empty");
-});
-test("decode_string Zm9v to foo", {
-  result := base64_decode_string(`Zm9v`);
-  assert(result.is_ok(), "Zm9v should decode ok");
-  assert(result.unwrap() == "foo", "Zm9v should decode to foo");
-});
-test("decode_string Hello World", {
-  result := base64_decode_string(`SGVsbG8sIFdvcmxkIQ==`);
-  assert(result.is_ok(), "should decode ok");
-  assert(result.unwrap() == "Hello, World!", "should decode to Hello, World!");
-});
-test("decode_string with whitespace", {
-  result := base64_decode_string(`Zm9v YmFy`);
-  assert(result.is_ok(), "should decode ok with whitespace");
-  assert(result.unwrap() == "foobar", "should decode to foobar ignoring whitespace");
-});
-test("decode_string invalid characters", {
-  result := base64_decode_string(`!!!!`);
-  assert(result.is_err(), "invalid characters should return error");
+test("whitespace inside base64 text is rejected, like any other non-alphabet byte", {
+  (threw : bool) = false;
+  r := ArrayList(u8).new();
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  r = base64_decode(String.from("Zm9v YmFy"), exn);
+  threw = (r.len() == usize(0));
+  assert(threw, "the decode must have unwound before returning bytes");
 });

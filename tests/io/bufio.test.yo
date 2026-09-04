@@ -1,0 +1,382 @@
+//! The generic `BufReader(R)` / `BufWriter(W)` (`std/io/bufio`, D5) — the
+//! `tests/sys/bufio.test.yo` coverage re-expressed against the trait-generic
+//! API over `File` (that fd pair is now DELETED — 2026-08-28), plus the new
+//! contracts: the wrappers satisfy the `Reader`/`Writer` bounds themselves,
+//! `read_to_end`/`read_to_string` arrive as trait defaults, and `BufWriter`
+//! deliberately does NOT flush on drop (tokio contract — flush explicitly).
+pragma(Pragma.SkipWasm32Wasi); // File I/O — the async open/read/write path is host-only; standalone WASI lacks it (same skip as tests/fs)
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ temp_dir, path_join } :: import("../helper");
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ IoExn, Exception } :: import("std/error");
+{ Reader, Writer, copy } :: import("std/io");
+{ BufReader, BufWriter } :: import("std/io/bufio");
+{ File, OpenMode } :: import("std/fs/file");
+{ Path } :: import("std/path");
+{ remove_file } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+
+// Each test installs its bundle INLINE (t_exn/t_e): a ctl handler is
+// frame-bound, and the previous fn-returned record escaped its install frame —
+// the handler's `unwind` was untypeable at def time and silently hollow
+// (issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md).
+_p :: (fn(name : str) -> Path)(
+  Path.new(path_join(temp_dir(), `yo_io_bufio_`.to_string() + String.from(name)))
+);
+test("BufReader read_line: single line, multiple lines, no trailing newline", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("lines.txt");
+  io.await(write_string(path, `alpha\nbeta\ngamma`.to_string(), io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br := BufReader(File).new(f);
+  assert(io.await(br.read_line(io), t_e).unwrap() == `alpha`, "line 1");
+  assert(io.await(br.read_line(io), t_e).unwrap() == `beta`, "line 2");
+  assert(io.await(br.read_line(io), t_e).unwrap() == `gamma`, "final line without trailing newline");
+  assert(io.await(br.read_line(io), t_e).is_none(), "then EOF");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufReader read_line: empty file is None, only-newlines are empty lines", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  pe := _p("empty.txt");
+  io.await(write_string(pe, ``.to_string(), io), t_e);
+  fe := io.await(File.open(pe, OpenMode.Read, io), t_e);
+  bre := BufReader(File).new(fe);
+  assert(io.await(bre.read_line(io), t_e).is_none(), "empty file: None");
+  io.await(fe.close(io), t_e);
+  io.await(remove_file(pe, io), t_e);
+  pn := _p("newlines.txt");
+  io.await(write_string(pn, `\n\n`.to_string(), io), t_e);
+  fn2 := io.await(File.open(pn, OpenMode.Read, io), t_e);
+  brn := BufReader(File).new(fn2);
+  assert(io.await(brn.read_line(io), t_e).unwrap() == ``, "first empty line");
+  assert(io.await(brn.read_line(io), t_e).unwrap() == ``, "second empty line");
+  assert(io.await(brn.read_line(io), t_e).is_none(), "then EOF");
+  io.await(fn2.close(io), t_e);
+  io.await(remove_file(pn, io), t_e);
+});
+test("BufReader read_line crosses buffer chunks (tiny capacity)", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("chunky.txt");
+  io.await(write_string(path, `abcdefghijklmnop\nqrstuv\n`.to_string(), io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br := BufReader(File).with_capacity(f, usize(4));
+  assert(io.await(br.read_line(io), t_e).unwrap() == `abcdefghijklmnop`, "line spanning 4 fills");
+  assert(io.await(br.read_line(io), t_e).unwrap() == `qrstuv`, "second line");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufReader raw read: buffered serve, partial then remaining, EOF is 0", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("raw.txt");
+  io.await(write_string(path, `0123456789`.to_string(), io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br := BufReader(File).new(f);
+  buf := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < usize(16), i = (i + usize(1)), {
+    buf.push(u8(0));
+  });
+  p := buf.ptr().unwrap();
+  n1 := io.await(br.read(p, usize(4), io), t_e);
+  assert(n1 == usize(4), "first 4");
+  assert(buf(usize(0)) == u8(48), "byte '0'");
+  assert(br.buffered() == usize(6), "6 bytes still buffered");
+  n2 := io.await(br.read(p, usize(16), io), t_e);
+  assert(n2 == usize(6), "remaining 6 served from the buffer");
+  assert(buf(usize(0)) == u8(52), "byte '4'");
+  n3 := io.await(br.read(p, usize(16), io), t_e);
+  assert(n3 == usize(0), "EOF is 0");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufReader large read bypasses the buffer", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("bypass.txt");
+  big := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < usize(64), i = (i + usize(1)), {
+    big.push(u8(usize(65) + (i % usize(26))));
+  });
+  fw := io.await(File.open(path, OpenMode.Write, io), t_e);
+  io.await(fw.write(big.ptr().unwrap(), big.len(), io), t_e);
+  io.await(fw.close(io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br := BufReader(File).with_capacity(f, usize(8));
+  out := ArrayList(u8).new();
+  (j : usize) = usize(0);
+  while(j < usize(64), j = (j + usize(1)), {
+    out.push(u8(0));
+  });
+  n := io.await(br.read(out.ptr().unwrap(), usize(64), io), t_e);
+  assert(n == usize(64), "one bypass read got everything");
+  assert(out(usize(63)) == big(usize(63)), "content intact");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufReader gets read_to_end and read_to_string as trait defaults", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("defaults.txt");
+  io.await(write_string(path, `héllo bufio`.to_string(), io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br := BufReader(File).with_capacity(f, usize(4));
+  all := io.await(br.read_to_end(io), t_e);
+  assert(all.len() == usize(12), "12 UTF-8 bytes through the default");
+  io.await(f.close(io), t_e);
+  f2 := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br2 := BufReader(File).new(f2);
+  s := io.await(br2.read_to_string(io), t_e);
+  assert(s == `héllo bufio`, "validated read_to_string default");
+  io.await(f2.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufReader read_exact frames exactly and reports a short frame as None", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("frames.txt");
+  io.await(write_string(path, `HEADERBODYX`.to_string(), io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  br := BufReader(File).with_capacity(f, usize(3));
+  frame := io.await(br.read_exact(usize(6), io), t_e).unwrap();
+  assert(frame.len() == usize(6), "exactly 6 bytes");
+  assert(frame(usize(0)) == u8(72), "H");
+  assert(frame(usize(5)) == u8(82), "R");
+  rest := io.await(br.read_exact(usize(5), io), t_e).unwrap();
+  assert(rest(usize(0)) == u8(66), "B follows untouched");
+  tail_frame := io.await(br.read_exact(usize(3), io), t_e);
+  assert(tail_frame.is_none(), "EOF before 3 more bytes: None");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufWriter batches, auto-flushes when full, and flush drains", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("writer.txt");
+  fw := io.await(File.open(path, OpenMode.Write, io), t_e);
+  bw := BufWriter(File).with_capacity(fw, usize(4));
+  msg := `hello world`.to_string();
+  mb := msg.as_bytes();
+  n := io.await(bw.write(mb.ptr().unwrap(), mb.len(), io), t_e);
+  assert(n == usize(11), "write reports everything accepted");
+  assert(bw.buffered() < usize(4), "auto-flush kept the buffer under capacity");
+  io.await(bw.flush(io), t_e);
+  assert(bw.buffered() == usize(0), "flush drained the buffer");
+  io.await(fw.close(io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  s := io.await(f.read_to_string(io), t_e);
+  assert(s == `hello world`, "all bytes reached the file in order");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufWriter multiple small writes then a single flush", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("multi.txt");
+  fw := io.await(File.open(path, OpenMode.Write, io), t_e);
+  bw := BufWriter(File).new(fw);
+  a := `foo`.to_string();
+  ab := a.as_bytes();
+  b := `bar`.to_string();
+  bb := b.as_bytes();
+  io.await(bw.write(ab.ptr().unwrap(), ab.len(), io), t_e);
+  io.await(bw.write(bb.ptr().unwrap(), bb.len(), io), t_e);
+  assert(bw.buffered() == usize(6), "both writes still buffered");
+  io.await(bw.flush(io), t_e);
+  io.await(fw.close(io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  s := io.await(f.read_to_string(io), t_e);
+  assert(s == `foobar`, "one delivery, in order");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("BufWriter does NOT flush on drop — the documented contract", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  path := _p("nodrop.txt");
+  fw := io.await(File.open(path, OpenMode.Write, io), t_e);
+  {
+    bw := BufWriter(File).new(fw);
+    m := `lost`.to_string();
+    lb := m.as_bytes();
+    io.await(bw.write(lb.ptr().unwrap(), lb.len(), io), t_e);
+    assert(bw.buffered() == usize(4), "bytes sit in the buffer");
+  };
+  io.await(fw.close(io), t_e);
+  f := io.await(File.open(path, OpenMode.Read, io), t_e);
+  s := io.await(f.read_to_string(io), t_e);
+  assert(s.len() == usize(0), "unflushed bytes are lost by contract — call flush");
+  io.await(f.close(io), t_e);
+  io.await(remove_file(path, io), t_e);
+});
+test("copy drains a BufReader into a BufWriter (both satisfy the bounds)", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  pa := _p("copy_a.txt");
+  pb := _p("copy_b.txt");
+  payload := ArrayList(u8).new();
+  (i : usize) = usize(0);
+  while(i < usize(9000), i = (i + usize(1)), {
+    payload.push(u8(i % usize(251)));
+  });
+  fw := io.await(File.open(pa, OpenMode.Write, io), t_e);
+  io.await(fw.write(payload.ptr().unwrap(), payload.len(), io), t_e);
+  io.await(fw.close(io), t_e);
+  fr := io.await(File.open(pa, OpenMode.Read, io), t_e);
+  br := BufReader(File).with_capacity(fr, usize(1024));
+  fw2 := io.await(File.open(pb, OpenMode.Write, io), t_e);
+  bw := BufWriter(File).with_capacity(fw2, usize(512));
+  total := io.await(copy(br, bw, io), t_e);
+  assert(total == u64(9000), "copy total");
+  io.await(bw.flush(io), t_e);
+  io.await(fr.close(io), t_e);
+  io.await(fw2.close(io), t_e);
+  vf := io.await(File.open(pb, OpenMode.Read, io), t_e);
+  copied := io.await(vf.read_to_end(io), t_e);
+  assert(copied.len() == usize(9000), "all bytes copied");
+  assert(copied(usize(4444)) == payload(usize(4444)), "spot check");
+  io.await(vf.close(io), t_e);
+  io.await(remove_file(pa, io), t_e);
+  io.await(remove_file(pb, io), t_e);
+});
+test("BufWriter write_string and write_bytes buffer without pointers", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  // These two came back with the std/sys/bufio deletion: the trait primitive
+  // takes a pointer, and "write a String to a buffered writer" should not be a
+  // pointer exercise. Both must batch like `write` does — nothing reaches the
+  // file until the buffer fills or `flush` runs.
+  dir := temp_dir();
+  p := Path.new(path_join(dir, String.from("yo_bufio_wstr.txt")));
+  fw := io.await(File.open(p, OpenMode.Write, io), t_e);
+  bw := BufWriter(File).with_capacity(fw, usize(64));
+  io.await(bw.write_string(String.from("hello "), io), t_e);
+  bs := ArrayList(u8).new();
+  bs.push(u8(119));
+  bs.push(u8(111));
+  bs.push(u8(114));
+  bs.push(u8(108));
+  bs.push(u8(100));
+  io.await(bw.write_bytes(bs, io), t_e);
+  assert(bw.buffered() == usize(11), "both writes are still buffered");
+  io.await(bw.flush(io), t_e);
+  assert(bw.buffered() == usize(0), "flush drains the buffer");
+  io.await(fw.close(io), t_e);
+  fr := io.await(File.open(p, OpenMode.Read, io), t_e);
+  got := io.await(fr.read_to_string(io), t_e);
+  assert(got == "hello world", `round-trip should be "hello world", got "${got}"`);
+  io.await(fr.close(io), t_e);
+  io.await(remove_file(p, io), t_e);
+});
+test("BufWriter write_string of an empty String is a no-op", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  dir := temp_dir();
+  p := Path.new(path_join(dir, String.from("yo_bufio_wempty.txt")));
+  fw := io.await(File.open(p, OpenMode.Write, io), t_e);
+  bw := BufWriter(File).new(fw);
+  io.await(bw.write_string(String.new(), io), t_e);
+  io.await(bw.write_bytes(ArrayList(u8).new(), io), t_e);
+  assert(bw.buffered() == usize(0), "nothing buffered for empty input");
+  io.await(bw.flush(io), t_e);
+  io.await(fw.close(io), t_e);
+  io.await(remove_file(p, io), t_e);
+});

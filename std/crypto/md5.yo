@@ -1,7 +1,7 @@
 //! MD5 hash function (RFC 1321), pure Yo implementation.
 //! MD5 is considered cryptographically broken — use SHA-256 for security.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { md5_hex } :: import "std/crypto/md5";
@@ -11,6 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { hex_encode } :: import("../encoding/hex");
+{ Digest } :: import("./digest");
 open(import("../string"));
 // ============================================================================
 // MD5 implementation
@@ -193,6 +194,111 @@ _md5_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
   (h.add(usize(3))).* = ((h.add(usize(3))).* + d);
 });
 // Compute an MD5 digest over `data`.
+/// MD5 streaming state (the Sha256 skeleton; little-endian length +
+/// little-endian digest extraction).
+Md5 :: ref(
+  struct(
+    _h : Array(u32, usize(4)),
+    _buf : Array(u8, usize(64)),
+    _buflen : usize,
+    _total : u64
+  )
+);
+impl(
+  Md5,
+  // Initialise a new hasher.
+  new : (fn() -> Self)(
+    Self(
+      _h : Array(u32, usize(4))(u32(0x67452301), u32(0xefcdab89), u32(0x98badcfe), u32(0x10325476)),
+      _buf : Array(u8, usize(64)).fill(u8(0)),
+      _buflen : usize(0),
+      _total : u64(0)
+    )
+  ),
+  // Feed more data into the hasher.
+  update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
+    i := usize(0);
+    while(i < data.len(), i = (i + usize(1)), {
+      self._buf(self._buflen) = data(i);
+      self._buflen = (self._buflen + usize(1));
+      self._total = (self._total + u64(1));
+      cond(
+        (self._buflen == usize(64)) => {
+          buf_ptr := &(self._buf(usize(0)));
+          h_ptr := &(self._h(usize(0)));
+          _md5_block(buf_ptr, h_ptr);
+          self._buflen = usize(0);
+        },
+        true => ()
+      );
+    });
+    self
+  }),
+  // Finalise and return the 16-byte digest.
+  finish : (fn(self : Self) -> Array(u8, usize(16)))({
+    bit_len := (self._total * u64(8));
+    self._buf(self._buflen) = u8(0x80);
+    self._buflen = (self._buflen + usize(1));
+    cond(
+      (self._buflen > usize(56)) => {
+        while(self._buflen < usize(64), self._buflen = (self._buflen + usize(1)), {
+          self._buf(self._buflen) = u8(0);
+        });
+        buf_ptr := &(self._buf(usize(0)));
+        h_ptr := &(self._h(usize(0)));
+        _md5_block(buf_ptr, h_ptr);
+        self._buflen = usize(0);
+      },
+      true => ()
+    );
+    while(self._buflen < usize(56), self._buflen = (self._buflen + usize(1)), {
+      self._buf(self._buflen) = u8(0);
+    });
+    // LITTLE-endian 64-bit bit length (MD5, unlike the SHA family).
+    self._buf(usize(56)) = u8(bit_len);
+    self._buf(usize(57)) = u8(bit_len >> u64(8));
+    self._buf(usize(58)) = u8(bit_len >> u64(16));
+    self._buf(usize(59)) = u8(bit_len >> u64(24));
+    self._buf(usize(60)) = u8(bit_len >> u64(32));
+    self._buf(usize(61)) = u8(bit_len >> u64(40));
+    self._buf(usize(62)) = u8(bit_len >> u64(48));
+    self._buf(usize(63)) = u8(bit_len >> u64(56));
+    buf_ptr := &(self._buf(usize(0)));
+    h_ptr := &(self._h(usize(0)));
+    _md5_block(buf_ptr, h_ptr);
+    digest := Array(u8, usize(16)).fill(u8(0));
+    k := usize(0);
+    while(k < usize(4), k = (k + usize(1)), {
+      w := self._h(k);
+      digest(k * usize(4)) = u8(w);
+      digest((k * usize(4)) + usize(1)) = u8(w >> u32(8));
+      digest((k * usize(4)) + usize(2)) = u8(w >> u32(16));
+      digest((k * usize(4)) + usize(3)) = u8(w >> u32(24));
+    });
+    digest
+  })
+);
+export(Md5);
+// === Digest trait impl (std/crypto/digest) ===
+impl(
+  Md5,
+  Digest(
+    new : (fn() -> Self)(Self.new()),
+    update : (fn(self : Self, data : ArrayList(u8)) -> Self)(self.update(data)),
+    digest_size : (fn() -> usize)(usize(16)),
+    block_size : (fn() -> usize)(usize(64)),
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
+      d := self.finish();
+      out := ArrayList(u8).with_capacity(usize(16));
+      (fbi : usize) = usize(0);
+      while(fbi < usize(16), fbi = (fbi + usize(1)), {
+        out.push(d(fbi));
+      });
+      out
+    })
+  )
+);
+
 md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
   h := Array(u32, usize(4))(
     u32(0x67452301),

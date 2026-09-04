@@ -304,6 +304,12 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   off_t result = lseek(fd, (off_t)offset, whence);
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
+/* Positioned synchronous write — see the macOS emitter's comment. */
+static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint64_t offset) {
+  ssize_t n = pwrite(fd, buf, (size_t)count, (off_t)offset);
+  if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  return (n < 0) ? -errno : (int32_t)n;
+}
 `
   );
 });
@@ -805,10 +811,15 @@ static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32
 }
 
 // --- Process spawn/wait (stub — no process model on WASM) ---
+static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                                  int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd,
+                                                  const uint8_t* cwd) {
+  (void)file; (void)argv; (void)envp; (void)stdin_fd; (void)stdout_fd; (void)stderr_fd; (void)cwd;
+  return __yo_wasm_io_completed(-ENOSYS);
+}
 static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
                                               int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
-  (void)file; (void)argv; (void)envp; (void)stdin_fd; (void)stdout_fd; (void)stderr_fd;
-  return __yo_wasm_io_completed(-ENOSYS);
+  return __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, NULL);
 }
 static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
   (void)pid; (void)options; return __yo_wasm_io_completed(-ENOSYS);

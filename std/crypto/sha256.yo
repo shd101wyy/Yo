@@ -1,6 +1,6 @@
 //! SHA-256 hash function (FIPS 180-4), pure Yo implementation.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { sha256_hex } :: import "std/crypto/sha256";
@@ -10,6 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { hex_encode } :: import("../encoding/hex");
+{ Digest } :: import("./digest");
 open(import("../string"));
 // ============================================================================
 // SHA-256 constants
@@ -242,6 +243,26 @@ impl(
   })
 );
 export(Sha256);
+// === Digest trait impl (std/crypto/digest) ===
+impl(
+  Sha256,
+  Digest(
+    new : (fn() -> Self)(Self.new()),
+    update : (fn(self : Self, data : ArrayList(u8)) -> Self)(self.update(data)),
+    digest_size : (fn() -> usize)(usize(32)),
+    block_size : (fn() -> usize)(usize(64)),
+    finish_bytes : (fn(self : Self) -> ArrayList(u8))({
+      d := self.finish();
+      out := ArrayList(u8).with_capacity(usize(32));
+      (fbi : usize) = usize(0);
+      while(fbi < usize(32), fbi = (fbi + usize(1)), {
+        out.push(d(fbi));
+      });
+      out
+    })
+  )
+);
+
 // ============================================================================
 // Convenience functions
 // ============================================================================

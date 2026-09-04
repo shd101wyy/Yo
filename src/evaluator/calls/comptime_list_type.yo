@@ -70,9 +70,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
           dyn(
             format_error_message(
               ast_expr_token(arg_expr),
-              `Failed to evaluate ComptimeList element at index ${i.to_string()}.`,
-              false,
-              .None
+              `Failed to evaluate ComptimeList element at index ${i.to_string()}.`
             )
           )
         );
@@ -84,16 +82,14 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
     env.module_path = info.env.module_path;
     env.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env.input_string = info.env.input_string;
-    if(!(are_types_compatible(info.ty, expected_element_type)), {
+    if(!are_types_compatible(info.ty, expected_element_type), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
             `ComptimeList element at index ${i.to_string()} has incompatible type:
 - Expected: ${type_to_string(expected_element_type)}
-- Given   : ${type_to_string(info.ty)}`,
-            false,
-            .None
+- Given   : ${type_to_string(info.ty)}`
           )
         )
       );
@@ -109,9 +105,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
           dyn(
             format_error_message(
               ast_expr_token(arg_expr),
-              `Expected compile-time known value for ComptimeList element at index ${i.to_string()}, got ${type_to_string(info.ty)}`,
-              false,
-              .None
+              `Expected compile-time known value for ComptimeList element at index ${i.to_string()}, got ${type_to_string(info.ty)}`
             )
           )
         );

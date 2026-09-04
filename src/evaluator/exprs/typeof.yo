@@ -41,14 +41,12 @@ evaluate_typeof :: (
   ) -> AstExpr
 )({
   // Validate shape: `typeof` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BF_TYPEOF, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BF_TYPEOF, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "typeof" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected "typeof" with 1 argument, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -74,9 +72,7 @@ evaluate_typeof :: (
         dyn(
           format_error_message(
             ast_expr_token(type_expr),
-            `Expected type for expression, got:\n${ast_expr_to_string(type_expr)}`,
-            false,
-            .None
+            `Expected type for expression, got:\n${ast_expr_to_string(type_expr)}`
           )
         )
       );

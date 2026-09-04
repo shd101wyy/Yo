@@ -17,8 +17,8 @@ analyze :: (
 )({
   extras := HashMap(String, i32).new();
   d := Detector(
-    detect : dyn((x) => {
-      _s := extras.set(`k${x}`, get_info(x));
+    detect : dyn(x => {
+      _s := extras.insert(`k${x}`, get_info(x));
       ()
     })
   );
@@ -27,6 +27,6 @@ analyze :: (
 });
 
 main :: (fn() -> unit)({
-  analyze((e) => (e * i32(3)));
+  analyze(e => (e * i32(3)));
 });
 export(main);

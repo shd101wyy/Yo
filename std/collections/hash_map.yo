@@ -1,13 +1,13 @@
 //! Hash map using SwissTable algorithm with SIMD-accelerated lookup.
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator.yo");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
+{ MapEntry } :: import("./entry.yo");
+{ DefaultHasher, DEFAULT_KEY_0, DEFAULT_KEY_1 } :: import("../hash.yo");
 { malloc, calloc, realloc, free } :: GlobalAllocator;
 /// Error variants for HashMap operations.
 HashMapError :: enum(
   /// Memory allocation failed.
   AllocError(error : AllocError),
-  /// The requested key was not found.
-  KeyNotFound,
   /// Capacity calculation overflowed.
   CapacityOverflow
 );
@@ -20,13 +20,6 @@ DEFAULT_CAPACITY :: usize(16);
 /// Maximum load factor numerator (7/8 = 0.875). Resize when `size > capacity * 7 / 8`.
 MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
-/// Key-value pair stored in a hash map bucket.
-Bucket :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(
-    key : K,
-    value : V
-  )
-);
 /// Extract H2 hash (lower 7 bits) from full hash for control byte comparison.
 h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
 /// Avalanche-mix a 64-bit hash (murmur3 fmix64 finalizer) so that weakly-
@@ -57,10 +50,14 @@ HashMap :: (
 )(
   ref(
     struct(
-      ctrl : ?*(u8),
-      data : ?*(Bucket(K, V)),
+      ctrl : ?(*(u8)),
+      data : ?(*(MapEntry(K, V))),
       capacity : usize,
-      size : usize
+      size : usize,
+      /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
+      /// iteration order is reproducible; `with_keys` keys this map alone.
+      k0 : u64,
+      k1 : u64
     )
   )
 );
@@ -73,7 +70,14 @@ impl(
   * Initializes all control bytes to EMPTY
   */
   _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))({
-    bucket_size :: sizeof(Bucket(K, V));
+    bucket_size :: sizeof(MapEntry(K, V));
+    // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
+    // malloc a tiny size while the map still believes it owns `capacity`
+    // buckets. This is the check `CapacityOverflow` was declared for and never
+    // performed (issues/fixed/collection-capacity-overflow-unchecked.md).
+    if(size_would_overflow(MapEntry(K, V), capacity), {
+      return(.Err(.CapacityOverflow));
+    });
     ctrl_size := capacity;
     data_size := (capacity * bucket_size);
     ctrl_result := malloc(ctrl_size);
@@ -90,7 +94,7 @@ impl(
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
-            data_ptr := *(Bucket(K, V))(data_void_ptr);
+            data_ptr := *(MapEntry(K, V))(data_void_ptr);
             i := usize(0);
             while(i < capacity, i = (i + usize(1)), {
               (ctrl_ptr.add(i)).* = CTRL_EMPTY;
@@ -100,13 +104,21 @@ impl(
                 ctrl : .Some(ctrl_ptr),
                 data : .Some(data_ptr),
                 capacity : capacity,
-                size : usize(0)
+                size : usize(0),
+                k0 : DEFAULT_KEY_0,
+                k1 : DEFAULT_KEY_1
               )
             )
           }
         )
       }
     )
+  }),
+  /// The bucket hash of `key` under this map's keys.
+  _hash : (fn(inout(self) : Self, inout(key) : K) -> u64)({
+    h := DefaultHasher.new_with_keys(self.k0, self.k1);
+    key.hash(h);
+    h.finish()
   }),
   /**
   * Create a new empty HashMap with default capacity
@@ -120,6 +132,19 @@ impl(
     )
   }),
   /**
+  * Create a new empty HashMap whose hashes are keyed by `k0`, `k1`
+  * (SipHash-1-3 keys). Two maps with different keys place the same key in
+  * different buckets, so a map fed by untrusted input can be given
+  * per-process random keys (`std/crypto/random`) to defeat collision
+  * flooding; `new()` uses fixed keys so iteration order is reproducible.
+  */
+  with_keys : (fn(k0 : u64, k1 : u64) -> Self)({
+    map := Self.new();
+    map.k0 = k0;
+    map.k1 = k1;
+    map
+  }),
+  /**
   * Create a HashMap with a specific initial capacity
   * Capacity will be rounded up to next power of 2
   */
@@ -129,11 +154,19 @@ impl(
       true => {
         c := requested_capacity;
         c = (c - usize(1));
-        c = (c | (c >> usize(1)));
-        c = (c | (c >> usize(2)));
-        c = (c | (c >> usize(4)));
-        c = (c | (c >> usize(8)));
-        c = (c | (c >> usize(16)));
+        // Smear the top bit down over the WHOLE width, deriving the shifts from
+        // `sizeof(usize)` rather than hardcoding them: the unrolled 1/2/4/8/16
+        // stopped short of a 64-bit usize (so a request above 2^32 rounded to a
+        // non-power-of-two, though the bucket masking `hash & (capacity - 1)`
+        // requires one), and hardcoding a `>> 32` instead breaks wasm32, where
+        // usize is 32 bits and a shift equal to the width is undefined —
+        // `with_capacity` really did round wrong there while every native test
+        // stayed green (issues/fixed/collection-capacity-overflow-unchecked.md).
+        sh := usize(1);
+        while(sh < (sizeof(usize) * usize(8)), {
+          c = (c | (c >> sh));
+          sh = (sh * usize(2));
+        });
         c + usize(1)
       }
     );
@@ -157,7 +190,7 @@ impl(
   /**
   * Get data pointer (unwrapped for internal use)
   */
-  _data_ptr : (fn(self : Self) -> *(Bucket(K, V)))(
+  _data_ptr : (fn(self : Self) -> *(MapEntry(K, V)))(
     match(
       self.data,
       .Some(ptr) => ptr,
@@ -231,6 +264,8 @@ impl(
       result,
       .Err(err) => .Err(err),
       .Ok(new_map) => {
+        new_map.k0 = self.k0;
+        new_map.k1 = self.k1;
         i := usize(0);
         ctrl_ptr := Self._ctrl_ptr(self);
         data_ptr := Self._data_ptr(self);
@@ -239,7 +274,7 @@ impl(
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
               bucket := (data_ptr.add(i)).*;
-              hash := (bucket.key).hash();
+              hash := self._hash(bucket.key);
               h2 := h2_hash(hash);
               new_index := Self._find_insert_bucket(new_map, hash);
               new_ctrl_ptr := Self._ctrl_ptr(new_map);
@@ -299,8 +334,8 @@ impl(
   * Insert or update a key-value pair
   * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
   */
-  set : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
-    hash := key.hash();
+  insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -308,12 +343,12 @@ impl(
         data_ptr := Self._data_ptr(self);
         old_bucket := (data_ptr.add(index)).*;
         old_value := old_bucket.value;
-        new_bucket := Bucket(K, V)(key : key, value : value);
+        new_bucket := MapEntry(K, V)(key : key, value : value);
         // Don't use consume here - we want to drop the old bucket at memory
         // Note: old_bucket already duped it, so dropping here decrements to RC=1
         // Then old_bucket goes out of scope and drops again to RC=0
         // But wait - we return old_value which was duped from old_bucket...
-        // Actually the Bucket struct contains RC types, so assignment drops old + dups new
+        // Actually the MapEntry struct contains RC types, so assignment drops old + dups new
         (data_ptr.add(index)).* = new_bucket;
         .Ok(.Some(old_value))
       },
@@ -334,7 +369,7 @@ impl(
             ctrl_ptr := Self._ctrl_ptr(self);
             data_ptr := Self._data_ptr(self);
             (ctrl_ptr.add(index)).* = h2;
-            new_bucket := Bucket(K, V)(key : key, value : value);
+            new_bucket := MapEntry(K, V)(key : key, value : value);
             consume((data_ptr.add(index)).* = new_bucket);
             self.size = (self.size + usize(1));
             .Ok(.None)
@@ -348,7 +383,7 @@ impl(
   * Returns Some(value) if found, None otherwise
   */
   get : (fn(self : Self, key : K) -> Option(V))({
-    hash := key.hash();
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -364,7 +399,7 @@ impl(
   * Check if a key exists in the map
   */
   contains_key : (fn(self : Self, key : K) -> bool)({
-    hash := key.hash();
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -377,7 +412,7 @@ impl(
   * Returns Some(value) if the key was found and removed, None otherwise
   */
   remove : (fn(self : Self, key : K) -> Option(V))({
-    hash := key.hash();
+    hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
@@ -442,6 +477,50 @@ impl(
     self.size = usize(0);
   })
 );
+/// The entry-style accessors (plans/STD_API_AUDIT.md §7 collections row):
+/// Yo's pragmatic shape of Rust's Entry — no borrow object, just
+/// get-or-insert in one probe-and-settle call.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  /// The value for `key`, inserting `default` first when absent.
+  get_or_insert : (fn(self : Self, key : K, default : V) -> V)(
+    match(
+      self.get(key),
+      .Some(v) => v,
+      .None => {
+        _r := self.insert(key, default);
+        default
+      }
+    )
+  ),
+  /// The value for `key`, inserting `make()`'s result first when absent —
+  /// use over `get_or_insert` when constructing the default is costly.
+  get_or_insert_with : (fn(self : Self, key : K, make : Impl(Fn() -> V)) -> V)(
+    match(
+      self.get(key),
+      .Some(v) => v,
+      .None => {
+        made := make();
+        _r := self.insert(key, made);
+        made
+      }
+    )
+  ),
+  /// Update the value for `key` through `f` when present; no-op when absent.
+  /// Returns true when an update happened.
+  update_with : (fn(self : Self, key : K, f : Impl(Fn(v : V) -> V)) -> bool)(
+    match(
+      self.get(key),
+      .Some(v) => {
+        _r := self.insert(key, f(v));
+        true
+      },
+      .None => false
+    )
+  )
+);
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
@@ -494,7 +573,7 @@ impl(
   )
 );
 /**
-* Value iterator for HashMap - yields Bucket(K, V) by value
+* Value iterator for HashMap - yields MapEntry(K, V) by value
 * Scans ctrl bytes to find occupied slots.
 */
 HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
@@ -508,14 +587,14 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMapIter(K, V),
   Iterator(
-    Item : Bucket(K, V),
-    next : (fn(inout(self) : Self) -> Option(Bucket(K, V)))(
+    Item : MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))(
       cond(
         (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
-          result := Option(Bucket(K, V)).None;
+          result := Option(MapEntry(K, V)).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -535,12 +614,16 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  into_iter : (fn(self : Self) -> HashMapIter(K, V))(
-    HashMapIter(K, V)(_map : self, _index : usize(0))
+  IntoIterator(
+    Item : MapEntry(K, V),
+    IntoIter : HashMapIter(K, V),
+    into_iter : (fn(self : Self) -> HashMapIter(K, V))(
+      HashMapIter(K, V)(_map : self, _index : usize(0))
+    )
   )
 );
 /**
-* Pointer iterator for HashMap - yields pointers to Bucket(K, V)
+* Pointer iterator for HashMap - yields pointers to MapEntry(K, V)
 * Pointers are valid as long as the map is not modified during iteration.
 */
 HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
@@ -554,14 +637,14 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMapIterPtr(K, V),
   Iterator(
-    Item : *(Bucket(K, V)),
-    next : (fn(inout(self) : Self) -> Option(*(Bucket(K, V))))(
+    Item : *(MapEntry(K, V)),
+    next : (fn(inout(self) : Self) -> Option(*(MapEntry(K, V))))(
       cond(
         (self._map.capacity == usize(0)) => .None,
         true => {
           ctrl_ptr := self._map.ctrl.unwrap();
           data_ptr := self._map.data.unwrap();
-          result := Option(*(Bucket(K, V))).None;
+          result := Option(*(MapEntry(K, V))).None;
           while((self._index < self._map.capacity) && result.is_none(), self._index = (self._index + usize(1)), {
             ctrl_byte := (ctrl_ptr.add(self._index)).*;
             cond(
@@ -581,10 +664,10 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Pointer iterator — yields `*(Bucket(K, V))` for each occupied bucket.
+  /// Pointer iterator — yields `*(MapEntry(K, V))` for each occupied bucket.
   /// For privileged/unsafe internal use; value iteration goes through
   /// `into_iter()`.
-  iter_ptr : (fn(self : Self) -> HashMapIterPtr(K, V))(
+  iter : (fn(self : Self) -> HashMapIterPtr(K, V))(
     HashMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
 );
@@ -693,7 +776,7 @@ impl(
   Index(K)(
     Output : V,
     index : (fn(inout(self) : Self, idx : K, where(K <: (Eq(K), Hash))) -> *(Self.Output))({
-      hash := idx.hash();
+      hash := self._hash(idx);
       bucket_opt := Self._find_bucket(self, idx, hash);
       match(
         bucket_opt,
@@ -713,8 +796,8 @@ impl(
   HashMap(K, V),
   Clone(
     clone : (fn(inout(self) : Self) -> Self)({
-      result := Self.new();
-      it := self.iter_ptr();
+      result := Self.with_keys(self.k0, self.k1);
+      it := self.iter();
       running := true;
       while(running, {
         nxt := it.next();
@@ -731,7 +814,7 @@ impl(
             // owns it across this call).
             k := unsafe(bucket_ptr.*.key.clone());
             v := unsafe(bucket_ptr.*.value.clone());
-            result.set(k, v);
+            result.insert(k, v);
           }
         );
       });
@@ -748,7 +831,7 @@ impl(
     * Cycle-GC tracing. Buckets live in a malloc'd open-addressing buffer the
     * compiler's auto-derived field walk cannot reach, so trace each FULL slot
     * (its control byte is neither EMPTY nor DELETED). `tracer.visit` takes the
-    * `Bucket(K, V)` slot POINTER; the per-value traversal descends inline through
+    * `MapEntry(K, V)` slot POINTER; the per-value traversal descends inline through
     * the value struct, tracing BOTH the key and the value, WITHOUT touching any
     * reference count (a by-value managed handle would be dup'd then dropped,
     * freeing a live element mid-collection). Mirrors the ArrayList `Trace` impl +
@@ -783,7 +866,7 @@ impl(
 export(
   HashMap,
   HashMapError,
-  Bucket,
+  MapEntry,
   HashMapIter,
   HashMapIterPtr,
   HashMapKeys,
@@ -792,7 +875,7 @@ export(
 // =============================================================================
 // hash_map! literal macro
 // =============================================================================
-/// Internal helper: build a list of `tmp.set(k, v).unwrap()` statements from
+/// Internal helper: build a list of `tmp.insert(k, v).unwrap()` statements from
 /// a sequence of `k => v` arrow expressions.
 __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList) -> comptime(ExprList))(
   cond(
@@ -807,7 +890,7 @@ __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList)
       __2 :: comptime_assert(pair.len() == usize(2), "hash_map entries must use 'k => v'");
       key :: pair.car();
       val :: pair.cdr().car();
-      stmt :: quote(unquote(tmp).set(unquote(key), unquote(val)).unwrap());
+      stmt :: quote(unquote(tmp).insert(unquote(key), unquote(val)).unwrap());
       stmt.cons(recur(tmp, rest))
     }
   )
@@ -817,7 +900,7 @@ __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList)
 /// `K` and `V` are inferred from the first entry's key and value via `typeof`,
 /// so at least one entry is required.
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// m := hash_map(`a` => i32(1), `b` => i32(2));
 /// ```
@@ -843,7 +926,7 @@ hash_map :: (fn(...(quote(entries))) -> unquote(Expr))({
     unquote(k_tmp) := unquote(first_key);
     unquote(v_tmp) := unquote(first_val);
     unquote(tmp) := HashMap(typeof(unquote(k_tmp)), typeof(unquote(v_tmp))).new();
-    unquote(tmp).set(unquote(k_tmp), unquote(v_tmp)).unwrap();
+    unquote(tmp).insert(unquote(k_tmp), unquote(v_tmp)).unwrap();
     unquote_splicing(rest_sets);
     unquote(tmp)
   })

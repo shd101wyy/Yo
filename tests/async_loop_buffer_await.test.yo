@@ -1,0 +1,194 @@
+//! Regression (facet 2 of
+//! issues/fixed/async-loop-awaiting-buffer-taking-method-state-machine-corruption.md):
+//! an async body LOOPING over a buffer-taking await segfaulted (rc=139,
+//! fully-transpiled C). The nullable-pointer match's payload binding
+//! (`.Some(q) => q` over `chunk.ptr()`) declared `q` as a plain C local while
+//! the arm's reads consulted the sm-hoisted `sm->var_N` slot — which stayed
+//! uninitialized, so the buffer pointer the loop awaited through was garbage.
+//! Fixed by storing the slot at the binding (codegen/exprs/match.yo) and by
+//! repairing `_resolve_pattern_binding_sm_field`'s short-circuit past its
+//! name-scan fallback (codegen/async/state_code_gen.yo).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+{ IoExn, Exception } :: import("std/error");
+
+Reader :: trait(
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  (read_to_end : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))) ?=
+    (
+      (self, io) ->
+        io.async(e => {
+          out := ArrayList(u8).new();
+          chunk := ArrayList(u8).with_capacity(usize(4));
+          (ci : usize) = usize(0);
+          while(ci < usize(4), ci = (ci + usize(1)), {
+            chunk.push(u8(0));
+          });
+          (done : bool) = false;
+          p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+          while(!done, {
+            n := e.io.await(Self.read(self, p, usize(4), io), e);
+            if(n == usize(0), {
+              done = true;
+            }, {
+              (i : usize) = usize(0);
+              while(i < n, i = (i + usize(1)), {
+                out.push(chunk(i));
+              });
+            });
+          });
+          out
+        })
+    )
+);
+TenSrc :: ref(struct(pos : u8));
+impl(
+  TenSrc,
+  Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async(e => {
+        (n : usize) = usize(0);
+        while((n < size) && (self.pos < u8(10)), {
+          self.pos = (self.pos + u8(1));
+          (buf.add(n)).* = self.pos;
+          n = (n + usize(1));
+        });
+        n
+      })
+    )
+  )
+);
+read_to_end_free :: (
+  fn(generic(R : Type), r : R, io : Io, where(R <: Reader)) -> Impl(Future(ArrayList(u8), IoExn))
+)({
+  the_r := r;
+  io.async(e => {
+    out := ArrayList(u8).new();
+    chunk := ArrayList(u8).with_capacity(usize(4));
+    (ci : usize) = usize(0);
+    while(ci < usize(4), ci = (ci + usize(1)), {
+      chunk.push(u8(0));
+    });
+    p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+    (done : bool) = false;
+    while(!done, {
+      n := e.io.await(the_r.read(p, usize(4), e.io), e);
+      if(n == usize(0), {
+        done = true;
+      }, {
+        (i : usize) = usize(0);
+        while(i < n, i = (i + usize(1)), {
+          out.push(chunk(i));
+        });
+      });
+    });
+    out
+  })
+});
+// The GENERIC-IMPL face (the last one fixed): a materialized generic-impl
+// arm body carries an evaluator-stamped temp `variable_name` on the binding
+// read, so without shadow-registration the emitted C referenced a
+// never-declared `_<module>__priv_temp_N`. The SINGLE-await shape was the
+// red case (the loop shape's binding is sm-hoisted, covered by the facet-2
+// slot store); both are pinned.
+Wrap :: (fn(comptime(R) : Type) -> comptime(Type))(struct(_inner : R));
+impl(
+  generic(R : Type),
+  where(R <: Reader),
+  Wrap(R),
+  fill_once : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async(e => {
+      tmp := ArrayList(u8).with_capacity(usize(8));
+      tmp.push(u8(0));
+      p := match(tmp.ptr(), .Some(q) => q, .None => *(u8)(""));
+      n := e.io.await(self._inner.read(p, usize(8), io), e);
+      n
+    })
+  ),
+  drain : (fn(self : Self, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
+    io.async(e => {
+      out := ArrayList(u8).new();
+      chunk := ArrayList(u8).with_capacity(usize(4));
+      (ci : usize) = usize(0);
+      while(ci < usize(4), ci = (ci + usize(1)), {
+        chunk.push(u8(0));
+      });
+      p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+      (done : bool) = false;
+      while(!done, {
+        n := e.io.await(self._inner.read(p, usize(4), io), e);
+        if(n == usize(0), {
+          done = true;
+        }, {
+          (i : usize) = usize(0);
+          while(i < n, i = (i + usize(1)), {
+            out.push(chunk(i));
+          });
+        });
+      });
+      out
+    })
+  )
+);
+test("generic-impl single buffer-taking await (the shadow-registration face)", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
+  n := io.await(w.fill_once(io), t_e);
+  assert(n == usize(8), "eight bytes on the first fill");
+});
+test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
+  all := io.await(w.drain(io), t_e);
+  assert(all.len() == usize(10), "ten bytes drained");
+  assert(all(usize(0)) == u8(1), "first byte");
+  assert(all(usize(9)) == u8(10), "last byte");
+});
+test("trait-default read_to_end loops a buffer-taking await", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  src := TenSrc(pos : u8(0));
+  all := io.await(src.read_to_end(io), t_e);
+  assert(all.len() == usize(10), "ten bytes total");
+  assert(all(usize(0)) == u8(1), "first byte");
+  assert(all(usize(9)) == u8(10), "last byte");
+});
+test("free generic read_to_end loops a buffer-taking await", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  src := TenSrc(pos : u8(0));
+  all := io.await(read_to_end_free(src, io), t_e);
+  assert(all.len() == usize(10), "ten bytes total");
+  assert(all(usize(4)) == u8(5), "middle byte");
+});

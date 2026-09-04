@@ -14,7 +14,7 @@ open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { Path } :: import("std/path");
 { Exception, IoExn } :: import("std/error");
-{ read_file, write_file, exists } :: import("std/fs/file");
+{ read, write_string, exists } :: import("std/fs/file");
 { metadata } :: import("std/fs/metadata");
 { read_dir, create_dir_all } :: import("std/fs/dir");
 { Command } :: import("std/process");
@@ -76,7 +76,9 @@ _run_git :: (
   while(ai < git_args.len(), {
     match(
       git_args.get(ai),
-      .Some(a) => cmd.arg(a),
+      .Some(a) => {
+        _arg_c := cmd.arg(a);
+      },
       .None => ()
     );
     ai = (ai + usize(1));
@@ -89,7 +91,7 @@ _run_git :: (
   if(stderr_text.len() > usize(0), {
     eprint(stderr_text);
   });
-  if(!(out.status.success()), {
+  if(!out.status.success(), {
     return(Option(String).None);
   });
   v := String.from_bytes(out.stdout).trim();
@@ -147,13 +149,13 @@ _collect_yo_files :: (
           (entry.name == "tmp") => true,
           true => false
         );
-        if(!(skip), {
+        if(!skip, {
           full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
           match(
             entry.file_type,
             .Directory => recur(full, files, io, exn),
             .File => {
-              if(entry.name.ends_with(String.from(".yo")) && !(entry.name.ends_with(String.from(".test.yo"))), {
+              if(entry.name.ends_with(String.from(".yo")) && !entry.name.ends_with(String.from(".test.yo")), {
                 files.push(full);
               });
             },
@@ -173,19 +175,19 @@ _find_yo_files :: (
 )({
   abs := _resolve_path(input_path, exn);
   path_exists := io.await(exists(Path.new(abs.clone()), io), io);
-  if(!(path_exists), {
+  if(!path_exists, {
     exn.throw(dyn(`Path does not exist: ${abs}`));
   });
   meta := io.await(metadata(Path.new(abs.clone()), io), IoExn(io : io, exn : exn));
   if(meta.is_file(), {
-    if(!(abs.ends_with(String.from(".yo"))), {
+    if(!abs.ends_with(String.from(".yo")), {
       exn.throw(dyn(`Not a .yo file: ${abs}`));
     });
     single := ArrayList(String).new();
     single.push(abs.clone());
     return(single);
   });
-  if(!(meta.is_dir()), {
+  if(!meta.is_dir(), {
     exn.throw(dyn(`Not a file or directory: ${abs}`));
   });
   files := ArrayList(String).new();
@@ -196,7 +198,7 @@ _find_yo_files :: (
 /// Derive a module name from a file path relative to the project root.
 /// Mirrors `moduleNameFromPath` (doc-command.ts:124).
 _module_name_from_path :: (fn(file_path : String, base_path : String) -> String)({
-  rel := Path.new(file_path.clone()).relative_from(Path.new(base_path.clone())).to_string();
+  rel := Path.new(file_path.clone()).strip_prefix(Path.new(base_path.clone())).to_string();
   if(rel.ends_with(String.from(".yo")), rel.substring(usize(0), rel.len() - usize(3)), rel.clone())
 });
 /// The value of the FIRST `"<key>" : "<value>"` pair in `content`, or `.None`.
@@ -207,7 +209,7 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
   (search_from : usize) = usize(0);
   (result : Option(String)) = Option(String).None;
   (done : bool) = false;
-  while(!(done), {
+  while(!done, {
     idx := match(
       content.index_of(marker, search_from),
       .Some(x) => x,
@@ -217,29 +219,36 @@ _scan_quoted_value_after :: (fn(content : String, marker : String, connector : S
       }
     );
     (j : usize) = (idx + marker.len());
-    // Skip whitespace.
+    // Skip whitespace. These peeks read a BYTE rather than cutting a one-unit
+    // `substring`: `content` is byte-indexed since
+    // `plans/STD_API_AUDIT_D4_PLAN.md` D4, so a one-unit slice landing on the
+    // lead byte of a multibyte rune would split that rune — and `substring`
+    // panics rather than hand back invalid UTF-8. Everything being tested for
+    // here is ASCII (space, tab, CR, LF, the `:`/`=` connector, `"`), and an
+    // ASCII byte can only ever match a whole rune, so a byte compare is both
+    // safe and cheaper than allocating a one-rune String per position.
     (moved : bool) = true;
     while(moved && (j < content.len()), {
-      c := content.substring(j, j + usize(1));
-      if((c == ` `) || (c == String.from("\t")) || (c == String.from("\n")) || (c == String.from("\r")), {
+      b := content.byte_at(j);
+      if((b == u8(32)) || (b == u8(9)) || ((b == u8(10)) || (b == u8(13))), {
         j = (j + usize(1));
       }, {
         moved = false;
       });
     });
     // Expect the connector (":" or "=").
-    if((j < content.len()) && (content.substring(j, j + usize(1)) == connector), {
-      j = (j + usize(1));
+    if((j < content.len()) && content.starts_with(connector, j), {
+      j = (j + connector.len());
       (moved2 : bool) = true;
       while(moved2 && (j < content.len()), {
-        c := content.substring(j, j + usize(1));
-        if((c == ` `) || (c == String.from("\t")) || (c == String.from("\n")) || (c == String.from("\r")), {
+        b2 := content.byte_at(j);
+        if((b2 == u8(32)) || (b2 == u8(9)) || ((b2 == u8(10)) || (b2 == u8(13))), {
           j = (j + usize(1));
         }, {
           moved2 = false;
         });
       });
-      if((j < content.len()) && (content.substring(j, j + usize(1)) == `"`), {
+      if((j < content.len()) && (content.byte_at(j) == u8(34)), {
         j = (j + usize(1));
         end := match(
           content.index_of(`"`, j),
@@ -268,7 +277,7 @@ _infer_project_name :: (
   pkg_path := Path.new(base_path.clone()).join(Path.new(String.from("package.json")));
   pkg_exists := io.await(exists(pkg_path, io), io);
   if(pkg_exists, {
-    pkg_bytes := io.await(read_file(Path.new(base_path.clone()).join(Path.new(String.from("package.json"))), io), IoExn(io : io, exn : exn));
+    pkg_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("package.json"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(pkg_bytes);
     match(
       _scan_quoted_value_after(content, `"name"`, `:`),
@@ -281,7 +290,7 @@ _infer_project_name :: (
   build_path := Path.new(base_path.clone()).join(Path.new(String.from("build.yo")));
   build_exists := io.await(exists(build_path, io), io);
   if(build_exists, {
-    build_bytes := io.await(read_file(Path.new(base_path.clone()).join(Path.new(String.from("build.yo"))), io), IoExn(io : io, exn : exn));
+    build_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("build.yo"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(build_bytes);
     match(
       _scan_quoted_value_after(content, `.name`, `=`),
@@ -315,13 +324,13 @@ _document_file :: (
   if(verbose, {
     println(`  Documenting: ${module_name}`);
   });
-  src_bytes := io.await(read_file(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
+  src_bytes := io.await(read(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
   // A lexer failure is caught locally so the walk continues (TS's
   // try/tokenize → warn → null).
   lex_exn := Exception(
     throw : (
-      (err) -> {
+      err -> {
         unwind(Option(DocModule).None);
       }
     )
@@ -356,7 +365,7 @@ _render_markdown_site :: (
   io.await(create_dir_all(Path.new(out_dir.clone()), io), ioexn);
   io.await(create_dir_all(Path.new(out_dir.clone()).join(Path.new(String.from("module"))), io), ioexn);
   io.await(
-    write_file(Path.new(out_dir.clone()).join(Path.new(String.from("README.md"))), render_index_md(model), io),
+    write_string(Path.new(out_dir.clone()).join(Path.new(String.from("README.md"))), render_index_md(model), io),
     ioexn
   );
   (i : usize) = usize(0);
@@ -376,7 +385,7 @@ _render_markdown_site :: (
           },
           .None => ()
         );
-        io.await(write_file(target, page, io), ioexn);
+        io.await(write_string(target, page, io), ioexn);
       },
       .None => ()
     );
@@ -391,7 +400,7 @@ run_doc :: (
   start := Instant.now();
   input_abs := _resolve_path(options.input.clone(), exn);
   input_exists := io.await(exists(Path.new(input_abs.clone()), io), io);
-  if(!(input_exists), {
+  if(!input_exists, {
     exn.throw(dyn(`Path does not exist: ${input_abs}`));
   });
   input_meta := io.await(metadata(Path.new(input_abs.clone()), io), IoExn(io : io, exn : exn));
@@ -459,7 +468,7 @@ run_doc :: (
       io.await(create_dir_all(Path.new(abs_output_dir.clone()), io), IoExn(io : io, exn : exn));
       json := render_doc_json_string(model, true);
       io.await(
-        write_file(Path.new(abs_output_dir.clone()).join(Path.new(String.from("doc.json"))), json, io),
+        write_string(Path.new(abs_output_dir.clone()).join(Path.new(String.from("doc.json"))), json, io),
         IoExn(io : io, exn : exn)
       );
       output_file = String.from("doc.json");

@@ -4,7 +4,7 @@
 
 Yo uses **async/await with state machine transformation** via **algebraic effects** for efficient **single-threaded concurrency**. This is a stackless coroutine model similar to JavaScript's event loop - all async code runs on the **same thread** as the caller.
 
-**Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md` which describes the `Task.spawn` API for isolated multi-threaded execution.
+**Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md`, which describes `Thread.spawn` (std/thread) and the worker pool for isolated multi-threaded execution.
 
 ```rust
 { yield } :: import "std/async";
@@ -34,7 +34,7 @@ export main;
 | Concept         | Mechanism             | Description                                |
 | --------------- | --------------------- | ------------------------------------------ |
 | **Concurrency** | `io.async`/`io.await` | Multiple tasks interleaved on ONE thread   |
-| **Parallelism** | `Task.spawn`          | Multiple tasks running on SEPARATE threads |
+| **Parallelism** | `Thread.spawn`        | Multiple tasks running on SEPARATE threads |
 
 ```rust
 // Concurrency: Same thread, interleaved execution
@@ -48,10 +48,12 @@ main :: (fn(io : Io) -> unit)({
 });
 
 // Parallelism: Different threads, true simultaneous execution
-task := Task(i32, bool).spawn((parent) -> {
-  // Runs on a DIFFERENT thread!
-  // Completely isolated - no shared memory
+thread := Thread.spawn((io) => {
+  // Runs on a DIFFERENT thread, with its own independent event loop.
+  // Isolated: only Send values cross the boundary.
+  ()
 });
+thread.join();
 ```
 
 ## Execution Model: Lazy Start via Algebraic Effects
@@ -128,7 +130,7 @@ Multi-threaded async (like Rust's tokio) adds complexity:
 - Need cross-thread synchronization
 - Work-stealing adds overhead
 
-Yo's approach: Keep async simple (single-threaded), use `Task.spawn` for parallelism (isolated threads).
+Yo's approach: Keep async simple (single-threaded), use `Thread.spawn` for parallelism (isolated threads).
 
 ## Language Syntax
 
@@ -181,11 +183,15 @@ test "my test", {
 
 ```rust
 io.async(fn)                  // Create a cold Future (lazy, doesn't start)
-io.await(future)              // Start if cold, wait for completion, return result
+io.await(future, e)           // Start if cold, wait for completion, return result
 io.state(future)              // Query the current state of a Future (returns FutureState)
-io.spawn(future)              // Start a cold Future without waiting, returns JoinHandle(T)
-handle.await(io)       // Wait for spawned task, returns Option(T) (.None on unwind)
-yield()                       // Create a pre-completed Future (yields control to event loop)
+io.spawn(future, e)           // Start a cold Future without waiting, returns JoinHandle(T)
+handle.await(io)              // Wait for spawned task, returns Option(T) (.None on unwind)
+yield(io)                     // Create a pre-completed Future (yields control to event loop)
+
+// `e` is the EFFECT RECORD the future needs. For a pure-Io task that is just
+// `io`, e.g. `io.await(fut, io)`. For a future needing several effects, bundle
+// them in a struct and pass that one value.
 ```
 
 **Important Rules**:
@@ -300,7 +306,7 @@ provides:
 Io :: struct(
   async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type), fut : Impl(Future(T, E))) -> FutureState),
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
@@ -349,8 +355,11 @@ main :: (fn(io : Io) -> unit) {
     return i32(42);
   });
 
-  (raise : Raise) = (msg) -> { unwind (); };
-  handle := io.spawn(task, io, raise);
+  (raise : Raise) = (msg) -> { unwind(()); };
+  // `spawn`/`await` take ONE effect argument. With more than one effect,
+  // bundle them into a struct and pass that.
+  Ctx :: struct(io : Io, raise : Raise);
+  handle := io.spawn(task, Ctx(io : io, raise : raise));
   result := handle.await(io);
   // result is Option(i32).None — the task was aborted
   assert(result.is_none(), "aborted task returns None");
@@ -462,7 +471,7 @@ whole loop cycle through one state.
 
 ```rust
 // ✓ supported
-cond(needs_write => { io.await(write_file(p, data, io), io); }, true => ());
+cond(needs_write => { io.await(write_string(p, data, io), io); }, true => ());
 if(io.await(exists(p, io), io), { ... });
 cond(io.await(ready(io), io) => ..., true => ...);
 match(io.await(num(io), io), 42 => ..., _ => ...);
@@ -553,7 +562,7 @@ static _Thread_local struct io_uring __yo_io_ring;
 This means:
 
 - **Main thread**: Has its own event loop for `io.async`/`io.await` tasks
-- **Worker threads** (from `Task.spawn`): Each gets an independent event loop
+- **Worker threads** (from `Thread.spawn`): Each gets an independent event loop
 - **Multiple workers per thread**: Workers on the same OS thread cooperatively share that thread's event loop
 - **No cross-thread task migration**: Tasks always run on the thread that created them
 - **No locking needed**: Queue operations are single-threaded by design
@@ -578,22 +587,22 @@ int main(int argc, char** argv) {
 
 **I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
 
-Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
+Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `std/thread`'s `spawn(pool, cb)`. Non-parallel programs save ~450 lines of generated C code.
 
-**Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generateSysRuntime()` which includes both cross-platform helpers and platform-specific sync helpers (`generatePlatformSysRuntime{MacOS,Linux,Windows}`). These have **no IoFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
+**Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, mmap/madvise, fcntl, flock, socket address helpers, signal handlers, TTY) are always emitted via `generate_sys_runtime()` which includes both cross-platform helpers and platform-specific sync helpers (`generate_platform_sys_runtime_{macos,linux,windows,wasm}`). These have **no IoFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, mmap, TTY, etc. compile without pulling in the full async runtime.
 
 ### Platform-Specific I/O Backends
 
 | Platform | Backend                                         | File                    |
 | -------- | ----------------------------------------------- | ----------------------- |
-| Linux    | `io_uring` (via liburing)                       | `runtime-io-linux.ts`   |
-| macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `runtime-io-macos.ts`   |
-| Windows  | I/O Completion Ports (IOCP)                     | `runtime-io-windows.ts` |
-| WASM     | POSIX I/O (NODERAWFS) + timer queue             | `runtime-io-wasm.ts`    |
+| Linux    | `io_uring` (via liburing)                       | `src/codegen/async/runtime_io_linux.yo`   |
+| macOS    | `kqueue` (kevent readiness + sync pread/pwrite) | `src/codegen/async/runtime_io_macos.yo`   |
+| Windows  | I/O Completion Ports (IOCP)                     | `src/codegen/async/runtime_io_windows.yo` |
+| WASM     | POSIX I/O (NODERAWFS) + timer queue             | `src/codegen/async/runtime_io_wasm.yo`    |
 
 #### WASM Async Support
 
-WASM targets (`wasm32-emscripten` via emcc) support the core async scheduler with real timer support — `io.async()`, `io.await()`, `io.spawn()`, `JoinHandle.await()`, and `sleep()` (from `std/sys/timer`) all work. The scheduler runs with POSIX I/O via NODERAWFS for file operations, and a sorted timer queue for non-blocking sleep.
+WASM targets (`wasm32-unknown-emscripten` via emcc) support the core async scheduler with real timer support — `io.async()`, `io.await()`, `io.spawn()`, `JoinHandle.await()`, and `sleep()` (from `std/sys/timer`) all work. The scheduler runs with POSIX I/O via NODERAWFS for file operations, and a sorted timer queue for non-blocking sleep.
 
 What works on WASM:
 
@@ -699,7 +708,7 @@ void fn_id12345___drop(async_block_state_t* self) {
 
 **Type System Integration:**
 
-The evaluator's `getMethodsByNameFromEnv` function has special handling for Future types - it does NOT use the `resolvedConcreteType` for method lookup. This ensures that when calling `task.___drop()`, it uses the SomeType's own `___drop` method which calls `__yo_sometype_drop`, rather than using the capture struct's drop function.
+The evaluator's `get_receiver_methods_by_name_from_env` function has special handling for Future types - it does NOT use the `resolved_concrete` for method lookup. This ensures that when calling `task.___drop()`, it uses the SomeType's own `___drop` method which calls `__yo_sometype_drop`, rather than using the capture struct's drop function.
 
 ### State Machine Lifecycle
 
@@ -894,7 +903,7 @@ export main;
 - ✅ No atomic RC overhead
 - ✅ Familiar to web developers
 
-For parallelism, use `Task.spawn` (see `PARALLELISM.md`).
+For parallelism, use `Thread.spawn` (see `PARALLELISM.md`).
 
 ## Effect Injection (Runtime Effect Binding)
 
@@ -1001,29 +1010,27 @@ parameters via `e : E`, and callers inject handlers at `io.await` or
    functions and cannot capture variables from the enclosing scope. Pass state
    via explicit parameters or `Box`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
-2. **Async unwind RC double-decrement** — when a future is passed as a
-   parameter to a function that escapes during `io.await`, the future's RC is
-   decremented twice (once in the await abort path, once in unwind cleanup),
-   causing use-after-free. Workaround: create the future inside the escaping
-   function. See `issues/async-unwind-rc-double-decrement.md`.
+2. **Async unwind RC double-decrement** — reported as: a future passed as a
+   parameter to a function that escapes during `io.await` has its RC decremented
+   twice, causing use-after-free. **Status unverified** — the tracking issue this
+   used to cite (`issues/async-unwind-rc-double-decrement.md`) has never existed
+   in the repository, so there is no record to check it against. Several
+   neighbouring async RC defects WERE fixed in v0.2.17 (the never-dropped future
+   result and the stale `cond_branch` cleanup over-release), which may or may not
+   cover this.
 
-3. **3-argument while loop in async** — the async SM codegen only handles the
-   2-argument form `while condition, body`. The 3-argument form
-   `while condition, step, body` emits broken C code. Workaround: put the step
-   expression inside the loop body. See `issues/async-while-3arg-form.md`.
-
-4. **Binary expression as async return value** — when the last expression in an
-   async closure is a binary operation (e.g., `(a + b)`), the SM struct gets
-   `void* result` instead of the correct type. Workaround: assign to a variable
-   first. See `issues/async-sm-result-type-binary-expr.md`.
+Limitations 3 and 4 in earlier revisions of this document — the 3-argument
+`while` in async, and a binary expression as an async return value — are FIXED.
+See `issues/fixed/async-while-3arg-form.md` and
+`issues/fixed/async-sm-result-type-binary-expr.md`.
 
 ## Summary
 
 Yo's async/await provides:
 
-1. **Lazy execution** — `io.async(fn)` creates cold Futures that don't start until `io.await` or `io.spawn`
+1. **Lazy execution** — `io.async(fn)` creates cold Futures that don't start until `io.await(f, e)` or `io.spawn(f, e)`
 2. **Single-threaded concurrency** — all async runs on one thread
-3. **Concurrent spawn** — `io.spawn(f)` starts a cold Future without waiting, returns `JoinHandle(T)`
+3. **Concurrent spawn** — `io.spawn(f, e)` starts a cold Future without waiting, returns `JoinHandle(T)`
 4. **No thread safety concerns** — no data races possible
 5. **Algebraic effects** — Io capabilities explicit via `io : Io`
 6. **State machine transformation** — zero-cost abstraction
@@ -1073,7 +1080,7 @@ r2 := handle2.await(io);  // Option(T)
 | ------------------------------ | --------------------------------- |
 | Io-bound concurrent tasks      | `io.async`/`io.await`             |
 | Running multiple tasks at once | `io.spawn` + `handle.await`       |
-| CPU-bound parallel computation | `Task.spawn` (see PARALLELISM.md) |
-| Background processing          | `Task.spawn` (see PARALLELISM.md) |
+| CPU-bound parallel computation | `Thread.spawn` (see PARALLELISM.md) |
+| Background processing          | `Thread.spawn` (see PARALLELISM.md) |
 | Waiting for multiple IOs       | `io.spawn` + `handle.await`       |
-| Utilizing multiple CPU cores   | `Task.spawn` (see PARALLELISM.md) |
+| Utilizing multiple CPU cores   | `Thread.spawn` (see PARALLELISM.md) |

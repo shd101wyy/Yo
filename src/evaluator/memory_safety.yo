@@ -16,6 +16,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ cwd } :: import("std/env");
 // NOTE: TS's `memory-safety.ts` declares its own internal `PragmaKind`
 // string-union, separate from the user-facing `Pragma` enum. yo-self is
 // self-hosted, so the compiler reuses the language's own `Pragma` enum
@@ -42,7 +43,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
       (found : bool) = false;
       (i : usize) = usize(0);
       n := g_privileged_files.len();
-      while((i < n) && !(found), {
+      while((i < n) && !found, {
         match(
           g_privileged_files.get(i),
           .Some(entry) => if((entry.module_path == mp) && (entry.kind == kind), {
@@ -59,7 +60,7 @@ file_has_pragma :: (fn(module_path : Option(String), kind : Pragma) -> bool)(
 /// Record that `module_path` declared `pragma(Pragma.X);`.
 /// Mirrors `registerFilePragma`.
 register_file_pragma :: (fn(module_path : String, kind : Pragma) -> unit)({
-  if(!(file_has_pragma(Option(String).Some(module_path.clone()), kind)), {
+  if(!file_has_pragma(Option(String).Some(module_path.clone()), kind), {
     g_privileged_files.push(PragmaEntry(module_path : module_path, kind : kind));
   });
 });
@@ -115,11 +116,100 @@ is_auto_generated_expansion :: (fn(module_path : Option(String)) -> bool)(
     .Some(mp) => mp.starts_with(String.from("auto-generated://"))
   )
 );
+/// Is the module path permitted to DEFINE macros (`quote(...)` parameters
+/// / `unquote(...)` return types)? True if the file declared
+/// `pragma(Pragma.AllowMacroDef);`, OR the code is compiler-synthesized
+/// (`auto-generated://` inherits the privileged caller's policy, same as
+/// the unsafe gate), OR the file belongs to the standard library
+/// (`file://<std_path>/...`).
+///
+/// The std exemption is BOOTSTRAP-TRANSITIONAL: the seed binary's pragma
+/// handler predates `AllowMacroDef`, so std files cannot carry the pragma
+/// call until a release that knows the variant becomes the seed. Once one
+/// does, add `pragma(Pragma.AllowMacroDef);` to the std macro-defining
+/// files and drop the std branch (plans/MACRO_POLICY.md Part 2).
+/// Lexically absolutize a path for the std-prefix comparison below: strip a
+/// `file://` scheme, then join a relative remainder onto the current working
+/// directory (dropping a leading `./`). Purely lexical — no symlink
+/// resolution — matching how the loaders build std module URIs (a join on
+/// the same std root).
+_lex_abs_path :: (fn(p : String) -> String)({
+  (s : String) = p.clone();
+  if(s.starts_with(`file://`), {
+    s = s.slice_copy(usize(7) .. s.len());
+  });
+  if(s.starts_with(`/`), {
+    return(s);
+  });
+  if(s.starts_with(`./`), {
+    s = s.slice_copy(usize(2) .. s.len());
+  });
+  match(
+    cwd(),
+    .Ok(d) => `${d.to_string()}/${s}`,
+    .Err(_) => s
+  )
+});
+is_macro_def_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
+  match(
+    module_path,
+    .None => false,
+    .Some(mp) => {
+      if(mp.starts_with(String.from("auto-generated://")), {
+        return(true);
+      });
+      // std exemption: module paths reach here in several forms — raw
+      // relative ("./std/prelude.yo"), absolute `file:///...` URIs
+      // (import-resolved std modules), and whatever form `--std-path` /
+      // `YO_STD` was given in — so absolutize BOTH sides lexically before
+      // the prefix check.
+      (sp : String) = std_path.clone();
+      while(sp.ends_with(`/`), {
+        sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
+      });
+      if(sp.len() > usize(0), {
+        if(_lex_abs_path(mp.clone()).starts_with(`${_lex_abs_path(sp)}/`), {
+          return(true);
+        });
+      });
+      file_has_pragma(Option(String).Some(mp.clone()), Pragma.AllowMacroDef)
+    }
+  )
+);
+/// Is the module path permitted to define an OVERLOAD SET — an exported
+/// `Call` member holding a tuple of two or more candidate functions? Yo
+/// follows Rust: no function overloading. The single sanctioned use is
+/// std/prelude.yo's runtime/comptime operator pairing (`(-)`/`(!)`/`(~)`
+/// modules, `Call :: (neg, comptime_neg)`), so only the prelude itself —
+/// plus compiler-synthesized `auto-generated://` code, which inherits the
+/// privileged caller's policy like the unsafe and macro gates — passes.
+/// See plans/FUNCTION_OVERLOADING_POLICY.md.
+is_overload_set_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
+  match(
+    module_path,
+    .None => false,
+    .Some(mp) => {
+      if(mp.starts_with(String.from("auto-generated://")), {
+        return(true);
+      });
+      (sp : String) = std_path.clone();
+      while(sp.ends_with(`/`), {
+        sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
+      });
+      if(sp.len() == usize(0), {
+        return(false);
+      });
+      return(_lex_abs_path(mp.clone()) == `${_lex_abs_path(sp)}/prelude.yo`);
+    }
+  )
+);
 export(
   register_file_pragma,
   file_has_pragma,
   _clear_pragma_registry,
   _clear_pragma_for_module,
   is_implicitly_unsafe_capable_file,
-  is_auto_generated_expansion
+  is_auto_generated_expansion,
+  is_macro_def_capable_file,
+  is_overload_set_capable_file
 );

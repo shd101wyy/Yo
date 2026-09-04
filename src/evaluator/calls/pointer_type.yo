@@ -54,7 +54,7 @@ try_to_convert_to_pointer_type :: (
     exn : Exception
   ) -> Option(AstExpr)
 )({
-  if(!(is_pointer_type(target_type)), {
+  if(!is_pointer_type(target_type), {
     return(Option(AstExpr).None);
   });
   // Evaluate the argument with no expectedType.
@@ -68,9 +68,7 @@ try_to_convert_to_pointer_type :: (
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`,
-          false,
-          .None
+          `Failed to evaluate argument: ${ast_expr_to_string(arg_expr)}`
         )
       )
     );
@@ -112,14 +110,12 @@ try_to_convert_to_pointer_type :: (
   // -----------------------------------------------------------------------
   // Case 2: pointer → pointer via __yo_as
   // -----------------------------------------------------------------------
-  if(!(is_pointer_type(arg_type)), {
+  if(!is_pointer_type(arg_type), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(arg_expr),
-          `Cannot cast ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_str.`,
-          false,
-          .None
+          `Cannot cast ${type_to_string(arg_type)} to ${type_to_string(target_type)}. Expected a pointer type or comptime_str.`
         )
       )
     );
@@ -149,6 +145,7 @@ try_to_convert_to_pointer_type :: (
       row : orig_tok.row,
       column : orig_tok.column,
       character : orig_tok.character,
+      byte_offset : orig_tok.byte_offset,
       module_path : orig_tok.module_path.clone(),
       input : orig_tok.input.clone()
     )

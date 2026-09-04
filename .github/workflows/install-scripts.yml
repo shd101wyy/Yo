@@ -120,25 +120,45 @@ jobs:
           # expression needs single-quoted strings, and the shell payload below
           # is itself single-quoted, so the two cannot nest. Passed in as an
           # env var instead.
-          WANT_VERSION: ${{ github.event.inputs.version || 'v0.2.4' }}
+          # Pass --version ONLY when the dispatch supplied one; with no flag,
+          # install.sh resolves the latest release itself. Same pattern as the
+          # `posix` job above. Never pin a version here — the old hardcoded
+          # 'v0.2.4' fallback is exactly how the assertion below went vacuous,
+          # and ANY fixed version goes stale at the next release.
+          VERSION_FLAG: ${{ github.event.inputs.version && format('--version={0}', github.event.inputs.version) || '' }}
         run: |
-          docker run --rm -v "$PWD:/w" -w /w -e WANT_VERSION alpine:3.20 sh -euc '
+          docker run --rm -v "$PWD:/w" -w /w -e VERSION_FLAG alpine:3.20 sh -euc '
             apk add --no-cache curl >/dev/null
-            sh scripts/install.sh --dry-run --no-deps --version="$WANT_VERSION" 2>&1 | tee out.txt
+            # Deliberately unquoted: an empty VERSION_FLAG must expand to NO argument.
+            sh scripts/install.sh --dry-run --no-deps $VERSION_FLAG 2>&1 | tee out.txt
 
-            # musl must be RECOGNISED. If this regresses, an Alpine user
-            # silently downloads a glibc binary that cannot exec.
-            grep -qiE "musl libc detected" out.txt || {
-              echo "::error::install.sh did not detect musl on Alpine"
+            # An Alpine user MUST end up on a -musl bundle: a glibc binary
+            # cannot exec here at all. Assert the bundle URL, which is the thing
+            # that actually matters, rather than any log wording.
+            #
+            # This previously grepped for "musl libc detected" — which
+            # install.sh only prints on the FAILURE path (line ~605: "musl libc
+            # detected, but $VERSION publishes no $musl_bundle bundle"), when it
+            # is falling back to a glibc bundle that will not run. The success
+            # path prints "Using the static musl Linux bundle ...". So the check
+            # passed only when the release was BROKEN, and failed when it was
+            # correct. It never surfaced because the job used to hardcode a
+            # default of v0.2.4, which predates the musl bundles and so always
+            # took the failure path — the assertion was vacuous for every
+            # scheduled run. The default is now whatever install.sh resolves as
+            # the latest release, so this tracks what users actually get.
+            grep -qE "bundle:.*-musl\.tar\.gz" out.txt || {
+              echo "::error::install.sh did not choose a -musl bundle on Alpine"
+              echo "--- install.sh output ---"; cat out.txt
               exit 1
             }
 
-            # And it must still name a bundle to install rather than dying —
-            # whichever flavor it settled on.
-            grep -q "bundle:" out.txt || {
-              echo "::error::install.sh chose no bundle at all on Alpine"
+            # It must also not have fallen back with the glibc warning.
+            if grep -qi "publishes no .* bundle" out.txt; then
+              echo "::error::install.sh fell back off the musl bundle on Alpine"
+              cat out.txt
               exit 1
-            }
+            fi
 
             # The NixOS/source-build advice must NOT appear here: on musl the
             # static bundle needs no loader, so that hint would send an Alpine

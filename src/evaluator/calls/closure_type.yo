@@ -22,6 +22,8 @@
 //!   - No `attachTempVariableToExpr` for DynType (deferred to Phase 4).
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
+_(env : cap_dbg_env_closure_call) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr }
@@ -60,7 +62,7 @@ open(import("std/string"));
 { mark_as_closure_fn, register_func_type, register_closure_capture_info, ClosureCaptureInfo } :: import("../../function_value.yo");
 {
   create_function_body_evaluation_context
-} :: import("./function_type.yo");
+} :: import("../context.yo");
 {
   evaluate_begin_expression
 } :: import("../exprs/begin.yo");
@@ -95,9 +97,7 @@ try_to_implement_closure_by_fn_module_type :: (
       dyn(
         format_error_message(
           tok,
-          `Fn module type expects exactly 1 argument (the closure body), got ${arg_list.len()}`,
-          false,
-          .None
+          `Fn module type expects exactly 1 argument (the closure body), got ${arg_list.len()}`
         )
       )
     );
@@ -245,6 +245,9 @@ try_to_implement_closure_by_fn_module_type :: (
   // time (mirrors anonymous_function.yo:806 `register_func_type(func_id, ...)`).
   register_func_type(closure_id.clone(), synthetic_func_ty.clone());
   // Create the function body evaluation context.
+  if(cap_dbg_env_closure_call.get(`YO_DEBUG_CAPTURE`).is_some(), {
+    eprintln(`[fbctx-closure-call]`);
+  });
   eval_ctx := create_function_body_evaluation_context(
     synthetic_func_ty,
     func_val_pre,
@@ -278,14 +281,12 @@ try_to_implement_closure_by_fn_module_type :: (
     .Some(bi) => bi.ty,
     .None => t_unit()
   );
-  if(!(are_types_compatible(body_ty, result_type)), {
+  if(!are_types_compatible(body_ty, result_type), {
     exn.throw(
       dyn(
         format_error_message(
           tok,
-          `Incompatible closure return type`,
-          false,
-          .None
+          `Incompatible closure return type`
         )
       )
     );

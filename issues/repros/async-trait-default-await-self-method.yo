@@ -1,0 +1,65 @@
+// Reproducer: issues/fixed/trait-default-awaiting-self-async-method-emits-hollow-fn.md
+//
+// A trait `?=` default whose body is `io.async(...)` containing an `io.await`.
+// Before the fix, `impl.yo`'s per-impl default materialization evaluated that
+// body under the IMPL's ambient EvalContext instead of a FUNCTION-BODY one, so
+// there was no expected return type; `io.async`'s Step 6b never bound the
+// effect-bundle generic `E`, `e.io.await(...)` failed to resolve, and the
+// def-eval-wall swallowed it. Codegen then emitted
+//
+//   static inline void* closure_yo_id_N(void* closure_context, void* e) {
+//     // Failed to transpile a := ((e.io).await)((Self.read)(self, n, io), e);
+//     ...
+//   }
+//
+// with ONE `void* self` capture struct shared by BOTH implementors. Since
+// PR #275 that body is rewritten to `abort()`, so the program aborts.
+//
+// Expected output after the fix:
+//   22   (A.read = 11, awaited twice)
+//   26   (B.read = 13, awaited twice)
+{ IoExn } :: import("std/error");
+{ println } :: import("std/fmt");
+
+AsyncReader :: trait(
+  read : (fn(self : Self, n : usize, io : Io) -> Impl(Future(usize, IoExn))),
+  (read_twice : (fn(self : Self, n : usize, io : Io) -> Impl(Future(usize, IoExn)))) ?=
+    (
+      (self, n, io) ->
+        io.async((e) => {
+          a := e.io.await(Self.read(self, n, io), e);
+          b := e.io.await(Self.read(self, n, io), e);
+          a + b
+        })
+    )
+);
+
+A :: struct(k : usize);
+impl(
+  A,
+  AsyncReader(
+    read : (fn(self : Self, n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => usize(11))
+    )
+  )
+);
+
+B :: struct(k : usize);
+impl(
+  B,
+  AsyncReader(
+    read : (fn(self : Self, n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      io.async((e) => usize(13))
+    )
+  )
+);
+
+main :: (fn(io : Io) -> unit)({
+  a := A(k : usize(1));
+  b := B(k : usize(2));
+  va := io.await(a.read_twice(usize(2), io), io);
+  vb := io.await(b.read_twice(usize(2), io), io);
+  println(va);
+  println(vb);
+});
+export(main);

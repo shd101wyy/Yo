@@ -46,7 +46,7 @@ walk_to_root :: (fn(e : AstExpr) -> AstExpr)({
   cur := e;
   // Local-mutable loop: while cur is `.`-call, descend to first arg.
   done := false;
-  while(!(done), {
+  while(!done, {
     cond(
       ast_expr_is_fn_call_of(cur, BF_DOT, .None) => {
         match(
@@ -93,14 +93,12 @@ evaluate_open :: (
   ) -> AstExpr
 )({
   // Validate shape: `open` with exactly 1 argument.
-  if(!(ast_expr_is_fn_call_of(expr, BK_OPEN, .Some(usize(1)))), {
+  if(!ast_expr_is_fn_call_of(expr, BK_OPEN, .Some(usize(1))), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "${BK_OPEN}" with 1 argument, got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected "${BK_OPEN}" with 1 argument, got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -134,9 +132,7 @@ evaluate_open :: (
               dyn(
                 format_error_message(
                   ast_expr_token(arg_expr),
-                  `Cannot use "open" on implicit variable "${v.name}". Implicit variables must be passed via  parameters.`,
-                  false,
-                  .None
+                  `Cannot use "open" on implicit variable "${v.name}". Implicit variables must be passed via  parameters.`
                 )
               )
             );
@@ -161,9 +157,7 @@ evaluate_open :: (
         dyn(
           format_error_message(
             ast_expr_token(evaluated),
-            `Failed to evaluate the module argument:\n${ast_expr_to_string(evaluated)}`,
-            false,
-            .None
+            `Failed to evaluate the module argument:\n${ast_expr_to_string(evaluated)}`
           )
         )
       );
@@ -240,15 +234,21 @@ evaluate_open :: (
                 match(ty_labels.get(i), .Some(tl) => (tl == field_name), .None => false) => ty_types.get(i),
                 true => Option(TypeValue).None
               );
+              // Every other member takes the DECLARED type too: a comptime
+              // constant `K :: u64(7)` is an `IntVal` whose
+              // `type_of_eval_value` is the literal default `i32`, so
+              // `open(import(m))` re-typed every exported integer constant
+              // (`K + u64(1)` failed to unify) while the named import
+              // `{ K } :: import(m)` kept `u64`
+              // (issues/fixed/open-import-retypes-integer-constants.md).
               field_ty := match(
                 field_val,
                 .FuncVal(__fvd1, _) => get_func_type(__fvd1.*.func_id),
-                .StructVal(_, _, _) => match(
+                _ => match(
                   declared_ty_opt,
                   .Some(declared_ty) => declared_ty,
                   .None => type_of_eval_value(field_val)
-                ),
-                _ => type_of_eval_value(field_val)
+                )
               );
               _added := add_variable_to_env(
                 next_env,
@@ -320,9 +320,7 @@ evaluate_open :: (
         dyn(
           format_error_message(
             ast_expr_token(arg_expr),
-            `Expected module/struct for "${BK_OPEN}", got:\n${ast_expr_to_string(arg_expr)}`,
-            false,
-            .None
+            `Expected module/struct for "${BK_OPEN}", got:\n${ast_expr_to_string(arg_expr)}`
           )
         )
       );

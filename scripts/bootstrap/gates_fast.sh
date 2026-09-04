@@ -41,7 +41,7 @@ dump_log() {
 echo "=== T1 GATE 0: repros ==="
 for r in issues/repros/box-eq-comptime-int-forall-leak.yo issues/repros/arc-spawn-capture-split.yo; do
   n=$(basename "$r" .yo)
-  timeout 900 "$S1" compile "$r" --release -o "/tmp/${P}_${n}" &> "/tmp/${P}_${n}.log"
+  timeout 900 "$S1" compile "$r" --optimize 2 -o "/tmp/${P}_${n}" &> "/tmp/${P}_${n}.log"
   rc=$?
   echo "$n compile_rc=$rc"
   if [ "$rc" != "0" ]; then
@@ -51,7 +51,7 @@ for r in issues/repros/box-eq-comptime-int-forall-leak.yo issues/repros/arc-spaw
 done
 
 echo "=== T1 GATE 1: battery (with HOLLOW detection) ==="
-for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/async_await.test.yo tests/sys/bufio.test.yo tests/fs/file.test.yo tests/fs/temp.test.yo tests/fs/walker.test.yo tests/sys/signal.test.yo tests/cycle_collector.test.yo tests/basic.test.yo tests/closure.test.yo tests/imm_list.test.yo tests/imm_string.test.yo tests/module_struct_unification.test.yo tests/ref_struct.test.yo tests/fn.test.yo tests/iso.test.yo tests/rc.test.yo tests/ref_field_borrow.test.yo tests/module.test.yo tests/operator_grouping.test.yo tests/algebraic_effects.test.yo; do
+for t in tests/comptime.test.yo tests/prelude.test.yo tests/arc.test.yo tests/async_await.test.yo tests/io/bufio.test.yo tests/fs/file.test.yo tests/fs/temp.test.yo tests/fs/walker.test.yo tests/sys/signal.test.yo tests/cycle_collector.test.yo tests/basic.test.yo tests/closure.test.yo tests/imm_list.test.yo tests/imm_string.test.yo tests/module_struct_unification.test.yo tests/ref_struct.test.yo tests/fn.test.yo tests/iso.test.yo tests/rc.test.yo tests/ref_field_borrow.test.yo tests/module.test.yo tests/operator_grouping.test.yo tests/algebraic_effects.test.yo; do
   name=$(basename "$t" .test.yo); d=$(dirname "$t")
   rm -f "$d"/.yo_selftest_batch_*
   # YO_KEEP_BATCH=1 is LOAD-BEARING — do not remove it. It is read by the
@@ -96,7 +96,7 @@ echo "=== T1 GATE 2: corpus golden scoring ==="
 # with src/ (P2.5 step 13); diff-test.sh is golden-only now, so this gate
 # ABSORBED the former GATE 2b, which ran the identical command with --golden.
 #
-# The goldens were recorded with THIS GATE'S OWN FLAGS (--release) — they are
+# The goldens were recorded with THIS GATE'S OWN FLAGS (--optimize 2; diff-test.sh's --release option emits exactly that) — they are
 # behavior-affecting, so score with the same ones. An intended behavior change
 # re-records in the same commit:
 #   scripts/diff-test.sh tests/codegen-bootstrap --release --parallel 4 --record

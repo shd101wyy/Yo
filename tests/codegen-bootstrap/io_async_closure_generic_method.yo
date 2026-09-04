@@ -1,5 +1,5 @@
 // A `generic(T)` generic method call (`Option.unwrap` via GlobalAllocator's
-// `?*(void)` malloc) INSIDE an io.async closure. Regression for the L1
+// `?(*(void))` malloc) INSIDE an io.async closure. Regression for the L1
 // over-reach: binding the io.async generic OUTPUT `T` into the closure's
 // body_eval_env by NAME shadowed every `generic(T)` generic the body calls —
 // `unwrap`'s T resolved to the future output instead of the receiver's
@@ -13,7 +13,7 @@ open(import("std/libc/stdio"));
 { malloc, free } :: GlobalAllocator;
 
 f :: (fn(io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io) => {
+  io.async(io => {
     m := malloc(usize(16));
     p := m.unwrap();
     buf := *(u8)(p);

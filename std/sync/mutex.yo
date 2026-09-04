@@ -4,16 +4,16 @@
 //! Access is granted via `with_lock(closure)` — the closure receives a
 //! `inout(v): T` that is second-class (cannot escape the closure scope).
 //! The private `__MutexUnlocker` handles unlock on both normal return
-//! and unwind via its `Drop`.
+//! and unwind via its `Dispose` impl.
 pragma(Pragma.AllowUnsafe);
 
 extern(
   "Yo",
   __YO_THREAD_SYNC_TYPE : Type,
   __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
-  __yo_mutex_lock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
-  __yo_mutex_unlock : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit),
-  __yo_mutex_destroy : (fn(mutex : *(__YO_THREAD_SYNC_TYPE)) -> unit)
+  __yo_mutex_lock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_mutex_unlock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_mutex_destroy : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit)
 );
 // SAFETY: __YO_THREAD_SYNC_TYPE is an opaque C-level synchronization
 // primitive (pthread_mutex_t or equivalent). It carries its own internal
@@ -22,30 +22,10 @@ extern(
 impl(__YO_THREAD_SYNC_TYPE, Send());
 impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 
-/// Low-level mutex (manual lifetime via `destroy`).
-mutex_t :: newtype(
-  mutex : __YO_THREAD_SYNC_TYPE
-);
-impl(
-  mutex_t,
-  new : (fn() -> Self)({
-    return(Self(__yo_mutex_create()));
-  }),
-  lock : (fn(inout(self) : Self) -> unit)({
-    return(__yo_mutex_lock(&(self.mutex)));
-  }),
-  unlock : (fn(inout(self) : Self) -> unit)({
-    return(__yo_mutex_unlock(&(self.mutex)));
-  }),
-  destroy : (fn(inout(self) : Self) -> unit)({
-    return(__yo_mutex_destroy(&(self.mutex)));
-  })
-);
-
 // ============================================================================
 // Mutex(T) — atomic-object mutex wrapper with closure-scoped lock API
 // ============================================================================
-Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
       struct(
@@ -55,12 +35,16 @@ Mutex :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
     )
   )
 );
+// O7 residual: an Acyclic-element Mutex cannot form a cycle — atomic RC is
+// only sound for acyclic data, and this lets the sync containers nest
+// inside each other and inside the imm family (same contract as std/imm).
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Mutex(T), Acyclic());
 
-// __MutexUnlocker — private object that calls _raw_unlock on Drop.
+// __MutexUnlocker — private object that calls _raw_unlock on Dispose.
 // Allocated locally inside with_lock; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees unlock under both normal return
 // and unwind(...).
-__MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
+__MutexUnlocker :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   ref(
     struct(
       _mutex : Mutex(T)
@@ -69,7 +53,7 @@ __MutexUnlocker :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(Type))(
 );
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   __MutexUnlocker(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
@@ -80,7 +64,7 @@ impl(
 
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Mutex(T),
   new : (fn(value : T) -> Self)({
     return(Self(__yo_mutex_create(), value));
@@ -99,29 +83,27 @@ impl(
   // Internal methods — pragma-only. These are public to the module system
   // but the _-prefixed naming convention signals "internal API".
   _raw_lock : (fn(self : Self) -> unit)(
-    __yo_mutex_lock(&(self._handle))
+    __yo_mutex_lock(&self._handle)
   ),
   _raw_unlock : (fn(self : Self) -> unit)(
-    __yo_mutex_unlock(&(self._handle))
+    __yo_mutex_unlock(&self._handle)
   ),
-  _raw_handle_ptr : (fn(inout(self) : Self) -> *(__YO_THREAD_SYNC_TYPE))(
-    &(self._handle)
+  _raw_handle_ptr : (fn(inout(self) : Self) -> *__YO_THREAD_SYNC_TYPE)(
+    &self._handle
   )
 );
 impl(
   generic(T : Type),
-  where(T <: Send),
+  where(T <: (Send, Acyclic)),
   Mutex(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      return(__yo_mutex_destroy(&(self._handle)));
+      return(__yo_mutex_destroy(&self._handle));
     })
   )
 );
 
 export(
   __YO_THREAD_SYNC_TYPE,
-  mutex_t,
-  Mutex,
-  __MutexUnlocker
+  Mutex
 );

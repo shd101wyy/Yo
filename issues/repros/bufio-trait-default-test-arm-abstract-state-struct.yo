@@ -1,0 +1,36 @@
+//! The generic `BufReader(R)` / `BufWriter(W)` (`std/io/bufio`, D5) — the
+//! coverage carried over from the deleted fd-based `tests/sys/bufio.test.yo`,
+//! re-expressed against the trait-generic API over `File`, plus the new
+//! contracts: the wrappers satisfy the `Reader`/`Writer` bounds themselves,
+//! `read_to_end`/`read_to_string` arrive as trait defaults, and `BufWriter`
+//! deliberately does NOT flush on drop (tokio contract — flush explicitly).
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+open(import("std/string"));
+{ IoExn } :: import("std/error");
+{ Reader, Writer, copy } :: import("std/io");
+{ BufReader, BufWriter } :: import("std/io/bufio");
+{ File, OpenMode } :: import("std/fs/file");
+{ Path } :: import("std/path");
+{ remove_file } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+
+_p :: (fn(name : str) -> Path)(
+  Path.new(`/tmp/yo_io_bufio_`.to_string() + String.from(name))
+);
+test("BufReader gets read_to_end and read_to_string as trait defaults", {
+  path := _p("defaults.txt");
+  io.await(write_string(path, `héllo bufio`.to_string(), io), { io });
+  f := io.await(File.open(path, OpenMode.Read, io), { io });
+  br := BufReader(File).with_capacity(f, usize(4));
+  all := io.await(br.read_to_end(io), { io });
+  assert(all.len() == usize(12), "12 UTF-8 bytes through the default");
+  io.await(f.close(io), { io });
+  f2 := io.await(File.open(path, OpenMode.Read, io), { io });
+  br2 := BufReader(File).new(f2);
+  s := io.await(br2.read_to_string(io), { io });
+  assert(s == `héllo bufio`, "validated read_to_string default");
+  io.await(f2.close(io), { io });
+  io.await(remove_file(path, io), { io });
+});

@@ -1,0 +1,25 @@
+{ Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+// A plain function that awaits: compiled as a SYNCHRONOUS poll loop, which is
+// fine from `main`/a test body but nests the event loop from inside a task.
+_blocking_helper :: (fn(io : Io) -> unit)({
+  io.await(sleep(Duration.from_millis(i64(5)), io), io);
+  ()
+});
+task :: (fn(io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    // Suspend once so the rest of the body runs from the scheduler (a cold
+    // start runs inline in `io.spawn`, at the top level, which is not nested).
+    e.io.await(sleep(Duration.from_millis(i64(1)), e.io), e.io);
+    _blocking_helper(e.io);
+    return(());
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  h := io.spawn(task(io), e);
+  h.await(io);
+  ()
+});
+export(main);

@@ -1,0 +1,113 @@
+//! lsp/symbols — textDocument/documentSymbol (plans/P4_LSP.md slice 3).
+//!
+//! Port of the attic `symbols.ts` core: walk the top-level statements for
+//! `name :: value` bindings and map each to an LSP DocumentSymbol whose
+//! kind follows the bound value's AST shape (fn → Function, struct →
+//! Struct, enum → Enum, trait → Interface, impl → Namespace, everything
+//! else → Constant). Purely syntactic — works even while the document has
+//! evaluation errors.
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ Token } :: import("../token.yo");
+{ AstExpr, ast_expr_token, ast_expr_is_fn_call_of, ast_expr_is_atom } :: import("../expr.yo");
+{ JsonValue } :: import("std/encoding/json");
+{ jb, jstr, jnum, j_range } :: import("./protocol.yo");
+
+/// Is `e` a function TYPE expression? `fn(...) -> T` parses as an `->`
+/// INFIX call whose first argument is the `fn(...)` call, so both shapes
+/// count.
+_is_fn_type_expr :: (fn(e : AstExpr) -> bool)({
+  if(ast_expr_is_fn_call_of(e, "fn", .None), {
+    return(true);
+  });
+  if(ast_expr_is_fn_call_of(e, "->", .Some(usize(2))), {
+    match(
+      e,
+      .FnCall(_, _, arrow_args, _, _) => match(
+        arrow_args.get(usize(0)),
+        .Some(lhs) => {
+          return(ast_expr_is_fn_call_of(lhs, "fn", .None));
+        },
+        .None => ()
+      ),
+      .Atom(_, _) => ()
+    );
+  });
+  false
+});
+
+/// LSP SymbolKind for the bound value's AST shape.
+_symbol_kind_of :: (fn(value_expr : AstExpr) -> usize)({
+  // Function 12, Struct 23, Enum 10, Interface 11, Namespace 3,
+  // Constant 14 (the LSP SymbolKind table).
+  if(_is_fn_type_expr(value_expr), {
+    return(usize(12));
+  });
+  if(ast_expr_is_fn_call_of(value_expr, "struct", .None) || ast_expr_is_fn_call_of(value_expr, "newtype", .None), {
+    return(usize(23));
+  });
+  if(ast_expr_is_fn_call_of(value_expr, "enum", .None) || ast_expr_is_fn_call_of(value_expr, "union", .None), {
+    return(usize(10));
+  });
+  if(ast_expr_is_fn_call_of(value_expr, "trait", .None), {
+    return(usize(11));
+  });
+  if(ast_expr_is_fn_call_of(value_expr, "impl", .None), {
+    return(usize(3));
+  });
+  // `(fn(...) -> T)(body)` — the common function-definition shape: the
+  // CALLEE is the fn type.
+  match(
+    value_expr,
+    .FnCall(_, func_box, _, _, _) => {
+      if(_is_fn_type_expr(func_box), {
+        return(usize(12));
+      });
+    },
+    .Atom(_, _) => ()
+  );
+  usize(14)
+});
+
+/// Collect DocumentSymbols from the top-level statements.
+handle_document_symbols :: (
+  fn(exprs : ArrayList(AstExpr)) -> JsonValue
+)({
+  items := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    e := match(
+      exprs.get(i),
+      .Some(x) => x,
+      .None => {
+        return(JsonValue.Array(items : items));
+      }
+    );
+    if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))), {
+      match(
+        e,
+        .FnCall(_, _, args, _, _) => {
+          name_expr := match(args.get(usize(0)), .Some(a) => a, .None => e);
+          value_expr := match(args.get(usize(1)), .Some(a) => a, .None => e);
+          if(ast_expr_is_atom(name_expr), {
+            name_tok := ast_expr_token(name_expr);
+            rng := j_range(
+              name_tok.row,
+              name_tok.column,
+              name_tok.row,
+              // RUNE column + RUNE width (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+              name_tok.column + name_tok.value.chars().count()
+            );
+            items.push(
+              jb().put("name", jstr(name_tok.value.clone())).put("kind", jnum(_symbol_kind_of(value_expr))).put("range", rng).put("selectionRange", rng).obj()
+            );
+          });
+        },
+        .Atom(_, _) => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items : items)
+});
+export(handle_document_symbols);

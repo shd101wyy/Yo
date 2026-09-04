@@ -20,7 +20,7 @@ Everything you'd expect from a modern general-purpose language:
 
 - **Value types.** `i32`, `bool`, `str` (a view of STATIC string bytes — immortal backing), structs, enums, tuples, `Array(T, N)`.
 - **Heap-managed collections.** `ArrayList(T)`, `HashMap(K, V)`, `HashSet(T)`, `Deque(T)`, `LinkedList(T)`, `String`, immutable variants in `std/imm/*`.
-- **Shared ownership.** `object` types (single-threaded Rc), `Arc(T)` (atomic Rc for cross-thread sharing), `Iso(T)` (ownership transfer).
+- **Shared ownership.** Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (single-threaded Rc) — `Arc(T)` (atomic Rc for cross-thread sharing), `Iso(T)` (ownership transfer).
 - **Sum / option / result types.** `Option(T)`, `Result(T, E)`, your own `enum`s.
 - **Closures and higher-order functions** over safe types.
 - **Generics, traits, GADTs.** All of Yo's type-system features.
@@ -46,7 +46,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Object elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, write back with index assignment (`coll(i) = v`). The old borrow form `for(coll, inout(item) => …)` was removed and produces a compile error with this recipe.
+The `for` macro iterates by value (`(item) => …` calls `.into_iter()` under the hood). Reference-semantics elements are handles, so mutating `item` in the body mutates the element in place; for struct/scalar elements, write back with index assignment (`coll(i) = v`). The old borrow form `for(coll, inout(item) => …)` was removed and produces a compile error with this recipe.
 
 ## What Safe Code Cannot Do
 
@@ -54,7 +54,7 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 
 | Construct                                                    | Diagnostic (short)                                                               | Safe alternative                                                                                   |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `inout(name) : T`, an `object` type, or a stdlib wrapper |
+| `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `inout(name) : T`, a reference-semantics type, or a stdlib wrapper |
 | `&(expr)` address-of                                         | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` parameter, or pass the owned collection                                          |
 | `unsafe(...)` call                                           | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops      |
 | `asm(...)` block                                             | "inline assembly is not available in safe code"                                  | Same                                                                                               |
@@ -87,7 +87,7 @@ main :: (fn() -> unit)({
 
 Use cases:
 
-- Stdlib trait methods that mutate (`Hash.hash`, `Clone.clone`, `Iterator.next`) all take `inout(self) : Self`. You write `value.hash()`, `it.next()` — no `&()` needed.
+- Stdlib trait methods that mutate (`Hasher.write`, `Clone.clone`, `Iterator.next`) all take `inout(self) : Self`. You write `hasher.write_u64(v)`, `it.next()` — no `&()` needed; the same goes for `inout` arguments such as `value.hash(hasher)`.
 - Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `inout(name) : T`.
 - Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(inout(v) : T) -> R))`.
 
@@ -103,7 +103,7 @@ The language also closes the **dangling-view hole** that other languages with ra
 
 - `str` is the only built-in view type, and it can only refer to **static** string data (literals, `comptime_str`) — it is never backed by a heap buffer that could be freed under it.
 - **Range operations on collections copy.** `list(usize(1)..usize(3))` and `String` ranges produce an owned value, not a window into the source buffer — there is no heap-backed slice type to dangle.
-- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for object elements that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
+- **Element access hands out values, never interior pointers.** `xs.get(i)` returns the element — for reference-semantics elements that is a handle to the element _object_ (it mutates in place and survives the container's growth/realloc); for struct elements it is a copy, written back with `xs(i) = v`. No safe expression yields a pointer into a container's buffer, so growth invalidation is inexpressible.
 
 The walkthrough of these rules is in [FLOWABILITY.md](./FLOWABILITY.md); you don't need to know them to write safe code — the compiler rejects the dangerous shapes.
 
@@ -135,7 +135,7 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 
 ## `unsafe(...)`: the Per-Op Audit Marker
 
-Inside a privileged file, every UB-capable operation must appear inside an `unsafe(...)` call:
+Inside a privileged file the compiler ENFORCES the `unsafe(...)` wrap on `extern "c"` call sites. Wrapping pointer deref/write/arithmetic is a stdlib CONVENTION that `yo unsafe-report` keys off — not a compile error — so the wrap is how the unsafe surface stays greppable rather than a second gate:
 
 | Operation                   | Example                                                            |
 | --------------------------- | ------------------------------------------------------------------ |

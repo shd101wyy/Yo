@@ -45,7 +45,7 @@ open(import("std/error"));
 { ArrayList } :: import("std/collections/array_list");
 { Token, TokenKind } :: import("../token.yo");
 { Parser } :: import("../parser.yo");
-{ AstExpr } :: import("../expr.yo");
+{ AstExpr, desugar_program_if_calls } :: import("../expr.yo");
 { Environment, build_prelude_var_cache } :: import("../env.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { EvalValue } :: import("../value.yo");
@@ -118,7 +118,7 @@ has_comment_attribute :: (fn(tokens : ArrayList(Token), attribute : String) -> b
   (found : bool) = false;
   (i : usize) = usize(0);
   n := tokens.len();
-  while((i < n) && (!(found)), {
+  while((i < n) && !found, {
     match(
       tokens.get(i),
       .Some(tok) => {
@@ -177,7 +177,9 @@ impl(
     // --- Parse ---
     parser := Parser.new(input_string, module_path, exn);
     toks := parser.get_tokens();
-    program := parser.get_program(exn);
+    // Desugar `if(...)` → `cond(...)` on the fresh parse, mirroring
+    // parser.yo `parse` (this constructor drives Parser directly).
+    program := desugar_program_if_calls(parser.get_program(exn));
     // --- Create base environment ---
     (env : Environment) = Environment.new(module_path);
     // NOTE: no module-loader wiring call here. `import("...")` resolves through
@@ -195,7 +197,7 @@ impl(
     // argument shape semantically rather than as text.
     skip_prelude := pre_scan_for_skip_prelude(program.clone());
     (module_error : Option(String)) = .None;
-    if(!(skip_prelude), {
+    if(!skip_prelude, {
       prelude_path := `file://${std_path}/prelude.yo`;
       match(
         load_module_fn(prelude_path),

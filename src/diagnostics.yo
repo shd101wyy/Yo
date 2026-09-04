@@ -1,0 +1,189 @@
+//! src/diagnostics — the structured diagnostic value and its renderers.
+//!
+//! P1 of plans/ERROR_DIAGNOSTICS_OVERHAUL.md: a diagnostic is DATA first —
+//! `code`/`severity`/`message`/`span` (+ the extracted `source_line`) — and
+//! every output format (human, short; JSON in P2) is a rendering of that
+//! value. No consumer ever parses a rendering back except the LSP adapter,
+//! which P3 replaces with the typed channel.
+//!
+//! Position conventions (stated once, load-bearing): rows and columns are
+//! 0-based internally (the `Token` basis) and RUNE columns, not bytes; the
+//! `+1` is display-only, and the caret padding counts runes so the underline
+//! lands under the right character on lines with multibyte text before it.
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+/// The severity of a diagnostic entry. The FIRST entry of an error group is
+/// the primary (`Error`, or `Warning` once a warnings channel exists);
+/// secondary entries ("value moved here", "Defined here:") are `Note`s.
+Severity :: enum(Error, Warning, Note, Help);
+derive(Severity, Clone);
+/// A source location: file, 0-based row, 0-based RUNE column, and the
+/// span's rune length (how many `^` the underline draws).
+Span :: struct(
+  path : String,
+  row : usize,
+  col : usize,
+  len : usize
+);
+/// A secondary location attached to a diagnostic. P1 carries secondary
+/// locations as follow-on `Note` entries instead; labels are the P2/P3
+/// channel (plans/ERROR_DIAGNOSTICS_OVERHAUL.md §3).
+Label :: struct(
+  severity : Severity,
+  message : String,
+  span : Span
+);
+/// One diagnostic entry. `source_line` is the source text at `span.row`,
+/// extracted once at construction — the renderer never re-reads files.
+Diagnostic :: struct(
+  code : Option(String),
+  severity : Severity,
+  message : String,
+  span : Span,
+  source_line : String
+);
+_max_usize :: (fn(a : usize, b : usize) -> usize)(
+  cond(
+    (a > b) => a,
+    true => b
+  )
+);
+_severity_prefix :: (fn(sev : Severity) -> String)(
+  match(
+    sev,
+    .Error => String.from("error"),
+    .Warning => String.from("warning"),
+    .Note => String.from("note"),
+    .Help => String.from("help")
+  )
+);
+/// Number of digits of `n` (≥ 1) — a row number's gutter width.
+_row_digits :: (fn(n : usize) -> usize)({
+  s := `${n}`;
+  cond(
+    (s.len() == usize(0)) => usize(1),
+    true => s.len()
+  )
+});
+/// The first line of `message` (the header line of a rendered block).
+_first_message_line :: (fn(message : String) -> String)({
+  lines := message.split(String.from("\n"));
+  match(
+    lines.get(usize(0)),
+    .Some(line) => line,
+    .None => String.new()
+  )
+});
+/// Render one entry into `out`: the `severity[code]: message` header, the
+/// message's continuation lines verbatim, and (when a path is known) the
+/// `-->` anchor plus gutter / source line / full-span underline. `w` is the
+/// shared gutter width — the max row digits over the whole group — so the
+/// `|` gutters of every block in the group align.
+_render_block :: (fn(d : Diagnostic, w : usize, out : ArrayList(String)) -> unit)({
+  prefix := _severity_prefix(d.severity);
+  msg_lines := d.message.split(String.from("\n"));
+  (mi : usize) = usize(0);
+  while(mi < msg_lines.len(), {
+    match(
+      msg_lines.get(mi),
+      .Some(line) => {
+        if(mi == usize(0), {
+          match(
+            d.code,
+            .Some(c) => out.push(`${prefix}[${c}]: ${line}`),
+            .None => out.push(`${prefix}: ${line}`)
+          );
+        }, {
+          out.push(line);
+        });
+      },
+      .None => ()
+    );
+    mi = (mi + usize(1));
+  });
+  if(d.span.path.len() > usize(0), {
+    row_plus1 := (d.span.row + usize(1));
+    col_plus1 := (d.span.col + usize(1));
+    indent := String.from(" ").repeat(w + usize(1));
+    out.push(`${indent}--> ${d.span.path}:${row_plus1}:${col_plus1}`);
+    if(d.source_line.len() > usize(0), {
+      out.push(`${indent}|`);
+      padded := `${row_plus1}`;
+      while(padded.len() < w, {
+        padded = ` ${padded}`;
+      });
+      out.push(`${padded} | ${d.source_line}`);
+      underline_len := cond(
+        (d.span.len == usize(0)) => usize(1),
+        true => d.span.len
+      );
+      col_spaces := String.from(" ").repeat(d.span.col);
+      carets := String.from("^").repeat(underline_len);
+      out.push(`${indent}| ${col_spaces}${carets}`);
+    });
+  });
+});
+/// The human rendering of a diagnostic group (rustc-shaped): each entry in
+/// order — entry 0 is the primary error, the rest are notes — separated by
+/// a blank line. This is what `YoError.to_string()` returns and what the
+/// CLI edges print; one location per entry, exactly once.
+render_diagnostics_human :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+  out := ArrayList(String).new();
+  w := usize(1);
+  (di : usize) = usize(0);
+  while(di < diagnostics.len(), {
+    match(
+      diagnostics.get(di),
+      .Some(d) => {
+        w = _max_usize(w, _row_digits(d.span.row + usize(1)));
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  (dj : usize) = usize(0);
+  while(dj < diagnostics.len(), {
+    match(
+      diagnostics.get(dj),
+      .Some(d) => {
+        if(dj > usize(0), {
+          out.push(String.new());
+        });
+        _render_block(d, w, out);
+      },
+      .None => ()
+    );
+    dj = (dj + usize(1));
+  });
+  String.from("\n").join(out)
+});
+/// The one-line-per-entry rendering: `path:row:col: severity[code]: msg`
+/// (1-based positions, first message line) — for CI logs and greps.
+render_diagnostics_short :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
+  out := ArrayList(String).new();
+  (di : usize) = usize(0);
+  while(di < diagnostics.len(), {
+    match(
+      diagnostics.get(di),
+      .Some(d) => {
+        prefix := _severity_prefix(d.severity);
+        head := _first_message_line(d.message);
+        match(
+          d.code,
+          .Some(c) => out.push(
+            `${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
+          ),
+          .None => out.push(
+            `${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}: ${head}`
+          )
+        );
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  String.from("\n").join(out)
+});
+export(Severity, Span, Label, Diagnostic);
+export(render_diagnostics_human, render_diagnostics_short);

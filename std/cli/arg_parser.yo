@@ -3,15 +3,18 @@
 //! Supports flags (`--verbose`), options (`--output file`), short aliases (`-v`),
 //! and positional arguments. Automatically generates help text.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { ArgParser } :: import "std/cli/arg_parser";
+//! { args } :: import "std/env";
 //!
 //! parser := ArgParser.new(`myapp`, `A sample CLI tool`);
-//! parser.flag(`verbose`, `v`, `Enable verbose output`);
-//! parser.option(`output`, `o`, `Output file`, `out.txt`);
-//! args := parser.parse();
+//! parser.add_flag(`--verbose`, `-v`, `Enable verbose output`);
+//! parser.add_option(`--output`, `-o`, `Output file`, `out.txt`);
+//! parsed := parser.parse(args()).unwrap();
+//! verbose := parsed.get_flag(`--verbose`);
+//! output := parsed.get_option(`--output`);
 //! ```
 open(import("../collections/array_list"));
 open(import("../string"));
@@ -286,7 +289,7 @@ impl(
                 .Flag => {
                   line := `  ${arg_def._long_name}`;
                   cond(
-                    (!(arg_def._short_name.is_empty())) => {
+                    !arg_def._short_name.is_empty() => {
                       line = line.concat(`, ${arg_def._short_name}`);
                     },
                     true => ()
@@ -297,14 +300,14 @@ impl(
                 .Opt => {
                   line := `  ${arg_def._long_name}`;
                   cond(
-                    (!(arg_def._short_name.is_empty())) => {
+                    !arg_def._short_name.is_empty() => {
                       line = line.concat(`, ${arg_def._short_name}`);
                     },
                     true => ()
                   );
                   line = line.concat(` <value>\t${arg_def._description}`);
                   cond(
-                    (!(arg_def._default_value.is_empty())) => {
+                    !arg_def._default_value.is_empty() => {
                       line = line.concat(` (default: ${arg_def._default_value})`);
                     },
                     true => ()
@@ -359,7 +362,7 @@ impl(
     args_len := args.len();
     positional_idx := usize(0);
     (err_msg : Option(String)) = .None;
-    while((idx < args_len) && (err_msg.is_none()), {
+    while((idx < args_len) && err_msg.is_none(), {
       match(
         args.get(idx),
         .Some(current_arg) => {
@@ -466,7 +469,7 @@ impl(
                 true => ()
               );
               cond(
-                (!(is_subcmd)) => {
+                !is_subcmd => {
                   parsed._positionals.push(current_arg);
                   p_idx := usize(0);
                   p_count := usize(0);
@@ -521,7 +524,7 @@ impl(
             def._kind,
             .Opt => {
               cond(
-                ((!(parsed._option_names.contains(def._long_name))) && (!(def._default_value.is_empty()))) => {
+                (!parsed._option_names.contains(def._long_name) && !def._default_value.is_empty()) => {
                   parsed._option_names.push(def._long_name);
                   parsed._option_values.push(def._default_value);
                 },
@@ -538,9 +541,9 @@ impl(
     return(.Ok(parsed));
   })
 );
+// `ArgKind`/`ArgDef` are internal: they appear only inside `ArgParser`'s
+// private `_args` field, never in a public signature.
 export(
-  ArgKind,
-  ArgDef,
   ParsedArgs,
   ArgParser
 );

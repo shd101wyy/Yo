@@ -50,16 +50,28 @@ Pragma :: enum(
   /// `asm(...)`, and `extern(...)`. Without this, those constructs
   /// produce compile errors.
   AllowUnsafe,
+  /// File is permitted to DEFINE macro functions — `quote(...)`
+  /// parameters and `unquote(...)` return types. CALLING macros (`if`,
+  /// `for`, collection literals, …) needs no pragma. Recognized at the
+  /// AST level so it also works in `SkipPrelude` files. See
+  /// plans/MACRO_POLICY.md.
+  AllowMacroDef,
   /// Disable the auto-import of `std/prelude`. Used by the prelude
   /// itself, and by any tool/test that wants to bootstrap manually.
   /// Recognized at the AST level before the prelude loads.
   SkipPrelude,
   /// Test-runner directive: skip this test file on ALL WASM targets.
   SkipWasm,
-  /// Test-runner directive: skip when target is wasm32-emscripten.
+  /// Test-runner directive: skip when target is wasm32-unknown-emscripten.
   SkipWasm32Emscripten,
-  /// Test-runner directive: skip when target is wasm32-wasi.
+  /// Test-runner directive: skip when target is wasm32-wasip1.
   SkipWasm32Wasi,
+  /// File is skipped by the test runner when the target OS is Windows.
+  /// For tests that depend on a POSIX-only or not-yet-ported platform
+  /// facility (e.g. std/crypto/tls needs OpenSSL, absent on the Windows
+  /// runners — Schannel is the deferred Windows path). Mirrors the
+  /// SkipWasm32* variants.
+  SkipWindows,
   /// Formal verification: contracts in this file are proof obligations.
   /// Phase 0 only registers the pragma; later phases will hook in
   /// verification. See plans/FORMAL_VERIFICATION.md.
@@ -158,15 +170,9 @@ extern(
   // array indexing builtin (used by Index trait impls)
   __yo_array_index :
     (fn(generic(T : Type, N : usize), self : *(Array(T, N)), idx : usize) -> *(T)),
-  // C macro related
-  __yo_c_macro_defined : (fn(comptime(name) : comptime_str) -> comptime(bool)),
-  __yo_c_macro_value : (fn(comptime(name) : comptime_str) -> comptime(comptime_str)),
   // Process related functions
   __yo_process_platform : (fn() -> comptime(comptime_str)),
-  __yo_process_arch : (fn() -> comptime(comptime_str)),
-  __yo_process_cwd : (fn() -> comptime(comptime_str)),
-  __yo_process_env_get : (fn(comptime(key) : comptime_str) -> comptime(comptime_str)),
-  __yo_process_node_version : (fn() -> comptime(comptime_str))
+  __yo_process_arch : (fn() -> comptime(comptime_str))
 );
 export(__yo_as);
 /// The `unsafe` module — provides low-level unwind hatches.
@@ -178,33 +184,6 @@ unsafe :: impl({
   export(cast);
 });
 export(unsafe);
-// IDEA:
-// c_macro :: impl {
-//   /// Check if a C macro is defined
-//   /// Returns true if the macro exists, false otherwise
-//   defined :: (fn(comptime(name) : comptime_str) -> comptime(bool))(
-//     __yo_c_macro_defined(name)
-//   );
-//   export defined;
-//
-//   /// Get the value of a C macro as a compile-time string
-//   /// Returns the macro's value as a string, or empty string "" if not defined
-//   /// Note: For function-like macros, returns the definition without expansion
-//   value :: (fn(comptime(name) : comptime_str) -> comptime(comptime_str))(
-//     __yo_c_macro_value(name)
-//   );
-//   export value;
-//
-//   /// Get a macro value with a default fallback
-//   value_or :: (fn(comptime(name) : comptime_str, comptime(default_val) : comptime_str) -> comptime(comptime_str))(
-//     cond(
-//       defined(name) => value(name),
-//       true => default_val
-//     )
-//   );
-//   export value_or;
-// };
-// export c_macro;
 /// Send trait — indicates a type that can be safely transferred between threads.
 Send :: trait(
   id := "Send"
@@ -446,22 +425,10 @@ ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> co
   )
 );
 export(ComptimeBitRightShift);
-/// Exponentiation trait — enables `lhs ** rhs` operator.
-Exponentiation :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    (**) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
-  )
-);
-export(Exponentiation);
-ComptimeExponentiation :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    (**) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
-    where(Self <: Comptime, Self.Output <: Comptime)
-  )
-);
-export(ComptimeExponentiation);
+// `Exponentiation`/`ComptimeExponentiation` were DELETED here (std S1,
+// plans/STD_API_AUDIT.md §4 prelude row): the `**` operator token was
+// already removed 2026-08-21 (plans/OPERATOR_SET_AND_PRECEDENCE.md), and
+// the traits had zero impls and zero call sites — dead surface.
 /// Negate trait — enables unary `-value` operator.
 Negate :: trait(
   Output : Type,
@@ -667,6 +634,12 @@ Ordering :: enum(
 export(Ordering);
 /// Ord trait — enables `<`, `<=`, `>`, `>=` comparison operators.
 /// Requires the type to also implement `Eq`.
+///
+/// `cmp` is contractually a TOTAL order for every std impl (the audit's
+/// no-PartialOrd decision, plans/STD_API_AUDIT.md D3.3): the default is
+/// derived from `<`/`==`, and types whose operators are only partial
+/// (floats: NaN is incomparable under IEEE `<`) OVERRIDE `cmp` with a
+/// total order instead of splitting the trait.
 Ord :: (
   fn(
     comptime(Rhs) : Type
@@ -681,6 +654,15 @@ Ord :: (
       (fn(lhs : Self, rhs : Rhs) -> bool),
     (>=) :
       (fn(lhs : Self, rhs : Rhs) -> bool),
+    (cmp : (fn(lhs : Self, rhs : Rhs) -> Ordering)) ?=
+      (
+        (lhs, rhs) ->
+          cond(
+            Self.(<)(lhs, rhs) => Ordering.Less,
+            Self.(==)(lhs, rhs) => Ordering.Equal,
+            true => Ordering.Greater
+          )
+      ),
     where(Self <: Eq(Rhs))
   )
 );
@@ -703,25 +685,81 @@ ComptimeOrd :: (
     where(Self <: (Comptime, ComptimeEq(Rhs)))
   )
 );
+export(ComptimeOrd);
+/**
+* Hasher — turns a stream of bytes into a `u64` (Rust's `std::hash::Hasher`).
+*
+* A `Hash` impl feeds a value's identity bytes to a hasher through the
+* `write*` methods; `finish` reads the hash of everything written so far
+* (it does not reset the hasher). `write` and `finish` are required; the
+* fixed-width `write_*` methods default to the value's native-endian bytes,
+* and an algorithm with a fast word path overrides them (`std/hash`'s
+* `SipHasher13` overrides `write_u64`).
+*
+* Implementations live in `std/hash`: `SipHasher13` (keyed, the `HashMap`
+* default), `Fnv1aHasher`, and the `hash_one` helper.
+*/
+Hasher :: trait(
+  /// Feed `size` bytes starting at `buf`.
+  write : (fn(inout(self) : Self, buf : *(u8), size : usize) -> unit),
+  /// The hash of everything written so far.
+  finish : (fn(inout(self) : Self) -> u64),
+  (write_u8 : (fn(inout(self) : Self, v : u8) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(&(b), usize(1));
+      }
+    ),
+  (write_u16 : (fn(inout(self) : Self, v : u16) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(unsafe.cast(&(b), *(u8)), usize(2));
+      }
+    ),
+  (write_u32 : (fn(inout(self) : Self, v : u32) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(unsafe.cast(&(b), *(u8)), usize(4));
+      }
+    ),
+  (write_u64 : (fn(inout(self) : Self, v : u64) -> unit)) ?=
+    (
+      (self, v) -> {
+        b := v;
+        self.write(unsafe.cast(&(b), *(u8)), usize(8));
+      }
+    ),
+  (write_usize : (fn(inout(self) : Self, v : usize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
+  (write_i8 : (fn(inout(self) : Self, v : i8) -> unit)) ?= ((self, v) -> self.write_u8(u8(v))),
+  (write_i16 : (fn(inout(self) : Self, v : i16) -> unit)) ?= ((self, v) -> self.write_u16(u16(v))),
+  (write_i32 : (fn(inout(self) : Self, v : i32) -> unit)) ?= ((self, v) -> self.write_u32(u32(v))),
+  (write_i64 : (fn(inout(self) : Self, v : i64) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
+  (write_isize : (fn(inout(self) : Self, v : isize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v)))
+);
+export(Hasher);
 /**
 * Hash trait - Similar to Rust's std::hash::Hash
 *
-* This trait defines the ability to hash a value into a u64.
-* Types that implement Hash can be used as keys in HashMap and HashSet.
+* A type says which bytes make up its identity by feeding them to a
+* `Hasher`; the hasher (any `Hasher`, chosen by the caller) turns them into
+* a `u64`. Types that implement Hash can be used as keys in HashMap and
+* HashSet.
 *
-* The hash function should satisfy:
-* 1. Deterministic: The same value always produces the same hash
-* 2. Consistent with Eq: If a == b, then hash(a) == hash(b)
+* The contract, as in Rust:
+* 1. Consistent with Eq: if a == b, then a and b feed identical bytes.
+* 2. Prefix-free where it matters: variable-length data writes a length or
+*    a terminator (String writes its bytes then 0xFF), so `("ab","c")` and
+*    `("a","bc")` differ.
 *
-* Note: Unlike Rust which uses a Hasher trait for incremental hashing,
-* we use a simpler approach where each type directly produces a u64 hash.
+* To hash a single value use `std/hash`'s `hash_one(value)`; to hash into a
+* hasher you already hold, call `value.hash(hasher)`.
 */
 Hash :: trait(
-  /**
-  * Compute the hash of a value
-  * Returns a u64 hash value
-  */
-  (hash) : (fn(inout(self) : Self) -> u64)
+  /// Feed this value's identity into `hasher`.
+  hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
@@ -733,6 +771,29 @@ Clone :: trait(
     )
 );
 export(Clone);
+/// Default trait — the type's default value (Rust's `Default`).
+/// Call explicitly via `(T <: Default).default()` in generic code, or
+/// `MyType.default()` on a concrete type. Unblocks
+/// `Option.unwrap_or_default` and map `or_default`-style helpers
+/// (plans/STD_API_AUDIT.md D3.1).
+Default :: trait(
+  /// The default value of the type.
+  default : (fn() -> Self)
+);
+export(Default);
+impl(bool, Default(default : (fn() -> Self)(false)));
+impl(i8, Default(default : (fn() -> Self)(i8(0))));
+impl(i16, Default(default : (fn() -> Self)(i16(0))));
+impl(i32, Default(default : (fn() -> Self)(i32(0))));
+impl(i64, Default(default : (fn() -> Self)(i64(0))));
+impl(u8, Default(default : (fn() -> Self)(u8(0))));
+impl(u16, Default(default : (fn() -> Self)(u16(0))));
+impl(u32, Default(default : (fn() -> Self)(u32(0))));
+impl(u64, Default(default : (fn() -> Self)(u64(0))));
+impl(isize, Default(default : (fn() -> Self)(isize(0))));
+impl(usize, Default(default : (fn() -> Self)(usize(0))));
+impl(f32, Default(default : (fn() -> Self)(f32(0.0))));
+impl(f64, Default(default : (fn() -> Self)(f64(0.0))));
 /// Isolation trait — runtime check whether a value can be safely transferred.
 Isolation :: trait(
   can_isolate : (fn(self : Self) -> bool)
@@ -743,6 +804,7 @@ ComptimeToString :: trait(
   to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_str)),
   where(Self <: Comptime)
 );
+export(ComptimeToString);
 // SAFETY: All builtin primitive types (unit, void, comptime_int,
 // comptime_float, comptime_str, bool, i8/i16/i32/i64, u8/u16/u32/u64,
 // f32/f64, isize/usize, char/int/uint/short/ushort/long/ulong/longlong/
@@ -1024,6 +1086,8 @@ impl(
 );
 impl(
   comptime_str,
+  /// Length in BYTES (UTF-8), matching the runtime `String.len()` / `str.len()`
+  /// (D4 PR 7 — this counted runes before the byte-basis alignment).
   len : (fn(comptime(self) : comptime_str) -> comptime(comptime_int))(
     __yo_comptime_string_length(self)
   ),
@@ -1033,6 +1097,8 @@ impl(
   (to_lower) : (fn(comptime(self) : comptime_str) -> comptime(comptime_str))(
     __yo_comptime_string_to_lower(self)
   ),
+  /// Slice by BYTE offsets `[start, end)`, matching the runtime `substring`.
+  /// Out-of-range clamps; an offset inside a rune is a compile error.
   slice : (fn(comptime(self) : comptime_str, comptime(start) : comptime_int, comptime(end) : comptime_int) -> comptime(comptime_str))(
     __yo_comptime_string_slice(self, start, end)
   ),
@@ -1070,13 +1136,7 @@ impl(
 impl(
   bool,
   Hash(
-    (hash) : (
-      (self) ->
-        cond(
-          self => u64(1),
-          true => u64(0)
-        )
-    )
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self => u8(1), true => u8(0))))
   )
 );
 impl(
@@ -1219,7 +1279,7 @@ impl(
 impl(
   i8,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i8(self))
   )
 );
 impl(
@@ -1509,7 +1569,7 @@ impl(
 impl(
   i16,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i16(self))
   )
 );
 impl(
@@ -1859,12 +1919,7 @@ impl(
 impl(
   i32,
   Hash(
-    (hash) : (
-      (self) -> {
-        u32_value := u32(self);
-        u64(u32_value)
-      }
-    )
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i32(self))
   )
 );
 impl(
@@ -2097,7 +2152,7 @@ impl(
 impl(
   i64,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(self))
   )
 );
 impl(
@@ -2315,13 +2370,6 @@ impl(
 );
 impl(
   u8,
-  Negate(
-    Output : u8,
-    (neg) : ((self) -> __yo_op_neg(self))
-  )
-);
-impl(
-  u8,
   BitLeftShift(u8)(
     Output : u8,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
@@ -2387,7 +2435,7 @@ impl(
 impl(
   u8,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u8(self))
   )
 );
 impl(
@@ -2595,13 +2643,6 @@ impl(
 );
 impl(
   u16,
-  Negate(
-    Output : u16,
-    (neg) : ((self) -> __yo_op_neg(self))
-  )
-);
-impl(
-  u16,
   BitLeftShift(u16)(
     Output : u16,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
@@ -2667,7 +2708,7 @@ impl(
 impl(
   u16,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u16(self))
   )
 );
 impl(
@@ -2875,13 +2916,6 @@ impl(
 );
 impl(
   u32,
-  Negate(
-    Output : u32,
-    (neg) : ((self) -> __yo_op_neg(self))
-  )
-);
-impl(
-  u32,
   BitLeftShift(u32)(
     Output : u32,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
@@ -2947,7 +2981,7 @@ impl(
 impl(
   u32,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(self))
   )
 );
 impl(
@@ -3155,13 +3189,6 @@ impl(
 );
 impl(
   u64,
-  Negate(
-    Output : u64,
-    (neg) : ((self) -> __yo_op_neg(self))
-  )
-);
-impl(
-  u64,
   BitLeftShift(u64)(
     Output : u64,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
@@ -3227,7 +3254,7 @@ impl(
 impl(
   u64,
   Hash(
-    (hash) : ((self) -> self)
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(self))
   )
 );
 impl(
@@ -3442,34 +3469,6 @@ impl(
 );
 impl(
   f32,
-  BitNot(
-    Output : f32,
-    (~) : ((self) -> __yo_op_bit_complement(self))
-  )
-);
-impl(
-  f32,
-  BitAnd(f32)(
-    Output : f32,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
-  )
-);
-impl(
-  f32,
-  BitOr(f32)(
-    Output : f32,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
-  )
-);
-impl(
-  f32,
-  BitXor(f32)(
-    Output : f32,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
-  )
-);
-impl(
-  f32,
   Eq(f32)(
     (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
     (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
@@ -3481,15 +3480,34 @@ impl(
     (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
     (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
     (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
-    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
+    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs)),
+    // TOTAL-order override (plans/STD_API_AUDIT.md D3.3, no-PartialOrd
+    // decision): the OPERATORS stay IEEE (NaN incomparable), but `cmp`
+    // must be total so float sorts are deterministic. NaNs compare equal
+    // to each other and greater than every number (incl. +inf); -0 and
+    // +0 compare Equal (deliberately simpler than IEEE totalOrder, and
+    // consistent with `==`).
+    cmp : (
+      (lhs, rhs) -> {
+        l_nan := not(lhs == lhs);
+        r_nan := not(rhs == rhs);
+        cond(
+          (l_nan && r_nan) => Ordering.Equal,
+          l_nan => Ordering.Greater,
+          r_nan => Ordering.Less,
+          (lhs < rhs) => Ordering.Less,
+          (lhs == rhs) => Ordering.Equal,
+          true => Ordering.Greater
+        )
+      }
+    )
   )
 );
-impl(
-  f32,
-  Hash(
-    (hash) : ((self) -> u64(i32(self)))
-  )
-);
+// f32's `Hash` impl was DELETED (std S1, no-PartialOrd decision): it was
+// `u64(i32(self))` — a TRUNCATING int cast, so 0.5 and 0.9 already hashed
+// alike — and float map keys break the Eq/Hash contract on NaN anyway.
+// `HashMap(f32, …)` is now a compile error; key by the bits or a rounded
+// integer explicitly instead.
 impl(
   f32,
   Clone(
@@ -3643,34 +3661,6 @@ impl(
 );
 impl(
   f64,
-  BitNot(
-    Output : f64,
-    (~) : ((self) -> __yo_op_bit_complement(self))
-  )
-);
-impl(
-  f64,
-  BitAnd(f64)(
-    Output : f64,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
-  )
-);
-impl(
-  f64,
-  BitOr(f64)(
-    Output : f64,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
-  )
-);
-impl(
-  f64,
-  BitXor(f64)(
-    Output : f64,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
-  )
-);
-impl(
-  f64,
   Eq(f64)(
     (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
     (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
@@ -3682,15 +3672,26 @@ impl(
     (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
     (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
     (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
-    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
+    (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs)),
+    // TOTAL-order override — see the f32 impl's comment.
+    cmp : (
+      (lhs, rhs) -> {
+        l_nan := not(lhs == lhs);
+        r_nan := not(rhs == rhs);
+        cond(
+          (l_nan && r_nan) => Ordering.Equal,
+          l_nan => Ordering.Greater,
+          r_nan => Ordering.Less,
+          (lhs < rhs) => Ordering.Less,
+          (lhs == rhs) => Ordering.Equal,
+          true => Ordering.Greater
+        )
+      }
+    )
   )
 );
-impl(
-  f64,
-  Hash(
-    (hash) : ((self) -> u64(i64(self)))
-  )
-);
+// f64's `Hash` impl was DELETED — see the f32 note above (it was
+// `u64(i64(self))`, a truncating cast).
 impl(
   f64,
   Clone(
@@ -3914,7 +3915,7 @@ impl(
 impl(
   isize,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_isize(self))
   )
 );
 impl(
@@ -4135,13 +4136,6 @@ impl(
 );
 impl(
   usize,
-  Negate(
-    Output : usize,
-    (neg) : ((self) -> __yo_op_neg(self))
-  )
-);
-impl(
-  usize,
   BitLeftShift(usize)(
     Output : usize,
     (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
@@ -4207,7 +4201,7 @@ impl(
 impl(
   usize,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_usize(self))
   )
 );
 impl(
@@ -4238,6 +4232,119 @@ impl(
   usize,
   ComptimeRangeInclusiveOp(
     (..=) : ((start, end) -> RangeInclusive(usize)(start : start, end : end))
+  )
+);
+// ---------------------------------------------------------------------------
+// Range operators for the remaining integer types (plans/STD_API_AUDIT.md
+// D3.5 — previously only `usize` could form a range at runtime;
+// compile-time literal contexts route through comptime_int's ops).
+// ---------------------------------------------------------------------------
+impl(
+  i8,
+  RangeOp(
+    (..) : ((start, end) -> Range(i8)(start : start, end : end))
+  )
+);
+impl(
+  i8,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(i8)(start : start, end : end))
+  )
+);
+impl(
+  i16,
+  RangeOp(
+    (..) : ((start, end) -> Range(i16)(start : start, end : end))
+  )
+);
+impl(
+  i16,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(i16)(start : start, end : end))
+  )
+);
+impl(
+  i32,
+  RangeOp(
+    (..) : ((start, end) -> Range(i32)(start : start, end : end))
+  )
+);
+impl(
+  i32,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(i32)(start : start, end : end))
+  )
+);
+impl(
+  i64,
+  RangeOp(
+    (..) : ((start, end) -> Range(i64)(start : start, end : end))
+  )
+);
+impl(
+  i64,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(i64)(start : start, end : end))
+  )
+);
+impl(
+  isize,
+  RangeOp(
+    (..) : ((start, end) -> Range(isize)(start : start, end : end))
+  )
+);
+impl(
+  isize,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(isize)(start : start, end : end))
+  )
+);
+impl(
+  u8,
+  RangeOp(
+    (..) : ((start, end) -> Range(u8)(start : start, end : end))
+  )
+);
+impl(
+  u8,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(u8)(start : start, end : end))
+  )
+);
+impl(
+  u16,
+  RangeOp(
+    (..) : ((start, end) -> Range(u16)(start : start, end : end))
+  )
+);
+impl(
+  u16,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(u16)(start : start, end : end))
+  )
+);
+impl(
+  u32,
+  RangeOp(
+    (..) : ((start, end) -> Range(u32)(start : start, end : end))
+  )
+);
+impl(
+  u32,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(u32)(start : start, end : end))
+  )
+);
+impl(
+  u64,
+  RangeOp(
+    (..) : ((start, end) -> Range(u64)(start : start, end : end))
+  )
+);
+impl(
+  u64,
+  RangeInclusiveOp(
+    (..=) : ((start, end) -> RangeInclusive(u64)(start : start, end : end))
   )
 );
 impl(
@@ -4491,7 +4598,7 @@ impl(
 impl(
   char,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
@@ -4601,7 +4708,7 @@ impl(
 impl(
   int,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self)))
   )
 );
 impl(
@@ -4711,7 +4818,7 @@ impl(
 impl(
   uint,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
@@ -4821,7 +4928,7 @@ impl(
 impl(
   short,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self)))
   )
 );
 impl(
@@ -4931,7 +5038,7 @@ impl(
 impl(
   ushort,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self)))
   )
 );
 impl(
@@ -5041,7 +5148,7 @@ impl(
 impl(
   long,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -5151,7 +5258,7 @@ impl(
 impl(
   ulong,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
@@ -5261,7 +5368,7 @@ impl(
 impl(
   longlong,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -5371,7 +5478,7 @@ impl(
 impl(
   ulonglong,
   Hash(
-    (hash) : ((self) -> u64(self))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
@@ -5481,7 +5588,7 @@ impl(
 impl(
   longdouble,
   Hash(
-    (hash) : ((self) -> u64(i64(self)))
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -5790,7 +5897,6 @@ impl(
 // everywhere like bool/i32.)
 // (`assert`/`panic` are NOT ambient: import them explicitly from
 // `std/assert`. The prelude itself never imports other modules.)
-export();
 /// ComptimeList
 impl(generic(T : Type), ComptimeList(T), Comptime());
 impl(generic(T : Type), ComptimeList(T), Acyclic());
@@ -5911,6 +6017,16 @@ impl(
   neq : (fn(comptime(a) : Type, comptime(b) : Type) -> comptime(bool))({
     return(!(__yo_are_types_equal(a, b)));
   }),
+  /// Render this type for DISPLAY — diagnostics, comptime_assert messages,
+  /// generated comments.
+  ///
+  /// NOT a source renderer: the result is not guaranteed to reparse. An
+  /// instantiated generic has no written name to return, so it renders as a
+  /// placeholder (`<struct:struct_yo_id_5916>`, `<enum:enum_yo_id_3586>`).
+  /// Metaprogramming that needs to NAME a type in generated code must not use
+  /// this — construct through `Self`, or reach the type as a value via
+  /// `Type.get_struct_fields(Self).get(i).field_type`, which needs no name and
+  /// no import at the use site.
   to_comptime_string : (fn(comptime(self) : Type) -> comptime(comptime_str))({
     return(__yo_type_to_comptime_string(self));
   })
@@ -6334,7 +6450,7 @@ export(Var);
 /// - `.Some(value)` — contains a value of type `T`
 /// - `.None` — contains no value
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// (x : Option(i32)) = .Some(i32(42));
 /// assert(x.is_some(), "expected Some");
@@ -6460,7 +6576,51 @@ impl(
       .Some(value) => value,
       .None => f()
     )
+  ),
+  /// Extract the contained value, panicking with `msg` if `None`.
+  expect : (fn(self : Self, msg : str) -> T)(
+    match(
+      self,
+      .Some(value) => value,
+      .None => __yo_panic(msg)
+    )
+  ),
+  /// Return `true` if `Some` and the predicate holds for the value.
+  is_some_and : (fn(self : Self, f : Impl(Fn(a : T) -> bool)) -> bool)(
+    match(
+      self,
+      .Some(value) => f(value),
+      .None => false
+    )
+  ),
+  /// Call `f` with the contained value (if `Some`), then return the option.
+  inspect : (fn(self : Self, f : Impl(Fn(a : T) -> unit)) -> Option(T))(
+    match(
+      self,
+      .Some(value) => {
+        f(value);
+        Option(T).Some(value)
+      },
+      .None => Option(T).None
+    )
   )
+);
+/// In-place helpers for `Option(T)` (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type),
+  Option(T),
+  /// Take the value out of the option, leaving `None` in its place.
+  take : (fn(inout(self) : Self) -> Option(T))({
+    old := self;
+    self = Option(T).None;
+    old
+  }),
+  /// Replace the contained value with `Some(value)`, returning the old option.
+  replace : (fn(inout(self) : Self, value : T) -> Option(T))({
+    old := self;
+    self = Option(T).Some(value);
+    old
+  })
 );
 /// Flatten a nested `Option(Option(T))` into `Option(T)`.
 impl(
@@ -6472,6 +6632,28 @@ impl(
       self,
       .Some(inner) => inner,
       .None => Option(T).None
+    )
+  )
+);
+/// `Option(T)` defaults to `.None`.
+impl(
+  generic(T : Type),
+  Option(T),
+  Default(
+    default : (fn() -> Self)(Option(T).None)
+  )
+);
+/// Default-aware helpers for `Option(T)` (plans/STD_API_AUDIT.md D3.1/D3.7).
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  Option(T),
+  /// Extract the contained value, or `T`'s default when `None`.
+  unwrap_or_default : (fn(self : Self) -> T)(
+    match(
+      self,
+      .Some(value) => value,
+      .None => (T <: Default).default()
     )
   )
 );
@@ -6514,12 +6696,12 @@ impl(
 );
 /// `?` is a shorthand alias for `Option`.
 ? :: Option;
-/// `?*(T)` is a nullable pointer — equivalent to `Option(*(T))`.
-(?*) :: (fn(comptime(T) : Type) -> comptime(Type))(Option(*(T)));
+// The `(?*)` nullable-pointer alias was REMOVED 2026-08-21
+// (plans/OPERATOR_SET_AND_PRECEDENCE.md): `?*` is no longer an operator
+// token — write the composition `?(*(T))` (i.e. `Option(*(T))`) instead.
 export(
   Option,
-  ?,
-  ?*
+  ?
 );
 /// DeriveContext — context passed to derive rule functions (needs Option).
 /// Used by the `derive` macro to generate trait implementations.
@@ -6714,7 +6896,6 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
     info.is_struct() => {
       fields :: Type.get_struct_fields(T);
       fc :: fields.len();
-      type_name :: Type.to_comptime_string(T);
       cloned_fields :: __yo_comptime_fold_range(
         fc,
         "",
@@ -6727,7 +6908,11 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           )
         })
       );
-      clone_body :: __s3(type_name, "(", __s2(cloned_fields, ")"));
+      // Construct through `Self`, NOT through a rendered type name:
+      // `Type.to_comptime_string` is a DISPLAY renderer and returns an
+      // unusable `<struct:…>` placeholder for an instantiated generic, which
+      // made `derive(Clone)` fail outright on every generic struct.
+      clone_body :: __s3("Self(", cloned_fields, ")");
       ctx.make_impl(
         quote(
           Clone(
@@ -6805,41 +6990,27 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
 });
 derive_rule(Clone, __derive_clone);
 // --- derive_rule for Hash ---
+// Struct: feed every field, in declaration order. Enum: the variant index
+// (as u64) then that variant's fields. Both are prefix-free because every
+// field type's own Hash impl is.
 __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
   info :: Type.get_info(T);
-  cond(
+  body :: cond(
     info.is_struct() => {
       fields :: Type.get_struct_fields(T);
       fc :: fields.len();
       cond(
-        (fc == 0) =>
-          ctx.make_impl(
-            quote(
-              Hash(
-                (hash) : ((self) -> u64(0))
-              )
-            )
-          ),
+        (fc == 0) => __s2("{ ();", " }"),
         true => {
           hash_stmts :: __yo_comptime_fold_range(
             fc,
             "",
             (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
-              cond(
-                (fi == 0) => __s3("(h : u64) = self.", fname, ".hash()"),
-                true => __s4(a, ";\n    h = ((h * u64(31)) + self.", fname, ".hash())")
-              )
+              __s4(a, "\n    self.", fname, ".hash(hasher);")
             })
           );
-          hash_body :: __s3("{\n    ", hash_stmts, ";\n    return(h);\n  }");
-          ctx.make_impl(
-            quote(
-              Hash(
-                (hash) : ((self) -> #(hash_body.to_expr()))
-              )
-            )
-          )
+          __s3("{", hash_stmts, "\n  }")
         }
       )
     },
@@ -6853,7 +7024,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           v :: variants.get(vi);
           vi_str :: __yo_comptime_usize_to_comptime_string(vi);
           branch :: cond(
-            (v.fields.len() == 0) => __s4(".", v.name, " => u64(", __s2(vi_str, ")")),
+            (v.fields.len() == 0) => __s4(".", v.name, " => hasher.write_u64(u64(", __s2(vi_str, "))")),
             true => {
               bindings :: __yo_comptime_fold_range(
                 v.fields.len(),
@@ -6868,18 +7039,18 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
               );
               hash_stmts :: __yo_comptime_fold_range(
                 v.fields.len(),
-                __s3("(h : u64) = u64(", vi_str, ")"),
+                __s3("hasher.write_u64(u64(", vi_str, "));"),
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
-                  __s4(a, "; h = ((h * u64(31)) + __v_", fname, ".hash())")
+                  __s4(a, " __v_", fname, ".hash(hasher);")
                 })
               );
               __s5(
                 __s3(".", v.name, "("),
                 bindings,
                 ") => { ",
-                __s2(hash_stmts, "; h"),
-                "; }"
+                hash_stmts,
+                " }"
               )
             }
           );
@@ -6889,23 +7060,16 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
           )
         })
       );
-      match_body :: __s3("match(self,\n    ", hash_branches, "\n  )");
-      ctx.make_impl(
-        quote(
-          Hash(
-            (hash) : ((self) -> #(match_body.to_expr()))
-          )
-        )
-      )
+      __s3("{ match(self,\n    ", hash_branches, "\n  ); }")
     },
-    true =>
-      ctx.make_impl(
-        quote(
-          Hash(
-            (hash) : ((self) -> u64(0))
-          )
-        )
+    true => __s2("{ ();", " }")
+  );
+  ctx.make_impl(
+    quote(
+      Hash(
+        hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(#(body.to_expr()))
       )
+    )
   )
 });
 derive_rule(Hash, __derive_hash);
@@ -7089,13 +7253,65 @@ __derive_ord :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(
   )
 });
 derive_rule(Ord, __derive_ord);
+// --- derive_rule for Default ---
+/// `derive(Default)` for structs: every field takes its own type's default.
+///
+/// Each field's type is named by INDEXING the struct's own field list —
+/// `(Type.get_struct_fields(Self).get(i).field_type <: Default).default()` —
+/// rather than by rendering the type back to source. Rendering does not work
+/// here: `Type.to_comptime_string` returns an unusable `<struct:…>` / `<enum:…>`
+/// placeholder for every INSTANTIATED generic (`Option(i32)`, `ArrayList(i32)`,
+/// any user generic), so a rendered `Option(String)` field would not reparse.
+/// Indexing sidesteps that entirely and needs no field type to be in scope at
+/// the impl site. See issues/type-to-comptime-string-placeholder-for-generics.md.
+///
+/// Structs only. An enum has no canonical default variant — Rust needs an
+/// explicit `#[default]` attribute to pick one, and Yo has no such attribute,
+/// so guessing (say, the first variant) would be a silent choice rather than a
+/// declared one.
+__derive_default :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  info :: Type.get_info(T);
+  comptime_assert(
+    info.is_struct(),
+    "derive(Default) supports structs only — an enum has no canonical default variant, so write the impl by hand"
+  );
+  fields :: Type.get_struct_fields(T);
+  fc :: fields.len();
+  default_fields :: __yo_comptime_fold_range(
+    fc,
+    "",
+    (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      fname :: fields.get(fi).name;
+      part :: __s5(
+        fname,
+        " : (Type.get_struct_fields(Self).get(",
+        fi.to_comptime_string(),
+        ").field_type <: Default).default()",
+        ""
+      );
+      cond(
+        (a == "") => part,
+        true => __s3(a, ", ", part)
+      )
+    })
+  );
+  default_body :: __s3("Self(", default_fields, ")");
+  ctx.make_impl(
+    quote(
+      Default(
+        default : (() -> #(default_body.to_expr()))
+      )
+    )
+  )
+});
+derive_rule(Default, __derive_default);
 /// Result — a value that is either success (`Ok`) or failure (`Err`).
 ///
 /// `Result(OkType, ErrorType)` has two variants:
 /// - `.Ok(value)` — contains a success value of type `OkType`
 /// - `.Err(error)` — contains an error value of type `ErrorType`
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// (r : Result(i32, str)) = .Ok(i32(42));
 /// assert(r.is_ok(), "expected Ok");
@@ -7233,6 +7449,115 @@ impl(
       .Ok(value) => value,
       .Err(error) => f(error)
     )
+  ),
+  /// Extract the `Ok` value, or return `or_value` if `Err`.
+  unwrap_or : (fn(self : Self, or_value : OkType) -> OkType)(
+    match(
+      self,
+      .Ok(value) => value,
+      .Err(_) => or_value
+    )
+  ),
+  /// Extract the `Ok` value, panicking with `msg` if `Err`.
+  expect : (fn(self : Self, msg : str) -> OkType)(
+    match(
+      self,
+      .Ok(value) => value,
+      .Err(_) => __yo_panic(msg)
+    )
+  ),
+  /// Extract the `Err` value, panicking with `msg` if `Ok`.
+  expect_err : (fn(self : Self, msg : str) -> ErrorType)(
+    match(
+      self,
+      .Err(error) => error,
+      .Ok(_) => __yo_panic(msg)
+    )
+  ),
+  /// Call `f` with the `Ok` value (if any), then return the result.
+  inspect : (fn(self : Self, f : Impl(Fn(a : OkType) -> unit)) -> Result(OkType, ErrorType))(
+    match(
+      self,
+      .Ok(value) => {
+        f(value);
+        Result(OkType, ErrorType).Ok(value)
+      },
+      .Err(error) => Result(OkType, ErrorType).Err(error)
+    )
+  ),
+  /// Call `f` with the `Err` value (if any), then return the result.
+  inspect_err : (fn(self : Self, f : Impl(Fn(a : ErrorType) -> unit)) -> Result(OkType, ErrorType))(
+    match(
+      self,
+      .Ok(value) => Result(OkType, ErrorType).Ok(value),
+      .Err(error) => {
+        f(error);
+        Result(OkType, ErrorType).Err(error)
+      }
+    )
+  )
+);
+/// Extract the `Ok` value, or `OkType`'s default when `Err`
+/// (plans/STD_API_AUDIT.md D3.1/D3.7).
+impl(
+  generic(OkType : Type, ErrorType : Type),
+  where(OkType <: Default),
+  Result(OkType, ErrorType),
+  unwrap_or_default : (fn(self : Self) -> OkType)(
+    match(
+      self,
+      .Ok(value) => value,
+      .Err(_) => (OkType <: Default).default()
+    )
+  )
+);
+/// Flatten a nested `Result(Result(T, E), E)` into `Result(T, E)`.
+impl(
+  generic(T : Type, E : Type),
+  Result(Result(T, E), E),
+  /// Collapse one level of nesting.
+  flatten : (fn(self : Self) -> Result(T, E))(
+    match(
+      self,
+      .Ok(inner) => inner,
+      .Err(error) => Result(T, E).Err(error)
+    )
+  )
+);
+/// Transpose a `Result` of an `Option` into an `Option` of a `Result`.
+impl(
+  generic(T : Type, E : Type),
+  Result(Option(T), E),
+  /// `Ok(Some(v))` becomes `Some(Ok(v))`, `Ok(None)` becomes `None`,
+  /// `Err(e)` becomes `Some(Err(e))`.
+  transpose : (fn(self : Self) -> Option(Result(T, E)))(
+    match(
+      self,
+      .Ok(opt) => match(
+        opt,
+        .Some(value) => Option(Result(T, E)).Some(Result(T, E).Ok(value)),
+        .None => Option(Result(T, E)).None
+      ),
+      .Err(error) => Option(Result(T, E)).Some(Result(T, E).Err(error))
+    )
+  )
+);
+/// Transpose an `Option` of a `Result` into a `Result` of an `Option`.
+impl(
+  generic(T : Type, E : Type),
+  Option(Result(T, E)),
+  /// `Some(Ok(v))` becomes `Ok(Some(v))`, `None` becomes `Ok(None)`,
+  /// `Some(Err(e))` becomes `Err(e)`.
+  transpose : (fn(self : Self) -> Result(Option(T), E))(
+    match(
+      self,
+      .Some(r) => match(
+        r,
+        .Ok(value) => Result(Option(T), E).Ok(Option(T).Some(value)),
+        .Err(error) => Result(Option(T), E).Err(error)
+      ),
+      .None => Result(Option(T), E).Ok(Option(T).None)
+    )
   )
 );
 /// `Option` to `Result` conversion methods (defined after `Result`).
@@ -7329,6 +7654,82 @@ impl(
     )
   )
 );
+/// Ordering for `Option(T)` — `None` sorts before every `Some`
+/// (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type),
+  where(T <: Ord(T)),
+  Option(T),
+  Ord(Option(T))(
+    (<) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => match(rhs, .None => false, .Some(_) => true),
+          .Some(a) => match(
+            rhs,
+            .None => false,
+            .Some(b) => (a < b)
+          )
+        )
+    ),
+    (<=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => true,
+          .Some(a) => match(
+            rhs,
+            .None => false,
+            .Some(b) => (a <= b)
+          )
+        )
+    ),
+    (>) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => false,
+          .Some(a) => match(
+            rhs,
+            .None => true,
+            .Some(b) => (a > b)
+          )
+        )
+    ),
+    (>=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .None => match(rhs, .None => true, .Some(_) => false),
+          .Some(a) => match(
+            rhs,
+            .None => true,
+            .Some(b) => (a >= b)
+          )
+        )
+    )
+  )
+);
+/// Hash for `Option(T)` — variant tag mixed with the inner hash, so
+/// options can key maps (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type),
+  where(T <: Hash),
+  Option(T),
+  Hash(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+      match(
+        self,
+        .None => hasher.write_u64(u64(0)),
+        .Some(v) => {
+          hasher.write_u64(u64(1));
+          v.hash(hasher);
+        }
+      );
+    })
+  )
+);
 /// Clone for `Result(T, E)` — clones the inner value or error.
 impl(
   generic(T : Type, E : Type),
@@ -7369,12 +7770,107 @@ impl(
     )
   )
 );
+/// Ordering for `Result(T, E)` — every `Ok` sorts before every `Err`
+/// (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type, E : Type),
+  where(T <: Ord(T), E <: Ord(E)),
+  Result(T, E),
+  Ord(Result(T, E))(
+    (<) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a < b),
+            .Err(_) => true
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => false,
+            .Err(b) => (a < b)
+          )
+        )
+    ),
+    (<=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a <= b),
+            .Err(_) => true
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => false,
+            .Err(b) => (a <= b)
+          )
+        )
+    ),
+    (>) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a > b),
+            .Err(_) => false
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => true,
+            .Err(b) => (a > b)
+          )
+        )
+    ),
+    (>=) : (
+      (lhs, rhs) ->
+        match(
+          lhs,
+          .Ok(a) => match(
+            rhs,
+            .Ok(b) => (a >= b),
+            .Err(_) => false
+          ),
+          .Err(a) => match(
+            rhs,
+            .Ok(_) => true,
+            .Err(b) => (a >= b)
+          )
+        )
+    )
+  )
+);
+/// Hash for `Result(T, E)` — variant tag mixed with the inner hash
+/// (plans/STD_API_AUDIT.md D3.7).
+impl(
+  generic(T : Type, E : Type),
+  where(T <: Hash, E <: Hash),
+  Result(T, E),
+  Hash(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+      match(
+        self,
+        .Ok(v) => {
+          hasher.write_u64(u64(1));
+          v.hash(hasher);
+        },
+        .Err(e) => {
+          hasher.write_u64(u64(2));
+          e.hash(hasher);
+        }
+      );
+    })
+  )
+);
 export(Result);
 /// Box — a heap-allocated, reference-counted container for a single value.
 ///
 /// Use `box(value)` to allocate. Access the inner value with `b.*`.
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// b := box(i32(42));
 /// assert((b.* == i32(42)), "inner value is 42");
@@ -7400,7 +7896,7 @@ impl(
   where(T <: Hash),
   Box(T),
   Hash(
-    (hash) : ((self) -> self.*.hash())
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
   )
 );
 impl(
@@ -7503,7 +7999,7 @@ export(^);
 ///
 /// Use `arc(value)` to allocate. Access the inner value with `a.*`.
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// a := arc(i32(42));
 /// assert((a.* == i32(42)), "inner value is 42");
@@ -7539,11 +8035,11 @@ extern(
 /// Useful for FFI or low-level patterns where a value must be
 /// allocated first and initialized later (e.g., by a C function).
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// extern "C",
 ///   time_t : Type,
-///   time : fn(timer: ?*(time_t)) -> time_t
+///   time : fn(timer: ?(*(time_t))) -> time_t
 /// ;
 ///
 /// uninitialized_timer := MaybeUninit(time_t).new();
@@ -7582,6 +8078,32 @@ Iterator :: trait(
     )
 );
 export(Iterator);
+/// DoubleEndedIterator trait — an `Iterator` that can also be advanced from the
+/// BACK. `next` and `next_back` consume from opposite ends of the same sequence
+/// and meet in the middle; once they meet, both return `.None`.
+///
+/// Declares its own `Item`, which is how `next_back`'s signature can name it.
+/// It deliberately carries NO where-clause tying it to `Iterator`: a trait
+/// cannot constrain another trait's associated type to its OWN
+/// (`where(Self <: Iterator(Item := Self.Item))` is rejected — the constraint
+/// value must be a type, not an associated-type projection of `Self`).
+///
+/// COHERENCE RULE (not compiler-checked): an impl's `DoubleEndedIterator.Item`
+/// MUST equal its `Iterator.Item`. The associated-type registry is keyed by
+/// (type id, label) with no trait discrimination and takes the FIRST match, so a
+/// mismatch is silently first-wins rather than diagnosed. Every impl in std
+/// pairs the two traits on the same type with the same `Item`.
+DoubleEndedIterator :: trait(
+  /// The type of elements yielded — must equal `Self`'s `Iterator.Item`.
+  Item : Type,
+  /// Advance the iterator from the back and return the previous value, or
+  /// `None` when the two ends have met.
+  next_back :
+    (
+      fn(inout(self) : Self) -> Option(Self.Item)
+    )
+);
+export(DoubleEndedIterator);
 /// IntoIterator trait — convert a collection into an iterator.
 IntoIterator :: trait(
   Item : Type,
@@ -7591,13 +8113,44 @@ IntoIterator :: trait(
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);
+/// FromIterator trait — build `Self` from a sequence of `Self.Elem` values.
+///
+/// The iteration loop lives in the blanket `collect` below, not here, so this
+/// trait stays MONOMORPHIC: a seed constructor plus one element-at-a-time step,
+/// both statics, dispatched the way `sum` calls `(A <: Default).default()`.
+/// That is what removes the need for a trait method carrying its own
+/// `generic(...)` + `where`.
+///
+/// The element type is deliberately named `Elem`, NOT `Item`: the assoc-type
+/// registry is keyed by (type id, label) with no trait discrimination, so an
+/// `Item` here would collide with the collection's own `IntoIterator.Item` and
+/// resolve first-wins by load order — benign for `ArrayList`, but genuinely
+/// divergent for `HashMap`, whose `IntoIterator.Item` is `MapEntry(K, V)`.
+///
+/// `from_iter_add` RETURNS the accumulator instead of mutating it so that one
+/// signature covers reference collections (mutate `acc`, return it — the return
+/// is a rebind of the same object) and value types such as `String`.
+FromIterator :: trait(
+  /// The element type this collection is built from.
+  Elem : Type,
+  /// The empty collection `collect` starts from.
+  from_iter_new : (fn() -> Self),
+  /// Add one element to a partially-built collection and return it.
+  from_iter_add : (fn(acc : Self, item : Self.Elem) -> Self)
+);
+export(FromIterator);
 /// === Array Iterator ===
 /// Value iterator for Array(T, N) — yields elements by value. Backs
 /// the for-macro value form `for(arr, (x) => body)` via `into_iter`.
 _ArrayIter :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))(
   struct(
     _arr : Array(T, N),
-    _index : usize
+    _index : usize,
+    /// How many elements `next_back` has already taken off the END. A COUNTER
+    /// rather than a back cursor, so it initialises from a plain `usize(0)`
+    /// literal and nothing has to coerce the comptime value-generic `N` into a
+    /// runtime field. While it is 0 the forward guard is unchanged.
+    _back_taken : usize
   )
 );
 impl(
@@ -7607,7 +8160,7 @@ impl(
     Item : T,
     next : (fn(inout(self) : Self) -> Option(T))(
       cond(
-        (self._index >= N) => .None,
+        ((self._index + self._back_taken) >= N) => .None,
         true => {
           out := self._arr(self._index);
           self._index = (self._index + usize(1));
@@ -7619,19 +8172,88 @@ impl(
 );
 impl(
   generic(T : Type, N : usize),
+  _ArrayIter(T, N),
+  DoubleEndedIterator(
+    Item : T,
+    next_back : (fn(inout(self) : Self) -> Option(T))(
+      cond(
+        ((self._index + self._back_taken) >= N) => .None,
+        true => {
+          self._back_taken = (self._back_taken + usize(1));
+          .Some(self._arr(N - self._back_taken))
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type, N : usize),
   Array(T, N),
-  into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
-    _ArrayIter(T, N)(_arr : self, _index : usize(0))
+  IntoIterator(
+    Item : T,
+    IntoIter : _ArrayIter(T, N),
+    into_iter : (fn(self : Self) -> _ArrayIter(T, N))(
+      _ArrayIter(T, N)(_arr : self, _index : usize(0), _back_taken : usize(0))
+    )
   )
 );
 /// TryFrom trait — fallible conversion from one type to another.
-TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
+/// From trait — infallible conversion FROM another type
+/// (plans/STD_API_AUDIT.md D3.2; the fallible pair is `TryFrom` below).
+From :: (fn(comptime(Source) : Type) -> comptime(Trait))(
+  trait(
+    /// Convert `value` into `Self`.
+    from :
+      (fn(value : Source) -> Self)
+  )
+);
+export(From);
+/// Into trait — infallible conversion of `Self` INTO another type.
+/// Called with the target type, mirroring `try_into`:
+/// `wide := narrow.into(i64);`
+Into :: (fn(comptime(To) : Type) -> comptime(Trait))(
+  trait(
+    /// Convert `self` into the target type.
+    into :
+      (fn(self : Self, (comptime(_To) : Type) = To) -> To)
+  )
+);
+export(Into);
+// Lossless integer widenings — the canonical seed impls for From/Into.
+// (Narrowing stays with TryFrom, where failure is representable.)
+impl(i16, From(i8)(from : (value -> i16(value))));
+impl(i32, From(i8)(from : (value -> i32(value))));
+impl(i32, From(i16)(from : (value -> i32(value))));
+impl(i64, From(i8)(from : (value -> i64(value))));
+impl(i64, From(i16)(from : (value -> i64(value))));
+impl(i64, From(i32)(from : (value -> i64(value))));
+impl(u16, From(u8)(from : (value -> u16(value))));
+impl(u32, From(u8)(from : (value -> u32(value))));
+impl(u32, From(u16)(from : (value -> u32(value))));
+impl(u64, From(u8)(from : (value -> u64(value))));
+impl(u64, From(u16)(from : (value -> u64(value))));
+impl(u64, From(u32)(from : (value -> u64(value))));
+impl(f64, From(f32)(from : (value -> f64(value))));
+impl(i8, Into(i16)(into : ((self, _) -> i16(self))));
+impl(i8, Into(i32)(into : ((self, _) -> i32(self))));
+impl(i8, Into(i64)(into : ((self, _) -> i64(self))));
+impl(i16, Into(i32)(into : ((self, _) -> i32(self))));
+impl(i16, Into(i64)(into : ((self, _) -> i64(self))));
+impl(i32, Into(i64)(into : ((self, _) -> i64(self))));
+impl(u8, Into(u16)(into : ((self, _) -> u16(self))));
+impl(u8, Into(u32)(into : ((self, _) -> u32(self))));
+impl(u8, Into(u64)(into : ((self, _) -> u64(self))));
+impl(u16, Into(u32)(into : ((self, _) -> u32(self))));
+impl(u16, Into(u64)(into : ((self, _) -> u64(self))));
+impl(u32, Into(u64)(into : ((self, _) -> u64(self))));
+impl(f32, Into(f64)(into : ((self, _) -> f64(self))));
+TryFrom :: (fn(comptime(Source) : Type) -> comptime(Trait))(
   trait(
     /// Error type returned on conversion failure.
     Error : Type,
     /// Attempt to convert `value` into `Self`.
     try_from :
-      (fn(value : From) -> Result(Self, Self.Error))
+      (fn(value : Source) -> Result(Self, Self.Error))
   )
 );
 export(TryFrom);
@@ -7646,47 +8268,20 @@ TryInto :: (fn(comptime(To) : Type) -> comptime(Trait))(
   )
 );
 export(TryInto);
-/// `if` macro — expands to `cond(condition => then, true => else)`.
-///
-/// # Example
-/// ```rust
-/// if(x > 0, println("positive"), println("non-positive"));
-/// ```
-if :: (
-  fn(
-    quote(condition) : Expr,
-    quote(then) : Expr,
-    (quote(else) : Expr) ?= quote(())
-  ) -> unquote(Expr)
-)(
-  quote(
-    cond(
-      unquote(condition) => unquote(then),
-      true => unquote(else)
-    )
-  )
-);
-export(if);
-/// `try` macro — unwrap a `Result`, returning early on `Err`.
-///
-/// # Example
-/// ```rust
-/// value := try(might_fail());
-/// ```
-try :: (fn(quote(expr_to_try) : Expr) -> unquote(Expr))({
-  temp :: gensym("try");
-  quote({
-    unquote(temp) := unquote(expr_to_try);
-    match(
-      unquote(temp),
-      .Ok(value) => value,
-      .Err(error) => {
-        return(.Err(error));
-      }
-    )
-  })
-});
-export(try);
+// The `if` macro was DELETED 2026-08-30 (plans/MACRO_POLICY.md Part 3.2):
+// `if(...)` desugars to `cond(...)` at parse time (`desugar_if_calls`,
+// src/expr.yo) in every compiler since the desugar landed, and the v0.2.20
+// seed ships it — the bootstrap-compatibility reason to keep the macro is
+// gone. An `if` call the desugar leaves alone (odd arity, mismatched
+// labels, a dynamically built AST) is now an error instead of silently
+// dispatching a macro.
+// The `try` macro (unwrap a `Result`, returning early on `Err`) was
+// REMOVED 2026-08-21 (plans/MACRO_POLICY.md Part 3.1): it had zero call
+// sites outside its own test file, it was the only std macro that
+// injected a hidden caller-frame `return`, and its name invited confusion
+// with the algebraic-effects system. Match on the `Result` instead, or
+// define an equivalent macro locally under `pragma(Pragma.AllowMacroDef);`
+// (tests/macro_def_pragma.test.yo keeps a working three-line version).
 /// `for` macro — iterate over a collection.
 ///
 ///   `for(coll, (x) => body)` — calls `coll.into_iter()` and binds `x`
@@ -7703,7 +8298,7 @@ export(try);
 /// transparently: a blanket `into_iter` impl on `Iterator` (below)
 /// makes every iterator its own `IntoIterator`.
 ///
-/// # Examples
+/// ## Examples
 /// ```rust
 /// // Object elements — mutate in place through the handle.
 /// for(names, (s) => {
@@ -7791,6 +8386,24 @@ IterPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(_0 : A, _1 : B)
 );
 export(IterPair);
+/// Zip two options into an option of a pair (plans/STD_API_AUDIT.md D3.7;
+/// defined here because it needs `IterPair`).
+impl(
+  generic(T : Type),
+  Option(T),
+  /// `Some(a).zip(Some(b))` is `Some(IterPair(a, b))`; anything else is `None`.
+  zip : (fn(generic(B : Type), self : Self, other : Option(B)) -> Option(IterPair(T, B)))(
+    match(
+      self,
+      .Some(a) => match(
+        other,
+        .Some(b) => Option(IterPair(T, B)).Some(IterPair(T, B)(_0 : a, _1 : b)),
+        .None => Option(IterPair(T, B)).None
+      ),
+      .None => Option(IterPair(T, B)).None
+    )
+  )
+);
 // ---------------------------------------------------------------------------
 // IterMap
 // ---------------------------------------------------------------------------
@@ -7825,13 +8438,14 @@ export(IterMap);
 ///
 /// Created by calling `.filter(pred)` on any iterator.
 /// `I` is the source iterator type, `F` is the predicate closure type
-/// satisfying `Fn(item : *(A)) -> bool`.
+/// satisfying `Fn(item : A) -> bool` — by value, symmetric with `map`
+/// (plans/STD_API_AUDIT.md D3.4's callback-asymmetry fix).
 IterFilter :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool)),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
   IterFilter(I, F),
   Iterator(
     Item : A,
@@ -7846,7 +8460,7 @@ impl(
           },
           .Some(item) => {
             cond(
-              (self._f)(&(item)) => {
+              (self._f)(item) => {
                 loop_result = .Some(item);
                 break;
               },
@@ -7985,6 +8599,1192 @@ impl(
 );
 export(IterZip);
 // ---------------------------------------------------------------------------
+// IterChain
+// ---------------------------------------------------------------------------
+/// Lazy iterator that yields all of the first iterator, then all of the second.
+///
+/// Created by calling `.chain(other)` on any iterator. Both iterators must
+/// yield the same `Item` type.
+IterChain :: (fn(comptime(I) : Type, comptime(J) : Type) -> comptime(Type))(
+  struct(_first : I, _second : J, _first_done : bool)
+);
+impl(
+  generic(I : Type, J : Type, A : Type),
+  where(I <: Iterator(Item := A), J <: Iterator(Item := A)),
+  IterChain(I, J),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))({
+      (result : Option(A)) = .None;
+      cond(
+        !(self._first_done) => {
+          match(
+            self._first.next(),
+            .Some(item) => {
+              result = .Some(item);
+            },
+            .None => {
+              self._first_done = true;
+            }
+          );
+        },
+        true => ()
+      );
+      cond(
+        (self._first_done && result.is_none()) => {
+          result = self._second.next();
+        },
+        true => ()
+      );
+      result
+    })
+  )
+);
+export(IterChain);
+// ---------------------------------------------------------------------------
+// IterTakeWhile
+// ---------------------------------------------------------------------------
+/// Lazy iterator that yields elements while `pred` holds, then stops forever.
+///
+/// Created by calling `.take_while(pred)` on any iterator.
+IterTakeWhile :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F, _done : bool)
+);
+impl(
+  generic(I : Type, A : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
+  IterTakeWhile(I, F),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))({
+      (result : Option(A)) = .None;
+      cond(
+        self._done => (),
+        true => {
+          match(
+            self._inner.next(),
+            .None => {
+              self._done = true;
+            },
+            .Some(item) => {
+              cond(
+                (self._f)(item) => {
+                  result = .Some(item);
+                },
+                true => {
+                  self._done = true;
+                }
+              );
+            }
+          );
+        }
+      );
+      result
+    })
+  )
+);
+export(IterTakeWhile);
+// ---------------------------------------------------------------------------
+// IterSkipWhile
+// ---------------------------------------------------------------------------
+/// Lazy iterator that skips elements while `pred` holds, then yields the rest.
+///
+/// Created by calling `.skip_while(pred)` on any iterator.
+IterSkipWhile :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F, _skipping : bool)
+);
+impl(
+  generic(I : Type, A : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> bool)),
+  IterSkipWhile(I, F),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))({
+      (result : Option(A)) = .None;
+      while(runtime(true), {
+        match(
+          self._inner.next(),
+          .None => {
+            break;
+          },
+          .Some(item) => {
+            cond(
+              (self._skipping && (self._f)(item)) => (),
+              true => {
+                self._skipping = false;
+                result = .Some(item);
+                break;
+              }
+            );
+          }
+        );
+      });
+      result
+    })
+  )
+);
+export(IterSkipWhile);
+// ---------------------------------------------------------------------------
+// IterFilterMap
+// ---------------------------------------------------------------------------
+/// Lazy iterator that maps each element to an `Option` and yields the `Some`s.
+///
+/// Created by calling `.filter_map(f)` on any iterator. `B` is the output
+/// element type, `F` satisfies `Fn(item : A) -> Option(B)`.
+IterFilterMap :: (fn(comptime(I) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
+  struct(_inner : I, _f : F)
+);
+impl(
+  generic(I : Type, A : Type, B : Type, F : Type),
+  where(I <: Iterator(Item := A), F <: (Fn(item : A) -> Option(B))),
+  IterFilterMap(I, B, F),
+  Iterator(
+    Item : B,
+    next : (fn(inout(self) : Self) -> Option(B))({
+      (result : Option(B)) = .None;
+      while(runtime(true), {
+        match(
+          self._inner.next(),
+          .None => {
+            break;
+          },
+          .Some(item) => {
+            match(
+              (self._f)(item),
+              .Some(mapped) => {
+                result = .Some(mapped);
+                break;
+              },
+              .None => ()
+            );
+          }
+        );
+      });
+      result
+    })
+  )
+);
+export(IterFilterMap);
+// ---------------------------------------------------------------------------
+// IterPeekable
+// ---------------------------------------------------------------------------
+/// Iterator wrapper that can look at the next element without consuming it.
+///
+/// Created by calling `.peekable()` on any iterator. `A` is the element type.
+IterPeekable :: (fn(comptime(I) : Type, comptime(A) : Type) -> comptime(Type))(
+  struct(_inner : I, _peeked : Option(A))
+);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterPeekable(I, A),
+  /// Return the next element without consuming it. Repeated calls return
+  /// the same element until `next()` is called.
+  peek : (fn(inout(self) : Self) -> Option(A))({
+    cond(
+      self._peeked.is_none() => {
+        self._peeked = self._inner.next();
+      },
+      true => ()
+    );
+    self._peeked
+  })
+);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterPeekable(I, A),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))(
+      match(
+        self._peeked.take(),
+        .Some(item) => .Some(item),
+        .None => self._inner.next()
+      )
+    )
+  )
+);
+export(IterPeekable);
+/// Lazy iterator that yields the source's elements back-to-front.
+///
+/// Created by calling `.rev()` on any `DoubleEndedIterator`. `next` pulls from
+/// the source's BACK and `next_back` from its FRONT, so `.rev().rev()` restores
+/// the original order.
+IterRev :: (fn(comptime(I) : Type) -> comptime(Type))(
+  struct(
+    _inner : I
+  )
+);
+impl(
+  generic(I : Type, A : Type),
+  where(I <: DoubleEndedIterator(Item := A)),
+  IterRev(I),
+  Iterator(
+    Item : A,
+    next : (fn(inout(self) : Self) -> Option(A))(
+      self._inner.next_back()
+    )
+  )
+);
+/// `IterRev` is itself double-ended — `next_back` is the source's `next`. This
+/// is what makes `.rev().rev()` the identity.
+impl(
+  generic(I : Type, A : Type),
+  where(I <: Iterator(Item := A)),
+  IterRev(I),
+  DoubleEndedIterator(
+    Item : A,
+    next_back : (fn(inout(self) : Self) -> Option(A))(
+      self._inner.next()
+    )
+  )
+);
+export(IterRev);
+// ---------------------------------------------------------------------------
+// Range iteration (plans/STD_API_AUDIT.md D3.5): `for(0..10, (i) => ...)`
+// and every iterator combinator work on integer ranges. Per-type impls —
+// a generic impl would need a `Step` notion (a generic "one") the prelude
+// does not have; chunk-1 `From` covers only lossless widening, which
+// excludes e.g. u8 -> i8.
+// ---------------------------------------------------------------------------
+/// Half-open `i8` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(i8),
+  Iterator(
+    Item : i8,
+    next : (fn(inout(self) : Self) -> Option(i8))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + i8(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i8` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=i8.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(i8),
+  Iterator(
+    Item : i8,
+    next : (fn(inout(self) : Self) -> Option(i8))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = i8(1);
+              self.end = i8(0);
+            },
+            true => {
+              self.start = (self.start + i8(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i16` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(i16),
+  Iterator(
+    Item : i16,
+    next : (fn(inout(self) : Self) -> Option(i16))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + i16(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i16` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=i16.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(i16),
+  Iterator(
+    Item : i16,
+    next : (fn(inout(self) : Self) -> Option(i16))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = i16(1);
+              self.end = i16(0);
+            },
+            true => {
+              self.start = (self.start + i16(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i32` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(i32),
+  Iterator(
+    Item : i32,
+    next : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + i32(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i32` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=i32.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(i32),
+  Iterator(
+    Item : i32,
+    next : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = i32(1);
+              self.end = i32(0);
+            },
+            true => {
+              self.start = (self.start + i32(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i64` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(i64),
+  Iterator(
+    Item : i64,
+    next : (fn(inout(self) : Self) -> Option(i64))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + i64(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i64` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=i64.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(i64),
+  Iterator(
+    Item : i64,
+    next : (fn(inout(self) : Self) -> Option(i64))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = i64(1);
+              self.end = i64(0);
+            },
+            true => {
+              self.start = (self.start + i64(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `isize` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(isize),
+  Iterator(
+    Item : isize,
+    next : (fn(inout(self) : Self) -> Option(isize))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + isize(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `isize` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=isize.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(isize),
+  Iterator(
+    Item : isize,
+    next : (fn(inout(self) : Self) -> Option(isize))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = isize(1);
+              self.end = isize(0);
+            },
+            true => {
+              self.start = (self.start + isize(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u8` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(u8),
+  Iterator(
+    Item : u8,
+    next : (fn(inout(self) : Self) -> Option(u8))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + u8(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u8` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=u8.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(u8),
+  Iterator(
+    Item : u8,
+    next : (fn(inout(self) : Self) -> Option(u8))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = u8(1);
+              self.end = u8(0);
+            },
+            true => {
+              self.start = (self.start + u8(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u16` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(u16),
+  Iterator(
+    Item : u16,
+    next : (fn(inout(self) : Self) -> Option(u16))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + u16(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u16` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=u16.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(u16),
+  Iterator(
+    Item : u16,
+    next : (fn(inout(self) : Self) -> Option(u16))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = u16(1);
+              self.end = u16(0);
+            },
+            true => {
+              self.start = (self.start + u16(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u32` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(u32),
+  Iterator(
+    Item : u32,
+    next : (fn(inout(self) : Self) -> Option(u32))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + u32(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u32` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=u32.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(u32),
+  Iterator(
+    Item : u32,
+    next : (fn(inout(self) : Self) -> Option(u32))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = u32(1);
+              self.end = u32(0);
+            },
+            true => {
+              self.start = (self.start + u32(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u64` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(u64),
+  Iterator(
+    Item : u64,
+    next : (fn(inout(self) : Self) -> Option(u64))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + u64(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u64` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=u64.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(u64),
+  Iterator(
+    Item : u64,
+    next : (fn(inout(self) : Self) -> Option(u64))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = u64(1);
+              self.end = u64(0);
+            },
+            true => {
+              self.start = (self.start + u64(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `usize` range iteration: yields `start`, `start+1`, …, `end - 1`.
+impl(
+  Range(usize),
+  Iterator(
+    Item : usize,
+    next : (fn(inout(self) : Self) -> Option(usize))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          v := self.start;
+          self.start = (self.start + usize(1));
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `usize` range iteration: yields `start` … `end`. After yielding
+/// `end` the range flips to the canonical EMPTY form (start 1, end 0) instead
+/// of incrementing past `end` — `start..=usize.MAX` therefore terminates
+/// instead of wrapping.
+impl(
+  RangeInclusive(usize),
+  Iterator(
+    Item : usize,
+    next : (fn(inout(self) : Self) -> Option(usize))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.start;
+          cond(
+            (v == self.end) => {
+              self.start = usize(1);
+              self.end = usize(0);
+            },
+            true => {
+              self.start = (self.start + usize(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+// ---------------------------------------------------------------------------
+// Range back-iteration — the DoubleEndedIterator half of the forward impls
+// above, so `(a .. b).rev()` and `.rev()` on any range-backed chain work.
+// Per-type for the same reason the forward impls are: a generic impl would
+// need a `Step` notion (a generic "one") the prelude does not have.
+// ---------------------------------------------------------------------------
+/// Half-open `i8` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i8.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i8),
+  DoubleEndedIterator(
+    Item : i8,
+    next_back : (fn(inout(self) : Self) -> Option(i8))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i8(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i8` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i8.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i8),
+  DoubleEndedIterator(
+    Item : i8,
+    next_back : (fn(inout(self) : Self) -> Option(i8))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i8(1);
+              self.end = i8(0);
+            },
+            true => {
+              self.end = (self.end - i8(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i16` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i16.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i16),
+  DoubleEndedIterator(
+    Item : i16,
+    next_back : (fn(inout(self) : Self) -> Option(i16))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i16(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i16` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i16.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i16),
+  DoubleEndedIterator(
+    Item : i16,
+    next_back : (fn(inout(self) : Self) -> Option(i16))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i16(1);
+              self.end = i16(0);
+            },
+            true => {
+              self.end = (self.end - i16(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i32` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i32.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i32),
+  DoubleEndedIterator(
+    Item : i32,
+    next_back : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i32(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i32` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i32.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i32),
+  DoubleEndedIterator(
+    Item : i32,
+    next_back : (fn(inout(self) : Self) -> Option(i32))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i32(1);
+              self.end = i32(0);
+            },
+            true => {
+              self.end = (self.end - i32(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `i64` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= i64.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(i64),
+  DoubleEndedIterator(
+    Item : i64,
+    next_back : (fn(inout(self) : Self) -> Option(i64))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - i64(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `i64` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `i64.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(i64),
+  DoubleEndedIterator(
+    Item : i64,
+    next_back : (fn(inout(self) : Self) -> Option(i64))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = i64(1);
+              self.end = i64(0);
+            },
+            true => {
+              self.end = (self.end - i64(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `isize` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= isize.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(isize),
+  DoubleEndedIterator(
+    Item : isize,
+    next_back : (fn(inout(self) : Self) -> Option(isize))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - isize(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `isize` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `isize.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(isize),
+  DoubleEndedIterator(
+    Item : isize,
+    next_back : (fn(inout(self) : Self) -> Option(isize))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = isize(1);
+              self.end = isize(0);
+            },
+            true => {
+              self.end = (self.end - isize(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u8` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u8.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u8),
+  DoubleEndedIterator(
+    Item : u8,
+    next_back : (fn(inout(self) : Self) -> Option(u8))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u8(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u8` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u8.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u8),
+  DoubleEndedIterator(
+    Item : u8,
+    next_back : (fn(inout(self) : Self) -> Option(u8))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u8(1);
+              self.end = u8(0);
+            },
+            true => {
+              self.end = (self.end - u8(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u16` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u16.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u16),
+  DoubleEndedIterator(
+    Item : u16,
+    next_back : (fn(inout(self) : Self) -> Option(u16))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u16(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u16` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u16.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u16),
+  DoubleEndedIterator(
+    Item : u16,
+    next_back : (fn(inout(self) : Self) -> Option(u16))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u16(1);
+              self.end = u16(0);
+            },
+            true => {
+              self.end = (self.end - u16(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u32` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u32.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u32),
+  DoubleEndedIterator(
+    Item : u32,
+    next_back : (fn(inout(self) : Self) -> Option(u32))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u32(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u32` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u32.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u32),
+  DoubleEndedIterator(
+    Item : u32,
+    next_back : (fn(inout(self) : Self) -> Option(u32))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u32(1);
+              self.end = u32(0);
+            },
+            true => {
+              self.end = (self.end - u32(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `u64` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= u64.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(u64),
+  DoubleEndedIterator(
+    Item : u64,
+    next_back : (fn(inout(self) : Self) -> Option(u64))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - u64(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `u64` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `u64.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(u64),
+  DoubleEndedIterator(
+    Item : u64,
+    next_back : (fn(inout(self) : Self) -> Option(u64))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = u64(1);
+              self.end = u64(0);
+            },
+            true => {
+              self.end = (self.end - u64(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+/// Half-open `usize` range back-iteration: yields `end - 1`, …, `start`. No
+/// underflow on unsigned types: the guard means `end > start >= usize.MIN`, so
+/// `end - 1` is always representable.
+impl(
+  Range(usize),
+  DoubleEndedIterator(
+    Item : usize,
+    next_back : (fn(inout(self) : Self) -> Option(usize))(
+      cond(
+        (self.start >= self.end) => .None,
+        true => {
+          self.end = (self.end - usize(1));
+          .Some(self.end)
+        }
+      )
+    )
+  )
+);
+/// Inclusive `usize` range back-iteration: yields `end`, …, `start`. The exact
+/// mirror of the forward impl — the canonical-EMPTY sentinel (start 1, end 0)
+/// is end-agnostic, so flipping on the LAST element works from either side,
+/// `usize.MIN ..= x` terminates from the back without underflowing `end`, and
+/// mixing `next` with `next_back` on one range stays correct because both test
+/// `start > end` and both flip when the ends coincide.
+impl(
+  RangeInclusive(usize),
+  DoubleEndedIterator(
+    Item : usize,
+    next_back : (fn(inout(self) : Self) -> Option(usize))(
+      cond(
+        (self.start > self.end) => .None,
+        true => {
+          v := self.end;
+          cond(
+            (v == self.start) => {
+              self.start = usize(1);
+              self.end = usize(0);
+            },
+            true => {
+              self.end = (self.end - usize(1));
+            }
+          );
+          .Some(v)
+        }
+      )
+    )
+  )
+);
+// ---------------------------------------------------------------------------
 // Blanket methods — added to all types implementing Iterator
 // ---------------------------------------------------------------------------
 /// Blanket `into_iter` — every `Iterator` is its own `IntoIterator`,
@@ -8014,13 +9814,15 @@ impl(
   )(
     IterMap(Self, B, F)(_inner : self, _f : f)
   ),
-  /// Keep only elements for which `pred` returns `true`, producing an `IterFilter` iterator.
+  /// Keep only elements for which `pred` returns `true`, producing an
+  /// `IterFilter` iterator. The predicate takes the element BY VALUE,
+  /// symmetric with `map` (D3.4 callback-asymmetry fix).
   filter : (
     fn(
       generic(A : Type, F : Type),
       self : Self,
       f : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(item : *(A)) -> bool))
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
     ) -> IterFilter(Self, F)
   )(
     IterFilter(Self, F)(_inner : self, _f : f)
@@ -8197,7 +9999,320 @@ impl(
       );
     });
     result
+  }),
+  /// Return the first element satisfying `pred`. Short-circuits.
+  find : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      pred : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> Option(A)
+  )({
+    (found : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          cond(
+            (pred)(item) => {
+              found = .Some(item);
+              break;
+            },
+            true => ()
+          );
+        }
+      );
+    });
+    found
+  }),
+  /// Return the zero-based index of the first element satisfying `pred`.
+  position : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      pred : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> Option(usize)
+  )({
+    (found : Option(usize)) = .None;
+    idx := usize(0);
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          cond(
+            (pred)(item) => {
+              found = .Some(idx);
+              break;
+            },
+            true => {
+              idx = (idx + usize(1));
+            }
+          );
+        }
+      );
+    });
+    found
+  }),
+  /// Return the last element, consuming the iterator.
+  last : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A))
+    ) -> Option(A)
+  )({
+    (latest : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          latest = .Some(item);
+        }
+      );
+    });
+    latest
+  }),
+  /// Return the `n`-th element (zero-based), consuming elements up to it.
+  nth : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      n : usize,
+      where(Self <: Iterator(Item := A))
+    ) -> Option(A)
+  )({
+    (result : Option(A)) = .None;
+    remaining := n;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          cond(
+            (remaining == usize(0)) => {
+              result = .Some(item);
+              break;
+            },
+            true => {
+              remaining = (remaining - usize(1));
+            }
+          );
+        }
+      );
+    });
+    result
+  }),
+  /// Sum all elements, starting from the element type's `Default`.
+  sum : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A), A <: (Add(A), Default))
+    ) -> A
+  )({
+    (acc : A) = (A <: Default).default();
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          acc = (acc + item);
+        }
+      );
+    });
+    acc
+  }),
+  /// Return the smallest element (first of equals), or `None` when empty.
+  min : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A), A <: Ord(A))
+    ) -> Option(A)
+  )({
+    (best : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          best = match(
+            best,
+            .None => Option(A).Some(item),
+            .Some(b) => cond(
+              (item < b) => Option(A).Some(item),
+              true => Option(A).Some(b)
+            )
+          );
+        }
+      );
+    });
+    best
+  }),
+  /// Return the largest element (last of equals), or `None` when empty.
+  max : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A), A <: Ord(A))
+    ) -> Option(A)
+  )({
+    (best : Option(A)) = .None;
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          best = match(
+            best,
+            .None => Option(A).Some(item),
+            .Some(b) => cond(
+              (item < b) => Option(A).Some(b),
+              true => Option(A).Some(item)
+            )
+          );
+        }
+      );
+    });
+    best
+  }),
+  /// Yield all of this iterator, then all of `other` (same element type).
+  chain : (
+    fn(
+      generic(A : Type, J : Type),
+      self : Self,
+      other : J,
+      where(Self <: Iterator(Item := A), J <: Iterator(Item := A))
+    ) -> IterChain(Self, J)
+  )(
+    IterChain(Self, J)(_first : self, _second : other, _first_done : false)
+  ),
+  /// Yield elements while `pred` holds, producing an `IterTakeWhile`.
+  take_while : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> IterTakeWhile(Self, F)
+  )(
+    IterTakeWhile(Self, F)(_inner : self, _f : f, _done : false)
+  ),
+  /// Skip elements while `pred` holds, producing an `IterSkipWhile`.
+  skip_while : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> IterSkipWhile(Self, F)
+  )(
+    IterSkipWhile(Self, F)(_inner : self, _f : f, _skipping : true)
+  ),
+  /// Map to `Option` and keep the `Some`s, producing an `IterFilterMap`.
+  filter_map : (
+    fn(
+      generic(A : Type, B : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : A) -> Option(B)))
+    ) -> IterFilterMap(Self, B, F)
+  )(
+    IterFilterMap(Self, B, F)(_inner : self, _f : f)
+  ),
+  /// Wrap in an `IterPeekable`, which adds `peek()`.
+  peekable : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      where(Self <: Iterator(Item := A))
+    ) -> IterPeekable(Self, A)
+  )(
+    IterPeekable(Self, A)(_inner : self, _peeked : Option(A).None)
+  ),
+  /// Collect the iterator into the collection type `C`, chosen by TYPE
+  /// ARGUMENT the way `into(T)` is. The element type is not written — it comes
+  /// from `Self.Item` and must match `C`'s `FromIterator.Elem`.
+  ///
+  /// ```rust
+  /// squares := (i32(0) .. i32(5)).map((x) => (x * x)).collect(ArrayList(i32));
+  /// uniq := words.into_iter().collect(HashSet(String));
+  /// ```
+  ///
+  /// There is no return-type inference and no turbofish: the argument is the
+  /// only channel. Carries NO `generic(A : Type)` and no method-level `Self`
+  /// bound — the enclosing impl header already supplies `Self <: Iterator`, and
+  /// binding no `A` keeps `collect` off the Item-recovery path implicated in
+  /// issues/iterator-chain-shared-stamp-cross-item-pollution.md.
+  collect : (
+    fn(
+      self : Self,
+      comptime(C) : Type,
+      where(C <: FromIterator)
+    ) -> C
+  )({
+    (out : C) = (C <: FromIterator).from_iter_new();
+    iter := self;
+    while(runtime(true), {
+      match(
+        iter.next(),
+        .None => {
+          break;
+        },
+        .Some(item) => {
+          out = (C <: FromIterator).from_iter_add(out, item);
+        }
+      );
+    });
+    out
   })
+);
+/// Blanket `rev` — added to every type implementing `DoubleEndedIterator`.
+///
+/// Its OWN impl block (rather than a method inside the `where(I <: Iterator)`
+/// block with a trailing `where(Self <: DoubleEndedIterator)`) so the bound sits
+/// on a bare-SomeT receiver pattern, which is the only case where an impl
+/// where-clause is actually enforced during generic-impl matching — `rev` on a
+/// forward-only iterator then fails at method resolution with a clear message
+/// instead of late inside specialization.
+impl(
+  generic(I : Type),
+  where(I <: DoubleEndedIterator),
+  I,
+  /// Reverse the iteration order, producing an `IterRev` iterator.
+  ///
+  /// ```rust
+  /// (i32(0) .. i32(5)).rev().for_each((x) => { out.push(x); });  // 4 3 2 1 0
+  /// ```
+  rev : (fn(self : Self) -> IterRev(Self))(
+    IterRev(Self)(_inner : self)
+  )
 );
 /// FutureState — the state of an async `Future`.
 FutureState :: enum(
@@ -8281,4 +10396,37 @@ impl(
   generic(T : Type),
   JoinHandle(T),
   await : __yo_join_handle_await
+);
+/// JoinHandle introspection + cancellation. The raw helpers read/write the
+/// common spawned-future header (`{__yo_ref_header_t; int state;}`) emitted
+/// by the async runtime; state mapping follows `io.state`: any positive step
+/// index reads as Running.
+extern(
+  "Yo",
+  __yo_join_handle_state_raw : (fn(fut : *(void)) -> FutureState),
+  __yo_join_handle_abort_raw : (fn(fut : *(void)) -> unit)
+);
+impl(
+  generic(T : Type),
+  JoinHandle(T),
+  /// The task's current `FutureState`, read without blocking or driving the
+  /// event loop (unlike `await`, which polls the loop to completion).
+  state : (fn(self : JoinHandle(T)) -> FutureState)(
+    __yo_join_handle_state_raw(*(void)(self.__future))
+  ),
+  /// True once the task is terminal — `Completed` or `Aborted`.
+  is_finished : (fn(self : JoinHandle(T)) -> bool)({
+    s := __yo_join_handle_state_raw(*(void)(self.__future));
+    (s == FutureState.Completed) || (s == FutureState.Aborted)
+  }),
+  /// Cancel the task: a non-terminal task is marked `Aborted` and will not
+  /// resume past its current suspension point (its pending completion, if
+  /// any, releases the state machine instead of resuming it). Completed and
+  /// already-aborted tasks are left untouched. `await` on an aborted handle
+  /// returns `.None`. NOTE: abort cancels the TASK, not any in-flight I/O
+  /// operation it is suspended on — a task parked on I/O that never
+  /// completes stays allocated until process exit.
+  abort : (fn(self : JoinHandle(T)) -> unit)(
+    __yo_join_handle_abort_raw(*(void)(self.__future))
+  )
 );

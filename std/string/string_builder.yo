@@ -2,6 +2,7 @@
 { ArrayList } :: import("../collections/array_list.yo");
 { rune } :: import("./rune.yo");
 { String } :: import("./string.yo");
+utf8 :: import("../encoding/utf8.yo");
 /**
 * Mutable buffer for building a `String` incrementally.
 *
@@ -102,27 +103,7 @@ impl(
   * ```
   */
   write_rune : (fn(self : Self, r : rune) -> unit)({
-    cp := r.char;
-    cond(
-      (cp < u32(0x80)) => {
-        self._buf.push(u8(cp));
-      },
-      (cp < u32(0x800)) => {
-        self._buf.push(u8(u32(0xC0) | (cp >> u32(6))));
-        self._buf.push(u8(u32(0x80) | (cp & u32(0x3F))));
-      },
-      (cp < u32(0x10000)) => {
-        self._buf.push(u8(u32(0xE0) | (cp >> u32(12))));
-        self._buf.push(u8(u32(0x80) | ((cp >> u32(6)) & u32(0x3F))));
-        self._buf.push(u8(u32(0x80) | (cp & u32(0x3F))));
-      },
-      true => {
-        self._buf.push(u8(u32(0xF0) | (cp >> u32(18))));
-        self._buf.push(u8(u32(0x80) | ((cp >> u32(12)) & u32(0x3F))));
-        self._buf.push(u8(u32(0x80) | ((cp >> u32(6)) & u32(0x3F))));
-        self._buf.push(u8(u32(0x80) | (cp & u32(0x3F))));
-      }
-    );
+    utf8.encode_into(r, self._buf);
   }),
   /**
   * Append a `String` followed by a newline byte (`\n`).

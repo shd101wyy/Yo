@@ -54,6 +54,8 @@ total := {
 
 Remember: `{ expr }` without semicolons is a struct literal, not a block. The parser now detects this mistake and emits a clear error if the single expression is not a valid struct field.
 
+**`yo fmt` is not a syntax gate for this.** It parses `{ single_expr }` happily as a struct literal and pretty-prints it, so a `yo fmt` that says "Formatted 1 Yo file(s)" tells you nothing about whether you wrote the block you meant. Measured 2026-08-25: an `if(cond, { single_expr }, other)` passed `yo fmt` and then failed `yo check` with exactly that struct-literal error. **Run `yo check <file>` on every file you edit — and pass `YO_STD=<worktree>/std` when working in a worktree**, or `check` silently validates against the INSTALLED std instead of yours.
+
 In struct literals, keep spaces around `:` and parenthesize infix field values: `{ x : (1 + 2), y : 3 }`, not `{ x: 1 + 2, y: 3 }`.
 
 ## Control flow
@@ -76,7 +78,9 @@ if(done, println("done"), println("pending"));
 
 - Always write `cond(...)`, never bare `cond ...`
 - Always write `match(...)`, never bare `match ...`
-- `if(a, b)` and `if(a, b, c)` are macro forms over `cond`
+- `if(a, b)` and `if(a, b, c)` are sugar over `cond` (desugared at parse time; the prelude macro remains as spec/fallback)
+- **The operator set is CLOSED** (plans/OPERATOR_SET_AND_PRECEDENCE.md): operator-char runs split greedily against a fixed table (`src/lexer.yo`), so `**x` = `*`,`*`,`x` (no `**` token — `Exponentiation` is the word method `pow`), and an unknown run (`@@`) is a lex error. Reserved (never bindable/overloadable): `= := :: : => -> <: ?= && || # ...#` and ranges. The retired pointer-arithmetic operators (`&+`/`&-`/`&/`) are NOT tokens any more — use `.add`/`.sub`.
+- Defining a macro (`quote(...)` param / `unquote(...)` return) needs `pragma(Pragma.AllowMacroDef);` at the top of the file; CALLING macros needs nothing. The std `try` macro was removed — match on the `Result` instead.
 - Write `return(value)` or `return()`; `return value` is invalid.
 - Write `unwind(value)` or `unwind()`; `unwind value` is invalid.
 - If a `match`/`cond` branch returns an enum variant and inference fails, qualify
@@ -106,6 +110,7 @@ Key rules:
 - In **comptime** functions (return type `comptime(...)`), `"hello"` is `comptime_str` — it does NOT auto-convert to `str`.
 - For `String` constants, prefer `` `hello` `` over `String.from("hello")`.
 - **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes.
+- **A double-quoted literal does NOT concatenate with a `String` variable**: `"prefix " + var` fails with `Cannot unify incompatible types: "String" and "comptime_str"`. For a runtime concat starting from a literal, write `String.from("prefix ") + var` (measured 2026-09-02).
 - **`assert`/`panic` require an explicit import**: `{ assert, panic } :: import("std/assert");` — they are NOT prelude-ambient. Both are generic over `where(T <: ToString)`, so `str`, `String` (template strings), integers, etc. all work as messages: `assert(cond, `got ${x}`)`. `assert(cond)` uses the default message.
 - **`__yo_panic` is the diverging builtin** (message must be `str`/`comptime_str`/`*(u8)`). Use it (not `panic`) in VALUE-position match/cond arms — e.g. `.None => __yo_panic("...")` in an arm that must yield `T` — because `std/assert`'s `panic` is a normal fn returning `unit` and cannot adopt the sibling arm's type. Statement-position `panic("...")` from `std/assert` is fine.
 - Low-level std modules inside `std/assert`'s own dependency cycle (`std/string/string.yo`, `std/collections/array_list.yo`, …) cannot import it — they use `cond`/`if` + `__yo_panic` directly.
@@ -122,13 +127,18 @@ masked := ((A | B) | C);
 - `func arg1, arg2` and `func (arg1, arg2)` are invalid
 - Yo has no operator precedence: a chain of the SAME operator left-associates (`a + b + c` ⇒ `(a + b) + c`, no parens needed); adjacent DIFFERENT operators require parentheses (`(a + b) * c`, not `a + b * c`)
 - An operator RHS that itself contains a different top-level operator must be parenthesized: `true => (x / y)`, `value := (x + y)`, `(x : T) = ((v) -> { ... })`, `next : (fn(...) -> T)`
+- The rule also applies on the LEFT of a `cond` arm's `=>`: a same-operator chain like `a || b || c` is fine alone, but `a || b || c => v` mixes `||` with `=>` — wrap the whole condition: `(a || b || c) => v` ("Adjacent different operators need parentheses")
+- `yo fmt` canonicalizes the redundant set (plans/FMT_PAREN_ELISION.md): prefix calls go bare (`-x`, `!flag`, `?*T`), atom-operand and left same-op groups elide (`(x) + (y)` → `x + y`, `(a + b) + c` → `a + b + c`), whole call arguments unwrap (`f((a + b))` → `f(a + b)`); a re-parse AST-equality gate backstops every elision. An operator's infix RHS keeps its group (`y := (1 + 2)`), as do mixed-operator and right-operand groups
+- …and on the RIGHT of an arm's `=>` too, in BOTH `cond` and `match`. An arm body that is a bare infix expression mixes the operator with `=>`: `.Some(qv) => qv != u8(34)` is rejected, `.Some(qv) => (qv != u8(34))` is accepted. Same for `+`, `==`, `&&`, … in arm-body position. The SAME applies to a CLOSURE's `=>`: `(m) => a + b` is rejected — wrap the whole body: `(m) => ((a + b) + c)` (even a same-operator chain needs the outer wrap when `=>` is the adjacent operator; measured 2026-09-02).
+- **`yo fmt` does NOT catch either form.** `yo fmt` and `yo fmt --check` both pass on the unparenthesised version; only the evaluator rejects it. A clean `fmt` is not evidence the file parses — run `yo check` on the file after editing arms.
 - Source layout does NOT affect grouping — there is no newline-based associativity
-- Prefix operators (`!`, `&`, `-`, `~`) require parenthesized operands: `func(&(s), a, b)`, `!(ready)`, `-(value)`.
-- Tight special forms also require immediate parentheses: `#(expr)`, `?*(u8)`, `T <: !(Runtime)`
+- Prefix operators (`-` `!` `~` `&` `*` `?` `^`) bind ONE postfix expression (plans/PREFIX_OPERATOR_OPERAND_RULE.md): `-1`, `!ready`, `&s`, `?*T`, `3 - -3` are valid; an INFIX operand still needs parens (`-(1 + 2)`). SEED CONSTRAINT: keep parenthesized forms (`-(1)`, `!(x)`) in `src/` and `std/` until a rule-bearing release becomes the seed.
+- Tight special forms also require immediate parentheses: `#(expr)`, `?(*(u8))`, `T <: !(Runtime)`
+- **Don't write unnecessary parens** — commas already delimit call args: `if(x == y, ...)`, `assert(a == b, "msg")`, NOT `if((x == y), ...)`. Parens stay where grammar needs them: infix arm conditions `(x == y) => a`, mixed-op chains `(a + b) * c`, struct fields `{ x : (1 + 2) }`, prefix INFIX operands `-(1 + 2)`. Bare-primary prefix operands need none (`-1`/`!x`/`?*T` — Rule 1 landed 2026-08-21; src/ and std/ keep parens until the seed catches up). `yo fmt` preserves whatever you write — it never removes parens.
 - Dynamic field access with unquote must keep grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 - Unquote splicing is the tight operator `...#(exprs)`; do not insert a space between `...` and `#`.
 - Canonical pointer dereference is `ptr.*`; formatter should canonicalize legacy `ptr.(*)` to `ptr.*`.
-- **Pointer comparison is plain `==`/`<`/… (Eq/Ord impls on `*(T)`, address identity); pointer arithmetic is METHODS**: `p.add(n)` / `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance, `isize`). All lower to the `__yo_ptr_*` builtins via the generic prelude impls. Comparisons are safe (no `unsafe(...)`); arithmetic methods require `unsafe(...)` — e.g. `unsafe(p.add(usize(1)))`. NOTE the identity-vs-value split: `*(T) ==` compares ADDRESSES, while reference-semantics object types (`ref(struct)`) compare VALUES via their own `Eq` impls (same split as Rust's `Rc` `==` vs `Rc::ptr_eq`).
+- **Pointer comparison is plain `==`/`<`/… (Eq/Ord impls on `*(T)`, address identity); pointer arithmetic is METHODS**: `p.add(n)` / `p.sub(n)` (offset by `usize` elements), `p.offset_from(q)` (signed element distance, `isize`). All lower to the `__yo_ptr_*` builtins via the generic prelude impls. Comparisons are safe (no `unsafe(...)`); arithmetic methods require `unsafe(...)` — e.g. `unsafe(p.add(usize(1)))`. NOTE the identity-vs-value split: `*(T) ==` compares ADDRESSES, while reference-semantics types (`ref(struct(...))`) compare VALUES via their own `Eq` impls (same split as Rust's `Rc` `==` vs `Rc::ptr_eq`).
 - **Pointer deref (`p.*`), arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`), and `consume(p.* = v)` require `unsafe(...)`, AND the file must declare `pragma(Pragma.AllowUnsafe);` at the top before `unsafe(...)` is usable.** Pointer comparison (`==`, `<`, etc.) and pointer-type casts (`*(u8)(p)`) stay safe. `unsafe(expr)` is a one-arg builtin call: `v := unsafe(p.*);`, `unsafe(p.* = i32(5));`, `unsafe(p.add(usize(1)))`. Every file in `std/`, `src/`, and `tests/` declares the pragma explicitly. User code (default) does not, so attempts to use `unsafe(...)` are rejected with a hint to add the pragma. See `plans/MEMORY_SAFETY.md`.
 - **In-place mutation without raw pointers:** use the `inout(name) : T` parameter modifier (parallel to `own(name)`). `swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ tmp := a; a = b; b = tmp; });` — caller writes `swap(x, y)` with no `&()` syntax. The compiler lowers `inout(name) : T` to `T*` in C and inserts `&(arg)` at the call site automatically. Cannot combine with `own(...)` or with `generic`/`using` (those are erased at runtime — no binding to mutate). CAN combine with `comptime` as `comptime(inout(name)) : T` — the parameter is erased at runtime and mutations propagate via the evaluator's compile-time binding update path (used by prelude `ComptimeIndex`). See `plans/MEMORY_SAFETY.md` Phase B.
 - **Reference-semantics-type params:** use plain `name : Type`, NOT `*(Type)` or `inout(name) : Type`. Reference-semantics types — `ref(struct(...))` / `ref(enum(...))` (and `atomic(ref(...))`) — such as `Environment`, `EvalContext`, `Emitter`, `HashMap`, `ArrayList`, … carry reference semantics: passing by name already shares the underlying RC state, so mutations through the param propagate to the caller. `*(Type)` requires `pragma(Pragma.AllowUnsafe);` for the `.* ` derefs and clutters the API; `inout(name) : Type` is redundant since reference semantics already share state. Use the plain form: `foo :: (fn(ctx : EvalContext) -> unit)(ctx.method());`. The same applies at call sites — don't wrap reference-semantics arguments with `&(obj)`; just pass `obj`. For receivers on reference-semantics methods, plain `self : Self` is the idiom (`src/env.yo` and `src/emitter.yo` both follow this). `inout(self) : Self` is reserved for receivers on value-type methods (the form used by `Hash`, `Clone`, `ToString`, `Index`, `ComptimeIndex`, `Writer`, `Reader`).
@@ -136,13 +146,14 @@ masked := ((A | B) | C);
 - **Audit public stdlib safety with `yo public-safe-report [path]`.** Flags every top-level public `fn(...)` whose params or return type expose `*(T)` outside an `extern(...)` block. Skips FFI-by-construction directories (`libc/`, `linux/`, `darwin/`, `cuda/`, `sys/`, `sync/`) and names that signal raw-pointer use by contract (`*_cstr`, `*_ptr`, `*_raw`, `raw_*`, `from_raw_parts`, `as_ptr`, `argv`, `argc`). Currently reports 0 findings on `./std` and `./src`; keep it that way when adding new APIs.
 - **Extern "c" call sites require `unsafe(...)` even in pragma'd files.** `unsafe(memcpy(dst, src, n))`, `unsafe(strlen(s))`, etc. The pragma authorizes DECLARING the FFI symbol via `extern(...)` / `c_include(...)`; the wrap is the per-call audit marker so `yo unsafe-report` lines up with UB-capable lines. `asm(...)` and `extern(...)` / `c_include(...)` declarations themselves do NOT need a wrap (the keyword / declaration syntax is its own marker). See `plans/archive/EXTERN_UNSAFE_WRAP.md`.
 - **Static-str model (post slice-rework):** builtin `Slice(T)`, `as_str()`, `as_slice()` are DELETED. `str` = static string view (no flow constraints); ranges COPY (`arr(a..b)` → ArrayList, String range → String, str range → str window); safe windows = `ListView(T)`; pragma'd ptr+len = `RawSlice(T)` (naming any raw-ptr-carrying type in an annotation requires the pragma). See `docs/en-US/FLOWABILITY.md`.
+- **KNOWN MISCOMPILE — a trait method carrying its own `generic(...)` reads a PRIMITIVE `inout(self)` as a POINTER (OPEN, 2026-08-25).** `g : (fn(generic(S : Type), inout(self) : Self, dummy : S) -> u64)(u64(self))` on `i32` returns the receiver's ADDRESS, not `42`. Silent — no diagnostic, no crash, and `-Wint-conversion` cannot see it because the emitted cast is explicit (`(uint64_t)(self)` where `(*self)` is meant). Needs all three of: the method's own `generic(...)`, an `inout(self)` receiver, and a primitive receiver type — a STRUCT receiver reads its fields correctly, and a by-value `self` is fine. Until it is fixed, write such a method with a by-value `self`, or keep the receiver a struct. `issues/generic-trait-method-reads-primitive-inout-self-as-pointer.md` (reproducer under `issues/repros/`).
 - **`inout` is PARAMETER-ONLY (v4.1, plans/archive/BORROW_EXCLUSIVITY.md).** `-> inout(T)`, `-> (inout(name) : T)`, `-> (name : inout(T))` AND the local binding form `inout(r) := lvalue` are all rejected (both compilers, teaching errors). They exist ONLY as `inout(name) : T` parameters. Migrations: return the value (reference-semantics values are handles that mutate in place; struct values copy); read/write fields directly (`h.s = v`); bind the handle (`b := a.b`) to keep a reference-semantics value alive; or take a callback parameter receiving `inout(v) : T` (`Mutex.with_lock` pattern). An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — intermediate reference-semantics-value hops and module-level field roots are rejected (bind to a local first). `comptime` return modifiers go on the LABEL when labeled: `-> comptime(T)` / `-> (comptime(name) : T)` valid; `-> (name : comptime(T))` rejected. See `tests/ref_return_ban.test.yo`, `tests/ref_local_binding.test.yo`, `tests/ref_field_borrow.test.yo`.
-- **Signed-integer overflow is defined (wrap-around).** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on `i32(MAX)` wraps to `i32(MIN)` instead of UB. Opt-out: `--cflags='-fno-wrapv'`.
+- **Signed-integer overflow is defined (wrap-around) at RUNTIME, but REJECTED at comptime.** Yo passes `-fwrapv` to clang/gcc/zig by default so `x + i32(1)` on a runtime `x = i32(MAX)` wraps to `i32(MIN)` instead of UB (opt-out: `--cflags='-fno-wrapv'`). Written as a folded constant, `(i32(2147483647) + i32(1))` picks the `Comptime*` overload and hard-errors with "Integer overflow in compile-time evaluation". So a wrap-around test must build its EXPECTED value from a runtime binding too: `(seed : i32) = i32(2147483647); (expected : i32) = (seed + i32(1));`.
 - **`// SAFETY:` comment convention.** Every non-obvious `unsafe(...)` site in stdlib should have a `// SAFETY:` comment in the previous ~8 lines explaining the contract. `yo unsafe-report` picks them up and shows them inline under each finding.
 - **User-facing memory-safety guide:** `docs/en-US/MEMORY_SAFETY.md` (English) and `docs/zh-CN/MEMORY_SAFETY.md` (Chinese). Refer users there instead of `plans/MEMORY_SAFETY.md` (which is the design document — not shipped via npm).
 - Keep single-line array and tuple literals compact during formatting: `[1, 2, 3]`, `(1, 2, 3)`.
-- Parenthesize other unary operands too: `!(ready)`, `-(value)`
-- **`!x && y` is invalid** — `!x` is a paren-less unary. Unary and infix are different operators (no precedence), so parenthesize by intent: `!(x) && y` (= `(NOT x) AND y`) or `!(x && y)` (= `NOT (x AND y)`).
+- Bare prefix operators bind ONE postfix expression (Rule 1, plans/PREFIX_OPERATOR_OPERAND_RULE.md, 2026-08-21): `-1`, `!ready`, `&v`, `?*u8`, `3 - -3` are valid and preferred in NEW user code; an INFIX operand still needs parens (`-(1 + 2)`). **Seed constraint: `src/` and `std/` keep the call forms (`!(x)`, `-(value)`) until a release with the rule becomes the seed.**
+- **`!x && y` groups as `(!x) && y`** — the prefix op binds only one postfix expression. Unary and infix are different operators (no precedence), so write the other intent as `!(x && y)` (= `NOT (x AND y)`).
 
 ## Functions and methods
 
@@ -173,6 +184,7 @@ impl(Counter,
   reflection reports source-module namespaces as `TypeInfo.Struct(...)`.
 - Wrap `fn` types in parentheses when they appear after `:`
 - **Forward references between methods in the same `impl` block are supported.** A method defined later in the block can be called by a method defined earlier. Both `self.method()` and `Self.method(...)` dispatch work. Only the canonical `name : (fn(...) -> R)(body)` method shape participates; bare lambdas do not get forward-ref shells.
+- **…but NOT between two `impl` blocks on the same type.** A method in an EARLIER `impl(T, …)` block cannot call one defined in a LATER `impl(T, …)` block — the failure is `Error: No matching call found with arguments: (self.X)()` at `yo check` time, which reads like a missing method rather than an ordering problem. Adding a method to a type in a fresh trailing `impl` block is therefore only safe for NEW call sites; if an existing method below needs it, move the definition up into a block that precedes every caller. (Measured twice while migrating `std/string/string.yo` for D4.)
 - **Module-level `::` function definitions are processed in order.** A function body that calls another function declared later in the same file will fail with "Variable not found". Always define leaf helpers first (bottom-up order): `eval_identifier` → `eval_atom` → `evaluate`.
 
 ### Named arguments and default values
@@ -237,9 +249,11 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 ```
 
 - `(params) => expr` — lambda / closure syntax
-- `Impl(Fn(params) -> ReturnType)` — closure type
-- Value types are captured by copy; reference-semantics types by reference
-- Each closure has a unique type; you cannot assign different closures to the same variable
+- `Impl(Fn(params) -> ReturnType)` — STATIC closure type: monomorphized, capture struct passed BY VALUE, direct call, no heap allocation / vtable / refcount on the closure itself
+- `Dyn(Fn(params) -> ReturnType)` — TYPE-ERASED closure type: capture struct heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer. Wrap the value with `dyn(...)`: `(f : Dyn(Fn(y : i32) -> i32)) = dyn((y) => (y + 1));`
+- Value types are captured by copy; reference-semantics types by reference. In BOTH forms the captured value is what carries the refcount — the `Impl` closure itself has none
+- Each closure has a unique anonymous type, so one `Impl(Fn(...))` variable cannot hold two different closures. Use `Dyn(Fn(...))` to store heterogeneous closures in one variable, field or collection
+- `Impl(Fn(...))` is REJECTED as a struct/enum/union field type (capture-dependent size — the error names `Dyn(Fn(...))` as the fix). Either use `Dyn(Fn(...))`, or make the containing type generic over the closure type: `MyStruct :: (fn(comptime(F) : Type) -> comptime(Type))(struct(cb : F));`
 
 ## Imports and modules
 
@@ -532,7 +546,8 @@ test("Async test", {
 - All tests can use `io.async(...)`, `io.await(...)`, etc. without a `using` clause
 - In a standalone program, get `io` by declaring it in `main`'s SIGNATURE —
   `main :: (fn(io : Io) -> unit)({ ... })` — codegen injects it automatically.
-  Do NOT write `io :: __yo_builtin_io` inside a fn body; that form is an
+  `Io` is the ONLY effect parameter `main` may take (`fn(io : Io, exn : Exception)`
+  is not a valid main shape). Do NOT write `io :: __yo_builtin_io` inside a fn body; that form is an
   internal mechanism of the batched test runner's synthesized programs only.
 - `assert(condition, "message")` — runtime assertion; requires `{ assert } :: import("std/assert");` at the top of the test file
 - `comptime_assert(condition)` — compile-time assertion (builtin, no import)
@@ -790,7 +805,7 @@ Enum variant construction is positional (no field names needed).
 // CORRECT: fn(m : HashMap(String, V)) — pass by value, mutations propagate via RC
 
 process_map :: (fn(m : HashMap(String, i32)) -> unit)({
-  m.set(String.from("key"), i32(42));  // mutation visible to caller
+  m.insert(String.from("key"), i32(42));  // mutation visible to caller
 });
 
 counts := HashMap(String, i32).new();
@@ -798,9 +813,37 @@ process_map(counts);
 // counts now has "key" => 42
 ```
 
+### `String` out-parameters silently discard writes
+
+`String` is a **value** type whose byte buffer is lazily allocated (`_bytes : .None` until the first push). A `String` parameter is therefore a COPY: pushing into it allocates the buffer *in the copy*, and the caller sees nothing — no error, no warning, just an empty string. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types), where mutations DO propagate, which makes it an easy trap when a function needs to return two strings.
+
+```rust
+// WRONG — caller's `hdr`/`body` stay EMPTY, silently:
+split :: (fn(text : String, hdr_out : String, body_out : String) -> unit)({
+  hdr_out.push_str("...");   // mutates a copy
+  body_out.push_str("...");  // mutates a copy
+});
+hdr := String.new();
+body := String.new();
+split(src, hdr, body);       // hdr and body are still empty
+
+// CORRECT — return a `ref` struct:
+Split :: ref(struct(head_part : String, body_part : String));
+split :: (fn(text : String) -> Split)({
+  Split(head_part : h, body_part : b)
+});
+
+// ALSO CORRECT — collect into an RC container (mutations propagate):
+collect :: (fn(text : String, out : ArrayList(String)) -> unit)({
+  out.push(String.from("..."));
+});
+```
+
+This cost a full debug cycle in the chunked-C-emission work: an entire emitter buffer was dropped from the output, and the only symptom was a far-downstream C error (`unknown type name`) in the generated code. If a function must fill several strings, return a `ref` struct — and remember that a `String` fetched back out of an `ArrayList(String)` is likewise a value copy, so mutating it does not update the stored element.
+
 ### Forward references are NOT allowed
 
-Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later).
+Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later). (Lifting this rule — order-independent `::` definitions and `impl` registration — is a planned campaign: `plans/LAZY_TOPLEVEL_BINDINGS.md`.)
 
 ```rust
 // WRONG — forward reference:
@@ -820,6 +863,16 @@ This applies to ALL callee-before-caller relationships:
 - `_print_summary_node` before `print_build_summary`
 - `print_build_summary` before `execute_step`
 - Exports section must come AFTER all definitions
+- **Trait `impl(...)` registration before any same-module caller of its
+  methods or DEFAULTS.** `std/fs/file.yo`'s free `read_to_string` called
+  `file.read_to_string(io)` — the `Reader` trait default on `File` — while
+  `impl(File, IoTraits.Reader(...))` sat at the END of the file: the call was
+  a forward reference, its `io.async` body failed definition-time evaluation
+  ("No matching call found") and was SWALLOWED, so `yo check ./std` stayed
+  green while the emitted closure was a hollow stub. Only the C22 stub gate
+  caught it at C-compile time ("call to 'closure_yo_id_N' declared with
+  'error' attribute"). Diagnose with `YO_DEBUG_SWALLOW=1 yo check <file>`;
+  fix by moving the `impl(...)` blocks above the callers.
 
 ### Named tuple fields in type syntax are not allowed
 
@@ -860,13 +913,15 @@ match(r,
 );
 ```
 
-Unary `!` requires parentheses around its operand — a bare `!cond` is a paren-less error:
+Bare unary `!` binds one postfix expression (Rule 1, 2026-08-21) — both
+spellings are valid; NEW user code prefers the bare form, while `src/` and
+`std/` keep the call form until a rule-bearing release becomes the seed:
 
 ```rust
-// WRONG — paren-less unary operand:
+// Preferred in new user code:
 if(!cond, { do_thing(); });
 
-// CORRECT — wrap the operand:
+// Call form — required inside src/ and std/ this generation:
 if(!(cond), { do_thing(); });
 ```
 
@@ -947,13 +1002,29 @@ the STATIC string view; plans/archive/SLICE_REWORK.md). If a function must accep
 runtime text, its parameter should be `String`; `str` parameters are for
 literals/static text only.
 
+**Format specs — `${value:spec}`** (D3.10, landed 2026-08-25). An interpolation
+may carry Rust's/Python's spec after a colon:
+`spec := [[fill]align][+][#][0][width][.precision][kind]`, `align` one of
+`< > ^`, `kind` one of `x X b o`. Examples: `` `${name:>8}` `` (right-align to
+8), `` `${name:*>6}` `` (fill with `*`), `` `${n:#06x}` `` → `0x00ff`,
+`` `${pi:.2}` `` → `3.14`, `` `${pi:>8.3}` `` (width applies AFTER precision).
+Width counts CHARACTERS; zero padding on a number lands between the sign/prefix
+and the digits (`-0000042`, not `000-0042`). Anything `ToString` gets
+width/fill/align/truncate; numbers also get sign/radix/zero-fill.
+**The colon takes NO SPACE before it** — a spaced colon (`${a : b}`) is left
+alone and keeps its ordinary colon-pair meaning, and a colon inside a call's
+arguments or a string literal (`${parts.join(":")}`) is never a separator,
+because the spec is peeled by a backward walk over a character set that excludes
+`)`, `]`, `}`, quotes, comma and whitespace. A file that uses no spec keeps
+importing `std/fmt/to_string`; one that uses any spec imports `std/fmt/format`.
+
 These features are powerful but less commonly used. Consult the linked docs for full details.
 
 | Feature                    | Syntax hint                                               | Documentation                                                                                                          |
 | -------------------------- | --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | Higher-Kinded Types        | `generic(F : (fn(comptime(T) : Type) -> comptime(Type)))` | [DESIGN.md § HKT](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#higher-kinded-types-hkt)           |
 | GADTs                      | `enum(IntVal(i : i32) -> recur(i32))`                     | [GADTS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/GADTS.md)                                           |
-| Derive traits              | `derive(MyType, Eq, Hash, Clone, Ord, ToString)`          | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
+| Derive traits              | `derive(MyType, Eq, Hash, Clone, Ord, ToString, Default)`          | [DERIVE_TRAITS.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DERIVE_TRAITS.md)                           |
 | Type reflection            | `Type.get_info(T)` returns `TypeInfo`                     | [TYPE_REFLECTION.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/TYPE_REFLECTION.md)                       |
 | Inline assembly            | `asm("mov {0}, #42", out(reg, i32))`                      | [INLINE_ASSEMBLY.md](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/INLINE_ASSEMBLY.md)                       |
 | Metaprogramming            | `quote(...)`, `unquote(...)`, `unquote_splicing(...)`     | [DESIGN.md § Meta](https://github.com/shd101wyy/Yo/blob/develop/docs/en-US/DESIGN.md#meta-programming)                 |
@@ -1051,6 +1122,99 @@ fn :: (fn() -> T)(match(x, arms))
 fn :: (fn() -> T)({ match(x, arms); })
 ```
 
+### Sibling match/cond arms must agree in type — brace statement-like arms
+
+An unbraced arm's value is the expression's value, and `list.push(x)` /
+`map.insert(k, v)` return non-unit — so mixing an unbraced push arm with a
+block-shaped (unit) sibling arm is a type error ("Incompatible types" /
+"{ ... } without semicolons"). Brace-and-semicolon every arm whose result
+is not meant to be the value: `(c) => { bytes.push(b); },`.
+
+### A trait where-clause cannot bind another trait's assoc type to its OWN
+
+A trait may name its own associated type in a METHOD signature (`Self.Item`),
+but it may not use that projection as the VALUE of an associated-type
+constraint in its where clause:
+
+```rust
+// ❌ Error: Expected type for associated type constraint "Item", got: (Self.Item)
+DoubleEndedIterator :: trait(
+  Item : Type,
+  next_back : (fn(inout(self) : Self) -> Option(Self.Item)),
+  where(Self <: Iterator(Item := Self.Item))
+);
+
+// ✅ the method signature may still name Self.Item; drop the where clause
+DoubleEndedIterator :: trait(
+  Item : Type,
+  next_back : (fn(inout(self) : Self) -> Option(Self.Item))
+);
+```
+
+`IntoIterator`'s `where(Self.IntoIter <: Iterator(Item := Self.Item))` works
+because the SUBJECT is a different type (`Self.IntoIter`); what is rejected is a
+`Self`-projection appearing as the constraint's value while constraining `Self`
+itself. When two traits must agree on an associated type, state the coherence
+rule in the doc comment — the assoc-type registry is keyed by (type id, label)
+with no trait discrimination and takes the first match, so a mismatch is
+silently first-wins rather than diagnosed.
+
+### Static (self-less) trait methods work — the FromJson pattern
+
+A trait method with no `self` (`Maker :: trait(make : (fn(x : i32) -> Self))`)
+dispatches as `Point.make(x)` on any impl'd type, and through a generic
+where-constrained fn (`(fn(comptime(T) : Type, x : i32, where(T <: Maker)) -> T)(T.make(x))`).
+Constructor-style traits (`FromJson.from_json`) are therefore expressible.
+(A forall-binding-order bug that broke this inside generic impls on
+multi-param receivers — `HashMap(String, V)` bound `V := String` — was
+fixed 2026-08-22:
+issues/fixed/generic-impl-fromjson-container-decode-failures.md.)
+### Don't name locals after Windows macros (`near`, `far`, `pascal`, `IN`, `OUT`)
+
+Emitted C keeps user local names, and `windef.h` defines the legacy Win16
+set (`near`, `far`, `pascal`, …) to NOTHING — a local named `near`
+compiles everywhere except the windows target, where `if (near)` becomes
+`if ()` (caught by PR #218's windows leg; see
+issues/emitted-c-locals-collide-with-windows-macros.md).
+
+### A local `(fn(...) -> T)(body)` literal cannot capture enclosing locals
+
+A typed fn literal bound inside another function is a full function
+definition (def-time evaluated), NOT a closure — its body fails with
+`Variable "x" not found` for any enclosing local it references. Arrow
+closures (`(a) -> expr`, `(a) => { ... }`) capture; typed fn literals do
+not. Hoist the fn to module level and pass the state as parameters:
+
+```rust
+// ❌ inner fn cannot see `out` from the enclosing fn's scope
+outer :: (fn(out : ArrayList(i32)) -> unit)({
+  push_twice := (fn(v : i32) -> unit)({ out.push(v); out.push(v); });
+  push_twice(i32(1));
+});
+
+// ✅ module-level helper takes the state explicitly
+_push_twice :: (fn(v : i32, out : ArrayList(i32)) -> unit)({ out.push(v); out.push(v); });
+outer :: (fn(out : ArrayList(i32)) -> unit)({ _push_twice(i32(1), out); });
+```
+
+### Writing derive rules (outside the prelude works)
+
+`derive_rule(MyTrait, __my_rule)` works in any module with
+`pragma(Pragma.AllowMacroDef)`; the deriving module imports the trait and
+whatever names the GENERATED code references. Authoring gotchas, each of
+which otherwise surfaces as the misleading
+`derive rule must return(comptime(Expr)); got Comptime`:
+
+- Code strings passed to `.to_expr()` must parse as EXACTLY ONE
+  expression — wrap statement blocks in parens: `"({ a := 1; () })"`,
+  never a bare `"{ … }"`.
+- A raw backtick inside a `"..."` code string splits the parse — generate
+  `String.from("x")` in the code instead of a template literal.
+- Invoke derives with trait arguments: `derive(Point, Eq(Point))`. The
+  bare `derive(Point, Eq)` kills the module's evaluation with an
+  error anchored somewhere else entirely
+  (issues/bare-derive-form-kills-module-eval.md).
+
 ### Template strings cannot be nested inside `${...}` interpolations
 
 A template string literal (`` ` `` ... `` ` ``) inside a `${...}` interpolation of another template string closes the outer string. The compiler gives confusing parse errors.
@@ -1063,6 +1227,47 @@ lines.push(`**Implements:** ${`, `.join(names)}`);
 sep := `, `;
 lines.push(`**Implements:** ${sep.join(names)}`);
 ```
+
+#### The same trap inside EMITTED C — including in its comments
+
+Every C emitter in `src/codegen/` writes its C through backtick templates, so a
+backtick ANYWHERE in that text ends the string — a `${...}` interpolation is not
+required. Writing Markdown-style `` `identifier` `` in a C comment (a very
+natural habit when the comment cites a Yo name) is enough:
+
+```rust
+em.emit_declaration_string_line(
+  `// this runtime writes `{0}` into the handle    ← ❌ the 2nd backtick ends the
+   #define __YO_THREAD_HANDLE_IS_NULL(t) ((t) == 0)`  //   string; the rest is
+);                                                    //   parsed as Yo code
+```
+
+The failure is doubly confusing: `yo fmt` reformats the now-"code" text (`{0}`
+becomes `{ 0 }`), and the parse error lands on the COMMENT line with a message
+about paren-less calls. Write such comments with plain quotes or no delimiter at
+all.
+
+### A literal `\\` immediately before `${...}` silently kills the interpolation
+
+`\\` is the escape for one literal backslash and works everywhere EXCEPT
+directly in front of an interpolation, where the backslash is swallowed AND the
+`${...}` is emitted as literal text. No error, no warning — you only see it in
+the printed string.
+
+```rust
+n := usize(7);
+println(`A: ${n}`);    // A: 7
+println(`B: \\${n}`);   // B: ${n}   ❌ backslash eaten, interpolation dead
+println(`C: \\ ${n}`);  // C: \ 7    ✅ any character in between is fine
+println(`D: \\x${n}`);  // D: \x7    ✅
+```
+
+Cause: the lexer encodes "escaped dollar" as the two characters `\$`, which is
+byte-identical to "literal backslash, then a real `${`"
+(`src/lexer.yo:415-433` → `src/parser.yo:376-384`) —
+issues/template-string-backslash-before-interpolation-eats-both.md. Until that
+is fixed, reword so no backslash abuts an interpolation, or build the string
+with a separator variable.
 
 ### A backtick literal WITHOUT `${...}` interpolation is a `str`, not a `String`
 
@@ -1305,21 +1510,136 @@ total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
 
 **Test API format**: Use `evaluate_module_body(exprs, &(env))` (reference syntax, returns `Option`). Match with function-style `match(result, .None => ..., .Some(m) => ...)`. Do NOT use block-style `match(result) { ... }` — it causes a parse error ("Paren-less function and operator calls are not supported").
 
-**String indexing: `len()`/`substring`/`index_of` are RUNE-based; `byte_at`/`as_bytes` are BYTE-based — never mix.** `String.from("a→b").len()` is `3` (runes) while `.as_bytes().len()` is `5`. A loop `while(i < s.len(), { b := s.byte_at(i); ... })` UNDER-WALKS multibyte content by `bytes − runes` (this truncated emitted C in yo-self codegen: an `assert(_, "… → …")` message chopped the compound literal's closing `}`). `index_of` returns a RUNE index — never feed it to `byte_at`, and never feed a byte index to `substring`. Rules:
+**String indexing is BYTE-based, everywhere.** Since 2026-08-26
+(`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3) `String.len()`, `at`, `substring`,
+the `s(a..b)` / `s(a..=b)` sugar, `index_of`, `last_index_of`,
+`contains(from_index)`, `starts_with(position)`, `ends_with(end_position)` and
+the whole `Pattern` trait all speak BYTE offsets — the same unit as
+`byte_at` / `as_bytes` / `Index(usize)` / `str.len()` / `StringBuilder.len()`.
+`String.from("a→b").len()` is `5`, not `3`. **This is the reverse of what it
+used to be**: before that flip they were rune-based, and mixing the two bases
+was the standing hazard. Rune work goes through `chars()` / `char_indices()`
+composed with iterator methods (see the vocabulary below).
+
+**Comptime strings share the byte basis** (D4 PR 7, 2026-08-26): comptime
+`s.len()`, `s.slice(a, b)`, `s(i)` and `s(a..b)` all speak byte offsets too.
+Comptime `s(i)` yields the RUNE starting at byte `i` as a 1-rune `comptime_str`
+(mirroring runtime `at(i)`; runtime `s(i)` yields the `u8` — that result-type
+split is deliberate), and a mid-rune offset is a compile error where the
+runtime `substring` would panic.
 
 ```
-// ✅ byte loop: byte bound
-n := s.as_bytes().len();
-while(i < n, { b := s.byte_at(i); ... });
-
-// ✅ byte-exact slicing: rebuild from bytes (substring is rune-indexed)
-bytes := s.as_bytes();
-inner := ArrayList(u8).new();
-// push bytes[from..to), then:
-String.from_bytes(inner)
-
-// ❌ WRONG — rune bound, byte reads
+// ✅ byte loop, byte bound — the bases now agree
 while(i < s.len(), { b := s.byte_at(i); ... });
-// ❌ WRONG — rune index from index_of fed to byte_at
-match(s.index_of(w, from), .Some(idx) => s.byte_at(idx - usize(1)), ...);
+
+// ✅ index_of's answer feeds straight back into substring
+match(s.index_of(w), .Some(idx) => s.substring(idx, idx + w.len()), .None => ...);
+
+// ✅ rune iteration with the byte offset of each rune
+it := s.char_indices();
+// p._0 is the BYTE offset, p._1 the rune
+
+// ❌ WRONG — a rune count is not a byte offset
+while(i < s.chars().count(), { b := s.byte_at(i); ... });
+// ❌ PANICS — an endpoint inside a rune
+s.substring(usize(0), usize(1)) // on "→…", byte 1 is a continuation byte
 ```
+
+**Boundary policy for `substring` (and the `s(a..b)` sugar):** out-of-range
+CLAMPS, but a **non-boundary index PANICS** — an offset inside a rune is a
+programmer error, not a range condition. The escape hatches:
+`try_substring(a, b)` returns `.None` instead, and
+`floor_char_boundary` / `ceil_char_boundary` snap an arbitrary offset onto a
+boundary first. `index_of` / `starts_with` / `ends_with` never panic: a
+valid-UTF-8 needle simply cannot match at a continuation byte, so a mid-rune
+argument answers `false` / `.None`.
+
+**The rune vocabulary** (`std/string/string.yo`; the same names exist on
+`std/imm/string.yo`, whose `len()` and `at()` are byte-based the same way
+since D4 PR 4). The shape is Rust's exactly: byte slicing + iterators for
+rune work; there is no char-indexed slicing and no second length method
+(`bytes_len`/`char_len`/`char_substring`/`truncate_chars` were all removed
+2026-08-26):
+
+| call | basis | meaning |
+| --- | --- | --- |
+| `s.chars().count()` | runes | **THE rune count.** O(n) — and the iterator spelling keeps that cost visible at the call site (Rust reserves `len()` for `ExactSizeIterator`, which a chars iterator is not). Say this whenever you mean "how many characters" — `len()` is bytes. |
+| `s.char_indices()` | — | iterator of `IterPair(byte_offset, rune)`; `p._0` is the BYTE offset, `p._1` the rune. This is the replacement for `while(i < s.len()) { s.at(i) }`, which now visits continuation bytes and yields `.None` at each of them. |
+| `s.is_char_boundary(i)` | byte | is byte `i` the start of a rune? `0` and `len()` are boundaries; past the end is not. |
+| `s.floor_char_boundary(i)` / `s.ceil_char_boundary(i)` | byte | snap an arbitrary byte offset back/forward onto a rune start (clamped to `len()`). |
+| `s.try_substring(a, b)` | byte | `Option(String)`; `.None` for `a > b`, `b > len()`, or an endpoint inside a rune. The non-panicking `substring`. |
+
+The iterator idioms replace the removed one-shot methods (all three verified
+with a compiled multibyte probe):
+
+```
+// rune count
+n := s.chars().count();
+// truncate to at most n runes: byte offset where rune n starts, byte-slice to it
+cut := match(
+  s.char_indices().nth(n),
+  .Some(p) => s.substring(usize(0), p._0),
+  .None => s // fewer than n+1 runes — keep the whole string
+);
+// first rune + the rest
+first := s.chars().next(); // Option(rune)
+```
+
+`chars()` / `char_indices()` sit on `std/encoding/utf8`, so they inherit its
+malformed-input behaviour: they stop at the first sequence that will not
+decode.
+
+**Lexer/AST note:** `Token.character` is a RUNE offset into `Token.input`
+(the lexer walks `input.chars()`); `Token.byte_offset` is the byte offset of
+the same position. **Never index `input` with `character`** — that was
+`issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`, where `yo
+fmt` silently destroyed non-ASCII source at rc=0. `Token.column` is likewise a
+rune column, so a width added to it must be a RUNE count
+(`value.chars().count()`), never `value.len()`.
+
+## Async: await only at the async-closure statement level
+
+An `e.io.await(...)` nested inside if-branches of an `io.async` closure has
+been observed to compile SILENTLY WRONG (the branch's continuation never
+ran — issues/async-await-nested-if-lost-continuation.md; `check` cannot
+catch it, and only SOME shapes are rejected at codegen). Until that bug is
+minimized and fixed: hoist every await-bearing step to a top-level
+statement of the closure and branch on plain booleans afterwards.
+
+## Block bodies cannot START with `cond(`/`match(` — and other body-statement rules
+
+A function/method body written `({...})` whose FIRST statement is `cond(...)` or
+`match(...)` fails to parse with the misleading "{ ... } without semicolons is
+parsed as a struct literal" error. Lead with any assignment instead — e.g. hoist
+the scrutinee: `(first : Option(usize)) = sep.index_in(self, usize(0));` then
+`match(first, ...)`. Related body rules learned the hard way:
+
+- Typed assignments need the whole pair parenthesized: `(x : T) = expr;` — bare
+  `x : T = expr` is rejected as "adjacent different operators" (`x := expr` is
+  fine unparenthesized).
+- Module-level bindings use `::`; `name : (fn(...))` at module level parses as a
+  CALL of the type value.
+- `1e-12`-style exponent float literals do not lex — spell the mantissa out
+  (`f64(0.000000000001)`).
+
+## Tuples: semicolon TYPE, comma VALUE, `.0` access, no destructuring patterns
+
+`(A; B)` is the tuple TYPE (semicolons); `(a, b)` is the tuple VALUE (commas).
+Field access is by integer index: `p.0`, `p.1`. (The comment at
+src/parser.yo's tuple branch states the mapping backwards —
+tests/internal/parser.test.yo "Parse tuple value (a, b)" / "Parse Tuple type
+(a; b)" are the truth.) Match patterns CANNOT destructure tuples: write
+`.Some(p) => p.0`, never `.Some((k, v))`. The first std API returning one is
+`String.split_once -> Option((String; String))`.
+
+## `__yo_panic` comptime-evaluates its message argument
+
+The builtin evaluates its argument and requires an ExprInfo: pass a plain
+`*u8`/str-typed binding. An Option `.unwrap()` chain on the argument leaves it
+without an ExprInfo and fails with "Failed to evaluate panic message" — bind
+the pointer through a local/`match` first (see std/assert.yo's `panic`).
+
+## `println` comes from `std/fmt`; `join` runs separator-first
+
+`{ println } :: import("std/fmt");` — there is no `io.println`. And `join` is
+`separator.join(list : ArrayList(String))`, not `list.join(sep)`.

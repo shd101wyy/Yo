@@ -86,6 +86,23 @@ extract_doc_sections :: (fn(doc : Option(String)) -> DocSections)(
     }
   )
 );
+/// The module's stability marker: the first line of its `## Stability` doc
+/// section verbatim (`unstable — new in v0.2.20; …`), or `.None` when the
+/// module has none. Renderers key the badge on its first word.
+module_stability :: (fn(doc : Option(String)) -> Option(String))(
+  match(
+    doc,
+    .None => Option(String).None,
+    .Some(text) => match(
+      parse_doc_comment(text).sections.get(String.from("stability")),
+      .None => Option(String).None,
+      .Some(sec) => {
+        first := match(sec.split(`\n`).get(usize(0)), .Some(l) => l, .None => sec);
+        Option(String).Some(first.trim())
+      }
+    )
+  )
+);
 /// Build a lookup map from declaration name → doc comment content.
 /// Mirrors `buildDocLookup` (builder.ts:110).
 build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, String))({
@@ -96,7 +113,7 @@ build_doc_lookup :: (fn(extraction : DocExtractionResult) -> HashMap(String, Str
     match(
       extraction.declarations.get(i),
       .Some(assoc) => if(assoc.declaration_name.len() > usize(0), {
-        lookup.set(assoc.declaration_name.clone(), assoc.comment.content.clone());
+        lookup.insert(assoc.declaration_name.clone(), assoc.comment.content.clone());
       }),
       .None => ()
     );
@@ -130,7 +147,7 @@ merge_methods :: (
   while(j < secondary.len(), {
     match(
       secondary.get(j),
-      .Some(m) => if(!(seen.contains(m.name)), {
+      .Some(m) => if(!seen.contains(m.name), {
         seen.push(m.name.clone());
         merged.push(m);
       }),
@@ -150,7 +167,7 @@ merge_trait_impl_names :: (
   while(i < primary.len(), {
     match(
       primary.get(i),
-      .Some(n) => if(!(merged.contains(n)), {
+      .Some(n) => if(!merged.contains(n), {
         merged.push(n.clone());
       }),
       .None => ()
@@ -161,7 +178,7 @@ merge_trait_impl_names :: (
   while(j < secondary.len(), {
     match(
       secondary.get(j),
-      .Some(n) => if(!(merged.contains(n)), {
+      .Some(n) => if(!merged.contains(n), {
         merged.push(n.clone());
       }),
       .None => ()
@@ -185,7 +202,7 @@ _skip_balanced_parens :: (fn(toks : ArrayList(Token), start : usize) -> usize)({
     .Some(t) => (t.kind == TokenKind.LParen),
     .None => false
   );
-  if(!(at_lparen), {
+  if(!at_lparen, {
     return(start);
   });
   (depth : usize) = usize(1);
@@ -230,8 +247,15 @@ _slice_token_text :: (
       return(String.new());
     }
   );
-  start := start_tok.character;
-  end := (end_tok.character + end_tok.value.len());
+  // BYTE offsets, both of them. `Token.character` is a RUNE offset and
+  // `input` is byte-indexed, so slicing with `character` cut at the wrong
+  // place on any source containing a multibyte character (the same defect as
+  // `issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md`).
+  // `Token.byte_offset` is that issue's named follow-up field; `value.len()`
+  // is the token's byte width, which is the matching unit
+  // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S8).
+  start := start_tok.byte_offset;
+  end := (end_tok.byte_offset + end_tok.value.len());
   end_tok.input.substring(start, end).trim()
 });
 /// Skip one comma-delimited argument at any nesting depth. Returns the index
@@ -243,7 +267,7 @@ _skip_delimited_argument :: (fn(toks : ArrayList(Token), start : usize) -> usize
   (brace_depth : usize) = usize(0);
   (index : usize) = start;
   (done : bool) = false;
-  while((index < toks.len()) && !(done), {
+  while((index < toks.len()) && !done, {
     token := match(
       toks.get(index),
       .Some(t) => t,
@@ -280,7 +304,7 @@ _skip_delimited_argument :: (fn(toks : ArrayList(Token), start : usize) -> usize
       },
       true => ()
     );
-    if(!(done), {
+    if(!done, {
       index = (index + usize(1));
     });
   });
@@ -376,9 +400,11 @@ _render_token_span :: (
     );
     if(k > start, {
       prev := match(toks.get(k - usize(1)), .Some(pt) => pt, .None => t);
-      adjacent := ((prev.character + prev.value.len()) == t.character);
+      // `Token.character` is a RUNE offset, so the token width added to one
+      // has to be a rune count (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+      adjacent := ((prev.character + prev.value.chars().count()) == t.character);
       suppress := ((prev.kind == TokenKind.LParen) || (t.kind == TokenKind.RParen) || (t.kind == TokenKind.Comma) || (t.kind == TokenKind.Semicolon));
-      if(!(adjacent) && !(suppress), {
+      if(!adjacent && !suppress, {
         out = `${out} `;
       });
     });
@@ -404,7 +430,7 @@ _parse_source_param :: (
   (depth : usize) = usize(0);
   (q : usize) = start;
   (found_default : bool) = false;
-  while((q <= end_index) && !(found_default), {
+  while((q <= end_index) && !found_default, {
     t := match(
       toks.get(q),
       .Some(tok) => tok,
@@ -434,7 +460,7 @@ _parse_source_param :: (
       },
       true => ()
     );
-    if(!(found_default), {
+    if(!found_default, {
       q = (q + usize(1));
     });
   });
@@ -492,7 +518,7 @@ _parse_source_param :: (
     .Some(t) => ((t.kind == TokenKind.Operator) && (t.value == `:`)),
     .None => false
   );
-  if(!(colon_ok), {
+  if(!colon_ok, {
     return(Option(DocParam).None);
   });
   Option(DocParam).Some(
@@ -529,7 +555,7 @@ _parse_source_fn_signature :: (
     .Some(t) => ((param_list_start < (fn_paren_end - usize(1))) && (t.kind == TokenKind.LParen)),
     .None => false
   );
-  if(!(param_list_ok), {
+  if(!param_list_ok, {
     return(Option(SourceSignatureInfo).None);
   });
   signature := _render_token_span(toks, type_start + usize(1), fn_paren_end - usize(2));
@@ -626,7 +652,7 @@ _parse_source_fn_signature :: (
   (depth : usize) = usize(0);
   (q : usize) = param_end;
   (found_arrow : bool) = false;
-  while((q < (fn_paren_end - usize(1))) && !(found_arrow), {
+  while((q < (fn_paren_end - usize(1))) && !found_arrow, {
     t := match(
       toks.get(q),
       .Some(tok) => tok,
@@ -650,7 +676,7 @@ _parse_source_fn_signature :: (
       },
       true => ()
     );
-    if(!(found_arrow), {
+    if(!found_arrow, {
       q = (q + usize(1));
     });
   });
@@ -678,7 +704,7 @@ _extract_top_level_fn_signatures :: (
   while(fi < tokens.len(), {
     match(
       tokens.get(fi),
-      .Some(t) => if(!(_is_trivia_token(t)), {
+      .Some(t) => if(!_is_trivia_token(t), {
         toks.push(t);
       }),
       .None => ()
@@ -711,7 +737,7 @@ _extract_top_level_fn_signatures :: (
         .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `fn`)),
         .None => false
       );
-      (t1_ok && t2_ok) && t3_ok
+      t1_ok && t2_ok && t3_ok
     }, false);
     if(is_decl, {
       match(
@@ -722,8 +748,8 @@ _extract_top_level_fn_signatures :: (
             .Some(_) => true,
             .None => false
           );
-          if(!(already), {
-            result.set(token.value.clone(), info);
+          if(!already, {
+            result.insert(token.value.clone(), info);
           });
         },
         .None => ()
@@ -868,7 +894,7 @@ _collect_doc_comment_before :: (
   (idx : isize) = (isize(0) - isize(1));
   (i : usize) = usize(0);
   (found : bool) = false;
-  while((i < full_tokens.len()) && !(found), {
+  while((i < full_tokens.len()) && !found, {
     match(
       full_tokens.get(i),
       .Some(t) => if((t.row > row) || ((t.row == row) && (t.character >= character)), {
@@ -887,7 +913,7 @@ _collect_doc_comment_before :: (
   collected_rev := ArrayList(String).new();
   (bi : isize) = (idx - isize(1));
   (stop : bool) = false;
-  while((bi >= isize(0)) && !(stop), {
+  while((bi >= isize(0)) && !stop, {
     match(
       full_tokens.get(usize(bi)),
       .Some(t) => cond(
@@ -929,7 +955,7 @@ extract_trait_impls_from_tokens :: (
   while(fi < tokens.len(), {
     match(
       tokens.get(fi),
-      .Some(t) => if(!(_is_trivia_token(t)), {
+      .Some(t) => if(!_is_trivia_token(t), {
         toks.push(t);
       }),
       .None => ()
@@ -1016,7 +1042,7 @@ extract_trait_impls_from_tokens :: (
       .Some(t) => (t.kind == TokenKind.Comma),
       .None => false
     );
-    if(!(is_comma), {
+    if(!is_comma, {
       i = (i + usize(1));
       continue;
     });
@@ -1036,7 +1062,7 @@ extract_trait_impls_from_tokens :: (
       .Some(t) => (t.kind == TokenKind.LParen),
       .None => false
     );
-    if(!(trait_lp), {
+    if(!trait_lp, {
       i = (i + usize(1));
       continue;
     });
@@ -1045,10 +1071,10 @@ extract_trait_impls_from_tokens :: (
       .Some(l) => l,
       .None => ArrayList(String).new()
     );
-    if(!(existing.contains(trait_name)), {
+    if(!existing.contains(trait_name), {
       existing.push(trait_name.clone());
     });
-    result.set(type_name.clone(), existing);
+    result.insert(type_name.clone(), existing);
     i = (i + usize(1));
   });
   result
@@ -1112,7 +1138,7 @@ _extract_trait_body_members :: (
           .None => false
         );
         is_fn_type := (
-          (type_tok_is_lparen && ((type_start + usize(1)) < (end - usize(1)))) && match(
+          type_tok_is_lparen && ((type_start + usize(1)) < (end - usize(1))) && match(
             toks.get(type_start + usize(1)),
             .Some(t) => ((t.kind == TokenKind.Identifier) && (t.value == `fn`)),
             .None => false
@@ -1184,7 +1210,7 @@ _extract_trait_body_members :: (
                   });
                 });
               });
-              if(!(advanced), {
+              if(!advanced, {
                 p = (p + usize(1));
               });
             });
@@ -1255,7 +1281,7 @@ extract_impl_info_from_tokens :: (
   while(fi < tokens.len(), {
     match(
       tokens.get(fi),
-      .Some(t) => if(!(_is_trivia_token(t)), {
+      .Some(t) => if(!_is_trivia_token(t), {
         toks.push(t);
       }),
       .None => ()
@@ -1435,7 +1461,7 @@ extract_impl_info_from_tokens :: (
               .None => false
             );
             cond(
-              (!(first_has_body) && (first_paren_end <= arg_end) && second_is_lp) => {
+              (!first_has_body && (first_paren_end <= arg_end) && second_is_lp) => {
                 // e.g. Index(usize)(body...) — type args first, body second.
                 trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
                 if(_paren_contains_trait_body(toks, first_paren_end), {
@@ -1446,7 +1472,7 @@ extract_impl_info_from_tokens :: (
                   trait_signature = `${trait_signature}(...)`;
                 });
               },
-              !(first_has_body) => {
+              !first_has_body => {
                 trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
               },
               true => {
@@ -1534,7 +1560,7 @@ extract_impl_info_from_tokens :: (
         )
       );
     });
-    result.set(receiver_type_name.clone(), entry);
+    result.insert(receiver_type_name.clone(), entry);
     i = impl_end;
   });
   result
@@ -1621,6 +1647,7 @@ build_doc_module_from_tokens :: (
     name : name,
     path : path,
     doc : module_doc,
+    stability : module_stability(module_doc),
     functions : ArrayList(DocFunction).new(),
     types : types,
     traits : ArrayList(DocTrait).new(),
@@ -1664,7 +1691,7 @@ build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
             idx,
             .Some(existing_idx) => {
               lst := match(trait_implementors.get(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
-              if(!(lst.contains(t.name)), {
+              if(!lst.contains(t.name), {
                 lst.push(t.name.clone());
               });
             },
@@ -1764,7 +1791,7 @@ _resolve_inner_type :: (fn(field_type : TypeValue, value : EvalValue) -> TypeVal
           registered,
           .Func({ result }) => {
             is_type_uni_result := match(result, .TypeUni(_) => true, _ => false);
-            if(!(is_type_uni_result), {
+            if(!is_type_uni_result, {
               return(result);
             });
           },
@@ -2008,7 +2035,7 @@ _extract_methods :: (
         continue;
       }
     );
-    if(is_function_type(entry.ty) && !(entry.label.starts_with(String.from("___"))), {
+    if(is_function_type(entry.ty) && !entry.label.starts_with(String.from("___")), {
       (receiver_name : String) = type_name.clone();
       match(
         entry.self_type,
@@ -2066,7 +2093,7 @@ _extract_generic_impl_info :: (
     );
     match(
       entry.trait_name,
-      .Some(tn) => if(!(trait_impls.contains(tn)), {
+      .Some(tn) => if(!trait_impls.contains(tn), {
         trait_impls.push(tn.clone());
       }),
       .None => ()
@@ -2082,7 +2109,7 @@ _extract_generic_impl_info :: (
           continue;
         }
       );
-      if(!(seen_method_names.contains(m_name)), {
+      if(!seen_method_names.contains(m_name), {
         seen_method_names.push(m_name.clone());
         methods.push(
           build_doc_function(
@@ -2290,13 +2317,14 @@ build_doc_module :: (
     name : name.clone(),
     path : path.clone(),
     doc : module_doc,
+    stability : module_stability(module_doc),
     functions : functions,
     types : types,
     traits : traits,
     constants : constants,
     submodules : ArrayList(Box(DocModule)).new()
   );
-  if(!(is_module_type(module_type)), {
+  if(!is_module_type(module_type), {
     return(result);
   });
   (ns_field_labels : ArrayList(String)) = ArrayList(String).new();
@@ -2565,7 +2593,7 @@ build_doc_module :: (
                       )
                     );
                   }, {
-                    if(is_function_type(t_type) && !(t_label.starts_with(String.from("___"))), {
+                    if(is_function_type(t_type) && !t_label.starts_with(String.from("___")), {
                       trait_methods.push(
                         build_doc_function(
                           t_label.clone(),
@@ -2620,7 +2648,7 @@ build_doc_module :: (
                       continue;
                     }
                   );
-                  if(is_function_type(m_type) && !(m_label.starts_with(String.from("___"))) && (m_label.len() > usize(0)), {
+                  if(is_function_type(m_type) && !m_label.starts_with(String.from("___")) && (m_label.len() > usize(0)), {
                     module_methods.push(
                       build_doc_function(
                         m_label.clone(),
@@ -2846,7 +2874,7 @@ build_doc_module :: (
                       )
                     );
                   }, {
-                    if(is_function_type(t_type) && !(t_label.starts_with(String.from("___"))), {
+                    if(is_function_type(t_type) && !t_label.starts_with(String.from("___")), {
                       trait_methods.push(
                         build_doc_function(
                           t_label.clone(),
@@ -2901,7 +2929,7 @@ build_doc_module :: (
                       continue;
                     }
                   );
-                  if(is_function_type(m_type) && !(m_label.starts_with(String.from("___"))) && (m_label.len() > usize(0)), {
+                  if(is_function_type(m_type) && !m_label.starts_with(String.from("___")) && (m_label.len() > usize(0)), {
                     module_methods.push(
                       build_doc_function(
                         m_label.clone(),

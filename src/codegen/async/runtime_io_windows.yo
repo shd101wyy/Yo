@@ -285,7 +285,10 @@ static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* n
 // ============================================================================
 
 static int32_t __yo_sync_pipe(int32_t* pipefd) {
-  int result = _pipe(pipefd, 4096, _O_BINARY);
+  // 64 KiB to match the POSIX default pipe capacity. Pipe WRITES are still a
+  // blocking _write on the event-loop thread, so the buffer size is the slack
+  // a writer has before it parks the loop.
+  int result = _pipe(pipefd, 65536, _O_BINARY);
   return (result < 0) ? -errno : 0;
 }
 
@@ -308,6 +311,49 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   if (ft == FILE_TYPE_PIPE || ft == FILE_TYPE_CHAR) return (int64_t)(-ESPIPE);
   __int64 result = _lseeki64(fd, (__int64)offset, whence);
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
+}
+
+/* Positioned synchronous write. File fds here may wrap handles opened with
+   FILE_FLAG_OVERLAPPED (the async openat path), which CRT _write cannot
+   serve — WriteFile with an explicit OVERLAPPED works for BOTH overlapped
+   and plain handles (for plain ones it honors the offset and blocks until
+   done). The low bit set on hEvent suppresses posting the completion to
+   any I/O completion port the handle is associated with (documented
+   GetQueuedCompletionStatus behavior), so this write never injects foreign
+   packets into the async event loop. */
+static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint64_t offset) {
+  if (fd < 0) return -EBADF;
+  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
+  intptr_t hv = _get_osfhandle(fd);
+  if (hv == -1) return -EBADF;
+  HANDLE h = (HANDLE)hv;
+  DWORD ft = GetFileType(h);
+  if (ft == FILE_TYPE_PIPE || ft == FILE_TYPE_CHAR) {
+    int n = _write(fd, buf, count);
+    return (n < 0) ? -errno : n;
+  }
+  OVERLAPPED ov;
+  memset(&ov, 0, sizeof(ov));
+  ov.Offset = (DWORD)(offset & 0xFFFFFFFFu);
+  ov.OffsetHigh = (DWORD)(offset >> 32);
+  HANDLE ev = CreateEventW(NULL, TRUE, FALSE, NULL);
+  if (!ev) return -EIO;
+  ov.hEvent = (HANDLE)((uintptr_t)ev | 1);
+  DWORD written = 0;
+  BOOL ok = WriteFile(h, buf, count, &written, &ov);
+  if (!ok) {
+    DWORD err = GetLastError();
+    if (err != ERROR_IO_PENDING) {
+      CloseHandle(ev);
+      return -__yo_win_last_error_to_errno();
+    }
+    if (!GetOverlappedResult(h, &ov, &written, TRUE)) {
+      CloseHandle(ev);
+      return -__yo_win_last_error_to_errno();
+    }
+  }
+  CloseHandle(ev);
+  return (int32_t)written;
 }
 
 static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
@@ -1910,6 +1956,25 @@ typedef struct __yo_win_timer_entry_t {
 
 static __declspec(thread) __yo_win_timer_entry_t* __yo_win_timer_head = NULL;
 
+// Pipe reads parked until data arrives. Anonymous pipes cannot use overlapped
+// I/O, and a blocking _read on the event-loop thread parks the WHOLE loop
+// (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md):
+// with Command.output draining stdout and stderr concurrently, a child that
+// wrote more than the pipe buffer deadlocked against a drain task blocked on
+// the other (still-empty) pipe. Instead of blocking, an empty pipe parks the
+// read here and __yo_poll_and_fs_event_tick retries it with PeekNamedPipe
+// until data arrives or the write end closes.
+typedef struct __yo_win_pipe_read_s {
+  int32_t fd;
+  HANDLE handle;
+  void* buffer;
+  uint32_t size;
+  __yo_io_future_t* future;
+  struct __yo_win_pipe_read_s* next;
+} __yo_win_pipe_read_t;
+
+static __declspec(thread) __yo_win_pipe_read_t* __yo_win_pipe_reads = NULL;
+
 typedef struct {
   OVERLAPPED overlapped;
   __yo_io_future_t* future;
@@ -2049,6 +2114,29 @@ static DWORD __yo_win_timer_next_timeout(uint64_t now_ms) {
   return (DWORD)delta;
 }
 
+// Attempt a non-blocking read from a pipe fd. Returns 1 when the future's
+// result is set (data, EOF, or error) and 0 when the pipe is empty but still
+// open (the read stays parked). Never blocks: _read is only issued once
+// PeekNamedPipe reports available bytes, and a pipe read returns as soon as
+// any bytes are available.
+static int __yo_win_try_pipe_read(HANDLE handle, int32_t fd, void* buffer, uint32_t size, __yo_io_future_t* future) {
+  DWORD avail = 0;
+  if (!PeekNamedPipe(handle, NULL, 0, NULL, &avail, NULL)) {
+    DWORD err = GetLastError();
+    if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA || err == ERROR_PIPE_NOT_CONNECTED) {
+      future->result = 0; // write end closed and buffer drained: EOF
+    } else {
+      future->result = -__yo_win_error_to_errno(err);
+    }
+    return 1;
+  }
+  if (avail == 0) return 0;
+  unsigned int want = (avail < (DWORD)size) ? (unsigned int)avail : (unsigned int)size;
+  int n = _read(fd, buffer, want);
+  future->result = (n < 0) ? -errno : n;
+  return 1;
+}
+
 // Forward declarations -- these are defined after the IOCP poll/wait
 // functions but called by __yo_win_process_completion which comes first.
 static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future, HANDLE handle, uint64_t offset);
@@ -2103,11 +2191,16 @@ static int __yo_io_poll(void) {
   OVERLAPPED_ENTRY entries[64];
   ULONG count = 0;
   BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 64, &count, 0, FALSE);
-  if (!ok && GetLastError() == WAIT_TIMEOUT) {
-    return __yo_win_timer_process_due(__yo_win_now_ms());
-  }
+  // An empty completion port (WAIT_TIMEOUT) or a failed poll must STILL run
+  // the poll/fs-event tick: a yield-driven wait loop (Watcher.next, the
+  // is_finished races) keeps the ready queue non-empty, so __yo_io_wait —
+  // whose timeout path ticks — is never reached, and this 0-timeout poll is
+  // the ONLY tick driver. The early returns here skipped it, so a
+  // ReadDirectoryChangesW completion (and a parked pipe read) was never
+  // serviced while any task stayed ready — fs.watch's next(io) span forever
+  // (issues/fixed/fs-watch-windows-events-never-delivered-next-spins.md).
   if (!ok) {
-    return __yo_win_timer_process_due(__yo_win_now_ms());
+    return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
   }
 
   int processed = 0;
@@ -2133,6 +2226,11 @@ static int __yo_io_wait(void) {
   DWORD timeout_ms = __yo_win_timer_next_timeout(__yo_win_now_ms());
   if (__yo_active_watch_count > 0 && (timeout_ms == INFINITE || timeout_ms > 50)) {
     timeout_ms = 50;
+  }
+  // A parked pipe read completes only when the tick below runs, so never
+  // sleep on the completion port for long while one is waiting for data.
+  if (__yo_win_pipe_reads != NULL && (timeout_ms == INFINITE || timeout_ms > 10)) {
+    timeout_ms = 10;
   }
 
   // Use the batched Ex variant so that when the wait wakes up due to one
@@ -2265,7 +2363,30 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   }
 
   DWORD handle_type = GetFileType(handle);
-  if (handle_type == FILE_TYPE_PIPE || handle_type == FILE_TYPE_CHAR) {
+  if (handle_type == FILE_TYPE_PIPE) {
+    (void)offset;
+    if (__yo_win_try_pipe_read(handle, fd, buffer, size, future)) {
+      atomic_store(&future->state, -1);
+      return future;
+    }
+    // Empty but open: park the read; __yo_poll_and_fs_event_tick retries it.
+    __yo_win_pipe_read_t* pr = (__yo_win_pipe_read_t*)__yo_malloc(sizeof(__yo_win_pipe_read_t));
+    if (!pr) {
+      future->result = -ENOMEM;
+      atomic_store(&future->state, -1);
+      return future;
+    }
+    pr->fd = fd;
+    pr->handle = handle;
+    pr->buffer = buffer;
+    pr->size = size;
+    pr->future = future;
+    pr->next = __yo_win_pipe_reads;
+    __yo_win_pipe_reads = pr;
+    __yo_pending_io_count++;
+    return future;
+  }
+  if (handle_type == FILE_TYPE_CHAR) {
     (void)offset;
     int result = _read(fd, buffer, (unsigned int)size);
     future->result = (result < 0) ? -errno : result;
@@ -3638,8 +3759,11 @@ static HANDLE __yo_win_dup_inheritable_handle(HANDLE handle) {
   return dup;
 }
 
-static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
-                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+// See runtime_io_common.yo: the cwd-taking shim, with the 6-argument name as
+// an inherit-cwd wrapper for the seed-gated std side.
+static __yo_io_future_t* __yo_async_spawn_start_cwd(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                                  int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd,
+                                                  const uint8_t* cwd) {
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));
 
@@ -3720,7 +3844,9 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
   DWORD flags = 0;
   if (env_block) flags |= CREATE_UNICODE_ENVIRONMENT;
 
-  BOOL ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, flags, env_block, NULL, &si, &pi);
+  wchar_t* wcwd = cwd ? __yo_win_utf8_to_wide((const char*)cwd) : NULL;
+  BOOL ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, flags, env_block, wcwd, &si, &pi);
+  if (wcwd) __yo_free(wcwd);
 
   CloseHandle(hStdInInherit);
   CloseHandle(hStdOutInherit);
@@ -3740,6 +3866,43 @@ static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** a
   future->result = (int32_t)pi.dwProcessId;
   atomic_init(&future->state, -1);
   return future;
+}
+
+static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+  return __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, NULL);
+}
+
+// NTSTATUS abnormal-termination codes mapped to the CRT's <signal.h> numbering
+// (mirrors libuv's process-exit table). Diagnostic only — the value sits in
+// the WIFSIGNALED position exactly like a POSIX crash status.
+static int __yo_win_ntstatus_to_signal(DWORD code) {
+  switch (code) {
+    case 0xC0000005u: return SIGSEGV; /* STATUS_ACCESS_VIOLATION */
+    case 0xC00000FDu: return SIGSEGV; /* STATUS_STACK_OVERFLOW */
+    case 0xC0000409u: return SIGABRT; /* STATUS_STACK_BUFFER_OVERRUN — UCRT abort()/__fastfail */
+    case 0xC000013Au: return SIGINT;  /* STATUS_CONTROL_C_EXIT */
+    default: return SIGTERM;
+  }
+}
+
+// Encode GetExitCodeProcess's DWORD as a POSIX-style waitpid status. That is
+// the contract every consumer of IO_process.waitpid assumes: the POSIX
+// runtimes hand back the kernel's encoded status and runtime_io_common.yo
+// decodes it with WIFEXITED/WEXITSTATUS/WIFSIGNALED/WTERMSIG, while
+// std/process's IoError.check treats a NEGATIVE result as -errno. Windows
+// reports abnormal terminations as NTSTATUS failure codes (abort()/fastfail =
+// 0xC0000409, access violation = 0xC0000005); cast to int32_t those are
+// negative, so Command.output() on an aborted child threw an unmapped
+// IoError.Other ("unknown I/O error") instead of returning its status —
+// 'yo test' on Windows died at the first failed test instead of reporting it
+// (issues/fixed/yo-test-failing-child-windows-unknown-io-error.md). Exit
+// codes above 255 truncate to the low byte, exactly as on POSIX.
+static int32_t __yo_win_encode_exit_code(DWORD exit_code) {
+  if (exit_code < 0x80000000u) {
+    return (int32_t)((exit_code & 0xFFu) << 8);
+  }
+  return (int32_t)(__yo_win_ntstatus_to_signal(exit_code) & 0x7F);
 }
 
 static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
@@ -3778,17 +3941,25 @@ static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) 
   }
 
   __yo_process_remove_handle(pid);
-  future->result = (int32_t)exit_code;
+  future->result = __yo_win_encode_exit_code(exit_code);
   atomic_init(&future->state, -1);
   return future;
 }
 
+// WIFEXITED/WEXITSTATUS/WTERMSIG equivalents, hand-rolled because UCRT has no
+// <sys/wait.h>. The masks match runtime_io_common.yo's POSIX decoders, and the
+// encodings produced by __yo_win_encode_exit_code above.
 static int32_t __yo_process_exit_status(int32_t status) {
-  return status;
+  if ((status & 0x7F) == 0) {
+    return (status >> 8) & 0xFF;
+  }
+  return -1;
 }
 
 static int32_t __yo_process_term_signal(int32_t status) {
-  (void)status;
+  if (((status & 0x7F) != 0x7F) && ((status & 0x7F) != 0)) {
+    return status & 0x7F;
+  }
   return 0;
 }
 
@@ -4044,6 +4215,22 @@ static void __yo_poll_close(void* h) {
 
 static int __yo_poll_and_fs_event_tick(void) {
   int count = 0;
+
+  // --- Retry parked pipe reads ---
+  {
+    __yo_win_pipe_read_t** pp = &__yo_win_pipe_reads;
+    while (*pp) {
+      __yo_win_pipe_read_t* pr = *pp;
+      if (__yo_win_try_pipe_read(pr->handle, pr->fd, pr->buffer, pr->size, pr->future)) {
+        *pp = pr->next;
+        __yo_io_wake_continuation(pr->future);
+        __yo_free(pr);
+        count++;
+      } else {
+        pp = &pr->next;
+      }
+    }
+  }
 
   // --- Tick FS event handles ---
   {

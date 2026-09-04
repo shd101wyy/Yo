@@ -16,17 +16,40 @@ ParsedDocComment :: struct(
   /// Named sections keyed by lowercase heading (e.g., "returns", "examples").
   sections : HashMap(String, String)
 );
-// Returns true if `line` matches /^##\s+(.+)$/ — a ## section heading.
+/// Check if a section name is a well-known section heading.
+is_known_section :: (fn(name : String) -> bool)({
+  lower := name.to_lowercase();
+  cond(
+    (lower == `returns`) => true,
+    (lower == `errors`) => true,
+    (lower == `panics`) => true,
+    (lower == `examples`) => true,
+    (lower == `safety`) => true,
+    (lower == `deprecated`) => true,
+    (lower == `stability`) => true,
+    true => false
+  )
+});
+// Returns true if `line` is a section heading: `## <anything>`, or `# <name>`
+// where <name> is a well-known section (`# Examples`, `# Returns`, ...).
+// Authors write either level — std alone had 70 single-`#` headings against 5
+// double ones, and the single-`#` sections were silently folded into the
+// description (issues/fixed/doc-sections-require-double-hash-but-std-writes-single-hash.md).
+// An arbitrary `# heading` stays description content.
 is_section_heading_ :: (fn(line : String) -> bool)(
   cond(
-    (line.len() < usize(4)) => false,
-    (!(line.starts_with(`## `))) => false,
-    true => true
+    (line.len() < usize(3)) => false,
+    line.starts_with(`## `) => (line.len() >= usize(4)),
+    line.starts_with(`# `) => is_known_section(line.substring(usize(2), line.len()).trim()),
+    true => false
   )
 );
-// Returns the heading text after `## ` (trimmed).
+// Returns the heading text after `## ` / `# ` (trimmed).
 get_section_heading_ :: (fn(line : String) -> String)(
-  line.substring(usize(3), line.len()).trim()
+  cond(
+    line.starts_with(`## `) => line.substring(usize(3), line.len()).trim(),
+    true => line.substring(usize(2), line.len()).trim()
+  )
 );
 // Trim leading/trailing blank lines from section content; join with \n.
 trim_section_content_ :: (fn(lines : ArrayList(String)) -> String)({
@@ -127,6 +150,7 @@ parse_doc_comment :: (fn(text : String) -> ParsedDocComment)({
   current_section_lines := ArrayList(String).new();
   count := lines.len();
   i := usize(0);
+  in_fence := false;
   while(i < count, {
     line := match(
       lines.get(i),
@@ -135,11 +159,16 @@ parse_doc_comment :: (fn(text : String) -> ParsedDocComment)({
         break;
       }
     );
-    if(is_section_heading_(line), {
+    // A `#` line inside a fenced code block (a shell comment in a ```sh
+    // example, a Markdown heading in quoted output) is code, not a heading.
+    if(line.trim().starts_with(`\`\`\``), {
+      in_fence = !in_fence;
+    });
+    if(!in_fence && is_section_heading_(line), {
       match(
         current_section_name,
         .Some(name) => {
-          sections.set(name, trim_section_content_(current_section_lines));
+          sections.insert(name, trim_section_content_(current_section_lines));
           current_section_lines = ArrayList(String).new();
         },
         .None => ()
@@ -161,25 +190,12 @@ parse_doc_comment :: (fn(text : String) -> ParsedDocComment)({
   match(
     current_section_name,
     .Some(name) => {
-      sections.set(name, trim_section_content_(current_section_lines));
+      sections.insert(name, trim_section_content_(current_section_lines));
     },
     .None => ()
   );
   description := trim_section_content_(description_lines);
   summary := extract_summary_(description);
   ParsedDocComment(summary : summary, description : description, sections : sections)
-});
-/// Check if a section name is a well-known section heading.
-is_known_section :: (fn(name : String) -> bool)({
-  lower := name.to_lowercase();
-  cond(
-    (lower == `returns`) => true,
-    (lower == `errors`) => true,
-    (lower == `panics`) => true,
-    (lower == `examples`) => true,
-    (lower == `safety`) => true,
-    (lower == `deprecated`) => true,
-    true => false
-  )
 });
 export(parse_doc_comment, is_known_section);

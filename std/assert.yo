@@ -1,20 +1,30 @@
 //! Runtime assertion and panic functions.
 //!
 //! Both `panic` and `assert` accept any type that implements the `ToString`
-//! trait — its `.to_string().to_c_str()` result is forwarded to the built-in
-//! `__yo_panic`. The `to_c_str()` allocates a C string on the heap; the caller
-//! (process termination via abort) does not need to free it.
+//! trait — its `.to_string().to_cstr()` result (a NUL-terminated
+//! `ArrayList(u8)`) is handed to the built-in `__yo_panic` through its data
+//! pointer. The process is terminating via abort; the buffer need not be
+//! freed.
 //!
 //! Usage:
 //!   assert(x > i32(0), "x must be positive");
 //!   assert(opt.is_some(), "Expected Some");
 //!   panic("unexpected condition");
 { ToString } :: import("std/fmt/to_string");
+open(import("std/string"));
 /// Terminate the program with a message.
 ///
 /// `msg` must implement `ToString`.
 panic :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)({
-  __yo_panic(msg.to_string().to_c_str());
+  // __yo_panic comptime-evaluates its message argument, so the pointer has
+  // to arrive as a plain *(u8)-typed binding — an Option .unwrap() chain
+  // leaves the argument without an ExprInfo and the builtin rejects it.
+  buf := msg.to_string().to_cstr();
+  match(
+    buf.ptr(),
+    .Some(p) => __yo_panic(p),
+    .None => __yo_panic("panic: <empty message>")
+  );
   ()
 });
 /// Runtime assertion. If `flag` is false, call `panic(msg)`.
@@ -27,4 +37,65 @@ assert :: (fn(generic(T : Type), flag : bool, (msg : T) ?= "Assertion failed.", 
   );
   ()
 });
-export(panic, assert);
+/// The `: <msg>` context suffix for the assert_* family ("" → none).
+_ctx :: (fn(msg : str) -> String)(
+  cond(
+    (String.from(msg).len() == usize(0)) => String.new(),
+    true => ` — ${msg}`
+  )
+);
+/// Assert two values are equal; on failure the panic PRINTS BOTH SIDES —
+/// the diff-printing upgrade over `assert(a == b, "...")`, whose message
+/// can't show what the values actually were.
+///
+///   assert_eq(got, i32(42));
+///   assert_eq(name, `yo`, "config name round-trip");
+assert_eq :: (
+  fn(generic(A : Type), left : A, right : A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+)({
+  cond(
+    (left == right) => (),
+    true => panic(
+      `assertion failed: left == right${_ctx(msg)}
+  left : ${left.to_string()}
+  right: ${right.to_string()}`
+    )
+  );
+  ()
+});
+/// Assert two values are NOT equal; prints the (shared) value on failure.
+assert_ne :: (
+  fn(generic(A : Type), left : A, right : A, (msg : str) ?= "", where(A <: (Eq(A), ToString))) -> unit
+)({
+  cond(
+    (left != right) => (),
+    true => panic(
+      `assertion failed: left != right${_ctx(msg)}
+  both sides: ${left.to_string()}`
+    )
+  );
+  ()
+});
+/// Assert two floats are within `epsilon` of each other (absolute
+/// difference). The default epsilon (1e-9) suits values near 1.0; pass an
+/// explicit epsilon for very large or very small magnitudes.
+assert_approx :: (
+  fn(left : f64, right : f64, (epsilon : f64) ?= f64(0.000000001), (msg : str) ?= "") -> unit
+)({
+  diff := cond(
+    (left > right) => (left - right),
+    true => (right - left)
+  );
+  cond(
+    (diff <= epsilon) => (),
+    true => panic(
+      `assertion failed: |left - right| <= epsilon${_ctx(msg)}
+  left   : ${left.to_string()}
+  right  : ${right.to_string()}
+  |diff| : ${diff.to_string()}
+  epsilon: ${epsilon.to_string()}`
+    )
+  );
+  ()
+});
+export(panic, assert, assert_eq, assert_ne, assert_approx);

@@ -42,17 +42,19 @@ make_sp :: (fn(idx : usize) -> SuspensionPoint)(
     while_nesting_depth : Option(usize).None,
     cond_branch_source_index : Option(usize).None,
     needs_own_cond_branch_field : Option(bool).None,
-    enclosing_while_expr : Option(AstExpr).None
+    enclosing_while_expr : Option(AstExpr).None,
+    cond_branch_suspension_exprs : Option(ArrayList(AstExpr)).None,
+    cond_branch_suspension_in_while : Option(ArrayList(bool)).None
   )
 );
 test("effect_analysis_result_empty has no effects", {
   r := effect_analysis_result_empty(String.from("raise"), t_unit());
-  assert(!(r.has_effects), "has_effects false");
+  assert(!r.has_effects, "has_effects false");
   assert(r.effect_call_points.len() == usize(0), "no call points");
   assert(r.captured_variables.len() == usize(0), "no captured vars");
   assert(r.effect_parameter_name == "raise", "param name");
   has_infos := match(r.effect_handler_infos, .Some(_) => true, .None => false);
-  assert(!(has_infos), "no handler infos");
+  assert(!has_infos, "no handler infos");
 });
 test("EffectCallPoint base fields accessible", {
   ecp := EffectCallPoint(
@@ -65,7 +67,7 @@ test("EffectCallPoint base fields accessible", {
   );
   assert(ecp.base.index == usize(2), "base index");
   has_transitive := match(ecp.is_transitive_effect_call, .Some(_) => true, .None => false);
-  assert(!(has_transitive), "no transitive flag");
+  assert(!has_transitive, "no transitive flag");
 });
 test("EffectCallPoint transitive flags can be set", {
   ecp := EffectCallPoint(
@@ -108,7 +110,7 @@ test("EffectCapturedVariable base fields accessible", {
   assert(cv.base.id == "v0", "id");
   assert(cv.base.name == "counter", "name");
   has_alias := match(cv.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
-  assert(!(has_alias), "no alias");
+  assert(!has_alias, "no alias");
 });
 test("EffectCapturedVariable self-referential field (Box(Self))", {
   inner := Box(EffectCapturedVariable)(
@@ -147,7 +149,7 @@ test("EffectHandlerInfo fields accessible", {
   );
   assert(info.effect_parameter_name == "raise", "param name");
   has_field_path := match(info.effect_field_path, .Some(_) => true, .None => false);
-  assert(!(has_field_path), "no field path");
+  assert(!has_field_path, "no field path");
 });
 test("EffectHandlerInfo with field path", {
   path := ArrayList(String).new();
@@ -179,7 +181,7 @@ test("EffectAnalysisResult can hold effect_call_points", {
 });
 test("EffectAnalysisResult variable_id_remapping", {
   r := effect_analysis_result_empty(String.from("exn"), t_unit());
-  r.variable_id_remapping.set(String.from("old_v0"), String.from("new_v0"));
+  r.variable_id_remapping.insert(String.from("old_v0"), String.from("new_v0"));
   got := r.variable_id_remapping.get(String.from("old_v0"));
   result := match(got, .Some(v) => v, .None => String.from(""));
   assert(result == "new_v0", "remapping lookup");

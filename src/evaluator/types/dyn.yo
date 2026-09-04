@@ -65,14 +65,12 @@ evaluate_dyn_type :: (
     exn : Exception
   ) -> AstExpr
 )({
-  if(!(ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None)), {
+  if(!ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Expected "Dyn", got:\n${ast_expr_to_string(expr)}`,
-          false,
-          .None
+          `Expected "Dyn", got:\n${ast_expr_to_string(expr)}`
         )
       )
     );
@@ -121,9 +119,7 @@ evaluate_dyn_type :: (
           dyn(
             format_error_message(
               ast_expr_token(actual_arg),
-              `Failed to evaluate argument ${(i + usize(1))} of 'Dyn' expression.`,
-              false,
-              .None
+              `Failed to evaluate argument ${(i + usize(1))} of 'Dyn' expression.`
             )
           )
         );
@@ -140,26 +136,22 @@ evaluate_dyn_type :: (
       ),
       .None => t_i32()
     );
-    if(!(is_type_value(trait_info.value)), {
+    if(!is_type_value(trait_info.value), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(actual_arg),
-            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression.`,
-            false,
-            .None
+            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression.`
           )
         )
       );
     });
-    if(!(is_trait_type(inner_ty)), {
+    if(!is_trait_type(inner_ty), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(actual_arg),
-            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(inner_ty)}`,
-            false,
-            .None
+            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(inner_ty)}`
           )
         )
       );
@@ -182,9 +174,7 @@ evaluate_dyn_type :: (
           dyn(
             format_error_message(
               ast_expr_token(actual_arg),
-              `Trait type ${type_to_string(inner_ty)} is already included in negative constraints of 'Dyn' expression.`,
-              false,
-              .None
+              `Trait type ${type_to_string(inner_ty)} is already included in negative constraints of 'Dyn' expression.`
             )
           )
         );
@@ -217,9 +207,7 @@ evaluate_dyn_type :: (
           dyn(
             format_error_message(
               ast_expr_token(actual_arg),
-              `Trait type ${type_to_string(inner_ty)} is already included in 'Dyn' expression.`,
-              false,
-              .None
+              `Trait type ${type_to_string(inner_ty)} is already included in 'Dyn' expression.`
             )
           )
         );
@@ -266,7 +254,7 @@ evaluate_dyn_type :: (
         });
         m = (m + usize(1));
       });
-      if(!(already), {
+      if(!already, {
         required_traits.push(constraint);
         required_levels.push(usize(0));
         required_ids.push(cid);

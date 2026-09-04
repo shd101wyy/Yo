@@ -1,6 +1,6 @@
 //! Binary min-heap priority queue.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! { PriorityQueue } :: import "std/collections/priority_queue";
@@ -142,8 +142,12 @@ impl(
 impl(
   generic(T : Type),
   PriorityQueue(T),
-  into_iter : (fn(self : Self) -> PriorityQueueIter(T))(
-    PriorityQueueIter(T)(_data : self._data, _index : usize(0))
+  IntoIterator(
+    Item : T,
+    IntoIter : PriorityQueueIter(T),
+    into_iter : (fn(self : Self) -> PriorityQueueIter(T))(
+      PriorityQueueIter(T)(_data : self._data, _index : usize(0))
+    )
   )
 );
 /**
@@ -159,8 +163,8 @@ impl(
   generic(T : Type),
   PriorityQueueIterPtr(T),
   Iterator(
-    Item : *(T),
-    next : (fn(inout(self) : Self) -> Option(*(T)))(
+    Item : *T,
+    next : (fn(inout(self) : Self) -> Option(*T))(
       cond(
         (self._index >= self._data.len()) => .None,
         true =>

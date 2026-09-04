@@ -18,7 +18,8 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   make_err_expr,
   BK_GENERIC,
-  BK_WHERE
+  BK_WHERE,
+  desugar_if_calls
 } :: import("../../expr.yo");
 {
   Environment,
@@ -188,7 +189,7 @@ call_registered_derive_rule :: (
     ctx_info.value,
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"), false, .None)));
+      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"))));
       EvalValue.UnitVal
     }
   );
@@ -238,7 +239,7 @@ call_registered_derive_rule :: (
     call_info.value,
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"), false, .None)));
+      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"))));
       EvalValue.UnitVal
     }
   );
@@ -246,7 +247,7 @@ call_registered_derive_rule :: (
     call_val,
     .ExprVal(e) => e,
     _ => {
-      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`, false, .None)));
+      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`)));
       make_err_expr()
     }
   );
@@ -254,7 +255,9 @@ call_registered_derive_rule :: (
   // (TS uses `forceCompileTimeBindings: false` for this final evaluation).
   ctx.force_compile_time_bindings = old_force_ct;
   pop_env_frame(caller_env);
-  evaled_result := evaluate_expression(result_expr, caller_env, ctx);
+  // Desugar `if(...)` calls in the rule-built impl Expr (quote templates
+  // skip load-time desugaring) so the emitted impl carries `cond` nodes.
+  evaled_result := evaluate_expression(desugar_if_calls(result_expr), caller_env, ctx);
   result_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_result)),
     .Some(i) => i,
@@ -291,9 +294,7 @@ process_trait_arg :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive: trait argument must be a trait name or trait constructor call"),
-            false,
-            .None
+            String.from("derive: trait argument must be a trait name or trait constructor call")
           )
         )
       );
@@ -310,9 +311,7 @@ process_trait_arg :: (
         dyn(
           format_error_message(
             tok,
-            `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`,
-            false,
-            .None
+            `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`
           )
         )
       );
@@ -353,7 +352,7 @@ evaluate_derive :: (
 )({
   tok := ast_expr_token(expr);
   // Early return if not in executing context.
-  if(ctx.is_validating_function_definition || !(ctx.is_executing), {
+  if(ctx.is_validating_function_definition || !ctx.is_executing, {
     info := new_expr_info(env, t_unit());
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
@@ -370,9 +369,7 @@ evaluate_derive :: (
       dyn(
         format_error_message(
           tok,
-          String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...)."),
-          false,
-          .None
+          String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...).")
         )
       )
     );
@@ -458,9 +455,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive requires a target type"),
-            false,
-            .None
+            String.from("derive requires a target type")
           )
         )
       );
@@ -478,9 +473,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive: failed to evaluate target type"),
-            false,
-            .None
+            String.from("derive: failed to evaluate target type")
           )
         )
       );
@@ -498,9 +491,7 @@ evaluate_derive :: (
           dyn(
             format_error_message(
               tok,
-              String.from("derive: expected a type"),
-              false,
-              .None
+              String.from("derive: expected a type")
             )
           )
         );
@@ -512,9 +503,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive: expected a type"),
-            false,
-            .None
+            String.from("derive: expected a type")
           )
         )
       );
@@ -531,9 +520,7 @@ evaluate_derive :: (
         dyn(
           format_error_message(
             tok,
-            String.from("derive only works on struct and enum types"),
-            false,
-            .None
+            String.from("derive only works on struct and enum types")
           )
         )
       );
@@ -562,9 +549,7 @@ evaluate_derive :: (
       dyn(
         format_error_message(
           tok,
-          String.from("derive requires at least one trait argument after the target type"),
-          false,
-          .None
+          String.from("derive requires at least one trait argument after the target type")
         )
       )
     );

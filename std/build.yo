@@ -3,7 +3,7 @@
 //! All functions are compile-time only — they register build artifacts
 //! and steps that the build runner uses to orchestrate compilation.
 //!
-//! # Example
+//! ## Example
 //!
 //! ```rust
 //! build :: import "std/build";
@@ -67,7 +67,11 @@ StepKind :: enum(
 );
 export(StepKind);
 // ── Compilation targets ──────────────────────────────────────────────
-CompilationTarget :: { X86_64_Linux_Gnu : "x86_64-linux-gnu", X86_64_Linux_Musl : "x86_64-linux-musl", Aarch64_Linux_Gnu : "aarch64-linux-gnu", Aarch64_Linux_Musl : "aarch64-linux-musl", Aarch64_Macos : "aarch64-macos", X86_64_Macos : "x86_64-macos", X86_64_Windows_Msvc : "x86_64-windows-msvc", Aarch64_Windows_Msvc : "aarch64-windows-msvc", Wasm32_Emscripten : "wasm32-emscripten", Wasm32_Wasi : "wasm32-wasi" };
+/// The supported compilation targets, named by their canonical Rust-style
+/// triple (`<arch>-<vendor>-<os>[-<env>]`, plus `wasm32-wasip1`) — the same
+/// strings `yo compile --target` takes and the release assets are named by.
+/// There are no aliases: an unrecognised spelling is rejected with this list.
+CompilationTarget :: { X86_64_Unknown_Linux_Gnu : "x86_64-unknown-linux-gnu", X86_64_Unknown_Linux_Musl : "x86_64-unknown-linux-musl", Aarch64_Unknown_Linux_Gnu : "aarch64-unknown-linux-gnu", Aarch64_Unknown_Linux_Musl : "aarch64-unknown-linux-musl", Aarch64_Apple_Darwin : "aarch64-apple-darwin", X86_64_Apple_Darwin : "x86_64-apple-darwin", X86_64_Pc_Windows_Msvc : "x86_64-pc-windows-msvc", Aarch64_Pc_Windows_Msvc : "aarch64-pc-windows-msvc", Wasm32_Unknown_Emscripten : "wasm32-unknown-emscripten", Wasm32_Wasip1 : "wasm32-wasip1" };
 export(CompilationTarget);
 // ── Target utilities ─────────────────────────────────────────────────
 /// Host compilation target string.
@@ -91,7 +95,15 @@ Executable :: struct(
   /// Write the single generated C file to this path instead of the default
   /// `<output>.c` sidecar. Empty = default. Redirects rather than duplicates,
   /// so exactly one C file exists and the C compiler consumes it.
-  (emit_c_to : comptime_str) ?= ""
+  (emit_c_to : comptime_str) ?= "",
+  /// Split the emitted C into this many translation units, compiled in
+  /// PARALLEL behind a content-addressed object cache and then linked
+  /// (plans/CHUNKED_C_EMISSION.md). 0 = off, one C file as before — which is
+  /// the default because the single-file emission is what the bootstrap gates
+  /// and the portable-C distribution compare. At -O1 and above a chunked
+  /// build also gets `-flto=thin`, without which it would lose the
+  /// cross-module inlining that a single translation unit gives for free.
+  (emit_chunks : comptime_int) ?= 0
 );
 export(Executable);
 /// Configuration for building a static library.
@@ -301,7 +313,7 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .Leak => "leak",
     .Thread => "thread"
   );
-  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to);
+  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks);
   Step(name : config.name, kind : StepKind.Executable)
 });
 export(executable);
@@ -390,7 +402,7 @@ export(module : _module);
 /// Declare a user-configurable build option.
 /// Returns the option value (from CLI `-Dname=value`, or the default).
 ///
-/// # Example
+/// ## Example
 /// ```rust
 /// strip :: build.option({
 ///   name: "strip",
@@ -437,7 +449,7 @@ DocConfig :: struct(
 export(DocConfig);
 /// Register a documentation generation step. Returns a Step for dependency wiring.
 ///
-/// # Examples
+/// ## Examples
 ///
 /// ```rust
 /// build :: import "std/build";

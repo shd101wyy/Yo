@@ -9,6 +9,7 @@ open(import("std/error"));
 { ArrayList, array_list } :: import("std/collections/array_list");
 { TokenKind, Token, find_matching_bracket } :: import("./token.yo");
 { tokenize } :: import("./lexer.yo");
+{ YoError, format_error_message, format_raw_error } :: import("./error.yo");
 {
   AstExpr,
   ExprId,
@@ -27,7 +28,8 @@ open(import("std/error"));
   ast_expr_is_fn_call,
   ast_expr_is_atom_and_operator,
   ast_expr_is_infix_op_fn_call,
-  ast_expr_token
+  ast_expr_token,
+  desugar_program_if_calls
 } :: import("./expr.yo");
 /// Result of parsing one expression: the expression and the next token index.
 ParseResult :: struct(
@@ -39,48 +41,12 @@ FnArgsResult :: struct(
   args : ArrayList(AstExpr),
   index : usize
 );
-/// An error produced by the parser.
-ParseError :: ref(
-  struct(
-    message : String,
-    row : usize,
-    column : usize,
-    module_path : String,
-    source_line : String
-  )
-);
-impl(
-  ParseError,
-  ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      sb := StringBuilder.new();
-      sb.write_str("error: ");
-      sb.write_string(self.message);
-      sb.write_str("\n --> ");
-      sb.write_string(self.module_path);
-      sb.write_str(":");
-      sb.write_string(`${(self.row + usize(1))}`);
-      sb.write_str(":");
-      sb.write_string(`${self.column}`);
-      if(self.source_line.len() > usize(0), {
-        sb.write_str("\n  |\n");
-        sb.write_string(`${(self.row + usize(1))}`);
-        sb.write_str(" | ");
-        sb.write_string(self.source_line);
-        sb.write_str("\n  |");
-        (k : usize) = usize(0);
-        // pad column + 3 spaces (to align under first non-space char of source line)
-        while(k < self.column, {
-          sb.write_byte(u8(32));
-          k = (k + usize(1));
-        });
-        sb.write_byte(u8(94));
-      });
-      sb.to_string()
-    })
-  )
-);
-impl(ParseError, Error());
+/// Parse errors used to be a local `ParseError` struct rendered by its own
+/// `ToString` — the only rustc-shaped renderer in the tree while every other
+/// stage printed plain blocks. P1 of plans/ERROR_DIAGNOSTICS_OVERHAUL.md
+/// deleted it: `make_parse_error`/`make_parse_error_raw` now build the same
+/// structured `YoError` the evaluator and lexer throw, so one renderer (src/
+/// diagnostics.yo) and one CLI-edge prefix rule serve every stage.
 /// Extract the Nth source line (0-indexed) from the input string.
 /// Returns an empty string if the row is out of range.
 extract_source_line :: (fn(input : String, row : usize) -> String)({
@@ -91,25 +57,15 @@ extract_source_line :: (fn(input : String, row : usize) -> String)({
     .Some(line) => line
   )
 });
-/// Build a `ParseError` from a token, automatically extracting the source line.
-make_parse_error :: (fn(tok : Token, message : String) -> ParseError)(
-  ParseError(
-    message : message,
-    row : tok.row,
-    column : tok.column,
-    module_path : tok.module_path,
-    source_line : extract_source_line(tok.input, tok.row)
-  )
+/// Build a parse-error `YoError` from a token (message + full span + source
+/// line, rendered by the shared renderer).
+make_parse_error :: (fn(tok : Token, message : String) -> YoError)(
+  format_error_message(tok, message)
 );
-/// Build a `ParseError` without source context (for end-of-input or internal errors).
-make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseError)(
-  ParseError(
-    message : message,
-    row : usize(0),
-    column : usize(0),
-    module_path : module_path,
-    source_line : String.from("")
-  )
+/// Build a parse-error `YoError` without source context (end-of-input and
+/// internal errors): path-anchored, no snippet.
+make_parse_error_raw :: (fn(module_path : String, message : String) -> YoError)(
+  format_raw_error(module_path, message)
 );
 // Per-process monotonic counter for AstExpr ids. Each Parser instance
 // pulls from this so ids are unique across files in multi-file `check`
@@ -118,12 +74,32 @@ make_parse_error_raw :: (fn(module_path : String, message : String) -> ParseErro
 // over by the first-parsed file's matching-id expression — observed as
 // `import("./rune.yo")` resolving to `i32` at export-spread time).
 // Global expr-id counter moved to expr.yo (shared with synthesized nodes).
+/// The PREFIX-capable operators (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+/// Rule 1): a BARE one of these in expression position, followed by a
+/// primary-starter, is a prefix CALL binding exactly one postfix
+/// expression — `-1`, `!x`, `&v`, `~m`, `*T`, `?T`, `^v`, and chains like
+/// `**i32` = `*(*(i32))`. `+` and the rest stay infix-only. The prefix
+/// dot (`.Variant`) has its own branch in parse_primary_end.
+_is_prefix_op_token :: (fn(t : Token) -> bool)(
+  (t.kind == TokenKind.Operator) && ((t.value == "-") || ((t.value == "!") || ((t.value == "~") || ((t.value == "&") || ((t.value == "*") || ((t.value == "?") || (t.value == "^")))))))
+);
+/// The result of peeling a `:spec` suffix off a template-string interpolation.
+/// `spec` is empty when the text carries none, in which case `expr_text` is the
+/// original text unchanged.
+_SpecSplit :: struct(
+  expr_text : String,
+  spec : String
+);
 Parser :: struct(
   input_string : String,
   module_path : String,
   tokens : ArrayList(Token),
   program : ArrayList(AstExpr),
   has_template_string : bool,
+  /// Did any interpolation carry a `:spec` suffix? Decides which fmt module the
+  /// auto-import pulls in, so a file with no specs keeps a byte-identical
+  /// import closure.
+  has_template_spec : bool,
   next_expr_id : usize
 );
 impl(
@@ -142,6 +118,7 @@ impl(
       tokens : toks,
       program : ArrayList(AstExpr).new(),
       has_template_string : false,
+      has_template_spec : false,
       next_expr_id : usize(0)
     )
   }),
@@ -169,6 +146,7 @@ impl(
       row : ref_tok.row,
       column : ref_tok.column,
       character : ref_tok.character,
+      byte_offset : ref_tok.byte_offset,
       module_path : ref_tok.module_path,
       input : ref_tok.input
     );
@@ -425,6 +403,7 @@ impl(
     dot_tok := self.make_syn_tok(TokenKind.Dot, String.from("."));
     plus_tok := self.make_syn_tok(TokenKind.Operator, String.from("+"));
     to_str_tok := self.make_syn_tok(TokenKind.Identifier, String.from("to_string"));
+    fmt_tok := self.make_syn_tok(TokenKind.Identifier, String.from("format"));
     // Helper: build `e.to_string()` — takes explicit params since local fns
     // can't capture outer values. The four synthetic sub-expressions need
     // UNIQUE expr ids (passed in via `id_*`): hardcoding `usize(0)` made
@@ -450,6 +429,107 @@ impl(
       (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok), prop_args, true, d_tok);
       .FnCall(id_outer, prop, ArrayList(AstExpr).new(), false, outer_tok)
     });
+    // Twin of `make_ts_call` for a spec'd interpolation: emits
+    // `e.format("<spec>")` instead of `e.to_string()`. The spec text can never
+    // contain a quote or a backslash — the peel's character set excludes both —
+    // so wrapping it in double quotes needs no escaping.
+    make_ts_spec_call :: (
+      fn(
+        e : AstExpr,
+        d_tok : Token,
+        fmt_tok : Token,
+        outer_tok : Token,
+        spec_tok : Token,
+        id_fmt_atom : usize,
+        id_dot_atom : usize,
+        id_prop : usize,
+        id_spec_atom : usize,
+        id_outer : usize
+      ) -> AstExpr
+    )({
+      prop_args := ArrayList(AstExpr).new();
+      prop_args.push(e);
+      prop_args.push(.Atom(id_fmt_atom, fmt_tok));
+      (prop : AstExpr) = .FnCall(id_prop, .Atom(id_dot_atom, d_tok), prop_args, true, d_tok);
+      outer_args := ArrayList(AstExpr).new();
+      outer_args.push(.Atom(id_spec_atom, spec_tok));
+      .FnCall(id_outer, prop, outer_args, false, outer_tok)
+    });
+    // `${expr:spec}` (STD_API_AUDIT D3.10). The spec is peeled off the RIGHT
+    // END by walking backward over a CLOSED character set that deliberately
+    // excludes `)`, `]`, `}`, quotes, comma and whitespace — so the walk can
+    // physically never cross out of a call's argument list, out of a bracket,
+    // or into a string literal. That is what defeats the colon ambiguity
+    // without any depth or quote tracking.
+    //
+    // Three further conditions, all required: the run must be non-empty, the
+    // character before it must be `:`, and the character before THAT must not
+    // be whitespace. The last one is what preserves a spaced colon-pair
+    // (`${a : b}` keeps its meaning) while `${x:>8}` splits.
+    _is_spec_char :: (fn(c : rune) -> bool)(
+      (((((c.char >= u32(0x30)) && (c.char <= u32(0x39))) || ((c.char >= u32(0x41)) && (c.char <= u32(0x5A)))) || ((c.char >= u32(0x61)) && (c.char <= u32(0x7A)))) || (((c.char == u32(0x2E)) || (c.char == u32(0x3C))) || ((c.char == u32(0x3E)) || (c.char == u32(0x5E))))) || ((((c.char == u32(0x2B)) || (c.char == u32(0x2D))) || ((c.char == u32(0x23)) || (c.char == u32(0x2A)))) || (((c.char == u32(0x5F)) || (c.char == u32(0x3D))) || (c.char == u32(0x7E))))
+    );
+    // `k` and `tn` are RUNE indices into `tc`, so the two cuts at the end are
+    // resolved through the rune->byte map `char_indices()` gives rather than
+    // handed to `substring`. This is plans/STD_API_AUDIT_D4_PLAN.md §5.2 S4:
+    // `substring` takes BYTE offsets since D4, so feeding it these rune
+    // indices would cut a template string like `${名前:>8}` apart in the
+    // middle of a codepoint (and panic on the non-boundary).
+    _peel_spec :: (fn(text : String) -> _SpecSplit)({
+      tc := ArrayList(rune).new();
+      // `toff(i)` is the byte offset rune `i` starts at.
+      toff := ArrayList(usize).new();
+      {
+        ti := text.char_indices();
+        while(runtime(true), {
+          match(
+            ti.next(),
+            .None => {
+              break;
+            },
+            .Some(pair) => {
+              toff.push(pair._0);
+              tc.push(pair._1);
+            }
+          );
+        });
+      };
+      tn := tc.len();
+      (k : usize) = tn;
+      while((k > usize(0)) && _is_spec_char(tc(k - usize(1))), {
+        k = (k - usize(1));
+      });
+      cond(
+        // no run, no colon before it, or a colon with nothing in front
+        ((k == tn) || (k < usize(2))) => _SpecSplit(expr_text : text, spec : String.new()),
+        (tc(k - usize(1)).char != u32(0x3A)) => _SpecSplit(expr_text : text, spec : String.new()),
+        // a SPACE before the colon means an ordinary colon-pair, not a spec
+        ((tc(k - usize(2)).char == u32(0x20)) || (tc(k - usize(2)).char == u32(0x09))) =>
+          _SpecSplit(expr_text : text, spec : String.new()),
+        true => {
+          // Both cuts land on rune boundaries by construction: they come out
+          // of `char_indices()`, so `try_substring` can only answer `.Some`.
+          colon_byte := match(
+            toff.get(k - usize(1)),
+            .Some(b) => b,
+            .None => text.len()
+          );
+          spec_byte := match(toff.get(k), .Some(b) => b, .None => text.len());
+          _SpecSplit(
+            expr_text : match(
+              text.try_substring(usize(0), colon_byte),
+              .Some(sub) => sub,
+              .None => String.new()
+            ),
+            spec : match(
+              text.try_substring(spec_byte, text.len()),
+              .Some(sub) => sub,
+              .None => String.new()
+            )
+          )
+        }
+      )
+    });
     num_parts := part_content.len();
     (result_expr_opt : Option(AstExpr)) = .None;
     pi := usize(0);
@@ -458,9 +538,12 @@ impl(
       content := match(part_content.get(pi), .Some(s) => s, .None => String.from(""));
       (part_expr : AstExpr) = cond(
         is_expr => {
+          // Peel a `:spec` suffix BEFORE parsing, so the spec text never reaches
+          // the expression parser (D3.10).
+          sp := _peel_spec(content);
           // Parse the interpolated expression via the module-level holder
           // (avoids forward reference: parse_template_string → get_program cycle)
-          (inner_prog : ArrayList(AstExpr)) = Parser.new(content, self.module_path, exn).get_program(exn);
+          (inner_prog : ArrayList(AstExpr)) = Parser.new(sp.expr_text, self.module_path, exn).get_program(exn);
           if(inner_prog.len() == usize(0), {
             exn.throw(dyn(make_parse_error(tok, `empty expression in template string interpolation`)));
           });
@@ -471,7 +554,34 @@ impl(
               return(ParseResult(expr : make_err_expr(), index : (index + usize(1))));
             }
           );
-          make_ts_call(inner_expr, dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+          cond(
+            (sp.spec.len() > usize(0)) => {
+              self.has_template_spec = true;
+              spec_tok := Token(
+                kind : TokenKind.StringLit,
+                value : ((String.from("\"") + sp.spec) + String.from("\"")),
+                row : tok.row,
+                column : tok.column,
+                character : tok.character,
+                byte_offset : tok.byte_offset,
+                module_path : tok.module_path,
+                input : tok.input
+              );
+              make_ts_spec_call(
+                inner_expr,
+                dot_tok,
+                fmt_tok,
+                tok,
+                spec_tok,
+                self.alloc_id(),
+                self.alloc_id(),
+                self.alloc_id(),
+                self.alloc_id(),
+                self.alloc_id()
+              )
+            },
+            true => make_ts_call(inner_expr, dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+          )
         },
         true => {
           // Literal string part: "content".to_string()
@@ -483,6 +593,7 @@ impl(
             row : tok.row,
             column : tok.column,
             character : tok.character,
+            byte_offset : tok.byte_offset,
             module_path : tok.module_path,
             input : tok.input
           );
@@ -618,6 +729,7 @@ impl(
         row : tok.row,
         column : tok.column,
         character : tok.character,
+        byte_offset : tok.byte_offset,
         module_path : tok.module_path,
         input : tok.input
       );
@@ -707,6 +819,7 @@ impl(
       row : tok.row,
       column : tok.column,
       character : tok.character,
+      byte_offset : tok.byte_offset,
       module_path : tok.module_path,
       input : tok.input
     );
@@ -799,6 +912,7 @@ impl(
       row : tok.row,
       column : tok.column,
       character : tok.character,
+      byte_offset : tok.byte_offset,
       module_path : tok.module_path,
       input : tok.input
     );
@@ -905,6 +1019,7 @@ impl(
             row : last_tok.row,
             column : last_tok.column,
             character : last_tok.character,
+            byte_offset : last_tok.byte_offset,
             module_path : last_tok.module_path,
             input : last_tok.input
           );
@@ -966,6 +1081,7 @@ impl(
                     row : tok.row,
                     column : tok.column,
                     character : tok.character,
+                    byte_offset : tok.byte_offset,
                     module_path : tok.module_path,
                     input : tok.input
                   );
@@ -985,6 +1101,7 @@ impl(
           row : tok.row,
           column : tok.column,
           character : tok.character,
+          byte_offset : tok.byte_offset,
           module_path : tok.module_path,
           input : tok.input
         );
@@ -1001,6 +1118,7 @@ impl(
           row : tok.row,
           column : tok.column,
           character : tok.character,
+          byte_offset : tok.byte_offset,
           module_path : tok.module_path,
           input : tok.input
         );
@@ -1294,9 +1412,121 @@ impl(
       }
     )
   }),
+  /// True if the token at `idx` can start a prefix operand (a primary or
+  /// another prefix operator). Terminators/commas/infix-only operators
+  /// return false, so `(!)` in `(not) :: (!)` stays an operator ATOM.
+  token_starts_prefix_operand : (fn(inout(self) : Self, idx : usize) -> bool)(
+    match(
+      self.tokens.get(idx),
+      .None => false,
+      .Some(t) => cond(
+        ((((((((((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Integer)) || (t.kind == TokenKind.Float)) || (t.kind == TokenKind.Bool)) || (t.kind == TokenKind.StringLit)) || (t.kind == TokenKind.CharLit)) || (t.kind == TokenKind.TemplateString)) || (t.kind == TokenKind.LParen)) || (t.kind == TokenKind.LBracket)) || ((t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.Dot))) => true,
+        true => _is_prefix_op_token(t)
+      )
+    )
+  ),
+  /// Parse ONE prefix operand (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+  /// Rule 1): a primary plus its TIGHT postfix ends (no-whitespace calls
+  /// and immediate dot-chains) — never an infix chain, so `-a.b(c) + d`
+  /// binds `a.b(c)` and `+ d` applies to the prefix result. A nested bare
+  /// prefix operator recurses: `**i32` = `*(*(i32))`, `- -1` = `-(-(1))`.
+  parse_prefix_operand : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
+    idx := self.skip_ws_fwd(index);
+    pr := self.parse_primary(idx, exn);
+    (cur_expr : AstExpr) = pr.expr;
+    (cur_idx : usize) = pr.index;
+    started_at_op := match(
+      self.tokens.get(idx),
+      .Some(t) => _is_prefix_op_token(t),
+      .None => false
+    );
+    prim_is_op_atom := match(
+      cur_expr,
+      .Atom(_, at) => _is_prefix_op_token(at),
+      .FnCall(_, _, _, _, _) => false
+    );
+    if(started_at_op && prim_is_op_atom, {
+      // A no-whitespace `(` is the operator-CALL form — the postfix loop
+      // below consumes it (`- -(1)` ends up identical either way).
+      nxt_is_immediate_lparen := match(
+        self.tokens.get(cur_idx),
+        .Some(t) => (t.kind == TokenKind.LParen),
+        .None => false
+      );
+      if(!(nxt_is_immediate_lparen) && self.token_starts_prefix_operand(self.skip_ws_fwd(cur_idx)), {
+        op_tok := match(cur_expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        inner := self.parse_prefix_operand(cur_idx, exn);
+        cur_expr = .FnCall(self.alloc_id(), cur_expr, array_list(inner.expr), false, op_tok);
+        cur_idx = inner.index;
+      });
+    });
+    // Tight postfix ends: no-whitespace calls and immediate dot-chains.
+    while(true, {
+      t := match(
+        self.tokens.get(cur_idx),
+        .Some(x) => x,
+        .None => {
+          break;
+        }
+      );
+      cond(
+        (t.kind == TokenKind.LParen) => {
+          fn_pr := self.parse_fn_call(cur_expr, cur_idx + usize(1), false, exn);
+          cur_expr = fn_pr.expr;
+          cur_idx = fn_pr.index;
+        },
+        (t.kind == TokenKind.Dot) => {
+          nk := match(
+            self.tokens.get(cur_idx + usize(1)),
+            .Some(x) => x.kind,
+            .None => TokenKind.Whitespace
+          );
+          if(nk == TokenKind.Whitespace, {
+            break;
+          });
+          rhs_pr := self.parse_primary(cur_idx + usize(1), exn);
+          cur_expr = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), t), array_list(cur_expr, rhs_pr.expr), true, t);
+          cur_idx = rhs_pr.index;
+        },
+        true => {
+          break;
+        }
+      );
+    });
+    ParseResult(expr : cur_expr, index : cur_idx)
+  }),
   parse_expression : (fn(inout(self) : Self, index : usize, exn : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
+    // PREFIX_OPERATOR_OPERAND_RULE.md Rule 1: a BARE prefix-capable
+    // operator atom followed by a primary-starter is a prefix CALL —
+    // `-1`, `!x`, `?*T`, `3 - -3`. Bare = the primary began at the
+    // operator token itself; a PARENTHESIZED operator atom (`(not) :: (!)`,
+    // `(!) == y`) keeps today's meaning. The no-whitespace `(` form stays
+    // the operator-call path in parse_primary_end (`-(a)`, multi-arg
+    // `-(a, b)`).
+    started_at_op := match(
+      self.tokens.get(idx),
+      .Some(t) => _is_prefix_op_token(t),
+      .None => false
+    );
+    prim_is_op_atom := match(
+      pr.expr,
+      .Atom(_, at) => _is_prefix_op_token(at),
+      .FnCall(_, _, _, _, _) => false
+    );
+    if(started_at_op && prim_is_op_atom, {
+      immediate_lparen := match(
+        self.tokens.get(pr.index),
+        .Some(t) => (t.kind == TokenKind.LParen),
+        .None => false
+      );
+      if(!(immediate_lparen) && self.token_starts_prefix_operand(self.skip_ws_fwd(pr.index)), {
+        op_tok := match(pr.expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
+        operand := self.parse_prefix_operand(pr.index, exn);
+        return(self.parse_primary_end(.FnCall(self.alloc_id(), pr.expr, array_list(operand.expr), false, op_tok), operand.index, exn));
+      });
+    });
     self.parse_primary_end(pr.expr, pr.index, exn)
   }),
   do_parse : (fn(inout(self) : Self, exn : Exception) -> unit)({
@@ -1335,6 +1565,7 @@ impl(
               row : last_tok.row,
               column : last_tok.column,
               character : last_tok.character,
+              byte_offset : last_tok.byte_offset,
               module_path : last_tok.module_path,
               input : last_tok.input
             );
@@ -1359,7 +1590,7 @@ impl(
       );
       str_tok := Token(
         kind : TokenKind.StringLit,
-        value : String.from("\"std/fmt/to_string\""),
+        value : if(self.has_template_spec, String.from("\"std/fmt/format\""), String.from("\"std/fmt/to_string\"")),
         row : usize(0),
         column : usize(0),
         character : usize(0),
@@ -1405,7 +1636,11 @@ parse :: (
   ) -> ArrayList(AstExpr)
 )({
   p := Parser.new(input_string, module_path, exn);
-  p.get_program(exn)
+  // Desugar `if(...)` calls to `cond(...)` on the fresh parse — every
+  // consumer of `parse` (module loads, compile entries, the test runner)
+  // gets a macro-head-free tree. The formatter does NOT go through here
+  // (it works on the token stream), so `yo fmt` round-trips `if` intact.
+  desugar_program_if_calls(p.get_program(exn))
 });
 /// Parse a single Yo expression from a code string and return it.
 /// Expects exactly one expression in `code`.
@@ -1449,6 +1684,6 @@ generate_exprs_from_code :: (
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
   parse(code.clone(), module_path, exn)
 });
-export(ParseResult, FnArgsResult, ParseError, Parser, parse);
+export(ParseResult, FnArgsResult, Parser, parse);
 export(extract_source_line, make_parse_error, make_parse_error_raw);
 export(generate_expr_from_code, generate_exprs_from_code);

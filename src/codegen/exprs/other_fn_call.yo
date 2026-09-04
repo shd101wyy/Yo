@@ -20,14 +20,14 @@ open(import("std/string"));
 { EvalValue, is_func_val, is_unknown_val, is_struct_val, is_enum_val } :: import("../../value.yo");
 { get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { get_func_type, is_control_fn, is_effect_record_member, is_io_async_sm_closure } :: import("../../function_value.yo");
-{ should_skip_function_codegen } :: import("../functions/declarations.yo");
+{ should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override } :: import("../functions/declarations.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
 { type_is_control_bound } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ get_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
+{ get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
@@ -474,6 +474,15 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
             .None => ()
           );
         });
+        // A `unit`-valued argument generates NO C code at all (the unit rvalue
+        // emitters return ""). Never materialize that into `<T> name = ;` — an
+        // invalid declaration. Hand back the empty marker and let the argument
+        // loop fill the C slot with the dead byte that now matches the callee's
+        // placeholder parameter. Twin of the three local-declaration guards in
+        // exprs/init_assignment.yo.
+        if(arg_code.len() == usize(0), {
+          return(String.from(""));
+        });
         is_comptime_only := _last_is_comptime_only(arg_ei.env, vname.clone());
         is_sm := arg_code.starts_with("sm->");
         sanitized := get_variable_name_for_codegen(vname.clone(), Option(Environment).Some(arg_ei.env));
@@ -534,43 +543,77 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
   while(i < na, {
     pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
     c := match(args.get(i), .Some(x) => x, .None => String.from(""));
+    // A ref/`inout` parameter of type `unit` has no C value to take the
+    // address of — the arg code is EMPTY, so the spill branch declared
+    // `void __yo_ref_spill_N = ;` (invalid C). The callee's unit receiver
+    // renders as `void* self` and is never read; pass a null pointer.
+    // See issues/fixed/inout-unit-receiver-void-ref-spill.md (blocked the
+    // D3.8 `unit` ToString impl).
+    arg_is_unit := match(
+      runtime_args.get(i),
+      .Some(ua) => match(context.base.get_expr_info(ua), .Some(uei) => is_unit_type(uei.ty), .None => false),
+      .None => false
+    );
+    // A comptime PAYLOAD-FREE enum value renders as its C tag constant
+    // (`__YO_T0_B`, an int rvalue). It LOOKS like an addressable identifier,
+    // so `E.B.to_string()` — an `inout(self)` receiver — emitted
+    // `(&(__YO_T0_B))`: "cannot take the address of an rvalue". Route it to
+    // the spill temp below instead
+    // (issues/fixed/inout-receiver-on-enum-variant-literal-takes-address-of-tag.md).
+    arg_is_tag_constant := match(
+      runtime_args.get(i),
+      .Some(ta) => match(
+        context.base.get_expr_info(ta),
+        .Some(tei) => match(
+          tei.value,
+          .Some(tv) => match(tv, .EnumVal(_, tv_fields) => (tv_fields.len() == usize(0)), _ => false),
+          .None => false
+        ),
+        .None => false
+      ),
+      .None => false
+    );
     transformed := if(
-      !(pref),
-      c,
+      pref && arg_is_unit,
+      String.from("((void*)0)"),
       if(
-        (c.starts_with("(*")) && (c.ends_with(")")),
-        c.substring(usize(2), c.len() - usize(1)),
-        if(_is_bare_literal(c), {
-          cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
-          w := String.from("(&((");
-          w.push_string(cty);
-          w.push_str("){");
-          w.push_string(c);
-          w.push_str("}))");
-          w
-        }, if(_is_addressable_c_expr(c.clone()), {
-          w := String.from("(&(");
-          w.push_string(c);
-          w.push_str("))");
-          w
-        }, {
-          cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
-          spill := String.from("__yo_ref_spill_");
-          spill.push_string(g_ref_spill_counter.to_string());
-          g_ref_spill_counter = (g_ref_spill_counter + usize(1));
-          decl := indent.clone();
-          decl.push_string(cty);
-          decl.push_str(" ");
-          decl.push_string(spill.clone());
-          decl.push_str(" = ");
-          decl.push_string(c);
-          decl.push_str(";");
-          em.emit_string_line(decl);
-          w := String.from("(&(");
-          w.push_string(spill);
-          w.push_str("))");
-          w
-        }))
+        !(pref),
+        c,
+        if(
+          (c.starts_with("(*")) && (c.ends_with(")")),
+          c.substring(usize(2), c.len() - usize(1)),
+          if(_is_bare_literal(c), {
+            cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
+            w := String.from("(&((");
+            w.push_string(cty);
+            w.push_str("){");
+            w.push_string(c);
+            w.push_str("}))");
+            w
+          }, if(_is_addressable_c_expr(c.clone()) && !(arg_is_tag_constant), {
+            w := String.from("(&(");
+            w.push_string(c);
+            w.push_str("))");
+            w
+          }, {
+            cty := match(runtime_args.get(i), .Some(ra) => match(context.base.get_expr_info(ra), .Some(rei) => get_type_string(rei.ty, context.base), .None => String.from("size_t")), .None => String.from("size_t"));
+            spill := String.from("__yo_ref_spill_");
+            spill.push_string(g_ref_spill_counter.to_string());
+            g_ref_spill_counter = (g_ref_spill_counter + usize(1));
+            decl := indent.clone();
+            decl.push_string(cty);
+            decl.push_str(" ");
+            decl.push_string(spill.clone());
+            decl.push_str(" = ");
+            decl.push_string(c);
+            decl.push_str(";");
+            em.emit_string_line(decl);
+            w := String.from("(&(");
+            w.push_string(spill);
+            w.push_str("))");
+            w
+          }))
+        )
       )
     );
     _p := out.push(transformed);
@@ -634,8 +677,14 @@ _per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), par
         if(i > usize(0), {
           out.push_str(", ");
         });
-        base_str := match(param_types.get(i), .Some(t) => get_type_string(t, context.base), .None => String.from("void*"));
         pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
+        // A BY-VALUE `unit` parameter is spelled as the one-byte placeholder in
+        // the prototype, so its cast must agree; a REF one stays `void` + `*`.
+        base_str := match(
+          param_types.get(i),
+          .Some(t) => if(pref, get_type_string(t, context.base), get_storage_type_string(t, context.base)),
+          .None => String.from("void*")
+        );
         out.push_str("(");
         out.push_string(base_str);
         if(pref, {
@@ -871,6 +920,19 @@ _call_is_handler_installation :: (fn(func_ei : ExprInfo, function_type : TypeVal
   });
   result
 });
+/// "(<T>)" when a future-typed call result initializes a temp declared with
+/// the stamped (interface) type: every async SM struct begins with the future
+/// interface's prefix, so concrete-SM* → iface* is the design's own
+/// conversion — but C requires the cast spelled, and clang 16+ C hard-errors
+/// on the bare incompatible-pointer initializer (the windows-arm cross-emit
+/// leg; a warning on every other leg). Empty for everything else.
+_future_init_cast :: (fn(ty : TypeValue, context : FunctionGenerationContext) -> String)({
+  if(!(type_implements_future(ty)), {
+    return(String.new());
+  });
+  fic_ct := get_type_string(ty, context.base);
+  if(fic_ct.ends_with("*"), `(${fic_ct})`, String.new())
+});
 /// The call/method/trait-dispatch emitter. Mirrors `generateOtherFunctionCall`
 /// (corpus path). Returns `.None` to fall through (unhandled shape).
 ///
@@ -1024,6 +1086,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           dmd := indent.clone();
           dmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
           dmd.push_str(" = ");
+          dmd.push_string(_future_init_cast(ei.ty, context));
           dmd.push_string(dm_call);
           dmd.push_str(";");
           dm_em2 := context.base.emitter;
@@ -1179,6 +1242,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               ),
               .None => ArrayList(bool).new()
             );
+            // Resolved BEFORE the argument loop (they only need `method_fv`)
+            // so the loop can tell whether an empty — i.e. `unit` — argument
+            // has a real C parameter slot to fill with the dead byte.
+            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(mv)), .None => TypeValue.Unit);
+            cm_ptypes := match(cm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             cm_arg_list := ArrayList(String).new();
             cnma := dm_runtime.len();
             (cmi : usize) = usize(0);
@@ -1186,7 +1254,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               match(
                 dm_runtime.get(cmi),
                 .Some(a) => {
-                  _cmp := cm_arg_list.push(_call_generate_expr(a, indent.clone(), context));
+                  _cmp := cm_arg_list.push({
+                    mc := _call_generate_expr(a, indent.clone(), context);
+                    hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
+                    if((mc.len() == usize(0)) && hs, String.from("0"), mc)
+                  });
                 },
                 .None => ()
               );
@@ -1206,8 +1278,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             // deep inside a method, the caller CONTINUED with a garbage
             // result (stage-2 prelude-eval SIGSEGV; see
             // issues/retired/yo-self-stage2-unwind-check-coverage.md).
-            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(mv)), .None => TypeValue.Unit);
-            cm_ptypes := match(cm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             // Method dispatch: the callee is a property access, not an atom —
             // TS's exprIsAtom(expr.func) fallback is false here.
             cm_may_unwind := _call_may_unwind(method_fv, cm_mft, cm_ptypes, false, context);
@@ -1237,6 +1307,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 cmd := indent.clone();
                 cmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
                 cmd.push_str(" = ");
+                cmd.push_string(_future_init_cast(ei.ty, context));
                 cmd.push_string(cm_call);
                 cmd.push_str(";");
                 cm_em2.emit_string_line(cmd);
@@ -1297,6 +1368,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           .Some(rmcn) => {
             rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
             rm_pir := match(get_func_type(rm_fid.clone()), .Func({ meta : __fmrm }) => __fmrm.*.param_is_ref, _ => ArrayList(bool).new());
+            // Resolved BEFORE the argument loop (they only need `rm_fid`) so an
+            // empty — i.e. `unit` — argument can be filled with the dead byte
+            // when the callee actually has a C parameter at that index.
+            rm_mft := get_func_type(rm_fid.clone());
+            rm_ptypes := match(rm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             rm_args := ArrayList(String).new();
             rm_n := rm_runtime.len();
             (rmi : usize) = usize(0);
@@ -1304,7 +1380,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               match(
                 rm_runtime.get(rmi),
                 .Some(a) => {
-                  _rmp := rm_args.push(_call_generate_expr(a, indent.clone(), context));
+                  _rmp := rm_args.push({
+                    mc := _call_generate_expr(a, indent.clone(), context);
+                    hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
+                    if((mc.len() == usize(0)) && hs, String.from("0"), mc)
+                  });
                 },
                 .None => ()
               );
@@ -1315,8 +1395,6 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             rm_call.push_str("(");
             rm_call.push_string(_join_args(rm_args));
             rm_call.push_str(")");
-            rm_mft := get_func_type(rm_fid.clone());
-            rm_ptypes := match(rm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             rm_may_unwind := _call_may_unwind(Option(EvalValue).Some(rmv), rm_mft, rm_ptypes, false, context);
             rm_install_ei := new_expr_info(ei.env, rm_mft);
             rm_install_ei.value = Option(EvalValue).Some(rmv);
@@ -1344,6 +1422,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 rmd := indent.clone();
                 rmd.push_string(get_variable_type_string(ei.ty, tv.clone(), context.base));
                 rmd.push_str(" = ");
+                rmd.push_string(_future_init_cast(ei.ty, context));
                 rmd.push_string(rm_call);
                 rmd.push_str(";");
                 rm_em2.emit_string_line(rmd);
@@ -1472,10 +1551,29 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // Prefer the recorded runtime arg exprs; fall back to reconstructing
           // them from the FnCall's labeled args when empty (ctor inside a
           // specialized body — see _ctor_args_from_labeled).
+          // The recorded list can carry MORE values than the constructor has
+          // parameters: a comptime (`::`) field is erased from the C layout, so
+          // it is not a constructor parameter, but the evaluator's
+          // runtime_arg_exprs still recorded a value for it — emitting
+          // `__yo_new_T(1, 5)` against `__yo_new_T(int32_t n)`, i.e. "too many
+          // arguments to function call". `_ctor_args_from_labeled` is
+          // field-driven (it walks get_runtime_struct_fields, the same view the
+          // constructor's parameter list is built from), so it has the right
+          // arity by construction. Prefer it whenever the recorded list
+          // OVERSUPPLIES and the reconstruction matches — deliberately narrow,
+          // so a recorded list that merely differs for some other reason is
+          // left alone.
+          // See issues/fixed/ref-struct-comptime-field-breaks-constructor-arity.md.
+          ctor_rt_n := get_runtime_struct_fields(wrapped.clone()).len();
+          ctor_labeled := _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args);
           ctor_args := match(
             ei.runtime_arg_exprs_in_order,
-            .Some(ra) => if(ra.len() > usize(0), ra, _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)),
-            .None => _ctor_args_from_labeled(wrapped.clone(), obj_fncall_args)
+            .Some(ra) => cond(
+              (ra.len() == usize(0)) => ctor_labeled,
+              ((ra.len() > ctor_rt_n) && (ctor_labeled.len() == ctor_rt_n)) => ctor_labeled,
+              true => ra
+            ),
+            .None => ctor_labeled
           );
           ctor_list := String.from("");
           nca := ctor_args.len();
@@ -1484,7 +1582,17 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             if(ci > usize(0), {
               ctor_list.push_str(", ");
             });
-            match(ctor_args.get(ci), .Some(ca) => ctor_list.push_string(emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context)), .None => ());
+            // A `unit` field argument generates no C; the constructor parameter
+            // it feeds is now a one-byte placeholder, so pass the dead byte
+            // instead of emitting `__yo_new_T(1, )`. Arity is preserved.
+            match(
+              ctor_args.get(ci),
+              .Some(ca) => {
+                cc := emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context);
+                ctor_list.push_string(if(cc.len() == usize(0), String.from("0"), cc));
+              },
+              .None => ()
+            );
             ci = (ci + usize(1));
           });
           ctor_call := String.from("__yo_new_");
@@ -1608,7 +1716,17 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 // expression evaluated `code` TWICE (a fresh `N(...)` ctor
                 // arg allocated two objects: one leaked incr'd, one stored
                 // un-incr'd) and over-counted moves that need no incr at all.
-                match(vs_args.get(rfi), .Some(a) => cl_out.push_string(emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context)), .None => ());
+                // Same as the constructor call: a `unit` field initializer has
+                // no C value, and the field is now a one-byte placeholder, so
+                // fill `.b = 0` rather than emitting `.b = `.
+                match(
+                  vs_args.get(rfi),
+                  .Some(a) => {
+                    vs_fv := emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context);
+                    cl_out.push_string(if(vs_fv.len() == usize(0), String.from("0"), vs_fv));
+                  },
+                  .None => ()
+                );
                 rfi = (rfi + usize(1));
               });
               cl_out.push_str(" }");
@@ -1677,10 +1795,17 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   (ai : usize) = usize(0);
   while(ai < na, {
     pref := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
+    // A `unit` argument materializes to "" (see _materialize_arg). If the callee
+    // has a real C parameter at this index it is now a one-byte placeholder, so
+    // pass the dead byte rather than leaving `f(xs, )`. With NO matching
+    // parameter slot — a reconstructed argument list — leave the slot empty,
+    // which is today's behaviour.
+    has_slot := match(param_types.get(ai), .Some(_) => true, .None => false);
     match(
       runtime_args.get(ai),
       .Some(arg) => {
-        _p := args.push(_materialize_arg(arg, pref, expr, indent.clone(), context));
+        mc := _materialize_arg(arg, pref, expr, indent.clone(), context);
+        _p := args.push(if((mc.len() == usize(0)) && has_slot, String.from("0"), mc));
       },
       .None => ()
     );
@@ -1806,7 +1931,15 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             return(Option(String).Some(`// Failed to transpile ${ast_expr_to_string(expr)}`));
           });
           casted := _per_arg_cast(args_list.clone(), param_types, param_is_ref, context);
-          if(is_unit_type(result_type), {
+          // `is_unit_type` does not walk the SomeT resolution chain, but
+          // `get_type_string` does — and the normalization above deliberately
+          // leaves `result_type` as a SomeT when the expression's own type is
+          // unit. Consult the SPELLING in that case so a generic result that
+          // RESOLVES to unit takes the statement form instead of declaring a
+          // `void` temp. Only for a SomeT: get_type_string panics on the
+          // Fn/Future trait arms.
+          rt_void := if(is_some_type(result_type), get_type_string(result_type, context.base) == `void`, is_unit_type(result_type));
+          if(rt_void, {
             // Clear __yo_effect_escaped before the call so a stale flag from
             // a previous unwind (already handled by a higher-level handler)
             // doesn't leak into this call's escape check.
@@ -1826,17 +1959,50 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           match(
             ei.variable_name,
             .Some(tv) => {
-              c_type := get_type_string(result_type, context.base);
+              (c_type : String) = get_type_string(result_type, context.base);
+              // A future-returning call's stamped result type can carry a
+              // STALE generation's state machine (minted in a def-time trial,
+              // never emitted — the C21 escalation's 'incomplete definition
+              // of type' errors). The C truth is the CALLEE's emitted return
+              // spelling, the same _async_override_return_type its prototype
+              // used; the temp then also matches the sm await_future field,
+              // which prefers the same channel.
+              // Prefer the awaited-future channel FIRST: it consults the
+              // evaluator's method-callee side table, which is the only
+              // route to the emitted return spelling when the callee here is
+              // a TRAIT-dispatched method (fv is not a FuncVal at this site
+              // — the where-bound `(R <: Reader).read` binds; the direct
+              // path below then returned None and the temp kept the
+              // interface struct type: the -Wincompatible-pointer-types
+              // residual that the windows-arm cross-emit leg promotes to an
+              // error).
+              match(
+                awaited_future_c_type_override(expr, context.base),
+                .Some(ot_ovr0) => {
+                  c_type = ot_ovr0;
+                },
+                .None => match(
+                  _async_override_return_type(
+                    function_type,
+                    match(fv, .FuncVal(__ofnb, _) => Option(AstExpr).Some(__ofnb.*.body), _ => Option(AstExpr).None),
+                    context.base
+                  ),
+                  .Some(ot_ovr) => {
+                    c_type = ot_ovr;
+                  },
+                  .None => ()
+                )
+              );
               already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
               if(!(already), {
                 match(
                   context.declared_temp_vars,
                   .Some(s) => {
-                    _a := s.add(tv.clone());
+                    _a := s.insert(tv.clone());
                   },
                   .None => {
                     ns := HashSet(String).new();
-                    _a := ns.add(tv.clone());
+                    _a := ns.insert(tv.clone());
                     context.declared_temp_vars = Option(HashSet(String)).Some(ns);
                   }
                 );
@@ -1851,6 +2017,20 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 line.push_str(" ");
                 line.push_string(tv.clone());
                 line.push_str(" = ");
+                // Future-typed results: cast the call to the DECLARED type.
+                // Every async SM struct begins with the future interface's
+                // prefix, so concrete-SM* → iface* is the design's own
+                // conversion — but C needs it spelled, and when neither
+                // override channel above resolves the callee's emitted
+                // spelling (trait-dispatched callee with no side-table
+                // entry), the bare initializer is an
+                // incompatible-pointer-types diagnostic that clang 16+ C
+                // treats as an ERROR (the windows-arm cross-emit leg).
+                if(type_implements_future(result_type) && c_type.ends_with("*"), {
+                  line.push_str("(");
+                  line.push_string(c_type);
+                  line.push_str(")");
+                });
                 line.push_string(c_func_name);
                 line.push_str("(");
                 line.push_string(casted);
@@ -1974,7 +2154,10 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           if(pi > usize(0), {
             cast.push_str(", ");
           });
-          cast.push_string(match(param_types.get(pi), .Some(t) => get_type_string(t, context.base), .None => String.from("void*")));
+          // Must match the callee's PROTOTYPE, where a by-value `unit` parameter
+          // is the one-byte placeholder. The return slot above keeps
+          // get_type_string — `void` is legal there.
+          cast.push_string(match(param_types.get(pi), .Some(t) => get_storage_type_string(t, context.base), .None => String.from("void*")));
           pi = (pi + usize(1));
         });
         cast.push_str("))");
@@ -1994,7 +2177,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               if(fa_i > usize(0), {
                 fa_out.push_str(", ");
               });
-              fa_pt := match(param_types.get(fa_i), .Some(t) => get_type_string(t, context.base), .None => String.from("void*"));
+              // In lockstep with the fn-pointer cast above.
+              fa_pt := match(param_types.get(fa_i), .Some(t) => get_storage_type_string(t, context.base), .None => String.from("void*"));
               fa_part := match(fa_parts.get(fa_i), .Some(x) => x, .None => String.new());
               fa_out.push_str("(");
               fa_out.push_string(fa_pt);
@@ -2022,7 +2206,36 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
   // a temp + post-call check so the escape propagates (mirrors TS, which always
   // emits a temp + emitEffectUnwindCheck for such calls).
   if(ou_may_unwind, {
-    if(is_unit_type(result_type), {
+    // `is_unit_type` does not walk the SomeT resolution chain, and the
+    // normalization at the top of this function deliberately LEAVES
+    // `result_type` a SomeT whenever the call expression's own type is unit
+    // (the generic-ResumeType `ctl` cast needs the declared spelling). The
+    // registered-callee path above compensates for that by consulting the
+    // SomeT's spelling; this fn-pointer path did not, so a closure call whose
+    // result is a unit-valued generic emitted
+    //     void* tmp = closure_yo_id_N(&body, &self->_value);
+    // against a `void`-returning C function — "initializing 'void *' with an
+    // expression of incompatible type 'void'". That is exactly
+    // `Mutex(T).with_lock((v) => { v = i32(7); })`, the flagship std/sync
+    // form: R binds to unit, the specialization returns void, but the tail
+    // call still declared a `void*` temp. Every shape that reaches here today
+    // emits invalid C (`void`/`void*` temp initialized from a void call), so
+    // widening the test can only turn a C-compile error into working output.
+    //
+    // A generic-ResumeType `ctl` is EXCLUDED: that callee really is emitted as
+    // one `void*`-returning C function (issues/fixed/
+    // ctl-handler-void-signature-vs-sret-cast.md) and its branch below must
+    // still declare the temp the escape-path drops reference.
+    ou_result_is_void := cond(
+      is_unit_type(result_type) => true,
+      ctl_generic_ret => false,
+      is_some_type(result_type) => {
+        ou_rts := get_type_string(result_type, context.base);
+        (ou_rts == `void`) || ((ou_rts == `void*`) && is_unit_type(ei.ty))
+      },
+      true => false
+    );
+    if(ou_result_is_void, {
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       ucall := indent.clone();
@@ -2039,11 +2252,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       match(
         context.declared_temp_vars,
         .Some(s) => {
-          _a := s.add(fp_tv.clone());
+          _a := s.insert(fp_tv.clone());
         },
         .None => {
           ns := HashSet(String).new();
-          _a := ns.add(fp_tv.clone());
+          _a := ns.insert(fp_tv.clone());
           context.declared_temp_vars = Option(HashSet(String)).Some(ns);
         }
       );
@@ -2060,10 +2273,21 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         em.emit_string_line(`${indent.clone()}${out.clone()};`);
       }, {
         fline := indent.clone();
-        fline.push_string(fpc);
+        fline.push_string(fpc.clone());
         fline.push_str(" ");
         fline.push_string(fp_tv.clone());
         fline.push_str(" = ");
+        // Future-typed result under the unwind-check path: cast to the
+        // DECLARED type. The concrete state machine's struct begins with the
+        // future interface's prefix (the design's own conversion), but C
+        // needs it spelled — clang 16+ C hard-errors on the bare
+        // incompatible-pointer initializer (the windows-arm cross-emit leg;
+        // a warning everywhere else).
+        if(type_implements_future(result_type) && fpc.ends_with("*"), {
+          fline.push_str("(");
+          fline.push_string(fpc.clone());
+          fline.push_str(")");
+        });
         fline.push_string(out.clone());
         fline.push_str(";");
         em.emit_string_line(fline);
