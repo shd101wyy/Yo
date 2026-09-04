@@ -1,114 +1,210 @@
-# Formal Verification
+# Formal Verification — Dafny-style compile-time verification for Yo
 
-> **Status: draft.** Initial design sketch — no code landed. This document
-> proposes a layered verification surface for Yo built on the existing
-> compile-time evaluator, algebraic effects, and where-clause type system.
-> Breaking changes are acceptable per [`yo-design.instructions.md`](../.github/instructions/yo-design.instructions.md).
-
-## Goal
-
-Make Yo a language where **security- and correctness-critical properties can be
-proved at compile time**, with a graduated cost model: cheap properties
-(non-zero, bounds, ownership) are discharged automatically by the evaluator;
-expensive properties (loop invariants, functional correctness, cryptographic
-constant-time) are discharged by an opt-in SMT backend or external bounded
-model checker.
-
-Yo's design center is **LLMs as primary code authors**. This is the key
-audience this plan optimises for: contracts are the artifact that
-converts silent LLM hallucination into compile errors with concrete
-counter-examples. An LLM that writes `requires(...)` / `ensures(...)`
-alongside its implementation gets a second oracle (beyond the typechecker
-and test runner) telling it "wrong, here's why" — closing the iteration
-loop the same way a unit test does but without the LLM having to invent
-inputs that trigger the bug. See [Design for LLM authorship](#design-for-llm-authorship)
-below for the LLM-specific constraints this places on the verifier.
-
-The pitch: **"Every function in `std/` carries an executable specification.
-LLM-generated code at the application layer opts the same specifications
-into a verifier and gets a proof — or a counter-example — without leaving
-the source file."**
-
-This is Dafny's surface, F\*'s effect discipline, and Rust+Kani's tooling
-shape, adapted to Yo's syntax, algebraic-effect model, C codegen pipeline,
-and LLM-author focus.
-
-## Non-Goals
-
-- **No full dependent types.** No `Pi` types, no value-indexed type families
-  beyond what GADTs already give. Refinements are predicates attached to
-  existing types, not new kinds.
-- **No interactive theorem proving in-tree.** No tactic language. The goal
-  is automation; properties that need tactics belong in a sibling Coq/Lean
-  project.
-- **No mandatory verification.** Verification is opt-in per file (via a
-  pragma) and per function (via contract annotations). Code without
-  annotations compiles exactly as today.
-- **No proof of full functional correctness for `std/`.** The plan picks a
-  small core (slice access, integer arithmetic, allocator, hash, sort,
-  parser limits) and ships proofs for those. The rest gets contracts but
-  not necessarily proofs.
-- **No verified compiler.** The Yo→C lowering itself stays unverified;
-  proofs are at the Yo source level. (CompCert-style verified codegen is a
-  separate, much larger project.)
-- **No replacement for `assert(...)` or `panic(...)`.** Existing runtime
-  assertions stay. Contracts compile to assertions in the default
-  configuration; verification is the upgrade path, not the replacement.
+> **Status: ACTIVE PLAN — revised 2026-09-04.**
+> This revision replaces the 2026-05 draft's recommendation ("land Phase 0,
+> park the verifier"). The decision is now made: **Yo builds a compile-time,
+> SMT-backed verifier in the Dafny / SPARK tradition**, because Yo's design
+> center is LLM authorship and contracts-with-proofs are the strongest oracle
+> an LLM authoring loop can get. It aligns with
+> [`ROADMAP.md`](ROADMAP.md) Phase 1 ("Formal verification — the flagship").
+>
+> Three decisions shape everything below:
+>
+> 1. **Compile-time verification, not runtime-only.** `requires(...)` /
+>    `ensures(...)` are today lowered to runtime `assert(...)`. The verifier
+>    discharges them **statically with Z3** (Dafny model): a violated
+>    contract is a *compile error with a concrete counter-example*.
+> 2. **Z3 only.** One solver, pinned and versioned. CVC5, CBMC, KLEE and
+>    SeaHorn integrations from the old draft are **dropped** (see
+>    [Decision log](#decision-log)).
+> 3. **No magic `result` keyword.** A post-condition names the return value
+>    through Yo's **existing labeled-return syntax**: `-> (result : i32)`.
+>    The 2026-05 draft's magic identifier is removed (breaking change, see
+>    [Breaking-change ledger](#breaking-change-ledger)).
+>
+> Phase 0 (the contract *surface*, runtime-checked) is **landed**; the
+> verifier phases V1–V7 below are the implementation plan.
 
 ---
 
-## Why Yo is unusually well-positioned for this
+## Table of contents
 
-Yo already carries most of the machinery a verifier needs. The plan is
-mostly about exposing it.
-
-| Existing Yo feature                                           | What verification gets from it                                                                                                                    |
-| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Compile-time evaluator** (`src/evaluator/`)                 | Already a partial symbolic interpreter (`UnknownValue`, `arrayElementRef`, slice-flowability). Becomes the verification condition generator.      |
-| **`where(...)` clauses on `forall`**                          | Natural home for refinements: `where((x > i32(0)))` instead of trait-only constraints.                                                            |
-| **Algebraic effects with `ctl(...) -> R`**                    | Effects become **capabilities**. A function with no `io : Io` parameter provably performs no I/O. A function with no `raise : Raise` cannot fail. |
-| **`unsafe(...)` markers + per-file pragma**                   | Verifier can refuse to enter unsafe regions, or be told to assume their contracts. Trust boundary is already greppable.                           |
-| **GADTs with `-> recur(T)`**                                  | Variant-indexed type refinement is already possible. Verifier extends this to value-indexed.                                                      |
-| **Nominal types, no implicit coercion**                       | No SMT axioms needed to reason about coercion. `i32(x)` to `i64` is an explicit, modelable cast.                                                  |
-| **C11 backend, `-fwrapv` (signed wrap defined)**              | Two's-complement wrap-around is a stable semantic target. SMT bitvector theory matches the C output.                                              |
-| **`comptime_expect_error`, `comptime_assert`**                | The reject-this-program testing surface already exists. Verification failures plug into the same mechanism.                                       |
-| **Object types have RC reference semantics**                  | Aliasing is contained: `object(...)` types have shared mutable state; `struct(...)` types do not. The verifier can rely on this dichotomy.        |
-| **Pure-functional combinators on `Option`/`Result`**          | Most stdlib higher-order code is already pure. Verification gates pure functions cheaply.                                                         |
-| **No operator precedence**                                    | Source AST is already a tree of explicit calls; no precedence parsing inside the verifier.                                                        |
-| **Slice flowability R1–R4 analysis** (`SLICE_FLOWABILITY.md`) | Proof that the evaluator already does non-trivial static reasoning per-call. The verifier extends, not replaces, this pass.                       |
-
-**Accurate framing:** Yo's compile-time evaluator provides the AST
-traversal, type-environment, and CTFE infrastructure a VC generator
-would hook into. It does NOT provide path-condition tracking, symbolic
-state, loop-invariant reasoning, contract substitution at call sites,
-or SMT encoding. So the evaluator serves as the verifier's _front-end_;
-the verification _back-end_ is a substantial new component built on top
-of (not derived from) the existing pass. (An earlier draft claimed "60%
-of a VC generator" — that was rhetorical and misleading; see audit §B1
-and §C2 below.)
+1. [Goal & positioning](#goal--positioning)
+2. [Non-goals](#non-goals)
+3. [Current state — audited 2026-09-04](#current-state--audited-2026-09-04)
+4. [The surface](#the-surface)
+5. [Named returns in `ensures(...)` — the decision](#named-returns-in-ensures--the-decision)
+6. [Verification semantics](#verification-semantics)
+7. [Architecture](#architecture)
+8. [SMT encoding reference](#smt-encoding-reference)
+9. [Solver harness: Z3, pinned, deterministic](#solver-harness-z3-pinned-deterministic)
+10. [Diagnostics & counter-examples](#diagnostics--counter-examples)
+11. [CLI & pipeline integration](#cli--pipeline-integration)
+12. [Implementation plan — phases V1–V7](#implementation-plan--phases-v1v7)
+13. [Test strategy](#test-strategy)
+14. [Design for LLM authorship](#design-for-llm-authorship)
+15. [Trade-offs accepted](#trade-offs-accepted)
+16. [Breaking-change ledger](#breaking-change-ledger)
+17. [Decision log](#decision-log)
+18. [Risks](#risks)
+19. [Open questions](#open-questions)
+20. [History & audit trail](#history--audit-trail)
+21. [References](#references)
 
 ---
 
-## The surface — six primitives
+## Goal & positioning
 
-The verification surface consists of five new builtin calls
-(`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`), one new type
-constructor (`Refine`), and one new pragma value (`Pragma.Verify` and
-its variants). Three ghost-context builtins (`forall_val`, `exists_val`,
-`==>`) appear later, in the spec-module section. Everything else is
-reused.
+Make Yo a language where **correctness properties are proved at compile
+time**, with a graduated cost model:
 
-`ghost` and `ghost_fn` are split rather than overloaded: `ghost(name := expr)`
-introduces a ghost binding, while `ghost_fn(fn_value)` marks a function
-as ghost-only. See [Standard library spec module](#standard-library-spec-module--stdspec)
-for why the split matters (resolves audit §A3 ambiguity).
+- **Free** — properties the compile-time evaluator already discharges
+  (literal arithmetic, CTFE-evaluable predicates, comptime contracts).
+  No solver involved; these are already compile errors today.
+- **Cheap** — properties Z3 discharges in milliseconds on the verifiable
+  subset: bounds, non-zero divisors, sign reasoning, linear arithmetic,
+  `cond`/`match` path reasoning, modular call-site obligations.
+- **Annotated** — loop invariants, `decreases` measures, ghost values:
+  properties the user (usually an LLM) must *state* before Z3 can prove
+  them.
+- **Runtime fallback** — anything the solver cannot discharge within its
+  deterministic budget degrades to today's runtime `assert(...)` in
+  `VerifyOrAssert` mode. Verification is adoptable file-by-file and
+  clause-by-clause; this is the pragmatic wedge Dafny never had, and it
+  is why **`VerifyOrAssert` is the flagship mode** (per ROADMAP Phase 1).
+
+Yo's design center is **LLMs as primary code authors**. Contracts are the
+artifact that converts silent LLM hallucination into compile errors with
+concrete counter-examples: an LLM that writes `requires(...)` /
+`ensures(...)` alongside its implementation gets a second oracle (beyond
+the typechecker and test runner) saying "wrong, here is the exact input
+that breaks it" — closing the iteration loop without the LLM having to
+invent inputs that trigger the bug.
+
+The pitch: **"Every function carries an executable specification.
+`yo verify` turns it into a proof — or a counter-example — without
+leaving the source file."**
+
+This is Dafny's verification semantics and SPARK's gradual-adoption
+model, adapted to Yo's syntax, algebraic-effect model, C11 codegen
+pipeline, and LLM-author focus.
+
+## Non-goals
+
+- **No full dependent types.** No Π/Σ types, no value-indexed type
+  families beyond existing GADTs. Refinements are predicates attached to
+  existing types.
+- **No interactive theorem proving.** No tactic language, no proof
+  states, no stepping through obligations. Either Z3 discharges the VC or
+  the author edits the annotations.
+- **No second solver.** Z3 only. The solver-facing surface (SMT-LIB 2
+  over stdio) is deliberately generic, but nothing else is wired, tested,
+  or supported. Multi-solver support is a non-goal until there is a
+  demonstrated need.
+- **No external bounded model checkers.** The CBMC / KLEE / SeaHorn
+  annotation emitters from the old draft are dropped.
+- **No capability lattice / taint tracking** in this plan. The old
+  draft's Phase 4 (Untrusted/Trusted/Secret ranks, constant-time crypto)
+  was new infrastructure orthogonal to VC generation; it moves to
+  `plans/backlog/` thinking when the core verifier exists.
+- **No type invariants** (`invariant(...)` on struct/object types) in the
+  initial phases — loop invariants only. Type invariants interact with
+  every constructor and `inout` method; deferred (Open Question 6).
+- **No verified compiler.** The Yo→C lowering stays unverified; proofs
+  are at the Yo source level.
+- **No float reasoning.** `f32`/`f64` are outside the verifiable subset
+  (Open Question 4).
+- **No mandatory verification.** Code without contract annotations and
+  without a verification pragma compiles exactly as today.
+
+## Current state — audited 2026-09-04
+
+A full audit of the landed Phase 0 surface, against the actual tree. File
+references are current paths (the 2026-05 draft cited the retired
+TypeScript compiler — `src/expr.ts`, `src/evaluator/builtins/contracts.ts`,
+`src/types/compatibility.ts`, …; all such citations in this revision point
+at the live `.yo` sources).
+
+### What works today (Phase 0 — landed)
+
+| Capability | Where | Notes |
+| --- | --- | --- |
+| Contract builtins registered: `requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`, `old` | `src/expr.yo:60-65` (`BF_REQUIRES` … `BF_OLD`) | Parse as ordinary `FnCallExpr` nodes; no parser changes were needed |
+| Signature extraction of `requires(...)` / `ensures(...)` into side tables | `src/evaluator/types/function.yo` (`g_func_requires_exprs` / `g_func_ensures_exprs`, `register_func_*_exprs`, `copy_func_contract_exprs`, `get_func_*_exprs`) | Keyed by fn-type-expr id, re-keyed to the FuncVal id. The `TypeValue.Func` struct cannot carry `AstExpr`s (definitions must not depend on expr), hence the side-table design — the verifier reuses these tables as its contract input |
+| Strict clause-zone order `generic(0) → params(1) → where(2) → requires(3) → ensures(4)` | `_clause_zone` / `_zone_label` in `src/evaluator/types/function.yo` | Out-of-order clause is a syntax error with a "Move X before Y" hint |
+| Single-call rule + zero-argument rejection | `src/evaluator/builtins/contracts.yo` (`_reject_zero_arg_marker`) | Two `requires(...)` clauses in one signature is a syntax error |
+| Runtime lowering: contracts spliced into the body as `assert(P, "requires failed: ...")` / `comptime_assert(...)` | `wrap_function_body_with_contracts` in `src/evaluator/builtins/contracts.yo`; called from `src/evaluator/calls/function_type.yo:888` | Dispatches on `isCompileTimeOnly` of the return. `ensures` wraps the body as `{ snapshots; requires-asserts; <binding> := (<body>); ensures-asserts; <binding> }`; unit returns skip the binding |
+| `old(...)` entry-snapshot hoisting | `_hoist_old_in` in `src/evaluator/builtins/contracts.yo` | Each `old(e)` becomes `__yo_contract_old_K := e` at entry, rewritten into the predicate |
+| Magic `result` identifier inside `ensures(...)` | `_RESULT_IDENTIFIER` in `src/evaluator/builtins/contracts.yo` | **To be replaced** by named returns (Phase V1) — see below |
+| Loop `invariant(...)` must be the first statement of the `while` body | enforced in the `while` evaluation path | Placement anywhere else (including nested branches) is rejected |
+| Pragmas `Pragma.Verify`, `Pragma.VerifyOrAssert`, `Pragma.NoContracts` | prelude `Pragma` enum; mapping in `src/evaluator/builtins/pragma.yo` | `Verify`/`VerifyOrAssert` parse and warn "verify mode not implemented". `NoContracts` fully works (erases the splice) |
+| `std/spec/` skeletons | `std/spec/refine.yo`, `std/spec/numeric.yo` | `Refine(T)`/`NonZero`/`Bounded`/`NonEmpty`/`Positive`/… are identity type aliases today; the predicate parameter does not exist yet |
+| Tests | `tests/spec/`: `contracts_phase0.test.yo` (31 tests), `pragma_no_contracts.test.yo`, `pragma_verify.test.yo`, `refine_types.test.yo` | All green as of this audit (`yo test ./tests/spec/contracts_phase0.test.yo` → 31/31) |
+
+### The labeled-return syntax already exists (and is currently dropped)
+
+Yo already parses **labeled returns**: `-> (name : i32)`, `-> (comptime(name) : i32)`.
+The function-type evaluator validates the label
+(`src/evaluator/types/function.yo:3810-3945`, `return_label`), then —
+today — **drops it**: nothing downstream binds or reads the label.
+
+Measured behavior (this audit, `tmp/fixme.yo`):
+
+```rust
+f :: (fn(x : i32, ensures(retval >= i32(0))) -> (retval : i32))( ... );
+// → Error: Variable "retval" not found.
+```
+
+So the syntax the new design needs is already legal; only the plumbing is
+missing. That is Phase V1.
+
+### What is missing (the gap the verifier fills)
+
+1. **No compile-time discharge.** Contracts are runtime asserts. A
+   violated `requires` is a panic at run time, discovered only when
+   someone runs the code with a triggering input.
+2. **No caller-side obligations.** The runtime model checks `requires`
+   inside the callee at run time. Dafny-style modular verification needs
+   the *caller* to prove each callee's `requires` statically and to
+   *assume* the callee's `ensures` afterwards.
+3. **No path conditions, no symbolic state.** `EvalValue.UnknownVal`
+   means "type known, value unknown" and carries no symbolic
+   information. There is no SSA, no constraint accumulation across
+   `cond`/`match`, no loop reasoning.
+4. **No solver integration at all.** No SMT-LIB emission, no Z3
+   acquisition/pinning, no verdict plumbing, no counter-example
+   rendering.
+5. **`result` is a magic identifier** bound by the wrapper lowering, not
+   tied to the signature — the exact design this revision removes.
+6. **`Refine(T)` ignores its predicate** — refinement aliases are
+   documentation today.
+
+### Stale claims removed from the 2026-05 draft
+
+| Old claim | Reality |
+| --- | --- |
+| "Recommended near-term commitment is Phase 0 only; Phase 1+ parked" | Superseded — ROADMAP Phase 1 makes verification the flagship; this doc is the implementation plan |
+| Phase-1 estimate "13–19 person-months" built on *extending the evaluator* with path-condition tracking (old audit §B1: 4–6 months for that alone) | The architecture changed: a **separate verifier pass** over the evaluated AST (Dafny/Boogie shape), not an evaluator extension. Path conditions live inside the verifier, where they belong. Revised per-phase estimates in [Phases V1–V7](#implementation-plan--phases-v1v7) |
+| "VIR (Verification IR)" as a pipeline stage with its own design doc | Replaced by an **in-memory VC term representation** (`src/verifier/terms.yo`) and direct SMT-LIB 2 emission. No persisted IR, no separate VIR document |
+| Backend matrix (Z3, CVC5, CBMC, KLEE, SeaHorn) | **Z3 only** |
+| `result` magic identifier (old §A4, §D4 debated reserving it as a keyword) | Removed. Named returns instead |
+| Capability lattice / taint ranks (old §B5) | Deferred — not in this plan |
+| Phase-0 progress cited "26 tests across 3 files" | Now 4 files; `contracts_phase0.test.yo` alone has 31 tests |
+| `while(runtime((i < n)), {...})` in examples | Outdated — `while` conditions are runtime by default; write `while(i < n, {...})` |
+| TS-era paths (`src/expr.ts:742`, `src/evaluator/types/function.ts`, `src/types/compatibility.ts`, `src/evaluator/memory-safety.ts`, `src/codegen/functions/generation.ts`, `src/version-cache.ts`, …) | All retired with the TypeScript compiler (frozen at `src-attic-final`); current paths used throughout |
+
+## The surface
+
+Six primitives exist today (`requires`, `ensures`, `invariant`, `ghost`,
+`ghost_fn`, `old`); the verifier adds three (`decreases`,
+`forall_val`/`exists_val`, `==>`) and one real type constructor
+(`Refine(T, predicate)`), plus the three verification pragmas that already
+parse.
 
 ### 1. `requires(...)` — pre-condition
 
-A pre-condition is a `bool` expression that must hold on entry. It appears
-**inside the function type signature**, alongside parameters, `forall(...)`,
-and `where(...)` — the same clause-list shape Yo already uses for type
-constraints:
+Lives in the function-type signature clause-list, after parameters and
+`where(...)` (zone order is enforced today):
 
 ```rust
 divide :: (fn(
@@ -118,133 +214,114 @@ divide :: (fn(
 ) -> i32)((x / y));
 ```
 
-A single `requires(...)` call takes one or more predicates as arguments;
-they are conjoined. This matches the shape of `where(T <: A, U <: B)`,
-`cond(c1 => r1, c2 => r2)`, and every other multi-clause Yo construct.
-The verifier preserves per-argument source spans so failure messages
-still pinpoint the violated predicate:
+One `requires(...)` call takes one or more predicates as arguments; they
+are conjoined. Per-argument source spans are preserved so a failure
+pinpoints the exact predicate. Zero arguments and multiple `requires(...)`
+clauses are syntax errors (enforced today).
 
-```rust
-binary_search :: (fn(
-  forall(T : Type),
-  arr : Slice(T),
-  key : T,
-  where(T <: Ord),
-  requires(
-    sorted(arr),
-    (arr.len() <= usize(0x7FFFFFFF)),
-  ),
-) -> Option(usize))(body);
-```
-
-`requires()` with zero arguments is a syntax error — omit the clause
-entirely if there is no precondition. Multiple `requires(...)` clauses in
-the same signature are also a syntax error (use one call with multiple
-arguments).
+**Verification semantics:** at the callee, `requires` is *assumed* (the
+callee may use it); at each **call site**, every predicate must be
+*proved* under the caller's path condition. In the runtime-only mode
+(today's behavior) it is checked by the entry assert.
 
 ### 2. `ensures(...)` — post-condition
 
-A post-condition lives in the same signature clause-list and refers to
-the function's **result** via the magic identifier `result` (in scope only
-inside `ensures(...)`):
+Same signature clause-list, after `requires(...)`:
 
 ```rust
 abs :: (fn(
   x : i32,
   ensures(
-    (result >= i32(0)),
-    ((result == x) || (result == -(x))),
+    ((result >= i32(0)) && ((result == x) || (result == -(x)))),
   ),
-) -> i32)(cond(
-  (x >= i32(0)) => x,
-  true => -(x)
-));
+) -> (result : i32))(
+  cond((x >= i32(0)) => x, true => -(x))
+);
 ```
 
-Like `requires(...)`, a single `ensures(...)` call takes one or more
-predicates; multiple `ensures(...)` clauses in the same signature are a
-syntax error.
+**Verification semantics:** the callee must prove every predicate on
+every normal-exit path, with the return label bound to the returned
+value; call sites *assume* the predicates after a proved call.
 
-`ensures(...)` clauses also see all parameters, plus `old(expr)` for the
-parameter value on entry (relevant when `ref(name) : T` parameters are
-mutated):
+### Named returns in `ensures(...)` — the decision
+
+**There is no magic `result` keyword.** A post-condition names the return
+value with Yo's **existing labeled-return syntax**; the label is an
+ordinary binding whose scope is the contract clauses:
 
 ```rust
-increment :: (fn(
-  ref(n) : i32,
-  requires((n < i32(0x7FFFFFFF))),
-  ensures((n == (old(n) + i32(1)))),
-) -> unit)({
-  n = (n + i32(1));
-});
+// Any label works — it is the user's name, declared in the signature:
+fn(ensures((answer < i32(0)))) -> (answer : i32)
+
+// Same identifier convention users already know from parameters:
+fn(inout(n) : i32, ensures((n == (old(n) + i32(1))))) -> unit
 ```
 
-### Runtime vs comptime contracts
+Why this beats a magic identifier (old draft §A4/§D4, resolved by
+decision):
 
-A contract clause inherits the comptime-ness of its host function from
-Yo's existing typing rule: a function whose return is wrapped in
-`comptime(...)` is comptime-only, with all parameters comptime. The
-contract behaves accordingly:
+1. **It is the syntax Yo already has.** Parameters are named in the
+   signature; the return value is a parameter of the post-condition.
+   `-> (result : i32)` is exactly that, parsed since before Phase 0.
+2. **No scope magic.** The 2026-05 draft needed a "magic identifier,
+   in scope only inside `ensures(...)`" with a keyword-reservation audit.
+   A labeled return is a normal binding introduced by a normal syntax
+   element — the evaluator binds it exactly where the wrapper already
+   binds its internal result value today.
+3. **Self-documenting signatures.** `-> (count : usize)` reads as a
+   contract-visible name; callers and LLMs see one vocabulary. (Ada and
+   SPARK name their out-parameters; Eiffel's `Result` and Dafny's
+   `result` are the keyword approach — Yo goes the Ada way because Yo
+   already has the surface.)
+4. **No collision story.** `std/imm` has local `result` bindings today;
+   the Phase-0 workaround ("wrapper-bound local, not a keyword") was
+   clever but fragile. With labels, `result` is just a name a user may
+   pick — or not.
 
-| Function shape                                  | `requires(P)` / `ensures(P)` lowers to | Failure timing                           |
-| ----------------------------------------------- | -------------------------------------- | ---------------------------------------- |
-| `(fn(...) -> T)` (runtime)                      | `assert(P, "...")`                     | Runtime panic on each violating call     |
-| `(fn(comptime(...)) -> comptime(T))` (comptime) | `comptime_assert(P, "...")`            | Compile error at the violating call site |
+Rules:
 
-The predicate `P` itself follows the same rule: a comptime function's
-contract may only reference comptime-evaluable values, and the
-predicate is fully evaluated at call-site specialization time. A
-runtime function's contract may reference runtime parameters, and the
-predicate is evaluated each time the function is called.
+- **Labeled non-unit return:** the label is bound in every `ensures(...)`
+  predicate to the function's returned value. The wrapper lowering binds
+  `<label> := (<body>)` instead of today's `result := (<body>)`.
+- **Unlabeled non-unit return:** the return value is not nameable in
+  `ensures(...)`. Predicates may still constrain parameters and
+  `old(...)` expressions. If a predicate references an unbound identifier
+  and the return is unlabeled, the diagnostic appends a targeted hint:
+  *"to name the return value in `ensures(...)`, label the return:
+  `-> (<name> : i32)`"*. (The base error is the ordinary
+  `Variable "x" not found.` — the hint is additive, not a new error
+  class.)
+- **Unit return:** no return binding exists. `-> (name : unit)` parses;
+  referencing `name` in `ensures(...)` errors ("unit-returning function
+  has no return value to name"). The wrapper keeps today's unit special
+  case (no `void` binding in emitted C).
+- **Tuple/aggregate returns:** the label names the whole value;
+  predicates project fields from it (`result.0`, `result.left`, …).
+- **`ghost_fn` specifications follow the same rule** — a ghost function's
+  `ensures(...)` binds its own labeled return.
+- **`old(...)`** refers to a parameter's entry-time value (already
+  implemented as entry snapshots; the verifier encodes it as a two-state
+  variable — see [Loops & mutation](#loops-mutation-old-and-decreases)).
 
-The dispatch is mechanical: at lowering time (Phase 0 task #6), look
-at `functionType.return.isCompileTimeOnly`; emit `comptime_assert`
-if set, `assert` otherwise. No new syntax is needed — the user
-writes `requires(P)` either way, and the typing context picks the
-right enforcement mechanism. This also means a contract migrated from
-a runtime function to a comptime function (by adding `comptime(...)`
-to the return) automatically tightens from "runtime check" to
-"compile error" without any change to the predicate.
+Migration for code relying on the magic `result`: add the label —
+`-> (result : i32)`. The 10 `ensures` sites in `tests/spec/` and the
+cheatsheet example are the known in-repo migration set (Phase V1 task).
 
-### Why signatures, not bodies
+### 3. `invariant(...)` — loop invariant
 
-Function contracts (`requires`, `ensures`) live in the signature for
-three concrete reasons:
-
-1. **Modular reasoning at call sites.** A caller proves a call by reading
-   only the callee's signature. Putting the contract in the body would
-   force callers to open the implementation file.
-2. **Trait declarations have no body.** Yo's trait fields are pure
-   function types (`next : (fn(ref(self) : Self) -> Option(Self.Item))`).
-   For trait methods to carry contracts, the contracts must live in the
-   function type. Anything else makes the language inconsistent.
-3. **Overlap with `where(...)`.** `where(...)` already lives in the
-   signature clause-list. `requires(...)` is its value-level cousin —
-   they belong in the same place.
-
-The other contract primitives stay in bodies because they have no
-signature to attach to: loop `invariant(...)` is part of the loop, type
-`invariant(...)` is part of the type, `ghost(...)` is a binding.
-
-### 3. `invariant(...)` — loop and type invariant
-
-For `while` loops: an invariant must hold before each iteration and after
-the loop exits. Loop invariants live in the loop body (the loop has no
-signature):
+Lives as the **first statement of a `while` body** (placement enforced
+today). Multiple predicates are conjoined arguments of one call:
 
 ```rust
 sum_to :: (fn(
   n : i32,
   requires((n >= i32(0))),
   ensures((result == ((n * (n + i32(1))) / i32(2)))),
-) -> i32)({
+) -> (result : i32))({
   i := i32(0);
   acc := i32(0);
-  while(runtime((i < n)), {
-    invariant(
-      ((i >= i32(0)) && (i <= n)),
-      (acc == ((i * (i + i32(1))) / i32(2))),
-    );
+  while(i < n, {
+    invariant((i >= i32(0)), (i <= n), (acc == ((i * (i + i32(1))) / i32(2)))));
     i = (i + i32(1));
     acc = (acc + i);
   });
@@ -252,338 +329,24 @@ sum_to :: (fn(
 });
 ```
 
-`invariant(...)` follows the same single-call rule: one call per loop
-(or one per type body), with all predicates as comma-separated arguments.
-
-**Placement rule:** inside a `while(...)` body, `invariant(...)` must be
-the **first non-comment statement**. Placing it later, in a `cond` /
-`match` branch, or after any other statement is a syntax error. This
-prevents semantic ambiguity about where in the loop the invariant must
-hold (audit §A2): it always means "holds at the loop head, every
-iteration." The evaluator enforces this position check at
-function-body evaluation time, parallel to how `pragma(...)` is
-restricted to the file top.
-
-For struct/object types, `invariant(...)` appears as a top-level field-like
-declaration. The invariant must hold after every constructor call and after
-every method whose receiver is `ref(self) : Self` or `self : Self` (for
-object):
-
-```rust
-SortedList :: object(
-  _data : ArrayList(i32),
-  invariant(sorted_strict(self._data.as_slice()))
-);
-```
-
-### 4. `ghost(...)` — spec-only binding
-
-`ghost(...)` introduces a binding visible only to the verifier and other
-ghost code. It appears in the function body and is erased before codegen.
-Because it is bound in the body, signature-level `ensures(...)` cannot
-reference it directly — use `old(...)` or recompute the ghost expression
-in the post-condition:
-
-```rust
-swap_three :: (fn(
-  ref(a) : i32,
-  ref(b) : i32,
-  ref(c) : i32,
-  ensures((((a + b) + c) == ((old(a) + old(b)) + old(c)))),
-) -> unit)({
-  // body uses ghost(...) freely for intermediate spec values:
-  ghost(orig_sum := ((a + b) + c));
-  // ...rotate the three values...
-});
-```
-
-Ghost bindings can hold any value, including comptime-only constructions
-like sets, multisets, sequences (defined in `std/spec/`, see below). They
-never appear in C output.
-
-### 5. `Refine(T, predicate)` — refinement type
-
-A refinement type is a value type paired with a predicate over its values.
-At runtime it is **identical** to `T` (zero overhead). At verification time
-the predicate is added to the path condition whenever a value of the type
-is observed:
-
-```rust
-NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(
-  Refine(T, (x) => (x != T(0)))
-);
-
-Bounded :: (fn(comptime(T) : Type, comptime(lo) : T, comptime(hi) : T) -> comptime(Type))(
-  Refine(T, (x) => ((x >= lo) && (x <= hi)))
-);
-
-// Use:
-safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)((num / denom));
-```
-
-The predicate is an ordinary Yo comptime lambda. Construction sites either
-prove the predicate or fail to compile:
-
-```rust
-x := NonZero(i32)(i32(5));     // OK — 5 != 0 by literal evaluation
-y := NonZero(i32)(read_i32()); // ERROR if `read_i32` doesn't return NonZero
-y := NonZero(i32).check(read_i32()); // OK — `check` returns Option(NonZero(T))
-```
-
-### 6. `pragma(Pragma.Verify);` — file-level verification gate
-
-Like `Pragma.AllowUnsafe`, a file opts into being verified:
-
-```rust
-pragma(Pragma.Verify);
-
-// All `requires/ensures/invariant` in this file must be discharged
-// statically; failure to prove is a compile error.
-```
-
-Files without the pragma compile contracts to runtime assertions (mode
-`runtime`, see below) — no proof obligation.
-
----
-
-## Verification modes
-
-Every file is in one of four modes for verification, set by pragma
-combination:
-
-| Pragma combination                 | Mode      | Contract behaviour                                          |
-| ---------------------------------- | --------- | ----------------------------------------------------------- |
-| (default — no verification pragma) | `runtime` | Contracts compile to `assert(...)` calls                    |
-| `pragma(Pragma.Verify);`           | `verify`  | Contracts are proof obligations; failure is a compile error |
-| `pragma(Pragma.VerifyOrAssert);`   | `verify+` | Try to prove; fall back to runtime assert if unprovable     |
-| `pragma(Pragma.NoContracts);`      | `ignore`  | Contracts erased entirely (use for release/benchmark)       |
-
-The CLI also offers a global override: `yo compile --verify-mode {runtime,
-verify, verify+, ignore}` for build-system control. The pragma is the
-source-of-truth when present.
-
-`verify+` is the production mode: properties the SMT backend can discharge
-cost nothing at runtime; the rest fall back to assertions, matching the
-behaviour user code has today.
-
----
-
-## Architecture
-
-```
-Yo source
-   ↓
-Lexer / Parser                        (no changes; contracts parse as builtin calls)
-   ↓
-Evaluator                             (gather contracts; partial evaluation)
-   ↓
-Verification IR (VIR)                 (new — per-function VC generation)
-   ↓
-SMT encoder (Z3 / CVC5)               (new — or external BMC, see below)
-   ↓
-{ Discharged, Refuted-with-counterexample, Timeout }
-   ↓
-Codegen                               (emits assertions per mode)
-   ↓
-C compiler
-```
-
-### Verification IR (VIR)
-
-A small intermediate language between Yo's AST and the SMT solver. VIR is
-SSA, has explicit branches, and represents:
-
-- **Bitvector** integers with width (matching the C codegen exactly).
-- **Booleans**.
-- **Tuples, structs, enums** as algebraic datatypes (SMT-LIB `declare-datatypes`).
-- **Arrays / Slices** as `(Array Int Element)` with an explicit `length`.
-- **Object types** as opaque references with a heap model (one heap per
-  object class, indexed by an abstract reference).
-- **Effects** as uninterpreted functions tagged with capability rows
-  (handlers turn into axioms).
-- **`old(...)`** as a snapshot of pre-state, modelled as a separate frame.
-
-The point of VIR is to keep the SMT backend stupid: it only sees terms it
-already understands. All Yo-specific desugaring (where clauses,
-specialization, trait dispatch, async lowering) happens during VIR
-generation, before SMT.
-
-### VC generation
-
-For each function with contracts in a `verify` or `verify+` file:
-
-1. Substitute generic parameters with their constraints.
-2. Walk the function body in SSA order, building a path condition `Φ`.
-3. At each statement, generate a verification condition:
-   - **`requires(P)` on entry**: assume `P` (add to context).
-   - **`assert(P)` (runtime asserts also become VCs)**: prove `Φ ∧ ¬P` unsat.
-   - **Function call `f(args)`**: prove caller satisfies `f`'s `requires`;
-     assume `f`'s `ensures` after.
-   - **`invariant(P)` at loop head**: prove `P` holds on entry and after
-     each iteration's body.
-   - **Array/slice index `s(i)`**: prove `(i < s.len())`.
-   - **Integer division / mod**: prove divisor non-zero.
-   - **`unsafe(p.*)`**: prove `p` is a valid pointer (requires alias
-     analysis; see "Unsafe boundary" below).
-   - **`ensures(P)` at return**: prove `P` holds with `result` bound.
-4. Hand each VC to the SMT backend with a per-function timeout (default 10s).
-
-### SMT backend
-
-Default: **Z3** via stdio (no FFI; the verifier subprocess writes SMT-LIB
-2 and parses sat/unsat replies). Alternative: **CVC5**, selectable via
-`--solver`. The solver runs out-of-process so a misbehaving solver cannot
-take down the compiler.
-
-Theories used:
-
-- `QF_BV` — quantifier-free bitvectors, for all integer arithmetic.
-- `QF_ABV` — adds arrays for slice/array models.
-- `ADT` — algebraic datatypes for enum/struct/tuple.
-- `UFBV` — for axiomatised pure functions across module boundaries.
-
-Quantifiers are avoided by default; when needed (e.g. universal claims
-about `Iterator` impls), the verifier instantiates explicitly via E-matching
-patterns supplied through ghost code.
-
-### External BMC: CBMC / Kani-style
-
-Some properties (deep loop invariants, complex control flow, FFI) are
-better handled by a bounded model checker on the C output. The CLI exposes
-this as an alternate backend:
-
-```
-yo verify --backend cbmc src/sort.yo --unwind 8
-yo verify --backend klee src/parser.yo --max-depth 200
-```
-
-Yo's codegen emits annotations the chosen backend understands:
-
-- For CBMC: `__CPROVER_assume(...)`, `__CPROVER_assert(...)` next to
-  contract sites.
-- For KLEE: `klee_assume(...)`, `klee_assert(...)`.
-- For SeaHorn: `verifier.assume`, `verifier.assert`.
-
-This makes Yo a friendly source language for existing C verification
-tooling without committing to one. See "Backend matrix" below.
-
----
-
-## Algebraic effects as capabilities
-
-Yo's existing algebraic-effect machinery already gives us a
-capability-based security model. The plan promotes this from "nice
-documentation" to a verified property.
-
-A function's signature is a complete capability declaration:
-
-```rust
-// Pure: no effects → no I/O, no mutation of caller state via ref, no panic.
-pure_hash :: (fn(input : Slice(u8)) -> u64)( ... );
-
-// Can fail, cannot do I/O:
-parse_int :: (fn(s : str, raise : Raise) -> i32)( ... );
-
-// Can do I/O AND fail; carries a network capability bundle.
-fetch :: (fn(url : Url, net : NetCap, raise : Raise) -> Bytes)( ... );
-```
-
-### Capability lattice
-
-Each effect type is a capability with a place in a partial order:
-
-```rust
-// In std/spec/capability.yo:
-Capability :: trait(
-  comptime(rank) : Rank,           // Pure < Allocator < FsRead < FsWrite < Net < Spawn
-  comptime(taint_level) : Taint    // Untrusted, Internal, Trusted
-);
-```
-
-The verifier enforces:
-
-- A function with capability rank `R` cannot call another with rank `> R`.
-- A function taking `untrusted : Untrusted(str)` cannot pass that value to
-  a function expecting `trusted : Trusted(str)` without an explicit
-  sanitiser (a function `sanitise : (fn(s : Untrusted(str)) -> Trusted(str))`
-  with a discharged contract).
-- A `Refine(T, p)` value escaping into an untrusted context loses its
-  refinement (the refinement type is dropped on the boundary).
-
-### Concrete security gains
-
-These properties become **provable**, not just convention:
-
-| Property                                        | How                                                                                    |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
-| No path injection from HTTP input to filesystem | `Untrusted(Path)` cannot reach `FsWrite` without sanitisation.                         |
-| No SQL injection                                | `Untrusted(str)` cannot be concatenated into `SqlQuery`.                               |
-| No use of uninitialised memory                  | Slice access carries a `Sized(s, n)` refinement.                                       |
-| No integer overflow in security-critical paths  | `Bounded(i32, lo, hi)` and arithmetic overflow VCs.                                    |
-| Constant-time crypto                            | "No branching on `Secret(T)`" enforced by an effect.                                   |
-| Authorization checks not bypassable             | Sensitive APIs require an `Authz` capability that only an auth-checking pass produces. |
-
-The mechanism is identical for all of these: a refinement type or
-capability effect that has to be earned to be used.
-
----
-
-## Standard library spec module — `std/spec/`
-
-A new top-level stdlib directory exposing the verification vocabulary.
-Layout:
-
-```
-std/spec/
-  refine.yo          — Refine, NonZero, Bounded, NonEmpty
-  numeric.yo         — Even, Odd, Positive, Negative
-  collection.yo      — Sorted, Unique, Permutation, Length
-  string.yo          — Utf8Valid, NonEmpty, Trimmed
-  pointer.yo         — Live, InBounds, Aligned (for unsafe regions)
-  sequence.yo        — Seq(T) — ghost-only ordered collection
-  multiset.yo        — Multiset(T) — ghost-only bag
-  set.yo             — Set(T) — ghost-only set
-  capability.yo      — Capability trait, Untrusted, Trusted, Secret
-  proof.yo           — proof tactics: split, by_induction, by_cases
-```
-
-No `index.yo` — `std/spec/` follows the multi-submodule pattern of
-`std/collections/`, `std/net/`, `std/fs/`. Users import each submodule
-explicitly: `{ NonEmpty, Refine } :: import("std/spec/refine");`
-
-`Seq(T)`, `Multiset(T)`, `Set(T)` are ghost-only types — runtime
-representation `unit`, erased at codegen. They give specifications
-algebraic operations without runtime cost.
-
-Spec predicates come in two flavors, governed by Yo's existing typing
-rules:
-
-**Computable specs** are ordinary runtime functions returning `bool`.
-They cannot use `forall_val` / `exists_val` / `Multiset` / `Set` because
-those are not computable. They are inlined and reasoned about by the
-verifier's symbolic executor, and also usable as runtime assertions in
-`verify+` mode:
-
-```rust
-sorted :: (fn(s : Slice(i32)) -> bool)({
-  i := usize(1);
-  while(runtime((i < s.len())), {
-    if(((s((i - usize(1)))) > s(i)), { return(false); });
-    i = (i + usize(1));
-  });
-  true
-});
-```
-
-**Ghost specs** wrap their `fn` value in `ghost_fn(...)` — a distinct
-builtin from the binding form `ghost(name := expr)`. The two are split
-to avoid the parsing ambiguity flagged in audit §A3 (`ghost(f)` where
-`f` is a function value would otherwise be indistinguishable from a
-ghost binding). A ghost function is erased at codegen and callable only
-from contract context (`requires`, `ensures`, `invariant`, `ghost(...)`
-bindings, the body of another `ghost_fn`, or another ghost-context
-expression). It returns ordinary `bool`, so the typing rule about
-`comptime` return / `comptime` params is satisfied:
+**Verification semantics:** the invariant must hold on loop entry and be
+re-established by every iteration; the exit path assumes
+`invariant && !(cond)`. `break`/`continue` interact precisely — see
+[Loops & mutation](#loops-mutation-old-and-decreases).
+
+Struct/object **type invariants** are out of scope (non-goal above).
+
+### 4. `ghost(...)` / `ghost_fn(...)` — specification-only code
+
+Two distinct builtins (split resolved old audit §A3):
+
+- `ghost(name := expr)` — a binding visible only to contracts and other
+  ghost code; **erased before codegen** (today it evaluates at runtime as
+  a transparent marker — V5 makes erasure real; see the
+  [breaking-change ledger](#breaking-change-ledger)).
+- `ghost_fn(fn_value)` — marks a function as specification-only: callable
+  only from contract context, erased at codegen. Ghost spec functions
+  return ordinary `bool`.
 
 ```rust
 permutation :: ghost_fn((fn(
@@ -592,1183 +355,1008 @@ permutation :: ghost_fn((fn(
 ) -> bool)(
   (Multiset.from_slice(a) == Multiset.from_slice(b))
 ));
+```
 
+### 5. `decreases(...)` — termination measure (new builtin, Phase V4)
+
+A signature clause after `ensures(...)` (zone 5) for recursive functions,
+and a loop-body statement immediately after `invariant(...)` for loops:
+
+```rust
+factorial :: (fn(
+  n : u32,
+  requires((n <= u32(12))),
+  ensures((result == fact_of(n))),
+  decreases(n),
+) -> (result : u32))( ... );
+```
+
+- Without `decreases(...)`, recursive functions and annotated loops get
+  **partial correctness only** (Dafny's default): the post-condition is
+  proved *assuming* termination; no termination proof is attempted.
+- With it, the verifier proves the measure is non-negative (well-bounded)
+  and strictly decreases at each recursive call / loop back-edge.
+  Measures may be integer expressions or lexicographic tuples
+  (`decreases((a, b))`).
+
+### 6. Quantifier builtins — `forall_val`, `exists_val`, `==>` (new, Phase V5)
+
+Well-formed **only inside ghost context** (contract clauses, `ghost(...)`
+bindings, `ghost_fn` bodies) — enforced by an `is_ghost_context` flag on
+the evaluation context (resolves old audit §A5). Calling them from
+ordinary runtime code is a compile error, mirroring how `unwind(...)`
+is only well-formed inside `ctl(...) -> R`:
+
+```rust
 sorted_quantified :: ghost_fn((fn(s : Slice(i32)) -> bool)(
   forall_val((i : usize), (j : usize),
-    (((i < j) && (j < s.len())) ==> (s(i) <= s(j)))
+    (((i < j) && (j < s.len())) ==> ((s(i)) <= (s(j))))
   )
 ));
-
-// Sort spec — either computable `sorted` or `sorted_quantified` works:
-sort :: (fn(
-  ref(s) : Slice(i32),
-  ensures(sorted(s), permutation(s, old(s))),
-) -> unit)(body);
 ```
 
-`forall_val((bind1), (bind2), ..., P)`, `exists_val((bind1), ..., P)`,
-and `==>` are new builtins. They are well-formed only inside ghost
-context — calling them from a non-ghost function is a compile error.
-This mirrors how `unwind(...)` is only well-formed inside a
-`ctl(...) -> R` body.
+ASCII spellings on purpose — LLM training data and copy-paste safety
+(old draft's "no ∀/∃/⇒" stance, kept).
 
----
+### 7. `Refine(T, predicate)` — refinement types (real implementation, Phase V6)
 
-## Refined types: design details
-
-`Refine(T, predicate)` is a comptime type constructor that returns a
-**newtype-like** wrapper:
-
-- At codegen, `Refine(T, p)` lowers to exactly `T`. Zero runtime cost.
-- Member access is unchanged: a `Refine(i32, p)` supports the same
-  arithmetic as `i32`, with the predicate threaded through the verifier.
-- Predicates compose:
-  `Refine(Refine(i32, p), q)` is equivalent to `Refine(i32, (x) => (p(x) && q(x)))`.
-
-### Constructor rules
-
-A value enters a refinement type three ways:
-
-1. **Literal proof**: `NonZero(i32)(i32(5))` — predicate evaluated at
-   comptime by the existing CTFE engine; non-literal arguments must come
-   from a context where the predicate is provable.
-2. **`.check(...)` returning `Option(Refine(T, p))`**: runtime check that
-   the user can pattern-match on. Generated automatically per refinement.
-3. **`.unchecked(...)` inside an `unsafe(...)` wrap**: caller asserts the
-   predicate. Only legal in `pragma(Pragma.AllowUnsafe);` files.
-
-### Coercions
-
-`Refine(T, p) <: T` is a one-way subtype (refinement-erasure). The verifier
-keeps the predicate in context as long as the value's static type is
-refined; once erased, the predicate is gone.
-
-### Refinements vs `where` clauses
-
-There is overlap with existing `where(T <: Trait)`. The rule:
-
-- `where(T <: Trait)` — type-level constraint, used during trait dispatch.
-- `requires((x > i32(0)))` — value-level predicate over a runtime parameter.
-
-Both live in the same signature clause-list and are syntactically siblings.
-The verifier treats `where(P)` with a `bool` predicate `P` as identical to
-`requires(P)`; the spelling difference is documentation only (type-level
-intent vs value-level intent):
+`Refine(T, p)` becomes a genuine comptime type constructor: erased to
+`T` at codegen (zero runtime cost), distinct at the type level, with
+construction sites generating proof obligations:
 
 ```rust
-// All three signatures are equivalent — pick by intent:
-
-abs :: (fn(x : i32, where((x > i32(-2147483648)))) -> i32)(
-  cond((x >= i32(0)) => x, true => -(x))
+NonZero :: (fn(comptime(T) : Type) -> comptime(Type))(
+  Refine(T, (x) => ((x != T(0))))
 );
 
-abs :: (fn(x : i32, requires((x > i32(-2147483648)))) -> i32)(
-  cond((x >= i32(0)) => x, true => -(x))
-);
-
-abs :: (fn(x : Bounded(i32, i32(-2147483647), i32(2147483647))) -> i32)(
-  cond((x >= i32(0)) => x, true => -(x))
-);
+safe_div :: (fn(num : i32, denom : NonZero(i32)) -> i32)((num / denom));
 ```
 
-Choose `where(...)` for a constraint that's primarily about _which types
-this applies to_. Choose `requires(...)` for a value-level boundary
-condition. Choose `Refine(T, p)` when you want the predicate to flow
-through call chains as part of the type.
+- `Refine(T, p) <: T` freely (erasure); `T → Refine(T, p)` requires
+  proving `p(x)` at the coercion site (a VC).
+- Composition normalizes: `Refine(Refine(T, p), q)` ≡
+  `Refine(T, (x) => (p(x) && q(x)))`.
+- Entry paths: literal construction (CTFE discharges when the value is
+  known), `.check(...)` returning `Option(Refine(T, p))`, and
+  `.unchecked(...)` under `pragma(Pragma.AllowUnsafe)`.
+- Today's one-argument `Refine(T)` aliases in `std/spec/` gain the
+  predicate parameter in V6 — breaking change for the skeleton API
+  (ledger entry 3).
 
----
+### Verification modes (pragmas exist today; semantics land in V3)
 
-## Interaction with existing language features
+| Pragma | Mode | Behavior |
+| --- | --- | --- |
+| (default — no verification pragma) | `runtime` | Contracts lower to runtime `assert(...)` / `comptime_assert(...)` — **today's behavior, unchanged** |
+| `pragma(Pragma.Verify);` | `verify` | Contracts and auto-obligations (AoRTE, below) are proof obligations. Refuted ⇒ compile error with counter-example. Unprovable-within-budget ⇒ compile error. Runtime asserts are **not** emitted (the proof replaces them) |
+| `pragma(Pragma.VerifyOrAssert);` | `verify+` | Try to prove. Proved ⇒ erased (no runtime cost). Refuted ⇒ compile error (a refutation is a bug, never assert-worthy). Budget-exhausted ⇒ fall back to today's runtime assert. **Flagship mode** |
+| `pragma(Pragma.NoContracts);` | `ignore` | Contracts erased entirely (works today) |
 
-### `unsafe(...)` and the safe boundary
+A CLI global override `--verify-mode {runtime,verify,verify+,ignore}`
+selects per invocation; the pragma is source-of-truth when present.
 
-The verifier respects [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md): inside an
-`unsafe(...)` expression, the verifier requires explicit pointer
-contracts:
+## Verification semantics
 
-```rust
-pragma(Pragma.AllowUnsafe);
-pragma(Pragma.Verify);
+### Modular verification: callee and caller obligations
 
-deref_pair :: (fn(
-  p : *(i32),
-  requires(live(p), aligned(p)),
-) -> i32)((unsafe(p.*) + unsafe(p.*)));
+The Dafny model, exactly:
+
+| Site | `requires(P)` | `ensures(E)` |
+| --- | --- | --- |
+| **Callee verification** (function's own file, any verify mode) | **Assume** `P` on entry | **Prove** `E` on every normal-exit path, return label bound |
+| **Call site** (in any verified function) | **Prove** `P[args/params]` under the caller's path condition | **Assume** `E[args/params]` after the call |
+
+This gives compositional reasoning: a caller never opens the callee's
+body; it reads only the signature. It also means contracts are usable
+*without* the callee itself being verified — a contract on a function in
+a `runtime`-mode file is still assumed at verified call sites (the
+callee's file decides whether *its* body must prove anything).
+
+### The verifiable subset
+
+Verification is defined over a **subset of Yo** that grows per phase
+(SPARK's approach: a defined verifiable subset, not all-or-nothing). In
+`verify`/`verify+` files, a function whose body uses a construct outside
+the current subset produces a precise error:
+`cannot verify: <construct> is outside the verifiable subset (phase V3)`
+— or, in `verify+`, degrades the function to runtime asserts.
+
+| Construct | Status |
+| --- | --- |
+| Integer/bool arithmetic, comparisons, logical ops, `cond`, `match`, `if` | V3 |
+| Let bindings (`:=`, `::`), field access, tuple/struct/enum construction | V3 |
+| Calls to contract-carrying or verified pure functions; CTFE-computable calls | V3 |
+| `assert(P)` sites (become obligations), `panic` paths (exempt from `ensures`) | V3 |
+| Slices/arrays with `len` (index bounds are auto-obligations) | V3 |
+| `while` loops with `invariant(...)`; `break`/`continue` | V4 |
+| Recursion (with `decreases(...)` for termination) | V4 |
+| `ghost(...)`, `ghost_fn(...)`, quantifiers, `old(...)`/`inout` two-state, `Seq`/`Multiset`/`Set` | V5 |
+| Trait-method calls under trait contracts; generic functions; `Refine` | V6 |
+| `object` types (heap references), `str`/`String` content, floats | **out of subset** initially — `object` and strings are planned (V6+); floats open-ended non-goal |
+| Effects (`ctl` handlers, `io.await`), `unsafe(...)`, raw pointers, `asm(...)`, FFI `extern`, parallelism | **outside the subset** — a verified function body may not contain them (effects double as the frame rule, below) |
+
+### Purity and the effect frame rule
+
+A verified function must be **checked-pure** at the syntactic level Yo
+already exposes: no effect parameters used in the body, no `ctl(...)`
+handlers, no `await`, no `unsafe`, no `asm`, no FFI calls, no writes to
+module-level globals. This is exactly ROADMAP Phase 1's "leverage the
+effect system as the frame rule": the hardest part of verifying
+imperative code — framing what a call may modify — falls out of
+machinery that already exists. A call in a verified body may only target:
+
+1. **CTFE-computable** callees (arguments all comptime-known) — folded to
+   constants, no VC;
+2. callees **with contracts** — prove `requires`, assume `ensures`
+   (regardless of the callee's own file mode);
+3. callees **verified in the same compilation without `ensures`** —
+   `requires` still proved; the result is unconstrained beyond its type
+   (sound, occasionally useful);
+4. a **whitelisted set of pure builtins** with hand-written SMT axioms
+   (`min`, `max`, `abs`, … — the whitelist grows per phase);
+5. anything else ⇒ subset error (or `verify+` fallback).
+
+### Integer semantics: bitvectors matching the C output
+
+Yo compiles to C11 with `-fwrapv` (signed wrap defined as two's
+complement — `src/main.yo:1892`). The verifier models integers as **exact
+-width bitvectors**: `i32` → `(_ BitVec 32)`, with
+`bvsdiv`/`bvudiv`/`bvurem` for division per signedness, `bvshl`/`bvlshr`
+for shifts, sign/zero extension for widening casts `i32(x)`, truncation
+for narrowing. The model is *exactly* the emitted C semantics — a proof
+is a proof about the program that runs. Widths (including `usize`) come
+from the active `CompilationTarget` (`src/target.yo`), so a
+`wasm32-wasip1` verification uses 32-bit `usize`.
+
+Overflow is **not an obligation by default** (wrapping is defined
+semantics, not a bug). Opt-in overflow checking arrives with
+`std/spec/numeric.yo` predicates (`NoOverflow(...)`) in V6 — an ordinary
+`ensures` predicate, no special machinery.
+
+### Automatic obligations — absence of runtime errors (SPARK's AoRTE)
+
+In `verify`/`verify+` files, the verifier generates obligations **no
+contract asked for**, on every verified function:
+
+- every slice/array index `s(i)`: prove `i < s.len()` (and, for
+  mutation, `s` is not borrowed-immutably — refined per phase);
+- every `/` and `%`: prove the divisor non-zero;
+- every shift: prove the shift amount is within the operand width
+  (C-level UB otherwise).
+
+This is the single highest-value feature for LLM authorship: bounds and
+divide-by-zero bugs — the classic LLM hallucination class — become
+compile errors with concrete counter-example inputs, on *unannotated*
+code. `yo verify ./file.yo` with zero contracts written still catches
+them.
+
+### Loops, mutation, `old`, and `decreases`
+
+**`while` encoding (V4).** Standard havoc-invariant rule over the loop's
+assigned locals (computed by a new assigned-variable scan of the body —
+the same walk style as the flowability analysis):
+
+1. Prove `invariant` holds on entry (under the pre-path-condition).
+2. Assume `invariant && cond`; havoc assigned vars; execute the body
+   symbolically; prove `invariant` re-established.
+3. Exit path: `invariant && !(cond)` (plus break-path disjuncts, below).
+
+`break` exits mid-iteration where the invariant is not yet re-established,
+so the exit condition is the disjunction
+`(invariant && !(cond)) || Φ_break` where `Φ_break` collects each break
+site's path condition. `continue` jumps to the head, so the invariant
+must hold **at each `continue` site** (an extra obligation at the
+statement, not just at the back-edge).
+
+**`inout(name) : T` parameters and `old(...)` (V5).** `inout` params get
+a two-state encoding: an entry snapshot variable (exactly today's
+`__yo_contract_old_K` binding, but symbolic) and a mutable current
+variable. `old(e)` reads the snapshot state. Locals mutate in single
+assignment style (SSA renaming); struct fields copy by value (Yo structs
+are value types), so no heap model is needed for them. `object` types
+stay outside the subset (their reference semantics need a heap model —
+deferred with the type-invariant work).
+
+**`decreases(...)` (V4).** Loop variant: the measure must be
+non-negative and strictly decrease every iteration. Recursive functions:
+each `recur(...)` site proves the measure of the actuals is strictly
+smaller than the formals'. Integer measures use `BV` ordering;
+lexicographic tuples compare component-wise.
+
+### `comptime` functions need no VCs
+
+The existing rule carries over unchanged: a comptime function's contracts
+lower to `comptime_assert(...)` and the CTFE engine fully evaluates them
+at specialization time — already a compile error, no solver involved. The
+verifier only sees functions with at least one runtime parameter. The
+comptime/runtime boundary inside contracts is exactly the boundary that
+already separates `comptime_assert` from `assert`.
+
+### Ghost erasure
+
+In verify modes, `ghost(...)` bindings and `ghost_fn(...)` definitions
+are consumed by the verifier and **erased before codegen** (V5; see
+ledger). In `runtime`-mode files, `ghost`/`ghost_fn` remain accepted
+no-op markers (today's behavior) so specification text never breaks
+compilation of unverified code. A non-ghost expression referencing a
+ghost binding is a compile error ("ghost value escapes specification
+context").
+
+## Architecture
+
+```
+Yo source
+   ↓
+Lexer / Parser                        (unchanged — contracts are builtin calls)
+   ↓
+Evaluator                             (unchanged core: types, CTFE, contracts
+   ↓                                   extracted to side tables; mode dispatch
+                                       suppresses the assert splice in `verify`)
+Function bodies + ExprInfo + contract side tables
+   ↓
+Verifier pass  (new: src/verifier/)   per function, fresh state
+   ├── terms.yo   — in-memory VC term IR (SSA-ish, typed)
+   ├── vc.yo      — symbolic execution of the body → obligation set
+   ├── encode.yo  — terms → SMT-LIB 2 text
+   ├── z3.yo      — solver process harness (spawn, query, verdict)
+   ├── builtin_axioms.yo — whitelisted pure builtins as SMT axioms
+   ├── report.yo  — verdicts → diagnostics, counter-example rendering
+   └── driver.yo  — scheduling, budgets, caching, mode wiring
+   ↓
+{ Proved | Refuted(counter-example) | Unproven(budget) | SubsetError }
+   ↓
+Codegen                               (emits runtime asserts only for
+   ↓                                   `runtime` mode and `verify+` fallbacks)
+C compiler
 ```
 
-`live(...)` and `aligned(...)` are predicates from `std/spec/pointer.yo`.
-The verifier cannot synthesise these — they have to be axiomatised at the
-unsafe boundary, the same way `unsafe(...)` itself is a hand-audited
-boundary today.
+### Why a separate pass, not an evaluator extension
 
-A file that is `pragma(Pragma.Verify);` but not `Pragma.AllowUnsafe` has
-no `unsafe(...)` to worry about; the absence of raw pointers is itself
-proved by the existing safety pragma. **This composes cleanly**: safe Yo
-code in a `Verify` file is the easy case.
+The 2026-05 audit's central cost finding (§B1: "path-condition tracking is
+a fundamentally new evaluator capability — 4–6 person-months alone") was
+correct *for the architecture it evaluated*: teaching the shared
+evaluator to accumulate symbolic constraints while it type-checks. This
+plan chooses the Dafny/Boogie shape instead: verification is a **separate
+consumer** of the evaluator's *outputs* — the specialized function body
+AST, `ExprInfo` (types, per-node annotations), and the contract side
+tables. The evaluator stays a concrete interpreter; the verifier is its
+own symbolic executor with its own state. Consequences:
 
-### Algebraic effects
+- No new evaluator modes, no risk to the self-hosting bootstrap path.
+- Path conditions, SSA renaming, and havoc logic live in `src/verifier/vc.yo`
+  where they can be unit-tested in isolation (`tests/internal/verifier.test.yo`)
+  without compiling a whole module through the evaluator first.
+- The verifier's input is *post-specialization* (generics already
+  monomorphized where applicable), so it never reimplements trait
+  dispatch — except where V6 deliberately verifies generic bodies
+  abstractly.
+- The evaluator's `clone_expr_fresh_ids` discipline (fresh node ids per
+  spliced predicate) already guarantees the side-table predicates can be
+  re-walked safely.
 
-A handler installed with `(name : E) = ((args) -> { ... })` carries the
-caller's contract obligations. The verifier:
+The verifier pass runs **after module evaluation and before codegen**,
+inside `yo check`, `yo compile`, and `yo test` when any file in the
+import closure carries `Pragma.Verify`/`Pragma.VerifyOrAssert` (or the
+`--verify-mode` flag says so), and as the whole job of `yo verify`.
 
-- Treats handler bodies as additional functions to verify.
-- Propagates `unwind(...)` as "this branch does not reach the post-
-  condition", so `ensures(...)` doesn't have to hold on unwound paths
-  (analogous to how `panic` is treated in Rust+Kani).
-- Requires `requires(...)` on every handler call site.
+### The assert-splice interaction (mode dispatch)
 
-This means **the contract of a function depends on its effect bundle**.
-A function `parse_int(s : str, raise : Raise)` only has to `ensures` a
-result on the resuming path; the unwinding path is free.
+Today `wrap_function_body_with_contracts` splices asserts at
+function-definition time. The verifier changes the dispatch:
 
-### Async
+- `runtime` / `ignore` — unchanged (splice / erase), regardless of solver.
+- `verify` — **suppress the splice entirely**; the verifier consumes the
+  predicates from the side tables instead. Predicates still get one
+  diagnostic evaluation pass (types checked, `old(...)` validated) so
+  malformed predicates error cleanly even though no assert is emitted.
+- `verify+` — splice first (today's lowering), then, after the verifier
+  reports, **strip the asserts whose predicates were Proved** (a
+  post-evaluation body rewrite keyed by the spliced node ids, before
+  codegen). Refuted predicates never survive to codegen (they are compile
+  errors); budget-exhausted ones keep their asserts. Net effect: proofs
+  cost zero runtime, fallbacks keep today's safety.
 
-`Future(T, E)` with `pragma(Pragma.Verify)` is verified per-state in the
-async state machine the codegen already generates (`src/codegen/async/`).
-Each await point is a yield in VC generation, with the state-machine
-variables forming the verifier's "frame". This reuses
-`ASYNC_SM_VARIABLE_OPTIMIZATION.md`'s machinery directly.
+The `verify+` strip pass must follow `ExprInfo.macro_expansion` for any
+spliced predicate inside macro-derived code — the same discipline the
+dup/drop optimizer already documents.
 
-### GADTs
+## SMT encoding reference
 
-GADTs already give per-variant type refinement. With `Refine`, GADTs
-become value-indexed:
+One reference table per concept; the encoder (`src/verifier/encode.yo`)
+implements exactly this.
 
-```rust
-// Existing GADT:
-Value :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(IntVal(i : i32) -> recur(i32), BoolVal(b : bool) -> recur(bool))
-);
+### Sorts
 
-// Refined GADT:
-PositiveValue :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(
-    PosInt(i : Bounded(i32, i32(1), i32(0x7FFFFFFF))) -> recur(i32),
-    True -> recur(bool)
-  )
-);
+| Yo type | SMT-LIB 2 |
+| --- | --- |
+| `bool` | `Bool` |
+| `i8`/`u8` … `i64`/`u64`, `usize` | `(_ BitVec 8\|16\|32\|64)` (usize width per target) |
+| tuples, `struct(...)` | `declare-datatypes` constructor with selectors |
+| `enum(...)` | `declare-datatypes` one constructor per variant |
+| `Option(T)` / `Result(T, E)` | datatypes (`.Some`/`.None`, `.Ok`/`.Err`) |
+| `Slice(T)` / `Array(T, N)` | pair: `(Array (_ BitVec 64) Elem)` + `len : (_ BitVec 64)` |
+| `str` / `String` (V5) | `Seq (_ BitVec 8)` (byte sequences; content reasoning V5+) |
+| `Refine(T, p)` (V6) | erased — the sort of `T`; `p` becomes an obligation |
+| `object(...)` | out of subset |
+
+Logic header: `(set-logic ALL)` (BV + arrays + datatypes + sequences
+exceeds any single `QF_*` combination; `ALL` is what Dafny/Boogie-style
+tools emit).
+
+### Operators
+
+| Yo | SMT-LIB |
+| --- | --- |
+| `+ - *` | `bvadd bvsub bvmul` (exact-width) |
+| `/` `%` | `bvsdiv`/`bvudiv`, `bvsrem`/`bvurem` **+ non-zero obligation** |
+| `<< >>` | `bvshl`/`bvlshr` (logical; arithmetic right-shift `>>` on signed types maps to `bvashr`) **+ width obligation** |
+| `~ & \| ^` | `bvnot bvand bvor bvxor` |
+| `== != < <= > >=` | `=`, `distinct`, `bvult/bvule/…` per signedness (`bvslt` signed) |
+| `&& \|\| !` | `and or not` (short-circuit preserved via path-condition structure) |
+| widening cast `i64(x)` | sign/zero extension (`(_ sign_extend 32)` / `(_ zero_extend …)`) |
+| narrowing cast `i32(x)` | `(_ extract 31 0)` |
+| `forall_val` / `exists_val` | `forall`/`exists` with auto E-matching triggers (V5) |
+| `==>` | `=>` |
+
+### Statements → symbolic execution
+
+- `name := expr` — SSA bind: fresh term variable, path condition
+  unchanged.
+- `cond(c1 => e1, c2 => e2, …)` / `match(x, .Pat => e, …)` — branch:
+  execute each arm under `Φ ∧ ci`, join states; `__yo_panic` arms join as
+  diverging paths (exempt from `ensures`).
+- `while` — the havoc-invariant rule above.
+- `assert(P)` — obligation: prove `Φ ⇒ P`.
+- `panic(...)` — diverging path: no obligations after it (process aborts
+  before any observable contract violation — SPARK's stance).
+- assignment `x = e` / `inout` writes — SSA rename + two-state `old`
+  bookkeeping (V5).
+- call — per the purity rules table above (prove requires / assume
+  ensures / constant-fold / axiom / subset-error).
+
+### Verdicts
+
+| Verdict | `verify` | `verify+` |
+| --- | --- | --- |
+| **Proved** (unsat) | nothing (no assert emitted) | erase the assert |
+| **Refuted** (sat + model) | **compile error** + counter-example | **compile error** + counter-example |
+| **Unproven** (rlimit exhausted / `unknown`) | compile error "could not prove" | keep the runtime assert, emit a warning |
+| **SolverError** (crash/missing) | compile error with fix hint | keep the runtime assert, emit a warning |
+
+## Solver harness: Z3, pinned, deterministic
+
+### Acquisition
+
+- **One pinned Z3 version** (start: Z3 4.13.3), recorded in a manifest
+  constant in `src/verifier/z3.yo`. Bundled *once* per machine into
+  `~/.cache/yo/solvers/z3-<version>-<target-triple>/` following the
+  version-cache model (`src/version_cache.yo`, releases fetched from
+  GitHub Releases). Target triples reuse `src/target.yo` vocabulary.
+- `YO_Z3_PATH` env var overrides discovery (CI, offline, or a locally
+  built solver). `yo verify --solver-path <path>` is the CLI form.
+- Missing solver: `verify` mode ⇒ hard error with the fetch command;
+  `verify+` ⇒ deterministic fallback to runtime asserts + warning (a
+  missing solver never fails a `verify+` build).
+
+### Determinism (hard requirement, not nice-to-have)
+
+Same source + same compiler version + same pinned Z3 ⇒ **byte-identical
+verdicts**, on every run and every machine:
+
+- **`rlimit` budget, not wall-clock.** Every query runs with
+  `(set-option :rlimit N)` (default 5,000,000 ≈ a few seconds of BV
+  work). Z3's rlimit is deterministic resource accounting; the same
+  query consumes the same budget everywhere. A wall-clock
+  `(set-option :timeout …)` exists only as a crash guard and, if it ever
+  fires *before* the rlimit, the verdict is `Unproven` with a
+  "budget-exhausted" message — never a different logical outcome.
+- Fixed `(set-option :random-seed 0)`; no time-derived seeds anywhere.
+- **One fresh Z3 process per function.** Incremental `push`/`pop`
+  within a function shares assumptions; nothing crosses function
+  boundaries, so no solver-state flakiness bleeds between files.
+- Solver version bumps are deliberate release-note events (like seed
+  releases), never a side effect.
+- The verification cache (below) keys on the solver pin, so a bump
+  invalidates honestly.
+
+### The query protocol
+
+Each obligation is asserted with a name (`(! term :named vc12)`) with
+`:produce-unsat-cores true`:
+
+- `unsat` ⇒ Proved; `(get-unsat-core)` identifies *which clauses*
+  participated, powering "smallest violated clause" diagnostics.
+- `sat` ⇒ Refuted; `(get-model)` / `(get-value …)` over the query's
+  input variables yields the counter-example, mapped back through name
+  mangling to source variables.
+- `unknown` ⇒ Unproven.
+
+### Name mangling
+
+Source identifiers are encoded as `__yo_v<fn>_<name>` (function-unique
+prefix + sanitized source name) so counter-examples render as the user's
+own names. Mangled names are stable across runs (deterministic walk
+order) — required for the cache and for readable golden tests of emitted
+SMT-LIB.
+
+### Caching
+
+`~/.cache/yo/verify-cache/<key>.json`, key = hash of (function source
+text, contract predicates, callee contract set, solver pin, mode,
+options). Stores the verdict + counter-example. `yo verify` and
+`verify+` builds consult it before spawning anything; any input change
+invalidates. Cache hits are reported (`cached: proved`) so CI logs stay
+honest. No cross-machine sharing, no partial keys.
+
+## Diagnostics & counter-examples
+
+Verifier output is ordinary compiler diagnostics — same format, same
+severity channel, same LSP plumbing as typechecker errors. Required
+shape, per finding:
+
+```
+error: could not prove: requires((i < arr.len()))
+  --> src/foo.yo:42:9
+   |
+42 |     arr(i)
+   |        ^
+   = path: arr.len() == 0 (from `requires((arr.len() >= usize(1)))` being unprovable)
+   = counter-example: i = 0, arr.len() = 0
+   = hint: add `requires((arr.len() > usize(0)))` or guard the call with a length check
 ```
 
-This lets the verifier discharge claims like "every `PositiveValue(i32)`
-contains a value `> 0`" by case-analysis over variants — work the GADT
-exhaustiveness checker already does.
+Requirements (carried from the 2026-05 draft's LLM section, now normative):
 
-### Comptime evaluation
+- **Counter-examples as Yo literals** the author can paste into a test.
+- **Per-clause attribution** via unsat cores: the *smallest* violated
+  clause, not a conjunction dump (the single-call multi-predicate shape
+  preserves per-argument spans for exactly this).
+- **Suggested edits where derivable** — the missing-`requires` hint is
+  mechanical; the "label your return" hint appears on unbound names in
+  `ensures` with unlabeled returns.
+- **Structured output**: `--format json` emits verdicts as JSON
+  (`{function, clause, verdict, counterexample, hint}`) for agentic
+  loops; same content as the text diagnostics.
 
-The existing comptime evaluator continues to fully evaluate any contract
-it can. Only contracts with at least one runtime parameter (i.e., the
-parameter is `UnknownValue`) emit a VC. This means:
+## CLI & pipeline integration
 
-- `assert((i32(2) + i32(3)) == i32(5))` is checked at compile time and
-  emits no C code — already true today.
-- `requires((i32(2) + i32(3)) == i32(5))` does likewise — no VC needed.
-- `requires((n != i32(0)))` for a runtime `n` emits a VC.
+- **`yo verify [path]`** — new subcommand: evaluate + verify, no
+  codegen. Flags: `--verify-mode`, `--solver-path`, `--rlimit`,
+  `--format {text,json}`, `--explain <fn>` (show the VC set and each
+  verdict for one function), `--no-cache`.
+- **`yo check` / `yo compile` / `yo test`** — run the verifier pass when
+  any file in the import closure is `verify`/`verify+` (or the flag is
+  given). The pass reuses the already-evaluated module state; no double
+  evaluation.
+- **`build.yo` step option** — `yo build -Dverify=true` flips the
+  project's mode for one build (CI matrices).
+- **CI** — a dedicated `verify` job: installs the pinned Z3, runs
+  `yo verify ./std/spec ./tests/spec/fixtures`, publishes the JSON
+  report as an artifact. Required check once V3 lands.
 
-The boundary between "comptime-evaluable" and "needs the SMT solver" is
-the same boundary that already separates `comptime_assert` from `assert`.
+## Implementation plan — phases V1–V7
 
----
+Phase 0 (the contract surface, runtime-checked) is **landed** and
+described in [Current state](#current-state--audited-2026-09-04). Each
+phase below is independently shippable, gated on its exit criteria, and
+ordered by dependency. Estimates assume one focused contributor.
 
-## Backend matrix
+### Phase V1 — Named-return contract binding (removes magic `result`)
 
-The plan ships **one** native backend (Z3) and integrates with **three**
-external backends. Users pick per command:
+**Scope:** thread the already-parsed `return_label`
+(`src/evaluator/types/function.yo:3810-3945`) into the contract surface.
 
-| Backend       | Strengths                                      | Limits                           | Status  |
-| ------------- | ---------------------------------------------- | -------------------------------- | ------- |
-| Z3 (native)   | Fast, ships in-tree, BV+arrays+ADT             | Loop invariants must be supplied | Phase 1 |
-| CVC5 (native) | Alternative to Z3, sometimes better on strings | Same                             | Phase 2 |
-| CBMC          | Mature BMC for C, finds bugs with no contracts | Bounded; slow on big programs    | Phase 3 |
-| KLEE          | Symbolic execution, finds reachability bugs    | Coverage-bounded                 | Phase 3 |
-| SeaHorn       | Horn-clause based, scales to larger code       | Less mature for our patterns     | Phase 4 |
+Tasks:
 
-CBMC integration is particularly low-cost because Yo already emits clean
-C11 — Yo source becomes a much friendlier input than hand-written C for
-CBMC.
+1. Store the return label alongside the contract predicates: extend the
+   side-table registration (`register_func_requires_exprs` /
+   `register_func_ensures_exprs` and their `copy_*` re-keying) with a
+   `g_func_return_label : HashMap(String, String)` — same keys, same
+   lifecycle.
+2. `wrap_function_body_with_contracts`
+   (`src/evaluator/builtins/contracts.yo`): bind **the label** instead
+   of `_RESULT_IDENTIFIER`; unlabeled non-unit returns bind the internal
+   name `__yo_contract_result`; unit returns keep the no-binding case.
+3. The unbound-identifier hint: when an `ensures` predicate fails
+   resolution with an unlabeled non-unit return, append the
+   "label the return" note to the ordinary not-found error.
+4. Reject `-> (name : unit)` label references inside `ensures(...)` with
+   the unit-specific message.
+5. Migrate in-repo users: the 10 `ensures(result ...)` sites in
+   `tests/spec/*.test.yo`, the cheatsheet example
+   (`.github/skills/yo-syntax/syntax-cheatsheet.md` "Design-by-contract
+   clauses"), and any `src/`/`std/` hits (grep
+   `ensures(result` — expected zero outside tests).
+6. Tests: extend `tests/spec/contracts_phase0.test.yo` — labeled return
+   binding, arbitrary label names, unlabeled + param-only `ensures`,
+   unit-return rejection, tuple-return projection through the label.
 
----
+**Exit criteria:** `ensures(pred)` resolves the return value **only**
+through the label; no magic identifier remains anywhere in `src/`;
+all `tests/spec/` green; cheatsheet updated.
+
+**Estimate:** ~1 week.
+
+### Phase V2 — Solver harness & verifier skeleton
+
+**Scope:** everything needed to talk to Z3, before any real VC.
+
+Tasks:
+
+1. `src/verifier/z3.yo`: pinned-version manifest; discovery
+   (`YO_Z3_PATH` → `~/.cache/yo/solvers/…`); download/install into the
+   cache following the `src/version_cache.yo` release-fetch pattern;
+   `Z3Runner` wrapping `std/process/Command`
+   (`std/process/command.yo` — piped stdio already supports this) with
+   spawn/query/verdict parsing (`sat` / `unsat` / `unknown`, model and
+   unsat-core extraction).
+2. Determinism options wired: `rlimit`, `random-seed 0`, timeout
+   backstop; one process per function with `push`/`pop` batches.
+3. `src/verifier/terms.yo`: the in-memory VC term representation (sorts,
+   terms, quantifiers, named assertions) — pure data, no I/O, fully
+   unit-testable.
+4. `src/verifier/encode.yo`: terms → SMT-LIB 2 text. Golden-string unit
+   tests (emitted text is deterministic, so exact-match goldens work).
+5. `src/verifier/driver.yo`: per-function scheduling, budget
+   application, verdict aggregation, cache read/write.
+6. `yo verify` subcommand in `src/main.yo` (dispatch skeleton; verifies
+   nothing real yet, runs the harness self-test: encode `1+1==2` →
+   unsat, `1+1==3` → sat + model).
+7. Tests: `tests/internal/verifier.test.yo` — runner mocked (canned
+   sat/unsat) for hermetic unit tests; real-solver tests behind
+   `YO_TEST_Z3=1` env guard. CI job installs the pinned Z3.
+
+**Exit criteria:** `yo verify` runs on any project, exercises Z3
+end-to-end (self-test obligations), reports harness health, caches
+results; no language behavior changed yet.
+
+**Estimate:** ~2–3 weeks.
+
+### Phase V3 — Straight-line verification + auto-obligations (the Dafny core)
+
+**Scope:** the flagship loop closes. Pure, loop-free functions verify;
+callers discharge callee `requires`; AoRTE obligations fire on
+unannotated code.
+
+Tasks:
+
+1. Mode dispatch in `wrap_function_body_with_contracts` (suppress splice
+   in `verify`; V3 initially keeps the splice in `verify+` and does not
+   yet strip proved asserts — stripping lands with task 6 below).
+2. `src/verifier/vc.yo`: symbolic execution over the specialized body —
+   bindings, arithmetic, `cond`/`match` path conditions, field access,
+   enum construction/projection; callee-side (assume requires → prove
+   ensures) and caller-side (prove requires → assume ensures)
+   obligations; `assert` sites; diverging `panic` paths; recursion ⇒
+   explicit "requires decreases(...) — Phase V4" subset error.
+3. Encoding per the [SMT reference](#smt-encoding-reference): bitvectors
+   (widths from `CompilationTarget`), datatypes, slice/array as
+   array+len pairs; casts; the pure-builtin axiom whitelist (`min`,
+   `max`, `abs`).
+4. AoRTE obligations: index bounds, div/mod non-zero, shift width —
+   always on in `verify`/`verify+`.
+5. Diagnostics: counter-example rendering through name mangling;
+   unsat-core clause attribution; the JSON format.
+6. `verify+` stripping pass: remove asserts for Proved predicates
+   (body rewrite keyed by spliced node ids; follows
+   `ExprInfo.macro_expansion`).
+7. Purity/substrate gating: the subset table's V3 row enforced with
+   precise "outside the verifiable subset" errors.
+8. Tests: `tests/spec/verify_straight_line.test.yo` (positive proofs),
+   `tests/spec/fixtures/negative/*.yo` + `tests/internal/verifier_negative.test.yo`
+   (expected-failure harness invoking `yo check` as a subprocess and
+   asserting the diagnostic text, mirroring the cli-diff scoring shape).
+   Every negative fixture pairs with a deliberately-bugged twin that
+   must Refute with the right counter-example.
+
+**Exit criteria:** with Z3 installed, `yo verify` on a `verify`-mode file
+proves `abs`/`min`/`max`/`clamp`-style functions' `ensures`, rejects a
+deliberately wrong post-condition at **compile time** with a concrete
+counter-example, and proves bounds/div-by-zero on an unannotated
+function. `verify+` erases proved asserts (verified by inspecting
+`--emit-c` output in a test).
+
+**Estimate:** ~5–7 weeks.
+
+### Phase V4 — Loops, invariants, termination
+
+**Scope:** `while` verification, `decreases(...)`, recursion, `break`/
+`continue` semantics.
+
+Tasks:
+
+1. Assigned-variable scan for loop havoc (body walk; document the
+   `macro_expansion` discipline).
+2. The havoc-invariant rule; entry/iterate/exit obligations; break-path
+   disjunction; `continue`-site obligations.
+3. `decreases(...)` builtin: signature clause (zone 5) + loop statement
+   position (immediately after `invariant(...)`); zone-order enforcement
+   extended; arity/type checks (integer or tuple of integers).
+4. Recursion: `recur` sites get contract assume/prove + measure
+   decrease obligations; unannotated recursion stays partial-correctness.
+5. Tests: verified `sum_to` (the doc example above), in-place
+   `binary_search` (loop invariant), `factorial` (decreases), negative
+   twins (wrong invariant ⇒ Refuted with iteration counter-example;
+   non-decreasing measure ⇒ Refuted).
+
+**Exit criteria:** a loop-based in-place insertion sort's *loop*
+obligations (bounds only; the permutation property needs V5) verify;
+a broken invariant is a compile error naming the failing iteration.
+
+**Estimate:** ~4–6 weeks.
+
+### Phase V5 — Ghost code, quantifiers, two-state reasoning
+
+**Scope:** specification-only computation — the vocabulary real
+functional correctness specs need.
+
+Tasks:
+
+1. `is_ghost_context` evaluation flag; ghost-context gating for
+   `forall_val`/`exists_val`/`==>` (new builtins in `src/expr.yo`,
+   handlers in `src/evaluator/builtins/contracts.yo`).
+2. Quantifier encoding with auto E-matching triggers; trigger-stability
+   guidance in diagnostics ("quantifier-heavy predicate could not be
+   discharged within budget — try instantiating at a concrete element").
+3. `ghost(...)` codegen erasure + ghost-escape errors; `ghost_fn(...)`
+   full semantics (callable only from ghost context; erased).
+4. Two-state `inout`/`old(...)` symbolic encoding (entry snapshots as
+   symbolic pre-state).
+5. `std/spec/` collections: `Seq(T)` → SMT `Seq`; `Set(T)` → Array-sort
+   membership; `Multiset(T)` → elem→count array; `from_slice`, equality,
+   size operations. String content reasoning (`str` → `Seq (_ BitVec 8)`)
+   for `NonEmpty`/length predicates.
+6. Tests: insertion sort now verifies `sorted(s)` **and**
+   `permutation(s, old(s))` via ghost `Multiset`; `ghost` bindings absent
+   from `--emit-c` output; quantifier misuse outside ghost context
+   rejected.
+
+**Exit criteria:** the Phase-V4 insertion sort gains the full
+functional spec (sorted + permutation) and proves it. `std/spec/`
+ghost collections are usable in `requires`/`ensures`.
+
+**Estimate:** ~5–6 weeks.
+
+### Phase V6 — Traits, generics, refinements, std/spec maturation
+
+**Scope:** contracts across abstraction boundaries; refinement types
+become real; the stdlib starts carrying executable specifications.
+
+Tasks:
+
+1. Trait-level contract semantics: an impl declaring contracts must
+   prove `trait.requires ⇒ impl.requires` (contravariant) and
+   `impl.ensures ⇒ trait.ensures` (covariant, same return label);
+   impls without contracts inherit the trait's (assumed at dispatch).
+   Signature extraction already parses trait-field contracts (Phase 0);
+   this adds the proof obligations at impl registration
+   (`src/evaluator/values/impl.yo` integration point).
+2. Generic functions verified **abstractly**: type variables become
+   uninterpreted sorts; trait constraints (`where(T <: Ord)`) contribute
+   their method contracts as axioms; monomorphized call sites discharge
+   through the generic's own contracts.
+3. `Refine(T, predicate)`: real type constructor — distinct at the type
+   level, erased at codegen, construction-site VCs, `Refine(T,p) <: T`
+   erasure rule, composition normalization. Rework `std/spec/refine.yo`
+   + `numeric.yo` aliases to real predicates (breaking change — ledger
+   entry 3). `.check(...)` / `.unchecked(...)` entry paths.
+4. `decreases` for mutually recursive functions (lexicographic across
+   the clique) if cheap; else documented non-goal.
+5. Dogfood: annotate `std/collections/array_list.yo`
+   (`get`/`set`/`add` bounds + len post-conditions) and
+   `std/collections/hash_map.yo` core ops; run `yo verify` over those
+   modules in CI; fix what the verifier finds (expected: real bugs —
+   each becomes an `issues/fixed/` entry with a reproducer, per repo
+   convention).
+6. Tests: trait-contract variance (valid impl passes; strengthened
+   requires rejected with the proof failure), generic `head` on
+   `NonEmpty(Slice(T))` (the doc's worked example, now verifying),
+   refinement construction-site rejection with counter-example.
+
+**Exit criteria:** `std/collections/array_list.yo` carries verified
+bounds contracts; the worked example below verifies end-to-end;
+`yo verify ./std/collections` is green in CI.
+
+**Estimate:** ~6–8 weeks.
+
+### Phase V7 — Productization
+
+**Scope:** make verification a first-class product surface.
+
+Tasks:
+
+1. LSP (`src/lsp/`): hover on a contract-bearing function shows its
+   contracts and verification status; verifier diagnostics already flow
+   through the standard channel; a "counter-example" inline lens.
+2. `yo verify --explain <fn>`: the VC set, per-obligation verdicts, and
+   solver stats for one function.
+3. `--format json` stabilized and documented; agentic-loop recipe added
+   to the skills files.
+4. Docs: `docs/en-US/FORMAL_VERIFICATION.md` +
+   `docs/zh-CN/FORMAL_VERIFICATION.md` (user-facing tutorial); update
+   `.github/skills/yo-syntax/syntax-cheatsheet.md`,
+   `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`, and
+   `.github/instructions/yo-design.instructions.md` with the final
+   surface.
+5. Cache telemetry: `yo verify --stats` reports hit rates and time
+   saved.
+6. Release notes: solver pin management documented; `yo verify` in the
+   VS Code extension's task list.
+
+**Exit criteria:** a user (human or LLM) can go from zero to a verified
+module using only shipped docs; CI runs verification on std fixtures as
+a required check.
+
+**Estimate:** ~2–3 weeks.
+
+### Total
+
+**~25–34 focused weeks (~6–8 months)** for V1–V7, with the flagship
+loop (compile-time proofs with counter-examples on the verifiable
+subset) landing at **V3, ~8–11 weeks in**. The 2026-05 estimate of
+13–19 person-months applied to a different architecture (evaluator
+extension + persisted VIR); the separate-pass design and the
+subset-scoping are what bring it down. V1–V3 is the recommended first
+commitment; V4+ re-plan gate: after V3 ships, re-evaluate against real
+usage before continuing.
+
+## Test strategy
+
+| Layer | Where | What |
+| --- | --- | --- |
+| Term/encode unit tests (hermetic, no solver) | `tests/internal/verifier.test.yo` | VC construction, SMT-LIB golden strings, mangling, verdict parsing (mocked runner) |
+| Real-solver unit tests | same file, `YO_TEST_Z3=1`-gated | `1+1==2` unsat; `1+1==3` sat+model; rlimit budget behavior |
+| Positive verification | `tests/spec/verify_*.test.yo` | Programs that must *prove* in `verify` mode (and still run green in `runtime` mode) |
+| Negative verification | `tests/spec/fixtures/negative/*.yo` driven by `tests/internal/verifier_negative.test.yo` | Each fixture must fail `yo check` with the expected diagnostic (subprocess harness asserting error text; the same scoring shape as `scripts/cli-diff-test.sh`) |
+| Bugged twins | alongside each positive test | Every positive fixture has a deliberately-broken twin whose Refute message and counter-example are asserted — guards against a verifier that "proves" by encoding wrongly |
+| Runtime parity | existing `tests/spec/*` | Phase-0 behavior must not regress: `runtime` mode still lowers to asserts |
+| CI | new `verify` workflow job | Installs pinned Z3; `yo verify ./std/spec ./tests/spec`; uploads JSON report |
+
+Every bug the verifier finds in `std/` during dogfooding gets an
+`issues/` entry + reproducer per repo convention, and its regression
+test joins `tests/spec/`.
 
 ## Design for LLM authorship
 
-Yo's audience is LLMs writing code, not humans. This is a hard
-constraint on what "good" looks like for the verifier — several
-conventional design choices get inverted.
+Yo's audience is LLMs writing code. This inverts several conventional
+verifier design choices (kept from the 2026-05 draft, now normative):
 
-### Determinism is mandatory, not nice-to-have
+### Determinism is mandatory
 
-Humans can reason about flaky SMT timeouts ("let me try again with a
-hint"). LLMs cannot — non-determinism prevents the LLM from forming a
-stable mental model of "what works." Concrete requirements:
-
-- **Pin solver versions.** Z3 is fetched via `~/.cache/yo/solvers/` at a
-  pinned hash, like Yo versions. Upgrading the solver is an opt-in
-  release-note item, not a side-effect of installing Yo.
-- **Forbid time-dependent solver tactics.** No `(set-option :random-seed
-(current-time))`. Seeds are fixed per file.
-- **Resource limits fail fast, not degrade.** A timeout reports
-  `Unprovable: solver budget exhausted, here is the partial path
-condition` deterministically. Same input → same output, always.
-- **No incremental solver state shared across functions.** Each function
-  is verified in a fresh solver process; flakiness can't bleed between
-  files.
+- Pinned solver; rlimit budgets (deterministic), never wall-clock
+  semantics; fixed seeds; fresh process per function; cache keyed on the
+  solver pin. Same input ⇒ same output, always. An LLM cannot form a
+  stable model of "what works" around a flaky verifier.
+- LLM-facing guidance must be *reproducible*: a counter-example that
+  differs run-to-run is noise; ours are functions of the input alone.
 
 ### Errors must be locally actionable
 
-A diagnostic that says "unsat" is useless to an LLM. A diagnostic that
-says "the call at line 12 cannot satisfy `requires((i < arr.len()))`
-because in the path where `arr.len() == 0`, `i` is `0` — try adding
-`requires((arr.len() > 0))` to your signature" is fixable. The verifier
-must produce:
+- Counter-examples as paste-able Yo literals; smallest violated clause
+  via unsat cores; mechanical hints (missing `requires`, label-the-return,
+  instantiate-the-quantifier). The diagnostic format section above is a
+  hard spec, not aspiration.
 
-- **Concrete counter-examples** formatted as Yo literals the LLM can
-  paste back into a test.
-- **The smallest violated clause**, not the conjunction of all
-  preconditions. Per-argument spans on `requires(P1, P2, ...)` exist for
-  this reason.
-- **Suggested edits where possible** — particularly "add this `requires`
-  clause" or "this `ensures` doesn't hold on the unwound path; remove it
-  or strengthen the path condition."
+### Specs are ordinary Yo
 
-### Specs should match implementation syntax
+- No second dialect: contracts are builtin calls, predicates are
+  ordinary `bool` expressions, quantifiers are calls, ghost values are
+  bindings. The new vocabulary (`decreases`, `forall_val`, `exists_val`,
+  `==>`) is tiny and gated to ghost context so it adds no ambient noise.
+- Named returns strengthen this: the post-condition's variable is
+  declared in the signature by normal syntax, not keyword magic an LLM
+  must remember is context-sensitive.
 
-LLMs do well with consistency. A spec language that diverges from Yo
-syntax (separate annotation comments, foreign attribute markup) forces
-the LLM to context-switch dialects mid-function. The plan deliberately
-keeps spec syntax identical to runtime Yo: `requires(...)` is a normal
-builtin call, predicates are normal `bool`-returning functions,
-quantifiers are calls. The only new vocabulary is the `forall_val` /
-`exists_val` / `==>` / `ghost(...)` / `ghost_fn(...)` set, and those are
-gated to ghost context so they don't add ambient noise.
+### Token efficiency
 
-### Token efficiency is a real concern
+- Single-call conjoined clauses; reusable `Refine` aliases (`NonZero(i32)`
+  is one token where `requires((x != i32(0)))` is many); **AoRTE means
+  the highest-frequency LLM bug class (bounds/div-zero) needs no
+  annotations at all**; partial correctness by default (no mandatory
+  `decreases`).
+- Contracts cost 1.5–3× source lines on annotated functions. The
+  mitigation is that the *counter-example* replaces test-case invention —
+  the LLM spends tokens on the fix, not the reproduction.
 
-Contracts increase line count by 1.5–3×. This is fine for humans (more
-text to read, but clearer intent). For LLMs, every additional token in
-the context window is real cost. Mitigations baked into the surface:
+### The verifier is the inner loop
 
-- **Single-call form** for `requires` / `ensures` / `invariant` — one
-  builtin call with comma-separated predicates, not N separate calls.
-- **`Refine(T, p)` makes predicates reusable** — `NonZero(i32)` is one
-  token where `requires((x != i32(0)))` is many.
-- **Inferred contracts where possible** — array indexing automatically
-  carries `requires((i < arr.len()))`; the LLM doesn't have to write it.
-- **No mandatory `decreases(...)` in Phase 1–2.** Partial correctness is
-  the default; termination annotations are opt-in.
+- Verification runs from `yo check`/`yo compile`/`yo test` when pragmas
+  say so — "fails to verify" is just another compile error, not a
+  separate tool to remember. `yo verify` is the CI/batch form.
+- Structured JSON output for agentic loops; LSP surfaces the same
+  verdicts.
 
-### The verifier is part of the inner loop
+### What this rules out (unchanged)
 
-For human-authored code, "run the verifier" is a separate command. For
-LLM-authored code, the typechecker IS the verifier — there's no
-meaningful difference between "this fails to compile" and "this fails to
-verify" from the LLM's perspective. So:
-
-- Verification is invoked from `yo check` and `yo compile`, not just
-  `yo verify`. (`yo verify` runs only the verifier, useful for CI.)
-- Verifier output uses the same diagnostic format as the typechecker.
-- The error stream is structured (JSON optional via `--format json`) so
-  agentic loops can parse it.
-
-### What this rules out
-
-These conventional verification choices are rejected because they fight
-the LLM use case:
-
-- **Tactic languages** (Coq, Lean). Tactics require global reasoning
-  about proof state — exactly what LLMs are bad at.
-- **Interactive proof modes.** No "the user/LLM steps through the proof
-  obligation." Either the SMT discharges it or the LLM edits the
-  contract.
-- **Pretty-printed math notation** (∀, ∃, ⇒). ASCII keywords (`forall_val`,
-  `exists_val`, `==>`) match training data better and avoid Unicode
-  copy-paste hazards in LLM output.
-- **Out-of-band annotations** (separate `.spec` files, IDE-only
-  metadata). Everything lives in the `.yo` source so the LLM sees a
-  single artifact.
-
----
+- Tactic languages (Coq/Lean) — global proof-state reasoning is exactly
+  what LLMs are bad at.
+- Interactive proof stepping — discharges or edit the annotations.
+- Pretty-printed math notation — ASCII keywords match training data.
+- Out-of-band annotations (`.spec` files, IDE-only metadata) — one
+  artifact, the `.yo` source.
 
 ## Trade-offs accepted
 
-This plan is not free. The costs:
-
-- **Compile time.** Verified files are 10–100× slower to typecheck. The
-  pragma is opt-in so casual users never pay this cost. CI separates
-  `yo compile` (fast) from `yo verify` (slow) and runs them in parallel.
-- **Source-level annotation burden.** A verified function has more text
-  than an unverified one — typically 1.5–3× as many lines counting
-  contracts. For LLM authors this is real token cost in the context
-  window; mitigated by single-call clause form, reusable refinement
-  types, and inferred contracts on stdlib operations (see
-  [Design for LLM authorship](#design-for-llm-authorship)).
-- **Solver flakiness.** SMT solvers can time out non-deterministically.
-  Mitigations: pin solver versions, ship deterministic options,
-  per-function timeouts, and `verify+` mode that falls back to runtime
-  assertion when a proof times out (so CI doesn't flake).
-- **Subset of language inside contracts.** Contract expressions can use
-  any pure Yo expression but cannot perform I/O, allocate, spawn, or call
-  non-pure user functions. The verifier rejects impure contracts at parse
-  time so this is a syntactic restriction, not a hidden runtime gotcha.
-- **No proofs of full programs.** This buys property-by-property local
-  proof, not end-to-end correctness. Composing local proofs into a
-  whole-program guarantee is the verifier user's job.
-
----
-
-## Prerequisites
-
-This plan does **not** require dependent types. Refinement types
-(`Refine(T, p)`) are predicates attached to existing value types, not
-types indexed by runtime values — the same distinction F\*, Liquid
-Haskell, and Dafny make. Yo's existing comptime-parameterized type
-constructors (`Array(T, N)`, `Bounded(T, lo, hi)`, GADTs with
-`-> recur(T)`) already cover everything the plan needs at the type level.
-
-What the plan _does_ need that Yo doesn't have yet, grouped by phase
-gate:
-
-### P0 — Required before Phase 1 (pure-function verification)
-
-| Prerequisite                                 | Why                                                                                                                                                                                                                                                                       | Approximate scope                                                                                                                                                              |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Path-condition tracking in the evaluator** | `UnknownValue` is flat today; verification needs a `Φ` that accumulates across `cond`/`match` branches                                                                                                                                                                    | Largest single piece. Natural extension of CTFE machinery                                                                                                                      |
-| **Purity gate for contract bodies**          | Contracts must not perform I/O, allocate, or `unwind`                                                                                                                                                                                                                     | Reuses effect signature — contract is well-formed iff its effect bundle is empty                                                                                               |
-| **Quantifier/implication builtins**          | `forall_val((bind), ..., P)`, `exists_val(...)`, `==>`                                                                                                                                                                                                                    | Parsing is just builtin calls; evaluator must treat them as logical, not computational. Well-formed only inside ghost context (parallels `unwind(...)` inside `ctl(...) -> R`) |
-| **`ghost_fn(...)` as a distinct builtin**    | Marks a function as ghost-only: erased at codegen, callable only from contract context. Lets ghost-only specs return ordinary `bool` (not `comptime(bool)`), satisfying the comptime-return-requires-comptime-params rule. Split from `ghost(name := expr)` per audit §A3 | New builtin paralleling `ghost(...)` — minimal evaluator wiring                                                                                                                |
-| **`result` magic identifier**                | Refers to the function's return value inside `ensures(...)`                                                                                                                                                                                                               | Scope-restricted to `ensures(...)` bodies                                                                                                                                      |
-| **`old(...)` snapshot**                      | Refers to a parameter's entry value inside `ensures(...)`                                                                                                                                                                                                                 | Evaluator + codegen support for ghost copies                                                                                                                                   |
-| **Equality semantics for `object` types**    | Pin down identity vs structural `==`                                                                                                                                                                                                                                      | Mostly a decision, not code. But blocks reasoning about `object`-valued contracts                                                                                              |
-| **Subtyping rule `Refine(T, p) <: T`**       | Refinement erasure direction; the reverse is what costs proof obligations                                                                                                                                                                                                 | Single rule in `src/types/compatibility.ts`                                                                                                                                    |
-
-### P3 — Required before Phase 3 (loops, mutable state)
-
-| Prerequisite                             | Why                                                                                                                                |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **`decreases(...)` termination measure** | Without it, verification is partial-correctness only (Dafny's default — acceptable to ship Phase 1–2 partial)                      |
-| **`modifies(...)` frame conditions**     | Bounds which locations a function may mutate; required for `ref(...)` reasoning and object heaps                                   |
-| **Heap model for `object` types**        | Acyclic objects are easy (existing cycle-detection pass partitions them); cyclic ones can be excluded from `verify` mode initially |
-
-### Explicitly NOT prerequisites
-
-- **Full dependent types** (Π/Σ, value-indexed type families)
-- **A tactic language or proof-term core**
-- **Cumulative universes**
-- **Higher-rank polymorphism** beyond what `forall(F : (fn(comptime(T) : Type) -> comptime(Type)))` already gives
-- **Linearity / uniqueness types** — RC + `ref(...)` cover the cases that matter for our verifier
-- **Full SMT theory of floats** — see Open Question 5
-- **Verified compilation** — Yo→C lowering itself stays unverified
-
-### Alternative: language-level proof primitives instead of SMT-only
-
-The current design leans on the SMT solver for almost every non-trivial
-proof. An alternative worth considering: add a small set of source-level
-proof primitives so users can discharge proofs **without** an external
-solver, reducing solver-flakiness blast radius. Candidates:
-
-```rust
-// Case split — verifier checks each branch independently:
-by_cases((x >= i32(0)), (x < i32(0)));
-
-// Structural induction over an inductive type:
-by_induction(measure: list.len());
-
-// Apply a named lemma to the current goal:
-assert_by((sum >= i32(0)), lemma: positive_sum_lemma);
-
-// Lift a runtime check into the path condition:
-assume((y != i32(0)));   // unsafe — must justify outside the verifier
-```
-
-This makes Yo less Dafny-shaped and more F\*-shaped. **Trade-off:** more
-language surface, but proofs become reproducible (no solver
-non-determinism) and reviewable by humans (proofs are source, not solver
-state).
-
-The plan currently defers this decision to Phase 2 — Phase 1 ships
-SMT-only on pure functions, and we evaluate whether solver flakiness on
-real proofs justifies adding proof primitives. If yes, they land before
-Phase 3.
-
----
-
-## Recommended near-term scope
-
-This plan describes a full SMT-backed verifier across 7 phases. **The
-recommended near-term commitment is Phase 0 only**, with Phases 1+
-explicitly parked.
-
-The rationale:
-
-- Phase 0 (~1–2 weeks of work) ships the surface: parsing `requires` /
-  `ensures` / `invariant` / `ghost` / `Refine`, lowering contracts to
-  runtime `assert(...)` calls, adding `pragma(Pragma.Verify);` as a
-  no-op (warns "verify mode not implemented"). This gives LLM authors
-  the spec vocabulary, gives runtime assertion checking for free, and
-  creates **no commitment** to building the verifier itself.
-- Phase 1+ requires 13–19 person-months of focused work — revised
-  upward from the original "6–12" estimate per audit §C1. Breakdown:
-  path-condition tracking (4–6 mo), VIR design+construction (2–3 mo),
-  Z3 SMT-LIB 2 encoder (2–3 mo), `result`/`old(...)` evaluator support
-  (1–2 mo), `Refine` subtyping (1–2 mo), contract gathering (1 mo),
-  integration+testing (2 mo). At Yo 0.1.x — with bootstrap, build
-  system, parallelism, WASM, and stdlib expansion all competing for the
-  same budget — this is a poor allocation.
-- Whether to proceed to Phase 1 should be a separate decision made
-  after observing: (a) does the Phase 0 surface get organic adoption?
-  (b) has Yo's overall shape stabilised enough that a verifier built on
-  it won't need a partial rewrite? (c) is there a concrete user (likely
-  a stdlib module: `std/crypto`, `std/url`, allocator) whose
-  verification would deliver real value?
-- If Phase 1 is later approved, the deterministic-solver constraints in
-  [Design for LLM authorship](#design-for-llm-authorship) become hard
-  requirements, not nice-to-haves.
-
-Phases 1–6 below remain documented as the long-term design, **not as a
-near-term commitment.** Treat them as the answer to "if we ever build
-the verifier, this is how" rather than "we are building the verifier."
-
----
-
-## Phases
-
-### Phase 0 — Surface lock-in (no verification yet)
-
-**Progress (updated as sub-tasks land):**
-
-- [x] Register contract builtins (`requires`, `ensures`, `invariant`, `ghost`, `ghost_fn`, `old`) as no-op markers; signature-level `requires`/`ensures` are skipped during function-type parameter processing; codegen lowers them to empty C output.
-- [x] Add `Pragma.Verify` / `Pragma.NoContracts` / `Pragma.VerifyOrAssert` (Verify and VerifyOrAssert emit a one-time per-file "verify mode not implemented" warning; NoContracts is silent and codegen-erase is a later sub-task).
-- [x] `result` magic identifier + `old(...)`: `result` resolves to the function's return value inside `ensures(...)` (bound by the ensures wrapper — no global keyword reservation needed, so `std/imm`'s local `result` bindings keep working). `old(expr)` snapshots the entry-time value of `expr` (hoisted into a binding before the body runs), giving correct semantics for mutated `ref(name) : T` parameters.
-- [x] Extract `requires` / `ensures` from function-type signatures into `FunctionType.requiresExprs` and `FunctionType.ensuresExprs`. Single-call rule enforced (duplicate `requires(...)` / `ensures(...)` clauses are a syntax error). Zero-argument forms rejected. **Strict clause order enforced** via a zone check: `forall(0) → params(1) → where(2) → requires(3) → ensures(4)` must be non-decreasing left-to-right; an out-of-order clause errors with "X appears after Y".
-- [x] Enforce loop `invariant(...)` first-statement rule (rejection works across nested cond/match branches; nested while loops are checked separately when their own evaluator fires).
-- [x] Lower `requires(...)` to `assert(P, "requires failed: ...")` (runtime functions) or `comptime_assert(P, "requires failed: ...")` (comptime functions). Dispatch via `functionType.return.isCompileTimeOnly`. Splices synthetic FnCallExpr nodes into the body before evaluation in both function paths (`evaluateAnonymousFunctionImplementation` and `function-type.ts`). Honors `pragma(Pragma.NoContracts);` — contracts erased entirely.
-- [x] Lower `ensures(...)` to assert at function return. Wraps the body as `{ <old snapshots>; <requires>; result := (<body>); <ensures>; result }` (non-unit return) or `{ <old snapshots>; <requires>; <body>; <ensures> }` (unit return — avoids `void result`). Comptime functions use `::` bindings and `comptime_assert`.
-- [x] Add `Refine` / `NonZero` / `Bounded` / `NonEmpty` as comptime type constructors. Phase 0 implementations are type aliases (predicate parameter not yet wired up — added when verifier lands in Phase 2).
-- [x] Ship `std/spec/refine.yo` + `std/spec/numeric.yo` skeletons. Numeric module also has `Positive`, `Negative`, `NonNegative`, `NonPositive`, `Even`, `Odd` aliases.
-- [x] Tests under `tests/spec/` (parse / runtime / reject) — 26 tests across `contracts_phase0.test.yo`, `pragma_no_contracts.test.yo`, `refine_types.test.yo`.
-
-**Phase 0 is complete.** All contract surface parses; `requires`/`ensures`
-enforce at runtime (or compile time for comptime functions); `old(...)`
-captures entry values; refinement-type aliases are available. The SMT
-verifier remains a separate, larger effort (Phase 1+).
-
-**Implementation plan:**
-
-- Register `requires`, `ensures`, `invariant`, `ghost`, `ghost_fn` in
-  `BuiltinFunctions` (`src/expr.ts:742`). Parser changes are minimal —
-  these all parse as normal `FnCallExpr` nodes today.
-- **Function-type signature extraction**: extend the four-pass parameter
-  processing in `src/evaluator/types/function.ts` to recognize
-  `requires(...)` and `ensures(...)` as contract clauses (not regular
-  parameters). Canonical order: `forall(...), ...params..., where(...),
-requires(...), ensures(...)`. Multiple `requires(...)` or `ensures(...)`
-  clauses in the same signature is a syntax error (single-call rule).
-- **Trait-level contract syntax**: ensure trait declarations can carry
-  `requires`/`ensures` clauses in their method signatures (the same
-  signature-extraction pass works for trait fields, since trait fields
-  are function types). Phase 0 only parses these; trait-level contract
-  _semantics_ (how impls inherit/override them) is deferred to Phase 4.
-  This addresses audit §B3 as a syntax commitment without committing to
-  verification semantics.
-- **Loop invariant placement enforcement**: at function-body evaluation,
-  if `invariant(...)` appears in a `while` body, require it to be the
-  first non-comment statement; flag any other placement as a syntax
-  error.
-- Lower contracts to `assert(...)` in default mode (so contract-bearing
-  code still runs). Codegen modification in
-  `src/codegen/functions/generation.ts`: emit `assert` calls at function
-  entry for `requires`, at each `return` for `ensures` (with `result`
-  bound to the return value).
-- Add `pragma(Pragma.Verify);`, `pragma(Pragma.NoContracts);`,
-  `pragma(Pragma.VerifyOrAssert);` to `PragmaKind` in
-  `src/evaluator/memory-safety.ts`. Phase 0 emits a warning "verify mode
-  not implemented" for the latter two; `Pragma.NoContracts` works fully
-  (erases contracts at codegen).
-- Reserve `result` as a keyword (currently a valid identifier — audit a
-  search of the repo for existing uses and rename if needed). Restrict
-  its scope to `ensures(...)` clause bodies. `old(...)` is added as a
-  new builtin call, scope-restricted similarly.
-- Add `Refine`, `NonZero`, `Bounded` as comptime type constructors.
-  Construction in `verify`-less files just acts as a newtype (predicate
-  ignored).
-- Ship `std/spec/` skeleton — `refine.yo`, `numeric.yo` only. The full
-  layout described in [Standard library spec module](#standard-library-spec-module--stdspec)
-  lands incrementally as later phases need it.
-- New tests under `tests/spec/`:
-  - `contracts_parse.test.yo` — every contract example in this doc parses.
-  - `contracts_runtime.test.yo` — contracts become asserts in default mode.
-  - `contracts_reject.test.yo` — `comptime_expect_error` tests for:
-    duplicate `requires(...)` clauses, `invariant(...)` not first in loop
-    body, `ghost(f)` where `f` is a function value (must use `ghost_fn`),
-    `forall_val(...)` outside ghost context.
-
-**Exit criteria**: every example in this document parses. Existing tests
-all pass. New `tests/spec/contracts_runtime.test.yo` confirms
-`requires/ensures` become asserts in default mode. `Pragma.Verify` parses
-and warns. Negative tests in `contracts_reject.test.yo` all reject as
-expected.
-
-### Phase 1 — VIR + Z3, pure functions only
-
-- Implement `src/verifier/vir.ts` — Yo AST → VIR translation.
-- Implement `src/verifier/z3.ts` — VIR → SMT-LIB 2 over stdio.
-- Verify pure functions only (no `ref`, no effects beyond `Raise`).
-- Discharge VCs for: integer arithmetic (BV), boolean operators, struct
-  fields, enum variants, `cond`/`match`.
-- Wire `pragma(Pragma.Verify);` to actually verify.
-- Negative tests: each example with a deliberately wrong post-condition
-  must fail to compile with a counter-example.
-
-**Exit criteria**: `std/spec/numeric.yo` proves `abs`, `min`, `max`,
-`clamp`. A `tests/spec/binary_search_pure.test.yo` verifies a recursive,
-purely functional binary search on a `ComptimeList`.
-
-### Phase 2 — Refinement types
-
-- `Refine(T, p)` becomes first-class.
-- Constructor sites trigger VC generation for the predicate.
-- Refinements flow through `cond`/`match` (the verifier learns
-  `if (x > 0)` narrows `x : i32` to `x : Bounded(i32, 1, MAX)`).
-- Standard refinements available: `NonZero`, `Bounded`, `NonEmpty`,
-  `Sorted`, `Length(n)`, `Utf8Valid`.
-
-**Exit criteria**: `std/collections/array_list.yo` has a verified
-`get(i : Bounded(usize, 0, self.len() - 1))`. Division by `NonZero(T)`
-discharges without a runtime check.
-
-### Phase 3 — Loops, ghost, mutable state
-
-- `while` with `invariant(...)` — Hoare rule, with the existing
-  flowability pass providing modification-frame information.
-- `ghost(...)` bindings.
-- `ref(name) : T` parameters and the `old(...)` snapshot.
-- `Seq(T)`, `Multiset(T)`, `Set(T)` as ghost-only specification
-  collections.
-
-**Exit criteria**: in-place insertion sort verified for `sorted(s)` and
-`permutation(s, old(s))` (using the `ref(s)` spec shape from the
-[std/spec section](#standard-library-spec-module--stdspec)).
-`std/collections/hash_map.yo` verifies "after insert(k, v), get(k) ==
-Some(v)".
-
-### Phase 4 — Effects, capabilities, security
-
-- Effect handlers verified as functions.
-- `Capability` trait, `Untrusted`/`Trusted`/`Secret` newtypes.
-- "Tainted data cannot reach trusted sinks" prove-by-construction.
-- `pragma(Pragma.ConstantTime);` for crypto code: no branching on
-  `Secret(T)`, verified statically.
-
-**Exit criteria**: `std/crypto/` core primitives verified constant-time.
-`std/url/` verifies "no path traversal in normalised paths".
-
-### Phase 5 — External BMC backends
-
-- `yo verify --backend cbmc` — emit `__CPROVER_*` annotations alongside
-  Yo's normal C output.
-- `--backend klee`, `--backend seahorn` — analogous.
-- These backends discharge things the native Z3 backend cannot (deep
-  loops without supplied invariants, certain pointer aliasing patterns).
-
-**Exit criteria**: a non-trivial parser (e.g., `std/url`) is run through
-CBMC with `--unwind 16` and finds zero issues; a deliberately-bugged
-variant finds the bug.
-
-### Phase 6 — User-facing polish
-
-- LSP integration: hover on a refined parameter shows the predicate;
-  inline diagnostics for unprovable VCs include counter-examples
-  formatted as Yo literals.
-- `yo verify --json` for CI integration.
-- `yo verify --explain f` shows the verification trace for one function.
-- Documentation: `docs/en-US/FORMAL_VERIFICATION.md` and
-  `docs/zh-CN/FORMAL_VERIFICATION.md`.
-
----
-
-## Audit Notes & Open Concerns
-
-> **Added 2026-05-26.** This section captures concerns raised during
-> audit of the plan against the current codebase (`src/evaluator/`,
-> `src/codegen/`, `src/types/`, `src/parser.ts`, `src/expr.ts`).
-
-### Resolutions
-
-Audit findings folded into the rest of the document on 2026-05-26:
-
-| Finding | Status   | Where in doc                                                                                         |
-| ------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| §A2     | Resolved | Loop `invariant(...)` must be first non-comment statement of loop body; evaluator enforces.          |
-| §A3     | Resolved | Split `ghost(name := expr)` (binding) from `ghost_fn(fn_value)` (ghost function).                    |
-| §B3     | Resolved | Phase 0 lands trait-level contract _syntax_ (parsing only); semantics deferred to Phase 4.           |
-| §C2     | Resolved | "60% of a VC generator" reframed accurately at end of "Why Yo is unusually well-positioned" section. |
-| §D1-D5  | Resolved | Implementation pointers folded into the Phase 0 description (file locations, registration steps).    |
-| §F1     | Resolved | Worked-example explanation corrected: CTFE provides the length, not slice-flowability.               |
-| §F2     | Resolved | `src/codegen/effects/` → `src/codegen/async/` corrected.                                             |
-
-Findings still treated as open (tracked in Phase 1+ scoping):
-
-| Finding | Status   | Reasoning                                                                                                |
-| ------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| §A1     | Open     | Implementation-detail concerns about parameter-processing order; resolved during Phase 1 implementation. |
-| §A4     | Open     | `result` scope/forward-ref questions — resolved when `ensures(...)` evaluation lands in Phase 1.         |
-| §A5     | Open     | Ghost-context flag design — Phase 1 implementation detail.                                               |
-| §B1     | Open     | Path-condition tracking — the core Phase 1 work; estimate revised below.                                 |
-| §B2     | Open     | VIR underspecified — to be split out into `plans/FORMAL_VERIFICATION_VIR.md` before Phase 1 begins.      |
-| §B4     | Open     | Refine subtyping requires SMT for non-literal cases — Phase 1/2 design.                                  |
-| §B5     | Open     | Capability lattice is new infrastructure — Phase 4 scope.                                                |
-| §B6     | Open     | CBMC/KLEE annotation mapping — Phase 5 scope.                                                            |
-| §C1     | Accepted | Phase 1 estimate revised: 13-19 person-months (was "6-12"). Reflected in Recommended Near-Term Scope.    |
-| §E1-E5  | Open     | Design questions to revisit per phase.                                                                   |
-
-The Phase 1 estimate has been adjusted upward to reflect §C1; the
-recommended near-term commitment remains Phase 0 only.
-
-### A. Syntactic & Semantic Concerns
-
-#### A1. `requires`/`ensures` placement in function signatures
-
-The plan puts `requires((y != i32(0)))` and `ensures((result >= i32(0)))`
-inside the function type signature as if they are regular parameters. This
-is consistent with `where(T <: Copy)` already living in the signature, but
-creates implementation challenges:
-
-- **Parsing**: In Yo, `requires(expr)` is indistinguishable from any other
-  builtin call at parse time. The parser produces a `FnCallExpr` with
-  `func` being the identifier `requires`. The evaluator must later
-  recognize this as a contract rather than a regular parameter. The same
-  parser-level ambiguity affects `ensures` and `invariant`.
-- **Ordering within the signature**: The current function parameter
-  processing pipeline in `src/evaluator/types/function.ts` has four passes:
-  (1) forall, (2) pre-scan comptime, (3) where clause, (4) regular
-  parameters. `requires`/`ensures` would need to be recognized in one of
-  these passes and extracted before the regular parameter processing
-  tries to treat them as runtime parameters.
-- **Syntactic position**: Should `requires` come before or after
-  `where(...)`? Before or after runtime parameters? The existing examples
-  in the plan are inconsistent about this.
-- **Duplicate detection**: The plan says "multiple `requires(...)` clauses
-  are a syntax error" — this is an evaluator-level check that must be
-  added to `evaluateFunctionType`.
-
-**Recommendation**: Define a canonical order: `forall(...), ...params...,
-where(...), requires(...), ensures(...)`. The evaluator should extract
-`requires` and `ensures` by name (checking if the parameter label matches
-the builtin name) before processing parameters.
-
-> **Resolution: DONE — strict order enforced.** A zone check at the top
-> of `evaluateFunctionParameters` assigns each clause a zone
-> (`forall=0, params=1, where=2, requires=3, ensures=4`) and rejects any
-> clause whose zone is less than the running max ("X appears after Y in
-> the function signature"). Extraction is by builtin name as
-> recommended. Covered by `clause order: …` tests in
-> `contracts_phase0.test.yo`.
-
-#### A2. `invariant(...)` placement in loop bodies
-
-The plan shows `invariant(...)` as a statement inside the loop body:
-
-```rust
-while(runtime((i < n)), {
-  invariant((i >= i32(0)) && (i <= n), ...);
-  i = (i + i32(1));
-  acc = (acc + i);
-});
-```
-
-Concerns:
-
-- Syntactically, this is a regular function call that evaluates to `()`,
-  so it's a legal Yo expression. But semantically, `invariant` could appear
-  **anywhere** in the body (including after the first statement), which
-  is wrong — loop invariants must hold at the loop head.
-- Dafny, F\*, and Why3 all place invariants **at the loop keyword** (before
-  the body), not inside it. The plan's approach conflates the invariant
-  with the body statements.
-- If `invariant(...)` appears inside a `cond` branch within the loop, what
-  does it mean? The plan doesn't address this.
-
-**Recommendation**: Consider moving `invariant(...)` to a clause on
-`while(...)` itself: `while(runtime(cond), body, invariant(P1, P2))`.
-This is syntactically cleaner and prevents misplacement. Alternatively,
-require that `invariant(...)` be the **first** expression in the loop
-body and enforce this at evaluation time.
-
-#### A3. `ghost(...)` ambiguity — binding vs function wrapping
-
-The plan uses `ghost(...)` for two distinct purposes:
-
-1. Ghost bindings: `ghost(orig_sum := ((a + b) + c));`
-2. Ghost functions: `permutation :: ghost((fn(...) -> bool)(...));`
-
-The evaluator would need to distinguish these forms:
-
-- The binding form looks like an assignment `name := value` inside a
-  function call.
-- The function-wrapping form wraps a `FunctionValue`.
-- If a user writes `ghost(f)` where `f` is a runtime function, is that a
-  ghost binding of `f` or a ghost-wrapping of `f`? Ambiguous.
-
-**Recommendation**: Use distinct syntax. Keep `ghost(name := expr)` for
-bindings. Use a separate marker for ghost functions — e.g.,
-`ghost_fn((fn(...) -> bool)(...))` or a pragma-like annotation.
-
-#### A4. `result` magic identifier scope
-
-The plan introduces `result` as a magic identifier visible only inside
-`ensures(...)` bodies. This requires:
-
-- Modifying variable resolution in the evaluator (`src/evaluator/calls/helper.ts`
-  and `src/env.ts`) to recognize `result` as a synthetic binding in a
-  restricted scope.
-- The evaluator must know the function's return type inside `ensures(...)`
-  before the body is evaluated. Since the return type is parsed as part of
-  the function type (`-> T`), this is available, but the `ensures(...)`
-  bodies are parsed before the return type — creating a forward-reference
-  problem at the expression level.
-
-**Question**: Can `result` appear inside a `Refine` predicate's lambda?
-E.g., `fn(x : i32, ensures(SomeRefine(result).property)) -> i32`. This
-seems reasonable but adds scope complexity.
-
-#### A5. Quantifier builtins and ghost context enforcement
-
-The plan introduces `forall_val`, `exists_val`, and `==>` as builtin calls
-that are well-formed only inside ghost context (contract bodies, ghost
-function bodies, `ghost(...)` bindings). This requires:
-
-- A new evaluator context flag (`isGhostContext`) parallel to the existing
-  `isCompileTimeOnly` flag.
-- Detection: Is `ensures(...)` evaluation ghost context? Is a `cond` inside
-  an `ensures(...)` ghost context?
-- **Interaction with `comptime`**: `forall_val` / `exists_val` are not
-  `comptime` functions (they reason about runtime values). But they are
-  also not runtime functions (they have no C representation). This creates
-  a new category: "ghost-only but not comptime-only."
-
-### B. Architectural Concerns
-
-#### B1. Path-condition tracking is a fundamentally new evaluator capability
-
-The plan (line 68) says "Yo's compile-time evaluator is already 60% of a
-verification condition generator." This overstates the evaluator's current
-capabilities. **The evaluator has zero path-condition infrastructure.**
-
-- `UnknownValue` is a placeholder meaning "compile-time type is known but
-  value is not." It carries zero symbolic information — no constraints,
-  no SSA variable, no relationship to other unknowns.
-- The `isExecuting` flag toggles between "evaluate concretely" and
-  "analyze types only." In analysis mode, branches are merged via
-  `mergeAndCheckEnvs` for type compatibility only — there is no "in this
-  branch, we know condition X is true" propagation.
-- There is no SSA construction, no term rewriting for `old(...)`, no
-  symbolic heap model.
-
-Building path-condition tracking requires:
-
-1. Extended `UnknownValue` with constraint sets.
-2. The evaluator threading constraints through `cond`/`match` branches.
-3. A fresh representation for symbolic heap state.
-4. SSA conversion (or working in a form the SMT backend accepts).
-
-This is not "the other 40%" — it is closer to building a symbolic executor
-from scratch on top of the evaluator. The existing flowability pass and
-CTFE analysis are entirely concrete-value analyses; they do not generalize
-to symbolic reasoning.
-
-**Revised estimate**: Path-condition tracking alone is 4–6 person-months
-of focused work. Combined with VIR construction, VC generation, and Z3
-encoding, Phase 1 is more plausibly 9–15 person-months total.
-
-#### B2. VIR (Verification IR) is critically underspecified
-
-The plan dedicates 20 lines to VIR (lines 342–361) but this is the
-architectural centerpiece. Critical open design questions:
-
-- **SSA vs direct AST lowering**: Does the evaluator produce VIR directly
-  (as it evaluates), or is there a post-processing pass that lowers the
-  evaluated AST to VIR? The plan says "Walk the function body in SSA
-  order, building a path condition Φ" — but the evaluator doesn't produce
-  SSA.
-- **Side-effect modeling**: How are RC operations, `consume(...)`, and
-  `ref` parameter writes modeled in VIR? These are implicit in today's
-  evaluator.
-- **Heap model**: The plan says objects are "opaque references with a heap
-  model." What heap model? Separation logic? Burstall-Bornat? A flat array
-  model?
-- **Function calls**: Are callee functions inlined into the VIR, or modeled
-  via their contracts (modular verification)?
-- **Emergency conditions**: How are `panic(...)`, `unwind(...)`, and
-  assertion failures modeled? As VCs or as proof obligations?
-
-**Recommendation**: The VIR design should be written up as a separate
-document (`plans/FORMAL_VERIFICATION_VIR.md`) before Phase 1 begins.
-
-#### B3. Trait-level contracts — a fundamental open problem
-
-The plan correctly identifies this as "syntax is undecided" (Open Question
-2), but the problem is deeper than syntax.
-
-Yo's traits currently define only **method signatures** (function types
-without bodies). For a verifier to use trait-level contracts, every trait
-field would need `requires`/`ensures` clauses embedded in its function
-type:
-
-```rust
-Iterator :: trait(
-  Item : Type,
-  next : (fn(ref(self) : Self, requires(self.has_next()),
-              ensures(match(result, .Some(v) => ..., .None => ...)))
-          -> Option(Self.Item))
-);
-```
-
-But trait fields with generic `forall` parameters make this recursive:
-`map` takes `forall(B)` and `f : Impl(Fn(A) -> B)`. The trait-level
-contract for `map` must quantify over `B` and `f`, which means the
-contract itself is generic.
-
-Furthermore, Yo's generic impl matching (`src/evaluator/values/impl.ts`)
-specializes trait methods per concrete type. If the verifier uses the
-generic trait contract at call sites, it must reason about the trait
-contract without knowing which impl will execute. If it inlines and
-verifies against each concrete impl, the work is multiplied by the number
-of impls (potentially thousands for a common trait like `Index`).
-
-**Recommendation**: This should be P0, not deferred. Until trait-level
-contract syntax and verification semantics are designed, the plan cannot
-meaningfully verify any generic function that calls trait methods —
-which is most useful functions in `std/`.
-
-#### B4. Refinement type (`Refine(T, p)`) implementation complexity
-
-The plan's `Refine` design implies changes across multiple subsystems:
-
-- **Type synthesis** (`src/evaluator/types/`): `Refine(T, p)` must be
-  recognized as a type constructor that wraps `T`. The type synthesis
-  pass must unwrap `Refine(T, p)` to `T` for codegen while preserving the
-  predicate for verification.
-- **Subtyping** (`src/types/compatibility.ts`): `Refine(T, p) <: T` is
-  one-way. But what about `Refine(T, p) <: Refine(T, q)`? This requires
-  proving `p ⇒ q`, which is a VC — not a simple compatibility check.
-- **Predicate composition**: `Refine(Refine(i32, p), q) ≡ Refine(i32, λx. p(x) ∧ q(x))`.
-  This requires synthesizing a new lambda at compile time, which is not
-  a trivial operation.
-- **Predicate evaluation**: The plan says "predicate evaluated at comptime
-  by the existing CTFE engine." But most refinement predicates involve
-  runtime values (e.g., `(x >= lo) && (x <= hi)`). CTFE can only check
-  compile-time-known values. For runtime values, the predicate must go
-  to the SMT solver — meaning the evaluator's `UnknownValue` must carry
-  enough symbolic information to encode the predicate.
-
-**Question**: Can `Refine` predicates reference mutable state? If `s` is
-a `ref(s) : Slice(i32)` and the predicate is `(s(0) > i32(0))`, the
-verifier must know that `s(0)` is unchanged between calls.
-
-#### B5. Effect capabilities — verification vs current implementation
-
-The plan describes a capability lattice with ranks and taint levels. The
-current algebraic effects implementation has none of this infrastructure:
-
-- Effect parameters are just regular function parameters typed as
-  `ctl(...) -> R`. There is no "effect rank" metadata.
-- The evaluator doesn't have a notion of `Io` being "more powerful" than
-  `Allocator` — these are just nominal types.
-- Taint tracking (`Untrusted` → `Trusted`) requires information flow
-  analysis, which is orthogonal to value-level VC generation.
-
-The capability enforcement described in the plan would require building a
-separate analysis pass (information flow / taint) on top of the verifier.
-This is substantial new infrastructure and should be called out as such
-in the Phase 4 estimate.
-
-#### B6. CBMC/KLEE/SeaHorn annotation mapping is non-trivial
-
-The plan says "Yo's codegen emits annotations the chosen backend
-understands" but the mapping is not 1:1:
-
-- `requires(P)` at caller side → `__CPROVER_assume(P)` before the call
-- `requires(P)` at callee entry → `__CPROVER_assume(P)`
-- `ensures(P)` at callee return → `__CPROVER_assert(P)`
-- `invariant(P)` → `__CPROVER_assert(P)` at loop head AND loop exit
-- `assert(P)` → `__CPROVER_assert(P)`
-
-Each of these annotations must be placed at a specific point in the
-generated C code, which requires the codegen to be aware of contract
-sites. Today, the codegen has no contract concept — this would need
-codegen modifications.
-
-### C. Scope & Estimation Concerns
-
-#### C1. Phase 1 scope is substantially underestimated
-
-The plan estimates Phase 1 as "6-12 person-months" but this appears to
-account for path-condition tracking, VIR, Z3 integration, and all P0
-prerequisites together. Given the complexity analysis above:
-
-- Path-condition tracking: 4–6 months
-- VIR design + construction: 2–3 months
-- Z3 SMT-LIB 2 encoder: 2–3 months
-- `result`/`old(...)` evaluator support: 1–2 months
-- `Refine` subtyping: 1–2 months
-- Contract gathering from signatures: 1 month
-- Integration + testing: 2 months
-
-Total: 13–19 person-months for Phase 1 alone. The upper end of the
-original estimate (12 months) is plausible as a minimum, but 18–24 months
-is more realistic for a production-quality implementation.
-
-#### C2. The "60% of a VC generator" framing is misleading
-
-The claim that the evaluator is "already 60% of a verification condition
-generator" conflates type-checking with verification. The evaluator can:
-
-- Dispatch function calls by name
-- Handle `cond`/`match` branching with environment merging
-- Track `UnknownValue` for type-level reasoning
-- Handle control flow (return, unwind, break, continue)
-
-These are standard compiler infrastructure that every typed language has.
-A VC generator additionally needs: symbolic state, path conditions, loop
-invariant reasoning, contract substitution at call sites, and SMT encoding.
-The evaluator provides none of these. A more accurate framing: the
-evaluator provides the **AST traversal and type environment infrastructure**
-that a VC generator hooks into, but not the VC generation logic itself.
-
-### D. Phase 0 Implementation Notes
-
-Phase 0 is the only near-term commitment and is well-scoped. Specific
-things to watch:
-
-1. **Builtin function detection**: When the parser encounters `requires(x)`,
-   `ensures(x)`, `invariant(x)`, or `ghost(x)`, it produces normal
-   `FnCallExpr` nodes. These must be registered in `BuiltinFunctions` in
-   `src/expr.ts` so the evaluator can dispatch them.
-
-2. **Assert lowering in codegen**: In `runtime` mode, `requires(P)` at
-   function entry lowers to `assert(P, "requires failed: ...")`. The
-   codegen in `src/codegen/functions/generation.ts` needs to emit these
-   assertions at the start of each function body.
-
-3. **`pragma(Pragma.Verify)`**: Add new `PragmaKind` entries (`Verify`,
-   `VerifyOrAssert`, `NoContracts`) to `src/evaluator/memory-safety.ts`
-   alongside the existing AllowUnsafe. Phase 0 registers them but does
-   nothing — emits a warning.
-
-4. **`result` and `old(...)` keywords**: These need to be reserved in the
-   parser to prevent their use as variable names. `result` is particularly
-   important — it's currently a valid identifier and may appear in existing
-   code.
-
-5. **`ghost(...)` as a new builtin**: The evaluator must handle both the
-   binding form and the function-wrapping form. For Phase 0 (no verification),
-   `ghost(...)` can be a no-op that evaluates its body, identical to
-   `begin(...)`.
-
-### E. Design-Specific Questions
-
-#### E1. What are the semantics of unit-returning contracts?
-
-If a function returns `unit`, `result` inside `ensures(...)` is `()`.
-What is an `ensures(...)` on a unit-returning function useful for?
-The plan's examples all use non-unit return types.
-
-#### E2. How do contracts interact with `forall` parameters?
-
-Consider:
-
-```rust
-f :: (fn(forall(T : Type), x : T, requires(/* can we constrain T? */)) -> T)(body);
-```
-
-Can `requires(...)` reference `forall`-quantified type variables? The plan
-doesn't address this. `T` is a `Type` value, so `requires((T == i32))` is
-a type-equality check that the compiler can statically discharge.
-
-#### E3. Can contracts reference `comptime` parameters?
-
-A `comptime(N : usize)` parameter is compile-time only. Can `requires(...)`
-reference it? Yes — it's compile-time evaluable. But `ensures(...)`
-referencing a comptime parameter is also fine because `ensures(...)` runs
-at verification time, which is compile time.
-
-#### E4. How does `Refine(T, p).check(x)` handle predicates with non-trivial runtime cost?
-
-The `.check(...)` method returns `Option(Refine(T, p))`. For expensive
-predicates (e.g., `sorted(arr)` on a million-element array), this incurs
-real runtime cost in `verify+` mode. Should `.check(...)` be a noexcept
-operation, or can it panic on OOM?
-
-#### E5. What happens to contracts in generic function specialization?
-
-When `head :: (fn(forall(T : Type), s : NonEmpty(Slice(T))) -> T)` is
-specialized to `head :: (fn(s : NonEmpty(Slice(i32))) -> i32)`, the
-contracts must be carried through specialization. The plan doesn't
-discuss how contracts survive monomorphization in `src/evaluator/calls/helper.ts`.
-
-### F. Stale Claims in the Plan
-
-#### F1. Slice-flowability doesn't track `len()` values
-
-Lines 1170–1172 claim "the existing slice-flowability machinery already
-knows `arr.as_slice().len() == arr.len() == 3`." This is incorrect.
-Slice flowability (`src/evaluator/types/flowability.ts`) tracks **pointer
-provenance** — whether a slice's data pointer outlives the current frame.
-It does NOT track or reason about the numerical length of a slice.
-Proving `slice.len() > 0` from a length-3 array literal would require
-the CTFE engine (which knows `arr.len() == 3`) combined with a new form
-of value-level reasoning that doesn't exist today.
-
-#### F2. `src/codegen/effects/` does not exist
-
-Line 676 references `src/codegen/effects/` as the location of async state
-machine codegen. The actual directory is `src/codegen/async/` — there is
-no `effects/` subdirectory.
-
----
+- **Compile time.** Verified files pay 10–100× on the verifier pass.
+  Opt-in per file/pragma; `yo verify` separates the slow job for CI;
+  the cache absorbs repeat runs. `runtime` mode never pays.
+- **Annotation burden.** Real functional correctness (V5-level specs)
+  needs invariants and ghost code — the expensive annotations exist
+  because the properties are real. AoRTE + automatic requires-checking
+  at call sites deliver value before any of that.
+- **Subset enforcement.** `verify` mode rejects constructs outside the
+  subset. This is a feature (SPARK's discipline) but it means verified
+  code is a dialect of Yo that lags the full language; the subset table
+  is the contract and grows per phase.
+- **Solver dependence.** Z3 is a large external dependency — mitigated
+  by pinning, caching, the `YO_Z3_PATH` escape hatch, and `verify+`'s
+  never-blocked-by-solver fallback.
+- **Quantifier flakiness.** E-matching instantiation can exhaust budgets
+  unpredictably. Mitigations: deterministic budgets make failures
+  *stable*, guidance-level diagnostics suggest instantiation, and V3–V4
+  (the flagship surface) are quantifier-free.
+- **No proofs for the whole program.** Local, per-function,
+  property-by-property proof; composing into end-to-end guarantees is
+  the spec author's job (as in Dafny).
+
+## Breaking-change ledger
+
+| # | Change | Phase | Migration |
+| --- | --- | --- | --- |
+| 1 | Magic `result` identifier removed; `ensures` binds the labeled return | V1 | Add the label: `-> i32` becomes `-> (result : i32)`. In-repo: 10 `tests/spec` sites + cheatsheet example |
+| 2 | `ghost(...)` / `ghost_fn(...)` erased from codegen (today: transparent runtime evaluation) | V5 | Ghost bindings were spec-only by contract; grep for `ghost(` uses in runtime expressions — expected zero |
+| 3 | `Refine(T)` gains the predicate parameter (`Refine(T, p)`); std/spec aliases attach real predicates | V6 | Most call sites use the named aliases (`NonZero(i32)`), which keep their signatures; direct `Refine(T)` uses add a predicate |
+| 4 | `verify`/`verify+` files gain strict obligations (compile errors) | V3 | Opt-in by pragma — `runtime` default is untouched; adopting a pragma is the migration |
+
+## Decision log
+
+| # | Decision | Rationale | Supersedes |
+| --- | --- | --- | --- |
+| D1 | Build the compile-time SMT verifier (this plan) | ROADMAP Phase 1 flagship; LLM-authorship oracle | 2026-05 "Phase 0 only, park Phase 1+" |
+| D2 | **Z3 only** | One solver, pinned, tested; multi-solver is support surface without users (user decision, 2026-09-04) | Old backend matrix (CVC5/CBMC/KLEE/SeaHorn) — dropped, not deferred |
+| D3 | **Named returns, no magic `result`** | Uses existing labeled-return syntax; no keyword magic, no scope rules, self-documenting (user decision, 2026-09-04) | Old §A4/§D4 keyword debate; Phase-0 `_RESULT_IDENTIFIER` |
+| D4 | Separate verifier pass, not evaluator extension | Dafny/Boogie shape; isolates symbolic state; avoids destabilizing the self-hosting evaluator; re-scopes old §B1's cost | Old "extend the evaluator with path conditions" |
+| D5 | In-memory VC terms + direct SMT-LIB 2; no persisted VIR | The IR existed to keep "the SMT backend stupid"; an in-memory term type does that without a pipeline stage | Old §B2 (separate `FORMAL_VERIFICATION_VIR.md`) |
+| D6 | Bitvector integer semantics | Matches emitted C (`-fwrapv`) exactly — proofs are about the program that runs; overflow opt-in later | (implicit in old draft's theories; now pinned) |
+| D7 | rlimit-based deterministic budgets | Reproducibility is a hard requirement for LLM authors; wall-clock is a crash guard only | Old "per-function timeout (default 10s)" |
+| D8 | AoRTE obligations always-on in verify modes | Highest LLM value per token: bounds/div-zero on unannotated code | — |
+| D9 | `VerifyOrAssert` (`verify+`) is the flagship mode | Gradual adoption; proofs cost zero runtime; solver can never block a build | ROADMAP alignment |
+| D10 | Capability lattice / taint tracking deferred | Orthogonal infrastructure (old §B5); not needed for the core Dafny surface | Old Phase 4 |
+| D11 | Type invariants deferred | Interacts with every constructor/`inout` method; loop invariants first | Old §"invariant on struct/object types" |
+| D12 | `decreases` partial-correctness default | Dafny's stance; termination proofs opt-in | Old Open Question 3 (resolved: adopt Dafny default) |
+
+## Risks
+
+| Risk | Likelihood | Mitigation |
+| --- | --- | --- |
+| Encoding/semantics mismatch (SMT model ≠ emitted C) | Medium — the subtle bugs live here | Bitvector widths from `CompilationTarget`; bugged-twin test discipline; dogfooding on `std/` where runtime behavior is heavily tested |
+| Quantifier blowup (V5) | High for ambitious specs | Quantifier-free flagship surface (V3–V4); deterministic budgets make failure stable; guidance diagnostics |
+| Solver regressions on version bumps | Medium | Pin + cache keying; bumps are deliberate release events with a re-verification CI run |
+| Verification too slow on real modules | Medium | Per-function budgets, cache, `yo verify` as a separate CI job, subset errors fail fast |
+| Side-table keying breaks under specialization | Low — `copy_func_contract_exprs` already handles re-keying | V1 extends the same lifecycle; unit tests cover specialization paths |
+| `verify+` strip pass corrupts bodies | Medium — body rewriting is delicate | Strip keyed by spliced node ids (fresh per splice); `macro_expansion` discipline documented; `--emit-c` diff tests |
+| Scope creep toward a theorem prover | High (history says so) | Non-goals section is binding; tactic/interactive/second-solver requests close as "non-goal" |
 
 ## Open questions
 
-1. **`old(...)` in `ensures` for object types.** Object types have
-   reference semantics, so `old(obj)` could mean (a) a deep snapshot at
-   entry, (b) a snapshot of the receiver pointer (useless), or (c) be
-   forbidden. The plan currently picks (a) via a comptime-generated
-   `Clone` of the object's value at entry. The cost is real allocation in
-   `verify+` mode; in `verify` mode it's ghost-only. Final answer
-   deferred to Phase 3.
+1. **`object` heap model.** When `object` types enter the subset (V6+),
+   flat per-class heaps (Burstall-Bornat) vs. full separation logic.
+   Recommendation: flat heaps keyed by abstract reference, forbid
+   cycles in verified code initially — decide when V6 shapes it.
+2. **Trait contracts with generic quantification** (old §B3): contracts
+   on `map`-style methods quantify over the function parameter. V6
+   designs this against the abstract-generic encoding; the trait
+   variance rule (V6 task 1) is the fallback if quantified trait
+   contracts prove too expensive.
+3. **String content reasoning depth.** `Seq (BV8)` gives length and
+   byte-level predicates cheaply; UTF-8 structural properties
+   (`Utf8Valid`) may need axiomatized predicates rather than direct
+   encoding. Decide in V5.
+4. **Floats.** Still a non-goal (QF_FP is slow and rarely what LLM
+   systems code wants). Revisit only with a concrete user.
+5. **`inout` aliasing.** Two `inout` params aliasing the same value is
+   possible at call sites; the two-state encoding assumes distinct
+   snapshots. Options: forbid aliased `inout` in verified calls (check
+   at call-site obligation time) or merge states. Decide in V5.
+6. **Type invariants.** If adopted later: obligation at every
+   constructor + `inout` method exit; interacts with V6 trait
+   contracts. A separate addendum when prioritized.
+7. **Async verification.** Per-state verification over the generated
+   state machine (old draft's idea) is plausible but unscoped; await
+   points as yield boundaries. Parked until the core is done.
 
-2. **Trait dispatch and verification.** When `f(self : T, where(T <: Foo))`
-   calls `self.method()`, the verifier must verify against the trait's
-   specification, not any particular impl. Trait fields therefore need
-   to carry `requires`/`ensures` clauses at the trait declaration site
-   (the alternative — verifying against every impl — multiplies work by
-   impl count). **Syntax decided** (Phase 0 lands trait-level contract
-   parsing; same signature-extraction pass as free functions). **Semantics
-   open** for Phase 4: how impls inherit or override trait-level
-   contracts, how generic `forall` quantification in trait method types
-   composes with contracts, how the verifier picks trait contract vs
-   impl-specific contract at call sites. See audit §B3.
+## History & audit trail
 
-3. **Recursion termination.** `recur(...)` is the only way to write
-   recursion in Yo. The verifier needs decreasing-measure annotations
-   for termination proofs. Candidate syntax: `decreases(measure_expr);`
-   alongside `requires/ensures`. Default for unannotated recursive
-   functions is "partial correctness only" (no termination proof). This
-   matches Dafny.
-
-4. **Inductive types over `Box(Self)`.** Verifying functions over
-   `Box(Self)`-recursive types (trees) is straightforward; verifying
-   over `object` types with potential cycles is not. The plan currently
-   forbids verified functions from touching cycle-prone object types.
-   Long-term, an axiomatised heap model handles this; short-term, it's
-   a non-goal.
-
-5. **Floating point.** No `f32`/`f64` reasoning in Phase 1–4. The SMT
-   theory of floating point (QF_FP) is slow and rarely what users want.
-   Crypto and core security code is integer-only. Float verification is
-   a separate, later concern.
-
-6. **Verifying the std prelude.** The prelude is 7000+ lines and self-
-   referential. Verifying it from scratch is impractical. The plan
-   axiomatises the prelude's contracts and incrementally proves
-   modules in priority order: `Option`, `Result`, `Slice`, `Array`,
-   `ArrayList`, `HashMap`, then everything else.
-
-7. **Solver portability across platforms.** Z3 ships binaries for
-   Linux/macOS/Windows. The verifier subprocess discovery is the
-   responsibility of `src/version-cache.ts` analogues — initial plan is
-   to bundle Z3 as a downloadable dependency in `~/.cache/yo/solvers/`
-   the same way Yo versions are cached today.
-
-8. **Interaction with `consume(...)` and ownership.** `consume(p.* = v)`
-   performs destructive moves on unsafe pointers. How does the verifier
-   reason about moved-from values in verified functions? The plan does
-   not address ownership semantics in the verification context.
-
-9. **`break`/`continue` in verified loops.** A `break` inside a loop with
-   `invariant(...)` is well-defined (invariant holds at break point), but
-   `continue` requires the invariant to hold after the jump to the loop
-   head — the verifier must check this.
-
-10. **`asm(...)` blocks in verified functions.** Can a function with
-    contracts contain inline assembly? If so, the verifier cannot reason
-    about the assembler's effects and must either forbid `asm(...)` in
-    verified functions or treat it as an opaque assumption.
-
----
+- **2026-09-04 (this revision).** Full audit against the live tree;
+   decisions D1–D12; phases V1–V7 replace the old Phase 1–6; old audit
+   findings re-dispositioned: §A1 (clause order — resolved & landed),
+   §A2 (invariant placement — resolved & landed), §A3 (ghost split —
+   resolved & landed), §A4 (result scope — **superseded** by D3 named
+   returns), §A5 (ghost-context flag — V5 spec), §B1 (evaluator
+   extension cost — **superseded** by D4 architecture),
+   §B2 (VIR underspecified — **superseded** by D5), §B3 (trait
+   contracts — V6 scope), §B4 (Refine complexity — V6 scope),
+   §B5 (capability lattice — D10 deferred), §B6 (CBMC/KLEE mapping —
+   **dropped** with D2), §C1 (13–19 p-mo estimate — re-based on D4/D5),
+   §C2 (60% framing — corrected framing kept), §D1–D5 (implementation
+   notes — folded into V1–V3 with current paths), §E1 (unit-return
+   contracts — resolved: no return binding, param-only predicates),
+   §E2–E3 (forall/comptime params — comptime params are CTFE-evaluable
+   in contracts; no special case needed), §E4 (`.check` cost — V6:
+   `.check` is an ordinary runtime `Option` gate, cost is the
+   predicate's), §E5 (specialization — side tables re-key via
+   `copy_func_contract_exprs`; verifier input is post-specialization),
+   §F1/F2 (stale claims — removed).
+- **2026-05-26.** First audit added to the draft; "Phase 0 only"
+   recommendation; 13–19 p-mo estimate for the evaluator-extension
+   architecture.
+- **Phase 0 (landed before this revision).** Contract surface + runtime
+   lowering + pragmas + std/spec skeletons + tests; see
+   [Current state](#current-state--audited-2026-09-04) for the audited
+   inventory.
 
 ## Worked example: verified `NonEmpty(Slice(T)).head()`
 
+Target state after V6 (updated from the old draft to named returns):
+
 ```rust
-pragma(Pragma.Verify);
+pragma(Pragma.VerifyOrAssert);
 
 { Refine } :: import("std/spec/refine");
 
 NonEmpty :: (fn(comptime(T) : Type) -> comptime(Type))(
-  Refine(Slice(T), (s) => (s.len() > usize(0)))
+  Refine(Slice(T), (s) => ((s.len() > usize(0))))
 );
 
 head :: (fn(
   forall(T : Type),
   s : NonEmpty(Slice(T)),
   // requires((s.len() > usize(0))) — implied by the refinement on `s`
-  ensures((result == s(usize(0)))),
-) -> T)(s(usize(0)));
+  ensures((result == (s(usize(0))))),
+) -> (result : T))((s(usize(0))));
 
 main :: (fn() -> i32)({
   arr := Array(i32, usize(3))(i32(1), i32(2), i32(3));
   slice := arr.as_slice();
 
-  // Direct construction — verifier proves slice.len() > 0 from the array literal.
+  // Construction site: the refinement's VC (`slice.len() > 0`) discharges
+  // by CTFE (the array literal's length is a compile-time 3) — no SMT call.
   ne := NonEmpty(Slice(i32))(slice);
   first := head(forall(i32), ne);
   assert((first == i32(1)), "first should be 1");
 
-  // From dynamic data — must check.
-  dyn := some_runtime_slice();
-  match(NonEmpty(Slice(i32)).check(dyn),
-    .Some(ne2) => {
-      h := head(forall(i32), ne2);
-      print_i32(h);
-    },
+  // From dynamic data — the runtime gate:
+  match(NonEmpty(Slice(i32)).check(some_runtime_slice()),
+    .Some(ne2) => { println(head(forall(i32), ne2)); },
     .None => println(`empty`)
   );
   i32(0)
 });
+export(main);
 ```
 
-What the verifier does in this example:
+What the verifier does:
 
-- The `NonEmpty(Slice(i32))(slice)` construction triggers a VC: prove
-  `(slice.len() > usize(0))`. Because `slice` was derived from a literal
-  array of compile-time-known length 3, CTFE evaluates `arr.len()` and
-  `arr.as_slice().len()` to the constant `usize(3)`; the VC `3 > 0`
-  discharges by literal evaluation, no SMT call needed. (Note: this
-  relies on CTFE-level slice-length propagation through `as_slice()`,
-  which would need to be added — slice-flowability tracks pointer
-  _provenance_, not length. See audit §F1.)
-- `head(ne)` has no proof obligation at the call site — `ne`'s type
-  already carries `s.len() > 0`, which discharges the implicit `requires`.
-- `s(usize(0))` inside `head` would normally generate a bounds VC
-  (`0 < s.len()`). The refinement on the parameter discharges it.
-
-The result is a function with **zero runtime cost vs.** `(fn(s : Slice(T)) -> T)(s(usize(0)))`,
-but where every caller has been forced to either pass a statically-known
-non-empty slice or check at runtime.
-
----
+- `NonEmpty(Slice(i32))(slice)` — construction VC `slice.len() > 0`,
+  discharged by CTFE from the literal length (no solver round-trip).
+- `head(ne)` — no caller obligation beyond the refinement (carried by
+  the type); after the call, `ensures` gives `first == ne(0)`.
+- Inside `head`, `s(usize(0))` — the AoRTE bounds obligation discharges
+  from the refinement's predicate on `s`.
+- Zero runtime cost vs. the unannotated version; every caller was forced
+  to prove non-emptiness or check at runtime.
 
 ## References
 
-- [`MEMORY_SAFETY.md`](MEMORY_SAFETY.md) — the unsafe boundary verification
-  trusts.
-- [`EXPLICIT_EFFECTS.md`](archive/EXPLICIT_EFFECTS.md) — the effect model
-  capabilities sit on top of.
-- [`UNIFIED_COMPTIME_DESIGN.md`](backlog/UNIFIED_COMPTIME_DESIGN.md) — the
-  comptime evaluator the VC generator extends.
-- [`GADTS.md`](GADTS.md) — per-variant refinement, the seed of value-
-  indexed types.
-- [`SLICE_FLOWABILITY.md`](archive/SLICE_FLOWABILITY.md) — example of non-trivial
-  static analysis already running in the evaluator.
-- [`ASYNC_SM_VARIABLE_OPTIMIZATION.md`](archive/ASYNC_SM_VARIABLE_OPTIMIZATION.md)
-  — the state-machine model async verification reuses.
-- External: Dafny (Microsoft Research), F\* (MSR Inria), Liquid Haskell,
-  Rust + Kani, Frama-C/ACSL, CBMC, KLEE, SeaHorn.
+- [`ROADMAP.md`](ROADMAP.md) — Phase 1 (this plan) is the flagship.
+- [`MEMORY_SAFETY.md`](../docs/en-US/MEMORY_SAFETY.md) — the unsafe
+  boundary the verifier refuses to cross.
+- [`.github/instructions/yo-design.instructions.md`](../.github/instructions/yo-design.instructions.md) —
+  breaking-change policy this plan operates under.
+- [`tests/spec/`](../tests/spec/) — the Phase-0 test set the verifier
+  phases extend.
+- External: Dafny (Microsoft Research — verification semantics, partial
+  correctness defaults, counter-example reporting), SPARK/Ada (verifiable
+  subset, AoRTE obligations, gradual adoption), Boogie (separate-pass
+  VC architecture), Why3 (SMT-LIB over stdio, solver budgets), Z3
+  (`rlimit` deterministic budgets, unsat cores, `get-model`).
