@@ -551,10 +551,19 @@ test("a kept-alive response is framed by a Content-Length written without OWS", 
   addr := SocketAddr.loopback(u16(19969));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   server := io.spawn(
-    _serve_holding(listener, `HTTP/1.1 200 OK\r\nContent-Length:5\r\n\r\nhello`, Duration.from_millis(i64(400)), io),
-    IoExn(io : io, exn : exn)
+    // 3000 ms hold vs a 1000 ms client budget. The PROPERTY under test is that
+    // Content-Length ends the client's read before the server closes, so the
+    // budget only has to sit comfortably between real loopback latency and the
+    // hold — 100 ms did not, and a loaded runner blew through it (the request
+    // then failed on the Linux sweep with exit 134, not a clean assertion).
+    _serve_holding(listener, `HTTP/1.1 200 OK\r\nContent-Length:5\r\n\r\nhello`, Duration.from_millis(i64(3000)), io),
+    // The server side parks rather than asserting: a client that hung up is not
+    // a server defect, and an `assert(false, …)` in a handler ABORTS the test
+    // BINARY, taking every later test in the batch with it. The client's body
+    // assertion below is this test's only verdict.
+    IoExn(io : io, exn : park_exn)
   );
-  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1000)));
   client := io.spawn(fetch_with(`http://127.0.0.1:19969/nows`, opts, io), IoExn(io : io, exn : park_exn));
   outcome := client.await(io);
   server.await(io);
@@ -583,10 +592,11 @@ test("only a real Content-Length field line frames a kept-alive response", {
   // `X-Content-Length` ENDS with the name we want; matching it would ask for
   // 99 bytes of a 5-byte body and park until the deadline.
   server := io.spawn(
-    _serve_holding(listener, `HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 5\r\n\r\nhello`, Duration.from_millis(i64(400)), io),
-    IoExn(io : io, exn : exn)
+    // Same margins and the same parking server as the sibling test above.
+    _serve_holding(listener, `HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 5\r\n\r\nhello`, Duration.from_millis(i64(3000)), io),
+    IoExn(io : io, exn : park_exn)
   );
-  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1000)));
   client := io.spawn(fetch_with(`http://127.0.0.1:19975/hijack`, opts, io), IoExn(io : io, exn : park_exn));
   outcome := client.await(io);
   server.await(io);
