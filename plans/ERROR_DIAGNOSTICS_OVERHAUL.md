@@ -20,7 +20,8 @@
 > `--error-format human|short|json` + `YO_ERROR_FORMAT` (JSON Lines on
 > stdout; chatter to stderr under json), registry gates.
 >
-> **P3 LANDED 2026-09-03** (PR #401) — the repair-oriented slice: the
+> **P3 LANDED 2026-09-03** (PR #403, opened as #401 — auto-closed when #400's
+> branch was deleted on merge) — the repair-oriented slice: the
 > `help:` channel (Diagnostic.help, renders + JSON); did-you-mean at
 > unresolved names and enum variants (shared edit-distance; the registry
 > delegates); the ICE wrapper on codegen_fatal; panic() call-site locations
@@ -29,7 +30,7 @@
 > there); --error-format threaded to the test/build children;
 > --json-summary honored.
 >
-> **P3r LANDED 2026-09-04** (PR #401): import-chain collapse (D16 — the
+> **P3r LANDED 2026-09-04** (PR #403): import-chain collapse (D16 — the
 > leaf group once + one anchored note, via the new typed diagnostics
 > stash); the LSP typed channel (structured diagnostics first, text parsing
 > demoted to the string-throw fallback — P4_LSP's remaining quality item
