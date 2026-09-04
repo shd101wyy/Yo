@@ -1,4 +1,9 @@
 # Garbage Collection Design for Yo
+> **ARCHIVED 2026-09-04 — NOT BUILT AS SPECIFIED.** The full concurrent generational
+> mark-sweep GC below never shipped. What shipped is a cycle collector over the RC
+> heap: `Trace` hooks ([`CYCLE_GC_TRACE_HOOKS.md`](CYCLE_GC_TRACE_HOOKS.md),
+> CLOSED 2026-08-06) surfaced through `std/gc.yo` (`collect` /`tracked_count`).
+
 
 > **TL;DR**: Yo will use a **precise, concurrent, generational mark-sweep GC** with **shadow stack** for root tracking. Target latency: **<5ms** (like Go). Implementation uses tri-color marking with write barriers, generational collection for throughput, and incremental marking for bounded pauses.
 

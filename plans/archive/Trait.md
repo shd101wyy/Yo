@@ -1,4 +1,8 @@
 # Rust like trait system
+> **ARCHIVED 2026-09-04 — NOT ADOPTED.** Yo keeps incoherent traits (programmers pick
+> the impl on conflict); the Rust-style coherence migration proposed here never
+> happened. Related decision: [`FUNCTION_OVERLOADING_POLICY.md`](../reference/FUNCTION_OVERLOADING_POLICY.md).
+
 
 Our current Yo language design embraces incoherence and give programmers a way to manually choose an implementation when there's a conflict.
 However, I feel this approach introduces unnecessary complexity and cognitive load for programmers.  

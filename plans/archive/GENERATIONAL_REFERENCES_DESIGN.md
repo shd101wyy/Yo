@@ -1,4 +1,8 @@
 # Generational References Memory Management for Yo
+> **ARCHIVED 2026-09-04 — NOT ADOPTED.** Yo shipped the RC + dup/drop model instead
+> ([`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md)); no generational-reference
+> checking exists in the compiler. Kept as the design exploration record.
+
 
 **Inspired by Vale language's generational references approach.**
 

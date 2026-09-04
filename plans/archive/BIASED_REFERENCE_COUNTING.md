@@ -1,4 +1,9 @@
 # Biased Reference Counting (BRC)
+> **ARCHIVED 2026-09-04 — NOT ADOPTED.** No trace of the biased/split RC word exists in the
+> compiler; the RC word is the plain atomic counter described in
+> [`MEMORY_SAFETY.md`](../reference/MEMORY_SAFETY.md). Kept as the design
+> exploration record.
+
 
 https://iacoma.cs.uiuc.edu/iacoma-papers/pact18.pdf
 

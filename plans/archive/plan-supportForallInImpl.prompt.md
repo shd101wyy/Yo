@@ -1,4 +1,8 @@
 # Plan: Add `forall` Support to `impl`
+> **ARCHIVED 2026-09-04 — NOT ADOPTED (TS-era planning prompt).** Generic impls
+> shipped via the `impl(generic(T : Type), ...)` channel (e.g. std/prelude.yo's
+> `Arc(T) : Send`); the `impl(forall(...))` spelling proposed here was not adopted.
+
 
 Support `impl(forall(T : Type), Data(T), Copy())` syntax to enable generic module implementations for type constructors like `Data(T)`.
 

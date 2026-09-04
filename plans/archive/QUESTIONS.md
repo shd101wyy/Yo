@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-09-04 — TS-era scratch note** (a `read`-reference destructuring
+> Q&A from the TypeScript-compiler design period, March 2026). Kept for
+> archaeology; not a plan.
+
 1. Should we allow desturcuting of the variable that contains references?
 
 ```typescript

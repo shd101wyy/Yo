@@ -1,4 +1,9 @@
 # Mimalloc Integration
+> **ARCHIVED 2026-09-04 — SUPERSEDED** by
+> [`WINDOWS_ALLOCATOR_DECISION.md`](../reference/WINDOWS_ALLOCATOR_DECISION.md)
+> (the allocator A/B that settled the Windows allocator; mimalloc has since been
+> upgraded v3.3.2 → v3.5.1). The submodule paths and integration steps below are
+> TS-era.
 
 The Yo programming language uses [mimalloc](https://github.com/microsoft/mimalloc) for high-performance memory allocation. Mimalloc is a fast, general-purpose allocator that provides better performance than the standard system malloc.
 

@@ -1,3 +1,7 @@
+> **ARCHIVED 2026-09-04 — TS-era scratch note** on struct-vs-module comptime-field
+> rules. The authoritative semantics live in `docs/en-US/` and the yo-syntax
+> instruction files.
+
 - struct can only hold runtime fields, while module can hold both runtime and compile-time fields.
 - module value can only be assigned to comptime variable, while struct value can be assigned to both comptime and runtime variables.
 
