@@ -663,11 +663,22 @@ test("Path.ancestors walks from self to the root", {
   assert(abs(usize(2)).to_string() == `/`, "ends at the root");
 });
 test("split_paths / join_paths round-trip a PATH-style string", {
-  raw := `/usr/bin:/bin:`;
+  // Built with the PLATFORM delimiter — the input spelling differs between
+  // Unix (`:`) and Windows (`;`), so construct it instead of writing a
+  // literal.
+  raw := String.new();
+  _a := raw.push_string(`/usr/bin`);
+  _b := raw.push_byte(u8(PATH_DELIMITER));
+  _c := raw.push_string(`/bin`);
+  _d := raw.push_byte(u8(PATH_DELIMITER));
   parts := split_paths(raw);
   assert(parts.len() == usize(2), "empty segment dropped");
-  assert(parts(usize(0)).to_string() == `/usr/bin`, "first");
-  assert(parts(usize(1)).to_string() == `/bin`, "second");
+  assert(parts(usize(0)) == Path.new(`/usr/bin`), "first (segment equality)");
+  assert(parts(usize(1)) == Path.new(`/bin`), "second (segment equality)");
+  expected := String.new();
+  _e := expected.push_string(`/usr/bin`);
+  _f := expected.push_byte(u8(PATH_DELIMITER));
+  _g := expected.push_string(`/bin`);
   joined := join_paths(parts);
-  assert(joined == `/usr/bin:/bin`, "round-tripped with the platform delimiter");
+  assert(joined == expected, "round-tripped with the platform delimiter");
 });
