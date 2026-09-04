@@ -511,3 +511,128 @@ test("fetch round-trips a binary body byte-for-byte", {
   assert(got(usize(6)) == u8(0xFF), "0xFF survives");
   assert(got(usize(7)) == u8(65), "trailing ASCII");
 });
+// ============================================================================
+// RFC 9112 §5 field-line parsing (issues/fixed/http-content-length-ows-and-
+// invalid-values.md). Every test above closes the connection after the
+// response, so close-delimiting hid a Content-Length the client could not
+// read. These hold the connection open — HTTP/1.1's default — so the header
+// is the ONLY thing that can end the message, and a deadline turns a
+// mis-parse into a Timeout instead of a hang.
+// ============================================================================
+_serve_holding :: (
+  fn(listener : TcpListener, response : String, hold : Duration, io : Io) -> Impl(Future(unit, IoExn))
+)(
+  io.async(e => {
+    s := e.io.await(listener.accept(e.io), e);
+    _req := e.io.await(_read_request(s, e.io), e);
+    _w := e.io.await(s.write_string(response, e.io), e);
+    e.io.await(sleep(hold, e.io), e.io);
+    e.io.await(s.close(e.io), e);
+    return(());
+  })
+);
+test("a kept-alive response is framed by a Content-Length written without OWS", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): it can only unwind.
+  park_exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19969));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  server := io.spawn(
+    _serve_holding(listener, `HTTP/1.1 200 OK\r\nContent-Length:5\r\n\r\nhello`, Duration.from_millis(i64(400)), io),
+    IoExn(io : io, exn : exn)
+  );
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  client := io.spawn(fetch_with(`http://127.0.0.1:19969/nows`, opts, io), IoExn(io : io, exn : park_exn));
+  outcome := client.await(io);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(match(outcome, .Some(r) => (r.body == "hello"), .None => false), `a single-digit Content-Length with no space after the colon must end the message`);
+});
+test("only a real Content-Length field line frames a kept-alive response", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): it can only unwind.
+  park_exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19975));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  // `X-Content-Length` ENDS with the name we want; matching it would ask for
+  // 99 bytes of a 5-byte body and park until the deadline.
+  server := io.spawn(
+    _serve_holding(listener, `HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 5\r\n\r\nhello`, Duration.from_millis(i64(400)), io),
+    IoExn(io : io, exn : exn)
+  );
+  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(100)));
+  client := io.spawn(fetch_with(`http://127.0.0.1:19975/hijack`, opts, io), IoExn(io : io, exn : park_exn));
+  outcome := client.await(io);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(match(outcome, .Some(r) => (r.body == "hello"), .None => false), `X-Content-Length must not frame the message`);
+});
+// RFC 9112 §6.3: a Content-Length that is present but unreadable is an
+// unrecoverable framing error. It used to fall back to -1 — "no such header" —
+// so the message was framed by whatever the peer did next.
+test("an unreadable Content-Length is a typed HttpError, not a silent absence", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): it can only unwind.
+  bad_cl_exn := Exception(
+    throw : (
+      err -> {
+        msg := err.to_string();
+        assert(msg.contains(`Malformed Content-Length`), `expected MalformedContentLength, got: ${msg}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19976));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  responses := ArrayList(String).new();
+  responses.push(`HTTP/1.1 200 OK\r\nContent-Length: abc\r\nConnection: close\r\n\r\nhello`);
+  responses.push(`HTTP/1.1 200 OK\r\nContent-Length: -5\r\nConnection: close\r\n\r\nhello`);
+  responses.push(`HTTP/1.1 200 OK\r\nContent-Length: 5\r\nContent-Length: 9\r\nConnection: close\r\n\r\nhello`);
+  seen := ArrayList(String).new();
+  server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
+  c1 := io.spawn(fetch_with(`http://127.0.0.1:19976/garbage`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
+  o1 := c1.await(io);
+  c2 := io.spawn(fetch_with(`http://127.0.0.1:19976/negative`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
+  o2 := c2.await(io);
+  c3 := io.spawn(fetch_with(`http://127.0.0.1:19976/conflict`, FetchOptions.new(), io), IoExn(io : io, exn : bad_cl_exn));
+  o3 := c3.await(io);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  assert(match(o1, .None => true, .Some(r) => false), `"abc" is not a length and must throw (task unwound → None)`);
+  assert(match(o2, .None => true, .Some(r) => false), `a negative Content-Length must throw`);
+  assert(match(o3, .None => true, .Some(r) => false), `two Content-Length lines that disagree must throw`);
+  assert(seen.len() == usize(3), `the server saw three requests, not ${seen.len()}`);
+});
