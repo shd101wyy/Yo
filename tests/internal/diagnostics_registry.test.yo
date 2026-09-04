@@ -146,6 +146,17 @@ test("lookup a known code", {
 test("lookup an unknown code is None", {
   assert(lookup_explain(String.from("E9999")).is_none(), "E9999 unknown");
 });
+test("suggest_code finds near misses", {
+  match(
+    suggest_code(String.from("E0402")),
+    .Some(h) => assert(h == "E0401", `typo E0402 suggests E0401, got ${h}`),
+    .None => assert(false, "a near miss must suggest")
+  );
+  assert(
+    suggest_code(String.from("E9999")).is_none(),
+    "a far miss suggests nothing"
+  );
+});
 test("explain_to_json carries both languages", {
   match(
     lookup_explain(String.from("E0601")),
