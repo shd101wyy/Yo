@@ -3376,13 +3376,21 @@ _U_MOD10 :: (_UMAX % usize(10));
 _U_SHR1 :: (_UMAX >> usize(1));
 test("comptime usize above i64.MAX divides and compares UNSIGNED", {
   // usize shares the hazard: is_unsigned_integer_type covers .Usize and
-  // get_integer_type_bits reports the target pointer width, so a comptime
+  // get_integer_type_bits reports the TARGET POINTER WIDTH, so a comptime
   // bounds check against usize.MAX was reading a negative pattern.
+  //
+  // These assertions are deliberately WIDTH-AGNOSTIC: usize is 32-bit on
+  // wasm32, where usize.MAX (4294967295) is a positive i64 and the unsigned
+  // split is not even taken. Hardcoding the 64-bit answers made this test fail
+  // on the wasm32-wasi leg while the fix itself was correct. For an N-bit
+  // unsigned maximum M = 2^N - 1, M/2 == M>>1 and M%10 == 5 hold at BOTH
+  // widths — and under the signed bug M/2 is 0 while M>>1 is M, so the
+  // equality still catches it.
   assert(_U_GT1, "usize.MAX > 1");
   assert(!_U_LT1, "!(usize.MAX < 1)");
-  assert(_U_DIV2 == usize(9223372036854775807), `usize.MAX / 2 folded to ${_U_DIV2}`);
+  assert(_U_DIV2 > usize(0), `usize.MAX / 2 folded to ${_U_DIV2} (signed gives 0)`);
+  assert(_U_DIV2 == _U_SHR1, `usize.MAX / 2 = ${_U_DIV2} but usize.MAX >> 1 = ${_U_SHR1}`);
   assert(_U_MOD10 == usize(5), `usize.MAX % 10 folded to ${_U_MOD10}`);
-  assert(_U_SHR1 == usize(9223372036854775807), `usize.MAX >> 1 folded to ${_U_SHR1}`);
 });
 _NEG :: i64(-1);
 _S_DIV10 :: (_NEG / i64(10));

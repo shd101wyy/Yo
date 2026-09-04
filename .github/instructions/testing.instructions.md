@@ -241,6 +241,31 @@ locally built one, since that is what CI runs:
 yo fmt --check ./src ./std ./tests
 ```
 
+## Editing ANY file under `.github/skills/` re-records two cli-cases
+
+`yo skills install` (restored in #412) copies the skill tree into a project, and
+the `skills-install` / `skills-install-zh` cases record the **content hash of
+every installed file** in their `expected_tree`. So a one-line edit to, say,
+`.github/skills/yo-syntax/syntax-cheatsheet.md` — the file this repo asks you to
+update whenever you learn a Yo lesson — turns the tier-1 CLI gate red with
+
+```
+── GOLDEN-DIFF  skills-install  (rc=0; tree)
+    content-differs (vs recorded golden hash): ./.agents/skills/yo-syntax/syntax-cheatsheet.md
+```
+
+roughly 25 minutes into a PR's `Self-hosted \`test\` subcommand` job. The fix is
+a re-record, not a revert:
+
+```bash
+YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record skills-install skills-install-zh
+YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh          # re-score, expect a clean card
+```
+
+Review the diff before committing: it should be exactly one changed hash line
+per case per edited skill file. Anything else means the install copied
+something you did not intend.
+
 ## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
 
 Type keys embed each declaring module's PATH SPELLING, and std resolution is
