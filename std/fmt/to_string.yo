@@ -10,6 +10,18 @@ ToString :: trait(
   to_string : (fn(inout(self) : Self) -> String)
 );
 export(ToString);
+/// The one shared body behind every numeric `ToString` impl (audit fmt row:
+/// dedupe the snprintf helpers). `fmt` is a comptime `str` parameter, so it
+/// forwards into the extern call as a literal — no runtime conversion.
+/// 32 bytes covers every `%g`-family rendering (compact, exponent form).
+_SNPRINTF_BUFFER_SIZE :: usize(32);
+_snprintf_to_string :: (fn(comptime(fmt) : str, comptime(T) : Type, v : T) -> String)({
+  buffer := Array(u8, _SNPRINTF_BUFFER_SIZE).fill(0);
+  buffer_ptr := (&(buffer(0)));
+  unsafe(snprintf(*(char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v));
+  String.from_cstr(buffer_ptr).unwrap()
+});
+
 // === Helper function for integer conversion ===
 // Buffer size for integer to string conversion
 // i64 min is -9223372036854775808 (20 chars + null = 21)
@@ -19,112 +31,82 @@ _INT_BUFFER_SIZE :: usize(24);
 impl(
   i8,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhd", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%hhd", i8, self)
+    )
   )
 );
 impl(
   i16,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hd", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%hd", i16, self)
+    )
   )
 );
 impl(
   i32,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%d", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%d", i32, self)
+    )
   )
 );
 impl(
   i64,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lld", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%lld", i64, self)
+    )
   )
 );
 impl(
   isize,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zd", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%zd", isize, self)
+    )
   )
 );
 // === Unsigned Integer Implementations ===
 impl(
   u8,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hhu", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%hhu", u8, self)
+    )
   )
 );
 impl(
   u16,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hu", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%hu", u16, self)
+    )
   )
 );
 impl(
   u32,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%u", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%u", u32, self)
+    )
   )
 );
 impl(
   u64,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%llu", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%llu", u64, self)
+    )
   )
 );
 impl(
   usize,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%zu", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%zu", usize, self)
+    )
   )
 );
 // === Floating Point Implementations ===
@@ -133,115 +115,85 @@ impl(
 _FLOAT_BUFFER_SIZE :: usize(64);
 impl(
   f32,
+  // %g: general format, trailing zeros removed (widened to f64 for varargs)
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      // Use %g for general format (removes trailing zeros)
-      unsafe(snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", f64(self)));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%g", f64, f64(self))
+    )
   )
 );
 impl(
   f64,
+  // %g: general format, trailing zeros removed
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      // Use %g for general format (removes trailing zeros)
-      unsafe(snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%g", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%g", f64, self)
+    )
   )
 );
 // === C-interop Integer Implementations (plans/STD_API_AUDIT.md D3.8) ===
 impl(
   int,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%d", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%d", int, self)
+    )
   )
 );
 impl(
   uint,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%u", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%u", uint, self)
+    )
   )
 );
 impl(
   short,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hd", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%hd", short, self)
+    )
   )
 );
 impl(
   ushort,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%hu", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%hu", ushort, self)
+    )
   )
 );
 impl(
   long,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%ld", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%ld", long, self)
+    )
   )
 );
 impl(
   ulong,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lu", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%lu", ulong, self)
+    )
   )
 );
 impl(
   longlong,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%lld", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%lld", longlong, self)
+    )
   )
 );
 impl(
   ulonglong,
   ToString(
-    to_string : (fn(inout(self) : Self) -> String)({
-      buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
-      buffer_ptr := (&(buffer(0)));
-      unsafe(snprintf(*(char)(buffer_ptr), _INT_BUFFER_SIZE, "%llu", self));
-      String.from_cstr(buffer_ptr).unwrap()
-    })
+    to_string : (fn(inout(self) : Self) -> String)(
+      _snprintf_to_string("%llu", ulonglong, self)
+    )
   )
 );
 impl(

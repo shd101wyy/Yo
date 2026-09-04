@@ -1,6 +1,10 @@
 //! Standard error handling types and traits for Yo.
-open(import("./string"));
-open(import("./fmt"));
+// Narrow imports (audit error row: the blanket `open(import(./string|./fmt))`
+// re-exported ALL of string/fmt through std/error — every error-module
+// importer gained println, String, Format, ... — for the two names actually
+// used here).
+{ String } :: import("./string");
+{ ToString } :: import("./fmt/to_string.yo");
 /// Standard error trait for typed error propagation.
 /// All error types should implement this trait along with `ToString`.
 Error :: trait(

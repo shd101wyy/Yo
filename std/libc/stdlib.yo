@@ -100,6 +100,11 @@ c_include(
     (fn(name : *char) -> ?*char),
   setenv :
     (fn(name : *char, value : *char, overwrite : int) -> int),
+  // POSIX (<stdlib.h>): remove an environment variable. Returns 0 on success
+  // (name-not-found is ALSO success per POSIX). Guard behind non-Windows
+  // platform branches — Windows removes via _putenv_s(name, "").
+  unsetenv :
+    (fn(name : *char) -> int),
   // POSIX (declared in <stdlib.h> on POSIX systems, like setenv — callers
   // must guard usage behind non-Windows platform branches). With a NULL
   // `resolved_path`, returns a malloc'd canonical path the caller frees.
@@ -193,6 +198,7 @@ export(
   // Environment
   getenv,
   setenv,
+  unsetenv,
   realpath,
   system,
   getenv_s,
