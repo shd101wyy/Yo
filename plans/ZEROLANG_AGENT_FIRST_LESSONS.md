@@ -80,7 +80,9 @@ Ranked by value/effort. Items 1 and 6 have landed.
    config dir found (`.github`, `.agents`, `.claude`, `.opencode`,
    `.openai`, `.cursor`; defaults to `.agents`).
    *Follow-ups:* ship `.github/skills` in release bundles / `install.sh`
-   staging (currently only repo checkouts carry it), and consider a
+   staging (currently only repo checkouts carry it; CI's gate script pins
+   `YO_SKILLS` to the checkout — the same mechanism as `YO_STD` — so an
+   out-of-tree staged binary still resolves them), and consider a
    `yo doc`-style per-version skills bundle so a project pinned via
    `.yo-version` gets the matching knowledge.
 2. **CLI semantic query surface.** The LSP computes symbols, call edges,

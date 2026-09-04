@@ -20,12 +20,17 @@ open(import("std/fmt"));
 /// Agent directories that may contain a `skills/` subdirectory. Checked in
 /// order; files are copied to ALL that exist. Mirrors TS `AGENT_DIRS`.
 ///
-/// The bundled `.github/skills` lookup walks the running executable's
-/// ancestors first (repo dev flow: `yo-out/<target>/bin/yo` finds the
-/// checkout's own skills; installed bundle flow: `<prefix>/bin/yo` may sit
-/// next to a bundled `.github/skills`), then the project directory's
-/// ancestors (running an installed `yo` from inside a Yo checkout). The
-/// same exe-walk-up-then-cwd shape `resolve_std_path` uses for `std/`.
+/// The bundled `.github/skills` lookup, in order:
+///
+/// 1. the `YO_SKILLS` env var, if set and a directory — the same pin the
+///    harness applies to `YO_STD`: a binary staged OUTSIDE its checkout
+///    (CI's `/tmp/yo-stage1`) can exe-walk-up to neither `std/` nor
+///    `.github/skills`, so the gate scripts pin both to the checkout;
+/// 2. the running executable's ancestors (repo dev flow:
+///    `yo-out/<target>/bin/yo` finds the checkout's own skills);
+/// 3. the project directory's ancestors (running an installed `yo` from
+///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
+///    `resolve_std_path` uses for `std/`.
 (g_skills_created : usize) = usize(0);
 (g_skills_overwritten : usize) = usize(0);
 /// Files report `  create ` / `  overwrite ` exactly like the TS command
@@ -98,6 +103,17 @@ _copy_skills_dir :: (
 _find_bundled_skills_dir :: (
   fn(io : Io, exn : Exception) -> Option(Path)
 )({
+  override := env.get(String.from("YO_SKILLS"));
+  if(override.is_some(), {
+    p := Path.new(override.unwrap_or(String.from(".")));
+    pinned := io.await(exists(p.clone(), io), io);
+    if(pinned, {
+      md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
+      if(md.is_dir(), {
+        return(Option(Path).Some(p));
+      });
+    });
+  });
   starts := ArrayList(Path).new();
   match(
     current_exe(),
