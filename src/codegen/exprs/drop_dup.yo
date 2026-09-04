@@ -871,18 +871,7 @@ generate_deferred_drop_expressions :: (
                 get_deferred_drop_target_atom_name(drop_expr),
                 .Some(nm) => {
                   cn := sanitize_for_c_identifier(nm, false);
-                  is_temp := (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone()));
-                  // v2 (attempt 2, issues/ref-local-scope-drop-missing-after-
-                  // value-call.md): registration (declared_c_var_names) and
-                  // actual C-text emission can diverge — a temp registered by
-                  // a path that never emitted its declaration would pass the
-                  // old gate and produce `use of undeclared identifier` at
-                  // the new flush points (the stage-2 breakage of attempt 1).
-                  // The emitter's scope stack (declared_scopes — pushed by
-                  // ACTUAL emitted declaration lines) is the liveness signal
-                  // the escape path already trusts; require it too.
-                  not_live := !context.base.declared_scopes.contains(cn);
-                  is_temp && (!context.base.declared_c_var_names.contains(cn) || not_live)
+                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
                 },
                 .None => false
               );
