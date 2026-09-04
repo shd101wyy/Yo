@@ -17,6 +17,13 @@
 //! For the monomorphized corpus the value type is already concrete, so this is
 //! a no-op; unresolved-SomeT params (Phase-3 generics) need Gap-6 resolution.
 open(import("std/string"));
+{ eprintln } :: import("std/fmt");
+_(env : dd_env) :: import("std/env");
+// YO_DEBUG_TAIL_FLUSH=1 prints every drop the require_scope_stack (bare-tail
+// second chance) flush considers and emits — the pinpoint probe for the
+// analytically-cancelled drop class (issues/
+// short-circuit-bare-fn-body-operand-temps-leak.md).
+(g_debug_tail_flush : bool) = dd_env.get(`YO_DEBUG_TAIL_FLUSH`).is_some();
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, BF_DROP, BF_DUP, BF_DOT } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
@@ -848,6 +855,15 @@ generate_deferred_drop_expressions :: (
           match(
             drops.get(i),
             .Some(drop_expr) => {
+              if(require_scope_stack && g_debug_tail_flush, {
+                match(
+                  get_deferred_drop_target_atom_name(drop_expr),
+                  .Some(dbg_t) => eprintln(
+                    `[tailflush] consider ${dbg_t} in ${context.base.current_function_name.clone()} @ ${ast_expr_token(drop_expr).module_path.clone()}:${ast_expr_token(drop_expr).row.to_string()}`
+                  ),
+                  .None => eprintln(`[tailflush] consider <anon> in ${context.base.current_function_name.clone()}`)
+                );
+              });
               // Emitted-once guard: a SHARED single-expression begin node
               // carries the begin's scope-end drops AND the tail call's
               // Stage-0 balancing drops, and is flushed from several points
@@ -917,6 +933,13 @@ generate_deferred_drop_expressions :: (
                       line.push_str(";");
                       em.emit_string_line(line);
                       _m := context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                      if(require_scope_stack && g_debug_tail_flush, {
+                        match(
+                          get_deferred_drop_target_atom_name(drop_expr),
+                          .Some(dbg_e) => eprintln(`[tailflush] EMIT ${dbg_e} in ${context.base.current_function_name.clone()}`),
+                          .None => eprintln(`[tailflush] EMIT <anon> in ${context.base.current_function_name.clone()}`)
+                        );
+                      });
                     });
                   });
                 });
