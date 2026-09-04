@@ -51,9 +51,18 @@ construct's fall-through (after all braces, before the value is returned to
 the caller), through the same `_emit_drops_for_conditional_branch` helper —
 which also removes them from pending and marks them handled, the identical
 discipline to the in-branch operands, so the scope-end flush cannot
-double-emit. The two multibyte parser tests are the regression net: they
+double-emit. This covers every shape with an open codegen begin around the
+`||` — including the tokenizer's reserved-word check that the multibyte
+tests exercise. The two multibyte parser tests are the regression net: they
 leak-aborted before the fix under the internal shards' LeakSanitizer build
 and pass after it.
+
+**Residual, filed separately** (`issues/
+short-circuit-bare-fn-body-operand-temps-leak.md`): a `||`/`&&` that IS a
+whole single-expression fn body still leaks (no begin opens there — the
+pending channel is empty). Verified narrow: an `is_res`-style one-liner
+leaks; four body-level-flush attempts each failed differently and are
+documented there.
 
 Validation vehicle: the internal-test shards (LeakSanitizer builds) plus the
 minimal repro above compiled with `--sanitize address --allocator system`.
