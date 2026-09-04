@@ -61,7 +61,7 @@ test("format_error_message multi-line message keeps continuation lines", {
   tok := make_token(`test.yo`, `x := "s";`, usize(0), usize(0), `x`);
   err := format_error_message(tok, `Incompatible types:\n- Expected: i32\n- Given   : String`);
   s := render_diagnostics_human(err.diagnostics);
-  expected := `error: Incompatible types:\n- Expected: i32\n- Given   : String\n  --> test.yo:1:1\n  |\n1 | x := "s";\n  | ^`;
+  expected := `error[E0601]: Incompatible types:\n- Expected: i32\n- Given   : String\n  --> test.yo:1:1\n  |\n1 | x := "s";\n  | ^\nhelp: run \`yo explain E0601\` for more information`;
   assert(s == expected, `multi-line render, got:\n${s}`);
 });
 test("format_error_message underlines the whole token (D5)", {
@@ -105,7 +105,7 @@ test("format_lexer_error renders like every other stage", {
   input := `a b\n@@ oops`;
   err := format_lexer_error(`src.yo`, input, usize(1), usize(0), `unexpected character`);
   s := render_diagnostics_human(err.diagnostics);
-  expected := `error: unexpected character\n  --> src.yo:2:1\n  |\n2 | @@ oops\n  | ^`;
+  expected := `error[E0005]: unexpected character\n  --> src.yo:2:1\n  |\n2 | @@ oops\n  | ^\nhelp: run \`yo explain E0005\` for more information`;
   assert(s == expected, `lexer diagnostic, got:\n${s}`);
 });
 // ─── format_raw_error (path anchor, no snippet) ──────────────────────────────
@@ -127,7 +127,7 @@ test("a coded diagnostic renders error[E0308] in both renderers", {
     )
   );
   h := render_diagnostics_human(diags);
-  assert(h == `error[E0308]: mismatched types\n  --> a.yo:1:1\n  |\n1 | x\n  | ^`, `coded human, got:\n${h}`);
+  assert(h == `error[E0308]: mismatched types\n  --> a.yo:1:1\n  |\n1 | x\n  | ^\nhelp: run \`yo explain E0308\` for more information`, `coded human, got:\n${h}`);
   sh := render_diagnostics_short(diags);
   assert(sh == `a.yo:1:1: error[E0308]: mismatched types`, `coded short, got:\n${sh}`);
 });

@@ -124,3 +124,18 @@ The five variants suspended while the leak was open are restored
 the trait-dispatch tail itself (`YoError.to_string renders through the trait
 tail`) — under the shard's LeakSanitizer build it is the leak's permanent
 regression net.
+
+Restoring them surfaced that the suspension had ALSO been masking two
+unrelated staleness bugs in the variants themselves (both pre-existing on
+develop, verified under the seed compiler; fixed in the same PR):
+
+- The renderer goldens predated P2's classifier coverage and explain tail:
+  classified messages now render `error[EXXXX]:` headers and every coded
+  diagnostic gains a `help: run \`yo explain EXXXX\` …` tail line, so the
+  multi-line/lexer/coded/make_parse_error pins were updated to the current
+  contract (E0601 / E0005 / E0308 / E0001).
+- `suggest_code`'s test had chosen a target that IS a registered code (E0402
+  — suggest_name deliberately returns None when the target exists) and a
+  "far miss" the later E09xx registry family brought within the distance-3
+  threshold (E9999). Re-picked: E1404 → E0404 (unique nearest, no
+  first-listed-wins tie) and E99999 (unreachably far).
