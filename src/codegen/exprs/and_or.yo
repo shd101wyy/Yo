@@ -331,6 +331,22 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     em.emit_string_line(cl);
     c = (c - usize(1));
   });
+  // The FIRST operand is evaluated UNCONDITIONALLY, so its created temps
+  // have no in-branch emission point (the closing loop above covers operands
+  // 1..n inside their braces) — and without this, nothing else flushes them:
+  // the body-level flush-first gate-skips them (their C declarations do not
+  // exist yet), and the implicit-return tail flushes param-targeted drops
+  // only. Both operand paths fall through to here, and the temps are dead
+  // once the construct's value is decided — emit their drops AFTER all
+  // braces via the same branch-drop helper, which also removes them from
+  // pending and marks them handled for the scope-end flush (the identical
+  // discipline to the in-branch operands). The leak this closed: every
+  // `(x == `lit`) || …` comparison's promoted-literal String temps
+  // (issues/fixed/parser-multibyte-spec-tests-leak-under-linux-asan.md).
+  first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
+  first_var_names := HashSet(String).new();
+  _collect_created_var_names_from_expr(first_arg, first_var_names, context);
+  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
   sc_var
 });
 /// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
@@ -451,6 +467,12 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     em.emit_string_line(cl);
     c = (c - usize(1));
   });
+  // Same first-operand fall-through drop emission as generate_op_and — the
+  // unconditional operand's temps have no in-branch point and no later flush.
+  first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
+  first_var_names := HashSet(String).new();
+  _collect_created_var_names_from_expr(first_arg, first_var_names, context);
+  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
   sc_var
 });
 export(generate_op_and, generate_op_or);
