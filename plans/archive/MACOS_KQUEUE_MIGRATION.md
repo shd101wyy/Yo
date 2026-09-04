@@ -1,4 +1,8 @@
 # macOS: Migrate from GCD to kqueue
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** The macOS async runtime is kqueue-based
+> (src/codegen/async/runtime_core.yo + runtime_io_*.yo), pull-based like
+> io_uring/IOCP; GCD is gone.
+
 
 ## Problem
 

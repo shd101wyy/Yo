@@ -1,4 +1,7 @@
 # DAG-Based Concurrent Execution & Shared Dependencies
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** The build DAG with its level-based
+> concurrent scheduler is `src/build_runner.yo` (see plans/reference/BUILD_SYSTEM.md).
+
 
 ## Problem Statement
 

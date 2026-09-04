@@ -1,4 +1,8 @@
 # Unify `Module` and `Struct` Types
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** The legacy `module(...)` surface is
+> removed; `Struct` is the single nominal record type (imports are
+> source-namespace structs).
+
 
 ## Motivation
 

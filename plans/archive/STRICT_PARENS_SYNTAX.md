@@ -1,4 +1,7 @@
 # Strict Parentheses for Function Calls
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** Paren-required calls are the current
+> syntax; the authoring rules live in .github/instructions/yo-syntax.instructions.md.
+
 
 ## Problem
 

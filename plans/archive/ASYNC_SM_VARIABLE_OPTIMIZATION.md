@@ -1,4 +1,9 @@
 # Async State Machine Variable Optimization Plan
+> **ARCHIVED 2026-09-04 — NOT IMPLEMENTED.** The async state-machine emitter
+> still promotes await-crossing locals the straightforward way (no liveness-based
+> field pruning in src/codegen/async/ as of 2026-09-04). Kept as the measured
+> proposal; revisit if state-machine memory pressure ever shows in profiles.
+
 
 ## Problem
 

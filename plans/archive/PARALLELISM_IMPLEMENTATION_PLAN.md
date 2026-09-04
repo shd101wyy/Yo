@@ -1,4 +1,7 @@
 # Parallelism Implementation Plan
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** The parallelism runtime ships in
+> src/codegen/parallelism/ (`Thread.spawn`/`join` + the std sync types).
+
 
 ## Overview
 

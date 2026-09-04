@@ -1,4 +1,8 @@
 # Iterator Implementation Plan
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** The Iterator/IntoIterator traits and the `for`
+> macro live in `std/prelude.yo`; collection support shipped across `std/`
+> (combinator coverage in tests/iterator_combinators.test.yo).
+
 
 ## Overview
 

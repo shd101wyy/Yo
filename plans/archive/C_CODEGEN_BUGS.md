@@ -1,4 +1,7 @@
 # C Codegen Bugs
+> **ARCHIVED 2026-09-04 — BUG LEDGER, CLOSED.** Every entry below is fixed
+> (TS-era; later codegen bugs are tracked in issues/fixed/).
+
 
 Known C codegen bugs discovered during std library development. These need proper fixes in the codegen — do not work around them in `.yo` files.
 

@@ -1,4 +1,8 @@
 # Build Module System
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** `build.module()` + `add_import` /
+> `add_import_list` ship in std/build.yo (system-library requirements propagate
+> through imports).
+
 
 ## Problem
 

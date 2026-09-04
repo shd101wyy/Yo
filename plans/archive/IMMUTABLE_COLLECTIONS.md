@@ -1,4 +1,8 @@
 # std/imm — Immutable / Persistent Data Structures
+> **ARCHIVED 2026-09-04 — SUPERSEDED** by plans/reference/STD_API_AUDIT.md §D4
+> (2026-08-26, D4 PR 5): the API surface below shipped, then D4 replaced this
+> plan as the authority for std/imm evolution.
+
 
 ## Overview
 
@@ -213,14 +217,6 @@ impl(String, Dispose(
 
 **Naming note**: Within the `imm` module, the type is simply `String`. Users import it as `{ String } :: import "std/imm/string"` or can alias it: `ImmString :: import "std/imm/string".String`. This avoids conflict with the existing `std/string` `String` because Yo uses explicit imports — users choose which `String` to bring into scope.
 
-> **SUPERSEDED (2026-08-26, D4 PR 5 — `plans/STD_API_AUDIT.md` §D4):** the type
-> is now exported as **`ImmString`** (`std/imm/string.yo`), and its iterators as
-> `ImmStringChars` / `ImmStringCharIndices`. The same-name approach above turned
-> out to be exactly the hazard the audit measured: the two `String` types
-> disagreed on their index basis, and the name collision itself caused a real
-> compiler bug (`issues/fixed/generic-impl-method-cache-key-collision.md`). The
-> alias consumers were writing by hand (`{ String : ImmString } :: ...`) became
-> the export.
 
 **API** — mirrors `std/string.String` but with no mutation methods:
 

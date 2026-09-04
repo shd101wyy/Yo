@@ -1,4 +1,7 @@
 # HTTP Server Demo — `http_server_demo_yo`
+> **ARCHIVED 2026-09-04 — ONE-OFF DEMO RECORD.** The demo project this plan
+> scaffolds was built once; kept as an effects/async/build usage example.
+
 
 ## Goal
 

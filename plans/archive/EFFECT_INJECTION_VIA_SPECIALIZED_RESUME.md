@@ -1,4 +1,8 @@
 # Effect Injection via Specialized Resume Functions
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** The bare-C-name effect bug it fixes is
+> closed; `using(...)` effect injection works end-to-end (src/evaluator/effects +
+> src/codegen/async).
+
 
 ## Problem
 
