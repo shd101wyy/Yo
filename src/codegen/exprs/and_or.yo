@@ -19,6 +19,7 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ generate_deferred_drop_expressions } :: import("./drop_dup.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 /// `base` followed by `n` levels of two-space indent.
 _indent_n :: (fn(base : String, n : usize) -> String)({
@@ -347,6 +348,17 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
   _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
+  // The pending-side emission above only reaches drops an OPEN codegen begin
+  // concatenated into context.pending_deferred_drops. A || that IS a
+  // single-expression fn body takes generation.yo's NON-BEGIN path — no
+  // begin opens, pending is empty, and the operand temps' drops ride the
+  // shared body node's own ExprInfo list (the evaluator's begin concat).
+  // Flush the node's list here too: the guarded emitter (emitted-once set)
+  // plus the handled-set sc_skip cross-channel dedup make this safe in BOTH
+  // shapes — where pending covered it, the handled mark suppresses the node
+  // flush; where pending was empty, this is the only emission point left
+  // (the flush-first gate-skipped these temps as not-yet-declared).
+  generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   sc_var
 });
 /// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
@@ -473,6 +485,9 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
   _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
+  // ...and the node-list flush for the no-open-begin (single-expression fn
+  // body) shape — see the long note in generate_op_and.
+  generate_deferred_drop_expressions(expr, indent.clone(), context, true);
   sc_var
 });
 export(generate_op_and, generate_op_or);
