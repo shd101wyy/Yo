@@ -2875,8 +2875,25 @@ static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) 
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = _chsize_s(fd, (size_t)length);
-  future->result = (result != 0) ? -result : 0;
+  // NOT _chsize_s: the runtime opens files with FILE_FLAG_OVERLAPPED, and
+  // UCRT's chsize EXTEND path materializes the zero fill with a plain CRT
+  // write, which fails EINVAL on an overlapped handle (the shrink path is
+  // seek+SetEndOfFile and happened to work — so truncating succeeded while
+  // extending returned "invalid input"). SetFileInformationByHandle sets the
+  // exact EOF in one call, needs no file pointer, and is legal on overlapped
+  // handles; it extends with zeroes or truncates.
+  int err = 0;
+  intptr_t osf = _get_osfhandle(fd);
+  if (osf == (intptr_t)-1) {
+    err = EBADF;
+  } else {
+    FILE_END_OF_FILE_INFO eof_info;
+    eof_info.EndOfFile.QuadPart = length;
+    if (!SetFileInformationByHandle((HANDLE)osf, FileEndOfFileInfo, &eof_info, sizeof(eof_info))) {
+      err = __yo_win_last_error_to_errno();
+    }
+  }
+  future->result = (err != 0) ? -err : 0;
   atomic_init(&future->state, -1);
   return future;
 }
