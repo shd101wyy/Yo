@@ -35,11 +35,18 @@
 > demoted to the string-throw fallback — P4_LSP's remaining quality item
 > closed).
 >
-> **P3r-1 (the ref-local scope-drop leak) remains OPEN**: the first fix
-> (idempotent drop flush + bare-tail second chance) was REVERTED — stage-2
-> exposed latent never-declared temps the flush gates cannot catch; see
-> issues/ref-local-scope-drop-missing-after-value-call.md for the full
-> evidence and the requirements on a second attempt.
+> **P3r-1 (the ref-local scope-drop leak) FIXED** (same stack): root cause was
+> never the tail flush — the begin epilogue CLOBBERS the shared node's
+> deferred-drop list (`out_info.deferred_drop_expressions = scope_end_drops`),
+> discarding Stage-0's balancing `___drop` for a bare-tail projection-by-value
+> call while the dup survives. Fix: concat the tail's drops on the shared id
+> (evaluator begin.yo) + a per-function emitted-once guard
+> (`FunctionGenerationContext.emitted_deferred_drop_ids`) in both node-list
+> drop emitters — no new flush point, no removal-on-emit (the pending path's
+> `already` contract stays intact). The five suspended golden variants are
+> restored and a `YoError.to_string` trait-tail golden added as the leak's
+> regression net; see
+> issues/fixed/ref-local-scope-drop-missing-after-value-call.md.
 >
 > **P1 LANDED 2026-09-03** (PR #399, merged): structured `Diagnostic` + shared
 > renderer in `src/diagnostics.yo`; `YoError` rebased, dead `ErrorKind`/

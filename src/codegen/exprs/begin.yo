@@ -15,7 +15,7 @@
 //! deferred dups, so the last expression is assigned to the result temp as-is.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id } :: import("../../expr.yo");
 { ExprInfo, has_any_control_flow, expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
@@ -111,43 +111,53 @@ _emit_deferred_drops :: (fn(ei : ExprInfo, indent : String, context : FunctionGe
         match(
           drops.get(di),
           .Some(drop_expr) => {
-            skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures);
-            // Skip a drop whose target TEMP was never emitted as a C
-            // declaration — same gate as drop_dup.yo's
-            // generate_deferred_drop_expressions (an arm/expression whose C
-            // emission was elided leaves its eval-minted temp undeclared while
-            // the deferred-drop survives on the scope's ExprInfo; emitting
-            // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier
-            // error — the await-analysis loop-tail stage-2 hole). Safe: a
-            // never-declared C variable cannot be double-freed or leak.
-            undeclared_temp := match(
-              get_deferred_drop_target_atom_name(drop_expr),
-              .Some(nm) => {
-                cn := sanitize_for_c_identifier(nm, false);
-                (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
-              },
-              .None => false
-            );
-            if(!skip_capture && !undeclared_temp, {
-              sc_skip := match(
-                context.short_circuit_handled_drop_var_names,
-                .Some(handled) => match(
-                  get_deferred_drop_target_atom_name(drop_expr),
-                  .Some(target) => if(handled.contains(target.clone()), {
-                    _r := handled.remove(target);
-                    true
-                  }, false),
-                  .None => false
-                ),
+            // Emitted-once guard — same contract as drop_dup.yo's
+            // generate_deferred_drop_expressions (see the long note there):
+            // a shared single-expression begin node is flushed from several
+            // points, and this set is what keeps each drop to one emission
+            // without breaking the pending path's node-list-membership
+            // contract. Checked before the gates so their state (the
+            // short-circuit set) is untouched for an already-emitted drop.
+            if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
+              skip_capture := is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures);
+              // Skip a drop whose target TEMP was never emitted as a C
+              // declaration — same gate as drop_dup.yo's
+              // generate_deferred_drop_expressions (an arm/expression whose C
+              // emission was elided leaves its eval-minted temp undeclared while
+              // the deferred-drop survives on the scope's ExprInfo; emitting
+              // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier
+              // error — the await-analysis loop-tail stage-2 hole). Safe: a
+              // never-declared C variable cannot be double-freed or leak.
+              undeclared_temp := match(
+                get_deferred_drop_target_atom_name(drop_expr),
+                .Some(nm) => {
+                  cn := sanitize_for_c_identifier(nm, false);
+                  (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.contains(cn)
+                },
                 .None => false
               );
-              if(!sc_skip, {
-                drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
-                if(drop_code.len() > usize(0), {
-                  line := indent.clone();
-                  line.push_string(drop_code);
-                  line.push_str(";");
-                  em.emit_string_line(line);
+              if(!skip_capture && !undeclared_temp, {
+                sc_skip := match(
+                  context.short_circuit_handled_drop_var_names,
+                  .Some(handled) => match(
+                    get_deferred_drop_target_atom_name(drop_expr),
+                    .Some(target) => if(handled.contains(target.clone()), {
+                      _r := handled.remove(target);
+                      true
+                    }, false),
+                    .None => false
+                  ),
+                  .None => false
+                );
+                if(!sc_skip, {
+                  drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                  if(drop_code.len() > usize(0), {
+                    line := indent.clone();
+                    line.push_string(drop_code);
+                    line.push_str(";");
+                    em.emit_string_line(line);
+                    _m := context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                  });
                 });
               });
             });
