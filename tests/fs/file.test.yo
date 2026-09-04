@@ -353,3 +353,77 @@ test("File.seek positions the next read", {
   io.await(f.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
+// ============================================================================
+// set_len / from_fd
+// ============================================================================
+test("File.set_len truncates a longer file", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_set_len_trunc.txt`));
+  io.await(fs_file.write_string(fpath, String.from("0123456789"), io), IoExn(io : io, exn : exn));
+  // .ReadWrite, NOT .Write: .Write is create-or-OVERWRITE and would empty the
+  // file before set_len ever runs.
+  f := io.await(File.open(fpath, .ReadWrite, io), IoExn(io : io, exn : exn));
+  io.await(f.set_len(i64(4), io), IoExn(io : io, exn : exn));
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  s := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  assert(s == `0123`, "truncated to 4 bytes");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("File.set_len extends with zeroes", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_set_len_ext.txt`));
+  io.await(fs_file.write_string(fpath, String.from("ab"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .ReadWrite, io), IoExn(io : io, exn : exn));
+  io.await(f.set_len(i64(5), io), IoExn(io : io, exn : exn));
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  bytes := io.await(fs_file.read(fpath, io), IoExn(io : io, exn : exn));
+  assert(bytes.len() == usize(5), "extended to 5 bytes");
+  b0 := bytes.get(usize(0)).unwrap_or(u8(255));
+  b2 := bytes.get(usize(2)).unwrap_or(u8(255));
+  b4 := bytes.get(usize(4)).unwrap_or(u8(255));
+  assert((b0 == u8(97)) && ((b2 == u8(0)) && (b4 == u8(0))), "original bytes kept, padding is zeroes");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("File.from_fd wraps an existing descriptor", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_from_fd.txt`));
+  io.await(fs_file.write_string(fpath, String.from("wrapped!"), io), IoExn(io : io, exn : exn));
+  opened := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  // Rust's File::from_raw_fd semantics: ownership of the descriptor MOVES to
+  // the wrapped handle — retire the original so its close/dispose cannot
+  // double-close the fd.
+  wrapped := File.from_fd(opened.fd());
+  opened._is_closed = true;
+  buf := *(u8)(malloc(usize(8)).unwrap());
+  n := io.await(wrapped.read(buf, usize(8), io), IoExn(io : io, exn : exn));
+  assert(n == usize(8), "read through the wrapped handle");
+  assert((buf).* == u8(119), "first byte is 'w'");
+  assert((buf.add(usize(7))).* == u8(33), "last byte is '!'");
+  free(.Some(*(void)(buf)));
+  io.await(wrapped.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});

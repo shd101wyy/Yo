@@ -1,6 +1,7 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { DirEntry, FileType } :: import("std/fs/dir");
+{ Path } :: import("std/path");
 { normalize_line_endings, get_cached_dep_dir, sort_dir_entries } :: import("../../src/fetch.yo");
 { assert, panic } :: import("std/assert");
 // ---------------------------------------------------------------------------
@@ -75,7 +76,8 @@ _make_dir_entry :: (fn(name : str) -> DirEntry)(
   DirEntry(
     name : String.from(name),
     file_type : FileType.File,
-    ino : u64(0)
+    ino : u64(0),
+    parent : Path.new(String.new())
   )
 );
 test("sort_dir_entries: empty list stays empty", {

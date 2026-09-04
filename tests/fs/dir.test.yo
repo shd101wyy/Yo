@@ -444,3 +444,32 @@ test("read_dir on nonexistent returns error", {
   io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
   assert(false, "read_dir nonexistent should fail");
 });
+// ============================================================================
+// DirEntry.path
+// ============================================================================
+test("DirEntry.path joins the scanned directory with the entry name", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  dpath := Path.new(path_join(tmp, `yo_fs_entry_path`));
+  io.await(fs_dir.create_dir_all(dpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(Path.new(path_join(path_join(tmp, `yo_fs_entry_path`), `x.txt`)), String.from("x"), io), IoExn(io : io, exn : exn));
+  entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
+  assert(entries.len() == usize(1), "one entry");
+  p := entries(usize(0)).path();
+  // The entry path is the directory path joined with the name — reading
+  // THROUGH it must work, which also pins the separator.
+  content := io.await(fs_file.read_to_string(p, io), IoExn(io : io, exn : exn));
+  assert(content == `x`, "read through DirEntry.path()");
+  joined := p.to_string();
+  assert(joined.contains(`yo_fs_entry_path`), "path carries the directory");
+  assert(joined.ends_with(`x.txt`), "path ends with the entry name");
+  io.await(fs_dir.remove_file(p, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
+});

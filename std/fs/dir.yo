@@ -45,11 +45,22 @@ export(FileType);
 // ============================================================================
 // DirEntry
 // ============================================================================
-/// A directory entry containing the entry name, file type, and inode number.
+/// A directory entry containing the entry name, file type, inode number, and
+/// the directory it was read from (so `path()` can rebuild the full path —
+/// Rust's `DirEntry::path`).
 DirEntry :: struct(
   name : String,
   file_type : FileType,
-  ino : u64
+  ino : u64,
+  parent : Path
+);
+impl(
+  DirEntry,
+  /// The full path of this entry: the scanned directory joined with the
+  /// entry name. Rust's `DirEntry::path`.
+  path : (fn(self : Self) -> Path)(
+    self.parent.join(Path.new(self.name.clone()))
+  )
 );
 export(DirEntry);
 // ============================================================================
@@ -310,7 +321,8 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
                   DirEntry(
                     name : name,
                     file_type : ft,
-                    ino : IO_dir.dirent_ino(entry_ptr)
+                    ino : IO_dir.dirent_ino(entry_ptr),
+                    parent : path.clone()
                   )
                 );
               }
