@@ -1,0 +1,15 @@
+// A `comptime_assert` whose condition is a CONCRETE false must fail the
+// compile from INSIDE a function body, not only at module level.
+//
+// It used to be inert here: `evaluate_comptime_assert` returned early whenever
+// `!ctx.is_executing`, and a function body is VALIDATED rather than executed —
+// so the assertion was reduced to a type check. A `test("…", { … })` body is a
+// function body too, which made all 1559 `comptime_assert` calls under `tests/`
+// verify nothing (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+check_me :: (fn() -> unit)({
+  comptime_assert((2 + 2) == 5);
+});
+main :: (fn() -> unit)({
+  check_me();
+});
+export(main);

@@ -1,0 +1,21 @@
+# The vacuity guard for
+# issues/fixed/comptime-assert-never-fires-inside-a-function-body.md.
+#
+# `comptime_assert` is the only mechanism the suite has for pinning a CTFE
+# result, and it was inert in every position the suite uses it: it returned
+# early whenever `!ctx.is_executing`, and a function body is VALIDATED rather
+# than executed. A `test("…", { … })` body IS a function body, so all 1559
+# `comptime_assert` calls under `tests/` were type checks and nothing more —
+# which is exactly how the comptime u64 signed-arithmetic bug survived
+# (issues/fixed/comptime-u64-div-mod-cmp-shr-are-signed.md).
+#
+# This case is a cli-case rather than a `.test.yo` because the assertion is
+# about a compile FAILING, which a passing test file cannot express. It has to
+# stay a `compile` (not `check`): `check` is evaluator-only and does not raise
+# this diagnostic even at module level.
+#
+# The kept substring pins THE failure rather than A failure — without it any
+# unrelated compile error would satisfy rc=1 and the guard would be as hollow
+# as the thing it guards.
+stdout_keep_match=Assertion failed for "comptime_assert"
+timeout=120
