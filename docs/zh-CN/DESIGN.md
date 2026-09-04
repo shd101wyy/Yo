@@ -3334,7 +3334,7 @@ x : i32;
 asm("mov {0}, #42", out(reg, x));
 ````
 
-完整的设计、语法参考和 C 代码生成细节，请参阅 [INLINE_ASSEMBLY.md](../INLINE_ASSEMBLY.md)。
+完整的设计、语法参考和 C 代码生成细节，请参阅 [INLINE_ASSEMBLY.md](INLINE_ASSEMBLY.md)。
 
 ## Index 特征
 

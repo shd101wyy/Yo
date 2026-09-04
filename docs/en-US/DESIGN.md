@@ -3361,7 +3361,7 @@ x : i32;
 asm("mov {0}, #42", out(reg, x));
 ```
 
-For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMBLY.md](../INLINE_ASSEMBLY.md).
+For the full design, syntax reference, and C codegen details, see [INLINE_ASSEMBLY.md](INLINE_ASSEMBLY.md).
 
 ## Index Trait
 
