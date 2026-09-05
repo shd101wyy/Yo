@@ -6,11 +6,12 @@ which made `unit` work in parameter, field, tuple and generic-container position
 by spelling storage positions with a one-byte placeholder
 (`get_storage_type_string`).
 
-Everything below fails **today exactly as it failed before** that change. Each is
-the same one-line recipe — route the site through `get_storage_type_string`
-instead of `get_type_string`, and fill the matching empty argument slot — but
-each needs its own reproducer and test, so they were left out rather than
-changed blind.
+Every shape in the "Not covered" table below fails **today exactly as it failed
+before** that change. Each is the same one-line recipe — route the site through
+`get_storage_type_string` instead of `get_type_string`, and fill the matching
+empty argument slot — but each needs its own reproducer and test, so they were
+left out rather than changed blind. (Of the two extra defects at the bottom,
+item 2 is **FIXED 2026-09-05**; item 1 is still open.)
 
 ## Not covered
 
@@ -24,6 +25,11 @@ changed blind.
 | a `unit` parameter of `main` | `src/codegen/functions/generation.yo` (`_main_call_args` emits `(void){0}`) |
 | parallelism spawn zero-initialization | `src/codegen/parallelism/` |
 
+The layout model already ASSUMES the placeholder at every one of these sites
+(`get_size_of_type(.Unit)` is one byte since the fix in item 2 below), so routing
+any of them through `get_storage_type_string` needs no matching change in
+`src/types/utils.yo` — the size it reports is already the size that lands.
+
 ## Two pre-existing defects surfaced while mapping this
 
 1. **`is_void_type` never matches `.Unit`.** `src/types/guards.yo` defines
@@ -33,15 +39,29 @@ changed blind.
    dyn wrapper emitter, so a **unit-returning `dyn` impl method** emits
    `return impl(...);` inside a C `void` wrapper.
 
-2. **`unit` is zero bits, so `ArrayList(unit)` allocates zero bytes.**
-   `get_size_of_type(.Unit)` is 0 (`src/types/utils.yo:1537`; alignment is 1, :1434), so an
-   `ArrayList(unit)` mallocs `0 * capacity`. It works on macOS/Linux because
-   `malloc(0)` returns a unique non-NULL pointer, but on a platform where
-   `malloc(0)` is NULL, `push` would return `.Err(AllocError.OutOfMemory)`.
-   The unit-store guards in `src/codegen/exprs/assignment.yo` are what keep a
-   one-byte write out of that zero-byte block — **do not remove them**. If a real
-   unit store is ever needed, raise the size to 8 bits first, and note that this
-   is a user-visible change to the `size_of` builtin's comptime value.
+2. ~~**`unit` is zero bits, so `ArrayList(unit)` allocates zero bytes.**~~
+   **FIXED 2026-09-05** — `get_size_of_type(.Unit)` is now **8 bits**, the width
+   of the one-byte placeholder `get_storage_type_string` already spells in every
+   storage position, so `ArrayList(unit)` mallocs `1 * capacity` and `sizeof`
+   agrees with the C struct codegen emits. The prescription below ("raise the
+   size to 8 bits first") is what was done; it was forced by a worse instance of
+   the same mismatch — an aggregate with a `unit` FIELD, where the store is not
+   suppressed and the short allocation is a real out-of-bounds heap write. See
+   `issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md`.
+
+   > `get_size_of_type(.Unit)` is 0 (`src/types/utils.yo:1537`; alignment is 1, :1434), so an
+   > `ArrayList(unit)` mallocs `0 * capacity`. It works on macOS/Linux because
+   > `malloc(0)` returns a unique non-NULL pointer, but on a platform where
+   > `malloc(0)` is NULL, `push` would return `.Err(AllocError.OutOfMemory)`.
+   > The unit-store guards in `src/codegen/exprs/assignment.yo` are what keep a
+   > one-byte write out of that zero-byte block — **do not remove them**. If a real
+   > unit store is ever needed, raise the size to 8 bits first, and note that this
+   > is a user-visible change to the `size_of` builtin's comptime value.
+
+   The unit-store guards in `src/codegen/exprs/assignment.yo:109,124,240` are
+   still in place and are now merely redundant rather than load-bearing (the
+   block they protect is no longer zero-sized). Removing them is a **separate**
+   change, deliberately not bundled with the size raise.
 
 ## Also worth doing
 

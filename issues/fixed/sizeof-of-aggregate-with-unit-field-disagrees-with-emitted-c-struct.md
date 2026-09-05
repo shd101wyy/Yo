@@ -1,10 +1,93 @@
 # `sizeof` of an aggregate with a `unit` field is smaller than the C struct codegen emits — every container built on it under-allocates
 
-**Status:** OPEN
+**Status: FIXED 2026-09-05** (branch `fix/sizeof-unit-field-layout`).
 **Severity:** memory-unsafety — silent out-of-bounds heap writes, then SIGSEGV/SIGBUS.
 **Found:** 2026-09-04, during the std-API audit re-measurement of the
 `collections/*` row, while checking whether `HashSet(T)` can be re-expressed as
 `HashMap(T, unit)`. It cannot: `HashMap(K, unit)` corrupts the heap today.
+
+## The fix
+
+**The layout model was wrong, not the emitter.** The emitter's rule is already
+stated and already applied: C has no zero-sized object type, so a storage
+position — a parameter, a struct or tuple field, a local, a cast target — spells
+a `void`-typed Yo type as a one-byte `uint8_t` placeholder
+(`get_storage_type_string`, `src/codegen/utils/index.yo`), keeping field count
+and order. `get_size_of_type` (`src/types/utils.yo`) simply did not follow that
+rule: it still reported the zero of Yo's abstract model, and `sizeof` folds that
+zero into the C source as the literal that sizes allocations which are then
+strided by the C type.
+
+So `get_size_of_type` now derives from the emitter's rule instead of restating a
+number:
+
+1. **`.Unit` is 8 bits** — the width of the placeholder the emitter reserves.
+   Alignment was already 1 and is unchanged. Every aggregate rule follows from
+   this through the existing `_aggregate_size` C-padding walk; no arity and no
+   shape is special-cased (first / middle / last / all-unit / nested / tuple all
+   fall out of it).
+2. **An enum variant field is the ONE position that does not reserve the byte**,
+   because `generate_enum_declaration` (`src/codegen/types/generation.yo`)
+   *erases* `unit` variant fields from the data union and emits no member at all
+   for a variant whose fields are all `unit`. The enum arm now filters each
+   variant's fields through `_variant_storage_field_types` — the same
+   `is_unit_type` predicate the emitter filters on — before sizing the payload.
+   Without that filter, raising `.Unit` to a byte would have made
+   `enum(A(x : i32, u : unit), B)` report 12 where C says 8: a NEW disagreement
+   in the opposite direction.
+3. **`.Void` stays 0**, now with the reason written down: `prohibit_void_type`
+   rejects `void` as a struct field, a tuple element, a parameter, a binding type
+   and an assignment RHS, so — unlike `unit` — it can never reach a storage
+   position and the placeholder rule cannot apply to it. Measured, not assumed:
+   `Tuple(i32, void)` is rejected at check time.
+
+`get_storage_type_string` carries the reverse cross-reference, so the pairing is
+visible from the codegen side too.
+
+### Verified
+
+| type | C `sizeof` | Yo `sizeof` before | Yo `sizeof` after |
+| --- | --- | --- | --- |
+| `struct(u : unit)` | 1 | 0 | 1 |
+| `struct(x : unit, y : unit, z : unit)` | 3 | 0 | 3 |
+| `struct(u : unit, a : i32)` | 8 | 4 | 8 |
+| `struct(a : i32, u : unit, b : i32)` | 12 | 8 | 12 |
+| `struct(a : i32, u : unit)` | 8 | 4 | 8 |
+| `struct(a : i64, u : unit)` | 16 | 8 | 16 |
+| `struct(a : i32, inner : struct(a : i32, u : unit), b : i32)` | 16 | 12 | 16 |
+| `Tuple(i32, unit)` | 8 | 4 | 8 |
+| `Tuple(unit, unit)` | 2 | 0 | 2 |
+| `enum(A(a : i32, u : unit), B)` | 8 | 8 | 8 (unchanged — the filter) |
+| `Option(unit)` | 4 | 4 | 4 (unchanged — the filter) |
+
+Both reproducers below — `ArrayList` of a struct with a `unit` field, and
+`HashMap(i32, unit)` — now run to completion (`rc=0`) under
+`MallocScribble=1 MallocPreScribble=1 MallocGuardEdges=1`, with every sentinel
+intact and a second interleaved `ArrayList(i32)` used as an adjacent-block
+canary reporting `corrupted=0`. The identical program built by the pre-fix
+compiler is a deterministic SIGSEGV (rc=139) under the same environment.
+(`--sanitize address` is useless on this machine — it passes without
+instrumenting — hence the malloc-debug environment.)
+
+### Scope note
+
+Nothing in `src/` or `std/` declares a `unit` field or instantiates a container
+at `unit` (grepped), so no type in the compiler or the standard library changes
+size and the emitted C for every program that does not mention `unit` in a
+storage position is byte-identical. Measured on the enum/tuple probe: the whole
+old-vs-new C diff is **one line**, the tuple's folded `sizeof` literal
+(`4ULL` → `8ULL`); every enum declaration, tag union and data union is
+byte-identical. `tests/comptime.test.yo`'s
+`sizeof(unit) == 0` became `== 1`; `tests/unit_as_value_type.test.yo` gained the
+regression tests. `issues/unit-zst-residual-gaps.md` item 2 — "`ArrayList(unit)`
+allocates zero bytes", whose own prescription was "raise the size to 8 bits
+first" — is closed by this change; its remaining table rows (a `unit` `union`
+member and a `[unit; N]` array element, which still spell a bare C `void` and so
+do not compile at all) are untouched and stay tracked there.
+
+---
+
+## Original report
 
 Yo computes type layout itself (`get_size_of_type`, in **bits**), and `sizeof`
 folds to a C integer literal at compile time. Codegen, separately, spells a
@@ -342,6 +425,10 @@ flipped `sizeof(unit) == 1`, so the builtin's value and the aggregate rule are
 pinned in the same place.
 
 ## Consequence for the `collections/*` audit row
+
+> **UNBLOCKED as of the fix above** — `HashMap(K, unit)` no longer under-allocates,
+> so the mechanism below is available again. It is still an open design question
+> whether it is the right one; nothing was rewritten as part of this fix.
 
 `plans/STD_API_AUDIT.md:541` and `plans/HANDOVER_STD_AUDIT_NEXT.md:124` propose
 "HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines". That
