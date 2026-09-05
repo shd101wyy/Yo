@@ -1,12 +1,23 @@
 # Lazy top-level bindings — order-independent `::` definitions and `impl` registration
 
-**Status: PROPOSED 2026-09-02 (design; nothing implemented).** Written after
-the D5/§5 closeout hit the rule the hard way: `std/fs/file.yo`'s free
-`read_to_string` called the `Reader` default on a `File` while
-`impl(File, IoTraits.Reader(...))` sat 250 lines LATER — the call failed
+**Status: P0–P2 + P4 LANDED 2026-09-05** (PR feat/lazy-toplevel-bindings); P3 (retire
+the impl-block shells) and P5 (seed bump, lift the `std/`/`src/` rule) remain.
+Written 2026-09-02 after the D5/§5 closeout hit the rule the hard way:
+`std/fs/file.yo`'s free `read_to_string` called the `Reader` default on a `File`
+while `impl(File, IoTraits.Reader(...))` sat 250 lines LATER — the call failed
 definition-time evaluation, the failure was swallowed, `yo check ./std` stayed
-green, and only the C22 stub gate rejected the hollow closure at C-compile
-time. This plan removes the rule instead of documenting it again.
+green, and only the C22 stub gate rejected the hollow closure at C-compile time.
+This plan removed the rule instead of documenting it again.
+
+**What landed (see §10 for the adjustments against the 2026-09-02 design):**
+`::` definitions and `impl(...)` registrations are order-independent within a
+module file; forcing happens ONLY on a lookup miss (identifier, `export`,
+method/trait lookup on a named type), so order-correct programs evaluate in the
+same order and emit byte-identical C; function definitions publish a phase-A
+FuncVal before their body trial, which makes bare-name self-recursion and mutual
+recursion work; cycles between constants/types error with the chain; a forced
+definition's own error is reported with a note saying why it ran early.
+User docs: `docs/en-US/DEFINITION_ORDER.md` (+ zh-CN).
 
 Supersedes the scope note in `docs/en-US/IMPL_FORWARD_REFERENCES.md` ("Top-level
 `name :: value` definitions — no forward references yet"; "cross-impl-block
@@ -299,3 +310,53 @@ LSP/CLI goldens (54/55 scorecard, `--network` included).
 - Whether `impl` forcing on a method MISS is acceptable in the LSP's
   completion path (a completion request on `x.` would force all of `x`'s
   type's impls — desirable, but measure latency on `src/lsp` goldens).
+
+## 10. As landed (2026-09-05) — adjustments to the design above
+
+- **Forcing is miss-driven, not lookup-driven (§4.1/§4.2).** Pending entries are
+  NOT put into the module frame as placeholder Variables: a pre-scan records
+  them in a per-walk table (`ModuleWalk`/`PendingDef`, `src/evaluator/context.yo`)
+  and the walker evaluates statements in source order, skipping entries an
+  earlier reference already forced. The forcing hook sits on the lookup MISS
+  paths only — `evaluate_identifier_and_operator`'s "Variable not found" arm,
+  `export(...)` of an unbound name, and the fatal method/trait-miss sites
+  (`_try_find_receiver_method`, the where-clause / `<:` / trait-where checks).
+  A miss is an error today, so no order-correct program changes; the
+  byte-identity gate (§6) holds by construction rather than by argument.
+- **Deferred class = the `::` spelling (rule 1 narrowed).** `(comptime(x) : T) = v`
+  and the declare-then-assign `comptime(x) : T; x = v` spellings route through
+  `evaluate_binding`/`evaluate_assignment`, whose declare-then-fill semantics
+  are order-dependent by design (the split form IS the pre-existing
+  mutual-recursion idiom, fn arm 14). They stay ordered statements; the
+  bounded pending re-run that serves the split form is unchanged.
+- **Frozen-frame visibility.** Def-time body envs and call-time capture envs are
+  private frame COPIES, so a definition forced mid-trial is invisible to the
+  ~100 by-name env lookups that follow the identifier. The resolved Variable is
+  ADOPTED into the current env's copy of the module frame (matched by
+  `Frame.id`) or, in a flat capture env, into its capture frame
+  (`adopt_resolved_definition`). Finished walks keep their tables so a
+  specialization after the walk still resolves.
+- **Impl forcing is by receiver head name at fatal-miss sites (§4.4)**, plus the
+  un-nameable heads; the receiver type's nominal head is compared to the impl
+  head atom. `Dyn(Trait)` coercion of a value whose impl appears later is not a
+  forcing site (its implements-check is a boolean inside compatibility).
+  **No forcing while an impl of the same type is in flight**: a method miss
+  inside `impl(Sha1, …)` is the in-block sibling case the shell pre-pass owns;
+  forcing the later `impl(Sha1, Digest(...))` there evaluated it against a
+  half-registered type and its trait methods resolved through the trait
+  record (`__yo_t18.update`, tests/crypto/digest.test.yo). So cross-block
+  references force from free functions / generic bodies / other types' impls,
+  not from inside another block of the same type (§6's "two impl blocks
+  reference each other" is narrowed accordingly).
+- **Ordered-statement forward references** keep the P0 diagnostic, reworded
+  (`forward reference to "X" (bound at line N) — imports, opens, pragmas and
+  runtime bindings are evaluated in order …`), now also raised from the
+  concrete-fn trial site and covering the typed-global `(g : T) = v` spelling.
+- **Surfaced along the way:** concrete function bodies were never checked
+  against the declared result type
+  (`issues/fixed/concrete-fn-body-result-type-not-checked.md`) — fixed in the
+  same PR.
+- **P3 not done here**: the impl-block forward shells stay until the corpus has
+  exercised the general mechanism for a release. **P5** is seed-gated: `std/` and
+  `src/` may use forward references only after `SEED_VERSION` carries this
+  release (`plans/backlog/SEED_VERSION_AUTOMATION.md`).

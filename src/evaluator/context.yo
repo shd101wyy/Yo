@@ -25,19 +25,25 @@ _(env : ctx_dbg_env) :: import("std/env");
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr } :: import("../types/creators.yo");
 { EvalValue } :: import("../value.yo");
-{ Environment, Variable, _frame_positions, snapshot_env } :: import("../env.yo");
+{ Environment, Variable, Frame, _frame_positions, snapshot_env, add_variable_to_env, get_variables_from_frame } :: import("../env.yo");
 {
   AstExpr,
   ast_expr_token,
+  ast_expr_id,
   ast_expr_is_fn_call,
   ast_expr_is_fn_call_of,
   ast_expr_is_atom,
+  ast_expr_is_atom_and_operator,
   ast_expr_to_string,
   BK_CONST,
   BK_COLON,
   BK_ASSIGN,
   BK_IMPL_LOWER,
-  BK_COMPTIME
+  BK_COMPTIME,
+  BK_IMPORT,
+  BK_GENERIC,
+  BK_BEGIN,
+  BF_DOT
 } :: import("../expr.yo");
 { PathCollection, path_collection_new, ExprInfoTable, expr_info_table_new, is_module_level_global, ComptimeRef } :: import("../expr_info.yo");
 { Token } :: import("../token.yo");
@@ -864,13 +870,14 @@ restore_module_walk :: (fn(prev : Option(ArrayList(AstExpr)), prev_idx : usize) 
 });
 get_module_begin_exprs :: (fn() -> Option(ArrayList(AstExpr)))(g_module_begin_exprs);
 get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
-/// Does this binding LHS bind `name`? (Atom head, `comptime(X) ...`, or a
-/// parenthesized/annotated head by source-text equality. The comptime
-/// wrappers are peeled ITERATIVELY — self-recursion is not visible to a
-/// def-time body trial, the very limitation §4.6 exists to diagnose.)
+/// Does this binding LHS bind `name`? (Atom head, `comptime(X) ...`, a typed
+/// `(X : T)` head — the module-global spelling `(g : T) = v` — or a
+/// parenthesized/annotated head by source-text equality. The wrappers are
+/// peeled ITERATIVELY — self-recursion is not visible to a def-time body
+/// trial, the very limitation §4.6 exists to diagnose.)
 lhs_binds_name :: (fn(lhs : AstExpr, name : String) -> bool)({
   (cur : AstExpr) = lhs;
-  while(ast_expr_is_fn_call_of(cur, BK_COMPTIME, .Some(usize(1))), {
+  while(ast_expr_is_fn_call_of(cur, BK_COMPTIME, .Some(usize(1))) || ast_expr_is_fn_call_of(cur, BK_COLON, .Some(usize(2))), {
     cur = match(
       cur,
       .FnCall(_, _, cargs, _, _) => match(
@@ -965,7 +972,7 @@ forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
               match(
                 found_row,
                 .Some(row) => Option(String).Some(
-                  `forward reference to "${name}" (defined at line ${row.to_string()}) — Yo evaluates definitions in order; move the definition above this use`
+                  `forward reference to "${name}" (bound at line ${(row + usize(1)).to_string()}) — imports, opens, pragmas and runtime bindings are evaluated in order (only \`::\` definitions and \`impl\` registrations are order-independent); move that statement above this use`
                 ),
                 .None => Option(String).None
               )
@@ -1004,6 +1011,755 @@ hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
       )
   )
 );
+// --- Lazy top-level bindings (plans/LAZY_TOPLEVEL_BINDINGS.md §4, P1 + P2) ---
+//
+// A module walk (values/anonymous_module.yo) PRE-SCANS its begin_exprs and
+// records every deferrable statement — a `name :: <rhs>` definition (P1) or an
+// `impl(<receiver>, ...)` registration (P2) — as a PendingDef. The walk still
+// evaluates statements in source order, but a statement whose entry was
+// already FORCED by an earlier reference is skipped. Forcing happens ONLY on a
+// lookup MISS (`evaluate_identifier_and_operator`'s "Variable not found" path,
+// `export(...)`, and the fatal method/trait-miss sites for impls), which is
+// exactly the set of programs that fail to compile today — so for every
+// order-correct program force order == source order and nothing observable
+// changes (the byte-identity acceptance test, plan §6).
+//
+// The model lives HERE (every evaluator module imports context.yo) while the
+// forcing itself — which needs `evaluate_expression_raw` — is installed by
+// anonymous_module.yo through `set_force_pending_def_fn` (the
+// g_rerun_pending_def_evals_fn pattern: a fn slot cannot take the propagating
+// `Exception`, so the forcer reports failure as a message and the caller, which
+// has `exn` in scope, throws it).
+PendingDefState :: enum(Unforced, Forcing, Done, Failed);
+/// One deferred module-level statement.
+PendingDef :: ref(
+  struct(
+    /// The bound name (`name :: …`), or the receiver head atom of an `impl`
+    /// (`File` in `impl(File, …)`, `ArrayList` in `impl(generic(T), ArrayList(T), …)`;
+    /// empty when the head is not nameable — such impls force at any miss).
+    name : String,
+    /// The whole statement — evaluated verbatim when forced.
+    expr : AstExpr,
+    /// Position in the walk's begin_exprs (the walker skips a Done entry there).
+    index : usize,
+    row : usize,
+    is_impl : bool,
+    state : PendingDefState,
+    failure : Option(String),
+    /// Phase A (§4.3): the FuncVal + Func type that
+    /// `try_to_implement_function_by_function_type` publishes once the RHS's
+    /// signature head is evaluated and BEFORE the body trial runs. A reference to
+    /// this name from inside its own body (self-recursion) or from a sibling it
+    /// forced (mutual recursion) binds this value instead of erroring.
+    phase_a_value : Option(EvalValue),
+    phase_a_type : Option(TypeValue),
+    /// The module-frame Variable once bound — pre-bound from phase A on a
+    /// re-entrant reference, otherwise the one the definition's own evaluation
+    /// added to the module frame.
+    variable : Option(Variable)
+  )
+);
+/// One active module walk. `ctx` is a COPY of the walker's context taken at
+/// walk start: a forced statement must evaluate as a module-level statement
+/// (no enclosing fn body, no expected type, no impl Self) even when the
+/// reference that forces it sits deep inside a def-time body trial.
+ModuleWalk :: ref(
+  struct(
+    module_path : String,
+    begin_exprs : ArrayList(AstExpr),
+    env : Environment,
+    /// `Frame.id` of the walk's module frame: the forcer truncates the walker's
+    /// live frame list at this frame (a module-level `{ … }` block may have
+    /// pushed frames above it) so the forced definition binds INTO the module
+    /// frame, where every later lookup finds it.
+    module_frame_id : usize,
+    ctx : EvalContext,
+    defs : ArrayList(PendingDef),
+    /// index in begin_exprs → its entry (the walker's per-statement check).
+    by_index : HashMap(usize, PendingDef)
+  )
+);
+(g_module_walks : ArrayList(ModuleWalk)) = ArrayList(ModuleWalk).new();
+/// Entries currently being forced, outermost first — the cycle chain
+/// (`a → b → a`) and the phase-A publication target.
+(g_forcing_stack : ArrayList(PendingDef)) = ArrayList(PendingDef).new();
+/// Finished walks' definitions by module path. A generic fn body is
+/// re-evaluated at SPECIALIZATION time from its definition-time capture
+/// snapshot (a frozen frame copy); a definition forced after that snapshot was
+/// taken is not in it, so the miss hook resolves the name from here once the
+/// walk is over. Only names this mechanism bound are ever served — never a
+/// runtime module global, which a stripped fn env must keep hiding.
+(g_finished_walks : HashMap(String, ModuleWalk)) = HashMap(String, ModuleWalk).new();
+/// The forcer slot. Returns `.None` on success, `.Some(message)` on failure.
+ForcePendingDefFn :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String));
+(g_force_pending_def_fn : Option(ForcePendingDefFn)) = Option(ForcePendingDefFn).None;
+set_force_pending_def_fn :: (fn(f : ForcePendingDefFn) -> unit)({
+  g_force_pending_def_fn = Option(ForcePendingDefFn).Some(f);
+  ()
+});
+/// Shallow copy of an EvalContext — every field, the shared tables
+/// (`expr_info_table`, `comptime_fn_caches`, `load_module`) by reference.
+copy_eval_context :: (fn(ctx : EvalContext) -> EvalContext)(
+  EvalContext(
+    is_executing : ctx.is_executing,
+    is_validating_function_definition : ctx.is_validating_function_definition,
+    ctfe_depth : ctx.ctfe_depth,
+    expected_type : ctx.expected_type,
+    is_evaluating_function_body_or_async_block : ctx.is_evaluating_function_body_or_async_block,
+    is_inside_impl_block : ctx.is_inside_impl_block,
+    captured_variables : ctx.captured_variables,
+    own_consumed_captures : ctx.own_consumed_captures,
+    is_evaluating_loop_body : ctx.is_evaluating_loop_body,
+    self_type : ctx.self_type,
+    self_trait_type : ctx.self_trait_type,
+    self_module_type : ctx.self_module_type,
+    receiver_type : ctx.receiver_type,
+    is_evaluating_function_type : ctx.is_evaluating_function_type,
+    load_module : ctx.load_module,
+    std_path : ctx.std_path,
+    current_module_path : ctx.current_module_path,
+    is_unsafe_function_type : ctx.is_unsafe_function_type,
+    unsafe_context : ctx.unsafe_context,
+    is_control_function_type : ctx.is_control_function_type,
+    enclosing_function_return_type : ctx.enclosing_function_return_type,
+    has_control_function_implicit_params : ctx.has_control_function_implicit_params,
+    is_inside_where_clause : ctx.is_inside_where_clause,
+    is_lhs_of_assignment : ctx.is_lhs_of_assignment,
+    function_return_impl_concrete_type : ctx.function_return_impl_concrete_type,
+    force_compile_time_bindings : ctx.force_compile_time_bindings,
+    is_analyzing_ctfe_capability : ctx.is_analyzing_ctfe_capability,
+    is_in_function_call_checking_phase : ctx.is_in_function_call_checking_phase,
+    is_inside_io_async_call : ctx.is_inside_io_async_call,
+    is_inside_given_handler : ctx.is_inside_given_handler,
+    is_evaluating_generic_impl_specialization : ctx.is_evaluating_generic_impl_specialization,
+    currently_specializing_function : ctx.currently_specializing_function,
+    currently_specializing_function_stack : ctx.currently_specializing_function_stack,
+    doc_comment_lookup : ctx.doc_comment_lookup,
+    expr_info_table : ctx.expr_info_table,
+    comptime_fn_caches : ctx.comptime_fn_caches,
+    current_impl_trait_field_labels : ctx.current_impl_trait_field_labels,
+    current_impl_trait_field_types : ctx.current_impl_trait_field_types,
+    pending_method_self_type : ctx.pending_method_self_type
+  )
+);
+/// The syntactic head name of an `impl` receiver: the atom itself, the callee
+/// atom of a type application (`ArrayList(T)` → `ArrayList`), the member of a
+/// property access (`Mod.Ty` → `Ty`). Empty when none applies.
+impl_receiver_head_name :: (fn(recv : AstExpr) -> String)(
+  cond(
+    ast_expr_is_atom(recv) => ast_expr_token(recv).value.clone(),
+    ast_expr_is_fn_call_of(recv, BF_DOT, .Some(usize(2))) =>
+      match(
+        recv,
+        .FnCall(_, _, dargs, _, _) => match(
+          dargs.get(usize(1)),
+          .Some(member) => cond(ast_expr_is_atom(member) => ast_expr_token(member).value.clone(), true => String.new()),
+          .None => String.new()
+        ),
+        .Atom(_, _) => String.new()
+      ),
+    ast_expr_is_fn_call(recv) =>
+      match(
+        recv,
+        .FnCall(_, callee, _, _, _) => cond(
+          (ast_expr_is_atom(callee) && !(ast_expr_is_atom_and_operator(callee))) => ast_expr_token(callee).value.clone(),
+          true => String.new()
+        ),
+        .Atom(_, _) => String.new()
+      ),
+    true => String.new()
+  )
+);
+_make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bool) -> Option(PendingDef))(
+  Option(PendingDef).Some(
+    PendingDef(
+      name : name,
+      expr : e,
+      index : index,
+      row : ast_expr_token(e).row,
+      is_impl : is_impl,
+      state : PendingDefState.Unforced,
+      failure : Option(String).None,
+      phase_a_value : Option(EvalValue).None,
+      phase_a_type : Option(TypeValue).None,
+      variable : Option(Variable).None
+    )
+  )
+);
+/// Classify one module-level statement. `.Some(def)` for a deferrable
+/// statement, `.None` for an ordered one (imports, opens, pragmas, runtime
+/// globals, destructurings, bare expressions, exports).
+///
+/// Deferrable: `name :: rhs` with an atom LHS whose rhs is not a bare
+/// `import(...)` (an import binding is an ordered statement: its effects —
+/// loading the module, registering its impls — are the module's observable
+/// evaluation), and `impl(<receiver>, ...)` other than the anonymous
+/// `impl({ ... })` block form.
+classify_pending_def :: (fn(e : AstExpr, index : usize) -> Option(PendingDef))(
+  cond(
+    ast_expr_is_fn_call_of(e, BK_CONST, .Some(usize(2))) => match(
+      e,
+      .FnCall(_, _, cargs, _, _) => {
+        lhs := match(cargs.get(usize(0)), .Some(l) => l, .None => e);
+        rhs := match(cargs.get(usize(1)), .Some(r) => r, .None => e);
+        lhs_name := ast_expr_token(lhs).value.clone();
+        cond(
+          !(ast_expr_is_atom(lhs)) => Option(PendingDef).None,
+          (lhs_name == "_") => Option(PendingDef).None,
+          ast_expr_is_fn_call_of(rhs, BK_IMPORT, .None) => Option(PendingDef).None,
+          true => _make_pending_def(lhs_name, e, index, false)
+        )
+      },
+      .Atom(_, _) => Option(PendingDef).None
+    ),
+    ast_expr_is_fn_call_of(e, BK_IMPL_LOWER, .None) => match(
+      e,
+      .FnCall(_, _, iargs, _, _) => {
+        // `impl({ ... })` is a module value, not a registration.
+        a0_is_block := match(
+          iargs.get(usize(0)),
+          .Some(a0) => ast_expr_is_fn_call_of(a0, BK_BEGIN, .None),
+          .None => true
+        );
+        cond(
+          ((iargs.len() == usize(1)) && a0_is_block) => Option(PendingDef).None,
+          (iargs.len() < usize(2)) => Option(PendingDef).None,
+          true => {
+            // Case 2 (`impl(generic(...), Receiver, ...)`) names the receiver
+            // second; Case 3 (`impl(Receiver, ...)`) first.
+            a0 := match(iargs.get(usize(0)), .Some(a) => a, .None => e);
+            recv := cond(
+              ast_expr_is_fn_call_of(a0, BK_GENERIC, .None) => match(iargs.get(usize(1)), .Some(a) => a, .None => e),
+              true => a0
+            );
+            _make_pending_def(impl_receiver_head_name(recv), e, index, true)
+          }
+        )
+      },
+      .Atom(_, _) => Option(PendingDef).None
+    ),
+    true => Option(PendingDef).None
+  )
+);
+/// Start a walk: pre-scan `begin_exprs`, push the walk record. A previous
+/// finished-walk table for this module (an LSP re-check) is dropped so stale
+/// Variables are never served during the re-evaluation.
+begin_module_walk :: (
+  fn(begin_exprs : ArrayList(AstExpr), env : Environment, module_frame_id : usize, ctx : EvalContext) -> ModuleWalk
+)({
+  module_path := match(
+    begin_exprs.get(usize(0)),
+    .Some(first) => ast_expr_token(first).module_path.clone(),
+    .None => env.module_path.clone()
+  );
+  g_finished_walks.remove(module_path.clone());
+  defs := ArrayList(PendingDef).new();
+  by_index := HashMap(usize, PendingDef).new();
+  (i : usize) = usize(0);
+  n := begin_exprs.len();
+  while(i < n, {
+    match(
+      begin_exprs.get(i),
+      .Some(e) => match(
+        classify_pending_def(e, i),
+        .Some(def) => {
+          defs.push(def);
+          by_index.insert(i, def);
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  walk := ModuleWalk(
+    module_path : module_path,
+    begin_exprs : begin_exprs,
+    env : env,
+    module_frame_id : module_frame_id,
+    ctx : copy_eval_context(ctx),
+    defs : defs,
+    by_index : by_index
+  );
+  g_module_walks.push(walk);
+  walk
+});
+/// Finish a walk: pop it and keep its definitions for the post-walk miss
+/// fallback. Pops the TOP entry — walks nest strictly (an import evaluates
+/// inside its importer's walk and returns before it continues).
+end_module_walk :: (fn(walk : ModuleWalk) -> unit)({
+  g_module_walks.pop();
+  g_finished_walks.insert(walk.module_path.clone(), walk);
+  ()
+});
+walk_pending_def_at :: (fn(walk : ModuleWalk, index : usize) -> Option(PendingDef))(
+  walk.by_index.get(index)
+);
+_find_def_by_name :: (fn(defs : ArrayList(PendingDef), name : String, is_impl : bool) -> Option(PendingDef))({
+  (found : Option(PendingDef)) = Option(PendingDef).None;
+  (i : usize) = usize(0);
+  while((i < defs.len()) && found.is_none(), {
+    match(
+      defs.get(i),
+      .Some(d) => if((d.is_impl == is_impl) && (d.name == name), {
+        found = Option(PendingDef).Some(d);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// The innermost active walk for `module_path`.
+_active_walk_for :: (fn(module_path : String) -> Option(ModuleWalk))({
+  (found : Option(ModuleWalk)) = Option(ModuleWalk).None;
+  (i : usize) = g_module_walks.len();
+  while((i > usize(0)) && found.is_none(), {
+    i = (i - usize(1));
+    match(
+      g_module_walks.get(i),
+      .Some(w) => if(w.module_path == module_path, {
+        found = Option(ModuleWalk).Some(w);
+      }),
+      .None => ()
+    );
+  });
+  found
+});
+/// The entry whose statement is currently being evaluated (top of the forcing
+/// stack), if any.
+current_forcing_def :: (fn() -> Option(PendingDef))(
+  cond(
+    (g_forcing_stack.len() > usize(0)) => g_forcing_stack.get(g_forcing_stack.len() - usize(1)),
+    true => Option(PendingDef).None
+  )
+);
+push_forcing_def :: (fn(def : PendingDef) -> unit)({
+  def.state = PendingDefState.Forcing;
+  g_forcing_stack.push(def);
+});
+pop_forcing_def :: (fn() -> unit)({
+  g_forcing_stack.pop();
+  ()
+});
+/// Token rows are 0-based; diagnostics print 1-based lines (error.yo).
+_def_display :: (fn(d : PendingDef) -> String)(
+  cond(
+    d.is_impl => `impl(${d.name}, …) (line ${(d.row + usize(1)).to_string()})`,
+    true => `${d.name} (line ${(d.row + usize(1)).to_string()})`
+  )
+);
+/// `cyclic definition: a (line 12) → b (line 40) → a` — the forcing stack from
+/// `def`'s own position back to `def`.
+cyclic_definition_message :: (fn(def : PendingDef) -> String)({
+  out := String.from("cyclic definition: ");
+  (started : bool) = false;
+  (i : usize) = usize(0);
+  while(i < g_forcing_stack.len(), {
+    match(
+      g_forcing_stack.get(i),
+      .Some(d) => {
+        if(((!(started) && (d.name == def.name)) && (d.is_impl == def.is_impl)), {
+          started = true;
+        });
+        if(started, {
+          out.push_string(_def_display(d));
+          out.push_str(" → ");
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out.push_string(def.name.clone());
+  out.push_str(" — a definition's value depends on itself. Function definitions may reference each other (their signatures bind before their bodies evaluate); a constant or type definition may not name itself. Anonymous `->`/`=>` function literals have no separately evaluated signature: write the recursive function as `(fn(...) -> R)(body)`.");
+  out
+});
+/// Phase A (§4.3): called by `try_to_implement_function_by_function_type`
+/// right after the FuncVal is minted and BEFORE the def-time body trial. When
+/// `rhs_id` is the RHS node of the definition being forced, its FuncVal becomes
+/// the value a re-entrant reference binds.
+publish_pending_phase_a :: (fn(rhs_id : usize, value : EvalValue, ty : TypeValue) -> unit)(
+  match(
+    current_forcing_def(),
+    .Some(def) => if((!(def.is_impl) && def.phase_a_value.is_none()), {
+      def_rhs_id := match(
+        def.expr,
+        .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(1)), .Some(r) => ast_expr_id(r), .None => usize(0)),
+        .Atom(_, _) => usize(0)
+      );
+      if(def_rhs_id == rhs_id, {
+        def.phase_a_value = Option(EvalValue).Some(value);
+        def.phase_a_type = Option(TypeValue).Some(ty);
+      });
+    }),
+    .None => ()
+  )
+);
+/// The Variable pre-bound for `name` from phase A while ITS definition is being
+/// evaluated — `evaluate_initialization_assignment` fills it in place instead
+/// of adding a second binding (and skips the no-shadowing check against it).
+/// True iff `tok` is the LHS token of `def`'s statement — the guard that keeps
+/// a same-named LOCAL binding inside the definition's own RHS (a body-local
+/// `x := …` while forcing module-level `x`) from being mistaken for it.
+_def_lhs_token_is :: (fn(def : PendingDef, tok : Token) -> bool)(
+  match(
+    def.expr,
+    .FnCall(_, _, cargs, _, _) => match(
+      cargs.get(usize(0)),
+      .Some(lhs) => {
+        lt := ast_expr_token(lhs);
+        (((lt.row == tok.row) && (lt.column == tok.column)) && (lt.module_path == tok.module_path))
+      },
+      .None => false
+    ),
+    .Atom(_, _) => false
+  )
+);
+pending_prebound_variable :: (fn(name : String, lhs_tok : Token) -> Option(Variable))(
+  match(
+    current_forcing_def(),
+    .Some(def) => cond(
+      ((((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false)) && _def_lhs_token_is(def, lhs_tok))) => def.variable,
+      true => Option(Variable).None
+    ),
+    .None => Option(Variable).None
+  )
+);
+/// Record the Variable a definition's own evaluation bound (the tail of
+/// `evaluate_initialization_assignment`).
+record_pending_def_variable :: (fn(name : String, lhs_tok : Token, var : Variable) -> unit)(
+  match(
+    current_forcing_def(),
+    .Some(def) => if((((!(def.is_impl) && (def.name == name)) && def.variable.is_none()) && _def_lhs_token_is(def, lhs_tok)), {
+      def.variable = Option(Variable).Some(var);
+    }),
+    .None => ()
+  )
+);
+/// The module env a forced statement evaluates in: the walker's live frames
+/// truncated at (and including) the module frame — a FRESH list sharing the
+/// Frame handles, so pushes during the forced evaluation cannot corrupt the
+/// walker's list, while `add_variable_to_env` still appends into the shared
+/// module Frame.
+module_walk_force_env :: (fn(walk : ModuleWalk) -> Environment)({
+  frames := ArrayList(Frame).new();
+  (cut : usize) = walk.env.frames.len();
+  (i : usize) = walk.env.frames.len();
+  while(i > usize(0), {
+    i = (i - usize(1));
+    match(
+      walk.env.frames.get(i),
+      .Some(f) => if((cut == walk.env.frames.len()) && (f.id == walk.module_frame_id), {
+        cut = (i + usize(1));
+      }),
+      .None => ()
+    );
+  });
+  (j : usize) = usize(0);
+  while(j < cut, {
+    match(
+      walk.env.frames.get(j),
+      .Some(f) => {
+        frames.push(f);
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  Environment(
+    frames : frames,
+    module_path : walk.env.module_path,
+    function_declaration_frame_level : walk.env.function_declaration_frame_level,
+    input_string : walk.env.input_string
+  )
+});
+/// The innermost binding named `name` in the walk's module frame.
+module_frame_variable :: (fn(walk : ModuleWalk, name : String) -> Option(Variable))({
+  fenv := module_walk_force_env(walk);
+  match(
+    fenv.frames.get(fenv.frames.len() - usize(1)),
+    .Some(frame) => {
+      vars := get_variables_from_frame(frame, name);
+      cond(
+        (vars.len() > usize(0)) => vars.get(vars.len() - usize(1)),
+        true => Option(Variable).None
+      )
+    },
+    .None => Option(Variable).None
+  )
+});
+module_walk_depth :: (fn() -> usize)(g_module_walks.len());
+forcing_stack_depth :: (fn() -> usize)(g_forcing_stack.len());
+/// Drop walks above `depth` — the walker's abort edge (an error unwound
+/// through it) resets the stacks to what they were when it started.
+truncate_module_walks :: (fn(depth : usize) -> unit)({
+  while(g_module_walks.len() > depth, {
+    g_module_walks.pop();
+  });
+});
+truncate_forcing_stack :: (fn(depth : usize) -> unit)({
+  while(g_forcing_stack.len() > depth, {
+    match(
+      g_forcing_stack.pop(),
+      // An entry abandoned mid-force: leave it re-forceable rather than
+      // permanently "Forcing" (a later reference would misreport a cycle).
+      .Some(d) => if(match(d.state, .Forcing => true, _ => false), {
+        d.state = PendingDefState.Unforced;
+      }),
+      .None => ()
+    );
+  });
+});
+/// Run the forcer on an Unforced entry and settle its state. Returns the
+/// failure message, if any.
+force_pending_def :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))({
+  // YO_DEBUG_LAZY=1 prints every out-of-order force — the first thing to
+  // read when a program's evaluation order (and so its emitted C) differs
+  // from the in-order baseline.
+  if(ctx_dbg_env.get(`YO_DEBUG_LAZY`).is_some(), {
+    eprintln(`[force] ${_def_display(def)} in ${walk.module_path} (walk index ${def.index.to_string()}, forcing depth ${g_forcing_stack.len().to_string()})`);
+  });
+  push_forcing_def(def);
+  result := match(
+    g_force_pending_def_fn,
+    .Some(f) => f(walk, def),
+    .None => Option(String).Some(String.from("internal error: pending-definition forcer not installed"))
+  );
+  pop_forcing_def();
+  match(
+    result,
+    .None => {
+      def.state = PendingDefState.Done;
+      if((!(def.is_impl) && def.variable.is_none()), {
+        def.variable = module_frame_variable(walk, def.name.clone());
+      });
+    },
+    .Some(msg) => {
+      def.state = PendingDefState.Failed;
+      def.failure = Option(String).Some(msg);
+    }
+  );
+  result
+});
+/// Outcome of a lookup-miss resolution. `Resolved` carries the defining
+/// module frame's id so the caller can adopt the Variable into its own env
+/// (`adopt_resolved_definition`).
+PendingResolution :: enum(NotPending, Resolved(var : Variable, frame_id : usize), Error(msg : String));
+/// Make a resolved definition visible to BY-NAME lookups in `env`. Def-time
+/// body envs, call-time capture envs and per-file clones all hold PRIVATE
+/// frame copies (fresh `Frame` objects sharing Variable handles), so a
+/// definition bound after the copy was taken is absent from them, and the
+/// ~100 by-name helpers (`require_expr_not_consumed`, `set_expr_as_consumed`,
+/// the RC owner walks, …) would report it "not defined" right after the
+/// identifier resolved it. Append it to the env's copy of the module frame
+/// (matched by `Frame.id`, which copies preserve) — exactly the state an
+/// in-order definition would have produced — or, in a flat capture env
+/// without that frame, to its capture frame (frame 0: the FuncVal's own
+/// capture list, so later calls see it too). Returns the frame index the
+/// Variable now lives at (the `find_variable_in_env_at` contract).
+adopt_resolved_definition :: (fn(env : Environment, var : Variable, module_frame_id : usize) -> usize)({
+  n := env.frames.len();
+  (target : Option(usize)) = Option(usize).None;
+  (i : usize) = n;
+  while((i > usize(0)) && target.is_none(), {
+    i = (i - usize(1));
+    match(
+      env.frames.get(i),
+      .Some(f) => if(f.id == module_frame_id, {
+        target = Option(usize).Some(i);
+      }),
+      .None => ()
+    );
+  });
+  idx := match(
+    target,
+    .Some(t) => t,
+    .None => usize(0)
+  );
+  match(
+    env.frames.get(idx),
+    .Some(frame) => {
+      (present : bool) = false;
+      existing := get_variables_from_frame(frame, var.name.clone());
+      (ei : usize) = usize(0);
+      while((ei < existing.len()) && !(present), {
+        match(
+          existing.get(ei),
+          .Some(ev) => if(ev.id == var.id, {
+            present = true;
+          }),
+          .None => ()
+        );
+        ei = (ei + usize(1));
+      });
+      if(!(present), {
+        frame.variables.push(var);
+      });
+    },
+    .None => ()
+  );
+  idx
+});
+/// The identifier-miss hook (§4.2). `module_path` is the identifier TOKEN's
+/// module path — the module whose definitions the name can refer to (a macro
+/// expanded elsewhere still names its definition site's module).
+resolve_pending_definition :: (fn(name : String, module_path : String) -> PendingResolution)(
+  match(
+    _active_walk_for(module_path.clone()),
+    .Some(walk) => match(
+      _find_def_by_name(walk.defs, name.clone(), false),
+      .None => PendingResolution.NotPending,
+      .Some(def) => match(
+        def.state,
+        .Done => match(
+          def.variable,
+          .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
+          .None => PendingResolution.NotPending
+        ),
+        .Failed => PendingResolution.Error(match(def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))),
+        .Forcing => match(
+          def.variable,
+          .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
+          .None => match(
+            def.phase_a_value,
+            .Some(fv) => {
+              // Pre-bind (§4.3): the signature is known, the body is still
+              // evaluating — bind the head FuncVal into the module frame now.
+              fty := match(def.phase_a_type, .Some(t) => t, .None => t_unit());
+              lhs_tok := match(
+                def.expr,
+                .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(l) => ast_expr_token(l), .None => ast_expr_token(def.expr)),
+                .Atom(_, _) => ast_expr_token(def.expr)
+              );
+              match(
+                add_variable_to_env(module_walk_force_env(walk), def.name.clone(), fty, Option(EvalValue).Some(fv), true, false, false, false, lhs_tok),
+                .Some(v) => {
+                  def.variable = Option(Variable).Some(v);
+                  PendingResolution.Resolved(v, walk.module_frame_id)
+                },
+                .None => PendingResolution.Error(String.from("internal error: module frame missing while pre-binding a definition"))
+              )
+            },
+            .None => PendingResolution.Error(cyclic_definition_message(def))
+          )
+        ),
+        .Unforced => match(
+          force_pending_def(walk, def),
+          .Some(msg) => PendingResolution.Error(msg),
+          .None => match(
+            def.variable,
+            .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
+            .None => PendingResolution.Error(`definition "${name}" did not bind a variable`)
+          )
+        )
+      )
+    ),
+    .None => match(
+      g_finished_walks.get(module_path),
+      .Some(fwalk) => match(
+        _find_def_by_name(fwalk.defs, name, false),
+        .Some(def) => match(
+          def.variable,
+          .Some(v) => PendingResolution.Resolved(v, fwalk.module_frame_id),
+          .None => PendingResolution.NotPending
+        ),
+        .None => PendingResolution.NotPending
+      ),
+      .None => PendingResolution.NotPending
+    )
+  )
+);
+/// Outcome of a method/trait-miss impl forcing (§4.4).
+PendingImplOutcome :: enum(NoneForced, Forced, Error(msg : String));
+/// Force every Unforced pending `impl` whose receiver head is `type_name`, plus
+/// the un-nameable ones, across the active walks (innermost first). `.Forced`
+/// tells the caller to retry its lookup; `.Error` carries the first failure.
+force_pending_impls_for_type_name :: (fn(type_name : String) -> PendingImplOutcome)({
+  // An unnamed receiver (SomeT, primitive, tuple, …) cannot select an impl.
+  if(type_name.len() == usize(0), {
+    return(PendingImplOutcome.NoneForced);
+  });
+  // While an impl of THIS type is itself being evaluated, a method miss on the
+  // type is the in-block sibling forward reference that impl.yo's shell
+  // pre-pass and in-flight registry own — forcing a LATER impl of the same
+  // type in the middle of that registration evaluated `impl(Sha1, Digest(update
+  // : self.update(data)))` against a half-registered Sha1 and left its trait
+  // methods resolving through the trait record (`__yo_t18.update`,
+  // tests/crypto/digest.test.yo). Cross-block references still force from
+  // free functions, generic bodies and other types' impls.
+  (fi : usize) = usize(0);
+  while(fi < g_forcing_stack.len(), {
+    match(
+      g_forcing_stack.get(fi),
+      .Some(fd) => if(fd.is_impl && (fd.name == type_name), {
+        return(PendingImplOutcome.NoneForced);
+      }),
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  (forced : bool) = false;
+  (err : Option(String)) = Option(String).None;
+  (wi : usize) = g_module_walks.len();
+  while((wi > usize(0)) && err.is_none(), {
+    wi = (wi - usize(1));
+    match(
+      g_module_walks.get(wi),
+      .Some(walk) => {
+        (di : usize) = usize(0);
+        while((di < walk.defs.len()) && err.is_none(), {
+          match(
+            walk.defs.get(di),
+            .Some(def) => {
+              is_target := ((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0))));
+              if(is_target, {
+                match(
+                  force_pending_def(walk, def),
+                  .Some(msg) => {
+                    err = Option(String).Some(msg);
+                  },
+                  .None => {
+                    forced = true;
+                  }
+                );
+              });
+            },
+            .None => ()
+          );
+          di = (di + usize(1));
+        });
+      },
+      .None => ()
+    );
+  });
+  match(
+    err,
+    .Some(m) => PendingImplOutcome.Error(m),
+    .None => cond(forced => PendingImplOutcome.Forced, true => PendingImplOutcome.NoneForced)
+  )
+});
+/// The nominal head name of a type for impl forcing — the `name` of a
+/// struct/enum/union/trait (a generic instantiation's `Name(args)` spelling
+/// is cut at the paren), looked up through pointers (method dispatch
+/// auto-derefs the receiver). Empty for anything unnamed (SomeT, primitives,
+/// tuples, …) — no impl is forced for those.
+type_head_name_for_impl_forcing :: (fn(ty : TypeValue) -> String)({
+  raw := match(
+    ty,
+    .Struct({ name : sn }) => sn.clone(),
+    .EnumT(_, en, _, _, _, _, _, _, _) => en.clone(),
+    .Union(un, _, _) => un.clone(),
+    .TraitT(tn, _, _, _, _, _, _, _, _, _) => tn.clone(),
+    .Pointer(pointee) => recur(pointee),
+    _ => String.new()
+  );
+  match(
+    raw.index_of(String.from("(")),
+    .Some(p) => raw.substring(usize(0), p),
+    .None => raw
+  )
+});
 /// True while a DEFINITION-time body trial is running
 /// (`_trial_eval_fn_body`, calls/function_type.yo — set/restored at its
 /// call sites, since a swallowed error unwinds out of the helper itself).
@@ -1200,5 +1956,32 @@ export(
   lhs_binds_name,
   module_expr_binds_name,
   forward_ref_diagnostic,
-  hard_swallow_diagnostic
+  hard_swallow_diagnostic,
+  PendingDefState,
+  PendingDef,
+  ModuleWalk,
+  PendingResolution,
+  PendingImplOutcome,
+  set_force_pending_def_fn,
+  copy_eval_context,
+  begin_module_walk,
+  end_module_walk,
+  walk_pending_def_at,
+  force_pending_def,
+  current_forcing_def,
+  push_forcing_def,
+  pop_forcing_def,
+  publish_pending_phase_a,
+  pending_prebound_variable,
+  record_pending_def_variable,
+  module_walk_force_env,
+  module_frame_variable,
+  module_walk_depth,
+  forcing_stack_depth,
+  truncate_module_walks,
+  truncate_forcing_stack,
+  resolve_pending_definition,
+  adopt_resolved_definition,
+  force_pending_impls_for_type_name,
+  type_head_name_for_impl_forcing
 );

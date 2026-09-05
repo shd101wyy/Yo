@@ -24,7 +24,7 @@ _(env : ident_dbg_env) :: import("std/env");
 } :: import("../../expr_info.yo");
 { Token, string_is_operator } :: import("../../token.yo");
 { Environment, Variable, get_variables_from_env, env_candidate_names, find_variable_in_env, find_variable_in_env_at } :: import("../../env.yo");
-{ EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved }
+{ EvalContext, FuncOrAsyncBlockKind, CaptureUsage, track_variable_usage, track_variable_usage_resolved, resolve_pending_definition, adopt_resolved_definition }
 :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_str, t_unit, t_bool, t_void, t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_type_1, t_expr_t, t_c_char, t_c_short, t_c_ushort, t_c_int, t_c_uint, t_c_long, t_c_ulong, t_c_longlong, t_c_ulonglong, t_c_longdouble } :: import("../../types/creators.yo");
@@ -193,33 +193,51 @@ evaluate_identifier_and_operator :: (
   variable := match(
     find_variable_in_env_at(env, identifier_string, found_frame_idx_out),
     .Some(v) => v,
-    .None => {
-      // Unresolved OPERATOR names keep the soft fallback.
-      if(string_is_operator(identifier_string.clone()), {
-        fallback_info := new_expr_info(env, t_unit());
-        fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
+    // Lazy top-level bindings (plans/LAZY_TOPLEVEL_BINDINGS.md §4.2): a miss
+    // on a name that is a deferred `::` definition of this identifier's own
+    // module forces that definition now and binds it here. Def-time body
+    // envs have FROZEN frame membership (private frame copies), so the bound
+    // Variable is ADOPTED into this env's copy of the module frame — the
+    // state an in-order definition would have left — and every by-name
+    // lookup that follows (consumption, RC ownership, flowability) finds it.
+    .None => match(
+      resolve_pending_definition(identifier_string.clone(), token.module_path.clone()),
+      .Resolved({ var : pending_var, frame_id : pending_frame_id }) => {
+        found_frame_idx_out.push(adopt_resolved_definition(env, pending_var, pending_frame_id));
+        pending_var
+      },
+      .Error({ msg : pending_msg }) => {
+        exn.throw(dyn(pending_msg));
         return(expr);
-      });
-      // Ordinary identifiers throw.
-      if(ident_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
-        eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path} frames=${env.frames.len().to_string()}`);
-      });
-      exn.throw(
-        dyn(
-          format_error_message_with_help(
-            token,
-            `Variable "${identifier_string}" not found.`,
-            match(
-              suggest_name(identifier_string, env_candidate_names(env)),
-              .Some(h) => Option(String).Some(`did you mean "${h}"?`),
-              .None => Option(String).None
+      },
+      .NotPending => {
+        // Unresolved OPERATOR names keep the soft fallback.
+        if(string_is_operator(identifier_string.clone()), {
+          fallback_info := new_expr_info(env, t_unit());
+          fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
+          return(expr);
+        });
+        // Ordinary identifiers throw.
+        if(ident_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path} frames=${env.frames.len().to_string()}`);
+        });
+        exn.throw(
+          dyn(
+            format_error_message_with_help(
+              token,
+              `Variable "${identifier_string}" not found.`,
+              match(
+                suggest_name(identifier_string, env_candidate_names(env)),
+                .Some(h) => Option(String).Some(`did you mean "${h}"?`),
+                .None => Option(String).None
+              )
             )
           )
-        )
-      );
-      return(expr);
-    }
+        );
+        return(expr);
+      }
+    )
   );
   // Check initialization (unless it's a function type or type value — mutual recursion)
   if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {

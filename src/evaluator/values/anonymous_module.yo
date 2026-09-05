@@ -36,10 +36,12 @@ open(import("std/string"));
   new_expr_info,
   expr_info_table_get,
   expr_info_table_set,
-  record_module_level_init_expr
+  record_module_level_init_expr,
+  take_active_where_trait_ids,
+  restore_active_where_trait_ids
 } :: import("../../expr_info.yo");
 { HashSet } :: import("std/collections/hash_set");
-{ Environment, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, get_variables_from_env } :: import("../../env.yo");
 /// Names of recorded module-level runtime statics — lets a later bare-atom
 /// `name = value;` top-level REASSIGNMENT be collected into the module init
 /// (mirrors TS's `variable.isModuleLevel` gate, which is unreliable for
@@ -49,13 +51,39 @@ open(import("std/string"));
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
-{ EvalContext, set_module_walk, set_module_walk_index, restore_module_walk, get_module_begin_exprs, get_module_begin_expr_index } :: import("../context.yo");
+{
+  EvalContext,
+  set_module_walk,
+  set_module_walk_index,
+  restore_module_walk,
+  get_module_begin_exprs,
+  get_module_begin_expr_index,
+  ModuleWalk,
+  PendingDef,
+  PendingDefState,
+  PendingResolution,
+  begin_module_walk,
+  end_module_walk,
+  walk_pending_def_at,
+  push_forcing_def,
+  pop_forcing_def,
+  module_walk_force_env,
+  module_frame_variable,
+  resolve_pending_definition,
+  set_force_pending_def_fn,
+  copy_eval_context,
+  set_in_def_time_trial,
+  module_walk_depth,
+  forcing_stack_depth,
+  truncate_module_walks,
+  truncate_forcing_stack
+} :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ format_error_message } :: import("../../error.yo");
+{ format_error_message, render_any_error } :: import("../../error.yo");
 { is_overload_set_capable_file } :: import("../memory_safety.yo");
-{ Exception } :: import("std/error");
+{ Exception, AnyError } :: import("std/error");
 { panic, assert } :: import("std/assert");
 /// Result type for `evaluate_anonymous_module_begin_exprs`.
 ///
@@ -103,18 +131,86 @@ _is_excluded_label :: (fn(excluded : ArrayList(String), label : String) -> bool)
   });
   found
 });
-/// Evaluate a list of module-body expressions (the body of a `module { ... }` block)
-/// and produce a source-namespace StructVal + Struct type.
-///
-/// Mirrors `evaluateAnonymousModuleBeginExprs` in
-/// `src/evaluator/values/anonymous-module.ts`.
-evaluate_anonymous_module_begin_exprs :: (
+// ---------------------------------------------------------------------------
+// Lazy top-level bindings — the FORCER (plans/LAZY_TOPLEVEL_BINDINGS.md §4.2).
+//
+// `force_pending_def` (context.yo) calls this through the fn slot to evaluate
+// one deferred statement out of source order. The statement is evaluated
+// verbatim — the same `evaluate_expression_raw` the walk loop would have run
+// at its own position — in the walk's MODULE env (the live frames truncated
+// at the module frame, so the binding lands where every later lookup finds
+// it) and under a COPY of the walk-start context (a module-level statement,
+// even when the reference forcing it sits deep inside a def-time body trial).
+// Process-wide "where am I" state that the surrounding trial owns — the
+// def-time-trial flag, the active where-constraint ids, the P0 module-walk
+// cell — is saved, reset to module-level values, and restored.
+//
+// Failures unwind out of `_force_eval` (a capture-free handler cannot close
+// over the caller's `exn`) and are reported as the rendered message with a
+// note naming the definition and why it ran early; the miss site that asked
+// for the force throws it through the real `exn`.
+// ---------------------------------------------------------------------------
+(g_force_failure : Option(String)) = Option(String).None;
+_flag_force_failure :: (fn(msg : String) -> unit)({
+  g_force_failure = Option(String).Some(msg);
+  ()
+});
+_take_force_failure :: (fn() -> Option(String))({
+  r := g_force_failure;
+  g_force_failure = Option(String).None;
+  r
+});
+_force_eval :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext) -> unit)({
+  inner_exn := Exception(
+    throw : (
+      (_err) -> {
+        _flag_force_failure(render_any_error(_err));
+        unwind(());
+      }
+    )
+  );
+  evaluate_expression_raw(expr, env, ctx, inner_exn);
+  ()
+});
+_force_pending_def_impl :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(String))({
+  force_env := module_walk_force_env(walk);
+  force_ctx := copy_eval_context(walk.ctx);
+  force_ctx.expected_type = .None;
+  prev_mod_exprs := get_module_begin_exprs();
+  prev_mod_idx := get_module_begin_expr_index();
+  set_module_walk(walk.begin_exprs);
+  set_module_walk_index(def.index);
+  prev_trial := set_in_def_time_trial(false);
+  saved_where := take_active_where_trait_ids();
+  ___cf := _take_force_failure();
+  _force_eval(def.expr, force_env, force_ctx);
+  restore_active_where_trait_ids(saved_where);
+  ___rt := set_in_def_time_trial(prev_trial);
+  restore_module_walk(prev_mod_exprs, prev_mod_idx);
+  match(
+    _take_force_failure(),
+    .Some(msg) => Option(String).Some(
+      cond(
+        def.is_impl => `${msg}\n  note: \`impl(${def.name}, …)\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because a method or trait of \`${def.name}\` is used before that impl in the source`,
+        true => `${msg}\n  note: \`${def.name}\` (line ${(def.row + usize(1)).to_string()}) was evaluated here because it is referenced before its definition in the source`
+      )
+    ),
+    .None => Option(String).None
+  )
+});
+/// Install the forcer (called from `register_evaluate_expression` — module-level
+/// call statements do not execute at import).
+register_pending_definition_forcer :: (fn() -> unit)({
+  set_force_pending_def_fn(_force_pending_def_impl);
+});
+_evaluate_anonymous_module_begin_exprs_inner :: (
   fn(
     begin_exprs : ArrayList(AstExpr),
     init_env : Environment,
     ctx : EvalContext,
     allow_partial_module : bool,
     keep_frame_at_end : bool,
+    defer_definitions : bool,
     exn : Exception
   ) -> AnonModuleResult
 )({
@@ -137,6 +233,19 @@ evaluate_anonymous_module_begin_exprs :: (
   set_module_walk(begin_exprs);
   // Push new frame to the env
   env.push_frame(false);
+  // Lazy top-level bindings (plans/LAZY_TOPLEVEL_BINDINGS.md §4.1): pre-scan
+  // the statements and record every deferrable definition / impl. Nothing is
+  // evaluated here — entries are forced on a lookup miss, or at their own
+  // position below, whichever comes first.
+  module_frame_id := match(
+    env.frames.get(env.frames.len() - usize(1)),
+    .Some(mf) => mf.id,
+    .None => usize(0)
+  );
+  walk_opt := cond(
+    defer_definitions => Option(ModuleWalk).Some(begin_module_walk(begin_exprs, env, module_frame_id, ctx)),
+    true => Option(ModuleWalk).None
+  );
   // Evaluate each expression in the module body
   (i : usize) = usize(0);
   n := begin_exprs.len();
@@ -148,12 +257,49 @@ evaluate_anonymous_module_begin_exprs :: (
         should_stop = true;
       },
       .Some(expr) => {
+        // A deferrable statement already FORCED by an earlier reference is
+        // done — its ExprInfo stamps and binding exist; evaluating it again
+        // would bind it twice. One whose forced evaluation FAILED re-raises
+        // that failure at its own position, so the error is attributed here
+        // as it would have been without the early force.
+        pending_here := match(
+          walk_opt,
+          .Some(w) => walk_pending_def_at(w, i),
+          .None => Option(PendingDef).None
+        );
+        skip_statement := match(
+          pending_here,
+          .Some(def) => match(
+            def.state,
+            .Done => true,
+            .Failed => {
+              exn.throw(dyn(match(def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))));
+              true
+            },
+            .Forcing => {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(expr),
+                    `internal error: definition "${def.name}" reached by the module walk while it is being forced`
+                  )
+                )
+              );
+              true
+            },
+            .Unforced => {
+              push_forcing_def(def);
+              false
+            }
+          ),
+          .None => false
+        );
         // NOTE: allow_partial_module = true (VSCode LSP) is not implemented here
         // because closures in given() handlers cannot capture outer variables yet
         // (codegen bug: issues/closure-capture-mutable.md). For tests, allow_partial_module
         // is always false, so we propagate errors to the outer exn directly.
         // Export expression: export(Name1, Name2, ...)
-        if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_EXPORT, .None), {
+        if(skip_statement, (), if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_EXPORT, .None), {
           export_args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
           (j : usize) = usize(0);
           nj := export_args.len();
@@ -443,32 +589,50 @@ evaluate_anonymous_module_begin_exprs :: (
                       },
                       true => ()
                     );
-                    // Look up the variable
+                    // Look up the variable — an `export(...)` naming a
+                    // definition that appears LATER in the module forces it
+                    // (plans/LAZY_TOPLEVEL_BINDINGS.md rule 5).
                     vars := get_variables_from_env(env, given_var_name.clone());
+                    (forced_var : Option(Variable)) = Option(Variable).None;
                     if(vars.len() == usize(0), {
-                      exn.throw(
-                        dyn(
-                          format_error_message(
-                            ast_expr_token(export_expr),
-                            `Variable "${given_var_name}" is not defined in the module.`
-                          )
-                        )
+                      match(
+                        resolve_pending_definition(given_var_name.clone(), ast_expr_token(export_expr).module_path.clone()),
+                        .Resolved({ var : fv, frame_id : _fid }) => {
+                          forced_var = Option(Variable).Some(fv);
+                        },
+                        .Error({ msg : fmsg }) => {
+                          exn.throw(dyn(fmsg));
+                        },
+                        .NotPending => {
+                          exn.throw(
+                            dyn(
+                              format_error_message(
+                                ast_expr_token(export_expr),
+                                `Variable "${given_var_name}" is not defined in the module.`
+                              )
+                            )
+                          );
+                        }
                       );
                     });
                     the_var := match(
-                      vars.get(vars.len() - usize(1)),
-                      .Some(v) => v,
-                      .None => {
-                        __yo_panic("unreachable: vars.len() was checked above");
-                        return(
-                          AnonModuleResult(
-                            module_value : EvalValue.UnitVal,
-                            module_type : TypeValue.Unit,
-                            env : env,
-                            partial_module_error : Option(String).None
+                      forced_var,
+                      .Some(fv2) => fv2,
+                      .None => match(
+                        vars.get(vars.len() - usize(1)),
+                        .Some(v) => v,
+                        .None => {
+                          __yo_panic("unreachable: vars.len() was checked above");
+                          return(
+                            AnonModuleResult(
+                              module_value : EvalValue.UnitVal,
+                              module_type : TypeValue.Unit,
+                              env : env,
+                              partial_module_error : Option(String).None
+                            )
                           )
-                        )
-                      }
+                        }
+                      )
                     );
                     // Check for duplicate export
                     if(_find_field_label_index(field_labels, variable_name.clone()).is_some(), {
@@ -614,7 +778,25 @@ evaluate_anonymous_module_begin_exprs :: (
               });
             });
           });
-        });
+        }));
+        // Settle the entry evaluated at its own position.
+        match(
+          pending_here,
+          .Some(def) => if(!(skip_statement), {
+            def.state = PendingDefState.Done;
+            if((!(def.is_impl) && def.variable.is_none()), {
+              match(
+                walk_opt,
+                .Some(w) => {
+                  def.variable = module_frame_variable(w, def.name.clone());
+                },
+                .None => ()
+              );
+            });
+            pop_forcing_def();
+          }),
+          .None => ()
+        );
       }
     );
     i = (i + usize(1));
@@ -622,6 +804,15 @@ evaluate_anonymous_module_begin_exprs :: (
   // P0: leaving this walk — restore the enclosing module's (an import that
   // evaluated inside the loop already restored its own on ITS way out).
   restore_module_walk(_prev_mod_exprs, _prev_mod_idx);
+  // Every deferred entry is Done here: the loop evaluated each one at its own
+  // position unless an earlier reference had already forced it (rule 5 —
+  // laziness changes order, never coverage). Keep the table for the
+  // post-walk miss fallback.
+  match(
+    walk_opt,
+    .Some(w) => end_module_walk(w),
+    .None => ()
+  );
   // Pop the env frame (only if no partial error)
   // NOTE: pop_exn handler omitted — see allow_partial_module note above.
   // When `keep_frame_at_end` is true the caller intends to keep the
@@ -662,5 +853,97 @@ evaluate_anonymous_module_begin_exprs :: (
     partial_module_error : partial_error
   )
 });
+// The walker's own error edge. An evaluator error unwinding through the walk
+// would leave its ModuleWalk (and any in-flight forcing entry) on the
+// process-wide stacks — harmless for a one-shot compile, WRONG for the LSP,
+// whose next check of the same file would then see a stale entry claim its
+// names. The inner walker runs under a capture-free handler that stashes the
+// error OBJECT (not its text — the typed diagnostics channel must survive) and
+// unwinds; the public entry then truncates the stacks to their entry depths
+// and re-throws the same object through the caller's `exn`.
+(g_walk_abort : Option(AnyError)) = Option(AnyError).None;
+_flag_walk_abort :: (fn(err : AnyError) -> unit)({
+  g_walk_abort = Option(AnyError).Some(err);
+  ()
+});
+_take_walk_abort :: (fn() -> Option(AnyError))({
+  r := g_walk_abort;
+  g_walk_abort = Option(AnyError).None;
+  r
+});
+_run_module_walk :: (
+  fn(
+    begin_exprs : ArrayList(AstExpr),
+    init_env : Environment,
+    ctx : EvalContext,
+    allow_partial_module : bool,
+    keep_frame_at_end : bool,
+    defer_definitions : bool
+  ) -> AnonModuleResult
+)({
+  inner_exn := Exception(
+    throw : (
+      (err) -> {
+        _flag_walk_abort(err);
+        unwind(
+          AnonModuleResult(
+            module_value : EvalValue.UnitVal,
+            module_type : TypeValue.Unit,
+            env : Environment.new(String.new()),
+            partial_module_error : Option(String).None
+          )
+        );
+      }
+    )
+  );
+  _evaluate_anonymous_module_begin_exprs_inner(
+    begin_exprs,
+    init_env,
+    ctx,
+    allow_partial_module,
+    keep_frame_at_end,
+    defer_definitions,
+    inner_exn
+  )
+});
+/// Evaluate a list of module-body expressions (the body of a `module { ... }` block)
+/// and produce a source-namespace StructVal + Struct type.
+///
+/// `defer_definitions` enables order-independent `::` definitions and `impl`
+/// registrations for this walk (plans/LAZY_TOPLEVEL_BINDINGS.md): true for a
+/// module FILE (program, import, prelude), false for the anonymous
+/// `impl({ ... })` block, whose bindings are block-scoped and stay ordered.
+///
+/// Mirrors `evaluateAnonymousModuleBeginExprs` in
+/// `src/evaluator/values/anonymous-module.ts`.
+evaluate_anonymous_module_begin_exprs :: (
+  fn(
+    begin_exprs : ArrayList(AstExpr),
+    init_env : Environment,
+    ctx : EvalContext,
+    allow_partial_module : bool,
+    keep_frame_at_end : bool,
+    defer_definitions : bool,
+    exn : Exception
+  ) -> AnonModuleResult
+)({
+  walk_depth := module_walk_depth();
+  forcing_depth := forcing_stack_depth();
+  prev_mod_exprs := get_module_begin_exprs();
+  prev_mod_idx := get_module_begin_expr_index();
+  ___ca := _take_walk_abort();
+  result := _run_module_walk(begin_exprs, init_env, ctx, allow_partial_module, keep_frame_at_end, defer_definitions);
+  match(
+    _take_walk_abort(),
+    .Some(err) => {
+      truncate_module_walks(walk_depth);
+      truncate_forcing_stack(forcing_depth);
+      restore_module_walk(prev_mod_exprs, prev_mod_idx);
+      exn.throw(err);
+    },
+    .None => ()
+  );
+  result
+});
 export(AnonModuleResult);
-export(evaluate_anonymous_module_begin_exprs);
+export(evaluate_anonymous_module_begin_exprs, register_pending_definition_forcer);

@@ -45,6 +45,7 @@ open(import("std/string"));
   type_implements_runtime_builtin
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
+{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { YoError, format_error_message } :: import("../error.yo");
@@ -1199,7 +1200,22 @@ check_self_constraints_violation_msg :: (
             continue;
           }
         );
-        if(!(type_implements_trait_bool(target_type, constraint, env)), {
+        (sc_implemented : bool) = type_implements_trait_bool(target_type, constraint, env);
+        // Lazy impls (plans/LAZY_TOPLEVEL_BINDINGS.md §4.4): force a later
+        // impl of the target type before rejecting.
+        if(!(sc_implemented), {
+          match(
+            force_pending_impls_for_type_name(type_head_name_for_impl_forcing(target_type)),
+            .Forced => {
+              sc_implemented = type_implements_trait_bool(target_type, constraint, env);
+            },
+            .Error({ msg : sc_force_msg }) => {
+              return(Option(String).Some(sc_force_msg));
+            },
+            .NoneForced => ()
+          );
+        });
+        if(!(sc_implemented), {
           msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(constraint)).concat(`" from trait "`).concat(name).concat(`"'s where clause.`);
           return(Option(String).Some(msg));
         });
