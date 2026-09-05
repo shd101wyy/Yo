@@ -43,21 +43,102 @@ extern(
   __yo_aligned_alloc :
     (
       fn(alignment : usize, size : usize) -> ?*void
-    )
+    ),
+  __yo_aligned_free :
+    (fn(ptr : ?*void) -> unit)
 );
 /// The process-wide global allocator (mimalloc by default, falls back to libc).
+///
+/// Two allocation families live here and they are **not interchangeable**:
+///
+/// | allocate with | release with |
+/// | --- | --- |
+/// | `malloc` / `calloc` / `realloc` | `free` |
+/// | `aligned_alloc` | `aligned_free` |
+///
+/// Crossing the two corrupts the heap on Windows, where the aligned family is
+/// the CRT's separate `_aligned_malloc` / `_aligned_free` pair.
 GlobalAllocator :: impl({
+  /// Allocate `size` uninitialized bytes. `.None` on failure.
+  /// Release with `free`.
   malloc :: __yo_malloc;
+  /// Allocate `nmemb * size` zeroed bytes. `.None` on failure.
+  /// Release with `free`.
   calloc :: __yo_calloc;
+  /// Resize a `malloc`/`calloc`/`realloc` block. `.None` on failure, in which
+  /// case the original block is untouched and still owned by the caller.
+  /// Release with `free`.
   realloc :: __yo_realloc;
+  /// Release a block from `malloc`, `calloc` or `realloc`. `.None` is a no-op.
+  ///
+  /// NEVER pass a block from `aligned_alloc` here — use `aligned_free`.
   free :: __yo_free;
-  aligned_alloc :: __yo_aligned_alloc;
+  /// Allocate `size` bytes aligned to at least `alignment` bytes.
+  /// Release with `aligned_free` — NEVER with `free`.
+  ///
+  /// `alignment` must be a non-zero power of two; any other value is a
+  /// programming error and returns `.None` without allocating (rather than
+  /// invoking the platform primitive's undefined behaviour).
+  ///
+  /// The request is normalized so the result is identical on every supported
+  /// target, none of which agree on the raw primitive's edge cases:
+  ///
+  /// - The alignment is raised to at least `sizeof(*void)`. POSIX
+  ///   `memalign` — what macOS's `aligned_alloc` is built on — returns NULL
+  ///   for anything smaller, while glibc and Windows accept it. A block
+  ///   aligned more strongly than asked still satisfies the request.
+  /// - `size` is rounded UP to a multiple of that alignment, which C11
+  ///   `aligned_alloc` requires (macOS returns NULL otherwise; glibc and
+  ///   Windows do not care). The block is therefore at most `alignment - 1`
+  ///   bytes larger than requested. `.None` if the rounding would overflow
+  ///   `usize`.
+  /// - A `size` of zero allocates one alignment-sized block, so a successful
+  ///   call always yields a unique pointer that `aligned_free` accepts.
+  ///
+  /// `.None` therefore means exactly "no block was allocated": a rejected
+  /// alignment, a size that cannot be rounded, or the allocator running out
+  /// of memory.
+  aligned_alloc :: (fn(alignment : usize, size : usize) -> ?*void)(
+    cond(
+      (
+        (alignment == usize(0)) ||
+          ((alignment & (alignment - usize(1))) != usize(0))
+      ) => .None,
+      true => {
+        min_alignment :: sizeof(*void);
+        effective := cond(
+          (alignment < min_alignment) => min_alignment,
+          true => alignment
+        );
+        cond(
+          (size > (SIZE_MAX - (effective - usize(1)))) => .None,
+          true => {
+            rounded := ((((size + effective) - usize(1)) / effective) * effective);
+            request := cond(
+              (rounded == usize(0)) => effective,
+              true => rounded
+            );
+            __yo_aligned_alloc(effective, request)
+          }
+        )
+      }
+    )
+  );
+  /// Release a block from `aligned_alloc`. `.None` is a no-op.
+  ///
+  /// NEVER pass a block from `malloc`, `calloc` or `realloc` here — use
+  /// `free`. On Windows this is the CRT's `_aligned_free`, which reads the
+  /// alignment header `_aligned_malloc` wrote and is undefined for any other
+  /// block; on POSIX and under mimalloc both names resolve to the ordinary
+  /// deallocator.
+  aligned_free :: __yo_aligned_free;
   export(
     malloc,
     calloc,
     realloc,
     free,
-    aligned_alloc
+    aligned_alloc,
+    aligned_free
   );
 });
 export(

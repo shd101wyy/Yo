@@ -29,6 +29,14 @@ c_include(
     (fn(ptr : ?*void, size : usize) -> ?*void),
   free :
     (fn(ptr : ?*void) -> unit),
+  /// C11 `aligned_alloc`, released with `free`. Raw and non-portable: it is
+  /// absent from the Windows CRT (which offers `_aligned_malloc` /
+  /// `_aligned_free` instead), so a call to it does not compile for the
+  /// `*-pc-windows-*` targets, and C11 leaves the result undefined unless
+  /// `alignment` is a supported power of two and `size` is a multiple of it
+  /// (macOS enforces both by returning NULL; glibc enforces neither).
+  /// `GlobalAllocator.aligned_alloc` / `aligned_free` in `std/allocator` is the
+  /// portable pair.
   aligned_alloc :
     (fn(alignment : usize, size : usize) -> ?*void),
   // String to number conversion

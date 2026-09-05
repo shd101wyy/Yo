@@ -4,7 +4,10 @@
 `GlobalAllocator.aligned_alloc` is one of the exported names that no test under
 `tests/` ever mentions, and reading it against the codegen side shows std never
 exposes the matching free. **Class**: memory-unsafety (Windows/MSVC targets).
-**Status**: OPEN.
+**Status**: **FIXED** 2026-09-05 — `aligned_free` added and `aligned_alloc`
+turned into a checked, portable wrapper (see "What landed" at the bottom;
+it is larger than the "Fix" section below proposed, because measuring the
+platform primitives turned up three more divergences).
 
 ## Symptom
 
@@ -146,3 +149,56 @@ riskiest to bring up — see `issues/retired-windows-vcpkg-capability.md` and
 `issues/windows-no-main-worker-stack-rc139.md` for the live hazards there. Do
 not skip the test on Windows: the whole point is that the Windows leg is the
 broken one.
+
+---
+
+## What landed (2026-09-05)
+
+The missing free was the reported bug, but measuring the three platform
+primitives against each other turned up that they disagree on every edge case
+of the *allocation* too, so the same Yo program returned a block on one target
+and `.None` on another. Measured, not assumed — `aligned_alloc(64, 100)`,
+`aligned_alloc(4, 16)` and `aligned_alloc(24, 48)` all return NULL on macOS
+(libmalloc routes `aligned_alloc` through `memalign`, which enforces
+`size % alignment == 0` and `alignment >= sizeof(void*)`), while glibc's
+`memalign` enforces neither and Windows' `_aligned_malloc` accepts any size.
+A `.None` therefore meant "your platform" rather than "no memory".
+
+So the fix is two parts, both in `std/allocator.yo` — **no codegen change**:
+`src/codegen/c/collection.yo` already emits a correct `__yo_aligned_free` under
+all four allocator configurations, it was simply unreachable from Yo.
+
+1. **`GlobalAllocator.aligned_free`** — new export bound to the existing
+   `__yo_aligned_free` extern, so the emitted C is `_aligned_free(...)` on
+   Windows, `free(...)` on POSIX/wasm and `mi_free(...)` under mimalloc. The
+   pairing contract is documented on all six members plus the impl itself.
+2. **`GlobalAllocator.aligned_alloc` is now a checked Yo wrapper** rather than a
+   bare rename of the extern. It rejects a zero or non-power-of-two alignment
+   with `.None` (instead of handing the platform primitive arguments whose
+   behaviour is undefined), raises the alignment to at least `sizeof(*void)`,
+   rounds the size up to a multiple of that alignment, rejects a rounding that
+   would overflow `usize`, and turns a zero size into one alignment-sized block.
+   Every supported target now behaves identically, and `.None` means exactly
+   "no block was allocated".
+
+Regression tests: seven new cases in `tests/allocator.test.yo` (several
+alignments, a size that is not a multiple of the alignment, an alignment below
+the pointer size, zero size, non-power-of-two rejection, overflow rejection,
+`aligned_free(.None)`), each asserting the returned address really is aligned
+and writing + reading back every requested byte. Two of them go red on macOS
+against the pre-fix `aligned_alloc :: __yo_aligned_alloc` binding; all seven
+fail to compile without `aligned_free`.
+
+Windows was gated by cross-compiling AND LINKING the emitted C with
+`zig cc -target x86_64-windows-gnu` and `-target aarch64-windows-gnu` (zig
+bundles the MinGW headers and import libs): the object file's undefined symbols
+are `__imp__aligned_malloc` and `__imp__aligned_free`, and both resolve.
+
+### Sibling finding, not fixed the same way
+
+`std/libc/stdlib.yo` also exports `aligned_alloc`, the raw C11 one. Its pairing
+is symmetric (the module exports `free` too), but the symbol **does not exist in
+the Windows CRT** — `zig cc -target x86_64-windows-gnu` rejects a call to it as
+an undeclared library function. That is a property of the platform C library,
+which is exactly what `std/libc/*` binds, so it is documented on the declaration
+(pointing at `GlobalAllocator`'s portable pair) rather than removed.
