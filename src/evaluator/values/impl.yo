@@ -849,11 +849,50 @@ _bind_forall_from_type_args :: (
 /// module-level statement right after the finder's definition.
 FindAssocFromImplsFn :: (fn(t : TypeValue, label : String, env : Environment) -> Option(TypeValue));
 (g_find_assoc_from_impls_fn : Option(FindAssocFromImplsFn)) = Option(FindAssocFromImplsFn).None;
+/// True when any member of `tys` is, or structurally contains, a SomeT.
+_any_type_has_some_type :: (fn(tys : ArrayList(TypeValue)) -> bool)({
+  (ati : usize) = usize(0);
+  while(ati < tys.len(), {
+    at_ty := match(tys.get(ati), .Some(t) => t, .None => t_unit());
+    if(is_some_type(at_ty) || (get_all_some_types(at_ty).len() > usize(0)), {
+      return(true);
+    });
+    ati = (ati + usize(1));
+  });
+  false
+});
+/// A MARKER trait — its member and associated-type-constraint types mention no
+/// type variable at all, so the stored TypeValue is INSTANTIATION-INDEPENDENT:
+/// it means the same thing wherever it is asked. `Send`, `Comptime`, `Runtime`
+/// and `Acyclic` qualify (their only member is the `id := "..."` tag, a
+/// `comptime_str`); anything with a METHOD does not, because a method signature
+/// mentions `Self` — and a PARAMETRIC trait's arguments (`Eq(T)`'s `rhs : T`)
+/// are baked in at evaluation time as well.
+///
+/// `try_match_generic_impl`'s where-constraint pass enforces a constructed
+/// receiver pattern's clause only for these; see the long comment there for
+/// why a non-marker bound cannot be decided from the stored TypeValue.
+_is_marker_trait :: (fn(ty : TypeValue) -> bool)(
+  match(
+    ty,
+    .TraitT({ field_types : mt_fts, assoc_constraint_types : mt_acts }) => (
+      !_any_type_has_some_type(mt_fts) && !_any_type_has_some_type(mt_acts)
+    ),
+    _ => false
+  )
+);
+/// `enforce_all_where` — see the where-constraint pass below. `false` (the
+/// METHOD-DISPATCH callers) enforces a failed where-clause only for BLANKET
+/// impls; `true` (the TRAIT-PREDICATE caller, `find_matching_generic_impl`)
+/// enforces a MARKER constraint on a constructed receiver pattern too, so
+/// `impl(generic(T), where(T <: Send), *(T), Send())` cannot answer
+/// "`*(NonSend)` is Send".
 try_match_generic_impl :: (
   fn(
     concrete_type : TypeValue,
     entry : GenericImplEntry,
-    env : Environment
+    env : Environment,
+    enforce_all_where : bool
   ) -> Option(ArrayList(TypeValue))
 )({
   // 1. Resolve SomeT — if still unresolved, cannot match.
@@ -995,15 +1034,56 @@ try_match_generic_impl :: (
   // no ExprInfo and codegen dropped the statement (issues/repros/v5_direct.yo,
   // the tests/iter_filter_closure + iterator_combinators family).
   //
-  // ENFORCEMENT stays scoped to BLANKET impls (bare-SomeT receiver pattern),
-  // exactly as before: a blanket matches every type, so its where-clause is
-  // the only thing keeping it off non-satisfying types; specific-pattern
-  // impls already constrain via their pattern, and enforcing their clauses
-  // would wrongly exclude them wherever the trait-implements predicate has a
-  // load-order false negative (e.g. `String <: Hash` breaking
-  // `HashMap(String, _).new()`). TS enforces all — its predicate is complete;
-  // this scoping is the safe yo-self adaptation. The BINDINGS, however, are
-  // taken for every impl.
+  // ENFORCEMENT is scoped by `enforce_all_where`:
+  //
+  //   false (METHOD DISPATCH — find_methods_from_generic_impls and friends):
+  //     only BLANKET impls (bare-SomeT receiver pattern) are rejected on a
+  //     failed clause. A blanket matches every type, so its where-clause is
+  //     the only thing keeping it off non-satisfying types; specific-pattern
+  //     impls already constrain via their pattern, and enforcing their
+  //     clauses HERE would drop a method wherever the trait-implements
+  //     predicate has a load-order false negative (e.g. `String <: Hash`
+  //     breaking `HashMap(String, _).new()`).
+  //
+  //   true (TRAIT PREDICATE — find_matching_generic_impl, the sole feeder of
+  //     `type_implements_trait` step 8): a constructed pattern is enforced
+  //     too, but ONLY for a MARKER constraint (`_is_marker_trait`).
+  //     `impl(generic(T : Type), where(T <: Send), *(T), Send())` says `*(T)`
+  //     is Send *iff* `T` is; ignoring the clause made
+  //     `Type.impls(*(NonSend), Send)` — and `Array(NonSend, 4)`, `?*NonSend`
+  //     — answer `true`, letting non-Send data cross a thread boundary. See
+  //     `issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`.
+  //     A load-order false negative here costs a `false` from a PREDICATE,
+  //     which the auto-derive / registry / builtin steps ahead of step 8
+  //     already answer for the common types; it cannot silently delete a
+  //     method the way the dispatch path can.
+  //
+  //     The marker restriction is NOT conservatism for its own sake — a
+  //     NON-marker constraint cannot be answered from what is stored here.
+  //     The trait was evaluated at IMPL-REGISTRATION time, so `where(T <:
+  //     Eq(T))` is stored as `Eq(SomeT(T))` — a trait built for the impl's
+  //     own type PARAMETER, with a `Rhs`-specialized id (`Eq` is a comptime
+  //     fn returning a fresh `Trait` per `Rhs`). MEASURED: asked as-is even
+  //     `i32 <: Eq(SomeT(T))` is false, so enforcing it would delete the
+  //     whole `Option(T)`/`Eq` and `Option(T)`/`Ord` family from the
+  //     predicate (the over-rejection canary in tests/basic.test.yo caught
+  //     exactly that). `substitute()` cannot repair it either — its TraitT
+  //     arm rewrites field types but KEEPS the trait id, which is what the
+  //     registry is keyed on. A MARKER (`Send`, `Comptime`, `Runtime`,
+  //     `Acyclic`) mentions no type variable anywhere in its members, so the
+  //     stored value IS the trait to ask about and the answer is exact.
+  //     Non-marker bounds therefore stay on the old ignore-the-clause
+  //     behaviour; closing that half needs the constraint's source EXPR
+  //     re-evaluated against the bindings, not a stored TypeValue.
+  //
+  // TS enforces all — its predicate is complete; this split is the safe
+  // yo-self adaptation. The BINDINGS, however, are taken for every impl.
+  //
+  // In every mode an UNBOUND where-param (`_resolve_one_forall_binding` →
+  // `.None`, i.e. the clause could not be discharged because the param never
+  // got a concrete binding — a def-time trial over an unresolved SomeT, say)
+  // is NOT a rejection: only a param that IS bound and demonstrably fails
+  // its trait removes the impl.
   (match_env : Environment) = synth_result.expected_env;
   (wc_ok : bool) = true;
   {
@@ -1021,7 +1101,10 @@ try_match_generic_impl :: (
             // The adapter writes the post-constraint bindings into match_env
             // IN PLACE (env.frames swap) — see the hook's doc above.
             wcj_impl := wcj_f(wcj_bound, wcj_trait, match_env);
-            if(!wcj_impl && is_some_type(entry.receiver_type_pattern), {
+            if(!wcj_impl && (
+              (enforce_all_where && _is_marker_trait(wcj_trait))
+              || is_some_type(entry.receiver_type_pattern)
+            ), {
               wc_ok = false;
             });
           },
@@ -1317,7 +1400,10 @@ find_matching_generic_impl :: (
         continue;
       }
     );
-    if(try_match_generic_impl(concrete_type, entry, env).is_some(), {
+    // `true`: this is the TRAIT PREDICATE (`type_implements_trait` step 8), so
+    // a constructed pattern's MARKER where-clause is enforced — see the pass
+    // in `try_match_generic_impl`.
+    if(try_match_generic_impl(concrete_type, entry, env, true).is_some(), {
       return(true);
     });
     ei = (ei + usize(1));
@@ -1358,7 +1444,9 @@ find_matching_negative_generic_impl :: (
       }
     );
     if(entry.trait_key == key, {
-      if(try_match_generic_impl(concrete_type, entry, env).is_some(), {
+      // `false`: a negative impl REMOVES a trait, so tightening its match
+      // would loosen the predicate — the opposite direction. Unchanged.
+      if(try_match_generic_impl(concrete_type, entry, env, false).is_some(), {
         found = true;
       });
     });
@@ -1608,7 +1696,7 @@ find_methods_from_generic_impls :: (
       if(!has_field_with_name, {
         ei = (ei + usize(1));
       }, {
-        mb_opt := try_match_generic_impl(resolved, entry, env);
+        mb_opt := try_match_generic_impl(resolved, entry, env, false);
         if(in_def_time_trial() && impl_dbg_env.get(`YO_DEBUG_DISPATCH`).is_some() && (method_name == "add"), {
           eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(resolved)} pat=${type_to_string(entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
         });
@@ -1812,7 +1900,7 @@ find_associated_type_from_generic_impls :: (
             pfi = (pfi + usize(1));
           });
           if(has_field, {
-            mb_opt := try_match_generic_impl(resolved, entry, env);
+            mb_opt := try_match_generic_impl(resolved, entry, env, false);
             match(
               mb_opt,
               .Some(match_bindings) => {
@@ -1994,7 +2082,7 @@ get_generic_impl_doc_entries :: (
       match(
         entry_list.get(ei),
         .Some(entry) => {
-          (matched : bool) = try_match_generic_impl(resolved, entry, env).is_some();
+          (matched : bool) = try_match_generic_impl(resolved, entry, env, false).is_some();
           if(!matched && (concrete_base_id.len() > usize(0)), {
             if(_receiver_base_type_id_for_doc(entry.receiver_type_pattern) == concrete_base_id, {
               matched = true;

@@ -569,7 +569,7 @@ test("Async test", {
 ## Assertion builtins for Yo tests
 
 - `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code); requires `{ assert } :: import("std/assert");`. The message accepts any `ToString` type; `assert(condition)` uses the default message.
-- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior.
+- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior. **It only FIRES at MODULE level** — inside any function body, and therefore inside a `test("…", { … })` block, `comptime_assert(false)` is silently accepted and the test verifies NOTHING (`issues/comptime-assert-never-fires-inside-a-function-body.md`). Until that is fixed, pin the comptime result in a module-level `::` binding and observe it with a runtime `assert` inside the test.
 - `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
 
 `assert(condition, msg)` accepts any `msg` implementing `ToString` — plain
@@ -601,7 +601,7 @@ This is the standard pattern from `tests/internal/parser.test.yo`. The struct
 constructor `Exception(...)` pins the binding's type, so no annotation is needed
 on the LHS.
 
-Prefer `comptime_assert` over `assert` when the value being tested is compile-time known.
+Prefer `comptime_assert` over `assert` when the value being tested is compile-time known — but only at MODULE level. Inside a `test(...)` body it is inert (see the assertion-builtins section above), so pin the value in a module-level `::` binding and `assert` on that binding instead.
 
 ## Partial application (`_`) tests
 
