@@ -1,23 +1,19 @@
 //! `tls_available()` from a SYNC-only program: pins the TLS runtime emission
 //! being independent of `uses_async` (the `__yo_tls_` ABI must be emitted for
 //! a program whose only TLS touch is the sync probe — see
-//! issues/fixed/tls-runtime-emission-gated-behind-uses-async.md).
-//!
-//! Every target this file runs on now has a real backend: OpenSSL on unix,
-//! Schannel on Windows (plans/D6_TLS_PLAN.md). Windows used to answer `false`
-//! here and that WAS the contract while its backend was ABI stubs; asserting
-//! `true` on Windows is now the thing that catches a Schannel regression from
-//! a sync program, where the async runtime is not emitted at all.
+//! issues/fixed/tls-runtime-emission-gated-behind-uses-async.md). Runs on
+//! Windows deliberately: the stub backend answering `false` there IS the
+//! contract until Schannel lands.
 pragma(Pragma.SkipWasm32Emscripten); // std/crypto/tls imports the socket stack
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 { assert } :: import("std/assert");
 { tls_available } :: import("std/crypto/tls");
+{ platform, Platform } :: import("std/process");
 
 test("tls_available links and answers in a sync-only program", {
-  // Not platform-branched any more: unix links OpenSSL and Windows has
-  // Schannel in the OS, so a `false` on either is a build or wiring
-  // regression. (A unix box with no OpenSSL is a legitimate `false`, but CI —
-  // the only place this assertion is made — always has it; the same reasoning
-  // gates the availability test in tests/crypto/tls.test.yo behind `CI`.)
-  assert(tls_available(), "every non-wasm target must carry a working TLS backend");
+  avail := tls_available();
+  cond(
+    (platform == Platform.Windows) => assert(!avail, "Windows builds carry ABI stubs until the Schannel backend lands"),
+    true => assert(avail, "unix builds carry the OpenSSL backend")
+  );
 });

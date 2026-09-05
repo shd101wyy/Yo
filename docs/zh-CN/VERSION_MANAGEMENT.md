@@ -172,4 +172,4 @@ Yo LSP 服务器过去会读取 `.yo-version` 来解析正确的 `std/` 标准�
 - `yo version` 子命令以及 `--help` / `--version` 会跳过版本调度。
 - 版本以对应宿主平台的原生发布包形式从 [GitHub Releases](https://github.com/shd101wyy/Yo/releases) 下载。设置 `$YO_REPO` 可以指向某个 fork。
 - 早于 `0.2.1` 的版本发布于原生包之前，已经无法安装 —— npm 发布在 `0.2.0` 之后就停止了，该渠道已废弃。
-- 下载需要 `PATH` 中有 `tar`。从 v0.2.22 起，HTTP 请求由编译器通过 `std/http` 和编译器内置生成的 TLS 后端直接完成 —— 不再依赖 `curl`（此前的每个版本都是 shell-out 调用 curl）。**Windows 通过 Schannel（SSPI）支持 TLS**，它随操作系统提供，无需安装任何东西。在没有 OpenSSL 的 unix 机器上，远程子命令会报告 `TLS is unavailable in this build` 并给出安装指引（`brew install openssl@3`，或发行版的 `libssl-dev`）。**不再需要** Node.js 或 Bun —— 只有当年 Yo 以 npm 包形式发布时才需要它们。
+- 下载需要 `PATH` 中有 `tar`。从 v0.2.22 起，HTTP 请求由编译器通过 `std/http` 和编译器内置生成的 TLS 后端直接完成 —— 不再依赖 `curl`（此前的每个版本都是 shell-out 调用 curl）。在没有 OpenSSL 的机器上，远程子命令会报告 `TLS is unavailable in this build` 并给出安装指引；Windows 的 Schannel 后端仍在计划中，在那之前远程操作会明确提示不可用。**不再需要** Node.js 或 Bun —— 只有当年 Yo 以 npm 包形式发布时才需要它们。
