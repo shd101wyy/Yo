@@ -76,7 +76,10 @@ open(import("std/fmt"));
   type_implements_trait_bool,
   resolve_assoc_type_for_target,
   extract_fn_trait_from_type,
-  extract_future_trait_from_type
+  extract_future_trait_from_type,
+  type_is_callable_shaped,
+  fn_constrained_param_requires_callable,
+  fn_argument_not_callable_message
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
@@ -87,7 +90,8 @@ open(import("std/fmt"));
   create_type_value,
   create_unknown_val,
   is_unknown_val,
-  is_type_val
+  is_type_val,
+  is_func_val
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -799,6 +803,29 @@ check_if_function_parameter_matches_argument :: (
     });
   });
   arg_value := arg_info.value;
+  // Step 3b: an `Impl(Fn(...))` parameter is a CALLABLE slot — its argument
+  // must be a function value. The constraint lives on the parameter's SomeT,
+  // and Step 6 SYNTHESIZES the argument's type into that type variable, so by
+  // Step 8 `final_pt` IS the argument type and the compatibility test is
+  // trivially satisfied: `io.async(i32(5))` traced
+  // `declared=Impl : (Fn(E) -> T) final=i32 arg=i32 compat=true`. Check the
+  // constraint HERE, before synthesis destroys the evidence
+  // (issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md). Same
+  // flow-violation flagging as Step 5b so a def-time-body swallow re-raises
+  // the error at `check` time instead of hollowing the statement.
+  if(fn_constrained_param_requires_callable(resolved_pt), {
+    nc_callable := (
+      (type_is_callable_shaped(arg_type) || arg_info.capture_type.is_some())
+      || match(arg_value, .Some(nc_av) => is_func_val(nc_av), .None => false)
+    );
+    if(!(nc_callable), {
+      nc_msg := fn_argument_not_callable_message(param_label.clone(), resolved_pt, arg_type);
+      if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+        flag_flow_violation(nc_msg.clone());
+      });
+      exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), nc_msg)));
+    });
+  });
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);

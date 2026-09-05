@@ -102,7 +102,12 @@ _(env : fncall_dbg_env) :: import("std/env");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
 { try_to_implement_function_by_function_type } :: import("./function_type.yo");
 { try_to_implement_closure_by_fn_module_type } :: import("./closure_type.yo");
-{ extract_fn_trait_from_type } :: import("../trait_checking.yo");
+{
+  extract_fn_trait_from_type,
+  type_is_callable_shaped,
+  fn_constrained_param_requires_callable,
+  fn_argument_not_callable_message
+} :: import("../trait_checking.yo");
 { try_to_call_type_with_arguments } :: import("./type.yo");
 { try_to_implement_module_with_arguments_by_module_type } :: import("./record_type.yo");
 {
@@ -5306,6 +5311,36 @@ Fix: wrap the call:
                     `Incompatible type with expected type:
 - Expected: ${type_to_string(resolved_decl_pt)}
 - Actual  : ${type_to_string(etc_arg_ty)}`
+                  )
+                )
+              );
+            });
+          });
+          // C67: an `Impl(Fn(...))` parameter is a CALLABLE slot, and nothing
+          // on this path checked that its argument can be called. The
+          // constraint lives on the parameter's SomeT, so the explicit-generic
+          // gate above (`!type_contains_some_type_deep`) and every other
+          // compatibility test skip it — the argument's type was simply bound
+          // into the type variable. Codegen then cast the value to a function
+          // pointer and jumped through it: `apply(i32(5))` branched to address
+          // 0x5 (issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md).
+          // Flag the flow-violation channel like the C18/C19 argument checks so
+          // an async-closure-body swallow re-raises it at `check` time.
+          if(fn_constrained_param_requires_callable(resolved_decl_pt) && (pi < n_supplied_reg), {
+            nc_callable := (
+              (type_is_callable_shaped(arg_info.ty) || arg_info.capture_type.is_some())
+              || match(arg_info.value, .Some(nc_av) => is_func_val(nc_av), .None => false)
+            );
+            if(!(nc_callable), {
+              nc_msg := fn_argument_not_callable_message(pname.clone(), resolved_decl_pt, arg_info.ty);
+              if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+                flag_flow_violation(nc_msg.clone());
+              });
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(match(fv_args.get(pi), .Some(nc_ae) => nc_ae, .None => expr)),
+                    nc_msg
                   )
                 )
               );

@@ -1555,6 +1555,77 @@ extract_fn_trait_from_type :: (fn(ty : TypeValue) -> Option(TypeValue))(
   )
 );
 // ---------------------------------------------------------------------------
+// type_is_callable_shaped
+// ---------------------------------------------------------------------------
+/// Can a value of `ty` be CALLED?
+///
+/// The same predicate `evaluate_function_call`'s valueless-callee gate uses
+/// before it rejects "No matching call found" (`cvl_is_fnish`,
+/// `calls/function.yo`), lifted here so the ARGUMENT side of an
+/// `Impl(Fn(...))` parameter is judged by exactly the same rule as the callee
+/// side. Callable-shaped:
+///
+///   * a plain `Func` — a named `fn`, an arrow literal, a method;
+///   * a `SomeT` — either an `Impl(Fn(...))` carrier or a still-unresolved
+///     type variable, which is not PROVEN non-callable;
+///   * a `Type`-hierarchy type — an unresolved constructor reference in a
+///     thin def-time env;
+///   * anything carrying an `Fn` trait: `Impl(Fn(...))`, `Dyn(Fn(...))`, a
+///     bare `FnTraitT`;
+///   * a closure CAPTURE struct (`capture_<id>`, `evaluator/utils/closure.yo`)
+///     — a closure forwarded through a specialized parameter is statically
+///     typed as its capture struct.
+///
+/// Everything else — integers, `bool`, `str`, pointers, arrays, tuples, enums,
+/// unions and ordinary structs — is provably not callable.
+type_is_callable_shaped :: (fn(ty : TypeValue) -> bool)({
+  if(is_function_type(ty) || is_some_type(ty), {
+    return(true);
+  });
+  if(is_type_hierarchy_type(ty), {
+    return(true);
+  });
+  if(extract_fn_trait_from_type(ty).is_some(), {
+    return(true);
+  });
+  match(
+    ty,
+    .Struct({ id : cs_id }) => cs_id.starts_with("capture_"),
+    _ => false
+  )
+});
+// ---------------------------------------------------------------------------
+// fn_constrained_param_requires_callable / fn_argument_not_callable_message
+// ---------------------------------------------------------------------------
+/// Does `param_type` constrain its argument to be CALLABLE? True for the
+/// `Impl(Fn(...))` family — a `SomeT` whose required traits include an `Fn`
+/// trait (`Impl(Fn(x : i32) -> i32)`, `Impl(Fn(io : Io) -> unit, Send)`, and a
+/// `where(F <: Fn(...))` type variable once the constraint is attached).
+///
+/// The constraint lives ON the SomeT, so nothing on the call path ever asked
+/// whether the argument satisfies it: the argument's type was synthesized INTO
+/// the type variable and the (now trivially satisfied) compatibility check
+/// passed. See `issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md`.
+fn_constrained_param_requires_callable :: (fn(param_type : TypeValue) -> bool)(
+  is_some_type(param_type) && type_implements_fn(param_type)
+);
+/// The shared diagnostic text for a non-callable argument in an
+/// `Impl(Fn(...))` parameter slot. Both call paths (the inline `FuncVal` arm
+/// in `calls/function.yo` and `check_if_function_parameter_matches_argument`
+/// in `calls/helper.yo`) emit it verbatim, so the wording — and the E0606
+/// classification keyed on "is not callable" — has one spelling.
+fn_argument_not_callable_message :: (
+  fn(param_label : String, param_type : TypeValue, arg_type : TypeValue) -> String
+)(
+  `Argument for parameter "${param_label}" is not callable:
+- Parameter: ${type_to_string(param_type)}
+- Argument : ${type_to_string(arg_type)}
+
+An Impl(Fn(...)) parameter is a callable slot, so it takes a function value: a
+closure (x => ...), an arrow literal ((x) -> ...), a named fn passed by name,
+or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
+);
+// ---------------------------------------------------------------------------
 // type_implements_future
 // ---------------------------------------------------------------------------
 /// Check if a type implements Future (is a future-like type).
@@ -2018,6 +2089,7 @@ export(type_implements_send, type_implements_dispose, type_implements_acyclic);
 export(type_implements_fn);
 export(resolve_assoc_type_for_target);
 export(extract_fn_trait_from_type);
+export(type_is_callable_shaped, fn_constrained_param_requires_callable, fn_argument_not_callable_message);
 export(type_implements_future);
 export(type_contains_some_type_for_codegen_param);
 export(extract_future_trait_from_type);
