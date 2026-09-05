@@ -38,7 +38,6 @@ _(env : anonfn_dbg_env) :: import("std/env");
   ast_expr_is_atom,
   make_err_expr,
   ast_expr_to_string,
-  wrap_body_in_begin,
   BK_TUPLE
 } :: import("../../expr.yo");
 {
@@ -108,6 +107,7 @@ _(env : anonfn_dbg_env) :: import("std/env");
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ evaluate_begin_expression } :: import("../exprs/begin.yo");
 { create_function_body_evaluation_context, hard_swallow_diagnostic } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
@@ -432,10 +432,23 @@ _trial_eval_anon_body :: (
       }
     )
   );
-  // Wrap a non-begin body in a synthetic `begin(...)` so even a bare-atom
-  // body runs the begin-tail ownership pass (TS anonymous-function.ts:829
-  // always routes through evaluateBeginExpression; see wrap_body_in_begin).
-  evaluated := evaluate_expression_raw(wrap_body_in_begin(body), env, ctx, inner_exn);
+  // Route the body through evaluate_begin_expression DIRECTLY — the faithful
+  // port of TS anonymous-function.ts:829, which calls `evaluateBeginExpression`
+  // for EVERY body shape (begin.ts:1009-1037 then treats a non-begin body as a
+  // one-statement begin in place). Twin of the fn-body trial
+  // (calls/function_type.yo:230) and the closure-call body eval
+  // (calls/closure_type.yo:258), which already do this.
+  //
+  // The previous `evaluate_expression_raw(wrap_body_in_begin(body))` only
+  // begin-wrapped bare-ATOM/field-access bodies, so a body that is a bare
+  // CONTROL-FLOW call never reached the begin machinery at all — and `return`
+  // is recognised ONLY as a begin statement (there is no `return` entry in the
+  // expression dispatcher, unlike `unwind`). A bare `err -> return(v)` handler
+  // therefore evaluated `return` as an ordinary identifier, threw
+  // `Variable "return" not found`, got swallowed here, and shipped as an
+  // `abort()` stub with no diagnostic
+  // (issues/fixed/resumable-exception-bare-return-handler-body-aborts.md).
+  evaluated := evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, inner_exn);
   out.push(evaluated);
 });
 /// Unify a declared return type that CONTAINS type variables (`Option(B)`)
