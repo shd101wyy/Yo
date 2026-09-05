@@ -108,7 +108,7 @@ _(env : anonfn_dbg_env) :: import("std/env");
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ create_function_body_evaluation_context, hard_swallow_diagnostic } :: import("../context.yo");
+{ create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound } :: import("../../types/utils.yo");
 { is_some_type, is_unit_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
@@ -1519,7 +1519,11 @@ Result type: ${type_to_string(decl_result_ty)}`
       body_eval_ctx.expected_type = Option(ExpectedTypeCtx).None;
     });
     anon_body_out := ArrayList(AstExpr).new();
+    // A swallowed throw strands whatever the body pushed on the forcing stacks
+    // (an impl abandoned inside the closure body) — truncate back.
+    anon_depths := forcing_depths();
     _trial_eval_anon_body(body_for_def_eval, body_eval_env, body_eval_ctx, anon_body_out);
+    truncate_forcing_depths(anon_depths);
     // Channel 0 (P0, plans/LAZY_TOPLEVEL_BINDINGS.md §4.6): a swallowed
     // unbound-name that is bound LATER in this module is a forward
     // reference — error now instead of hollowing the closure body silently
@@ -1815,7 +1819,9 @@ Result type: ${type_to_string(decl_result_ty)}`
       dgc_ctx := create_function_body_evaluation_context(function_type, dgc_fv, dgc_env, ctx);
       dgc_out := ArrayList(AstExpr).new();
       dgc_fv_was := flow_violation_pending();
+      dgc_depths := forcing_depths();
       _trial_eval_anon_body(body_for_def_eval.clone(), dgc_env, dgc_ctx, dgc_out);
+      truncate_forcing_depths(dgc_depths);
       // P0 (§4.6): forward reference — re-raise instead of discarding (the
       // dgc trial is the SILENT swallow otherwise; TS parity keeps the
       // discard for every other error class).
