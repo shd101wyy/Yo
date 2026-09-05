@@ -1198,3 +1198,43 @@ before hunting elsewhere.
 
 ## Closure arguments: `->` literals and `=>` closures both infer the result type
 - **Either arrow binds an inferred result type.** When an argument's return type must be INFERRED into a type variable (`o.map((x) -> ...)`, `m.with_lock((v) => ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` param), a capture-free `->` fn literal and a `=>` closure both bind `R` (fixed 2026-08-29, `issues/fixed/arrow-fn-literal-result-type-not-inferred.md`, C55). Pick `=>` only when the body needs to capture. `->` stays required for effect handlers, whose declared result is the per-call-site `ResumeType` and is never bound at the literal.
+
+## An `Impl(Fn(...))` parameter only accepts a CALLABLE argument (E0606)
+
+Since 2026-09-05 (C67, `issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md`)
+the evaluator enforces the `Fn` constraint at the call site. Before that the
+constraint lived on the parameter's `SomeT` and both call routes bound the
+ARGUMENT's type into that type variable before anything tested it, so
+`apply(i32(5))` against `f : Impl(Fn(x : i32) -> i32)` passed `yo check`, linked,
+and the emitted C cast the integer to a function pointer and jumped through it.
+
+What still binds: a closure (`x => ...`), an arrow literal (`(x) -> ...`), a
+named `fn` passed BY NAME, an explicit `(fn(x : i32) -> i32)(...)` literal, a
+`ClosureType({...})` value, a closure forwarded from another `Impl(Fn)` /
+`Dyn(Fn)` slot, and an unresolved type variable. Anything else — an integer,
+`bool`, `str`/`String`, a pointer, an array, a tuple, an enum or an ordinary
+struct — is rejected as `error[E0606]: Argument for parameter "f" is not
+callable`.
+
+`io.async` is the same rule, not a special case: its `action` parameter is an
+ordinary `Impl(Fn(e : E) -> T)` slot, so a bare block is now an error.
+
+```rust
+// WRONG — a block is not a closure. This used to type-check, run EAGERLY in
+// the enclosing function, and return no future at all:
+io.async({
+  w := i32(5);
+  w
+})
+
+// CORRECT — name the bundle parameter:
+io.async(e => {
+  w := i32(5);
+  w
+})
+```
+
+Binding a closure to a local still needs the expected type on the binding
+(`(cb : Impl(Fn(x : i32) -> i32)) = (x => (x + base));`); a bare
+`cb := (x => ...)` fails with "Expected a function type, got: …" — that is a
+separate, pre-existing limitation.

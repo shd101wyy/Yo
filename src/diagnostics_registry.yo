@@ -33,6 +33,7 @@ open(import("std/fmt"));
   E_ARGUMENT_COUNT_MISMATCH,
   E_RETURN_TYPE_MISMATCH,
   E_TYPE_MISMATCH,
+  E_ARGUMENT_NOT_CALLABLE,
   E_USE_OF_MOVED_VALUE,
   E_CANNOT_REASSIGN,
   E_MAYBE_UNINITIALIZED,
@@ -345,6 +346,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "p : (i32, i32) = (1, 2);",
       "The second tuple element must be i32.",
       "元组第二个元素必须是 i32。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_ARGUMENT_NOT_CALLABLE,
+      "argument is not callable",
+      "实参不可调用",
+      "A parameter declared `Impl(Fn(...))` was given a value that cannot be called.",
+      "声明为 `Impl(Fn(...))` 的参数收到了一个无法调用的值。",
+      "An `Impl(Fn(...))` parameter is a callable slot: the callee invokes it. Only a function value fits — a closure (`x => ...`), an arrow literal (`(x) -> ...`), a named `fn` passed by name, or another `Impl(Fn(...))` / `Dyn(Fn(...))` value. An integer, string, struct or enum has no code to jump to, so it is rejected here rather than lowered into a function-pointer call. The same rule applies to `io.async(...)`, whose `action` parameter is an ordinary `Impl(Fn(e : E) -> T)` slot: pass a closure, never a bare block or a value.",
+      "`Impl(Fn(...))` 参数是可调用槽位：被调函数会调用它。只有函数值才合适 —— 闭包（`x => ...`）、箭头字面量（`(x) -> ...`）、按名字传入的具名 `fn`，或另一个 `Impl(Fn(...))` / `Dyn(Fn(...))` 值。整数、字符串、结构体或枚举没有可跳转的代码，因此在此处直接报错，而不是把它降级成函数指针调用。同样的规则适用于 `io.async(...)`：它的 `action` 参数就是普通的 `Impl(Fn(e : E) -> T)` 槽位，必须传闭包，不能传裸代码块或普通值。",
+      "apply :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));\nr := apply(i32(5));",
+      "apply :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));\nr := apply(x => (x + i32(5)));",
+      "`i32(5)` is a number, not something `f(...)` can call.",
+      "`i32(5)` 是一个数字，`f(...)` 无法调用它。"
     )
   );
   out.push(

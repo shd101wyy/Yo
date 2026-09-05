@@ -227,6 +227,11 @@ test("classifier: representative messages map to their families", {
     .None => assert(false, "arity must classify")
   );
   match(
+    _classify_message(`Argument for parameter "f" is not callable:\n- Parameter: Impl(Fn(x : i32) -> i32)\n- Argument : i32`),
+    .Some(c) => assert(c == "E0606", `E0606, got ${c}`),
+    .None => assert(false, "non-callable argument must classify")
+  );
+  match(
     _classify_message(`use of moved value: \`x\``),
     .Some(c) => assert(c == "E0901", `E0901, got ${c}`),
     .None => assert(false, "moved value must classify")

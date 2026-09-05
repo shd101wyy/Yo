@@ -1,0 +1,20 @@
+open(import("std/fmt"));
+
+// `Io.async`'s `action` parameter is an ordinary `Impl(Fn(e : E) -> T)` slot,
+// so it reached the same hole through the same door: a bare block (or any
+// value) where the closure belongs used to pass `check`. Nothing about the
+// BLOCK was special — `io.async(i32(5))` gave byte-identical output — and the
+// block ran EAGERLY in the enclosing function while the future was never
+// built. See issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md.
+noparam :: (fn(io : Io) -> Impl(Future(i32)))(
+  io.async({
+    w := i32(5);
+    w
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  v := io.await(noparam(io), io);
+  println(v.to_string());
+});
+export(main);
