@@ -641,8 +641,27 @@ test("Test type auto derive Runtime", {
   UnionData :: union(a : i32, b : bool);
   comptime_assert(Type.impls(UnionData, Runtime));
   // SomeType
+  // STALE ASSERTION CORRECTED 2026-09-05. `fn1` used to assert
+  // `Type.impls(T, Runtime)` is TRUE, encoding a "an unconstrained type
+  // parameter is Runtime by default" rule that neither this compiler nor the
+  // retired TypeScript one ever implemented -- `type_implements_runtime_builtin`
+  // has no SomeType case in either, so an unconstrained `T` falls through to
+  // its (empty) constraint list and answers `false`. And `false` is the RIGHT
+  // answer: an unconstrained `T` could be instantiated at `comptime_int`, which
+  // is not Runtime, so claiming it can exist at runtime would be unsound. The
+  // "Test type auto derive Comptime" test asserts exactly this polarity for the
+  // identical shape and always has.
+  //
+  // The contrast this pair was written to draw -- unconstrained vs
+  // `where(T <: !(Runtime))` -- is not expressible today: both answer `false`.
+  // `fn2` below is kept as the pin that a NEGATIVE constraint does not flip it
+  // to true.
+  //
+  // Never caught because `comptime_assert` was inert inside a `test(...)` body
+  // until 2026-09-05
+  // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
   fn1 :: (fn(comptime(T) : Type) -> unit)({
-    comptime_assert(Type.impls(T, Runtime));
+    comptime_assert(Type.impls(T, Runtime) == false);
   });
   fn2 :: (fn(comptime(T) : Type, where(T <: !Runtime)) -> unit)({
     comptime_assert(Type.impls(T, Runtime) == false);

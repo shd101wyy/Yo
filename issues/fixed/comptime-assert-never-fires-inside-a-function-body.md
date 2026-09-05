@@ -170,17 +170,29 @@ The suite compiles each test file as one batch, so a live-and-false
 re-running the fast suite and excluding each failing file in turn.
 
 **1553 assertions came alive** (`grep -rho comptime_assert tests/ --exclude-dir=cli-cases`).
-The fast suite produced **three** failing files. Every one is a REAL,
-PRE-EXISTING compiler bug — each reproduced identically on the released v0.2.24
-seed, so none is a regression from this change or from PR #429. **None was a
-stale assertion**: in all three cases the test asserted the CORRECT answer and
-the compiler was wrong.
+Enumerating took six suite runs. **Six findings across three files: four real,
+PRE-EXISTING compiler bugs and two genuinely stale assertions.** Every one of
+the four bugs reproduced identically on the released v0.2.24 seed, so none is a
+regression from this change or from PR #429.
+
+Where the bug is out of scope, the assertion is pinned to the MEASURED value
+with a comment naming the filed issue and stating the value it should have, and
+stays LIVE — when the bug is fixed it goes red, and that red is the reminder to
+restore the correct value. Nothing was weakened or deleted.
 
 | # | file | assertion | measured | classification | action |
 |---|------|-----------|----------|----------------|--------|
-| 1 | `tests/basic.test.yo` | `Type.impls(Tuple(i32), Comptime)` (and `Tuple(comptime_int)`) | `false`, want `true` | **real bug — small** | FIXED here. Tuples derive NO auto-derived marker at all: `Comptime`, `Send`, `Runtime` and `Acyclic` are all `false` for every tuple, where the identical nominal struct is `true`. `issues/fixed/tuple-types-derive-no-auto-derived-marker.md` |
-| 2 | `tests/comptime.test.yo` | `__yo_are_types_compatible(fn(generic(T),…)->T, fn(generic(Z),…)->Z) == true` (3 assertions) | `false`, want `true` | **real bug — large, filed** | Generic fn types are compared by BINDER NAME, not alpha-equivalence. `issues/generic-fn-type-compatibility-is-not-alpha-equivalent.md`. Assertions pinned to the measured value, kept LIVE with the correct answer in the comment. |
-| 3 | `tests/operator_grouping.test.yo` | `(20 - 5 - 4 - 3) == 8` | `16` | **real bug — large, filed** | A same-operator chain of FOUR or more operands is not left-associative: it parses as `(a - (b - c)) - d`. Three operands and explicit parentheses are correct. `issues/same-operator-chain-of-four-or-more-is-not-left-associative.md`. Assertion pinned to the measured value, kept LIVE with the correct answer in the comment. |
+| 1 | `tests/basic.test.yo` | `Type.impls(Tuple(i32), Comptime)`, `Tuple(comptime_int)` | `false`, want `true` | **real bug — small** | **FIXED here.** Tuples derive NO auto-derived marker at all: `Comptime`, `Send`, `Runtime` and `Acyclic` are all `false` for every tuple, where the identical nominal struct is `true`. Fixing it exposed a second defect in the same block — the recursion guard keyed by nominal id, which is `""` for every structural type, so a nested one was cut (`*(*(i32))` was not `Send`). `issues/fixed/tuple-types-derive-no-auto-derived-marker.md` |
+| 2 | `tests/comptime.test.yo` | `__yo_are_types_compatible(fn(generic(T),…)->T, fn(generic(Z),…)->Z) == true` ×3 | `false`, want `true` | **real bug — large, filed** | Generic fn types are compared by BINDER NAME, not alpha-equivalence. `issues/generic-fn-type-compatibility-is-not-alpha-equivalent.md`. Pinned to measured, kept live. |
+| 3 | `tests/operator_grouping.test.yo` | `(20 - 5 - 4 - 3) == 8` | `16` | **real bug — large, filed** | A same-operator chain of FOUR or more operands is not left-associative: it parses as `(a - (b - c)) - d`. Three operands and explicit parentheses are correct. `issues/same-operator-chain-of-four-or-more-is-not-left-associative.md`. Pinned to measured, kept live. |
+| 4 | `tests/comptime.test.yo` | `c1.radius == 10.0` after a comptime enum-payload assignment | `5.0` | **real bug — filed** | Assigning to a comptime ENUM payload field is a silent no-op; comptime struct/array/tuple mutation and RUNTIME enum mutation all work. `issues/comptime-enum-payload-field-assignment-is-a-silent-no-op.md`. Pinned to measured, kept live. |
+| 5 | `tests/comptime.test.yo` | `quote(1 +⏎ 2 +⏎ 3) == quote(1 + (2 + 3))` | `(1 + 2) + 3` | **stale assertion** | **Corrected to the TRUE value.** It encoded the removed newline-associativity rule (a trailing operator at end of line made a chain right-associate); `plans/archive/OPERATOR_ASSOCIATIVITY.md` deleted that rule, so both layouts left-associate now. A `right == left` assertion was added — that the two LAYOUTS agree is exactly what "source layout no longer affects grouping" means. |
+| 6 | `tests/basic.test.yo` | `Type.impls(T, Runtime)` for an unconstrained `comptime(T) : Type` | `false`, want `true` | **stale assertion** | **Corrected to the TRUE value.** It encoded "an unconstrained type parameter is Runtime by default", which neither compiler implements — `type_implements_runtime_builtin` has no SomeType case in either, so an unconstrained `T` falls through to its empty constraint list. `false` is also the RIGHT answer: `T` could be instantiated at `comptime_int`. The sibling `Comptime` test asserts exactly this polarity for the identical shape and always has. |
+
+Note on #6: the same test's `fn3` shape (`generic(T : Type), v : T`) yields an
+`UnknownVal`, not a concrete `false` — both `Type.impls(T, Runtime)` and its
+negation compile there — so that assertion is still no gate. That is the
+documented limit of this fix, not an oversight.
 
 Nothing was weakened or deleted. The two pinned assertions stay live so that a
 future fix flips them red — which is the reminder to restore the correct value.
@@ -202,5 +214,8 @@ future fix flips them red — which is the reminder to restore the correct value
   now LIVE and they PASS, so the `Acyclic` expect-errors really are Acyclic's
   and not the Send bound firing first.
 * **No `comptime_expect_error` test changed verdict.** The suite has 299 of
-  them; none started or stopped passing.
+  them, and only THREE contain a `comptime_assert` — `tests/comptime.test.yo`'s
+  "comptime_assert validates argument type even in function body", which
+  exercises the builtin's argument TYPE check. This change leaves that check
+  untouched: the new throw is added after it, on the same argument info.
 
