@@ -2318,11 +2318,6 @@ run_compile :: (
     // mimalloc's Windows large-page support needs advapi32
     // (OpenProcessToken/LookupPrivilegeValueA); harmless when unused.
     cmd.arg(String.from("-ladvapi32"));
-    // std/crypto/tls's Schannel backend (SSPI). Both ship with Windows, so
-    // unlike OpenSSL there is nothing to probe for — added unconditionally,
-    // the same stance as ws2_32/bcrypt above.
-    cmd.arg(String.from("-lsecur32"));
-    cmd.arg(String.from("-lcrypt32"));
   });
   st := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
   if(st.raw != i32(0), {

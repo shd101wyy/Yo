@@ -714,8 +714,7 @@ jobs:
 
       # Windows: mimalloc flavor, so the vendored allocator IS in the link
       # line, plus the three system libraries the compiler itself passes for a
-      # windows-msvc target (ws2_32/bcrypt/advapi32, plus secur32/crypt32 for
-      # the Schannel TLS backend).
+      # windows-msvc target (ws2_32/bcrypt/advapi32).
       #
       # `--target=` is passed EXPLICITLY and is not redundant: chocolatey's
       # llvm package can install a clang whose default target is not this
@@ -747,7 +746,7 @@ jobs:
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             --target=${{ matrix.clang_target }} \
             "cross/yo-${{ matrix.target }}.c" "${ALLOC_ARGS[@]}" \
-            -lws2_32 -lbcrypt -ladvapi32 -lsecur32 -lcrypt32 \
+            -lws2_32 -lbcrypt -ladvapi32 \
             -o yo-seed.exe
           ./yo-seed.exe --version
 
