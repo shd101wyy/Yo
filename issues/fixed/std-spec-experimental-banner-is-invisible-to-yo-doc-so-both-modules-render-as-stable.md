@@ -1,5 +1,7 @@
 # `std/spec`'s EXPERIMENTAL banner is prose, not a `## Stability` section — `yo doc` reports both modules as stable
 
+**Status: FIXED 2026-09-05** — Both modules gained a real `## Stability` section under the existing prose banner, so `yo doc` publishes a marker instead of `null`.
+
 **Found**: 2026-09-04, taking the inventory of stability markers across `std/` for
 the S5 freeze. **Severity:** MEDIUM (published API lie): `std/spec/refine` and
 `std/spec/numeric` are Phase 0 identity stubs whose own doc says "Expect ANY change

@@ -1,5 +1,7 @@
 # The `## Stability` marker's HTML badge and JSON key are exercised by no test — only the Markdown note is pinned
 
+**Status: FIXED 2026-09-05** — `tests/internal/doc_stability.test.yo` now pins the JSON `"stability"` key, the HTML badge (end to end through `render_doc_site`) and the Markdown note, plus the section-reading rules themselves.
+
 **Found**: 2026-09-04, auditing the S5 stability-freeze mechanics
 (`plans/STD_API_AUDIT.md` §9, recorded as DONE). **Severity:** LOW (coverage gap, no
 runtime symptom of its own) — but it is why

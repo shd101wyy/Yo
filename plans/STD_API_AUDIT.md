@@ -832,6 +832,32 @@ mmap/file-lock/statfs wrappers; `gc.stats`; DNS SRV/TXT/reverse
    are in `.github/instructions/yo-design.instructions.md` ("API stability").
    `std/encoding/csv` is the first module carrying the marker (new in this
    release); `std/http/server` and `std/fs/watch` get it in their own PRs.
+
+   **Marker pass, 2026-09-05 (post-v0.2.24).** All four markers in the tree had
+   outlived the one-release window — `std/term`, `std/encoding/csv`,
+   `std/http/server` and `std/fs/watch` all shipped in v0.2.20 and were still
+   marked unstable at v0.2.24 — so the window was decided module by module
+   rather than left to drift:
+
+   | module | decision | why |
+   | --- | --- | --- |
+   | `std/term` | **FROZEN** (marker dropped) | small surface, exercised by its tests; the stated exit condition ("while `std/cli` adopts it") is unowned and turns out to need a NEW ANSI vocabulary in two modules, not a swap. A colour vocabulary added later is additive. |
+   | `std/encoding/csv` | **FROZEN** | five releases, 7 tests, no open defect. |
+   | `std/http/server` | **FROZEN** | exports exactly `HttpServer` + `DEFAULT_MAX_REQUEST_BYTES`, 8 tests; concurrency and routing are additive growth. |
+   | `std/fs/watch` | **stays unstable, restated** | the Windows backend is not delivered, and `ReadDirectoryChangesW`'s paired rename events are the one thing likely to move `Change`. Freezing follows Windows delivery, not a release count. |
+
+   `std/spec/refine` and `std/spec/numeric` GAINED a marker: their
+   "EXPERIMENTAL — not covered by the std stability promise" banner was prose
+   with no heading, so `yo doc` published `"stability": null` for both — the
+   same value it publishes for `std/string`
+   (issues/fixed/std-spec-experimental-banner-is-invisible-to-yo-doc-so-both-modules-render-as-stable.md).
+
+   Two mechanism defects fixed in the same pass: `module_stability` read only
+   the FIRST SOURCE LINE of the section, so every marker longer than one line
+   was published cut mid-clause in the JSON key, the HTML badge and the
+   Markdown note alike; and the JSON key and HTML badge were exercised by no
+   test at all (only the Markdown note was pinned). Both are now covered by
+   `tests/internal/doc_stability.test.yo`.
    Found en route: `yo doc` only recognised `## ` section headings while std
    wrote `# Examples` at 70 sites — **FIXED 2026-08-29**: `# <well-known name>`
    is accepted (fenced code ignored) and std normalised to `## `
