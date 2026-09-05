@@ -550,7 +550,21 @@ test("Async test", {
   is not a valid main shape). Do NOT write `io :: __yo_builtin_io` inside a fn body; that form is an
   internal mechanism of the batched test runner's synthesized programs only.
 - `assert(condition, "message")` — runtime assertion; requires `{ assert } :: import("std/assert");` at the top of the test file
-- `comptime_assert(condition)` — compile-time assertion (builtin, no import)
+- `comptime_assert(condition)` — compile-time assertion (builtin, no import).
+  **It only FIRES at MODULE level.** Inside any function body — `main`, a
+  called fn, a `comptime` fn, and therefore inside a `test("…", { … })` block —
+  `comptime_assert(false)` is silently ACCEPTED
+  (issues/comptime-assert-never-fires-inside-a-function-body.md; all 1559
+  `comptime_assert`s under `tests/` are in that dead position). Until that is
+  fixed, pin a comptime result with a **module-level `::` binding observed by a
+  runtime `assert`** — the binding folds at comptime and the runtime assert
+  sees what the folder produced:
+  ```rust
+  _DIV :: (u64.MAX / u64(2));            // folded at comptime
+  test("…", { assert(_DIV == u64(9223372036854775807), `folded to ${_DIV}`); });
+  ```
+  Always verify such a test goes RED on a compiler without your fix; that is
+  the only way to know the gate is real.
 - `comptime_expect_error(expr)` — verify code produces a compile error
 
 ## Design-by-contract clauses
