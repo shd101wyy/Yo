@@ -1,0 +1,152 @@
+//! Regression tests for short-circuit operand-temp drops — the `||`/`&&`
+//! emitter's per-operand drop emission (`_emit_drops_for_conditional_branch`
+//! in src/codegen/exprs/and_or.yo). A short circuit that IS a whole fn body
+//! has no open codegen begin (the pending channel is empty), so the operand
+//! temps' scope drops ride the shared body node's own ExprInfo list and
+//! leaked wholesale until the node-list source landed
+//! (issues/fixed/short-circuit-bare-fn-body-operand-temps-leak.md).
+//!
+//! ## The gate is a DISPOSE COUNTER, not a leak verdict
+//!
+//! The first version of this file asserted only VALUES, and short-circuit
+//! values were never wrong — so all three tests PASSED under the compiler
+//! that still had the leak. The leak verdict that was supposed to fail them
+//! does not run anywhere: `.github/workflows/test.yml` sets
+//! `YO_TEST_LEAK_VERDICT: "0"` on every job that could apply one (a
+//! deliberate ratchet for pre-existing self-hosted-emit leak debt), and on
+//! macOS `--sanitize address` produces a binary with zero `__asan` symbols.
+//! See issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md.
+//!
+//! So the operand temps here carry a `Dispose` that bumps a shared counter,
+//! which turns "the drop was emitted" into an ordinary value assertion: it
+//! needs no sanitizer, holds on every platform, and fails under the ratchet.
+//! Verified red-first against yo 0.2.24 (which predates the fix): every
+//! disposes-count below reads 0 there.
+//!
+//! The file lives in `tests/` rather than `tests/internal/` on purpose — it
+//! imports nothing from `src/`, and `tests/` runs on all six platforms while
+//! `tests/internal` only runs in the differential shard.
+open(import("std/string"));
+{ assert } :: import("std/assert");
+// A heap counter the disposed temps can reach through their own field.
+Counter :: ref(struct(n : i32));
+Tracked :: ref(struct(c : Counter, v : i32));
+impl(
+  Tracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      self.c.n = (self.c.n + i32(1));
+    })
+  )
+);
+// Every call mints ONE owning temp; whether it is dropped is what is under
+// test.
+_mk :: (fn(c : Counter, v : i32) -> Tracked)(Tracked(c : c, v : v));
+// ── the shapes ─────────────────────────────────────────────────────────────
+// Whole-body `||`, operand 0 FALSE so both operands evaluate: 2 temps.
+_two_or :: (fn(c : Counter) -> bool)(
+  (_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))
+);
+// Whole-body `&&`, operand 0 TRUE so both operands evaluate: 2 temps.
+_two_and :: (fn(c : Counter) -> bool)(
+  (_mk(c, i32(1)).v == i32(1)) && (_mk(c, i32(2)).v == i32(9))
+);
+// `||` that ACTUALLY short-circuits: operand 1 is never evaluated, so only 1
+// temp exists. The over-drop canary — a drop emitted unconditionally for
+// operand 1 would release a temp that was never created.
+_or_short :: (fn(c : Counter) -> bool)(
+  (_mk(c, i32(1)).v == i32(1)) || (_mk(c, i32(2)).v == i32(9))
+);
+// `&&` that actually short-circuits: 1 temp.
+_and_short :: (fn(c : Counter) -> bool)(
+  (_mk(c, i32(1)).v == i32(9)) && (_mk(c, i32(2)).v == i32(9))
+);
+// A CHAIN parses as nested binaries `((a || b) || c)`: 3 temps. The inner
+// operand's temps were the remainder left by the first fix
+// (issues/short-circuit-chain-inner-operand-temps-still-leak.md).
+_chain3 :: (fn(c : Counter) -> bool)(
+  (_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)) || (_mk(c, i32(3)).v == i32(9))
+);
+// Mixed `&&` over two `||`s: 4 temps, all evaluated.
+_mixed :: (fn(c : Counter) -> bool)(
+  ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(2))) &&
+    ((_mk(c, i32(3)).v == i32(9)) || (_mk(c, i32(4)).v == i32(4)))
+);
+// `||` inside a match arm: 2 temps. Fixed by the same change and covered by
+// no test before.
+_in_match :: (fn(c : Counter) -> bool)(
+  match(
+    Option(i32).Some(i32(1)),
+    .Some(_) => ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9))),
+    .None => false
+  )
+);
+// The begin-opened (statement-position) shape — the pending channel covers
+// it; this pins parity between the two sources.
+_stmt_or :: (fn(c : Counter) -> bool)({
+  r := ((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)));
+  r
+});
+// `||` in a while body: the loop-scope flush owns these; parity pin.
+_in_while :: (fn(c : Counter) -> i32)({
+  (h : i32) = i32(0);
+  (i : usize) = usize(0);
+  while(runtime(i < usize(3)), {
+    if((_mk(c, i32(1)).v == i32(9)) || (_mk(c, i32(2)).v == i32(9)), {
+      h = (h + i32(1));
+    });
+    i = (i + usize(1));
+  });
+  h
+});
+// Run `f` 100 times and return how many disposes it produced.
+_disposes :: (fn(f : Impl(Fn(c : Counter) -> bool)) -> i32)({
+  c := Counter(n : i32(0));
+  (i : usize) = usize(0);
+  while(runtime(i < usize(100)), {
+    _r := f(c);
+    i = (i + usize(1));
+  });
+  c.n
+});
+test("whole-body || drops both operand temps", {
+  got := _disposes(_two_or);
+  assert(got == i32(200), `2 temps x 100 calls must all dispose, got ${got.to_string()}`);
+});
+test("whole-body && drops both operand temps", {
+  got := _disposes(_two_and);
+  assert(got == i32(200), `2 temps x 100 calls must all dispose, got ${got.to_string()}`);
+});
+test("a || that short-circuits drops exactly the temp it created", {
+  got := _disposes(_or_short);
+  assert(got == i32(100), `RHS never ran, so 1 temp x 100 calls, got ${got.to_string()}`);
+});
+test("an && that short-circuits drops exactly the temp it created", {
+  got := _disposes(_and_short);
+  assert(got == i32(100), `RHS never ran, so 1 temp x 100 calls, got ${got.to_string()}`);
+});
+test("a || CHAIN drops the inner operand's temps too", {
+  got := _disposes(_chain3);
+  assert(got == i32(300), `3 temps x 100 calls must all dispose, got ${got.to_string()}`);
+});
+test("mixed && over two ||s drops all four operand temps", {
+  got := _disposes(_mixed);
+  assert(got == i32(400), `4 temps x 100 calls must all dispose, got ${got.to_string()}`);
+});
+test("|| inside a match arm drops its operand temps", {
+  got := _disposes(_in_match);
+  assert(got == i32(200), `2 temps x 100 calls must all dispose, got ${got.to_string()}`);
+});
+test("statement-position || keeps parity with the whole-body shape", {
+  got := _disposes(_stmt_or);
+  assert(got == i32(200), `2 temps x 100 calls must all dispose, got ${got.to_string()}`);
+});
+test("|| in a while body drops its operand temps every iteration", {
+  c := Counter(n : i32(0));
+  (i : usize) = usize(0);
+  while(runtime(i < usize(100)), {
+    _r := _in_while(c);
+    i = (i + usize(1));
+  });
+  assert(c.n == i32(600), `2 temps x 3 iterations x 100 calls, got ${c.n.to_string()}`);
+});
