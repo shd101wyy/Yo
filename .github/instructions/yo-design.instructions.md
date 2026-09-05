@@ -500,7 +500,14 @@ Rules that follow from it:
 
 - **`Result(_, String)` is banned.** An error type is a real enum implementing
   `Error()`. A string error cannot be matched on, downcast, or wrapped, and it
-  forces every caller into prose comparison.
+  forces every caller into prose comparison. Since 2026-09-05 the `Error()`
+  marker is **enforced, not decorative**: `dyn(x)` checks that `x`'s type
+  implements every required trait of the `Dyn` it is boxed into, so
+  `exn.throw(dyn(e))` on an error enum without `impl(E, Error())` is a compile
+  error at the `dyn(...)` token (it used to fail inside the C compiler, naming a
+  generated `__yo_wrap_…` symbol — see
+  `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`).
+  `Error` carries `where(Self <: ToString)`, so `ToString` is required too.
 - **Never drop the payload on failure.** `Channel.send` returning
   `Result(unit, unit)` discarded the value the caller still owned; return it.
 - A fallible constructor that cannot fail should not be fallible — do not add a
