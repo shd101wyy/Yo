@@ -15,9 +15,9 @@
 
 > **Implemented features** (moved to DESIGN.md):
 >
-> - **Higher-Kinded Types (HKT)** — see [Advanced Type System](../docs/en-US/DESIGN.md#advanced-type-system)
-> - **Generalized Algebraic Data Types (GADTs)** — see [Advanced Type System](../docs/en-US/DESIGN.md#generalized-algebraic-data-types-gadts)
-> - **Partial Application with `_`** — see [Function Declaration](../docs/en-US/DESIGN.md#partial-application-with-_)
+> - **Higher-Kinded Types (HKT)** — see [Advanced Type System](../../docs/en-US/DESIGN.md#advanced-type-system)
+> - **Generalized Algebraic Data Types (GADTs)** — see [Advanced Type System](../../docs/en-US/DESIGN.md#generalized-algebraic-data-types-gadts)
+> - **Partial Application with `_`** — see [Function Declaration](../../docs/en-US/DESIGN.md#partial-application-with-_)
 
 ## Function Declaration
 

@@ -24,6 +24,20 @@
 >
 > Phase 0 (the contract *surface*, runtime-checked) is **landed**; the
 > verifier phases V1–V7 below are the implementation plan.
+>
+> **Audited 2026-09-05** (second pass, against the live tree at `c18b28e66`):
+> the architecture and the three decisions stand; the audit corrected a set
+> of factual claims and closed the open questions — see
+> [Audit 2026-09-05 — corrections](#audit-2026-09-05--corrections) for the
+> list and the [Open questions](#open-questions) section for the answers.
+> Two Phase-0 defects surfaced by the audit are filed as issues
+> (`issues/contracts-ensures-skipped-by-early-return.md`,
+> `issues/array-index-not-bounds-checked-at-runtime.md`) and are folded into
+> V1 / V3 below.
+>
+> **Location:** this is an ACTIVE plan and lives at `plans/FORMAL_VERIFICATION.md`
+> (the 2026-09-04 `plans/` reorganization had parked the previous draft in
+> `plans/backlog/`; un-parking it is the point of this revision).
 
 ---
 
@@ -32,6 +46,7 @@
 1. [Goal & positioning](#goal--positioning)
 2. [Non-goals](#non-goals)
 3. [Current state — audited 2026-09-04](#current-state--audited-2026-09-04)
+   - [Audit 2026-09-05 — corrections](#audit-2026-09-05--corrections)
 4. [The surface](#the-surface)
 5. [Named returns in `ensures(...)` — the decision](#named-returns-in-ensures--the-decision)
 6. [Verification semantics](#verification-semantics)
@@ -135,7 +150,7 @@ at the live `.yo` sources).
 | Single-call rule + zero-argument rejection | `src/evaluator/builtins/contracts.yo` (`_reject_zero_arg_marker`) | Two `requires(...)` clauses in one signature is a syntax error |
 | Runtime lowering: contracts spliced into the body as `assert(P, "requires failed: ...")` / `comptime_assert(...)` | `wrap_function_body_with_contracts` in `src/evaluator/builtins/contracts.yo`; called from `src/evaluator/calls/function_type.yo:888` | Dispatches on `isCompileTimeOnly` of the return. `ensures` wraps the body as `{ snapshots; requires-asserts; <binding> := (<body>); ensures-asserts; <binding> }`; unit returns skip the binding |
 | `old(...)` entry-snapshot hoisting | `_hoist_old_in` in `src/evaluator/builtins/contracts.yo` | Each `old(e)` becomes `__yo_contract_old_K := e` at entry, rewritten into the predicate |
-| Magic `result` identifier inside `ensures(...)` | `_RESULT_IDENTIFIER` in `src/evaluator/builtins/contracts.yo` | **To be replaced** by named returns (Phase V1) — see below |
+| Magic `result` identifier inside `ensures(...)` | `_RESULT_IDENTIFIER` in `src/evaluator/builtins/contracts.yo` | **To be replaced** by named returns (Phase V1) — see below. Note `-> (result : i32)` + `ensures(result …)` already type-checks today (the label is dropped and the magic binding happens to have the same name), so the in-repo migration can land *before* the V1 switch flips |
 | Loop `invariant(...)` must be the first statement of the `while` body | enforced in the `while` evaluation path | Placement anywhere else (including nested branches) is rejected |
 | Pragmas `Pragma.Verify`, `Pragma.VerifyOrAssert`, `Pragma.NoContracts` | prelude `Pragma` enum; mapping in `src/evaluator/builtins/pragma.yo` | `Verify`/`VerifyOrAssert` parse and warn "verify mode not implemented". `NoContracts` fully works (erases the splice) |
 | `std/spec/` skeletons | `std/spec/refine.yo`, `std/spec/numeric.yo` | `Refine(T)`/`NonZero`/`Bounded`/`NonEmpty`/`Positive`/… are identity type aliases today; the predicate parameter does not exist yet |
@@ -178,6 +193,27 @@ missing. That is Phase V1.
    tied to the signature — the exact design this revision removes.
 6. **`Refine(T)` ignores its predicate** — refinement aliases are
    documentation today.
+7. **Early `return(...)` bypasses `ensures`** (measured 2026-09-05). The
+   wrapper lowers `ensures` as `{ result := (<body>); asserts; result }`,
+   so a `return(x)` inside the body leaves the function *before* the
+   asserts run: `f :: (fn(x : i32, ensures(result >= i32(0))) -> i32)({
+   if(x < i32(0), { return(i32(-5)); }); x })` returns `-5` with exit
+   code 0. Runtime contracts are unsound on every early-return path;
+   `issues/contracts-ensures-skipped-by-early-return.md`. Fixed in V1
+   (the wrapper must rewrite each `return(e)` in the body — not inside
+   nested fn literals — to `return({ <label> := e; asserts; <label> })`),
+   and the verifier's "every normal-exit path" rule must treat `return`
+   sites as exits.
+8. **`Array(T, N)` indexing is not bounds-checked at run time**
+   (measured 2026-09-05). `arr(i)` on an `Array` lowers through the inline
+   builtin `__yo_array_index` to `&((&arr)->data[i])` with no check
+   (`src/codegen/exprs/generation.yo`), so an out-of-range runtime index is
+   a silent C out-of-bounds read — contradicting `docs/en-US/MEMORY_SAFETY.md`
+   ("All indexing is bounds-checked"). `ArrayList`, `Deque` and `str`
+   indexing do check. `issues/array-index-not-bounds-checked-at-runtime.md`
+   tracks the runtime fix (independent of this plan); for the verifier it
+   means the V3 AoRTE bounds obligation on `Array` is currently the *only*
+   check that exists, which raises its value rather than changing the plan.
 
 ### Stale claims removed from the 2026-05 draft
 
@@ -192,6 +228,26 @@ missing. That is Phase V1.
 | Phase-0 progress cited "26 tests across 3 files" | Now 4 files; `contracts_phase0.test.yo` alone has 31 tests |
 | `while(runtime((i < n)), {...})` in examples | Outdated — `while` conditions are runtime by default; write `while(i < n, {...})` |
 | TS-era paths (`src/expr.ts:742`, `src/evaluator/types/function.ts`, `src/types/compatibility.ts`, `src/evaluator/memory-safety.ts`, `src/codegen/functions/generation.ts`, `src/version-cache.ts`, …) | All retired with the TypeScript compiler (frozen at `src-attic-final`); current paths used throughout |
+
+### Audit 2026-09-05 — corrections
+
+A second audit pass re-measured the 2026-09-04 revision against the tree.
+Everything below is folded into the sections it affects; this table is
+the changelog.
+
+| 2026-09-04 claim | Measured 2026-09-05 | Consequence |
+| --- | --- | --- |
+| "10 `ensures(result …)` migration sites, all in `tests/spec`" | **18 sites in 10 files**: `tests/spec/*.test.yo` (10), `tests/comptime.test.yo` (1), `tests/codegen-bootstrap/contracts_no_assert_import.yo` (2), two `tests/cli-cases/contracts-runtime-*/fixture/src/main.yo` (1 each — their recorded goldens must be re-recorded with `scripts/cli-diff-test.sh --record`), `.github/instructions/yo-syntax.instructions.md` (2), `.github/skills/yo-syntax/syntax-cheatsheet.md` (1) | V1 task 5 rewritten |
+| Phase 0 runtime lowering is sound | **Early `return(...)` skips the `ensures` asserts** (gap 7 above) | V1 task 2b added; V3 exit-path rule extended |
+| Examples use `Slice(T)`, `arr.as_slice()`, `s.len()` | **There is no safe `Slice(T)` type.** The prelude has only `RawSlice(T)` (a raw pointer pair, `pragma(Pragma.AllowUnsafe)`-gated). The sequence types safe code has are `Array(T, N)` (value type, comptime `N`), `ArrayList(T)` (an `object`/`ref` type), `str`/`String` | Surface examples and the SMT sort table now use those types; the "objects are out of subset" rule is refined so `ArrayList` is *readable* in V3 (below) |
+| "AoRTE bounds obligations complement the runtime checks" | **`Array(T, N)` has no runtime bounds check** (gap 8 above) | Issue filed; obligation kept |
+| Z3 pin "4.13.3" | **Latest Z3 is 5.1.0** (GitHub Releases, checked 2026-09-05). Assets are `.zip`, per arch (`arm64`/`x64`/`x86`) and per OS; the Linux builds link **glibc 2.38/2.39** (no musl build) | Pin the current stable at V2 start; acquisition redesigned (Solver harness section) |
+| Diagnostics: new `--format json` for `yo verify` | **`--error-format json` already exists** (`plans/ERROR_DIAGNOSTICS_OVERHAUL.md`, LANDED 2026-09-04): JSON Lines with `code`/`severity`/`message`/`span`/`notes`, a bilingual explanation registry, `yo explain <code>` | Verifier diagnostics reuse that channel and get their own code block; no second JSON format |
+| "CTFE is an executable semantics for the pure fragment" (ROADMAP) | **CTFE rejects integer overflow as a compile error** (`check_int_overflow`, `src/evaluator/builtins/comptime_numeric_fns.yo`) while the emitted C **wraps** (`-fwrapv`) | D6 amended: the verifier models the runtime (wrap); CTFE folding stays stricter; `--cflags=-fno-wrapv` is incompatible with verify modes |
+| Solver process "wrapping `std/process/Command`" from the verifier pass | `Command.output`/`status`/`spawn` are **async** (`Impl(Future(…))` over `io`); the evaluator is synchronous and a blocking await inside a running task deadlocks the single-threaded loop | The verifier driver must run from the CLI's async context (where `main.yo` already awaits `clang`), never from inside the evaluator — this makes D4 (separate pass) *necessary*, not merely preferable |
+| Negative tests via a new subprocess harness in `tests/internal/` | `tests/cli-cases/` + `scripts/cli-diff-test.sh` already score `rc + stdout + stderr + trees` against recorded goldens in an isolated sandbox | Negative verification fixtures are cli-cases; `tests/internal/verifier.test.yo` stays hermetic |
+| "Mutual recursion `decreases` across a clique" (V6 task 4) | Yo has no forward references; self-recursion is `recur(...)` only (`src/evaluator/exprs/recur.yo`); mutual recursion exists only through function-pointer globals | Task reduced to a documented non-goal |
+| Generic functions "verified abstractly" (V6 task 2) | Specialization is process-global and per concrete type set (`g_specialized_fn_caches`, `src/evaluator/calls/helper.yo`); codegen only ever sees monomorphized bodies | V6 verifies **per specialization** (dedup by cache key); abstract verification deferred |
 
 ## The surface
 
@@ -350,10 +406,10 @@ Two distinct builtins (split resolved old audit §A3):
 
 ```rust
 permutation :: ghost_fn((fn(
-  a : Slice(i32),
-  b : Slice(i32),
+  a : ArrayList(i32),
+  b : ArrayList(i32),
 ) -> bool)(
-  (Multiset.from_slice(a) == Multiset.from_slice(b))
+  (Multiset.from_list(a) == Multiset.from_list(b))
 ));
 ```
 
@@ -388,7 +444,7 @@ ordinary runtime code is a compile error, mirroring how `unwind(...)`
 is only well-formed inside `ctl(...) -> R`:
 
 ```rust
-sorted_quantified :: ghost_fn((fn(s : Slice(i32)) -> bool)(
+sorted_quantified :: ghost_fn((fn(s : ArrayList(i32)) -> bool)(
   forall_val((i : usize), (j : usize),
     (((i < j) && (j < s.len())) ==> ((s(i)) <= (s(j))))
   )
@@ -467,20 +523,26 @@ the current subset produces a precise error:
 | Let bindings (`:=`, `::`), field access, tuple/struct/enum construction | V3 |
 | Calls to contract-carrying or verified pure functions; CTFE-computable calls | V3 |
 | `assert(P)` sites (become obligations), `panic` paths (exempt from `ensures`) | V3 |
-| Slices/arrays with `len` (index bounds are auto-obligations) | V3 |
+| `Array(T, N)` (comptime `N`), and **read-only** `ArrayList(T)` / `str` / `String` modelled as opaque sequences (`len` + element function); index bounds are auto-obligations | V3 |
 | `while` loops with `invariant(...)`; `break`/`continue` | V4 |
 | Recursion (with `decreases(...)` for termination) | V4 |
 | `ghost(...)`, `ghost_fn(...)`, quantifiers, `old(...)`/`inout` two-state, `Seq`/`Multiset`/`Set` | V5 |
 | Trait-method calls under trait contracts; generic functions; `Refine` | V6 |
-| `object` types (heap references), `str`/`String` content, floats | **out of subset** initially — `object` and strings are planned (V6+); floats open-ended non-goal |
+| `object` types in general (heap references, mutation through handles), string *content* beyond length/byte predicates, floats | **out of subset** initially — the read-only sequence view above is the one deliberate exception (a verified body is pure, so an `ArrayList` it merely reads cannot change under it); general `object` reasoning is V6+, floats open-ended non-goal |
 | Effects (`ctl` handlers, `io.await`), `unsafe(...)`, raw pointers, `asm(...)`, FFI `extern`, parallelism | **outside the subset** — a verified function body may not contain them (effects double as the frame rule, below) |
 
 ### Purity and the effect frame rule
 
 A verified function must be **checked-pure** at the syntactic level Yo
-already exposes: no effect parameters used in the body, no `ctl(...)`
-handlers, no `await`, no `unsafe`, no `asm`, no FFI calls, no writes to
-module-level globals. This is exactly ROADMAP Phase 1's "leverage the
+already exposes. Effects in Yo are *parameters*: a handler is a value of
+a `ctl(args) -> ret` type (`raise : Raise` where `Raise :: (ctl(msg : String) -> i32)`),
+and I/O is the `io : Io` capability. So the purity gate is a signature
+check plus a body walk: no parameter of `ctl` or effect-record type, no
+`Io`, no `ctl(...)` handler installation, no `await`, no `unsafe`, no
+`asm`, no FFI (`extern`) calls, no writes to module-level globals. The
+existing mutation-summary walk (`src/evaluator/effects/mutation_summary.yo`,
+a MAY-analysis over evaluated bodies) is the model for the body walk and
+can be reused for the "no global writes" half. This is exactly ROADMAP Phase 1's "leverage the
 effect system as the frame rule": the hardest part of verifying
 imperative code — framing what a call may modify — falls out of
 machinery that already exists. A call in a verified body may only target:
@@ -513,13 +575,33 @@ semantics, not a bug). Opt-in overflow checking arrives with
 `std/spec/numeric.yo` predicates (`NoOverflow(...)`) in V6 — an ordinary
 `ensures` predicate, no special machinery.
 
+Two caveats pinned by the 2026-09-05 audit:
+
+- **CTFE and the runtime disagree on overflow.** Compile-time evaluation
+  rejects an `i32` add/sub/mul that leaves the type's range
+  (`check_int_overflow`, `src/evaluator/builtins/comptime_numeric_fns.yo`
+  — "Integer overflow in compile-time evaluation"), while the emitted C
+  wraps. The verifier models the **runtime** (bitvector wrap), because a
+  proof must be about the program that runs. When the verifier folds
+  constants it uses its own bitvector arithmetic, *not* CTFE, so a
+  `verify`-mode function never sees a spurious overflow error from the
+  verifier side; CTFE keeps its stricter rule for genuinely comptime code.
+  ROADMAP's "CTFE as the semantic core" therefore holds for everything
+  *except* overflow, and the plan does not rely on it there.
+- **`--cflags=-fno-wrapv` breaks the model.** Signed overflow becomes C
+  undefined behaviour, so a wrap-based proof no longer describes the
+  binary. `verify`/`verify+` reject the combination with a clear error
+  (the flag is documented in `docs/en-US/MEMORY_SAFETY.md` as a
+  perf-only opt-out; the two are simply incompatible).
+
 ### Automatic obligations — absence of runtime errors (SPARK's AoRTE)
 
 In `verify`/`verify+` files, the verifier generates obligations **no
 contract asked for**, on every verified function:
 
-- every slice/array index `s(i)`: prove `i < s.len()` (and, for
-  mutation, `s` is not borrowed-immutably — refined per phase);
+- every sequence index `a(i)` — `Array(T, N)` (prove `i < N`),
+  `ArrayList(T)` / `str` / `String` (prove `i < a.len()`); for `Array`
+  this is today the *only* bounds check that exists (gap 8 above);
 - every `/` and `%`: prove the divisor non-zero;
 - every shift: prove the shift amount is within the operand width
   (C-level UB otherwise).
@@ -674,8 +756,9 @@ implements exactly this.
 | tuples, `struct(...)` | `declare-datatypes` constructor with selectors |
 | `enum(...)` | `declare-datatypes` one constructor per variant |
 | `Option(T)` / `Result(T, E)` | datatypes (`.Some`/`.None`, `.Ok`/`.Err`) |
-| `Slice(T)` / `Array(T, N)` | pair: `(Array (_ BitVec 64) Elem)` + `len : (_ BitVec 64)` |
-| `str` / `String` (V5) | `Seq (_ BitVec 8)` (byte sequences; content reasoning V5+) |
+| `Array(T, N)` | `(Array (_ BitVec W) Elem)` with the length the constant `N` (`W` = `usize` width) |
+| `ArrayList(T)` (read-only view, V3) | pair: `(Array (_ BitVec W) Elem)` + `len : (_ BitVec W)`, uninterpreted per value; mutation via `inout` is V5 |
+| `str` / `String` | V3: length + byte-at-index as above (`u8` elements); V5: `Seq (_ BitVec 8)` when content reasoning needs concatenation/substring |
 | `Refine(T, p)` (V6) | erased — the sort of `T`; `p` becomes an obligation |
 | `object(...)` | out of subset |
 
@@ -707,6 +790,10 @@ tools emit).
   diverging paths (exempt from `ensures`).
 - `while` — the havoc-invariant rule above.
 - `assert(P)` — obligation: prove `Φ ⇒ P`.
+- `return(e)` — a normal exit: bind the return label to `e`, prove every
+  `ensures` predicate under the current path condition, stop the path.
+  (Phase 0's runtime lowering misses this path — gap 7; V1 fixes the
+  lowering, the verifier gets it right from day one.)
 - `panic(...)` — diverging path: no obligations after it (process aborts
   before any observable contract violation — SPARK's stance).
 - assignment `x = e` / `inout` writes — SSA rename + two-state `old`
@@ -727,16 +814,34 @@ tools emit).
 
 ### Acquisition
 
-- **One pinned Z3 version** (start: Z3 4.13.3), recorded in a manifest
-  constant in `src/verifier/z3.yo`. Bundled *once* per machine into
-  `~/.cache/yo/solvers/z3-<version>-<target-triple>/` following the
-  version-cache model (`src/version_cache.yo`, releases fetched from
-  GitHub Releases). Target triples reuse `src/target.yo` vocabulary.
-- `YO_Z3_PATH` env var overrides discovery (CI, offline, or a locally
-  built solver). `yo verify --solver-path <path>` is the CLI form.
-- Missing solver: `verify` mode ⇒ hard error with the fetch command;
-  `verify+` ⇒ deterministic fallback to runtime asserts + warning (a
-  missing solver never fails a `verify+` build).
+- **One pinned Z3 version**, recorded in a manifest constant in
+  `src/verifier/z3.yo`. Pin the current stable at V2 start (5.1.0 as of
+  2026-09-05 — the 2026-09-04 text said 4.13.3, which is two major
+  versions stale); bumps are release-note events.
+- **Discovery order:** `YO_Z3_PATH` (env) / `--solver-path` (CLI) →
+  `~/.cache/yo/solvers/z3-<version>-<target-triple>/bin/z3` → `z3` on
+  `PATH` *only if* `z3 --version` reports the pinned version (a
+  different version is reported and refused, so a distro package never
+  silently changes verdicts).
+- **Acquisition (V2 ships discovery; the download lands in V7):**
+  Z3's own release assets are `.zip` archives, split by arch and OS,
+  and the Linux builds are **glibc-linked** (2.38/2.39) with no musl
+  build — Yo's own Linux bundles are static musl, so a Z3 fetched
+  straight from Z3Prover would not run on the same Alpine-class hosts a
+  Yo bundle runs on, and GNU `tar` cannot unpack `.zip` (macOS and
+  Windows `tar` can). Rather than grow a zip extractor and a glibc
+  matrix in `src/version_cache.yo`, **repackage the pinned Z3 as Yo
+  release assets**: `z3-<version>-<target-triple>.tar.gz` under the Yo
+  GitHub Release that pins it, extracted with the existing `tar` path,
+  keyed by `src/target.yo` triples, built by a release-workflow leg
+  (static musl on Linux where Z3 builds that way; otherwise the glibc
+  build with the requirement documented). Until V7, users install Z3
+  themselves and point `YO_Z3_PATH` at it — V2–V6 development and CI
+  need nothing more.
+- Missing solver: `verify` mode ⇒ hard error naming the three discovery
+  paths and the pinned version; `verify+` ⇒ deterministic fallback to
+  runtime asserts + warning (a missing solver never fails a `verify+`
+  build).
 
 ### Determinism (hard requirement, not nice-to-have)
 
@@ -753,7 +858,20 @@ verdicts**, on every run and every machine:
 - Fixed `(set-option :random-seed 0)`; no time-derived seeds anywhere.
 - **One fresh Z3 process per function.** Incremental `push`/`pop`
   within a function shares assumptions; nothing crosses function
-  boundaries, so no solver-state flakiness bleeds between files.
+  boundaries, so no solver-state flakiness bleeds between files. Cost
+  note: a process spawn is ~5–10 ms, so a 1 000-function module pays
+  ~10 s in spawns alone. V2 measures this; if it matters, the fallback
+  is one process per *module* with `(reset)` between functions — still
+  deterministic because every function's query is self-contained and
+  `rlimit` is re-armed after each `(reset)`. Decide on measurement, not
+  up front.
+- **The driver lives in the CLI's async context.** `std/process/Command`
+  is `io`-driven (`output`/`status`/`spawn` return `Impl(Future(…))`),
+  and the evaluator is a synchronous interpreter: awaiting a child from
+  inside evaluation would nest the single-threaded event loop and
+  deadlock. So `src/verifier/driver.yo` is invoked from `src/main.yo`
+  after module evaluation returns (exactly where the C compiler is
+  awaited today), never from an evaluator hook.
 - Solver version bumps are deliberate release-note events (like seed
   releases), never a side effect.
 - The verification cache (below) keys on the solver pin, so a bump
@@ -781,18 +899,35 @@ SMT-LIB.
 
 ### Caching
 
-`~/.cache/yo/verify-cache/<key>.json`, key = hash of (function source
-text, contract predicates, callee contract set, solver pin, mode,
-options). Stores the verdict + counter-example. `yo verify` and
+`~/.cache/yo/verify-cache/<key>.json`, key = SHA-256 (`std/crypto/sha256`)
+of (function source text, contract predicates, callee contract set,
+solver pin, mode, options). Stores the verdict + counter-example. `yo verify` and
 `verify+` builds consult it before spawning anything; any input change
 invalidates. Cache hits are reported (`cached: proved`) so CI logs stay
 honest. No cross-machine sharing, no partial keys.
 
 ## Diagnostics & counter-examples
 
-Verifier output is ordinary compiler diagnostics — same format, same
-severity channel, same LSP plumbing as typechecker errors. Required
-shape, per finding:
+Verifier output is ordinary compiler diagnostics — the structured
+`Diagnostic` value from `src/diagnostics.yo` (`code`/`severity`/`message`/
+`span`/`notes`; `plans/ERROR_DIAGNOSTICS_OVERHAUL.md`, landed 2026-09-04),
+rendered by the same `--error-format {human,short,json}` switch, explained
+by the same bilingual registry (`yo explain <code>`), and carried to the
+LSP by the same channel. Two things the verifier adds:
+
+- **Its own code block.** Verifier codes (refuted, unproven, subset
+  error, solver missing, label-the-return hint, …) get a reserved range
+  in `src/diagnostics.yo` and registry entries in `src/diagnostics_registry.yo`
+  (English + Simplified Chinese from day one — the registry test enforces
+  it). No new output format: the 2026-09-04 text's `--format json` is
+  **withdrawn** in favour of `--error-format json`.
+- **Many findings per file.** The evaluator stops at the first error in
+  a module (`yo check` prints one diagnostic and "1 file(s) failed"); a
+  verifier that did the same would be useless to an LLM fixing a module.
+  The driver *collects* every verdict for a module and emits them all,
+  sorted by source position, then fails the command once.
+
+Required shape, per finding:
 
 ```
 error: could not prove: requires((i < arr.len()))
@@ -822,8 +957,8 @@ Requirements (carried from the 2026-05 draft's LLM section, now normative):
 
 - **`yo verify [path]`** — new subcommand: evaluate + verify, no
   codegen. Flags: `--verify-mode`, `--solver-path`, `--rlimit`,
-  `--format {text,json}`, `--explain <fn>` (show the VC set and each
-  verdict for one function), `--no-cache`.
+  `--explain <fn>` (show the VC set and each verdict for one function),
+  `--no-cache`. Output format is the global `--error-format`.
 - **`yo check` / `yo compile` / `yo test`** — run the verifier pass when
   any file in the import closure is `verify`/`verify+` (or the flag is
   given). The pass reuses the already-evaluated module state; no double
@@ -857,16 +992,34 @@ Tasks:
    (`src/evaluator/builtins/contracts.yo`): bind **the label** instead
    of `_RESULT_IDENTIFIER`; unlabeled non-unit returns bind the internal
    name `__yo_contract_result`; unit returns keep the no-binding case.
+2b. **Early-return soundness** (gap 7): the wrapper walks the body and
+   rewrites every `return(e)` that belongs to *this* function (stop at
+   nested fn literals, `ctl` handlers and async blocks, which have their
+   own return) into `return({ <label> := e; <ensures asserts>; <label> })`
+   — the same shape as the tail, so `old(...)` snapshots hoisted at entry
+   are visible. Unit returns rewrite `return()` to `return({ asserts; })`.
+   `unwind(...)` paths stay exempt (they never reach the post-condition).
+   Test with a bugged twin: an early-return violation must panic in
+   `runtime` mode where today it returns silently.
 3. The unbound-identifier hint: when an `ensures` predicate fails
    resolution with an unlabeled non-unit return, append the
    "label the return" note to the ordinary not-found error.
 4. Reject `-> (name : unit)` label references inside `ensures(...)` with
    the unit-specific message.
-5. Migrate in-repo users: the 10 `ensures(result ...)` sites in
-   `tests/spec/*.test.yo`, the cheatsheet example
-   (`.github/skills/yo-syntax/syntax-cheatsheet.md` "Design-by-contract
-   clauses"), and any `src/`/`std/` hits (grep
-   `ensures(result` — expected zero outside tests).
+5. Migrate in-repo users — **18 sites in 10 files** (measured
+   2026-09-05): `tests/spec/contracts_phase0.test.yo` (8),
+   `tests/spec/pragma_no_contracts.test.yo` (1), `tests/spec/pragma_verify.test.yo` (1),
+   `tests/comptime.test.yo` (1), `tests/codegen-bootstrap/contracts_no_assert_import.yo` (2),
+   `tests/cli-cases/contracts-runtime-ensures/fixture/src/main.yo` (1) and
+   `tests/cli-cases/contracts-runtime-ok/fixture/src/main.yo` (1) —
+   re-record those two cases' goldens with `scripts/cli-diff-test.sh --record`
+   and rerun the full cli-diff scorecard — plus the docs:
+   `.github/instructions/yo-syntax.instructions.md` (2) and
+   `.github/skills/yo-syntax/syntax-cheatsheet.md` (1). `src/` and `std/`
+   have zero sites. Because `-> (result : i32)` already type-checks
+   today, land the migration as its own PR **before** the switch flips —
+   the seed compiler accepts both forms, so there is no window where the
+   tree fails to build.
 6. Tests: extend `tests/spec/contracts_phase0.test.yo` — labeled return
    binding, arbitrary label names, unlabeled + param-only `ensures`,
    unit-return rejection, tuple-return projection through the label.
@@ -883,13 +1036,23 @@ all `tests/spec/` green; cheatsheet updated.
 
 Tasks:
 
+0. **De-risk spike (≤ 1 week, throwaway):** hand-write SMT-LIB 2 for
+   three functions (`abs`, a two-arm `cond`, a bounds check), run them
+   through Z3 from a Yo program via `std/process/Command` with `rlimit`
+   + `random-seed 0`, and confirm (a) byte-identical output across 20
+   runs and across macOS arm64 / Linux x64 CI runners, (b) the
+   spawn-per-query cost, (c) that `get-model` and `get-unsat-core` parse
+   from the stdout stream. The spike's numbers decide the process
+   granularity (per function vs per module) and pin the `rlimit`
+   default; nothing else in V2 starts until they exist.
 1. `src/verifier/z3.yo`: pinned-version manifest; discovery
-   (`YO_Z3_PATH` → `~/.cache/yo/solvers/…`); download/install into the
-   cache following the `src/version_cache.yo` release-fetch pattern;
-   `Z3Runner` wrapping `std/process/Command`
-   (`std/process/command.yo` — piped stdio already supports this) with
-   spawn/query/verdict parsing (`sat` / `unsat` / `unknown`, model and
-   unsat-core extraction).
+   (`YO_Z3_PATH`/`--solver-path` → `~/.cache/yo/solvers/…` → `z3` on
+   `PATH` with the version gate); `Z3Runner` wrapping `std/process/Command`
+   (`std/process/command.yo` — piped stdio already supports this),
+   driven from the CLI's async context, with spawn/query/verdict parsing
+   (`sat` / `unsat` / `unknown`, model and unsat-core extraction). The
+   cache download is a V7 task (repackaged assets — see the harness
+   section), not V2.
 2. Determinism options wired: `rlimit`, `random-seed 0`, timeout
    backstop; one process per function with `push`/`pop` batches.
 3. `src/verifier/terms.yo`: the in-memory VC term representation (sorts,
@@ -904,13 +1067,19 @@ Tasks:
    unsat, `1+1==3` → sat + model).
 7. Tests: `tests/internal/verifier.test.yo` — runner mocked (canned
    sat/unsat) for hermetic unit tests; real-solver tests behind
-   `YO_TEST_Z3=1` env guard. CI job installs the pinned Z3.
+   `YO_TEST_Z3=1` env guard. CI job installs the pinned Z3 (from the Z3
+   release zip, `YO_Z3_PATH` set) on the Linux and macOS legs of
+   `test.yml`.
+8. Keep the Phase-0 "verify mode not implemented" warning
+   (`warn_verify_mode_not_implemented`, `src/evaluator/builtins/pragma.yo`)
+   until V3 actually discharges something; V2 must not make a
+   `Pragma.Verify` file look verified.
 
 **Exit criteria:** `yo verify` runs on any project, exercises Z3
 end-to-end (self-test obligations), reports harness health, caches
 results; no language behavior changed yet.
 
-**Estimate:** ~2–3 weeks.
+**Estimate:** ~3–4 weeks including the spike.
 
 ### Phase V3 — Straight-line verification + auto-obligations (the Dafny core)
 
@@ -937,17 +1106,34 @@ Tasks:
    always on in `verify`/`verify+`.
 5. Diagnostics: counter-example rendering through name mangling;
    unsat-core clause attribution; the JSON format.
-6. `verify+` stripping pass: remove asserts for Proved predicates
-   (body rewrite keyed by spliced node ids; follows
-   `ExprInfo.macro_expansion`).
+6. `verify+` erasure of Proved asserts. **Preferred mechanism: a
+   codegen-side skip, not a body rewrite.** The splice already mints a
+   fresh node id per spliced `assert` call; record those ids in a side
+   table at splice time (`g_contract_assert_nodes`, keyed like the
+   predicate tables), let the verifier publish the set of *proved*
+   ids, and have the assert emitter (`src/codegen/exprs/`) emit
+   `((void)0)` for a member of that set. No AST is rewritten after
+   evaluation, so the dup/drop bookkeeping the evaluator attached to
+   the body stays consistent, and there is no `macro_expansion` walk
+   to get wrong. The one thing to test explicitly is a predicate whose
+   evaluation created RC temporaries (a `String` comparison, say): the
+   skip must still emit their deferred drops or the predicate must be
+   restricted to RC-free types in `verify+` — decide on the `--emit-c`
+   diff. The 2026-09-04 body-rewrite design stays as the fallback if
+   the codegen skip proves unworkable.
 7. Purity/substrate gating: the subset table's V3 row enforced with
    precise "outside the verifiable subset" errors.
-8. Tests: `tests/spec/verify_straight_line.test.yo` (positive proofs),
-   `tests/spec/fixtures/negative/*.yo` + `tests/internal/verifier_negative.test.yo`
-   (expected-failure harness invoking `yo check` as a subprocess and
-   asserting the diagnostic text, mirroring the cli-diff scoring shape).
-   Every negative fixture pairs with a deliberately-bugged twin that
-   must Refute with the right counter-example.
+8. Tests: `tests/spec/verify_straight_line.test.yo` (positive proofs,
+   also green in `runtime` mode); negative fixtures as
+   **`tests/cli-cases/verify-*/`** cases scored by the existing
+   `scripts/cli-diff-test.sh` (rc + stdout + stderr goldens, isolated
+   sandbox — no new subprocess harness). `comptime_expect_error` cannot
+   catch verifier failures (they are not evaluator exceptions), so the
+   cli-case shape is the only faithful negative test. Every positive
+   fixture pairs with a deliberately-bugged twin whose Refute message
+   and counter-example are in the golden. CI needs Z3 on the legs that
+   run these cases; cases skip with an explicit "solver missing" golden
+   otherwise, never a vacuous pass.
 
 **Exit criteria:** with Z3 installed, `yo verify` on a `verify`-mode file
 proves `abs`/`min`/`max`/`clamp`-style functions' `ensures`, rejects a
@@ -956,7 +1142,11 @@ counter-example, and proves bounds/div-by-zero on an unannotated
 function. `verify+` erases proved asserts (verified by inspecting
 `--emit-c` output in a test).
 
-**Estimate:** ~5–7 weeks.
+**Estimate:** ~7–10 weeks. (The 2026-09-04 figure of 5–7 assumed the
+`Slice` type and a persisted-IR-free encoder; the audit adds the
+sequence view of `ArrayList`/`str`, the codegen-side erasure with its
+RC test, the multi-finding diagnostics collector, and registry entries
+in two languages.)
 
 ### Phase V4 — Loops, invariants, termination
 
@@ -1031,17 +1221,27 @@ Tasks:
    Signature extraction already parses trait-field contracts (Phase 0);
    this adds the proof obligations at impl registration
    (`src/evaluator/values/impl.yo` integration point).
-2. Generic functions verified **abstractly**: type variables become
-   uninterpreted sorts; trait constraints (`where(T <: Ord)`) contribute
-   their method contracts as axioms; monomorphized call sites discharge
-   through the generic's own contracts.
+2. Generic functions verified **per specialization**: the verifier's
+   input is post-specialization (the process-global
+   `g_specialized_fn_caches` in `src/evaluator/calls/helper.yo` hands it
+   each concrete instance once), so a generic body is verified once per
+   concrete type set it is instantiated at, and the cache key dedups
+   repeats. Trait constraints (`where(T <: Ord)`) contribute the
+   *impl's* contracts at that instance. Abstract verification (type
+   variables as uninterpreted sorts, trait contracts as axioms) is the
+   later upgrade if instantiation counts make per-specialization
+   verification too slow — it is not needed for correctness.
 3. `Refine(T, predicate)`: real type constructor — distinct at the type
    level, erased at codegen, construction-site VCs, `Refine(T,p) <: T`
    erasure rule, composition normalization. Rework `std/spec/refine.yo`
    + `numeric.yo` aliases to real predicates (breaking change — ledger
    entry 3). `.check(...)` / `.unchecked(...)` entry paths.
-4. `decreases` for mutually recursive functions (lexicographic across
-   the clique) if cheap; else documented non-goal.
+4. `decreases` for mutual recursion: **documented non-goal.** Yo has no
+   forward references, so direct mutual recursion cannot be written;
+   the only route is a function-pointer global assigned after both
+   definitions (the codegen's own `register_*` indirection pattern),
+   which the purity gate already excludes from verified bodies
+   ("no writes to / calls through module-level globals").
 5. Dogfood: annotate `std/collections/array_list.yo`
    (`get`/`set`/`add` bounds + len post-conditions) and
    `std/collections/hash_map.yo` core ops; run `yo verify` over those
@@ -1050,7 +1250,7 @@ Tasks:
    convention).
 6. Tests: trait-contract variance (valid impl passes; strengthened
    requires rejected with the proof failure), generic `head` on
-   `NonEmpty(Slice(T))` (the doc's worked example, now verifying),
+   `NonEmpty(ArrayList(T))` (the doc's worked example, now verifying),
    refinement construction-site rejection with counter-example.
 
 **Exit criteria:** `std/collections/array_list.yo` carries verified
@@ -1080,20 +1280,24 @@ Tasks:
    surface.
 5. Cache telemetry: `yo verify --stats` reports hit rates and time
    saved.
-6. Release notes: solver pin management documented; `yo verify` in the
+6. Solver acquisition: the repackaged `z3-<version>-<target-triple>.tar.gz`
+   release assets, the `release.yml` leg that builds them, and the
+   `~/.cache/yo/solvers/` download in `src/version_cache.yo` style.
+7. Release notes: solver pin management documented; `yo verify` in the
    VS Code extension's task list.
 
 **Exit criteria:** a user (human or LLM) can go from zero to a verified
 module using only shipped docs; CI runs verification on std fixtures as
 a required check.
 
-**Estimate:** ~2–3 weeks.
+**Estimate:** ~3–4 weeks.
 
 ### Total
 
-**~25–34 focused weeks (~6–8 months)** for V1–V7, with the flagship
+**~29–40 focused weeks (~7–9 months)** for V1–V7, with the flagship
 loop (compile-time proofs with counter-examples on the verifiable
-subset) landing at **V3, ~8–11 weeks in**. The 2026-05 estimate of
+subset) landing at **V3, ~11–15 weeks in** (re-based 2026-09-05; the
+2026-09-04 text said 25–34 and 8–11). The 2026-05 estimate of
 13–19 person-months applied to a different architecture (evaluator
 extension + persisted VIR); the separate-pass design and the
 subset-scoping are what bring it down. V1–V3 is the recommended first
@@ -1107,7 +1311,7 @@ usage before continuing.
 | Term/encode unit tests (hermetic, no solver) | `tests/internal/verifier.test.yo` | VC construction, SMT-LIB golden strings, mangling, verdict parsing (mocked runner) |
 | Real-solver unit tests | same file, `YO_TEST_Z3=1`-gated | `1+1==2` unsat; `1+1==3` sat+model; rlimit budget behavior |
 | Positive verification | `tests/spec/verify_*.test.yo` | Programs that must *prove* in `verify` mode (and still run green in `runtime` mode) |
-| Negative verification | `tests/spec/fixtures/negative/*.yo` driven by `tests/internal/verifier_negative.test.yo` | Each fixture must fail `yo check` with the expected diagnostic (subprocess harness asserting error text; the same scoring shape as `scripts/cli-diff-test.sh`) |
+| Negative verification | `tests/cli-cases/verify-*/` | Each case must fail `yo check` with the expected diagnostic — scored by the existing `scripts/cli-diff-test.sh` (rc + stdout + stderr goldens, isolated sandbox); no new harness |
 | Bugged twins | alongside each positive test | Every positive fixture has a deliberately-broken twin whose Refute message and counter-example are asserted — guards against a verifier that "proves" by encoding wrongly |
 | Runtime parity | existing `tests/spec/*` | Phase-0 behavior must not regress: `runtime` mode still lowers to asserts |
 | CI | new `verify` workflow job | Installs pinned Z3; `yo verify ./std/spec ./tests/spec`; uploads JSON report |
@@ -1203,7 +1407,8 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 
 | # | Change | Phase | Migration |
 | --- | --- | --- | --- |
-| 1 | Magic `result` identifier removed; `ensures` binds the labeled return | V1 | Add the label: `-> i32` becomes `-> (result : i32)`. In-repo: 10 `tests/spec` sites + cheatsheet example |
+| 1 | Magic `result` identifier removed; `ensures` binds the labeled return | V1 | Add the label: `-> i32` becomes `-> (result : i32)`. In-repo: 18 sites in 10 files (V1 task 5); the labeled form already compiles, so migrate first, flip second |
+| 1b | `ensures` asserts now run on early-`return` paths (they were skipped) | V1 | Behaviour fix, not a syntax change: code that violated its own post-condition on an early return now panics in `runtime` mode. Expected zero in-repo hits; `issues/contracts-ensures-skipped-by-early-return.md` |
 | 2 | `ghost(...)` / `ghost_fn(...)` erased from codegen (today: transparent runtime evaluation) | V5 | Ghost bindings were spec-only by contract; grep for `ghost(` uses in runtime expressions — expected zero |
 | 3 | `Refine(T)` gains the predicate parameter (`Refine(T, p)`); std/spec aliases attach real predicates | V6 | Most call sites use the named aliases (`NonZero(i32)`), which keep their signatures; direct `Refine(T)` uses add a predicate |
 | 4 | `verify`/`verify+` files gain strict obligations (compile errors) | V3 | Opt-in by pragma — `runtime` default is untouched; adopting a pragma is the migration |
@@ -1224,6 +1429,11 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 | D10 | Capability lattice / taint tracking deferred | Orthogonal infrastructure (old §B5); not needed for the core Dafny surface | Old Phase 4 |
 | D11 | Type invariants deferred | Interacts with every constructor/`inout` method; loop invariants first | Old §"invariant on struct/object types" |
 | D12 | `decreases` partial-correctness default | Dafny's stance; termination proofs opt-in | Old Open Question 3 (resolved: adopt Dafny default) |
+| D13 | No source-level proof primitives (`by_cases`, `by_induction`, `assert_by`, `assume`) | `assert(P)` in a verified body already acts as a proof cut (obligation, then assumption for the rest of the path) and `cond` is the case split; `assume` is an unsound escape hatch an LLM would reach for — if ever needed it goes behind `pragma(Pragma.AllowUnsafe)`. Re-open only if V4 quantifier-free proofs show real flakiness (2026-09-05) | Old "Alternative: language-level proof primitives" (dropped without disposition in the 2026-09-04 text) |
+| D14 | Reuse the landed diagnostics channel; no `--format json` | `--error-format json`, the bilingual registry and `yo explain` exist since 2026-09-04; a second JSON shape would split the LLM-facing surface | 2026-09-04 text's `--format json` |
+| D15 | Read-only `ArrayList`/`str`/`String` are *in* the V3 subset as opaque sequences | There is no safe `Slice`; without this exception AoRTE bounds obligations would cover only `Array(T, N)` and miss the collection LLM code actually indexes; sound because verified bodies are pure | 2026-09-04 "objects out of subset" absolute |
+| D16 | Verify generics per specialization | Matches the compiler's monomorphization; abstract verification is an optimization, not a correctness need | 2026-09-04 V6 task 2 |
+| D17 | Repackage Z3 as Yo release assets (`.tar.gz` per triple) rather than fetch Z3Prover's `.zip` | glibc-only Linux builds vs Yo's musl bundles; GNU `tar` cannot unzip; one extraction path already exists | 2026-09-04 acquisition text |
 
 ## Risks
 
@@ -1236,38 +1446,113 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 | Side-table keying breaks under specialization | Low — `copy_func_contract_exprs` already handles re-keying | V1 extends the same lifecycle; unit tests cover specialization paths |
 | `verify+` strip pass corrupts bodies | Medium — body rewriting is delicate | Strip keyed by spliced node ids (fresh per splice); `macro_expansion` discipline documented; `--emit-c` diff tests |
 | Scope creep toward a theorem prover | High (history says so) | Non-goals section is binding; tactic/interactive/second-solver requests close as "non-goal" |
+| Solver process spawning dominates verify time on large modules | Medium | V2 spike measures it; per-module process with `(reset)` is the prepared fallback |
+| Cross-platform verdict drift (same Z3 version, different arch) | Low–Medium | rlimit is resource-counted, not timed, but the V2 spike must confirm byte-identical verdicts on arm64 macOS vs x64 Linux CI before determinism is promised in docs |
+| Runtime bounds hole on `Array(T, N)` gets fixed with a runtime check that the `verify+` erasure then has to know about | Low | The runtime fix should be the same inline-assert shape as `ArrayList`'s, so the proved-id skip covers it |
 
 ## Open questions
 
+Each question carries the 2026-09-05 recommendation; a question is
+*closed* when its phase adopts the recommendation or records a different
+choice in the decision log.
+
 1. **`object` heap model.** When `object` types enter the subset (V6+),
    flat per-class heaps (Burstall-Bornat) vs. full separation logic.
-   Recommendation: flat heaps keyed by abstract reference, forbid
-   cycles in verified code initially — decide when V6 shapes it.
+   **Recommendation (2026-09-05): flat per-type heaps (Burstall–Bornat)
+   keyed by abstract reference, no separation logic.** Yo already gives
+   the verifier two things Dafny had to build: `struct` values copy (no
+   heap for them at all), and the purity gate means a verified body
+   cannot mutate an object except through an `inout` parameter, so the
+   frame is the `inout` list — exactly ROADMAP's "effects as the frame
+   rule". Cycles: forbid `object` types whose field graph can reach
+   themselves from verified bodies initially (the cycle-GC's type-level
+   reachability already computes this). Decide finally when V6 shapes
+   it; V3's read-only sequence view of `ArrayList` needs none of this.
 2. **Trait contracts with generic quantification** (old §B3): contracts
    on `map`-style methods quantify over the function parameter. V6
-   designs this against the abstract-generic encoding; the trait
-   variance rule (V6 task 1) is the fallback if quantified trait
-   contracts prove too expensive.
+   **Recommendation (2026-09-05): per-specialization first (D16).**
+   With bodies verified per concrete instance, a `map`-style contract
+   quantifies over a *known* function value at each call site, and the
+   callee closure's own contracts (or its body, if it is a literal in
+   the same file) are what get assumed. Quantification over unknown
+   function parameters is only needed for abstract verification, which
+   is deferred. The variance rule (V6 task 1) stays as the trait-level
+   check.
 3. **String content reasoning depth.** `Seq (BV8)` gives length and
    byte-level predicates cheaply; UTF-8 structural properties
    (`Utf8Valid`) may need axiomatized predicates rather than direct
-   encoding. Decide in V5.
+   encoding. **Recommendation (2026-09-05): length and byte-at-index only
+   in V3 (that is what `NonEmpty`, bounds and `str` indexing need);
+   `Seq (_ BitVec 8)` with concat/substring in V5; `Utf8Valid` as an
+   uninterpreted predicate with the handful of axioms `std/string`'s own
+   invariants need (a `String` built by std is valid; `substring` at rune
+   boundaries preserves validity). Never encode the UTF-8 automaton.**
 4. **Floats.** Still a non-goal (QF_FP is slow and rarely what LLM
-   systems code wants). Revisit only with a concrete user.
+   systems code wants). **Recommendation: keep it a non-goal; in
+   `verify` mode a function that touches `f32`/`f64` is a subset error,
+   in `verify+` it degrades to runtime asserts.** Revisit only with a
+   concrete user.
 5. **`inout` aliasing.** Two `inout` params aliasing the same value is
    possible at call sites; the two-state encoding assumes distinct
-   snapshots. Options: forbid aliased `inout` in verified calls (check
-   at call-site obligation time) or merge states. Decide in V5.
+   snapshots. **Recommendation (2026-09-05): forbid, don't merge.** The
+   runtime already has an exclusivity backstop for borrows
+   (`__yo_borrow_assert_unborrowed`, ROADMAP non-goals: "borrows stay
+   parameter modes, enforced by the runtime exclusivity backstop"), so
+   aliased `inout` at one call is a program error the language already
+   rejects dynamically; the verifier makes it static: at a call with
+   two or more `inout` actuals, add the obligation that they are
+   distinct locations (trivially discharged for distinct locals, a
+   subset error for two projections of the same object). Decide in V5
+   but plan on this.
 6. **Type invariants.** If adopted later: obligation at every
    constructor + `inout` method exit; interacts with V6 trait
-   contracts. A separate addendum when prioritized.
+   contracts. **Recommendation: an addendum after V6, and only for
+   `struct` types first** — a struct is a value, so "holds at every
+   constructor and after every `inout` method" is the whole rule; the
+   `object` version needs the heap model from question 1.
 7. **Async verification.** Per-state verification over the generated
    state machine (old draft's idea) is plausible but unscoped; await
-   points as yield boundaries. Parked until the core is done.
+   points as yield boundaries. **Recommendation: parked, and the
+   purity gate keeps `await` out of verified bodies so nothing here is
+   silently wrong in the meantime.** A verified *pure* function called
+   from async code is fully covered already; that is the common case.
+8. **Effect handlers and `unwind` paths** (from the 2026-05 draft, kept
+   because it is the right V6+ extension). A function taking an effect
+   parameter is outside the subset today. When it enters: the
+   resuming path carries `ensures`; an `unwind(...)` path is exempt
+   (it never reaches the post-condition — the same treatment as
+   `panic`); the handler body installed by the caller is a separate
+   function with its own contracts. Nothing in V1–V5 should preclude
+   this shape.
+
+### Dispositions of the 2026-05 open questions the 2026-09-04 text dropped
+
+| 2026-05 question | Disposition |
+| --- | --- |
+| `old(obj)` for object types (deep snapshot vs pointer vs forbidden) | Objects are out of subset until V6+; when they enter, `old(obj)` reads the *pre-state heap* in the flat-heap model (question 1) — no runtime deep copy is ever generated, because in `verify` the snapshot is symbolic and in `verify+` an unproven object post-condition falls back to the *runtime* `old` only for value types. Object-valued `old` in `verify+` fallback is a subset error |
+| Inductive types over `Box(Self)` | Value types (`struct`/`enum` with `Box(Self)` fields) are `declare-datatypes` — in the V3 subset as far as construction/projection goes; recursive *functions* over them need V4 `decreases`. Cyclic `object` graphs are excluded (question 1) |
+| Verifying the std prelude | Never verified from scratch. Prelude and std functions are *axiomatized by their contracts*: V6's dogfooding annotates `ArrayList`/`HashMap` core ops, and any std function without contracts is callable from a verified body only as "unconstrained result" (purity rule case 3) or a subset error |
+| `consume(...)` / ownership | `consume` is `unsafe`-gated and therefore outside the subset by the purity gate; nothing to model |
+| `break`/`continue` in verified loops | Specified in Loops & mutation (V4) |
+| `asm(...)` in verified functions | Outside the subset by the purity gate (a verified body may not contain `asm`) |
+| Solver portability | Addressed by the acquisition redesign (D17) |
 
 ## History & audit trail
 
-- **2026-09-04 (this revision).** Full audit against the live tree;
+- **2026-09-05 (second audit).** Re-measured the 2026-09-04 revision
+   against the tree at `c18b28e66`: 18 (not 10) `result` migration sites;
+   early-`return` skips `ensures` (gap 7, issue filed, V1 task 2b);
+   `Array(T, N)` indexing unchecked at run time (gap 8, issue filed);
+   no safe `Slice` type (examples and sorts moved to `Array`/`ArrayList`/
+   `str`; D15); CTFE-vs-runtime overflow divergence pinned in D6;
+   Z3 pin stale (5.1.0 current) and acquisition redesigned (D17);
+   diagnostics channel reuse (D14); async subprocess constraint makes
+   D4 necessary; cli-cases for negative tests; per-specialization
+   generics (D16); mutual-recursion `decreases` a non-goal; V2 spike
+   added; estimates re-based to 29–40 weeks; every open question given
+   a recommendation and the dropped 2026-05 questions dispositioned.
+   The doc moved back from `plans/backlog/` to `plans/` (ACTIVE).
+- **2026-09-04.** Full audit against the live tree;
    decisions D1–D12; phases V1–V7 replace the old Phase 1–6; old audit
    findings re-dispositioned: §A1 (clause order — resolved & landed),
    §A2 (invariant placement — resolved & landed), §A3 (ghost split —
@@ -1295,7 +1580,7 @@ verifier design choices (kept from the 2026-05 draft, now normative):
    [Current state](#current-state--audited-2026-09-04) for the audited
    inventory.
 
-## Worked example: verified `NonEmpty(Slice(T)).head()`
+## Worked example: verified `NonEmpty(ArrayList(T)).head()`
 
 Target state after V6 (updated from the old draft to named returns):
 
@@ -1305,28 +1590,31 @@ pragma(Pragma.VerifyOrAssert);
 { Refine } :: import("std/spec/refine");
 
 NonEmpty :: (fn(comptime(T) : Type) -> comptime(Type))(
-  Refine(Slice(T), (s) => ((s.len() > usize(0))))
+  Refine(ArrayList(T), (s) => ((s.len() > usize(0))))
 );
 
 head :: (fn(
   forall(T : Type),
-  s : NonEmpty(Slice(T)),
+  s : NonEmpty(ArrayList(T)),
   // requires((s.len() > usize(0))) — implied by the refinement on `s`
   ensures((result == (s(usize(0))))),
 ) -> (result : T))((s(usize(0))));
 
 main :: (fn() -> i32)({
-  arr := Array(i32, usize(3))(i32(1), i32(2), i32(3));
-  slice := arr.as_slice();
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
 
-  // Construction site: the refinement's VC (`slice.len() > 0`) discharges
-  // by CTFE (the array literal's length is a compile-time 3) — no SMT call.
-  ne := NonEmpty(Slice(i32))(slice);
+  // Construction site: the refinement's VC (`list.len() > 0`) — `len` is a
+  // runtime value here, so this is a Z3 obligation discharged from the
+  // three `push` post-conditions (`len == old(len) + 1`) in the same body.
+  ne := NonEmpty(ArrayList(i32))(list);
   first := head(forall(i32), ne);
   assert((first == i32(1)), "first should be 1");
 
   // From dynamic data — the runtime gate:
-  match(NonEmpty(Slice(i32)).check(some_runtime_slice()),
+  match(NonEmpty(ArrayList(i32)).check(some_runtime_list()),
     .Some(ne2) => { println(head(forall(i32), ne2)); },
     .None => println(`empty`)
   );
@@ -1335,10 +1623,16 @@ main :: (fn() -> i32)({
 export(main);
 ```
 
+(The 2026-09-04 text wrote this with `Slice(T)` and `arr.as_slice()`;
+no safe `Slice` type exists — see the 2026-09-05 corrections.)
+
 What the verifier does:
 
-- `NonEmpty(Slice(i32))(slice)` — construction VC `slice.len() > 0`,
-  discharged by CTFE from the literal length (no solver round-trip).
+- `NonEmpty(ArrayList(i32))(list)` — construction VC `list.len() > 0`,
+  discharged by Z3 from `ArrayList.push`'s contract (V6 dogfooding gives
+  `push` its `ensures((self.len() == (old(self.len()) + usize(1))))`).
+  With an `Array(i32, usize(3))` literal instead, the length is a
+  compile-time constant and CTFE discharges it without a solver call.
 - `head(ne)` — no caller obligation beyond the refinement (carried by
   the type); after the call, `ensures` gives `first == ne(0)`.
 - Inside `head`, `s(usize(0))` — the AoRTE bounds obligation discharges

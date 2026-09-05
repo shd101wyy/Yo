@@ -10,6 +10,14 @@ set -u
 cd "$(dirname "$0")/../.." || exit 2
 S1=${S1:-/tmp/s1}
 P=${P:-fast}
+# GATE 7 runs the CLI cases in sandboxes, and S1 may be staged outside this
+# checkout (CI's /tmp/yo-stage1) — where the exe-relative walk-up finds
+# neither std/ nor .github/skills. The harness passes YO_STD through; pin
+# YO_SKILLS the same way so `yo skills install` resolves the checkout's
+# bundled skills regardless of where S1 sits.
+if [ -d "$PWD/.github/skills" ]; then
+  export YO_SKILLS="$PWD/.github/skills"
+fi
 fails=0
 fail() {
   echo "FAIL: $*"
@@ -177,8 +185,8 @@ fi
 echo "=== T1 GATE 6: fmt (self-hosted check + write idempotence) ==="
 # History: this was a TS-vs-self differential while the two formatters were
 # being reconciled (339 divergent files → 17 → 0; root causes recorded in
-# plans/P1_CLI_PARITY.md §7, resolution measured 2026-08-11 over all 865
-# files). The TS pre-check is gone per plans/P2_5_RETIRE_EXECUTION.md step 14;
+# plans/archive/P1_CLI_PARITY.md §7, resolution measured 2026-08-11 over all 865
+# files). The TS pre-check is gone per plans/archive/P2_5_RETIRE_EXECUTION.md step 14;
 # what replaces the differential's value is (a) the tree must be
 # self-fmt-clean, and (b) write mode must be a NO-OP on a check-clean tree —
 # a diff there is a check/write divergence, the class --check alone can't see.

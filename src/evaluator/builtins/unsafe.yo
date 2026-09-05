@@ -10,7 +10,7 @@
 //! `unsafe(expr)` are identical to `expr` itself. Codegen lowers
 //! `unsafe(expr)` to its inner expression — no runtime cost.
 //!
-//! See plans/MEMORY_SAFETY.md for the full design.
+//! See plans/reference/MEMORY_SAFETY.md for the full design.
 open(import("std/string"));
 open(import("std/fmt"));
 {
@@ -58,7 +58,7 @@ evaluate_unsafe :: (
   // Privilege check: `unsafe(...)` itself is only callable inside a file that
   // has declared `pragma(Pragma.AllowUnsafe);`. Without this gate, user code
   // could trivially bypass the deref/arith gates by wrapping every pointer op
-  // in `unsafe(...)`. See Phase C of plans/MEMORY_SAFETY.md.
+  // in `unsafe(...)`. See Phase C of plans/reference/MEMORY_SAFETY.md.
   tok := ast_expr_token(expr);
   if(!is_implicitly_unsafe_capable_file(Option(String).Some(tok.module_path.clone())), {
     exn.throw(

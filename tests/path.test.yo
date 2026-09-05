@@ -18,20 +18,24 @@ test("Path.new handles relative paths", {
   assert(path.is_relative());
   assert(!path.is_absolute());
 });
-test("Path.new normalizes . in paths", {
+test("Path.new drops . in paths", {
+  // `.` always denotes the directory itself, so dropping it cannot change
+  // which file the path names — unlike `..`, it is folded on construction.
   path := Path.new(`/usr/./local/./bin`);
   s := path.to_string();
   assert(s == `/usr/local/bin`);
 });
-test("Path.new normalizes .. in paths", {
+test("Path.new KEEPS .. — folding it is normalize()'s job", {
+  // `a/b/..` is only `a` when `b` is not a symlink, so `new` records `..` as
+  // written and `normalize()` is the opt-in lexical fold.
   path := Path.new(`/usr/local/../bin`);
-  s := path.to_string();
-  assert(s == `/usr/bin`);
+  assert(path.to_string() == `/usr/local/../bin`, "recorded as written");
+  assert(path.normalize().to_string() == `/usr/bin`, "normalize() folds");
 });
 test("Path.new handles complex normalization", {
   path := Path.new(`/usr/local/../bin/./test`);
-  s := path.to_string();
-  assert(s == `/usr/bin/test`);
+  assert(path.to_string() == `/usr/local/../bin/test`, ". dropped, .. kept");
+  assert(path.normalize().to_string() == `/usr/bin/test`, "normalize() folds");
 });
 test("Path.new handles empty path", {
   // An empty relative path RENDERS as "." (the current directory) — Node's
@@ -357,10 +361,10 @@ test("Path parent chain", {
     }
   );
 });
-test("Path normalization removes multiple ..", {
+test("Path.normalize removes multiple ..", {
   path := Path.new(`/usr/local/../../etc`);
-  s := path.to_string();
-  assert(s == `/etc`);
+  assert(path.to_string() == `/usr/local/../../etc`, "recorded as written");
+  assert(path.normalize().to_string() == `/etc`);
 });
 test("Path with only dots", {
   // A relative path whose segments all normalize away stays "." (the current
@@ -371,10 +375,21 @@ test("Path with only dots", {
   s := path.to_string();
   assert(s == `.`);
 });
-test("Path .. beyond root is ignored for relative paths", {
+test("Path.new keeps EVERY leading .. (this asserted `etc` before)", {
+  // Regression: the leading `..` used to be DROPPED, silently turning a path
+  // that escapes its directory into one that does not
+  // (issues/fixed/path-drops-dotdot-and-destroys-unc-prefix.md).
   path := Path.new(`../../../etc`);
-  s := path.to_string();
-  assert(s == `etc`);
+  assert(path.to_string() == `../../../etc`, "recorded as written");
+  assert(path.normalize().to_string() == `../../../etc`, "nothing to pop");
+});
+test("Path.normalize folds .. past the root of an ABSOLUTE path", {
+  // `/..` is `/`, so an absolute path can never climb out of its root — but
+  // a relative one keeps every `..` it cannot pop.
+  assert(Path.new(`/a/../../b`).normalize().to_string() == `/b`, "absolute");
+  assert(Path.new(`/../..`).normalize().to_string() == `/`, "root stays root");
+  assert(Path.new(`a/../..`).normalize().to_string() == `..`, "relative climbs");
+  assert(Path.new(`a/..`).normalize().to_string() == `.`, "empty relative renders .");
 });
 // ============================================
 // Tests for new Path methods
@@ -681,4 +696,101 @@ test("split_paths / join_paths round-trip a PATH-style string", {
   _g := expected.push_string(`/bin`);
   joined := join_paths(parts);
   assert(joined == expected, "round-tripped with the platform delimiter");
+});
+// ============================================
+// `..` is recorded, not folded — new/join/push agree, normalize() folds
+// (issues/fixed/path-drops-dotdot-and-destroys-unc-prefix.md)
+// ============================================
+test("Path.new keeps a leading .. on a relative path (measured defect)", {
+  // Was `foo`: the leading `..` was silently dropped, so a path that escapes
+  // its directory quietly became one that does not.
+  p := Path.new(`../foo`);
+  assert(p.to_string() == `../foo`, "leading .. survives new()");
+  assert(p.is_relative(), "still relative");
+  assert(p.normalize().to_string() == `../foo`, "nothing to pop, so it survives normalize()");
+});
+test("Path.join keeps .. coming from the ARGUMENT (measured defect)", {
+  // Was `a/b/c`: `join` dropped the argument's `..` instead of recording it,
+  // and disagreed with `new` while doing so.
+  joined := Path.new(`a/b`).join(`../c`);
+  assert(joined.to_string() == `a/b/../c`, "recorded as written");
+  assert(joined == Path.new(`a/b/../c`), "join agrees with new");
+  assert(joined.normalize().to_string() == `a/c`, "normalize() pops b");
+});
+test("Path.push keeps .. coming from the ARGUMENT (measured defect)", {
+  // Was `a/b/c` — `push` is `join` in place and had the same defect.
+  p := Path.new(`a/b`);
+  p.push(`../c`);
+  assert(p.to_string() == `a/b/../c`, "recorded as written");
+  assert(p == Path.new(`a/b`).join(`../c`), "push agrees with join");
+});
+test("Path new/join/push agree on a path with no ..", {
+  base := Path.new(`a/b`);
+  pushed := Path.new(`a/b`);
+  pushed.push(`c/d`);
+  assert(base.join(`c/d`) == Path.new(`a/b/c/d`), "join agrees with new");
+  assert(pushed == Path.new(`a/b/c/d`), "push agrees with new");
+});
+test("Path.normalize is documented as LEXICAL, so it is idempotent", {
+  once := Path.new(`a/b/../../c/./d/..`).normalize();
+  assert(once.to_string() == `c`, "folded");
+  assert(once.normalize() == once, "already folded");
+});
+test("Path.new collapses repeated separators and a trailing slash", {
+  assert(Path.new(`a//b`).to_string() == `a/b`, "repeated separator");
+  assert(Path.new(`a///b////c`).to_string() == `a/b/c`, "many separators");
+  assert(Path.new(`a/b/`).to_string() == `a/b`, "trailing slash");
+  assert(Path.new(`/a/b//`).to_string() == `/a/b`, "absolute, trailing slashes");
+  assert(Path.new(`//a/b`).to_string() == `/a/b`, "leading // is one root, not a UNC share");
+});
+test("Path.new handles . in every position", {
+  assert(Path.new(`./a/b`).to_string() == `a/b`, "leading .");
+  assert(Path.new(`a/./b`).to_string() == `a/b`, "interior .");
+  assert(Path.new(`a/b/.`).to_string() == `a/b`, "trailing .");
+  assert(Path.new(`.`).to_string() == `.`, "bare . is the current directory");
+  assert(Path.new(`./.`).to_string() == `.`, "and stays it");
+  assert(Path.new(`..`).to_string() == `..`, ".. is NOT the same as .");
+});
+// ============================================
+// Windows roots: UNC share and drive letter
+// ============================================
+test("Path.new preserves a UNC prefix as a unit (measured defect)", {
+  // Was `/server/share/dir`: the `\\server\share` prefix was destroyed,
+  // turning a network share into a LOCAL absolute path.
+  unc := Path.new(`\\\\server\\share\\dir\\file.txt`);
+  assert(unc.to_string() == `\\\\server\\share\\dir\\file.txt`, "round-trips in the Windows spelling");
+  assert(unc.is_absolute(), "a share is an absolute location");
+  assert(unc != Path.new(`/server/share/dir/file.txt`), "NOT the local path of the same name");
+});
+test("Path UNC root is a root, not a segment", {
+  root := Path.new(`\\\\server\\share`);
+  assert(root.to_string() == `\\\\server\\share`, "renders as the bare share");
+  assert(root.file_name().is_none(), "a share is not a file name");
+  assert(root.parent().is_none(), "and has no parent");
+  deeper := Path.new(`\\\\server\\share\\dir`);
+  assert(deeper.parent().unwrap() == root, "the share IS the parent of its top level");
+  assert(deeper.file_name().unwrap() == `dir`, "file_name skips the root");
+  named := root.with_file_name(`other`);
+  assert(named.to_string() == `\\\\server\\share\\other`, "with_file_name cannot rewrite the root");
+});
+test("Path UNC survives join, push, components and normalize", {
+  root := Path.new(`\\\\server\\share`);
+  assert(root.join(`a/b`).to_string() == `\\\\server\\share\\a\\b`, "join keeps the share");
+  p := Path.new(`\\\\server\\share\\a`);
+  p.push(`../b`);
+  assert(p.normalize().to_string() == `\\\\server\\share\\b`, "push + normalize keep the share");
+  assert(Path.new(`\\\\server\\share\\..\\..\\x`).normalize().to_string() == `\\\\server\\share\\x`, ".. never climbs out of a share");
+  comps := Path.new(`\\\\server\\share\\dir`).components();
+  assert(comps.len() == usize(2), "the share is ONE component");
+  assert(comps(usize(0)) == `\\\\server\\share`, "root component");
+  assert(comps(usize(1)) == `dir`, "then the segments");
+});
+test("Path drive letter is a root too", {
+  drive := Path.new(`C:\\dir\\f.txt`);
+  assert(drive.to_string() == `C:/dir/f.txt`, "rendered with the module's / separator");
+  assert(drive.is_absolute(), "a drive-rooted path is absolute");
+  assert(drive.file_name().unwrap() == `f.txt`, "file_name skips the root");
+  assert(Path.new(`C:/../x`).normalize().to_string() == `C:/x`, ".. never eats the drive");
+  assert(Path.new(`C:`).parent().is_none(), "a bare drive has no parent");
+  assert(Path.new(`C:/a`) != Path.new(`D:/a`), "different drives are different paths");
 });

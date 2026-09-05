@@ -313,7 +313,7 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
   base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
-  // Chunked emission (plans/CHUNKED_C_EMISSION.md): record function byte
+  // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md): record function byte
   // ranges and split cross-chunk statics. MUST stay false by default — the
   // single-file emission is gated byte-identical.
   base.chunk_mode = (emit_chunks >= usize(1));
@@ -433,7 +433,7 @@ static Slice_uint8_t_u42_ __yo_args;
   });
   // Type-tag dispose dispatch switch.
   emit_dispose_dispatch(base);
-  // Chunked emission (plans/CHUNKED_C_EMISSION.md step 2): assemble the
+  // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
   // shared header + N linkable translation units from the recorded ranges;
   // hand them to the driver as parts[0] = header, parts[1..] = chunk bodies
   // (without the #include line — the driver knows the header's file name).

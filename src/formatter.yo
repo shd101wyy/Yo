@@ -910,10 +910,10 @@ is_parenthesized_dot_deref :: (
   )
 });
 // ---------------------------------------------------------------------------
-// Paren-elision predicates (plans/FMT_PAREN_ELISION.md D1-D3)
+// Paren-elision predicates (plans/archive/FMT_PAREN_ELISION.md D1-D3)
 // ---------------------------------------------------------------------------
 /// True iff `t` is a prefix-capable operator token
-/// (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): a BARE one of these in
+/// (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): a BARE one of these in
 /// expression position binds exactly one postfix expression — `-x`, `!x`,
 /// `?*T` chains. Local mirror of the parser's `_is_prefix_op_token` (not
 /// exported there). `+` and the rest stay infix-only, so a leading `+` can
@@ -931,7 +931,7 @@ is_prefix_capable_operator :: (fn(t : Token) -> bool)(
     )
 );
 /// The elision-relevant shape of a paren group's content
-/// (plans/FMT_PAREN_ELISION.md "Grammar model"):
+/// (plans/archive/FMT_PAREN_ELISION.md "Grammar model"):
 ///   * `atom_like` — the content is ONE postfix expression: an atom, call,
 ///     dot-chain, or a prefix operator (or chain) applied to one. A group
 ///     around it is removable wherever an operand is expected, because a
@@ -1040,11 +1040,11 @@ previous_meaningful_token_index :: (fn(tokens : ArrayList(Token), before : usize
   });
   result
 });
-/// D2 (plans/FMT_PAREN_ELISION.md): true iff the group is the LEFT operand
+/// D2 (plans/archive/FMT_PAREN_ELISION.md): true iff the group is the LEFT operand
 /// of an infix operator and EVERY top-level operator inside the group is
 /// that same operator — `(a ⊕ b) ⊕ c` flattens to `a ⊕ b ⊕ c`, which
 /// re-parses identically because same-operator chains left-associate
-/// (plans/OPERATOR_ASSOCIATIVITY.md). The group must sit in true
+/// (plans/archive/OPERATOR_ASSOCIATIVITY.md). The group must sit in true
 /// left-operand position (start of an expression: after `(`, `,`, `;` or
 /// `{`, or nothing at all); a group after an operator is a RIGHT operand
 /// and never flattens (`3 + (4 + 5)` keeps its parens), and mixed
@@ -1186,7 +1186,7 @@ next_meaningful_token_index :: (
 /// True iff the group's first meaningful token is `(` whose own content
 /// has a top-level comma (`-((1, 2))`). Splicing a prefix operator
 /// directly onto such a group re-lexes as a MULTI-ARG call (`-(1, 2)`) —
-/// a different tree — so D3 must refuse (plans/FMT_PAREN_ELISION.md R4
+/// a different tree — so D3 must refuse (plans/archive/FMT_PAREN_ELISION.md R4
 /// comma guard, held structurally rather than left to the re-parse gate).
 /// A comma-free inner group is fine: `-((x))` elides all the way to `-x`
 /// because the inner group is a concurrent removal candidate.
@@ -1316,13 +1316,13 @@ single_inner_group_not_atom_like :: (
       )
   )
 });
-/// D3 (plans/FMT_PAREN_ELISION.md): true iff the group is the call-paren
+/// D3 (plans/archive/FMT_PAREN_ELISION.md): true iff the group is the call-paren
 /// pair of a prefix operator — no whitespace between operator and `(` — in
 /// PREFIX position (the token before the operator is not an rvalue-end, so
 /// this is not the infix spelling `f -(x)`), and the single argument is
 /// atom-like. The bare spelling re-parses identically because a bare
 /// prefix operator binds exactly one postfix expression
-/// (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-(x)` → `-x`,
+/// (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-(x)` → `-x`,
 /// `?(*(x))` → `?*x`. Multi-arg calls (`-(a, b)`), infix-argument calls
 /// (`-(a + b)`), and operator atoms (`(!)`) keep their parens, as does
 /// anything followed by `(` or `.` — `-(x)(y)` / `-(x).y` would re-bind
@@ -1444,7 +1444,7 @@ is_redundant_grouping_paren :: (
           // Operator predecessor: an atom-like group (`(x)`, `(-x)`,
           // `(f(x))`) is a removable operand after ANY operator — all
           // operators are plain and an atom-like operand needs no parens
-          // (plans/FMT_PAREN_ELISION.md D1). A group holding an infix chain
+          // (plans/archive/FMT_PAREN_ELISION.md D1). A group holding an infix chain
           // is load-bearing (R1/R2/R3) and stays. One exception: after a
           // prefix-capable operator, a group around a non-atom-like group
           // (`-((1 + 2))`) defers to the INNER elision so the `-(` call
@@ -1530,7 +1530,7 @@ is_redundant_grouping_paren :: (
 /// right_index)` would expose the inner operator to a surrounding
 /// operator that would then re-parse the meaning incorrectly. Mirrors
 /// `parenRemovalWouldExposeOperatorRhsInfix`, with the content test
-/// upgraded to infix-awareness (plans/FMT_PAREN_ELISION.md): a LEADING
+/// upgraded to infix-awareness (plans/archive/FMT_PAREN_ELISION.md): a LEADING
 /// prefix run (`(-x)`, `(?*(x))`) is a single operand, not an exposed
 /// chain — only a top-level INFIX operator inside the group exposes.
 paren_removal_would_expose_operator_rhs_infix :: (
@@ -1711,7 +1711,7 @@ is_tightly_bound_operator :: (
 )({
   // After a dot, always tight (e.g. ptr.*(x), ptr.&(x))
   prev_is_dot := match(previous, .None => false, .Some(p) => (p.kind == TokenKind.Dot));
-  // PREFIX-PRIMARY tightness (plans/PREFIX_OPERATOR_OPERAND_RULE.md
+  // PREFIX-PRIMARY tightness (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md
   // Rule 1): a prefix-capable operator in PREFIX POSITION (previous is not
   // an rvalue-end) followed by an atom-like token or another prefix
   // operator emits tight — `-1`, `!x`, `?*i32`, `x := -1` (the space
@@ -2122,7 +2122,7 @@ raw_token_value :: (fn(input : String, tokens : ArrayList(Token), index : usize)
 ///      framing decisions for the matching close brackets.
 ///
 /// Layout always runs; the redundant-paren elisions of
-/// plans/FMT_PAREN_ELISION.md run only when `elide_parens` is on — the
+/// plans/archive/FMT_PAREN_ELISION.md run only when `elide_parens` is on — the
 /// public `format_yo_source` wrapper turns them off for a file that fails
 /// the re-parse verify gate. The elision count is reported through
 /// `g_fmt_elided_tokens`.
@@ -2876,7 +2876,7 @@ _format_yo_source_impl :: (
                     // together. `needs_space_before_atom` is exactly the "has a left
                     // operand" predicate — false after a comma, an operator, or `(`,
                     // so `(.Some` stays tight while `, .Some` keeps its space.
-                    // See plans/PREFIX_OPERATOR_OPERAND_RULE.md.
+                    // See plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md.
                     if(needs_space_before_atom(previous), {
                       result = _trim_trailing_h_ws(result);
                     });
@@ -3035,7 +3035,7 @@ _format_yo_source_impl :: (
     }
   )
 });
-/// Re-parse verify gate (plans/FMT_PAREN_ELISION.md): parse the original
+/// Re-parse verify gate (plans/archive/FMT_PAREN_ELISION.md): parse the original
 /// and the formatted text and compare the top-level expression trees
 /// (`exprs_are_equal` ignores ExprIds/positions; both parses run the same
 /// `if`→`cond` desugar, so that is compared like-for-like too). Any parse
@@ -3080,7 +3080,7 @@ _formatted_parses_identically :: (
 /// original and the formatted text must parse to identical ASTs, else the
 /// file is reformatted with elisions disabled. A meaning-changing format
 /// is structurally impossible, not merely untested
-/// (plans/FMT_PAREN_ELISION.md "Implementation sketch" step 2).
+/// (plans/archive/FMT_PAREN_ELISION.md "Implementation sketch" step 2).
 format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -> String)({
   formatted := _format_yo_source_impl(input.clone(), module_path.clone(), exn, true);
   // `return`, not cond-arm value returns: a local returned through a cond

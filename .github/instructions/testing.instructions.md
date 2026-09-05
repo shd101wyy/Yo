@@ -241,6 +241,31 @@ locally built one, since that is what CI runs:
 yo fmt --check ./src ./std ./tests
 ```
 
+## Editing ANY file under `.github/skills/` re-records two cli-cases
+
+`yo skills install` (restored in #412) copies the skill tree into a project, and
+the `skills-install` / `skills-install-zh` cases record the **content hash of
+every installed file** in their `expected_tree`. So a one-line edit to, say,
+`.github/skills/yo-syntax/syntax-cheatsheet.md` — the file this repo asks you to
+update whenever you learn a Yo lesson — turns the tier-1 CLI gate red with
+
+```
+── GOLDEN-DIFF  skills-install  (rc=0; tree)
+    content-differs (vs recorded golden hash): ./.agents/skills/yo-syntax/syntax-cheatsheet.md
+```
+
+roughly 25 minutes into a PR's `Self-hosted \`test\` subcommand` job. The fix is
+a re-record, not a revert:
+
+```bash
+YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record skills-install skills-install-zh
+YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh          # re-score, expect a clean card
+```
+
+Review the diff before committing: it should be exactly one changed hash line
+per case per edited skill file. Anything else means the install copied
+something you did not intend.
+
 ## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
 
 Type keys embed each declaring module's PATH SPELLING, and std resolution is
@@ -597,7 +622,7 @@ For large generated test binaries, use `--test-batch-size N` to split one `.test
 - Use `pragma(Pragma.SkipWasm);` to skip a test file on ALL WASM targets (generic catch-all).
 - Place skip pragmas at the top of the file (within the first 50 lines). A file can have both target-specific pragmas, or the generic one. Pragmas are validated by the evaluator against the `Pragma` enum in `std/prelude.yo`, so typos surface as compile errors.
 - For per-test skips, add `{ arch, Arch } :: import("std/process");` and use `if((arch == Arch.Wasm32), return())` at the top of the test body.
-- See `plans/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
+- See `plans/reference/WASM_SUPPORT.md` for the full list of WASM-skipped tests and limitations.
 - **Errno values differ on WASM** (WASI numbering). Always use constants from `std/libc/errno`, never hardcode errno numbers.
 - When adding new tests, verify they pass on native (`yo test ...`), Emscripten (`yo test ... --cc emcc`), and WASI (`yo test ... --target wasm32-wasip1`), or add appropriate `pragma(Pragma.SkipWasm*);` calls.
 - `process.platform` returns `"emscripten"` or `"wasi"` depending on target.

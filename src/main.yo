@@ -48,6 +48,8 @@ _(env : proc_env) :: import("std/env");
 { InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build } :: import("./build_runner.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
+{ run_skills_install } :: import("./skills_command.yo");
+{ set_cli_lang_override, cli_lang, tr } :: import("./cli_lang.yo");
 { generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
 { generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
 { HashMap } :: import("std/collections/hash_map");
@@ -223,7 +225,7 @@ module_id_from_path :: (fn(path : String) -> String)(
 /// proper evaluator over the parsed top-level expressions. On any failure
 /// (the evaluator's coverage of real source files is still incomplete),
 /// return `.None` so the codegen dispatcher uses its AST-only bootstrap
-/// heuristics. See `plans/BOOTSTRAPPING.md` Path Forward Stream A.
+/// heuristics. See `plans/archive/BOOTSTRAPPING.md` Path Forward Stream A.
 try_populate_expr_info_table :: (
   fn(
     exprs : ArrayList(AstExpr),
@@ -360,9 +362,11 @@ collect_module_deps :: (
   // Normalize extension: append .yo if missing
   norm_path := normalize_import_path(effective_path.clone());
   // Resolve absolute path by normalizing base_dir/norm_path as one string.
-  // Path.new normalizes ".." segments, which is needed for relative imports like "../types/tags.yo".
-  // (Path.join does NOT re-normalize ".." in the second argument.)
-  abs_path_raw := Path.new(`${effective_base}/${norm_path}`).to_string();
+  // The explicit `normalize()` folds ".." for relative imports like
+  // "../types/tags.yo": `Path` records ".." as written (folding it is wrong
+  // over symlinks), and this string has to match resolve_module_path's cache
+  // key, which folds the same way.
+  abs_path_raw := Path.new(`${effective_base}/${norm_path}`).normalize().to_string();
   // When std_base is empty, also skip paths that resolve into std/ (e.g.
   // relative imports like "../string" from within std/imm/). With std_base
   // set, std/ resolves into std_base and these paths should be followed.
@@ -635,7 +639,7 @@ check_single_file :: (
   outcome := mm_load_file(input_path, std_path, true, io, exn);
   if(!(outcome.ok), {
     // The loader's handlers only stash the rendered diagnostic (the P1
-    // single-print rule, plans/ERROR_DIAGNOSTICS_OVERHAUL.md D2) — check's
+    // single-print rule, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md D2) — check's
     // own edge prints it here, exactly once, anchored at the failing file.
     match(
       _take_load_error(),
@@ -761,7 +765,7 @@ run_check :: (
     emit_chatter(`check: ${passed.to_string()}/${total.to_string()} file(s) passed`);
   });
   // Watch modes survive a failing initial pass — that is their whole point.
-  // (Phase C, plans/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
+  // (Phase C, plans/reference/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
   if(watch_once, {
     run_watch_once(files, std_path.clone(), io, exn);
   });
@@ -1860,7 +1864,7 @@ run_compile :: (
     });
     cond(
       (emit_chunks >= usize(1)) => {
-        // Chunked emission (plans/CHUNKED_C_EMISSION.md step 2): parts[0] is
+        // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): parts[0] is
         // the shared header, parts[1..] the linkage-split translation-unit
         // bodies. Each chunk #includes the header BY BASENAME (quoted
         // includes resolve relative to the including file, and the files are
@@ -1995,7 +1999,7 @@ run_compile :: (
     }
   );
   // Chunked emission needs ThinLTO **at -O1 and above**, and there it is NOT an
-  // optional tuning knob (plans/CHUNKED_C_EMISSION.md). Splitting the program
+  // optional tuning knob (plans/reference/CHUNKED_C_EMISSION.md). Splitting the program
   // into N translation units externalizes every generated function, so an
   // optimizing build can no longer internalize or dead-strip them: MEASURED on
   // an N=4 self-build at -O2, the binary went 9 MB / 3.5k symbols -> 24 MB /
@@ -2467,7 +2471,7 @@ run_test :: (
       },
       // Consumed for CLI compatibility; the sequential in-process runner has
       // no use for them yet — accepted divergence, tracked in
-      // plans/P1_CLI_PARITY.md §6.
+      // plans/archive/P1_CLI_PARITY.md §6.
       (a == "--json-summary") => {
         json_summary = true;
         ai = (ai + usize(1));
@@ -3079,7 +3083,7 @@ run_test :: (
 /// else is rejected rather than silently swallowed — `main.yo`'s other arg loops
 /// assign unrecognized tokens to a path, which is how `yo test ./tests --profile`
 /// ends up running against a path literally named `--profile`
-/// (plans/P1_CLI_PARITY.md §3). Do not copy that shape here.
+/// (plans/archive/P1_CLI_PARITY.md §3). Do not copy that shape here.
 run_init :: (
   fn(
     argv : ArrayList(String),
@@ -3466,7 +3470,7 @@ run_build_cmd :: (
     io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
     return(());
   });
-  // `yo build --watch` (Phase C, plans/INCREMENTAL_COMPILATION.md): a thin
+  // `yo build --watch` (Phase C, plans/reference/INCREMENTAL_COMPILATION.md): a thin
   // loop — every round is a full `run_build`, and the Phase A inputs-sha256
   // artifact cache makes unchanged artifacts a no-op. Evaluator state is NOT
   // kept warm across rounds: artifacts compile in child processes anyway,
@@ -3664,7 +3668,7 @@ run_doc_cmd :: (
 /// The `version` subcommand — mirrors src/yo-cli.ts's `version [action] [value]`:
 /// no action prints the current + pinned version; pin/install/list/clean
 /// manage the GitHub-Releases-backed native-bundle cache
-/// (plans/P3_DISTRIBUTION.md item 2).
+/// (plans/archive/P3_DISTRIBUTION.md item 2).
 run_version_cmd :: (
   fn(
     argv : ArrayList(String),
@@ -3821,7 +3825,8 @@ _top_level_help_text :: (fn() -> String)({
   (h : String) = String.from("The Yo Programming Language ");
   h.push_str(CURRENT_YO_VERSION);
   h.push_string(
-    `
+    tr(
+      `
 Usage:
 
 yo compile <file> [options]      Compile a '.yo' file
@@ -3893,9 +3898,97 @@ Examples:
   $ yo version list                List cached versions
   $ yo version clean               Remove all cached versions
 
+yo skills install                Install AI agent skill files into this project
+Examples:
+  $ yo skills install             Copy skills into every agent config dir found
+                                  (.github, .agents, .claude, .opencode,
+                                  .openai, .cursor; defaults to .agents)
+
 yo --help                        Show this help message
 yo <subcommand> --help           Show help for a subcommand
-yo --version                     Show version number`
+yo --version                     Show version number`,
+      `
+用法：
+
+yo compile <file> [options]      编译 '.yo' 文件
+示例：
+  $ yo compile main.yo -o app
+  $ yo compile main.yo -cc clang -o app
+  $ yo compile main.yo --target x86_64-unknown-linux-gnu -o app
+  $ yo compile main.yo -l m -o app
+  $ yo compile main.yo -I./include -L./lib -l mylib -o app
+  $ yo compile main.yo --optimize 2 -D NDEBUG -o app
+  $ yo compile main.yo -g -o app_debug
+  $ yo compile main.yo --optimize 2 -s --cflags='-march=native' -o app
+  $ yo compile main.yo --optimize 2 --emit-chunks 16 -o app
+                                 把生成的 C 拆成 16 个翻译单元
+                                 （可选；隐含 -flto=thin，--no-chunk-lto 可退出）
+
+yo build [steps] [options]       使用 build.yo 构建项目
+示例：
+  $ yo build                     构建全部产物（默认：install 步骤）
+  $ yo build run                 构建并运行应用
+  $ yo build test                运行测试套件
+  $ yo build --list-steps        列出可用的构建步骤
+  $ yo build --summary           打印构建摘要树
+  $ yo build -Dstrip=true        给 build.yo 传递构建选项
+
+yo init [dir] [options]          初始化一个新的 Yo 项目
+示例：
+  $ yo init                      在当前目录初始化
+  $ yo init my-project           初始化到 ./my-project
+
+yo fetch [options]               把 git 依赖抓取到 .yo-cache
+示例：
+  $ yo fetch                     抓取 build.yo 的全部依赖
+  $ yo fetch --verbose           显示详细的抓取进度
+  $ yo fetch --update            把 ref 重新解析到最新提交
+
+yo install <package>             从 GitHub 安装依赖
+示例：
+  $ yo install github.com/user/repo          最新 semver 标签
+  $ yo install github.com/user/repo@v1.0.0   锁定版本
+  $ yo install user/repo                     GitHub 简写
+
+yo test [path] [options]         运行测试
+示例：
+  $ yo test                      运行工作区内全部 *.test.yo 文件
+  $ yo test ./tests              运行 ./tests 目录下的全部 *.test.yo 文件
+  $ yo test ./some-file.yo       运行 some-file.yo 中的测试
+
+yo fmt [paths...] [options]      格式化 Yo 源文件
+示例：
+  $ yo fmt                       格式化当前目录下所有 .yo 文件
+  $ yo fmt src tests             格式化 src 和 tests 下的 .yo 文件
+  $ yo fmt --check               只检查格式，不写入文件
+
+yo doc [path] [options]          生成 API 文档
+示例：
+  $ yo doc                       为当前目录所有 .yo 文件生成文档
+  $ yo doc ./src                 为 ./src 下所有 .yo 文件生成文档
+  $ yo doc ./src/main.yo         为单个文件生成文档
+  $ yo doc -o docs               输出到 ./docs 目录
+  $ yo doc --title "My Project"  设置文档站标题
+
+yo version                       管理 Yo 版本
+示例：
+  $ yo version                     显示当前版本和 .yo-version
+  $ yo version pin                 把当前版本锁定到 .yo-version
+  $ yo version pin 0.1.12          锁定指定版本
+  $ yo version install 0.1.12      预下载某个版本
+  $ yo version list                列出已缓存的版本
+  $ yo version clean               删除所有缓存的版本
+
+yo skills install                把 AI 代理技能文件安装到本项目
+示例：
+  $ yo skills install             复制技能到每个已存在的 agent 配置目录
+                                  （.github、.agents、.claude、.opencode、
+                                  .openai、.cursor；默认建 .agents）
+
+yo --help                        显示本帮助
+yo <subcommand> --help           显示子命令帮助
+yo --version                     显示版本号`
+    )
   );
   h
 });
@@ -3916,7 +4009,7 @@ _print_indented :: (fn(text : String) -> unit)({
 });
 /// `yo explain <CODE>` — print a diagnostic code's bilingual explanation,
 /// offline, from the compiled-in registry (P2,
-/// plans/ERROR_DIAGNOSTICS_OVERHAUL.md §6). `--list` enumerates every code;
+/// plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §6). `--list` enumerates every code;
 /// `--format json` carries both languages; `--lang zh-CN` (or the YO_LANG
 /// env var) selects the Chinese prose. Exit 0 when found; an unknown code
 /// exits 1 with a did-you-mean over the registry.
@@ -3925,11 +4018,9 @@ run_explain :: (
 )({
   (show_list : bool) = false;
   (as_json : bool) = false;
-  lang := String.from("en");
-  env_lang := proc_env.get(String.from("YO_LANG"));
-  if(env_lang.is_some(), {
-    lang = env_lang.unwrap_or(String.from(""));
-  });
+  // The global `--lang` pre-scan and YO_LANG both resolve here now
+  // (src/cli_lang.yo); explain keeps no private language handling.
+  lang := cli_lang();
   (target : String) = String.new();
   (ai : usize) = usize(1);
   while(ai < argv.len(), {
@@ -3946,20 +4037,8 @@ run_explain :: (
           as_json = (a.substring(usize(9), a.len()) == "json");
           ai = (ai + usize(1));
         }, {
-          if(a == "--lang", {
-            if((ai + usize(1)) < argv.len(), {
-              lang = argv(ai + usize(1)).clone();
-            });
-            ai = (ai + usize(2));
-          }, {
-            if(a.starts_with(String.from("--lang=")), {
-              lang = a.substring(usize(7), a.len());
-              ai = (ai + usize(1));
-            }, {
-              target = a.clone();
-              ai = (ai + usize(1));
-            });
-          });
+          target = a.clone();
+          ai = (ai + usize(1));
         });
       });
     });
@@ -4047,7 +4126,8 @@ run_explain :: (
 _subcommand_help_text :: (fn(subcmd : String) -> Option(String))(
   cond(
     (subcmd == "compile") => Option(String).Some(
-      `Usage: yo compile <file.yo> [options]
+      tr(
+        `Usage: yo compile <file.yo> [options]
 
 Compile a '.yo' source file to a native executable (via C11).
 
@@ -4088,10 +4168,53 @@ Options:
 Examples:
   $ yo compile main.yo -o app
   $ yo compile main.yo --optimize 2 --target x86_64-unknown-linux-gnu -o app
+  $ yo compile main.yo --emit-c --skip-c-compiler --optimize 2`,
+        `用法：yo compile <file.yo> [options]
+
+把 '.yo' 源文件编译为原生可执行文件（经 C11）。
+
+选项：
+  -o <path>                 输出二进制路径
+  --optimize <level>        C 优化级别（0|1|2|3）；默认 -O0。
+                            真实构建请用 2。大于 0 的级别还会启用
+                            --emit-chunks 所依赖的 ThinLTO 配对。
+  -g, --debug-symbols       生成调试符号
+  -s, --strip               剥离输出二进制
+  --cc, --c-compiler <cc>   使用的 C 编译器（clang|gcc|zig|emcc）
+  -t, --target <triple>     交叉编译目标（如 x86_64-unknown-linux-gnu、wasm32-wasip1）
+  --sysroot <dir>           交叉编译的 sysroot
+  --cflags '<flags>'        传给 C 编译器的额外标志
+  -D, --define <N[=V]>      C 编译阶段的预处理器宏定义
+  -I <dir> / -L <dir>       头文件 / 库文件搜索路径
+  -l <name>                 链接一个库
+  --extern <spec>           外部库规格（pkg-config 集成）
+  --static                  静态链接
+  --static-library          构建静态库而非可执行文件
+  --sanitize <kind>         清理器（address|thread|undefined）
+  --disable-sanitize        去掉默认追加的清理器标志
+  --allocator <name>        分配器（system|mimalloc）
+  --emit-c                  把生成的 C 打印到 stdout 然后停止
+  --emit-c-to <path>        把生成的 C 写入文件然后停止
+  --skip-c-compiler         只生成 C，跳过 C 编译
+  --skip-codegen            只做求值（不生成 C）
+  --emit-chunks <n>         把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）
+  --no-chunk-lto            分块构建时退出 ThinLTO
+  --jobs <n>                分块构建的并行 C 编译数
+  --compile-timeout-ms <ms> C 编译器超时
+  --emcc-environment <env>  Emscripten 环境（node|web）
+  --debug-gc / --debug-async-await / --debug-parallelism
+                            产出二进制内的运行时调试日志
+  --std-path <dir>          覆盖标准库目录
+
+示例：
+  $ yo compile main.yo -o app
+  $ yo compile main.yo --optimize 2 --target x86_64-unknown-linux-gnu -o app
   $ yo compile main.yo --emit-c --skip-c-compiler --optimize 2`
+      )
     ),
     (subcmd == "build") => Option(String).Some(
-      `Usage: yo build [steps...] [options]
+      tr(
+        `Usage: yo build [steps...] [options]
 
 Build the project described by build.yo (default step: install).
 
@@ -4113,10 +4236,35 @@ Examples:
   $ yo build                Build all artifacts
   $ yo build run            Build and run the application
   $ yo build test           Run the test suite
-  $ yo build -Dstrip=true   Pass a build option`
+  $ yo build -Dstrip=true   Pass a build option`,
+        `用法：yo build [steps...] [options]
+
+构建 build.yo 描述的项目（默认步骤：install）。
+
+选项：
+  --list-steps              列出可用的构建步骤
+  --summary                 打印构建摘要树
+  --dry-run                 只解析构建图，不实际执行
+  --build-file <path>       使用其他 build.yo
+  --cc, --c-compiler <cc>   使用的 C 编译器
+  -t, --target <triple>     交叉编译目标
+  --sysroot <dir>           交叉编译的 sysroot
+  -D<name>=<value>          给 build.yo 传递选项
+  --watch                   源码变化时重新构建
+  --poll-ms <ms>            监听轮询间隔
+  -v, --verbose             详细输出
+  --std-path <dir>          覆盖标准库目录
+
+示例：
+  $ yo build                构建全部产物
+  $ yo build run            构建并运行应用
+  $ yo build test           运行测试套件
+  $ yo build -Dstrip=true   传递构建选项`
+      )
     ),
     (subcmd == "test") => Option(String).Some(
-      `Usage: yo test [path] [options]
+      tr(
+        `Usage: yo test [path] [options]
 
 Run *.test.yo files (a file, a directory tree, or the whole workspace).
 
@@ -4137,10 +4285,34 @@ Options:
 Examples:
   $ yo test                       All tests in the workspace
   $ yo test ./tests --bail
+  $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"`,
+        `用法：yo test [path] [options]
+
+运行 *.test.yo 文件（单个文件、目录树或整个工作区）。
+
+选项：
+  -b, --bail                首次失败后停止
+  -v, --verbose             显示详细输出与错误
+  --test-name-pattern <s>   只运行名字包含 <s> 的测试
+  --exclude <path>          排除目录/文件（可重复）
+  -p, --parallel <n>        仅为兼容保留（v1 顺序执行）
+  --test-batch-size <n>     每批生成的 C 批次包含的测试数（默认 100）
+  --cc, --c-compiler <cc>   测试二进制使用的 C 编译器
+  --target <triple>         为交叉目标运行测试（如 wasm32-wasip1）
+  --disable-sanitize        跳过 AddressSanitizer 链接
+  -k, --keep-generated-files  保留生成的批次文件
+  --profile                 打印分阶段耗时
+  --std-path <dir>          覆盖标准库目录
+
+示例：
+  $ yo test                       工作区内的全部测试
+  $ yo test ./tests --bail
   $ yo test ./tests/fs/temp.test.yo --test-name-pattern "Dispose"`
+      )
     ),
     (subcmd == "check") => Option(String).Some(
-      `Usage: yo check <file-or-dir> [options]
+      tr(
+        `Usage: yo check <file-or-dir> [options]
 
 Type-check .yo files with the evaluator only (no C generation). Note the
 async state-machine restrictions are enforced in codegen, so check passes
@@ -4155,10 +4327,28 @@ Options:
 
 Examples:
   $ yo check ./src
+  $ yo check ./std --exclude std/libc`,
+        `用法：yo check <file-or-dir> [options]
+
+只用求值器对 .yo 文件做类型检查（不生成 C）。注意异步状态机的限制
+是在代码生成阶段检查的，check 会放过它们——这类问题请用
+'yo compile --skip-c-compiler' 来捕捉。
+
+选项：
+  --exclude <path>          排除目录/文件（可重复）
+  --watch                   源码变化时重新检查
+  --watch-once              只做一轮监听检查（供脚本使用）
+  --poll-ms <ms>            监听轮询间隔
+  --std-path <dir>          覆盖标准库目录
+
+示例：
+  $ yo check ./src
   $ yo check ./std --exclude std/libc`
+      )
     ),
     (subcmd == "fmt") => Option(String).Some(
-      `Usage: yo fmt [paths...] [options]
+      tr(
+        `Usage: yo fmt [paths...] [options]
 
 Format Yo source files in place.
 
@@ -4168,10 +4358,23 @@ Options:
 Examples:
   $ yo fmt                  Format all .yo files under the current directory
   $ yo fmt src tests
+  $ yo fmt --check ./src ./std ./tests`,
+        `用法：yo fmt [paths...] [options]
+
+就地格式化 Yo 源文件。
+
+选项：
+  --check                   只报告未格式化的文件，不写入（有则 rc=1）
+
+示例：
+  $ yo fmt                  格式化当前目录下所有 .yo 文件
+  $ yo fmt src tests
   $ yo fmt --check ./src ./std ./tests`
+      )
     ),
     (subcmd == "doc") => Option(String).Some(
-      `Usage: yo doc [path] [options]
+      tr(
+        `Usage: yo doc [path] [options]
 
 Generate API documentation for .yo files.
 
@@ -4185,10 +4388,27 @@ Options:
 
 Examples:
   $ yo doc ./std
+  $ yo doc ./src/main.yo -o docs --format json`,
+        `用法：yo doc [path] [options]
+
+为 .yo 文件生成 API 文档。
+
+选项：
+  -o, --output <dir>        输出目录（默认 ./yo-out/doc）
+  -f, --format <fmt>        输出格式（html|json，默认 html）
+  --title <s>               文档站标题
+  --document-private        包含下划线私有的条目
+  -v, --verbose             详细输出
+  --std-path <dir>          覆盖标准库目录
+
+示例：
+  $ yo doc ./std
   $ yo doc ./src/main.yo -o docs --format json`
+      )
     ),
     (subcmd == "init") => Option(String).Some(
-      `Usage: yo init [dir] [options]
+      tr(
+        `Usage: yo init [dir] [options]
 
 Initialize a new Yo project (build.yo, src/, .gitignore).
 
@@ -4197,10 +4417,22 @@ Options:
 
 Examples:
   $ yo init
+  $ yo init my-project --name my-project`,
+        `用法：yo init [dir] [options]
+
+初始化一个新的 Yo 项目（build.yo、src/、.gitignore）。
+
+选项：
+  --name <s>                项目名（默认：目录名）
+
+示例：
+  $ yo init
   $ yo init my-project --name my-project`
+      )
     ),
     (subcmd == "fetch") => Option(String).Some(
-      `Usage: yo fetch [options]
+      tr(
+        `Usage: yo fetch [options]
 
 Fetch the git dependencies declared in build.yo into the global cache and
 write yo.lock (stale lock entries are pruned automatically).
@@ -4212,10 +4444,25 @@ Options:
 
 Examples:
   $ yo fetch
+  $ yo fetch --update`,
+        `用法：yo fetch [options]
+
+把 build.yo 声明的 git 依赖抓取到全局缓存并写入 yo.lock
+（过期的锁条目会自动剪除）。
+
+选项：
+  -u, --update              重新把 ref 解析到最新提交
+  -v, --verbose             显示详细的抓取进度
+  --build-file <path>       使用其他 build.yo
+
+示例：
+  $ yo fetch
   $ yo fetch --update`
+      )
     ),
     (subcmd == "install") => Option(String).Some(
-      `Usage: yo install <package> [options]
+      tr(
+        `Usage: yo install <package> [options]
 
 Add a dependency to build.yo and fetch it. Accepts GitHub shorthands,
 pinned versions, and local paths.
@@ -4228,10 +4475,25 @@ Examples:
   $ yo install user/repo               Latest semver tag from GitHub
   $ yo install user/repo@v1.0.0        Pinned version
   $ yo install github.com/user/repo    Full form
-  $ yo install ./path/to/dep           Local path dependency`
+  $ yo install ./path/to/dep           Local path dependency`,
+        `用法：yo install <package> [options]
+
+把依赖加入 build.yo 并抓取。支持 GitHub 简写、锁定版本和本地路径。
+
+选项：
+  -v, --verbose             显示详细进度
+  --build-file <path>       使用其他 build.yo
+
+示例：
+  $ yo install user/repo               GitHub 上的最新 semver 标签
+  $ yo install user/repo@v1.0.0        锁定版本
+  $ yo install github.com/user/repo    完整形式
+  $ yo install ./path/to/dep           本地路径依赖`
+      )
     ),
     (subcmd == "cache") => Option(String).Some(
-      `Usage: yo cache <action>
+      tr(
+        `Usage: yo cache <action>
 
 Manage the global dependency cache (~/.cache/yo/deps).
 
@@ -4241,10 +4503,23 @@ Actions:
 
 Examples:
   $ yo cache path
+  $ yo cache clean`,
+        `用法：yo cache <action>
+
+管理全局依赖缓存（~/.cache/yo/deps）。
+
+动作：
+  path                      打印全局缓存目录
+  clean                     删除所有缓存的依赖
+
+示例：
+  $ yo cache path
   $ yo cache clean`
+      )
     ),
     (subcmd == "version") => Option(String).Some(
-      `Usage: yo version [action] [options]
+      tr(
+        `Usage: yo version [action] [options]
 
 Show or manage Yo toolchain versions. With no action, prints the current
 version and the project's .yo-version pin (if any).
@@ -4267,10 +4542,36 @@ Examples:
   $ yo version pin 0.2.16
   $ yo version list --remote
   $ yo version install 0.2.16
+  $ yo version clean 0.2.14`,
+        `用法：yo version [action] [options]
+
+查看或管理 Yo 工具链版本。不带动作时，打印当前版本和项目的
+.yo-version 锁定（如有）。
+
+动作：
+  pin [version]             用 .yo-version 把项目锁定到某个版本
+                            （默认锁定当前版本；指定版本时会对照已发布的
+                            release 做校验）
+  install <version>         预先把某个版本下载到版本缓存
+  list                      列出已缓存的版本
+  list --remote             列出已发布的 release（GitHub Releases）；
+                            标注（current）和（cached）
+  clean [version]           删除某个缓存版本，或全部删除
+
+选项：
+  --remote                  配合 'list'：查询已发布的 release
+
+示例：
+  $ yo version
+  $ yo version pin 0.2.16
+  $ yo version list --remote
+  $ yo version install 0.2.16
   $ yo version clean 0.2.14`
+      )
     ),
     (subcmd == "explain") => Option(String).Some(
-      `Usage: yo explain <CODE> [options]
+      tr(
+        `Usage: yo explain <CODE> [options]
 
 Show the offline explanation for a diagnostic code (bilingual English +
 简体中文), with a bad/good example pair. The registry ships inside the
@@ -4285,17 +4586,41 @@ Options:
 Examples:
   $ yo explain E0401
   $ yo explain E0601 --lang zh-CN
+  $ yo explain --list`,
+        `用法：yo explain <CODE> [options]
+
+离线显示某个诊断代码的解释（英语 + 简体中文双语），并附错误/正确
+示例对。注册表内置于二进制中——无需网络。
+
+选项：
+  --list                 列出所有代码及其标题
+  --format json          每个条目一行 JSON（同时携带两种语言）
+  --lang zh-CN           输出中文解释（默认 en；等价于设置 YO_LANG
+                         环境变量）
+
+示例：
+  $ yo explain E0401
+  $ yo explain E0601 --lang zh-CN
   $ yo explain --list`
+      )
     ),
     (subcmd == "lsp") => Option(String).Some(
-      `Usage: yo lsp
+      tr(
+        `Usage: yo lsp
 
 Run the Yo language server on stdio (diagnostics, hover, definition,
 symbols, references, folding, rename, formatting, signature help,
-completion). Used by editor clients such as the VS Code extension.`
+completion). Used by editor clients such as the VS Code extension.`,
+        `用法：yo lsp
+
+在 stdio 上运行 Yo 语言服务器（诊断、悬停、定义、符号、引用、
+折叠、重命名、格式化、签名帮助、补全）。供 VS Code 扩展等编辑器
+客户端使用。`
+      )
     ),
     (subcmd == "unsafe-report") => Option(String).Some(
-      `Usage: yo unsafe-report [path] [options]
+      tr(
+        `Usage: yo unsafe-report [path] [options]
 
 Scan for unsafe(...) sites and report them with their // SAFETY: comments.
 
@@ -4303,10 +4628,21 @@ Options:
   --json                    Machine-readable output
 
 Example:
+  $ yo unsafe-report ./std`,
+        `用法：yo unsafe-report [path] [options]
+
+扫描 unsafe(...) 位置，并连同其 // SAFETY: 注释一起报告。
+
+选项：
+  --json                    机器可读输出
+
+示例：
   $ yo unsafe-report ./std`
+      )
     ),
     (subcmd == "public-safe-report") => Option(String).Some(
-      `Usage: yo public-safe-report [path] [options]
+      tr(
+        `Usage: yo public-safe-report [path] [options]
 
 Report public top-level fn(...) declarations that leak raw pointers
 (the stdlib public-boundary rule).
@@ -4315,7 +4651,47 @@ Options:
   --json                    Machine-readable output
 
 Example:
+  $ yo public-safe-report ./std`,
+        `用法：yo public-safe-report [path] [options]
+
+报告泄漏裸指针的公开顶层 fn(...) 声明（标准库公开边界规则）。
+
+选项：
+  --json                    机器可读输出
+
+示例：
   $ yo public-safe-report ./std`
+      )
+    ),
+    (subcmd == "skills") => Option(String).Some(
+      tr(
+        `Usage: yo skills <action>
+
+Manage Yo AI agent skill files for use with AI coding agents.
+
+Actions:
+  install   Copy bundled skill files into the current project
+
+The install action copies Yo skill files into all agent config directories
+found in the current project (.github, .agents, .claude, .opencode,
+.openai, .cursor). If none exist, .agents/skills/ is created.
+
+Examples:
+  $ yo skills install       Install skills in the current project`,
+        `用法：yo skills <action>
+
+管理供 AI 编码代理使用的 Yo 技能文件。
+
+动作：
+  install   把捆绑的技能文件复制到当前项目
+
+install 动作会把 Yo 技能文件复制到当前项目中已存在的所有 agent
+配置目录（.github、.agents、.claude、.opencode、.openai、.cursor）。
+如果都不存在，则创建 .agents/skills/。
+
+示例：
+  $ yo skills install       在当前项目中安装技能`
+      )
     ),
     true => Option(String).None
   )
@@ -4391,6 +4767,8 @@ main :: (fn(io : Io) -> unit)({
   // Global `--std-path <dir>` flag: strip it from argv before subcommand
   // dispatch and stash the override with the module manager. The TS
   // counterpart is the root-level yargs `std-path` option in `yo-cli.ts`.
+  // The global `--lang <lc>` flag (CLI output language, src/cli_lang.yo)
+  // strips the same way and also matches anywhere in argv.
   argv := ArrayList(String).new();
   ai := usize(0);
   while(ai < raw_argv.len(), {
@@ -4403,7 +4781,20 @@ main :: (fn(io : Io) -> unit)({
         exn.throw(dyn(`--std-path requires a directory argument`));
       });
     }, {
-      argv.push(a);
+      if(a == "--lang", {
+        if((ai + usize(1)) < raw_argv.len(), {
+          set_cli_lang_override(raw_argv(ai + usize(1)).clone());
+          ai = (ai + usize(1));
+        }, {
+          exn.throw(dyn(tr(`--lang requires a language code (e.g. en, zh-CN)`, `--lang 需要一个语言代码（例如 en、zh-CN）`)));
+        });
+      }, {
+        if(a.starts_with(String.from("--lang=")), {
+          set_cli_lang_override(a.substring(usize(7), a.len()));
+        }, {
+          argv.push(a);
+        });
+      });
     });
     ai = (ai + usize(1));
   });
@@ -4521,10 +4912,12 @@ main :: (fn(io : Io) -> unit)({
     run_unsafe_report_cmd(argv, io, exn);
   }, if(subcmd == "public-safe-report", {
     run_public_safe_report_cmd(argv, io, exn);
+  }, if(subcmd == "skills", {
+    run_skills_install(argv, io, exn);
   }, if(subcmd == "version", {
     run_version_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report> ...`));
-  }))))))))))))));
+    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`, `未知子命令 '${subcmd}'。用法：yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`)));
+  })))))))))))))));
 });
 export(main);

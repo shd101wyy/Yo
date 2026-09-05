@@ -12,7 +12,7 @@ self-hosted arm while both still existed, are the reference now.
 This corpus exists because `check` proves a subcommand type-checks, not that
 anything ever calls it — `init_project` shipped as 239 complete, type-checking
 lines wired to no subcommand and SIGSEGV'd the first time it ran. See
-[`plans/P1_CLI_PARITY.md`](../../plans/P1_CLI_PARITY.md) §1.
+[`plans/archive/P1_CLI_PARITY.md`](../../plans/archive/P1_CLI_PARITY.md) §1.
 
 ## Case layout
 
@@ -33,7 +33,7 @@ path by putting the failing command last.
 ## Goldens — the corpus's post-retirement form
 
 The harness scores the run against each case's recorded golden files
-(`plans/P2_5_RETIRE_EXECUTION.md` step 12). Goldens were recorded **from the
+(`plans/archive/P2_5_RETIRE_EXECUTION.md` step 12). Goldens were recorded **from the
 self-hosted arm** (`--record`): the harness injects `YO_STD`, so the surviving
 arm is the one whose environment was always explicit. A case with no goldens
 scores `NO-GOLDEN` and fails the run — a silently unscored case is

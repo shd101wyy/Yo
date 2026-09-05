@@ -317,7 +317,7 @@ use_t2 :: (fn(generic(T : Type), self : T, where(T <: T2)) -> i32)({
 
 ## Comptime/runtime function specialization
 
-Yo does **not** support function overloading — same stance as Rust, and ENFORCED since 2026-08-21 (`plans/FUNCTION_OVERLOADING_POLICY.md`): an exported `Call` holding a tuple of two or more candidates is rejected everywhere except std/prelude.yo, whose runtime/comptime operator modules (`(-)`/`(!)`/`(~)`, `Call :: (neg, comptime_neg)`) are the single sanctioned overload sets (`is_overload_set_capable_file` in `src/evaluator/memory_safety.yo`, gated at the export choke point in `src/evaluator/values/anonymous_module.yo`). A single-function `Call` — a callable module — is not an overload set and stays allowed. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`).
+Yo does **not** support function overloading — same stance as Rust, and ENFORCED since 2026-08-21 (`plans/reference/FUNCTION_OVERLOADING_POLICY.md`): an exported `Call` holding a tuple of two or more candidates is rejected everywhere except std/prelude.yo, whose runtime/comptime operator modules (`(-)`/`(!)`/`(~)`, `Call :: (neg, comptime_neg)`) are the single sanctioned overload sets (`is_overload_set_capable_file` in `src/evaluator/memory_safety.yo`, gated at the export choke point in `src/evaluator/values/anonymous_module.yo`). A single-function `Call` — a callable module — is not an overload set and stays allowed. To provide comptime variants of functions, use explicit naming with a `comptime_` prefix (e.g., `comptime_unwrap` alongside `unwrap`).
 
 Use separate `impl` blocks with `where(Self <: Comptime)` constraints for comptime method variants on generic types like `Option(T)` and `Result(T, E)`.
 
@@ -480,7 +480,7 @@ Key semantics:
 - Runtime representation is identical to regular enums — all GADT logic is erased at compile time
 - GADTs with custom discriminants: wrap variant in parens `(TagInt(i : i32) -> recur(i32)) = 10`
 - Mixed GADT/regular variants: some variants can have `-> recur(...)` while others remain unconstrained
-- For full design document, see `plans/GADTS.md` and `docs/en-US/GADTS.md`
+- For full design document, see `plans/reference/GADTS.md` and `docs/en-US/GADTS.md`
 
 ## std error handling: three blessed styles, no fourth
 
@@ -536,7 +536,7 @@ Two conventions that are easy to miss:
 - **Traits are the API.** An inherent method that duplicates a trait method
   becomes a trait impl, so generic code can dispatch on it. Types that should
   compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
-- **Hashing is Rust-shaped (plans/HASHER_REDESIGN.md).** `Hash.hash(self,
+- **Hashing is Rust-shaped (plans/reference/HASHER_REDESIGN.md).** `Hash.hash(self,
   inout(hasher) : H)` FEEDS bytes; a `Hasher` (`std/hash`: `SipHasher13` =
   `DefaultHasher`, `Fnv1aHasher`) turns them into the `u64`. Never write a
   `-> u64` hash method or fold hashes with `* 31`; a new type's impl calls

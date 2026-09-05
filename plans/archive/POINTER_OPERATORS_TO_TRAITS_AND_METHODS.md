@@ -126,7 +126,7 @@ parenthesization — `(ptr &+ 1).*` → `(ptr.add(1)).*`).
    `.github/instructions/yo-syntax.instructions.md` (both updated 2026-07-27
    with the OLD family — they must flip in the same commit), plus
    `docs/en-US` + `docs/zh-CN` pointer sections and
-   `scratchpad`/`plans/MEMORY_SAFETY.md` references.
+   `scratchpad`/`plans/reference/MEMORY_SAFETY.md` references.
 5. **Gates**: TIER 1 (corpus 141/0, battery at 6-flag baseline, std 153/153)
    then full TIER 2 incl. STRICT_FIXPOINT — the yo-self tree is rewritten
    too, so the self-compile exercises the new surface end-to-end. The

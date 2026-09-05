@@ -1,4 +1,7 @@
 # FS Test Suite — Remaining Bugs
+> **ARCHIVED 2026-09-04 — BUG LEDGER, CLOSED.** Every entry is struck through
+> FIXED below, including the "Open Bugs" section.
+
 
 Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ are already fixed.
 

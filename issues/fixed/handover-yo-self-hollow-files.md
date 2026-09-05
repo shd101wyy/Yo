@@ -71,7 +71,7 @@ tests/variadic_comptime.test.yo          10 passed   <- runs nothing
 are ordinary runtime tests** (array/slice/HashMap/Deque indexing) that are lost as
 collateral, not comptime tests.
 
-This matters for `plans/SELF_HOSTING_COMPLETION.md` **P2**: once `src/` is retired,
+This matters for `plans/archive/SELF_HOSTING_COMPLETION.md` **P2**: once `src/` is retired,
 the self-hosted binary's "N passed" is the _only_ signal there is, and a
 silent-success failure mode is the worst thing to carry into that.
 

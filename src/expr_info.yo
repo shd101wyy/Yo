@@ -871,8 +871,8 @@ is_extern_c_global :: (fn(name : String) -> bool)(
 /// module (`./tests/x.yo`) and the loader's canonical `file://` absolute
 /// key (main.yo `_load_module_at_abs`) — and a key mismatch splits the
 /// declaration (one spelling) from the reads (the other). Strip the scheme
-/// and absolutize relative paths against the CWD (`Path.new` collapses
-/// `.`/`..` segments on construction).
+/// and absolutize relative paths against the CWD (the loader folds `.`/`..`
+/// itself via `Path.normalize`, so neither spelling carries them).
 _mg_canon :: (fn(module_path : String) -> String)({
   // Normalize separators and the two absolute spellings so record/lookup
   // agree on every platform. Windows mixed forms measured diverging
@@ -899,7 +899,7 @@ _mg_canon :: (fn(module_path : String) -> String)({
   // Collapse `/./` segments (the CLI-arg spelling `./tests/x.yo` after the
   // CWD prepend). `..` is not collapsed: the two spellings of one module
   // are the CLI arg and the loader's file:// key, and neither emits `..`
-  // after Path.new normalization in the loader.
+  // after the loader's `Path.normalize()`.
   while(p.contains(String.from("/./")), {
     p = p.replace(String.from("/./"), String.from("/"));
   });

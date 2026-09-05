@@ -405,7 +405,7 @@ detect_cycle :: (fn(dag : ArrayList(DAGNode)) -> Option(String))({
 // ---------------------------------------------------------------------------
 /// Compile a build artifact by invoking the Yo compiler.
 // ---------------------------------------------------------------------------
-// Artifact input cache (plans/INCREMENTAL_COMPILATION.md Phase A).
+// Artifact input cache (plans/reference/INCREMENTAL_COMPILATION.md Phase A).
 // A compile is SKIPPED when the sha256 over (child argv + compiler version +
 // every project/std `.yo` file + yo.lock) matches the stamp recorded next to
 // the output on the last successful compile. Approximations, documented:
@@ -751,7 +751,7 @@ compile_artifact :: (
       i = (i + usize(1));
     });
     // Forward the artifact's compile options — the §9 debt in
-    // plans/P1_CLI_PARITY.md. Mirrors the `codeGenerator.compileModule`
+    // plans/archive/P1_CLI_PARITY.md. Mirrors the `codeGenerator.compileModule`
     // option mapping in `src/build-runner.ts:967-996`: `release` is true for
     // every level except debug/release-safe, `mapOptimize` sends
     // release-safe/-small to -O2 and release-fast to -O3, allocator is passed
@@ -778,7 +778,7 @@ compile_artifact :: (
       cmd.arg(String.from("--emit-c-to"));
       cmd.arg(Path.new(ctx.project_dir.clone()).join(Path.new(artifact.emit_c_to.clone())).to_string());
     });
-    // Chunked C emission (plans/CHUNKED_C_EMISSION.md): 0 = off, which is the
+    // Chunked C emission (plans/reference/CHUNKED_C_EMISSION.md): 0 = off, which is the
     // default, so an unset field adds nothing to the child argv and the
     // emission stays byte-identical. The Phase A artifact stamp hashes this
     // argv, so flipping the field invalidates the build cache for free.
@@ -822,7 +822,7 @@ compile_artifact :: (
       cmd.arg(String.from("--static-library"));
     });
     // Forward the error format so artifact-compile failures render per
-    // --error-format (P3 threading, plans/ERROR_DIAGNOSTICS_OVERHAUL.md).
+    // --error-format (P3 threading, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md).
     if(!(error_format() == "human"), {
       cmd.arg(String.from("--error-format"));
       cmd.arg(error_format());
@@ -1458,7 +1458,7 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
 /// This used to shell out to `yo-cli build --serialize-registry` and parse JSON
 /// from stdout. That flag DOES NOT EXIST in `src/` (zero grep hits), and the
 /// JSON parser was `BuildRegistry.new()` — it ignored its input entirely — so
-/// `yo build` built an empty DAG and exited 0. See plans/P1_CLI_PARITY.md §3.
+/// `yo build` built an empty DAG and exited 0. See plans/archive/P1_CLI_PARITY.md §3.
 ///
 /// The real thing, mirroring `src/build-runner.ts`: clear the global registry,
 /// evaluate the file through the module manager (the builtins mutate the
@@ -1538,7 +1538,7 @@ run_build :: (
     });
     // Fetch git dependencies before building (build-runner.ts:216-232).
     // setRootBuildProjectDir + fetchTransitiveDependencies belong to the
-    // step-11 dependency-subsystem decision (plans/P2_5_RETIRE_EXECUTION.md)
+    // step-11 dependency-subsystem decision (plans/archive/P2_5_RETIRE_EXECUTION.md)
     // and are not yet ported — this is the direct-dependency wiring only.
     if(registry.dependencies.len() > usize(0), {
       deps_cached := e.io.await(are_deps_cached(project_dir.clone(), registry.dependencies, e.io, e.exn), e);

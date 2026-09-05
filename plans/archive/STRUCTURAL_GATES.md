@@ -1,4 +1,9 @@
 # Scope: structural-gate tests (5 of the 18 ./tests fails)
+> **ARCHIVED 2026-09-04 — CLOSED.** The safe-code structural gates ship as
+> tests/safe_code_structural_gates.test.yo (+ src/unsafe_report.yo); the
+> def-time-body-eval wall that blocked the fn-body gates is gone (see
+> HANDOVER_DEF_EVAL_SWALLOW.md in this archive).
+
 
 All 5 fail identically — `comptime_expect_error(...)` expects a compile error,
 but yo-self evaluates the construct successfully (the rejection gate doesn't
@@ -21,7 +26,7 @@ Two independent sub-clusters.
 Tests: `safe_code_structural_gates`, `extern_unsafe_wrap`.
 Repro: `takes_ptr :: (fn(p : *(i32)) -> i32)(...)`, `(fn(s : *(char)) -> usize)(strlen(s))`
 — a raw pointer type `*(T)` (or `&(x)` address-of) named in a file WITHOUT
-`pragma(Pragma.AllowUnsafe);`. "Phase C structural gates" (plans/MEMORY_SAFETY.md).
+`pragma(Pragma.AllowUnsafe);`. "Phase C structural gates" (plans/reference/MEMORY_SAFETY.md).
 
 **TS gates (both use `isImplicitlyUnsafeCapableFile`):**
 

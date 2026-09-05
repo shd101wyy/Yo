@@ -2408,7 +2408,7 @@ Read-only survey of BOTH compilers (no builds):
 - TS does not reduce it _at the receiver_ either: `src/env.ts:1719` keeps
   `TypeApplication` symbolic and finds METHODS through
   `getWhereClauseConstraintsForTypeApplication`. And
-  `plans/HIGHER_KINDED_TYPES.md:223` states the intended equivalence rule
+  `plans/reference/HIGHER_KINDED_TYPES.md:223` states the intended equivalence rule
   explicitly: **`TypeApp(F, [A]) ≡ ConcreteType` — only if the constructor is
   resolved and the application yields ConcreteType.**
 
@@ -2679,7 +2679,7 @@ Why that is the faithful port, and why the recorded root was wrong:
   TypeApplication only while the callee is still an abstract SomeT with
   `kindFunctionType` (`src/evaluator/calls/function.ts:1345-1394`).
 - Reducing at the match scrutinee would be wrong — the variable would still carry
-  a TypeApplication into codegen, which `plans/HIGHER_KINDED_TYPES.md:98` forbids.
+  a TypeApplication into codegen, which `plans/reference/HIGHER_KINDED_TYPES.md:98` forbids.
 - No hook slot is needed: `get_func_return_type_expr` +
   `_trial_eval_ret_type_expr` are already in-tree and the MINT path already uses
   them (helper.yo's rte block). Only the inline FuncVal arm was missing the step.

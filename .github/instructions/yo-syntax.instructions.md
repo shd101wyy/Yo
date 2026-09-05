@@ -66,7 +66,7 @@ io.async((io : Io) =>
 ## Paren hygiene: what `yo fmt` canonicalizes vs. keeps
 
 `yo fmt` elides provably-redundant parentheses and keeps every
-load-bearing group (plans/FMT_PAREN_ELISION.md, 2026-09-02 — the
+load-bearing group (plans/archive/FMT_PAREN_ELISION.md, 2026-09-02 — the
 re-parse AST-equality gate makes a meaning-changing format structurally
 impossible). Write the bare forms directly; what survives a `yo fmt`
 pass is the canonical set.
@@ -93,13 +93,13 @@ Fmt KEEPS these — the grammar needs them; do not remove by hand:
   changes the tree even for the same operator.
 - **Prefix calls with infix arguments**: `-(1 + 2)` — a prefix operator
   binds exactly ONE postfix expression
-  (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1); the call parens are
+  (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1); the call parens are
   the operand boundary.
 - **Multi-arg operator calls** (`-(a, b)`) and operator atoms (`(!)`).
 
 ## `if` is sugar for `cond`
 
-`if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The prelude macro that used to back this was DELETED 2026-08-30 once the v0.2.20 seed shipped the desugar (plans/MACRO_POLICY.md Part 3.2) — an `if` call the desugar leaves alone (odd arity, mismatched labels, a dynamically built AST) is now an error:
+`if(...)` calls are desugared to `cond(...)` at parse time (`desugar_if_calls` in `src/expr.yo`), so every pass after parsing sees a real `cond` node. The prelude macro that used to back this was DELETED 2026-08-30 once the v0.2.20 seed shipped the desugar (plans/reference/MACRO_POLICY.md Part 3.2) — an `if` call the desugar leaves alone (odd arity, mismatched labels, a dynamically built AST) is now an error:
 
 ```rust
 if(condition, then_body)        // → cond(condition => then_body, true => ())
@@ -223,10 +223,10 @@ those shadowing-shaped bindings.
 - Do not insert whitespace before call parentheses: `func(arg)`, not `func (arg)`.
 - Control-flow keywords follow the same rule: `return(value)`, `return()`, `unwind(value)`, `unwind()`.
 - In `(exn : Exception) = Exception(throw: ((err) -> { ... }))` handlers, add `unwind(...)` / `unwind()` when the handler does not resume normally. Calls like `exit(int(1))` return `unit`; they do not satisfy the handler's `ResumeType` by themselves. (`unwind` requires the handler's lambda to be typed as `ctl(...) -> R`, which it is when bound to a `ctl`-typed field like `Exception.throw`.)
-- Prefix operators may use the call form (`&(x)`, `!(ready)`) or bind one bare postfix expression (`&x`, `!ready`, `-value` — plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1; see "Unary (prefix) operators" below, including the src/std seed constraint). A no-whitespace `(` after the operator is always the call form.
+- Prefix operators may use the call form (`&(x)`, `!(ready)`) or bind one bare postfix expression (`&x`, `!ready`, `-value` — plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1; see "Unary (prefix) operators" below, including the src/std seed constraint). A no-whitespace `(` after the operator is always the call form.
 - Macro unquote syntax is also tight: use `#(expr)` and `...#(exprs)`.
-- **The operator token set is CLOSED** (plans/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && || # ...#`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
-- **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std is exempt this generation (seed-bootstrap constraint — see `is_macro_def_capable_file` in `src/evaluator/memory_safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
+- **The operator token set is CLOSED** (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md): a run of operator characters is split greedily against the fixed table in `src/lexer.yo` (`_is_two_char_operator`/`_is_one_char_operator`); an unknown run is a lex error, and `**x` lexes as `*`,`*`,`x`. Reserved operators (`= := :: : => -> <: ?= && || # ...#`, ranges) can never be bound or overloaded (`is_reserved_operator_name` in `src/token.yo`, gated in `evaluator/exprs/binding.yo`). Adding a new operator = editing the lexer table deliberately, like a keyword.
+- **DEFINING a macro (a `quote(...)` parameter or `unquote(...)` return type) requires `pragma(Pragma.AllowMacroDef);` at the top of the file** (plans/reference/MACRO_POLICY.md). Calling macros and working with quoted `Expr` values (the derive-rule mechanism) is ungated. std is exempt this generation (seed-bootstrap constraint — see `is_macro_def_capable_file` in `src/evaluator/memory_safety.yo`). The std `try` macro was REMOVED — match on the `Result`, or define a local equivalent under the pragma.
 - Dynamic field access with unquote requires grouping after the dot: `value.(#(field_expr))`, not `value.#(field_expr)`.
 
 Note how the prefix rule disambiguates `&x, y`: a bare `&` binds ONE
@@ -272,7 +272,7 @@ a + b * c
 
 **Source layout no longer affects grouping.** There is NO newline-based
 associativity (an earlier rule let a leading/trailing newline pick
-associativity; it has been removed — see `plans/OPERATOR_ASSOCIATIVITY.md`).
+associativity; it has been removed — see `plans/archive/OPERATOR_ASSOCIATIVITY.md`).
 
 `:`, `:=`, `=`, `::`, and `->` are ordinary operators with no precedence, so a
 type/value containing a _different_ top-level operator must be parenthesized:
@@ -302,7 +302,7 @@ Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
 ## Unary (prefix) operators bind exactly ONE postfix expression
 
-Since 2026-08-21 (plans/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1), a bare
+Since 2026-08-21 (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1), a bare
 prefix operator (`-` `!` `~` `&` `*` `?` `^`) followed by a primary is
 valid: it binds exactly one postfix expression — the primary plus its
 dot-chains and calls — and nothing more.
@@ -594,7 +594,7 @@ n := unsafe({
 });
 ```
 
-`unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/MEMORY_SAFETY.md`; user-facing version: `docs/en-US/MEMORY_SAFETY.md`.
+`unsafe(...)` does NOT propagate through function calls — each function body is evaluated with its own context. If a function's body does pointer ops, the body must wrap them locally; callers don't need `unsafe(...)` at the call site. See `plans/reference/MEMORY_SAFETY.md`; user-facing version: `docs/en-US/MEMORY_SAFETY.md`.
 
 ### Extern "c" calls also require an `unsafe(...)` wrap
 
@@ -724,7 +724,7 @@ Rules:
 - Calls through inout-params chain naturally: `fn outer(inout(x))` calling `fn inner(inout(p))` with `inner(x)` passes `&x` to `inner` (the caller-side `&` is implicit).
 - At codegen, `inout(name) : T` lowers to `T*` in C. Reads of `name` in the callee become `(*name)`; writes become `(*name) = v`. For interior-ref arguments (`xs(i)`, `self->_inner(i)`), the codegen emits `__yo_borrow_acquire/release` bracketing the call (a same-cache-line counter increment/decrement on the container's RC header — ~0% overhead). Container growth operations (realloc/free inside a reference-semantics method) auto-assert the counter is zero, turning the one statically-unprovable interior-ref shape into a deterministic panic. `comptime(inout(name))` has zero codegen impact (the parameter is erased).
 
-`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(inout(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/MEMORY_SAFETY.md`).
+`inout` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(inout(self) : Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/reference/MEMORY_SAFETY.md`).
 
 ### Public stdlib boundary — no raw pointer leaks
 

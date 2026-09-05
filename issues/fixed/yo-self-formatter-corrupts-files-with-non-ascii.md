@@ -12,7 +12,7 @@
 > widening it to a `Token.byte_offset` field is the follow-up.
 
 **Found 2026-08-09** while measuring the `fmt` divergence for
-[`plans/P1_CLI_PARITY.md`](../plans/P1_CLI_PARITY.md) §6. This is not a
+[`plans/archive/P1_CLI_PARITY.md`](../../plans/archive/P1_CLI_PARITY.md) §6. This is not a
 spacing disagreement — it is **silent source destruction**, and it is the
 dominant remaining `fmt` divergence class.
 
@@ -85,7 +85,7 @@ Em dashes are pervasive in this repo's doc comments.
 
 ## Why this is a P1 blocker, not debt
 
-`plans/SELF_HOSTING_COMPLETION.md` P2 retires `src/`, at which point the
+`plans/archive/SELF_HOSTING_COMPLETION.md` P2 retires `src/`, at which point the
 self-hosted formatter becomes **canonical** and `fmt --check` becomes
 self-referential. The first `yo fmt` after that point would silently destroy
 every std file with an em dash and a template string, with nothing able to

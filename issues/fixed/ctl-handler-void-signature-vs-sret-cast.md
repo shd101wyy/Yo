@@ -328,6 +328,6 @@ site), and~~ this is ABI surgery across every effects call path.
 sites in `yo-self`'s own stage-2 C cast to >16-byte return types (see the measured
 section). Before budgeting the ABI surgery, do the one remaining cheap check: confirm
 whether the handlers bound at those sites are emitted `void`. If they are, this stops
-being latent and should be sequenced ahead of `plans/SELF_HOSTING_COMPLETION.md` P1 —
+being latent and should be sequenced ahead of `plans/archive/SELF_HOSTING_COMPLETION.md` P1 —
 it is exactly the class of thing that gets far more expensive to adjudicate once the
 TypeScript reference compiler is retired in P2.

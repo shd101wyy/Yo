@@ -62,7 +62,7 @@ env:
   #
   # Keep this pin in lockstep with release.yml AND fixpoint-arm64.yml (the
   # deliberate-pin rationale — chain auditability, bad-release containment,
-  # reproducible re-runs — is recorded in plans/P2_5_RETIRE_EXECUTION.md
+  # reproducible re-runs — is recorded in plans/archive/P2_5_RETIRE_EXECUTION.md
   # step 24). This one had silently drifted to v0.2.4 while release.yml
   # advanced to v0.2.7. Since 2026-08-21 the lockstep is AUTOMATED: the
   # `changes` job above guards the three pins against divergence, and
@@ -89,7 +89,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.23
+  SEED_VERSION: v0.2.24
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -765,7 +765,7 @@ jobs:
           - target: macos-arm64
             yo_target: aarch64-apple-darwin
             # macOS legs stay system-flavored: mimalloc measured slower AND
-            # fatter there (plans/WINDOWS_ALLOCATOR_DECISION.md).
+            # fatter there (plans/reference/WINDOWS_ALLOCATOR_DECISION.md).
             allocator: system
           - target: macos-x64
             yo_target: x86_64-apple-darwin
@@ -1437,7 +1437,7 @@ jobs:
           fi
           exit $rc_all
 
-  # P3 item 3 (plans/P3_DISTRIBUTION.md): prove the static-musl Linux bundle
+  # P3 item 3 (plans/archive/P3_DISTRIBUTION.md): prove the static-musl Linux bundle
   # BUILDS and RUNS before release.yml ships one. Two distros cannot run the
   # current glibc bundle at all — Alpine (musl) and NixOS (no
   # /lib64/ld-linux-x86-64.so.2 outside /nix/store) — and a static binary needs
@@ -1575,7 +1575,7 @@ jobs:
       # must run INSIDE Alpine: the property under test belongs to the musl
       # build (musl threads default to ~128 KB stacks against glibc's 8 MB),
       # and a host-side run would compile the probe against glibc and pass
-      # vacuously (plans/P3_DISTRIBUTION.md item 3's method note).
+      # vacuously (plans/archive/P3_DISTRIBUTION.md item 3's method note).
       - name: Assert YO_MAIN_STACK_MB is honored by the static binary
         run: |
           docker run --rm --security-opt seccomp=unconfined \
@@ -1822,7 +1822,7 @@ jobs:
   #
   # Why this exists: bootstrap-self-test runs `<bin> test` on only the 23-file
   # gates_fast battery, so the other 165 language .test.yo files were exercised
-  # SOLELY by the TypeScript compiler — the one plans/SELF_HOSTING_COMPLETION.md
+  # SOLELY by the TypeScript compiler — the one plans/archive/SELF_HOSTING_COMPLETION.md
   # Phase 2 deletes. scripts/bootstrap/hollow_sweep69.sh was written to close
   # that and had never been wired into any workflow.
   #

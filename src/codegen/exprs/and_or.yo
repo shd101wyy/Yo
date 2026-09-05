@@ -13,12 +13,12 @@
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_fn_call_of, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_id, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { random_id, is_temp_variable_name } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
+{ get_deferred_drop_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 /// `base` followed by `n` levels of two-space indent.
 _indent_n :: (fn(base : String, n : usize) -> String)({
@@ -143,74 +143,175 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
     .Atom(_, _) => ()
   )
 );
-/// Emit drops (from the enclosing scope's pending deferred drops) for temps
-/// created inside a short-circuit conditional branch, and remove them from the
-/// pending set so they aren't dropped again at scope end. No-op when there are
-/// no pending drops (the no-RC corpus). Mirrors `emitDropsForConditionalBranch`.
-_emit_drops_for_conditional_branch :: (fn(var_names : HashSet(String), indent : String, context : FunctionGenerationContext) -> unit)(
-  match(
-    context.pending_deferred_drops,
-    .Some(pending_drops) => if(var_names.len() > usize(0), {
-      match(
-        context.short_circuit_handled_drop_var_names,
-        .Some(_) => (),
-        .None => {
-          context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(HashSet(String).new());
-        }
-      );
-      new_pending := ArrayList(AstExpr).new();
-      (removed : usize) = usize(0);
-      n := pending_drops.len();
-      (i : usize) = usize(0);
-      while(i < n, {
-        match(
-          pending_drops.get(i),
-          .Some(drop_expr) => match(
-            get_deferred_drop_target_atom_name(drop_expr),
-            .Some(target) => if(var_names.contains(target.clone()), {
-              // Skip a drop whose target TEMP was never emitted as a C
-              // declaration (e.g. an aliasing-Stage-0 dup RESULT temp whose
-              // dup was itself gate-skipped) — same undeclared-temp gate as
-              // generate_deferred_drop_expressions. A never-declared temp
-              // holds no +1 to release; emitting the drop is an undeclared-
-              // identifier C error (the rc1 stage-2 clang break).
-              sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
-              sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.contains(sc_target_cn));
-              if(!sc_undeclared, {
-                drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
-                if(drop_code.len() > usize(0), {
-                  line := indent.clone();
-                  line.push_string(drop_code);
-                  line.push_str(";");
-                  em := context.base.emitter;
-                  em.emit_string_line(line);
+/// Emit drops for temps created inside a short-circuit conditional branch,
+/// from TWO sources: the enclosing scope's pending deferred drops (removed
+/// from the pending set so scope end does not drop them again), and — when
+/// `node_expr` is given — the SHORT-CIRCUIT NODE'S OWN deferred-drop list,
+/// filtered to the same var_names. The second source is what closes the
+/// single-expression fn body hole: a `||`/`&&` that IS a whole body takes
+/// the non-begin path, no codegen begin opens, `pending` is EMPTY, and the
+/// operand temps' scope drops ride the shared body node's ExprInfo list
+/// with no other emission point (the body-level flush-first gate-skips
+/// them as not-yet-declared; the implicit-return tail flushes param drops
+/// only). Emissions from either source insert into the emitted-once guard
+/// and the short-circuit handled set, so begin-opened shapes (where the
+/// same drops are reachable through BOTH sources) emit exactly once.
+/// Mirrors `emitDropsForConditionalBranch` (the node source is Yo-only).
+_emit_drops_for_conditional_branch :: (
+  fn(
+    var_names : HashSet(String),
+    indent : String,
+    context : FunctionGenerationContext,
+    (node_expr : Option(AstExpr)) ?= Option(AstExpr).None
+  ) -> unit
+)(
+  if(var_names.len() > usize(0), {
+    match(
+      context.short_circuit_handled_drop_var_names,
+      .Some(_) => (),
+      .None => {
+        context.short_circuit_handled_drop_var_names = Option(HashSet(String)).Some(HashSet(String).new());
+      }
+    );
+    match(
+      context.pending_deferred_drops,
+      .Some(pending_drops) => {
+        new_pending := ArrayList(AstExpr).new();
+        (removed : usize) = usize(0);
+        n := pending_drops.len();
+        (i : usize) = usize(0);
+        while(i < n, {
+          match(
+            pending_drops.get(i),
+            .Some(drop_expr) => match(
+              get_deferred_drop_target_atom_name(drop_expr),
+              .Some(target) => if(var_names.contains(target.clone()), {
+                // Skip a drop whose target TEMP was never emitted as a C
+                // declaration (e.g. an aliasing-Stage-0 dup RESULT temp whose
+                // dup was itself gate-skipped) — same undeclared-temp gate as
+                // generate_deferred_drop_expressions. A never-declared temp
+                // holds no +1 to release; emitting the drop is an undeclared-
+                // identifier C error (the rc1 stage-2 clang break).
+                sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
+                sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.contains(sc_target_cn));
+                if(!sc_undeclared, {
+                  drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                  if(drop_code.len() > usize(0), {
+                    line := indent.clone();
+                    line.push_string(drop_code);
+                    line.push_str(";");
+                    em := context.base.emitter;
+                    em.emit_string_line(line);
+                    _g := context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                  });
                 });
+                match(
+                  context.short_circuit_handled_drop_var_names,
+                  .Some(s) => {
+                    _a := s.insert(target);
+                  },
+                  .None => ()
+                );
+                removed = (removed + usize(1));
+              }, {
+                _p := new_pending.push(drop_expr);
+              }),
+              .None => {
+                _p := new_pending.push(drop_expr);
+              }
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        if(removed > usize(0), {
+          context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(new_pending);
+        });
+      },
+      .None => ()
+    );
+    match(
+      node_expr,
+      .Some(ne) => {
+        match(
+          context.base.get_expr_info(ne),
+          .Some(nei) => match(
+            nei.deferred_drop_expressions,
+            .Some(node_drops) => {
+              nd2 := node_drops.len();
+              (j : usize) = usize(0);
+              while(j < nd2, {
+                match(
+                  node_drops.get(j),
+                  .Some(nd_drop) => match(
+                    get_deferred_drop_target_atom_name(nd_drop),
+                    .Some(ntarget) => if(var_names.contains(ntarget.clone()), {
+                      // Four gates, each closing a documented failure class:
+                      // emitted-once (this exact drop expr already emitted),
+                      // the HANDLED SET — name-keyed, unlike the expr-id
+                      // guard, so it dedups ACROSS channels: a begin-opened
+                      // shape reaches the same TARGET through the pending
+                      // source above with a DIFFERENT drop-expr identity
+                      // (the pending copy and the shared-id node list are
+                      // distinct exprs), and the begin-end flush uses the
+                      // same set — closure-capture (the skip every guarded
+                      // flush applies), and the block-scope stack — the
+                      // target's C declaration must have been EMITTED and
+                      // still be IN SCOPE here: the fall-through point has
+                      // function scope (operand 0's temps are dead but in
+                      // scope), the in-branch points sit inside the
+                      // operand's own still-open block, and a registered-
+                      // but-never-emitted temp (the registration/emission
+                      // divergence) is never in the stack. A gate-skipped
+                      // drop is left untouched for the node's other owners —
+                      // it is NOT marked handled (and the handled entry is
+                      // NOT consumed on skip — the pending-side emission it
+                      // records must still suppress the begin-end flush).
+                      n_handled := match(
+                        context.short_circuit_handled_drop_var_names,
+                        .Some(nh) => nh.contains(ntarget.clone()),
+                        .None => false
+                      );
+                      if(!n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(nd_drop)) && !is_deferred_drop_for_closure_capture(nd_drop, context.current_closure_captures), {
+                        n_cn := sanitize_for_c_identifier(ntarget.clone(), false);
+                        n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.contains(n_cn));
+                        if(!n_undeclared && scope_stack_contains(context.base.declared_scopes, n_cn), {
+                          nd_code := _call_generate_expr(nd_drop, indent.clone(), context);
+                          if(nd_code.len() > usize(0), {
+                            nline := indent.clone();
+                            nline.push_string(nd_code);
+                            nline.push_str(";");
+                            nem := context.base.emitter;
+                            nem.emit_string_line(nline);
+                            _ng := context.emitted_deferred_drop_ids.insert(ast_expr_id(nd_drop));
+                            match(
+                              context.short_circuit_handled_drop_var_names,
+                              .Some(ns) => {
+                                _ni := ns.insert(ntarget);
+                              },
+                              .None => ()
+                            );
+                          });
+                        });
+                      });
+                    }, {
+                      // not in this operand's var_names — another owner's
+                    }),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                j = (j + usize(1));
               });
-              match(
-                context.short_circuit_handled_drop_var_names,
-                .Some(s) => {
-                  _a := s.insert(target);
-                },
-                .None => ()
-              );
-              removed = (removed + usize(1));
-            }, {
-              _p := new_pending.push(drop_expr);
-            }),
-            .None => {
-              _p := new_pending.push(drop_expr);
-            }
+            },
+            .None => ()
           ),
           .None => ()
         );
-        i = (i + usize(1));
-      });
-      if(removed > usize(0), {
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(new_pending);
-      });
-    }),
-    .None => ()
-  )
+      },
+      .None => ()
+    );
+  })
 );
 /// `&&` operator with short-circuit evaluation. Mirrors `generateOpAnd`.
 generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -323,7 +424,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     var_names := HashSet(String).new();
     _collect_created_var_names_from_expr(conditional_arg, var_names, context);
     drops_indent := _indent_n(indent.clone(), level);
-    _emit_drops_for_conditional_branch(var_names, drops_indent, context);
+    _emit_drops_for_conditional_branch(var_names, drops_indent, context, Option(AstExpr).Some(expr));
     level = (level - usize(1));
     close_indent := _indent_n(indent.clone(), level);
     cl := close_indent.clone();
@@ -338,15 +439,18 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   // exist yet), and the implicit-return tail flushes param-targeted drops
   // only. Both operand paths fall through to here, and the temps are dead
   // once the construct's value is decided — emit their drops AFTER all
-  // braces via the same branch-drop helper, which also removes them from
-  // pending and marks them handled for the scope-end flush (the identical
-  // discipline to the in-branch operands). The leak this closed: every
-  // `(x == `lit`) || …` comparison's promoted-literal String temps
-  // (issues/fixed/parser-multibyte-spec-tests-leak-under-linux-asan.md).
+  // braces via the same branch-drop helper (pending source + the || node's
+  // own list filtered to this operand's temps; function scope, so the
+  // block-scope gate holds). The leaks this closed: every
+  // `(x == `lit`) || …` comparison's promoted-literal String temps — both
+  // the begin-opened shapes (pending source,
+  // issues/fixed/parser-multibyte-spec-tests-leak-under-linux-asan.md) and
+  // the whole-fn-body shape (node source,
+  // issues/short-circuit-bare-fn-body-operand-temps-leak.md).
   first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
-  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
+  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
   sc_var
 });
 /// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
@@ -459,7 +563,7 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     var_names := HashSet(String).new();
     _collect_created_var_names_from_expr(conditional_arg, var_names, context);
     drops_indent := _indent_n(indent.clone(), level);
-    _emit_drops_for_conditional_branch(var_names, drops_indent, context);
+    _emit_drops_for_conditional_branch(var_names, drops_indent, context, Option(AstExpr).Some(expr));
     level = (level - usize(1));
     close_indent := _indent_n(indent.clone(), level);
     cl := close_indent.clone();
@@ -472,7 +576,7 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
-  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context);
+  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
   sc_var
 });
 export(generate_op_and, generate_op_or);

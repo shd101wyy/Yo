@@ -25,7 +25,7 @@ of the only two occurrences in the emission.)
 No test: a linkage assertion on generated C would be brittle, and the
 byte-identity check above is the stronger evidence. `_ca_is_rc_helper` in
 `src/codegen/chunk_assembly.yo` keeps the same dead predicate deliberately —
-`plans/CHUNKED_C_EMISSION.md` defers it and the chunk-assembly unit test feeds
+`plans/reference/CHUNKED_C_EMISSION.md` defers it and the chunk-assembly unit test feeds
 it synthetic names.
 
 ## What the code intends
@@ -85,7 +85,7 @@ branch, so the hot path is unaffected.
    cannot be inlined at the indirect call anyway, so this is likely a no-op.
 
 Recommendation: (1). Discovered while auditing which symbols must be duplicated
-into every chunked translation unit (`plans/CHUNKED_C_EMISSION.md` — the
+into every chunked translation unit (`plans/reference/CHUNKED_C_EMISSION.md` — the
 chunk assembler has an equivalent dead predicate, `_ca_is_rc_helper`, noted in
 that plan for the same reason).
 

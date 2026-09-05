@@ -1,6 +1,6 @@
 #!/bin/bash
 # chunked_gate.sh — the BEHAVIORAL fixpoint gate for chunked C emission
-# (plans/CHUNKED_C_EMISSION.md step 5).
+# (plans/reference/CHUNKED_C_EMISSION.md step 5).
 #
 #   S1=<a working yo binary> N=<chunks> bash scripts/bootstrap/chunked_gate.sh
 #

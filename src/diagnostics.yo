@@ -1,6 +1,6 @@
 //! src/diagnostics — the structured diagnostic value and its renderers.
 //!
-//! P1 of plans/ERROR_DIAGNOSTICS_OVERHAUL.md: a diagnostic is DATA first —
+//! P1 of plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md: a diagnostic is DATA first —
 //! `code`/`severity`/`message`/`span` (+ the extracted `source_line`) — and
 //! every output format (human, short; JSON in P2) is a rendering of that
 //! value. No consumer ever parses a rendering back except the LSP adapter,
@@ -41,7 +41,7 @@ emit_chatter :: (fn(text : String) -> unit)({
     true => println(text)
   );
 });
-/// ── Diagnostic codes (P2, plans/ERROR_DIAGNOSTICS_OVERHAUL.md §5) ──────────
+/// ── Diagnostic codes (P2, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5) ──────────
 /// `E` + 4 digits, allocated per error FAMILY (never renumbered once
 /// published). Bands: E00xx–E02xx syntax (lexer+parser), E03xx–E05xx
 /// name/scope/module resolution, E06xx–E08xx types & traits, E09xx–E10xx
@@ -93,7 +93,7 @@ Span :: struct(
 );
 /// A secondary location attached to a diagnostic. P1 carries secondary
 /// locations as follow-on `Note` entries instead; labels are the P2/P3
-/// channel (plans/ERROR_DIAGNOSTICS_OVERHAUL.md §3).
+/// channel (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §3).
 Label :: struct(
   severity : Severity,
   message : String,

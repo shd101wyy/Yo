@@ -40,11 +40,11 @@ export(Runtime);
 // runs before the prelude loads (chicken-and-egg: a file with
 // `pragma(Pragma.SkipPrelude);` doesn't have the prelude in scope).
 // All other pragma variants are validated by ordinary evaluation
-// against this enum. See plans/MEMORY_SAFETY.md.
+// against this enum. See plans/reference/MEMORY_SAFETY.md.
 /// File-level privilege flag for the `pragma(...)` builtin. Declared
 /// at the top of a Yo file (e.g. `pragma(Pragma.AllowUnsafe);`) to
 /// opt the file into compiler-recognized behaviors. See
-/// plans/MEMORY_SAFETY.md.
+/// plans/reference/MEMORY_SAFETY.md.
 Pragma :: enum(
   /// File is permitted to use raw pointer ops, `unsafe(...)`,
   /// `asm(...)`, and `extern(...)`. Without this, those constructs
@@ -54,7 +54,7 @@ Pragma :: enum(
   /// parameters and `unquote(...)` return types. CALLING macros (`if`,
   /// `for`, collection literals, …) needs no pragma. Recognized at the
   /// AST level so it also works in `SkipPrelude` files. See
-  /// plans/MACRO_POLICY.md.
+  /// plans/reference/MACRO_POLICY.md.
   AllowMacroDef,
   /// Disable the auto-import of `std/prelude`. Used by the prelude
   /// itself, and by any tool/test that wants to bootstrap manually.
@@ -427,7 +427,7 @@ ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> co
 export(ComptimeBitRightShift);
 // `Exponentiation`/`ComptimeExponentiation` were DELETED here (std S1,
 // plans/STD_API_AUDIT.md §4 prelude row): the `**` operator token was
-// already removed 2026-08-21 (plans/OPERATOR_SET_AND_PRECEDENCE.md), and
+// already removed 2026-08-21 (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md), and
 // the traits had zero impls and zero call sites — dead surface.
 /// Negate trait — enables unary `-value` operator.
 Negate :: trait(
@@ -6697,7 +6697,7 @@ impl(
 /// `?` is a shorthand alias for `Option`.
 ? :: Option;
 // The `(?*)` nullable-pointer alias was REMOVED 2026-08-21
-// (plans/OPERATOR_SET_AND_PRECEDENCE.md): `?*` is no longer an operator
+// (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md): `?*` is no longer an operator
 // token — write the composition `?(*(T))` (i.e. `Option(*(T))`) instead.
 export(
   Option,
@@ -8268,7 +8268,7 @@ TryInto :: (fn(comptime(To) : Type) -> comptime(Trait))(
   )
 );
 export(TryInto);
-// The `if` macro was DELETED 2026-08-30 (plans/MACRO_POLICY.md Part 3.2):
+// The `if` macro was DELETED 2026-08-30 (plans/reference/MACRO_POLICY.md Part 3.2):
 // `if(...)` desugars to `cond(...)` at parse time (`desugar_if_calls`,
 // src/expr.yo) in every compiler since the desugar landed, and the v0.2.20
 // seed ships it — the bootstrap-compatibility reason to keep the macro is
@@ -8276,7 +8276,7 @@ export(TryInto);
 // labels, a dynamically built AST) is now an error instead of silently
 // dispatching a macro.
 // The `try` macro (unwrap a `Result`, returning early on `Err`) was
-// REMOVED 2026-08-21 (plans/MACRO_POLICY.md Part 3.1): it had zero call
+// REMOVED 2026-08-21 (plans/reference/MACRO_POLICY.md Part 3.1): it had zero call
 // sites outside its own test file, it was the only std macro that
 // injected a hidden caller-frame `return`, and its name invited confusion
 // with the algebraic-effects system. Match on the `Result` instead, or

@@ -635,6 +635,23 @@ evaluate_yo_comptime_numeric_functions :: (
         ),
         .None => Option(i64).None
       );
+      // Comptime integers are carried as `i64`, so a `u64`/`usize` value above
+      // `i64.MAX` is a NEGATIVE bit pattern — `u64.MAX` is `-1`. This is the
+      // same hazard the overflow check above already redoes in the unsigned
+      // domain, and it applies to the OPERATIONS too.
+      //
+      // `add`/`sub`/`mul`, `eq`/`neq`, `shl` and the bitwise ops are
+      // two's-complement identical in both domains and need no split.
+      // DIVISION, MODULO, the ORDERING comparisons and the RIGHT SHIFT are
+      // not: signed `-1 / 10` is `0`, `-1 % 10` is `-1`, `-1 > 1` is false and
+      // `-1 >> 1` is `-1`, none of which are the `u64.MAX` answers.
+      unsigned_64 := (
+        is_unsigned_integer_type(numeric_type) && match(
+          get_integer_type_bits(numeric_type),
+          .Some(bw) => (bw == u32(64)),
+          .None => false
+        )
+      );
       cond(
         ((op_s == "add") || (op_s == "sub") || (op_s == "mul")) => {
           match(
@@ -678,7 +695,13 @@ evaluate_yo_comptime_numeric_functions :: (
                     )
                   );
                 });
-                result_val = make_int_val(a / b, numeric_type);
+                result_val = make_int_val(
+                  cond(
+                    unsigned_64 => i64(u64(a) / u64(b)),
+                    true => (a / b)
+                  ),
+                  numeric_type
+                );
               },
               .None => {
                 result_val = create_unknown_val(numeric_type);
@@ -705,7 +728,13 @@ evaluate_yo_comptime_numeric_functions :: (
                     )
                   );
                 });
-                result_val = make_int_val(a % b, numeric_type);
+                result_val = make_int_val(
+                  cond(
+                    unsigned_64 => i64(u64(a) % u64(b)),
+                    true => (a % b)
+                  ),
+                  numeric_type
+                );
               },
               .None => {
                 result_val = create_unknown_val(numeric_type);
@@ -729,6 +758,12 @@ evaluate_yo_comptime_numeric_functions :: (
                 b_result := cond(
                   (op_s == "eq") => (a == b),
                   (op_s == "neq") => !(a == b),
+                  unsigned_64 => cond(
+                    (op_s == "lt") => (u64(a) < u64(b)),
+                    (op_s == "lte") => (u64(a) <= u64(b)),
+                    (op_s == "gt") => (u64(a) > u64(b)),
+                    true => (u64(a) >= u64(b))
+                  ),
                   (op_s == "lt") => (a < b),
                   (op_s == "lte") => (a <= b),
                   (op_s == "gt") => (a > b),
@@ -775,6 +810,7 @@ evaluate_yo_comptime_numeric_functions :: (
               .Some(b) => {
                 n_result := cond(
                   (op_s == "shl") => (a << b),
+                  unsigned_64 => i64(u64(a) >> u64(b)),
                   true => (a >> b)
                 );
                 result_val = make_int_val(n_result, numeric_type);

@@ -1,7 +1,7 @@
 # Duplicate inherent method impls are silently accepted (docs claim rejection)
 
 **Found:** 2026-08-21, during the function-overloading-policy audit
-(`plans/FUNCTION_OVERLOADING_POLICY.md`).
+(`plans/reference/FUNCTION_OVERLOADING_POLICY.md`).
 
 ## Symptom
 

@@ -1259,5 +1259,5 @@ yo doc [path]
 
 ## 另请参阅
 
-- [BUILD_SYSTEM.md](../../plans/BUILD_SYSTEM.md) — 包含实现细节的完整设计文档
+- [BUILD_SYSTEM.md](../../plans/reference/BUILD_SYSTEM.md) — 包含实现细节的完整设计文档
 - [Zig Build System](https://ziglang.org/learn/build-system/) — 主要灵感来源

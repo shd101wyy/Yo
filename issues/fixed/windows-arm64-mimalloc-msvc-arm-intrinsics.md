@@ -196,7 +196,7 @@ assertion will fail it. That is a true positive worth having.
 
 ## CLOSED 2026-08-20: Windows uses the system allocator on both targets
 
-**User decision. Full record: `plans/WINDOWS_ALLOCATOR_DECISION.md`** — read that
+**User decision. Full record: `plans/reference/WINDOWS_ALLOCATOR_DECISION.md`** — read that
 rather than this section for the reasoning, the rejected alternatives, and the
 conditions for revisiting.
 
@@ -283,7 +283,7 @@ windows-x64 again (see PR #181), and the windows-x64/windows-arm64 CI legs
 compile it as part of the per-PR native suite.
 
 What did NOT change: the shipped Windows bundles still use `--allocator
-system` — a separate decision (`plans/WINDOWS_ALLOCATOR_DECISION.md`), now
+system` — a separate decision (`plans/reference/WINDOWS_ALLOCATOR_DECISION.md`), now
 re-affirmed on 2026-09-04 with a Windows-native A/B on the canonical heavy
 workloads (system won wall decisively; mimalloc won peak) rather than the
 transplanted macOS numbers the decision originally rested on.

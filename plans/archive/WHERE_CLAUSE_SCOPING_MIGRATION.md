@@ -1,4 +1,7 @@
 # Where Clause Constraint Scoping Migration
+> **ARCHIVED 2026-09-04 — IMPLEMENTED.** Where-clause constraints are
+> function-scoped; they no longer leak between sibling functions.
+
 
 ## Overview
 

@@ -13,7 +13,7 @@ measurements and decisions:
   bundles ship `--allocator system` (release.yml `seed-cross-emit` matrix,
   "P2.5-era decision").
 - **Windows**: mimalloc dropped entirely on both targets
-  (`plans/WINDOWS_ALLOCATOR_DECISION.md`) — partly clang-as-plain-C11
+  (`plans/reference/WINDOWS_ALLOCATOR_DECISION.md`) — partly clang-as-plain-C11
   breakage, partly the macOS measurement.
 - **Linux**: mimalloc kept (bundles are musl-only; musl's malloc is far
   slower).

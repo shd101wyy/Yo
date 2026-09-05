@@ -13,7 +13,7 @@ errors, regardless of what is being built:
 $ yo compile src/main.yo --optimize 2 --allocator mimalloc --std-path ./std
 check: error in: Error: Defining a macro (a 'quote(...)' parameter or an
   'unquote(...)' return type) requires 'pragma(Pragma.AllowMacroDef);' at the
-  top of the file. See plans/MACRO_POLICY.md.
+  top of the file. See plans/reference/MACRO_POLICY.md.
 check: error in: Error: Failed to import module "../collections/array_list.yo":
 ...
 yo: error: compile: failed to evaluate module "src/main.yo"
@@ -49,7 +49,7 @@ through to the cwd join and came out as `<cwd>/C:/Users/.../std/...`. The
 std-path side absolutized to `<cwd>/std` (relative form) — the prefix never
 matched, the exemption silently returned false, and the gate rejected std
 files for missing a pragma that std files are not allowed to carry yet
-(bootstrap-transitional exemption, `plans/MACRO_POLICY.md` Part 2).
+(bootstrap-transitional exemption, `plans/reference/MACRO_POLICY.md` Part 2).
 
 Why `yo compile foo.yo` mostly worked on Windows while `--std-path ./std`
 failed: the walk-up std discovery yields an absolute path, and the mangling is

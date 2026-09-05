@@ -2,7 +2,7 @@
 //!
 //! Downloads and caches specific versions of Yo as NATIVE RELEASE BUNDLES
 //! from GitHub Releases (npm publishing stopped at v0.2.0 — the npm channel
-//! is dead for every later version; see plans/P3_DISTRIBUTION.md item 2).
+//! is dead for every later version; see plans/archive/P3_DISTRIBUTION.md item 2).
 //! Cached versions are stored in `~/.cache/yo/versions/<version>/` as a plain
 //! bundle extraction: `bin/yo` (+`.exe` on Windows), `std/`, `vendor/`,
 //! LICENSE — exactly the layout `scripts/install.sh` installs, so the two
@@ -215,7 +215,7 @@ _host_bundle_name_base :: (fn(version : String, exn : Exception) -> String)({
 /// e.g. `yo-v0.2.19-aarch64-apple-darwin` / `yo-v0.2.19-x86_64-unknown-linux-musl`.
 ///
 /// This is the name releases carry from the one after v0.2.18
-/// (plans/RELEASE_ASSET_TRIPLES.md); `download_version` bridges the changeover
+/// (plans/reference/RELEASE_ASSET_TRIPLES.md); `download_version` bridges the changeover
 /// by falling back to the short `host_bundle_name` form. The triple is the
 /// PUBLISHED asset name only — the compiler's own `--target` vocabulary stays
 /// vendor-less (`aarch64-macos`), see that plan's "what does NOT change".
@@ -636,7 +636,7 @@ download_version :: (
     // triple; v0.2.18 and earlier carry only the short form. Try the triple,
     // then fall back — this BRIDGES the changeover so the current release stays
     // installable, and is removable once nothing in use predates it
-    // (plans/RELEASE_ASSET_TRIPLES.md).
+    // (plans/reference/RELEASE_ASSET_TRIPLES.md).
     (bundle_name : String) = host_bundle_triple_name(version, e.exn);
     version_dir := get_version_cache_dir(version);
     // 1. Download the tarball to a temp directory.
@@ -703,7 +703,7 @@ download_version :: (
     // The tarball root is conventionally named after the asset, but do not
     // REQUIRE that: the asset-name/directory-name coupling is what forced the
     // triple rename to ship duplicate tarballs rather than duplicate upload
-    // names (plans/RELEASE_ASSET_TRIPLES.md). Find the extracted root by
+    // names (plans/reference/RELEASE_ASSET_TRIPLES.md). Find the extracted root by
     // looking for the directory that holds bin/ and std/, and fall back to the
     // conventional name only for the error message.
     (extracted_dir : String) = `${tmp_path_str}/${bundle_name}`;

@@ -119,7 +119,7 @@ stands — `issues/patches/spec-emission-second-half-wip.patch`'s
 copies"). Do not re-apply it blind.
 
 This is the family already root-caused in
-[`yo-self-collections-batch-residuals.md`](yo-self-collections-batch-residuals.md):
+[`yo-self-collections-batch-residuals.md`](../yo-self-collections-batch-residuals.md):
 "spec minted with UNRESOLVED SomeTs → skipped but consumed", and its
 signature-1 sibling "recursion guard vs impl instantiations", which was
 `Eq(ArrayList(ArrayList(i32))).==` — the same generic-container-`Eq` shape one
@@ -143,7 +143,7 @@ stamped with the generic original.
 
 `should_skip_function_codegen` (`codegen/functions/declarations.yo:510-552`) has
 four branches, and the campaign record for the sibling `List.map` case
-([`retired/yo-self-hollow-test-batch-main.md`](retired/yo-self-hollow-test-batch-main.md),
+([`retired/yo-self-hollow-test-batch-main.md`](../retired/yo-self-hollow-test-batch-main.md),
 "SECOND HALF LOCALIZED") found skip2 firing there — its `has_generic_return` on a
 spec whose registered type still rendered `List(U)`. For `==` the return is
 `bool`, so if skip2 fires here it must be via `has_generic_params`, i.e. the
