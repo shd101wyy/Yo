@@ -175,7 +175,7 @@ _trial_swallow_pending :: (fn() -> bool)(g_trial_swallow_msg.len() > usize(0));
 _trial_swallow_message :: (fn() -> String)(
   match(g_trial_swallow_msg.get(usize(0)), .Some(m) => m.clone(), .None => String.from(""))
 );
-// P0 forward-reference diagnostic (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6):
+// P0 forward-reference diagnostic (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6):
 // the helpers live in context.yo (module-walk cell + binding-name scan),
 // shared with the anonymous-closure trial in values/anonymous_function.yo.
 _trial_eval_fn_body :: (
@@ -1134,7 +1134,7 @@ Result type: ${type_to_string(result_box)}`
         ),
         cap_vals
       );
-      // Phase A of a lazy top-level binding (plans/LAZY_TOPLEVEL_BINDINGS.md
+      // Phase A of a lazy top-level binding (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
       // §4.3): when this application IS the RHS of the definition being
       // forced, publish the head FuncVal before the body trial below, so a
       // reference to the definition's own name from inside its body (or from
@@ -1375,7 +1375,7 @@ Result type: ${type_to_string(result_box)}`
             // An unbound name that an ORDERED later statement binds (a
             // runtime global, an import, an open) gets the enriched
             // forward-reference diagnostic here too — the same text the
-            // dg / anon sites raise (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6).
+            // dg / anon sites raise (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6).
             match(
               forward_ref_diagnostic(ts_fatal_msg.clone()),
               .Some(ts_fwd_msg) => {
@@ -1611,7 +1611,7 @@ Result type: ${type_to_string(result_box)}`
             truncate_forcing_depths(dg_depths);
             ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();
-            // P0 (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
+            // P0 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
             // swallow (TS ts:112 catch{} parity) — but an unbound name that
             // is bound LATER in this module is a forward reference, and
             // swallowing it hollows the whole body while check stays green

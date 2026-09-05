@@ -541,8 +541,7 @@ impl(
           // Peel a `:spec` suffix BEFORE parsing, so the spec text never reaches
           // the expression parser (D3.10).
           sp := _peel_spec(content);
-          // Parse the interpolated expression via the module-level holder
-          // (avoids forward reference: parse_template_string → get_program cycle)
+          // Parse the interpolated expression with a fresh sub-parser.
           (inner_prog : ArrayList(AstExpr)) = Parser.new(sp.expr_text, self.module_path, exn).get_program(exn);
           if(inner_prog.len() == usize(0), {
             exn.throw(dyn(make_parse_error(tok, `empty expression in template string interpolation`)));

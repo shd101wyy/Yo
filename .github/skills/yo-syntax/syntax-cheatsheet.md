@@ -854,12 +854,12 @@ collect :: (fn(text : String, out : ArrayList(String)) -> unit)({
 
 This cost a full debug cycle in the chunked-C-emission work: an entire emitter buffer was dropped from the output, and the only symptom was a far-downstream C error (`unknown type name`) in the generated code. If a function must fill several strings, return a `ref` struct — and remember that a `String` fetched back out of an `ArrayList(String)` is likewise a value copy, so mutating it does not update the stored element.
 
-### Definition order: `::` definitions and `impl` registrations are order-independent — but `std/` and `src/` are SEED-GATED
+### Definition order: `::` definitions and `impl` registrations are order-independent (in `std/` and `src/` too, since the seed bump after v0.2.24)
 
-Since 2026-09-05 (`docs/en-US/DEFINITION_ORDER.md`, `plans/LAZY_TOPLEVEL_BINDINGS.md`) a module-level `name :: <definition>` may reference any other `::` definition of the same module regardless of position, and an `impl(T, ...)` may sit below the code that uses its methods or trait defaults. Bare-name self-recursion and mutual recursion between free functions work; `export(...)` may name a later definition.
+Since 2026-09-05 (`docs/en-US/DEFINITION_ORDER.md`, `plans/reference/LAZY_TOPLEVEL_BINDINGS.md`) a module-level `name :: <definition>` may reference any other `::` definition of the same module regardless of position, and an `impl(T, ...)` may sit below the code that uses its methods or trait defaults. Bare-name self-recursion and mutual recursion between free functions work; `export(...)` may name a later definition.
 
 ```rust
-// fine in tests/ and in any project compiled by a compiler that carries the feature:
+// fine anywhere — tests/, std/ and src/ alike (the seed carries the feature since the first release after v0.2.24):
 caller :: (fn() -> unit)({ helper(); });
 helper :: (fn() -> unit)({ println("hi"); });
 fact :: (fn(n : i32) -> i32)(cond((n <= 1) => 1, true => (n * fact(n - 1))));

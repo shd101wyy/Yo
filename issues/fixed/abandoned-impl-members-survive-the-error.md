@@ -1,6 +1,6 @@
 # Members of an abandoned `impl` block survive its error
 
-**Status: FIXED 2026-09-05** (PR `feat/retire-impl-forward-shells`, plans/LAZY_TOPLEVEL_BINDINGS.md P3).
+**Status: FIXED 2026-09-05** (PR `feat/retire-impl-forward-shells`, plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3).
 
 ## Symptom
 

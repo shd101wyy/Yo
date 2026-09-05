@@ -1,8 +1,11 @@
 # Lazy top-level bindings — order-independent `::` definitions and `impl` registration
 
-**Status: P0–P4 LANDED 2026-09-05** (P0–P2 + P4: PR #427 `feat/lazy-toplevel-bindings`;
-P3, retiring the impl-block forward shells: PR `feat/retire-impl-forward-shells`,
-§10 "P3 as landed"); P5 (seed bump, lift the `std/`/`src/` rule) remains.
+**Status: COMPLETE — P0–P5 LANDED 2026-09-05** (P0–P2 + P4: PR #427
+`feat/lazy-toplevel-bindings`; P3, retiring the impl-block forward shells: PR #435
+`feat/retire-impl-forward-shells`, §10 "P3 as landed"; P5, lifting the `std/`/`src/`
+seed gate: PR `feat/lazy-bindings-p5-lift-seed-gate`, merged once `SEED_VERSION`
+carried the feature, §10 "P5 as landed"). Landed design record — authoritative
+for how forcing works; the user-facing contract is `docs/en-US/DEFINITION_ORDER.md`.
 Written 2026-09-02 after the D5/§5 closeout hit the rule the hard way:
 `std/fs/file.yo`'s free `read_to_string` called the `Reader` default on a `File`
 while `impl(File, IoTraits.Reader(...))` sat 250 lines LATER — the call failed
@@ -202,9 +205,9 @@ g_rerun_pending pattern, so nested module loads save/restore correctly);
 order; move the definition above this use` — pinned end-to-end by
 `tests/cli-cases/check-forward-ref-async-body/` (a check-failure case; the
 test-batch runner hoists `::` defs so a .test.yo pin cannot observe module
-order). NOT yet wired: the bounded pending-def re-run site (the
-fwd-comptime-fn arm has no exn in scope; smaller exposure — it retries
-before discarding). Also learned: plain module-level SELF-recursion fails
+order). Not wired at the bounded pending-def re-run site (the
+fwd-comptime-fn arm has no exn in scope) — MOOT since P1: the miss forces
+the definition before that re-run path is reached. Also learned: plain module-level SELF-recursion fails
 check today ("Variable X not found" at the def trial) — the campaign's
 own §6 target.
 
@@ -267,7 +270,7 @@ Then the NEW behaviour is pinned by tests that are red today:
 | **P2** pending impls | §4.4 | byte identity holds; the file.yo shape and cross-impl-block tests green; C22 stub count in the self-emit does not grow |
 | **P3** retire shells (**LANDED 2026-09-05**) | §4.5; delete `_try_create_forward_shell` + supersede path; `tests/forward_ref_impl_block`/`forward_ref_self_method` stay green | byte identity **modulo id renumbering** (§10 P3 — the pre-pass consumed ids and emitted dead thunks, so exact identity cannot hold); battery; hollow sweep ratchet |
 | **P4** docs + rules | rewrite `docs/{en-US,zh-CN}/IMPL_FORWARD_REFERENCES.md` → definition order; update `.github/instructions/yo-syntax.instructions.md`, both skill cheatsheets; `docs/*/DESIGN.md` language section | doc build green (`yo doc ./std`) |
-| **P5** release + seed bump | ship in the next patch release; after `SEED_VERSION` advances, the "no forward refs in std/src" rule is lifted and the holder workarounds in `src/` (`forward-fn-ref-in-toplevel-holder.md`'s pattern) can be removed | fixpoint on the first tree that USES forward refs in `src/` |
+| **P5** release + seed bump (**LANDED 2026-09-05**) | ship in the next patch release; after `SEED_VERSION` advances, the "no forward refs in std/src" rule is lifted and the holder workarounds in `src/` (`forward-fn-ref-in-toplevel-holder.md`'s pattern) can be removed | fixpoint on the first tree that USES forward refs in `src/` |
 
 Every phase also gates on: `yo check ./std && yo check ./src`, the full language
 suite, `gates_fast.sh` + `fixpoint_only.sh`, the hollow sweep ratchet, and the
@@ -315,6 +318,14 @@ LSP/CLI goldens (54/55 scorecard, `--network` included).
   completion path (a completion request on `x.` would force all of `x`'s
   type's impls — desirable, but measure latency on `src/lsp` goldens).
 
+**Answers (2026-09-05, at closure):** (1) yes — the deferred class is the `::`
+spelling, constants included (§10 "Deferred class"); no reflection-side-effect
+constant surfaced in `std/`/`src/`. (2) decision stands: bare-name sibling
+references inside an `impl` block are not forward-bound (documented in
+`docs/*/DEFINITION_ORDER.md`). (3) the `lsp-completion` golden — a completion on
+an `ArrayList` receiver, the type with the most impls in std — runs in the same
+time as before the campaign; no latency issue observed, none pinned.
+
 ## 10. As landed (2026-09-05) — adjustments to the design above
 
 - **Forcing is miss-driven, not lookup-driven (§4.1/§4.2).** Pending entries are
@@ -361,8 +372,9 @@ LSP/CLI goldens (54/55 scorecard, `--network` included).
   against the declared result type
   (`issues/fixed/concrete-fn-body-result-type-not-checked.md`) — fixed in the
   same PR.
-- **P5** is seed-gated: `std/` and `src/` may use forward references only after
-  `SEED_VERSION` carries this release (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- **P5** was seed-gated: `std/` and `src/` could use forward references only
+  after `SEED_VERSION` carried the release with P1–P3
+  (`plans/backlog/SEED_VERSION_AUTOMATION.md`) — see "P5 as landed" below.
 
 ### P3 as landed (2026-09-05) — impl-block members are forcible pending fields
 
@@ -433,3 +445,31 @@ LSP/CLI goldens (54/55 scorecard, `--network` included).
 - **`YO_DEBUG_LAZY=1`** now also prints `[force-field] <type>.<member> (impl
   arg N, inner=…)` and `[force-field] phase-A <type>.<member>` for every
   in-block force.
+
+### P5 as landed (2026-09-05) — the seed gate lifted, first forward references in `src/`
+
+- **Rule text.** `.github/instructions/yo-syntax.instructions.md`'s "SEED GATE"
+  paragraph and the cheatsheet heading now say the feature is usable in `std/`
+  and `src/`; the general seed rule (a NEWER feature is usable there only once a
+  release carrying it is `SEED_VERSION`) is restated in its place.
+- **The gate exercise — real forward references in `src/`.** The "holder
+  workarounds" §7 named turned out to be gone already (the parser was
+  restructured into one `impl` block in April; every remaining `_holder` is a
+  local). What did exist were two module-level FUNCTION-POINTER slots wired by
+  IIFEs purely to express mutual recursion: `module_manager.yo`'s
+  `g_demand_loader` (`_load_module_at_abs` ↔ `demand_load_module`) and
+  `evaluator/types/synthesizer.yo`'s `g_synthesize_types` + the
+  `_synthesize_call` indirection used at 23 helper sites. Both are now direct
+  references to a definition further down the file — the first forward
+  references compiled in `src/`. Gate: stage-1 built by a feature-carrying
+  compiler, `check ./src`, the fast suite, `fixpoint_only.sh` with that stage-1.
+- **Stale user-facing text.** `yo explain E0401`'s hint and example said helpers
+  must be defined before callers (the example was now VALID code); `E0906`'s
+  said "order is the rule … the lazy-toplevel plan will lift this". Both now
+  describe the actual rule (ordered statements vs. order-independent
+  definitions) with examples that still fail. Four `src/` comments that cited
+  "yo-self has no forward references" as the reason for their placement were
+  reworded.
+- **Not done, deliberately.** `recur` stays: it is a language feature with its
+  own tests, not an ordering workaround, and the 545 uses in `src/` read fine.
+

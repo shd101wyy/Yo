@@ -9,7 +9,7 @@
 //!   - Receiver type is evaluated with SomeTs in scope.
 //!   - Methods are evaluated and stored in GenericImplEntry.
 //!   - tryCreateForwardShell: SUPERSEDED — sibling forward references are
-//!     served by forcing the referenced member (plans/LAZY_TOPLEVEL_BINDINGS.md
+//!     served by forcing the referenced member (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
 //!     P3, `force_in_flight_field`); reEvaluateFunctionType: still deferred.
 //!   - checkOrphanRule / checkDuplicateImpl: still skipped.
 //!
@@ -2534,7 +2534,7 @@ _materialize_default_body :: (
   out.push(evaluated);
 });
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the
-/// field loop ran inline before P3 (plans/LAZY_TOPLEVEL_BINDINGS.md), pulled out
+/// field loop ran inline before P3 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md), pulled out
 /// so `force_in_flight_field` can run it OUT OF ORDER when a sibling references
 /// the member before its position. `field_opt` is the member's pending entry
 /// (direct fields only; trait-constructor members always evaluate in place).
@@ -2686,7 +2686,7 @@ _c3_eval_colon_pair :: (
       if(st.recv_id != "", {
         // A phase-A entry for this field is already in the registry (a
         // sibling referenced this method while it was being evaluated —
-        // plans/LAZY_TOPLEVEL_BINDINGS.md P3): it carries the SAME func_id as
+        // plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): it carries the SAME func_id as
         // the finished FuncVal, so update it in place with the final type
         // and value instead of registering a second entry.
         (updated_phase_a : bool) = false;
@@ -2774,7 +2774,7 @@ _c3_eval_colon_pair :: (
 
 /// Register a Case-2 member into the provisional registry — or, when a sibling's
 /// early reference already registered this member's phase-A entry (same
-/// func_id), update that entry in place (plans/LAZY_TOPLEVEL_BINDINGS.md P3).
+/// func_id), update that entry in place (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3).
 _c2_register_member :: (
   fn(st : ImplInFlight, pf : ImplPendingField, label : String, ty : TypeValue, value : EvalValue, src_tid : String) -> unit
 )({
@@ -2995,7 +2995,7 @@ _force_field_eval :: (fn(pf : ImplPendingField, st : ImplInFlight) -> unit)({
   _run_impl_field(pf, st, st.ctx, inner_exn);
   ()
 });
-/// env.yo's lookup-miss hook (plans/LAZY_TOPLEVEL_BINDINGS.md P3): a method
+/// env.yo's lookup-miss hook (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): a method
 /// miss on a receiver whose impl block is in flight forces the sibling member
 /// of that name — its REAL evaluation, with its real func_id, registered where
 /// the block registers members (permanently for a concrete impl,
@@ -3264,7 +3264,7 @@ evaluate_module_value :: (
       ctx,
       false,
       false,
-      // Block-scoped bindings stay ordered (plans/LAZY_TOPLEVEL_BINDINGS.md
+      // Block-scoped bindings stay ordered (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
       // §4.1 — deferral is a module-FILE mechanism).
       false,
       exn
@@ -3410,7 +3410,7 @@ evaluate_module_value :: (
     // Receiver id for the per-field PROVISIONAL registration below.
     // Empty for receivers without an id — skip, mirroring Case 3's guard.
     c2_recv_id := type_id_or_empty(receiver_type_pattern);
-    // Pending members (plans/LAZY_TOPLEVEL_BINDINGS.md P3): every direct
+    // Pending members (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): every direct
     // colon-pair member and every member inside a trait constructor is a
     // definition scoped to this block. A sibling's definition-time body trial
     // that references one before its position forces its evaluation through
@@ -3853,7 +3853,7 @@ evaluate_module_value :: (
   // mirrors TS impl.ts:623 `env = pushEnvFrame(env)` so the per-field
   // BARE-label bindings below don't leak into the module scope.
   local_env.push_frame(false);
-  // Pending members (plans/LAZY_TOPLEVEL_BINDINGS.md P3): each DIRECT
+  // Pending members (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): each DIRECT
   // colon-pair member is a definition scoped to this block. A sibling body
   // that references it before its position (`caller` calling `self.callee()`
   // defined below; mutual recursion) forces its evaluation through
@@ -4121,7 +4121,7 @@ evaluate_module_value :: (
             .None => (),
             .Some(meth_expr) => {
               // A DIRECT member routes through its pending entry (a sibling
-              // may already have forced it — plans/LAZY_TOPLEVEL_BINDINGS.md
+              // may already have forced it — plans/reference/LAZY_TOPLEVEL_BINDINGS.md
               // P3); trait-constructor members evaluate in place.
               c3_pf_opt := cond(
                 current_trait_ty.is_none() => impl_direct_field_at(c3_rec, field_idx),

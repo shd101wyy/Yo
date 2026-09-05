@@ -72,7 +72,7 @@ revert the plumbing.
   the callers; rule recorded in the syntax skill + instruction files
   ("trait impls are bindings too"). PR body draft:
   `<scratchpad>/pr-tail-body.md` (fill the BUILD/BATTERY placeholders).
-- **`plans/LAZY_TOPLEVEL_BINDINGS.md`** (+ AGENTS.md row): the design for
+- **`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`** (+ AGENTS.md row): the design for
   lifting the no-forward-reference rule. Was PR #379 (docs-only, CI green) —
   **CLOSED and folded into the closeout branch** because a docs-only PR is
   structurally unmergeable under the no-admin rule: the "Classify the diff

@@ -38,7 +38,7 @@ the fastest way to see which body failed and why:
 (`evaluator/context.yo`) for every `::` definition or `impl` forced by a lookup
 miss, and `[force-field] <type>.<member>` / `[force-field] phase-A …`
 (`evaluator/values/impl.yo`) for a sibling method forced from inside its own
-impl block (`plans/LAZY_TOPLEVEL_BINDINGS.md`).
+impl block (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`).
 
 A `[…swallow]` line belongs to the most recent `[…trial]` line above it (the
 swallow handlers are capture-free `->` effect handlers, so they cannot print the

@@ -130,7 +130,7 @@ _is_excluded_label :: (fn(excluded : ArrayList(String), label : String) -> bool)
   found
 });
 // ---------------------------------------------------------------------------
-// Lazy top-level bindings — the FORCER (plans/LAZY_TOPLEVEL_BINDINGS.md §4.2).
+// Lazy top-level bindings — the FORCER (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.2).
 //
 // `force_pending_def` (context.yo) calls this through the fn slot to evaluate
 // one deferred statement out of source order. The statement is evaluated
@@ -226,7 +226,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   module_vals := ArrayList(EvalValue).new();
   (partial_error : Option(String)) = Option(String).None;
   (should_stop : bool) = false;
-  // P0 forward-reference plumbing (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6):
+  // P0 forward-reference plumbing (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6):
   // record THIS walk (list + live index) for the def-time trials that run
   // inside it, restoring the previous walk on the way out — nested module
   // loads (imports evaluate through this same function) must not smear
@@ -236,7 +236,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   set_module_walk(begin_exprs);
   // Push new frame to the env
   env.push_frame(false);
-  // Lazy top-level bindings (plans/LAZY_TOPLEVEL_BINDINGS.md §4.1): pre-scan
+  // Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.1): pre-scan
   // the statements and record every deferrable definition / impl. Nothing is
   // evaluated here — entries are forced on a lookup miss, or at their own
   // position below, whichever comes first.
@@ -597,7 +597,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                       );
                       // Look up the variable — an `export(...)` naming a
                       // definition that appears LATER in the module forces it
-                      // (plans/LAZY_TOPLEVEL_BINDINGS.md rule 5).
+                      // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md rule 5).
                       vars := get_variables_from_env(env, given_var_name.clone());
                       (forced_var : Option(Variable)) = Option(Variable).None;
                       if(vars.len() == usize(0), {
@@ -917,7 +917,7 @@ _run_module_walk :: (
 /// and produce a source-namespace StructVal + Struct type.
 ///
 /// `defer_definitions` enables order-independent `::` definitions and `impl`
-/// registrations for this walk (plans/LAZY_TOPLEVEL_BINDINGS.md): true for a
+/// registrations for this walk (plans/reference/LAZY_TOPLEVEL_BINDINGS.md): true for a
 /// module FILE (program, import, prelude), false for the anonymous
 /// `impl({ ... })` block, whose bindings are block-scoped and stay ordered.
 ///
