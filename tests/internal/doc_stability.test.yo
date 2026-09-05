@@ -13,11 +13,8 @@ open(import("std/string"));
   import("../../src/doc/model.yo");
 { module_stability } :: import("../../src/doc/builder.yo");
 { render_doc_json_string } :: import("../../src/doc/render_json.yo");
-{ render_doc_site } :: import("../../src/doc/render_html.yo");
-{ TempDir } :: import("std/fs/temp");
-{ read_to_string } :: import("std/fs/file");
-{ Path } :: import("std/path");
-{ Exception, IoExn } :: import("std/error");
+{ render_module_content_html } :: import("../../src/doc/render_html.yo");
+{ HashMap } :: import("std/collections/hash_map");
 { render_module_md } :: import("../../src/doc/render_markdown.yo");
 // A module carrying nothing but a name, a path and whatever stability marker
 // the test wants to publish.
@@ -31,7 +28,7 @@ _module_with :: (fn(stability : Option(String)) -> DocModule)(
     types : ArrayList(DocType).new(),
     traits : ArrayList(DocTrait).new(),
     constants : ArrayList(DocConstant).new(),
-    submodules : ArrayList(String).new()
+    submodules : ArrayList(Box(DocModule)).new()
   )
 );
 _one_module_model :: (fn(stability : Option(String)) -> DocModel)({
@@ -106,22 +103,15 @@ test("render_module_md: the whole marker reaches the Markdown note", {
   md := render_module_md(_module_with(Option(String).Some(marker)));
   assert(md.contains(`**Stability: ${marker}**`), `the note carries the WHOLE marker, got: ${md}`);
 });
-test("render_doc_site: the whole marker reaches the HTML badge", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, `unexpected exception: ${err.to_string()}`);
-        unwind(());
-      }
-    )
-  );
-  e := IoExn(io : io, exn : exn);
+test("render_module_content_html: the whole marker reaches the HTML badge", {
   marker := `unstable — new in v0.2.24; the API may still change while std/cli adopts it.`;
-  dir := io.await(TempDir.new(io), e);
-  out := dir.path().to_string();
-  render_doc_site(_one_module_model(Option(String).Some(marker)), out, io, e);
-  html := io.await(read_to_string(Path.new(`${out}/module/term.html`), io), e);
-  assert(html.contains(`class="stability stability-unstable"`), "the badge is keyed on the marker's first word");
+  links := HashMap(String, String).new();
+  html := render_module_content_html(_module_with(Option(String).Some(marker)), links);
+  assert(
+    html.contains(`class="stability stability-unstable"`),
+    "the badge class is keyed on the marker's FIRST WORD, not the whole marker"
+  );
   assert(html.contains(marker), `the badge carries the WHOLE marker, got: ${html}`);
-  io.await(dir.remove(io), e);
+  stable := render_module_content_html(_module_with(Option(String).None), links);
+  assert(!stable.contains(`class="stability`), "a frozen module renders no badge");
 });
