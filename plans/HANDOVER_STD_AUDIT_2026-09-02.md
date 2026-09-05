@@ -309,7 +309,7 @@ re-run before diagnosing.
 | `938342f2b` | #376 | TLS as a per-target runtime backend + `tls_available()` |
 | `d2a8e3f7f` | #378 | release: musl bundle ships gen-2; stage-3 byte-identity gate |
 | `adf0dc887` / `22ec5f6e2` | release | **v0.2.21 published**; `SEED_VERSION` = v0.2.21 |
-| `ec6650f14` | #380 | **D5/§5 closeout** (see §2) + `plans/LAZY_TOPLEVEL_BINDINGS.md` |
+| `ec6650f14` | #380 | **D5/§5 closeout** (see §2) + `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` |
 | `e84def46b` | #364 | `yo version` curl→std/http (D6 PR-3) + OpenSSL CI plumbing + harness sed portability — **MERGED** |
 | `a7dcc7bd2` | #381 | ci: apostrophe fix (develop un-red; musl leg green) |
 | `7b8976438` | #382 | **ArrayList drain/remove/iter (§5 breaking change)** |
@@ -420,7 +420,7 @@ worktree — see §4), FIXPOINT_HOLDS, CLI `--network` 55/0/0, dyn 9/9.
    src: module_loader ×7, module_manager ×2, trait_checking ×3,
    unsafe_report ×2, type_trait_methods ×2). Pre-freeze breaking change;
    `plans/STD_API_AUDIT.md` §5 row has the measurement.
-3. **`plans/LAZY_TOPLEVEL_BINDINGS.md` P0** — the check-time "forward
+3. **`plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P0** — the check-time "forward
    reference to X (defined at line N)" diagnostic replacing the silent
    swallow (small, independent; the rest of that plan is a campaign the user
    has not scheduled).
@@ -439,7 +439,7 @@ worktree — see §4), FIXPOINT_HOLDS, CLI `--network` 55/0/0, dyn 9/9.
 
 ## 6. The forward-reference design (written, not scheduled)
 
-`plans/LAZY_TOPLEVEL_BINDINGS.md`: `::` / `comptime(x) :=` definitions and
+`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`: `::` / `comptime(x) :=` definitions and
 `impl` registrations become order-independent via pending bindings forced on
 first reference or module end; two-phase function forcing; pending impls by
 receiver head; cycles are errors with a chain; statements stay ordered.

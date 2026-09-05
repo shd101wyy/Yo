@@ -842,7 +842,7 @@ call_rerun_pending_def_evals :: (fn(env : Environment, ctx : EvalContext) -> uni
     .None => ()
   )
 );
-// --- P0 forward-reference diagnostic plumbing (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6) ---
+// --- P0 forward-reference diagnostic plumbing (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6) ---
 // The module walker (values/anonymous_module.yo) records the begin_exprs
 // list it is currently walking and how far in it is, so a def-time trial
 // that swallows an unbound-name error (calls/function_type.yo's trial cell)
@@ -933,7 +933,7 @@ module_expr_binds_name :: (fn(e : AstExpr, name : String) -> bool)(
     true => false
   )
 );
-/// P0 (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6): a def-time trial that swallowed
+/// P0 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): a def-time trial that swallowed
 /// `Variable "X" not found.` where X IS bound later in the module walk is a
 /// forward reference. Returns the diagnostic to re-raise (None when the
 /// message is not that shape, or the name is not bound later — a genuine
@@ -1011,7 +1011,7 @@ hard_swallow_diagnostic :: (fn(msg : String) -> Option(String))(
       )
   )
 );
-// --- Lazy top-level bindings (plans/LAZY_TOPLEVEL_BINDINGS.md §4, P1 + P2) ---
+// --- Lazy top-level bindings (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4, P1 + P2) ---
 //
 // A module walk (values/anonymous_module.yo) PRE-SCANS its begin_exprs and
 // records every deferrable statement — a `name :: <rhs>` definition (P1) or an
@@ -1758,7 +1758,7 @@ type_head_name_for_impl_forcing :: (fn(ty : TypeValue) -> String)({
     .None => raw
   )
 });
-// --- Impl-block sibling forcing (plans/LAZY_TOPLEVEL_BINDINGS.md P3) ---
+// --- Impl-block sibling forcing (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3) ---
 //
 // The colon-pair fields of an `impl(...)` block being evaluated are pending
 // definitions scoped to the block: a method lookup on the receiver that misses

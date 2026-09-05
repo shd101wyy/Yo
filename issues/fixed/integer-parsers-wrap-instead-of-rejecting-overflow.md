@@ -90,7 +90,7 @@ the unsigned pair, `.None` on an empty digit run or any non-digit.
 The four methods moved into the later `impl(String, …)` block (the one that
 already holds `parse_f64` / `parse_i64_radix` / `parse_u64_radix`) so the
 callee is registered before the caller — a same-module forward reference across
-`impl` blocks is not legal until `plans/LAZY_TOPLEVEL_BINDINGS.md` lands.
+`impl` blocks is not legal until `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` lands.
 
 `String._is_digit_byte` was orphaned by the rewrite (those four loops were its
 only callers) and is removed. `src/lsp/diagnostics.yo` has its own private

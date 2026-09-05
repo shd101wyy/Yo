@@ -42,8 +42,9 @@ open(import("std/string"));
 /// Traverse an evaluated expression tree checking for an `unwind` usage.
 /// Skips new function/closure boundaries; recurses into cond/match branches.
 ///
-/// The cond/match branch traversal is inlined here (rather than delegated to a
-/// separate visitor function) to avoid mutual-recursion forward-reference issues.
+/// The cond/match branch traversal is inlined here rather than delegated to a
+/// separate visitor function (historical: it predates order-independent
+/// definitions).
 ///
 /// Mirrors `evaluatedBodyContainsEscape` in `src/expr-traversal.ts`.
 evaluated_body_contains_unwind :: (fn(e : AstExpr) -> bool)(
