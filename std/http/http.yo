@@ -403,6 +403,12 @@ HttpError :: enum(
   /// a chunk size that is not hex, a missing CRLF after a chunk, or a body
   /// that ended before its terminating zero chunk. `msg` says which.
   MalformedChunkedBody(msg : String),
+  /// A `Content-Length` header field whose value is not a single
+  /// non-negative integer, or two `Content-Length` field lines that
+  /// disagree. RFC 9112 §6.3 makes that unrecoverable framing rather than a
+  /// body-less message, so it is raised instead of being read as "absent".
+  /// `msg` names the defect.
+  MalformedContentLength(msg : String),
   /// An unclassified HTTP error.
   Other(msg : String)
 );
@@ -420,6 +426,7 @@ impl(
           .UnsupportedScheme(scheme) => `Unsupported scheme: ${scheme}`,
           .ResponseTooLarge => `Response too large`,
           .MalformedChunkedBody(msg) => `Malformed chunked body: ${msg}`,
+          .MalformedContentLength(msg) => `Malformed Content-Length: ${msg}`,
           .Other(msg) => `HTTP error: ${msg}`
         )
     )
