@@ -1489,8 +1489,6 @@ module_frame_variable :: (fn(walk : ModuleWalk, name : String) -> Option(Variabl
     .None => Option(Variable).None
   )
 });
-module_walk_depth :: (fn() -> usize)(g_module_walks.len());
-forcing_stack_depth :: (fn() -> usize)(g_forcing_stack.len());
 /// Drop walks above `depth` — the walker's abort edge (an error unwound
 /// through it) resets the stacks to what they were when it started.
 truncate_module_walks :: (fn(depth : usize) -> unit)({
@@ -1760,6 +1758,204 @@ type_head_name_for_impl_forcing :: (fn(ty : TypeValue) -> String)({
     .None => raw
   )
 });
+// --- Impl-block sibling forcing (plans/LAZY_TOPLEVEL_BINDINGS.md P3) ---
+//
+// The colon-pair fields of an `impl(...)` block being evaluated are pending
+// definitions scoped to the block: a method lookup on the receiver that misses
+// while the block is in flight (a sibling referenced before its own field —
+// `caller` calling `self.callee()` defined below it) FORCES that field's
+// evaluation out of order, exactly as a module-level miss forces a `::`
+// definition. The field's REAL FuncVal (its real func_id) is what gets
+// registered, so no shell, no shell→real redirect and no codegen thunk exist
+// any more (the pre-P3 `_try_create_forward_shell` pre-pass). Mutual recursion
+// between siblings rides the same phase-A channel as module-level functions:
+// the field's `def` sits on the forcing stack while its value evaluates, so
+// `try_to_implement_function_by_function_type` publishes the head FuncVal
+// into it, and a re-entrant miss registers that value.
+//
+// The model lives here so the module walker's abort edge can truncate the
+// in-flight stack with the others; the evaluators live in values/impl.yo.
+ImplFieldState :: enum(Unforced, Forcing, Done, Failed);
+ImplPendingField :: ref(
+  struct(
+    label : String,
+    /// The `name : value` colon pair.
+    colon_expr : AstExpr,
+    /// Index of the impl argument this field belongs to — the field's own
+    /// index for a direct field, the trait constructor's for an inner one.
+    top_index : usize,
+    is_inner : bool,
+    state : ImplFieldState,
+    failure : Option(String),
+    /// The forcing-stack entry (phase-A publication target).
+    def : PendingDef,
+    /// Case 2 results, pushed into the impl's field arrays IN SOURCE ORDER by
+    /// the field loop whether the field was forced early or evaluated in place.
+    result_ty : Option(TypeValue),
+    result_value : Option(EvalValue),
+    /// True once a phase-A entry for this field is in the method registry
+    /// (the completing evaluation then updates that entry in place).
+    phase_a_registered : bool
+  )
+);
+ImplInFlight :: ref(
+  struct(
+    recv_id : String,
+    is_generic : bool,
+    receiver_ty : TypeValue,
+    receiver_name : String,
+    /// The impl's live env (Case 3 `local_env` / Case 2 `forall_env`); the loops
+    /// sync it in and out around each field so a force sees the env at the
+    /// current position.
+    env : Environment,
+    ctx : EvalContext,
+    fields : ArrayList(ImplPendingField),
+    /// The impl argument the field loop is on, and — inside a trait
+    /// constructor — that trait's type. An inner field is forcible only from
+    /// within its OWN trait entry (its expected type and working bindings
+    /// belong to that entry).
+    current_top_index : usize,
+    current_trait_ty : Option(TypeValue),
+    forall_names : ArrayList(String)
+  )
+);
+(g_impls_in_flight : ArrayList(ImplInFlight)) = ArrayList(ImplInFlight).new();
+push_impl_in_flight :: (fn(rec : ImplInFlight) -> unit)({
+  g_impls_in_flight.push(rec);
+});
+pop_impl_in_flight :: (fn() -> unit)({
+  g_impls_in_flight.pop();
+  ()
+});
+truncate_impls_in_flight :: (fn(depth : usize) -> unit)({
+  while(g_impls_in_flight.len() > depth, {
+    g_impls_in_flight.pop();
+  });
+});
+/// Snapshot of the three forcing stacks (module walks, forcing defs, impls in
+/// flight). Every site that CATCHES an evaluation error and continues — the
+/// module walker's abort edge, `comptime_expect_error`, the def-time body-trial
+/// swallows, the pending-definition forcer, the in-block field forcer — takes
+/// one before the guarded evaluation and truncates back to it afterwards: an
+/// impl (or forced definition) that threw mid-way never reaches its own pops,
+/// and a stale `ImplInFlight` record would otherwise let a later method miss
+/// force a member of an ABANDONED impl into existence
+/// (issues/fixed/abandoned-impl-members-survive-the-error.md). Truncating to a
+/// depth that did not change is a no-op, so the restore is unconditional.
+ForcingDepths :: struct(walks : usize, forcing : usize, impls : usize);
+forcing_depths :: (fn() -> ForcingDepths)(
+  ForcingDepths(walks : g_module_walks.len(), forcing : g_forcing_stack.len(), impls : g_impls_in_flight.len())
+);
+truncate_forcing_depths :: (fn(d : ForcingDepths) -> unit)({
+  truncate_module_walks(d.walks);
+  truncate_forcing_stack(d.forcing);
+  truncate_impls_in_flight(d.impls);
+});
+/// The newest in-flight impl on `recv_id`, if any.
+newest_impl_in_flight_for :: (fn(recv_id : String) -> Option(ImplInFlight))({
+  (found : Option(ImplInFlight)) = Option(ImplInFlight).None;
+  (i : usize) = g_impls_in_flight.len();
+  while((i > usize(0)) && found.is_none(), {
+    i = (i - usize(1));
+    match(
+      g_impls_in_flight.get(i),
+      .Some(r) => if(r.recv_id == recv_id, {
+        found = Option(ImplInFlight).Some(r);
+      }),
+      .None => ()
+    );
+  });
+  found
+});
+make_impl_pending_field :: (fn(label : String, colon_expr : AstExpr, top_index : usize, is_inner : bool) -> ImplPendingField)(
+  ImplPendingField(
+    label : label.clone(),
+    colon_expr : colon_expr,
+    top_index : top_index,
+    is_inner : is_inner,
+    state : ImplFieldState.Unforced,
+    failure : Option(String).None,
+    def : PendingDef(
+      name : label,
+      expr : colon_expr,
+      index : top_index,
+      row : ast_expr_token(colon_expr).row,
+      is_impl : false,
+      state : PendingDefState.Unforced,
+      failure : Option(String).None,
+      phase_a_value : Option(EvalValue).None,
+      phase_a_type : Option(TypeValue).None,
+      variable : Option(Variable).None
+    ),
+    result_ty : Option(TypeValue).None,
+    result_value : Option(EvalValue).None,
+    phase_a_registered : false
+  )
+);
+/// The DIRECT field at impl argument `top_index`, if that argument is a
+/// pending colon pair.
+impl_direct_field_at :: (fn(rec : ImplInFlight, top_index : usize) -> Option(ImplPendingField))({
+  (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
+  (i : usize) = usize(0);
+  while((i < rec.fields.len()) && found.is_none(), {
+    match(
+      rec.fields.get(i),
+      .Some(f) => if(!(f.is_inner) && (f.top_index == top_index), {
+        found = Option(ImplPendingField).Some(f);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// The INNER field `label` of the trait constructor at `top_index`.
+impl_inner_field_at :: (fn(rec : ImplInFlight, top_index : usize, label : String) -> Option(ImplPendingField))({
+  (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
+  (i : usize) = usize(0);
+  while((i < rec.fields.len()) && found.is_none(), {
+    match(
+      rec.fields.get(i),
+      .Some(f) => if((f.is_inner && (f.top_index == top_index)) && (f.label == label), {
+        found = Option(ImplPendingField).Some(f);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// The field a sibling miss on `label` may force: a direct field, or an inner
+/// field of the trait entry currently being evaluated.
+impl_forcible_field :: (fn(rec : ImplInFlight, label : String) -> Option(ImplPendingField))({
+  (found : Option(ImplPendingField)) = Option(ImplPendingField).None;
+  (i : usize) = usize(0);
+  while((i < rec.fields.len()) && found.is_none(), {
+    match(
+      rec.fields.get(i),
+      .Some(f) => if((f.label == label) && (!(f.is_inner) || (f.top_index == rec.current_top_index)), {
+        found = Option(ImplPendingField).Some(f);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// A pending-impl / impl-field force that FAILED while answering a method
+/// miss. The lookup helpers have no `exn`, so the failure is parked here and
+/// thrown by the no-method arm of `evaluate_function_call` (calls/function.yo),
+/// which otherwise would report a misleading "No matching call found".
+(g_pending_impl_force_error : Option(String)) = Option(String).None;
+flag_pending_impl_force_error :: (fn(msg : String) -> unit)({
+  g_pending_impl_force_error = Option(String).Some(msg);
+  ()
+});
+take_pending_impl_force_error :: (fn() -> Option(String))({
+  r := g_pending_impl_force_error;
+  g_pending_impl_force_error = Option(String).None;
+  r
+});
 /// True while a DEFINITION-time body trial is running
 /// (`_trial_eval_fn_body`, calls/function_type.yo — set/restored at its
 /// call sites, since a swallowed error unwinds out of the helper itself).
@@ -1976,12 +2172,26 @@ export(
   record_pending_def_variable,
   module_walk_force_env,
   module_frame_variable,
-  module_walk_depth,
-  forcing_stack_depth,
   truncate_module_walks,
   truncate_forcing_stack,
   resolve_pending_definition,
   adopt_resolved_definition,
+  ImplFieldState,
+  ImplPendingField,
+  ImplInFlight,
+  push_impl_in_flight,
+  pop_impl_in_flight,
+  truncate_impls_in_flight,
+  ForcingDepths,
+  forcing_depths,
+  truncate_forcing_depths,
+  newest_impl_in_flight_for,
+  make_impl_pending_field,
+  impl_direct_field_at,
+  impl_inner_field_at,
+  impl_forcible_field,
+  flag_pending_impl_force_error,
+  take_pending_impl_force_error,
   force_pending_impls_for_type_name,
   type_head_name_for_impl_forcing
 );

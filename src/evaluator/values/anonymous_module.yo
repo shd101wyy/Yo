@@ -73,10 +73,8 @@ open(import("std/string"));
   set_force_pending_def_fn,
   copy_eval_context,
   set_in_def_time_trial,
-  module_walk_depth,
-  forcing_stack_depth,
-  truncate_module_walks,
-  truncate_forcing_stack
+  forcing_depths,
+  truncate_forcing_depths
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -183,7 +181,12 @@ _force_pending_def_impl :: (fn(walk : ModuleWalk, def : PendingDef) -> Option(St
   prev_trial := set_in_def_time_trial(false);
   saved_where := take_active_where_trait_ids();
   ___cf := _take_force_failure();
+  // The forced statement may have thrown mid-way (an impl abandoned in its
+  // field loop): drop whatever it left on the forcing stacks above this point
+  // so `force_pending_def`'s own pop removes ITS entry, not a stale one.
+  force_depths := forcing_depths();
   _force_eval(def.expr, force_env, force_ctx);
+  truncate_forcing_depths(force_depths);
   restore_active_where_trait_ids(saved_where);
   ___rt := set_in_def_time_trial(prev_trial);
   restore_module_walk(prev_mod_exprs, prev_mod_idx);
@@ -931,8 +934,7 @@ evaluate_anonymous_module_begin_exprs :: (
     exn : Exception
   ) -> AnonModuleResult
 )({
-  walk_depth := module_walk_depth();
-  forcing_depth := forcing_stack_depth();
+  depths := forcing_depths();
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
   ___ca := _take_walk_abort();
@@ -940,8 +942,7 @@ evaluate_anonymous_module_begin_exprs :: (
   match(
     _take_walk_abort(),
     .Some(err) => {
-      truncate_module_walks(walk_depth);
-      truncate_forcing_stack(forcing_depth);
+      truncate_forcing_depths(depths);
       restore_module_walk(prev_mod_exprs, prev_mod_idx);
       exn.throw(err);
     },

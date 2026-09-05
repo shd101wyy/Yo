@@ -149,3 +149,46 @@ test("no duplicate function emission for shell + orphan", {
   d2 := q.get_explicit();
   assert(d2.* == i32(42), "d2 == 42");
 });
+// ---------- Test 6: forcing chains and a shared forward callee ----------
+//
+// `a` references `b` which references `c` (a three-hop forward chain), and
+// `d` references `c` again after `c` has been forced. `c` must be evaluated
+// once and every caller must bind to the same real function. Pins the
+// pending-field forcing that replaced the shell pre-pass
+// (plans/LAZY_TOPLEVEL_BINDINGS.md §10 "P3 as landed").
+Chain :: struct(base : i32);
+impl(
+  Chain,
+  a : (fn(self : Chain) -> i32)(self.b() + i32(1)),
+  b : (fn(self : Chain) -> i32)(self.c() + i32(10)),
+  d : (fn(self : Chain) -> i32)(self.c() * i32(2)),
+  c : (fn(self : Chain) -> i32)(self.base + i32(100))
+);
+test("three-hop forward chain and shared forward callee", {
+  ch := Chain(base : i32(5));
+  assert(ch.c() == i32(105), "c is 105");
+  assert(ch.b() == i32(115), "b is c + 10");
+  assert(ch.a() == i32(116), "a is b + 1");
+  assert(ch.d() == i32(210), "d is 2c");
+});
+// ---------- Test 7: members of an ABANDONED impl do not survive its error ----
+//
+// The impl throws at `bad` (body type mismatch); `good` sits after it. Before
+// the fix, `good` was still callable afterwards — on the shell design the
+// pre-pass had registered its shell permanently before the throw, and with
+// pending-field forcing a stale in-flight record let the `good()` miss force
+// it (issues/fixed/abandoned-impl-members-survive-the-error.md). Module-level
+// `comptime_expect_error` is the catch-and-continue site this pins.
+Abandoned :: struct(n : i32);
+comptime_expect_error(
+  impl(
+    Abandoned,
+    bad : (fn(self : Abandoned) -> i32)(String.from("not an i32")),
+    good : (fn(self : Abandoned) -> i32)(self.n + i32(1))
+  )
+);
+comptime_expect_error(Abandoned(n : i32(1)).good());
+test("members after a failing impl member do not exist", {
+  // Reached only if both expectations above held at check time.
+  assert(true, "abandoned impl left no members behind");
+});
