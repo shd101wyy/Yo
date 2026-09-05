@@ -20,6 +20,25 @@ open(import("std/string"));
 { _call_generate_expr } :: import("./_expr.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
+/// Record that the short-circuit family has emitted a drop for `target` in this
+/// function. MONOTONE: never removed. See
+/// `FunctionGenerationContext.short_circuit_emitted_drop_targets`.
+_mark_sc_target_emitted :: (fn(target : String, context : FunctionGenerationContext) -> unit)({
+  match(
+    context.short_circuit_emitted_drop_targets,
+    .Some(_) => (),
+    .None => {
+      context.short_circuit_emitted_drop_targets = Option(HashSet(String)).Some(HashSet(String).new());
+    }
+  );
+  match(
+    context.short_circuit_emitted_drop_targets,
+    .Some(em_set) => {
+      _i := em_set.insert(target);
+    },
+    .None => ()
+  );
+});
 /// `base` followed by `n` levels of two-space indent.
 _indent_n :: (fn(base : String, n : usize) -> String)({
   out := base.clone();
@@ -143,6 +162,102 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
     .Atom(_, _) => ()
   )
 );
+/// Emit, from `list_owner`'s own deferred-drop list, the drops whose target is
+/// in `var_names` — the source that closes the single-expression-fn-body hole
+/// (no codegen begin opens there, so the pending channel is empty).
+///
+/// Five gates, each closing a documented failure class:
+///
+///   1. MONOTONE emitted-targets — the short-circuit family already dropped
+///      this target in this function. A chain considers the same operand temp
+///      at the inner node's fall-through AND the outer node's, both at
+///      function scope and each through a DIFFERENT drop-expr identity, so
+///      neither the id guard nor the consume-once handled set can see it.
+///   2. the consume-once handled set — a begin-opened shape reaches the same
+///      target through the pending source with a different identity. NOT
+///      consumed here: the pending-side emission it records must still
+///      suppress the begin-end flush.
+///   3. the expr-id emitted-once guard (PR #403).
+///   4. the closure-capture skip every guarded flush applies.
+///   5. the block-scope stack — the target's C declaration must have been
+///      EMITTED and still be IN SCOPE at this point. This is what keeps an
+///      inner operand's temp from being dropped at an OUTER fall-through,
+///      where its block has already closed.
+///
+/// A gate-skipped drop is left untouched for the node's other owners.
+_emit_node_list_drops :: (
+  fn(list_owner : AstExpr, var_names : HashSet(String), indent : String, context : FunctionGenerationContext) -> unit
+)(
+  match(
+    context.base.get_expr_info(list_owner),
+    .Some(nei) => match(
+      nei.deferred_drop_expressions,
+      .Some(node_drops) => {
+        nd2 := node_drops.len();
+        (j : usize) = usize(0);
+        while(j < nd2, {
+          match(
+            node_drops.get(j),
+            .Some(nd_drop) => match(
+              get_deferred_drop_target_atom_name(nd_drop),
+              .Some(ntarget) => if(var_names.contains(ntarget.clone()), {
+                already_emitted := match(
+                  context.short_circuit_emitted_drop_targets,
+                  .Some(em_set) => em_set.contains(ntarget.clone()),
+                  .None => false
+                );
+                n_handled := match(
+                  context.short_circuit_handled_drop_var_names,
+                  .Some(nh) => nh.contains(ntarget.clone()),
+                  .None => false
+                );
+                if(!already_emitted && !n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(nd_drop)) && !is_deferred_drop_for_closure_capture(nd_drop, context.current_closure_captures), {
+                  n_cn := sanitize_for_c_identifier(ntarget.clone(), false);
+                  n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.contains(n_cn));
+                  if(!n_undeclared && scope_stack_contains(context.base.declared_scopes, n_cn), {
+                    // `_call_generate_expr` on a drop expr may EMIT and return "".
+                    // An enum/Option-typed target lowers to a multi-line
+                    // `switch` block that the drop generator writes to the
+                    // emitter itself (drop_dup.yo), handing back an empty
+                    // string. So the drop is already on the page here, and
+                    // bookkeeping hung off `len() > 0` would never run for
+                    // exactly those targets — leaving the drop emitted but
+                    // UNRECORDED, so the next emission point considers it
+                    // fresh and emits it a SECOND time. That is the
+                    // double-drop that sank two earlier attempts at the chain
+                    // fix; record unconditionally, emit conditionally.
+                    nd_code := _call_generate_expr(nd_drop, indent.clone(), context);
+                    _ng := context.emitted_deferred_drop_ids.insert(ast_expr_id(nd_drop));
+                    _mark_sc_target_emitted(ntarget.clone(), context);
+                    match(
+                      context.short_circuit_handled_drop_var_names,
+                      .Some(ns) => {
+                        _ni := ns.insert(ntarget);
+                      },
+                      .None => ()
+                    );
+                    if(nd_code.len() > usize(0), {
+                      nline := indent.clone();
+                      nline.push_string(nd_code);
+                      nline.push_str(";");
+                      nem := context.base.emitter;
+                      nem.emit_string_line(nline);
+                    });
+                  });
+                });
+              }, ()),
+              .None => ()
+            ),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+      },
+      .None => ()
+    ),
+    .None => ()
+  )
+);
 /// Emit drops for temps created inside a short-circuit conditional branch,
 /// from TWO sources: the enclosing scope's pending deferred drops (removed
 /// from the pending set so scope end does not drop them again), and — when
@@ -196,13 +311,16 @@ _emit_drops_for_conditional_branch :: (
                 sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.contains(sc_target_cn));
                 if(!sc_undeclared, {
                   drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                  // Same decoupling as the node source below: the generator
+                  // may have emitted a multi-line drop already and returned "".
+                  _g := context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                  _mark_sc_target_emitted(target.clone(), context);
                   if(drop_code.len() > usize(0), {
                     line := indent.clone();
                     line.push_string(drop_code);
                     line.push_str(";");
                     em := context.base.emitter;
                     em.emit_string_line(line);
-                    _g := context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                   });
                 });
                 match(
@@ -230,82 +348,18 @@ _emit_drops_for_conditional_branch :: (
       },
       .None => ()
     );
+    // The node's OWN list, then — for a chain's inner node, whose own list is
+    // empty because its operand temps' drops were scheduled onto the
+    // outermost/body node — the ROOT's list.
     match(
       node_expr,
       .Some(ne) => {
+        _emit_node_list_drops(ne, var_names, indent.clone(), context);
         match(
-          context.base.get_expr_info(ne),
-          .Some(nei) => match(
-            nei.deferred_drop_expressions,
-            .Some(node_drops) => {
-              nd2 := node_drops.len();
-              (j : usize) = usize(0);
-              while(j < nd2, {
-                match(
-                  node_drops.get(j),
-                  .Some(nd_drop) => match(
-                    get_deferred_drop_target_atom_name(nd_drop),
-                    .Some(ntarget) => if(var_names.contains(ntarget.clone()), {
-                      // Four gates, each closing a documented failure class:
-                      // emitted-once (this exact drop expr already emitted),
-                      // the HANDLED SET — name-keyed, unlike the expr-id
-                      // guard, so it dedups ACROSS channels: a begin-opened
-                      // shape reaches the same TARGET through the pending
-                      // source above with a DIFFERENT drop-expr identity
-                      // (the pending copy and the shared-id node list are
-                      // distinct exprs), and the begin-end flush uses the
-                      // same set — closure-capture (the skip every guarded
-                      // flush applies), and the block-scope stack — the
-                      // target's C declaration must have been EMITTED and
-                      // still be IN SCOPE here: the fall-through point has
-                      // function scope (operand 0's temps are dead but in
-                      // scope), the in-branch points sit inside the
-                      // operand's own still-open block, and a registered-
-                      // but-never-emitted temp (the registration/emission
-                      // divergence) is never in the stack. A gate-skipped
-                      // drop is left untouched for the node's other owners —
-                      // it is NOT marked handled (and the handled entry is
-                      // NOT consumed on skip — the pending-side emission it
-                      // records must still suppress the begin-end flush).
-                      n_handled := match(
-                        context.short_circuit_handled_drop_var_names,
-                        .Some(nh) => nh.contains(ntarget.clone()),
-                        .None => false
-                      );
-                      if(!n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(nd_drop)) && !is_deferred_drop_for_closure_capture(nd_drop, context.current_closure_captures), {
-                        n_cn := sanitize_for_c_identifier(ntarget.clone(), false);
-                        n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.contains(n_cn));
-                        if(!n_undeclared && scope_stack_contains(context.base.declared_scopes, n_cn), {
-                          nd_code := _call_generate_expr(nd_drop, indent.clone(), context);
-                          if(nd_code.len() > usize(0), {
-                            nline := indent.clone();
-                            nline.push_string(nd_code);
-                            nline.push_str(";");
-                            nem := context.base.emitter;
-                            nem.emit_string_line(nline);
-                            _ng := context.emitted_deferred_drop_ids.insert(ast_expr_id(nd_drop));
-                            match(
-                              context.short_circuit_handled_drop_var_names,
-                              .Some(ns) => {
-                                _ni := ns.insert(ntarget);
-                              },
-                              .None => ()
-                            );
-                          });
-                        });
-                      });
-                    }, {
-                      // not in this operand's var_names — another owner's
-                    }),
-                    .None => ()
-                  ),
-                  .None => ()
-                );
-                j = (j + usize(1));
-              });
-            },
-            .None => ()
-          ),
+          context.short_circuit_root_node,
+          .Some(root) => if(ast_expr_id(root) != ast_expr_id(ne), {
+            _emit_node_list_drops(root, var_names, indent.clone(), context);
+          }),
           .None => ()
         );
       },
@@ -381,6 +435,19 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
     out.push_str(")");
     return(out);
   });
+  // This construct is the ROOT short circuit unless an enclosing one already
+  // claimed it. A chain parses as NESTED binaries and only the outermost node
+  // carries the operand temps' scope drops, so the inner nodes' emission
+  // points read the root's list (`_emit_node_list_drops`). Restored on the way
+  // out so sibling short circuits each get their own root.
+  prev_sc_root := context.short_circuit_root_node;
+  match(
+    prev_sc_root,
+    .Some(_) => (),
+    .None => {
+      context.short_circuit_root_node = Option(AstExpr).Some(expr);
+    }
+  );
   sc_var := String.from("__yo_sc_");
   sc_var.push_string(random_id(String.from("")));
   em := context.base.emitter;
@@ -451,6 +518,7 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
   _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
+  context.short_circuit_root_node = prev_sc_root;
   sc_var
 });
 /// `||` operator with short-circuit evaluation. Mirrors `generateOpOr`.
@@ -520,6 +588,19 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
     out.push_str(")");
     return(out);
   });
+  // This construct is the ROOT short circuit unless an enclosing one already
+  // claimed it. A chain parses as NESTED binaries and only the outermost node
+  // carries the operand temps' scope drops, so the inner nodes' emission
+  // points read the root's list (`_emit_node_list_drops`). Restored on the way
+  // out so sibling short circuits each get their own root.
+  prev_sc_root := context.short_circuit_root_node;
+  match(
+    prev_sc_root,
+    .Some(_) => (),
+    .None => {
+      context.short_circuit_root_node = Option(AstExpr).Some(expr);
+    }
+  );
   sc_var := String.from("__yo_sc_");
   sc_var.push_string(random_id(String.from("")));
   em := context.base.emitter;
@@ -577,6 +658,7 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
   first_var_names := HashSet(String).new();
   _collect_created_var_names_from_expr(first_arg, first_var_names, context);
   _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
+  context.short_circuit_root_node = prev_sc_root;
   sc_var
 });
 export(generate_op_and, generate_op_or);
