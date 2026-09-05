@@ -184,9 +184,7 @@ impl(Counter,
 - Bare `Module` is not a type alias. Use `Type` for comptime type values; type
   reflection reports source-module namespaces as `TypeInfo.Struct(...)`.
 - Wrap `fn` types in parentheses when they appear after `:`
-- **Forward references between methods in the same `impl` block are supported.** A method defined later in the block can be called by a method defined earlier. Both `self.method()` and `Self.method(...)` dispatch work. Only the canonical `name : (fn(...) -> R)(body)` method shape participates; bare lambdas do not get forward-ref shells.
-- **…but NOT between two `impl` blocks on the same type.** A method in an EARLIER `impl(T, …)` block cannot call one defined in a LATER `impl(T, …)` block — the failure is `Error: No matching call found with arguments: (self.X)()` at `yo check` time, which reads like a missing method rather than an ordering problem. Adding a method to a type in a fresh trailing `impl` block is therefore only safe for NEW call sites; if an existing method below needs it, move the definition up into a block that precedes every caller. (Measured twice while migrating `std/string/string.yo` for D4.)
-- **Module-level `::` function definitions are processed in order.** A function body that calls another function declared later in the same file will fail with "Variable not found". Always define leaf helpers first (bottom-up order): `eval_identifier` → `eval_atom` → `evaluate`.
+- **Module-level `::` definitions and `impl(...)` registrations are order-independent** (`docs/en-US/DEFINITION_ORDER.md`; see "Definition order" below for what stays ordered and the SEED GATE that still binds `std/` and `src/`). Sibling methods inside one `impl` block reference each other through `self.method()` / `Self.method(...)`, never by bare name.
 
 ### Named arguments and default values
 
@@ -856,38 +854,22 @@ collect :: (fn(text : String, out : ArrayList(String)) -> unit)({
 
 This cost a full debug cycle in the chunked-C-emission work: an entire emitter buffer was dropped from the output, and the only symptom was a far-downstream C error (`unknown type name`) in the generated code. If a function must fill several strings, return a `ref` struct — and remember that a `String` fetched back out of an `ArrayList(String)` is likewise a value copy, so mutating it does not update the stored element.
 
-### Forward references are NOT allowed
+### Definition order: `::` definitions and `impl` registrations are order-independent — but `std/` and `src/` are SEED-GATED
 
-Top-level bindings are evaluated strictly in order. A function must be defined BEFORE it is called (even inside closures that are called later). (Lifting this rule — order-independent `::` definitions and `impl` registration — is a planned campaign: `plans/LAZY_TOPLEVEL_BINDINGS.md`.)
+Since 2026-09-05 (`docs/en-US/DEFINITION_ORDER.md`, `plans/LAZY_TOPLEVEL_BINDINGS.md`) a module-level `name :: <definition>` may reference any other `::` definition of the same module regardless of position, and an `impl(T, ...)` may sit below the code that uses its methods or trait defaults. Bare-name self-recursion and mutual recursion between free functions work; `export(...)` may name a later definition.
 
 ```rust
-// WRONG — forward reference:
+// fine in tests/ and in any project compiled by a compiler that carries the feature:
 caller :: (fn() -> unit)({ helper(); });
 helper :: (fn() -> unit)({ println("hi"); });
-
-// CORRECT — helper before caller:
-helper :: (fn() -> unit)({ println("hi"); });
-caller :: (fn() -> unit)({ helper(); });
+fact :: (fn(n : i32) -> i32)(cond((n <= 1) => 1, true => (n * fact(n - 1))));
 ```
 
-This applies to ALL callee-before-caller relationships:
+One limit: from INSIDE an `impl(T, …)` block, a method defined in a LATER `impl(T, …)` block is still unreachable (misses on `T` while one of its impls is being evaluated are the in-block sibling case, never a force) — put methods that call each other in one block; free functions, generic bodies and other types' impls may use any later block.
 
-- `_walk_dag` before `build_dag`
-- `compile_artifact`, `run_executable`, `run_test_suite` before `execute_node`
-- `execute_node` before `execute_dag`
-- `_print_summary_node` before `print_build_summary`
-- `print_build_summary` before `execute_step`
-- Exports section must come AFTER all definitions
-- **Trait `impl(...)` registration before any same-module caller of its
-  methods or DEFAULTS.** `std/fs/file.yo`'s free `read_to_string` called
-  `file.read_to_string(io)` — the `Reader` trait default on `File` — while
-  `impl(File, IoTraits.Reader(...))` sat at the END of the file: the call was
-  a forward reference, its `io.async` body failed definition-time evaluation
-  ("No matching call found") and was SWALLOWED, so `yo check ./std` stayed
-  green while the emitted closure was a hollow stub. Only the C22 stub gate
-  caught it at C-compile time ("call to 'closure_yo_id_N' declared with
-  'error' attribute"). Diagnose with `YO_DEBUG_SWALLOW=1 yo check <file>`;
-  fix by moving the `impl(...)` blocks above the callers.
+What stays ORDERED (still "define before use"): imports (`{ a } :: import(...)`, `open(import(...))`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, and the bindings inside an `impl({ ... })` block. A forced definition sees only what precedes the REFERENCE that forced it — keep imports/opens at the top. Cycles between constants/types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while forced reports its own error plus a `note: ... was evaluated here because it is referenced before its definition`.
+
+**SEED GATE — do NOT rely on this in `std/` or `src/` yet.** `yo build` compiles `std/` and `src/` with the SEED compiler (`SEED_VERSION`), which predates the feature and still fails with `Variable "X" not found` on a forward reference (and needs `recur` for self-recursion). Keep the callee-before-caller / impl-before-caller order in `std/` and `src/` until a release carrying the feature becomes the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md` is the scheduling point). `tests/` are compiled by the stage-1 built from the tree and may use the new order.
 
 ### Named tuple fields in type syntax are not allowed
 

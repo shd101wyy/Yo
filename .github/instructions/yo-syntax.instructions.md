@@ -1020,37 +1020,26 @@ Use the verbose form **only** when you need to keep the raw `*(T)` —
 e.g., to pass it to another routine that mutates through the pointer
 multiple times, or when borrowing through a non-Index trait method.
 
-## Module-level declarations are processed in order
+## Module-level definition order
 
-`::` definitions at the top level are evaluated sequentially. A function body that calls another top-level function declared later in the same file will fail with **"Variable not found"** at module load time.
-
-Always define helper functions **before** the callers (bottom-up order):
+`::` definitions and `impl(...)` registrations at module level are **order-independent** (`docs/en-US/DEFINITION_ORDER.md`, landed 2026-09-05): a body may call a function, name a type or constant, or use a method / trait default whose definition or `impl` appears later in the same file; bare-name self-recursion and mutual recursion between free functions work; `export(...)` may name a later definition. The walker pre-scans the module and forces a pending definition on the first lookup that would otherwise miss, so order-correct programs evaluate exactly as before.
 
 ```rust
-// WRONG — evaluate references eval_atom which is not yet defined:
+// OK — evaluate references eval_atom, defined below:
 evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
   match(e,
-    .Atom(tok) => eval_atom(tok, env),  // ERROR: Variable "eval_atom" not found
+    .Atom(tok) => eval_atom(tok, env),
     _ => .None
   )
 );
-
 eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
-
-// CORRECT — define leaves first, callers last:
-eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
-
-evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
-  match(e,
-    .Atom(tok) => eval_atom(tok, env),  // OK
-    _ => .None
-  )
-);
 ```
 
-**Exception**: methods inside the same `impl(...)` block **do** support forward references — a method declared earlier can call one declared later within the same block.
+What stays **ordered**: imports (`{ a } :: import(...)`, `x :: import(...)`, `open(import(...))`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, bare expression statements, and the bindings inside an `impl({ ... })` block. Referencing one of those before it is bound is still an error (`forward reference to "X" (bound at line N) — imports, opens, pragmas and runtime bindings are evaluated in order …`). A definition forced early sees only the statements before the reference that forced it — keep imports and opens at the top of the file. Cycles between constants or types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while being forced reports its own error plus a `note: … was evaluated here because it is referenced before its definition`.
 
-**Trait impls are bindings too**: a call to a trait method or `?=` DEFAULT on a concrete type (`file.read_to_end(io)`) needs that type's `impl(T, Trait(...))` to have been evaluated EARLIER in the module. A later impl makes the call a forward reference whose definition-time failure is swallowed — `yo check` stays green and the enclosing `io.async` body is emitted as a hollow stub that only the C22 stub gate rejects at C-compile time. Register trait impls right after the type's inherent `impl`, before any free function that uses them (`YO_DEBUG_SWALLOW=1 yo check <file>` shows the swallowed "No matching call found").
+**SEED GATE — `std/` and `src/` may NOT use forward references yet.** `yo build` compiles them with the SEED compiler, which predates the feature and still fails with **"Variable not found"** (and needs `recur` for self-recursion). Keep callee-before-caller and impl-before-caller order in `std/` and `src/` until a release carrying the feature becomes `SEED_VERSION` (`plans/backlog/SEED_VERSION_AUTOMATION.md`); `tests/` are compiled by the tree's stage-1 and may use the new order.
+
+Inside one `impl(...)` block, sibling methods reference each other through `self.method()` / `Self.method()`; bare-name sibling references are not forward-bound there (they would shadow same-named locals in other method bodies). From inside an `impl(T, …)` block, a method defined in a LATER `impl(T, …)` block is still not reachable (misses on `T` while one of its impls is being evaluated are the in-block sibling case, never a force) — put methods that call each other in one block; free functions, generic bodies and other types' impls may use any later block.
 
 ## Named constructor arguments are required for `struct`/`ref(struct(...))` types
 
