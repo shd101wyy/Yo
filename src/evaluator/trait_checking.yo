@@ -136,8 +136,7 @@ register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit
   );
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
-/// `base_name` for Fn/Future traits. Defined here (above its first use) because
-/// yo-self has no forward references.
+/// `base_name` for Fn/Future traits.
 _trait_type_id :: (fn(ty : TypeValue) -> String)(
   match(
     ty,
@@ -1201,7 +1200,7 @@ check_self_constraints_violation_msg :: (
           }
         );
         (sc_implemented : bool) = type_implements_trait_bool(target_type, constraint, env);
-        // Lazy impls (plans/LAZY_TOPLEVEL_BINDINGS.md §4.4): force a later
+        // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force a later
         // impl of the target type before rejecting.
         if(!(sc_implemented), {
           match(

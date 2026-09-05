@@ -124,24 +124,11 @@ TypePair :: ref(
 //
 // synthesize_types calls helper functions (_synthesize_fn_traits,
 // _synthesize_future_traits, _synthesize_implicit_params) which in turn call
-// synthesize_types recursively. To break this circular dependency, we use the
-// same global-function-pointer pattern as `evaluate_expression` in expr.yo.
-/// Type of the synthesize_types function (for the global pointer).
-SynthesizeTypesFn :: (
-  fn(
-    expected_ty : TypeValue,
-    expected_env : Environment,
-    given_ty : TypeValue,
-    given_env : Environment,
-    checked : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
-  ) -> SynthesizeResult
-);
-/// Global function pointer — set once at module init via IIFE below.
-(g_synthesize_types : Option(SynthesizeTypesFn)) = Option(SynthesizeTypesFn).None;
-/// Public dispatch wrapper — mirrors `synthesizeTypes` in TypeScript.
-/// Calls through the global pointer so helpers can be defined before the impl.
+// synthesize_types recursively. Module-level definitions are order-independent
+// (plans/reference/LAZY_TOPLEVEL_BINDINGS.md), so the helpers call `_synthesize_types_impl`
+// directly even though it is defined below them; this used to go through a
+// global function pointer.
+/// Public entry point — mirrors `synthesizeTypes` in TypeScript.
 synthesize_types :: (
   fn(
     expected_ty : TypeValue,
@@ -153,46 +140,7 @@ synthesize_types :: (
     exn : Exception
   ) -> SynthesizeResult
 )(
-  match(
-    g_synthesize_types,
-    .None => exn.throw(
-      dyn(
-        format_error_message(
-          synthetic_token(String.from("E"), expected_env.module_path),
-          String.from("synthesize_types called before initialization")
-        )
-      )
-    ),
-    .Some(f) => f(expected_ty, expected_env, given_ty, given_env, checked, opts, exn)
-  )
-);
-/// Internal recursive call — calls g_synthesize_types via function pointer.
-/// Used by helpers inside synthesizer.yo to avoid the C codegen issue where
-/// indirect-function-pointer-reachable functions don't get forward declarations.
-/// This is defined BEFORE all helpers so it's in their closure scope.
-_synthesize_call :: (
-  fn(
-    expected_ty : TypeValue,
-    expected_env : Environment,
-    given_ty : TypeValue,
-    given_env : Environment,
-    checked : ArrayList(TypePair),
-    opts : Option(SynthesizeOptions),
-    exn : Exception
-  ) -> SynthesizeResult
-)(
-  match(
-    g_synthesize_types,
-    .None => exn.throw(
-      dyn(
-        format_error_message(
-          synthetic_token(String.from("E"), expected_env.module_path),
-          String.from("_synthesize_call: synthesize_types not initialized")
-        )
-      )
-    ),
-    .Some(f) => f(expected_ty, expected_env, given_ty, given_env, checked, opts, exn)
-  )
+  _synthesize_types_impl(expected_ty, expected_env, given_ty, given_env, checked, opts, exn)
 );
 // ---------------------------------------------------------------------------
 // Helpers
@@ -894,7 +842,7 @@ _synthesize_implicit_params :: (
           }
         );
         if(exp_id == synthesis_type_id(giv.ty), {
-          res := _synthesize_call(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
+          res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
           expected_env.frames = res.expected_env.frames;
           expected_env.module_path = res.expected_env.module_path;
           expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
@@ -978,7 +926,7 @@ _synthesize_implicit_params :: (
             }
           );
           if(exp_id == synthesis_type_id(giv.ty), {
-            res := _synthesize_call(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
+            res := _synthesize_types_impl(exp.ty, expected_env, giv.ty, given_env, checked, opts, exn);
             expected_env.frames = res.expected_env.frames;
             expected_env.module_path = res.expected_env.module_path;
             expected_env.function_declaration_frame_level = res.expected_env.function_declaration_frame_level;
@@ -1131,13 +1079,13 @@ _synthesize_fn_traits :: (
         break;
       }
     );
-    res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+    res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     i = (i + usize(1));
   });
   // Synthesize return type
-  res2 := _synthesize_call(exp_result, ee, giv_result, ge, checked, opts, exn);
+  res2 := _synthesize_types_impl(exp_result, ee, giv_result, ge, checked, opts, exn);
   ee = res2.expected_env;
   ge = res2.given_env;
   SynthesizeResult(expected_env : ee, given_env : ge)
@@ -1159,7 +1107,7 @@ _synthesize_future_traits :: (
   giv_out := match(given_ty, .FutureTraitT(_, out, _, _, _) => out, _ => TypeValue.Unit);
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
-  res := _synthesize_call(exp_out, ee, giv_out, ge, checked, opts, exn);
+  res := _synthesize_types_impl(exp_out, ee, giv_out, ge, checked, opts, exn);
   ee = res.expected_env;
   ge = res.given_env;
   // Synthesize effects
@@ -1428,7 +1376,7 @@ _synthesize_types_impl :: (
     }, {
       if(!is_some_type(bound), {
         // Bound to a concrete type — recurse with the bound type
-        res := _synthesize_call(bound, ee, given_ty, ge, checked, opts, exn);
+        res := _synthesize_types_impl(bound, ee, given_ty, ge, checked, opts, exn);
         ee = res.expected_env;
         ge = res.given_env;
       });
@@ -1442,7 +1390,7 @@ _synthesize_types_impl :: (
     giv_name := match(given_ty, .SomeT(_, n, _, _, _, _, _, _, _, _, _) => n, _ => ``);
     if(!is_some_type(existing_bound), {
       // Given is already bound — recurse
-      res := _synthesize_call(expected_ty, ee, existing_bound, ge, checked, opts, exn);
+      res := _synthesize_types_impl(expected_ty, ee, existing_bound, ge, checked, opts, exn);
       ee = res.expected_env;
       ge = res.given_env;
     }, {
@@ -1517,7 +1465,7 @@ _synthesize_types_impl :: (
             break;
           }
         );
-        res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+        res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
         ee = res.expected_env;
         ge = res.given_env;
         i = (i + usize(1));
@@ -1638,7 +1586,7 @@ _synthesize_types_impl :: (
             break;
           }
         );
-        res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+        res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
         ee = res.expected_env;
         ge = res.given_env;
         i = (i + usize(1));
@@ -1748,7 +1696,7 @@ _synthesize_types_impl :: (
               break;
             }
           );
-          res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+          res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
           ee = res.expected_env;
           ge = res.given_env;
           fi = (fi + usize(1));
@@ -1780,7 +1728,7 @@ _synthesize_types_impl :: (
       while(tci_sy < tca_n_sy, {
         et_sy := match(exp_tca_sy.get(tci_sy), .Some(t) => t, .None => TypeValue.Unit);
         gt_sy := match(giv_tca_sy.get(tci_sy), .Some(t) => t, .None => TypeValue.Unit);
-        res_sy := _synthesize_call(et_sy, ee, gt_sy, ge, checked, opts, exn);
+        res_sy := _synthesize_types_impl(et_sy, ee, gt_sy, ge, checked, opts, exn);
         ee = res_sy.expected_env;
         ge = res_sy.given_env;
         tci_sy = (tci_sy + usize(1));
@@ -1814,7 +1762,7 @@ _synthesize_types_impl :: (
             break;
           }
         );
-        res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+        res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
         ee = res.expected_env;
         ge = res.given_env;
         i = (i + usize(1));
@@ -1848,7 +1796,7 @@ _synthesize_types_impl :: (
             break;
           }
         );
-        res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+        res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
         ee = res.expected_env;
         ge = res.given_env;
         i = (i + usize(1));
@@ -1860,7 +1808,7 @@ _synthesize_types_impl :: (
   if(is_pointer_type(expected_ty) && is_pointer_type(given_ty), {
     exp_child := match(expected_ty, .Pointer(c) => c, _ => TypeValue.Unit);
     giv_child := match(given_ty, .Pointer(c) => c, _ => TypeValue.Unit);
-    res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, exn);
+    res := _synthesize_types_impl(exp_child, ee, giv_child, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1869,7 +1817,7 @@ _synthesize_types_impl :: (
   if(is_iso_type(expected_ty) && is_iso_type(given_ty), {
     exp_child := match(expected_ty, .IsoT(c) => c, _ => TypeValue.Unit);
     giv_child := match(given_ty, .IsoT(c) => c, _ => TypeValue.Unit);
-    res := _synthesize_call(exp_child, ee, giv_child, ge, checked, opts, exn);
+    res := _synthesize_types_impl(exp_child, ee, giv_child, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1878,7 +1826,7 @@ _synthesize_types_impl :: (
   if(is_array_type(expected_ty) && is_array_type(given_ty), {
     exp_elem := match(expected_ty, .Array(e, _, _) => e, _ => TypeValue.Unit);
     giv_elem := match(given_ty, .Array(e, _, _) => e, _ => TypeValue.Unit);
-    res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
+    res := _synthesize_types_impl(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     // Array LENGTH synthesis (mirrors TS synthesizer.ts:884-940): when the
@@ -1921,7 +1869,7 @@ _synthesize_types_impl :: (
   if(is_comptime_list_type(expected_ty) && is_comptime_list_type(given_ty), {
     exp_elem := match(expected_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
     giv_elem := match(given_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
-    res := _synthesize_call(exp_elem, ee, giv_elem, ge, checked, opts, exn);
+    res := _synthesize_types_impl(exp_elem, ee, giv_elem, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     return(SynthesizeResult(expected_env : ee, given_env : ge));
@@ -1975,7 +1923,7 @@ _synthesize_types_impl :: (
             break;
           }
         );
-        res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+        res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
         ee = res.expected_env;
         ge = res.given_env;
         fai = (fai + usize(1));
@@ -2000,7 +1948,7 @@ _synthesize_types_impl :: (
             break;
           }
         );
-        res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+        res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
         ee = res.expected_env;
         ge = res.given_env;
         pi = (pi + usize(1));
@@ -2020,7 +1968,7 @@ _synthesize_types_impl :: (
         exn
       );
       // Synthesize return type
-      res := _synthesize_call(exp_ret, ee, giv_ret, ge, checked, opts, exn);
+      res := _synthesize_types_impl(exp_ret, ee, giv_ret, ge, checked, opts, exn);
       ee = res.expected_env;
       ge = res.given_env;
     });
@@ -2032,7 +1980,7 @@ _synthesize_types_impl :: (
     giv_con := match(given_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
     exp_args := match(expected_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     giv_args := match(given_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
-    res := _synthesize_call(exp_con, ee, giv_con, ge, checked, opts, exn);
+    res := _synthesize_types_impl(exp_con, ee, giv_con, ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
     n_a := exp_args.len();
@@ -2054,7 +2002,7 @@ _synthesize_types_impl :: (
           break;
         }
       );
-      res2 := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+      res2 := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
       ee = res2.expected_env;
       ge = res2.given_env;
       ai = (ai + usize(1));
@@ -2084,7 +2032,7 @@ _synthesize_types_impl :: (
           break;
         }
       );
-      res := _synthesize_call(et, ee, gt, ge, checked, opts, exn);
+      res := _synthesize_types_impl(et, ee, gt, ge, checked, opts, exn);
       ee = res.expected_env;
       ge = res.given_env;
       i = (i + usize(1));
@@ -2211,14 +2159,8 @@ _synthesize_types_impl :: (
   };
   SynthesizeResult(expected_env : ee, given_env : ge)
 });
-// Register the implementation via IIFE (runs at module load — mirrors hierarchy.yo pattern).
-_synthesize_types_init := (fn() -> bool)({
-  g_synthesize_types = Option(SynthesizeTypesFn).Some(_synthesize_types_impl);
-  true
-})();
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 export(SynthesizeOptions, SynthesizeResult, ImplicitEntry, TypePair);
-export(SynthesizeTypesFn);
 export(can_assign_type_hierarchy, synthesize_types);

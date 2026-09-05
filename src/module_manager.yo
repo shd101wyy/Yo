@@ -70,12 +70,6 @@ open(import("std/fmt"));
 // (alloc_global_expr_id), so a shared table has no cross-module key collisions.
 // `.None` during `check`/`test` (each file keeps its own table).
 (g_shared_expr_info_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
-// Function-pointer slot for the demand loader. `demand_load_module` and
-// `_load_module_at_abs` are mutually recursive (the loader sets
-// `ctx.load_module` to itself for nested imports) and yo has no forward refs,
-// so the loader is wired through this slot (set in the init IIFE below).
-(g_demand_loader : Option((fn(path : String) -> LoadModuleResult))) =
-  Option((fn(path : String) -> LoadModuleResult)).None;
 /// Message slot for a module-eval error captured inside
 /// `_eval_module_exprs_capturing_error`'s handler. Handlers cannot reference
 /// outer runtime variables, but they CAN call module-level FUNCTIONS — so the
@@ -266,10 +260,6 @@ mm_set_loader_context :: (
   g_loader_std_path = Option(String).Some(std_path);
   g_loader_exn = Option(Exception).Some(exn);
 });
-/// The demand loader, for assigning to `ctx.load_module`.
-mm_demand_loader :: (fn() -> Option((fn(path : String) -> LoadModuleResult)))(
-  g_demand_loader
-);
 mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
 mm_has_prelude_env :: (fn() -> bool)(!g_cached_prelude_env.is_none());
 mm_clear_prelude_env :: (fn() -> unit)({
@@ -474,7 +464,7 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   env := mm_fresh_module_env(abs.clone());
   ctx := eval_context_new(std_path.clone(), abs.clone());
   ctx.is_executing = true;
-  ctx.load_module = g_demand_loader;
+  ctx.load_module = Option((fn(path : String) -> LoadModuleResult)).Some(demand_load_module);
   // Codegen: route this module's per-expression metadata into the shared table
   // (see g_shared_expr_info_table). No-op during check/test.
   match(
@@ -558,11 +548,13 @@ demand_load_module :: (fn(path : String) -> LoadModuleResult)({
   );
   load_module_from_cache(path)
 });
-// Wire the slot (breaks the mutual-recursion forward ref).
-_demand_loader_init := (fn() -> bool)({
-  g_demand_loader = Option((fn(path : String) -> LoadModuleResult)).Some(demand_load_module);
-  true
-})();
+/// The demand loader, for assigning to `ctx.load_module`. Sits AFTER
+/// `demand_load_module` on purpose: forcing the loader from higher up would
+/// trial-evaluate the helpers it calls before the runtime globals they read
+/// (`g_open_doc_paths`, …) are bound — the E0906 ordered-statement rule.
+mm_demand_loader :: (fn() -> Option((fn(path : String) -> LoadModuleResult)))(
+  Option((fn(path : String) -> LoadModuleResult)).Some(demand_load_module)
+);
 // ---------------------------------------------------------------------------
 // Loading a file
 // ---------------------------------------------------------------------------
@@ -630,7 +622,7 @@ mm_eval_entry_exprs :: (
   env := mm_fresh_module_env(entry_abs.clone());
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
-  ctx.load_module = g_demand_loader;
+  ctx.load_module = Option((fn(path : String) -> LoadModuleResult)).Some(demand_load_module);
   match(
     g_shared_expr_info_table,
     .Some(t) => {
