@@ -297,4 +297,4 @@ released.
   braces) is emitted as an `abort()` stub and kills the process the first time
   it runs — reproduces identically on the pre-fix compiler, so it is unrelated
   to this fix. Filed as
-  `issues/resumable-exception-bare-return-handler-body-aborts.md`.
+  `issues/fixed/resumable-exception-bare-return-handler-body-aborts.md`.
