@@ -5361,6 +5361,24 @@ Fix: wrap the call:
           // function was correct. Mirrors TS helper.ts:584-585
           // (`isRef: parameter.isRef, isReassignable: parameter.isRef,
           // isParameter: true`).
+          // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T`
+          // flag, exactly as the def-time body env binds it
+          // (function_type.yo's `add_parameter_to_env(..., p_own, ...)`). The
+          // callee owns the reference an `own` argument transferred in (the
+          // caller's arg is marked consumed), so begin.yo's parameters-frame
+          // pass must see an OWNING binding to schedule its scope-end release.
+          // Hardcoding `false` here left the flag correct ONLY for functions
+          // whose body is evaluated at DEFINITION time; a function with
+          // `generic(...)` parameters DEFERS its body (`should_defer_ft`) and
+          // is evaluated against THIS binding, so every `own` param of every
+          // such function lost its scope-end drop while the body's store still
+          // emitted the balancing `___dup` — a net +1 per call. The prelude's
+          // `box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value))`
+          // is the highest-traffic instance: `dyn(x)` boxes a value type
+          // through it, so every `Dyn` payload and every `AnyError` carrying a
+          // String/struct/enum leaked
+          // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
+          p_is_own := match(fv_param_is_owning.get(pi), .Some(o) => o, .None => false);
           var_opt := add_parameter_to_env(
             fresh_env,
             pname,
@@ -5368,7 +5386,7 @@ Fix: wrap the call:
             bind_val,
             is_ct,
             p_is_ref,
-            false,
+            p_is_own,
             false,
             p_is_ref,
             true,

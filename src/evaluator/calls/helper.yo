@@ -1084,6 +1084,21 @@ ${ast_expr_to_string(actual_arg)}`
     .None => ()
   );
   param_tok := synthetic_token(param_label, callee_env_r.module_path);
+  // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T` flag —
+  // exactly as the def-time body env binds it (function_type.yo's
+  // `add_parameter_to_env(..., p_own, ...)`). The callee owns the reference an
+  // `own` argument transferred in (Step 4b above marks the caller's arg
+  // consumed), so the parameters-frame scope-end pass in begin.yo must see an
+  // OWNING binding to schedule its release. Hardcoding `false` here made the
+  // flag correct only for functions whose body was evaluated at DEFINITION
+  // time; a GENERIC function defers its body (should_defer_ft) and is
+  // evaluated against THIS binding, so every `own` param of every specialized
+  // generic lost its scope-end drop while the body's store still emitted the
+  // balancing `___dup` — a net +1 per call. `box(v)`/`dyn(v)` are the
+  // highest-traffic instances (prelude `box :: (fn(generic(V : Type),
+  // own(value) : V) -> Box(V))(Box(V)(value))`), so every boxed value and
+  // every `AnyError` payload leaked
+  // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
   bound_param_opt := add_variable_to_env(
     callee_env_r,
     param_label,
@@ -1092,7 +1107,7 @@ ${ast_expr_to_string(actual_arg)}`
     is_ct_only,
     false,
     // is_reassignable
-    false,
+    param_is_owning,
     // is_owning_the_rc_value
     false,
     // is_implicit

@@ -961,3 +961,65 @@ test("reassigning after aliasing disposes both objects exactly once", {
     "both the original and the replacement are disposed exactly once each"
   );
 });
+// Regression (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md):
+// an `own(name) : T` parameter of a GENERIC function must release the reference
+// the caller transferred in. The callee-side binding was not marked owning, so
+// the scope-end drop was never scheduled while the body's store still emitted
+// the balancing `___dup` — a net +1 per call. The prelude's
+// `box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value))` is
+// the highest-traffic instance: the boxed value kept a second reference that
+// nobody owned, so it could never reach zero.
+test("box takes ownership of its argument without retaining an extra reference", {
+  h := Box(i32)(7);
+  b := box(h);
+  assert(rc(b.*) == 1, "the box holds the only reference to its value");
+});
+// The class is wider than `box`: EVERY `own` parameter of a generic function
+// leaked, whatever the body did with it. `own_ident` below already failed the
+// very first assertion before the fix. The `String` round trip at the end is
+// the over-drop canary — an over-drop would have freed the buffer before the
+// read.
+(g_own_param_freed : i32) = i32(0);
+OwnParamRes :: ref(struct(tag : i32));
+impl(
+  OwnParamRes,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_own_param_freed = (g_own_param_freed + i32(1));
+    })
+  )
+);
+own_ident :: (fn(generic(V : Type), own(v) : V) -> V)(v);
+own_via_local :: (fn(generic(V : Type), own(v) : V) -> V)({
+  w := v;
+  w
+});
+OwnHolder :: (fn(comptime(V) : Type) -> comptime(Type))(ref(struct(item : V)));
+own_hold :: (fn(generic(V : Type), own(v) : V) -> OwnHolder(V))(OwnHolder(V)(item : v));
+own_discard :: (fn(generic(V : Type), own(v) : V) -> i32)(i32(1));
+test("an own parameter of a generic function releases its value exactly once", {
+  before := g_own_param_freed;
+  {
+    a := own_ident(OwnParamRes(tag : i32(1)));
+    assert(a.tag == i32(1), "the returned value is alive");
+    assert(g_own_param_freed == before, "nothing released while the value is alive");
+  };
+  assert((g_own_param_freed - before) == i32(1), "returned directly: released once");
+  {
+    b := own_via_local(OwnParamRes(tag : i32(2)));
+    assert(b.tag == i32(2), "the value moved through a local is alive");
+  };
+  assert((g_own_param_freed - before) == i32(2), "moved through a local: released once");
+  {
+    c := own_hold(OwnParamRes(tag : i32(3)));
+    assert(c.item.tag == i32(3), "the held value is alive");
+  };
+  assert((g_own_param_freed - before) == i32(3), "stored in a generic struct: released once");
+  {
+    d := own_discard(OwnParamRes(tag : i32(4)));
+    assert(d == i32(1), "the discarding callee returns 1");
+  };
+  assert((g_own_param_freed - before) == i32(4), "never used by the callee: released once");
+  s := own_ident(`round trip`);
+  assert(s == `round trip`, "a String survives the round trip through an own parameter");
+});
