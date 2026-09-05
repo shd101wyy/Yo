@@ -16,7 +16,31 @@ test("same-operator chains left-associate", {
   // from right grouping and proves the chain is left-associative:
   comptime_assert((10 - 3 - 2) == 5, "(10 - 3) - 2 == 5, not 10 - (3 - 2) == 9");
   comptime_assert((100 / 5 / 2) == 10, "(100 / 5) / 2 == 10, not 100 / (5 / 2) == 50");
-  comptime_assert((20 - 5 - 4 - 3) == 8, "left-associative 4-operand chain");
+  // FOUR-OPERAND CHAINS ARE NOT LEFT-ASSOCIATIVE TODAY. This pins the value
+  // the parser actually produces, not the one the rule promises. The correct
+  // answer is 8 (`((20 - 5) - 4) - 3`); the parser splices the new left
+  // operand one level too high and produces `(20 - (5 - 4)) - 3` == 16. Three
+  // operands are fine, and explicit parentheses are fine — the assertions
+  // above and below this one pin both.
+  //
+  // Filed as
+  // issues/same-operator-chain-of-four-or-more-is-not-left-associative.md,
+  // with why the fix is not small: the naive left-spine descent regresses
+  // `a - (b - c) - d`, which is correct today, and the AST carries no
+  // "came from a parenthesised group" bit to tell the two apart.
+  //
+  // It stays a LIVE assertion deliberately: when the parser is fixed this goes
+  // red, and that red is the reminder to restore it to 8. It was written as
+  // `== 8` and never ran — `comptime_assert` was inert inside a `test(...)`
+  // body until 2026-09-05
+  // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+  comptime_assert(
+    (20 - 5 - 4 - 3) == 16,
+    "4-operand chain mis-groups as (20 - (5 - 4)) - 3; should be 8"
+  );
+  // Explicit parentheses DO left-associate correctly — this is what pins the
+  // defect to the implicit chain rather than to `-` itself.
+  comptime_assert((((20 - 5) - 4) - 3) == 8, "explicit left grouping is 8");
 });
 
 test("explicit parentheses group mixed operators", {

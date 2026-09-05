@@ -87,7 +87,7 @@ around `1e12`, comfortably inside `i64`, so the top of the range was never
 exercised. And its assertions could not have caught it anyway: all 1064
 `comptime_assert` calls in that file sit inside `test(...)` bodies, where
 `comptime_assert` **does not fire at all**
-(`issues/comptime-assert-never-fires-inside-a-function-body.md`).
+(`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`).
 
 ## Fix
 

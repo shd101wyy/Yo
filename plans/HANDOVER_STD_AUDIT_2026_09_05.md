@@ -78,7 +78,7 @@ since C17), and the builtin-shadowing decision.
    body *is* a function body — so **all 1559 `comptime_assert` calls under
    `tests/`** (1064 in `tests/comptime.test.yo`) assert nothing. This is why the
    comptime signed-arithmetic bug survived.
-   `issues/comptime-assert-never-fires-inside-a-function-body.md` carries the
+   `issues/fixed/comptime-assert-never-fires-inside-a-function-body.md` carries the
    reproducer matrix and the fix shape (the C18/C19 flow-violation-channel
    route). **Budget for the fallout triage**: turning 1559 dormant assertions on
    will go red in places, and each red one is either a real bug or a stale
@@ -204,7 +204,7 @@ and only HALVED chains.
    - `sizeof(unit)` is now 1, not 0 (#425);
    - `std/term`, `std/encoding/csv` and `std/http/server` are FROZEN, so they
      may only change additively from here (#421).
-2. **`comptime_assert` (issues/comptime-assert-never-fires-inside-a-function-body.md).**
+2. **`comptime_assert` (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).**
    Nothing else on this list is worth much while the comptime suite verifies
    nothing. Measure the fallout first, then land the change and its triage
    together.

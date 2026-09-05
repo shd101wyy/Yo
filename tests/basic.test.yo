@@ -296,10 +296,14 @@ test("Test Send on pointer-bearing types is conditional on the pointee", {
 // over-rejection canary below pins. See
 // `issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`.
 //
-// These live at MODULE level, observed by a RUNTIME `assert`, because
-// `comptime_assert` is INERT inside a `test(...)` body — it only fires at module
-// level (`issues/comptime-assert-never-fires-inside-a-function-body.md`), which
-// is why the comptime_assert-only test above never caught this.
+// These live at MODULE level, observed by a RUNTIME `assert`, because when they
+// were written `comptime_assert` was INERT inside a `test(...)` body — it only
+// fired at module level, which is why the comptime_assert-only test above never
+// caught this. That inertness is fixed
+// (`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`) and the
+// test above is now a live gate too, but these stay module-level on purpose: a
+// runtime `assert` observing a comptime-folded `::` binding cannot go vacuous
+// again whatever the comptime machinery does, so the two forms guard each other.
 SendWhereNonSend :: ref(struct(v : i32));
 SEND_BARE_NONSEND :: Type.impls(SendWhereNonSend, Send);
 SEND_PTR_NONSEND :: Type.impls(*SendWhereNonSend, Send);
@@ -524,6 +528,46 @@ test("Test type auto derive Comptime", {
     );
     comptime_assert(Type.impls(SelfRecursive4, Comptime));
   };
+});
+// --- Tuples derive markers like any other value aggregate -------------------
+// A tuple is STRUCTURAL: it has no nominal id, so nothing ever registered a
+// marker for it, and the prelude declares no `impl(generic(T), Tuple(T), ...)`
+// either -- so every marker answered `false` for every tuple, including the
+// `Comptime` cases the test above has asserted `true` since PR #16. Those
+// assertions had simply never run (`comptime_assert` was inert inside a
+// `test(...)` body until 2026-09-05). Fixed by giving step 4b of
+// `type_implements_trait` a `.Tuple` arm -- a tuple holds a marker iff every
+// field type holds it, exactly like a value struct or an enum.
+// See issues/fixed/tuple-types-derive-no-auto-derived-marker.md.
+//
+// Separate tests, so one failure does not mask the next: `comptime_assert`
+// stops at the first failure in a `begin` block.
+test("Test Tuple derives Comptime from its field types", {
+  comptime_assert(Type.impls(Tuple(i32), Comptime) == true);
+  comptime_assert(Type.impls(Tuple(comptime_int), Comptime) == true);
+  // Negative canary: an object field is not Comptime, so neither is the tuple.
+  comptime_assert(Type.impls(Tuple(Box(i32)), Comptime) == false);
+});
+test("Test Tuple derives Send from its field types", {
+  TupleNonSend :: ref(struct(v : i32));
+  comptime_assert(Type.impls(Tuple(i32), Send) == true);
+  comptime_assert(Type.impls(Tuple(i32, bool), Send) == true);
+  // Negative canary: a non-Send element makes the tuple non-Send.
+  comptime_assert(Type.impls(Tuple(TupleNonSend), Send) == false);
+});
+test("Test Tuple derives Runtime and Acyclic from its field types", {
+  comptime_assert(Type.impls(Tuple(i32), Runtime) == true);
+  // Negative canary: a comptime-only element is not Runtime.
+  comptime_assert(Type.impls(Tuple(comptime_int), Runtime) == false);
+  comptime_assert(Type.impls(Tuple(i32), Acyclic) == true);
+});
+test("Test a NESTED structural type is not cut by the marker-recursion guard", {
+  // Step 4b keyed its recursion guard by NOMINAL id, which is "" for every
+  // structural type -- so a nested one found its own ancestor's entry and was
+  // cut, answering `false`. Keyed structurally now.
+  comptime_assert(Type.impls(Tuple(Tuple(i32)), Comptime) == true);
+  comptime_assert(Type.impls(Tuple(Tuple(i32)), Send) == true);
+  comptime_assert(Type.impls(Tuple(Array(i32, 2)), Comptime) == true);
 });
 test("Test type auto derive Runtime", {
   // Compile-time only types are not runtime available

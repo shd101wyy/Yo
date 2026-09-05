@@ -607,7 +607,7 @@ test("Async test", {
 ## Assertion builtins for Yo tests
 
 - `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code); requires `{ assert } :: import("std/assert");`. The message accepts any `ToString` type; `assert(condition)` uses the default message.
-- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior. **It only FIRES at MODULE level** — inside any function body, and therefore inside a `test("…", { … })` block, `comptime_assert(false)` is silently accepted and the test verifies NOTHING (`issues/comptime-assert-never-fires-inside-a-function-body.md`). Until that is fixed, pin the comptime result in a module-level `::` binding and observe it with a runtime `assert` inside the test.
+- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior. **It fires wherever the condition folds to a CONCRETE `false`** — module level and inside a function body alike, so it works inside a `test("…", { … })` block. When the condition is NOT comptime-decidable (a runtime value, or a generic body whose type parameters are not bound yet) it only type-checks the argument, so a `comptime_assert` over an unresolved generic is still no gate. Until 2026-09-05 it was inert in EVERY function body, which made all 1559 `comptime_assert`s under `tests/` verify nothing (`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`); the vacuity guard against a regression is `tests/cli-cases/compile-comptime-assert-in-fn-body`.
 - `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
 
 `assert(condition, msg)` accepts any `msg` implementing `ToString` — plain
@@ -639,7 +639,7 @@ This is the standard pattern from `tests/internal/parser.test.yo`. The struct
 constructor `Exception(...)` pins the binding's type, so no annotation is needed
 on the LHS.
 
-Prefer `comptime_assert` over `assert` when the value being tested is compile-time known — but only at MODULE level. Inside a `test(...)` body it is inert (see the assertion-builtins section above), so pin the value in a module-level `::` binding and `assert` on that binding instead.
+Prefer `comptime_assert` over `assert` when the value being tested is compile-time known — it works inside a `test(...)` body as well as at module level (see the assertion-builtins section above). The one case it still cannot decide is a condition that is not comptime-known at the point it is written — a runtime value, or a generic body whose type parameters are unbound; there, pin the value in a module-level `::` binding and `assert` on that binding instead.
 
 ## Partial application (`_`) tests
 
