@@ -336,6 +336,31 @@ test("a value ENUM boxed into Dyn releases its payload", {
     "the boxed enum payload is released exactly once"
   );
 });
+// The other half of the same bug: `downcast` extracted the Box's value field
+// WITHOUT dup'ing it whenever the target had no user `___dup` method (String, a
+// value enum, a value struct — everything dup'd structurally). While `box`
+// leaked a reference that over-count masked it; with the refcount exact, the
+// caller's scope-end drop and the Box's dispose released the same allocation —
+// a heap-use-after-free ASan caught on both Linux legs.
+test("downcasting a value payload out of a Dyn dups it", {
+  before := g_dyn_payload_disposed;
+  {
+    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : DynPayloadRes(tag : i32(11))));
+    match(
+      downcast(d, DynStructPayload),
+      .Some(p) => {
+        assert(p.r.tag == i32(11), "the downcast copy carries the payload");
+        assert(rc(p.r) == 2, "the downcast copy and the Dyn's box each hold a reference");
+      },
+      .None => assert(false, "expected the downcast to succeed")
+    );
+    assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
+  };
+  assert(
+    (g_dyn_payload_disposed - before) == i32(1),
+    "the downcast payload is released exactly once"
+  );
+});
 test("a Dyn payload that owns heap memory releases it", {
   before := g_dyn_payload_disposed;
   {

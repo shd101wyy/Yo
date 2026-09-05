@@ -174,10 +174,45 @@ store it in a struct, or ignore it entirely).
    greppable `/* __yo_MISSING_DROP: ... */` marker instead of a silent no-op.
    This is dead code today (nothing constructs a `__yo_dyn_box_*`), so it
    changes no behaviour — it removes the landmine.
+4. `src/codegen/exprs/downcast.yo` — **the other half of the same bug, and a
+   use-after-free the moment the leak was fixed.** `generate_downcast` extracts
+   a value/newtype target out of the Box's value field and is supposed to dup
+   it ("the Box retains its copy"), but it only did so when
+   `get_dup_function_for_type` found a USER `___drop`-style `___dup` METHOD.
+   Most types have none — `String`, a value enum with RC payloads, a value
+   struct with RC fields are all dup'd STRUCTURALLY — so the `.None => extract`
+   arm handed out an UN-dup'd copy of a value the Box still owned. While `box`
+   leaked a reference that over-count masked it exactly; with the refcount
+   exact, the caller's scope-end drop and the Box's dispose released the same
+   allocation. ASan caught it on BOTH Linux legs of PR #428 as
+   `heap-use-after-free in __yo_decr_rc` under `Test String as Error via
+   AnyError`, at the same address on x86_64 and arm64 — deterministic, not a
+   race.
 
-No dup counterpart is needed anywhere: `__yo_dup___yo_t<dyn>` increments the
-BOX's refcount only, which is correct, and the box owns exactly one copy of the
-value.
+   The fix falls back to `generate_dup_code_for_value`. That emitter writes its
+   multi-line shapes straight to the emitter, and a C ternary cannot hold
+   statements, so the emission is hoisted into a guarded block —
+
+   ```c
+   int  __yo_dc_ok_N  = (d.vtable->__yo_type_id == (uintptr_t)&__yo_typeid_T) ? 1 : 0;
+   T    __yo_dc_val_N = (T){0};
+   if (__yo_dc_ok_N) {
+     __yo_dc_val_N = ((Box*)d.data)->value;
+     <structural dup lines>
+     __yo_dc_val_N = <dup result>;
+   }
+   ... (__yo_dc_ok_N) ? (Option(T)){ .tag = SOME, ...= __yo_dc_val_N } : (Option(T)){ .tag = NONE }
+   ```
+
+   — and the result ternary tests the hoisted flag. The extraction MUST stay
+   behind the type-id check: reading the box's value field when the dyn holds a
+   DIFFERENT type reads foreign memory (a smaller box would be read past its
+   end). Targets whose type carries no RC keep the old inline expression
+   byte-for-byte.
+
+No dup counterpart is needed on the DYN side: `__yo_dup___yo_t<dyn>` increments
+the BOX's refcount only, which is correct, and the box owns exactly one copy of
+the value.
 
 ## Verification
 
@@ -192,6 +227,13 @@ Built stage-1 before (`/tmp/yo-base`) and after (`/tmp/yo-fix3`) with
 | max RSS of that loop | 4 177 920 B | 1 982 464 B |
 | payload-free variant (over-drop canary) | 0 | **0** |
 | `MallocScribble=1 MallocPreScribble=1` on all three | correct output | correct output (no UAF) |
+
+The downcast half has its own before/after: a probe that downcasts a ref
+struct, a value struct, a value enum and a `String` out of a `Dyn` 2 000 times
+(`tmp/dc2.yo`) **aborts with rc=133** (macOS malloc double-free) on the build
+that had the leak fixed but not the dup, and runs clean with `0 leaks / 0 bytes`
+and no `MallocScribble` recycling after it. On Linux the same shape is what
+ASan reported as `heap-use-after-free in __yo_decr_rc`.
 
 The emitted C for `box` now carries a dup/drop PAIR, byte-identical in shape to
 the monomorphic `mk` that never leaked. The dyn box dispose is no longer empty:
@@ -219,6 +261,10 @@ All five were verified RED on the pre-fix stage-1 and GREEN on the post-fix one:
   counter on a module-level `(g_dyn_payload_disposed : i32)` binding, asserted
   at runtime (a `comptime_assert` inside a `test(...)` body verifies nothing —
   `issues/comptime-assert-never-fires-inside-a-function-body.md`).
+- `tests/dyn.test.yo` — "downcasting a value payload out of a Dyn dups it",
+  which asserts `rc(p.r) == 2` (the downcast copy AND the Dyn's box each hold a
+  reference). It reported 1 on the build that had the leak fixed but not the
+  dup, which is the exact state ASan crashed on.
 - `tests/error.test.yo` — "every AnyError payload thrown in a loop is released"
   (20 throw/catch rounds, each payload released exactly once).
 - `tests/rc.test.yo` — "box takes ownership of its argument without retaining an
