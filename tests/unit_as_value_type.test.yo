@@ -59,12 +59,14 @@ test("unit as an enum payload still works", {
 // and get_size_of_type's enum arm filters them to match. The enum sizes below
 // pin that exception.
 //
-// `comptime_assert` is INERT inside a fn/test body — it only fires at module
-// level (issues/comptime-assert-never-fires-inside-a-function-body.md) — so
-// every size is pinned as a module-level `::` binding and read back by a
-// RUNTIME assert. The round-trip tests that follow are what catch a
-// CODEGEN-side change: a size equality alone would not notice the C struct
-// moving underneath it.
+// Every size is pinned as a module-level `::` binding and read back by a
+// RUNTIME assert. That shape was originally forced — `comptime_assert` was
+// INERT inside a fn/test body and only fired at module level
+// (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md, now
+// fixed) — and it is kept because a runtime assert over a comptime-folded
+// binding cannot go vacuous whatever the comptime machinery does. The
+// round-trip tests that follow are what catch a CODEGEN-side change: a size
+// equality alone would not notice the C struct moving underneath it.
 // ---------------------------------------------------------------------------
 _OnlyUnit :: struct(u : unit);
 _UnitFirst :: struct(u : unit, a : i32);
