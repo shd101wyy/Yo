@@ -1,6 +1,7 @@
 { assert } :: import("std/assert");
 open(import("std/libc/stdio"));
 open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
 { Url, UrlError } :: import("std/url");
 { Error, AnyError, Exception } :: import("std/error");
 // ============================================================================
@@ -351,4 +352,96 @@ test("Url UrlError to_string", {
   assert(e2.to_string() == String.from("URL error: missing scheme"), "MissingScheme message");
   e3 := UrlError.InvalidPort;
   assert(e3.to_string() == String.from("URL error: invalid port"), "InvalidPort message");
+  // The two variants the file used to skip. `InvalidCharacter` went
+  // un-asserted AND un-produced, which is how the missing validation survived.
+  e4 := UrlError.InvalidCharacter(pos : usize(9));
+  assert(
+    e4.to_string() == String.from("URL error: invalid character at position 9"),
+    "InvalidCharacter message"
+  );
+  e5 := UrlError.Other(msg : `boom`);
+  assert(e5.to_string() == String.from("URL error: boom"), "Other message");
+});
+// ============================================================================
+// RFC 3986 §2 byte-set validation
+//
+// `Url.parse` used to validate nothing outside the scheme (and the scheme
+// guard tested the wrong operand, so it was always true). A raw CRLF in a
+// path therefore flowed through `Url.path()` into `HttpRequest`'s request
+// line and split one HTTP request into two — textbook request splitting,
+// reachable from any caller that interpolates untrusted text into a fetch URL
+// and, via `Location`, from a remote server.
+// ============================================================================
+// The parse error a URL produced, or `.None` if it parsed. Returning the
+// MESSAGE pins the variant AND the byte offset — the parser has four other
+// rejections, so "did it throw" would pass for the wrong reason.
+_parse_err :: (fn(src : String) -> Option(String))({
+  rec := Exception(
+    throw : (
+      err -> {
+        unwind(Option(String).Some(err.to_string()));
+      }
+    )
+  );
+  _u := Url.parse(src, rec);
+  Option(String).None
+});
+_assert_invalid_at :: (fn(src : String, at : usize, label : String) -> unit)({
+  want := (String.from("URL error: invalid character at position ") + at.to_string());
+  match(
+    _parse_err(src),
+    .Some(got) => assert(got == want, `${label}: want [${want}], got [${got}]`),
+    .None => assert(false, `${label}: parsed a URL that RFC 3986 forbids`)
+  );
+});
+test("Url parse rejects RFC 3986 forbidden characters at the exact offset", {
+  _assert_invalid_at(String.from("http://exa mple.com/"), usize(10), `raw space in host`);
+  _assert_invalid_at(String.from("http://x/a b"), usize(10), `raw space in path`);
+  // The scheme scan's own guard tested `first` instead of `ch`, so it could
+  // never fail; the pre-scan catches this one before the scheme scan runs.
+  _assert_invalid_at(String.from("ht tp://x/"), usize(2), `raw space in scheme`);
+  _assert_invalid_at(String.from("http://x/a\rb"), usize(10), `raw CR`);
+  _assert_invalid_at(String.from("http://x/a\nb"), usize(10), `raw LF`);
+  _assert_invalid_at(
+    String.from("http://x/a\r\nX: y\r\n\r\nGET /admin"),
+    usize(10),
+    `CRLF request-splitting payload`
+  );
+  _assert_invalid_at(String.from("http://x/a\"b"), usize(10), `double quote`);
+  _assert_invalid_at(String.from("http://x/a<b"), usize(10), `less-than`);
+  _assert_invalid_at(String.from("http://x/a>b"), usize(10), `greater-than`);
+  _assert_invalid_at(String.from("http://x/a\\b"), usize(10), `backslash`);
+  _assert_invalid_at(String.from("http://x/a{b"), usize(10), `open brace`);
+  _assert_invalid_at(String.from("http://x/a|b"), usize(10), `pipe`);
+  // A raw control byte, and a raw UTF-8 lead byte: RFC 3986 is ASCII-only, so
+  // non-ASCII components are percent-encoded by the caller.
+  _assert_invalid_at(String.from("http://x/a\x01b"), usize(10), `control byte 0x01`);
+  _assert_invalid_at(String.from("http://x/h\xc3\xa9llo"), usize(10), `raw UTF-8`);
+});
+test("Url parse still accepts every legal URI byte", {
+  // The over-rejection canary. Tightening a parser is the dangerous
+  // direction: this asserts the whole legal byte set still gets through, and
+  // it passed BEFORE the validation was added as well as after.
+  legal := ArrayList(String).new();
+  legal.push(String.from("http://x/p?a=1&b=2;c=3!"));
+  legal.push(String.from("http://u:p@x:8080/"));
+  legal.push(String.from("http://x/a~b-c.d_e"));
+  legal.push(String.from("http://[::1]:80/"));
+  legal.push(String.from("http://x/a%20b"));
+  legal.push(String.from("http://x/p?q=1#frag"));
+  legal.push(String.from("mailto:user@example.com"));
+  legal.push(String.from("a+b-c.d://x/"));
+  legal.push(String.from("http://x/$'()*,"));
+  legal.push(String.from("http://x/p?a+b=c"));
+  legal.push(String.from("data:text/plain;base64,SGVsbG8="));
+  i := usize(0);
+  while(runtime(i < legal.len()), {
+    src := legal(i);
+    match(
+      _parse_err(src),
+      .Some(got) => assert(false, `legal URI rejected: [${src}] -> ${got}`),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
 });
