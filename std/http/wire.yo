@@ -44,65 +44,193 @@ find_header_end :: (fn(data : ArrayList(u8)) -> usize)({
   });
   usize(0)
 });
-// Parse Content-Length from headers; returns -1 if not found.
-find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> i32)({
-  // Build header string up to header_end
-  header_bytes := ArrayList(u8).new();
+// SP (0x20) and HTAB (0x09) — the two bytes RFC 9112 §5 calls OWS.
+_is_ows :: (fn(b : u8) -> bool)(
+  (b == u8(0x20)) || (b == u8(0x09))
+);
+// Field names are `token`s, which RFC 9110 §5.6.2 restricts to ASCII, so a
+// byte-wise ASCII fold is the whole case-insensitivity rule.
+_ascii_lower :: (fn(b : u8) -> u8)(
+  cond(
+    ((b >= u8(65)) && (b <= u8(90))) => (b + u8(32)),
+    true => b
+  )
+);
+// Every value of the field line named `name` (ASCII, lower-case, WITHOUT the
+// colon) in the header section bytes [0, header_end), in the order the lines
+// appear.
+//
+// RFC 9112 §5 is `field-line = field-name ":" OWS field-value OWS`, and this
+// scan follows it exactly:
+//
+//   - the name must START a line and the colon must follow it IMMEDIATELY;
+//   - the start-line (request/status line) is not a field line, so a request
+//     target spelling `/transfer-encoding:chunked` is not a header;
+//   - the OWS after the colon is OPTIONAL and is any run of SP/HTAB, so
+//     `Content-Length:5` is as legal as `Content-Length:  5`;
+//   - trailing OWS is stripped too.
+_header_values :: (fn(data : ArrayList(u8), header_end : usize, name : String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  key := name.as_bytes();
+  klen := key.len();
+  line_start := usize(0);
+  on_start_line := true;
+  while(runtime(line_start < header_end), {
+    // The line runs to the next LF; a CR right before it is the CRLF
+    // terminator, not content. The LAST header line has neither inside the
+    // section — `header_end` is the index of the CR opening the terminating
+    // CRLFCRLF — so the scan also has to stop at `header_end` itself.
+    lf := line_start;
+    while(runtime((lf < header_end) && (data(lf) != u8(10))), {
+      lf = (lf + usize(1));
+    });
+    line_end := lf;
+    cond(
+      ((line_end > line_start) && (data(line_end - usize(1)) == u8(13))) => {
+        line_end = (line_end - usize(1));
+      },
+      true => ()
+    );
+    cond(
+      on_start_line => {
+        on_start_line = false;
+      },
+      (((line_start + klen) < line_end) && (data(line_start + klen) == u8(58))) => {
+        matched := true;
+        k := usize(0);
+        while(runtime(matched && (k < klen)), {
+          cond(
+            (_ascii_lower(data(line_start + k)) != key(k)) => {
+              matched = false;
+            },
+            true => ()
+          );
+          k = (k + usize(1));
+        });
+        cond(
+          matched => {
+            value_start := (line_start + klen + usize(1));
+            while(runtime((value_start < line_end) && _is_ows(data(value_start))), {
+              value_start = (value_start + usize(1));
+            });
+            value_end := line_end;
+            while(runtime((value_end > value_start) && _is_ows(data(value_end - usize(1)))), {
+              value_end = (value_end - usize(1));
+            });
+            value_bytes := ArrayList(u8).new();
+            j := value_start;
+            while(runtime(j < value_end), {
+              value_bytes.push(data(j));
+              j = (j + usize(1));
+            });
+            out.push(String.from_bytes(value_bytes));
+          },
+          true => ()
+        );
+      },
+      true => ()
+    );
+    line_start = (lf + usize(1));
+  });
+  out
+});
+/// What the header section says about the length of the message body.
+ContentLength :: enum(
+  /// No `Content-Length` field line at all.
+  Absent,
+  /// One non-negative length (repeated field lines all agreed on it).
+  Length(n : usize),
+  /// The field IS present but its value is not a single non-negative
+  /// integer, or two field lines disagree. RFC 9112 §6.3 makes that
+  /// unrecoverable framing — never "no body". `msg` names the defect.
+  Invalid(msg : String)
+);
+// The largest `Content-Length` accepted (~1.15 EiB): far past any real body,
+// and small enough that the `(n * 10) + digit` accumulation cannot wrap.
+_MAX_CONTENT_LENGTH :: usize(0x0FFFFFFFFFFFFFFF);
+// RFC 9112 §6.2 is `Content-Length = 1*DIGIT`: no sign, no leading `+`, no
+// trailing junk, no comma list. `String.parse_i32` accepts `-5` and `+5` and
+// collapses every other rejection into the same `.None`, so the digits are
+// walked here instead.
+_parse_content_length :: (fn(value : String) -> Option(usize))({
+  bytes := value.as_bytes();
+  cond(
+    (bytes.len() == usize(0)) => {
+      return(Option(usize).None);
+    },
+    true => ()
+  );
+  n := usize(0);
   i := usize(0);
-  while(runtime(i < header_end), {
-    header_bytes.push(data(i));
+  while(runtime(i < bytes.len()), {
+    d := bytes(i);
+    cond(
+      ((d < u8(48)) || (d > u8(57))) => {
+        return(Option(usize).None);
+      },
+      (n > (_MAX_CONTENT_LENGTH / usize(10))) => {
+        return(Option(usize).None);
+      },
+      true => ()
+    );
+    n = ((n * usize(10)) + usize(d - u8(48)));
     i = (i + usize(1));
   });
-  header_str := String.from_bytes(header_bytes).to_lowercase();
-  match(
-    header_str.index_of(`content-length:`),
-    .Some(pos) => {
-      val_start := (pos + usize(16));
-      // Find end of value by looking for \r\n after val_start
-      rest := header_str.substring(val_start, header_str.len());
-      match(
-        rest.index_of(`\r\n`),
-        .Some(eol) => {
-          val_str := rest.substring(usize(0), eol).trim();
-          match(
-            val_str.parse_i32(),
-            .Some(n) => n,
-            .None => i32(-1)
-          )
-        },
-        .None => {
-          val_str := rest.trim();
-          match(
-            val_str.parse_i32(),
-            .Some(n) => n,
-            .None => i32(-1)
-          )
-        }
-      )
-    },
-    .None => i32(-1)
+  cond(
+    (n > _MAX_CONTENT_LENGTH) => Option(usize).None,
+    true => .Some(n)
   )
+});
+/// The `Content-Length` framing declared by the header section (bytes
+/// `[0, header_end)`).
+find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> ContentLength)({
+  values := _header_values(data, header_end, `content-length`);
+  cond(
+    (values.len() == usize(0)) => {
+      return(ContentLength.Absent);
+    },
+    true => ()
+  );
+  first := match(
+    _parse_content_length(values(usize(0))),
+    .Some(n) => n,
+    .None => {
+      return(ContentLength.Invalid(`"${values(usize(0))}" is not a non-negative integer`));
+    }
+  );
+  // Repeated field lines are one field whose value is the comma-joined list
+  // (RFC 9110 §5.2); for Content-Length that is only legal when every copy
+  // says the same thing, and a disagreement is the classic smuggling shape.
+  i := usize(1);
+  while(runtime(i < values.len()), {
+    match(
+      _parse_content_length(values(i)),
+      .Some(n) => {
+        cond(
+          (n != first) => {
+            return(ContentLength.Invalid(`repeated with different values (${first.to_string()} and ${n.to_string()})`));
+          },
+          true => ()
+        );
+      },
+      .None => {
+        return(ContentLength.Invalid(`"${values(i)}" is not a non-negative integer`));
+      }
+    );
+    i = (i + usize(1));
+  });
+  ContentLength.Length(first)
 });
 // True when the header section (bytes [0, header_end)) declares
 // `Transfer-Encoding: chunked` (case-insensitive; the LAST listed coding
 // must be `chunked` per RFC 9112 §6.1, which is also the only shape servers
-// send in practice).
+// send in practice). Repeated field lines concatenate in order, so the last
+// one carries the final coding.
 is_chunked :: (fn(data : ArrayList(u8), header_end : usize) -> bool)({
-  header_bytes := ArrayList(u8).new();
-  i := usize(0);
-  while(runtime(i < header_end), {
-    header_bytes.push(data(i));
-    i = (i + usize(1));
-  });
-  header_str := String.from_bytes(header_bytes).to_lowercase();
-  match(
-    header_str.index_of(`transfer-encoding:`),
-    .Some(pos) => {
-      rest := header_str.substring(pos + usize(18), header_str.len());
-      val := match(rest.index_of(`\r\n`), .Some(eol) => rest.substring(usize(0), eol), .None => rest);
-      val.trim().ends_with(`chunked`)
-    },
-    .None => false
+  values := _header_values(data, header_end, `transfer-encoding`);
+  cond(
+    (values.len() == usize(0)) => false,
+    true => values(values.len() - usize(1)).to_lowercase().ends_with(`chunked`)
   )
 });
 // Outcome of decoding a chunked body prefix.
@@ -231,7 +359,9 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
 /// header is delimited by close, RFC 9112 §6.3 rule 8). A REQUEST with
 /// neither is complete at the end of its headers (the client will not close
 /// first). Throws `HttpError.ResponseTooLarge` past `max_bytes` (0 = no
-/// ceiling) and `HttpError.MalformedChunkedBody` on broken chunk framing.
+/// ceiling), `HttpError.MalformedChunkedBody` on broken chunk framing and
+/// `HttpError.MalformedContentLength` on a `Content-Length` that is not a
+/// single non-negative integer.
 /// A chunked body is handed on DECODED (`headers CRLFCRLF data`).
 read_http_message :: (
   fn(generic(R : Type), stream : R, max_bytes : usize, is_request : bool, io : Io, where(R <: Reader)) ->
@@ -291,26 +421,35 @@ read_http_message :: (
                       },
                       .Incomplete => ()
                     ),
-                    true => {
-                      // Check Content-Length
-                      cl := find_content_length(result, header_end);
-                      cond(
-                        (cl >= i32(0)) => {
-                          body_len := (result.len() - body_start);
-                          cond(
-                            (body_len >= usize(cl)) => {
-                              done = true;
-                            },
-                            true => ()
-                          );
-                        },
-                        // A request with no body framing ends with its headers.
-                        is_request => {
-                          done = true;
-                        },
-                        true => ()
-                      );
-                    }
+                    true => match(
+                      find_content_length(result, header_end),
+                      .Length(cl) => {
+                        body_len := (result.len() - body_start);
+                        cond(
+                          (body_len >= cl) => {
+                            done = true;
+                          },
+                          true => ()
+                        );
+                      },
+                      // RFC 9112 §6.3: a Content-Length that is present but
+                      // unreadable is an unrecoverable framing error, NOT a
+                      // body-less message — reading on would frame the body
+                      // by whatever the peer does next.
+                      .Invalid(msg) => {
+                        free(.Some(*(void)(buf)));
+                        e.exn.throw(dyn(HttpError.MalformedContentLength(msg)));
+                      },
+                      // A request with no body framing ends with its headers.
+                      .Absent => {
+                        cond(
+                          is_request => {
+                            done = true;
+                          },
+                          true => ()
+                        );
+                      }
+                    )
                   );
                 },
                 true => ()
@@ -359,4 +498,4 @@ read_http_message :: (
     )
   })
 );
-export(find_header_end, find_content_length, is_chunked, Dechunk, dechunk, read_http_message);
+export(find_header_end, ContentLength, find_content_length, is_chunked, Dechunk, dechunk, read_http_message);

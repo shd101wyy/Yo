@@ -1,4 +1,15 @@
 //! URL parsing and formatting per RFC 3986 (simplified).
+//!
+//! `Url.parse` is STRICT about the byte set: RFC 3986 §2 admits only
+//! unreserved, gen-delims, sub-delims and `%`, and every other byte —
+//! a raw space, a control byte, a CR or LF, a raw UTF-8 byte — is rejected
+//! with `UrlError.InvalidCharacter(pos)`. Callers with non-ASCII or
+//! space-bearing components percent-encode first, via
+//! `std/encoding/percent`'s `percent_encode`.
+//!
+//! This is a security boundary, not a tidiness rule: `Url.path()` flows into
+//! `HttpRequest`'s request line, so a URL carrying a raw CRLF would otherwise
+//! split one HTTP request into two.
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
 { ToString } :: import("../fmt");
@@ -48,6 +59,45 @@ _UPPER_Z :: u8(90); // 'Z'
 _PLUS :: u8(43); // '+'
 _MINUS :: u8(45); // '-'
 _DOT :: u8(46); // '.'
+_UNDERSCORE :: u8(95); // '_'
+_TILDE :: u8(126); // '~'
+_PERCENT :: u8(37); // '%'
+// RFC 3986 §2 admits exactly these bytes in a URI, and nothing else:
+// unreserved (ALPHA / DIGIT / "-" / "." / "_" / "~"), gen-delims
+// (":" "/" "?" "#" "[" "]" "@"), sub-delims
+// ("!" "$" "&" "'" "(" ")" "*" "+" "," ";" "="), and "%", which introduces a
+// pct-encoded triplet.
+//
+// Everything else — a raw space, a control byte, a CR or an LF, a raw UTF-8
+// byte — must be percent-encoded by the caller before it reaches a URI. The
+// CR/LF case is why this is a security boundary and not a tidiness rule: a
+// raw CRLF in a path flows through `Url.path()` into `HttpRequest`'s request
+// line and splits one HTTP request into two.
+_is_uri_byte :: (fn(b : u8) -> bool)(
+  cond(
+    ((b >= _LOWER_A) && (b <= _LOWER_Z)) => true,
+    ((b >= _UPPER_A) && (b <= _UPPER_Z)) => true,
+    ((b >= _ZERO) && (b <= _NINE)) => true,
+    // unreserved punctuation
+    ((b == _MINUS) || (b == _DOT)) => true,
+    ((b == _UNDERSCORE) || (b == _TILDE)) => true,
+    // gen-delims
+    ((b == _COLON) || (b == _SLASH)) => true,
+    ((b == _QUESTION) || (b == _HASH)) => true,
+    ((b == _AT) || (b == _LBRACKET)) => true,
+    (b == _RBRACKET) => true,
+    // sub-delims: ! $ & ' ( ) * + , ; =
+    ((b == u8(33)) || (b == u8(36))) => true,
+    ((b == u8(38)) || (b == u8(39))) => true,
+    ((b == u8(40)) || (b == u8(41))) => true,
+    ((b == u8(42)) || (b == _PLUS)) => true,
+    ((b == u8(44)) || (b == u8(59))) => true,
+    (b == u8(61)) => true,
+    // pct-encoding introducer
+    (b == _PERCENT) => true,
+    true => false
+  )
+);
 // ============================================================================
 // Helper: parse port number from bytes
 // ============================================================================
@@ -106,6 +156,21 @@ impl(
     );
     pos := usize(0);
     src_len := s.len();
+    // Validate the WHOLE input before any section scan, so the reported `pos`
+    // is a byte offset into the caller's string and no forbidden byte can
+    // reach `path()` / `query()` — see `_is_uri_byte`. This is the producer
+    // for `UrlError.InvalidCharacter`, which the enum has always published and
+    // nothing ever threw.
+    (vi : usize) = usize(0);
+    while(runtime(vi < src_len), {
+      cond(
+        _is_uri_byte(s.byte_at(vi)) => (),
+        true => {
+          exn.throw(dyn(UrlError.InvalidCharacter(pos : vi)));
+        }
+      );
+      vi = (vi + usize(1));
+    });
     // --- Parse scheme ---
     // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
     scheme_end := usize(0);
@@ -133,7 +198,7 @@ impl(
           found_colon = true;
           break;
         },
-        (((((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z))) || (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)))) || ((((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS)) || ((ch == _MINUS) || (ch == _DOT)))) => (),
+        (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)) || (((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS) || ((ch == _MINUS) || (ch == _DOT)))) => (),
         true => {
           exn.throw(dyn(UrlError.MissingScheme));
         }
@@ -141,7 +206,7 @@ impl(
       i = (i + usize(1));
     });
     cond(
-      (!(found_colon)) => {
+      !found_colon => {
         exn.throw(dyn(UrlError.MissingScheme));
       },
       true => ()
@@ -182,7 +247,7 @@ impl(
         while(runtime(k < src_len), {
           ch := s.byte_at(k);
           cond(
-            (((ch == _SLASH) || (ch == _QUESTION)) || (ch == _HASH)) => {
+            ((ch == _SLASH) || (ch == _QUESTION) || (ch == _HASH)) => {
               auth_end = k;
               break;
             },
@@ -278,7 +343,7 @@ impl(
                 });
                 h := String.from_bytes(host_b);
                 cond(
-                  (!(h.is_empty())) => {
+                  !h.is_empty() => {
                     host = .Some(h);
                   },
                   true => ()
@@ -365,7 +430,7 @@ impl(
     );
     // Ensure authority-based URLs have a path starting with "/" or empty
     cond(
-      (has_authority && ((!(path_str.is_empty())) && (path_str.as_bytes()(usize(0)) != _SLASH))) => {
+      (has_authority && (!path_str.is_empty() && (path_str.as_bytes()(usize(0)) != _SLASH))) => {
         exn.throw(dyn(UrlError.Other(`authority path must start with '/'`)));
       },
       true => ()

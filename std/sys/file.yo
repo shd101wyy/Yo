@@ -18,7 +18,7 @@
 //   };
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
-{ __yo_async_read_start, __yo_async_write_start, __yo_async_openat_start, __yo_async_close_start, __yo_async_statx_start, __yo_async_fsync_start, __yo_async_fdatasync_start, __yo_async_ftruncate_start, __yo_file_open, __yo_file_close, __yo_file_size, __yo_sync_write } :: import("./externs.yo");
+{ __yo_async_read_start, __yo_async_write_start, __yo_async_openat_start, __yo_async_close_start, __yo_async_statx_start, __yo_async_fsync_start, __yo_async_fdatasync_start, __yo_async_ftruncate_start, __yo_file_open, __yo_file_close, __yo_file_size, __yo_fstat, __yo_sync_write } :: import("./externs.yo");
 // ============================================================================
 // Async File Operations (return IoFuture, use with await)
 // ============================================================================
@@ -86,6 +86,19 @@ write_sync :: (fn(fd : i32, buf : *u8, count : u32, offset : u64) -> i32)(
 file_size :: (fn(fd : i32) -> i64)(
   __yo_file_size(fd)
 );
+// Fill a statx buffer (allocate `__yo_statx_buf_size()` bytes) from an OPEN
+// DESCRIPTOR rather than a path — `fstat(2)`, the fd form of `statx` above.
+// A descriptor is the only honest source for a handle whose path is unknown
+// (`File.from_fd`) or has been renamed or unlinked since the open, and it
+// skips the path resolution `statx` pays for.
+//
+// Synchronous on purpose, like `file_size`: `fstat` reads an already-open
+// inode, submits no I/O and cannot block.
+//
+// Returns 0 on success, -errno on failure.
+fstat :: (fn(fd : i32, statxbuf : *u8) -> i32)(
+  __yo_fstat(fd, statxbuf)
+);
 export(
   openat,
   close,
@@ -98,5 +111,6 @@ export(
   open_sync,
   close_sync,
   write_sync,
-  file_size
+  file_size,
+  fstat
 );

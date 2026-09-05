@@ -422,6 +422,16 @@ static int64_t __yo_file_size(int32_t fd) {
   return st.st_size;
 }
 
+// Fill a statx buffer from an OPEN DESCRIPTOR instead of a path — the fd form
+// of __yo_async_statx_start, for a handle whose path is unknown or has since
+// been renamed/unlinked. statx() with AT_EMPTY_PATH and an empty path IS
+// fstat(2), and it fills the very struct statx the accessors below read.
+// Returns 0 on success, -errno on failure.
+static int32_t __yo_fstat(int32_t fd, void* statxbuf) {
+  int result = statx(fd, "", AT_EMPTY_PATH, STATX_BASIC_STATS, (struct statx*)statxbuf);
+  return (result < 0) ? -errno : 0;
+}
+
 // Get size of statx buffer (for allocation)
 static size_t __yo_statx_buf_size(void) {
   return sizeof(struct statx);

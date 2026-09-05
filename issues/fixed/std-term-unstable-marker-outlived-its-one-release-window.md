@@ -1,8 +1,10 @@
 # `std/term`'s `unstable` marker is undatable, four releases past its window, and names an exit condition that never happened
 
+**Status: FIXED 2026-09-05** — Option (a) taken — `std/term` is FROZEN (section dropped). The same pass decided the three siblings: `std/encoding/csv` and `std/http/server` frozen, `std/fs/watch` restated with the real Windows blocker. Recorded in `plans/STD_API_AUDIT.md` §9 S5.
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row.
 **Severity**: LOW (papercut), but it is a published stability promise on a
-shipped module and it renders into `yo doc`. **Status**: OPEN.
+shipped module and it renders into `yo doc`.
 
 ## The marker
 

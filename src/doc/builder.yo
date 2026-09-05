@@ -86,9 +86,16 @@ extract_doc_sections :: (fn(doc : Option(String)) -> DocSections)(
     }
   )
 );
-/// The module's stability marker: the first line of its `## Stability` doc
-/// section verbatim (`unstable — new in v0.2.20; …`), or `.None` when the
-/// module has none. Renderers key the badge on its first word.
+/// The module's stability marker: its whole `## Stability` doc section,
+/// collapsed to a single line (`unstable — new in v0.2.20; …`), or `.None`
+/// when the module has none. Renderers key the badge on its first word.
+///
+/// The section is COLLAPSED, not truncated. A marker is ordinary prose and
+/// wraps at the source file's line width, so reading only its first line cut
+/// every marker longer than one source line mid-clause — in the JSON
+/// `"stability"` key, the HTML badge and the Markdown note alike, with no
+/// warning. Blank lines are dropped and the remaining lines are joined with a
+/// single space, which is exactly the paragraph the author wrote.
 module_stability :: (fn(doc : Option(String)) -> Option(String))(
   match(
     doc,
@@ -97,8 +104,26 @@ module_stability :: (fn(doc : Option(String)) -> Option(String))(
       parse_doc_comment(text).sections.get(String.from("stability")),
       .None => Option(String).None,
       .Some(sec) => {
-        first := match(sec.split(`\n`).get(usize(0)), .Some(l) => l, .None => sec);
-        Option(String).Some(first.trim())
+        (collapsed : String) = String.from("");
+        lines := sec.split(`\n`);
+        (i : usize) = usize(0);
+        n := lines.len();
+        while(i < n, {
+          match(
+            lines.get(i),
+            .Some(line) => {
+              piece := line.trim();
+              if(piece.len() > usize(0), {
+                collapsed = if(collapsed.len() > usize(0), collapsed + String.from(" ") + piece, piece);
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+        // An empty or whitespace-only section is no marker at all; it used to
+        // render as an empty badge.
+        if(collapsed.len() == usize(0), Option(String).None, Option(String).Some(collapsed))
       }
     )
   )
@@ -3100,5 +3125,6 @@ export(
   build_cross_references,
   GenericImplInfo,
   build_doc_function,
-  build_doc_module
+  build_doc_module,
+  module_stability
 );

@@ -264,8 +264,16 @@ impl(
     self._path
   ),
   /// Get file metadata (size, permissions, timestamps).
+  ///
+  /// `fstat`s THIS handle's descriptor. It used to re-`stat` `_path`, which
+  /// answered about a different inode the moment the two diverged: a
+  /// `from_fd` handle has no path at all and an empty `Path` renders as `.`,
+  /// so it reported the CURRENT DIRECTORY's size, mode and times with no
+  /// error — issues/fixed/fs-metadata-restats-by-path-and-walker-drops-dt-unknown.md.
+  /// A file renamed, replaced or unlinked after the open had the same
+  /// problem. The descriptor names the inode; the path does not.
   metadata : (fn(self : Self, io : Io) -> Impl(Future(Metadata, IoExn)))(
-    _metadata_mod.metadata(self._path, io)
+    _metadata_mod.metadata_fd(self._fd, io)
   )
 );
 impl(

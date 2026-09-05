@@ -51,6 +51,29 @@ _read_all :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
     String.from_bytes(out)
   })
 );
+// Send one raw request on a fresh connection and read the whole response.
+// The write count is asserted so a short `send` shows up as a failure here
+// rather than as the server waiting forever for the rest of the body.
+_raw_exchange :: (fn(port : u16, request : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async(e => {
+    s := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
+    w := e.io.await(s.write_string(request, e.io), e);
+    assert(w == request.len(), `short write: ${w} of ${request.len()} bytes`);
+    raw := e.io.await(_read_all(s, e.io), e);
+    e.io.await(s.close(e.io), e);
+    raw
+  })
+);
+// 12 000 bytes — more than the 8 KiB `read_http_message` reads at a time, so
+// the body only arrives in full when `Content-Length` really framed it.
+_big_body :: (fn() -> String)({
+  s := String.new();
+  i := usize(0);
+  while(i < usize(1200), i = (i + usize(1)), {
+    s.push_str("0123456789");
+  });
+  s
+});
 test("parse_request: request line, headers, body, and the error cases", {
   r := parse_request(`POST /a/b?x=1 HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhello`);
   match(
@@ -228,4 +251,107 @@ test("the server round-trips a binary request body byte-for-byte", {
   assert(got.len() == usize(4), `echoed 4 bytes (got ${got.len()})`);
   assert(got(usize(0)) == u8(0x80), "continuation byte");
   assert(got(usize(3)) == u8(66), "B");
+});
+// ============================================================================
+// RFC 9112 §5 field-line parsing (issues/fixed/http-content-length-ows-and-
+// invalid-values.md). `field-line = field-name ":" OWS field-value OWS`: the
+// whitespace after the colon is OPTIONAL and is any run of SP/HTAB. The scan
+// used to step over the colon AND assume exactly one space, so
+// `Content-Length:12000` read as 2000 and `Content-Length:5` read as "absent"
+// — and a field name was matched anywhere in the header block, so
+// `X-Content-Length` supplied the framing.
+//
+// The body is 12 000 bytes, past the 8 KiB the server reads at a time, so a
+// mis-parsed length stops the read early and the handler sees a SHORT body.
+// The handler reports the length and the last 8 bytes; both must survive.
+test("Content-Length framing: OWS after the colon is optional, and only a real field line counts", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19980)), io), IoExn(io : io, exn : exn));
+  task := io.spawn(
+    server.serve(req => {
+      cond(
+        (req.path == `/last`) => {
+          server.stop();
+        },
+        true => ()
+      );
+      n := req.body.len();
+      tail := cond(
+        (n >= usize(8)) => req.body.substring(n - usize(8), n),
+        true => req.body
+      );
+      HttpResponse.with_status(i32(200)).with_body(`${n}|${tail}`)
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
+  body := _big_body();
+  want := `12000|23456789`;
+  // No OWS at all — the shape that used to lose the value's first digit.
+  r1 := io.await(_raw_exchange(u16(19980), `POST /nows HTTP/1.1\r\nHost: x\r\nContent-Length:12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
+  assert(r1.ends_with(want), `Content-Length:12000 (no OWS): ${r1}`);
+  // More than one space.
+  r2 := io.await(_raw_exchange(u16(19980), `POST /spaces HTTP/1.1\r\nHost: x\r\nContent-Length:   12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
+  assert(r2.ends_with(want), `Content-Length:   12000 (three spaces): ${r2}`);
+  // A tab is OWS too.
+  r3 := io.await(_raw_exchange(u16(19980), `POST /tab HTTP/1.1\r\nHost: x\r\nContent-Length:\t12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
+  assert(r3.ends_with(want), `Content-Length:<TAB>12000: ${r3}`);
+  // Trailing OWS is not part of the value.
+  r4 := io.await(_raw_exchange(u16(19980), `POST /trailing HTTP/1.1\r\nHost: x\r\nContent-Length: 12000 \t \r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
+  assert(r4.ends_with(want), `Content-Length: 12000<SP><TAB><SP>: ${r4}`);
+  // A DIFFERENT field whose name ends in the one we want must not supply the
+  // framing — a field name has to START its line.
+  r5 := io.await(_raw_exchange(u16(19980), `POST /hijack HTTP/1.1\r\nX-Content-Length: 3\r\nContent-Length: 12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
+  assert(r5.ends_with(want), `X-Content-Length must not frame the body: ${r5}`);
+  // The canonical spelling still works (baseline against over-rejection).
+  r6 := io.await(_raw_exchange(u16(19980), `POST /last HTTP/1.1\r\nHost: x\r\nContent-Length: 12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
+  assert(r6.ends_with(want), `Content-Length: 12000 (canonical): ${r6}`);
+  task.await(io);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});
+// The same anchoring rule for Transfer-Encoding. `X-Transfer-Encoding:
+// chunked` ENDS with the field name, so the old substring search turned on
+// chunked decoding for a body that is not chunked: the request died with a
+// typed MalformedChunkedBody instead of being served. The request TARGET is
+// part of the start-line and is not a field line either.
+test("only a real Transfer-Encoding field line turns on chunked decoding", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19981)), io), IoExn(io : io, exn : exn));
+  task := io.spawn(
+    server.serve(req => {
+      cond(
+        (req.path == `/xte`) => {
+          server.stop();
+        },
+        true => ()
+      );
+      HttpResponse.with_status(i32(200)).with_body(`${req.path} body=[${req.body}]`)
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
+  r1 := io.await(
+    _raw_exchange(u16(19981), `POST /transfer-encoding:chunked HTTP/1.1\r\nHost: x\r\nContent-Length: 2\r\n\r\nzz`, io),
+    IoExn(io : io, exn : exn)
+  );
+  assert(r1.ends_with(`/transfer-encoding:chunked body=[zz]`), `a request target is not a header field: ${r1}`);
+  r2 := io.await(
+    _raw_exchange(u16(19981), `POST /xte HTTP/1.1\r\nX-Transfer-Encoding: chunked\r\nContent-Length: 2\r\n\r\nzz`, io),
+    IoExn(io : io, exn : exn)
+  );
+  assert(r2.ends_with(`/xte body=[zz]`), `X-Transfer-Encoding is a different field: ${r2}`);
+  task.await(io);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
 });

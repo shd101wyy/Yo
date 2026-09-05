@@ -48,6 +48,29 @@ YO_KEEP_BATCH=1 YO_STD=$PWD/std yo test ./tests/sync/atomic.test.yo --parallel 1
 bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
 ```
 
+### A loopback HTTP framing test only goes RED if the body cannot arrive in ONE read
+
+`std/http`'s `read_http_message` reads 8 KiB at a time and nothing truncates
+its buffer to `Content-Length`, so for a small single-shot request the CORRECT
+and the BROKEN framing produce byte-identical bodies — a framing test built on
+`fetch` + a short body passes either way. Two shapes that actually discriminate
+(both used by `issues/fixed/http-content-length-ows-and-invalid-values.md`):
+
+- **Server side** — send a body larger than 8 KiB (12 000 bytes there) on a raw
+  `TcpStream`. A mis-read length stops the read after the first chunk, so the
+  handler sees a SHORT body. Assert the length and the last bytes, not just
+  "the body is non-empty".
+- **Client side** — hold the connection OPEN after writing the response
+  (HTTP/1.1's default; every older test in `tests/http/` sends
+  `Connection: close`, and close-delimiting supplies the body that broken
+  framing could not) and give `fetch_with` a `with_timeout`, so a mis-parse
+  surfaces as `HttpError.Timeout` instead of a hang.
+
+Run the throwing `fetch` as its OWN `io.spawn`ed task and inspect the
+`JoinHandle` result: a handler that `unwind`s the test body leaves the server
+task parked on a listener that is never closed, which keeps the Linux event
+loop alive and the process never exits (rc=124).
+
 ## Scratch experiments
 
 - `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.

@@ -1,5 +1,7 @@
 # `std/term`'s stability marker says "new in this release" — a floating reference that has been wrong in four shipped releases
 
+**Status: FIXED 2026-09-05** — Resolved by option (a) of the sibling issue: `std/term` is FROZEN and the section is gone, so there is no longer a version to get wrong. Recorded in `plans/STD_API_AUDIT.md` §9 S5.
+
 **Found**: 2026-09-04, taking the inventory of `## Stability` markers across `std/`
 for the S5 freeze (`plans/STD_API_AUDIT.md` §9). **Severity:** LOW-MEDIUM (published
 API lie, and it disables the policy's own expiry rule): the marker rendered on the
