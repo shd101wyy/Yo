@@ -18,78 +18,83 @@ PATH_DELIMITER :: cond(
 );
 export(PATH_DELIMITER);
 /// Filesystem path with segment-based operations.
-/// Paths are normalized on construction: `.` segments are removed, `..` pops the parent.
+///
+/// **Components are recorded as written.** Empty components (repeated or
+/// trailing separators) and `.` components are dropped — dropping either can
+/// never change which file the path names. `..` is **kept**: folding `a/b/..`
+/// to `a` is only correct when `b` is not a symlink, so the fold is opt-in via
+/// `normalize()`. `new`, `join` and `push` therefore all agree — none of them
+/// folds. Use `fs.canonicalize` when the filesystem must be consulted.
+///
+/// `_prefix` holds a root marker that is not a bare `/`: a Windows drive
+/// (`C:`) or a UNC share (`\\server\share`). Both imply an absolute path and
+/// neither is ever popped by `normalize()` or rewritten by `with_file_name` /
+/// `with_extension`.
 Path :: ref(
   struct(
+    _prefix : String,
     _segments : ArrayList(String),
     _is_absolute : bool
   )
 );
 impl(
   Path,
-  /// Create a new path from a string. Normalizes separators and resolves `.`/`..`.
+  /// Create a new path from a string. Normalizes separators, drops empty and
+  /// `.` components, and records `..` verbatim (see the type doc: folding `..`
+  /// is `normalize()`'s job, because it is wrong over symlinks).
+  ///
+  /// Two leading BACKSLASHES are a Windows UNC share: the `\\server\share`
+  /// root is kept whole in `_prefix`. `//a/b` is NOT a UNC path — on POSIX
+  /// that is an ordinary root with a redundant separator.
   new : (fn(path_str : String) -> Self)({
     segments := ArrayList(String).new();
-    is_abs := false;
+    (prefix : String) = String.new();
+    (is_abs : bool) = false;
     // Handle empty path early
     cond(
       path_str.is_empty() => {
-        return(Self(_segments : segments, _is_absolute : is_abs));
+        return(Self(_prefix : prefix, _segments : segments, _is_absolute : is_abs));
       },
       true => ()
     );
+    // A UNC share is spelled with backslashes on every platform, so detect it
+    // on the ORIGINAL string — before separators are folded to `/`.
+    is_unc := path_str.starts_with(String.from("\\\\"));
     // Normalize backslashes to forward slashes for cross-platform support
     normalized := path_str.replace_all(String.from("\\"), String.from("/"));
-    // Check if path is absolute
-    // Unix: starts with '/'
-    // Windows: starts with drive letter like 'C:' or UNC path '\\'
-    bytes := normalized.as_bytes();
+    // Windows drive letter (`C:`): the root marker, not a segment.
+    (is_drive : bool) = false;
     cond(
-      (bytes.len() > usize(0)) => {
-        first_byte := bytes.get(usize(0));
-        match(
-          first_byte,
-          .Some(b) => cond(
-            // Unix-style absolute path (starts with /)
-            (b == u8(47)) => {
-              is_abs = true;
-            },
-            true => {
-              // Windows drive letter: check for pattern like "C:"
-              cond(
-                (bytes.len() >= usize(2)) => {
-                  second_byte_opt := bytes.get(usize(1));
-                  match(
-                    second_byte_opt,
-                    .Some(second_byte) => cond(
-                      // Check if second byte is ':' (colon)
-                      (second_byte == u8(58)) => {
-                        // First byte should be a letter (A-Z or a-z)
-                        is_letter := (((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))));
-                        cond(
-                          is_letter => {
-                            is_abs = true;
-                          },
-                          true => ()
-                        );
-                      },
-                      true => ()
-                    ),
-                    .None => ()
-                  );
-                },
-                true => ()
-              );
-            }
-          ),
-          .None => ()
-        );
+      (normalized.len() >= usize(2)) => {
+        b0 := normalized.byte_at(usize(0));
+        b1 := normalized.byte_at(usize(1));
+        is_letter := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))));
+        is_drive = (is_letter && (b1 == u8(58)));
       },
       true => ()
+    );
+    // `unc_take` diverts the first two non-empty components (server, share)
+    // into the prefix; everything after them is an ordinary segment.
+    (unc_take : usize) = usize(0);
+    (body : String) = normalized.clone();
+    cond(
+      is_unc => {
+        is_abs = true;
+        unc_take = usize(2);
+      },
+      is_drive => {
+        is_abs = true;
+        prefix = normalized.substring(usize(0), usize(2));
+        body = normalized.substring(usize(2), normalized.len());
+      },
+      true => {
+        is_abs = normalized.starts_with(String.from("/"));
+      }
     );
     // Split path by "/" separator (backslashes already normalized)
     sep := String.from("/");
-    parts := normalized.split(sep);
+    parts := body.split(sep);
+    dot := String.from(".");
     // Process each part
     i := usize(0);
     while(i < parts.len(), i = (i + usize(1)), {
@@ -97,60 +102,35 @@ impl(
       match(
         part_opt,
         .Some(part) => {
-          // Skip empty segments (from leading/trailing slashes)
           cond(
+            // Skip empty segments (from leading/trailing/repeated slashes)
             part.is_empty() => (),
-            true => {
-              // Check if it's "." (current directory)
-              is_dot := (
-                (part.len() == usize(1)) && {
-                  byte_opt := part.as_bytes().get(usize(0));
-                  match(
-                    byte_opt,
-                    .Some(b) => (b == u8(46)),
-                    .None => false
-                  )
-                }
-              );
-              // Check if it's ".." (parent directory)
-              is_dotdot := (
-                (part.len() == usize(2)) && {
-                  b0_opt := part.as_bytes().get(usize(0));
-                  b1_opt := part.as_bytes().get(usize(1));
-                  match(
-                    b0_opt,
-                    .Some(b0) => match(
-                      b1_opt,
-                      .Some(b1) => ((b0 == u8(46)) && (b1 == u8(46))),
-                      .None => false
-                    ),
-                    .None => false
-                  )
-                }
-              );
+            (unc_take > usize(0)) => {
+              // `\\` before the server, a single `\` before the share.
               cond(
-                is_dot => (),
-                // Skip "."
-                is_dotdot => {
-                  // Pop the last segment if exists
-                  cond(
-                    (segments.len() > usize(0)) => {
-                      segments.pop();
-                    },
-                    true => ()
-                  );
+                prefix.is_empty() => {
+                  _b0 := prefix.push_byte(u8(92));
+                  _b1 := prefix.push_byte(u8(92));
                 },
                 true => {
-                  segments.push(part);
+                  _b2 := prefix.push_byte(u8(92));
                 }
               );
+              _ps := prefix.push_string(part);
+              unc_take = (unc_take - usize(1));
+            },
+            // Skip "." — it always denotes the directory itself, so dropping
+            // it cannot change which file the path names (unlike "..").
+            (part == dot) => (),
+            true => {
+              segments.push(part);
             }
           );
         },
         .None => ()
       );
     });
-    return(Self(_segments : segments, _is_absolute : is_abs));
+    return(Self(_prefix : prefix, _segments : segments, _is_absolute : is_abs));
   }),
   /// Create a path from a C string pointer.
   from_cstr : (fn(cstr : *u8) -> Self)({
@@ -162,15 +142,19 @@ impl(
       },
       .Err(_) => {
         // Return empty path on error
-        return(Self(_segments : ArrayList(String).new(), _is_absolute : false));
+        return(Self(_prefix : String.new(), _segments : ArrayList(String).new(), _is_absolute : false));
       }
     );
   }),
   /// Join this path with another. If `other` is absolute, returns `other`.
   /// Join with any `ToString` — a `str`/`String` literal or another `Path`
   /// (audit path row: `join(str)`). `Path` round-trips through `new`
-  /// losslessly (paths are stored normalized), so the generic facade is
-  /// semantics-preserving for existing `Path` callers.
+  /// losslessly (its rendering re-parses to the same components), so the
+  /// generic facade is semantics-preserving for existing `Path` callers.
+  ///
+  /// `other`'s components are APPENDED, `..` included: `"a/b".join("../c")`
+  /// is `a/b/../c`, matching what `Path.new("a/b/../c")` records. Call
+  /// `normalize()` on the result for the lexical fold.
   join : (fn(generic(P : Type), self : Self, other : P, where(P <: ToString)) -> Self)(
     self._join_path(Path.new(other.to_string()))
   ),
@@ -208,7 +192,54 @@ impl(
         .None => ()
       );
     });
-    return(Self(_segments : new_segments, _is_absolute : self._is_absolute));
+    return(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute));
+  }),
+  /// Fold `..` LEXICALLY: each `..` pops the component before it.
+  ///
+  /// This is the OPT-IN half of the model `new`/`join`/`push` implement — it
+  /// is **not** valid whenever a popped component is a symlink, because
+  /// `a/b/../c` and `a/c` then name different files. Use `fs.canonicalize`
+  /// (which asks the filesystem) when that matters; use this when a purely
+  /// lexical answer is what you want, e.g. to key a cache on one spelling.
+  ///
+  /// A leading `..` on a RELATIVE path is PRESERVED — there is nothing before
+  /// it to pop, and dropping it is what silently turned an escaping path into
+  /// a non-escaping one. On an ABSOLUTE path it folds away, because `/..` is
+  /// `/`; a drive or UNC root (`_prefix`) is never popped either.
+  normalize : (fn(self : Self) -> Self)({
+    out := ArrayList(String).with_capacity(self._segments.len());
+    dotdot := String.from("..");
+    i := usize(0);
+    while(i < self._segments.len(), i = (i + usize(1)), {
+      seg := self._segments.get(i).unwrap_or(String.new());
+      cond(
+        (seg == dotdot) => {
+          // Only a NORMAL component can be popped; a `..` already on the
+          // output is a component this path could not resolve either.
+          (top_is_dotdot : bool) = false;
+          cond(
+            (out.len() > usize(0)) => {
+              top_is_dotdot = (out.get(out.len() - usize(1)).unwrap_or(String.new()) == dotdot);
+            },
+            true => ()
+          );
+          (can_pop : bool) = ((out.len() > usize(0)) && !top_is_dotdot);
+          cond(
+            can_pop => {
+              out.pop();
+            },
+            self._is_absolute => (),
+            true => {
+              out.push(seg);
+            }
+          );
+        },
+        true => {
+          out.push(seg);
+        }
+      );
+    });
+    return(Self(_prefix : self._prefix.clone(), _segments : out, _is_absolute : self._is_absolute));
   }),
   /// Get the parent directory path, or `.None` if there are no segments.
   parent : (fn(self : Self) -> Option(Self))({
@@ -230,7 +261,7 @@ impl(
         .None => ()
       );
     });
-    return(.Some(Self(_segments : new_segments, _is_absolute : self._is_absolute)));
+    return(.Some(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute)));
   }),
   /// Get the last path segment (filename), or `.None` for empty paths.
   file_name : (fn(self : Self) -> Option(String))({
@@ -333,7 +364,7 @@ impl(
           );
         });
         new_segments.push(new_name);
-        return(Self(_segments : new_segments, _is_absolute : self._is_absolute));
+        return(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute));
       },
       .None => {
         return(self);
@@ -347,7 +378,7 @@ impl(
         // Empty path, just return a new path with the name
         segments := ArrayList(String).new();
         segments.push(name);
-        return(Self(_segments : segments, _is_absolute : self._is_absolute));
+        return(Self(_prefix : self._prefix.clone(), _segments : segments, _is_absolute : self._is_absolute));
       },
       true => ()
     );
@@ -365,13 +396,19 @@ impl(
       );
     });
     new_segments.push(name);
-    return(Self(_segments : new_segments, _is_absolute : self._is_absolute));
+    return(Self(_prefix : self._prefix.clone(), _segments : new_segments, _is_absolute : self._is_absolute));
   }),
   /// Check if this path starts with the given base path (segment-wise).
   starts_with : (fn(self : Self, base : Self) -> bool)({
-    // Absolute vs relative mismatch
+    // Absolute vs relative mismatch, or a different root (drive / UNC share)
     cond(
       (self._is_absolute != base._is_absolute) => {
+        return(false);
+      },
+      true => ()
+    );
+    cond(
+      (self._prefix != base._prefix) => {
         return(false);
       },
       true => ()
@@ -430,6 +467,12 @@ impl(
           true => ()
         );
         cond(
+          (self._prefix != suffix._prefix) => {
+            return(false);
+          },
+          true => ()
+        );
+        cond(
           (self._segments.len() != suffix._segments.len()) => {
             return(false);
           },
@@ -469,11 +512,17 @@ impl(
     });
     return(true);
   }),
-  /// Get all path components as a list. Absolute paths start with `"/"`.
+  /// Get all path components as a list. The first component is the ROOT when
+  /// there is one: the drive / UNC share for a prefixed path, `"/"` for a
+  /// plain absolute path, nothing for a relative one.
   components : (fn(self : Self) -> ArrayList(String))({
     result := ArrayList(String).with_capacity(self._segments.len() + usize(1));
-    // Add root component if absolute
+    // Add the root component: the drive / UNC share when there is one (it IS
+    // the root), otherwise `/` for a plain absolute path.
     cond(
+      !self._prefix.is_empty() => {
+        result.push(self._prefix.clone());
+      },
       self._is_absolute => {
         result.push(String.from("/"));
       },
@@ -516,6 +565,12 @@ impl(
       },
       true => ()
     );
+    cond(
+      (self._prefix != base._prefix) => {
+        return(self);
+      },
+      true => ()
+    );
     (common : usize) = usize(0);
     (matching : bool) = true;
     while(matching && ((common < base._segments.len()) && (common < self._segments.len())), {
@@ -547,7 +602,7 @@ impl(
       );
       j = (j + usize(1));
     });
-    Self(_segments : segments, _is_absolute : false)
+    Self(_prefix : String.new(), _segments : segments, _is_absolute : false)
   })
 );
 impl(
@@ -556,7 +611,6 @@ impl(
     to_string : (
       self -> {
         segments := self._segments;
-        sep := String.from("/");
         result := String.new();
         // A relative path with no segments is the CURRENT DIRECTORY and must
         // render as "." — `stat("")` is ENOENT, which made `yo test .` /
@@ -567,43 +621,23 @@ impl(
         if(!self._is_absolute && (segments.len() == usize(0)), {
           return(String.from("."));
         });
-        // Check if first segment is a Windows drive letter (e.g., "C:")
-        has_drive_letter := cond(
-          (segments.len() > usize(0)) => {
-            first_seg_opt := segments.get(usize(0));
-            match(
-              first_seg_opt,
-              .Some(first_seg) =>
-                // Check if it's a drive letter like "C:"
-                cond(
-                  (first_seg.len() == usize(2)) => {
-                    b0_opt := first_seg.as_bytes().get(usize(0));
-                    b1_opt := first_seg.as_bytes().get(usize(1));
-                    match(
-                      b0_opt,
-                      .Some(b0) => match(
-                        b1_opt,
-                        .Some(b1) => {
-                          is_letter := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))));
-                          is_colon := (b1 == u8(58));
-                          is_letter && is_colon
-                        },
-                        .None => false
-                      ),
-                      .None => false
-                    )
-                  },
-                  true => false
-                ),
-              .None => false
-            )
-          },
-          true => false
+        // A UNC path has no forward-slash spelling worth emitting — its root
+        // IS `\\server\share` — so it renders in the Windows spelling
+        // throughout. Every other path keeps the module's `/` rendering (the
+        // "Windows separator in to_string" audit item is unaffected).
+        has_prefix := !self._prefix.is_empty();
+        is_unc := self._prefix.starts_with(String.from("\\"));
+        sep := cond(
+          is_unc => String.from("\\"),
+          true => String.from("/")
         );
-        // For Unix absolute paths, prepend /
-        // For Windows paths with drive letter, don't prepend /
+        // A drive / UNC root IS the prefix; a plain absolute path's root is a
+        // leading separator.
         cond(
-          (self._is_absolute && !has_drive_letter) => {
+          has_prefix => {
+            result = result.concat(self._prefix);
+          },
+          self._is_absolute => {
             result = result.concat(sep);
           },
           true => ()
@@ -615,13 +649,15 @@ impl(
           match(
             seg,
             .Some(s) => {
-              result = result.concat(s);
+              // The plain-absolute root already emitted its separator; every
+              // other position needs one before the segment.
               cond(
-                (i < (segments_len - usize(1))) => {
+                ((i > usize(0)) || has_prefix) => {
                   result = result.concat(sep);
                 },
                 true => ()
               );
+              result = result.concat(s);
             },
             .None => ()
           );
@@ -636,9 +672,15 @@ impl(
   Eq(Path)(
     (==) : (
       (self, other) -> {
-        // Compare absolute vs relative
+        // Compare absolute vs relative, and the root (drive / UNC share)
         cond(
           (self._is_absolute != other._is_absolute) => {
+            return(false);
+          },
+          true => ()
+        );
+        cond(
+          (self._prefix != other._prefix) => {
             return(false);
           },
           true => ()
@@ -701,7 +743,7 @@ impl(
         );
         i = (i + usize(1));
       });
-      Self(_segments : segments, _is_absolute : self._is_absolute)
+      Self(_prefix : self._prefix.clone(), _segments : segments, _is_absolute : self._is_absolute)
     })
   )
 );
@@ -713,6 +755,10 @@ impl(
   Hash(
     hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
       hasher.write_u8(if(self._is_absolute, u8(1), u8(0)));
+      (pb : RawSlice(u8)) = self._prefix.raw_bytes();
+      hasher.write(pb.ptr, pb.len);
+      // Terminator, so the root stays prefix-free against the first segment.
+      hasher.write_u8(u8(47));
       (n : usize) = self._segments.len();
       hasher.write_usize(n);
       (i : usize) = usize(0);
@@ -732,7 +778,7 @@ impl(
     })
   )
 );
-/// Ordering by the normalized rendering (audit path row: `Ord`) — a total
+/// Ordering by the rendering (audit path row: `Ord`) — a total
 /// order suitable for sorted collections; NOT a promise about platform
 /// collation.
 impl(
@@ -754,7 +800,8 @@ impl(
 );
 /// Extend this path IN PLACE with `other` (audit path row: `push` —
 /// Rust's `PathBuf::push`). Takes any `ToString` like `join`. An absolute
-/// `other` replaces the contents entirely, exactly like `join`.
+/// `other` replaces the contents entirely, exactly like `join`, and `..` in
+/// `other` is appended rather than folded, exactly like `join`.
 impl(
   Path,
   push : (fn(generic(P : Type), inout(self) : Self, other : P, where(P <: ToString)) -> unit)({
@@ -762,6 +809,7 @@ impl(
     self._segments.clear();
     _e := self._segments.extend(joined._segments);
     self._is_absolute = joined._is_absolute;
+    self._prefix = joined._prefix.clone();
   })
 );
 /// This path and every ancestor, starting with `self` and ending at the
