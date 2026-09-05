@@ -1,0 +1,13 @@
+{ println } :: import("std/fmt");
+// ensures claims result >= 0, but the early return path yields -5.
+f :: (fn(x : i32, ensures(result >= i32(0))) -> i32)({
+  if(x < i32(0), {
+    return(i32(-5));
+  });
+  x
+});
+main :: (fn() -> i32)({
+  println(f(i32(-1)));
+  i32(0)
+});
+export(main);

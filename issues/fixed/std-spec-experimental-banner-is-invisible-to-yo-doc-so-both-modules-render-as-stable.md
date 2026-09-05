@@ -49,7 +49,7 @@ The banner is written as ordinary module-doc prose with no heading —
 //!
 //! **EXPERIMENTAL — not covered by the std stability promise** (audit spec/
 //! verdict: FREEZE AS DOC). These are Phase 0 identity stubs from
-//! plans/backlog/FORMAL_VERIFICATION.md; refinement predicates arrive with the
+//! plans/FORMAL_VERIFICATION.md; refinement predicates arrive with the
 //! Phase 2+ verifier. Expect ANY change here, including removal.
 ```
 
@@ -87,7 +87,7 @@ keeping the existing prose as its content:
 //! ## Stability
 //!
 //! experimental — not covered by the std stability promise. These are Phase 0
-//! identity stubs from plans/backlog/FORMAL_VERIFICATION.md; refinement predicates
+//! identity stubs from plans/FORMAL_VERIFICATION.md; refinement predicates
 //! arrive with the Phase 2+ verifier. Expect ANY change here, including removal.
 ```
 

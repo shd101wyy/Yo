@@ -28,6 +28,9 @@ Active work (root):
   [`STD_API_AUDIT_HANDOVER.md`](STD_API_AUDIT_HANDOVER.md) (method notes).
 - [`HANDOVER_2026_08_28.md`](HANDOVER_2026_08_28.md) — the live handover for
   that campaign.
+- [`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md) — ACTIVE (revised
+  2026-09-04, audited 2026-09-05): the Z3-backed compile-time verifier,
+  phases V1–V7; ROADMAP Phase 1's flagship.
 - [`LAZY_TOPLEVEL_BINDINGS.md`](LAZY_TOPLEVEL_BINDINGS.md) — PROPOSED
   2026-09-02: order-independent `::` definitions via pending bindings.
 - [`THREAD_SAFETY.md`](THREAD_SAFETY.md) — 13 of 14 phases landed; Phase P
