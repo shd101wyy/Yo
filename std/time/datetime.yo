@@ -11,6 +11,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ToString } :: import("../fmt");
+{ Error } :: import("../error");
 { CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
 { snprintf } :: import("../libc/stdio");
 { panic } :: import("../assert");
@@ -303,6 +304,10 @@ impl(
     )
   )
 );
+/// D1's "an error type is a real enum implementing `Error()`". Nothing in std
+/// boxes a `DateTimeError` into an `AnyError` today, but `dyn()` now enforces
+/// the bound, so the marker is what makes the first `throw` of one compile.
+impl(DateTimeError, Error());
 export(DateTimeError);
 /// Days in `month` of `year` (leap-aware). 0 for an invalid month.
 _days_in :: (fn(year : i32, month : u8) -> u8)(

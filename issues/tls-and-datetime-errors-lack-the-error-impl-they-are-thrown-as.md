@@ -1,11 +1,16 @@
 # `TlsError` is thrown as an `AnyError` without implementing `Error` — and `DateTimeError`/`PercentError` are missing the impl too
 
-**Status:** OPEN
+**Status:** PARTIALLY FIXED 2026-09-05 — items 1 (`TlsError`) and 2
+(`DateTimeError`) landed with the `dyn()` bound check (C69,
+`issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`), which
+turned item 1 from a style violation into a build break. **Item 3
+(`PercentError`) is still OPEN**: it needs a hand-written `ToString` as well as
+the marker, and nothing `dyn()`s one, so the new check does not reach it.
 **Found:** 2026-09-04, measuring the `error`/`assert` row of the std API audit
 (auditing what `impl(_, Error())` is worth revealed which std types skip it).
 **Severity:** papercut today; it becomes a hard compile error in std the moment
 `dyn()` starts checking trait bounds
-(`issues/dyn-does-not-check-that-the-value-implements-the-traits.md`).
+(`issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`).
 
 ## Symptom
 
@@ -58,10 +63,11 @@ Of the 18 `*Error` enums declared in `std/`, 9 carry `impl(_, Error())`
 
 ## Fix
 
-1. `std/crypto/tls.yo`: add `impl(TlsError, Error());` at `:94`, between the
-   `ToString` impl (`:80-93`) and `export(TlsError);`.
-2. `std/time/datetime.yo`: add `impl(DateTimeError, Error());` at `:306`,
-   between the `ToString` impl (`:294-305`) and `export(DateTimeError);`.
+1. ~~`std/crypto/tls.yo`: add `impl(TlsError, Error());` at `:94`, between the
+   `ToString` impl (`:80-93`) and `export(TlsError);`.~~ **DONE 2026-09-05.**
+2. ~~`std/time/datetime.yo`: add `impl(DateTimeError, Error());` at `:306`,
+   between the `ToString` impl (`:294-305`) and `export(DateTimeError);`.~~
+   **DONE 2026-09-05** (with a new `{ Error } :: import("../error")`).
 3. `std/encoding/percent.yo`: add the missing `ToString` (human prose, matching
    the other std error enums — e.g. `truncated percent escape at byte N`,
    `invalid hex digit at byte N`, and for `InvalidUtf8(cause)` render the
@@ -77,8 +83,8 @@ but it makes every `ToString` type (`i32`, `Path`, `Duration`, …) an error typ
 which erases the deliberate marker D1 exists for — and would have hidden exactly
 the two gaps recorded here.
 
-Land it together with the `dyn()` bound check
-(`issues/dyn-does-not-check-that-the-value-implements-the-traits.md`): that check turns
+Item 3 remains. Items 1-2 were landed together with the `dyn()` bound check
+(`issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`): that check turns
 item 1 from a style violation into a build break, and this is the std half of the
 same change.
 
