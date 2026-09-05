@@ -426,6 +426,14 @@ safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
 - Custom error types implement both `ToString` and `Error` traits
 - `AnyError` is `Dyn(Error)` — wraps any error: `(err : AnyError) = dyn(MyError.Foo)`
 - Use `downcast(err, MyError)` to recover the concrete type from `AnyError`
+- A downcast to a type nothing in the program ever puts in a `dyn()` is legal and
+  answers `.None` — that is how a negative "is this error some OTHER type?"
+  helper is written. (Before 2026-09-05 it emitted invalid C for a value target:
+  `issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md`.)
+- `dyn(x)` needs an expected `Dyn` type from its context — an annotated binding
+  or a declared return type. As a bare argument (`downcast(dyn(x), T)`) it has
+  none and is rejected, today with a misleading message
+  (`issues/dyn-as-a-direct-downcast-argument-reports-got-option.md`).
 - For exception-style control flow, see [yo-async-effects](../yo-async-effects/SKILL.md)
 
 ## Closures as values
