@@ -91,7 +91,9 @@ _(env : fncall_dbg_env) :: import("std/env");
   in_def_time_trial,
   PendingImplOutcome,
   force_pending_impls_for_type_name,
-  type_head_name_for_impl_forcing
+  type_head_name_for_impl_forcing,
+  flag_pending_impl_force_error,
+  take_pending_impl_force_error
 } :: import("../context.yo");
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0 } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
@@ -198,20 +200,6 @@ ReceiverMethodResult :: struct(
   // `functions` candidate array (function.ts:330) for overload resolution.
   all_hits : ArrayList(MethodEntry)
 );
-/// A pending-impl force that FAILED while answering a method miss (see
-/// `_try_find_receiver_method`): the helper has no `exn`, so the failure is
-/// parked here and thrown by the no-method arm of `evaluate_function_call`,
-/// which otherwise would report a misleading "No matching call found".
-(g_pending_impl_force_error : Option(String)) = Option(String).None;
-_flag_pending_impl_force_error :: (fn(msg : String) -> unit)({
-  g_pending_impl_force_error = Option(String).Some(msg);
-  ()
-});
-_take_pending_impl_force_error :: (fn() -> Option(String))({
-  r := g_pending_impl_force_error;
-  g_pending_impl_force_error = Option(String).None;
-  r
-});
 // ---------------------------------------------------------------------------
 // _try_find_receiver_method — when the callee is a property-access expression
 // `.(receiver, method_name)` with no ExprInfo, look up the method via env.yo's
@@ -381,7 +369,7 @@ _try_find_receiver_method :: (
       },
       .Error({ msg : impl_force_msg }) => {
         // No `exn` here — the caller's no-method arm throws it.
-        _flag_pending_impl_force_error(impl_force_msg);
+        flag_pending_impl_force_error(impl_force_msg);
       },
       .NoneForced => ()
     );
@@ -6641,7 +6629,7 @@ Fix: wrap the call:
         .None => {
           // A lazily forced impl that failed is the real error here.
           match(
-            _take_pending_impl_force_error(),
+            take_pending_impl_force_error(),
             .Some(impl_fail_msg) => {
               exn.throw(dyn(impl_fail_msg));
             },

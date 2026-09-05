@@ -23,7 +23,7 @@ open(import("std/string"));
 } :: import("../../expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { Environment, Frame, invalidate_frame_index } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, forcing_depths, truncate_forcing_depths } :: import("../context.yo");
 { format_error_message } :: import("../../error.yo");
 { EvalValue, value_to_string } :: import("../../value.yo");
 {
@@ -194,7 +194,13 @@ evaluate_comptime_expect_error :: (
   // not survive it — see expr_info.yo's rollback comment.
   saved_mg_mark := module_global_recording_mark();
   set_propagate_def_time_errors(true);
+  // The expected throw can strand forcing-stack entries too — an impl abandoned
+  // in its field loop leaves its in-flight record (and the member being
+  // evaluated) pushed; truncate back so no later lookup forces a member of the
+  // abandoned impl (issues/fixed/abandoned-impl-members-survive-the-error.md).
+  saved_depths := forcing_depths();
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
+  truncate_forcing_depths(saved_depths);
   set_propagate_def_time_errors(false);
   ctx.is_executing = saved_is_executing;
   ctx.is_validating_function_definition = saved_is_validating;

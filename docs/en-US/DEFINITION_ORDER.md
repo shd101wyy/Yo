@@ -137,6 +137,15 @@ Bare-name references to a sibling method (`callee()` instead of
 sibling as a local name would shadow same-named locals in other method bodies.
 Module-level bare names are a different scope and *are* order-independent.
 
+This works the same way as module-level definitions: the members of a block are
+pending until the block reaches them, and a `self.callee()` / `Self.callee()`
+lookup that misses forces `callee`'s real definition on the spot (its body is
+type-checked and evaluated once, with the block's scope). Mutual recursion
+between siblings resolves through the callee's signature, exactly as for two
+`::` functions. If a forced sibling has a genuine error, the error is reported
+at the sibling's own position with a note saying it was evaluated early because
+a sibling referenced it.
+
 A free function, a generic body or a method of *another* type may use methods
 from any later `impl` block of a type — a miss on the type forces every pending
 impl of that type. From **inside** an `impl` block of `T`, a method of a later
