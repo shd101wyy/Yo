@@ -300,3 +300,62 @@ test("every AnyError payload thrown in a loop is released", {
     "each of the 20 thrown payloads is released exactly once"
   );
 });
+// Regression for issues/fixed/resumable-exception-bare-return-handler-body-aborts.md:
+// a handler body written as a BARE `err -> return(v)` (no braces) must behave
+// exactly like the braced `err -> { return(v); }` form. `return` is recognised
+// only as a BEGIN statement (unlike `unwind`, it has no expression-dispatcher
+// entry), and the anonymous-function definition-time body trial used to route
+// a non-atom body around `evaluate_begin_expression` — so `return` evaluated as
+// an ordinary identifier, the error was swallowed, the body got no ExprInfos,
+// and codegen shipped an `abort()` stub that killed the process on the first
+// throw with no diagnostic anywhere.
+_bare_arrow_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
+  cond(
+    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+    true => (x / y)
+  )
+);
+test("a bare-arrow ResumableException handler resumes like the braced form", {
+  bare := ResumableException(i32)(throw : (_err -> return(777)));
+  braced := ResumableException(i32)(
+    throw : (
+      _err -> {
+        return(777);
+      }
+    )
+  );
+  assert(_bare_arrow_divide(6, 3, bare) == 2, "the non-throwing path is unaffected");
+  assert(_bare_arrow_divide(10, 0, bare) == 777, "the bare-arrow handler resumes with 777");
+  assert(_bare_arrow_divide(10, 0, braced) == 777, "the braced handler resumes with 777");
+  // Resuming MORE THAN ONCE through the same bare-arrow handler must work.
+  (i : i32) = i32(0);
+  (sum : i32) = i32(0);
+  while(i < i32(5), {
+    sum = (sum + _bare_arrow_divide(1, 0, bare));
+    i = (i + i32(1));
+  });
+  assert(sum == i32(3885), "five resumes through the bare-arrow handler each yield 777");
+});
+// The same shape with a NON-CONSTANT resume value, so the handler body is a
+// bare `return(<expression over the handler parameter>)` rather than a literal.
+test("a bare-arrow handler may compute its resume value from the error", {
+  exn := ResumableException(i32)(throw : (err -> return(i32(err.to_string().len()))));
+  // `division by zero` is 16 bytes.
+  assert(_bare_arrow_divide(10, 0, exn) == i32(16), "the resume value is computed from the error");
+});
+// Canary: a bare-arrow `unwind` handler (the shape the compiler tree itself
+// uses for its def-eval walls) keeps working — `unwind` HAS a dispatcher entry,
+// so it never took the broken path, and it must not regress.
+_bare_unwind_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
+  cond(
+    (y == i32(0)) => exn.throw(dyn(`division by zero`)),
+    true => (x / y)
+  )
+);
+_bare_unwind_catch :: (fn() -> i32)({
+  exn := Exception(throw : (_err -> unwind(i32(42))));
+  _bare_unwind_divide(10, 0, exn)
+});
+test("a bare-arrow Exception handler still unwinds", {
+  assert(_bare_unwind_catch() == i32(42), "the bare-arrow unwind handler yields its sentinel");
+});
