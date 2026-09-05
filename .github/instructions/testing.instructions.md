@@ -124,6 +124,44 @@ payload-free variant as an over-drop canary, and re-run the fixed binary under
 `MallocScribble=1 MallocPreScribble=1` — recycled values in the output mean the
 fix over-dropped and introduced a use-after-free.
 
+## A network test whose oracle depends on TCP segmentation is probabilistic
+
+A test that has the peer `write` twice and then asserts on what one `read`
+produced is **not** deterministic: whether two writes arrive as one read is the
+platform's coalescing decision. Such a test passes on five CI legs and fails on
+the sixth, which reads as a flake and is not one — 2026-09-06 that shape hid a
+real body-framing over-read in `std/http/wire.yo` for as long as the tests
+existed (`issues/http-body-is-not-truncated-to-content-length.md`).
+
+**Write the whole payload — the framed message AND the bytes after it — in ONE
+`write_string`.** The coalesced case is the harder one, so the assertion gets
+stronger as well as deterministic, and it goes red on every platform without the
+fix.
+
+Corollary for reading CI: **one leg failing out of six on the same commit is a
+diagnosis, not a retry button.** Check the other legs before blaming the PR, and
+check whether that leg has failed before:
+
+```bash
+for r in $(gh run list --workflow "<name>" --limit 15 --json databaseId -q '.[].databaseId'); do
+  gh api repos/<owner>/<repo>/actions/runs/$r/jobs --paginate \
+    -q '.jobs[]|select(.name=="test (macos-26-intel)")|.conclusion'
+done | sort | uniq -c
+```
+
+## A failing test's own `println` output needs `--verbose`
+
+Without `-v` the runner captures the child's stdout and shows it only for a
+PASSING test; a failing test loses both its `println` lines and its assert
+message, leaving just `Test failed with exit code 6`. With `-v` both appear
+under the `✗` line.
+
+CI already passes `--verbose` (`.github/workflows/test.yml`), which makes the
+**absence** of an expected diagnostic line into evidence: if a test's error
+handler prints before it unwinds and that line is not in the log, the handler
+never ran — so the test failed on a value, not on a throw. Locally, always add
+`-v` before theorizing about a failure.
+
 ## Windows: failing tests report a SIGNAL status, and a runtime-template edit needs TWO builds
 
 `yo test` on Windows used to die with `yo: error: unknown I/O error` at the
