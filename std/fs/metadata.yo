@@ -138,4 +138,31 @@ metadata_str :: (fn(path : str, io : Io) -> Impl(Future(Metadata, IoExn)))(metad
 symlink_metadata :: (fn(path : Path, io : Io) -> Impl(Future(Metadata, IoExn)))(_stat_path(path, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, io));
 /// Get metadata for a path given as a raw string (does NOT follow symlinks).
 symlink_metadata_str :: (fn(path : str, io : Io) -> Impl(Future(Metadata, IoExn)))(symlink_metadata(Path.new(String.from(path)), io));
-export(metadata, metadata_str, symlink_metadata, symlink_metadata_str);
+/// Get metadata for an ALREADY-OPEN descriptor (`fstat`) — Rust's
+/// `File::metadata`. This is the only correct answer for a handle whose path
+/// is unknown (`File.from_fd`) or has been renamed, replaced or unlinked
+/// since the open: the DESCRIPTOR names the inode, a path does not. It also
+/// costs no path resolution.
+///
+/// There is no follow/nofollow variant: a descriptor is already an open
+/// inode, so there is no final symlink left to follow.
+metadata_fd :: (fn(fd : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
+  io.async(e => {
+    buf_size := __yo_statx_buf_size();
+    buf := *(u8)(malloc(buf_size).unwrap());
+    // Sync, and no await in this body: `fstat` reads an open inode and
+    // cannot block (same reasoning as `File.size`, which is `__yo_file_size`).
+    result := IO_file.fstat(fd, buf);
+    cond(
+      (result < i32(0)) => {
+        free(.Some(*(void)(buf)));
+        e.exn.throw(dyn(IoError.from_errno(i32(0) - result)))
+      },
+      true => {
+        sx := Statx(_buf_ptr : buf, _buf_size : buf_size);
+        Metadata(_statx : sx, _buf_ptr : buf)
+      }
+    )
+  })
+);
+export(metadata, metadata_str, symlink_metadata, symlink_metadata_str, metadata_fd);

@@ -4,7 +4,7 @@ pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not availabl
 open(import("std/libc/stdio"));
 open(import("std/string"));
 { Path } :: import("std/path");
-{ arch, Arch } :: import("std/process");
+{ arch, Arch, platform, Platform } :: import("std/process");
 { IoError } :: import("std/sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
 fs_dir :: import("std/fs/dir");
@@ -443,6 +443,102 @@ test("read_dir on nonexistent returns error", {
   );
   io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
   assert(false, "read_dir nonexistent should fail");
+});
+// ============================================================================
+// file_type — the stat that resolves readdir's DT_UNKNOWN
+// ============================================================================
+// `read_dir` maps `d_type` directly when the filesystem reports one and falls
+// back to `file_type` when it answers `DT_UNKNOWN` (XFS, many network and
+// overlay filesystems, and any filesystem that does not carry the type
+// inline). `DT_UNKNOWN` cannot be provoked on the CI filesystems — APFS and
+// ext4 both report a type, and the macOS getdents emulation resolves what is
+// left before std ever sees it — so what is pinned here is the FALLBACK
+// ITSELF: the very function `read_dir` calls for such an entry.
+test("file_type classifies file and directory", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_ft_file.txt`));
+  dpath := Path.new(path_join(tmp, `yo_fs_ft_dir`));
+  io.await(fs_file.write_string(fpath, String.from("ft"), io), e);
+  io.await(fs_dir.create_dir_all(dpath, io), e);
+  ft_file := io.await(fs_dir.file_type(fpath, io), e);
+  assert(match(ft_file, .File => true, _ => false), "regular file is .File");
+  ft_dir := io.await(fs_dir.file_type(dpath, io), e);
+  assert(match(ft_dir, .Directory => true, _ => false), "directory is .Directory");
+  io.await(fs_dir.remove_dir(dpath, io), e);
+  io.await(fs_dir.remove_file(fpath, io), e);
+});
+test("file_type does NOT follow a symlink: a link is .Symlink", {
+  // lstat semantics, deliberately: `d_type` reports DT_LNK for a symlink, so
+  // the DT_UNKNOWN fallback must agree — otherwise a walk would see two
+  // different answers for the same entry depending on the filesystem, and
+  // `WalkOptions.follow_symlinks`, not the stat, decides descent.
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows (symlinks need admin/Developer Mode)\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  tmp := temp_dir();
+  target := Path.new(path_join(tmp, `yo_fs_ft_target.txt`));
+  link := Path.new(path_join(tmp, `yo_fs_ft_link`));
+  dir_target := Path.new(path_join(tmp, `yo_fs_ft_dtarget`));
+  dir_link := Path.new(path_join(tmp, `yo_fs_ft_dlink`));
+  io.await(fs_file.write_string(target, String.from("t"), io), e);
+  io.await(fs_dir.create_dir_all(dir_target, io), e);
+  // The temp dir is shared and survives a failed run, so clear the links
+  // before creating them — `symlink` onto an existing name is EEXIST. The
+  // targets are made first so `exists` (which follows the link) sees them.
+  cond(
+    io.await(fs_file.exists(link, io), io) => {
+      io.await(fs_dir.remove_file(link, io), e);
+    },
+    true => ()
+  );
+  cond(
+    io.await(fs_file.exists(dir_link, io), io) => {
+      io.await(fs_dir.remove_file(dir_link, io), e);
+    },
+    true => ()
+  );
+  io.await(fs_dir.symlink(target, link, io), e);
+  io.await(fs_dir.symlink(dir_target, dir_link, io), e);
+  ft_link := io.await(fs_dir.file_type(link, io), e);
+  assert(match(ft_link, .Symlink => true, _ => false), "link to a file is .Symlink, not .File");
+  ft_dir_link := io.await(fs_dir.file_type(dir_link, io), e);
+  assert(match(ft_dir_link, .Symlink => true, _ => false), "link to a dir is .Symlink, not .Directory");
+  io.await(fs_dir.remove_file(dir_link, io), e);
+  io.await(fs_dir.remove_file(link, io), e);
+  io.await(fs_dir.remove_dir(dir_target, io), e);
+  io.await(fs_dir.remove_file(target, io), e);
+});
+test("file_type on a missing path throws", {
+  missing := Path.new(`/nonexistent/yo_fs_ft_nope`);
+  exn := Exception(
+    throw : (
+      err -> {
+        unsafe(printf("  got expected error\n"));
+        unwind(());
+      }
+    )
+  );
+  io.await(fs_dir.file_type(missing, io), IoExn(io : io, exn : exn));
+  assert(false, "file_type on a missing path should throw");
 });
 // ============================================================================
 // DirEntry.path

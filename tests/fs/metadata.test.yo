@@ -188,6 +188,64 @@ test("symlink_metadata on symlink reports symlink", {
 // ============================================================================
 // File.metadata method
 // ============================================================================
+test("File.metadata fstats THIS descriptor: a from_fd handle reports the file, not the CWD", {
+  // `File.from_fd` owns a raw descriptor and has no path; an empty `Path`
+  // renders as ".", so re-stat-by-path answered about the CURRENT DIRECTORY
+  // — a directory, with the directory's size and times, and no error.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_meta_from_fd.txt`));
+  io.await(fs_file.write_string(fpath, String.from("0123456789"), io), e);
+  { File } :: import("std/fs/file");
+  opened := io.await(File.open(fpath, .Read, io), e);
+  // Ownership of the descriptor MOVES to the wrapped handle (from_fd's
+  // documented contract) — retire the original so it cannot double-close.
+  wrapped := File.from_fd(opened.fd());
+  opened._is_closed = true;
+  m := io.await(wrapped.metadata(io), e);
+  unsafe(printf("  from_fd metadata size = %lld\n", m.size()));
+  assert(m.size() == i64(10), "size is the FILE's 10 bytes, not the cwd's");
+  assert(m.is_file(), "from_fd metadata is a regular file");
+  assert(!m.is_dir(), "from_fd metadata is NOT the current directory");
+  assert(m.ino() > u64(0), "inode is the file's");
+  io.await(wrapped.close(io), e);
+  io.await(fs_dir.remove_file(fpath, io), e);
+});
+test("File.metadata follows the descriptor across a rename, not the path", {
+  // The descriptor names the inode; the path does not. A handle whose file
+  // was renamed after the open still describes the open file — re-stat by
+  // path threw ENOENT here.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  tmp := temp_dir();
+  before := Path.new(path_join(tmp, `yo_fs_meta_rename_a.txt`));
+  after := Path.new(path_join(tmp, `yo_fs_meta_rename_b.txt`));
+  io.await(fs_file.write_string(before, String.from("12345"), io), e);
+  { File } :: import("std/fs/file");
+  f := io.await(File.open(before, .Read, io), e);
+  io.await(fs_dir.rename(before, after, io), e);
+  m := io.await(f.metadata(io), e);
+  unsafe(printf("  renamed-open metadata size = %lld\n", m.size()));
+  assert(m.size() == i64(5), "size of the still-open inode");
+  assert(m.is_file(), "still a regular file");
+  io.await(f.close(io), e);
+  io.await(fs_dir.remove_file(after, io), e);
+});
 test("File.metadata returns correct info", {
   exn := Exception(
     throw : (
