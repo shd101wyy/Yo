@@ -1,6 +1,16 @@
 # `unit` as a value type — the shapes still not covered
 
 **Status:** OPEN (deliberate scope boundary, not regressions)
+
+> ⚠️ **DIRECTION CONFLICT — read
+> `issues/unit-should-be-a-true-zero-sized-type-like-rust.md` before acting on
+> this file.** Every row below is prescribed here as "route the site through
+> `get_storage_type_string`", i.e. GIVE it the one-byte placeholder. The owner
+> has since asked for TRUE zero-sized types with `sizeof(unit) == 0`, Rust's
+> model — the opposite direction. Each row fixed the placeholder way becomes
+> one more site to un-do. Reconcile the two issues before starting; if ZST
+> parity is confirmed, these seven rows should be re-prescribed as ERASURE
+> sites and the two files merged.
 **Context:** follow-up to issues/fixed/unit-typed-params-and-fields-emit-c-void.md,
 which made `unit` work in parameter, field, tuple and generic-container positions
 by spelling storage positions with a one-byte placeholder
