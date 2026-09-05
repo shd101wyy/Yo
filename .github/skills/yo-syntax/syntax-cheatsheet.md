@@ -554,20 +554,26 @@ test("Async test", {
   internal mechanism of the batched test runner's synthesized programs only.
 - `assert(condition, "message")` — runtime assertion; requires `{ assert } :: import("std/assert");` at the top of the test file
 - `comptime_assert(condition)` — compile-time assertion (builtin, no import).
-  **It only FIRES at MODULE level.** Inside any function body — `main`, a
-  called fn, a `comptime` fn, and therefore inside a `test("…", { … })` block —
-  `comptime_assert(false)` is silently ACCEPTED
-  (issues/comptime-assert-never-fires-inside-a-function-body.md; all 1559
-  `comptime_assert`s under `tests/` are in that dead position). Until that is
-  fixed, pin a comptime result with a **module-level `::` binding observed by a
-  runtime `assert`** — the binding folds at comptime and the runtime assert
-  sees what the folder produced:
+  **It fires wherever the condition folds to a CONCRETE `false`** — at module
+  level and inside any function body (`main`, a called fn, a `comptime` fn, a
+  `test("…", { … })` block) alike.
+  When the condition is NOT comptime-decidable — a runtime value, or a generic
+  body whose type parameters are still unbound — it only TYPE-CHECKS the
+  argument and cannot fail. A `comptime_assert` over an unresolved generic is
+  therefore still no gate; pin such a result with a **module-level `::` binding
+  observed by a runtime `assert`** — the binding folds at comptime and the
+  runtime assert sees what the folder produced:
   ```rust
   _DIV :: (u64.MAX / u64(2));            // folded at comptime
   test("…", { assert(_DIV == u64(9223372036854775807), `folded to ${_DIV}`); });
   ```
-  Always verify such a test goes RED on a compiler without your fix; that is
+  Always verify a new test goes RED on a compiler without your fix; that is
   the only way to know the gate is real.
+  Until 2026-09-05 `comptime_assert` was inert in EVERY function body, so all
+  1559 of them under `tests/` verified nothing
+  (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md). The
+  guard against a regression is the cli-case
+  `tests/cli-cases/compile-comptime-assert-in-fn-body`.
 - `comptime_expect_error(expr)` — verify code produces a compile error
 
 ## Design-by-contract clauses

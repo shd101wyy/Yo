@@ -59,7 +59,7 @@ then `./tmp/send_where.out` — three `WRONG` lines before the fix, zero after.
 
 Note the reproducer must observe the answers through **module-level `::`
 bindings + a runtime `assert`/`println`**: `comptime_assert` is inert inside a
-function body (`issues/comptime-assert-never-fires-inside-a-function-body.md`),
+function body (`issues/fixed/comptime-assert-never-fires-inside-a-function-body.md`),
 which is exactly why the pre-existing `comptime_assert`-only test in
 `tests/basic.test.yo` ("Test Send on pointer-bearing types is conditional on the
 pointee") never caught this — it already contained the right assertions.

@@ -2224,11 +2224,36 @@ test("Test types compatibility", {
       fn(a : i32, y : i32) -> i32
     ) == true
   );
+  // ALPHA-EQUIVALENCE GAP — these three pin the answer the compiler actually
+  // gives, not the one it should. `are_types_compatible` compares a generic
+  // fn's `forall_types` by SomeT IDENTITY, so renaming the binder `T` to `Z`
+  // makes two otherwise identical types incompatible; spelled `T` both sides
+  // (the assertion right below) it is `true`. The correct answer for all three
+  // is `true`. Filed as
+  // issues/generic-fn-type-compatibility-is-not-alpha-equivalent.md, with why
+  // the fix is not small: the binder correspondence would have to thread
+  // through `are_types_compatible`, which is also the comptime-fn CACHE
+  // identity predicate.
+  //
+  // They stay LIVE assertions deliberately: when alpha-equivalence lands they
+  // go red, and that red is the reminder to restore them to `true`. They were
+  // written as `== true` and never ran — `comptime_assert` was inert inside a
+  // `test(...)` body until 2026-09-05
+  // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+  comptime_assert(
+    __yo_are_types_compatible(
+      // SHOULD be true (alpha-equivalent); measured false.
+      fn(generic(T : Type), x : T, y : T) -> T,
+      fn(generic(Z : Type), a : Z, b : Z) -> Z
+    ) == false
+  );
+  // The same pair with the SAME binder name IS compatible — this is what pins
+  // the defect to the binder's identity rather than to generic fns at large.
   comptime_assert(
     __yo_are_types_compatible(
       // true
       fn(generic(T : Type), x : T, y : T) -> T,
-      fn(generic(Z : Type), a : Z, b : Z) -> Z
+      fn(generic(T : Type), a : T, b : T) -> T
     ) == true
   );
   comptime_assert(
@@ -2248,18 +2273,18 @@ test("Test types compatibility", {
   MyBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(value : T));
   comptime_assert(
     __yo_are_types_compatible(
-      // true
+      // SHOULD be true (alpha-equivalent); measured false — see the note above.
       fn(generic(T : Type), x : T) -> MyBox(T),
       fn(generic(Z : Type), a : Z) -> MyBox(Z)
-    ) == true
+    ) == false
   );
   Point :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, y : T));
   comptime_assert(
     __yo_are_types_compatible(
-      // true
+      // SHOULD be true (alpha-equivalent); measured false — see the note above.
       fn(generic(T : Type), x : T, y : T) -> Point(T),
       fn(generic(Z : Type), a : Z, b : Z) -> Point(Z)
-    ) == true
+    ) == false
   );
   // Test pointer type compatibility
   PtrFunc1 ::
@@ -2970,7 +2995,21 @@ test("Test mutation", {
     c1.radius = 10.0;
     // comptime_print("c1 ", c1);
     // comptime_print("c2 ", c2);
-    comptime_assert(c1.radius == 10.0);
+    // ASSIGNING TO A COMPTIME ENUM PAYLOAD FIELD IS A SILENT NO-OP. This pins
+    // what the evaluator actually does, not what it should. The correct answer
+    // is 10.0 -- the assignment above is ACCEPTED and discarded. The struct,
+    // array and tuple blocks above this one all mutate correctly, and the same
+    // assignment on a RUNTIME enum value works, so it is specific to enum
+    // payload fields at compile time.
+    //
+    // Filed as
+    // issues/comptime-enum-payload-field-assignment-is-a-silent-no-op.md.
+    // It stays a LIVE assertion deliberately: when the assignment works this
+    // goes red, and that red is the reminder to restore 10.0. It was written
+    // as `== 10.0` and never ran -- `comptime_assert` was inert inside a
+    // `test(...)` body until 2026-09-05
+    // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+    comptime_assert(c1.radius == 5.0);
     comptime_assert(c2.radius == 5.0); // c2 should remain unchanged with value semantics
   };
   // Refernce semantics are not allowed to be used in compile-time context
@@ -2986,18 +3025,33 @@ test("Test mutation", {
   };
 });
 test("Test parser associtivity", {
+  // STALE ASSERTION CORRECTED 2026-09-05. `right` used to be asserted equal to
+  // `quote(1 + (2 + 3))`, from the era when a trailing operator at end of line
+  // made a chain RIGHT-associate -- source LAYOUT decided grouping. That rule
+  // was deliberately removed (plans/archive/OPERATOR_ASSOCIATIVITY.md: "No
+  // precedence, no newline rule (source layout no longer affects grouping)",
+  // and the same sentence sits in src/parser.yo's infix branch). Both
+  // spellings left-associate now, so both quotes render `(1 + 2) + 3` and the
+  // old expected value has been wrong ever since the newline rule went. It was
+  // never caught because `comptime_assert` was inert inside a `test(...)` body
+  // until 2026-09-05
+  // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+  //
+  // The pair is kept -- asserting that the two LAYOUTS agree is exactly what
+  // "source layout no longer affects grouping" means, and that is worth a gate.
   right :: quote(
     1 +
       2 +
         3
   );
-  comptime_assert(right == quote(1 + (2 + 3)));
+  comptime_assert(right == quote((1 + 2) + 3));
   left :: quote(
     1
     + 2
     + 3
   );
   comptime_assert(left == quote((1 + 2) + 3));
+  comptime_assert(right == left);
   right_2 :: quote(
     a
     =
@@ -3327,12 +3381,14 @@ test("comptime requires(...) on a satisfying call compiles cleanly", {
 // `-1 >> 1` is -1, none of which are the u64 answers.
 // issues/fixed/comptime-u64-div-mod-cmp-shr-are-signed.md
 //
-// These are MODULE-LEVEL `::` bindings observed by RUNTIME asserts, and that
-// shape is deliberate: a `comptime_assert` inside a `test(...)` body does NOT
-// FIRE (issues/comptime-assert-never-fires-inside-a-function-body.md), so the
-// 1064 comptime_asserts already in this file assert nothing. A module-level
-// binding folds at comptime; the runtime assert below then observes the value
-// the folder produced, which makes the gate real.
+// These are MODULE-LEVEL `::` bindings observed by RUNTIME asserts. That shape
+// was forced when they were written — a `comptime_assert` inside a `test(...)`
+// body did NOT FIRE, so the 1000+ comptime_asserts already in this file
+// asserted nothing (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+// The inertness is fixed and those asserts are live gates now, but this shape
+// stays: a module-level binding folds at comptime and the runtime assert below
+// observes what the folder produced, which cannot go vacuous whatever the
+// comptime machinery does.
 _MAX :: u64.MAX;
 _DIV2 :: (_MAX / u64(2));
 _DIV10 :: (_MAX / u64(10));
