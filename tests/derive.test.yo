@@ -476,3 +476,205 @@ test("derive Default reaches a generic-instantiated field type", {
   assert(d.name.len() == usize(0), "String field defaults to empty");
   assert(d.n == i32(0), "i32 field defaults to 0");
 });
+// ============================================================
+// derive over a FIXED-SIZE `Array(T, N)` field
+// ============================================================
+// `Array(T, N)` carried no `Eq` / `Ord` / `Clone` / `Hash` impl, so each of
+// these derives generated a body calling an operation the field type did not
+// have. The derive rule's definition-time trial swallowed the error, codegen
+// rewrote the function to an `abort()` stub, and the binary died with rc=134
+// and no diagnostic at all — `yo check` and `yo compile --optimize 2` both
+// reported success.
+// issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md
+ArrBox :: struct(cells : Array(i32, 4), tag : i32);
+derive(ArrBox, Eq(ArrBox), Ord(ArrBox), Clone, Hash);
+test("derive Eq over a fixed-size Array field", {
+  a := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
+  b := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
+  last := ArrBox(Array(i32, 4)(1, 2, 3, 9), i32(7));
+  first := ArrBox(Array(i32, 4)(9, 2, 3, 4), i32(7));
+  assert(a == b, "element-wise equal arrays compare equal");
+  assert(a != last, "arrays differing in the LAST element compare unequal");
+  assert(a != first, "arrays differing in the FIRST element compare unequal");
+  assert(!(a == last), "negated == agrees with !=");
+});
+test("derive Ord over a fixed-size Array field", {
+  a := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
+  b := ArrBox(Array(i32, 4)(1, 2, 3, 5), i32(7));
+  c := ArrBox(Array(i32, 4)(2, 0, 0, 0), i32(7));
+  assert(a < b, "lexicographic: a difference in the last element decides");
+  assert(a < c, "lexicographic: the FIRST difference decides");
+  assert(b < c, "(1,2,3,5) < (2,0,0,0)");
+  assert(a <= a, "an array is <= itself");
+  assert(!(a < a), "an array is not < itself");
+  assert(c > a, "the reverse comparison agrees");
+  assert(a >= a, "an array is >= itself");
+  assert(!(a > a), "an array is not > itself");
+});
+test("derive Clone over a fixed-size Array field is independent of its source", {
+  a := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
+  b := a.clone();
+  assert(a == b, "a clone equals its source");
+  b.cells(usize(2)) = i32(99);
+  assert(b.cells(2) == i32(99), "the clone took the write");
+  assert(a.cells(2) == i32(3), "the SOURCE is untouched — the clone is independent");
+  assert(a != b, "the mutated clone no longer equals its source");
+});
+test("derive Hash over a fixed-size Array field agrees with Eq", {
+  a := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
+  b := ArrBox(Array(i32, 4)(1, 2, 3, 4), i32(7));
+  c := ArrBox(Array(i32, 4)(1, 2, 3, 9), i32(7));
+  assert(hash_one(a) == hash_one(b), "equal values hash equal");
+  assert(hash_one(a) != hash_one(c), "different values hash differently");
+});
+// An Array of a STRUCT type — the element's own derived impls are what the
+// array impls recurse into.
+ArrOfPoint :: struct(pts : Array(Point, 2));
+derive(ArrOfPoint, Eq(ArrOfPoint), Ord(ArrOfPoint), Clone, Hash);
+test("derive over an Array of a struct type", {
+  a := ArrOfPoint(Array(Point, 2)(Point(i32(1), i32(2)), Point(i32(3), i32(4))));
+  b := ArrOfPoint(Array(Point, 2)(Point(i32(1), i32(2)), Point(i32(3), i32(4))));
+  c := ArrOfPoint(Array(Point, 2)(Point(i32(1), i32(2)), Point(i32(3), i32(5))));
+  assert(a == b, "element structs compare through their own derived Eq");
+  assert(a != c, "a difference inside the SECOND element is seen");
+  assert(a < c, "lexicographic order runs through the element's Ord");
+  assert(hash_one(a) == hash_one(b), "equal arrays-of-structs hash equal");
+  d := a.clone();
+  assert(d == a, "an array of structs clones");
+  d.pts(usize(0)).x = i32(42);
+  assert(a.pts(0).x == i32(1), "the source array of structs is untouched");
+});
+// An Array nested inside ANOTHER aggregate — a struct field holding an
+// `Array(Array(i32, 2), 2)`, so the element type is itself an array and the
+// impls must recurse into their own specialization.
+Nested :: struct(grid : Array(Array(i32, 2), 2), name : i32);
+derive(Nested, Eq(Nested), Ord(Nested), Clone, Hash);
+test("derive over an Array nested inside another aggregate", {
+  a := Nested(
+    Array(Array(i32, 2), 2)(Array(i32, 2)(1, 2), Array(i32, 2)(3, 4)),
+    i32(0)
+  );
+  b := Nested(
+    Array(Array(i32, 2), 2)(Array(i32, 2)(1, 2), Array(i32, 2)(3, 4)),
+    i32(0)
+  );
+  c := Nested(
+    Array(Array(i32, 2), 2)(Array(i32, 2)(1, 2), Array(i32, 2)(3, 5)),
+    i32(0)
+  );
+  assert(a == b, "nested arrays compare element-wise all the way down");
+  assert(a != c, "a difference in the INNER array is seen");
+  assert(a < c, "nested lexicographic order");
+  assert(hash_one(a) == hash_one(b), "nested arrays hash equal");
+  d := a.clone();
+  assert(d == a, "a nested array clones");
+  d.grid(usize(1))(usize(1)) = i32(99);
+  assert(a.grid(1)(1) == i32(4), "the source's inner array is untouched");
+  assert(a != d, "the mutated nested clone differs");
+});
+// The N == 1 and N == 0 edge cases. A zero-length array is legal
+// (`Array(i32, 0)` — tests/array.test.yo), and every impl must degenerate
+// correctly: all empty arrays are equal, none is less than another.
+OneCell :: struct(cells : Array(i32, 1));
+derive(OneCell, Eq(OneCell), Ord(OneCell), Clone, Hash);
+NoCell :: struct(cells : Array(i32, 0), tag : i32);
+derive(NoCell, Eq(NoCell), Ord(NoCell), Clone, Hash);
+test("derive over an Array of length 1", {
+  a := OneCell(Array(i32, 1)(5));
+  b := OneCell(Array(i32, 1)(5));
+  c := OneCell(Array(i32, 1)(6));
+  assert(a == b, "single-element arrays compare");
+  assert(a != c, "a different single element is seen");
+  assert(a < c, "single-element order");
+  assert(hash_one(a) == hash_one(b), "single-element arrays hash equal");
+  d := a.clone();
+  d.cells(usize(0)) = i32(7);
+  assert(a.cells(0) == i32(5), "the source's one cell is untouched");
+});
+test("derive over an Array of length 0", {
+  a := NoCell(Array(i32, 0)(), i32(1));
+  b := NoCell(Array(i32, 0)(), i32(1));
+  c := NoCell(Array(i32, 0)(), i32(2));
+  assert(a == b, "empty arrays are equal, so the structs compare on `tag`");
+  assert(a != c, "the sibling field still decides");
+  assert(a < c, "an empty array contributes nothing to the order");
+  assert(!(a < b), "two all-equal values are not ordered");
+  assert(a <= b, "two all-equal values are <=");
+  assert(hash_one(a) == hash_one(b), "empty arrays hash equal");
+  d := a.clone();
+  assert(d == a, "an empty array clones");
+});
+// An Array whose element OWNS heap memory: the clone must be deep, not a
+// refcount-shared alias. Mutating the clone's string must leave the source's
+// alone.
+StrCells :: struct(cells : Array(String, 2));
+derive(StrCells, Eq(StrCells), Clone);
+test("derive Clone over an Array of owning elements deep-copies", {
+  a := StrCells(Array(String, 2)(String.from("ab"), String.from("cd")));
+  b := a.clone();
+  assert(a == b, "the clone starts equal");
+  b.cells(usize(0)).push_str("XY");
+  assert(b.cells(0) == `abXY`, "the clone took the append");
+  assert(a.cells(0) == `ab`, "the SOURCE string is untouched — the clone is deep");
+  assert(a != b, "the mutated clone differs");
+});
+// An ENUM payload that is a fixed-size array — the exact shape of the filed
+// reproducer (`std/net`'s `IpAddr.V6(Array(u16, 8))`).
+IpLike :: enum(V4(a : u8), V6(segments : Array(u16, 8)));
+derive(IpLike, Eq(IpLike), Ord(IpLike), Clone, Hash);
+test("derive over an enum variant carrying a fixed-size Array", {
+  s := Array(u16, 8)(u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(1));
+  t := Array(u16, 8)(u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(0), u16(2));
+  x := IpLike.V6(s);
+  y := IpLike.V6(s);
+  z := IpLike.V6(t);
+  assert(x == y, "the same segments compare equal");
+  assert(x != z, "different segments compare unequal");
+  assert(x < z, "segments order lexicographically");
+  assert(hash_one(x) == hash_one(y), "equal segments hash equal");
+  assert(IpLike.V4(u8(1)) != x, "a different variant is never equal");
+  c := x.clone();
+  assert(c == x, "the enum payload array clones");
+});
+// ============================================================
+// A derive whose generated `impl(...)` cannot be REGISTERED must be an error
+// AT THE DERIVE, not a module-level death
+// ============================================================
+// Both of these used to leave `yo check` saying "evaluator OK" and then report
+// `Variable "X" not found` at X's NEXT use, because the whole module's
+// evaluation died at the `derive`. The generated impl is now evaluated through
+// the derive's own exception, so the real diagnostic lands on the
+// `derive(...)` statement.
+// issues/fixed/derive-ord-without-a-prior-derive-eq-kills-module-evaluation.md
+// issues/fixed/bare-derive-form-kills-module-eval.md
+OrdNoEqStruct :: struct(a : u8);
+comptime_expect_error({
+  // `Ord` carries `where(Self <: Eq(Rhs))`; there is no `Eq` impl for this type.
+  derive(OrdNoEqStruct, Ord(OrdNoEqStruct));
+});
+OrdNoEqEnum :: enum(A(x : u8), B);
+comptime_expect_error({
+  derive(OrdNoEqEnum, Ord(OrdNoEqEnum));
+});
+BareTraitArg :: struct(a : u8);
+comptime_expect_error({
+  // The BARE form splices `Eq()` — a trait application with no arguments.
+  derive(BareTraitArg, Eq);
+});
+// Over-rejection canaries: every CURED spelling must still work.
+OrdWithEq :: struct(a : u8);
+derive(OrdWithEq, Eq(OrdWithEq));
+derive(OrdWithEq, Ord(OrdWithEq));
+OrdCombined :: struct(a : u8);
+derive(OrdCombined, Eq(OrdCombined), Ord(OrdCombined));
+test("a derive whose impl cannot register is rejected, and the cured forms still work", {
+  x := OrdWithEq(u8(1));
+  y := OrdWithEq(u8(2));
+  assert(x < y, "Eq-then-Ord still orders");
+  assert(x != y, "and still compares");
+  assert(!(y < x), "and the reverse is false");
+  p := OrdCombined(u8(3));
+  q := OrdCombined(u8(4));
+  assert(p < q, "the combined derive(S, Eq(S), Ord(S)) form still orders");
+  assert(p == OrdCombined(u8(3)), "and still compares");
+});

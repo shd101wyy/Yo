@@ -5,9 +5,12 @@ implementation is accepted, prints `()`, and in one position is reported as an
 "internal compiler error … please report it" against the user's own type error.
 
 **Found**: 2026-09-04, measuring the `net` row of the std API audit. It is the
-mechanism that makes
-`issues/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`
-silent, but it reproduces standalone with no derive and no `Array` in sight.
+mechanism that made
+`issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`
+silent, but it reproduces standalone with no derive and no `Array` in sight —
+and it STILL DOES: that fix gave `Array(T, N)` an `Eq` impl, so the `Array`
+half of the symptom below is gone, while a user struct with no `Eq` still
+compares to `()`.
 
 ## Symptom
 
@@ -164,8 +167,9 @@ beside them:
   positions above — string interpolation, `cond` condition, statement, and a
   `bool`-typed binding — must all be compile errors naming the operator and the
   receiver type.
-- `Array(u16, usize(4)) == Array(u16, usize(4))` must be a compile error until
-  the `Array` `Eq` impl lands (and must then start passing, which makes this
-  the shared test with
-  `issues/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`).
+- `Array(u16, usize(4)) == Array(u16, usize(4))` now COMPARES rather than
+  yielding `unit`: the `Array(T, N)` `Eq` impl landed 2026-09-05 with
+  `issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`
+  and `tests/array.test.yo` covers it. Only the NOMINAL-receiver half of this
+  issue is left — `NoEq :: struct(x : i32)` still compares to `()`.
 - The two over-rejection canaries above.

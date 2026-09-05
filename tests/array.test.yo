@@ -1,5 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
 test("Test Array declaration with inferred length", {
   {
     arr1 := Array(i32, _)(1, 2, 3);
@@ -226,4 +228,82 @@ test("Range copy iter - partial range", {
   });
   assert(count == usize(2), "should yield 2 elements");
   assert(sum == i32(50), "sum of middle elements should be 50");
+});
+// ===== Eq / Ord / Clone / Hash on Array(T, N) itself =====
+// The generic impls live in std/prelude.yo next to Array's Send/Acyclic
+// markers. Two DIFFERENT lengths in one file matter: they force two
+// specializations of the same impl, which is what surfaced the const-generic
+// length surviving substitution as `Array(u16, N)` and reaching codegen as the
+// C comment `// Unknown type: ...`.
+// issues/fixed/array-const-generic-length-unresolved-in-the-operator-call-cast.md
+test("Array Eq - element-wise, at two lengths in one file", {
+  a := Array(i32, 4)(1, 2, 3, 4);
+  b := Array(i32, 4)(1, 2, 3, 4);
+  c := Array(i32, 4)(1, 2, 3, 9);
+  assert(a == b, "equal arrays compare equal");
+  assert(a != c, "a difference in the last element is seen");
+  assert(!(a == c), "negated == agrees");
+  // Second length → second specialization of the same generic impl.
+  p := Array(u16, 2)(u16(7), u16(8));
+  q := Array(u16, 2)(u16(7), u16(8));
+  r := Array(u16, 2)(u16(7), u16(9));
+  assert(p == q, "a second length specializes independently");
+  assert(p != r, "and compares correctly");
+  // Zero-length and single-element edges.
+  assert(Array(i32, 0)() == Array(i32, 0)(), "empty arrays are equal");
+  assert(Array(i32, 1)(5) == Array(i32, 1)(5), "single-element arrays compare");
+  assert(Array(i32, 1)(5) != Array(i32, 1)(6), "and differ when they should");
+});
+test("Array Ord - lexicographic", {
+  a := Array(i32, 3)(1, 2, 3);
+  b := Array(i32, 3)(1, 2, 4);
+  c := Array(i32, 3)(2, 0, 0);
+  assert(a < b, "the last element decides when the prefix matches");
+  assert(a < c, "the FIRST difference decides");
+  assert(b < c, "(1,2,4) < (2,0,0)");
+  assert(!(a < a), "an array is not < itself");
+  assert(a <= a, "an array is <= itself");
+  assert(a >= a, "an array is >= itself");
+  assert(!(a > a), "an array is not > itself");
+  assert(c > b, "the reverse comparison agrees");
+  assert(!(Array(i32, 0)() < Array(i32, 0)()), "empty arrays are not ordered");
+  assert(Array(i32, 0)() <= Array(i32, 0)(), "empty arrays are <=");
+});
+test("Array cmp - the Ord default reaches Ordering", {
+  a := Array(i32, 3)(1, 2, 3);
+  b := Array(i32, 3)(1, 2, 4);
+  // `Ordering` has no `Eq` impl in the prelude, so it is matched, not compared.
+  assert(match(a.cmp(b), .Less => true, _ => false), "less");
+  assert(match(b.cmp(a), .Greater => true, _ => false), "greater");
+  assert(match(a.cmp(a), .Equal => true, _ => false), "equal");
+});
+test("Array Clone - independent of its source", {
+  a := Array(i32, 3)(1, 2, 3);
+  b := a.clone();
+  assert(a == b, "a clone equals its source");
+  b(usize(1)) = i32(99);
+  assert(b(1) == i32(99), "the clone took the write");
+  assert(a(1) == i32(2), "the source is untouched");
+  assert(a != b, "the mutated clone differs");
+});
+test("Array Clone - an owning element type is deep-copied", {
+  a := Array(String, 2)(String.from("ab"), String.from("cd"));
+  b := a.clone();
+  assert(a == b, "the clone starts equal");
+  b(usize(0)).push_str("XY");
+  assert(b(0) == `abXY`, "the clone took the append");
+  assert(a(0) == `ab`, "the SOURCE string buffer is untouched — the clone is deep");
+});
+test("Array Hash agrees with Eq through a HashMap key", {
+  m := HashMap(Array(u8, 4), i32).new();
+  k1 := Array(u8, 4)(u8(1), u8(2), u8(3), u8(4));
+  k2 := Array(u8, 4)(u8(1), u8(2), u8(3), u8(4));
+  k3 := Array(u8, 4)(u8(9), u8(9), u8(9), u8(9));
+  m.insert(k1, i32(11));
+  m.insert(k3, i32(33));
+  assert(m.len() == usize(2), "two distinct keys");
+  assert(match(m.get(k2), .Some(v) => (v == i32(11)), .None => false), "an EQUAL key finds the entry — Eq and Hash agree");
+  assert(match(m.get(k3), .Some(v) => (v == i32(33)), .None => false), "the second key round-trips");
+  m.insert(k2, i32(22));
+  assert(m.len() == usize(2), "re-inserting an equal key replaces rather than adds");
 });

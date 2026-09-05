@@ -1,8 +1,9 @@
 # A generic trait impl over `Array(T, N)` emits `(// Unknown type: Array(u16, N))` into the `==` argument cast, destroying the C
 
-**Status: OPEN.** **Class**: crash (build-breaking) — the emitted C does not
-compile, and the `//` comment swallows the rest of the line, so the error
-cascade points nowhere near the cause.
+**Status: FIXED 2026-09-05** (change 1 only — see "Fix" below; change 2, the
+`// Unknown type:` fallback itself, is still open). **Class**: crash
+(build-breaking) — the emitted C did not compile, and the `//` comment swallowed
+the rest of the line, so the error cascade pointed nowhere near the cause.
 
 **Found**: 2026-09-04, measuring the `net` row of the std API audit. This is
 what blocks the correct, prelude-wide fix for
@@ -160,15 +161,32 @@ receiver:
 
 ## Fix
 
-Two changes; do both.
+Two changes. Change 1 LANDED 2026-09-05; change 2 is still open.
 
-1. **Resolve the length vars on the operator-dispatch path**, where the
-   specialization is chosen — the same treatment
-   `_resolve_array_length_vars_from_self` already gives the *return* type, now
-   applied to the parameter types recorded on the call's `ExprInfo`. Resolving
-   in the evaluator (rather than patching the cast in codegen) is the right
-   layer: codegen reading a type that still says `N` is a symptom, and the same
-   unresolved type will resurface in the next consumer.
+1. **LANDED — but one level deeper than described here.** The operator-dispatch
+   path is not the origin: `substitute` itself could not resolve a const-generic
+   array LENGTH, because a length var is not a `SomeT` (`TypeValue.Array` stores
+   it as the plain string `length_var`, `src/types/definitions.yo:155`), so the
+   name/level map never reached it — and the `Self` binding could not either,
+   since `_is_self_pattern` covers Struct/EnumT only. Every consumer of a
+   generic-impl method type over `Array(T, N)` saw the malformed
+   `Array(u16, length = 0, length_var = "N")`, the operator-argument cast being
+   merely the loudest.
+
+   `Substitution` now carries length bindings (`subst_add_len_var` /
+   `subst_lookup_len_var`, `src/types/substitution.yo`) which the `.Array` arm
+   applies, and `find_methods_from_generic_impls`
+   (`src/evaluator/values/impl.yo`) registers each value binder's `IntLit` from
+   the match's `g_last_match_binding_vals` side channel before substituting.
+
+   One rule matters: `_without_len_vars` STOPS the resolution at a NOMINAL
+   boundary (Struct / EnumT / TraitT). A nominal type's field types are part of
+   its identity — `type_key` hashes them and the ctfe instantiation memo
+   canonicalizes a def-era instance to its concrete twin by that key — so
+   rewriting `_ArrayIter(T, N)._arr` minted a key no memo entry matched: one Yo
+   struct id became two C typedefs and `into_iter` returned the wrong one
+   ("returning '__yo_t18' from a function with incompatible result type
+   '__yo_t38'", measured on tests/array.test.yo).
 
 2. **Stop emitting a `//` comment as a type.** `get_type_string`'s two fallback
    sites (`src/codegen/utils/index.yo:1220-1224` and `:1355-1359`) turn "I
@@ -188,11 +206,12 @@ output.
 
 ## Regression test
 
-- `tests/array.test.yo`: a generic `impl(generic(T, N), where(T <: Eq(T)),
-  Array(T, N), Eq(Self)(…))` compared with `==` at two different lengths in one
-  file (two lengths matters — it is what forces two specializations of the same
-  impl). Must compile and produce the right answers. It is red today (C
-  compiler failure).
+- `tests/array.test.yo` (LANDED): the prelude's own `impl(generic(T, U),
+  where(T <: Eq(T)), Array(T, U), Eq(Self)(…))` compared with `==` at two
+  different lengths in one file (two lengths matters — it is what forces two
+  specializations of the same impl), plus `Ord`, `cmp`, `Clone` and a
+  `HashMap(Array(u8, 4), i32)` round-trip. Red before the fix (C compiler
+  failure / "Expected bool, Given unit").
 - `tests/generic_impl_trait_default_ne.test.yo` or a sibling: the same impl
   reached through the defaulted `!=`, so the trait-default route is covered too.
 - A codegen guard test for change 2: any construct that still reaches the
