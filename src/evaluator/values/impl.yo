@@ -78,10 +78,11 @@ _(env : impl_dbg_env) :: import("std/env");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type } :: import("../../types/guards.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ subst_new, subst_add, subst_set_self, substitute } :: import("../../types/substitution.yo");
+{ subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types } :: import("../../types/utils.yo");
 { type_key } :: import("../../types/type_key.yo");
 { random_id } :: import("../../utils.yo");
+{ parse_raw_int } :: import("../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
 {
@@ -1784,6 +1785,32 @@ find_methods_from_generic_impls :: (
                     });
                   },
                   _ => ()
+                );
+                // A VALUE binder (`generic(N : usize)`) is not a `SomeT`, so the
+                // name/level map above cannot reach it — and neither can the
+                // `Self` binding, whose exact-pattern test covers Struct/EnumT
+                // only. `Array(T, N)` therefore came out of `substitute` as
+                // `Array(u16, length = 0, length_var = "N")`, a type with no C
+                // rendering: codegen's `get_type_string` spells it as the
+                // comment `// Unknown type: Array(u16, N)`, which then swallowed
+                // the rest of the emitted line (the `==`-on-Array build break,
+                // issues/fixed/array-const-generic-length-unresolved-in-the-operator-call-cast.md).
+                // Bind the length by NAME from the match's IntLit side channel
+                // (`g_last_match_binding_vals`, index-aligned with `bindings`).
+                match(
+                  match_binding_vals.get(sb_i),
+                  .Some(sb_val) => match(
+                    sb_val,
+                    .IntLit(sb_raw) => match(
+                      parse_raw_int(sb_raw),
+                      .Some(sb_n) => if(sb_n >= i64(0), {
+                        subst_add_len_var(spec_s, sb_name.clone(), usize(sb_n));
+                      }),
+                      .None => ()
+                    ),
+                    _ => ()
+                  ),
+                  .None => ()
                 );
                 sb_i = (sb_i + usize(1));
               });

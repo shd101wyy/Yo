@@ -1023,16 +1023,32 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
             ei.variable_name,
             .Some(src_vn) => {
               src_c_name := get_variable_name_for_codegen(src_vn, Option(Environment).Some(ei.env));
-              if(src_c_name != fallback_code.trim(), {
-                eff_ty := match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty);
-                decl0 := indent.clone();
-                decl0.push_string(get_variable_type_string(eff_ty, src_c_name.clone(), context.base));
-                decl0.push_str(" = ");
-                decl0.push_string(fallback_code.clone());
-                decl0.push_str(";");
-                em.emit_string_line(decl0);
-              });
-              fallback_code_2 = src_c_name;
+              src_deref_read := `(*${src_c_name})`;
+              // A by-`ref` binding (`inout(name) : T`) READS as `(*name)` while
+              // its recorded `variable_name` is the bare `name`. The
+              // spellings-differ test below then declared `T name = (*name);`,
+              // which shadows the C PARAMETER in its own scope — clang rejects
+              // it ("redefinition of 'name' with a different type"). The value
+              // is already reachable through the deref, so use that read
+              // directly and declare nothing.
+              cond(
+                (src_c_name == fallback_code.trim()) => {
+                  fallback_code_2 = src_c_name;
+                },
+                (fallback_code.trim() == src_deref_read) => {
+                  fallback_code_2 = fallback_code.clone();
+                },
+                true => {
+                  eff_ty := match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty);
+                  decl0 := indent.clone();
+                  decl0.push_string(get_variable_type_string(eff_ty, src_c_name.clone(), context.base));
+                  decl0.push_str(" = ");
+                  decl0.push_string(fallback_code.clone());
+                  decl0.push_str(";");
+                  em.emit_string_line(decl0);
+                  fallback_code_2 = src_c_name;
+                }
+              );
             },
             .None => ()
           );
@@ -1040,6 +1056,16 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
         // The dup result's C variable name: Some for value-type dups (their inline form
         // materializes a result temp), None for ref-handle dups (which lower to
         // `incr_rc(arg)` with no result temp — the caller keeps using the raw value).
+        //
+        // A result temp only STANDS IN for the source when it holds the same
+        // type. An ELEMENT-WISE dup does not: `___dup` of an `Array(T, N)` (and
+        // of a tuple) lowers to `begin(__yo_dup_array_element(v, 0), …)`, which
+        // bumps the elements of `v` IN PLACE and whose begin-tail temp is the
+        // last ELEMENT — adopting it assigned a `String` to an
+        // `Array_String_2` local ("initializing 'Array___yo_t0_2' with an
+        // expression of incompatible type '__yo_t0'"). Require the recorded
+        // types to agree; otherwise the caller keeps using the source value,
+        // which the in-place dup has already retained.
         dup_result_name := match(
           dups.get(usize(0)),
           .Some(dup_expr) => if(
@@ -1048,7 +1074,11 @@ emit_deferred_dup_or_code :: (fn(expr : AstExpr, fallback_code : String, indent 
               context.base.get_expr_info(dup_expr),
               .Some(dei) => match(
                 dei.variable_name,
-                .Some(dvn) => Option(String).Some(get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env))),
+                .Some(dvn) => if(
+                  type_key(dei.ty) == type_key(ei.ty),
+                  Option(String).Some(get_variable_name_for_codegen(dvn, Option(Environment).Some(dei.env))),
+                  Option(String).None
+                ),
                 .None => Option(String).None
               ),
               .None => Option(String).None
