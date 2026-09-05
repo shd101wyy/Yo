@@ -2,6 +2,7 @@
 open(import("std/string"));
 open(import("std/fmt"));
 open(import("std/collections/array_list"));
+{ HashMap } :: import("std/collections/hash_map");
 // `unit` in a C DECLARATION position — a by-value parameter, a struct field, a
 // tuple element, a generic instantiated at T = unit — used to be emitted as C
 // `void`, which is not an object type: "argument may not have 'void' type",
@@ -40,4 +41,183 @@ test("unit as an enum payload still works", {
   assert(o.is_some(), "Option(unit)");
   r := Result(unit, String).Ok(());
   assert(r.is_ok(), "Result(unit, E)");
+});
+// ---------------------------------------------------------------------------
+// LAYOUT: `sizeof` of an aggregate with a `unit` field must equal the C struct
+// codegen emits for it.
+//
+// C has no zero-sized object type, so a `unit` in a STORAGE position is a
+// one-byte placeholder (get_storage_type_string). `sizeof` folds to a C literal
+// and then sizes allocations that C-typed pointer arithmetic strides through,
+// so a layout model that counts the field as zero makes every
+// `malloc(n * sizeof(S))` short of the `n * sizeof(struct S)` actually
+// addressed — an out-of-bounds heap write from ordinary safe Yo.
+// issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md
+//
+// An ENUM VARIANT field is the one position that does NOT reserve the byte:
+// generate_enum_declaration erases `unit` variant fields from the data union,
+// and get_size_of_type's enum arm filters them to match. The enum sizes below
+// pin that exception.
+//
+// `comptime_assert` is INERT inside a fn/test body — it only fires at module
+// level (issues/comptime-assert-never-fires-inside-a-function-body.md) — so
+// every size is pinned as a module-level `::` binding and read back by a
+// RUNTIME assert. The round-trip tests that follow are what catch a
+// CODEGEN-side change: a size equality alone would not notice the C struct
+// moving underneath it.
+// ---------------------------------------------------------------------------
+_OnlyUnit :: struct(u : unit);
+_UnitFirst :: struct(u : unit, a : i32);
+_UnitMid :: struct(a : i32, u : unit, b : i32);
+_UnitLast :: struct(a : i32, u : unit);
+_AllUnits :: struct(x : unit, y : unit, z : unit);
+_NestedUnit :: struct(a : i32, inner : _UnitLast, b : i32);
+_AllUnitsWrapped :: struct(a : i32, inner : _AllUnits, b : i32);
+_UnitTuple :: Tuple(i32, unit);
+_AllUnitTuple :: Tuple(unit, unit);
+_UnitPayloadEnum :: enum(A(a : i32, u : unit), B);
+_SZ_UNIT :: sizeof(unit);
+_SZ_ONLY_UNIT :: sizeof(_OnlyUnit);
+_SZ_UNIT_FIRST :: sizeof(_UnitFirst);
+_SZ_UNIT_MID :: sizeof(_UnitMid);
+_SZ_UNIT_LAST :: sizeof(_UnitLast);
+_SZ_ALL_UNITS :: sizeof(_AllUnits);
+_SZ_NESTED_UNIT :: sizeof(_NestedUnit);
+_SZ_ALL_UNITS_WRAPPED :: sizeof(_AllUnitsWrapped);
+_SZ_UNIT_TUPLE :: sizeof(_UnitTuple);
+_SZ_ALL_UNIT_TUPLE :: sizeof(_AllUnitTuple);
+_SZ_UNIT_PAYLOAD_ENUM :: sizeof(_UnitPayloadEnum);
+_SZ_OPTION_UNIT :: sizeof(Option(unit));
+_ALIGN_ONLY_UNIT :: alignof(_OnlyUnit);
+_ALIGN_UNIT_LAST :: alignof(_UnitLast);
+test("sizeof of a unit-bearing aggregate matches the emitted C struct", {
+  assert(_SZ_UNIT == usize(1), "unit is the one-byte C storage placeholder");
+  // struct { uint8_t u; }
+  assert(_SZ_ONLY_UNIT == usize(1), "struct(u : unit)");
+  assert(_ALIGN_ONLY_UNIT == usize(1), "struct(u : unit) alignment");
+  // struct { uint8_t u; int32_t a; } — 1 + 3 pad + 4
+  assert(_SZ_UNIT_FIRST == usize(8), "unit field FIRST");
+  // struct { int32_t a; uint8_t u; int32_t b; } — 4 + 1 + 3 pad + 4
+  assert(_SZ_UNIT_MID == usize(12), "unit field in the MIDDLE");
+  // struct { int32_t a; uint8_t u; } — 4 + 1 + 3 tail pad
+  assert(_SZ_UNIT_LAST == usize(8), "unit field LAST");
+  assert(_ALIGN_UNIT_LAST == usize(4), "unit field LAST alignment");
+  // struct { uint8_t x, y, z; }
+  assert(_SZ_ALL_UNITS == usize(3), "an ALL-unit aggregate is one byte per field");
+  // struct { int32_t a; struct { int32_t; uint8_t; } inner; int32_t b; }
+  assert(_SZ_NESTED_UNIT == usize(16), "a NESTED aggregate carrying a unit field");
+  // struct { int32_t a; struct { uint8_t x, y, z; } inner; int32_t b; }
+  assert(_SZ_ALL_UNITS_WRAPPED == usize(12), "a nested ALL-unit aggregate");
+  // typedef struct { int32_t _0; uint8_t _1; }
+  assert(_SZ_UNIT_TUPLE == usize(8), "a tuple with a unit element");
+  // typedef struct { uint8_t _0; uint8_t _1; }
+  assert(_SZ_ALL_UNIT_TUPLE == usize(2), "an ALL-unit tuple");
+  // The enum exception: the data union keeps only the non-unit variant fields,
+  // so this is tag(4) + union { struct { int32_t a; } } (4) — NOT 12.
+  assert(_SZ_UNIT_PAYLOAD_ENUM == usize(8), "unit variant fields are erased, not padded");
+  assert(_SZ_OPTION_UNIT == usize(4), "Option(unit) is tag-only");
+});
+test("an ArrayList of a unit-bearing aggregate round-trips every element", {
+  // The growth path is `malloc(sizeof(T) * capacity)` addressed as `T*`, so a
+  // sizeof that is short of the C stride writes past the block. Read every
+  // element back — a short buffer scrambles the sentinels even when it does
+  // not fault.
+  n := usize(64);
+  first := ArrayList(_UnitFirst).new();
+  mid := ArrayList(_UnitMid).new();
+  last := ArrayList(_UnitLast).new();
+  nested := ArrayList(_NestedUnit).new();
+  wrapped := ArrayList(_AllUnitsWrapped).new();
+  (i : usize) = usize(0);
+  while(i < n, {
+    v := i32(i);
+    first.push(_UnitFirst(u : (), a : v));
+    mid.push(_UnitMid(a : v, u : (), b : (v + i32(1000))));
+    last.push(_UnitLast(a : v, u : ()));
+    nested.push(
+      _NestedUnit(a : v, inner : _UnitLast(a : (v + i32(7)), u : ()), b : (v + i32(2000)))
+    );
+    wrapped.push(
+      _AllUnitsWrapped(
+        a : v,
+        inner : _AllUnits(x : (), y : (), z : ()),
+        b : (v + i32(3000))
+      )
+    );
+    i = (i + usize(1));
+  });
+  assert(first.len() == n, "ArrayList(_UnitFirst) length");
+  assert(mid.len() == n, "ArrayList(_UnitMid) length");
+  assert(last.len() == n, "ArrayList(_UnitLast) length");
+  assert(nested.len() == n, "ArrayList(_NestedUnit) length");
+  assert(wrapped.len() == n, "ArrayList(_AllUnitsWrapped) length");
+  (bad : usize) = usize(0);
+  i = usize(0);
+  while(i < n, {
+    v := i32(i);
+    if(match(first.get(i), .Some(e) => e.a, .None => i32(-1)) != v, {
+      bad = (bad + usize(1));
+    });
+    if(match(mid.get(i), .Some(e) => e.a, .None => i32(-1)) != v, {
+      bad = (bad + usize(1));
+    });
+    if(match(mid.get(i), .Some(e) => e.b, .None => i32(-1)) != (v + i32(1000)), {
+      bad = (bad + usize(1));
+    });
+    if(match(last.get(i), .Some(e) => e.a, .None => i32(-1)) != v, {
+      bad = (bad + usize(1));
+    });
+    if(match(nested.get(i), .Some(e) => e.a, .None => i32(-1)) != v, {
+      bad = (bad + usize(1));
+    });
+    if(match(nested.get(i), .Some(e) => e.inner.a, .None => i32(-1)) != (v + i32(7)), {
+      bad = (bad + usize(1));
+    });
+    if(match(nested.get(i), .Some(e) => e.b, .None => i32(-1)) != (v + i32(2000)), {
+      bad = (bad + usize(1));
+    });
+    if(match(wrapped.get(i), .Some(e) => e.a, .None => i32(-1)) != v, {
+      bad = (bad + usize(1));
+    });
+    if(match(wrapped.get(i), .Some(e) => e.b, .None => i32(-1)) != (v + i32(3000)), {
+      bad = (bad + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  assert(bad == usize(0), "every sentinel survives the sizeof-sized buffer");
+});
+test("an ArrayList of an ALL-unit aggregate stores every element", {
+  // sizeof(_AllUnits) used to be 0, so this mallocs a ZERO-byte block and then
+  // stores a 3-byte struct into it — the store is NOT suppressed the way a bare
+  // `unit` store is, because the whole aggregate is written.
+  xs := ArrayList(_AllUnits).new();
+  (i : usize) = usize(0);
+  while(i < usize(64), {
+    xs.push(_AllUnits(x : (), y : (), z : ()));
+    i = (i + usize(1));
+  });
+  assert(xs.len() == usize(64), "ArrayList(_AllUnits) length");
+  assert(xs.get(usize(63)).is_some(), "the last element is readable");
+});
+test("HashMap(K, unit) does not overflow its bucket array", {
+  // `bucket_size :: sizeof(MapEntry(K, V))` sizes the bucket array, which is
+  // then indexed as `MapEntry*`. With V = unit that entry carries a `unit`
+  // field, so a zero-counted `unit` made an EMPTY 16-bucket map already 64
+  // bytes short.
+  m := HashMap(i32, unit).new();
+  (i : i32) = i32(0);
+  while(i < i32(64), {
+    _r := m.insert(i, ());
+    i = (i + i32(1));
+  });
+  assert(m.len() == usize(64), "every key is stored");
+  (missing : i32) = i32(0);
+  (j : i32) = i32(0);
+  while(j < i32(64), {
+    if(!m.contains_key(j), {
+      missing = (missing + i32(1));
+    });
+    j = (j + i32(1));
+  });
+  assert(missing == i32(0), "every key is found again");
 });
