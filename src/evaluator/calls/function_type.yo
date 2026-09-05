@@ -82,7 +82,9 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
   create_function_body_evaluation_context,
   hard_swallow_diagnostic,
   forward_ref_diagnostic,
-  publish_pending_phase_a
+  publish_pending_phase_a,
+  forcing_depths,
+  truncate_forcing_depths
 } :: import("../context.yo");
 { random_id } :: import("../../utils.yo");
 { register_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
@@ -803,7 +805,9 @@ _rerun_pending_def_evals :: (fn(caller_env : Environment, ctx : EvalContext) -> 
         rp_ctx := create_function_body_evaluation_context(pd.function_type, rp_fv, rp_env, ctx);
         rp_out := ArrayList(AstExpr).new();
         rp_prev_trial := set_in_def_time_trial(true);
+        rp_depths := forcing_depths();
         _trial_eval_fn_body(pd.body.clone(), rp_env, rp_ctx, rp_out);
+        truncate_forcing_depths(rp_depths);
         ___rp_tr := set_in_def_time_trial(rp_prev_trial);
         if(pd.attempts > usize(1), {
           pd.attempts = (pd.attempts - usize(1));
@@ -1307,7 +1311,9 @@ Result type: ${type_to_string(result_box)}`
           // batch main's own trial resolve abstractly
           // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
           // closure-arg ExprInfo under the wip synthesis loosenings).
+          flow_depths := forcing_depths();
           _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
+          truncate_forcing_depths(flow_depths);
           pop_active_where_trait_ids();
           if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
             eprintln(`[flow-post] out=${flow_out.len().to_string()} pending=${_trial_swallow_pending().to_string()} fwd=${has_fwd_comptime_fn_cap.to_string()}`);
@@ -1598,7 +1604,11 @@ Result type: ${type_to_string(result_box)}`
             };
             push_active_where_trait_ids(dg_where_ids);
             dg_prev_trial := set_in_def_time_trial(true);
+            // A swallowed throw strands whatever the body pushed on the forcing
+            // stacks (an impl abandoned inside the body) — truncate back.
+            dg_depths := forcing_depths();
             _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out);
+            truncate_forcing_depths(dg_depths);
             ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();
             // P0 (plans/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
