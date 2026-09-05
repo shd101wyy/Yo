@@ -96,37 +96,3 @@ preinstalled. An installer's job is to work on the machine CI never runs on, so
 "green in install-scripts.yml" says nothing about a fresh box. The same shape
 produced the v0.2.10 release failure, where a job died for want of liburing
 that every other job happened to have.
-
-## The class recurred 2026-09-04 — the link-flag list lives in FOUR places
-
-The Schannel TLS backend (`plans/D6_TLS_PLAN.md`) needed `-lsecur32 -lcrypt32`
-on Windows targets. Adding them to `src/main.yo`'s link command was not enough,
-and the PR's Windows legs failed at link with `undefined symbol:
-AcquireCredentialsHandleW`:
-
-```
-lld-link: error: undefined symbol: __declspec(dllimport) AcquireCredentialsHandleW
->>> referenced by yo-windows-arm64-b2ba79.o:(__yo_tls_ctx_new)
-```
-
-Because a **cross-emitted compiler is linked by CI's own clang line**, not by
-`src/main.yo`. The Windows system-library list is duplicated at four sites and
-every one has to be updated together:
-
-| site | what it links |
-| --- | --- |
-| `src/main.yo` (the Windows branch of the link command) | every program the compiler compiles |
-| `.github/workflows/test.yml` ("Compile the cross-emitted C natively") | the suite's own compiler binary |
-| `.github/workflows/release.yml` ("Compile the cross-emitted C natively (Windows)") | the shipped seed bundle |
-| `scripts/install.ps1` (prose) | what it tells a user the Windows SDK must provide |
-
-**Rule for the next system library:** `grep -rn 'lws2_32' .github/workflows/
-scripts/ src/` and update every hit in the same commit. A miss is invisible on
-macOS and Linux and only shows up ~50 minutes into a PR's Windows legs. The
-same discipline already applies to the OpenSSL flags on the unix side (the
-battery scripts and the fixpoint workflows carry their own `pkg-config openssl`
-lines for exactly this reason).
-
-A single shared source for the list would be better than four copies. That is
-not a change to make inside a TLS PR, but it is the real fix for the class and
-is worth its own change.
