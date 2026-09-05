@@ -115,6 +115,36 @@ This function generates C code for `value(arg)` dispatched through the Index tra
 
 Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `is_function_value_with_only_builtin_yo_inline_function_call` (`src/codegen/utils/index.yo`). The codegen skips generating standalone C function definitions for these. Instead, `_generate_index_trait_call` inlines the expansion at each call site. This avoids issues where the skip logic would also affect other specialized impl methods like `clone`.
 
+## Dyn codegen — `dyn_impls` is the whole-program registry, and it decides
+
+`context.base.dyn_impls` holds one entry per `dyn()` CREATION site, keyed by
+`(dyn_type, concrete_type)`. It is filled by the collection pass
+(`collect_required_functions`, `src/codegen/functions/collection.yo`), re-keyed
+to C names by `fixup_dyn_impl_keys`, and then read by everything that emits dyn
+machinery — the box typedefs (`generate_dyn_box_types`), the box ctor/dispose
+and wrapper functions, and the vtables with their `__yo_typeid_<concrete>`
+statics (`src/codegen/functions/dyn.yo`). Because collection runs before any
+function body is emitted (`src/codegen/codegen_c.yo`), a body emitter can treat
+the registry as complete.
+
+Two consequences worth knowing before touching `src/codegen/exprs/downcast.yo`:
+
+- **A registry MISS is a decision, not a fallback.** The runtime is-check is
+  `dyn.vtable->__yo_type_id == &__yo_typeid_<T>`, and that static's address only
+  ever lands in a vtable built from a registry entry. No entry for
+  `(Dyn, T)` therefore means the check can never be true, and `downcast` lowers
+  to a constant `.None` (with the operand still spliced for effect). Falling
+  through to the object cast instead emitted a `void*`-to-struct cast, which is
+  not valid C — `issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md`.
+- **Resolve `concrete_type` through `resolve_some_type_to_concrete` before
+  keying or comparing it**, the way `generate_dyn_box_types` does. An entry can
+  record an unresolved `SomeT` concrete, and an unresolved comparison turns a
+  real match into a miss.
+
+A fieldless enum target hides bugs in this area: it lowers to a C integer, so a
+bad pointer cast compiles as a pointer-to-int conversion. Reproduce with a
+payload-carrying variant or a struct-shaped value type (`String`).
+
 ## Algebraic effects codegen
 
 > **Reading this section.** The load-bearing part is the **emitted C contract**

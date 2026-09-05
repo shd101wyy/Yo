@@ -19,6 +19,34 @@ test("Test downcast AnyError back to String", {
     .None => assert(false, "Expected Some(String), got None")
   );
 });
+// Regression (issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md):
+// the NEGATIVE half of an error-classification helper — "is this AnyError some
+// OTHER error type?" — asked about an error type this program never throws.
+// Nothing here wraps a `NeverThrownError` in a `dyn()`, so no vtable carries its
+// type id and the answer is statically `.None`; the emitted C used to be an
+// object cast of a value enum, which the C compiler rejected outright.
+test("Test downcast AnyError to an error type this program never throws", {
+  NeverThrownError :: enum(Boom(code : i32));
+  impl(NeverThrownError, ToString(to_string : (self -> `never thrown`)));
+  impl(NeverThrownError, Error());
+  is_never_thrown :: (fn(candidate : AnyError) -> bool)(
+    match(downcast(candidate, NeverThrownError), .Some(_) => true, .None => false)
+  );
+  (err : AnyError) = dyn(`plain message`);
+  assert(!is_never_thrown(err), "a never-thrown error type can never be inside an AnyError");
+  match(
+    downcast(err, NeverThrownError),
+    .Some(_) => assert(false, "Expected None for a never-thrown error type"),
+    .None => assert(true)
+  );
+  // Over-rejection canary: the value target this file DOES wrap must still be
+  // extracted out of its box.
+  match(
+    downcast(err, String),
+    .Some(s) => assert(s == `plain message`, "Expected the String payload back"),
+    .None => assert(false, "Expected Some(String), got None")
+  );
+});
 test("Test Error source returns None by default", {
   (err : AnyError) = dyn(`default source`);
   match(
