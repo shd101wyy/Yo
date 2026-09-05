@@ -1207,10 +1207,12 @@ which otherwise surfaces as the misleading
   never a bare `"{ … }"`.
 - A raw backtick inside a `"..."` code string splits the parse — generate
   `String.from("x")` in the code instead of a template literal.
-- Invoke derives with trait arguments: `derive(Point, Eq(Point))`. The
-  bare `derive(Point, Eq)` kills the module's evaluation with an
-  error anchored somewhere else entirely
-  (issues/bare-derive-form-kills-module-eval.md).
+- Invoke derives with trait arguments: `derive(Point, Eq(Point))`. The bare
+  `derive(Point, Eq)` is REJECTED — since 2026-09-05 with the real cause
+  anchored on the `derive(...)` line ("derive on \"Point\" failed: Argument count
+  mismatch: expected 1, got 0"); before that it killed the module's evaluation
+  and blamed Point's next use
+  (issues/fixed/bare-derive-form-kills-module-eval.md).
 
 ### Template strings cannot be nested inside `${...}` interpolations
 

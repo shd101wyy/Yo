@@ -5735,6 +5735,132 @@ impl(
     )
   )
 );
+/// `Eq` / `Ord` / `Clone` / `Hash` for `Array(T, N)`.
+///
+/// Fixed-size arrays are VALUE types with a compile-time length, so every one
+/// of these is a straight walk over `[0, U)` and needs no length prefix to be
+/// prefix-free. Without them a `derive(Eq)` / `derive(Ord)` / `derive(Clone)`
+/// over a struct or enum with an `Array(T, N)` field generated a body calling
+/// an operation the field type did not have; the derive rule's definition-time
+/// trial swallowed the error and the program `abort()`ed at runtime
+/// (issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md).
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Eq(T)),
+  Array(T, U),
+  Eq(Self)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)({
+      i := usize(0);
+      while(runtime(i < U), {
+        cond(
+          (lhs(i) == rhs(i)) => (),
+          true => {
+            return(false);
+          }
+        );
+        i = (i + usize(1));
+      });
+      return(true);
+    })
+  )
+);
+/// Lexicographic order over the elements, in index order. Equal arrays are
+/// neither `<` nor `>`.
+impl(
+  generic(T : Type, U : usize),
+  where(T <: (Eq(T), Ord(T))),
+  Array(T, U),
+  Ord(Self)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)({
+      i := usize(0);
+      while(runtime(i < U), {
+        cond(
+          (lhs(i) != rhs(i)) => {
+            return(lhs(i) < rhs(i));
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      return(false);
+    }),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)({
+      i := usize(0);
+      while(runtime(i < U), {
+        cond(
+          (lhs(i) != rhs(i)) => {
+            return(lhs(i) < rhs(i));
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      return(true);
+    }),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)({
+      i := usize(0);
+      while(runtime(i < U), {
+        cond(
+          (lhs(i) != rhs(i)) => {
+            return(lhs(i) > rhs(i));
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      return(false);
+    }),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)({
+      i := usize(0);
+      while(runtime(i < U), {
+        cond(
+          (lhs(i) != rhs(i)) => {
+            return(lhs(i) > rhs(i));
+          },
+          true => ()
+        );
+        i = (i + usize(1));
+      });
+      return(true);
+    })
+  )
+);
+/// Element-wise deep clone. The `out := self` copy establishes an array of the
+/// right shape (the only way to spell one when `U` is generic); every slot is
+/// then overwritten with the element's own clone, so the result shares nothing
+/// with `self` beyond what `T.clone()` shares.
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Clone),
+  Array(T, U),
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)({
+      out := self;
+      i := usize(0);
+      while(runtime(i < U), {
+        out(i) = self(i).clone();
+        i = (i + usize(1));
+      });
+      return(out);
+    })
+  )
+);
+/// Hash the elements in index order. A fixed-size array is prefix-free by
+/// construction — its length is part of its type.
+impl(
+  generic(T : Type, U : usize),
+  where(T <: Hash),
+  Array(T, U),
+  Hash(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+      i := usize(0);
+      while(runtime(i < U), {
+        self(i).hash(hasher);
+        i = (i + usize(1));
+      });
+    })
+  )
+);
 /// RawSlice — a plain ptr+len pair for PRIVILEGED (pragma'd) code: C
 /// interop and std internals. Carries a raw pointer, so the existing
 /// raw-pointer gates apply: safe code cannot name or construct it.

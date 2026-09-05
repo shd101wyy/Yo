@@ -12,7 +12,7 @@ the intended error.
 ## Symptom
 
 Any program whose body fails definition-time evaluation and is swallowed —
-`issues/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`
+`issues/fixed/derive-eq-clone-ord-over-a-fixed-size-array-field-aborts-at-runtime.md`
 is a four-line example — reaches codegen as an untranspilable function. Codegen
 rewrites it to an `abort()` stub and declares it with a GNU `error` attribute
 (`src/codegen/functions/generation.yo:826`), whose comment states the design:

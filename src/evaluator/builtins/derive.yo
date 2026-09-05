@@ -42,9 +42,52 @@ open(import("std/string"));
   expr_info_table_set
 } :: import("../../expr_info.yo");
 { format_error_message } :: import("../../error.yo");
-{ evaluate_expression } :: import("../exprs/expr.yo");
+{ evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { extract_derive_key, get_derive_rule, get_derive_rule_type } :: import("./derive_rule.yo");
 { Exception } :: import("std/error");
+{ type_to_string } :: import("../../types/string.yo");
+// ---------------------------------------------------------------------------
+// Derive-impl failure channel
+//
+// The generated `impl(...)` is evaluated under a LOCAL swallowing exception so
+// the real message can be re-raised through the derive's own `exn`, anchored at
+// the `derive(...)` statement instead of at the prelude quote template the impl
+// was spliced from. A capture-free `->` handler cannot reach an outer local, so
+// the message travels through a module-level box — the same shape as
+// anonymous_function.yo's `g_anon_swallow_msg`. Single-threaded evaluator.
+// ---------------------------------------------------------------------------
+(g_derive_impl_err : ArrayList(String)) = ArrayList(String).new();
+_flag_derive_impl_err :: (fn(msg : String) -> unit)({
+  g_derive_impl_err.clear();
+  g_derive_impl_err.push(msg);
+});
+_clear_derive_impl_err :: (fn() -> unit)({
+  g_derive_impl_err.clear();
+});
+_derive_impl_err_message :: (fn() -> String)(
+  match(
+    g_derive_impl_err.get(usize(0)),
+    .Some(m) => m.clone(),
+    .None => String.from("the generated impl failed to evaluate")
+  )
+);
+/// Evaluate the derive-generated `impl(...)` under a swallowing exception, so a
+/// throw leaves `out` EMPTY (the `_trial_eval_anon_body` pattern) with the
+/// message parked in the box above. Never a silent success: the caller re-raises.
+_derive_eval_impl :: (
+  fn(impl_expr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+)({
+  inner_exn := Exception(
+    throw : (
+      _err -> {
+        _flag_derive_impl_err(_err.to_string());
+        unwind(());
+      }
+    )
+  );
+  evaluated := evaluate_expression_raw(impl_expr, env, ctx, inner_exn);
+  out.push(evaluated);
+});
 // ---------------------------------------------------------------------------
 // call_registered_derive_rule
 //
@@ -257,7 +300,42 @@ call_registered_derive_rule :: (
   pop_env_frame(caller_env);
   // Desugar `if(...)` calls in the rule-built impl Expr (quote templates
   // skip load-time desugaring) so the emitted impl carries `cond` nodes.
-  evaled_result := evaluate_expression(desugar_if_calls(result_expr), caller_env, ctx);
+  //
+  // A derive rule's generated `impl(...)` is COMPILER-authored code with no user
+  // to blame, so its evaluation has no business being a swallowing trial.
+  // `evaluate_expression` is the wrapper with NO outer exn — it eats the throw
+  // and hands back an error node — which is why `derive(S, Ord(S))` without a
+  // prior `Eq` reported `Variable "S" not found` at S's NEXT use instead of the
+  // unsatisfied `where(Self <: Eq(Rhs))` it actually hit, and why the bare
+  // `derive(Point, Eq)` form (which splices the invalid trait application
+  // `Eq()`) killed the module the same way. Both left `yo check` saying
+  // "evaluator OK".
+  // issues/fixed/derive-ord-without-a-prior-derive-eq-kills-module-evaluation.md
+  // issues/fixed/bare-derive-form-kills-module-eval.md
+  _clear_derive_impl_err();
+  impl_out := ArrayList(AstExpr).new();
+  _derive_eval_impl(desugar_if_calls(result_expr), caller_env, ctx, impl_out);
+  if(impl_out.len() == usize(0), {
+    raw_msg := _derive_impl_err_message();
+    _clear_derive_impl_err();
+    // The dyn message often already carries an "Error: " prefix and
+    // format_error_message adds its own — strip one so it does not read
+    // "Error: Error:" (same rule as hard_swallow_diagnostic).
+    err_prefix := String.from("Error: ");
+    msg := cond(
+      raw_msg.starts_with(err_prefix) => raw_msg.substring(err_prefix.len(), raw_msg.len()),
+      true => raw_msg
+    );
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `derive on "${type_to_string(target_type)}" failed: ${msg}`
+        )
+      )
+    );
+  });
+  evaled_result := match(impl_out.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   result_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_result)),
     .Some(i) => i,
