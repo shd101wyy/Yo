@@ -158,15 +158,45 @@ test("fetch over https returns a real response (skips offline)", {
 // await inside — the latter is a nested blocking event loop and deadlocks
 // when called from the server TASK while the client waits underneath it
 // (issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md).
+// True once `b` ends with the CRLFCRLF that closes a request's header section.
+// Every request these servers receive is body-less, so that is the whole
+// message.
+_ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
+  n := b.len();
+  cond(
+    (n < usize(4)) => false,
+    true =>
+      (
+        (b(n - usize(4)) == u8(13)) && (b(n - usize(3)) == u8(10)) &&
+          (b(n - usize(2)) == u8(13)) && (b(n - usize(1)) == u8(10))
+      )
+  )
+});
+// Read a whole request, not just whatever the first `read` happened to return.
+// A single read is not enough for two separate reasons: a request can arrive
+// split across TCP segments, and bytes left sitting in the socket's receive
+// queue turn a later `close()` into an RST, which discards the response the
+// client has not read yet. Both make a server that answers correctly look like
+// one that did not.
 _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     buf := *(u8)(malloc(usize(4096)).unwrap());
-    n := e.io.await(stream.read(buf, usize(4096), e.io), e);
     bytes := ArrayList(u8).new();
-    i := usize(0);
-    while(runtime(i < n), {
-      bytes.push((buf.add(i)).*);
-      i = (i + usize(1));
+    eof := false;
+    while(runtime(!eof && !_ends_headers(bytes)), {
+      n := e.io.await(stream.read(buf, usize(4096), e.io), e);
+      cond(
+        (n == usize(0)) => {
+          eof = true;
+        },
+        true => {
+          i := usize(0);
+          while(runtime(i < n), {
+            bytes.push((buf.add(i)).*);
+            i = (i + usize(1));
+          });
+        }
+      );
     });
     free(.Some(*(void)(buf)));
     String.from_bytes(bytes)
@@ -519,14 +549,24 @@ test("fetch round-trips a binary body byte-for-byte", {
 // is the ONLY thing that can end the message, and a deadline turns a
 // mis-parse into a Timeout instead of a hang.
 // ============================================================================
-_serve_holding :: (
-  fn(listener : TcpListener, response : String, hold : Duration, io : Io) -> Impl(Future(unit, IoExn))
+// Write `response`, then TRAILING BYTES, on one connection, and close.
+//
+// The trailing bytes are the whole point. If the client frames the message by
+// its `Content-Length` it stops at the declared length and never sees them; if
+// it instead reads to EOF, they land in the body and the assertion below fails
+// on a VALUE. That is what makes these two tests deadline-free: the earlier
+// shape held the connection open and gave the client a timeout budget, so a
+// loaded runner could lose the race and abort the whole test binary
+// (measured on ubuntu-latest and macos-26-intel) without saying why.
+_serve_then_trailing :: (
+  fn(listener : TcpListener, response : String, trailing : String, io : Io) ->
+    Impl(Future(unit, IoExn))
 )(
   io.async(e => {
     s := e.io.await(listener.accept(e.io), e);
     _req := e.io.await(_read_request(s, e.io), e);
     _w := e.io.await(s.write_string(response, e.io), e);
-    e.io.await(sleep(hold, e.io), e.io);
+    _t := e.io.await(s.write_string(trailing, e.io), e);
     e.io.await(s.close(e.io), e);
     return(());
   })
@@ -540,10 +580,13 @@ test("a kept-alive response is framed by a Content-Length written without OWS", 
       }
     )
   );
-  // Capture-free by design (handlers are frame-bound): it can only unwind.
-  park_exn := Exception(
+  // Capture-free by design (handlers are frame-bound): it can only unwind — so
+  // it PRINTS first. A silent unwind here reaches the assertion below as a bare
+  // `.None`, which says the test failed but not what threw.
+  report_exn := Exception(
     throw : (
       err -> {
+        println(`  [no-OWS client] ${err.to_string()}`);
         unwind(());
       }
     )
@@ -551,24 +594,25 @@ test("a kept-alive response is framed by a Content-Length written without OWS", 
   addr := SocketAddr.loopback(u16(19969));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   server := io.spawn(
-    // 3000 ms hold vs a 1000 ms client budget. The PROPERTY under test is that
-    // Content-Length ends the client's read before the server closes, so the
-    // budget only has to sit comfortably between real loopback latency and the
-    // hold — 100 ms did not, and a loaded runner blew through it (the request
-    // then failed on the Linux sweep with exit 134, not a clean assertion).
-    _serve_holding(listener, `HTTP/1.1 200 OK\r\nContent-Length:5\r\n\r\nhello`, Duration.from_millis(i64(3000)), io),
-    // The server side parks rather than asserting: a client that hung up is not
-    // a server defect, and an `assert(false, …)` in a handler ABORTS the test
-    // BINARY, taking every later test in the batch with it. The client's body
-    // assertion below is this test's only verdict.
-    IoExn(io : io, exn : park_exn)
+    _serve_then_trailing(
+      listener,
+      `HTTP/1.1 200 OK\r\nContent-Length:5\r\n\r\nhello`,
+      `TRAILING-MUST-NOT-BE-READ`,
+      io
+    ),
+    IoExn(io : io, exn : report_exn)
   );
-  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1000)));
-  client := io.spawn(fetch_with(`http://127.0.0.1:19969/nows`, opts, io), IoExn(io : io, exn : park_exn));
+  client := io.spawn(
+    fetch_with(`http://127.0.0.1:19969/nows`, FetchOptions.new(), io),
+    IoExn(io : io, exn : report_exn)
+  );
   outcome := client.await(io);
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
-  assert(match(outcome, .Some(r) => (r.body == "hello"), .None => false), `a single-digit Content-Length with no space after the colon must end the message`);
+  assert(
+    match(outcome, .Some(r) => (r.body == "hello"), .None => false),
+    `a single-digit Content-Length with no space after the colon must end the message`
+  );
 });
 test("only a real Content-Length field line frames a kept-alive response", {
   exn := Exception(
@@ -579,29 +623,39 @@ test("only a real Content-Length field line frames a kept-alive response", {
       }
     )
   );
-  // Capture-free by design (handlers are frame-bound): it can only unwind.
-  park_exn := Exception(
+  // Capture-free by design (handlers are frame-bound): prints, then unwinds.
+  report_exn := Exception(
     throw : (
       err -> {
+        println(`  [X-CL client] ${err.to_string()}`);
         unwind(());
       }
     )
   );
   addr := SocketAddr.loopback(u16(19975));
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
-  // `X-Content-Length` ENDS with the name we want; matching it would ask for
-  // 99 bytes of a 5-byte body and park until the deadline.
+  // `X-Content-Length` ENDS with the name we want; the old unanchored match
+  // picked it up and asked for 99 bytes of a 5-byte body.
   server := io.spawn(
-    // Same margins and the same parking server as the sibling test above.
-    _serve_holding(listener, `HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 5\r\n\r\nhello`, Duration.from_millis(i64(3000)), io),
-    IoExn(io : io, exn : park_exn)
+    _serve_then_trailing(
+      listener,
+      `HTTP/1.1 200 OK\r\nX-Content-Length: 99\r\nContent-Length: 5\r\n\r\nhello`,
+      `TRAILING-MUST-NOT-BE-READ`,
+      io
+    ),
+    IoExn(io : io, exn : report_exn)
   );
-  opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1000)));
-  client := io.spawn(fetch_with(`http://127.0.0.1:19975/hijack`, opts, io), IoExn(io : io, exn : park_exn));
+  client := io.spawn(
+    fetch_with(`http://127.0.0.1:19975/hijack`, FetchOptions.new(), io),
+    IoExn(io : io, exn : report_exn)
+  );
   outcome := client.await(io);
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
-  assert(match(outcome, .Some(r) => (r.body == "hello"), .None => false), `X-Content-Length must not frame the message`);
+  assert(
+    match(outcome, .Some(r) => (r.body == "hello"), .None => false),
+    `X-Content-Length must not frame the message`
+  );
 });
 // RFC 9112 §6.3: a Content-Length that is present but unreadable is an
 // unrecoverable framing error. It used to fall back to -1 — "no such header" —
