@@ -1,9 +1,11 @@
 # `Url.parse`'s scheme-character guard tests the wrong byte, so it is always true and `"ht tp://x/"` parses
 
+**Status: FIXED 2026-09-05** — The scheme-byte guard tested `first` (already known to be ALPHA) instead of `ch`, so its disjunction was always true; it now tests `ch`. The whole-input pre-scan from the sibling issue catches `"ht tp://x/"` before the scheme scan is even reached, so both layers now reject it.
+
 **Found**: 2026-09-04, while verifying that `UrlError.InvalidCharacter` has no
 producer (std-API-audit re-measurement, dead-public-surface row) — the scheme scan
 is the *only* place in `std/url` that looks at individual characters, and it turns
-out not to reject anything. **Status**: OPEN. Measured against `develop`
+out not to reject anything. Measured against `develop`
 (`8d471c7df`) with `yo` 0.2.24 and `YO_STD=./std`.
 
 **Class**: wrong-value (a validation guard that can never fail; the `throw` it

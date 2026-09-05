@@ -1,8 +1,10 @@
 # `Url.parse` validates no characters — a URL with a raw CRLF splits the HTTP request it is fetched with
 
+**Status: FIXED 2026-09-05** — `Url.parse` now pre-scans the whole input against the RFC 3986 §2 byte set (`_is_uri_byte`) and throws `UrlError.InvalidCharacter(pos)` at the first offending byte — the producer the variant never had. Verified 0/12 → 12/12 rejections with the over-rejection canary at 10/10 both before and after.
+
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the dead-public-surface
 row (`UrlError.InvalidCharacter` is declared, documented and formatted, but nothing
-in the tree ever produces it). **Status**: OPEN. Measured against `develop`
+in the tree ever produces it). Measured against `develop`
 (`8d471c7df`) with `yo` 0.2.24 and `YO_STD=./std`.
 
 **Class**: wrong-value / protocol corruption (a request-splitting sink), plus the
