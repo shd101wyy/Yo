@@ -91,6 +91,10 @@ impl(
     )
   )
 );
+/// `_throw_tls` boxes a `TlsError` into an `AnyError` (`Dyn(Error)`), which
+/// requires the `Error` marker — D1's "an error type is a real enum
+/// implementing `Error()`".
+impl(TlsError, Error());
 export(TlsError);
 /// Last backend error as text (empty queue → a fixed note).
 _ssl_err_string :: (fn() -> String)({
