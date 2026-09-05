@@ -1075,7 +1075,7 @@ p := Point(i32(1), i32(2));
 
 ## Design-by-contract clauses (`requires` / `ensures` / `invariant` / `ghost`)
 
-Phase 0 of `plans/backlog/FORMAL_VERIFICATION.md` adds a contract surface. The
+Phase 0 of `plans/FORMAL_VERIFICATION.md` adds a contract surface. The
 SMT verifier is NOT built yet — in Phase 0 these lower to runtime
 `assert(...)` (runtime functions) or `comptime_assert(...)` (comptime
 functions, i.e. those returning `comptime(T)`).

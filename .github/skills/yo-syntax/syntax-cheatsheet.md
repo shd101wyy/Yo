@@ -570,7 +570,7 @@ test("Async test", {
 
 ## Design-by-contract clauses
 
-`plans/backlog/FORMAL_VERIFICATION.md` Phase 0. No SMT verifier yet — these
+`plans/FORMAL_VERIFICATION.md` Phase 0. No SMT verifier yet — these
 lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
 (comptime fns, returning `comptime(T)`).
 

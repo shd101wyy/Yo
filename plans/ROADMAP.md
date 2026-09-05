@@ -72,7 +72,7 @@ Dafny-inspired, but built on assets Dafny lacks:
   build a prover. Start with the pure fragment + RC-value-semantics heap
   model; `inout` params verify as pre/post value pairs (no separation logic
   needed for the mode-based borrows).
-- Design doc: extend `plans/backlog/FORMAL_VERIFICATION.md`.
+- Design doc: extend `plans/FORMAL_VERIFICATION.md`.
 
 ## Phase 2 — Iteration speed (multiplies everything)
 
