@@ -110,7 +110,8 @@ They are in `issues/` (root = open). By class:
 - **memory-unsafety / crash (7)** — `sizeof` of an aggregate with a `unit` field
   disagrees with the emitted C struct, so `malloc(n * sizeof(S))`
   under-allocates (fixed in #425); `GlobalAllocator.aligned_alloc` is exported with no
-  `aligned_free` (on Windows the only available pairing corrupts the heap);
+  `aligned_free` (on Windows the only available pairing corrupts the heap) —
+  **FIXED 2026-09-05, audit row C64**;
   a `Dyn` box's dispose is emitted with an EMPTY BODY, so every value boxed into
   a `Dyn` leaks — and `AnyError` is `Dyn(Error)`, so that is every thrown error;
   `derive(Eq)`/`Clone`/`Ord` over a fixed-size `Array` field passes `check`,
