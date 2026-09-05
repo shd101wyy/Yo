@@ -76,7 +76,10 @@ open(import("std/fmt"));
   type_implements_trait_bool,
   resolve_assoc_type_for_target,
   extract_fn_trait_from_type,
-  extract_future_trait_from_type
+  extract_future_trait_from_type,
+  type_is_callable_shaped,
+  fn_constrained_param_requires_callable,
+  fn_argument_not_callable_message
 } :: import("../trait_checking.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call } :: import("../async/await_analysis.yo");
 {
@@ -87,7 +90,8 @@ open(import("std/fmt"));
   create_type_value,
   create_unknown_val,
   is_unknown_val,
-  is_type_val
+  is_type_val,
+  is_func_val
 } :: import("../../value.yo");
 {
   EvalContext,
@@ -104,7 +108,9 @@ open(import("std/fmt"));
   SpecializingFunctionInfo,
   SpecializedFunctionCache,
   SpecializedFunctionCacheEntry,
-  in_def_time_trial
+  in_def_time_trial,
+  force_pending_impls_for_type_name,
+  type_head_name_for_impl_forcing
 } :: import("../context.yo");
 _(env : helper_dbg_env) :: import("std/env");
 {
@@ -799,6 +805,29 @@ check_if_function_parameter_matches_argument :: (
     });
   });
   arg_value := arg_info.value;
+  // Step 3b: an `Impl(Fn(...))` parameter is a CALLABLE slot — its argument
+  // must be a function value. The constraint lives on the parameter's SomeT,
+  // and Step 6 SYNTHESIZES the argument's type into that type variable, so by
+  // Step 8 `final_pt` IS the argument type and the compatibility test is
+  // trivially satisfied: `io.async(i32(5))` traced
+  // `declared=Impl : (Fn(E) -> T) final=i32 arg=i32 compat=true`. Check the
+  // constraint HERE, before synthesis destroys the evidence
+  // (issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md). Same
+  // flow-violation flagging as Step 5b so a def-time-body swallow re-raises
+  // the error at `check` time instead of hollowing the statement.
+  if(fn_constrained_param_requires_callable(resolved_pt), {
+    nc_callable := (
+      (type_is_callable_shaped(arg_type) || arg_info.capture_type.is_some())
+      || match(arg_value, .Some(nc_av) => is_func_val(nc_av), .None => false)
+    );
+    if(!(nc_callable), {
+      nc_msg := fn_argument_not_callable_message(param_label.clone(), resolved_pt, arg_type);
+      if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+        flag_flow_violation(nc_msg.clone());
+      });
+      exn.throw(dyn(format_error_message(ast_expr_token(actual_arg), nc_msg)));
+    });
+  });
   // Step 4: Append to runtime arg list if not comptime-only.
   if(!(is_ct_only), {
     runtime_arg_exprs_in_order.push(evaled_arg);
@@ -1082,6 +1111,21 @@ ${ast_expr_to_string(actual_arg)}`
     .None => ()
   );
   param_tok := synthetic_token(param_label, callee_env_r.module_path);
+  // `is_owning_the_rc_value` must carry the DECLARED `own(name) : T` flag —
+  // exactly as the def-time body env binds it (function_type.yo's
+  // `add_parameter_to_env(..., p_own, ...)`). The callee owns the reference an
+  // `own` argument transferred in (Step 4b above marks the caller's arg
+  // consumed), so the parameters-frame scope-end pass in begin.yo must see an
+  // OWNING binding to schedule its release. Hardcoding `false` here made the
+  // flag correct only for functions whose body was evaluated at DEFINITION
+  // time; a GENERIC function defers its body (should_defer_ft) and is
+  // evaluated against THIS binding, so every `own` param of every specialized
+  // generic lost its scope-end drop while the body's store still emitted the
+  // balancing `___dup` — a net +1 per call. `box(v)`/`dyn(v)` are the
+  // highest-traffic instances (prelude `box :: (fn(generic(V : Type),
+  // own(value) : V) -> Box(V))(Box(V)(value))`), so every boxed value and
+  // every `AnyError` payload leaked
+  // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
   bound_param_opt := add_variable_to_env(
     callee_env_r,
     param_label,
@@ -1090,7 +1134,7 @@ ${ast_expr_to_string(actual_arg)}`
     is_ct_only,
     false,
     // is_reassignable
-    false,
+    param_is_owning,
     // is_owning_the_rc_value
     false,
     // is_implicit
@@ -4333,7 +4377,22 @@ validate_where_constraints_for_call :: (
               // constraint propagation, which yo-self's marker derivation
               // can't see through yet.
               if((!(is_some_type(bound_ty))) && (get_all_some_types(bound_ty).len() == usize(0)), {
-                wc_implemented := type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
+                (wc_implemented : bool) = type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
+                // Lazy impls (plans/LAZY_TOPLEVEL_BINDINGS.md §4.4): the
+                // bound may be satisfied by an impl placed later in its
+                // module — force and re-check before rejecting.
+                if(!(wc_implemented) && !(wce.is_negated), {
+                  match(
+                    force_pending_impls_for_type_name(type_head_name_for_impl_forcing(bound_ty)),
+                    .Forced => {
+                      wc_implemented = type_implements_trait_bool(bound_ty, wce.trait_ty, callee_env);
+                    },
+                    .Error({ msg : wc_force_msg }) => {
+                      exn.throw(dyn(wc_force_msg));
+                    },
+                    .NoneForced => ()
+                  );
+                });
                 if(wce.is_negated, {
                   if(wc_implemented, {
                     exn.throw(

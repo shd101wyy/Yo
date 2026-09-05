@@ -1,11 +1,9 @@
-# P0 of plans/LAZY_TOPLEVEL_BINDINGS.md §4.6: a def-time trial that swallows
-# `Variable "X" not found.` where X is bound LATER in the module must ERROR
-# at check time instead of silently hollowing the body. This exact shape — a
-# forward-referenced call inside an io.async closure body — is the class that
-# shipped silently-broken `yo version` code in every release up to v0.2.20
-# (issues/wrong-arity-call-silently-accepted-version-install-broken.md and
-# friends): check stayed green and the async state machine emitted nothing.
-# The keep-match pins the diagnostic text; the line number is stable because
-# the fixture is fixed (later is defined at line 10).
-stdout_keep_match=forward reference to "later"
+# P0 of plans/LAZY_TOPLEVEL_BINDINGS.md pinned this shape — a forward-referenced
+# call inside an io.async closure body — as a check-time ERROR, because the
+# def-time trial used to swallow it into a hollow stub (the class that shipped
+# silently-broken `yo version` code up to v0.2.20). Since P1 landed, `later` is
+# a deferred `::` definition: the reference FORCES it and check passes. The
+# case now pins that outcome (rc 0, no diagnostic) — a regression to either
+# the silent hollow or the old error shows up as a golden diff.
+stdout=strict
 timeout=120

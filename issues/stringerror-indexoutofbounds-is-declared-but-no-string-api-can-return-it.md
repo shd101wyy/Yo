@@ -7,7 +7,7 @@ scoped to the declaring module). **Status**: OPEN. Measured against `develop`
 
 **Class**: api-lie. Lower stakes than its two siblings in the same sweep
 (`crypto-random-reports-every-failure-as-unavailable-and-discards-the-errno.md`,
-`url-parse-validates-no-characters-so-a-crlf-url-splits-the-http-request.md`):
+`issues/fixed/url-parse-validates-no-characters-so-a-crlf-url-splits-the-http-request.md`):
 there is no missing safety check and no wrong value — the panic semantics are a
 DECIDED design (D4). The defect is that a public enum publishes a *recoverable*
 bounds error that no entry point offers, and the freeze would lock it in.

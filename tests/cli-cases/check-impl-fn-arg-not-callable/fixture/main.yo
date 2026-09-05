@@ -1,0 +1,15 @@
+open(import("std/fmt"));
+
+// An `Impl(Fn(...))` parameter is a CALLABLE slot: the callee invokes it.
+// Handing it an integer used to pass `check` AND `compile` — the emitted C
+// cast the value to a function pointer and jumped through it, so
+// `apply(i32(5))` transferred control to address 0x5 (SIGBUS at best, an
+// arbitrary indirect branch at worst). See
+// issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md.
+apply :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));
+
+main :: (fn() -> unit)({
+  r := apply(i32(5));
+  println(r.to_string());
+});
+export(main);

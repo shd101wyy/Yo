@@ -50,7 +50,8 @@ open(import("std/fmt"));
   is_reference_struct_type,
   is_reference_enum_type,
   is_dyn_type,
-  is_extern_type_name
+  is_extern_type_name,
+  is_unit_type
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -1418,6 +1419,31 @@ _aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
     true => Option(usize).Some(usize(_round_up(offset_bytes, max_align) * usize(8)))
   )
 });
+/// The subset of one enum variant's field types that the tagged-union emitter
+/// actually lays out. `generate_enum_declaration`
+/// (src/codegen/types/generation.yo) ERASES `unit` variant fields from the data
+/// union — and emits no member at all for a variant whose fields are all
+/// `unit` — so a variant payload is sized over the non-unit fields only.
+/// This is the single exception to the one-byte-placeholder rule documented on
+/// `get_size_of_type`'s `.Unit` arm: everywhere else the emitter reserves a
+/// byte for a `unit`, here it reserves nothing. The predicate is `is_unit_type`
+/// because that is exactly the predicate the emitter filters on.
+_variant_storage_field_types :: (fn(fts : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
+  kept := ArrayList(TypeValue).new();
+  (i : usize) = usize(0);
+  n := fts.len();
+  while(i < n, {
+    match(
+      fts.get(i),
+      .Some(ft) => if(!is_unit_type(ft), {
+        kept.push(ft);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  kept
+});
 /// Return the alignment of `ty` in bytes, or `.None` if not statically known.
 /// Mirrors `getAlignmentOfType` in `src/types/utils.ts`. Recurses into itself
 /// via `recur` and into the field helpers defined just above.
@@ -1531,11 +1557,37 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     ty,
-    // comptime-only / zero-size types
-    .Unit => .Some(usize(0)),
+    // `unit` is zero-sized in Yo's model, but C HAS NO ZERO-SIZED OBJECT TYPE,
+    // so the emitter never declares one: a storage position — a parameter, a
+    // struct or tuple field, a local, a cast target — spells a `void`-typed Yo
+    // type as a one-byte `uint8_t` placeholder (`get_storage_type_string`,
+    // src/codegen/utils/index.yo), keeping field COUNT and ORDER. `sizeof` is
+    // FOLDED TO A C LITERAL and then used to size allocations that are strided
+    // by the C type, so the layout model must report the object the emitter
+    // lays out, not the zero the model would like: 1 byte, alignment 1
+    // (get_alignment_of_type already says 1). Reporting 0 here made
+    // `malloc(n * sizeof(S))` short of the `n * sizeof(struct S)` addressed for
+    // every aggregate with a `unit` field — an out-of-bounds heap write from
+    // ordinary safe Yo
+    // (issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md).
+    // The ONE position where the emitter does NOT reserve the byte is an enum
+    // variant field, which `generate_enum_declaration` erases outright; the
+    // `.EnumT` arm below filters unit fields to match.
+    // (The two positions that still spell a bare C `void` and so do not compile
+    // at all — a `union` member and an array element — are the tracked gaps in
+    // issues/unit-zst-residual-gaps.md; when they are routed through
+    // `get_storage_type_string` they land on this same byte, so no arm here
+    // changes.)
+    .Unit => .Some(usize(8)),
     .ComptimeInt => .Some(usize(0)),
     .ComptimeFloat => .Some(usize(0)),
     .ComptimeString => .Some(usize(0)),
+    // `void` gets the same `void` C spelling as `unit`, but — unlike `unit` —
+    // it can never REACH a storage position: `prohibit_void_type` (above)
+    // rejects it as a struct field, a tuple element, a parameter, a binding
+    // type and an assignment RHS, leaving a function return type as its only
+    // legal home, where C `void` is correct and no object is laid out. So the
+    // one-byte placeholder rule cannot apply to it and 0 stands.
     .Void => .Some(usize(0)),
     .TypeUni(_) => .Some(usize(0)),
     // Bool: 1 byte = 8 bits
@@ -1615,7 +1667,11 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
         (vi : usize) = usize(0);
         n_v := evf.len();
         while((vi < n_v) && !unknown, {
-          vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+          // Only the fields the data-union emitter keeps — see
+          // `_variant_storage_field_types`.
+          vf := _variant_storage_field_types(
+            match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new())
+          );
           match(
             _aggregate_size(vf),
             .Some(vbits) => match(

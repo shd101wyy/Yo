@@ -38,7 +38,7 @@ open(import("std/fmt"));
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application } :: import("../../env.yo");
-{ EvalContext, ExpectedTypeCtx } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
@@ -66,7 +66,7 @@ open(import("std/fmt"));
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_valid_variable_name } :: import("../utils.yo");
-{ type_implements_trait } :: import("../trait_checking.yo");
+{ type_implements_trait, TraitCheckResult } :: import("../trait_checking.yo");
 { Exception } :: import("std/error");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -1920,7 +1920,21 @@ validate_concrete_type_constraints :: (
       // way (function.ts:979-987 and 1598-1603); discarding it left A/B as
       // SomeTs and the method body specialized a shadow struct
       // ("Type mismatch for type member \"_f\"").
-      tc_res := type_implements_trait(concrete_type, tv, env_mut);
+      (tc_res : TraitCheckResult) = type_implements_trait(concrete_type, tv, env_mut);
+      // Lazy impls (plans/LAZY_TOPLEVEL_BINDINGS.md §4.4): an impl placed later
+      // in its module may satisfy the bound — force and re-check first.
+      if(!tc_res.implemented && !negated, {
+        match(
+          force_pending_impls_for_type_name(type_head_name_for_impl_forcing(concrete_type)),
+          .Forced => {
+            tc_res = type_implements_trait(concrete_type, tv, env_mut);
+          },
+          .Error({ msg : wc_force_msg }) => {
+            exn.throw(dyn(wc_force_msg));
+          },
+          .NoneForced => ()
+        );
+      });
       implemented := tc_res.implemented;
       env_mut.frames = tc_res.env.frames;
       if(negated, {

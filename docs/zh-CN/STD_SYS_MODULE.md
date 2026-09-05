@@ -186,6 +186,7 @@ C 运行时被拆分为 `src/codegen/async/` 下的多个专注模块：
 | **文件读写**                | ✅                    | ✅                    | ✅ (IOCP)                                          |
 | **文件打开/关闭**           | ✅                    | ✅                    | ✅（同步包装器）                                   |
 | **Stat**                    | ✅ (statx)            | ✅ (struct stat)      | ✅ (\_\_yo_win_stat_t + FILETIME 100ns 精度)       |
+| **fstat（按描述符）**       | ✅ (statx + `AT_EMPTY_PATH`) | ✅ (`fstat`)   | ✅ (`_fstat64` + GetFileInformationByHandle)       |
 | **mkdir/unlink/rename**     | ✅                    | ✅（同步包装器）      | ✅（同步包装器）                                   |
 | **symlink/link**            | ✅                    | ✅（同步包装器）      | ✅ (CreateSymbolicLinkW/CreateHardLinkW)           |
 | **fsync/fdatasync**         | ✅                    | ✅（同步包装器）      | ✅ (`_commit`)                                     |

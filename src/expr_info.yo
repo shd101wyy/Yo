@@ -1140,6 +1140,19 @@ active_where_trait_ids :: (fn() -> ArrayList(String))(
     .None => ArrayList(String).new()
   )
 );
+/// Detach the whole where-id stack (returning it) and start from an empty one —
+/// a module-level statement FORCED from inside a def-time body trial
+/// (plans/LAZY_TOPLEVEL_BINDINGS.md §4.2) must not see the trial's constraints;
+/// `restore_active_where_trait_ids` puts the saved stack back afterwards.
+take_active_where_trait_ids :: (fn() -> ArrayList(ArrayList(String)))({
+  saved := g_active_where_trait_ids;
+  g_active_where_trait_ids = ArrayList(ArrayList(String)).new();
+  saved
+});
+restore_active_where_trait_ids :: (fn(saved : ArrayList(ArrayList(String))) -> unit)({
+  g_active_where_trait_ids = saved;
+  ()
+});
 /// True when a prior assignment record for `var_id` exists on the CURRENT
 /// control-flow path — i.e. outside every active group's completed-sibling
 /// window. This is the yo-self surrogate for TS's `variable.initializedAtToken`
@@ -1443,6 +1456,8 @@ export(
   push_active_where_trait_ids,
   pop_active_where_trait_ids,
   active_where_trait_ids,
+  take_active_where_trait_ids,
+  restore_active_where_trait_ids,
   pop_branch_group,
   branch_group_stack_len,
   truncate_branch_group_stack,

@@ -47,7 +47,9 @@ open(import("std/string"));
   EvalContext,
   ExpectedTypeCtx,
   FuncOrAsyncBlockKind,
-  in_def_time_trial
+  in_def_time_trial,
+  pending_prebound_variable,
+  record_pending_def_variable
 } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -66,7 +68,7 @@ open(import("std/string"));
 { type_to_string } :: import("../../types/string.yo");
 { is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
-{ TokenKind, is_reserved_operator_name } :: import("../../token.yo");
+{ Token, TokenKind, is_reserved_operator_name } :: import("../../token.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { is_valid_variable_name } :: import("../utils.yo");
@@ -638,12 +640,18 @@ Use \`::\` for compile-time definitions inside impl.`
     // TS sites passing `allowVariableShadowing: true` (params, type params,
     // effect spreads). Temp names (`_` rename) are machine-unique, and
     // `__yo_self` is TS's explicit exemption.
+    // Lazy top-level bindings (plans/LAZY_TOPLEVEL_BINDINGS.md §4.3): when
+    // THIS definition's phase-A FuncVal was already bound into the module
+    // frame by a re-entrant reference (self- or mutual recursion), that
+    // Variable is filled in place below instead of being added a second
+    // time — and it is not a shadowing conflict.
+    prebound_opt := pending_prebound_variable(var_name.clone(), actual_lhs_tok);
     if(var_name != String.from("__yo_self"), {
       shadow_existing := get_variables_from_env(env, var_name);
       if(shadow_existing.len() > usize(0), {
         match(
           shadow_existing.get(shadow_existing.len() - usize(1)),
-          .Some(shadow_var) => {
+          .Some(shadow_var) => if(match(prebound_opt, .Some(pb) => (pb.id == shadow_var.id), .None => false), (), {
             sh_entries := ArrayList(TokenAndError).new();
             sh_entries.push(
               TokenAndError(
@@ -658,24 +666,53 @@ Use \`::\` for compile-time definitions inside impl.`
               )
             );
             exn.throw(dyn(format_error_messages(sh_entries)));
-          },
+          }),
           .None => ()
         );
       });
     });
-    // Add variable to environment.
-    new_var_opt := add_variable_to_env(
-      env,
-      var_name,
-      final_lhs_type,
-      lhs_value_opt,
-      effective_is_compile_time_only,
-      !is_implicit,
-      // is_reassignable
-      type_contains_rc_type(final_lhs_type),
-      // is_owning_the_rc_value (stub: always false)
-      is_implicit,
-      actual_lhs_tok
+    // Add variable to environment (or fill the phase-A pre-bound one).
+    new_var_opt := match(
+      prebound_opt,
+      .Some(pb) => {
+        pb.ty = final_lhs_type;
+        match(
+          lhs_value_opt,
+          .Some(pb_v) => if(pb.value.len() > usize(0), {
+            pb.value(usize(0)) = pb_v;
+          }, {
+            pb.value.push(pb_v);
+          }),
+          .None => ()
+        );
+        pb.is_compile_time_only = effective_is_compile_time_only;
+        pb.is_reassignable = !is_implicit;
+        pb.is_owning_the_rc_value = type_contains_rc_type(final_lhs_type);
+        pb.is_implicit = is_implicit;
+        pb.token = actual_lhs_tok;
+        pb.initialized_at_token = Option(Token).Some(actual_lhs_tok);
+        Option(Variable).Some(pb)
+      },
+      .None => add_variable_to_env(
+        env,
+        var_name,
+        final_lhs_type,
+        lhs_value_opt,
+        effective_is_compile_time_only,
+        !is_implicit,
+        // is_reassignable
+        type_contains_rc_type(final_lhs_type),
+        // is_owning_the_rc_value (stub: always false)
+        is_implicit,
+        actual_lhs_tok
+      )
+    );
+    // Tell the pending-definition table which Variable this statement bound
+    // (no-op unless this IS the statement currently being forced).
+    match(
+      new_var_opt,
+      .Some(bound_var) => record_pending_def_variable(var_name.clone(), actual_lhs_tok, bound_var),
+      .None => ()
     );
     // Patch mutable fields not supported by add_variable_to_env.
     match(

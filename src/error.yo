@@ -35,6 +35,7 @@ open(import("std/error"));
   E_ARGUMENT_COUNT_MISMATCH,
   E_RETURN_TYPE_MISMATCH,
   E_TYPE_MISMATCH,
+  E_ARGUMENT_NOT_CALLABLE,
   E_USE_OF_MOVED_VALUE,
   E_CANNOT_REASSIGN,
   E_MAYBE_UNINITIALIZED,
@@ -131,6 +132,9 @@ _classify_message :: (fn(error_message : String) -> Option(String))({
     return(_coded(E_VARIABLE_NOT_FOUND));
   });
   // ── Types & traits (E06xx–E08xx) ───────────────────────────────────────
+  if(msg.contains(String.from("is not callable")), {
+    return(_coded(E_ARGUMENT_NOT_CALLABLE));
+  });
   if(msg.contains(String.from("Argument count mismatch")), {
     return(_coded(E_ARGUMENT_COUNT_MISMATCH));
   });

@@ -1215,6 +1215,32 @@ static int64_t __yo_file_size(int32_t fd) {
 }
 
 
+// Fill a stat buffer from an OPEN DESCRIPTOR instead of a path — the fd form
+// of __yo_async_statx_start, for a handle whose path is unknown or has since
+// been renamed/unlinked. _fstat64 supplies the size/mode/whole-second times;
+// GetFileInformationByHandle supplies what the path version also takes from
+// it — the sub-second times, the creation time and the NTFS file index that
+// stands in for the inode. Returns 0 on success, -errno on failure.
+static int32_t __yo_fstat(int32_t fd, void* statxbuf) {
+  __yo_win_stat_t* ws = (__yo_win_stat_t*)statxbuf;
+  memset(ws, 0, sizeof(__yo_win_stat_t));
+  if (_fstat64(fd, &ws->stat) != 0) return -errno;
+  HANDLE fh = (HANDLE)_get_osfhandle(fd);
+  if (fh != INVALID_HANDLE_VALUE) {
+    BY_HANDLE_FILE_INFORMATION info;
+    if (GetFileInformationByHandle(fh, &info)) {
+      int64_t sec;
+      __yo_win_filetime_to_timespec(info.ftLastAccessTime, &sec, &ws->atime_nsec);
+      __yo_win_filetime_to_timespec(info.ftLastWriteTime, &sec, &ws->mtime_nsec);
+      __yo_win_filetime_to_timespec(info.ftCreationTime, &ws->btime_sec, &ws->btime_nsec);
+      ws->ctime_nsec = ws->mtime_nsec;
+      ws->file_index = ((uint64_t)info.nFileIndexHigh << 32) | info.nFileIndexLow;
+      ws->stat.st_nlink = (short)info.nNumberOfLinks;
+    }
+  }
+  return 0;
+}
+
 // ============================================================================
 // Stat Buffer Accessors (Windows)
 // ============================================================================

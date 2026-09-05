@@ -15,7 +15,7 @@ open(import("std/string"));
 } :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, force_pending_impls_for_type_name, type_head_name_for_impl_forcing } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -336,7 +336,22 @@ evaluate_subtype_of :: (
     );
     // Verify LHS implements the trait (skip for SomeType — checked at instantiation).
     if(!is_some_type(lhs_ty), {
-      if(!type_implements_trait_bool(lhs_ty, trait_ty, env), {
+      (lhs_implements : bool) = type_implements_trait_bool(lhs_ty, trait_ty, env);
+      // Lazy impls (plans/LAZY_TOPLEVEL_BINDINGS.md §4.4): force a later impl
+      // of the LHS type before rejecting the witness.
+      if(!lhs_implements, {
+        match(
+          force_pending_impls_for_type_name(type_head_name_for_impl_forcing(lhs_ty)),
+          .Forced => {
+            lhs_implements = type_implements_trait_bool(lhs_ty, trait_ty, env);
+          },
+          .Error({ msg : st_force_msg }) => {
+            exn.throw(dyn(st_force_msg));
+          },
+          .NoneForced => ()
+        );
+      });
+      if(!lhs_implements, {
         exn.throw(
           dyn(
             format_error_message(

@@ -36,6 +36,15 @@ invocations) keeps full verdicts.
   `empty-string-drop-fallback-class` records the drop-lowering fallback trap
   (audit every `true => ""` in drop/dup lowerings first — that class is
   silent by construction).
+- **The `own`-param-of-a-generic class is FIXED (2026-09-05,
+  `issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md`).** The
+  callee-side binding of an `own(name) : T` parameter was not marked owning at
+  the CALL-TIME binders, and a `generic(...)` function defers its body eval —
+  so every such parameter lost its scope-end drop while the body's store kept
+  its `___dup`. `box` is one, and `dyn(value_type)` / `AnyError` go through it,
+  so this leaked on every boxed payload and every thrown error with a
+  String/struct/enum payload. Several of the 50 files below should clear; the
+  Linux LeakSanitizer verdict is the only way to confirm which.
 
 ## The 50 files (PR #122 round-3 sweep, results.txt verbatim paths)
 

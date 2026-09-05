@@ -1,6 +1,12 @@
 { assert } :: import("std/assert");
-// Regression tests for: Impl(Fn(...)) is not a valid struct/enum/union field type.
-// See: issues/impl-fn-in-struct-field.md
+// Regression tests for the two positions an `Impl(Fn(...))` is checked in:
+//   * as a struct/enum/union FIELD type — rejected (no fixed runtime size).
+//     See: issues/fixed/impl-fn-in-struct-field.md
+//   * as a parameter, whose ARGUMENT must be callable — the constraint lives
+//     on the parameter's SomeT, and the call path used to bind the argument's
+//     type INTO that type variable instead of testing it, so an integer
+//     reached a call position and codegen jumped through it (C67).
+//     See: issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md
 test("Impl(Fn) in struct field is rejected", {
   comptime_expect_error({
     BadStruct :: struct(
@@ -61,4 +67,74 @@ test("workaround B: struct generic over closure type", {
   result := obj.cb(i32(4));
   assert(result == i32(12), "4 * 3 = 12");
   assert(obj.value == i32(7), "value preserved");
+});
+// --- Argument position (C67) ---
+apply_cb :: (fn(f : Impl(Fn(x : i32) -> i32)) -> i32)(f(i32(3)));
+Holder :: ref(struct(n : i32));
+impl(
+  Holder,
+  run : (fn(self : Self, f : Impl(Fn(x : i32) -> i32)) -> i32)(f(self.n)),
+  // A FORWARDED closure param: `f` arrives typed as its capture struct inside
+  // the specialized body, which is callable-shaped and must stay accepted.
+  forward : (fn(self : Self, f : Impl(Fn(x : i32) -> i32)) -> i32)(apply_cb(f))
+);
+triple :: (fn(x : i32) -> i32)(x * i32(3));
+test("a non-callable argument for an Impl(Fn) parameter is rejected", {
+  comptime_expect_error({
+    bad_int := apply_cb(i32(5));
+  });
+  comptime_expect_error({
+    bad_str := apply_cb(`nope`);
+  });
+  comptime_expect_error({
+    h := Holder(n : i32(1));
+    bad_method := h.run(i32(5));
+  });
+});
+test("io.async takes a closure, not a bare block or a value", {
+  comptime_expect_error({
+    bad_value := io.async(i32(5));
+  });
+  comptime_expect_error({
+    bad_block := io.async({
+      w := i32(5);
+      w
+    });
+  });
+});
+test("over-rejection canary: every legal callable argument still binds", {
+  // inline closure
+  assert(apply_cb(x => (x + i32(1))) == i32(4), "inline closure");
+  // arrow fn literal
+  assert(apply_cb(x -> (x + i32(2))) == i32(5), "arrow literal");
+  // a top-level `::` function passed BY NAME
+  assert(apply_cb(triple) == i32(9), "named fn by name");
+  // an explicit fn(...) literal
+  assert(apply_cb((fn(x : i32) -> i32)(x + i32(10))) == i32(13), "fn literal");
+  // a ClosureType({...}) value
+  ClosureType :: Impl(Fn(y : i32) -> i32);
+  cl := ClosureType({
+    return(y + i32(100));
+  });
+  assert(apply_cb(cl) == i32(103), "ClosureType value");
+  // a capturing closure bound to a local first
+  base := i32(20);
+  (cap : Impl(Fn(x : i32) -> i32)) = (x => (x + base));
+  assert(apply_cb(cap) == i32(23), "closure through a local");
+  // a method's closure param, and one FORWARDED into another Impl(Fn) slot
+  h := Holder(n : i32(7));
+  assert(h.run(x => (x - i32(1))) == i32(6), "method closure param");
+  assert(h.forward(x => (x * i32(5))) == i32(15), "forwarded closure param");
+});
+test("over-rejection canary: the io.async closure shapes still build futures", {
+  bare := io.async(e => {
+    v := i32(1);
+    v
+  });
+  assert(io.await(bare, io) == i32(1), "io.async(e => ...)");
+  annotated := io.async((e : Io) => {
+    v := i32(2);
+    v
+  });
+  assert(io.await(annotated, io) == i32(2), "io.async((e : Io) => ...)");
 });

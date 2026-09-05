@@ -1,0 +1,7 @@
+# The `Impl(Fn(...))` constraint lives on the parameter's SomeT, and the call
+# path bound the argument's type INTO that type variable instead of testing it
+# — so `check` was green, `compile --optimize 2` linked, and the binary jumped
+# through an integer. The keep-match pins the E0606 diagnostic, which must name
+# the parameter; a plain "check failed" would be satisfied by any error.
+stdout_keep_match=Argument for parameter "f" is not callable
+timeout=120

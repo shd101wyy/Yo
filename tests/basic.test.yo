@@ -285,6 +285,75 @@ test("Test Send on pointer-bearing types is conditional on the pointee", {
   // Nullable pointer ?(*(T)): same as *(T) via Option(*(T)) desugar.
   comptime_assert(Type.impls(?*i32, Send) == true);
 });
+// --- `Type.impls` must honour a generic impl's `where` clause ---------------
+// `impl(generic(T : Type), where(T <: Send), *(T), Send())` says `*(T)` is Send
+// *iff* `T` is. The trait predicate used to ignore the clause whenever the
+// impl's receiver pattern was CONSTRUCTED (`*(T)`, `Array(T, U)`) rather than a
+// bare blanket `T`, so `Type.impls(*(NonSend), Send)` answered `true` and
+// non-Send data could cross a thread boundary. Enforcement is limited to MARKER
+// constraints — a parametric one (`where(T <: Eq(T))`) is stored as
+// `Eq(SomeT(T))` and cannot be decided from the stored value, which is what the
+// over-rejection canary below pins. See
+// `issues/fixed/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`.
+//
+// These live at MODULE level, observed by a RUNTIME `assert`, because
+// `comptime_assert` is INERT inside a `test(...)` body — it only fires at module
+// level (`issues/comptime-assert-never-fires-inside-a-function-body.md`), which
+// is why the comptime_assert-only test above never caught this.
+SendWhereNonSend :: ref(struct(v : i32));
+SEND_BARE_NONSEND :: Type.impls(SendWhereNonSend, Send);
+SEND_PTR_NONSEND :: Type.impls(*SendWhereNonSend, Send);
+SEND_ARRAY_NONSEND :: Type.impls(Array(SendWhereNonSend, 4), Send);
+SEND_OPT_PTR_NONSEND :: Type.impls(?*SendWhereNonSend, Send);
+SEND_PTR_I32 :: Type.impls(*i32, Send);
+SEND_ARRAY_I32 :: Type.impls(Array(i32, 4), Send);
+SEND_OPT_PTR_I32 :: Type.impls(?*i32, Send);
+// Over-rejection canaries for the `Option(T)` blanket family — also a
+// constructed pattern carrying a `where` clause, and the one that regressed
+// before (`issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md`).
+SendWhereEqPoint :: struct(x : i32);
+impl(
+  SendWhereEqPoint,
+  Eq(SendWhereEqPoint)(
+    (==) : (fn(lhs : Self, rhs : SendWhereEqPoint) -> bool)(lhs.x == rhs.x),
+    (!=) : (fn(lhs : Self, rhs : SendWhereEqPoint) -> bool)(lhs.x != rhs.x)
+  )
+);
+SEND_WHERE_OPTION_EQ_I32 :: Type.impls(Option(i32), Eq(Option(i32)));
+SEND_WHERE_OPTION_EQ_USER :: Type.impls(
+  Option(SendWhereEqPoint),
+  Eq(Option(SendWhereEqPoint))
+);
+SEND_WHERE_OPTION_ACYCLIC :: Type.impls(Option(i32), Acyclic);
+test("Test *(T) Send honours the impl's where(T <: Send)", {
+  assert(SEND_BARE_NONSEND == false);
+  assert(SEND_PTR_NONSEND == false);
+});
+test("Test Array(T, N) Send honours the impl's where(T <: Send)", {
+  assert(SEND_ARRAY_NONSEND == false);
+});
+test("Test ?*(T) Send honours the impl's where(T <: Send)", {
+  assert(SEND_OPT_PTR_NONSEND == false);
+});
+test("Test where-clause enforcement does not over-reject a satisfied bound", {
+  // Positive canaries: the same three impls MUST still match a Send pointee.
+  assert(SEND_PTR_I32 == true);
+  assert(SEND_ARRAY_I32 == true);
+  assert(SEND_OPT_PTR_I32 == true);
+  // The `Option(T)` blanket family stays intact — both as a predicate and as
+  // real dispatch.
+  assert(SEND_WHERE_OPTION_EQ_I32 == true);
+  assert(SEND_WHERE_OPTION_EQ_USER == true);
+  assert(SEND_WHERE_OPTION_ACYCLIC == true);
+  assert(
+    Option(SendWhereEqPoint).Some(SendWhereEqPoint(x : 1))
+    == Option(SendWhereEqPoint).Some(SendWhereEqPoint(x : 1))
+  );
+  assert(
+    Option(SendWhereEqPoint).Some(SendWhereEqPoint(x : 1))
+    != Option(SendWhereEqPoint).Some(SendWhereEqPoint(x : 2))
+  );
+});
 test("Test type auto derive Acyclic", {
   // Primitive types are Acyclic
   // Compile-time only types

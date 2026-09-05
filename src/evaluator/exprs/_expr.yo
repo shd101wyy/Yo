@@ -231,6 +231,7 @@ open(import("std/fmt"));
 { evaluate_dyn_value } :: import("../values/dyn.yo");
 { evaluate_float_literal } :: import("../values/float.yo");
 { evaluate_module_value } :: import("../values/impl.yo");
+{ register_pending_definition_forcer } :: import("../values/anonymous_module.yo");
 { evaluate_integer_literal } :: import("../values/integer.yo");
 { evaluate_string_literal } :: import("../values/string.yo");
 { evaluate_tuple_value } :: import("../values/tuple.yo");
@@ -1191,6 +1192,7 @@ register_evaluate_expression :: (fn() -> unit)({
   set_evaluate_expression_fn(_evaluate_expression_wrapper);
   set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
   register_rerun_pending_def_evals();
+  register_pending_definition_forcer();
   ()
 });
 export(_evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression, set_evaluator_deadline);

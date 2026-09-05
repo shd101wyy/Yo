@@ -1373,6 +1373,15 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
 /// issues/fixed/unit-typed-params-and-fields-emit-c-void.md; the existing 1-byte
 /// precedents are `generate_future_trait_declaration` (types/generation.yo) and
 /// the await result slot (exprs/await.yo).
+///
+/// THE LAYOUT MODEL MIRRORS THIS: because the placeholder is a real byte, a
+/// `unit` in a storage position measures 1 byte / alignment 1 in
+/// `get_size_of_type` (src/types/utils.yo) — that is where `sizeof` comes from,
+/// and `sizeof` sizes the allocations that C-typed pointer arithmetic then
+/// strides through. Changing the placeholder's width, or dropping the
+/// placeholder at some position, means changing that arm too; leaving them
+/// apart under-allocates every container of an aggregate with a `unit` field
+/// (issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md).
 get_storage_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)({
   s := get_type_string(t, context);
   if(s == `void`, String.from("uint8_t"), s)

@@ -48,6 +48,29 @@ YO_KEEP_BATCH=1 YO_STD=$PWD/std yo test ./tests/sync/atomic.test.yo --parallel 1
 bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
 ```
 
+### A loopback HTTP framing test only goes RED if the body cannot arrive in ONE read
+
+`std/http`'s `read_http_message` reads 8 KiB at a time and nothing truncates
+its buffer to `Content-Length`, so for a small single-shot request the CORRECT
+and the BROKEN framing produce byte-identical bodies — a framing test built on
+`fetch` + a short body passes either way. Two shapes that actually discriminate
+(both used by `issues/fixed/http-content-length-ows-and-invalid-values.md`):
+
+- **Server side** — send a body larger than 8 KiB (12 000 bytes there) on a raw
+  `TcpStream`. A mis-read length stops the read after the first chunk, so the
+  handler sees a SHORT body. Assert the length and the last bytes, not just
+  "the body is non-empty".
+- **Client side** — hold the connection OPEN after writing the response
+  (HTTP/1.1's default; every older test in `tests/http/` sends
+  `Connection: close`, and close-delimiting supplies the body that broken
+  framing could not) and give `fetch_with` a `with_timeout`, so a mis-parse
+  surfaces as `HttpError.Timeout` instead of a hang.
+
+Run the throwing `fetch` as its OWN `io.spawn`ed task and inspect the
+`JoinHandle` result: a handler that `unwind`s the test body leaves the server
+task parked on a listener that is never closed, which keeps the Linux event
+loop alive and the process never exits (rc=124).
+
 ## Scratch experiments
 
 - `tmp/fixme.yo` is the scratch file for one-off experiments (`tmp*` is gitignored). It replaces the old `src/tests/fixme.yo`.
@@ -62,6 +85,44 @@ bash scripts/count-transpile-failures.sh tests/sync/.yo_selftest_batch_1_0.bin.c
 - `-v` or `--verbose` — show detailed errors
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
+
+## Writing a test that observes a LEAK (macOS: ASan does not arm)
+
+On this macOS box AddressSanitizer refuses to arm (see the AMFI section below),
+so an RC leak is invisible to `yo test` locally and only Linux CI's
+LeakSanitizer sees it. Two mechanisms make a leak observable **inside the
+language**, so the regression test works everywhere:
+
+- **A `Dispose` counter.** A module-level MUTABLE binding — `(g_freed : i32) =
+  i32(0);` at the top level of the `.test.yo` file — plus a `ref` struct with a
+  `Dispose` impl that increments it. Assert the counter with a RUNTIME `assert`
+  after the scope that owned the value closes. A value that leaks is never
+  disposed, so the counter stays put. Examples: `tests/rc.test.yo`
+  (`g_alias_disposed`), `tests/dyn.test.yo` (`g_dyn_payload_disposed`),
+  `tests/error.test.yo` (`g_thrown_payload_disposed`).
+- **`rc(x)`** reads a reference count directly (`tests/rc.test.yo`), including
+  through a field or a `Box` deref: `assert(rc(b.*) == 1, ...)`.
+
+Do **not** use `comptime_assert` for this — it is inert inside a function body,
+so a `comptime_assert` in a `test(...)` body verifies nothing
+(`issues/comptime-assert-never-fires-inside-a-function-body.md`).
+
+For the out-of-language measurement on macOS, `leaks` works even though ASan
+does not — extract the case to a standalone `.yo` with `main` + `export(main);`
+and run:
+
+```bash
+yo compile tmp/repro.yo --std-path ./std --optimize 2 --allocator system -o /tmp/repro.out
+leaks -atExit -- /tmp/repro.out        # "N leaks for M total leaked bytes"
+MallocStackLogging=1 leaks -atExit -- /tmp/repro.out   # + allocation stacks
+```
+
+Put the leaking operation in a LOOP first: a per-iteration leak scales the byte
+count linearly, which separates a real leak from a one-off allocation, and
+`/usr/bin/time -l` then shows the RSS difference too. Always run the
+payload-free variant as an over-drop canary, and re-run the fixed binary under
+`MallocScribble=1 MallocPreScribble=1` — recycled values in the output mean the
+fix over-dropped and introduced a use-after-free.
 
 ## Windows: failing tests report a SIGNAL status, and a runtime-template edit needs TWO builds
 
@@ -546,7 +607,7 @@ test("Async test", {
 ## Assertion builtins for Yo tests
 
 - `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code); requires `{ assert } :: import("std/assert");`. The message accepts any `ToString` type; `assert(condition)` uses the default message.
-- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior.
+- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior. **It only FIRES at MODULE level** — inside any function body, and therefore inside a `test("…", { … })` block, `comptime_assert(false)` is silently accepted and the test verifies NOTHING (`issues/comptime-assert-never-fires-inside-a-function-body.md`). Until that is fixed, pin the comptime result in a module-level `::` binding and observe it with a runtime `assert` inside the test.
 - `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
 
 `assert(condition, msg)` accepts any `msg` implementing `ToString` — plain
@@ -578,7 +639,7 @@ This is the standard pattern from `tests/internal/parser.test.yo`. The struct
 constructor `Exception(...)` pins the binding's type, so no annotation is needed
 on the LHS.
 
-Prefer `comptime_assert` over `assert` when the value being tested is compile-time known.
+Prefer `comptime_assert` over `assert` when the value being tested is compile-time known — but only at MODULE level. Inside a `test(...)` body it is inert (see the assertion-builtins section above), so pin the value in a module-level `::` binding and `assert` on that binding instead.
 
 ## Partial application (`_`) tests
 

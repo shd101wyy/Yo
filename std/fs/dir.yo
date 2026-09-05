@@ -25,8 +25,13 @@ open(import("../string"));
 { EEXIST, ENOENT } :: import("../libc/errno");
 IO_dir :: import("../sys/dir");
 IO_file :: import("../sys/file");
+{ Statx } :: import("../sys/statx");
 { platform, Platform } :: import("../process");
-{ AT_FDCWD, AT_REMOVEDIR, O_RDONLY, O_DIRECTORY, DEFAULT_DIR_MODE, DT_REG, DT_DIR, DT_LNK } :: import("../sys/constants");
+{ AT_FDCWD, AT_REMOVEDIR, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, O_RDONLY, O_DIRECTORY, DEFAULT_DIR_MODE, DT_UNKNOWN, DT_REG, DT_DIR, DT_LNK } :: import("../sys/constants");
+extern(
+  "Yo",
+  __yo_statx_buf_size : (fn() -> usize)
+);
 // ============================================================================
 // FileType enum
 // ============================================================================
@@ -271,6 +276,75 @@ read_link :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
 read_link_str :: (fn(path : str, io : Io) -> Impl(Future(Path, IoExn)))(read_link(Path.new(String.from(path)), io));
 
 // ============================================================================
+// File type by path
+// ============================================================================
+/// Classify a FILLED statx buffer. The order matters: a symlink must be
+/// recognised before anything else, because `lstat` reports `S_IFLNK` and the
+/// walker's `follow_symlinks` decision depends on seeing `.Symlink` rather
+/// than the target's type.
+_statx_file_type :: (fn(buf : *u8, buf_size : usize) -> FileType)({
+  sx := Statx(_buf_ptr : buf, _buf_size : buf_size);
+  cond(
+    sx.is_symlink() => FileType.Symlink,
+    sx.is_directory() => FileType.Directory,
+    sx.is_file() => FileType.File,
+    true => FileType.Other
+  )
+});
+/// The `FileType` of the entry at `path`, WITHOUT following a final symlink
+/// (`lstat` semantics): a symlink reports `.Symlink`, never its target's
+/// type. That is the same view `readdir`'s `d_type` gives, so a walk sees one
+/// consistent answer whatever the filesystem reports, and
+/// `WalkOptions.follow_symlinks` — not the stat — stays in charge of descent.
+/// Throws when the path cannot be stat'ed.
+file_type :: (fn(path : Path, io : Io) -> Impl(Future(FileType, IoExn)))(
+  io.async(e => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    buf_size := __yo_statx_buf_size();
+    buf := *(u8)(malloc(buf_size).unwrap());
+    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), e.io);
+    // The buffer must be freed on BOTH paths, so the classification happens
+    // before the free and the throw after it. Both `cond`s are statements
+    // and the body's tail is the bare `ft`: a value-position `cond` whose
+    // other arm throws emitted a read of an undeclared C temp here
+    // (issues/async-cond-value-with-throwing-arm-after-await-undeclared-temp.md).
+    (ft : FileType) = FileType.Other;
+    cond(
+      (result >= i32(0)) => {
+        ft = _statx_file_type(buf, buf_size);
+      },
+      true => ()
+    );
+    free(.Some(*(void)(buf)));
+    cond(
+      (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
+      true => ()
+    );
+    ft
+  })
+);
+/// `file_type`, degrading to `.Other` instead of throwing — the form
+/// `read_dir` uses for its `DT_UNKNOWN` fallback. An entry the directory
+/// listed but that cannot be stat'ed (removed under us, or a parent that is
+/// readable but not searchable) keeps the `.Other` it has always had, so one
+/// unresolvable entry never fails the whole listing.
+_file_type_or_other :: (fn(path : Path, io : Io) -> Impl(Future(FileType, Io)))(
+  io.async(io => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    buf_size := __yo_statx_buf_size();
+    buf := *(u8)(malloc(buf_size).unwrap());
+    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
+    ft := cond(
+      (result < i32(0)) => FileType.Other,
+      true => _statx_file_type(buf, buf_size)
+    );
+    free(.Some(*(void)(buf)));
+    ft
+  })
+);
+// ============================================================================
 // Directory listing
 // ============================================================================
 /// Read all entries from a directory, returning an `ArrayList(DirEntry)`.
@@ -286,7 +360,13 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
       true => ()
     );
     fd := fd_result;
-    entries := ArrayList(DirEntry).new();
+    // Pass 1 — drain the kernel's dirent buffers, keeping `d_type` RAW.
+    // Resolving `DT_UNKNOWN` needs a stat, and an await down here (inside the
+    // scan of one getdents buffer, a while nested in a while nested in a cond
+    // arm) is the async state-machine shape
+    // issues/async-nested-cond-await-duplicate-while-labels.md warns about.
+    // The mapping — and the stat — happen in pass 2, one loop up.
+    raw := ArrayList(struct(name : String, dt : u8, ino : u64)).new();
     buf_size := u32(4096);
     buf := *(u8)(malloc(usize(buf_size)).unwrap());
     while(runtime(true), {
@@ -310,21 +390,11 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
             cond(
               ((name == String.from(".")) || (name == String.from(".."))) => (),
               true => {
-                dt := IO_dir.dirent_type(entry_ptr);
-                ft := cond(
-                  (dt == DT_REG) => FileType.File,
-                  (dt == DT_DIR) => FileType.Directory,
-                  (dt == DT_LNK) => FileType.Symlink,
-                  true => FileType.Other
-                );
-                entries.push(
-                  DirEntry(
-                    name : name,
-                    file_type : ft,
-                    ino : IO_dir.dirent_ino(entry_ptr),
-                    parent : path.clone()
-                  )
-                );
+                raw.push({
+                  name : name,
+                  dt : IO_dir.dirent_type(entry_ptr),
+                  ino : IO_dir.dirent_ino(entry_ptr)
+                });
               }
             );
             offset = (offset + usize(IO_dir.dirent_reclen(entry_ptr)));
@@ -334,6 +404,45 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
     });
     free(.Some(*(void)(buf)));
     e.io.await(IO_file.close(fd), e.io);
+    // Pass 2 — `d_type` to `FileType`.
+    entries := ArrayList(DirEntry).new();
+    (i : usize) = usize(0);
+    while(runtime(i < raw.len()), {
+      r := raw(i);
+      (ft : FileType) = cond(
+        (r.dt == DT_REG) => FileType.File,
+        (r.dt == DT_DIR) => FileType.Directory,
+        (r.dt == DT_LNK) => FileType.Symlink,
+        true => FileType.Other
+      );
+      // `DT_UNKNOWN` is not exotic: XFS, many network and overlay
+      // filesystems, and any filesystem that does not carry the type inline
+      // answer it for EVERY entry. Calling that `.Other` made the walker
+      // silently skip whole subtrees and `remove_dir_all` call `remove_file`
+      // on directories, so stat the entry — what every correct readdir
+      // consumer does. Only this arm pays a syscall; a filesystem that
+      // reports a type keeps the fast path above.
+      //
+      // The stat is a STATEMENT-form `cond` assigning `ft`, not an arm of the
+      // value-form `cond` above: a value-position `cond` with an awaiting arm
+      // inside a `while` inside `io.async` silently yields the ZERO value for
+      // EVERY arm — issues/async-cond-value-with-await-arm-inside-while-yields-zero.md.
+      cond(
+        (r.dt == DT_UNKNOWN) => {
+          ft = e.io.await(_file_type_or_other(path.join(Path.new(r.name.clone())), e.io), e.io);
+        },
+        true => ()
+      );
+      entries.push(
+        DirEntry(
+          name : r.name,
+          file_type : ft,
+          ino : r.ino,
+          parent : path.clone()
+        )
+      );
+      i = (i + usize(1));
+    });
     entries
   })
 );
@@ -356,5 +465,6 @@ export(
   read_dir,
   read_dir_str,
   read_link,
-  read_link_str
+  read_link_str,
+  file_type
 );

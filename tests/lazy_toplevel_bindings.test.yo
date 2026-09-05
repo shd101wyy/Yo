@@ -1,0 +1,146 @@
+{ assert } :: import("std/assert");
+// Lazy top-level bindings (plans/LAZY_TOPLEVEL_BINDINGS.md): module-level `::`
+// definitions and `impl(...)` registrations are order-independent. Every
+// definition below is deliberately placed AFTER its first use.
+open(import("std/string"));
+open(import("std/fmt"));
+// ---------- caller above callee ----------
+call_later :: (fn(n : i32) -> i32)(later_helper(n) * i32(2));
+later_helper :: (fn(n : i32) -> i32)(n + i32(1));
+test("free function used above its definition", {
+  assert(call_later(i32(4)) == i32(10), "later_helper(4) * 2");
+});
+// ---------- self-recursion through the bare name (no `recur`) ----------
+fact :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * fact(n - i32(1)))
+  )
+);
+test("self-recursive free function through its own name", {
+  assert(fact(i32(5)) == i32(120), "5!");
+});
+// ---------- mutual recursion between free functions ----------
+is_even :: (fn(n : i32) -> bool)(
+  cond(
+    (n == i32(0)) => true,
+    true => is_odd(n - i32(1))
+  )
+);
+is_odd :: (fn(n : i32) -> bool)(
+  cond(
+    (n == i32(0)) => false,
+    true => is_even(n - i32(1))
+  )
+);
+test("mutual recursion between free functions", {
+  assert(is_even(i32(10)), "10 is even");
+  assert(is_odd(i32(7)), "7 is odd");
+  assert(!is_even(i32(3)), "3 is not even");
+});
+// ---------- a type used above its definition ----------
+make_point :: (fn(x : i32) -> Point)(Point(x : x, y : (x + i32(1))));
+Point :: struct(x : i32, y : i32);
+test("struct type used above its definition", {
+  p := make_point(i32(3));
+  assert(p.x == i32(3), "x");
+  assert(p.y == i32(4), "y");
+});
+// ---------- a constant used above its definition ----------
+scaled :: (fn(n : i32) -> i32)(n * SCALE);
+SCALE :: i32(7);
+test("constant used above its definition", {
+  assert(scaled(i32(3)) == i32(21), "3 * SCALE");
+});
+// ---------- a constant whose value is another later constant ----------
+DOUBLE_BASE :: (BASE * i32(2));
+BASE :: i32(21);
+test("constant defined from a later constant", {
+  assert(DOUBLE_BASE == i32(42), "BASE * 2");
+});
+// ---------- an enum used above its definition, from a generic fn ----------
+describe :: (fn(generic(T : Type), v : T, c : Color) -> String)(
+  match(
+    c,
+    .Red => `red`,
+    .Blue => `blue`
+  )
+);
+Color :: enum(Red, Blue);
+test("enum used above its definition inside a generic fn body", {
+  assert(describe(i32(1), Color.Blue) == "blue", "blue");
+});
+// ---------- impl(T, Trait) BELOW a free fn that calls the trait default ----------
+Greeter :: trait(
+  name : (fn(self : Self) -> String),
+  (greet : (fn(self : Self) -> String)) ?= (self -> (`hi ` + self.name()))
+);
+Dog :: struct(n : String);
+say_hi :: (fn(d : Dog) -> String)(d.greet());
+name_of :: (fn(d : Dog) -> String)(d.name());
+impl(Dog, Greeter(name : (fn(self : Self) -> String)(self.n.clone())));
+test("trait default and trait method from an impl below the caller", {
+  d := Dog(n : `rex`);
+  assert(say_hi(d) == "hi rex", "greet default");
+  assert(name_of(d) == "rex", "name");
+});
+// ---------- static method from an impl below the caller ----------
+make_dog :: (fn() -> Dog)(Dog.with_name(`fido`));
+impl(Dog, with_name : (fn(n : String) -> Dog)(Dog(n : n)));
+test("static method from an impl below the caller", {
+  assert(make_dog().n == "fido", "with_name");
+});
+// ---------- methods spread over two impl blocks, both below their callers ----------
+// A free function (and a method of ANOTHER type) may use methods from any
+// number of later impl blocks. From INSIDE an impl block of `Counter`, a
+// method of a LATER `Counter` block is not forced (the in-block sibling
+// machinery owns misses while an impl of the type is being evaluated), so
+// block 2 below references block 1 in source order only.
+twice_then_thrice :: (fn(c : Counter) -> i32)(c.twice_incremented() + c.thrice_incremented());
+Counter :: struct(v : i32);
+Wrapper :: struct(c : Counter);
+impl(Wrapper, total : (fn(self : Self) -> i32)(self.c.incremented() + self.c.thrice_incremented()));
+impl(
+  Counter,
+  incremented : (fn(self : Self) -> i32)(self.v + i32(1)),
+  twice_incremented : (fn(self : Self) -> i32)(self.incremented() + i32(1))
+);
+impl(
+  Counter,
+  thrice_incremented : (fn(self : Self) -> i32)(self.twice_incremented() + i32(1))
+);
+test("methods from two later impl blocks, used by a free function and another type's impl", {
+  c := Counter(v : i32(1));
+  assert(twice_then_thrice(c) == i32(7), "3 + 4");
+  assert(Wrapper(c : c).total() == i32(6), "2 + 4");
+});
+// ---------- impl whose receiver type is defined below it ----------
+impl(Later, doubled : (fn(self : Self) -> i32)(self.v * i32(2)));
+Later :: struct(v : i32);
+test("impl placed above its receiver type", {
+  assert(Later(v : i32(21)).doubled() == i32(42), "doubled");
+});
+// ---------- export naming a definition that appears after it ----------
+export(exported_later);
+exported_later :: (fn() -> i32)(i32(99));
+test("export of a definition that appears after the export", {
+  assert(exported_later() == i32(99), "exported_later");
+});
+// ---------- surfaced along the way: unit-valued body vs non-unit result ----------
+// issues/fixed/unit-valued-fn-body-return-type-mismatch-not-reported.md — a
+// `{ ...; }` body's value is `()` (the parser appends a trailing unit); the
+// mismatch used to reach clang ("non-void function does not return a value").
+test("unit-valued body against a non-unit result is rejected", {
+  comptime_expect_error({
+    bad_tail :: (fn(n : i32) -> i32)({
+      n * i32(2);
+    });
+    bad_tail(i32(1))
+  });
+});
+test("body of the wrong type is rejected", {
+  comptime_expect_error({
+    wrong_body :: (fn() -> i32)(true);
+    wrong_body()
+  });
+});

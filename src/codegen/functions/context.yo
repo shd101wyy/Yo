@@ -322,7 +322,28 @@ FunctionGenerationContext :: ref(
     /// Temp variable names already declared in the C output (avoid duplicates).
     declared_temp_vars : Option(HashSet(String)),
     /// Var names whose drops were already emitted inside short-circuit branches.
+    /// CONSUME-ONCE: every reader (begin.yo, while_loop.yo, drop_dup.yo) REMOVES
+    /// the entry on hit, because it means "suppress the next scope-end flush of
+    /// this target, once". It is therefore useless as a dedup signal for a
+    /// SECOND consideration of the same drop inside the short-circuit family —
+    /// that is what `short_circuit_emitted_drop_targets` is for.
     short_circuit_handled_drop_var_names : Option(HashSet(String)),
+    /// Targets the short-circuit family has already emitted a drop for in this
+    /// function. MONOTONE — never removed, unlike the consume-once set above.
+    /// A chain (`a || b || c` parses as nested binaries) considers the same
+    /// operand temp at two emission points: the INNER node's fall-through and
+    /// the OUTER node's fall-through, both at function scope, and each with a
+    /// DIFFERENT drop-expr identity (the channels carry distinct exprs, so the
+    /// id guard cannot see it). Without a monotone name-keyed signal the second
+    /// consideration double-drops — the failure that sank two earlier attempts
+    /// at the chain fix (issues/short-circuit-chain-inner-operand-temps-still-leak.md).
+    short_circuit_emitted_drop_targets : Option(HashSet(String)),
+    /// The OUTERMOST `||`/`&&` currently being emitted. A chain's inner node has
+    /// an EMPTY deferred-drop list — its operand temps' scope drops were
+    /// scheduled onto the outermost/body node — so the inner node's emission
+    /// points must read the ROOT's list to find them. Set by the outermost
+    /// short circuit when unset, restored on exit.
+    short_circuit_root_node : Option(AstExpr),
     /// Drop code strings for effect-handler params (emitted before unwind).
     effect_handler_param_drops : Option(ArrayList(String)),
     /// C var names of SM args whose ownership transferred to the SM (no dup).
@@ -432,6 +453,8 @@ impl(
       local_shadowed_variables : Option(HashSet(String)).None,
       declared_temp_vars : Option(HashSet(String)).None,
       short_circuit_handled_drop_var_names : Option(HashSet(String)).None,
+      short_circuit_emitted_drop_targets : Option(HashSet(String)).None,
+      short_circuit_root_node : Option(AstExpr).None,
       effect_handler_param_drops : Option(ArrayList(String)).None,
       effect_sm_consumed_arg_c_names : Option(HashSet(String)).None,
       loop_body_drops_baseline_count : Option(usize).None,

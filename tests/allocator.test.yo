@@ -1,4 +1,4 @@
-//! `std/allocator`'s allocation-size guard.
+//! `std/allocator`'s allocation-size guard and the aligned allocation pair.
 //!
 //! `size_would_overflow` shipped exported and UNUSED while every collection
 //! computed `sizeof(T) * count` unchecked, so a count from untrusted input
@@ -8,8 +8,19 @@
 //! guard in `ArrayList.with_capacity` / `ensure_total_capacity` and in
 //! `HashMap`/`HashSet`'s `_alloc_with_capacity`, so its boundaries are pinned
 //! here.
+//!
+//! `GlobalAllocator.aligned_alloc` shipped with NO matching free, so the only
+//! release a user could reach was `GlobalAllocator.free` — which on Windows
+//! hands an `_aligned_malloc` block to `free` and corrupts the CRT heap
+//! (issues/fixed/global-allocator-aligned-alloc-has-no-aligned-free.md). The
+//! raw platform primitives also disagree on every edge case: macOS returns NULL
+//! for a size that is not a multiple of the alignment and for any alignment
+//! below `sizeof(void*)`, while glibc and Windows accept both. The aligned
+//! tests below pin the normalized contract on every target.
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ size_would_overflow, layout_of } :: import("std/allocator");
+{ size_would_overflow, layout_of, GlobalAllocator } :: import("std/allocator");
+{ aligned_alloc, aligned_free } :: GlobalAllocator;
 { SIZE_MAX } :: import("std/libc/stdint");
 
 test("size_would_overflow at the exact boundary", {
@@ -51,4 +62,88 @@ test("layout_of reports a type's size and alignment", {
   l :: layout_of(u64);
   assert(l.size == usize(8), "u64 is 8 bytes");
   assert(l.alignment == alignof(u64), "u64 alignment matches alignof");
+});
+/// Allocate, verify the address really is aligned, write and read back every
+/// requested byte, then release with `aligned_free`.
+_aligned_round_trip :: (fn(alignment : usize, size : usize) -> unit)(
+  match(
+    aligned_alloc(alignment, size),
+    .None => assert(false, "aligned_alloc returned .None for a legal request"),
+    .Some(raw) => {
+      addr := unsafe.cast(raw, usize);
+      assert(
+        (addr % alignment) == usize(0),
+        "aligned_alloc honours the requested alignment"
+      );
+      bytes := *(u8)(raw);
+      (i : usize) = usize(0);
+      while(i < size, {
+        unsafe((bytes.add(i)).* = u8(i % usize(251)));
+        i = (i + usize(1));
+      });
+      i = usize(0);
+      while(i < size, {
+        assert(
+          unsafe((bytes.add(i)).*) == u8(i % usize(251)),
+          "every requested byte of the block round trips"
+        );
+        i = (i + usize(1));
+      });
+      aligned_free(.Some(raw));
+    }
+  )
+);
+test("aligned_alloc / aligned_free round-trips at several alignments", {
+  _aligned_round_trip(usize(16), usize(256));
+  _aligned_round_trip(usize(64), usize(256));
+  _aligned_round_trip(usize(4096), usize(8192));
+});
+test("aligned_alloc accepts a size that is not a multiple of the alignment", {
+  // C11 `aligned_alloc` requires `size % alignment == 0`; the size is rounded
+  // up so the request is legal on every target (raw, macOS returns NULL here).
+  _aligned_round_trip(usize(64), usize(100));
+  _aligned_round_trip(usize(32), usize(1));
+});
+test("aligned_alloc raises an alignment below the pointer size", {
+  // POSIX `memalign` — what macOS's `aligned_alloc` is built on — rejects any
+  // alignment smaller than `sizeof(void*)`; glibc and Windows accept it.
+  _aligned_round_trip(usize(1), usize(8));
+  _aligned_round_trip(usize(4), usize(16));
+});
+test("aligned_alloc of zero bytes yields a unique freeable pointer", {
+  match(
+    aligned_alloc(usize(64), usize(0)),
+    .None => assert(false, "a zero-size aligned_alloc must still allocate"),
+    .Some(raw) => {
+      addr := unsafe.cast(raw, usize);
+      assert((addr % usize(64)) == usize(0), "the zero-size block is aligned");
+      aligned_free(.Some(raw));
+    }
+  );
+});
+test("aligned_alloc rejects an alignment that is not a power of two", {
+  // Rejected explicitly rather than handed to the platform primitive, whose
+  // behaviour for these arguments is undefined.
+  assert(
+    aligned_alloc(usize(24), usize(48)).is_none(),
+    "24 is not a power of two"
+  );
+  assert(
+    aligned_alloc(usize(3), usize(48)).is_none(),
+    "3 is not a power of two"
+  );
+  assert(
+    aligned_alloc(usize(0), usize(48)).is_none(),
+    "0 is not a power of two"
+  );
+});
+test("aligned_alloc rejects a size whose rounding would overflow usize", {
+  assert(
+    aligned_alloc(usize(64), SIZE_MAX).is_none(),
+    "SIZE_MAX cannot be rounded up to a multiple of 64"
+  );
+});
+test("aligned_free of .None is a no-op", {
+  aligned_free(.None);
+  assert(true, "freeing nothing is legal, matching free(.None)");
 });

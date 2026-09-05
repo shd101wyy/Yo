@@ -59,7 +59,18 @@ since C17), and the builtin-shadowing decision.
 | **#415** | **Comptime `u64`/`usize` above `i64.MAX` was computed SIGNED** — `u64.MAX / 2` folded to `0`, `u64.MAX > 1` to `false`. Runtime was correct, so folded and unfolded forms of the same expression disagreed. |
 | **#414** | `parse_f64` rejected every 3- or 8-byte number (`1.5`, `100`, `1e3`); the four integer parsers wrapped on overflow. Blocked on #415, which is what its CI failure root-caused to. |
 
+| **#416** | **HTTP field values per RFC 9112 §5** — the OWS after a colon is optional (`Content-Length:5` was unreadable), the name match was unanchored (`X-Content-Length` supplied the framing), and an unparseable `Content-Length` is now a typed error rather than "no body". Its two new tests were re-shaped to be DEADLINE-FREE: the server writes the response then trailing bytes and closes, so correct framing is a value comparison instead of a race. |
+| **#418** | `std/path` records `..` instead of resolving it, and `Path` gains a real root (drive / UNC). |
+| **#419** | `File.metadata()` fstats its descriptor; `read_dir` stats `DT_UNKNOWN` entries so walks stop going flat. |
+| **#421** | **The stability freeze pass.** `module_stability` published only the FIRST SOURCE LINE of a `## Stability` section, so every wrapped marker was cut mid-clause in the JSON key, the HTML badge and the Markdown note alike. All four `unstable` markers had outlived the one-release window and were decided per module (`std/term`, `std/encoding/csv`, `std/http/server` FROZEN; `std/fs/watch` restated with the real Windows blocker); `std/spec/{refine,numeric}` gained markers — their EXPERIMENTAL banner was prose, so `yo doc` reported them as frozen std surface. |
+| **#422** | **`Url.parse` validated no characters at all**, so a URL carrying a raw CRLF split the HTTP request it was fetched with — reachable from caller-supplied text and, via `Location`, from a remote server. Now a strict RFC 3986 §2 byte-set pre-scan (0/12 -> 12/12 rejections, over-rejection canary steady at 10/10). The scheme guard was separately tautological (tested `first`, not `ch`). BREAKING. |
+| **#423** | `aligned_alloc` paired with `aligned_free` and the request made portable — on Windows the only reachable pairing corrupted the heap. |
+| **#425** | **A `unit` field costs a byte in C**, so `sizeof` must count it — `malloc(n * sizeof(S))` under-allocated for every container of a unit-bearing aggregate. |
+| **#426** | **The short-circuit chain leak, and the unrecorded drop behind it** (see below). |
+| **#429** | **The trait predicate ignored a generic impl's marker where-clause** — `Type.impls(*NonSend, Send)` said `true`. The `Option`/`Eq` canary rejected two builds before the third stuck; parametric where-constraints stay a documented gap. |
+
 ### The two findings that matter most
+
 
 1. **`comptime_assert` never fires inside a function body.**
    `comptime_assert(false)` is silently accepted in `main`, in a called `fn`,
@@ -109,8 +120,9 @@ They are in `issues/` (root = open). By class:
 
 - **memory-unsafety / crash (7)** — `sizeof` of an aggregate with a `unit` field
   disagrees with the emitted C struct, so `malloc(n * sizeof(S))`
-  under-allocates; `GlobalAllocator.aligned_alloc` is exported with no
-  `aligned_free` (on Windows the only available pairing corrupts the heap);
+  under-allocates (fixed in #425); `GlobalAllocator.aligned_alloc` is exported with no
+  `aligned_free` (on Windows the only available pairing corrupts the heap) —
+  **FIXED 2026-09-05, audit row C64**;
   a `Dyn` box's dispose is emitted with an EMPTY BODY, so every value boxed into
   a `Dyn` leaks — and `AnyError` is `Dyn(Error)`, so that is every thrown error;
   `derive(Eq)`/`Clone`/`Ord` over a fixed-size `Array` field passes `check`,
@@ -140,12 +152,58 @@ They are in `issues/` (root = open). By class:
 blocked on, or much larger than, what the row says, and the blocker is now
 written down.
 
+## 4b. Three defects found by VERIFYING other people's fixes
+
+Worth calling out as a method, not just as bugs — each was invisible from the
+change itself and only appeared under independent measurement.
+
+1. **`issues/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`.**
+   The regression net added with #409 PASSES 3/3 under the compiler that still
+   has the bug it was written for. It asserts only values; the leak verdict
+   meant to fail it is disabled in every CI job (`YO_TEST_LEAK_VERDICT: "0"` ->
+   `detect_leaks=0`), and `--sanitize address` on macOS emits a binary with ZERO
+   `__asan` symbols. Fixed in #426 by making the leak a `Dispose` counter — an
+   ordinary value assertion that works under the ratchet on every platform.
+   **Treat every leak-shaped test in `tests/` as unverified until re-measured
+   with `leaks --atExit`.**
+
+2. **`issues/drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`.**
+   `_call_generate_expr(drop_expr, ...)` does not always RETURN the drop code —
+   for an enum/`Option` target it lowers to a multi-line `switch` that
+   `drop_dup.yo` writes DIRECTLY to the emitter, returning `""`. So the
+   near-universal `if(drop_code.len() > usize(0), { ...emit...; record... })`
+   emits the drop and skips the recording, leaving it emittable a second time.
+   This is the double-drop that sank two prior attempts at the chain fix, and
+   the answer to the "uninstrumented fourth emitter" in that record — there is
+   no fourth emitter. Fixed in `and_or.yo`; **still live at `begin.yo:154` and
+   `drop_dup.yo:895`.**
+
+3. **`issues/comptime-str-passed-where-string-is-declared-emits-invalid-c.md`.**
+   A `"..."` literal passed where `String` is declared passes `yo check` and
+   then emits a C cast to a struct type. The C19 class.
+
+**The method that produced all three:** build the fix, then measure it against
+a compiler that predates it. A published release is a free before-oracle —
+`yo` 0.2.24 predates #409 by four hours. Per-shape numbers beat a single
+aggregate: the shape table is what showed #409 closed the two-operand family
+and only HALVED chains.
+
 ## 5. What to do next, in order
 
-1. **Land the four PRs in flight** (#413 Schannel, #414 parse, #415 comptime
-   unsigned, #416 http field values) and cut a patch release. The release notes
-   must call out the breaking changes: integer parsers reject overflow instead
-   of wrapping, and `Content-Length` parsing rejects what it used to accept.
+
+1. ~~**Land the four PRs in flight**~~ **DONE** — #414, #415, #416 landed;
+   #413 (Schannel) passed its Windows legs and is re-running after a rebase.
+   **Cutting the patch release is still open**, and the release notes must call
+   out FOUR breaking changes now, not two:
+   - integer parsers reject overflow instead of wrapping (#414);
+   - `Content-Length` parsing rejects what it used to accept (#416);
+   - `Path` records `..` instead of resolving it (#418);
+   - **`Url.parse` rejects raw spaces, raw non-ASCII and control bytes** (#422)
+     — the one most likely to surface in existing code, because a space is the
+     byte people forget to encode;
+   - `sizeof(unit)` is now 1, not 0 (#425);
+   - `std/term`, `std/encoding/csv` and `std/http/server` are FROZEN, so they
+     may only change additively from here (#421).
 2. **`comptime_assert` (issues/comptime-assert-never-fires-inside-a-function-body.md).**
    Nothing else on this list is worth much while the comptime suite verifies
    nothing. Measure the fallout first, then land the change and its triage

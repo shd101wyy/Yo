@@ -119,8 +119,9 @@ argument is not a closure at all there is no `FuncVal`, `closure_fn_val` is
 `io.async` given an argument that is not a closure — `io.async({ … })` (a bare
 block) or `io.async(i32(5))` (any value) produce byte-identical output. The
 evaluator accepting those at all is the upstream defect, filed as
-`issues/impl-fn-parameter-accepts-a-non-callable-argument.md`. Fix that and this
-path becomes unreachable *from source* — but it stays reachable from any future
+`issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md` (FIXED
+2026-09-05, C67). That makes this path unreachable *from source* — but it stays
+reachable from any future
 defect that loses the closure's `FuncVal` or capture type, which is precisely the
 class this emitter's poison gate exists to catch.
 

@@ -547,6 +547,8 @@ x = 1; // x : i32, initialized
 
 Functions are declared using the `::` operator for compile-time definitions or `:=` for runtime values.
 
+Module-level `::` definitions and `impl(...)` registrations are order-independent: a function may call one defined later in the file, reference itself by name, or use a method whose `impl` appears below it. Imports, `open`, pragmas and runtime globals stay in source order. See [Definition Order](./DEFINITION_ORDER.md).
+
 ```rust
 // Function declaration with explicit type
 // function type is written as fn(args...) -> return_type
