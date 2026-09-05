@@ -1,6 +1,6 @@
 # An `Impl(Fn(...))` parameter accepts a non-callable argument — the integer is cast to a function pointer and called
 
-**Status: FIXED** 2026-09-05 (audit row C67, PR #TBD). Root cause: the `Fn`
+**Status: FIXED** 2026-09-05 (audit row C67, PR #431). Root cause: the `Fn`
 constraint of an `Impl(Fn(...))` parameter lives on the parameter's `SomeT`, and
 **both** call paths bind the argument's type INTO that type variable before
 anything tests it — so by the time a compatibility check runs, the parameter type
