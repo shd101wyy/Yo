@@ -184,6 +184,33 @@ test("Test downcast type check via is_some", {
   assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
   assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
 });
+// Regression (issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md):
+// a downcast whose TARGET is a VALUE type that no `dyn()` in the program ever
+// wraps used to fall back to the object cast — `((StructType)__yo_incr_rc(...))`
+// — which is not valid C ("used type … where arithmetic or pointer type is
+// required"), so the whole build died inside the C compiler. Nothing in this
+// file boxes a `NeverDynnedValue` or a `String` into a Dyn, so no vtable carries
+// their type ids and both answers are statically `.None`.
+test("Test downcast to a value type that no dyn() in the program wraps", {
+  Cat :: ref(struct(name : String));
+  impl(Cat, ToString(to_string : (self -> self.name)));
+  // A PAYLOAD variant matters: a fieldless enum lowers to a C integer, and the
+  // old object-cast fallback then compiled (as a pointer-to-int cast) instead of
+  // failing loudly. The struct-shaped variants are what the C compiler rejects.
+  NeverDynnedValue :: enum(Boom(code : i32), Bang);
+  impl(NeverDynnedValue, ToString(to_string : (self -> `never`)));
+  Animal :: Dyn(ToString);
+  (animal : Animal) = dyn(Cat(`whiskers`));
+  assert(downcast(animal, NeverDynnedValue).is_none(), "a never-dyn'd value enum can never be inside a Dyn");
+  assert(downcast(animal, String).is_none(), "a never-dyn'd String can never be inside a Dyn");
+  // Over-rejection canary in the same batch: the target that IS wrapped here
+  // must still be found.
+  assert(downcast(animal, Cat).is_some(), "Expected animal to still be a Cat");
+  // The operand of a statically-`.None` downcast is still evaluated — here it is
+  // a CALL that builds a fresh Dyn, not a plain local.
+  make_animal :: (fn() -> Animal)(dyn(Cat(`shadow`)));
+  assert(downcast(make_animal(), NeverDynnedValue).is_none(), "Expected None from a freshly built Dyn too");
+});
 test("Test downcast with multiple concrete types", {
   Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : (self -> self.name)));
