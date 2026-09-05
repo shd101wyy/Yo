@@ -33,7 +33,17 @@ Substitution :: ref(
     /// TS `substitutions.insert("Self", concreteType)` (impl.ts:2474), applied by
     /// this same walk. 0 or 1 element each; empty = no Self binding.
     self_from : ArrayList(TypeValue),
-    self_to : ArrayList(TypeValue)
+    self_to : ArrayList(TypeValue),
+    /// VALUE-level bindings for const-generic array lengths — the `N` of
+    /// `impl(generic(T : Type, N : usize), Array(T, N), ...)`. A length var is
+    /// NOT a `SomeT`: `TypeValue.Array` stores it as the plain string
+    /// `length_var` (types/definitions.yo:155), so the name/level map above can
+    /// never reach it and `Array(T, N)` survived substitution as
+    /// `Array(u16, length = 0, length_var = "N")` — a type with no valid C
+    /// rendering, which codegen spells as the comment `// Unknown type: ...`.
+    /// Parallel arrays, name → concrete length.
+    len_var_names : ArrayList(String),
+    len_var_values : ArrayList(usize)
   )
 );
 /// Create an empty substitution.
@@ -44,9 +54,79 @@ subst_new :: (fn() -> Substitution)(
     types : ArrayList(TypeValue).new(),
     visited_trait_ids : ArrayList(String).new(),
     self_from : ArrayList(TypeValue).new(),
-    self_to : ArrayList(TypeValue).new()
+    self_to : ArrayList(TypeValue).new(),
+    len_var_names : ArrayList(String).new(),
+    len_var_values : ArrayList(usize).new()
   )
 );
+/// Bind a const-generic array LENGTH variable (`N` in `Array(T, N)`) to its
+/// concrete value. Applied by the `.Array` arm of `substitute`. Overwrites an
+/// existing binding of the same name.
+subst_add_len_var :: (fn(s : Substitution, name : String, value : usize) -> unit)({
+  if(name.len() == usize(0), {
+    return(());
+  });
+  i := usize(0);
+  n := s.len_var_names.len();
+  while(i < n, {
+    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    if(ni == name, {
+      s.len_var_values(i) = value;
+      return(());
+    });
+    i = (i + usize(1));
+  });
+  s.len_var_names.push(name);
+  s.len_var_values.push(value);
+});
+/// The same substitution with the const-generic LENGTH bindings dropped.
+///
+/// A NOMINAL type (Struct / EnumT / TraitT) owns its own field types: they were
+/// produced by the type constructor's own evaluation and their spelling is part
+/// of the type's identity — `type_key` hashes them, and the ctfe instantiation
+/// memo canonicalizes a def-era instance to its concrete twin by that key.
+/// Rewriting `Array(T, N)` inside a struct field therefore mints a key no memo
+/// entry matches: MEASURED, resolving `_ArrayIter(T, N)._arr` split one Yo
+/// struct id into two C typedefs and `into_iter` returned the wrong one
+/// ("returning '__yo_t18' from a function with incompatible result type
+/// '__yo_t38'" on tests/array.test.yo). Length resolution therefore applies to
+/// the SPINE — parameters, results, locals, pointers, tuples — and stops at a
+/// nominal boundary. Shares the other arrays; no copy when there is nothing to
+/// drop.
+_without_len_vars :: (fn(s : Substitution) -> Substitution)(
+  cond(
+    (s.len_var_names.len() == usize(0)) => s,
+    true => Substitution(
+      names : s.names,
+      levels : s.levels,
+      types : s.types,
+      visited_trait_ids : s.visited_trait_ids,
+      self_from : s.self_from,
+      self_to : s.self_to,
+      len_var_names : ArrayList(String).new(),
+      len_var_values : ArrayList(usize).new()
+    )
+  )
+);
+/// Look up a const-generic array length binding by name.
+subst_lookup_len_var :: (fn(s : Substitution, name : String) -> Option(usize))({
+  i := usize(0);
+  n := s.len_var_names.len();
+  while(i < n, {
+    ni := match(s.len_var_names.get(i), .Some(v) => v, .None => ``);
+    if(ni == name, {
+      return(
+        match(
+          s.len_var_values.get(i),
+          .Some(v) => Option(usize).Some(v),
+          .None => Option(usize).None
+        )
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(usize).None
+});
 /// Bind `Self` — port of TS `substitutions.insert("Self", concreteType)`
 /// (src/evaluator/values/impl.ts:2474), consumed by
 /// `reEvaluateFunctionType(..., SelfType)` (impl.ts:1494-1498). TS re-evaluates
@@ -171,7 +251,7 @@ _mfb_is_binder :: (fn(labels : ArrayList(String), nm : String) -> bool)({
   hit
 });
 _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String)) -> Substitution)({
-  if((forall_labels.len() == usize(0)) || (s.names.len() == usize(0)), {
+  if((forall_labels.len() == usize(0)) || ((s.names.len() == usize(0)) && (s.len_var_names.len() == usize(0))), {
     return(s);
   });
   (any_masked : bool) = false;
@@ -185,6 +265,19 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
       si = (si + usize(1));
     });
   };
+  // A const-generic LENGTH binder shadows the same way a type binder does:
+  // a nested `fn(generic(N : usize), ...)` binds its own `N`, so an outer
+  // `N := 4` must not rewrite `Array(T, N)` inside it.
+  {
+    (li : usize) = usize(0);
+    while((li < s.len_var_names.len()) && !any_masked, {
+      lnm := match(s.len_var_names.get(li), .Some(v) => v, .None => ``);
+      if(_mfb_is_binder(forall_labels, lnm), {
+        any_masked = true;
+      });
+      li = (li + usize(1));
+    });
+  };
   if(!any_masked, {
     return(s);
   });
@@ -196,7 +289,9 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
     // unchanged under the mask.
     visited_trait_ids : s.visited_trait_ids,
     self_from : s.self_from,
-    self_to : s.self_to
+    self_to : s.self_to,
+    len_var_names : ArrayList(String).new(),
+    len_var_values : ArrayList(usize).new()
   );
   (ci : usize) = usize(0);
   while(ci < s.names.len(), {
@@ -207,6 +302,15 @@ _mask_func_own_binders :: (fn(s : Substitution, forall_labels : ArrayList(String
       masked.types.push(match(s.types.get(ci), .Some(t) => t, .None => TypeValue.Unit));
     });
     ci = (ci + usize(1));
+  });
+  (mli : usize) = usize(0);
+  while(mli < s.len_var_names.len(), {
+    lnm := match(s.len_var_names.get(mli), .Some(v) => v, .None => ``);
+    if(!_mfb_is_binder(forall_labels, lnm), {
+      masked.len_var_names.push(lnm);
+      masked.len_var_values.push(match(s.len_var_values.get(mli), .Some(v) => v, .None => usize(0)));
+    });
+    mli = (mli + usize(1));
   });
   masked
 });
@@ -228,7 +332,21 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
         ty,
         // Recurse into pointer / slice / array.
         .Pointer(inner) => .Pointer(recur(s, inner, false)),
-        .Array(inner, len, lvar) => .Array(recur(s, inner, false), len, lvar),
+        // The element type substitutes like any other child; the LENGTH is a
+        // value binder, resolved from the const-generic side map when the
+        // impl's `generic(N : usize)` was bound at match time. Unbound (or
+        // already concrete) lengths are carried through unchanged.
+        .Array(inner, len, lvar) => {
+          new_inner := recur(s, inner, false);
+          cond(
+            (lvar.len() == usize(0)) => .Array(new_inner, len, lvar),
+            true => match(
+              subst_lookup_len_var(s, lvar.clone()),
+              .Some(bound_len) => .Array(new_inner, bound_len, String.from("")),
+              .None => .Array(new_inner, len, lvar)
+            )
+          )
+        },
         // Recurse into tuple.
         .Tuple(labels, types) => {
           new_types := ArrayList(TypeValue).new();
@@ -308,11 +426,13 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
               if(tid.len() > usize(0), {
                 s.visited_trait_ids.push(tid);
               });
+              // Nominal boundary — see _without_len_vars.
+              s_nom_t := _without_len_vars(s);
               new_fts := ArrayList(TypeValue).new();
               i := usize(0);
               while(i < fts.len(), {
                 elem := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-                new_fts.push(recur(s, elem, false));
+                new_fts.push(recur(s_nom_t, elem, false));
                 i = (i + usize(1));
               });
               .TraitT(n, atns, fls, new_fts, tid, ic, scons, ncons, atcl, atct)
@@ -355,11 +475,13 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
         },
         // Struct / Enum / Union — recurse into field types.
         .Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns }) => {
+          // Nominal boundary — see _without_len_vars.
+          s_nom := _without_len_vars(s);
           new_types := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < types.len(), {
             elem := match(types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-            new_types.push(recur(s, elem, false));
+            new_types.push(recur(s_nom, elem, false));
             i = (i + usize(1));
           });
           // Substitute the stored type arguments too, so a generic pattern's
@@ -369,7 +491,7 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
           ti := usize(0);
           while(ti < tyargs.len(), {
             targ := match(tyargs.get(ti), .Some(t) => t, .None => TypeValue.Unit);
-            new_tyargs.push(recur(s, targ, false));
+            new_tyargs.push(recur(s_nom, targ, false));
             ti = (ti + usize(1));
           });
           // Preserve constructor_func_id across substitution so the
@@ -378,6 +500,8 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
         },
         // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
         .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar) => {
+          // Nominal boundary — see _without_len_vars.
+          s_nom_e := _without_len_vars(s);
           new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
           i := usize(0);
           while(i < variant_fields.len(), {
@@ -390,7 +514,7 @@ _substitute_at :: (fn(s : Substitution, ty : TypeValue, is_root : bool) -> TypeV
             j := usize(0);
             while(j < vf.len(), {
               elem := match(vf.get(j), .Some(t) => t, .None => TypeValue.Unit);
-              new_vf.push(recur(s, elem, false));
+              new_vf.push(recur(s_nom_e, elem, false));
               j = (j + usize(1));
             });
             new_variant_fields.push(new_vf);
@@ -503,4 +627,14 @@ substitute_all :: (fn(s : Substitution, types : ArrayList(TypeValue)) -> ArrayLi
   });
   result
 });
-export(Substitution, subst_new, subst_set_self, subst_add, subst_lookup, substitute, substitute_all);
+export(
+  Substitution,
+  subst_new,
+  subst_set_self,
+  subst_add,
+  subst_lookup,
+  subst_add_len_var,
+  subst_lookup_len_var,
+  substitute,
+  substitute_all
+);
