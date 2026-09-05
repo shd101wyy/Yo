@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 open(import("std/libc/stdio.yo"));
+open(import("std/string"));
 { Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
   print : (fn(self : *Self) -> unit),
@@ -253,4 +254,96 @@ test("Dyn(trait) with a Future-returning method dispatches through the vtable", 
   r := DynReader(inner : dyn(FixedSrc(n : usize(21))));
   v := io.await(r.read_twice(io), IoExn(io : io, exn : exn));
   assert(v == usize(42), "two dynamic async reads of 21");
+});
+// Regression (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md):
+// `dyn(v)` on a VALUE type boxes `v` through the prelude's
+// `box :: (fn(generic(V : Type), own(value) : V) -> Box(V))(Box(V)(value))`.
+// The callee-side binding of an `own` parameter was never marked owning, so a
+// GENERIC function — whose body is evaluated against THAT binding, not the
+// def-time one — never scheduled the parameter's scope-end drop while the
+// body's store still emitted the balancing `___dup`. Every value boxed into a
+// `Dyn` therefore kept a reference nobody owned and was never released.
+// `AnyError` is `Dyn(Error)`, so it leaked on every thrown error. The
+// `Dispose` counter observes the release directly.
+(g_dyn_payload_disposed : i32) = i32(0);
+DynPayloadRes :: ref(struct(tag : i32));
+impl(
+  DynPayloadRes,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_dyn_payload_disposed = (g_dyn_payload_disposed + i32(1));
+    })
+  )
+);
+DynStructPayload :: struct(r : DynPayloadRes);
+impl(
+  DynStructPayload,
+  TestDyn(
+    print : (
+      self -> ()
+    ),
+    return_i32 : (
+      self -> self.*.r.tag
+    )
+  )
+);
+DynEnumPayload :: enum(Held(r : DynPayloadRes), Empty);
+impl(
+  DynEnumPayload,
+  TestDyn(
+    print : (
+      self -> ()
+    ),
+    return_i32 : (
+      self -> i32(0)
+    )
+  )
+);
+// A payload that itself owns heap memory: a missed teardown loses the String's
+// buffer as well as the `DynPayloadRes` handle.
+DynHeapPayload :: struct(name : String, r : DynPayloadRes);
+impl(
+  DynHeapPayload,
+  TestDyn(
+    print : (
+      self -> ()
+    ),
+    return_i32 : (
+      self -> i32(0)
+    )
+  )
+);
+test("a value STRUCT boxed into Dyn releases its payload", {
+  before := g_dyn_payload_disposed;
+  {
+    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : DynPayloadRes(tag : i32(7))));
+    assert(d.return_i32() == i32(7), "the boxed value is reachable through the vtable");
+    assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
+  };
+  assert(
+    (g_dyn_payload_disposed - before) == i32(1),
+    "the boxed struct payload is released exactly once"
+  );
+});
+test("a value ENUM boxed into Dyn releases its payload", {
+  before := g_dyn_payload_disposed;
+  {
+    (d : Dyn(TestDyn)) = dyn(DynEnumPayload.Held(r : DynPayloadRes(tag : i32(8))));
+    assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
+  };
+  assert(
+    (g_dyn_payload_disposed - before) == i32(1),
+    "the boxed enum payload is released exactly once"
+  );
+});
+test("a Dyn payload that owns heap memory releases it", {
+  before := g_dyn_payload_disposed;
+  {
+    (d : Dyn(TestDyn)) = dyn(DynHeapPayload(name : `a string on the heap`, r : DynPayloadRes(tag : i32(9))));
+    assert(g_dyn_payload_disposed == before, "nothing is released while the Dyn is live");
+  };
+  assert(
+    (g_dyn_payload_disposed - before) == i32(1),
+    "the heap-owning payload is released exactly once"
+  );
 });

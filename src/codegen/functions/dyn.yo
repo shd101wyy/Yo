@@ -21,7 +21,8 @@ open(import("std/string"));
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
-{ get_drop_function_for_type } :: import("../exprs/drop_dup.yo");
+{ get_drop_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (mirrors collection.yo:_func_val_id).
 _func_val_id :: (fn(v : EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
@@ -165,10 +166,42 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
           em.emit_line("");
           em.emit_string_line(`static void __yo_dispose_${box_name}(void* ptr) {`);
           em.emit_string_line(`  ${box_name}* box = (${box_name}*)ptr;`);
+          // Release the boxed value. `get_drop_function_for_type` only finds a
+          // USER `___drop` METHOD; most types (String, a value enum with RC
+          // payloads, a tuple, an array, a value struct) are torn down
+          // STRUCTURALLY, so a bare `.None => ()` arm emitted an EMPTY dispose
+          // body and silently un-dropped every one of them — the
+          // `true => ""` / silent-fallback class in the drop lowerings. Fall
+          // back to the structural teardown, and look BOTH up through the
+          // RESOLVED concrete (`dyn_concrete_res`), the same type the box
+          // typedef and constructor above use: a concrete that arrives as a
+          // `SomeT` missed the registry lookup even when a user `___drop`
+          // existed. Only `box->value` is touched — the `__yo_ref_header_t` at
+          // the head of the box is the allocator's, not the payload's. No dup
+          // counterpart is needed: `__yo_dup___yo_t<dyn>` increments the BOX's
+          // refcount only, and the box owns exactly one copy of the value.
           match(
-            get_drop_function_for_type(impl_entry.concrete_type.clone(), context),
+            get_drop_function_for_type(dyn_concrete_res.clone(), context),
             .Some(drop_c) => em.emit_string_line(`  ${drop_c}(box->value);`),
-            .None => ()
+            .None => {
+              // `generate_drop_code_for_value` emits the multi-line shapes
+              // (arrays, tuples, value enums/structs) straight through the
+              // emitter and returns "", so "returned nothing" alone does not
+              // mean "dropped nothing" — the emitted-byte delta does.
+              before_len := em.code.len();
+              dc := generate_drop_code_for_value(String.from("box->value"), dyn_concrete_res.clone(), context);
+              if(dc.len() > usize(0), {
+                em.emit_string_line(`  ${dc};`);
+              }, {
+                // Nothing returned AND nothing emitted, for a payload that
+                // carries RC state: leave a greppable marker instead of a
+                // silent no-op — the silent no-op is the class that hid this
+                // bug for the whole life of the emitter.
+                if((em.code.len() == before_len) && type_contains_rc_type(dyn_concrete_res.clone()), {
+                  em.emit_string_line(`  /* __yo_MISSING_DROP: no drop lowering for ${concrete_c} */`);
+                });
+              });
+            }
           );
           em.emit_line("}");
           em.emit_line("");
