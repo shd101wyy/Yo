@@ -1923,7 +1923,7 @@ validate_concrete_type_constraints :: (
       (tc_res : TraitCheckResult) = type_implements_trait(concrete_type, tv, env_mut);
       // Lazy impls (plans/LAZY_TOPLEVEL_BINDINGS.md §4.4): an impl placed later
       // in its module may satisfy the bound — force and re-check first.
-      if(!(tc_res.implemented) && !(negated), {
+      if(!tc_res.implemented && !negated, {
         match(
           force_pending_impls_for_type_name(type_head_name_for_impl_forcing(concrete_type)),
           .Forced => {
