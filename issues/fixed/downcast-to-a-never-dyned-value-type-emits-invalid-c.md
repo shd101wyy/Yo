@@ -1,6 +1,43 @@
 # `downcast(dyn, T)` to a value type that is never `dyn()`-wrapped emits invalid C
 
-**Status:** OPEN
+**Status: FIXED** 2026-09-05 — in CODEGEN, as analysed below.
+
+The root cause is exactly the `.None` object-cast fallback in
+`generate_downcast` (`src/codegen/exprs/downcast.yo`): when the whole-program
+`dyn_impls` registry has no entry for this `(Dyn, target)` pair, the emitter fell
+through to `((<target C type>)__yo_incr_rc((void*)dyn.data))`, which for a VALUE
+target is a cast of a pointer to a struct — not valid C. That fallback now sets a
+`statically_impossible` flag and the downcast lowers to a constant `.None`:
+`(/* never dyn'd: <T> */ (void)(<dyn operand>), (Option){ .tag = <None> })`
+(`NULL` for the nullable-pointer-optimized `Option`). The operand is still
+spliced, as the discarded left operand of a comma expression, because it can be
+an arbitrary side-effecting expression; `(void)` on a struct-typed operand is
+explicitly legal (C11 6.5.4p2 exempts a void type name from the scalar-operand
+constraint).
+
+Two details the analysis below did not have:
+
+- **The registry miss had to be made trustworthy before it could decide
+  anything.** The scan compared `de.concrete_type` raw; it now resolves it
+  through `resolve_some_type_to_concrete` first — the same resolution
+  `generate_dyn_box_types` does before keying — so an entry whose concrete IS
+  this target but was recorded as an unresolved `SomeT` still matches. Without
+  it, turning "no entry" into a silent statically-false answer could have
+  reported "never dyn'd" for a type that is.
+- **A fieldless enum target did NOT reproduce.** `enum(Boom)` lowers to a C
+  integer, so the old fallback emitted a pointer-to-int cast, which compiles (and
+  is never executed, because the check is false). Only struct-shaped targets —
+  `String`, a payload-carrying enum — hit the hard error. The regression tests
+  therefore use payload variants.
+
+Ordering is what makes the verdict sound: `collect_required_functions` registers
+every `dyn()` creation site during the collection pass, which runs before any
+function body is emitted (`src/codegen/codegen_c.yo`), and both
+`generate_dyn_box_types` and `generate_dyn_vtables` walk that same registry. A
+concrete type with no entry therefore has no `__yo_typeid_<T>` in any vtable, and
+a site discovered only later would already fail loudly on its own missing box
+typedef.
+
 **Found:** 2026-09-04, measuring the `error`/`assert` row of the std API audit —
 the row asks for an `is(T)` helper on `AnyError`, and the first negative test
 written for it (is this error some OTHER type?) failed to compile.
@@ -143,6 +180,24 @@ file never wraps, asserting `.is_none()`. Verify it is RED first (today it fails
 the C compile, taking the whole batch with it). Add the mirror case to
 `tests/error.test.yo`: `downcast(err, SomeNeverThrownError)` on an `AnyError`
 built from ``dyn(`…`)``, asserting the `.None` arm runs.
+
+LANDED as written, both verified RED first (each died with the issue's own
+`used type … where arithmetic or pointer type is required`, taking its whole
+batch with it):
+
+- `tests/dyn.test.yo` — "Test downcast to a value type that no dyn() in the
+  program wraps": a payload-carrying enum AND `String`, both never wrapped in
+  that file; over-rejection canary `downcast(animal, Cat).is_some()` in the same
+  batch; plus a CALL operand (`make_animal()`) so the statically-`.None` splice
+  is exercised on something other than a plain local.
+- `tests/error.test.yo` — "Test downcast AnyError to an error type this program
+  never throws": the issue's own `fn(err : AnyError) -> bool` classification
+  helper shape, with `downcast(err, String)` next to it as the canary that the
+  value target this file DOES wrap still extracts from its box.
+
+The `AnyError` path the compiler itself uses (`src/error.yo:329,343`,
+`src/main.yo:4708`) is unaffected: `YoError` is a `ref(struct(...))`, so it takes
+the object-cast branch, which this change does not touch.
 
 ## Not a breaking change
 
