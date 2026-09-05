@@ -9,6 +9,40 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 - No `setjmp`/`longjmp` for state machine generation (async/await).
 - Do not call `emitter.emitLine` multiple times when you can use `emitter.emitLine(multi-line string)`.
 
+## Writing emitted C inside a Yo backtick literal
+
+Runtime C is emitted from backtick string literals in `src/codegen/`. Two rules,
+both learned the hard way:
+
+1. **Write the C as ONE multi-line backtick literal**, not a right-nested `+`
+   staircase of one-line literals. `yo fmt` renders such a staircase as a
+   200-column-deep ladder that is unreadable and unreviewable (the TLS backend
+   was 73 nested `+`s before it was flattened). A real newline inside a backtick
+   literal is just a newline, and `"` needs no escaping there — so the C reads as
+   C. `src/codegen/async/runtime_io_macos.yo`'s kqueue block is the model.
+2. **A lone `\r` or `\n` inside that literal becomes a REAL control character in
+   the emitted C.** `sysmsg[n-1] == '\r'` silently emits `'<CR>'` and clang says
+   `error: expected expression` pointing at a line that looks fine in the `.yo`.
+   Inside emitted C, write `\\n` / `\\r` when you want the C source to contain the
+   escape (that is why the async runtime's `ASYNC_DEBUG("...\\n")` lines are
+   doubled), or — clearer for character comparisons — use the numeric code with a
+   comment: `== 13 || == 10`. An unrecognised escape like `\` + newline passes
+   through untouched, which is why `#define X \` line continuations work as
+   written; only `\n`, `\r` and `\"` are transformed.
+
+**Gate for any restructuring of an emitter literal:** extract every backtick
+literal from the function, concatenate, unescape, and diff against the same
+extraction from `HEAD`. Byte-identical output proves the refactor changed no
+target's C — far cheaper and stricter than rebuilding and eyeballing.
+
+**Gate for platform C you cannot compile locally:** `zig cc -target
+x86_64-windows-gnu` (and `aarch64-windows-gnu`) compiles and links emitted
+Windows C against MinGW's Win32 headers, with the same warning flags
+`src/main.yo` passes. That turns a ~50 min CI round trip into ~40 s. MinGW's
+headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and the
+link step proves the import libraries you added to `src/main.yo` really export
+every symbol you call.
+
 ## Async/await threading model
 
 Each OS thread has its own **single-threaded event loop**. Within a single thread, async I/O submissions and completions are processed cooperatively — no concurrent access from multiple threads within one event loop. Worker threads from the parallelism runtime (`src/codegen/parallelism/`) share a thread pool; multiple workers may sit on the same OS thread and share that thread's event loop.
