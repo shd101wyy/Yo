@@ -1,5 +1,7 @@
 # `yo doc` truncates a multi-line `## Stability` marker to its first line — the badge renders a dangling half-sentence
 
+**Status: FIXED 2026-09-05** — `module_stability` (`src/doc/builder.yo`) now COLLAPSES the whole section — blank lines dropped, remaining lines joined with one space — instead of reading only the first. Pinned by `tests/internal/doc_stability.test.yo`.
+
 **Found**: 2026-09-04, during the std-API-audit re-measurement of the S5
 stability-freeze mechanics (`plans/STD_API_AUDIT.md` §9). **Severity:** MEDIUM
 (wrong value on a published surface): the freeze marker is the one machine-readable

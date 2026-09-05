@@ -1466,7 +1466,7 @@ _render_index_content :: (fn(model : DocModel) -> String)({
   html
 });
 // ── Module page ──────────────────────────────────────────────────────
-_render_module_content :: (
+render_module_content_html :: (
   fn(m : DocModule, links : HashMap(String, String)) -> String
 )({
   current_mod_file := Option(String).Some(_module_to_filename(m.name));
@@ -1667,11 +1667,11 @@ render_doc_site :: (
     );
     fname := _module_to_filename(m.name);
     mod_sidebar := _fix_sidebar_for_module_page(_render_sidebar(model, Option(String).Some(m.name.clone())));
-    mod_content := _render_module_content(m, symbol_links);
+    mod_content := render_module_content_html(m, symbol_links);
     mod_search := _fix_search_index_for_module_page(search_idx);
     mod_page := _wrap_page(`${m.name} — ${model.name}`, mod_content, mod_sidebar, _search_index_json(mod_search), css_text, js_text);
     io.await(write_string(Path.new(`${module_dir}/${fname}.html`), mod_page, io), ioexn);
     mi = (mi + usize(1));
   });
 });
-export(render_doc_site);
+export(render_doc_site, render_module_content_html);
