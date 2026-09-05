@@ -558,6 +558,19 @@ test("fetch round-trips a binary body byte-for-byte", {
 // shape held the connection open and gave the client a timeout budget, so a
 // loaded runner could lose the race and abort the whole test binary
 // (measured on ubuntu-latest and macos-26-intel) without saying why.
+// Response AND trailing bytes in ONE write. `_serve_then_trailing` writes them
+// separately, so whether they reach the client in a single `read` is the
+// platform's write-coalescing decision — which is exactly how the over-read
+// below hid: it failed on one CI runner and passed on the other five.
+_serve_one_write :: (fn(listener : TcpListener, payload : String, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    s := e.io.await(listener.accept(e.io), e);
+    _req := e.io.await(_read_request(s, e.io), e);
+    _w := e.io.await(s.write_string(payload, e.io), e);
+    e.io.await(s.close(e.io), e);
+    return(());
+  })
+);
 _serve_then_trailing :: (
   fn(listener : TcpListener, response : String, trailing : String, io : Io) ->
     Impl(Future(unit, IoExn))
@@ -656,6 +669,44 @@ test("only a real Content-Length field line frames a kept-alive response", {
     match(outcome, .Some(r) => (r.body == "hello"), .None => false),
     `X-Content-Length must not frame the message`
   );
+});
+// RFC 9112 §11.2: a framed message ends where its framing says it ends. The
+// read loop STOPPED at the boundary but returned the whole buffer, so bytes the
+// peer sent after the body were handed on AS body — response smuggling, and a
+// heisenbug, because it only shows when the two writes coalesce into one read.
+test("bytes after a Content-Length body are not part of the body", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  // Capture-free by design (handlers are frame-bound): prints, then unwinds.
+  report_exn := Exception(
+    throw : (
+      err -> {
+        println(`  [smuggle client] ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19982));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  server := io.spawn(
+    _serve_one_write(listener, `HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhelloHTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nbad`, io),
+    IoExn(io : io, exn : report_exn)
+  );
+  client := io.spawn(
+    fetch_with(`http://127.0.0.1:19982/smuggle`, FetchOptions.new(), io),
+    IoExn(io : io, exn : report_exn)
+  );
+  outcome := client.await(io);
+  server.await(io);
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  body := match(outcome, .Some(r) => r.body, .None => `<client unwound>`);
+  assert(body == "hello", `body must stop at Content-Length, got [${body}]`);
 });
 // RFC 9112 §6.3: a Content-Length that is present but unreadable is an
 // unrecoverable framing error. It used to fall back to -1 — "no such header" —

@@ -345,6 +345,27 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
   });
   Dechunk.Incomplete
 });
+// A framed message ENDS where its framing says it ends. `read_http_message`
+// stops READING at that boundary, but the buffer can already hold more: one
+// `read` can deliver the framed body and whatever the peer sent after it in a
+// single call, and whether it does is the peer's write-coalescing decision, not
+// ours. Handing those bytes on as body is response smuggling (RFC 9112 §11.2)
+// — and it is a heisenbug, because the same server and the same client agree
+// on every platform where the writes happen not to coalesce.
+_message_upto :: (fn(data : ArrayList(u8), limit : usize) -> String)(
+  cond(
+    (limit >= data.len()) => String.from_bytes(data),
+    true => {
+      out := ArrayList(u8).with_capacity(limit);
+      i := usize(0);
+      while(runtime(i < limit), {
+        out.push(data(i));
+        i = (i + usize(1));
+      });
+      String.from_bytes(out)
+    }
+  )
+);
 // ============================================================================
 // Read one full HTTP message (status/request line, headers, body)
 // ============================================================================
@@ -492,6 +513,28 @@ read_http_message :: (
             e.exn.throw(dyn(HttpError.MalformedChunkedBody(msg)));
             String.new()
           }
+        )
+      },
+      (header_end > usize(0)) => {
+        body_start := (header_end + usize(4));
+        avail := (result.len() - body_start);
+        match(
+          find_content_length(result, header_end),
+          // `cl < avail`, not `(body_start + cl) < result.len()`: the sum can
+          // overflow usize on a hostile Content-Length.
+          .Length(cl) => cond(
+            (cl < avail) => _message_upto(result, body_start + cl),
+            true => String.from_bytes(result)
+          ),
+          // A REQUEST with no framing header ends with its headers; a RESPONSE
+          // with none is delimited by close, so every byte read is body.
+          .Absent => cond(
+            is_request => _message_upto(result, body_start),
+            true => String.from_bytes(result)
+          ),
+          // Unreachable: the read loop throws on `.Invalid` as soon as the
+          // header section is complete.
+          .Invalid(_) => String.from_bytes(result)
         )
       },
       true => String.from_bytes(result)

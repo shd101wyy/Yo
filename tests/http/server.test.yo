@@ -92,6 +92,30 @@ test("parse_request: request line, headers, body, and the error cases", {
   assert(match(parse_request(``), .Err(m) => m.contains(`Empty`), .Ok(_) => false), "empty");
   assert(match(HttpMethod.from_str(`OPTIONS`), .Some(m) => (m.to_string() == "OPTIONS"), .None => false), "OPTIONS round-trips");
 });
+// The request-side half of the same defect: `read_http_message(is_request=true)`
+// completes a body-less request at its headers, but returned the whole buffer —
+// so a second request pipelined into the SAME write became the first one's
+// body. That is request smuggling (RFC 9112 §11.2).
+test("bytes pipelined after a body-less request are not its body", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19983)), io), IoExn(io : io, exn : exn));
+  task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
+  raw := io.await(
+    _raw_exchange(u16(19983), `GET /first HTTP/1.1\r\nHost: h\r\n\r\nGET /smuggled HTTP/1.1\r\nHost: h\r\n\r\n`, io),
+    IoExn(io : io, exn : exn)
+  );
+  assert(raw.contains(`body=[]`), `the pipelined bytes leaked into the body: ${raw}`);
+  assert(!raw.contains(`/smuggled`), `the smuggled request line reached the handler: ${raw}`);
+  task.await(io);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});
 test("HttpResponse.to_string adds Content-Length and keeps explicit headers", {
   s := HttpResponse.with_status(i32(404)).header(`X-A`, `1`).with_body(`nope`).to_string();
   assert(s == "HTTP/1.1 404 Not Found\r\nX-A: 1\r\nContent-Length: 4\r\n\r\nnope", `wire form: ${s}`);
