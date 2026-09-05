@@ -20,7 +20,9 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_type_string, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields } :: import("../utils/index.yo");
-{ get_dup_function_for_type } :: import("./drop_dup.yo");
+{ get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
+{ type_contains_rc_type } :: import("../../types/utils.yo");
+{ random_id } :: import("../../utils.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 /// Generate code for `downcast(dyn_value, T)`. Mirrors `generateDowncast`.
 generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
@@ -52,6 +54,11 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
   is_check := dyn_code.clone();
   is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
   is_check.push_string(static_var_name);
+  em := context.base.emitter;
+  // What the result ternary tests. Normally the inline is-check; the
+  // structural-dup path below replaces it with a hoisted flag variable so the
+  // dup can be emitted as STATEMENTS behind the same guard.
+  (cond_expr : String) = is_check.clone();
   // Extraction. A REFERENCE-struct target is stored directly as the object
   // pointer — cast + incr_rc (the Dyn also holds a reference). A VALUE/newtype
   // target (e.g. `String`, a value enum) is BOXED at dyn creation:
@@ -116,7 +123,43 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
             d.push_str(")");
             d
           },
-          .None => extract
+          // No USER `___dup` method — and most types have none: `String` (a
+          // newtype over `Option(ArrayList(u8))`), a value enum with RC
+          // payloads and a value struct with RC fields are all dup'd
+          // STRUCTURALLY. The old `.None => extract` fallback handed out an
+          // UN-dup'd copy of a value the Box still owns, so the caller's
+          // scope-end drop and the Box's dispose released the same allocation
+          // — a heap-use-after-free the moment the boxed value's refcount
+          // became exact (it was masked while `box` leaked a reference; see
+          // issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
+          //
+          // `generate_dup_code_for_value` emits its lines through the emitter
+          // and a C ternary cannot hold statements, so hoist a guarded block.
+          // The extraction MUST stay behind the type-id check: reading the
+          // box's value field when the dyn holds a DIFFERENT type reads
+          // foreign memory (a smaller box would be read past its end).
+          .None => cond(
+            !type_contains_rc_type(target_type) => extract,
+            true => {
+              uid := random_id(String.from(""));
+              ok_var := `__yo_dc_ok_${uid}`;
+              val_var := `__yo_dc_val_${uid}`;
+              em.emit_string_line(`${indent.clone()}int ${ok_var} = (${is_check.clone()}) ? 1 : 0;`);
+              em.emit_string_line(`${indent.clone()}${target_type_c_name.clone()} ${val_var} = (${target_type_c_name.clone()}){0};`);
+              em.emit_string_line(`${indent.clone()}if (${ok_var}) {`);
+              em.emit_string_line(`${indent.clone()}  ${val_var} = ${extract};`);
+              dup_code := generate_dup_code_for_value(val_var.clone(), target_type, context);
+              // The nullable-pointer and no-RC arms emit their own statement
+              // (or nothing) and hand the value straight back; only a real
+              // dup EXPRESSION needs assigning.
+              if((dup_code.len() > usize(0)) && !(dup_code == val_var), {
+                em.emit_string_line(`${indent.clone()}  ${val_var} = ${dup_code};`);
+              });
+              em.emit_string_line(`${indent.clone()}}`);
+              cond_expr = ok_var.clone();
+              val_var
+            }
+          )
         )
       },
       .None => {
@@ -139,7 +182,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
     can_optimize_as_nullable_pointer(option_type),
     .Some(_) => {
       out := String.from("((");
-      out.push_string(is_check);
+      out.push_string(cond_expr.clone());
       out.push_str(") ? ");
       out.push_string(cast_expr);
       out.push_str(" : NULL)");
@@ -150,7 +193,7 @@ generate_downcast :: (fn(expr : AstExpr, indent : String, context : FunctionGene
       some_tag := get_enum_variant_c_name(option_type, String.from("Some"), context.base);
       none_tag := get_enum_variant_c_name(option_type, String.from("None"), context.base);
       out := String.from("((");
-      out.push_string(is_check);
+      out.push_string(cond_expr.clone());
       out.push_str(") ? (");
       out.push_string(option_c_name.clone());
       out.push_str("){ .tag = ");

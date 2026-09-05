@@ -86,6 +86,44 @@ loop alive and the process never exits (rc=124).
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
+## Writing a test that observes a LEAK (macOS: ASan does not arm)
+
+On this macOS box AddressSanitizer refuses to arm (see the AMFI section below),
+so an RC leak is invisible to `yo test` locally and only Linux CI's
+LeakSanitizer sees it. Two mechanisms make a leak observable **inside the
+language**, so the regression test works everywhere:
+
+- **A `Dispose` counter.** A module-level MUTABLE binding — `(g_freed : i32) =
+  i32(0);` at the top level of the `.test.yo` file — plus a `ref` struct with a
+  `Dispose` impl that increments it. Assert the counter with a RUNTIME `assert`
+  after the scope that owned the value closes. A value that leaks is never
+  disposed, so the counter stays put. Examples: `tests/rc.test.yo`
+  (`g_alias_disposed`), `tests/dyn.test.yo` (`g_dyn_payload_disposed`),
+  `tests/error.test.yo` (`g_thrown_payload_disposed`).
+- **`rc(x)`** reads a reference count directly (`tests/rc.test.yo`), including
+  through a field or a `Box` deref: `assert(rc(b.*) == 1, ...)`.
+
+Do **not** use `comptime_assert` for this — it is inert inside a function body,
+so a `comptime_assert` in a `test(...)` body verifies nothing
+(`issues/comptime-assert-never-fires-inside-a-function-body.md`).
+
+For the out-of-language measurement on macOS, `leaks` works even though ASan
+does not — extract the case to a standalone `.yo` with `main` + `export(main);`
+and run:
+
+```bash
+yo compile tmp/repro.yo --std-path ./std --optimize 2 --allocator system -o /tmp/repro.out
+leaks -atExit -- /tmp/repro.out        # "N leaks for M total leaked bytes"
+MallocStackLogging=1 leaks -atExit -- /tmp/repro.out   # + allocation stacks
+```
+
+Put the leaking operation in a LOOP first: a per-iteration leak scales the byte
+count linearly, which separates a real leak from a one-off allocation, and
+`/usr/bin/time -l` then shows the RSS difference too. Always run the
+payload-free variant as an over-drop canary, and re-run the fixed binary under
+`MallocScribble=1 MallocPreScribble=1` — recycled values in the output mean the
+fix over-dropped and introduced a use-after-free.
+
 ## Windows: failing tests report a SIGNAL status, and a runtime-template edit needs TWO builds
 
 `yo test` on Windows used to die with `yo: error: unknown I/O error` at the

@@ -227,3 +227,48 @@ test("comptime call after exn.throw in a match arm compiles and unwinds", {
   f(i32(0) - i32(1), exn);
   assert(false, "unreachable: the negative path must unwind"); // Shouldn't enter this line
 });
+// Regression (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md):
+// `exn.throw(dyn(err))` boxes a value-typed error through the prelude's generic
+// `box`, whose `own(value)` parameter never released the reference the caller
+// transferred in — so every thrown `AnyError` payload leaked. A LOOP makes the
+// per-throw leak unbounded, which is what made this the highest-traffic leak in
+// the language. The `Dispose` counter observes each payload's release.
+(g_thrown_payload_disposed : i32) = i32(0);
+ThrownRes :: ref(struct(tag : i32));
+impl(
+  ThrownRes,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_thrown_payload_disposed = (g_thrown_payload_disposed + i32(1));
+    })
+  )
+);
+ThrownErr :: struct(detail : String, r : ThrownRes);
+impl(ThrownErr, ToString(to_string : (fn(inout(self) : Self) -> String)(self.detail.clone())));
+impl(ThrownErr, Error());
+_throw_payload :: (fn(exn : Exception) -> i32)(
+  exn.throw(dyn(ThrownErr(detail : `boom`, r : ThrownRes(tag : i32(1)))))
+);
+// The handler must `unwind`, which exits THIS function — so the loop below can
+// call it repeatedly.
+_catch_payload :: (fn() -> i32)({
+  exn := Exception(
+    throw : (
+      err -> unwind(i32(0) - i32(1))
+    )
+  );
+  _throw_payload(exn)
+});
+test("every AnyError payload thrown in a loop is released", {
+  before := g_thrown_payload_disposed;
+  (i : i32) = i32(0);
+  while(i < i32(20), {
+    r := _catch_payload();
+    assert(r == (i32(0) - i32(1)), "the handler unwound with its sentinel");
+    i = (i + i32(1));
+  });
+  assert(
+    (g_thrown_payload_disposed - before) == i32(20),
+    "each of the 20 thrown payloads is released exactly once"
+  );
+});
