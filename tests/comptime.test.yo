@@ -3153,8 +3153,14 @@ test("Test alignof", {
   comptime_assert(alignof(f32) == usize(4));
   comptime_assert(alignof(f64) == usize(8));
   // Test pointer types
-  comptime_assert(alignof(*(u8)) == usize(8));
-  comptime_assert(alignof(*(i32)) == usize(8));
+  // A pointer aligns like a machine word, so this is `alignof(usize)` — NOT a
+  // hardcoded 8. wasm32 has 4-byte pointers (`usize` is sized from
+  // `g_target_pointer_size_bits`), and these two asserted 8 there until
+  // comptime_assert started firing inside function bodies and both wasm legs
+  // went red. The assertion had never executed on ANY target, in either
+  // compiler — exactly the class this PR exists to expose.
+  comptime_assert(alignof(*(u8)) == alignof(usize));
+  comptime_assert(alignof(*(i32)) == alignof(usize));
   // Test array types (should be same as element type)
   comptime_assert(alignof([u32 ; 10]) == usize(4));
   comptime_assert(alignof([u64 ; 5]) == usize(8));
