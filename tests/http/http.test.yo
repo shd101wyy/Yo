@@ -1,15 +1,11 @@
 pragma(Pragma.SkipWasm32Emscripten); // https needs a network stack + TLS
 pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
-// Windows: the Schannel backend (plans/D6_TLS_PLAN.md item 3) made the LIVE
-// https fetch pass on both Windows runners, but the loopback test right after
-// it — "fetch follows redirects, resolving relative and absolute-path
-// Locations" — hangs the leg until the job deadline. Plain loopback TCP passes
-// on Windows (tests/net/tcp.test.yo), so the hang is specific to this file's
-// shape: one listener accepting several sequential connections while the
-// client reconnects after each close. tests/net/tcp.test.yo carries the
-// bisecting probes; this gate comes off once they are green on Windows
-// (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
-pragma(Pragma.SkipWindows);
+// Windows: the Schannel backend (plans/D6_TLS_PLAN.md item 3) made the live
+// https fetch pass on both Windows runners; the loopback tests here then hung
+// the legs because the runtime's `accept` was a BLOCKING call on the event
+// loop (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md —
+// root cause, fixed with an overlapped AcceptEx). Every test in this file
+// runs on Windows again.
 { assert, panic } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");

@@ -21,6 +21,7 @@ generate_platform_sys_runtime_windows :: (fn(emitter : Emitter) -> unit)({
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <mswsock.h>
 #ifndef _WINSOCKAPI_
 #define _WINSOCKAPI_
 #endif
@@ -2009,7 +2010,79 @@ typedef struct {
   SOCKET sock;
   WSABUF wsabuf;
   DWORD sock_flags;
+  // AcceptEx bookkeeping (is_accept): the pre-created socket the connection
+  // lands on, the listener it came from, the address buffer AcceptEx fills,
+  // and where the caller wants the peer address written.
+  bool is_accept;
+  SOCKET accept_sock;
+  SOCKET listen_sock;
+  char accept_buf[2 * (sizeof(SOCKADDR_STORAGE) + 16)];
+  void* out_addr;
+  uint32_t* out_addrlen;
 } __yo_win_overlapped_t;
+
+// AcceptEx / GetAcceptExSockaddrs are Microsoft extensions fetched through
+// WSAIoctl at run time (no mswsock import library needed). Thread-local like
+// the rest of the loop state.
+static __declspec(thread) LPFN_ACCEPTEX __yo_win_acceptex = NULL;
+static __declspec(thread) LPFN_GETACCEPTEXSOCKADDRS __yo_win_getacceptexsockaddrs = NULL;
+
+static void __yo_win_load_acceptex(SOCKET s) {
+  if (__yo_win_acceptex && __yo_win_getacceptexsockaddrs) return;
+  GUID g_accept = WSAID_ACCEPTEX;
+  GUID g_addrs = WSAID_GETACCEPTEXSOCKADDRS;
+  DWORD bytes = 0;
+  if (!__yo_win_acceptex) {
+    if (WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER, &g_accept, sizeof(g_accept),
+                 &__yo_win_acceptex, sizeof(__yo_win_acceptex), &bytes, NULL, NULL) != 0) {
+      __yo_win_acceptex = NULL;
+    }
+  }
+  if (!__yo_win_getacceptexsockaddrs) {
+    if (WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER, &g_addrs, sizeof(g_addrs),
+                 &__yo_win_getacceptexsockaddrs, sizeof(__yo_win_getacceptexsockaddrs), &bytes, NULL, NULL) != 0) {
+      __yo_win_getacceptexsockaddrs = NULL;
+    }
+  }
+}
+
+// Turn a finished AcceptEx into the caller's accept() result: on success the
+// accepted socket inherits the listener's context (SO_UPDATE_ACCEPT_CONTEXT,
+// without which getpeername/shutdown on it fail), the peer address is copied
+// out, and the socket joins the completion port exactly like the old
+// synchronous path did; on failure the pre-created socket is closed and the
+// WSA error is the result.
+static void __yo_win_finish_accept(__yo_win_overlapped_t* ov, bool ok) {
+  if (!ok) {
+    DWORD flags = 0;
+    DWORD transferred = 0;
+    BOOL got = WSAGetOverlappedResult(ov->listen_sock, &ov->overlapped, &transferred, FALSE, &flags);
+    ov->future->result = got ? -ECONNABORTED : -(int32_t)WSAGetLastError();
+    closesocket(ov->accept_sock);
+    return;
+  }
+  setsockopt(ov->accept_sock, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+             (const char*)&ov->listen_sock, sizeof(SOCKET));
+  if (ov->out_addr && ov->out_addrlen && __yo_win_getacceptexsockaddrs) {
+    struct sockaddr* local = NULL;
+    struct sockaddr* remote = NULL;
+    int local_len = 0;
+    int remote_len = 0;
+    __yo_win_getacceptexsockaddrs(ov->accept_buf, 0, sizeof(SOCKADDR_STORAGE) + 16, sizeof(SOCKADDR_STORAGE) + 16,
+                                  &local, &local_len, &remote, &remote_len);
+    if (remote && remote_len > 0) {
+      uint32_t copy_len = (uint32_t)remote_len;
+      if (copy_len > *ov->out_addrlen) copy_len = *ov->out_addrlen;
+      memcpy(ov->out_addr, remote, copy_len);
+      *ov->out_addrlen = (uint32_t)remote_len;
+    }
+  }
+  if (__yo_io_iocp) {
+    CreateIoCompletionPort((HANDLE)ov->accept_sock, __yo_io_iocp, 0, 0);
+    SetFileCompletionNotificationModes((HANDLE)ov->accept_sock, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+  }
+  ov->future->result = (int32_t)(uintptr_t)ov->accept_sock;
+}
 
 // Per-thread free list for __yo_win_overlapped_t to eliminate malloc/free
 // per I/O op. The first sizeof(void*) bytes of an overlapped struct overlay
@@ -2170,6 +2243,12 @@ static inline void __yo_win_free_overlapped(__yo_win_overlapped_t* ov);
 
 static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) {
   if (!ov) return;
+  if (ov->is_accept) {
+    __yo_win_finish_accept(ov, ((NTSTATUS)ov->overlapped.Internal) == 0);
+    __yo_io_wake_continuation(ov->future);
+    __yo_win_free_overlapped(ov);
+    return;
+  }
 
   // The byte count is already in OVERLAPPED_ENTRY.dwNumberOfBytesTransferred
   // (passed in as the bytes argument) and the NTSTATUS is in
@@ -3187,8 +3266,65 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
+  SOCKET ls = (SOCKET)(uintptr_t)(uint32_t)sockfd;
+  // Overlapped accept. The previous implementation called accept() and
+  // BLOCKED THE EVENT LOOP until a peer connected — fine when the client had
+  // already connected, fatal when a spawned server task awaits accept before
+  // a client on the same loop connects (the whole loop, client included, sat
+  // in accept() forever: the D6 Windows hang,
+  // issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
+  __yo_win_load_acceptex(ls);
+  if (__yo_win_acceptex) {
+    // The accept socket must exist before the call, with the listener's family.
+    struct sockaddr_storage local_name;
+    int local_name_len = (int)sizeof(local_name);
+    int family = AF_INET;
+    if (getsockname(ls, (struct sockaddr*)&local_name, &local_name_len) == 0) {
+      family = local_name.ss_family;
+    }
+    SOCKET as = WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+    if (as == INVALID_SOCKET) {
+      future->result = -(int32_t)WSAGetLastError();
+      atomic_init(&future->state, -1);
+      return future;
+    }
+    __yo_win_associate_handle((HANDLE)ls);
+    __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
+    memset(ov, 0, sizeof(__yo_win_overlapped_t));
+    ov->future = future;
+    ov->is_socket = true;
+    ov->is_accept = true;
+    ov->sock = ls;
+    ov->listen_sock = ls;
+    ov->accept_sock = as;
+    ov->out_addr = addr;
+    ov->out_addrlen = addrlen;
+    DWORD received = 0;
+    BOOL ok = __yo_win_acceptex(ls, as, ov->accept_buf, 0, sizeof(SOCKADDR_STORAGE) + 16,
+                                sizeof(SOCKADDR_STORAGE) + 16, &received, &ov->overlapped);
+    if (ok) {
+      // Synchronous completion: with FILE_SKIP_COMPLETION_PORT_ON_SUCCESS on
+      // the listener no packet is posted, so finish inline.
+      __yo_win_finish_accept(ov, true);
+      atomic_init(&future->state, -1);
+      __yo_win_free_overlapped(ov);
+      return future;
+    }
+    int err = WSAGetLastError();
+    if (err == ERROR_IO_PENDING || err == WSA_IO_PENDING) {
+      atomic_init(&future->state, 0);
+      __yo_pending_io_count++;
+      return future;
+    }
+    closesocket(as);
+    future->result = -(int32_t)err;
+    atomic_init(&future->state, -1);
+    __yo_win_free_overlapped(ov);
+    return future;
+  }
+  // Extension unavailable: the historical blocking accept.
   int len = (int)(*addrlen);
-  SOCKET result = accept((SOCKET)(uintptr_t)(uint32_t)sockfd, (struct sockaddr*)addr, &len);
+  SOCKET result = accept(ls, (struct sockaddr*)addr, &len);
   if (result == INVALID_SOCKET) {
     future->result = -(int32_t)WSAGetLastError();
   } else {
