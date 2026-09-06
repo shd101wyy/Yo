@@ -236,3 +236,27 @@ test("ThreadPool tasks return values over a Channel", {
   });
   assert(sum == i32(88), "eight tasks delivered 11 each");
 });
+test("a task may spawn on its own pool: the nested task runs and join_all returns", {
+  // issues/fixed/thread-pool-spawn-self-deadlocked-in-the-inline-fallback.md —
+  // `spawn` holds the pool's submission lock across __yo_worker_spawn, which
+  // in the runtime's inline fallback (no worker thread could be created) runs
+  // the task on the submitting thread; a task that spawned then blocked on
+  // the lock it already held. With worker threads this shape exercises the
+  // same re-entrancy bookkeeping.
+  pool := ThreadPool.new(usize(2));
+  count := AtomicI32(i32(0));
+  done := Channel(i32).new(usize(1));
+  spawn(pool, io => {
+    count.fetch_add(i32(1), MemoryOrder.SeqCst);
+    spawn(pool, io => {
+      total := count.fetch_add(i32(10), MemoryOrder.SeqCst);
+      done.send(total + i32(10));
+      ()
+    });
+    ()
+  });
+  assert(done.recv().unwrap() == i32(11), "outer then nested task both ran");
+  pool.join_all();
+  assert(count.load(MemoryOrder.SeqCst) == i32(11), "count settled");
+  pool.shutdown();
+});

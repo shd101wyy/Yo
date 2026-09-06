@@ -4,6 +4,9 @@ pragma(Pragma.AllowUnsafe);
 open(import("std/libc/stdio"));
 { get_thread_id, Thread } :: import("std/thread");
 { yield } :: import("std/async");
+{ Channel } :: import("std/sync/channel");
+{ ArrayList } :: import("std/collections/array_list");
+log :: import("std/log");
 test("Thread spawn and join without captures", {
   thread := Thread.spawn(
     io => () // Thread runs with no captures
@@ -92,3 +95,58 @@ test "Thread spawn and join with multiple boxed captures", {
   thread.join();
 };
 */
+// issues/fixed/thread-join-was-re-callable-and-handles-leaked.md
+// A handle that goes out of scope un-joined must DETACH its thread (Rust's
+// JoinHandle::drop): the thread still runs to completion and the OS reclaims
+// it. The helper exists so the handle drops at a known point.
+_spawn_and_drop_handle :: (fn(out : Channel(i32)) -> unit)({
+  t := Thread.spawn(io => {
+    out.send(i32(7));
+    ()
+  });
+  assert(!t.is_joined(), "a fresh handle is not joined");
+});
+test("dropping an un-joined Thread detaches it: the work still completes", {
+  out := Channel(i32).new(usize(1));
+  _spawn_and_drop_handle(out);
+  assert(out.recv().unwrap() == i32(7), "the detached thread ran to completion");
+});
+test("join marks the handle joined, and dropping a joined handle releases nothing twice", {
+  t := Thread.spawn(io => ());
+  assert(!t.is_joined(), "not joined yet");
+  t.join();
+  assert(t.is_joined(), "joined once");
+  // A second join is a panic (tests/cli-cases/thread-join-twice-panics); the
+  // handle now drops with nothing left to detach.
+});
+test("std/log configuration and filtering are safe from several threads at once", {
+  // issues/fixed/html-and-log-globals-raced.md — the setters wrote the log
+  // globals without the module mutex. Four threads reconfigure and query
+  // concurrently at level Off (nothing is written); it must neither crash nor
+  // tear, and it ends in the state the last writer set. A canary rather than a
+  // red-first witness: a data race has no deterministic observable natively.
+  threads := ArrayList(Thread).new();
+  (t : i32) = i32(0);
+  while(t < i32(4), t = (t + i32(1)), {
+    threads.push(
+      Thread.spawn(io => {
+        (i : i32) = i32(0);
+        while(i < i32(500), i = (i + i32(1)), {
+          log.set_level(log.Level.Off);
+          log.set_timestamps((i % i32(2)) == i32(0));
+          _e := log.enabled(log.Level.Error);
+          _l := log.get_level();
+          log.debug(`never written`);
+        });
+        ()
+      })
+    );
+  });
+  (j : usize) = usize(0);
+  while(j < threads.len(), j = (j + usize(1)), {
+    threads(j).join();
+  });
+  log.set_timestamps(false);
+  assert(!log.enabled(log.Level.Error), "Off after the storm");
+  assert(log.get_level() == log.Level.Off, "the last writer's level stands");
+});

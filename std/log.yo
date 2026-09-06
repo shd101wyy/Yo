@@ -85,29 +85,51 @@ _log_mutex := __yo_mutex_create();
 // ============================================================================
 // Configuration
 // ============================================================================
+// Every read and write of the three globals goes through `_log_mutex` — the
+// setters used to write them bare while `_emit` read them under the lock,
+// which is a data race the moment two threads log and reconfigure
+// (issues/fixed/html-and-log-globals-raced.md).
 /// Set the minimum level that is emitted (`Off` silences everything).
 set_level :: (fn(level : Level) -> unit)({
+  unsafe(__yo_mutex_lock(&_log_mutex));
   _global_level = level;
+  unsafe(__yo_mutex_unlock(&_log_mutex));
 });
 /// The current minimum level.
-get_level :: (fn() -> Level)(_global_level);
+get_level :: (fn() -> Level)({
+  unsafe(__yo_mutex_lock(&_log_mutex));
+  level := _global_level;
+  unsafe(__yo_mutex_unlock(&_log_mutex));
+  level
+});
 /// Choose stdout or stderr (default stderr).
 set_output :: (fn(output : LogOutput) -> unit)({
+  unsafe(__yo_mutex_lock(&_log_mutex));
   _global_output = output;
+  unsafe(__yo_mutex_unlock(&_log_mutex));
 });
 /// Prefix each line with an RFC 3339 UTC timestamp when true.
 set_timestamps :: (fn(on : bool) -> unit)({
+  unsafe(__yo_mutex_lock(&_log_mutex));
   _global_timestamps = on;
+  unsafe(__yo_mutex_unlock(&_log_mutex));
 });
 export(set_level, get_level, set_output, set_timestamps);
 // ============================================================================
 // Core
 // ============================================================================
-/// True iff a message at `level` would be emitted right now — the guard the
-/// lazy forms check before building their message.
-enabled :: (fn(level : Level) -> bool)(
+// The filter test, for callers that already hold `_log_mutex` (`_emit`).
+_enabled_locked :: (fn(level : Level) -> bool)(
   (_level_value(level) >= _level_value(_global_level)) && (_level_value(_global_level) < _level_value(Level.Off))
 );
+/// True iff a message at `level` would be emitted right now — the guard the
+/// lazy forms check before building their message.
+enabled :: (fn(level : Level) -> bool)({
+  unsafe(__yo_mutex_lock(&_log_mutex));
+  on := _enabled_locked(level);
+  unsafe(__yo_mutex_unlock(&_log_mutex));
+  on
+});
 export(enabled);
 _write_string :: (fn(s : String, dest : *FILE) -> unit)({
   bytes := s.as_bytes();
@@ -125,7 +147,7 @@ _write_string :: (fn(s : String, dest : *FILE) -> unit)({
 _emit :: (fn(level : Level, target : String, msg : String) -> unit)({
   unsafe(__yo_mutex_lock(&_log_mutex));
   cond(
-    !enabled(level) => {
+    !_enabled_locked(level) => {
       unsafe(__yo_mutex_unlock(&_log_mutex));
       return(());
     },

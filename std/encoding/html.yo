@@ -13,21 +13,15 @@
 //! ```
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
-{ HashMap } :: import("../collections/hash_map");
-{ HashSet } :: import("../collections/hash_set");
 { is_valid_entity_code, from_code_point } :: import("./html_char_utils");
 { _build_entity_map, _build_legacy_set } :: import("./html_entities");
-// Module-level state: lazily initialized entity map and legacy set.
-_state_initialized := false;
-_entity_map := HashMap(String, String).new();
-_legacy_set := HashSet(String).new();
-_ensure_init :: (fn() -> unit)({
-  if(!_state_initialized, {
-    _entity_map = _build_entity_map();
-    _legacy_set = _build_legacy_set();
-    _state_initialized = true;
-  });
-});
+// Module-level state: the entity map and legacy set, built ONCE when the
+// module is initialised (before `main`, single-threaded). They used to be
+// lazily initialised by the first `html_decode` through an unsynchronised
+// flag, so two threads' first decodes raced to build and publish them
+// (issues/fixed/html-and-log-globals-raced.md).
+_entity_map := _build_entity_map();
+_legacy_set := _build_legacy_set();
 // Parse a hex string to i32
 _parse_hex :: (fn(s : String) -> i32)({
   (result : i32) = i32(0);
@@ -143,7 +137,6 @@ _slice_runes :: (
 /// Supports named (`&amp;`), decimal (`&#38;`), and hexadecimal (`&#x26;`) character
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
 html_decode :: (fn(input : String) -> String)({
-  _ensure_init();
   if(input.chars().count() == usize(0), {
     return(input);
   });

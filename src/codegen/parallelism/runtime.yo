@@ -182,6 +182,19 @@ static void __yo_thread_join(__yo_thread_t thread) {
   PARALLELISM_DEBUG("[THREAD] Thread joined\\n");
 }
 
+// Give up the right to join: the thread keeps running and the OS reclaims its
+// bookkeeping when it finishes. std/thread's Thread calls this from Dispose
+// for a handle that was never joined (Rust's JoinHandle::drop); before that,
+// every un-joined thread leaked a joinable pthread / an open HANDLE
+// (issues/fixed/thread-join-was-re-callable-and-handles-leaked.md).
+static void __yo_thread_detach(__yo_thread_t thread) {
+  if (__YO_THREAD_HANDLE_IS_NULL(thread.handle)) {
+    return;
+  }
+  PARALLELISM_DEBUG("[THREAD] Detaching thread\\n");
+  __yo_raw_thread_detach(thread.handle);
+}
+
 // ============================================================================
 // Worker - Thread Pool with Thread Affinity
 // ============================================================================

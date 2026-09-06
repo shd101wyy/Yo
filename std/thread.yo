@@ -25,7 +25,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./sync/mutex");
-{ AtomicBool, MemoryOrder } :: import("./sync/atomic");
+{ AtomicBool, AtomicUsize, MemoryOrder } :: import("./sync/atomic");
 { Channel } :: import("./sync/channel");
 { assert } :: import("./assert");
 extern(
@@ -38,7 +38,8 @@ extern(
   "Yo",
   __yo_thread_t : Type,
   __yo_thread_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
-  __yo_thread_join : (fn(t : __yo_thread_t) -> unit)
+  __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
+  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
@@ -46,9 +47,17 @@ extern(
   __yo_worker_get_num_threads : (fn() -> usize),
   __yo_worker_set_num_threads : (fn(num : usize) -> unit)
 );
-/// OS thread handle. Each spawned thread gets its own Io event loop.
-Thread :: struct(
-  handle : __yo_thread_t
+/// OS thread handle — Rust's `JoinHandle`. Each spawned thread gets its own
+/// Io event loop. `join` waits for it, once; dropping a handle that was never
+/// joined DETACHES the thread (it keeps running and the OS reclaims it when it
+/// finishes). Reference-counted so that detach-on-drop runs exactly once
+/// however many copies of the handle exist
+/// (issues/fixed/thread-join-was-re-callable-and-handles-leaked.md).
+Thread :: ref(
+  struct(
+    handle : __yo_thread_t,
+    _joined : bool
+  )
 );
 impl(
   Thread,
@@ -56,11 +65,33 @@ impl(
   /// The closure receives its own per-thread Io event loop.
   spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self)({
     raw := __yo_thread_spawn(cb);
-    Self(raw)
+    Self(handle : raw, _joined : false)
   }),
-  /// Block the current thread until this thread completes.
-  join : (fn(inout(self) : Self) -> unit)(
+  /// Block the current thread until this thread completes. Panics on a second
+  /// call: joining a thread twice is undefined behaviour in every threading
+  /// API underneath (`pthread_join` on a joined thread; a closed `HANDLE`).
+  join : (fn(self : Self) -> unit)({
+    assert(!self._joined, "Thread.join: this thread was already joined");
+    self._joined = true;
     __yo_thread_join(self.handle)
+  }),
+  /// True once `join` has returned.
+  is_joined : (fn(self : Self) -> bool)(
+    self._joined
+  )
+);
+impl(
+  Thread,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        !self._joined => {
+          self._joined = true;
+          __yo_thread_detach(self.handle);
+        },
+        true => ()
+      );
+    })
   )
 );
 /// A pool of worker threads that tasks are handed to.
@@ -98,7 +129,13 @@ ThreadPool :: atomic(
     struct(
       _mutex : Mutex(bool),
       _used : AtomicBool,
-      _closed : AtomicBool
+      _closed : AtomicBool,
+      /// Which thread holds `_mutex`, so a submission made FROM a task that the
+      /// runtime is running inline on the submitting thread (no worker thread
+      /// could be created) re-enters instead of self-deadlocking
+      /// (issues/fixed/thread-pool-spawn-self-deadlocked-in-the-inline-fallback.md).
+      _held : AtomicBool,
+      _owner : AtomicUsize
     )
   )
 );
@@ -114,7 +151,9 @@ impl(
     Self(
       _mutex : Mutex(bool).new(false),
       _used : AtomicBool(false),
-      _closed : AtomicBool(false)
+      _closed : AtomicBool(false),
+      _held : AtomicBool(false),
+      _owner : AtomicUsize(usize(0))
     )
   }),
   /// Create a pool sized to the runtime pool's current thread count, which
@@ -153,7 +192,7 @@ impl(
         drained := Channel(bool).new(workers);
         // Submit exactly one sentinel per worker, with no interleaved
         // submission from this pool.
-        self._mutex._raw_lock();
+        took := _lock_for_submission(self);
         (i : usize) = usize(0);
         while(runtime(i < workers), {
           __yo_worker_spawn((io : Io) => {
@@ -162,7 +201,7 @@ impl(
           });
           i = (i + usize(1));
         });
-        self._mutex._raw_unlock();
+        _unlock_after_submission(self, took);
         // Wait for every sentinel. Nothing is held while we block, so tasks
         // may keep arriving behind the barrier.
         (seen : usize) = usize(0);
@@ -208,17 +247,50 @@ impl(
 // Static impl methods (`Thread.spawn`) and free functions are unaffected.
 // See issues/impl-method-self-receiver-hollows-forwarded-spawn-closures.md —
 // do not "tidy" this into a method until that is fixed.
+/// Take the pool's submission lock unless THIS thread already holds it, and
+/// say whether it was taken. The runtime's inline fallback (no worker thread
+/// could be created — standalone WASI, or thread creation failing) runs a
+/// task on the submitting thread, INSIDE `spawn`'s critical section; a task
+/// that itself spawns would then block on the mutex it already holds. Owner
+/// tracking makes that submission re-entrant: `_owner` is written before
+/// `_held` (Release) and `_held` is read before `_owner` (Acquire), so a
+/// thread that sees `_held` set sees the owner who set it — a stale
+/// `_owner` value can only be observed under `_held == false`, which takes
+/// the lock as it should.
+_lock_for_submission :: (fn(pool : ThreadPool) -> bool)({
+  me := __yo_get_thread_id();
+  cond(
+    (pool._held.load(MemoryOrder.Acquire) && (pool._owner.load(MemoryOrder.Acquire) == me)) => false,
+    true => {
+      pool._mutex._raw_lock();
+      pool._owner.store(me, MemoryOrder.Release);
+      pool._held.store(true, MemoryOrder.Release);
+      true
+    }
+  )
+});
+_unlock_after_submission :: (fn(pool : ThreadPool, took : bool) -> unit)({
+  cond(
+    took => {
+      pool._held.store(false, MemoryOrder.Release);
+      pool._mutex._raw_unlock();
+    },
+    true => ()
+  );
+});
 spawn :: (fn(pool : ThreadPool, cb : Impl(Fn(io : Io) -> unit, Send)) -> unit)({
   assert(
     !pool._closed.load(MemoryOrder.Acquire),
     "thread.spawn: pool has been shut down"
   );
   // The pool mutex serializes submission so that `join_all`'s sentinel tasks
-  // land on distinct worker threads (see `ThreadPool.join_all`).
-  pool._mutex._raw_lock();
+  // land on distinct worker threads (see `ThreadPool.join_all`); it is held
+  // across `__yo_worker_spawn` because that call may run the task inline, so
+  // it must be re-entrant for the task's own spawns.
+  took := _lock_for_submission(pool);
   pool._used.store(true, MemoryOrder.Release);
   __yo_worker_spawn(cb);
-  pool._mutex._raw_unlock();
+  _unlock_after_submission(pool, took);
 });
 /// Get the number of hardware threads (CPU cores) available.
 get_hardware_threads :: __yo_thread_get_hardware_threads;
