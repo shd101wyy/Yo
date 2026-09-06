@@ -1316,18 +1316,16 @@ single_inner_group_not_atom_like :: (
       )
   )
 });
-/// D3 (plans/archive/FMT_PAREN_ELISION.md): true iff the group is the call-paren
-/// pair of a prefix operator — no whitespace between operator and `(` — in
-/// PREFIX position (the token before the operator is not an rvalue-end, so
-/// this is not the infix spelling `f -(x)`), and the single argument is
-/// atom-like. The bare spelling re-parses identically because a bare
-/// prefix operator binds exactly one postfix expression
-/// (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md Rule 1): `-(x)` → `-x`,
-/// `?(*(x))` → `?*x`. Multi-arg calls (`-(a, b)`), infix-argument calls
-/// (`-(a + b)`), and operator atoms (`(!)`) keep their parens, as does
-/// anything followed by `(` or `.` — `-(x)(y)` / `-(x).y` would re-bind
-/// differently without them.
-is_elidable_prefix_call_paren :: (
+/// The shared shape of a prefix operator's CALL paren `op(operand)`: no
+/// comments inside, a prefix-capable operator byte-adjacent before the `(`,
+/// in prefix position (the token before the operator is not an rvalue-end,
+/// so this is not the infix spelling `f -(x)`), a single atom-like operand
+/// that is not a `fn`/`unsafe_fn` expression, no top-level comma (that is
+/// the multi-arg call), and not the `-((x))` inner-defer case. D3
+/// (`is_elidable_prefix_call_paren`) and the callee canonicalization
+/// (`is_callee_prefix_call_paren`) both start here and differ only in what
+/// they require AFTER the group.
+prefix_call_paren_shape :: (
   fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
 )(
   cond(
@@ -1362,53 +1360,38 @@ is_elidable_prefix_call_paren :: (
                       cond(
                         paren_is_call_delimiter(before_op) => false,
                         true => {
-                          // A following `(` or `.` would re-bind differently
-                          // (`-(x)(y)`, `-(x).y`).
-                          next := next_meaningful_token(tokens, right_index, tokens.len());
-                          next_safe := match(
-                            next,
-                            .None => true,
-                            .Some(nx) => (
-                              (nx.kind != TokenKind.LParen) && (nx.kind != TokenKind.Dot)
-                            )
+                          first_inner := next_meaningful_token(tokens, left_index, right_index);
+                          first_inner_ok := match(
+                            first_inner,
+                            .None => false,
+                            .Some(fi) =>
+                              !(
+                                (fi.kind == TokenKind.Identifier) &&
+                                  is_function_type_keyword(fi.value.clone())
+                              )
                           );
                           cond(
-                            !next_safe => false,
+                            first_inner_group_has_top_level_comma(
+                              tokens,
+                              left_index,
+                              right_index
+                            ) => false,
                             true => {
-                              first_inner := next_meaningful_token(tokens, left_index, right_index);
-                              first_inner_ok := match(
-                                first_inner,
-                                .None => false,
-                                .Some(fi) =>
-                                  !(
-                                    (fi.kind == TokenKind.Identifier) &&
-                                      is_function_type_keyword(fi.value.clone())
-                                  )
+                              shape := classify_group_content(
+                                tokens,
+                                left_index,
+                                right_index
                               );
                               cond(
-                                first_inner_group_has_top_level_comma(
+                                // `-( (1 + 2) )` / `-( (1, 2) )`: defer to
+                                // the inner group's own elision so the
+                                // tight `-(` call spelling survives.
+                                single_inner_group_not_atom_like(
                                   tokens,
                                   left_index,
                                   right_index
                                 ) => false,
-                                true => {
-                                  shape := classify_group_content(
-                                    tokens,
-                                    left_index,
-                                    right_index
-                                  );
-                                  cond(
-                                    // `-( (1 + 2) )` / `-( (1, 2) )`: defer to
-                                    // the inner group's own elision so the
-                                    // tight `-(` call spelling survives.
-                                    single_inner_group_not_atom_like(
-                                      tokens,
-                                      left_index,
-                                      right_index
-                                    ) => false,
-                                    true => (first_inner_ok && shape.atom_like)
-                                  )
-                                }
+                                true => (first_inner_ok && shape.atom_like)
                               )
                             }
                           )
@@ -1419,6 +1402,62 @@ is_elidable_prefix_call_paren :: (
                 )
             )
           )
+      )
+    }
+  )
+);
+/// D3 (plans/archive/FMT_PAREN_ELISION.md): the group is a prefix
+/// operator's call paren and nothing after it re-binds — the bare spelling
+/// re-parses identically because a bare prefix operator binds exactly one
+/// postfix expression (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md
+/// Rule 1): `-(x)` → `-x`, `?(*(x))` → `?*x`. Multi-arg calls (`-(a, b)`),
+/// infix-argument calls (`-(a + b)`), and operator atoms (`(!)`) keep their
+/// parens, as does anything followed by `(` or `.` — `-(x)(y)` / `-(x).y`
+/// would re-bind differently without them (the `(` case is D4's job).
+is_elidable_prefix_call_paren :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)(
+  cond(
+    !prefix_call_paren_shape(tokens, left_index, right_index) => false,
+    true => {
+      // A following `(` or `.` would re-bind differently (`-(x)(y)`,
+      // `-(x).y`); end-of-tokens is safe.
+      next := next_meaningful_token(tokens, right_index, tokens.len());
+      match(
+        next,
+        .None => true,
+        .Some(nx) => ((nx.kind != TokenKind.LParen) && (nx.kind != TokenKind.Dot))
+      )
+    }
+  )
+);
+/// D4 (callee canonicalization): the group is a prefix operator's call
+/// paren AND the func's result is immediately CALLED — the next meaningful
+/// token is a byte-adjacent `(` holding the args. `op(operand)(args)` and
+/// `(op(operand))(args)` parse to the SAME AST, but the grouped spelling is
+/// the canonical one: the tight func spelling reads as the `*void(x)` trap
+/// (bare-prefix binding makes it `*(void(x))`, which the evaluator
+/// rejects). Adjacency is structural — the parser forbids whitespace
+/// before a call's `(` — and it excludes comment gaps.
+is_callee_prefix_call_paren :: (
+  fn(tokens : ArrayList(Token), left_index : usize, right_index : usize) -> bool
+)(
+  cond(
+    !prefix_call_paren_shape(tokens, left_index, right_index) => false,
+    true => {
+      next := next_meaningful_token(tokens, right_index, tokens.len());
+      match(
+        next,
+        .None => false,
+        .Some(nx) => cond(
+          (nx.kind != TokenKind.LParen) => false,
+          true =>
+            match(
+              tokens.get(right_index),
+              .None => false,
+              .Some(r) => ((r.byte_offset + r.value.len()) == nx.byte_offset)
+            )
+        )
       )
     }
   )
@@ -1636,6 +1675,120 @@ find_redundant_grouping_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashS
     j = (j + usize(1));
   });
   skipped_indices
+});
+/// Paren PAIRS moved by the last `canonicalize_callee_prefix_calls` run —
+/// the surgery counterpart of `g_fmt_elided_tokens`. `format_yo_source`
+/// gates on elided + moved so a surgery-only file (zero elided parens)
+/// still flows through the re-parse verify gate.
+(g_fmt_canonicalized_callee_parens : usize) = usize(0);
+/// Rewrite every `op(operand)(args)` — a prefix operator call whose result
+/// is immediately called — into the grouped spelling `(op operand)(args)`
+/// (`*(void)(x)` → `(*void)(x)`; `*(*(u8))(x)` reaches `(**u8)(x)` once the
+/// inner D3 elision runs). Both spellings parse to the same AST; the
+/// grouped one is canonical because the tight func spelling reads as the
+/// `*void(x)` trap (bare-prefix binding makes it `*(void(x))`, which the
+/// evaluator rejects — `src/evaluator/calls/pointer.yo`). Implemented as
+/// token surgery BEFORE the elision/layout passes: the func's call parens
+/// are dropped and a synthetic grouping pair is inserted around the
+/// operator, so every downstream pass (D3 inner elision, multiline/layout
+/// decisions, the re-parse verify gate) treats the grouping as an ordinary
+/// paren. The rule is operator-generic — any prefix-capable operator in
+/// callee position, never just `*`.
+canonicalize_callee_prefix_calls :: (fn(tokens : ArrayList(Token)) -> ArrayList(Token))({
+  matching_parens := find_matching_paren_indices(tokens);
+  delete_indices := HashSet(usize).new();
+  open_before_indices := HashSet(usize).new();
+  close_before_indices := HashSet(usize).new();
+  n := tokens.len();
+  (i : usize) = usize(0);
+  while(i < n, {
+    match(
+      tokens.get(i),
+      .None => (),
+      .Some(t) => if((t.kind == TokenKind.LParen) && matching_parens.contains_key(i), {
+        right_idx := match(matching_parens.get(i), .Some(x) => x, .None => i);
+        if(is_callee_prefix_call_paren(tokens, i, right_idx), {
+          op_idx := match(
+            previous_meaningful_token_index(tokens, i),
+            .Some(oi) => oi,
+            // Unreachable: the shape requires a preceding operator.
+            .None => i
+          );
+          _d0 := delete_indices.insert(i);
+          _d1 := delete_indices.insert(right_idx);
+          _o0 := open_before_indices.insert(op_idx);
+          // Byte-adjacency (checked by the predicate) puts the args `(`
+          // exactly one token after the deleted `)`.
+          _c0 := close_before_indices.insert(right_idx + usize(1));
+        });
+      })
+    );
+    i = (i + usize(1));
+  });
+  g_fmt_canonicalized_callee_parens = open_before_indices.len();
+  cond(
+    (open_before_indices.len() == usize(0)) => tokens,
+    true => {
+      out := ArrayList(Token).new();
+      (k : usize) = usize(0);
+      while(k < n, {
+        if(close_before_indices.contains(k), {
+          match(
+            tokens.get(k),
+            .None => (),
+            .Some(anchor) => {
+              _r0 := out.push(
+                Token(
+                  kind : TokenKind.RParen,
+                  value : String.from(")"),
+                  row : anchor.row,
+                  column : anchor.column,
+                  character : anchor.character,
+                  byte_offset : anchor.byte_offset,
+                  module_path : anchor.module_path.clone(),
+                  input : anchor.input.clone()
+                )
+              );
+            }
+          );
+        });
+        cond(
+          delete_indices.contains(k) => (),
+          true => {
+            if(open_before_indices.contains(k), {
+              match(
+                tokens.get(k),
+                .None => (),
+                .Some(anchor_o) => {
+                  _r1 := out.push(
+                    Token(
+                      kind : TokenKind.LParen,
+                      value : String.from("("),
+                      row : anchor_o.row,
+                      column : anchor_o.column,
+                      character : anchor_o.character,
+                      byte_offset : anchor_o.byte_offset,
+                      module_path : anchor_o.module_path.clone(),
+                      input : anchor_o.input.clone()
+                    )
+                  );
+                }
+              );
+            });
+            match(
+              tokens.get(k),
+              .None => (),
+              .Some(tk) => {
+                _r2 := out.push(tk);
+              }
+            );
+          }
+        );
+        k = (k + usize(1));
+      });
+      out
+    }
+  )
 });
 /// Compute the set of paren indices that should render on multiple
 /// lines. Mirrors `findMultilineParenIndices`.
@@ -2135,6 +2288,7 @@ _format_yo_source_impl :: (
   ) -> String
 )({
   g_fmt_elided_tokens = usize(0);
+  g_fmt_canonicalized_callee_parens = usize(0);
   cond(
     (input.len() == usize(0)) => String.from(""),
     true => {
@@ -2155,6 +2309,11 @@ _format_yo_source_impl :: (
           ti = (ti + usize(1));
         });
       };
+      // D4 callee canonicalization — runs before every layout/elision pass
+      // so the inserted grouping parens are ordinary tokens downstream.
+      if(elide_parens, {
+        significant_tokens = canonicalize_callee_prefix_calls(significant_tokens);
+      });
       // Pre-compute index sets / maps used by the layout decisions.
       inline_curly_indices := find_inline_curly_indices(significant_tokens);
       skipped_paren_indices := cond(
@@ -3075,11 +3234,12 @@ _formatted_parses_identically :: (
   )
 });
 /// Format Yo source (the `yo fmt` engine): the token-level renderer, then —
-/// because eliding parentheses is the formatter's first structure-aware
-/// rewrite — a mandatory verify gate: if any paren was elided, the
-/// original and the formatted text must parse to identical ASTs, else the
-/// file is reformatted with elisions disabled. A meaning-changing format
-/// is structurally impossible, not merely untested
+/// because eliding parentheses and moving callee parens are the formatter's
+/// structure-aware rewrites — a mandatory verify gate: if any paren was
+/// elided or any callee pair was canonicalized, the original and the
+/// formatted text must parse to identical ASTs, else the file is
+/// reformatted with elisions disabled. A meaning-changing format is
+/// structurally impossible, not merely untested
 /// (plans/archive/FMT_PAREN_ELISION.md "Implementation sketch" step 2).
 format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -> String)({
   formatted := _format_yo_source_impl(input.clone(), module_path.clone(), exn, true);
@@ -3088,7 +3248,7 @@ format_yo_source :: (fn(input : String, module_path : String, exn : Exception) -
   // flagged 40+6 bytes per call in tests/internal/formatter.test.yo — the
   // tracked self-hosted-emit leak debt class,
   // issues/self-hosted-emit-leaks-remaining-classes.md).
-  if(g_fmt_elided_tokens == usize(0), {
+  if((g_fmt_elided_tokens + g_fmt_canonicalized_callee_parens) == usize(0), {
     return(formatted);
   });
   if(_formatted_parses_identically(input, formatted, module_path), {
@@ -3285,7 +3445,10 @@ export(
   classify_group_content,
   previous_meaningful_token_index,
   is_left_same_operator_flatten_group,
+  prefix_call_paren_shape,
   is_elidable_prefix_call_paren,
+  is_callee_prefix_call_paren,
+  canonicalize_callee_prefix_calls,
   is_redundant_grouping_paren,
   paren_removal_would_expose_operator_rhs_infix,
   find_redundant_grouping_paren_indices,
