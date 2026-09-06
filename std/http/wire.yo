@@ -384,14 +384,30 @@ _message_upto :: (fn(data : ArrayList(u8), limit : usize) -> String)(
 /// `HttpError.MalformedContentLength` on a `Content-Length` that is not a
 /// single non-negative integer.
 /// A chunked body is handed on DECODED (`headers CRLFCRLF data`).
+///
+/// The three framing defects — `HttpError.ResponseTooLarge` past `max_bytes`
+/// (0 = no ceiling), `MalformedChunkedBody` on broken chunk framing and
+/// `MalformedContentLength` on a `Content-Length` that is not a single
+/// non-negative integer — come back as the `.Err`, not as a throw: a SERVER
+/// must be able to answer a bad client and keep serving, and a throw would
+/// take the whole `serve` loop down with the one connection (D13: the pure
+/// decoder returns `Result`; the client throws the `.Err` at its call site —
+/// issues/fixed/one-malformed-request-killed-http-server-serve.md). I/O
+/// failures on the stream itself still throw through `io`'s exception.
 read_http_message :: (
   fn(generic(R : Type), stream : R, max_bytes : usize, is_request : bool, io : Io, where(R <: Reader)) ->
-    Impl(Future(String, IoExn))
+    Impl(Future(Result(String, HttpError), IoExn))
 )(
   io.async(e => {
     buf_size := usize(8192);
     buf := *(u8)(malloc(buf_size).unwrap());
     result := ArrayList(u8).new();
+    // A framing defect ends the read loop and comes back as the `.Err`. The
+    // body is deliberately free of mid-loop `return`s: an async body's state
+    // machine does not lower them, and the closure then fails codegen as
+    // "never fully evaluated".
+    failed := i32(0);
+    failed_msg := String.new();
     // Read until connection closes or we've read the full response
     done := false;
     while(runtime(!done), {
@@ -408,13 +424,13 @@ read_http_message :: (
           // hostile body never occupies more than max_bytes + one read.
           cond(
             ((max_bytes > usize(0)) && ((result.len() + n) > max_bytes)) => {
-              free(.Some(*(void)(buf)));
-              e.exn.throw(dyn(HttpError.ResponseTooLarge));
+              failed = i32(1);
+              done = true;
             },
             true => ()
           );
           i := usize(0);
-          while(runtime(i < n), {
+          while(runtime(!done && (i < n)), {
             result.push((buf.add(i)).*);
             i = (i + usize(1));
           });
@@ -423,7 +439,7 @@ read_http_message :: (
           // For simplicity, check if the header section is complete
           // and if Content-Length is satisfied
           cond(
-            (result.len() > usize(4)) => {
+            (!done && (result.len() > usize(4))) => {
               // Check if we have a complete header section (\r\n\r\n)
               header_end := find_header_end(result);
               cond(
@@ -458,8 +474,9 @@ read_http_message :: (
                       // body-less message — reading on would frame the body
                       // by whatever the peer does next.
                       .Invalid(msg) => {
-                        free(.Some(*(void)(buf)));
-                        e.exn.throw(dyn(HttpError.MalformedContentLength(msg)));
+                        failed = i32(2);
+                        failed_msg = msg;
+                        done = true;
                       },
                       // A request with no body framing ends with its headers.
                       .Absent => {
@@ -487,6 +504,8 @@ read_http_message :: (
     // Transfer-Encoding header stays visible on the response.
     header_end := find_header_end(result);
     cond(
+      (failed == i32(1)) => Result(String, HttpError).Err(HttpError.ResponseTooLarge),
+      (failed == i32(2)) => Result(String, HttpError).Err(HttpError.MalformedContentLength(failed_msg)),
       ((header_end > usize(0)) && is_chunked(result, header_end)) => {
         body_start := (header_end + usize(4));
         match(
@@ -503,41 +522,37 @@ read_http_message :: (
               decoded.push(data(j));
               j = (j + usize(1));
             });
-            String.from_bytes(decoded)
+            Result(String, HttpError).Ok(String.from_bytes(decoded))
           },
-          .Incomplete => {
-            e.exn.throw(dyn(HttpError.MalformedChunkedBody(`connection closed before the terminating zero chunk`)));
-            String.new()
-          },
-          .Malformed(msg) => {
-            e.exn.throw(dyn(HttpError.MalformedChunkedBody(msg)));
-            String.new()
-          }
+          .Incomplete => Result(String, HttpError).Err(HttpError.MalformedChunkedBody(`connection closed before the terminating zero chunk`)),
+          .Malformed(msg) => Result(String, HttpError).Err(HttpError.MalformedChunkedBody(msg))
         )
       },
       (header_end > usize(0)) => {
         body_start := (header_end + usize(4));
         avail := (result.len() - body_start);
-        match(
-          find_content_length(result, header_end),
-          // `cl < avail`, not `(body_start + cl) < result.len()`: the sum can
-          // overflow usize on a hostile Content-Length.
-          .Length(cl) => cond(
-            (cl < avail) => _message_upto(result, body_start + cl),
-            true => String.from_bytes(result)
-          ),
-          // A REQUEST with no framing header ends with its headers; a RESPONSE
-          // with none is delimited by close, so every byte read is body.
-          .Absent => cond(
-            is_request => _message_upto(result, body_start),
-            true => String.from_bytes(result)
-          ),
-          // Unreachable: the read loop throws on `.Invalid` as soon as the
-          // header section is complete.
-          .Invalid(_) => String.from_bytes(result)
+        Result(String, HttpError).Ok(
+          match(
+            find_content_length(result, header_end),
+            // `cl < avail`, not `(body_start + cl) < result.len()`: the sum can
+            // overflow usize on a hostile Content-Length.
+            .Length(cl) => cond(
+              (cl < avail) => _message_upto(result, body_start + cl),
+              true => String.from_bytes(result)
+            ),
+            // A REQUEST with no framing header ends with its headers; a RESPONSE
+            // with none is delimited by close, so every byte read is body.
+            .Absent => cond(
+              is_request => _message_upto(result, body_start),
+              true => String.from_bytes(result)
+            ),
+            // Unreachable: the read loop records `.Invalid` as soon as the header
+            // section is complete.
+            .Invalid(_) => String.from_bytes(result)
+          )
         )
       },
-      true => String.from_bytes(result)
+      true => Result(String, HttpError).Ok(String.from_bytes(result))
     )
   })
 );

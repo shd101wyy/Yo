@@ -199,7 +199,12 @@ window as D9–D18):
     through `IoError.check` (`issues/fixed/child-kill-returned-a-raw-errno.md`).
 18. **One malformed request kills `HttpServer.serve`** — framing throws
     propagate out of the loop (`http/server.yo:86-113`); and `http/server` has
-    no `## Stability` marker, so this shape is already frozen.
+    no `## Stability` marker, so this shape is already frozen — **FIXED
+    2026-09-06**: `read_http_message_result` returns the framing defect as a
+    value (D13), the server answers 413/400 and keeps serving, `## Stability:
+    unstable` added. Peer-reset I/O errors still propagate — recovery needs a
+    catch primitive (`issues/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md`)
+    (`issues/fixed/one-malformed-request-killed-http-server-serve.md`).
 
 ---
 

@@ -177,7 +177,18 @@ _fetch_once :: (
       is_https => {
         tls := e.io.await(TlsStream.connect(host.clone(), port, e.io), e);
         _wn := e.io.await(tls.write_string(req_str, e.io), e);
-        raw_response = e.io.await(read_http_message(tls, opts.max_response_bytes, false, e.io), e);
+        // The await is HOISTED out of the match: an await inside a match
+        // scrutinee is a shape the async state machine mis-lowers (the value
+        // came back empty — "Invalid status line" on every fetch).
+        framed_tls := e.io.await(read_http_message(tls, opts.max_response_bytes, false, e.io), e);
+        raw_response = match(
+          framed_tls,
+          .Ok(raw) => raw,
+          .Err(err) => {
+            e.exn.throw(dyn(err));
+            String.new()
+          }
+        );
         e.io.await(tls.close(e.io), e);
       },
       true => {
@@ -191,7 +202,18 @@ _fetch_once :: (
         addr := SocketAddr.new(addrs(usize(0)), port);
         stream := e.io.await(TcpStream.connect(addr, e.io), e);
         e.io.await(stream.write_string(req_str, e.io), e);
-        raw_response = e.io.await(read_http_message(stream, opts.max_response_bytes, false, e.io), e);
+        // The await is HOISTED out of the match: an await inside a match
+        // scrutinee is a shape the async state machine mis-lowers (the value
+        // came back empty — "Invalid status line" on every fetch).
+        framed_stream := e.io.await(read_http_message(stream, opts.max_response_bytes, false, e.io), e);
+        raw_response = match(
+          framed_stream,
+          .Ok(raw) => raw,
+          .Err(err) => {
+            e.exn.throw(dyn(err));
+            String.new()
+          }
+        );
         e.io.await(stream.close(e.io), e);
       }
     );
