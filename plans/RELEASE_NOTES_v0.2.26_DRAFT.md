@@ -2,9 +2,9 @@
 
 A small, deliberate release: **`unit` is now a true zero-sized type**, the
 lazy-binding campaign closes with forward references allowed in `std/` and
-`src/` themselves, and Windows regains a TLS backend (Schannel) — compiled and
-linked on the Windows runners, with its live suites still gated off there until
-the handshake is proven.
+`src/` themselves, and the std API stabilization campaign lands its whole P0
+sweep — 18 memory/UB/deadlock and wrong-value defects, with the exported
+signatures reshaped to Rust's.
 
 ## ⚠️ Breaking changes (patch-release policy)
 
@@ -29,7 +29,7 @@ the handshake is proven.
   and the Windows CRT.
 
 - **std API stabilization, P0 sweep** (`plans/STD_API_STABILIZATION.md`,
-  #444–#454). These follow Rust's shapes and change signatures:
+  #444–#456). These follow Rust's shapes and change signatures:
   - `Path.strip_prefix(base)` is now Rust's: `Option(Path)` — the remainder when
     `base` is a segment-wise prefix, `.None` otherwise. The old behaviour
     (node's `path.relative`, with `..` segments) is `Path.relative_to(base)`.
