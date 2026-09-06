@@ -424,13 +424,13 @@ _d6_scripted_server :: (
   io.async(e => {
     k := usize(0);
     while(runtime(k < rounds), {
-      unsafe(printf("  server: accept %zu pending\n", k));
+      eprintln(`  server: accept ${k} pending`);
       s := e.io.await(listener.accept(e.io), e);
       req := e.io.await(_d6_read_headers(s, e.io), e);
       seen.push(req);
       _w := e.io.await(s.write_str("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok", e.io), e);
       e.io.await(s.close(e.io), e);
-      unsafe(printf("  server: round %zu done\n", k));
+      eprintln(`  server: round ${k} done`);
       k = (k + usize(1));
     });
     return(());
@@ -449,10 +449,13 @@ test("accept pending in a spawned task before the client connects (D6 Windows pr
   listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
   seen := ArrayList(String).new();
   server := io.spawn(_d6_scripted_server(listener, usize(1), seen, io), IoExn(io : io, exn : exn));
+  eprintln(`  client: connecting while the server task's accept is pending`);
   client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+  eprintln(`  client: connected, writing the request`);
   _n := io.await(client.write_str("GET /one HTTP/1.1\r\nHost: x\r\n\r\n", io), IoExn(io : io, exn : exn));
+  eprintln(`  client: written, reading to EOF`);
   body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
-  unsafe(printf("  client: got %zu bytes\n", body.len()));
+  eprintln(`  client: got ${body.len()} bytes`);
   assert(body.len() == usize(59), "the whole response, then EOF from the server's close");
   io.await(client.close(io), IoExn(io : io, exn : exn));
   server.await(io);
@@ -475,11 +478,11 @@ test("three request/response rounds against a spawned scripted server (D6 Window
   server := io.spawn(_d6_scripted_server(listener, usize(3), seen, io), IoExn(io : io, exn : exn));
   round := 0;
   while(round < 3, {
-    unsafe(printf("  client: round %d connect\n", round));
+    eprintln(`  client: round ${round} connect`);
     client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
     _n := io.await(client.write_str("GET /hop HTTP/1.1\r\nHost: x\r\n\r\n", io), IoExn(io : io, exn : exn));
     body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
-    unsafe(printf("  client: round %d got %zu bytes\n", round, body.len()));
+    eprintln(`  client: round ${round} got ${body.len()} bytes`);
     assert(body.len() == usize(59), "each hop's whole response");
     io.await(client.close(io), IoExn(io : io, exn : exn));
     round = (round + 1);
