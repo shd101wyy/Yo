@@ -2279,6 +2279,29 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 
 ### Box Type
 
+> **⚠️ `Box` is Rust's `Rc`, not Rust's `Box`.** Rust's `Box<T>` is a unique
+> owner — passing it moves, cloning it deep-copies. Yo's `Box(T)` is a `ref`
+> type: copying the handle **shares one heap value and bumps a reference
+> count**, exactly like Rust's `Rc<T>`.
+>
+> ```rust
+> a := box(i32(42));
+> b := a;                    // a second handle, NOT a copy of the value
+> consume(b.* = i32(7));
+> assert((a.* == i32(7)), "a and b name the SAME value");
+> ```
+>
+> The name is kept on purpose. `Rc` is already a **trait** in the prelude —
+> the "this type is a reference-counted `object` type" bound written
+> `where(Self <: Rc)` — so `Box` cannot take that name. And reference counting
+> is Yo's *universal* object model, not one container's opt-in policy: every
+> `ref(struct(...))` is reference counted, and `Box` is simply the one-field
+> case. Naming it "the RC one" would imply the others are not.
+>
+> What this means in practice: sharing is silent, a `Box` cycle leaks unless
+> broken (Rust's `Box` cannot form one), and `rc(b)` / `Iso` are how you ask
+> about uniqueness.
+
 `Box(T)` is a generic reference-semantics type that wraps any value type:
 
 ```rust

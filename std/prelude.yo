@@ -8020,7 +8020,37 @@ impl(
   )
 );
 export(Result);
-/// Box — a heap-allocated, reference-counted container for a single value.
+/// Box — a heap-allocated, **reference-counted** container for a single value.
+///
+/// ## ⚠️ `Box` is Rust's `Rc`, NOT Rust's `Box`
+///
+/// **Read this before assuming move semantics.** In Rust, `Box<T>` is a
+/// UNIQUE owner: cloning it deep-copies, and passing it moves. Yo's `Box(V)`
+/// is a `ref` type — copying the handle **shares one heap value and bumps a
+/// refcount**, exactly like Rust's `Rc<T>`:
+///
+/// ```rust
+/// a := box(i32(42));
+/// b := a;          // NOT a copy of the value — a second handle to it
+/// consume(b.* = i32(7));
+/// assert((a.* == i32(7)), "a and b name the SAME value");
+/// ```
+///
+/// The name is kept deliberately: `Rc` is already a **trait** in this prelude
+/// (the "this type is a reference-counted `object` type" bound used by
+/// `where(Self <: Rc)`), so `Box` cannot be renamed to `Rc` without colliding
+/// with it — and reference counting is Yo's *universal* object model rather
+/// than one container's opt-in policy, so a distinct name for "the RC one"
+/// would be misleading in the other direction. Every `ref(struct(...))` in
+/// this language is refcounted; `Box` is simply the one-field case of that.
+///
+/// Consequences worth knowing:
+/// - Sharing is silent. Two `Box` handles to one value is the normal case.
+/// - A `Box` cycle leaks unless broken (see `Isolation` / the cycle
+///   collector); Rust's `Box` cannot form a cycle at all.
+/// - `rc(b)` reports the current reference count (the optimizer may cancel a
+///   dup against a scope-end drop, so it is the live count, not a count of
+///   names); `Iso`/`can_isolate` is how you ask for uniqueness.
 ///
 /// Use `box(value)` to allocate. Access the inner value with `b.*`.
 ///
