@@ -11,7 +11,8 @@
 //! x := d.pop_front().unwrap();  // 0
 //! ```
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator, AllocError } :: import("../allocator");
+{ GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator");
+{ SIZE_MAX } :: import("../libc/stdint");
 { assert } :: import("../assert");
 { malloc, realloc, free } :: GlobalAllocator;
 /// Circular buffer supporting efficient push/pop at both front and back.
@@ -47,7 +48,19 @@ impl(
       (self._capacity == usize(0)) => usize(8),
       true => (self._capacity * usize(2))
     );
-    while(new_cap < min_cap, new_cap = (new_cap * usize(2)), ());
+    // Same wrap as ArrayList.with_capacity: `new_cap * sizeof(T)` is computed in
+    // usize, and the doubling loop itself can wrap to 0 and spin forever
+    // (issues/fixed/collection-capacity-overflow-unchecked.md — the C35 guard
+    // every other collection carries; Deque was the one left out).
+    while(new_cap < min_cap, {
+      new_cap = cond(
+        (new_cap > (SIZE_MAX / usize(2))) => min_cap,
+        true => (new_cap * usize(2))
+      );
+    });
+    if(size_would_overflow(T, new_cap), {
+      __yo_panic("Deque: capacity overflow");
+    });
     size := (new_cap * sizeof(T));
     new_buf := *(T)(malloc(size).unwrap());
     // Linearise existing elements into the new buffer
