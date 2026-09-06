@@ -72,18 +72,24 @@ impl(
       true => .None
     )
   }),
-  // Insert or update the value for key `k`.
-  // For new keys: append at end then shift-left to correct sorted position.
-  insert : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> unit)({
+  /// Insert or update the value for key `k`, returning the value it REPLACED
+  /// (`.None` for a new key) — Rust's `BTreeMap::insert`. Until 2026-09-06
+  /// this returned `unit`, dropping the old value silently, and discarded
+  /// `push`'s `Result` before computing `len() - 1`
+  /// (issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md).
+  /// For new keys: append at end then shift-left to the sorted position.
+  insert : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
       r.found => {
         entry := self._entries(r.idx);
         &(self._entries(r.idx)).* = MapEntry(K, V)(key : entry.key, value : v);
+        .Some(entry.value)
       },
+      // An allocation failure must not leave the map half-updated and then
+      // underflow `len() - 1`; it is the same panic ArrayList.with_capacity raises.
+      self._entries.push(MapEntry(K, V)(key : k, value : v)).is_err() => __yo_panic("BTreeMap.insert: allocation failed"),
       true => {
-        // Append new entry then bubble left to sorted position
-        self._entries.push(MapEntry(K, V)(key : k, value : v));
         pos := (self._entries.len() - usize(1));
         while(pos > r.idx, pos = (pos - usize(1)), {
           curr := self._entries(pos);
@@ -91,8 +97,9 @@ impl(
           &(self._entries(pos)).* = prev;
           &(self._entries(pos - usize(1))).* = curr;
         });
+        .None
       }
-    );
+    )
   }),
   // Remove the entry with key `k`. Returns the old value, or .None.
   remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({

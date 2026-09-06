@@ -233,3 +233,14 @@ test("BTreeMap values - yields values in sorted key order", {
   });
   assert(val_sum == i32(60));
 });
+// ===== insert returns the replaced value =====
+// issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md
+test("BTreeMap.insert returns None for a new key and Some(old) when it replaces", {
+  m := BTreeMap(i32, i32).new();
+  assert(m.insert(i32(5), i32(50)).is_none(), "new key");
+  assert(m.insert(i32(7), i32(70)).is_none(), "another new key");
+  old := m.insert(i32(5), i32(55));
+  assert(old.is_some() && (old.unwrap() == i32(50)), "the replaced value comes back");
+  assert(m.get(i32(5)).unwrap() == i32(55), "and the new value is stored");
+  assert(m.len() == usize(2), "replacing does not grow the map");
+});

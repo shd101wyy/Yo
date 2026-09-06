@@ -46,7 +46,12 @@ impl(
   ),
   // Insert a new element.
   push : (fn(self : Self, val : T, where(T <: Ord(T))) -> unit)({
-    self._data.push(val);
+    // `push`'s Result used to be discarded, so an allocation failure went on
+    // to sift an element that was never stored and underflowed `len() - 1`.
+    cond(
+      self._data.push(val).is_err() => __yo_panic("PriorityQueue.push: allocation failed"),
+      true => ()
+    );
     // Sift up
     i := (self._data.len() - usize(1));
     while(i > usize(0), {
