@@ -88,8 +88,22 @@ the work in §4 does not re-open them.
   its result and `join() -> T`.** `timeout -> Option(T)` conflates timed-out /
   aborted / `Some(None)`; D7's blocker on the join result is fixed.
 
-Not decided here, needs the maintainer: whether `Box` (which is
-reference-counted — Rust's `Rc`) keeps its name (§5).
+- **D19 — `Box` KEEPS its name, and says loudly that it is Rust's `Rc`.**
+  (Maintainer, 2026-09-06.) `Box(V)` is `ref(struct((*) : V))`, so copying a
+  handle shares one heap value and bumps a refcount — Rust's `Rc<T>`, not
+  Rust's `Box<T>`. It is not renamed to `Rc` because **`Rc` is already a trait
+  in the prelude** (`std/prelude.yo:201`, the "this type is a reference-counted
+  `object` type" bound spelled `where(Self <: Rc)`), so the name is taken and
+  the collision would be the worse confusion. It is also not renamed to
+  something new, because reference counting is Yo's *universal* object model
+  rather than one container's opt-in policy: every `ref(struct(...))` is
+  refcounted and `Box` is just the one-field case, so singling it out with an
+  "the RC one" name would mislead in the other direction. The cost is paid in
+  documentation instead — the prelude doc now opens with "`Box` is Rust's
+  `Rc`, NOT Rust's `Box`", a worked sharing example (verified: writing through
+  the second handle is visible through the first), and the three consequences
+  that bite Rust readers (silent sharing, cycles leak, `rc`/`Iso` for
+  uniqueness).
 
 ---
 
@@ -301,8 +315,6 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
 
 ## 5. Maintainer decisions still needed
 
-- `Box` is reference-counted (Rust's `Rc`). Keep the name (document loudly) or
-  rename? Every Rust reader will assume move semantics.
 - `imm/Vec`: implement structural sharing (RRB), or re-document as a flat COW
   array and accept O(n) on shared mutation?
 - `MemoryOrder.Consume`: keep (C11 has it; every compiler promotes it to
