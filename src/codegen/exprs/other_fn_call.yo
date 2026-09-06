@@ -1576,20 +1576,37 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             .None => ctor_labeled
           );
           ctor_list := String.from("");
+          ctor_fields := get_runtime_struct_fields(wrapped.clone());
           nca := ctor_args.len();
           (ci : usize) = usize(0);
+          (any_ctor_arg : bool) = false;
           while(ci < nca, {
-            if(ci > usize(0), {
-              ctor_list.push_str(", ");
-            });
-            // A `unit` field argument generates no C; the constructor parameter
-            // it feeds is now a one-byte placeholder, so pass the dead byte
-            // instead of emitting `__yo_new_T(1, )`. Arity is preserved.
+            // A `unit` field is zero-sized: the constructor has no parameter
+            // for it (functions/constructors.yo), so its argument is not
+            // passed. The argument expression is still GENERATED — a call that
+            // returns unit has side effects — and any code it hands back is
+            // emitted as a statement.
+            field_is_unit := match(ctor_fields.get(ci), .Some(f) => is_unit_type(f.ty), .None => false);
             match(
               ctor_args.get(ci),
               .Some(ca) => {
                 cc := emit_deferred_dup_or_code(ca, _call_generate_expr(ca, indent.clone(), context), indent.clone(), context);
-                ctor_list.push_string(if(cc.len() == usize(0), String.from("0"), cc));
+                cond(
+                  field_is_unit => if(cc.len() > usize(0), {
+                    stmt := indent.clone();
+                    stmt.push_string(cc);
+                    stmt.push_str(";");
+                    em_u := context.base.emitter;
+                    em_u.emit_string_line(stmt);
+                  }),
+                  true => {
+                    if(any_ctor_arg, {
+                      ctor_list.push_str(", ");
+                    });
+                    any_ctor_arg = true;
+                    ctor_list.push_string(cc);
+                  }
+                );
               },
               .None => ()
             );
@@ -1699,34 +1716,53 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               cl_out.push_str("){ ");
               nrf := rt_fields.len();
               (rfi : usize) = usize(0);
+              (any_init : bool) = false;
               while(rfi < nrf, {
-                if(rfi > usize(0), {
-                  cl_out.push_str(", ");
+                // A `unit` field has no C member (types/generation.yo): no
+                // designated initializer. Its value expression still runs.
+                rf_is_unit := match(rt_fields.get(rfi), .Some(f) => is_unit_type(f.ty), .None => false);
+                if(rf_is_unit, {
+                  match(
+                    vs_args.get(rfi),
+                    .Some(a) => {
+                      u_code := emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context);
+                      if(u_code.len() > usize(0), {
+                        u_stmt := indent.clone();
+                        u_stmt.push_string(u_code);
+                        u_stmt.push_str(";");
+                        em_u := context.base.emitter;
+                        em_u.emit_string_line(u_stmt);
+                      });
+                    },
+                    .None => ()
+                  );
+                }, {
+                  if(any_init, {
+                    cl_out.push_str(", ");
+                  });
+                  any_init = true;
+                  flabel := match(rt_fields.get(rfi), .Some(f) => f.label, .None => String.from(""));
+                  cl_out.push_str(".");
+                  cl_out.push_string(sanitize_for_c_identifier(flabel, false));
+                  cl_out.push_str(" = ");
+                  // RC-managed args: the EVALUATOR attached a deferred `___dup`
+                  // to shared (non-owning / named) args and CONSUMED owning
+                  // temps (set_expr_as_needs_to_call_dup at the ctor-arg site,
+                  // calls/type.yo / record_type.yo) — mirror the other ctor
+                  // paths (the ctor_list builder above) and emit/substitute it
+                  // here. The earlier inline `(__yo_incr_rc(code), code)` comma
+                  // expression evaluated `code` TWICE (a fresh `N(...)` ctor
+                  // arg allocated two objects: one leaked incr'd, one stored
+                  // un-incr'd) and over-counted moves that need no incr at all.
+                  match(
+                    vs_args.get(rfi),
+                    .Some(a) => {
+                      vs_fv := emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context);
+                      cl_out.push_string(vs_fv);
+                    },
+                    .None => ()
+                  );
                 });
-                flabel := match(rt_fields.get(rfi), .Some(f) => f.label, .None => String.from(""));
-                cl_out.push_str(".");
-                cl_out.push_string(sanitize_for_c_identifier(flabel, false));
-                cl_out.push_str(" = ");
-                // RC-managed args: the EVALUATOR attached a deferred `___dup`
-                // to shared (non-owning / named) args and CONSUMED owning
-                // temps (set_expr_as_needs_to_call_dup at the ctor-arg site,
-                // calls/type.yo / record_type.yo) — mirror the other ctor
-                // paths (the ctor_list builder above) and emit/substitute it
-                // here. The earlier inline `(__yo_incr_rc(code), code)` comma
-                // expression evaluated `code` TWICE (a fresh `N(...)` ctor
-                // arg allocated two objects: one leaked incr'd, one stored
-                // un-incr'd) and over-counted moves that need no incr at all.
-                // Same as the constructor call: a `unit` field initializer has
-                // no C value, and the field is now a one-byte placeholder, so
-                // fill `.b = 0` rather than emitting `.b = `.
-                match(
-                  vs_args.get(rfi),
-                  .Some(a) => {
-                    vs_fv := emit_deferred_dup_or_code(a, _call_generate_expr(a, indent.clone(), context), indent.clone(), context);
-                    cl_out.push_string(if(vs_fv.len() == usize(0), String.from("0"), vs_fv));
-                  },
-                  .None => ()
-                );
                 rfi = (rfi + usize(1));
               });
               cl_out.push_str(" }");
@@ -1763,6 +1799,21 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
     match(
       idx_args.get(usize(0)),
       .Some(idx_expr) => {
+        // `Array(unit, N)`: the wrapper has no `data` member (the element is
+        // zero-sized) and the element value is `unit`, which emits no C. The
+        // index expression still runs for its side effects.
+        if(match(function_type, .Array(ae, _, _) => is_unit_type(ae), _ => false), {
+          idx_code := _call_generate_expr(idx_expr, indent.clone(), context);
+          if(idx_code.len() > usize(0), {
+            idx_stmt := indent.clone();
+            idx_stmt.push_str("(void)(");
+            idx_stmt.push_string(idx_code);
+            idx_stmt.push_str(");");
+            em_ix := context.base.emitter;
+            em_ix.emit_string_line(idx_stmt);
+          });
+          return(Option(String).Some(String.from("")));
+        });
         out := arr_code;
         out.push_str(".data[");
         out.push_string(_call_generate_expr(idx_expr, indent.clone(), context));

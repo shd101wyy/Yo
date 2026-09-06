@@ -6,9 +6,11 @@ open(import("std/collections/array_list"));
 // `unit` in a C DECLARATION position — a by-value parameter, a struct field, a
 // tuple element, a generic instantiated at T = unit — used to be emitted as C
 // `void`, which is not an object type: "argument may not have 'void' type",
-// "field has incomplete type 'void'". Codegen now spells those positions with a
-// one-byte placeholder (get_storage_type_string) and fills the matching empty
-// argument slot. See issues/fixed/unit-typed-params-and-fields-emit-c-void.md.
+// "field has incomplete type 'void'". A by-value PARAMETER is spelled as a
+// one-byte placeholder (get_storage_type_string) with its argument slot filled;
+// every STORAGE position erases the unit outright — it is a zero-sized type.
+// See issues/fixed/unit-typed-params-and-fields-emit-c-void.md and
+// issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md.
 _takes_unit :: (fn(x : unit) -> i32)(i32(7));
 _generic_id :: (fn(generic(T : Type), x : T) -> i32)(i32(9));
 _UnitField :: struct(a : i32, b : unit);
@@ -44,20 +46,17 @@ test("unit as an enum payload still works", {
 });
 // ---------------------------------------------------------------------------
 // LAYOUT: `sizeof` of an aggregate with a `unit` field must equal the C struct
-// codegen emits for it.
+// codegen emits for it — and `unit` is a TRUE ZERO-SIZED TYPE, as in Rust.
 //
-// C has no zero-sized object type, so a `unit` in a STORAGE position is a
-// one-byte placeholder (get_storage_type_string). `sizeof` folds to a C literal
-// and then sizes allocations that C-typed pointer arithmetic strides through,
-// so a layout model that counts the field as zero makes every
-// `malloc(n * sizeof(S))` short of the `n * sizeof(struct S)` actually
-// addressed — an out-of-bounds heap write from ordinary safe Yo.
-// issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md
-//
-// An ENUM VARIANT field is the one position that does NOT reserve the byte:
-// generate_enum_declaration erases `unit` variant fields from the data union,
-// and get_size_of_type's enum arm filters them to match. The enum sizes below
-// pin that exception.
+// A `unit` field emits NO C member, so it costs nothing (C members are accessed
+// by name, so erasing one shifts nothing); an aggregate whose every field is
+// `unit` is an empty C struct (GNU extension, sizeof 0). `sizeof` folds to a C
+// literal and then sizes allocations that C-typed pointer arithmetic strides
+// through, so the layout model must report exactly the object the emitter lays
+// out — a disagreement in EITHER direction is a heap bug. The interim one-byte
+// placeholder (v0.2.25) was the safe stopgap for the under-allocating
+// direction; issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md
+// is the erasure that made 0 right.
 //
 // `comptime_assert` is INERT inside a fn/test body — it only fires at module
 // level (issues/comptime-assert-never-fires-inside-a-function-body.md) — so
@@ -88,34 +87,36 @@ _SZ_UNIT_TUPLE :: sizeof(_UnitTuple);
 _SZ_ALL_UNIT_TUPLE :: sizeof(_AllUnitTuple);
 _SZ_UNIT_PAYLOAD_ENUM :: sizeof(_UnitPayloadEnum);
 _SZ_OPTION_UNIT :: sizeof(Option(unit));
+_SZ_UNIT_ARRAY :: sizeof(Array(unit, 16));
 _ALIGN_ONLY_UNIT :: alignof(_OnlyUnit);
 _ALIGN_UNIT_LAST :: alignof(_UnitLast);
 test("sizeof of a unit-bearing aggregate matches the emitted C struct", {
-  assert(_SZ_UNIT == usize(1), "unit is the one-byte C storage placeholder");
-  // struct { uint8_t u; }
-  assert(_SZ_ONLY_UNIT == usize(1), "struct(u : unit)");
+  assert(_SZ_UNIT == usize(0), "unit is a zero-sized type");
+  // struct { } — empty, GNU sizeof 0
+  assert(_SZ_ONLY_UNIT == usize(0), "struct(u : unit)");
   assert(_ALIGN_ONLY_UNIT == usize(1), "struct(u : unit) alignment");
-  // struct { uint8_t u; int32_t a; } — 1 + 3 pad + 4
-  assert(_SZ_UNIT_FIRST == usize(8), "unit field FIRST");
-  // struct { int32_t a; uint8_t u; int32_t b; } — 4 + 1 + 3 pad + 4
-  assert(_SZ_UNIT_MID == usize(12), "unit field in the MIDDLE");
-  // struct { int32_t a; uint8_t u; } — 4 + 1 + 3 tail pad
-  assert(_SZ_UNIT_LAST == usize(8), "unit field LAST");
+  // struct { int32_t a; }
+  assert(_SZ_UNIT_FIRST == usize(4), "unit field FIRST");
+  // struct { int32_t a; int32_t b; }
+  assert(_SZ_UNIT_MID == usize(8), "unit field in the MIDDLE");
+  // struct { int32_t a; }
+  assert(_SZ_UNIT_LAST == usize(4), "unit field LAST");
   assert(_ALIGN_UNIT_LAST == usize(4), "unit field LAST alignment");
-  // struct { uint8_t x, y, z; }
-  assert(_SZ_ALL_UNITS == usize(3), "an ALL-unit aggregate is one byte per field");
-  // struct { int32_t a; struct { int32_t; uint8_t; } inner; int32_t b; }
-  assert(_SZ_NESTED_UNIT == usize(16), "a NESTED aggregate carrying a unit field");
-  // struct { int32_t a; struct { uint8_t x, y, z; } inner; int32_t b; }
-  assert(_SZ_ALL_UNITS_WRAPPED == usize(12), "a nested ALL-unit aggregate");
-  // typedef struct { int32_t _0; uint8_t _1; }
-  assert(_SZ_UNIT_TUPLE == usize(8), "a tuple with a unit element");
-  // typedef struct { uint8_t _0; uint8_t _1; }
-  assert(_SZ_ALL_UNIT_TUPLE == usize(2), "an ALL-unit tuple");
-  // The enum exception: the data union keeps only the non-unit variant fields,
-  // so this is tag(4) + union { struct { int32_t a; } } (4) — NOT 12.
+  // struct { } — three erased fields
+  assert(_SZ_ALL_UNITS == usize(0), "an ALL-unit aggregate is zero-sized");
+  // struct { int32_t a; struct { int32_t a; } inner; int32_t b; }
+  assert(_SZ_NESTED_UNIT == usize(12), "a NESTED aggregate carrying a unit field");
+  // struct { int32_t a; struct { } inner; int32_t b; }
+  assert(_SZ_ALL_UNITS_WRAPPED == usize(8), "a nested ALL-unit aggregate costs nothing");
+  // typedef struct { int32_t _0; }
+  assert(_SZ_UNIT_TUPLE == usize(4), "a tuple with a unit element");
+  // typedef struct { }
+  assert(_SZ_ALL_UNIT_TUPLE == usize(0), "an ALL-unit tuple");
+  // The data union keeps only the non-unit variant fields: tag(4) + union {
+  // struct { int32_t a; } } (4).
   assert(_SZ_UNIT_PAYLOAD_ENUM == usize(8), "unit variant fields are erased, not padded");
   assert(_SZ_OPTION_UNIT == usize(4), "Option(unit) is tag-only");
+  assert(_SZ_UNIT_ARRAY == usize(0), "Array(unit, 16) is zero-sized");
 });
 test("an ArrayList of a unit-bearing aggregate round-trips every element", {
   // The growth path is `malloc(sizeof(T) * capacity)` addressed as `T*`, so a
@@ -220,4 +221,93 @@ test("HashMap(K, unit) does not overflow its bucket array", {
     j = (j + i32(1));
   });
   assert(missing == i32(0), "every key is found again");
+});
+// ZERO-SIZED ELEMENTS: an ArrayList of a zero-sized type never grows a buffer
+// (`_zst_anchor`, std/collections/array_list.yo) — one anchor block, capacity
+// SIZE_MAX. The counts below are what a `malloc(0)` + `realloc(p, 0)` path
+// would have failed on: glibc and the Windows CRT free `p` and return NULL, so
+// the SECOND growth (element 5) reported "allocation failed".
+_Counter :: ref(struct(n : i32));
+_bump :: (fn(c : _Counter) -> unit)({
+  c.n = (c.n + i32(1));
+});
+_RefWithUnit :: ref(struct(a : i32, u : unit, s : String));
+test("an ArrayList of a zero-sized element type grows to any length", {
+  xs := ArrayList(unit).new();
+  (i : usize) = usize(0);
+  while(i < usize(1000), {
+    xs.push(());
+    i = (i + usize(1));
+  });
+  assert(xs.len() == usize(1000), "ArrayList(unit) holds 1000 elements");
+  assert(xs.get(usize(999)).is_some(), "the last unit is readable");
+  assert(xs.pop().is_some(), "pop returns a unit");
+  assert(xs.len() == usize(999), "pop shrinks the length");
+  assert(match(xs.shrink_to_fit(), .Ok(_) => true, .Err(_) => false), "shrink_to_fit is a no-op, not a realloc(p, 0)");
+  assert(xs.len() == usize(999), "shrink_to_fit keeps the elements");
+  ys := ArrayList(unit).with_capacity(usize(10));
+  ys.push(());
+  assert(ys.len() == usize(1), "with_capacity(10) for a ZST still pushes");
+  all := ArrayList(_AllUnits).new();
+  i = usize(0);
+  while(i < usize(300), {
+    all.push(_AllUnits(x : (), y : (), z : ()));
+    i = (i + usize(1));
+  });
+  assert(all.len() == usize(300), "ArrayList of an all-unit struct holds 300 elements");
+  assert(all.get(usize(299)).is_some(), "an all-unit struct element is readable");
+});
+test("a unit field is erased from the C layout but still reads, writes and compares", {
+  s := _UnitLast(a : i32(5), u : ());
+  k := s.u;
+  s.u = ();
+  assert(s.a == i32(5), "the non-unit field survives a unit read and write");
+  // `unit` implements Clone (and Eq/Ord/Hash) in the prelude, as Rust's `()`
+  // does. NOTE: infix `==` on two unit operands still does not dispatch to
+  // that impl (pre-existing — issues/equality-operator-without-an-eq-impl-evaluates-to-unit.md,
+  // "Follow-up 2026-09-06"), so `derive(Eq)` over a struct with a unit field
+  // is not asserted here yet.
+  k4 := k.clone();
+  r := _RefWithUnit(a : i32(9), u : (), s : String.from("nine"));
+  k2 := r.u;
+  assert(r.a == i32(9), "ref struct: the field after an erased unit is intact");
+  assert(r.s == "nine", "ref struct: the RC field after an erased unit is intact");
+  (t : _UnitTuple) = (i32(3), ());
+  k3 := t.1;
+  assert(t.0 == i32(3), "tuple: the element before an erased unit is intact");
+  m := HashMap(String, unit).new();
+  m.insert(String.from("a"), ());
+  m.insert(String.from("b"), ());
+  assert(m.len() == usize(2), "HashMap(K, unit) as a set");
+  assert(m.get(String.from("a")).is_some(), "HashMap(K, unit) lookup");
+});
+test("a unit-typed constructor argument still runs for its side effects", {
+  c := _Counter(n : i32(0));
+  v := _UnitLast(a : i32(1), u : _bump(c));
+  r := _RefWithUnit(a : i32(2), u : _bump(c), s : String.from("s"));
+  (t : _UnitTuple) = (i32(3), _bump(c));
+  assert(c.n == i32(3), `each erased unit argument ran once (got ${c.n})`);
+  assert((v.a + r.a + t.0) == i32(6), "the non-unit fields are intact");
+});
+// `Array(unit, N)` and a GENERIC struct instantiated at T = unit: the erasure
+// must hold when the unit arrives through a type parameter, and an array of a
+// zero-sized element has no `data` member to construct, fill or index.
+_Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, n : i32));
+_pair_x :: (fn(generic(T : Type), p : _Pair(T)) -> T)(p.x);
+_pair_n :: (fn(generic(T : Type), p : _Pair(T)) -> i32)(p.n);
+_mk_pair :: (fn(generic(T : Type), v : T, n : i32) -> _Pair(T))(_Pair(T)(x : v, n : n));
+_SZ_PAIR_UNIT :: sizeof(_Pair(unit));
+_SZ_PAIR_I32 :: sizeof(_Pair(i32));
+test("a generic struct at T = unit erases the field; Array(unit, N) constructs, fills and indexes", {
+  assert(_SZ_PAIR_UNIT == usize(4), "Pair(unit) is just the i32");
+  assert(_SZ_PAIR_I32 == usize(8), "Pair(i32) is two i32s");
+  p := _mk_pair((), i32(7));
+  u := _pair_x(p);
+  assert(_pair_n(p) == i32(7), "the non-unit field of a generic-at-unit struct is intact");
+  q := _Pair(unit)(x : (), n : i32(9));
+  assert(q.n == i32(9), "direct construction of a generic-at-unit struct");
+  arr := Array(unit, usize(3)).fill(());
+  assert(arr.len() == usize(3), "Array(unit, 3).fill(()) has length 3");
+  e := arr(usize(1));
+  assert(sizeof(Array(unit, usize(3))) == usize(0), "Array(unit, 3) is zero-sized");
 });

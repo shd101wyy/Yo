@@ -173,3 +173,35 @@ beside them:
   and `tests/array.test.yo` covers it. Only the NOMINAL-receiver half of this
   issue is left — `NoEq :: struct(x : i32)` still compares to `()`.
 - The two over-rejection canaries above.
+
+## Follow-up 2026-09-06 — the `unit` receiver, measured while landing ZST parity
+
+While making `unit` a true zero-sized type (PR #437) the prelude gained
+`impl(unit, Eq(unit)(...))`, `Ord(unit)`, `Hash` and `Clone` — Rust's `()` has
+all four, and without them `derive(Eq)` over a struct with a `unit` field
+generates `lhs.u == rhs.u` with nothing to resolve to. Measured with a fresh
+stage-1 against the tree std:
+
+- `Type.impls(unit, Eq(unit))` and `Type.impls(unit, Clone)` are **true** —
+  the impls register under `type_id_or_empty(.Unit) == "__yo_t_unit"`.
+- DOT dispatch works: `x.clone()` with `x : unit` compiles and runs.
+- Infix dispatch does **not**: `x == y` with both operands `unit`, inside ANY
+  function body, compiles to the `abort()` stub (`yo: the body of … failed to
+  transpile`), and directly in `main` it is the "Failed to transpile part of
+  main's body" ICE. The impl's C function (`return true;`) IS emitted and is
+  never called. The `(==)` method exists, is found by `Type.impls`, and the
+  evaluator raises no error (`yo check` passes; a module-level `_f((), ())`
+  CTFE call evaluates to a *runtime* bool without complaint) — so the miss is
+  between the evaluator's operator resolution and the call emitter, and it is
+  specific to the `unit` receiver, which the hard-error gate at
+  `function.yo:2771` deliberately exempts.
+- This is PRE-EXISTING: the v0.2.24 seed aborts identically on
+  `derive(S, Eq(S))` for `S :: struct(a : i32, u : unit)` (masked there as the
+  "next name not found" symptom that #434 fixed).
+
+Consequence: `derive(Eq)` (and by the same route `Ord`) over a struct with a
+`unit` field is still an abort stub, even with the impls in place. The fix
+belongs with the widening described above: once a `unit` receiver's `==`
+resolves like any other impl'd type, the derive works unchanged.
+`tests/unit_as_value_type.test.yo` documents the gap next to its unit-field
+tests and will gain the `derive(Eq)` assertion when this closes.

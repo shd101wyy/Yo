@@ -1424,10 +1424,9 @@ _aggregate_size :: (fn(fts : ArrayList(TypeValue)) -> Option(usize))({
 /// (src/codegen/types/generation.yo) ERASES `unit` variant fields from the data
 /// union — and emits no member at all for a variant whose fields are all
 /// `unit` — so a variant payload is sized over the non-unit fields only.
-/// This is the single exception to the one-byte-placeholder rule documented on
-/// `get_size_of_type`'s `.Unit` arm: everywhere else the emitter reserves a
-/// byte for a `unit`, here it reserves nothing. The predicate is `is_unit_type`
-/// because that is exactly the predicate the emitter filters on.
+/// Since `unit` became a true zero-sized type this filter changes no size (a
+/// unit field measures 0 either way); it is kept because it is exactly the
+/// predicate the emitter filters on, so the two stay visibly in step.
 _variant_storage_field_types :: (fn(fts : ArrayList(TypeValue)) -> ArrayList(TypeValue))({
   kept := ArrayList(TypeValue).new();
   (i : usize) = usize(0);
@@ -1557,28 +1556,28 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   match(
     ty,
-    // `unit` is zero-sized in Yo's model, but C HAS NO ZERO-SIZED OBJECT TYPE,
-    // so the emitter never declares one: a storage position — a parameter, a
-    // struct or tuple field, a local, a cast target — spells a `void`-typed Yo
-    // type as a one-byte `uint8_t` placeholder (`get_storage_type_string`,
-    // src/codegen/utils/index.yo), keeping field COUNT and ORDER. `sizeof` is
-    // FOLDED TO A C LITERAL and then used to size allocations that are strided
-    // by the C type, so the layout model must report the object the emitter
-    // lays out, not the zero the model would like: 1 byte, alignment 1
-    // (get_alignment_of_type already says 1). Reporting 0 here made
-    // `malloc(n * sizeof(S))` short of the `n * sizeof(struct S)` addressed for
-    // every aggregate with a `unit` field — an out-of-bounds heap write from
-    // ordinary safe Yo
-    // (issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md).
-    // The ONE position where the emitter does NOT reserve the byte is an enum
-    // variant field, which `generate_enum_declaration` erases outright; the
-    // `.EnumT` arm below filters unit fields to match.
-    // (The two positions that still spell a bare C `void` and so do not compile
-    // at all — a `union` member and an array element — are the tracked gaps in
-    // issues/unit-zst-residual-gaps.md; when they are routed through
-    // `get_storage_type_string` they land on this same byte, so no arm here
-    // changes.)
-    .Unit => .Some(usize(8)),
+    // `unit` is a TRUE zero-sized type, as in Rust (`size_of::<()>() == 0`):
+    // the emitter lays out NOTHING for it. A `unit` struct/tuple field emits no
+    // C member (`_emit_runtime_fields` / `generate_tuple_declaration`,
+    // src/codegen/types/generation.yo), an enum variant field is erased from the
+    // data union, an `Array(unit, N)` wrapper has no `data` member, and an
+    // aggregate whose every field is `unit` is an EMPTY C struct — a GNU
+    // extension every toolchain the compiler drives (clang, gcc, zig cc, emcc)
+    // accepts in C mode, and one the enum emitter already relies on for a
+    // payload-less data union. So 0 here IS the object the emitter lays out.
+    //
+    // This arm flipped 0 → 1 → 0: it was 0 while the emitter spelled a one-byte
+    // `uint8_t` placeholder for every storage position, which under-allocated
+    // `malloc(n * sizeof(S))` for every aggregate with a `unit` field (an
+    // out-of-bounds heap write from safe Yo —
+    // issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md);
+    // the interim fix raised it to 1 to match; erasing the storage made 0 right
+    // (issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md).
+    //
+    // The ONE place a `unit` still occupies a byte is a BY-VALUE PARAMETER
+    // (`get_storage_type_string`): C cannot declare a `void` parameter, and the
+    // calling convention is not layout — `sizeof` never observes it.
+    .Unit => .Some(usize(0)),
     .ComptimeInt => .Some(usize(0)),
     .ComptimeFloat => .Some(usize(0)),
     .ComptimeString => .Some(usize(0)),

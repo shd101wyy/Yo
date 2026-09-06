@@ -13,6 +13,8 @@ open(import("std/string"));
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { type_key, get_variable_type_string, get_variable_name_for_codegen } :: import("../utils/index.yo");
+{ is_unit_type } :: import("../../types/guards.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Args of a FnCall (empty for an Atom).
@@ -23,16 +25,31 @@ _args :: (fn(e : AstExpr) -> ArrayList(AstExpr))(
 /// tuple has a result variable name. Shared by the main and fallback paths.
 _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstExpr, indent : String, context : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
+  elem_types := match(ei.ty, .Tuple({ field_types : fts }) => fts, _ => ArrayList(TypeValue).new());
   args_list := String.from("");
   n := arg_exprs.len();
   (i : usize) = usize(0);
+  (any_elem : bool) = false;
   while(i < n, {
     match(
       arg_exprs.get(i),
-      .Some(arg) => {
-        if(i > usize(0), {
+      // A `unit` element is zero-sized and has no `_N` member
+      // (types/generation.yo), so it gets no initializer; its expression still
+      // runs for its side effects.
+      .Some(arg) => if(match(elem_types.get(i), .Some(et) => is_unit_type(et), .None => false), {
+        u_code := _call_generate_expr(arg, indent.clone(), context);
+        if(u_code.len() > usize(0), {
+          u_stmt := indent.clone();
+          u_stmt.push_string(u_code);
+          u_stmt.push_str(";");
+          em_u := context.base.emitter;
+          em_u.emit_string_line(u_stmt);
+        });
+      }, {
+        if(any_elem, {
           args_list.push_str(", ");
         });
+        any_elem = true;
         args_list.push_str("._");
         args_list.push_string(i.to_string());
         args_list.push_str(" = ");
@@ -71,12 +88,9 @@ _build_tuple :: (fn(arg_exprs : ArrayList(AstExpr), c_name : String, expr : AstE
           .None => ()
         );
         if(!used_dup_temp, {
-          // Twin of the comptime tuple literal: a `unit` element generates no C
-          // and its field is now a one-byte placeholder, so fill the dead byte
-          // rather than emitting `(__yo_t0){ 1,  }`.
-          args_list.push_string(if(arg_code.len() == usize(0), String.from("0"), arg_code));
+          args_list.push_string(arg_code);
         });
-      },
+      }),
       .None => ()
     );
     i = (i + usize(1));

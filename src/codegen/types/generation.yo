@@ -105,7 +105,11 @@ _emit_array_wrapper :: (fn(context : CodeGenContext, name : String) -> unit)({
     context.array_struct_types.get(name.clone()),
     .Some(info) => {
       context.emitter.emit_declaration_line("typedef struct { // Array wrapper struct");
-      context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
+      // `Array(unit, N)`: the element is zero-sized, so there is no `data`
+      // member (`void data[N]` is not C) and the wrapper is an empty struct.
+      if(info.child_type != "void", {
+        context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
+      });
       context.emitter.emit_declaration_string_line(`} ${name};`);
       context.emitter.emit_declaration_line("");
     },
@@ -163,15 +167,19 @@ _emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : Co
   while(i < n, {
     match(
       fields.get(i),
-      .Some(field) => {
-        // A `unit` field is spelled as a dead byte rather than `void` — C has
-        // no zero-sized object type. Field COUNT and ORDER are preserved, so
-        // both constructor parameter lists and the compound literal stay
-        // aligned with the layout.
-        fts := get_storage_type_string(field.ty, context);
+      // A `unit` field is a zero-sized type and emits NO member — C struct
+      // members are accessed by name, so erasing one shifts nothing. Every
+      // consumer of the layout skips the same fields: the `__yo_new_` ctor's
+      // parameters and stores (functions/constructors.yo, declarations.yo),
+      // the ctor call and the value-struct compound literal
+      // (exprs/other_fn_call.yo, exprs/comptime_value.yo), and a read of the
+      // field (exprs/property_access.yo). A struct whose every field is `unit`
+      // is an empty C struct (GNU extension, sizeof 0 — same as Rust).
+      .Some(field) => if(!is_unit_type(field.ty), {
+        fts := get_type_string(field.ty, context);
         fname := sanitize_for_c_identifier(field.label.clone(), false);
         context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
-      },
+      }),
       .None => ()
     );
     i = (i + usize(1));
@@ -233,13 +241,13 @@ generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, conte
           while(i < n, {
             match(
               field_types.get(i),
-              .Some(ft) => {
-                // As for struct fields: a `unit` element becomes a dead byte.
-                // The zero-field branch above keeps its own `_dummy` marker —
-                // with placeholders a NON-empty tuple can never render empty.
-                fts := get_storage_type_string(ft, context);
+              // As for struct fields: a `unit` element is zero-sized and emits
+              // no member; `_N` keeps its declaration index, so accesses stay
+              // aligned. An all-`unit` tuple renders as an empty struct.
+              .Some(ft) => if(!is_unit_type(ft), {
+                fts := get_type_string(ft, context);
                 context.emitter.emit_declaration_string_line(`  ${fts} _${i.to_string()};`);
-              },
+              }),
               .None => ()
             );
             i = (i + usize(1));

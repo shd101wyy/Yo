@@ -20,7 +20,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_contains_rc_type, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
-{ get_type_string, get_storage_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
+{ get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
@@ -49,21 +49,25 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   });
   constructor_name := String.from("__yo_new_");
   constructor_name.push_string(c_name.clone());
-  // Parameter list: "<fieldType> <fieldName>, ..."
+  // Parameter list: "<fieldType> <fieldName>, ..." — a `unit` field has no C
+  // member and takes no parameter (the ctor CALL skips the same fields:
+  // exprs/other_fn_call.yo, exprs/comptime_value.yo).
   params := String.from("");
   nf := runtime_fields.len();
   (pi : usize) = usize(0);
+  (any_param : bool) = false;
   while(pi < nf, {
     match(
       runtime_fields.get(pi),
-      .Some(field) => {
-        if(pi > usize(0), {
+      .Some(field) => if(!is_unit_type(field.ty), {
+        if(any_param, {
           params.push_str(", ");
         });
-        params.push_string(get_storage_type_string(field.ty, context.base));
+        any_param = true;
+        params.push_string(get_type_string(field.ty, context.base));
         params.push_str(" ");
         params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
-      },
+      }),
       .None => ()
     );
     pi = (pi + usize(1));
@@ -133,12 +137,12 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
     line.push_str(";");
     em.emit_string_line(line);
   });
-  // Initialize fields.
+  // Initialize fields (a `unit` field has no member to store into).
   (fi : usize) = usize(0);
   while(fi < nf, {
     match(
       runtime_fields.get(fi),
-      .Some(field) => {
+      .Some(field) => if(!is_unit_type(field.ty), {
         fname := sanitize_for_c_identifier(field.label.clone(), false);
         line := String.from("  obj->");
         line.push_string(fname.clone());
@@ -146,7 +150,7 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
         line.push_string(fname.clone());
         line.push_str(";");
         em.emit_string_line(line);
-      },
+      }),
       .None => ()
     );
     fi = (fi + usize(1));

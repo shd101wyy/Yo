@@ -132,6 +132,9 @@ impl(
       // `Vec::with_capacity` panics with "capacity overflow" here too.
       size_would_overflow(T, cap) =>
         __yo_panic("ArrayList.with_capacity: capacity overflow"),
+      // Zero-sized element (`unit`, an all-`unit` struct): the buffer holds no
+      // bytes, so the list never grows — see `_zst_anchor`.
+      (sizeof(T) == usize(0)) => Self._zst_anchor(),
       true => {
         ptr_result := malloc(sizeof(T) * cap);
         match(
@@ -148,21 +151,50 @@ impl(
     )
   ),
   /**
+  * The one buffer an ArrayList of a ZERO-SIZED element type ever has.
+  *
+  * `sizeof(T) == 0` (`unit`, an all-`unit` aggregate, `Array(unit, N)`) means
+  * the elements occupy no bytes: a store writes nothing, a read reads nothing,
+  * and the byte size of every buffer is 0. Rust's `Vec<()>` never allocates
+  * and reports `capacity() == usize::MAX`. Yo cannot conjure a non-null
+  * dangling pointer, so the stand-in is ONE one-byte block, allocated once and
+  * never resized: the capacity is `SIZE_MAX`, so `push` never reaches the grow
+  * path, and `shrink_to_fit` is a no-op. Going through the allocator with
+  * `sizeof(T) * cap == 0` instead would `malloc(0)` and then `realloc(p, 0)` —
+  * which frees `p` and returns NULL on glibc and the Windows CRT — and the
+  * list would report "allocation failed" on its second growth.
+  */
+  _zst_anchor : (fn() -> Self)(
+    match(
+      malloc(usize(1)),
+      .Some(anchor) =>
+        Self(
+          _ptr : .Some((*(T))(anchor)),
+          _length : usize(0),
+          _capacity : SIZE_MAX
+        ),
+      .None => __yo_panic("malloc returned None")
+    )
+  ),
+  /**
   * Add an element to the end of the ArrayList
   */
   push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
       (self._length >= self._capacity) => {
-        // Need to grow - calculate new capacity
+        // Need to grow - calculate new capacity. A zero-sized element type
+        // takes the anchor buffer and `SIZE_MAX` capacity instead (see
+        // `_zst_anchor`), so this branch runs once for it and never again.
         new_capacity := cond(
+          (sizeof(T) == usize(0)) => SIZE_MAX,
           (self._capacity == usize(0)) => usize(4),
           true => (self._capacity * usize(2))
         );
         // Allocate or reallocate
         new_some_ptr := match(
           self._ptr,
-          .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
+          .None => GlobalAllocator.malloc(cond((sizeof(T) == usize(0)) => usize(1), true => (sizeof(T) * new_capacity))),
           .Some(old_ptr) => GlobalAllocator.realloc(
             .Some((*(void))(old_ptr)),
             sizeof(T) * new_capacity
@@ -239,9 +271,12 @@ impl(
   * This reduces memory usage but may cause reallocation on next push
   */
   shrink_to_fit : (fn(self : Self) -> Result(unit, ArrayListError))(
-    // If length equals capacity or both are zero, nothing to do
+    // If length equals capacity or both are zero, nothing to do. A zero-sized
+    // element type has nothing to shrink either (its buffer is the one-byte
+    // anchor; `realloc(p, 0)` would free it — see `_zst_anchor`).
     cond(
       ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
+      (sizeof(T) == usize(0)) => .Ok(()),
       true =>
         // If length is zero, free the buffer
         cond(
@@ -472,6 +507,14 @@ impl(
       // (issues/fixed/collection-capacity-overflow-unchecked.md).
       size_would_overflow(T, min_cap) =>
         __yo_panic("ArrayList.ensure_total_capacity: capacity overflow"),
+      // Zero-sized element type: the anchor buffer satisfies every capacity
+      // (see `_zst_anchor`); `min_cap <= self._capacity` above catches it once
+      // the anchor is in place.
+      (sizeof(T) == usize(0)) => {
+        anchor := Self._zst_anchor();
+        self._ptr = anchor._ptr;
+        self._capacity = anchor._capacity;
+      },
       true => {
         new_capacity := cond(
           (self._capacity == usize(0)) => min_cap,

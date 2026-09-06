@@ -1,8 +1,61 @@
 # `unit` should be a TRUE zero-sized type — `sizeof(unit)` must be 0, as in Rust
 
-**Status: OPEN — design goal, owner-requested 2026-09-05.**
+**Status: FIXED 2026-09-06** (PR #437, the branch this issue was filed on).
 **Severity: language design + memory footprint**, not a correctness bug: the
-tree is self-consistent today. This tracks a deliberate change of direction.
+tree was self-consistent at 1 byte. This tracked a deliberate change of
+direction, requested by the maintainer 2026-09-05 and landed the next day.
+
+## Resolution
+
+`sizeof(unit) == 0`. The emitter lays out nothing for a `unit` in any STORAGE
+position, and the layout model says so:
+
+| site | before | after |
+| --- | --- | --- |
+| `get_size_of_type(.Unit)` (`src/types/utils.yo`) | 8 bits | **0** |
+| struct field (`_emit_runtime_fields`) | `uint8_t` placeholder member | **no member** |
+| tuple element (`generate_tuple_declaration`) | placeholder `_N` | **no member**; surviving `_N` keep their index |
+| `Array(unit, N)` wrapper (`_emit_array_wrapper`), its literals (`exprs/comptime_value.yo`, `exprs/array_fns.yo`) and index (`exprs/generation.yo`) | `void data[N]` (did not compile) | **no `data` member**, sizeof 0; literal = empty struct; an index read emits nothing |
+| `__yo_new_T` ctor params + stores (`functions/constructors.yo`, `declarations.yo`) | placeholder param, dead store | **skipped** |
+| ctor call / value-struct literal / tuple literal (`exprs/other_fn_call.yo`, `tuple_fn.yo`, `comptime_value.yo`) | `0` filler | **skipped**; the argument expression still RUNS (a unit-returning call has side effects) and its code is emitted as a statement |
+| read of a unit field / `*unit` deref (`exprs/property_access.yo`) | `v.u;` (a read of the dead byte) | **emits nothing** — like every unit expression |
+| write to a unit field (`exprs/assignment.yo`) | guarded off | unchanged |
+| `ArrayList(ZST)` (`std/collections/array_list.yo`) | `malloc(0)`, then `realloc(p, 0)` on growth | **one one-byte anchor block, capacity `SIZE_MAX`**, never resized (`_zst_anchor`) |
+| enum variant field | erased | unchanged (this was the template) |
+| BY-VALUE `unit` PARAMETER (`get_storage_type_string`) | `uint8_t` fed `0` | **unchanged, deliberately** — C cannot declare a `void` parameter; calling convention is not layout and `sizeof` never observes it |
+
+**The all-`unit` aggregate** is an EMPTY C struct — option 1 below, not option
+2. GNU C accepts `struct { }` with `sizeof == 0`, every toolchain the compiler
+drives (clang, gcc, zig cc, emcc) is GNU-compatible in C mode, and the emitter
+ALREADY relied on it: an enum whose variants all carry only `unit` emits
+`typedef union { } T_data;`, and a struct with no runtime fields emits
+`struct T_struct { };`. So no new mechanism was invented and `&empty` is an
+ordinary (zero-length) object address.
+
+**Where Rust parity is deliberately NOT exact:** `Vec<()>` never allocates;
+`ArrayList(unit)` allocates ONE byte per list (not per element). Yo has no way
+to conjure a non-null dangling pointer, and the alternative — routing a
+zero-byte request through the allocator — is `malloc(0)` followed by
+`realloc(p, 0)` on the second growth, which frees `p` and returns NULL on glibc
+and the Windows CRT. `HashMap(K, unit)` is unaffected: its entry is
+`struct { K key; }`, non-zero for every non-ZST key.
+
+**`sizeof(unit)` churned 0 → 1 → 0** across v0.2.24 → v0.2.25 → v0.2.26, as the
+cost section below predicted. Both moves are release-note breaking-change
+entries.
+
+**Verification:** `tests/unit_as_value_type.test.yo` pins every shape's size
+against the emitted layout and round-trips them through `ArrayList`;
+`ArrayList(unit)` to 1000 elements plus `pop`/`shrink_to_fit`; an all-unit
+struct to 300; `derive(Eq)` over a unit field; a `ref` struct with a unit field
+between an `i32` and a `String`; `HashMap(String, unit)`; and a side-effecting
+unit-typed constructor argument (counted, so an erased argument that stopped
+running would show). `yo build` self-compile + the language suite.
+
+---
+
+## Original issue (as filed 2026-09-05)
+
 
 ## The goal
 

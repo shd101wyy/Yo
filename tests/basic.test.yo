@@ -2466,3 +2466,37 @@ test("enum tag participates in alignment and struct tail padding", {
     j = (j + usize(1));
   });
 });
+// A comptime-TRUE condition in a NON-first `cond` arm is the chain's final
+// `else`; the arms after it are unreachable and must not be emitted. Codegen
+// used to keep going and write the next arm as a second `else` with no `if` —
+// invalid C — whenever a runtime guard preceded a type-level fact (a shape
+// generic std code produces at a zero-sized T).
+// issues/fixed/cond-comptime-true-middle-arm-emits-dangling-else.md
+_ct_pick :: (fn(x : i32) -> i32)(
+  cond(
+    (x > i32(10)) => i32(1),
+    (sizeof(i32) == usize(4)) => i32(2),
+    true => i32(3)
+  )
+);
+_ct_stmt :: (fn(x : i32) -> i32)({
+  (r : i32) = i32(0);
+  cond(
+    (x > i32(10)) => {
+      r = i32(1);
+    },
+    (sizeof(i32) == usize(4)) => {
+      r = i32(2);
+    },
+    true => {
+      r = i32(3);
+    }
+  );
+  r
+});
+test("cond: a comptime-true condition after a runtime arm is the final else", {
+  assert(_ct_pick(i32(20)) == i32(1), "the runtime arm still wins when it holds");
+  assert(_ct_pick(i32(0)) == i32(2), "the comptime-true arm is the else");
+  assert(_ct_stmt(i32(20)) == i32(1), "statement position: runtime arm");
+  assert(_ct_stmt(i32(0)) == i32(2), "statement position: comptime-true arm is the else");
+});
