@@ -1,0 +1,8 @@
+# issues/fixed/thread-join-was-re-callable-and-handles-leaked.md: a second
+# `Thread.join` reached pthread_join on an already-joined thread (undefined
+# behaviour; a closed HANDLE on Windows). It is now a panic naming the call.
+# The program compiles cleanly and PANICS at run time; `build run` propagates
+# that as a non-zero rc. The message rides stderr with build chatter and ends
+# in a machine-specific `(at file:///…)`, so stdout keeps only the substring.
+stdout_keep_match=Thread\.join: this thread was already joined
+timeout=300

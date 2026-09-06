@@ -115,13 +115,20 @@ Memory safety / UB / deadlock:
 3. **`spawn(pool, …)` self-deadlocks on nested spawn** whenever the runtime
    takes its inline fallback: the pool mutex is held across
    `__yo_worker_spawn` (`thread.yo:218-221`) and the fallback runs the task on
-   the submitting thread (`codegen/parallelism/runtime.yo:463-468`).
+   the submitting thread (`codegen/parallelism/runtime.yo:463-468`) — **FIXED
+   2026-09-06**: the submission lock is re-entrant for its owning thread
+   (`issues/fixed/thread-pool-spawn-self-deadlocked-in-the-inline-fallback.md`).
 4. **`Thread.join` is re-callable (double `pthread_join`, UB) and `Thread` has
    no `Dispose`** (`thread.yo:61-64`; threads are created joinable and never
-   detached, `runtime.yo:141-167`) — every un-joined thread leaks.
+   detached, `runtime.yo:141-167`) — every un-joined thread leaks — **FIXED
+   2026-09-06**: `Thread` is a `ref` struct with a `_joined` flag (second
+   `join` panics) and `Dispose` detaches through the new `__yo_thread_detach`
+   (`issues/fixed/thread-join-was-re-callable-and-handles-leaked.md`).
 5. **`html` entity tables lazy-init through unsynchronised globals**
    (`encoding/html.yo:21-31`); **`std/log` globals raced** (`log.yo:81-101`,
-   `168`) against a module doc that promises one mutex.
+   `168`) against a module doc that promises one mutex — **FIXED 2026-09-06**:
+   eager module-init tables; every log global access under `_log_mutex`
+   (`issues/fixed/html-and-log-globals-raced.md`).
 
 Wrong values:
 
