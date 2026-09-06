@@ -41,6 +41,12 @@ The audit found three kinds of work, in priority order:
 
 ---
 
+> **2026-09-06 — successor document.** The remaining rows of this audit were
+> re-measured against the code and against Rust; the result — eleven live bugs,
+> decisions D9–D18, the P1 "batteries" list per module group and the phasing to
+> a freeze — is `plans/STD_API_STABILIZATION.md` (raw findings:
+> `plans/STD_API_STABILIZATION_FINDINGS.md`). D1–D8 below remain in force.
+
 ## 1. Guiding principles (the stability contract)
 
 - **One blessed error style per situation** (§3 D1). Modules currently ship four
