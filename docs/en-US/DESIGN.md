@@ -950,7 +950,7 @@ Yo uses `Option(*(T))` for nullable pointers:
 some_ptr := malloc(sizeof(i32));
 match(some_ptr,
   .Some(vp) => {
-    ptr := *(i32)(vp);
+    ptr := (*i32)(vp);
     ptr.* = i32(42);
     printf("value: %d\n", ptr.*);
     free(some_ptr);
@@ -987,13 +987,13 @@ write_and_read :: (fn(p : *(i32), v : i32) -> i32)(unsafe({
   p.*
 }));
 
-// Pointer comparison (==, <, etc.) and *(T) casts (e.g., *(u8)(p))
+// Pointer comparison (==, <, etc.) and *(T) casts (e.g., (*u8)(p))
 // stay safe — they don't dereference, so they're not gated.
 ```
 
 **What requires `unsafe(...)`**: pointer dereference (`.*`), pointer arithmetic (`.add(n)`, `.sub(n)`, `.offset_from(q)`), and `consume(p.* = v)`.
 
-**What needs no additional `unsafe(...)` wrap** (inside a file that already declares `pragma(Pragma.AllowUnsafe);`): taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`*(u8)(p)`), and `asm(...)` (already implicitly unsafe). None of these are available in SAFE code — without the pragma, `&(x)` is rejected at the construction site and a `*(T)` type in any signature is rejected outright.
+**What needs no additional `unsafe(...)` wrap** (inside a file that already declares `pragma(Pragma.AllowUnsafe);`): taking an address (`&(x)`), passing/storing/returning pointers, pointer comparison (`<`, `==`, etc.), pointer-type casts (`(*u8)(p)`), and `asm(...)` (already implicitly unsafe). None of these are available in SAFE code — without the pragma, `&(x)` is rejected at the construction site and a `*(T)` type in any signature is rejected outright.
 
 The unsafe surface is greppable: every `unsafe(` token marks a place where raw memory ops happen. A file must declare `pragma(Pragma.AllowUnsafe);` at the top before it can use `unsafe(...)` or perform raw pointer operations. `std/`, `src/`, and `tests/` files declare this pragma explicitly; user code (`main.yo`, the rest of your project) defaults to safe mode and gets a compile error if it tries to use `unsafe(...)`.
 
@@ -1829,7 +1829,7 @@ area :: (fn(shape: Shape) -> i32)(
 ```rust
 s := "Hello"; // s : str — a string literal is the builtin static string view `str`.
 (s2 : *(u8)) = "Hi"; // You can explicitly declare a C string pointer (unsafe-capable files only).
-s3 := *(u8)("Hi"); // Or use a pointer cast to get a C string pointer.
+s3 := (*u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 ```
 
 ### String (Growable UTF-8 String)

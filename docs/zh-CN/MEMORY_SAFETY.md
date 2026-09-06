@@ -128,7 +128,7 @@ pragma(Pragma.AllowUnsafe);
 
 copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
   // extern 调用必须包在 unsafe(...) 里 —— 见下面的"逐调用审计标记"。
-  _ := unsafe(memcpy((*(void))(dst), (*(void))(src), n));
+  _ := unsafe(memcpy((*void)(dst), (*void)(src), n));
 });
 ```
 
@@ -153,7 +153,7 @@ copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
 - 把 `*(T)` 存进 struct 字段
 - 返回 `*(T)`
 - 指针比较：`p == q`、`p < q` 等
-- 指针类型转换：`*(u8)(p)`
+- 指针类型转换：`(*u8)(p)`
 - `asm(...)` 块（`asm` 关键字本身就是标记）
 - `extern(...)` / `c_include(...)` _声明_（只有*调用处*需要包装）
 

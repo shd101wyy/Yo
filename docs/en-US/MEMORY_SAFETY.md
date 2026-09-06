@@ -129,7 +129,7 @@ pragma(Pragma.AllowUnsafe);
 copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
   // The extern call MUST be wrapped in unsafe(...) — see "Per-Call
   // Audit Marker" below.
-  _ := unsafe(memcpy((*(void))(dst), (*(void))(src), n));
+  _ := unsafe(memcpy((*void)(dst), (*void)(src), n));
 });
 ```
 
@@ -154,7 +154,7 @@ Operations that are NOT gated (addresses are just data; moving them around doesn
 - Storing `*(T)` in a struct field
 - Returning `*(T)`
 - Pointer comparison: `p == q`, `p < q`, etc. (Eq/Ord impls on `*(T)`, address identity)
-- Pointer type casts: `*(u8)(p)`
+- Pointer type casts: `(*u8)(p)`
 - `asm(...)` blocks (the `asm` keyword is itself the marker)
 - `extern(...)` / `c_include(...)` _declarations_ (only the _call sites_ need wrapping)
 
