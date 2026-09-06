@@ -29,7 +29,7 @@ than changed blind.
 
 | shape | site | fix direction |
 | --- | --- | --- |
-| `[unit; N]` array element | `src/codegen/types/generation.yo` (array wrapper) | **DONE 2026-09-06** — the wrapper emits no `data` member, `sizeof(Array(unit, N)) == 0`; the comptime and runtime array literals emit the empty struct and an index read emits nothing (`fill`/`len`/index pinned in tests/unit_as_value_type.test.yo) |
+| `[unit; N]` array element | `src/codegen/types/generation.yo` (array wrapper) | **DONE 2026-09-06** — the wrapper emits no `data` member, only the one-byte `_zst_dummy` (`sizeof(Array(unit, N)) == 1`); the comptime and runtime array literals emit the empty struct and an index read emits nothing (`fill`/`len`/index pinned in tests/unit_as_value_type.test.yo) |
 | a `unit` member of a `union` | `src/codegen/types/generation.yo` (union declaration) | storage → **erase** the member |
 | `dyn` interface vtable fn-pointer parameters | `src/codegen/types/generation.yo`, `src/codegen/functions/dyn.yo` | parameter → placeholder (`get_storage_type_string`) |
 | `dyn` interface non-function members | same | storage → **erase** |

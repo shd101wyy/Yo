@@ -50,7 +50,8 @@ test("unit as an enum payload still works", {
 //
 // A `unit` field emits NO C member, so it costs nothing (C members are accessed
 // by name, so erasing one shifts nothing); an aggregate whose every field is
-// `unit` is an empty C struct (GNU extension, sizeof 0). `sizeof` folds to a C
+// `unit` carries a single one-byte `_zst_dummy` — an EMPTY C struct is 0 bytes
+// on GNU targets but 4 on the MSVC ABI, so it is not portable. `sizeof` folds to a C
 // literal and then sizes allocations that C-typed pointer arithmetic strides
 // through, so the layout model must report exactly the object the emitter lays
 // out — a disagreement in EITHER direction is a heap bug. The interim one-byte
@@ -88,12 +89,16 @@ _SZ_ALL_UNIT_TUPLE :: sizeof(_AllUnitTuple);
 _SZ_UNIT_PAYLOAD_ENUM :: sizeof(_UnitPayloadEnum);
 _SZ_OPTION_UNIT :: sizeof(Option(unit));
 _SZ_UNIT_ARRAY :: sizeof(Array(unit, 16));
+_UnitOnlyPayloadEnum :: enum(A(u : unit), B);
+_SZ_UNIT_ONLY_PAYLOAD_ENUM :: sizeof(_UnitOnlyPayloadEnum);
 _ALIGN_ONLY_UNIT :: alignof(_OnlyUnit);
 _ALIGN_UNIT_LAST :: alignof(_UnitLast);
 test("sizeof of a unit-bearing aggregate matches the emitted C struct", {
   assert(_SZ_UNIT == usize(0), "unit is a zero-sized type");
-  // struct { } — empty, GNU sizeof 0
-  assert(_SZ_ONLY_UNIT == usize(0), "struct(u : unit)");
+  // struct { uint8_t _zst_dummy; } — a member-less aggregate carries one dummy
+  // byte: an EMPTY struct is 0 bytes on GNU targets but 4 on the MSVC ABI, so
+  // it is not a portable zero-sized type (`_c_aggregate_size`).
+  assert(_SZ_ONLY_UNIT == usize(1), "struct(u : unit) is the dummy byte");
   assert(_ALIGN_ONLY_UNIT == usize(1), "struct(u : unit) alignment");
   // struct { int32_t a; }
   assert(_SZ_UNIT_FIRST == usize(4), "unit field FIRST");
@@ -102,21 +107,26 @@ test("sizeof of a unit-bearing aggregate matches the emitted C struct", {
   // struct { int32_t a; }
   assert(_SZ_UNIT_LAST == usize(4), "unit field LAST");
   assert(_ALIGN_UNIT_LAST == usize(4), "unit field LAST alignment");
-  // struct { } — three erased fields
-  assert(_SZ_ALL_UNITS == usize(0), "an ALL-unit aggregate is zero-sized");
+  // struct { uint8_t _zst_dummy; } — three erased fields, one dummy
+  assert(_SZ_ALL_UNITS == usize(1), "an ALL-unit aggregate is one dummy byte, not one per field");
   // struct { int32_t a; struct { int32_t a; } inner; int32_t b; }
   assert(_SZ_NESTED_UNIT == usize(12), "a NESTED aggregate carrying a unit field");
-  // struct { int32_t a; struct { } inner; int32_t b; }
-  assert(_SZ_ALL_UNITS_WRAPPED == usize(8), "a nested ALL-unit aggregate costs nothing");
+  // struct { int32_t a; struct { uint8_t _zst_dummy; } inner; int32_t b; } — 4 + 1 + 3 pad + 4
+  assert(_SZ_ALL_UNITS_WRAPPED == usize(12), "a nested ALL-unit aggregate is its dummy byte plus padding");
   // typedef struct { int32_t _0; }
   assert(_SZ_UNIT_TUPLE == usize(4), "a tuple with a unit element");
-  // typedef struct { }
-  assert(_SZ_ALL_UNIT_TUPLE == usize(0), "an ALL-unit tuple");
+  // typedef struct { uint8_t _zst_dummy; }
+  assert(_SZ_ALL_UNIT_TUPLE == usize(1), "an ALL-unit tuple is the dummy byte");
   // The data union keeps only the non-unit variant fields: tag(4) + union {
   // struct { int32_t a; } } (4).
   assert(_SZ_UNIT_PAYLOAD_ENUM == usize(8), "unit variant fields are erased, not padded");
   assert(_SZ_OPTION_UNIT == usize(4), "Option(unit) is tag-only");
-  assert(_SZ_UNIT_ARRAY == usize(0), "Array(unit, 16) is zero-sized");
+  assert(_SZ_UNIT_ARRAY == usize(1), "Array(unit, 16) has no data, only the dummy byte");
+  // `enum(A(u : unit), B)`: no variant has a non-unit field, so there is NO data
+  // union and no `data` member — the enum IS its tag. With an empty union the
+  // C struct was 8 bytes on the MSVC ABI (4 on GNU) against a model of 4
+  // (issues/fixed/empty-enum-data-union-is-4-bytes-on-msvc.md).
+  assert(_SZ_UNIT_ONLY_PAYLOAD_ENUM == usize(4), "an enum whose only payloads are unit is tag-only");
 });
 test("an ArrayList of a unit-bearing aggregate round-trips every element", {
   // The growth path is `malloc(sizeof(T) * capacity)` addressed as `T*`, so a
@@ -232,6 +242,35 @@ _bump :: (fn(c : _Counter) -> unit)({
   c.n = (c.n + i32(1));
 });
 _RefWithUnit :: ref(struct(a : i32, u : unit, s : String));
+// The tag-only enum shape in an ArrayList: on the MSVC ABI its C struct used
+// to be 8 bytes against a model of 4, so 64 elements overran a 256-byte block.
+test("an ArrayList of a unit-payload enum and of Option(unit) round-trips every element", {
+  n := usize(64);
+  es := ArrayList(_UnitOnlyPayloadEnum).new();
+  os := ArrayList(Option(unit)).new();
+  (i : usize) = usize(0);
+  while(i < n, {
+    es.push(cond(((i % usize(2)) == usize(0)) => _UnitOnlyPayloadEnum.A(u : ()), true => _UnitOnlyPayloadEnum.B));
+    os.push(cond(((i % usize(3)) == usize(0)) => Option(unit).None, true => Option(unit).Some(())));
+    i = (i + usize(1));
+  });
+  (bad : usize) = usize(0);
+  i = usize(0);
+  while(i < n, {
+    want_a := ((i % usize(2)) == usize(0));
+    got_a := match(es.get(i), .Some(e) => match(e, .A(_) => true, .B => false), .None => !want_a);
+    if(got_a != want_a, {
+      bad = (bad + usize(1));
+    });
+    want_some := ((i % usize(3)) != usize(0));
+    got_some := match(os.get(i), .Some(o) => o.is_some(), .None => !want_some);
+    if(got_some != want_some, {
+      bad = (bad + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  assert(bad == usize(0), `${bad} scrambled elements`);
+});
 test("an ArrayList of a zero-sized element type grows to any length", {
   xs := ArrayList(unit).new();
   (i : usize) = usize(0);
@@ -309,5 +348,5 @@ test("a generic struct at T = unit erases the field; Array(unit, N) constructs, 
   arr := Array(unit, usize(3)).fill(());
   assert(arr.len() == usize(3), "Array(unit, 3).fill(()) has length 3");
   e := arr(usize(1));
-  assert(sizeof(Array(unit, usize(3))) == usize(0), "Array(unit, 3) is zero-sized");
+  assert(sizeof(Array(unit, usize(3))) == usize(1), "Array(unit, 3) is the dummy byte");
 });

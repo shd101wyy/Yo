@@ -15,7 +15,9 @@ position, and the layout model says so:
 | `get_size_of_type(.Unit)` (`src/types/utils.yo`) | 8 bits | **0** |
 | struct field (`_emit_runtime_fields`) | `uint8_t` placeholder member | **no member** |
 | tuple element (`generate_tuple_declaration`) | placeholder `_N` | **no member**; surviving `_N` keep their index |
-| `Array(unit, N)` wrapper (`_emit_array_wrapper`), its literals (`exprs/comptime_value.yo`, `exprs/array_fns.yo`) and index (`exprs/generation.yo`) | `void data[N]` (did not compile) | **no `data` member**, sizeof 0; literal = empty struct; an index read emits nothing |
+| `Array(unit, N)` wrapper (`_emit_array_wrapper`), its literals (`exprs/comptime_value.yo`, `exprs/array_fns.yo`) and index (`exprs/generation.yo`) | `void data[N]` (did not compile) | **no `data` member**, only the one-byte `_zst_dummy` (sizeof 1); literal = `(T){ }`; an index read emits nothing |
+| a struct/tuple whose EVERY field is `unit` (`_emit_zst_dummy`, `_c_aggregate_size`) | one byte per field | **one `_zst_dummy` byte** for the whole aggregate — see below for why not 0 |
+| an enum with no non-unit variant field (`generate_enum_declaration`) | `{ tag; union { } data; }` — **8 bytes on MSVC**, 4 on GNU, model said 4 | **no data union, no `data` member**: the enum is its tag, 4 bytes everywhere (issues/fixed/empty-enum-data-union-is-4-bytes-on-msvc.md) |
 | `__yo_new_T` ctor params + stores (`functions/constructors.yo`, `declarations.yo`) | placeholder param, dead store | **skipped** |
 | ctor call / value-struct literal / tuple literal (`exprs/other_fn_call.yo`, `tuple_fn.yo`, `comptime_value.yo`) | `0` filler | **skipped**; the argument expression still RUNS (a unit-returning call has side effects) and its code is emitted as a statement |
 | read of a unit field / `*unit` deref (`exprs/property_access.yo`) | `v.u;` (a read of the dead byte) | **emits nothing** — like every unit expression |
@@ -24,13 +26,31 @@ position, and the layout model says so:
 | enum variant field | erased | unchanged (this was the template) |
 | BY-VALUE `unit` PARAMETER (`get_storage_type_string`) | `uint8_t` fed `0` | **unchanged, deliberately** — C cannot declare a `void` parameter; calling convention is not layout and `sizeof` never observes it |
 
-**The all-`unit` aggregate** is an EMPTY C struct — option 1 below, not option
-2. GNU C accepts `struct { }` with `sizeof == 0`, every toolchain the compiler
-drives (clang, gcc, zig cc, emcc) is GNU-compatible in C mode, and the emitter
-ALREADY relied on it: an enum whose variants all carry only `unit` emits
-`typedef union { } T_data;`, and a struct with no runtime fields emits
-`struct T_struct { };`. So no new mechanism was invented and `&empty` is an
-ordinary (zero-length) object address.
+**The all-`unit` aggregate is ONE dummy byte — option 2 below, and the reason
+is measured, not chosen.** The first cut emitted an EMPTY C struct (option 1):
+GNU C gives `struct { }` `sizeof == 0`, and the enum emitter already relied on
+`typedef union { } T_data;`. It passed on macOS and Linux and **crashed both
+Windows legs** (`test (windows-latest)`, `test (windows-11-arm)`, exit code 15)
+in `ArrayList(_AllUnitsWrapped)`. `clang -Xclang -fdump-record-layouts` on every
+target we ship:
+
+| type | GNU / Linux / macOS | **MSVC ABI** (`*-windows-msvc`) |
+| --- | --- | --- |
+| `struct Empty { }` | sizeof 0 | **sizeof 4**, align 1 |
+| `struct { int a; Empty inner; int b; }` | 8 | **12** |
+| `union { }` | 0 | **4** |
+| `struct { int tag; union { } data; }` | 4 | **8** |
+| `struct { unsigned char d; }` | 1 | 1 |
+| `struct { int a; Dummy inner; int b; }` | 12 | 12 |
+
+An empty struct is therefore NOT a portable zero-sized type, and a layout model
+saying 0 is the under-allocating direction of the very bug this branch set out
+to close, on one platform. A one-byte member lays out identically everywhere,
+and the tuple emitter already had that precedent (`uint8_t _dummy` for the
+zero-field tuple). So: `sizeof(unit) == 0` (Rust parity, the request), and a
+member-less aggregate is **1 byte** (documented deviation, forced by MSVC;
+Rust says 0). The same measurement exposed the pre-existing empty-union enum
+bug in the last table row.
 
 **Where Rust parity is deliberately NOT exact:** `Vec<()>` never allocates;
 `ArrayList(unit)` allocates ONE byte per list (not per element). Yo has no way
