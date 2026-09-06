@@ -14,11 +14,25 @@
 //! `serve` runs until `stop()` is called (checked after each connection) —
 //! from another task, or from the handler itself. `serve_once` handles exactly
 //! one connection, which is what a test wants.
+//!
+//! A client's mistake never takes the server down: a request that does not
+//! parse gets `400`, one that exceeds `max_request_bytes` gets `413`, one
+//! with broken framing (`Content-Length` that is not a number, malformed
+//! chunking) gets `400` — and `serve` goes on to the next connection. An I/O
+//! failure on the accepted socket itself still propagates out of `serve`.
+//!
+//! ## Stability
+//!
+//! unstable — the SHAPE (one connection at a time, one request per
+//! connection, `Connection: close` on every response) is expected to change
+//! when a connection loop / keep-alive lands; `bind`, `local_addr`,
+//! `with_max_request_bytes`, `serve`, `serve_once`, `stop` and `close` are
+//! intended to keep their names and meanings.
 open(import("../string"));
 { IoExn } :: import("../error");
 { TcpListener, TcpStream } :: import("../net/tcp");
 { SocketAddr } :: import("../net/addr");
-{ HttpHeader, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
+{ HttpError, HttpHeader, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
 { read_http_message } :: import("./wire.yo");
 /// Default ceiling on a request (headers + body): 16 MiB.
 DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
@@ -26,8 +40,8 @@ DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
 HttpServer :: ref(
   struct(
     listener : TcpListener,
-    /// Requests larger than this throw `HttpError.ResponseTooLarge` out of
-    /// `serve`/`serve_once` (0 lifts the ceiling).
+    /// Requests larger than this are answered with `413 Payload Too Large`
+    /// and the connection closed; `serve` keeps going (0 lifts the ceiling).
     max_request_bytes : usize,
     stopped : bool
   )
@@ -53,18 +67,30 @@ impl(
   }),
   /// Accept ONE connection, read one request, run `handler`, write the
   /// response and close. A request that does not parse gets a `400 Bad
-  /// Request` whose body names the defect, without calling `handler`.
+  /// Request` whose body names the defect, without calling `handler`; a
+  /// framing defect (oversize, unreadable `Content-Length`, malformed
+  /// chunking) is answered the same way (`413` for oversize) instead of being
+  /// thrown out of the server
+  /// (issues/fixed/one-malformed-request-killed-http-server-serve.md).
   serve_once : (
     fn(self : Self, handler : Impl(Fn(req : HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
       stream := e.io.await(self.listener.accept(e.io), e);
-      raw := e.io.await(read_http_message(stream, self.max_request_bytes, true, e.io), e);
+      framed := e.io.await(read_http_message(stream, self.max_request_bytes, true, e.io), e);
       resp := match(
-        parse_request(raw),
-        .Ok(req) => handler(req),
-        .Err(msg) => HttpResponse.with_status(i32(400)).with_body(msg)
+        framed,
+        .Ok(raw) => match(
+          parse_request(raw),
+          .Ok(req) => handler(req),
+          .Err(msg) => HttpResponse.with_status(i32(400)).with_body(msg)
+        ),
+        .Err(ferr) => match(
+          ferr,
+          .ResponseTooLarge => HttpResponse.with_status(i32(413)).with_body(`request larger than ${self.max_request_bytes} bytes`),
+          _ => HttpResponse.with_status(i32(400)).with_body(ferr.to_string())
+        )
       );
       cond(
         resp.get_header(`Connection`).is_none() => {

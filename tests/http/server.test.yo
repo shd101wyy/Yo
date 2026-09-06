@@ -379,3 +379,77 @@ test("only a real Transfer-Encoding field line turns on chunked decoding", {
   task.await(io);
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
+// issues/fixed/one-malformed-request-killed-http-server-serve.md: a framing
+// defect used to THROW out of `serve` and end the server. It is the client's
+// error: answer it and take the next connection.
+test("a request with an unreadable Content-Length gets 400 and serve keeps serving", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
+  hits := ArrayList(i32).new();
+  task := io.spawn(
+    server.serve(req => {
+      hits.push(i32(1));
+      cond(
+        (req.path == `/last`) => {
+          server.stop();
+        },
+        true => ()
+      );
+      HttpResponse.with_status(i32(200)).with_body(`ok`)
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
+  s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
+  _w := io.await(s.write_string(`POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n`, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(s, io), IoExn(io : io, exn : exn));
+  assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
+  assert(raw.contains(`Content-Length`), `reason names the header: ${raw}`);
+  io.await(s.close(io), IoExn(io : io, exn : exn));
+  assert(hits.len() == usize(0), "handler must not run for a malformed frame");
+  // The server is still there for the next client.
+  r := io.await(fetch(`http://127.0.0.1:19976/last`, io), IoExn(io : io, exn : exn));
+  assert(r.status_code == i32(200), `next request served: ${r.status_code}`);
+  task.await(io);
+  assert(hits.len() == usize(1), "exactly the good request reached the handler");
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});
+test("a request over max_request_bytes gets 413 and serve keeps serving", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn)).with_max_request_bytes(usize(64));
+  task := io.spawn(
+    server.serve(req => {
+      cond(
+        (req.path == `/last`) => {
+          server.stop();
+        },
+        true => ()
+      );
+      HttpResponse.with_status(i32(200)).with_body(`ok`)
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
+  s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn));
+  big := `GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\nHost: x\r\n\r\n`;
+  _w := io.await(s.write_string(big, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(s, io), IoExn(io : io, exn : exn));
+  assert(raw.starts_with(`HTTP/1.1 413 `), `status line: ${raw}`);
+  io.await(s.close(io), IoExn(io : io, exn : exn));
+  r := io.await(fetch(`http://127.0.0.1:19977/last`, io), IoExn(io : io, exn : exn));
+  assert(r.status_code == i32(200), `next request served: ${r.status_code}`);
+  task.await(io);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});
