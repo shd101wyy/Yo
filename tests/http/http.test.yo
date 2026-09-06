@@ -1,12 +1,11 @@
 pragma(Pragma.SkipWasm32Emscripten); // https needs a network stack + TLS
 pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
-// SKIPPED ON WINDOWS for now. Windows has a TLS backend (Schannel, plans/
-// D6_TLS_PLAN.md item 3) and this file compiles and links there — but the
-// first time it RAN on Windows (#413) the legs hung for the 4-hour job
-// timeout with no log to read
-// (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md). The
-// un-skip is a separate PR, with a per-test deadline on every network test.
-pragma(Pragma.SkipWindows);
+// Windows: the Schannel backend (plans/D6_TLS_PLAN.md item 3) made the live
+// https fetch pass on both Windows runners; the loopback tests here then hung
+// the legs because the runtime's `accept` was a BLOCKING call on the event
+// loop (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md —
+// root cause, fixed with an overlapped AcceptEx). Every test in this file
+// runs on Windows again.
 { assert, panic } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, http_status_text } :: import("std/http/http");

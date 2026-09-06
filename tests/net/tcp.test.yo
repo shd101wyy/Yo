@@ -316,3 +316,181 @@ test("accept reports the real peer address", {
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
+test("one listener accepts three sequential connections", {
+  // issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md: the
+  // http redirect test hangs on Windows while single-accept TCP passes there.
+  // This is the first half of that shape in isolation — accept, exchange a
+  // byte, close, and accept AGAIN on the same listener.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19911));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  round := 0;
+  while(round < 3, {
+    unsafe(printf("  round %d: connect\n", round));
+    client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+    unsafe(printf("  round %d: accept\n", round));
+    server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+    n := io.await(client.write_str("x", io), IoExn(io : io, exn : exn));
+    assert(n == usize(1), "should send 1 byte");
+    buf := *(u8)(malloc(usize(8)).unwrap());
+    nr := io.await(server_stream.read(buf, usize(8), io), IoExn(io : io, exn : exn));
+    assert(nr == usize(1), "server should read the 1 byte");
+    free(.Some(*(void)(buf)));
+    io.await(server_stream.close(io), IoExn(io : io, exn : exn));
+    io.await(client.close(io), IoExn(io : io, exn : exn));
+    unsafe(printf("  round %d: done\n", round));
+    round = (round + 1);
+  });
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("client reads to EOF after the server closes, twice on one listener", {
+  // Second half of the redirect shape: the SERVER writes and closes first, the
+  // client reads until EOF (how an http response without keep-alive ends),
+  // then the client reconnects to the same listener for the next hop.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19912));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  round := 0;
+  while(round < 2, {
+    client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+    server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+    io.await(server_stream.write_str("HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n", io), IoExn(io : io, exn : exn));
+    io.await(server_stream.close(io), IoExn(io : io, exn : exn));
+    unsafe(printf("  round %d: server closed, client read_to_end\n", round));
+    body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
+    unsafe(printf("  round %d: got %zu bytes\n", round, body.len()));
+    assert(body.len() == usize(41), "client must see the whole response then EOF");
+    io.await(client.close(io), IoExn(io : io, exn : exn));
+    round = (round + 1);
+  });
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+// ---------------------------------------------------------------------------
+// The shape that deadlocked Windows for four hours, pinned in raw TCP
+// (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md): the
+// server runs as a SPAWNED task whose `accept` is already pending when the
+// client connects, then reads the request up to the blank line, writes,
+// closes — three times — while the client reconnects after each response.
+// Windows `accept` used to be a BLOCKING accept() on the event-loop thread,
+// so the loop sat in it forever and the client — on the same loop — never got
+// to connect. Every pre-existing TCP test connected first and accepted
+// second, which is why nothing caught it until a server was spawned first.
+// ---------------------------------------------------------------------------
+_d6_ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
+  n := b.len();
+  cond(
+    (n < usize(4)) => false,
+    true => ((b(n - usize(4)) == u8(13)) && (b(n - usize(3)) == u8(10)) && ((b(n - usize(2)) == u8(13)) && (b(n - usize(1)) == u8(10))))
+  )
+});
+_d6_read_headers :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async(e => {
+    buf := *(u8)(malloc(usize(4096)).unwrap());
+    bytes := ArrayList(u8).new();
+    eof := false;
+    while(runtime(!eof && !_d6_ends_headers(bytes)), {
+      n := e.io.await(stream.read(buf, usize(4096), e.io), e);
+      cond(
+        (n == usize(0)) => {
+          eof = true;
+        },
+        true => {
+          i := usize(0);
+          while(runtime(i < n), {
+            bytes.push((buf.add(i)).*);
+            i = (i + usize(1));
+          });
+        }
+      );
+    });
+    free(.Some(*(void)(buf)));
+    String.from_bytes(bytes)
+  })
+);
+_d6_scripted_server :: (
+  fn(listener : TcpListener, rounds : usize, seen : ArrayList(String), io : Io) -> Impl(Future(unit, IoExn))
+)(
+  io.async(e => {
+    k := usize(0);
+    while(runtime(k < rounds), {
+      eprintln(`  server: accept ${k} pending`);
+      s := e.io.await(listener.accept(e.io), e);
+      req := e.io.await(_d6_read_headers(s, e.io), e);
+      seen.push(req);
+      _w := e.io.await(s.write_str("HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok", e.io), e);
+      e.io.await(s.close(e.io), e);
+      eprintln(`  server: round ${k} done`);
+      k = (k + usize(1));
+    });
+    return(());
+  })
+);
+test("accept pending in a spawned task before the client connects", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19913));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  seen := ArrayList(String).new();
+  server := io.spawn(_d6_scripted_server(listener, usize(1), seen, io), IoExn(io : io, exn : exn));
+  eprintln(`  client: connecting while the server task's accept is pending`);
+  client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+  eprintln(`  client: connected, writing the request`);
+  _n := io.await(client.write_str("GET /one HTTP/1.1\r\nHost: x\r\n\r\n", io), IoExn(io : io, exn : exn));
+  eprintln(`  client: written, reading to EOF`);
+  body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
+  eprintln(`  client: got ${body.len()} bytes`);
+  assert(body.len() == usize(59), "the whole response, then EOF from the server's close");
+  io.await(client.close(io), IoExn(io : io, exn : exn));
+  server.await(io);
+  assert(seen.len() == usize(1), "one request seen");
+  assert(seen(usize(0)).starts_with(`GET /one`), "the request line");
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("three request/response rounds against a spawned scripted server", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19914));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  seen := ArrayList(String).new();
+  server := io.spawn(_d6_scripted_server(listener, usize(3), seen, io), IoExn(io : io, exn : exn));
+  round := 0;
+  while(round < 3, {
+    eprintln(`  client: round ${round} connect`);
+    client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+    _n := io.await(client.write_str("GET /hop HTTP/1.1\r\nHost: x\r\n\r\n", io), IoExn(io : io, exn : exn));
+    body := io.await(client.read_to_end(io), IoExn(io : io, exn : exn));
+    eprintln(`  client: round ${round} got ${body.len()} bytes`);
+    assert(body.len() == usize(59), "each hop's whole response");
+    io.await(client.close(io), IoExn(io : io, exn : exn));
+    round = (round + 1);
+  });
+  server.await(io);
+  assert(seen.len() == usize(3), "three requests seen");
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});

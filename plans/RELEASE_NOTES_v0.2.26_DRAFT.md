@@ -1,10 +1,12 @@
 # v0.2.26
 
-A small, deliberate release: **`unit` is now a true zero-sized type**, the
+A substantial release: **`unit` is now a true zero-sized type**, the
 lazy-binding campaign closes with forward references allowed in `std/` and
-`src/` themselves, and the std API stabilization campaign lands its whole P0
+`src/` themselves, the std API stabilization campaign lands its whole P0
 sweep — 18 memory/UB/deadlock and wrong-value defects, with the exported
-signatures reshaped to Rust's.
+signatures reshaped to Rust's — and **Windows regains a TLS backend
+(Schannel) with its live suites running there**, after the event-loop bug that
+made them look untestable turned out to be a blocking `accept()`.
 
 ## ⚠️ Breaking changes (patch-release policy)
 
@@ -78,11 +80,25 @@ signatures reshaped to Rust's.
 
 ## Platforms
 
-- _(Deferred to the next release: the Windows Schannel TLS backend, #442/#443.
-  Both PRs touch `.github/workflows/*`, which needs a token carrying the
-  `workflow` scope; they could not be merged into this release. The D6 root
-  cause — a blocking `accept()` on the Windows event-loop thread — is fixed and
-  awaiting merge, see `plans/D6_TLS_PLAN.md`.)_
+- **Windows: the Schannel TLS backend is back, and its suites RUN there**
+  (#442 re-landing #413, #443). `tls.test.yo` and `http.test.yo` are no longer
+  `SkipWindows`.
+- **Windows `accept` no longer blocks the event loop** (#443). This is what
+  made the first Schannel attempt look untestable: `__yo_async_accept_start`
+  was a plain **blocking `accept()`** on the loop thread, so a server task
+  awaiting `accept` before a client on the SAME single-threaded loop had
+  connected wedged the whole loop — client included — until the 4-hour job
+  deadline. Every pre-existing TCP test connected first and accepted second,
+  which is why nothing caught it for so long; TLS merely un-skipped the first
+  test with a spawned server. `accept` is now an overlapped `AcceptEx` whose
+  extension pointers come from `WSAIoctl`, so no new import library is
+  needed. Unix-domain listeners keep the blocking `accept()` — Windows'
+  AF_UNIX implements neither `AcceptEx` nor `GetAcceptExSockaddrs` — and the
+  four shapes that deadlocked are now permanent regression tests in
+  `tests/net/tcp.test.yo`. `connect` is still a blocking `connect()`
+  (harmless on loopback); `ConnectEx` is the follow-up.
+- Windows `test` legs now carry a 75-minute budget, so a hang of this class
+  produces a failed job with a downloadable log instead of a silent timeout.
 
 ## Correctness
 
