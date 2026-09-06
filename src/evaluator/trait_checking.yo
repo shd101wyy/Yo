@@ -844,7 +844,20 @@ type_implements_trait :: (
   // `type_implements_trait` (so it picks up the same builtins / registry /
   // generic-impls), guarded against self-referential cycles.
   marker_name := _marker_name_of(trait_type, env);
-  if((!(marker_name.is_empty())) && !(_ondemand_guard_contains(`${type_id}:${_trait_type_id(trait_type)}`)), {
+  // Guard key. A STRUCTURAL type (tuple, pointer) has no nominal id, so
+  // `type_id` is "" and every one of them shared the single key
+  // `":<trait>"` — a nested structural type then found its own ancestor's
+  // entry and was cut, answering `false` (`*(*(i32))` is not Send,
+  // `Tuple(Tuple(i32))` is not Comptime). Structural types are finite trees
+  // and cannot recurse without going through a NOMINAL type (which keeps its
+  // own id in the guard), so keying them by their structural rendering is
+  // both terminating and precise.
+  ondemand_key := if(
+    type_id.is_empty(),
+    `${type_to_string(target)}:${_trait_type_id(trait_type)}`,
+    `${type_id}:${_trait_type_id(trait_type)}`
+  );
+  if((!(marker_name.is_empty())) && !(_ondemand_guard_contains(ondemand_key)), {
     tn := marker_name.clone();
     marker_relevant := ((((tn == "Send") || (tn == "Comptime")) || (tn == "Acyclic")) || (tn == "Runtime"));
     if(marker_relevant, {
@@ -891,6 +904,17 @@ type_implements_trait :: (
           });
           fields_opt = Option(ArrayList(TypeValue)).Some(flat);
         },
+        // Tuples are structural VALUE aggregates: they have no nominal id, so
+        // nothing ever registered a marker for them, and the prelude declares
+        // no `impl(generic(T), Tuple(T), <marker>)` either — so EVERY marker
+        // answered `false` for every tuple, `Comptime` included, which
+        // tests/basic.test.yo has asserted `true` since the marker traits were
+        // introduced (PR #16). The rule is a value struct's / an enum's: the
+        // marker holds iff every field type holds it.
+        // See issues/fixed/tuple-types-derive-no-auto-derived-marker.md.
+        .Tuple({ field_types : tuple_fts }) => {
+          fields_opt = Option(ArrayList(TypeValue)).Some(tuple_fts);
+        },
         // `*(T)`: Send/Acyclic iff `T` is (mirrors the prelude
         // `impl(generic(T), where(T <: Send), *(T), Send())`).
         .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
@@ -906,8 +930,7 @@ type_implements_trait :: (
       match(
         fields_opt,
         .Some(fields) => {
-          guard_key2 := `${type_id}:${_trait_type_id(trait_type)}`;
-          _gpush := g_ondemand_marker_guard.push(guard_key2);
+          _gpush := g_ondemand_marker_guard.push(ondemand_key.clone());
           (all_pass : bool) = true;
           (fi : usize) = usize(0);
           while((fi < fields.len()) && all_pass, {

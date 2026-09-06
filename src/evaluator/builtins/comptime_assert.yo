@@ -35,6 +35,57 @@ open(import("std/string"));
 { format_error_message } :: import("../../error.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
 { Exception } :: import("std/error");
+/// Raise the assertion failure, using the optional second argument as the
+/// message. Shared by the executing path and the validation path — a
+/// `comptime_assert` whose condition is a CONCRETE `false` is a failure in
+/// either mode, and having one thrower keeps the two from drifting.
+_throw_assert_failed :: (
+  fn(
+    expr : AstExpr,
+    arg_expr : AstExpr,
+    msg_expr_opt : Option(AstExpr),
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  err_msg := match(
+    msg_expr_opt,
+    .Some(msg_expr) => {
+      eval_msg := evaluate_expression(msg_expr, env, ctx);
+      msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
+      match(
+        msg_info_opt,
+        .Some(mi) => match(
+          mi.value,
+          .Some(mv) => match(
+            mv,
+            .StrLit(raw) => {
+              rn := raw.len();
+              raw.substring(usize(1), rn - usize(1))
+            },
+            _ => value_to_string(mv)
+          ),
+          .None => String.from("")
+        ),
+        .None => String.from("")
+      )
+    },
+    .None => String.from("")
+  );
+  if(err_msg.len() > usize(0), {
+    exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg)));
+  }, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Assertion failed for "comptime_assert":\n${ast_expr_to_string(arg_expr)}`
+        )
+      )
+    );
+  });
+});
 evaluate_comptime_assert :: (
   fn(
     expr : AstExpr,
@@ -74,6 +125,25 @@ evaluate_comptime_assert :: (
                   )
                 )
               );
+            });
+            // A CONCRETE `false` is a failure however the body is reached.
+            // Validation mode used to type-check and return, which made every
+            // `comptime_assert` inside a function body inert — and a
+            // `test("…", { … })` body IS a function body, so the whole suite's
+            // comptime assertions verified nothing
+            // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
+            // An UNKNOWN value still only type-checks: a runtime condition, or
+            // a generic body whose types are not bound yet, genuinely cannot be
+            // decided here.
+            // Nested patterns do not parse (`.Some(.BoolVal(b))` is rejected),
+            // so this is two matches.
+            (is_false : bool) = match(
+              ai.value,
+              .Some(v) => match(v, .BoolVal(b) => !b, _ => false),
+              .None => false
+            );
+            if(is_false, {
+              _throw_assert_failed(expr, arg_expr, msg_expr_opt, env, ctx, exn);
             });
           },
           .None => {}
@@ -154,43 +224,7 @@ evaluate_comptime_assert :: (
     out_info.value = .Some(EvalValue.UnitVal);
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   }, {
-    // Assertion failed — check for message argument.
-    err_msg := match(
-      msg_expr_opt,
-      .Some(msg_expr) => {
-        eval_msg := evaluate_expression(msg_expr, env, ctx);
-        msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
-        match(
-          msg_info_opt,
-          .Some(mi) => match(
-            mi.value,
-            .Some(mv) => match(
-              mv,
-              .StrLit(raw) => {
-                rn := raw.len();
-                raw.substring(usize(1), rn - usize(1))
-              },
-              _ => value_to_string(mv)
-            ),
-            .None => String.from("")
-          ),
-          .None => String.from("")
-        )
-      },
-      .None => String.from("")
-    );
-    if(err_msg.len() > usize(0), {
-      exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg)));
-    }, {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            `Assertion failed for "comptime_assert":\n${ast_expr_to_string(arg_expr)}`
-          )
-        )
-      );
-    });
+    _throw_assert_failed(expr, arg_expr, msg_expr_opt, env, ctx, exn);
   });
   expr
 });
