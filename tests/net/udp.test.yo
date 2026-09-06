@@ -161,3 +161,55 @@ test("UDP bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::
   io.await(sock.close(io), IoExn(io : io, exn : exn));
   assert(false, "UDP bind to non-local 2001:db8::1 must fail — the sockaddr was hardcoded to ::1");
 });
+// `bind` used to ECHO its argument as `_local_addr`, so a port-0 (ephemeral)
+// bind — the only reason to bind port 0 — reported port 0 forever. TCP got this
+// fix as C2 (getsockname readback); UDP was left out.
+// issues/fixed/udpsocket-bind-echoes-its-argument-and-send-has-no-connect.md
+test("UdpSocket.bind to port 0 reports the kernel-assigned port", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  la := sock.local_addr();
+  assert(la.port != u16(0), "an ephemeral bind must report the real port");
+  assert(la.ip.is_loopback(), "and the real address");
+  io.await(sock.close(io), IoExn(io : io, exn : exn));
+});
+// `send`/`recv` documented "requires prior connect" — and no `connect` existed,
+// so they could only ever fail with ENOTCONN.
+test("UdpSocket.connect makes send and recv usable", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  server := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  client := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  io.await(client.connect(server.local_addr(), io), IoExn(io : io, exn : exn));
+  io.await(server.connect(client.local_addr(), io), IoExn(io : io, exn : exn));
+  msg := ArrayList(u8).new();
+  msg.push(u8(104));
+  msg.push(u8(105));
+  sent := io.await(client.send(msg, io), IoExn(io : io, exn : exn));
+  assert(sent == usize(2), "send on a connected socket sends the datagram");
+  buf := *(u8)(malloc(usize(16)).unwrap());
+  got := io.await(server.recv(buf, usize(16), io), IoExn(io : io, exn : exn));
+  assert(got == usize(2), "recv on the connected peer gets it");
+  assert(((buf.add(usize(0))).* == u8(104)) && ((buf.add(usize(1))).* == u8(105)), "payload intact");
+  reply := ArrayList(u8).new();
+  reply.push(u8(33));
+  _r := io.await(server.send(reply, io), IoExn(io : io, exn : exn));
+  got2 := io.await(client.recv(buf, usize(16), io), IoExn(io : io, exn : exn));
+  assert((got2 == usize(1)) && ((buf.add(usize(0))).* == u8(33)), "the reply comes back over the connected pair");
+  free(.Some(*(void)(buf)));
+  io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});

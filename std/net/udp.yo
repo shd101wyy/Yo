@@ -26,6 +26,8 @@ open(import("../fmt"));
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_udp :: import("../sys/udp");
 IO_tcp :: import("../sys/tcp");
+SockInfo :: import("../sys/sockinfo");
+{ sockaddr_to_socket_addr } :: import("./tcp");
 { AF_INET, AF_INET6, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST } :: import("../sys/socket");
 { snprintf } :: import("../libc/stdio");
 // ============================================================================
@@ -84,9 +86,42 @@ impl(
         },
         true => ()
       );
-      return(UdpSocket(_fd : fd, _local_addr : addr, _is_closed : false));
+      // Read back the ACTUAL bound address — a port-0 bind gets its port from
+      // the kernel; echoing the bind argument reported port 0 forever. Same
+      // fix as TcpListener.bind (C2), which UDP never received
+      // (issues/fixed/udpsocket-bind-echoes-its-argument-and-send-has-no-connect.md).
+      la_buf := *(u8)(malloc(usize(128)).unwrap());
+      la_len := *(u32)(malloc(usize(4)).unwrap());
+      la_len.* = u32(128);
+      gsn := SockInfo.getsockname(fd, la_buf, la_len);
+      local := cond(
+        (gsn == i32(0)) => sockaddr_to_socket_addr(la_buf),
+        true => addr
+      );
+      free(.Some(*(void)(la_buf)));
+      free(.Some(*(void)(la_len)));
+      return(UdpSocket(_fd : fd, _local_addr : local, _is_closed : false));
     })
   ),
+  /// Set the default destination for `send` and filter `recv` to datagrams
+  /// from `addr` — `connect(2)` on a UDP socket. Rust: `UdpSocket::connect`.
+  /// `send`/`recv` documented "requires prior connect" for as long as they
+  /// existed while no `connect` did, so they could only fail with ENOTCONN.
+  connect : (fn(self : Self, addr : SocketAddr, io : Io) -> Impl(Future(unit, IoExn)))({
+    fd := self._fd;
+    io.async(e => {
+      saddr := _make_sockaddr(addr);
+      r := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
+      IO_tcp.free_sockaddr(saddr);
+      cond(
+        (r < i32(0)) => {
+          _throw_net_io(i32(0) - r, e.exn);
+        },
+        true => ()
+      );
+      return(());
+    })
+  }),
   /// Send a datagram to a specific address.
   /// Returns the number of bytes sent.
   send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))({
@@ -116,7 +151,7 @@ impl(
       usize(NetError.check(r, e.exn))
     })
   }),
-  /// Send data on a connected socket (requires prior connect).
+  /// Send data to the peer set by `connect`. Returns the number of bytes sent.
   send : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
