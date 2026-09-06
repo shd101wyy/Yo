@@ -97,6 +97,19 @@ deleted. Note the API shape changed with the move: the fd reader returned
 consumers shed their `.Ok/.Err` arms — and `BufWriter(W)` regained
 `write_string`/`write_bytes`, which only the deleted fd writer had.
 
+## Seed-gated follow-up (2026-09-05): forward references in `std/`/`src/` — P5 of LAZY_TOPLEVEL_BINDINGS
+
+Order-independent `::` definitions and `impl` registrations landed in develop on
+2026-09-05 (#427 P1/P2, #435 P3). `std/` and `src/` may use them only once a
+release carrying those PRs is `SEED_VERSION` — a pre-feature seed fails the build
+with `Variable "X" not found` / `forward reference to "X"`. The P5 PR
+(`feat/lazy-bindings-p5-lift-seed-gate`) lifts the rule text and makes the first
+two uses in `src/` (`module_manager.yo`'s demand-loader slot and
+`evaluator/types/synthesizer.yo`'s global function pointer become direct
+references); it is verified locally with a stage-1 built by a feature-carrying
+compiler + `fixpoint_only.sh`, and merges after the bump. **Verify the gate the
+usual way before merging**: `yo build` the tree with the actual seed bundle.
+
 ## Seed-gated follow-up (2026-08-27): `Command.current_dir`
 
 **Generation A DONE 2026-08-28:** the runtime emits

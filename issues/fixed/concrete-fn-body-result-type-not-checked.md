@@ -1,7 +1,7 @@
 # A concrete function body is never checked against its declared result type
 
 **Status: FIXED (2026-09-05, the lazy-top-level-bindings PR).** Surfaced twice while
-probing plans/LAZY_TOPLEVEL_BINDINGS.md: first as a body written `({ cond(...); })`
+probing plans/reference/LAZY_TOPLEVEL_BINDINGS.md: first as a body written `({ cond(...); })`
 that emitted a C function with no `return`, then as a forced definition with a
 `String` body and an `i32` result that `check` accepted.
 

@@ -28,8 +28,6 @@ Active work (root):
   [`STD_API_AUDIT_HANDOVER.md`](STD_API_AUDIT_HANDOVER.md) (method notes).
 - [`HANDOVER_2026_08_28.md`](HANDOVER_2026_08_28.md) — the live handover for
   that campaign.
-- [`LAZY_TOPLEVEL_BINDINGS.md`](LAZY_TOPLEVEL_BINDINGS.md) — P0–P4 LANDED 2026-09-05 (order-independent `::` definitions and `impl` registration; impl-block shells retired); P5 (seed bump) remains
-  2026-09-02: order-independent `::` definitions via pending bindings.
 - [`THREAD_SAFETY.md`](THREAD_SAFETY.md) — 13 of 14 phases landed; Phase P
   (field visibility) is still open.
 - [`FUNCVAL_ENV_SHARING.md`](FUNCVAL_ENV_SHARING.md) — capture-rebuild env
@@ -57,6 +55,8 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 [`reference/MACRO_POLICY.md`](reference/MACRO_POLICY.md),
 [`reference/TARGET_TRIPLES.md`](reference/TARGET_TRIPLES.md),
 [`reference/FUNCTION_OVERLOADING_POLICY.md`](reference/FUNCTION_OVERLOADING_POLICY.md),
+[`reference/LAZY_TOPLEVEL_BINDINGS.md`](reference/LAZY_TOPLEVEL_BINDINGS.md)
+(order-independent definitions, LANDED 2026-09-05),
 [`reference/OPERATOR_SET_AND_PRECEDENCE.md`](reference/OPERATOR_SET_AND_PRECEDENCE.md),
 [`reference/WINDOWS_ALLOCATOR_DECISION.md`](reference/WINDOWS_ALLOCATOR_DECISION.md),
 ….

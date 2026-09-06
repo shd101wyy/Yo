@@ -220,12 +220,12 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "找不到名称",
       "No binding with this name is visible at this point.",
       "此处没有可见的同名绑定。",
-      "Check the spelling first. Then check ORDER: module-level definitions are processed top-to-bottom, so a function must be defined BEFORE its callers (helpers first, callers last). An identifier from another module needs the module imported, and a type from it is reached through the module value.",
-      "先检查拼写。再检查顺序：模块级定义自上而下处理，函数必须定义在调用者之前（先辅助函数，后调用者）。来自其他模块的标识符需要先 import，并通过模块值访问。",
+      "Check the spelling first. Module-level `::` definitions and `impl` registrations are order-independent, so a helper defined below its caller is fine — but imports, `open(import(...))`, pragmas and runtime bindings (`x := v`) are evaluated in order and must come before their first use. An identifier from another module needs the module imported, and a type from it is reached through the module value.",
+      "先检查拼写。模块级 `::` 定义与 `impl` 注册与顺序无关，辅助函数定义在调用者之后也没问题；但 import、`open(import(...))`、pragma 和运行时绑定（`x := v`）按顺序求值，必须出现在首次使用之前。来自其他模块的标识符需要先 import，并通过模块值访问。",
+      "main :: (fn() -> unit)({\n  helpr();\n});\nhelper :: (fn() -> unit)(());\n",
       "main :: (fn() -> unit)({\n  helper();\n});\nhelper :: (fn() -> unit)(());\n",
-      "helper :: (fn() -> unit)(());\nmain :: (fn() -> unit)({\n  helper();\n});\n",
-      "`helper` is defined after its caller — move it above.",
-      "`helper` 定义在调用者之后 —— 把它移到前面。"
+      "`helpr` is a typo — the binding is `helper` (its position below the caller is fine).",
+      "`helpr` 是拼写错误 —— 绑定名是 `helper`（它定义在调用者之后没有问题）。"
     )
   );
   out.push(
@@ -443,14 +443,14 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       E_FORWARD_REFERENCE,
       "forward reference",
       "前向引用",
-      "A definition is used before it appears in the module.",
-      "定义在模块中出现之前就被使用了。",
-      "Module-level definitions evaluate in order, so a `::` binding or impl must precede its uses. Either move the definition up, or — for mutual structure — restructure so the dependency points one way. (The lazy-toplevel plan will lift this; until then, order is the rule.)",
-      "模块级定义按顺序求值，因此 `::` 绑定或 impl 必须先于其使用。要么把定义上移，要么重构让依赖单向。（lazy-toplevel 计划会解除此限制；在那之前，顺序就是规则。）",
-      "a :: b;\nb :: 1;",
-      "b :: 1;\na :: b;",
-      "Swap the order so the definition comes first.",
-      "交换顺序，让定义在前。"
+      "An ordered statement's binding — an import, `open(import(...))`, a pragma, or a module-level runtime binding — is used before the statement that binds it.",
+      "某个有序语句的绑定（import、`open(import(...))`、pragma 或模块级运行时绑定）在绑定它的语句之前就被使用了。",
+      "Module-level `::` definitions and `impl` registrations are order-independent, but imports, opens, pragmas and runtime bindings (`x := v`, `(g : T) = v`) are evaluated in source order, and a definition forced early sees only the statements before the reference that forced it. Move the statement above the definition that uses it — keep imports and opens at the top of the file.",
+      "模块级 `::` 定义与 `impl` 注册与顺序无关，但 import、open、pragma 和运行时绑定（`x := v`、`(g : T) = v`）按源码顺序求值，而被提前强制求值的定义只能看到触发它的引用之前的语句。把该语句移到使用它的定义之前 —— import 和 open 放在文件顶部。",
+      "total :: (fn() -> i32)(base + i32(1));\nbase := i32(1);",
+      "base := i32(1);\ntotal :: (fn() -> i32)(base + i32(1));",
+      "`base` is a runtime binding — it must come before the definition that reads it.",
+      "`base` 是运行时绑定 —— 必须出现在读取它的定义之前。"
     )
   );
   out.push(

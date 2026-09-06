@@ -139,4 +139,4 @@ Ranked by value/effort. Items 1 and 6 have landed.
   at tag `src-attic-final`).
 - The forward-reference limitation this port hit (a module-level `::`
   binding cannot reference itself, forcing the iterative copy walk) is
-  exactly what `plans/LAZY_TOPLEVEL_BINDINGS.md` proposes to lift.
+  exactly what `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` proposes to lift.
