@@ -25,7 +25,8 @@
 //! assert((v.len() == usize(3)), "length is 3");
 //! ```
 pragma(Pragma.AllowUnsafe);
-{ GlobalAllocator } :: import("../allocator.yo");
+{ GlobalAllocator, size_would_overflow } :: import("../allocator.yo");
+{ memcpy } :: import("../libc/string.yo");
 { ArrayList } :: import("../collections/array_list.yo");
 { assert } :: import("../assert");
 { malloc, free } :: GlobalAllocator;
@@ -76,6 +77,11 @@ impl(
       (cap > usize(0)) => cap,
       true => usize(1)
     );
+    // `sizeof(T) * cap` wraps in usize — the C35 guard every other collection
+    // carries (issues/fixed/collection-capacity-overflow-unchecked.md).
+    if(size_would_overflow(T, alloc_cap), {
+      __yo_panic("imm.Vec: capacity overflow");
+    });
     sz := (sizeof(T) * alloc_cap);
     match(
       malloc(sz),
@@ -96,6 +102,18 @@ impl(
     i := usize(0);
     while(i < count, i = (i + usize(1)), {
       consume((dst.add(dst_offset + i)).* = (src.add(src_offset + i)).*);
+    });
+  }),
+  /// MOVE `count` elements from `src` into the fresh buffer `dst` as raw bytes:
+  /// ownership of every reference transfers with the bytes, so nothing is
+  /// dup'd and nothing needs dropping — the old buffer is then just freed.
+  /// This is the unique-owner grow path; `_copy_elems` (dup per element) is
+  /// for a buffer the source keeps sharing. Copying with `_copy_elems` and then
+  /// freeing the old buffer leaked one reference per element per grow
+  /// (issues/fixed/imm-vec-leaks-on-grow-and-drops-uninitialized-memory.md).
+  _move_elems : (fn(dst : *T, src : *T, count : usize) -> unit)({
+    if(count > usize(0), {
+      _ := unsafe(memcpy((*void)(dst), (*void)(src), count * sizeof(T)));
     });
   }),
   /// Create a new empty vector.
@@ -142,9 +160,7 @@ impl(
       if(self._len >= self._cap, {
         new_cap := (self._cap * usize(2));
         new_ptr := Self._raw_alloc(new_cap);
-        if(self._len > usize(0), {
-          Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
-        });
+        Self._move_elems(new_ptr, self._ptr, self._len);
         free(.Some(*(void)(self._ptr)));
         self._ptr = new_ptr;
         self._cap = new_cap;
@@ -189,6 +205,9 @@ impl(
     val := (self._ptr.add(self._len - usize(1))).*;
     new_len := (self._len - usize(1));
     if(rc(self) == usize(1), {
+      // `val` holds its own reference; the slot's reference must be released
+      // here — shrinking `_len` alone moves it outside `Dispose`'s loop.
+      unsafe.drop((self._ptr.add(new_len)).*);
       self._len = new_len;
       return(PopResult(T)(vec : self, value : .Some(val)));
     });
@@ -234,9 +253,7 @@ impl(
         true => (self._cap * usize(2))
       );
       new_ptr := Self._raw_alloc(new_cap);
-      if(self._len > usize(0), {
-        Self._copy_elems(new_ptr, self._ptr, usize(0), usize(0), self._len);
-      });
+      Self._move_elems(new_ptr, self._ptr, self._len);
       if(other._len > usize(0), {
         Self._copy_elems(new_ptr, other._ptr, self._len, usize(0), other._len);
       });
@@ -269,16 +286,20 @@ impl(
         left = (left + usize(1));
         right = (right - usize(1));
       }, {
+        // A swap of two LIVE slots: a plain store drops the value it overwrites
+        // and dups the one it stores, so the three stores balance. `consume`
+        // (initialize, no drop) is for FRESH memory only — used here it leaked
+        // one reference of each swapped element.
         tmp := (self._ptr.add(left)).*;
-        consume((self._ptr.add(left)).* = (self._ptr.add(right)).*);
-        consume((self._ptr.add(right)).* = tmp);
+        (self._ptr.add(left)).* = (self._ptr.add(right)).*;
+        (self._ptr.add(right)).* = tmp;
       });
       return(self);
     });
     new_ptr := Self._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      (new_ptr.add(i)).* = (self._ptr.add(self._len - usize(1) - i)).*;
+      consume((new_ptr.add(i)).* = (self._ptr.add(self._len - usize(1) - i)).*);
     });
     result := Self(_ptr : new_ptr, _len : self._len, _cap : self._len);
     unsafe.drop(self);
@@ -289,7 +310,7 @@ impl(
     new_ptr := Vec(U)._raw_alloc(self._len);
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
-      (new_ptr.add(i)).* = f((self._ptr.add(i)).*);
+      consume((new_ptr.add(i)).* = f((self._ptr.add(i)).*));
     });
     Vec(U)(_ptr : new_ptr, _len : self._len, _cap : self._len)
   }),
@@ -301,7 +322,7 @@ impl(
     while(i < self._len, i = (i + usize(1)), {
       elem := (self._ptr.add(i)).*;
       if(f(elem), {
-        (new_ptr.add(count)).* = elem;
+        consume((new_ptr.add(count)).* = elem);
         count = (count + usize(1));
       });
     });
@@ -405,7 +426,7 @@ impl(
         });
       });
       if(!found, {
-        (new_ptr.add(count)).* = elem;
+        consume((new_ptr.add(count)).* = elem);
         count = (count + usize(1));
       });
     });
@@ -422,7 +443,7 @@ impl(
     new_ptr := Vec(V)._raw_alloc(min_len);
     i := usize(0);
     while(i < min_len, i = (i + usize(1)), {
-      (new_ptr.add(i)).* = f((self._ptr.add(i)).*, other(i));
+      consume((new_ptr.add(i)).* = f((self._ptr.add(i)).*, other(i)));
     });
     Vec(V)(_ptr : new_ptr, _len : min_len, _cap : min_len)
   }),
