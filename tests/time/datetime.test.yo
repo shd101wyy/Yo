@@ -5,7 +5,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { DateTime, DateTimeError } :: import("std/time/datetime");
 { env } :: import("std/env");
-{ platform, Platform } :: import("std/process");
+{ platform, Platform, arch, Arch } :: import("std/process");
 { Duration } :: import("std/time/duration");
 // ============================================================================
 // DateTime tests
@@ -255,6 +255,8 @@ test("DateTime.now honours TZ: Asia/Tokyo is +09:00", {
   cond(
     (platform == Platform.Windows) => (),
     // MSVC's TZ syntax differs ("JST-9"); the consistency test below covers Windows
+    (arch == Arch.Wasm32) => (),
+    // wasi-libc / emscripten ship no zone database: the offset is 0 there by design
     true => {
       env.set("TZ", "Asia/Tokyo");
       local := DateTime.now();
