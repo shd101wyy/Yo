@@ -1143,23 +1143,30 @@ impl(
     );
   }),
   /// Keep only the elements `pred` accepts, in place and in order; the
-  /// rejected elements are dropped. Built on `remove` (backward walk), whose
-  /// RC handling is the module's proven path — the first cut compacted
-  /// through raw pointers and double-released RC elements (the Linux-ASan
-  /// heap-use-after-free on PR #313's first run; local ASan is
-  /// non-functional, so CI was the first to see it).
+  /// rejected elements are dropped. One pass: the survivors are collected
+  /// into a fresh list, `clear` releases every original, `extend` moves the
+  /// survivors back — O(n) with a single allocation, and every RC step is one
+  /// of the module's proven public operations (push / clear / extend). The
+  /// first cut compacted through raw pointers and double-released RC elements
+  /// (the Linux-ASan heap-use-after-free on PR #313's first run; local ASan is
+  /// non-functional, so CI was the first to see it); the second walked
+  /// backwards over `drain`, which was O(n²) with an allocation per rejection
+  /// (issues/fixed/array-list-retain-is-quadratic.md).
   retain : (fn(self : Self, pred : Impl(Fn(v : T) -> bool)) -> unit)({
-    (i : usize) = self.len();
-    while(i > usize(0), {
-      i = (i - usize(1));
+    n := self._length;
+    kept := Self.with_capacity(n);
+    (i : usize) = usize(0);
+    while(i < n, i = (i + usize(1)), {
       v := self(i);
       cond(
-        pred(v) => (),
-        true => {
-          _r := self.drain(i .. (i + usize(1)));
-        }
+        pred(v) => {
+          kept.push(v);
+        },
+        true => ()
       );
     });
+    self.clear();
+    self.extend(kept);
   }),
   /// Append a copy of every element of `other`.
   extend : (fn(self : Self, other : ArrayList(T)) -> unit)({

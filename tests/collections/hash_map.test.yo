@@ -617,3 +617,42 @@ test("update_with maps present values only", {
   assert(!did2, "absent is a no-op");
   assert(m.len() == usize(1), "no phantom insert");
 });
+// ===== Tombstone reclamation =====
+// issues/fixed/hash-tombstones-are-never-reclaimed.md: `remove` wrote
+// CTRL_DELETED and nothing ever counted it, so insert/remove churn filled the
+// table with tombstones until every miss probed the whole capacity.
+test("HashMap.remove of an isolated key leaves no tombstone", {
+  map := HashMap(i32, i32).new();
+  map.insert(i32(7), i32(1));
+  map.remove(i32(7));
+  assert(map.tombstones == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
+  assert(map.len() == usize(0));
+});
+test("HashMap insert/remove churn keeps live + tombstones under the load threshold and stays correct", {
+  map := HashMap(i32, i32).new();
+  (k : i32) = i32(0);
+  while(k < i32(2000), k = (k + i32(1)), {
+    map.insert(k, k * i32(3));
+  });
+  cap0 := map.capacity;
+  // Retire the oldest key and admit a new one, 20,000 times over 2,000 live entries.
+  (n : i32) = i32(0);
+  while(n < i32(20000), n = (n + i32(1)), {
+    removed := map.remove(n);
+    assert(removed.is_some(), "the oldest key is present");
+    assert(removed.unwrap() == (n * i32(3)), "with its value");
+    map.insert(i32(2000) + n, (i32(2000) + n) * i32(3));
+    threshold := ((map.capacity * usize(7)) / usize(8));
+    assert((map.len() + map.tombstones) <= threshold, "live + tombstones never exceeds the load threshold");
+  });
+  assert(map.len() == usize(2000), "size is unchanged by churn");
+  assert(map.capacity == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
+  (c : i32) = i32(20000);
+  while(c < i32(22000), c = (c + i32(1)), {
+    assert(map.get(c).unwrap() == (c * i32(3)), "every live key is reachable with its value");
+  });
+  (r : i32) = i32(0);
+  while(r < i32(20000), r = (r + i32(1)), {
+    assert(map.get(r).is_none(), "every retired key is gone");
+  });
+});

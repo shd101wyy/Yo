@@ -604,3 +604,37 @@ test("HashSet iter - yields pointers to elements", {
   });
   assert(sum == i32(30));
 });
+// ===== Tombstone reclamation =====
+// issues/fixed/hash-tombstones-are-never-reclaimed.md — see the HashMap tests.
+test("HashSet.remove of an isolated element leaves no tombstone", {
+  set := HashSet(i32).new();
+  set.insert(i32(7));
+  set.remove(i32(7));
+  assert(set.tombstones == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
+  assert(set.len() == usize(0));
+});
+test("HashSet insert/remove churn keeps live + tombstones under the load threshold and stays correct", {
+  set := HashSet(i32).new();
+  (k : i32) = i32(0);
+  while(k < i32(2000), k = (k + i32(1)), {
+    set.insert(k);
+  });
+  cap0 := set.capacity;
+  (n : i32) = i32(0);
+  while(n < i32(20000), n = (n + i32(1)), {
+    assert(set.remove(n), "the oldest element is present");
+    set.insert(i32(2000) + n);
+    threshold := ((set.capacity * usize(7)) / usize(8));
+    assert((set.len() + set.tombstones) <= threshold, "live + tombstones never exceeds the load threshold");
+  });
+  assert(set.len() == usize(2000), "size is unchanged by churn");
+  assert(set.capacity == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
+  (c : i32) = i32(20000);
+  while(c < i32(22000), c = (c + i32(1)), {
+    assert(set.contains(c), "every live element is reachable");
+  });
+  (r : i32) = i32(0);
+  while(r < i32(20000), r = (r + i32(1)), {
+    assert(!set.contains(r), "every retired element is gone");
+  });
+});

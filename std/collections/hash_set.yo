@@ -51,6 +51,13 @@ HashSet :: (
       data : ?(*(T)),
       capacity : usize,
       size : usize,
+      /// Slots holding `CTRL_DELETED`. A tombstone keeps probe chains intact
+      /// but is never `EMPTY`, so it costs exactly what a live entry costs on
+      /// every miss; `_needs_resize` therefore counts `size + tombstones`, and
+      /// a table that is mostly tombstones is rehashed IN PLACE instead of
+      /// doubled (hashbrown's rule). Before this, insert/remove churn drove
+      /// every probe to O(capacity) — issues/fixed/hash-tombstones-are-never-reclaimed.md.
+      tombstones : usize,
       /// SipHash-1-3 keys (`std/hash`); see HashMap.
       k0 : u64,
       k1 : u64
@@ -100,6 +107,7 @@ impl(
                 data : .Some(data_ptr),
                 capacity : capacity,
                 size : usize(0),
+                tombstones : usize(0),
                 k0 : DEFAULT_KEY_0,
                 k1 : DEFAULT_KEY_1
               )
@@ -245,7 +253,7 @@ impl(
   */
   _needs_resize : (fn(self : Self) -> bool)({
     threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
-    self.size >= threshold
+    (self.size + self.tombstones) >= threshold
   }),
   /**
   * Resize and rehash the HashSet to a new capacity
@@ -309,6 +317,7 @@ impl(
         self.ctrl = new_set.ctrl;
         self.data = new_set.data;
         self.capacity = new_set.capacity;
+        self.tombstones = usize(0);
         new_set.ctrl = .None;
         new_set.data = .None;
         .Ok(())
@@ -328,7 +337,13 @@ impl(
       .None => {
         resize_check := cond(
           (Self._needs_resize(self)) => {
-            new_capacity := (self.capacity * usize(2));
+            // Over the load threshold because of tombstones rather than live
+            // entries: rehash at the SAME capacity, which clears every
+            // tombstone; only a genuinely full table doubles.
+            new_capacity := cond(
+              (((self.size + usize(1)) * usize(2)) <= self.capacity) => self.capacity,
+              true => (self.capacity * usize(2))
+            );
             Self._resize(self, new_capacity)
           },
           true => Result(unit, HashSetError).Ok(())
@@ -341,6 +356,12 @@ impl(
             index := Self._find_insert_slot(self, hash);
             ctrl_ptr := Self._ctrl_ptr(self);
             data_ptr := Self._data_ptr(self);
+            cond(
+              ((ctrl_ptr.add(index)).* == CTRL_DELETED) => {
+                self.tombstones = (self.tombstones - usize(1));
+              },
+              true => ()
+            );
             (ctrl_ptr.add(index)).* = h2;
             consume((data_ptr.add(index)).* = element);
             self.size = (self.size + usize(1));
@@ -382,7 +403,18 @@ impl(
           true => ()
         );
         ctrl_ptr := Self._ctrl_ptr(self);
-        (ctrl_ptr.add(index)).* = CTRL_DELETED;
+        // See HashMap.remove: a slot whose successor is EMPTY ends every probe
+        // chain that reaches it, so it goes back to EMPTY; otherwise it stays
+        // a tombstone (a later element may have probed past it).
+        cond(
+          ((ctrl_ptr.add((index + usize(1)) % self.capacity)).* == CTRL_EMPTY) => {
+            (ctrl_ptr.add(index)).* = CTRL_EMPTY;
+          },
+          true => {
+            (ctrl_ptr.add(index)).* = CTRL_DELETED;
+            self.tombstones = (self.tombstones + usize(1));
+          }
+        );
         self.size = (self.size - usize(1));
         true
       },
@@ -431,6 +463,7 @@ impl(
       (ctrl_ptr.add(i)).* = CTRL_EMPTY;
     });
     self.size = usize(0);
+    self.tombstones = usize(0);
   }),
   /**
   * Check if this set is a subset of another set
