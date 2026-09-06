@@ -192,3 +192,40 @@ a synchronous `AcceptEx` return is finished inline. The blocking `accept()`
 remains only as the fallback when the extension cannot be fetched.
 `connect_start` is still the blocking `connect()` — harmless for loopback
 (completes immediately) but the same class; `ConnectEx` is the follow-up.
+
+### Round 3 (2026-09-06 19:00 CST) — the AcceptEx path broke AF_UNIX accept
+
+The overlapped `AcceptEx` fix **cured the hang**: both Windows legs now finish
+in ~20 minutes and fail as ordinary test failures instead of running to the
+4-hour job deadline. What they fail on is one test:
+
+```
+  ✗ bind, connect, accept, echo round-trip      (tests/net/unix.test.yo)
+yo: error: 1 test(s) failed
+```
+
+Unix-domain, not TCP. `AcceptEx` and `GetAcceptExSockaddrs` are
+AF_INET/AF_INET6 Winsock extensions; Windows' AF_UNIX implements neither. Two
+things went wrong at once:
+
+1. The accept socket was created as
+   `WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, …)` — the family was read
+   from the listener, but the protocol was hardcoded to `IPPROTO_TCP`, which
+   is not valid for `AF_UNIX` (it wants `0`).
+2. The "extension unavailable → blocking accept" fallback never fired for an
+   AF_UNIX listener. `__yo_win_load_acceptex` caches the two pointers in
+   `__declspec(thread)` statics **and early-returns once they are set**. All
+   I/O runs on the one event-loop thread, so the first TCP accept in the
+   process loads them; every later accept — AF_UNIX included — then sees a
+   non-NULL `__yo_win_acceptex` and takes the overlapped path. The probe
+   never runs against the Unix socket at all.
+
+**Fix:** read the listener's family with `getsockname` FIRST and gate the
+whole overlapped path on `family == AF_INET || family == AF_INET6`; AF_UNIX
+keeps the historical blocking `accept()`. The family test cannot be delegated
+to the pointer load, precisely because of the thread-local cache above.
+
+That leaves AF_UNIX accept blocking the loop the way it always has — a
+pre-existing limitation, not a regression, and one no current test provokes
+(the Unix tests connect before they accept). `ConnectEx` for
+`__yo_async_connect_start` remains the other follow-up in this class.

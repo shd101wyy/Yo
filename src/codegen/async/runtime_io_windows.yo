@@ -3273,15 +3273,30 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
   // a client on the same loop connects (the whole loop, client included, sat
   // in accept() forever: the D6 Windows hang,
   // issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
-  __yo_win_load_acceptex(ls);
-  if (__yo_win_acceptex) {
+  //
+  // AcceptEx is an AF_INET/AF_INET6 extension. Windows' AF_UNIX implements
+  // neither AcceptEx nor GetAcceptExSockaddrs, so a Unix-domain listener must
+  // keep the blocking accept() below. The family test CANNOT be left to
+  // __yo_win_load_acceptex failing on the socket: the extension pointers are
+  // cached in THREAD-LOCAL statics with an early return, and every socket on
+  // this event loop shares that thread — so one earlier TCP accept leaves
+  // __yo_win_acceptex non-NULL, and an AF_UNIX listener would then sail past
+  // the "extension unavailable" fallback into a path its socket cannot serve.
+  // Decide by the LISTENER'S FAMILY, before the pointer is consulted.
+  // (tests/net/unix.test.yo "bind, connect, accept, echo round-trip".)
+  struct sockaddr_storage local_name;
+  int local_name_len = (int)sizeof(local_name);
+  int family = AF_INET;
+  if (getsockname(ls, (struct sockaddr*)&local_name, &local_name_len) == 0) {
+    family = local_name.ss_family;
+  }
+  bool acceptex_family = (family == AF_INET || family == AF_INET6);
+  if (acceptex_family) {
+    __yo_win_load_acceptex(ls);
+  }
+  if (acceptex_family && __yo_win_acceptex) {
     // The accept socket must exist before the call, with the listener's family.
-    struct sockaddr_storage local_name;
-    int local_name_len = (int)sizeof(local_name);
-    int family = AF_INET;
-    if (getsockname(ls, (struct sockaddr*)&local_name, &local_name_len) == 0) {
-      family = local_name.ss_family;
-    }
+    // IPPROTO_TCP is correct for exactly the two families gated above.
     SOCKET as = WSASocketW(family, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
     if (as == INVALID_SOCKET) {
       future->result = -(int32_t)WSAGetLastError();
@@ -3322,7 +3337,7 @@ static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uin
     __yo_win_free_overlapped(ov);
     return future;
   }
-  // Extension unavailable: the historical blocking accept.
+  // AF_UNIX, or the extension is unavailable: the historical blocking accept.
   int len = (int)(*addrlen);
   SOCKET result = accept(ls, (struct sockaddr*)addr, &len);
   if (result == INVALID_SOCKET) {
