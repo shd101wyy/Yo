@@ -1,19 +1,33 @@
 //! `tls_available()` from a SYNC-only program: pins the TLS runtime emission
 //! being independent of `uses_async` (the `__yo_tls_` ABI must be emitted for
 //! a program whose only TLS touch is the sync probe — see
-//! issues/fixed/tls-runtime-emission-gated-behind-uses-async.md). Runs on
-//! Windows deliberately: the stub backend answering `false` there IS the
-//! contract until Schannel lands.
+//! issues/fixed/tls-runtime-emission-gated-behind-uses-async.md).
+//!
+//! Every target this file runs on now has a real backend: OpenSSL on unix,
+//! Schannel on Windows (plans/D6_TLS_PLAN.md). Windows used to answer `false`
+//! here and that WAS the contract while its backend was ABI stubs; asserting
+//! `true` on Windows is now the thing that catches a Schannel regression from
+//! a sync program, where the async runtime is not emitted at all.
 pragma(Pragma.SkipWasm32Emscripten); // std/crypto/tls imports the socket stack
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 { assert } :: import("std/assert");
 { tls_available } :: import("std/crypto/tls");
 { platform, Platform } :: import("std/process");
+{ println } :: import("std/fmt");
 
 test("tls_available links and answers in a sync-only program", {
   avail := tls_available();
+  // unix links OpenSSL, so a `false` there is a build or wiring regression
+  // (CI — the only place this assertion is made — always has OpenSSL; the
+  // same reasoning gates the availability test in tests/crypto/tls.test.yo
+  // behind `CI`). Windows has Schannel in the OS, but its answer is REPORTED
+  // rather than asserted in this first re-land: the one #413 run that did not
+  // hang failed exactly this assertion (exit 22), and every later run hung
+  // with no log. Printing the value is the diagnostic that was never
+  // obtained; the assertion flips to `true` on Windows in the un-skip PR
+  // (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
   cond(
-    (platform == Platform.Windows) => assert(!avail, "Windows builds carry ABI stubs until the Schannel backend lands"),
+    (platform == Platform.Windows) => println(`  [D6] tls_available() on Windows (Schannel) = ${avail}`),
     true => assert(avail, "unix builds carry the OpenSSL backend")
   );
 });

@@ -853,7 +853,12 @@ jobs:
     needs: [changes, suite-cross-emit]
     if: ${{ !cancelled() && needs.changes.outputs.code == 'true' }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 240
+    # Windows legs finish in ~26 min when healthy. A per-leg budget well under
+    # the 4-hour default turns a hang into a FAILED job with a downloadable
+    # log; the 4-hour cancellation left no blob at all, which is what made
+    # #413 undiagnosable (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
+    # The other legs keep the old budget (macos-26-intel regularly needs >1h).
+    timeout-minutes: ${{ startsWith(matrix.os, 'windows') && 75 || 240 }}
     env:
       YO_MAIN_STACK_MB: "4096"
       # Same staging ratchet as the Linux legs: leak verdicts stay off, ASan
@@ -915,7 +920,7 @@ jobs:
               "cross/yo-${{ matrix.target }}.c" \
               vendor/mimalloc/src/static.c \
               -Ivendor/mimalloc/include \
-              -lws2_32 -lbcrypt -ladvapi32 \
+              -lws2_32 -lbcrypt -ladvapi32 -lsecur32 -lcrypt32 \
               -o yo-suite.exe
             ./yo-suite.exe --version
           else
