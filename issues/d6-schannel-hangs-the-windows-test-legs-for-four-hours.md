@@ -90,3 +90,33 @@ hoping.
 A release/merge gate must reject `cancelled` required checks. The failure here
 was not the Schannel code — it was that a 4-hour hang was indistinguishable
 from a pass at the point of decision.
+
+## Step-2 findings (2026-09-06, PR #443 with `timeout-minutes: 75` on the Windows legs)
+
+With the pragmas off and a 75-minute deadline, both Windows legs produced logs.
+They say something the four-hour blobs could not:
+
+- **The Schannel handshake is NOT the hang.** `fetch over https returns a real
+  response` — a live TLS fetch to a real host — **passes** on both
+  `windows-latest` and `windows-11-arm`. It is the last test to complete.
+- **The hang is `fetch follows redirects, resolving relative and absolute-path
+  Locations`** (`tests/http/http.test.yo`), a pure-loopback test: a spawned
+  server task accepts THREE sequential connections on one listener, answering
+  302 / 302 / 200, while the client reconnects after each response closes.
+- **Plain loopback TCP passes on Windows** — `TCP connect to listener and
+  accept`, the echo test and `read_to_end` all completed in the same run — but
+  every one of those accepts exactly ONCE per listener.
+
+So the suspect is the Windows async backend's handling of a *repeated* accept
+(re-arming `AcceptEx` on a listener after a previous completion) or of a client
+reconnect after the server closed the previous connection — the first shapes
+the Windows legs have ever run, since the http suites were always skipped there.
+
+PR #443 now carries two cross-platform bisecting probes in
+`tests/net/tcp.test.yo` (`… (D6 Windows re-arm probe)` / `… (D6 Windows
+probe)`): three sequential accept+exchange+close rounds on one listener, and
+two rounds of "server writes and closes, client `read_to_end`s, reconnects".
+Both pass on macOS. `http.test.yo` is re-gated with `SkipWindows` so the leg
+reaches `tests/net` (it runs after `tests/http`); `tls.test.yo` stays un-gated
+because its live handshake passed. Whichever probe hangs on Windows names the
+runtime path to fix in `src/codegen/async/`.
