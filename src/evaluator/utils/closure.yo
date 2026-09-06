@@ -27,6 +27,12 @@ _(env : clo_dbg_env) :: import("std/env");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_to_string } :: import("../../types/string.yo");
+{ is_fn_trait_type } :: import("../../types/guards.yo");
+{ format_error_message } :: import("../../error.yo");
+{ type_implements_trait_bool } :: import("../trait_checking.yo");
+{ flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
+{ lookup_some_resolved_concrete } :: import("../../expr_info.yo");
+{ get_closure_capture_info } :: import("../../function_value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
 // capture field signature, so the SAME closure (re-evaluated across the eval and
 // codegen passes) gets the SAME capture-struct id. A fresh `random_id` per call
@@ -115,21 +121,151 @@ build_path_collection_from_captured_variables :: (
 // ---------------------------------------------------------------------------
 // validate_capture_trait_requirements
 // ---------------------------------------------------------------------------
-/// Validate that the closure's capture struct implements all required
-/// non-Fn traits from the wrapper type.
-///
-/// Phase 3 stub: no-op.
+/// Raise a capture-trait violation so it SURVIVES the def-time trial wall. A
+/// closure body is usually created inside a def-time TRIAL evaluation, which
+/// swallows thrown errors (anonymous_function.yo's def-eval wall); a `Send`
+/// violation is a deliberate rejection, so it takes the wall's re-raise
+/// channel — flag a flow violation first, then throw — the same shape as the
+/// callable-argument and C19 checks in calls/helper.yo.
+_raise_capture_trait_violation :: (
+  fn(ctx : EvalContext, exn : Exception, tok : Token, msg : String) -> unit
+)({
+  if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
+    flag_flow_violation(msg.clone());
+  });
+  exn.throw(dyn(format_error_message(tok, msg)));
+});
+/// The type a captured variable is JUDGED by for a marker trait such as
+/// `Send`. A captured CLOSURE arrives as its `Impl(Fn(...))` wrapper SomeT,
+/// which carries no `Send` in its required traits — yet a closure is `Send`
+/// iff its captures are (Rust's auto trait), and its captures live in its
+/// capture struct, which auto-derives `Send` when every field is
+/// (`auto_derive_traits_for_struct_type` above). Resolve the wrapper: the
+/// SomeT's own resolved cell, then the global registry, then the VALUE's
+/// registered capture struct. `.None` means "nothing to judge": a closure
+/// with no capture struct captures nothing and is trivially `Send`.
+/// (tests/sync/once.test.yo's `racer` — a closure over atomics, spawned
+/// four times — was the one false rejection in the whole suite.)
+_capture_judgement_type :: (fn(ty : TypeValue, value : Option(EvalValue)) -> Option(TypeValue))(
+  match(
+    ty,
+    .SomeT({ id : sid, resolved_concrete : rc }) => match(
+      rc.get(usize(0)),
+      .Some(c) => Option(TypeValue).Some(c),
+      .None => match(
+        lookup_some_resolved_concrete(sid),
+        .Some(c2) => Option(TypeValue).Some(c2),
+        .None => match(
+          value,
+          .Some(v) => match(
+            v,
+            .FuncVal(fvd, _) => match(
+              get_closure_capture_info(fvd.*.func_id.clone()),
+              .Some(cci) => Option(TypeValue).Some(cci.capture_type),
+              .None => Option(TypeValue).None
+            ),
+            _ => Option(TypeValue).Some(ty)
+          ),
+          .None => Option(TypeValue).Some(ty)
+        )
+      )
+    ),
+    _ => Option(TypeValue).Some(ty)
+  )
+);
+/// Validate that a closure created for an `Impl(Fn(...), Send, …)` wrapper
+/// satisfies every NON-Fn trait the wrapper requires — the check that makes
+/// the `Send` on `Thread.spawn` / `spawn(pool, …)` mean something. Each
+/// captured variable is checked first, so the error lands on the capture
+/// site; then the capture struct as a whole. A no-op stub until 2026-09-06
+/// (issues/fixed/send-was-not-enforced-at-spawn-boundaries.md).
 ///
 /// Mirrors `validateCaptureTraitRequirements` from
 /// `src/evaluator/utils/closure.ts`.
 validate_capture_trait_requirements :: (
   fn(
-    _wrapper_type : TypeValue,
-    _capture_type : TypeValue,
-    _env : Environment,
-    _error_token : Token
+    wrapper_type : TypeValue,
+    capture_type : TypeValue,
+    captured_variables_with_values : Option(HashMap(String, FuncCapturedVarInfo)),
+    env : Environment,
+    ctx : EvalContext,
+    error_token : Token,
+    exn : Exception
   ) -> unit
-)(());
+)({
+  match(
+    wrapper_type,
+    .SomeT({ required_trait_types : rtts }) => {
+      (ti : usize) = usize(0);
+      while(ti < rtts.len(), ti = (ti + usize(1)), {
+        trait_type := rtts(ti);
+        if(!is_fn_trait_type(trait_type), {
+          trait_name := type_to_string(trait_type);
+          // Per-variable first: each offending capture gets its own error at
+          // the capture site, not the closure site.
+          match(
+            captured_variables_with_values,
+            .Some(cvwv) => {
+              key_iter := cvwv.keys();
+              (more : bool) = true;
+              while(more, {
+                match(
+                  key_iter.next(),
+                  .None => {
+                    more = false;
+                  },
+                  .Some(var_name) => match(
+                    cvwv.get(var_name.clone()),
+                    .None => (),
+                    .Some(info) => match(
+                      _capture_judgement_type(info.ty, info.value),
+                      .None => (),
+                      .Some(judged) => if(!type_implements_trait_bool(judged, trait_type, env), {
+                        var_msg := `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}. To move it across threads, wrap it in Arc/Iso, or capture a ${trait_name} projection of it instead.`;
+                        _raise_capture_trait_violation(ctx, exn, info.token, var_msg);
+                      })
+                    )
+                  )
+                );
+              });
+            },
+            .None => ()
+          );
+          // Then the capture struct as a whole — only when no per-variable
+          // information exists: the struct's fields ARE the captured
+          // variables, and re-judging a captured closure's wrapper SomeT
+          // field without its value would undo the resolution above.
+          if(captured_variables_with_values.is_none() && !type_implements_trait_bool(capture_type, trait_type, env), {
+            details := String.new();
+            match(
+              capture_type,
+              .Struct({ field_labels : fls, field_types : fts }) => {
+                (fi : usize) = usize(0);
+                while(fi < fls.len(), fi = (fi + usize(1)), {
+                  match(
+                    fts.get(fi),
+                    .Some(fty) => if(!type_implements_trait_bool(fty, trait_type, env), {
+                      if(details.len() > usize(0), {
+                        details.push_str("\n  ");
+                      });
+                      fl := match(fls.get(fi), .Some(l) => l, .None => String.from(""));
+                      details.push_string(`'${fl}' has type ${type_to_string(fty)} which does not implement ${trait_name}`);
+                    }),
+                    .None => ()
+                  );
+                });
+              },
+              _ => ()
+            );
+            agg_msg := `Closure does not implement ${trait_name} because captured variable ${details}`;
+            _raise_capture_trait_violation(ctx, exn, error_token, agg_msg);
+          });
+        });
+      });
+    },
+    _ => ()
+  );
+});
 // ---------------------------------------------------------------------------
 // enrich_captured_variables
 // ---------------------------------------------------------------------------

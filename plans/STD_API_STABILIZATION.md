@@ -97,7 +97,7 @@ reference-counted — Rust's `Rc`) keeps its name (§5).
 
 Memory safety / UB / deadlock:
 
-1. **`std/imm/vec.yo` leaks and drops uninitialized memory.** _(fix in PR #445)_ `push` grow
+1. **`std/imm/vec.yo` leaks and drops uninitialized memory.** — **FIXED 2026-09-06 (#445, `8d5523d84`)** `push` grow
    (144-149) and `concat` grow (236-247) `free` the old buffer without dropping
    the elements `_copy_elems` (87-100) dup'd; `pop`'s unique path (189-193)
    leaves the popped slot outside the `Dispose` loop. `map` (292), `filter`
@@ -111,7 +111,11 @@ Memory safety / UB / deadlock:
    (`src/evaluator/utils/closure.yo:125-132`); the `Send` on
    `Thread.spawn`/`spawn(pool)` (`thread.yo:40,45,57,211`) is decorative. A
    closure capturing a non-atomic `ref` struct, an `Io` or a `JoinHandle`
-   crosses an OS thread. Compiler fix + `comptime_expect_error` negatives.
+   crosses an OS thread. Compiler fix + `comptime_expect_error` negatives —
+   **FIXED 2026-09-06**: the stub is the faithful TS port, called from both
+   closure-creation routes; raw-pointer captures still slip through until
+   `issues/type-impls-reports-true-for-a-blanket-impl-whose-where-clause-fails.md`
+   is fixed (`issues/fixed/send-was-not-enforced-at-spawn-boundaries.md`).
 3. **`spawn(pool, …)` self-deadlocks on nested spawn** whenever the runtime
    takes its inline fallback: the pool mutex is held across
    `__yo_worker_spawn` (`thread.yo:218-221`) and the fallback runs the task on
@@ -132,9 +136,9 @@ Memory safety / UB / deadlock:
 
 Wrong values:
 
-6. _(fix in PR #446)_ **`IpAddr.parse_v4`** accepts `"..."` as `0.0.0.0` and wraps octets past
+6. **FIXED 2026-09-06 (#446, `b8e5cfb76`)** — **`IpAddr.parse_v4`** accepts `"..."` as `0.0.0.0` and wraps octets past
    `u32` (`net/addr.yo:37-88`).
-7. _(fix in PR #446)_ **`UdpSocket.bind` echoes the bind argument** so an ephemeral-port bind
+7. **FIXED 2026-09-06 (#446)** — **`UdpSocket.bind` echoes the bind argument** so an ephemeral-port bind
    reports port 0 (`net/udp.yo:87`; TCP got this fix as C2, `tcp.yo:168-181`);
    **`UdpSocket.send` requires a `connect` that does not exist** (`udp.yo:119`).
 8. **`Path.strip_prefix` is node's `relative` under Rust's name** — emits `..`
@@ -182,7 +186,7 @@ Performance cliffs that are correctness in practice:
     remove goes straight back to `EMPTY`
     (`issues/fixed/hash-tombstones-are-never-reclaimed.md`). **`Deque._grow`
     has no C35 overflow guard** (`deque.yo:50-52`), nor does
-    `imm/vec._raw_alloc` (`vec.yo:79`) — _(both guarded in PR #445)_.
+    `imm/vec._raw_alloc` (`vec.yo:79`) — **both guarded, FIXED in #445**.
 14. **`html_decode` is O(n²)** — rebuilds the result via a template string per
     character (`html.yo:162` + 12 sites) — **FIXED 2026-09-06**: appends in
     place into a pre-sized `String`. **`ArrayList.retain` is O(n²)** with an
