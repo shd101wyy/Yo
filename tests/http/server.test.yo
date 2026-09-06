@@ -86,10 +86,11 @@ test("parse_request: request line, headers, body, and the error cases", {
     },
     .Err(msg) => assert(false, `unexpected parse error: ${msg}`)
   );
-  assert(match(parse_request(`BREW /pot HTTP/1.1\r\n\r\n`), .Err(m) => m.contains(`Unknown method`), .Ok(_) => false), "unknown method");
-  assert(match(parse_request(`GET /x HTTP/2\r\n\r\n`), .Err(m) => m.contains(`version`), .Ok(_) => false), "unsupported version");
-  assert(match(parse_request(`GET /x\r\n\r\n`), .Err(m) => m.contains(`request line`), .Ok(_) => false), "two-part request line");
-  assert(match(parse_request(``), .Err(m) => m.contains(`Empty`), .Ok(_) => false), "empty");
+  assert(match(parse_request(`BREW /pot HTTP/1.1\r\n\r\n`), .Err(m) => match(m, .UnknownMethod(name) => (name == "BREW"), _ => false), .Ok(_) => false), "unknown method");
+  assert(match(parse_request(`GET /x HTTP/2\r\n\r\n`), .Err(m) => match(m, .UnsupportedVersion(v) => (v == "HTTP/2"), _ => false), .Ok(_) => false), "unsupported version");
+  assert(match(parse_request(`GET /x\r\n\r\n`), .Err(m) => match(m, .InvalidRequestLine(_) => true, _ => false), .Ok(_) => false), "two-part request line");
+  assert(match(parse_request(``), .Err(m) => match(m, .Empty => true, _ => false), .Ok(_) => false), "empty");
+  assert(match(parse_request(`GET /x HTTP/1.1\r\nno-colon-here\r\n\r\n`), .Err(m) => m.to_string().contains(`Invalid header line: no-colon-here`), .Ok(_) => false), "header line without a colon, rendered for a 400 body");
   assert(match(HttpMethod.from_str(`OPTIONS`), .Some(m) => (m.to_string() == "OPTIONS"), .None => false), "OPTIONS round-trips");
 });
 // The request-side half of the same defect: `read_http_message(is_request=true)`

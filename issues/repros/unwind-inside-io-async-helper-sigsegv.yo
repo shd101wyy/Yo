@@ -1,0 +1,48 @@
+{ Error, Exception, IoExn } :: import("std/error");
+open(import("std/fmt"));
+open(import("std/string"));
+Boom :: struct(msg : String);
+impl(Boom, ToString(to_string : (self -> self.msg)));
+impl(Boom, Error());
+// A future that throws through the caller's IoExn — the shape of read_http_message.
+_may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async(e =>
+    cond(
+      fail => e.exn.throw(dyn(Boom(msg : `framing broke`))),
+      true => `ok body`.to_string()
+    )
+  )
+);
+// Catch it INSIDE an async body with a local Exception whose handler unwinds a value.
+_guarded :: (fn(fail : bool, io : Io) -> Impl(Future(Result(String, String), IoExn)))(
+  io.async(e => {
+    local_exn := Exception(
+      throw : (
+        err -> {
+          unwind(Result(String, String).Err(err.to_string()));
+        }
+      )
+    );
+    raw := e.io.await(_may_fail(fail, e.io), IoExn(io : e.io, exn : local_exn));
+    Result(String, String).Ok(raw)
+  })
+);
+_show :: (fn(r : Result(String, String)) -> String)(
+  match(r, .Ok(s) => s, .Err(m) => `ERR ${m}`)
+);
+_run_fail :: (fn(io : Io, exn : Exception) -> String)({
+  e := IoExn(io : io, exn : exn);
+  r := _show(io.await(_guarded(true, io), e));
+  println(`inside helper, after the failing await: ${r}`);
+  r
+});
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  a := _show(io.await(_guarded(false, io), e));
+  println(`ok case: ${a}`);
+  b := _run_fail(io, exn);
+  println(`main, after the helper returned: ${b}`);
+  c := _show(io.await(_guarded(false, io), e));
+  println(`after: ${c}`);
+});
+export(main);
