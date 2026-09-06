@@ -59,3 +59,16 @@
   structure + `yo init` reference), and the `help init` page in `src/main.yo`
   (en + zh). The general help line (`yo init [dir] [options]`) is unchanged —
   `[options]` already covers the new flag.
+
+## Packaging: release bundles now ship the skills
+
+Before this change the published bundles staged only `bin/`, `std/`,
+`vendor/` and `LICENSE.md` — so for release-installed users BOTH
+`yo skills install` (hard error: "likely a packaging issue") and the new
+init scaffolding (note + skip) could never find bundled skills. The bundle
+assembly steps in `.github/workflows/release.yml` (native and musl legs)
+now also `cp -R .github/skills "$BUNDLE/.github/skills"`: the installed
+layout `<prefix>/lib/yo/<ver>/{bin,.github/skills}` is exactly what the
+exe-walk-up expects, verified against a fake bundle tree. The
+`install.sh --from-source` fallback path does not stage skills; there the
+scaffolding degrades to the note by design.

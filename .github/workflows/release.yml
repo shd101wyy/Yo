@@ -817,6 +817,12 @@ jobs:
           # legs' comment).
           mkdir -p "$BUNDLE/vendor"
           cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
+          # The bundled agent skill files ride along so `yo skills install`
+          # and `yo init`'s agent scaffolding work from an installed bundle:
+          # the exe-walk-up looks for .github/skills beside the version dir,
+          # the same way it resolves std/.
+          mkdir -p "$BUNDLE/.github"
+          cp -R .github/skills "$BUNDLE/.github/skills"
           cp LICENSE.md "$BUNDLE/"
           tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
           echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
@@ -1102,6 +1108,12 @@ jobs:
           # allocator, so a bundle without it cannot compile anything.
           mkdir -p "$BUNDLE/vendor"
           cp -R vendor/mimalloc "$BUNDLE/vendor/mimalloc"
+          # The bundled agent skill files ride along so `yo skills install`
+          # and `yo init`'s agent scaffolding work from an installed bundle:
+          # the exe-walk-up looks for .github/skills beside the version dir,
+          # the same way it resolves std/.
+          mkdir -p "$BUNDLE/.github"
+          cp -R .github/skills "$BUNDLE/.github/skills"
           cp LICENSE.md "$BUNDLE/"
           tar -czf "$BUNDLE.tar.gz" "$BUNDLE"
           echo "BUNDLE=$BUNDLE" >> $GITHUB_ENV
