@@ -1,10 +1,12 @@
 # v0.2.26
 
-A small, deliberate release: **`unit` is now a true zero-sized type**, the
+A substantial release: **`unit` is now a true zero-sized type**, the
 lazy-binding campaign closes with forward references allowed in `std/` and
-`src/` themselves, and the std API stabilization campaign lands its whole P0
+`src/` themselves, the std API stabilization campaign lands its whole P0
 sweep — 18 memory/UB/deadlock and wrong-value defects, with the exported
-signatures reshaped to Rust's.
+signatures reshaped to Rust's — and **Windows regains a TLS backend
+(Schannel) with its live suites running there**, after the event-loop bug that
+made them look untestable turned out to be a blocking `accept()`.
 
 ## ⚠️ Breaking changes (patch-release policy)
 
