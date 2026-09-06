@@ -147,3 +147,46 @@ test("SocketAddr with parsed IP", {
   unsafe(printf("  addr = %s\n", s.to_cstr().ptr().unwrap()));
   assert(s == `10.20.30.40:443`, "should be 10.20.30.40:443");
 });
+// `parse_v4` accepted two shapes it must reject — both are silent WRONG VALUES,
+// not errors: an empty octet (`"..."` parsed as 0.0.0.0, `"1.2.3."` as 1.2.3.0)
+// because nothing counted the digits in an octet, and an octet that wraps u32
+// (`"4294967297.0.0.0"` parsed as 1.0.0.0) because the accumulator was only
+// range-checked at the separator. Rust's Ipv4Addr::from_str rejects both, and
+// leading zeros (`"01.2.3.4"`, octal ambiguity) — so do we now.
+// issues/fixed/ipaddr-parse-v4-accepts-empty-and-wrapping-octets.md
+_must_reject_v4 :: (fn(s : String) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  IpAddr.parse_v4(s, exn);
+  assert(false, `parse_v4 accepted ${s}`);
+});
+test("IpAddr.parse_v4 rejects empty octets", {
+  _must_reject_v4(`...`);
+  _must_reject_v4(`1.2.3.`);
+  _must_reject_v4(`.1.2.3`);
+  _must_reject_v4(`1..2.3`);
+  _must_reject_v4(``);
+});
+test("IpAddr.parse_v4 rejects an octet that wraps the accumulator", {
+  _must_reject_v4(`4294967297.0.0.0`);
+  _must_reject_v4(`99999999999.0.0.0`);
+});
+test("IpAddr.parse_v4 rejects leading zeros like Rust", {
+  _must_reject_v4(`01.2.3.4`);
+  _must_reject_v4(`1.2.3.007`);
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "0.0.0.0 is valid");
+        unwind(());
+      }
+    )
+  );
+  z := IpAddr.parse_v4(`0.0.0.0`, exn);
+  assert(z.to_string() == "0.0.0.0", "a lone 0 octet is not a leading zero");
+});

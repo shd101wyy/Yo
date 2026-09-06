@@ -53,9 +53,11 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
     }
   )
 );
-// Parse a low-level sockaddr buffer (as filled in by accept/getsockname)
-// back into a SocketAddr. Unknown families fall back to 0.0.0.0:0.
-_sockaddr_to_socket_addr :: (fn(buf : *u8) -> SocketAddr)({
+/// Parse a low-level sockaddr buffer (as filled in by accept/getsockname/
+/// recvfrom) back into a `SocketAddr`. Unknown families fall back to 0.0.0.0:0.
+/// Shared with `std/net/udp` (its `bind` readback) — one decoder for the whole
+/// `net` layer.
+sockaddr_to_socket_addr :: (fn(buf : *u8) -> SocketAddr)({
   fam := IO_tcp.get_family(buf);
   cond(
     (fam == u16(AF_INET)) => {
@@ -120,7 +122,7 @@ _shutdown_to_how :: (fn(how : Shutdown) -> i32)(
     .Both => SHUT_RDWR
   )
 );
-export(Shutdown);
+export(Shutdown, sockaddr_to_socket_addr);
 /// A TCP socket that listens for incoming connections.
 TcpListener :: ref(
   struct(
@@ -173,7 +175,7 @@ impl(
       la_len.* = u32(128);
       gsn := SockInfo.getsockname(fd, la_buf, la_len);
       local := cond(
-        (gsn == i32(0)) => _sockaddr_to_socket_addr(la_buf),
+        (gsn == i32(0)) => sockaddr_to_socket_addr(la_buf),
         true => addr
       );
       free(.Some(*(void)(la_buf)));
@@ -200,7 +202,7 @@ impl(
       );
       // Parse the peer address the kernel filled in. This used to read only
       // the port and fabricate 0.0.0.0 as the IP (plans/STD_API_AUDIT.md C2).
-      peer_addr := _sockaddr_to_socket_addr(addr_buf);
+      peer_addr := sockaddr_to_socket_addr(addr_buf);
       free(.Some(*(void)(addr_buf)));
       free(.Some(*(void)(addr_len)));
       return(

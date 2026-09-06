@@ -33,12 +33,18 @@ IpAddr :: enum(
 impl(
   IpAddr,
   /// Parse an IPv4 address from a dotted-decimal `String` (e.g. "127.0.0.1").
-  /// Throws on invalid input.
+  /// Throws on invalid input. Exactly four octets of 1–3 decimal digits, each
+  /// 0–255, no leading zeros (`01.2.3.4` is rejected, as Rust's
+  /// `Ipv4Addr::from_str` does — octal ambiguity), no empty octet (`1..2.3`,
+  /// `1.2.3.`, `...` used to parse as 0-filled addresses).
   parse_v4 : (fn(s : String, exn : Exception) -> IpAddr)({
     bytes := s.as_bytes();
     parts := Array(u8, usize(4)).fill(u8(0));
     part_idx := usize(0);
     val := u32(0);
+    // Digits seen in the CURRENT octet — an octet with none is a wrong value,
+    // not a zero (issues/fixed/ipaddr-parse-v4-accepts-empty-and-wrapping-octets.md).
+    digits := usize(0);
     i := usize(0);
     while(runtime(i < bytes.len()), {
       ch := bytes(i);
@@ -49,21 +55,33 @@ impl(
             (part_idx >= usize(3)) => {
               exn.throw(dyn(NetError.Other(String.from("invalid IPv4 address"))));
             },
-            true => ()
-          );
-          cond(
-            (val > u32(255)) => {
-              exn.throw(dyn(NetError.Other(String.from("IPv4 octet out of range"))));
+            (digits == usize(0)) => {
+              exn.throw(dyn(NetError.Other(String.from("empty IPv4 octet"))));
             },
             true => ()
           );
           parts(part_idx) = u8(val);
           part_idx = (part_idx + usize(1));
           val = u32(0);
+          digits = usize(0);
         },
         ((ch >= _ASCII_ZERO) && (ch <= _ASCII_NINE)) => {
-          // digit
+          // digit. Range-check as we go: the accumulator used to be checked
+          // only at the separator, so `4294967297.0.0.0` wrapped to 1.0.0.0.
+          cond(
+            ((digits > usize(0)) && (val == u32(0))) => {
+              exn.throw(dyn(NetError.Other(String.from("leading zero in IPv4 octet"))));
+            },
+            true => ()
+          );
           val = ((val * u32(10)) + u32(ch - _ASCII_ZERO));
+          digits = (digits + usize(1));
+          cond(
+            (val > u32(255)) => {
+              exn.throw(dyn(NetError.Other(String.from("IPv4 octet out of range"))));
+            },
+            true => ()
+          );
         },
         true => {
           exn.throw(dyn(NetError.Other(String.from("invalid character in IPv4 address"))));
@@ -75,11 +93,8 @@ impl(
       (part_idx != usize(3)) => {
         exn.throw(dyn(NetError.Other(String.from("invalid IPv4 address"))));
       },
-      true => ()
-    );
-    cond(
-      (val > u32(255)) => {
-        exn.throw(dyn(NetError.Other(String.from("IPv4 octet out of range"))));
+      (digits == usize(0)) => {
+        exn.throw(dyn(NetError.Other(String.from("empty IPv4 octet"))));
       },
       true => ()
     );
