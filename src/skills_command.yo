@@ -3,6 +3,9 @@
 //! directories, so an AI coding agent working in that project picks up
 //! version-matched Yo knowledge.
 //!
+//! The copy core (`install_skills_into`) is shared with `yo init`'s agent
+//! scaffolding, which calls it against the freshly scaffolded project.
+//!
 //! Port of the TypeScript-era `src/skills-command.ts` (frozen at the
 //! `src-attic-final` tag). The README documented `yo skills install` from
 //! PR #58 onward, but the P2.5 bootstrap carried the command over late —
@@ -12,27 +15,40 @@ open(import("std/fmt"));
 { Exception, IoExn } :: import("std/error");
 { Path } :: import("std/path");
 { env, current_exe, cwd } :: import("std/env");
-{ copy, exists } :: import("std/fs/file");
+{ copy, exists, read_to_string } :: import("std/fs/file");
 { read_dir, create_dir_all } :: import("std/fs/dir");
 { metadata } :: import("std/fs/metadata");
 { ArrayList } :: import("std/collections/array_list");
 { tr } :: import("./cli_lang.yo");
-/// Agent directories that may contain a `skills/` subdirectory. Checked in
-/// order; files are copied to ALL that exist. Mirrors TS `AGENT_DIRS`.
-///
-/// The bundled `.github/skills` lookup, in order:
-///
-/// 1. the `YO_SKILLS` env var, if set and a directory — the same pin the
-///    harness applies to `YO_STD`: a binary staged OUTSIDE its checkout
-///    (CI's `/tmp/yo-stage1`) can exe-walk-up to neither `std/` nor
-///    `.github/skills`, so the gate scripts pin both to the checkout;
-/// 2. the running executable's ancestors (repo dev flow:
-///    `yo-out/<target>/bin/yo` finds the checkout's own skills);
-/// 3. the project directory's ancestors (running an installed `yo` from
-///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
-///    `resolve_std_path` uses for `std/`.
-(g_skills_created : usize) = usize(0);
-(g_skills_overwritten : usize) = usize(0);
+/// One bundled skill: its top-level name (e.g. `yo-syntax`) plus the
+/// `description:` line of its `SKILL.md` frontmatter ("" when the file or
+/// the line is absent). `yo init` renders these into `AGENTS.md`.
+SkillEntry :: ref(
+  struct(
+    name : String,
+    description : String
+  )
+);
+/// What one `install_skills_into` run did: the skills it found, the agent
+/// dirs it copied into, and the journal totals (skill files only — the
+/// `AGENTS.md`/`CLAUDE.md` the caller may add are not counted here).
+SkillsInstallResult :: ref(
+  struct(
+    skills : ArrayList(SkillEntry),
+    targets : ArrayList(String),
+    created : usize,
+    overwritten : usize
+  )
+);
+/// Journal totals for one recursive copy. Replaces the module globals the
+/// first version counted into, so `yo skills install` and `yo init` report
+/// their own run instead of sharing process-wide state.
+SkillCopyCounters :: ref(
+  struct(
+    created : usize,
+    overwritten : usize
+  )
+);
 /// Files report `  create ` / `  overwrite ` exactly like the TS command
 /// did; skills are plain directories of text files, so a recursive walk plus
 /// `std/fs` `copy` is the whole mechanism.
@@ -41,6 +57,7 @@ _copy_skills_file :: (
     src : Path,
     dest : Path,
     display : String,
+    counters : SkillCopyCounters,
     io : Io,
     exn : Exception
   ) -> unit
@@ -49,10 +66,10 @@ _copy_skills_file :: (
   io.await(copy(src.clone(), dest.clone(), io), IoExn(io : io, exn : exn));
   if(existed, {
     println(`  overwrite  ${display}`);
-    g_skills_overwritten = (g_skills_overwritten + usize(1));
+    counters.overwritten = (counters.overwritten + usize(1));
   }, {
     println(`  create     ${display}`);
-    g_skills_created = (g_skills_created + usize(1));
+    counters.created = (counters.created + usize(1));
   });
 });
 /// List a directory's entry names in sorted order — raw readdir order is
@@ -81,6 +98,7 @@ _copy_skills_dir :: (
     src : Path,
     dest : Path,
     display_prefix : String,
+    counters : SkillCopyCounters,
     io : Io,
     exn : Exception
   ) -> unit
@@ -103,15 +121,66 @@ _copy_skills_dir :: (
       if(md.is_dir(), {
         stack.push({ src : src_entry, dest : dest_entry, prefix : display });
       }, {
-        _copy_skills_file(src_entry, dest_entry, display, io, exn);
+        _copy_skills_file(src_entry, dest_entry, display, counters, io, exn);
       });
       j = (j + usize(1));
     });
   });
 });
+/// Return the `description:` line of a SKILL.md's YAML frontmatter, or ""
+/// when the file is missing or carries no such line. The scan is scoped to
+/// the frontmatter — it starts at the opening `---` and stops at the
+/// closing one, so body prose is never mistaken for the description.
+_skill_description :: (
+  fn(
+    skill_md : Path,
+    io : Io,
+    exn : Exception
+  ) -> String
+)({
+  (desc : String) = String.from("");
+  present := io.await(exists(skill_md.clone(), io), io);
+  if(!present, {
+    return(desc);
+  });
+  content := io.await(read_to_string(skill_md.clone(), io), IoExn(io : io, exn : exn));
+  lines := content.split(String.from("\n"));
+  (in_frontmatter : bool) = false;
+  (i : usize) = usize(0);
+  while((i < lines.len()) && (desc.len() == usize(0)), {
+    line := lines(i);
+    if(in_frontmatter, {
+      cond(
+        (line.trim() == String.from("---")) => {
+          in_frontmatter = false;
+        },
+        line.starts_with(String.from("description:")) => {
+          desc = line.substring(usize(13), line.len()).trim();
+        },
+        true => ()
+      );
+    }, {
+      in_frontmatter = (line.trim() == String.from("---"));
+    });
+    i = (i + usize(1));
+  });
+  desc
+});
 /// Walk `start`'s ancestors looking for a `.github/skills` directory;
 /// `.None` when none exists (the caller reports the packaging error — the
 /// TS command exited 1 here).
+///
+/// The bundled `.github/skills` lookup, in order:
+///
+/// 1. the `YO_SKILLS` env var, if set and a directory — the same pin the
+///    harness applies to `YO_STD`: a binary staged OUTSIDE its checkout
+///    (CI's `/tmp/yo-stage1`) can exe-walk-up to neither `std/` nor
+///    `.github/skills`, so the gate scripts pin both to the checkout;
+/// 2. the running executable's ancestors (repo dev flow:
+///    `yo-out/<target>/bin/yo` finds the checkout's own skills);
+/// 3. the project directory's ancestors (running an installed `yo` from
+///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
+///    `resolve_std_path` uses for `std/`.
 _find_bundled_skills_dir :: (
   fn(io : Io, exn : Exception) -> Option(Path)
 )({
@@ -169,6 +238,147 @@ _user_cwd :: (fn() -> String)(
     .None => match(cwd(), .Ok(p) => p.to_string(), .Err(_) => String.from("."))
   )
 );
+/// Locate the bundled `.github/skills` directory and copy it into every
+/// agent config dir under `project` (`.github`, `.agents`, `.claude`, … —
+/// the ones that already exist; `.agents` when none do), printing the same
+/// create/overwrite journal `yo skills install` has always printed.
+///
+/// `.None` means the bundled skills dir could not be located — a packaging
+/// problem. Fatal for `run_skills_install`; `yo init`'s install_agent_files
+/// treats it as a note. An EMPTY bundled dir returns an empty `.Some` after
+/// printing the "No skill files found" message, and both callers early-out
+/// on it.
+install_skills_into :: (
+  fn(
+    project : Path,
+    io : Io,
+    exn : Exception
+  ) -> Option(SkillsInstallResult)
+)({
+  bundled_opt := _find_bundled_skills_dir(io, exn);
+  if(bundled_opt.is_none(), {
+    return(Option(SkillsInstallResult).None);
+  });
+  bundled_dir := bundled_opt.unwrap();
+  names := _sorted_dir_names(bundled_dir.clone(), io, exn);
+  if(names.len() == usize(0), {
+    println(tr(`No skill files found in the bundled skills directory.`, `捆绑的技能目录里没有技能文件。`));
+    return(
+      Option(SkillsInstallResult).Some(
+        SkillsInstallResult(
+          skills : ArrayList(SkillEntry).new(),
+          targets : ArrayList(String).new(),
+          created : usize(0),
+          overwritten : usize(0)
+        )
+      )
+    );
+  });
+  // Collect the skill list (names + SKILL.md descriptions) once, up front;
+  // the copy loop below fans every entry out to each target dir,
+  // target-major, so a multi-dir install groups its journal by location.
+  skills := ArrayList(SkillEntry).new();
+  (n : usize) = usize(0);
+  while(n < names.len(), {
+    name := names(n);
+    src_entry := bundled_dir.join(Path.new(name.clone()));
+    md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
+    description := String.from("");
+    if(md.is_dir(), {
+      description = _skill_description(src_entry.join(Path.new(String.from("SKILL.md"))), io, exn);
+    });
+    skills.push(SkillEntry(name : name.clone(), description : description));
+    n = (n + usize(1));
+  });
+  project_agent_dirs := ArrayList(String).new();
+  project_agent_dirs.push(String.from(".github"));
+  project_agent_dirs.push(String.from(".agents"));
+  project_agent_dirs.push(String.from(".claude"));
+  project_agent_dirs.push(String.from(".opencode"));
+  project_agent_dirs.push(String.from(".openai"));
+  project_agent_dirs.push(String.from(".cursor"));
+  targets := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < project_agent_dirs.len(), {
+    d := project_agent_dirs(i);
+    p := project.join(Path.new(d.clone()));
+    present := io.await(exists(p.clone(), io), io);
+    if(present, {
+      md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
+      if(md.is_dir(), {
+        targets.push(d.clone());
+      });
+    });
+    i = (i + usize(1));
+  });
+  // If none exist, `.agents` is the default (TS behavior).
+  if(targets.len() == usize(0), {
+    targets.push(String.from(".agents"));
+  });
+  counters := SkillCopyCounters(created : usize(0), overwritten : usize(0));
+  (t : usize) = usize(0);
+  while(t < targets.len(), {
+    parent := targets(t);
+    dest_skills := project.join(Path.new(parent.clone())).join(Path.new(String.from("skills")));
+    io.await(create_dir_all(dest_skills.clone(), io), IoExn(io : io, exn : exn));
+    (e : usize) = usize(0);
+    while(e < names.len(), {
+      name := names(e);
+      src_entry := bundled_dir.join(Path.new(name.clone()));
+      dest_entry := dest_skills.join(Path.new(name.clone()));
+      display := `${parent}/skills/${name}`;
+      md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
+      if(md.is_dir(), {
+        _copy_skills_dir(src_entry, dest_entry, display, counters, io, exn);
+      }, {
+        _copy_skills_file(src_entry, dest_entry, display, counters, io, exn);
+      });
+      e = (e + usize(1));
+    });
+    t = (t + usize(1));
+  });
+  return(
+    Option(SkillsInstallResult).Some(
+      SkillsInstallResult(
+        skills : skills,
+        targets : targets,
+        created : counters.created,
+        overwritten : counters.overwritten
+      )
+    )
+  );
+});
+/// The closing summary line shared by `yo skills install` and `yo init`'s
+/// agent scaffolding.
+print_skills_summary :: (
+  fn(res : SkillsInstallResult) -> unit
+)({
+  (locations : String) = String.from("");
+  (l : usize) = usize(0);
+  while(l < res.targets.len(), {
+    if(l > usize(0), {
+      locations.push_str(", ");
+    });
+    locations.push_string(res.targets(l).clone());
+    l = (l + usize(1));
+  });
+  summary := tr(
+    `${res.created} created`,
+    `新建 ${res.created} 个`
+  );
+  if(res.overwritten > usize(0), {
+    summary = tr(
+      `${res.created} created, ${res.overwritten} overwritten`,
+      `新建 ${res.created} 个，覆盖 ${res.overwritten} 个`
+    );
+  });
+  println(
+    tr(
+      `\nInstalled ${res.skills.len()} skill(s) to ${res.targets.len()} location(s) (${locations}): ${summary}`,
+      `\n已安装 ${res.skills.len()} 个技能到 ${res.targets.len()} 个位置（${locations}）：${summary}`
+    )
+  );
+});
 /// Run the `skills install` subcommand. Mirrors TS `runSkillsInstall`.
 run_skills_install :: (
   fn(
@@ -187,8 +397,8 @@ run_skills_install :: (
   if(argv.len() > usize(3), {
     exn.throw(dyn(tr(`skills: unexpected extra argument '${argv(usize(3))}'. Usage: yo skills install`, `skills: 多余的参数 '${argv(usize(3))}'。用法：yo skills install`)));
   });
-  bundled_opt := _find_bundled_skills_dir(io, exn);
-  if(bundled_opt.is_none(), {
+  res_opt := install_skills_into(Path.new(_user_cwd()), io, exn);
+  if(res_opt.is_none(), {
     exn.throw(
       dyn(
         tr(
@@ -198,84 +408,11 @@ run_skills_install :: (
       )
     );
   });
-  bundled_dir := bundled_opt.unwrap();
-  names := _sorted_dir_names(bundled_dir.clone(), io, exn);
-  if(names.len() == usize(0), {
-    println(tr(`No skill files found in the bundled skills directory.`, `捆绑的技能目录里没有技能文件。`));
+  res := res_opt.unwrap();
+  // Empty bundled dir: the "No skill files found" message already printed.
+  if(res.skills.len() == usize(0), {
     return(());
   });
-  project := Path.new(_user_cwd());
-  agent_dirs := ArrayList(String).new();
-  agent_dirs.push(String.from(".github"));
-  agent_dirs.push(String.from(".agents"));
-  agent_dirs.push(String.from(".claude"));
-  agent_dirs.push(String.from(".opencode"));
-  agent_dirs.push(String.from(".openai"));
-  agent_dirs.push(String.from(".cursor"));
-  targets := ArrayList(String).new();
-  (i : usize) = usize(0);
-  while(i < agent_dirs.len(), {
-    d := agent_dirs(i);
-    p := project.join(Path.new(d.clone()));
-    present := io.await(exists(p.clone(), io), io);
-    if(present, {
-      md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
-      if(md.is_dir(), {
-        targets.push(d.clone());
-      });
-    });
-    i = (i + usize(1));
-  });
-  // If none exist, `.agents` is the default (TS behavior).
-  if(targets.len() == usize(0), {
-    targets.push(String.from(".agents"));
-  });
-  (t : usize) = usize(0);
-  while(t < targets.len(), {
-    parent := targets(t);
-    dest_skills := project.join(Path.new(parent.clone())).join(Path.new(String.from("skills")));
-    io.await(create_dir_all(dest_skills.clone(), io), IoExn(io : io, exn : exn));
-    (e : usize) = usize(0);
-    while(e < names.len(), {
-      name := names(e);
-      src_entry := bundled_dir.join(Path.new(name.clone()));
-      dest_entry := dest_skills.join(Path.new(name.clone()));
-      display := `${parent}/skills/${name}`;
-      md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
-      if(md.is_dir(), {
-        _copy_skills_dir(src_entry, dest_entry, display, io, exn);
-      }, {
-        _copy_skills_file(src_entry, dest_entry, display, io, exn);
-      });
-      e = (e + usize(1));
-    });
-    t = (t + usize(1));
-  });
-  (locations : String) = String.from("");
-  (l : usize) = usize(0);
-  while(l < targets.len(), {
-    if(l > usize(0), {
-      locations.push_str(", ");
-    });
-    locations.push_string(targets(l).clone());
-    l = (l + usize(1));
-  });
-  total := (g_skills_created + g_skills_overwritten);
-  summary := tr(
-    `${total} created`,
-    `新建 ${total} 个`
-  );
-  if(g_skills_overwritten > usize(0), {
-    summary = tr(
-      `${g_skills_created} created, ${g_skills_overwritten} overwritten`,
-      `新建 ${g_skills_created} 个，覆盖 ${g_skills_overwritten} 个`
-    );
-  });
-  println(
-    tr(
-      `\nInstalled ${names.len()} skill(s) to ${targets.len()} location(s) (${locations}): ${summary}`,
-      `\n已安装 ${names.len()} 个技能到 ${targets.len()} 个位置（${locations}）：${summary}`
-    )
-  );
+  print_skills_summary(res);
 });
-export(run_skills_install);
+export(run_skills_install, install_skills_into, print_skills_summary, SkillEntry, SkillsInstallResult);
