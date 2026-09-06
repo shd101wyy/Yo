@@ -103,6 +103,7 @@ _(env : anonfn_dbg_env) :: import("std/env");
   enrich_captured_variables,
   generate_captured_variable_dup_expressions,
   create_capture_type_and_value,
+  validate_capture_trait_requirements,
   FuncCapturedVarInfo
 } :: import("../utils/closure.yo");
 { extract_fn_trait_from_type } :: import("../trait_checking.yo");
@@ -1943,6 +1944,13 @@ Result type: ${type_to_string(decl_result_ty)}`
     closure_capture_dups = dup_res.dup_exprs;
     cap_res := create_capture_type_and_value(Option(TypeValue).None, cvwv, env, tok);
     closure_capture_type = cap_res.capture_type;
+    // The wrapper's non-Fn trait requirements (`Send`) hold for each capture
+    // and for the capture struct — TS anonymous-function.ts:1184.
+    match(
+      closure_capture_type,
+      .Some(vct) => validate_capture_trait_requirements(expected_ty, vct, cvwv, env, ctx, tok, exn),
+      .None => ()
+    );
     // Prefer an already-REGISTERED (larger) capture struct for this fid — see
     // register_closure_capture_info's keep-larger note: a re-eval that tracked
     // fewer captures must not shrink the struct the emitted body was (or will

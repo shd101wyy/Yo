@@ -69,6 +69,7 @@ _(env : cap_dbg_env_closure_call) :: import("std/env");
 {
   enrich_captured_variables,
   create_capture_type_and_value,
+  validate_capture_trait_requirements,
   FuncCapturedVarInfo
 } :: import("../utils/closure.yo");
 /// Convert a closure body expression into a typed closure value against
@@ -312,6 +313,13 @@ try_to_implement_closure_by_fn_module_type :: (
     tok
   );
   capture_ty := cap_result.capture_type;
+  // Validate that the capture struct implements every required non-Fn trait
+  // of the wrapper (e.g. `Send` on a spawn closure) — TS closure-type.ts:269.
+  match(
+    capture_ty.clone(),
+    .Some(vct) => validate_capture_trait_requirements(wrapper_type.clone(), vct, captured_vars_with_values_opt, caller_env, ctx, tok, exn),
+    .None => ()
+  );
   // Record the capture struct type + defining frame level by func_id so codegen's
   // generate_function can set the closure-capture context (rewriting captured vars
   // like `k` to `((<cap>*)closure_context)->k`). Mirrors anonymous_function.yo:1068.

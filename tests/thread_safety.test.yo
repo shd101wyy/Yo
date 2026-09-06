@@ -55,6 +55,75 @@ comptime_expect_error({
 });
 
 // ============================================================================
+// Phase L (THREAD_SAFETY): Send is ENFORCED at the spawn boundary
+// ============================================================================
+// issues/fixed/send-was-not-enforced-at-spawn-boundaries.md — the closure
+// created for `Impl(Fn(io : Io) -> unit, Send)` is checked against `Send`
+// capture by capture: a non-atomic `ref` struct (an ArrayList, a String, any
+// plain ref(struct)) may not cross an OS thread.
+{ Thread } :: import("std/thread");
+{ ArrayList } :: import("std/collections/array_list");
+// The offending value must be a FUNCTION LOCAL: the check runs over a
+// closure's captures, and a module-level binding is a global, not a capture
+// (globals reached from a spawned closure are a separate, open question).
+NotSendCell :: ref(struct(v : i32));
+comptime_expect_error({
+  _spawn_with_ref_struct :: (fn() -> unit)({
+    cell := NotSendCell(v : i32(1));
+    t := Thread.spawn(io => {
+      _v := cell.v;
+      ()
+    });
+    t.join();
+  });
+  _spawn_with_ref_struct();
+});
+comptime_expect_error({
+  _spawn_with_array_list :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    t := Thread.spawn(io => {
+      items.push(i32(1));
+      ()
+    });
+    t.join();
+  });
+  _spawn_with_array_list();
+});
+// A captured CLOSURE is judged by ITS captures (Rust's auto trait): one over
+// atomics is Send, one over an ArrayList is not.
+comptime_expect_error({
+  _spawn_with_closure_over_ref :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    (worker : Impl(Fn() -> unit)) = (
+      () => {
+        items.push(i32(1));
+      }
+    );
+    t := Thread.spawn(io => worker());
+    t.join();
+  });
+  _spawn_with_closure_over_ref();
+});
+// Over-rejection canaries: Send captures (a scalar, an Arc, a closure over an
+// atomic) still spawn. Defined, not run — the check happens when the closure
+// is created.
+_send_captures_still_spawn :: (fn() -> unit)({
+  n := i32(3);
+  a := arc(i32(4));
+  hits := AtomicI32(i32(0));
+  (bump : Impl(Fn() -> unit)) = (
+    () => {
+      hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+    }
+  );
+  t := Thread.spawn(io => {
+    _s := (n + a.*);
+    bump();
+    ()
+  });
+  t.join();
+});
+// ============================================================================
 // Phase P (THREAD_SAFETY): Field visibility — same-file access works
 // ============================================================================
 test("private _-field accessible in same file", {
