@@ -221,6 +221,10 @@ test("a signal death is code None, not exit 0", {
 test("Child.kill after the child was reaped throws ESRCH as an IoError", {
   // issues/fixed/child-kill-returned-a-raw-errno.md — `kill` handed back the
   // raw -errno; now the failure is thrown through the caller's Exception.
+  // POSIX-only like the other spawn tests here (/bin/sleep; posix_spawn plumbing).
+  if(platform == Platform.Windows, {
+    return(());
+  });
   exn := Exception(
     throw : (
       err -> {
