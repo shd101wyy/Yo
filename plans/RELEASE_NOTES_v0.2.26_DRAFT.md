@@ -38,6 +38,14 @@ the handshake is proven.
   - `BTreeMap.insert` returns `Option(V)` (the replaced value) instead of `unit`.
   - `Child.kill(signum, exn)` throws the errno as an `IoError` instead of
     returning a raw `-errno` `i32`.
+  - `env.cwd()`, `env.current_exe()` and `env.chdir(path)` return
+    `Result(_, IoError)` instead of `Result(_, String)`, so a caller can tell
+    `IoError.NotFound` from `PermissionDenied` instead of matching prose. The
+    value is the real OS reason (`errno` on POSIX, `GetLastError()` on
+    Windows; `IoError.NotSupported` on wasm). Callers that used the payload as
+    a `String` need `err.to_string()`; callers that ignore it are unaffected.
+    `IoError.Other(code)` now prints its code (`unknown I/O error (os error
+    2)`) instead of hiding it.
   - `http.parse_request` / `parse_response` return `Result(_, HttpParseError)`
     instead of `Result(_, String)`; `read_http_message` returns
     `Result(String, HttpError)` and the server answers 413/400 instead of dying.

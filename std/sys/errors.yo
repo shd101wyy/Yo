@@ -80,7 +80,8 @@ IoError :: enum(
   /// delivered (`Writer.write_all`). Not an errno; the Rust
   /// `ErrorKind::WriteZero` counterpart.
   WriteZero,
-  /// Other error with raw errno code.
+  /// Other error carrying the raw OS error code — `errno` on POSIX,
+  /// `GetLastError()` on Windows (Rust's `io::Error::raw_os_error`).
   Other(code : i32)
 );
 impl(
@@ -170,7 +171,7 @@ impl(
           .AlreadyConnected => String.from("socket already connected"),
           .InvalidData => String.from("stream contained malformed data"),
           .WriteZero => String.from("write returned zero bytes"),
-          .Other(errno) => String.from("unknown I/O error")
+          .Other(code) => `unknown I/O error (os error ${code})`.to_string()
         );
         return(s);
       }
