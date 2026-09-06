@@ -2,9 +2,9 @@
 
 A small, deliberate release: **`unit` is now a true zero-sized type**, the
 lazy-binding campaign closes with forward references allowed in `std/` and
-`src/` themselves, and Windows regains a TLS backend (Schannel) — compiled and
-linked on the Windows runners, with its live suites still gated off there until
-the handshake is proven.
+`src/` themselves, and the std API stabilization campaign lands its whole P0
+sweep — 18 memory/UB/deadlock and wrong-value defects, with the exported
+signatures reshaped to Rust's.
 
 ## ⚠️ Breaking changes (patch-release policy)
 
@@ -29,7 +29,7 @@ the handshake is proven.
   and the Windows CRT.
 
 - **std API stabilization, P0 sweep** (`plans/STD_API_STABILIZATION.md`,
-  #444–#454). These follow Rust's shapes and change signatures:
+  #444–#456). These follow Rust's shapes and change signatures:
   - `Path.strip_prefix(base)` is now Rust's: `Option(Path)` — the remainder when
     `base` is a segment-wise prefix, `.None` otherwise. The old behaviour
     (node's `path.relative`, with `..` segments) is `Path.relative_to(base)`.
@@ -38,6 +38,14 @@ the handshake is proven.
   - `BTreeMap.insert` returns `Option(V)` (the replaced value) instead of `unit`.
   - `Child.kill(signum, exn)` throws the errno as an `IoError` instead of
     returning a raw `-errno` `i32`.
+  - `env.cwd()`, `env.current_exe()` and `env.chdir(path)` return
+    `Result(_, IoError)` instead of `Result(_, String)`, so a caller can tell
+    `IoError.NotFound` from `PermissionDenied` instead of matching prose. The
+    value is the real OS reason (`errno` on POSIX, `GetLastError()` on
+    Windows; `IoError.NotSupported` on wasm). Callers that used the payload as
+    a `String` need `err.to_string()`; callers that ignore it are unaffected.
+    `IoError.Other(code)` now prints its code (`unknown I/O error (os error
+    2)`) instead of hiding it.
   - `http.parse_request` / `parse_response` return `Result(_, HttpParseError)`
     instead of `Result(_, String)`; `read_http_message` returns
     `Result(String, HttpError)` and the server answers 413/400 instead of dying.
@@ -70,14 +78,11 @@ the handshake is proven.
 
 ## Platforms
 
-- **Windows: the Schannel TLS backend is back** (#442, re-landing #413). It
-  compiles and links on both Windows runners and `tls_available()` is observable
-  there. **The TLS and HTTP test suites remain skipped on Windows in this
-  release**: the first attempt ran them against the brand-new backend and the
-  Windows legs hung for the 4-hour job timeout with no log to read. They are
-  un-skipped in a follow-up with a per-test deadline on every network test.
-  Windows `test` legs now carry a 75-minute budget so a hang produces a failed
-  job with a downloadable log.
+- _(Deferred to the next release: the Windows Schannel TLS backend, #442/#443.
+  Both PRs touch `.github/workflows/*`, which needs a token carrying the
+  `workflow` scope; they could not be merged into this release. The D6 root
+  cause — a blocking `accept()` on the Windows event-loop thread — is fixed and
+  awaiting merge, see `plans/D6_TLS_PLAN.md`.)_
 
 ## Correctness
 

@@ -54,6 +54,10 @@ c_include(
   // Returns the number of WCHARs copied excluding the null terminator, or 0
   // on failure; a return value equal to nSize means the buffer was too small.
   GetModuleFileNameW : (fn(hModule : ?*void, lpFilename : *WCHAR, nSize : DWORD) -> DWORD),
+  // GetLastError - the calling thread's last Win32 error code. Win32 APIs do
+  // NOT set `errno`, so this is the Windows half of a raw OS error code (the
+  // POSIX half being `errno`).
+  GetLastError : (fn() -> DWORD),
   // Code page constants
   CP_UTF8 : u32
 );
@@ -79,6 +83,7 @@ export(WideCharToMultiByte);
 export(_putenv_s);
 export(_environ);
 export(GetModuleFileNameW);
+export(GetLastError);
 export(CP_UTF8);
 export(_unlink);
 export(_rmdir);

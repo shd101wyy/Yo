@@ -198,12 +198,24 @@ Convention violations that change signatures (do them in the same breaking
 window as D9–D18):
 
 15. **`Result(_, String)` in five exported APIs** — `env.cwd/current_exe/chdir`
-    (`env.yo:166,266,414` — io-path, should throw `IoExn`) and
-    `http.parse_request/parse_response` (`http.yo:231,313` → `HttpParseError`)
-    — **http half FIXED 2026-09-06** (`HttpParseError` enum, D13;
-    `issues/fixed/http-parse-errors-were-bare-strings.md`); the `env` half is
-    still open: 48 compiler call sites match on the `Result` — do it in the
-    v0.2.27 breaking window.
+    (`env.yo:166,266,414`) and `http.parse_request/parse_response`
+    (`http.yo:231,313`) — **BOTH HALVES FIXED 2026-09-06**.
+    *http half*: `HttpParseError` enum (D13), variants carrying the offending
+    text (`issues/fixed/http-parse-errors-were-bare-strings.md`).
+    *env half*: all three return `Result(_, IoError)` — Rust's shape
+    (`env::current_dir`, `env::current_exe`, `env::set_current_dir` are all
+    `io::Result`, none of them throws). The "should throw `IoExn`" note
+    predated the call-site survey: **all 28 `src/` call sites discard the
+    payload** and fall back to `"."`, so throwing would have forced 28 handler
+    installs to rebuild that fallback. Errors now carry the real reason —
+    `errno` on POSIX, `GetLastError()` on Windows, `NotSupported` on wasm —
+    captured *before* the error path's `free()`, which may clobber `errno`
+    (`issues/fixed/env-cwd-current-exe-chdir-returned-stringly-typed-errors.md`).
+    Two latent defects fell out en route: `std/libc/errno.yo` declared
+    `errno : *int`, so reading it was a C type error and nothing in the tree
+    ever had (`issues/fixed/libc-errno-was-declared-as-a-pointer-and-was-unusable.md`),
+    and `IoError.Other(code)`'s `to_string` discarded the code
+    (`issues/fixed/ioerror-other-discarded-its-os-error-code.md`).
 16. **`BTreeMap.insert -> unit`** drops the old value (`btree_map.yo:77-82`) and
     discards `push`'s `Result` then underflows `len() - 1` (:86-87); same
     discard in `priority_queue.yo:49` — **FIXED 2026-09-06**: `insert ->
