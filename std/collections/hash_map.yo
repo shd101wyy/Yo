@@ -54,6 +54,13 @@ HashMap :: (
       data : ?(*(MapEntry(K, V))),
       capacity : usize,
       size : usize,
+      /// Slots holding `CTRL_DELETED`. A tombstone keeps probe chains intact
+      /// but is never `EMPTY`, so it costs exactly what a live entry costs on
+      /// every miss; `_needs_resize` therefore counts `size + tombstones`, and
+      /// a table that is mostly tombstones is rehashed IN PLACE instead of
+      /// doubled (hashbrown's rule). Before this, insert/remove churn drove
+      /// every probe to O(capacity) — issues/fixed/hash-tombstones-are-never-reclaimed.md.
+      tombstones : usize,
       /// SipHash-1-3 keys (`std/hash`). `new` uses the fixed defaults so
       /// iteration order is reproducible; `with_keys` keys this map alone.
       k0 : u64,
@@ -105,6 +112,7 @@ impl(
                 data : .Some(data_ptr),
                 capacity : capacity,
                 size : usize(0),
+                tombstones : usize(0),
                 k0 : DEFAULT_KEY_0,
                 k1 : DEFAULT_KEY_1
               )
@@ -253,7 +261,7 @@ impl(
   */
   _needs_resize : (fn(self : Self) -> bool)({
     threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
-    self.size >= threshold
+    (self.size + self.tombstones) >= threshold
   }),
   /**
   * Resize and rehash the HashMap to a new capacity
@@ -324,6 +332,7 @@ impl(
         self.ctrl = new_map.ctrl;
         self.data = new_map.data;
         self.capacity = new_map.capacity;
+        self.tombstones = usize(0);
         new_map.ctrl = .None;
         new_map.data = .None;
         .Ok(())
@@ -355,7 +364,13 @@ impl(
       .None => {
         resize_check := cond(
           (Self._needs_resize(self)) => {
-            new_capacity := (self.capacity * usize(2));
+            // Over the load threshold because of tombstones rather than live
+            // entries: rehash at the SAME capacity, which clears every
+            // tombstone; only a genuinely full table doubles.
+            new_capacity := cond(
+              (((self.size + usize(1)) * usize(2)) <= self.capacity) => self.capacity,
+              true => (self.capacity * usize(2))
+            );
             Self._resize(self, new_capacity)
           },
           true => Result(unit, HashMapError).Ok(())
@@ -368,6 +383,12 @@ impl(
             index := Self._find_insert_bucket(self, hash);
             ctrl_ptr := Self._ctrl_ptr(self);
             data_ptr := Self._data_ptr(self);
+            cond(
+              ((ctrl_ptr.add(index)).* == CTRL_DELETED) => {
+                self.tombstones = (self.tombstones - usize(1));
+              },
+              true => ()
+            );
             (ctrl_ptr.add(index)).* = h2;
             new_bucket := MapEntry(K, V)(key : key, value : value);
             consume((data_ptr.add(index)).* = new_bucket);
@@ -426,7 +447,19 @@ impl(
         unsafe.drop(bucket_ptr.*.key);
         // Drop the bucket's value extra ref (we duped it above)
         unsafe.drop(bucket_ptr.*.value);
-        (ctrl_ptr.add(index)).* = CTRL_DELETED;
+        // Linear probing stops at the first EMPTY slot, so if the NEXT slot is
+        // EMPTY no live key's probe chain passes through this one and it can
+        // go straight back to EMPTY. Otherwise it must stay a tombstone: a key
+        // inserted later may have probed past it.
+        cond(
+          ((ctrl_ptr.add((index + usize(1)) % self.capacity)).* == CTRL_EMPTY) => {
+            (ctrl_ptr.add(index)).* = CTRL_EMPTY;
+          },
+          true => {
+            (ctrl_ptr.add(index)).* = CTRL_DELETED;
+            self.tombstones = (self.tombstones + usize(1));
+          }
+        );
         self.size = (self.size - usize(1));
         .Some(value)
       },
@@ -475,6 +508,7 @@ impl(
       (ctrl_ptr.add(i)).* = CTRL_EMPTY;
     });
     self.size = usize(0);
+    self.tombstones = usize(0);
   })
 );
 /// The entry-style accessors (plans/STD_API_AUDIT.md §7 collections row):

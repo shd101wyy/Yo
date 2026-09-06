@@ -153,27 +153,30 @@ html_decode :: (fn(input : String) -> String)({
   });
   table := _char_table(input);
   (len : usize) = table.len();
-  (result : String) = ``;
+  // Appended in place: rebuilding `result` through a template string per
+  // character made the whole decode O(n²) (plans/STD_API_STABILIZATION.md §3
+  // item 14).
+  (result : String) = String.with_capacity(input.len());
   (i : usize) = usize(0);
   while(i < len, {
     c := table(i)._1;
     if(c != rune(u32('&')), {
       // Not an entity start, just append the character
-      result = `${result}${from_code_point(i32(c.to_u32()))}`;
+      _a := result.push_string(from_code_point(i32(c.to_u32())));
       i = (i + usize(1));
     }, {
       // Found '&' — try to decode entity
       (start : usize) = i;
       i = (i + usize(1));
       if(i >= len, {
-        result = `${result}&`;
+        _a := result.push_str("&");
       }, {
         next := table(i)._1;
         if(next == rune(u32('#')), {
           // Numeric entity: &#N; or &#xN;
           i = (i + usize(1));
           if(i >= len, {
-            result = `${result}&#`;
+            _a := result.push_str("&#");
           }, {
             hex_char := table(i)._1;
             if((hex_char == rune(u32('x'))) || (hex_char == rune(u32('X'))), {
@@ -199,15 +202,16 @@ html_decode :: (fn(input : String) -> String)({
                   i = digit_end;
                 });
                 if(is_valid_entity_code(code), {
-                  result = `${result}${from_code_point(code)}`;
+                  _a := result.push_string(from_code_point(code));
                 }, {
                   // Invalid code (e.g., surrogates) — keep original entity text
                   (orig_hex : String) = _slice_runes(input, table, start, i);
-                  result = `${result}${orig_hex}`;
+                  _a := result.push_string(orig_hex);
                 });
               }, {
                 // No hex digits — output literally
-                result = `${result}&#${from_code_point(i32(hex_char.to_u32()))}`;
+                _a := result.push_str("&#");
+                _b := result.push_string(from_code_point(i32(hex_char.to_u32())));
                 i = (i + usize(1));
               });
             }, {
@@ -233,15 +237,15 @@ html_decode :: (fn(input : String) -> String)({
                   i = digit_end;
                 });
                 if(is_valid_entity_code(code), {
-                  result = `${result}${from_code_point(code)}`;
+                  _a := result.push_string(from_code_point(code));
                 }, {
                   // Invalid code (e.g., surrogates) — keep original entity text
                   (orig_dec : String) = _slice_runes(input, table, start, i);
-                  result = `${result}${orig_dec}`;
+                  _a := result.push_string(orig_dec);
                 });
               }, {
                 // No decimal digits
-                result = `${result}&#`;
+                _a := result.push_str("&#");
               });
             });
           });
@@ -267,12 +271,14 @@ html_decode :: (fn(input : String) -> String)({
             match(
               _entity_map.get(name_str),
               .Some(decoded) => {
-                result = `${result}${decoded}`;
+                _a := result.push_string(decoded);
                 i = (name_end + usize(1));
               },
               .None => {
                 // Unknown entity — output literally
-                result = `${result}&${name_str};`;
+                _a := result.push_str("&");
+                _b := result.push_string(name_str);
+                _c := result.push_str(";");
                 i = (name_end + usize(1));
               }
             );
@@ -286,7 +292,7 @@ html_decode :: (fn(input : String) -> String)({
                 match(
                   _entity_map.get(try_name),
                   .Some(decoded) => {
-                    result = `${result}${decoded}`;
+                    _a := result.push_string(decoded);
                     i = try_end;
                     matched = true;
                   },
@@ -300,7 +306,7 @@ html_decode :: (fn(input : String) -> String)({
             });
             if(!matched, {
               // No legacy match — output '&' literally and continue
-              result = `${result}&`;
+              _a := result.push_str("&");
               i = name_start;
             });
           });

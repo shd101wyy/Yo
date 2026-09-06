@@ -226,3 +226,33 @@ test("sort and sort_by handle RC (String) elements", {
   assert(list(usize(3)) == `apple`, "descending tail");
   assert(list.len() == usize(4), "no element lost");
 });
+test("retain over twenty thousand elements is one pass and leaves refcounts balanced", {
+  // issues/fixed/array-list-retain-is-quadratic.md: the previous shape called
+  // drain(i .. i + 1) per rejection — O(n²) and an allocation each. The
+  // survivors share ONE RC value so its refcount is the leak / double-drop
+  // witness: every kept slot holds a reference, every dropped slot released
+  // one, and clear() takes it back to the baseline.
+  shared := `keep-shared`.to_string();
+  base := rc(shared);
+  list := ArrayList(String).new();
+  (i : i32) = i32(0);
+  while(i < i32(20000), i = (i + i32(1)), {
+    cond(
+      ((i % i32(4)) == i32(0)) => {
+        list.push(shared);
+      },
+      true => {
+        list.push(`drop-${i}`.to_string());
+      }
+    );
+  });
+  with_all := rc(shared);
+  list.retain(v => v.starts_with(`keep`));
+  assert(list.len() == usize(5000), "one in four kept");
+  assert(list(usize(0)) == `keep-shared`, "head kept");
+  assert(list(usize(4999)) == `keep-shared`, "tail kept");
+  assert(rc(shared) == with_all, "every surviving slot still holds exactly one reference");
+  list.retain(v => false);
+  assert(list.len() == usize(0), "reject everything");
+  assert(rc(shared) == base, "all references released, none double-released");
+});

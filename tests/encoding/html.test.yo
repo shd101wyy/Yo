@@ -90,3 +90,18 @@ test("html_decode(html_encode(s)) is the identity", {
   s := `<script>alert("x & 'y' < z >")</script> é你`.to_string();
   assert(html_decode(html_encode(s.clone())) == s, "round trip");
 });
+test("html_decode is a single pass: a 20k-entity document decodes promptly and in order", {
+  // plans/STD_API_STABILIZATION.md §3 item 14: `result` was rebuilt through a
+  // template string per character, so a document this size was O(n²) —
+  // hundreds of billions of byte copies — and never finished.
+  (src : String) = String.with_capacity(usize(400000));
+  (i : usize) = usize(0);
+  while(i < usize(20000), i = (i + usize(1)), {
+    _a := src.push_str("x&amp;y&#60;&#x3E;é ");
+  });
+  out := html_decode(src);
+  unit_len := `x&y<>é `.to_string().len();
+  assert(out.len() == (usize(20000) * unit_len), "every entity decoded, nothing dropped");
+  assert(out.starts_with(`x&y<>é x&y<>é `), "decoded in order");
+  assert(out.ends_with(`x&y<>é `), "to the end");
+});

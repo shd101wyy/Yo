@@ -159,11 +159,18 @@ Performance cliffs that are correctness in practice:
 13. **Hash tombstones are never reclaimed** — `remove` writes `CTRL_DELETED`
     but `_needs_resize` counts only live `size`, so insert/remove churn degrades
     every probe to O(capacity) (`hash_map.yo:254-259, 429`; `hash_set.yo:246,
-    385`). **`Deque._grow` has no C35 overflow guard** (`deque.yo:50-52`), nor
-    does `imm/vec._raw_alloc` (`vec.yo:79`).
+    385`) — **FIXED 2026-09-06**: a `tombstones` count feeds the load
+    threshold, a mostly-tombstone table rehashes in place, and an isolated
+    remove goes straight back to `EMPTY`
+    (`issues/fixed/hash-tombstones-are-never-reclaimed.md`). **`Deque._grow`
+    has no C35 overflow guard** (`deque.yo:50-52`), nor does
+    `imm/vec._raw_alloc` (`vec.yo:79`) — _(both guarded in PR #445)_.
 14. **`html_decode` is O(n²)** — rebuilds the result via a template string per
-    character (`html.yo:162` + 12 sites). **`ArrayList.retain` is O(n²)** with an
-    allocation per rejection (`array_list.yo:1160-1173`).
+    character (`html.yo:162` + 12 sites) — **FIXED 2026-09-06**: appends in
+    place into a pre-sized `String`. **`ArrayList.retain` is O(n²)** with an
+    allocation per rejection (`array_list.yo:1160-1173`) — **FIXED 2026-09-06**:
+    one pass over push / clear / extend, `rc()`-witnessed
+    (`issues/fixed/array-list-retain-is-quadratic.md`).
 
 Convention violations that change signatures (do them in the same breaking
 window as D9–D18):
