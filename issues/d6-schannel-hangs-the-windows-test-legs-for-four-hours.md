@@ -137,3 +137,27 @@ server"). Both pass on macOS. If these hang on Windows, the defect is in how
 `runtime_io_windows.yo` completes an `AcceptEx` that was armed BEFORE the
 peer connected (or a `read` armed before data arrives) when another task on
 the same loop is the peer.
+
+### Round 2 verdict (2026-09-06 16:00 CST)
+
+Both Windows legs of #443 (run with `de2385960`) were cut at the 75-minute
+deadline. Their logs show the two round-1 probes PASSING on both
+`windows-latest` and `windows-11-arm`, and then nothing: **the first round-2
+probe — "accept pending in a spawned task before the client connects" — is
+the hang**, on both architectures. The probe's own progress lines were lost
+with the killed process's stdout buffer, so `de2385960`'s logs cannot say how
+far it got; the follow-up commit prints them to stderr, so the next run's log
+will show whether the server task ever printed `server: accept 0 pending`
+(the spawned task was polled and armed the accept) and whether the client
+got past `connect` / `write` / `read_to_end`.
+
+The shape that hangs, precisely: `server := io.spawn(task)` where the task's
+first await is `listener.accept`; then, on the SAME event loop,
+`io.await(TcpStream.connect(addr))`, `write_str`, `read_to_end`. Plain
+sequential accept-then-exchange (round 1) works, so the suspects are, in
+order: (1) an `AcceptEx` armed while no connection exists is never completed
+when the connection later arrives from the same loop (`__yo_async_accept_start`,
+`runtime_io_windows.yo:3181`); (2) the spawned task is never polled once main
+blocks in `__yo_io_wait` on the client's read; (3) the loop-back `connect`
+completing synchronously on Windows (`ConnectEx` on a bound listener) and the
+completion packet being dropped. Read the stderr lines of the next run first.
