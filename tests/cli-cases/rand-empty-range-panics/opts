@@ -1,0 +1,10 @@
+# issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md:
+# `Rng.range(x, x)` computed `next_below(0)` and died in `% 0` (SIGFPE on x86,
+# a silent wrong number on arm64 — so the same program was a crash on one CI
+# leg and a wrong answer on another). Both now panic with a message naming the
+# call. The program compiles cleanly and PANICS at run time; `build run`
+# propagates that as a non-zero rc. The panic message rides stderr with build
+# chatter and ends in a machine-specific `(at file:///…/std/rand.yo:L:C)`, so
+# stdout keeps only the diagnostic substring.
+stdout_keep_match=Rng\.range: empty range \(high <= low\)
+timeout=300

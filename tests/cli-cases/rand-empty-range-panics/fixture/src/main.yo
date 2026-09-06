@@ -1,0 +1,9 @@
+{ Rng } :: import("std/rand");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  r := Rng.new(u64(42));
+  println(`in range: ${r.range(i64(1), i64(2))}`);
+  // Empty range: high == low. Used to be a division by zero inside next_below.
+  println(`empty range: ${r.range(i64(3), i64(3))}`);
+});
+export(main);

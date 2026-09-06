@@ -678,3 +678,43 @@ test("a derive whose impl cannot register is rejected, and the cured forms still
   assert(p < q, "the combined derive(S, Eq(S), Ord(S)) form still orders");
   assert(p == OrdCombined(u8(3)), "and still compares");
 });
+// ============================================================
+// derive on a NON-aggregate is rejected by the `derive` builtin itself
+// ============================================================
+// Pins the guard ("derive only works on struct and enum types"): the rules'
+// own `true =>` fallback arms — which would compile an impl that compares,
+// hashes or clones nothing — are unreachable through `derive`, and this is
+// what keeps them so. (plans/STD_API_STABILIZATION.md §3 item 11 had read those
+// arms as a live defect; they are dead code behind this guard.)
+DeriveTupleT :: Tuple(i32, i32);
+comptime_expect_error({
+  derive(DeriveTupleT, Eq(DeriveTupleT));
+});
+comptime_expect_error({
+  derive(DeriveTupleT, Clone);
+});
+DeriveUnionT :: union(a : i32, b : bool);
+comptime_expect_error({
+  derive(DeriveUnionT, Hash);
+});
+comptime_expect_error({
+  derive(DeriveUnionT, ToString);
+});
+DeriveArrayT :: Array(i32, usize(2));
+comptime_expect_error({
+  derive(DeriveArrayT, Eq(DeriveArrayT));
+});
+// Over-rejection canaries: a field-less struct and an all-unit-variant enum
+// are the smallest aggregates the guard admits, and every rule must take them.
+DeriveEmptyS :: struct();
+derive(DeriveEmptyS, Eq(DeriveEmptyS), Clone, Hash, ToString);
+DeriveUnitE :: enum(A, B);
+derive(DeriveUnitE, Eq(DeriveUnitE), Clone, Hash, ToString);
+test("derive on a tuple, union or array is a comptime error; the smallest aggregates still derive", {
+  assert(DeriveEmptyS() == DeriveEmptyS(), "unit struct Eq");
+  assert(DeriveUnitE.A == DeriveUnitE.A, "unit enum Eq");
+  assert(DeriveUnitE.A != DeriveUnitE.B, "unit enum Ne");
+  assert(DeriveUnitE.B.clone() == DeriveUnitE.B, "unit enum Clone");
+  assert(hash_one(DeriveUnitE.A) != hash_one(DeriveUnitE.B), "unit enum Hash separates variants");
+  assert(DeriveUnitE.B.to_string() == `DeriveUnitE.B`, "unit enum ToString");
+});

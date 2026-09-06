@@ -61,23 +61,36 @@ impl(
   ),
   /// A uniform value below `bound` — REJECTION-sampled, so it is exactly
   /// uniform (no modulo bias; that bias is the C5 defect crypto/random had
-  /// to fix). `bound` must be non-zero.
-  next_below : (fn(self : Self, bound : u64) -> u64)({
-    // threshold = 2^64 mod bound; reject draws under it so the remaining
-    // range is an exact multiple of bound.
-    threshold := ((u64(0) - bound) % bound);
-    (r : u64) = self.next_u64();
-    while(r < threshold, {
-      r = self.next_u64();
-    });
-    r % bound
-  }),
-  /// A uniform integer in the half-open range `[low, high)`. Panics via
-  /// wrap if `high <= low` — validate at the call site.
-  range : (fn(self : Self, low : i64, high : i64) -> i64)({
-    span := u64(high - low);
-    low + i64(self.next_below(span))
-  }),
+  /// to fix). Panics for `bound == 0`: there is no value below zero, and the
+  /// `% bound` below was a SIGFPE on x86 / a silent 0 on arm64
+  /// (issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md).
+  next_below : (fn(self : Self, bound : u64) -> u64)(
+    cond(
+      (bound == u64(0)) => __yo_panic("Rng.next_below: bound must be non-zero"),
+      true => {
+        // threshold = 2^64 mod bound; reject draws under it so the remaining
+        // range is an exact multiple of bound.
+        threshold := ((u64(0) - bound) % bound);
+        (r : u64) = self.next_u64();
+        while(r < threshold, {
+          r = self.next_u64();
+        });
+        r % bound
+      }
+    )
+  ),
+  /// A uniform integer in the half-open range `[low, high)`. Panics if the
+  /// range is empty (`high <= low`), like Rust's `gen_range` — an empty range
+  /// has no value to return.
+  range : (fn(self : Self, low : i64, high : i64) -> i64)(
+    cond(
+      (high <= low) => __yo_panic("Rng.range: empty range (high <= low)"),
+      true => {
+        span := u64(high - low);
+        low + i64(self.next_below(span))
+      }
+    )
+  ),
   /// Fisher–Yates shuffle, in place.
   shuffle : (fn(generic(T : Type), self : Self, xs : ArrayList(T)) -> unit)({
     (i : usize) = xs.len();
