@@ -161,3 +161,34 @@ when the connection later arrives from the same loop (`__yo_async_accept_start`,
 blocks in `__yo_io_wait` on the client's read; (3) the loop-back `connect`
 completing synchronously on Windows (`ConnectEx` on a bound listener) and the
 completion packet being dropped. Read the stderr lines of the next run first.
+
+### Root cause (2026-09-06 16:10 CST) — `accept` blocked the event loop
+
+`src/codegen/async/runtime_io_windows.yo`'s `__yo_async_accept_start` was a
+plain **blocking `accept()`** on the loop thread (and `connect_start` a
+blocking `connect()`), wrapped in an already-completed future. Every
+"async" accept therefore blocked the whole single-threaded event loop until a
+peer connected:
+
+- round 1's probes and every pre-existing TCP test connect FIRST and accept
+  second — `accept()` returns at once, nothing notices;
+- the redirect test and the round-2 probe spawn the server task first, so its
+  `accept` runs while the client — on the SAME loop — has not connected yet.
+  `accept()` blocks the thread; the client's `connect` never runs; the leg
+  hangs until the job deadline. Both architectures, deterministically.
+
+The Schannel work was never the problem; it just un-skipped the first test
+with this shape.
+
+**Fix (pushed to `d6/step2-unskip`):** an overlapped `AcceptEx` path. The
+extension pointers (`AcceptEx`, `GetAcceptExSockaddrs`) are fetched through
+`WSAIoctl(SIO_GET_EXTENSION_FUNCTION_POINTER)` — `<mswsock.h>` for the
+typedefs, no new import library, so the four Windows link-flag sites stay
+untouched. The overlapped record gains an `is_accept` branch: on completion
+the accepted socket gets `SO_UPDATE_ACCEPT_CONTEXT`, the peer address is
+copied out via `GetAcceptExSockaddrs`, and the socket joins the completion
+port with `FILE_SKIP_COMPLETION_PORT_ON_SUCCESS` exactly as the old path did;
+a synchronous `AcceptEx` return is finished inline. The blocking `accept()`
+remains only as the fallback when the extension cannot be fetched.
+`connect_start` is still the blocking `connect()` — harmless for loopback
+(completes immediately) but the same class; `ConnectEx` is the follow-up.
