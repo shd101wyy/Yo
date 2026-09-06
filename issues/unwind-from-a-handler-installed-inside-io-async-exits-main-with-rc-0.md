@@ -61,6 +61,33 @@ design question:
    not say, and the std has no precedent (`grep -rn "unwind(" std` finds only
    regex parser method names).
 
+## Second shape: SIGSEGV
+
+Moving the failing `await` into a helper called from `main`
+(`issues/repros/unwind-inside-io-async-helper-sigsegv.yo`) crashes the process
+instead — rc 139, no output at all (stdout's buffer dies with it):
+
+```rust
+_run_fail :: (fn(io : Io, exn : Exception) -> String)({
+  e := IoExn(io : io, exn : exn);
+  r := _show(io.await(_guarded(true, io), e));   // the local handler unwinds inside _guarded's async body
+  println(`inside helper: ${r}`);
+  r
+});
+```
+
+So the same construct is a silent rc-0 exit in one frame shape and a
+segfault in another: `unwind` from a handler installed inside an `io.async`
+body has no well-defined install frame once the state machine runs from the
+event loop, and the emitted C jumps somewhere it should not.
+
+**Recommended fix order:** (1) make the evaluator REJECT a `ctl` value that
+`unwind`s when it is bound inside an `io.async` body (a clear compile error:
+"unwind inside an async body is not supported; return a Result from the
+future instead"), so no program can reach the crash; (2) then decide the
+real semantics — the useful one is "resolve the enclosing future with the
+unwound value", which is what a per-connection error handler needs.
+
 ## Consequence for the std
 
 Per-connection error recovery therefore has to be built WITHOUT catching:
