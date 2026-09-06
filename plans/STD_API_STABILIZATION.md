@@ -188,7 +188,11 @@ window as D9–D18):
 
 15. **`Result(_, String)` in five exported APIs** — `env.cwd/current_exe/chdir`
     (`env.yo:166,266,414` — io-path, should throw `IoExn`) and
-    `http.parse_request/parse_response` (`http.yo:231,313` → `HttpParseError`).
+    `http.parse_request/parse_response` (`http.yo:231,313` → `HttpParseError`)
+    — **http half FIXED 2026-09-06** (`HttpParseError` enum, D13;
+    `issues/fixed/http-parse-errors-were-bare-strings.md`); the `env` half is
+    still open: 48 compiler call sites match on the `Result` — do it in the
+    v0.2.27 breaking window.
 16. **`BTreeMap.insert -> unit`** drops the old value (`btree_map.yo:77-82`) and
     discards `push`'s `Result` then underflows `len() - 1` (:86-87); same
     discard in `priority_queue.yo:49` — **FIXED 2026-09-06**: `insert ->

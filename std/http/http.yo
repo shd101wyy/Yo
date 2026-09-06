@@ -228,26 +228,68 @@ impl(
     })
   )
 );
+/// Why a raw HTTP message did not parse — the error of `parse_request` and
+/// `parse_response`, which are pure decoders and so return `Result` (D13).
+/// Each variant carries the offending text; `to_string` renders the line a
+/// server puts in its `400` body. Until 2026-09-06 the two functions returned
+/// `Result(_, String)`, the one std shape a caller could neither match on nor
+/// distinguish from any other string
+/// (issues/fixed/http-parse-errors-were-bare-strings.md).
+HttpParseError :: enum(
+  /// No start line at all.
+  Empty,
+  /// A response whose first line is not `HTTP/<v> <code> <text>`.
+  InvalidStatusLine(line : String),
+  /// A status code that is not an integer.
+  InvalidStatusCode(text : String),
+  /// A request line that is not exactly `<method> <target> <version>`.
+  InvalidRequestLine(line : String),
+  /// A request method outside `HttpMethod`.
+  UnknownMethod(name : String),
+  /// A request version other than `HTTP/1.1` / `HTTP/1.0`.
+  UnsupportedVersion(version : String),
+  /// A header line without a `:`.
+  InvalidHeaderLine(line : String)
+);
+impl(
+  HttpParseError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .Empty => `Empty message`,
+          .InvalidStatusLine(line) => `Invalid status line: ${line}`,
+          .InvalidStatusCode(text) => `Invalid status code: ${text}`,
+          .InvalidRequestLine(line) => `Invalid request line: ${line}`,
+          .UnknownMethod(name) => `Unknown method: ${name}`,
+          .UnsupportedVersion(version) => `Unsupported HTTP version: ${version}`,
+          .InvalidHeaderLine(line) => `Invalid header line: ${line}`
+        )
+    )
+  )
+);
+impl(HttpParseError, Error());
 /// Parse a raw HTTP response string into an `HttpResponse`.
-parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
+parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
   lines := raw.split(`\r\n`);
   cond(
     (lines.len() == usize(0)) => {
-      return(.Err(`Empty response`));
+      return(.Err(HttpParseError.Empty));
     },
     true => ()
   );
   status_line := lines(usize(0));
   cond(
     !status_line.starts_with(`HTTP/`) => {
-      return(.Err(`Invalid status line`));
+      return(.Err(HttpParseError.InvalidStatusLine(status_line)));
     },
     true => ()
   );
   sp1_opt := status_line.index_of(` `);
   cond(
     sp1_opt.is_none() => {
-      return(.Err(`Invalid status line format`));
+      return(.Err(HttpParseError.InvalidStatusLine(status_line)));
     },
     true => ()
   );
@@ -256,7 +298,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
   sp2_opt := rest.index_of(` `);
   cond(
     sp2_opt.is_none() => {
-      return(.Err(`Invalid status line format`));
+      return(.Err(HttpParseError.InvalidStatusLine(status_line)));
     },
     true => ()
   );
@@ -266,7 +308,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
   code_opt := code_str.parse_i32();
   cond(
     code_opt.is_none() => {
-      return(.Err(`Invalid status code`));
+      return(.Err(HttpParseError.InvalidStatusCode(code_str)));
     },
     true => ()
   );
@@ -311,7 +353,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, String))({
 /// `HttpRequest`. The body is taken verbatim — `read_http_message` has
 /// already decoded chunked framing when it read the message. Errors name the
 /// defect (`Invalid request line`, unknown method, unsupported HTTP version).
-parse_request :: (fn(raw : String) -> Result(HttpRequest, String))({
+parse_request :: (fn(raw : String) -> Result(HttpRequest, HttpParseError))({
   header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
   head := raw.substring(usize(0), header_end);
   // The body is sliced as BYTES: it may be binary (a body starting with a
@@ -334,7 +376,7 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, String))({
   lines := head.split(`\r\n`);
   cond(
     ((lines.len() == usize(0)) || lines(usize(0)).is_empty()) => {
-      return(.Err(`Empty request`));
+      return(.Err(HttpParseError.Empty));
     },
     true => ()
   );
@@ -342,7 +384,7 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, String))({
   parts := request_line.split(` `);
   cond(
     (parts.len() != usize(3)) => {
-      return(.Err(`Invalid request line: ${request_line}`));
+      return(.Err(HttpParseError.InvalidRequestLine(request_line)));
     },
     true => ()
   );
@@ -350,13 +392,13 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, String))({
     HttpMethod.from_str(parts(usize(0))),
     .Some(m) => m,
     .None => {
-      return(.Err(`Unknown method: ${parts(usize(0))}`));
+      return(.Err(HttpParseError.UnknownMethod(parts(usize(0)))));
     }
   );
   version := parts(usize(2));
   cond(
     ((version != `HTTP/1.1`) && (version != `HTTP/1.0`)) => {
-      return(.Err(`Unsupported HTTP version: ${version}`));
+      return(.Err(HttpParseError.UnsupportedVersion(version)));
     },
     true => ()
   );
@@ -372,7 +414,7 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, String))({
         req.headers.push(HttpHeader.new(hname, hval));
       },
       .None => {
-        return(.Err(`Invalid header line: ${hline}`));
+        return(.Err(HttpParseError.InvalidHeaderLine(hline)));
       }
     );
   });
@@ -436,4 +478,4 @@ impl(
 impl(HttpError, Error());
 export(HttpError);
 export(HttpMethod, HttpHeader, HttpRequest, HttpResponse);
-export(parse_response, parse_request, http_status_text);
+export(HttpParseError, parse_response, parse_request, http_status_text);

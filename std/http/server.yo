@@ -84,7 +84,7 @@ impl(
         .Ok(raw) => match(
           parse_request(raw),
           .Ok(req) => handler(req),
-          .Err(msg) => HttpResponse.with_status(i32(400)).with_body(msg)
+          .Err(perr) => HttpResponse.with_status(i32(400)).with_body(perr.to_string())
         ),
         .Err(ferr) => match(
           ferr,
