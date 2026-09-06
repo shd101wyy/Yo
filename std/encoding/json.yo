@@ -778,12 +778,32 @@ _parse_value :: (fn(p : _Parser) -> Result(JsonValue, JsonError))({
 // ============================================================================
 // Public API
 // ============================================================================
-/// Parse JSON bytes into a `JsonValue` tree. Throws via `Exception` on invalid input.
+/// RFC 8259 §2: "A JSON text is a serialized value." Exactly one — so after
+/// the value is parsed the cursor must be at end of input, whitespace aside.
+/// Without this `[1,2][3,4]` parsed as `[1,2]` and `1 garbage` as `1`: the
+/// trailing bytes were silently dropped and the caller was handed `.Ok` for
+/// input that is not JSON
+/// (`issues/fixed/json-parse-accepts-trailing-content-after-the-value.md`).
+_expect_eof :: (fn(p : _Parser) -> Result(unit, JsonError))({
+  p.skip_ws();
+  match(
+    p.peek(),
+    .None => .Ok(()),
+    .Some(c) => .Err(JsonError.UnexpectedChar(c, p.pos))
+  )
+});
+/// Parse JSON bytes into a `JsonValue` tree. Throws via `Exception` on invalid
+/// input, INCLUDING any content after the single top-level value.
 json_parse_bytes :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)({
   p := _Parser.new(bytes);
   match(
     _parse_value(p),
-    .Ok(v) => v,
+    .Ok(v) =>
+      match(
+        _expect_eof(p),
+        .Ok(_) => v,
+        .Err(e) => exn.throw(dyn(e))
+      ),
     .Err(e) => exn.throw(dyn(e))
   )
 });
@@ -1336,7 +1356,11 @@ impl(
 /// plumbing — the decode-side counterpart of `json_stringify`).
 json_parse_result :: (fn(s : String) -> Result(JsonValue, JsonError))({
   p := _Parser.new(s.as_bytes());
-  _parse_value(p)
+  match(
+    _parse_value(p),
+    .Ok(v) => match(_expect_eof(p), .Ok(_) => .Ok(v), .Err(e) => .Err(e)),
+    .Err(e) => .Err(e)
+  )
 });
 /// Serialise any `ToJson` value to JSON text.
 json_encode :: (fn(generic(T : Type), v : T, where(T <: ToJson)) -> String)(

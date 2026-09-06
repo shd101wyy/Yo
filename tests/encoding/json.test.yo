@@ -763,3 +763,44 @@ test("derived roundtrip with a None Option field", {
     .Err(_) => assert(false, "decode should succeed for a None field")
   );
 });
+// ===== RFC 8259 §2: a JSON text is ONE serialized value =====
+// issues/fixed/json-parse-accepts-trailing-content-after-the-value.md — the
+// parser stopped at the end of the first value and never checked it had
+// consumed the input, so `[1,2][3,4]` came back `.Ok([1,2])`.
+test("json_parse_result rejects content after the top-level value", {
+  cases := ArrayList(String).new();
+  cases.push(`[1,2][3,4]`.to_string());
+  cases.push(`1 garbage`.to_string());
+  cases.push(`[1,2]]]]`.to_string());
+  cases.push(`null null`.to_string());
+  cases.push(`{"a":1} {"b":2}`.to_string());
+  i := usize(0);
+  while(runtime(i < cases.len()), {
+    src := cases(i);
+    assert(
+      match(json_parse_result(src.clone()), .Ok(_) => false, .Err(_) => true),
+      `expected trailing content to be rejected: ${src}`
+    );
+    i = (i + usize(1));
+  });
+});
+test("json_parse_result still accepts a lone value with surrounding whitespace", {
+  assert(match(json_parse_result(`  [1,2]  `.to_string()), .Ok(_) => true, .Err(_) => false), "whitespace around one value is fine");
+  assert(match(json_parse_result(`null`.to_string()), .Ok(_) => true, .Err(_) => false), "a bare null is one value");
+  assert(match(json_parse_result(`{"a":1}`.to_string()), .Ok(_) => true, .Err(_) => false), "a lone object is one value");
+});
+test("json_parse throws on content after the value, and names the position", {
+  // The handler unwinds, so the assert below is reached only if NO throw
+  // happened. A ctl handler cannot capture an enclosing runtime local, which
+  // is why the outcome is encoded in reachability rather than a flag.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(err.to_string().contains(`unexpected character at position 5`), `want the offending position, got ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  json_parse("[1,2][3,4]", exn);
+  assert(false, "json_parse must throw on trailing content");
+});
