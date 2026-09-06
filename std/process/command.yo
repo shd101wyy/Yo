@@ -631,10 +631,14 @@ impl(
       out
     })
   }),
-  /// Send a signal to the child (e.g. 15 = SIGTERM, 9 = SIGKILL).
-  kill : (fn(self : Self, signum : i32) -> i32)(
-    IO_process.kill(self._pid, signum)
-  ),
+  /// Send a signal to the child (e.g. 15 = SIGTERM, 9 = SIGKILL). A failure —
+  /// `ESRCH` once the child has been reaped, `EPERM` — is thrown as an
+  /// `IoError` through `exn`, Rust's `Child::kill -> io::Result<()>`. Until
+  /// 2026-09-06 this handed back the raw `-errno` as an `i32`
+  /// (issues/fixed/child-kill-returned-a-raw-errno.md).
+  kill : (fn(self : Self, signum : i32, exn : Exception) -> unit)({
+    _rc := IoError.check(IO_process.kill(self._pid, signum), exn);
+  }),
   /// Wait for the child to exit and return its status. Closes any pipe fds
   /// still open on this handle.
   wait : (fn(self : Self, io : Io) -> Impl(Future(ExitStatus, IoExn)))(

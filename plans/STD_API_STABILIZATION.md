@@ -191,8 +191,12 @@ window as D9–D18):
     `http.parse_request/parse_response` (`http.yo:231,313` → `HttpParseError`).
 16. **`BTreeMap.insert -> unit`** drops the old value (`btree_map.yo:77-82`) and
     discards `push`'s `Result` then underflows `len() - 1` (:86-87); same
-    discard in `priority_queue.yo:49`.
-17. **`Child.kill -> i32` errno** (`process/command.yo:635`) → throws `IoExn`.
+    discard in `priority_queue.yo:49` — **FIXED 2026-09-06**: `insert ->
+    Option(V)` (the replaced value), both push results guarded
+    (`issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md`).
+17. **`Child.kill -> i32` errno** (`process/command.yo:635`) → throws `IoExn` —
+    **FIXED 2026-09-06**: `kill(signum, exn)` throws the errno as an `IoError`
+    through `IoError.check` (`issues/fixed/child-kill-returned-a-raw-errno.md`).
 18. **One malformed request kills `HttpServer.serve`** — framing throws
     propagate out of the loop (`http/server.yo:86-113`); and `http/server` has
     no `## Stability` marker, so this shape is already frozen.

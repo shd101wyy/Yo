@@ -212,12 +212,42 @@ test("a signal death is code None, not exit 0", {
   cmd := Command.new(`/bin/sleep`.to_string());
   cmd.arg(`5`.to_string());
   child := io.await(cmd.spawn(io), e);
-  k := child.kill(i32(9));
-  assert(k == i32(0), "kill delivered");
+  child.kill(i32(9), exn);
   st := io.await(child.wait(io), e);
   assert(st.code().is_none(), "signal death has NO exit code");
   assert(st.signal() == i32(9), "SIGKILL recorded");
   assert(st.success() == false, "not a success");
+});
+test("Child.kill after the child was reaped throws ESRCH as an IoError", {
+  // issues/fixed/child-kill-returned-a-raw-errno.md — `kill` handed back the
+  // raw -errno; now the failure is thrown through the caller's Exception.
+  // POSIX-only like the other spawn tests here (/bin/sleep; posix_spawn plumbing).
+  if(platform == Platform.Windows, {
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  ok_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : ok_exn);
+  cmd := Command.new(`/bin/sleep`.to_string());
+  cmd.arg(`0`.to_string());
+  child := io.await(cmd.spawn(io), e);
+  _st := io.await(child.wait(io), e);
+  // The pid is reaped: a signal to it has nobody to reach.
+  child.kill(i32(15), exn);
+  assert(false, "kill on a reaped child must throw");
 });
 test("Stdio.Null discards child stdout", {
   // POSIX-only (the Child/spawn plumbing is posix_spawn + pipes + fcntl;
