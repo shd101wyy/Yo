@@ -120,3 +120,20 @@ Both pass on macOS. `http.test.yo` is re-gated with `SkipWindows` so the leg
 reaches `tests/net` (it runs after `tests/http`); `tls.test.yo` stays un-gated
 because its live handshake passed. Whichever probe hangs on Windows names the
 runtime path to fix in `src/codegen/async/`.
+
+### Round 2 (2026-09-06 14:20 CST)
+
+`test (windows-latest)` on #443 **passed in 29 min** with both round-1 probes
+in place: a listener accepting three sequential connections, and a client
+reconnecting after the server closes, both work on Windows x64 (the arm leg
+was still running). So neither repeated `accept` nor reconnect-after-close is
+the hang by itself. The redirect test's remaining distinctive shape is the
+server running as a SPAWNED task whose `accept` is already PENDING when the
+client connects, reading the request up to the blank line, then writing and
+closing — three rounds. Two more probes in `tests/net/tcp.test.yo` reproduce
+exactly that in raw TCP ("accept pending in a spawned task before the client
+connects", "three request/response rounds against a spawned scripted
+server"). Both pass on macOS. If these hang on Windows, the defect is in how
+`runtime_io_windows.yo` completes an `AcceptEx` that was armed BEFORE the
+peer connected (or a `read` armed before data arrives) when another task on
+the same loop is the peer.
