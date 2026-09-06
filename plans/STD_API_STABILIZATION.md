@@ -97,7 +97,7 @@ reference-counted — Rust's `Rc`) keeps its name (§5).
 
 Memory safety / UB / deadlock:
 
-1. **`std/imm/vec.yo` leaks and drops uninitialized memory.** `push` grow
+1. **`std/imm/vec.yo` leaks and drops uninitialized memory.** _(fix in PR #445)_ `push` grow
    (144-149) and `concat` grow (236-247) `free` the old buffer without dropping
    the elements `_copy_elems` (87-100) dup'd; `pop`'s unique path (189-193)
    leaves the popped slot outside the `Dispose` loop. `map` (292), `filter`
@@ -125,9 +125,9 @@ Memory safety / UB / deadlock:
 
 Wrong values:
 
-6. **`IpAddr.parse_v4`** accepts `"..."` as `0.0.0.0` and wraps octets past
+6. _(fix in PR #446)_ **`IpAddr.parse_v4`** accepts `"..."` as `0.0.0.0` and wraps octets past
    `u32` (`net/addr.yo:37-88`).
-7. **`UdpSocket.bind` echoes the bind argument** so an ephemeral-port bind
+7. _(fix in PR #446)_ **`UdpSocket.bind` echoes the bind argument** so an ephemeral-port bind
    reports port 0 (`net/udp.yo:87`; TCP got this fix as C2, `tcp.yo:168-181`);
    **`UdpSocket.send` requires a `connect` that does not exist** (`udp.yo:119`).
 8. **`Path.strip_prefix` is node's `relative` under Rust's name** — emits `..`
@@ -137,12 +137,22 @@ Wrong values:
     (`encoding/base64.yo:79-110`); **`glob` `[a-z]` ranges are not implemented**
     (literal compare, `glob.yo:133-150`) and `*` backtracks exponentially
     (`glob.yo:22-88`).
-11. **Four `derive_rule`s degrade silently on a non-struct/enum**: `Eq` →
-    always true (`prelude.yo:7034`), `Ord` → all equal (7400), `Hash` → feeds
-    nothing (7219), `Clone` → shallow (7139); `derive(Default)` (7428) shows the
-    right `comptime_assert`. **`Rng.range(x, x)` is a SIGFPE** (`rand.yo:68`).
+11. ~~**Four `derive_rule`s degrade silently on a non-struct/enum**~~ —
+    **WITHDRAWN 2026-09-06 (#447)**: the `derive` builtin itself already rejects
+    anything but a struct or enum ("derive only works on struct and enum
+    types"), verified against the develop prelude, so the rules' `true =>`
+    fallback arms (`Eq` → always true, `Ord` → all equal, `Hash` → feeds
+    nothing, `Clone` → shallow) are dead code behind that guard. Pinned by
+    `tests/derive.test.yo` (five `comptime_expect_error` rejections + the
+    smallest-aggregate canaries) rather than by new prelude code.
+    **`Rng.range(x, x)` is a SIGFPE** (`rand.yo:68`) — **FIXED #447**: it was a
+    silent wrong number on arm64 (`range(3, 3)` → 0) and a SIGFPE on x86;
+    `range` and `next_below` now panic with a message naming the call
+    (`issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md`).
 12. **`fmt.Writer.to_string` aliases the writer's live buffer**
-    (`String.from_bytes` stores the `ArrayList` by reference, `writer.yo:187`).
+    (`String.from_bytes` stores the `ArrayList` by reference, `writer.yo:187`)
+    — **FIXED #447**: the buffer is handed over and the writer reset
+    (`issues/fixed/fmt-writer-to-string-aliases-the-live-buffer.md`).
 
 Performance cliffs that are correctness in practice:
 
