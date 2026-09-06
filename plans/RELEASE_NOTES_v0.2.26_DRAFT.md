@@ -78,14 +78,11 @@ the handshake is proven.
 
 ## Platforms
 
-- **Windows: the Schannel TLS backend is back** (#442, re-landing #413). It
-  compiles and links on both Windows runners and `tls_available()` is observable
-  there. **The TLS and HTTP test suites remain skipped on Windows in this
-  release**: the first attempt ran them against the brand-new backend and the
-  Windows legs hung for the 4-hour job timeout with no log to read. They are
-  un-skipped in a follow-up with a per-test deadline on every network test.
-  Windows `test` legs now carry a 75-minute budget so a hang produces a failed
-  job with a downloadable log.
+- _(Deferred to the next release: the Windows Schannel TLS backend, #442/#443.
+  Both PRs touch `.github/workflows/*`, which needs a token carrying the
+  `workflow` scope; they could not be merged into this release. The D6 root
+  cause — a blocking `accept()` on the Windows event-loop thread — is fixed and
+  awaiting merge, see `plans/D6_TLS_PLAN.md`.)_
 
 ## Correctness
 
