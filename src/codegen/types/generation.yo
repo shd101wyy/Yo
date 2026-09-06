@@ -12,7 +12,7 @@ open(import("std/string"));
 { HashSet } :: import("std/collections/hash_set");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
 { type_contains_some_type, type_uses_small_rc_header } :: import("../../types/utils.yo");
 { lookup_some_resolved_concrete } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -54,7 +54,17 @@ _array_wrapper_name_lt :: (fn(a : String, b : String) -> bool)(
 /// issues/repros/nested-array-wrapper-order.yo). Emit in (length, lex)
 /// order instead: dependency-correct AND deterministic regardless of hash
 /// order (which STRICT_FIXPOINT wants anyway).
-generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
+///
+/// That covers wrapper-inside-wrapper only. A wrapper whose ELEMENT is a
+/// nominal type (`Array(Point, 2)`, `Array(String, 2)`) also needs the
+/// element's DEFINITION first — a C array element must be a complete type, and
+/// the struct pass runs after this one, so the block emitted the wrapper over
+/// nothing but a forward declaration ("array has incomplete element type").
+/// The two directions conflict (a struct with an `Array(T, N)` field needs the
+/// wrapper first), so emission is interleaved instead: `_drain_ready_array_wrappers`
+/// releases a wrapper as soon as its element type is available, and
+/// `generate_type_declarations` drains again after each nominal type it emits.
+_array_wrapper_names_sorted :: (fn(context : CodeGenContext) -> ArrayList(String))({
   keys := ArrayList(String).new();
   kit := context.array_struct_types.keys();
   (kdone : bool) = false;
@@ -87,22 +97,54 @@ generate_array_struct_declarations :: (fn(context : CodeGenContext) -> unit)({
     sorted_keys.push(picked);
     keys.drain(min_i .. (min_i + usize(1)));
   });
-  keys = sorted_keys;
-  n := keys.len();
-  (i : usize) = usize(0);
-  while(i < n, {
-    name := match(keys.get(i), .Some(k) => k, .None => String.from(""));
-    match(
-      context.array_struct_types.get(name.clone()),
-      .Some(info) => {
-        context.emitter.emit_declaration_line("typedef struct { // Array wrapper struct");
-        context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
-        context.emitter.emit_declaration_string_line(`} ${name};`);
-        context.emitter.emit_declaration_line("");
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
+  sorted_keys
+});
+/// Emit one array-wrapper typedef.
+_emit_array_wrapper :: (fn(context : CodeGenContext, name : String) -> unit)({
+  match(
+    context.array_struct_types.get(name.clone()),
+    .Some(info) => {
+      context.emitter.emit_declaration_line("typedef struct { // Array wrapper struct");
+      context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
+      context.emitter.emit_declaration_string_line(`} ${name};`);
+      context.emitter.emit_declaration_line("");
+    },
+    .None => ()
+  );
+});
+/// Emit every pending wrapper whose element type is already DEFINED, repeating
+/// until a full sweep makes no progress — so a wrapper over a wrapper follows
+/// its child without needing a separate sort. Emitted names are removed from
+/// `pending` and added to `available`.
+///
+/// "Element already defined" = the element's C spelling is not one of the names
+/// this pass still owes a definition for (`deferred`), or it is and has already
+/// been emitted. A pointer spelling (`__yo_t3*`) never matches a bare name, so
+/// a wrapper of pointers stays ready — pointer-to-incomplete is legal C.
+_drain_ready_array_wrappers :: (
+  fn(context : CodeGenContext, pending : ArrayList(String), available : HashSet(String), deferred : HashSet(String)) -> unit
+)({
+  (progress : bool) = true;
+  while(progress, {
+    progress = false;
+    (i : usize) = usize(0);
+    while(i < pending.len(), {
+      name := match(pending.get(i), .Some(k) => k, .None => String.from(""));
+      child := match(
+        context.array_struct_types.get(name.clone()),
+        .Some(info) => info.child_type.clone(),
+        .None => String.from("")
+      );
+      ready := (!deferred.contains(child.clone()) || available.contains(child));
+      if(ready, {
+        _emit_array_wrapper(context, name.clone());
+        _av := available.insert(name);
+        pending.drain(i .. (i + usize(1)));
+        progress = true;
+      }, {
+        i = (i + usize(1));
+      });
+    });
   });
 });
 /// Generate the builtin `str` type declaration. Mirrors `generateStrTypeDeclaration`.
@@ -940,6 +982,17 @@ _walk_by_value_dep :: (fn(deps_set : HashSet(String), ft : TypeValue, self_type_
     is_function_type(ft) => {
       _walk_add_dep(deps_set, ft, self_type_id, cname_to_typeid, context);
     },
+    // An `Array(T, N)` field embeds N copies of T BY VALUE (through the
+    // generated wrapper struct), so the declaring type must follow T's
+    // definition just as a plain `T` field would. Without this edge a struct
+    // with an `Array(Point, 2)` field could be ordered before `Point` and the
+    // wrapper's drain (see _drain_ready_array_wrappers) would release the
+    // wrapper too late — "array has incomplete element type".
+    is_array_type(ft) => match(
+      ft,
+      .Array(elem, _, _) => recur(deps_set, elem, self_type_id, guard_nullable, cname_to_typeid, context),
+      _ => ()
+    ),
     true => ()
   )
 );
@@ -1385,6 +1438,64 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
     );
   });
 });
+/// The C names `generate_type_declarations` still owes a definition for: the
+/// array wrappers themselves plus every nominal type its topological pass will
+/// emit. A type whose body is emitted ON DEMAND elsewhere is deliberately NOT
+/// listed — this pass never defines it, so waiting for it would strand every
+/// wrapper over it.
+_deferred_decl_cnames :: (
+  fn(context : CodeGenContext, wrapper_names : ArrayList(String)) -> HashSet(String)
+)({
+  out := HashSet(String).new();
+  (wi : usize) = usize(0);
+  while(wi < wrapper_names.len(), {
+    match(
+      wrapper_names.get(wi),
+      .Some(w) => {
+        _iw := out.insert(w);
+      },
+      .None => ()
+    );
+    wi = (wi + usize(1));
+  });
+  dkeys := context.types.keys();
+  (gd : bool) = true;
+  while(gd, {
+    match(
+      dkeys.next(),
+      .Some(tid) => match(
+        context.get_type_entry(tid.clone()),
+        .Some(entry) => {
+          ty := entry.ty;
+          skip := (
+            _walk_skip_some(ty)
+            || (entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone()))
+          );
+          if(
+            !skip,
+            cond(
+              is_struct_type(ty) => {
+                _is := out.insert(entry.c_name.clone());
+              },
+              (is_enum_type(ty) && (!can_optimize_as_simple_enum(ty) && !can_optimize_as_nullable_pointer(ty).is_some())) => {
+                _ie := out.insert(entry.c_name.clone());
+              },
+              is_tuple_type(ty) => {
+                _it := out.insert(entry.c_name.clone());
+              },
+              true => ()
+            )
+          );
+        },
+        .None => ()
+      ),
+      .None => {
+        gd = false;
+      }
+    );
+  });
+  out
+});
 /// Emit all C type declarations: runtime preamble, forward declarations, then the
 /// types in dependency (topological) order, then nullable-pointer enums and the
 /// dyn/union/future pass. Mirrors `generateTypeDeclarations` (src 90-968).
@@ -1456,7 +1567,14 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
     );
   });
   em.emit_declaration_line("");
-  generate_array_struct_declarations(context);
+  // Array wrappers are released as their element types become available (see
+  // _drain_ready_array_wrappers); the first drain here emits every wrapper over
+  // a primitive, a pointer or another such wrapper, which is what the rest of
+  // this pass may embed by value.
+  array_pending := _array_wrapper_names_sorted(context);
+  array_available := HashSet(String).new();
+  array_deferred := _deferred_decl_cnames(context, array_pending);
+  _drain_ready_array_wrappers(context, array_pending, array_available, array_deferred);
   generate_str_type_declaration(context);
   generate_iso_type_declarations(context);
   // Dedup type-DECLARATION emission by C name. `context.types` is keyed by
@@ -1712,12 +1830,31 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
               true => ()
             )
           );
+          // This type is now COMPLETE: release every array wrapper that was
+          // waiting on it (and, transitively, wrappers over those wrappers) so
+          // a later struct embedding `Array(<this type>, N)` by value sees a
+          // finished element type.
+          _aa := array_available.insert(e.c_name.clone());
+          _drain_ready_array_wrappers(context, array_pending, array_available, array_deferred);
         }),
         .None => ()
       );
       yi = (yi + usize(1));
     });
     xi = (xi + usize(1));
+  });
+  // Any wrapper still pending waits on a type this pass never defines (an
+  // on-demand body, or a cycle the sort had to break). Emitting it is what
+  // happened before the interleaving, so keep that behaviour rather than
+  // dropping the typedef; the deterministic (length, lex) order is preserved.
+  _flush_i := usize(0);
+  while(_flush_i < array_pending.len(), {
+    match(
+      array_pending.get(_flush_i),
+      .Some(pn) => _emit_array_wrapper(context, pn),
+      .None => ()
+    );
+    _flush_i = (_flush_i + usize(1));
   });
   // Fourth pass: nullable-pointer-optimized enums.
   nkeys := context.types.keys();
@@ -1774,7 +1911,6 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   });
 });
 export(
-  generate_array_struct_declarations,
   generate_str_type_declaration,
   generate_struct_declaration,
   generate_tuple_declaration,

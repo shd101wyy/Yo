@@ -9,40 +9,6 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 - No `setjmp`/`longjmp` for state machine generation (async/await).
 - Do not call `emitter.emitLine` multiple times when you can use `emitter.emitLine(multi-line string)`.
 
-## Writing emitted C inside a Yo backtick literal
-
-Runtime C is emitted from backtick string literals in `src/codegen/`. Two rules,
-both learned the hard way:
-
-1. **Write the C as ONE multi-line backtick literal**, not a right-nested `+`
-   staircase of one-line literals. `yo fmt` renders such a staircase as a
-   200-column-deep ladder that is unreadable and unreviewable (the TLS backend
-   was 73 nested `+`s before it was flattened). A real newline inside a backtick
-   literal is just a newline, and `"` needs no escaping there — so the C reads as
-   C. `src/codegen/async/runtime_io_macos.yo`'s kqueue block is the model.
-2. **A lone `\r` or `\n` inside that literal becomes a REAL control character in
-   the emitted C.** `sysmsg[n-1] == '\r'` silently emits `'<CR>'` and clang says
-   `error: expected expression` pointing at a line that looks fine in the `.yo`.
-   Inside emitted C, write `\\n` / `\\r` when you want the C source to contain the
-   escape (that is why the async runtime's `ASYNC_DEBUG("...\\n")` lines are
-   doubled), or — clearer for character comparisons — use the numeric code with a
-   comment: `== 13 || == 10`. An unrecognised escape like `\` + newline passes
-   through untouched, which is why `#define X \` line continuations work as
-   written; only `\n`, `\r` and `\"` are transformed.
-
-**Gate for any restructuring of an emitter literal:** extract every backtick
-literal from the function, concatenate, unescape, and diff against the same
-extraction from `HEAD`. Byte-identical output proves the refactor changed no
-target's C — far cheaper and stricter than rebuilding and eyeballing.
-
-**Gate for platform C you cannot compile locally:** `zig cc -target
-x86_64-windows-gnu` (and `aarch64-windows-gnu`) compiles and links emitted
-Windows C against MinGW's Win32 headers, with the same warning flags
-`src/main.yo` passes. That turns a ~50 min CI round trip into ~40 s. MinGW's
-headers are not the MSVC SDK, but they cover the Win32/SSPI surface, and the
-link step proves the import libraries you added to `src/main.yo` really export
-every symbol you call.
-
 ## Async/await threading model
 
 Each OS thread has its own **single-threaded event loop**. Within a single thread, async I/O submissions and completions are processed cooperatively — no concurrent access from multiple threads within one event loop. Worker threads from the parallelism runtime (`src/codegen/parallelism/`) share a thread pool; multiple workers may sit on the same OS thread and share that thread's event loop.
@@ -148,6 +114,36 @@ This function generates C code for `value(arg)` dispatched through the Index tra
 ### Why Index methods use inline expansion
 
 Index methods backed by builtins (e.g., `__yo_array_index`) are detected by `is_function_value_with_only_builtin_yo_inline_function_call` (`src/codegen/utils/index.yo`). The codegen skips generating standalone C function definitions for these. Instead, `_generate_index_trait_call` inlines the expansion at each call site. This avoids issues where the skip logic would also affect other specialized impl methods like `clone`.
+
+## Dyn codegen — `dyn_impls` is the whole-program registry, and it decides
+
+`context.base.dyn_impls` holds one entry per `dyn()` CREATION site, keyed by
+`(dyn_type, concrete_type)`. It is filled by the collection pass
+(`collect_required_functions`, `src/codegen/functions/collection.yo`), re-keyed
+to C names by `fixup_dyn_impl_keys`, and then read by everything that emits dyn
+machinery — the box typedefs (`generate_dyn_box_types`), the box ctor/dispose
+and wrapper functions, and the vtables with their `__yo_typeid_<concrete>`
+statics (`src/codegen/functions/dyn.yo`). Because collection runs before any
+function body is emitted (`src/codegen/codegen_c.yo`), a body emitter can treat
+the registry as complete.
+
+Two consequences worth knowing before touching `src/codegen/exprs/downcast.yo`:
+
+- **A registry MISS is a decision, not a fallback.** The runtime is-check is
+  `dyn.vtable->__yo_type_id == &__yo_typeid_<T>`, and that static's address only
+  ever lands in a vtable built from a registry entry. No entry for
+  `(Dyn, T)` therefore means the check can never be true, and `downcast` lowers
+  to a constant `.None` (with the operand still spliced for effect). Falling
+  through to the object cast instead emitted a `void*`-to-struct cast, which is
+  not valid C — `issues/fixed/downcast-to-a-never-dyned-value-type-emits-invalid-c.md`.
+- **Resolve `concrete_type` through `resolve_some_type_to_concrete` before
+  keying or comparing it**, the way `generate_dyn_box_types` does. An entry can
+  record an unresolved `SomeT` concrete, and an unresolved comparison turns a
+  real match into a miss.
+
+A fieldless enum target hides bugs in this area: it lowers to a C integer, so a
+bad pointer cast compiles as a pointer-to-int conversion. Reproduce with a
+payload-carrying variant or a struct-shaped value type (`String`).
 
 ## Algebraic effects codegen
 
@@ -261,9 +257,11 @@ Use the predicate "has a specialized type AND no specialized-function caches" to
 
 ### Effect-record handlers whose body uses `return(value)`
 
-When a struct field declared as `throw : ctl(generic(ResumeType), ...) -> ResumeType` is bound to a lambda body like `(val, resume_val) -> { return(resume_val); }`, the lambda's body has its evaluation DEFERRED (`should_defer_body` in `src/evaluator/values/anonymous_function.yo`, `should_defer_ft` in `src/evaluator/calls/function_type.yo`) — its sub-expressions (including the `return`) never get their `ExprInfo` populated. The handler still needs a C function symbol because its address is stored as `void*` in the effect record's capture struct (via `emit_effect_record_injection` in `src/codegen/exprs/await.yo`).
+When a struct field declared as `throw : ctl(generic(ResumeType), ...) -> ResumeType` is bound to a lambda, that lambda's body would normally have its evaluation DEFERRED (`should_defer_body` in `src/evaluator/values/anonymous_function.yo`, `should_defer_ft` in `src/evaluator/calls/function_type.yo`) because its parameter types are still `SomeT`. The handler nonetheless needs a REAL C function body, because its address is stored as `void*` in the effect record's capture struct (via `emit_effect_record_injection` in `src/codegen/exprs/await.yo`) and called through that pointer.
 
-The stub-emit gate in `src/codegen/functions/generation.yo` covers this: an `is_effect_record_member` function whose body contains an explicit `return(expr)` is emitted as a `__yo_effect_escaped = 1; return ZERO;` stub. The effect runtime resumes via `set_effect`, so the stub return value is never observed. Bodies that only `unwind(...)` keep their real bodies — they preserve observable side effects like `println(msg)` before `unwind(())`.
+So `ctl_force` in `evaluate_anonymous_function_implementation` clears `should_defer_body` for every `ctl` handler: the body IS evaluated at definition time (behind the def-eval wall), its sub-expressions get their `ExprInfo`, and codegen emits the real body — `return(v)` resumes (a plain C `return v;`, `__yo_effect_escaped` left at 0), `unwind(v)` escapes (`__yo_effect_escaped = 1` plus the `__yo_unwind_value` store, `generate_unwind` in `src/codegen/exprs/return.yo`). There is **no** `__yo_effect_escaped = 1; return ZERO;` stub gate for `return`-bodied handlers any more; an older revision of this file described one.
+
+A handler body that fails to evaluate is therefore a MISCOMPILE, not a supported path: with no `ExprInfo` the function is emitted as an `abort()` stub (PR #275), and because the call goes through a function pointer the `__attribute__((error(...)))` on the stub never fires, so nothing is reported at C compile time either. That is what a bare `err -> return(v)` handler used to hit — the definition-time trial routed a non-atom body around `evaluate_begin_expression`, and `return` is only recognised as a BEGIN statement (see `issues/fixed/resumable-exception-bare-return-handler-body-aborts.md`). Every function-body trial must go through `evaluate_begin_expression`.
 
 ### `-> ref(T)` body and cond-arm lowering — OBSOLETE (v4)
 

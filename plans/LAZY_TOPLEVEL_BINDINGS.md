@@ -1,7 +1,8 @@
 # Lazy top-level bindings — order-independent `::` definitions and `impl` registration
 
-**Status: P0–P2 + P4 LANDED 2026-09-05** (PR feat/lazy-toplevel-bindings); P3 (retire
-the impl-block shells) and P5 (seed bump, lift the `std/`/`src/` rule) remain.
+**Status: P0–P4 LANDED 2026-09-05** (P0–P2 + P4: PR #427 `feat/lazy-toplevel-bindings`;
+P3, retiring the impl-block forward shells: PR `feat/retire-impl-forward-shells`,
+§10 "P3 as landed"); P5 (seed bump, lift the `std/`/`src/` rule) remains.
 Written 2026-09-02 after the D5/§5 closeout hit the rule the hard way:
 `std/fs/file.yo`'s free `read_to_string` called the `Reader` default on a `File`
 while `impl(File, IoTraits.Reader(...))` sat 250 lines LATER — the call failed
@@ -49,11 +50,12 @@ A body naming a binding that appears later in the file therefore fails with
    returning stubs) is the only thing that catches a SURVIVING call, and a
    dead one is never caught at all.
 
-Three partial mechanisms exist and each is a symptom of the missing feature:
+Three partial mechanisms existed and each was a symptom of the missing feature:
 the same-`impl`-block forward-shell pre-pass (`_try_create_forward_shell`,
 `src/evaluator/values/impl.yo:2598`, Case 3 only, canonical method shape only,
-bails when the signature head cannot be evaluated), `_build_forward_ref_funcval`
-for recursive calls mid-specialization (`calls/helper.yo:1689`), and `recur`.
+bailed when the signature head could not be evaluated — RETIRED in P3),
+`_build_forward_ref_funcval` for recursive calls mid-specialization
+(`calls/helper.yo:1689`), and `recur`.
 
 ## 2. Goal and non-goals
 
@@ -185,6 +187,8 @@ supersede path (impl.yo Case 3, ~:3199-3238) become a special case of forcing
 sibling fields (an impl block's fields are pending bindings scoped to the block).
 Retire them in P3, after the corpus proves the general mechanism — not before.
 
+**LANDED 2026-09-05** — see §10 "P3 as landed" for the shape that replaced them.
+
 ### 4.6 Diagnostics (lands FIRST, independently — P0)
 
 **P0 LANDED 2026-09-02** (the fn-body dg trial, the anon-closure concrete
@@ -261,7 +265,7 @@ Then the NEW behaviour is pinned by tests that are red today:
 | **P0** diagnostic | §4.6 only, no semantic change | `check ./std` + `./src` unchanged; the `std/fs/file.yo` shape (recreated in `tests/`) errors at check time with the new message; battery green |
 | **P1** pending `::` bindings | §4.1–4.3 for `::` definitions; module-end forcing; cycles | byte identity on the corpus (§6); positive tests for free-fn forward refs + mutual recursion; def-eval root census (`YO_DEBUG_SWALLOW=1 check ./std` roots) must not grow |
 | **P2** pending impls | §4.4 | byte identity holds; the file.yo shape and cross-impl-block tests green; C22 stub count in the self-emit does not grow |
-| **P3** retire shells | §4.5; delete `_try_create_forward_shell` + supersede path; `tests/forward_ref_impl_block`/`forward_ref_self_method` stay green | byte identity; battery; hollow sweep ratchet |
+| **P3** retire shells (**LANDED 2026-09-05**) | §4.5; delete `_try_create_forward_shell` + supersede path; `tests/forward_ref_impl_block`/`forward_ref_self_method` stay green | byte identity **modulo id renumbering** (§10 P3 — the pre-pass consumed ids and emitted dead thunks, so exact identity cannot hold); battery; hollow sweep ratchet |
 | **P4** docs + rules | rewrite `docs/{en-US,zh-CN}/IMPL_FORWARD_REFERENCES.md` → definition order; update `.github/instructions/yo-syntax.instructions.md`, both skill cheatsheets; `docs/*/DESIGN.md` language section | doc build green (`yo doc ./std`) |
 | **P5** release + seed bump | ship in the next patch release; after `SEED_VERSION` advances, the "no forward refs in std/src" rule is lifted and the holder workarounds in `src/` (`forward-fn-ref-in-toplevel-holder.md`'s pattern) can be removed | fixpoint on the first tree that USES forward refs in `src/` |
 
@@ -341,7 +345,8 @@ LSP/CLI goldens (54/55 scorecard, `--network` included).
   head atom. `Dyn(Trait)` coercion of a value whose impl appears later is not a
   forcing site (its implements-check is a boolean inside compatibility).
   **No forcing while an impl of the same type is in flight**: a method miss
-  inside `impl(Sha1, …)` is the in-block sibling case the shell pre-pass owns;
+  inside `impl(Sha1, …)` is the in-block sibling case that in-block field
+  forcing owns (P3 below; the shell pre-pass before it);
   forcing the later `impl(Sha1, Digest(...))` there evaluated it against a
   half-registered type and its trait methods resolved through the trait
   record (`__yo_t18.update`, tests/crypto/digest.test.yo). So cross-block
@@ -356,7 +361,75 @@ LSP/CLI goldens (54/55 scorecard, `--network` included).
   against the declared result type
   (`issues/fixed/concrete-fn-body-result-type-not-checked.md`) — fixed in the
   same PR.
-- **P3 not done here**: the impl-block forward shells stay until the corpus has
-  exercised the general mechanism for a release. **P5** is seed-gated: `std/` and
-  `src/` may use forward references only after `SEED_VERSION` carries this
-  release (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- **P5** is seed-gated: `std/` and `src/` may use forward references only after
+  `SEED_VERSION` carries this release (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+
+### P3 as landed (2026-09-05) — impl-block members are forcible pending fields
+
+- **What was removed.** `_try_create_forward_shell` (the Case 3 eager shell
+  pre-pass that trial-evaluated every member's fn-type head and registered a
+  bodiless `__forward_shell` FuncVal), `materialize_in_flight_method` (the Case 2
+  lazy shell materializer), the `__forward_shell` supersede branches,
+  `register_shell_redirect`/`get_shell_redirect` (`type_trait_methods.yo`) and
+  the codegen "forward-shell thunk" emission + `_thunk_forward_args`
+  (`codegen/functions/generation.yo`). Nothing named "shell" is left in the
+  impl path.
+- **What replaced it.** An impl block under evaluation is an `ImplInFlight`
+  record (`src/evaluator/context.yo`): receiver id, env, the block's members as
+  `ImplPendingField`s (label, colon-pair expr, top-level arg index, `is_inner`
+  for trait-constructor members, an `Unforced/Forcing/Done/Failed` state, the
+  result type/value, and a `PendingDef` so the member rides the same forcing
+  stack as a `::` definition). The member loops in `impl.yo` (Case 2 generic,
+  Case 3 concrete) route every direct member through the record: `Done` skips,
+  `Failed` re-raises the parked error at the member's own position, `Unforced`
+  evaluates in place. The method-lookup MISS inside the block
+  (`get_receiver_methods_by_name_from_env` / `get_type_trait_methods_by_name_from_env`
+  in `src/env.yo`, via the `set_force_in_flight_field_fn` hook →
+  `force_in_flight_field` in `impl.yo`) forces the referenced sibling's REAL
+  evaluation — real func_id, real body — then re-queries the permanent and
+  provisional registries. Forced members are evaluated with the block's env and
+  a clean expected-type / where-trait / def-time-trial context, and the forcing
+  depth is truncated on failure exactly like a forced `::` definition.
+- **Mutual recursion** rides the P1 phase-A publication: while member `A` is
+  `Forcing` and its body references `B`, `B` is forced; when `B`'s body
+  references `A` back, the hook finds `A` in the `Forcing` state and registers
+  `A`'s phase-A FuncVal (`pf.def.phase_a_value`, published by
+  `publish_pending_phase_a` from the fn-type trial) as a method entry — so the
+  call binds to the real func_id and specialization proceeds through the
+  in-flight stack (`tests/forward_ref_impl_block.test.yo` tests 2/4/6).
+- **Inner (trait-constructor) members** are forcible only while their own
+  trait entry is the current one (`impl_forcible_field` → `current_top_index`),
+  and Case 3 inner members keep the provisional-signature splice that already
+  existed; direct members of a block are forcible from any sibling.
+- **Error attribution.** A forced member with a genuine error is marked
+  `Failed`, its message gets the note "`X` was evaluated here because a sibling
+  method of this impl references it before its definition", the parked error is
+  thrown by the method-call no-method arm, and the block loop re-raises it when
+  it reaches the member — pinned by
+  `tests/cli-cases/check-forced-impl-member-error-attribution`.
+- **Byte identity changed shape, as §7 predicted.** Against the P0–P2 binary,
+  the 156 `tests/codegen-bootstrap` emissions split into 10 byte-identical,
+  145 identical modulo renumbering (the prelude's shell pre-pass consumed 49
+  ids, so every later `yo_id_N`/`struct_yo_id_N` shifts, and the shift permutes
+  hash-ordered `__yo_tN` C type-name assignment and type-declaration order) and
+  ONE — `comptime_param_value_spec` — that additionally LOSES four lines: the
+  dead `fn_yo_id_*_new_with_keys` thunk the old binary declared, defined and
+  never called (`DefaultHasher.new_with_keys`, referenced before its definition
+  in `std/hash.yo`). Blind-normalizing numeric suffixes and comparing line
+  multisets is the check that classified them (155/156 equal, 1 = the thunk).
+  The `lsp-completion` golden pins raw struct ids in completion `detail`
+  strings and was re-recorded for the same shift. Fixpoint (stage-2 ≡ stage-3)
+  is the identity gate that still applies unchanged.
+- **Unwind safety (surfaced in review; pre-existing on the shell design too).**
+  An impl abandoned by a throw in its member loop never reaches its own pops;
+  a stale in-flight record then let a later method miss force a member of the
+  abandoned block into existence (`issues/fixed/abandoned-impl-members-survive-the-error.md`
+  — on develop the shell pre-pass had registered the same member permanently
+  before the throw). `ForcingDepths`/`forcing_depths`/`truncate_forcing_depths`
+  (context.yo) snapshot the three stacks; every catch-and-continue site
+  (`comptime_expect_error`, the fn/closure body-trial swallows, the
+  pending-definition forcer, the field forcer, the trait-default materializer,
+  the walker abort edge) truncates back after its guarded evaluation.
+- **`YO_DEBUG_LAZY=1`** now also prints `[force-field] <type>.<member> (impl
+  arg N, inner=…)` and `[force-field] phase-A <type>.<member>` for every
+  in-block force.

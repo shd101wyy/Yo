@@ -260,9 +260,17 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
     if(is_array_type(lhs_type), {
       // Array initialization (literal or struct copy — copy spills an Rc/temp
       // RHS into its temp variable first).
+      //
+      // A COPY of an array whose element type carries RC must also emit the
+      // RHS's deferred `___dup` (one `__yo_dup_array_element` per slot), the
+      // way every other binding shape does through `emit_deferred_dup_or_code`.
+      // This arm dropped them on the floor, so `out := self` inside
+      // `Array(T, N).clone` aliased the source's element handles while each
+      // `out(i) = …` still DROPPED the old one — the source array's strings
+      // were freed under it ("malloc returned None" on the next allocation).
       rhs_code := if(
         ast_expr_is_fn_call_of(rhs, BK_ARRAY_VAL, Option(usize).None),
-        _call_generate_expr(rhs, indent.clone(), context),
+        emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context),
         match(
           context.base.get_expr_info(rhs),
           .Some(rei) => match(
@@ -270,18 +278,36 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
             .Some(tvn) => {
               temp_var_name := get_variable_name_for_codegen(tvn, Option(Environment).Some(rei.env));
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
-              if(!(temp_var_name == rhs_expr_code), {
-                tv := get_variable_type_string(rei.ty, temp_var_name.clone(), context.base);
-                line := indent.clone();
-                line.push_string(tv);
-                line.push_str(" = ");
-                line.push_string(rhs_expr_code);
-                line.push_str(";");
-                em.emit_string_line(line);
-              });
-              temp_var_name
+              // The spill below exists for an Rc/temp RHS that has to be
+              // materialized before the array copy. A PLAIN read of an existing
+              // variable needs none — and a by-`ref` binding (`inout(self) :
+              // Self` on a value-typed receiver) reads as `(*self)` while its
+              // recorded `variable_name` is the bare `self`, so the
+              // spellings-differ test fired and declared a second local carrying
+              // the C PARAMETER's own name: `Array_int32_t_3 self = (*self);`,
+              // which clang rejects ("redefinition of 'self' with a different
+              // type"). Before const-generic array lengths resolved, this was
+              // invisible — the line rendered as the `// Unknown type:` comment
+              // and the function silently returned an UNINITIALIZED array.
+              // Treat a deref read of that same variable as already
+              // materialized and copy straight from it.
+              spilled := cond(
+                (temp_var_name == rhs_expr_code) => temp_var_name,
+                (rhs_expr_code == `(*${temp_var_name})`) => rhs_expr_code,
+                true => {
+                  tv := get_variable_type_string(rei.ty, temp_var_name.clone(), context.base);
+                  line := indent.clone();
+                  line.push_string(tv);
+                  line.push_str(" = ");
+                  line.push_string(rhs_expr_code);
+                  line.push_str(";");
+                  em.emit_string_line(line);
+                  temp_var_name
+                }
+              );
+              emit_deferred_dup_or_code(rhs, spilled, indent.clone(), context)
             },
-            .None => _call_generate_expr(rhs, indent.clone(), context)
+            .None => emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context)
           ),
           .None => _call_generate_expr(rhs, indent.clone(), context)
         )

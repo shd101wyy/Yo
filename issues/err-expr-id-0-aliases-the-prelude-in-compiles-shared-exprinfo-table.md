@@ -112,10 +112,12 @@ holds with `--emit-c --skip-c-compiler`.
 - `derive(Point, Eq)` (the bare-trait derive form): `check` reports a missing
   method, `compile` reports `Variable "Point" not found` at Point's later use.
   This is the already-filed
-  `issues/bare-derive-form-kills-module-eval.md`, whose "Likely mechanics" section
-  guesses at the cause; the chain below is the actual one. That doc should be
-  re-anchored here and keep only its own question — whether the bare derive form
-  should be legal or rejected at the derive site.
+  `issues/fixed/bare-derive-form-kills-module-eval.md` (CLOSED 2026-09-05 — the
+  derive-generated impl is no longer evaluated through a swallowing wrapper, so
+  the arity error now lands on the `derive(...)` line). Its "Likely mechanics"
+  section guessed at the cause; the chain below is the actual one. What is left
+  of that doc is its own question — whether the bare derive form should be legal
+  rather than rejected.
 
 ## Root cause
 

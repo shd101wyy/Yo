@@ -181,8 +181,7 @@ Install it with: winget install Git.Git
 #
 # Clang here targets MSVC. It ships its own compiler headers but NOT the C
 # runtime: <stdio.h> lives in the Windows SDK's UCRT, and the import libraries
-# Yo links against (-lws2_32 -lbcrypt -ladvapi32 -lsecur32 -lcrypt32, see
-# src/main.yo) are SDK
+# Yo links against (-lws2_32 -lbcrypt -ladvapi32, see src/main.yo) are SDK
 # libraries too. `winget install LLVM.LLVM` installs clang alone, so a machine
 # with no Visual Studio ends up with a clang that cannot build anything.
 #
@@ -222,8 +221,7 @@ clang is on PATH but cannot build a C program on this machine, so 'yo compile'
 will fail.
 
 Clang on Windows targets MSVC: the C runtime headers (stdio.h) and the import
-libraries Yo links against (ws2_32, bcrypt, advapi32, secur32, crypt32) come
-from the WINDOWS SDK,
+libraries Yo links against (ws2_32, bcrypt, advapi32) come from the WINDOWS SDK,
 which the LLVM package does not include.
 
 Install the "Desktop development with C++" workload — it provides MSVC, the

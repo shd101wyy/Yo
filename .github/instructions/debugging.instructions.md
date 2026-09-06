@@ -32,8 +32,13 @@ the fastest way to see which body failed and why:
 | --- | --- | --- |
 | `[trial] <pos>` / `[swallow] <err>` | `evaluator/calls/function_type.yo` | named `fn`/`ctl` bodies |
 | `[anon-trial] <pos>` / `[anon-swallow] <err>` | `evaluator/values/anonymous_function.yo` | closure (`=>`) and `->` bodies, including every `io.async` closure |
-| `[shell-head-swallow] <err>` | `evaluator/values/impl.yo` | impl forward-shell signature evaluation |
 | `[mat-default-swallow] <err>` | `evaluator/values/impl.yo` | the per-impl materialization of a trait `?=` default |
+
+`YO_DEBUG_LAZY=1` is the companion for out-of-order evaluation: `[force] <def>`
+(`evaluator/context.yo`) for every `::` definition or `impl` forced by a lookup
+miss, and `[force-field] <type>.<member>` / `[force-field] phase-A …`
+(`evaluator/values/impl.yo`) for a sibling method forced from inside its own
+impl block (`plans/LAZY_TOPLEVEL_BINDINGS.md`).
 
 A `[…swallow]` line belongs to the most recent `[…trial]` line above it (the
 swallow handlers are capture-free `->` effect handlers, so they cannot print the
