@@ -294,6 +294,33 @@ you need with `gh pr checks N --json name,bucket`.
 
 ---
 
-## 8. Live state at 17:30
+## 8. Live state at 17:30 CST, 2026-09-06
 
-_(filled in at handover time — see the bottom of this file)_
+`origin/develop` = `c733b1a92` (merge of #448). Nothing uncommitted; the docs
+(this file, the release draft, the yield-order issue) are PR **#455**
+(`docs/std-audit-handover-2026-09-06`, docs-only — admin-merge it).
+
+| PR | head | checks (pass / pending / fail) | note |
+| --- | --- | --- | --- |
+| #443 (D6 fix) | `88e88f595` | 7 / 11 / 0 | Windows legs had not started yet; a pass takes ~30 min once they do. `server.test.yo` still `SkipWindows`. |
+| #449 | `c8de17627` | 24 / 2 / 0 | rebased onto develop; **merge when green** (retarget #450 to develop FIRST) |
+| #450 | `1661ef9e1` | 20 / 1 / **1** | `test (ubuntu-24.04-arm)` failed — log fetch returned 2 lines at 17:30 (not yet available); read it: `gh run list --branch fix/std-p0-thread-log-html`. Could be the log/thread canary tests under arm timing — do not assume flake. |
+| #451 | `3fd7994f0` | 18 / 4 / 0 | |
+| #452 | `bdbb4d794` | 7 / 13 / **1** | `Full-corpus hollow sweep` reports `tests/http/http_limits.test.yo RED` — a NEW regression under the self-hosted compiler built from THIS branch (which touches btree_map, priority_queue, process/command and the command test only). Reproduce: build a stage-1 from the branch and run `BIN=<stage1> OUT=/tmp/hs bash scripts/bootstrap/hollow_sweep69.sh`, or just that file with the stage-1. |
+| #453 | `3a9ee6008` | 11 / 9 / **1** | `Bootstrap fixpoint (yo-self self-compile)` failed — the fetched log showed only emitted-C dumps; read the job's tail for STAGE2/STAGE3/FIXPOINT lines. This PR changes std/http only, so a fixpoint break is suspicious: check whether the wire.yo restructure changed emitted C for the compiler's own http use (`src/version_cache.yo` uses `std/http`). |
+| #454 | `9209ed6dc` | 11 / 10 / 0 | |
+| #442 | `0a92f03a8` | 32 / 0 / 0 | blocked on the `workflow` token scope |
+| #441 | `1f61bcb70` | 3 / 0 / 0 | docs-only issue PR |
+
+Monitors and background jobs of this session were stopped at 17:30. Local
+binaries listed in §3 exist until reboot. Worktrees: `/private/tmp/yo-449`,
+`/private/tmp/yo-452`, `/private/tmp/yo-453`,
+`/private/tmp/yo-fix-std-p0-thread-log-html`,
+`/private/tmp/yo-fix-std-p0-send-enforcement`, `/private/tmp/yo-d6` (+ older
+ones) — `git worktree list`; all disposable.
+
+**First three things to do:** (1) read the three red legs above and decide
+flake vs regression for each — #452's `http_limits RED` and #453's fixpoint
+break are the ones that could be real; (2) merge #449 → retarget/merge #450,
+#451 as they go green; #452 → #453 → #454 likewise; (3) read #443's Windows
+verdict and finish D6 (§5).
