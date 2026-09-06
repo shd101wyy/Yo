@@ -39,7 +39,12 @@ extern(
   __yo_thread_t : Type,
   __yo_thread_spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> __yo_thread_t),
   __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
-  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
+  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit),
+  // The threading preamble's own thread identity (a macro over pthread_self /
+  // GetCurrentThreadId). NOT `__yo_get_thread_id`: that one lives in the async
+  // runtime core, which a program without `io` never emits, so using it here
+  // made every ThreadPool user without async fail to link.
+  __yo_thread_self : (fn() -> usize)
 );
 extern(
   "Yo",
@@ -258,7 +263,7 @@ impl(
 /// `_owner` value can only be observed under `_held == false`, which takes
 /// the lock as it should.
 _lock_for_submission :: (fn(pool : ThreadPool) -> bool)({
-  me := __yo_get_thread_id();
+  me := __yo_thread_self();
   cond(
     (pool._held.load(MemoryOrder.Acquire) && (pool._owner.load(MemoryOrder.Acquire) == me)) => false,
     true => {
