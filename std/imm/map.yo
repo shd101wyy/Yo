@@ -88,7 +88,7 @@ impl(
       while(i < self._pairs_len, i = (i + usize(1)), {
         unsafe.drop((self._pairs_ptr.add(i)).*);
       });
-      free(.Some(*(void)(self._pairs_ptr)));
+      free(.Some((*void)(self._pairs_ptr)));
     })
   )
 );
@@ -133,7 +133,7 @@ impl(
   MapBranch(K, V),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      children := *(MapNode(K, V))(self._children_ptr);
+      children := (*MapNode(K, V))(self._children_ptr);
       i := u8(0);
       while(i < self._children_len, i = (i + u8(1)), {
         unsafe.drop((children.add(usize(i))).*);
@@ -180,12 +180,12 @@ _branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBra
 );
 _branch_child_at :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), idx : u8, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> MapNode(K, V))({
   offset := (sizeof(MapNode(K, V)) * usize(idx));
-  target := *(MapNode(K, V))(branch._children_ptr.add(offset));
+  target := (*MapNode(K, V))(branch._children_ptr.add(offset));
   target.*
 });
 _branch_set_child :: (fn(comptime(K) : Type, comptime(V) : Type, ptr : *void, idx : u8, child : MapNode(K, V), where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> unit)({
   offset := (sizeof(MapNode(K, V)) * usize(idx));
-  target := *(MapNode(K, V))(ptr.add(offset));
+  target := (*MapNode(K, V))(ptr.add(offset));
   target.* = child;
 });
 /// Copy children from source array to destination array element-by-element.
@@ -205,8 +205,8 @@ _copy_children :: (
   node_sz := sizeof(MapNode(K, V));
   i := u8(0);
   while(i < count, i = (i + u8(1)), {
-    src_ptr := *(MapNode(K, V))(src.add(node_sz * usize(src_offset + i)));
-    dst_ptr := *(MapNode(K, V))(dst.add(node_sz * usize(dst_offset + i)));
+    src_ptr := (*MapNode(K, V))(src.add(node_sz * usize(src_offset + i)));
+    dst_ptr := (*MapNode(K, V))(dst.add(node_sz * usize(dst_offset + i)));
     consume(dst_ptr.* = src_ptr.*);
   });
 });
@@ -218,7 +218,7 @@ _branch_with_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBr
     _copy_children(K, V, new_ptr, branch._children_ptr, u8(0), u8(0), idx);
   });
   child_offset := (sizeof(MapNode(K, V)) * usize(idx));
-  child_target := *(MapNode(K, V))(new_ptr.add(child_offset));
+  child_target := (*MapNode(K, V))(new_ptr.add(child_offset));
   consume(child_target.* = child);
   remaining := (branch._children_len - idx);
   if(usize(remaining) > usize(0), {
@@ -252,7 +252,7 @@ _alloc_pairs :: (fn(comptime(K) : Type, comptime(V) : Type, count : usize, where
   sz := (sizeof(MapEntry(K, V)) * count);
   match(
     malloc(sz),
-    .Some(p) => *(MapEntry(K, V))(p),
+    .Some(p) => (*MapEntry(K, V))(p),
     .None => __yo_panic("imm.Map: collision allocation failed")
   )
 });
@@ -346,7 +346,7 @@ _make_branch :: (
   if(frag1 == frag2, {
     child := recur(K, V, shift + BITS, node1, hash1, node2, hash2);
     ptr := _alloc_map_children(K, V, u8(1));
-    consume((*(MapNode(K, V))(ptr)).* = child);
+    consume(((*MapNode(K, V))(ptr)).* = child);
     return(
       .Branch(
         MapBranch(K, V)(
@@ -361,7 +361,7 @@ _make_branch :: (
   bit2 := _bit_for(frag2);
   bitmap := (bit1 | bit2);
   ptr := _alloc_map_children(K, V, u8(2));
-  children := *(MapNode(K, V))(ptr);
+  children := (*MapNode(K, V))(ptr);
   if(frag1 < frag2, {
     consume(children.* = node1);
     consume((children.add(usize(1))).* = node2);
@@ -747,7 +747,7 @@ _map_values_node :: (
     .Leaf(leaf) => .Leaf(MapLeaf(K, U)(hash : leaf.hash, key : leaf.key, value : f(leaf.value))),
     .Branch(branch) => {
       new_ptr := _alloc_map_children(K, U, branch._children_len);
-      new_children := *(MapNode(K, U))(new_ptr);
+      new_children := (*MapNode(K, U))(new_ptr);
       i := u8(0);
       while(i < branch._children_len, i = (i + u8(1)), {
         consume((new_children.add(usize(i))).* = recur(K, V, U, _branch_child_at(K, V, branch, i), f));

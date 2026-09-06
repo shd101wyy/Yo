@@ -400,7 +400,7 @@ read_http_message :: (
 )(
   io.async(e => {
     buf_size := usize(8192);
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := ArrayList(u8).new();
     // A framing defect ends the read loop and comes back as the `.Err`. The
     // body is deliberately free of mid-loop `return`s: an async body's state
@@ -498,7 +498,7 @@ read_http_message :: (
         }
       );
     });
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     // A chunked body is handed on DECODED: the raw bytes are rewritten as
     // `headers CRLFCRLF data`, so `parse_response` sees the payload and the
     // Transfer-Encoding header stays visible on the response.

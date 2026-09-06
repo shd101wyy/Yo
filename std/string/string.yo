@@ -206,11 +206,11 @@ impl(
   raw_bytes : (fn(self : Self) -> RawSlice(u8))(
     match(
       self._bytes,
-      .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0)),
+      .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0)),
       .Some(al) => match(
         al._ptr,
         .Some(p) => RawSlice(u8)(ptr : p, len : al._length),
-        .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0))
+        .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0))
       )
     )
   ),
@@ -2441,7 +2441,7 @@ impl(
       ok => {
         // to_cstr() gives a NUL-terminated buffer — exactly what atof reads
         c := self.to_cstr();
-        p := *(char)(c.ptr().unwrap());
+        p := (*char)(c.ptr().unwrap());
         .Some(unsafe(atof(p)))
       },
       true => .None

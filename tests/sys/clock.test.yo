@@ -6,7 +6,7 @@ clock_io :: import("std/sys/clock");
 { sleep } :: import("std/sys/timer");
 test("clock_gettime monotonic is non-decreasing", {
   t1_uninit := MaybeUninit(Array(i64, usize(2))).new();
-  t1 := *(i64)(t1_uninit.as_ptr());
+  t1 := (*i64)(t1_uninit.as_ptr());
   r1 := clock_io.clock_gettime(clock_io.CLOCK_MONOTONIC, t1.add(usize(0)), t1.add(usize(1)));
   assert(r1 == i32(0), "first CLOCK_MONOTONIC call should succeed");
   s1 := (t1.add(usize(0))).*;
@@ -15,7 +15,7 @@ test("clock_gettime monotonic is non-decreasing", {
   sleep_result := io.await(sleep(u64(10)), io);
   assert(sleep_result > i32(0), "sleep should complete successfully");
   t2_uninit := MaybeUninit(Array(i64, usize(2))).new();
-  t2 := *(i64)(t2_uninit.as_ptr());
+  t2 := (*i64)(t2_uninit.as_ptr());
   r2 := clock_io.clock_gettime(clock_io.CLOCK_MONOTONIC, t2.add(usize(0)), t2.add(usize(1)));
   assert(r2 == i32(0), "second CLOCK_MONOTONIC call should succeed");
   s2 := (t2.add(usize(0))).*;
@@ -30,7 +30,7 @@ test("clock_gettime monotonic is non-decreasing", {
 });
 test("clock_gettime realtime returns plausible epoch", {
   now_uninit := MaybeUninit(Array(i64, usize(2))).new();
-  now := *(i64)(now_uninit.as_ptr());
+  now := (*i64)(now_uninit.as_ptr());
   r := clock_io.clock_gettime(clock_io.CLOCK_REALTIME, now.add(usize(0)), now.add(usize(1)));
   assert(r == i32(0), "CLOCK_REALTIME call should succeed");
   sec := (now.add(usize(0))).*;

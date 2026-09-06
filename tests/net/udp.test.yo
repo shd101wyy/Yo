@@ -70,7 +70,7 @@ test("UdpSocket send_to and recv", {
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(5), "should send 5 bytes");
   // Server receives
-  recv_buf := *(u8)(malloc(usize(256)).unwrap());
+  recv_buf := (*u8)(malloc(usize(256)).unwrap());
   nr := io.await(server.recv(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(5), "should receive 5 bytes");
@@ -79,7 +79,7 @@ test("UdpSocket send_to and recv", {
   assert((recv_buf.add(usize(2))).* == u8(108), "l");
   assert((recv_buf.add(usize(3))).* == u8(108), "l");
   assert((recv_buf.add(usize(4))).* == u8(111), "o");
-  free(.Some(*(void)(recv_buf)));
+  free(.Some((*void)(recv_buf)));
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
@@ -102,9 +102,9 @@ test("UdpSocket recv_from gets source address", {
   data.push(u8(66)); // B
   io.await(client.send_to(data, server_addr, io), IoExn(io : io, exn : exn));
   // Server receives with source address
-  recv_buf := *(u8)(malloc(usize(256)).unwrap());
-  src_addr_buf := *(u8)(malloc(usize(128)).unwrap());
-  src_addr_len := *(u32)(malloc(usize(4)).unwrap());
+  recv_buf := (*u8)(malloc(usize(256)).unwrap());
+  src_addr_buf := (*u8)(malloc(usize(128)).unwrap());
+  src_addr_len := (*u32)(malloc(usize(4)).unwrap());
   src_addr_len.* = u32(128);
   nr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len, io), IoExn(io : io, exn : exn));
   unsafe(printf("  received = %zu\n", nr));
@@ -118,9 +118,9 @@ test("UdpSocket recv_from gets source address", {
   src_port := IO_tcp.get_port_in(src_addr_buf);
   unsafe(printf("  src port = %u\n", src_port));
   assert(src_port == u16(19913), "src port should be 19913");
-  free(.Some(*(void)(recv_buf)));
-  free(.Some(*(void)(src_addr_buf)));
-  free(.Some(*(void)(src_addr_len)));
+  free(.Some((*void)(recv_buf)));
+  free(.Some((*void)(src_addr_buf)));
+  free(.Some((*void)(src_addr_len)));
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
@@ -200,7 +200,7 @@ test("UdpSocket.connect makes send and recv usable", {
   msg.push(u8(105));
   sent := io.await(client.send(msg, io), IoExn(io : io, exn : exn));
   assert(sent == usize(2), "send on a connected socket sends the datagram");
-  buf := *(u8)(malloc(usize(16)).unwrap());
+  buf := (*u8)(malloc(usize(16)).unwrap());
   got := io.await(server.recv(buf, usize(16), io), IoExn(io : io, exn : exn));
   assert(got == usize(2), "recv on the connected peer gets it");
   assert(((buf.add(usize(0))).* == u8(104)) && ((buf.add(usize(1))).* == u8(105)), "payload intact");
@@ -209,7 +209,7 @@ test("UdpSocket.connect makes send and recv usable", {
   _r := io.await(server.send(reply, io), IoExn(io : io, exn : exn));
   got2 := io.await(client.recv(buf, usize(16), io), IoExn(io : io, exn : exn));
   assert((got2 == usize(1)) && ((buf.add(usize(0))).* == u8(33)), "the reply comes back over the connected pair");
-  free(.Some(*(void)(buf)));
+  free(.Some((*void)(buf)));
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });

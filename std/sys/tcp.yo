@@ -120,7 +120,7 @@ getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in_size();
-  buf := *(u8)(malloc(size).unwrap());
+  buf := (*u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
     (buf.add(i)).* = u8(0);
@@ -136,7 +136,7 @@ make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in6_size();
-  buf := *(u8)(malloc(size).unwrap());
+  buf := (*u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
     (buf.add(i)).* = u8(0);
@@ -151,7 +151,7 @@ make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in_any :: (fn(port : u16) -> SockAddr)({
   size := sockaddr_in_size();
-  buf := *(u8)(malloc(size).unwrap());
+  buf := (*u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
     (buf.add(i)).* = u8(0);
@@ -166,7 +166,7 @@ make_sockaddr_in_any :: (fn(port : u16) -> SockAddr)({
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in_loopback :: (fn(port : u16) -> SockAddr)({
   size := sockaddr_in_size();
-  buf := *(u8)(malloc(size).unwrap());
+  buf := (*u8)(malloc(size).unwrap());
   i := usize(0);
   while(runtime(i < size), {
     (buf.add(i)).* = u8(0);
@@ -179,7 +179,7 @@ make_sockaddr_in_loopback :: (fn(port : u16) -> SockAddr)({
 });
 // Free a SockAddr buffer.
 free_sockaddr :: (fn(addr : SockAddr) -> unit)(
-  free(.Some(*(void)(addr.buf)))
+  free(.Some((*void)(addr.buf)))
 );
 // Get the port number from an IPv4 socket address buffer.
 get_port_in :: (fn(addr : *u8) -> u16)(

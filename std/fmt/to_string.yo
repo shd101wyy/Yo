@@ -18,7 +18,7 @@ _SNPRINTF_BUFFER_SIZE :: usize(32);
 _snprintf_to_string :: (fn(comptime(fmt) : str, comptime(T) : Type, v : T) -> String)({
   buffer := Array(u8, _SNPRINTF_BUFFER_SIZE).fill(0);
   buffer_ptr := (&(buffer(0)));
-  unsafe(snprintf(*(char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v));
+  unsafe(snprintf((*char)(buffer_ptr), _SNPRINTF_BUFFER_SIZE, fmt, v));
   String.from_cstr(buffer_ptr).unwrap()
 });
 
@@ -203,7 +203,7 @@ impl(
       buffer := Array(u8, _FLOAT_BUFFER_SIZE).fill(0);
       buffer_ptr := (&(buffer(0)));
       // Use %Lg for general format (removes trailing zeros)
-      unsafe(snprintf(*(char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self));
+      unsafe(snprintf((*char)(buffer_ptr), _FLOAT_BUFFER_SIZE, "%Lg", self));
       String.from_cstr(buffer_ptr).unwrap()
     })
   )

@@ -404,9 +404,9 @@ exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     result >= i32(0)
   })
 );
@@ -428,9 +428,9 @@ try_exists :: (fn(path : Path, io : Io) -> Impl(Future(bool, IoExn)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), e.io);
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     cond(
       (result >= i32(0)) => true,
       (((i32(0) - result) == i32(ENOENT)) || ((i32(0) - result) == i32(ENOTDIR))) => false,
@@ -447,7 +447,7 @@ set_permissions :: (fn(path : Path, perm : FilePermission, io : Io) -> Impl(Futu
   io.async(e => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
-    r := unsafe(chmod(*(char)(cstr), perm.mode));
+    r := unsafe(chmod((*char)(cstr), perm.mode));
     cond(
       (r < int(0)) => e.exn.throw(dyn(IoError.from_errno(__yo_errno()))),
       true => ()
@@ -482,7 +482,7 @@ is_file :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
     cstr_bytes := path_str.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
     r := cond(
       (result < i32(0)) => false,
@@ -491,7 +491,7 @@ is_file :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
         sx.is_file()
       }
     );
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     r
   })
 );
@@ -510,7 +510,7 @@ is_dir :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
     cstr_bytes := path_str.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
     r := cond(
       (result < i32(0)) => false,
@@ -519,7 +519,7 @@ is_dir :: (fn(path : Path, io : Io) -> Impl(Future(bool, Io)))(
         sx.is_directory()
       }
     );
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     r
   })
 );
@@ -540,22 +540,22 @@ canonicalize :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
     cstr := cstr_bytes.ptr().unwrap();
     // Async stat to verify path exists (provides await point for proper RC cleanup)
     buf_size := __yo_statx_buf_size();
-    stat_buf := *(u8)(malloc(buf_size).unwrap());
+    stat_buf := (*u8)(malloc(buf_size).unwrap());
     stat_result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, stat_buf), e.io);
-    free(.Some(*(void)(stat_buf)));
+    free(.Some((*void)(stat_buf)));
     IoError.check(stat_result, e.exn);
     // Resolve the canonical path
-    resolved_buf := *(u8)(malloc(usize(4096)).unwrap());
+    resolved_buf := (*u8)(malloc(usize(4096)).unwrap());
     rp_result := IO_path.realpath(cstr, resolved_buf);
     cond(
       (rp_result < i32(0)) => {
-        free(.Some(*(void)(resolved_buf)));
+        free(.Some((*void)(resolved_buf)));
         IoError.check(rp_result, e.exn);
       },
       true => ()
     );
     resolved := String.from_cstr(resolved_buf).unwrap();
-    free(.Some(*(void)(resolved_buf)));
+    free(.Some((*void)(resolved_buf)));
     Path.new(resolved)
   })
 );

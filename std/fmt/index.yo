@@ -17,13 +17,13 @@ _write_str :: (fn(s : String, stream : *FILE) -> unit)({
   cond(
     (str_bytes_len > usize(0)) => {
       str_bytes_ptr := str_bytes.ptr().unwrap();
-      _w := unsafe(fwrite(*(void)(str_bytes_ptr), usize(1), str_bytes_len, stream));
+      _w := unsafe(fwrite((*void)(str_bytes_ptr), usize(1), str_bytes_len, stream));
     },
     true => ()
   );
 });
 _write_newline :: (fn(stream : *FILE) -> unit)({
-  _n := unsafe(fwrite(*(void)(*(u8)("\n")), usize(1), usize(1), stream));
+  _n := unsafe(fwrite((*void)((*u8)("\n")), usize(1), usize(1), stream));
   ()
 });
 /// Print a value that implements `ToString` to stdout, followed by a newline.

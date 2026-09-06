@@ -31,7 +31,7 @@ test("UDP socket bind to loopback", {
 test("UDP setsockopt SO_REUSEADDR", {
   sockfd := io.await(udp.socket(AF_INET, i32(0)), io);
   assert(sockfd >= i32(0));
-  optval := *(u8)(malloc(usize(4)).unwrap());
+  optval := (*u8)(malloc(usize(4)).unwrap());
   (optval.add(usize(0))).* = u8(1);
   (optval.add(usize(1))).* = u8(0);
   (optval.add(usize(2))).* = u8(0);
@@ -39,7 +39,7 @@ test("UDP setsockopt SO_REUSEADDR", {
   sso := io.await(udp.setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)), io);
   unsafe(printf("  setsockopt = %d\n", sso));
   assert(sso == i32(0));
-  free(.Some(*(void)(optval)));
+  free(.Some((*void)(optval)));
   io.await(udp.close(sockfd), io);
 });
 test("UDP sendto and recvfrom", {
@@ -57,15 +57,15 @@ test("UDP sendto and recvfrom", {
   assert(bind2 == i32(0));
   // Client sends to server
   dest_addr := tcp.make_sockaddr_in_loopback(u16(19881));
-  msg := *(u8)("Hello UDP!");
+  msg := (*u8)("Hello UDP!");
   sent := io.await(udp.sendto(client_fd, msg, usize(10), i32(0), dest_addr.buf, dest_addr.len), io);
   unsafe(printf("  sent = %d\n", sent));
   assert(sent == i32(10));
   tcp.free_sockaddr(dest_addr);
   // Server receives
-  recv_buf := *(u8)(malloc(usize(256)).unwrap());
-  src_addr_buf := *(u8)(malloc(usize(128)).unwrap());
-  src_addr_len := *(u32)(malloc(usize(4)).unwrap());
+  recv_buf := (*u8)(malloc(usize(256)).unwrap());
+  src_addr_buf := (*u8)(malloc(usize(128)).unwrap());
+  src_addr_len := (*u32)(malloc(usize(4)).unwrap());
   src_addr_len.* = u32(128);
   received := io.await(udp.recvfrom(server_fd, recv_buf, usize(256), i32(0), src_addr_buf, src_addr_len), io);
   unsafe(printf("  received = %d\n", received));
@@ -85,9 +85,9 @@ test("UDP sendto and recvfrom", {
   src_family := tcp.get_family(src_addr_buf);
   unsafe(printf("  src family = %u\n", src_family));
   assert(src_family == u16(AF_INET));
-  free(.Some(*(void)(recv_buf)));
-  free(.Some(*(void)(src_addr_buf)));
-  free(.Some(*(void)(src_addr_len)));
+  free(.Some((*void)(recv_buf)));
+  free(.Some((*void)(src_addr_buf)));
+  free(.Some((*void)(src_addr_len)));
   // Cleanup
   io.await(udp.close(client_fd), io);
   io.await(udp.close(server_fd), io);
@@ -109,15 +109,15 @@ test("UDP bidirectional ping-pong", {
   assert(c_bind == i32(0));
   // Client sends "Ping" to server
   dest := tcp.make_sockaddr_in_loopback(u16(19883));
-  msg_ping := *(u8)("Ping");
+  msg_ping := (*u8)("Ping");
   sent := io.await(udp.sendto(client_fd, msg_ping, usize(4), i32(0), dest.buf, dest.len), io);
   unsafe(printf("  client sent = %d\n", sent));
   assert(sent == i32(4));
   tcp.free_sockaddr(dest);
   // Server receives
-  recv_buf := *(u8)(malloc(usize(256)).unwrap());
-  from_buf := *(u8)(malloc(usize(128)).unwrap());
-  from_len := *(u32)(malloc(usize(4)).unwrap());
+  recv_buf := (*u8)(malloc(usize(256)).unwrap());
+  from_buf := (*u8)(malloc(usize(128)).unwrap());
+  from_len := (*u32)(malloc(usize(4)).unwrap());
   from_len.* = u32(128);
   received := io.await(udp.recvfrom(server_fd, recv_buf, usize(256), i32(0), from_buf, from_len), io);
   unsafe(printf("  server received = %d\n", received));
@@ -127,17 +127,17 @@ test("UDP bidirectional ping-pong", {
   assert((recv_buf.add(usize(2))).* == u8(110));
   assert((recv_buf.add(usize(3))).* == u8(103));
   // Server sends "Pong" back using the sender address
-  msg_pong := *(u8)("Pong");
+  msg_pong := (*u8)("Pong");
   sent2 := io.await(udp.sendto(server_fd, msg_pong, usize(4), i32(0), from_buf, from_len.*), io);
   unsafe(printf("  server sent = %d\n", sent2));
   assert(sent2 == i32(4));
-  free(.Some(*(void)(recv_buf)));
-  free(.Some(*(void)(from_buf)));
-  free(.Some(*(void)(from_len)));
+  free(.Some((*void)(recv_buf)));
+  free(.Some((*void)(from_buf)));
+  free(.Some((*void)(from_len)));
   // Client receives reply
-  recv_buf2 := *(u8)(malloc(usize(256)).unwrap());
-  from_buf2 := *(u8)(malloc(usize(128)).unwrap());
-  from_len2 := *(u32)(malloc(usize(4)).unwrap());
+  recv_buf2 := (*u8)(malloc(usize(256)).unwrap());
+  from_buf2 := (*u8)(malloc(usize(128)).unwrap());
+  from_len2 := (*u32)(malloc(usize(4)).unwrap());
   from_len2.* = u32(128);
   received2 := io.await(udp.recvfrom(client_fd, recv_buf2, usize(256), i32(0), from_buf2, from_len2), io);
   unsafe(printf("  client received = %d\n", received2));
@@ -146,9 +146,9 @@ test("UDP bidirectional ping-pong", {
   assert((recv_buf2.add(usize(1))).* == u8(111));
   assert((recv_buf2.add(usize(2))).* == u8(110));
   assert((recv_buf2.add(usize(3))).* == u8(103));
-  free(.Some(*(void)(recv_buf2)));
-  free(.Some(*(void)(from_buf2)));
-  free(.Some(*(void)(from_len2)));
+  free(.Some((*void)(recv_buf2)));
+  free(.Some((*void)(from_buf2)));
+  free(.Some((*void)(from_len2)));
   // Cleanup
   io.await(udp.close(client_fd), io);
   io.await(udp.close(server_fd), io);

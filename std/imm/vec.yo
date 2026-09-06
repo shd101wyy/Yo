@@ -59,7 +59,7 @@ impl(
       while(i < self._len, i = (i + usize(1)), {
         unsafe.drop((self._ptr.add(i)).*);
       });
-      free(.Some(*(void)(self._ptr)));
+      free(.Some((*void)(self._ptr)));
     })
   )
 );
@@ -85,7 +85,7 @@ impl(
     sz := (sizeof(T) * alloc_cap);
     match(
       malloc(sz),
-      .Some(p) => *(T)(p),
+      .Some(p) => (*T)(p),
       .None => __yo_panic("imm.Vec: allocation failed")
     )
   }),
@@ -161,7 +161,7 @@ impl(
         new_cap := (self._cap * usize(2));
         new_ptr := Self._raw_alloc(new_cap);
         Self._move_elems(new_ptr, self._ptr, self._len);
-        free(.Some(*(void)(self._ptr)));
+        free(.Some((*void)(self._ptr)));
         self._ptr = new_ptr;
         self._cap = new_cap;
       });
@@ -257,7 +257,7 @@ impl(
       if(other._len > usize(0), {
         Self._copy_elems(new_ptr, other._ptr, self._len, usize(0), other._len);
       });
-      free(.Some(*(void)(self._ptr)));
+      free(.Some((*void)(self._ptr)));
       self._ptr = new_ptr;
       self._len = total;
       self._cap = new_cap;

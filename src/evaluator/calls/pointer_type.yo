@@ -2,7 +2,7 @@
 //!
 //! 1:1 port of `src/evaluator/calls/pointer-type.ts`.
 //!
-//! `*(T)(val)` pointer cast: handles comptime_str → *(u8) / *(char)
+//! `(*T)(val)` pointer cast: handles comptime_str → *u8 / *char
 //! and runtime pointer → pointer via `__yo_as`.
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
@@ -91,8 +91,8 @@ try_to_convert_to_pointer_type :: (
   if(is_comptime_string_type(arg_type) && is_ptr_u8_or_char, {
     // Convert WITH the target as the expected type (pointer-type.ts:69
     // passes `expectedType: targetType`) — the no-expected conversion
-    // yields `str`, so `*(u8)("[")` typed str and the enclosing
-    // `*(void)(...)` cast rejected it (std/log.yo's fwrite calls).
+    // yields `str`, so `(*u8)("[")` typed str and the enclosing
+    // `(*void)(...)` cast rejected it (std/log.yo's fwrite calls).
     converted_ty := convert_comptime_type_to_runtime_type_with_expected(arg_type, Option(TypeValue).Some(target_type), env);
     out_info := new_expr_info(env, converted_ty);
     out_info.value = arg_info.value;
@@ -101,7 +101,7 @@ try_to_convert_to_pointer_type :: (
     // Annotate the ARG node too — this helper returns `evaluated` (the
     // arg), and callers read the RETURNED node's info; leaving the arg's
     // original comptime_str info made nested casts like
-    // `*(void)(*(u8)("["))` see comptime_str and reject. Mirrors TS
+    // `(*void)((*u8)("["))` see comptime_str and reject. Mirrors TS
     // setting `evaluatedArg.$` to the converted data before
     // Object.assign-ing it onto the cast expr (pointer-type.ts:76-85).
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated), out_info);
@@ -129,7 +129,7 @@ try_to_convert_to_pointer_type :: (
   );
   // Lower the runtime pointer→pointer cast to a `__yo_as` node, attached to the
   // ORIGINAL expr's ExprInfo as a `macro_expansion`. Codegen walks the original
-  // parsed node (which keeps its `*(T)(...)` structure — codegen does NOT see
+  // parsed node (which keeps its `(*T)(...)` callee structure — codegen does NOT see
   // returned rewrites), so the lowering must travel via the original node's
   // ExprInfo. Mirrors TS `replaceExprWithFuncCallExpr` (in-place mutation), which
   // yo-self can't do on the enum node, so it uses the existing macro_expansion

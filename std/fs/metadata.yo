@@ -96,7 +96,7 @@ impl(
   Metadata,
   Dispose(
     dispose : (fn(self : Self) -> unit)({
-      free(.Some(*(void)(self._buf_ptr)));
+      free(.Some((*void)(self._buf_ptr)));
     })
   )
 );
@@ -116,11 +116,11 @@ _stat_path :: (fn(path : Path, flags : i32, io : Io) -> Impl(Future(Metadata, Io
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := e.io.await(IO_file.statx(AT_FDCWD, cstr, flags, STATX_BASIC_STATS, buf), e.io);
     cond(
       (result < i32(0)) => {
-        free(.Some(*(void)(buf)));
+        free(.Some((*void)(buf)));
         e.exn.throw(dyn(IoError.from_errno(i32(0) - result)))
       },
       true => {
@@ -149,13 +149,13 @@ symlink_metadata_str :: (fn(path : str, io : Io) -> Impl(Future(Metadata, IoExn)
 metadata_fd :: (fn(fd : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
   io.async(e => {
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     // Sync, and no await in this body: `fstat` reads an open inode and
     // cannot block (same reasoning as `File.size`, which is `__yo_file_size`).
     result := IO_file.fstat(fd, buf);
     cond(
       (result < i32(0)) => {
-        free(.Some(*(void)(buf)));
+        free(.Some((*void)(buf)));
         e.exn.throw(dyn(IoError.from_errno(i32(0) - result)))
       },
       true => {

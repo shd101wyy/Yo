@@ -1883,7 +1883,7 @@ parse_raw_float :: (fn(raw : String) -> Option(f64))({
   cs := raw.to_cstr();
   match(
     cs.ptr(),
-    .Some(ptr) => .Some(unsafe(atof(*(char)(ptr)))),
+    .Some(ptr) => .Some(unsafe(atof((*char)(ptr)))),
     .None => .None
   )
 });
@@ -1910,7 +1910,7 @@ f64_raw_roundtrip :: (fn(v : f64) -> String)({
   { snprintf } :: import("std/libc/stdio");
   buffer := Array(u8, usize(40)).fill(u8(0));
   buffer_ptr := &buffer(usize(0));
-  _n := unsafe(snprintf(*(char)(buffer_ptr), usize(40), "%.17g", v));
+  _n := unsafe(snprintf((*char)(buffer_ptr), usize(40), "%.17g", v));
   String.from_cstr(buffer_ptr).unwrap()
 });
 export(parse_raw_int, parse_raw_float, f64_raw_roundtrip);

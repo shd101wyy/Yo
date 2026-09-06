@@ -12,7 +12,7 @@ dir :: import("std/sys/dir");
 { AT_FDCWD, O_CREAT, O_WRONLY, O_TRUNC } :: import("std/sys/constants");
 // Callback that records event type into user_data (pointer to i32)
 on_fs_event_record :: (fn(path : *u8, events_mask : i32, user_data : *u8) -> unit)({
-  ptr := *(i32)(user_data);
+  ptr := (*i32)(user_data);
   ptr.* = (ptr.* | events_mask);
   unsafe(printf("  fs_event callback: path=%s events=%d\n", path, events_mask));
 });
@@ -22,9 +22,9 @@ test("fs_event init/start/stop", {
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
-  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, *(u8)(result_ptr));
+  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, (*u8)(result_ptr));
   assert(ret == i32(0), "fs_event_start failed");
   stop_ret := events.fs_event_stop(handle);
   assert(stop_ret == i32(0), "fs_event_stop failed");
@@ -40,15 +40,15 @@ test("fs_event detects file creation", {
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
-  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, *(u8)(result_ptr));
+  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, (*u8)(result_ptr));
   assert(ret == i32(0), "fs_event_start failed");
   // Create a file in the watched directory
   fd := io.await(file.openat(AT_FDCWD, test_file_path, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
   assert(fd >= i32(0), "open failed");
-  msg := *(u8)("test content");
+  msg := (*u8)("test content");
   wr := io.await(file.write(fd, msg, u32(12), u64(0)), io);
   assert(wr == i32(12), "write failed");
   cr := io.await(file.close(fd), io);
@@ -74,7 +74,7 @@ test("fs_event detects file modification", {
   // Create the file first
   fd1 := io.await(file.openat(AT_FDCWD, test_file_path, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
   assert(fd1 >= i32(0), "initial open failed");
-  init_msg := *(u8)("initial");
+  init_msg := (*u8)("initial");
   wr1 := io.await(file.write(fd1, init_msg, u32(7), u64(0)), io);
   assert(wr1 == i32(7), "initial write failed");
   cr1 := io.await(file.close(fd1), io);
@@ -84,15 +84,15 @@ test("fs_event detects file modification", {
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
-  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, *(u8)(result_ptr));
+  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, (*u8)(result_ptr));
   assert(ret == i32(0), "fs_event_start failed");
   // Now modify the file
   fd2 := io.await(file.openat(AT_FDCWD, test_file_path, O_WRONLY, i32(0)), io);
   assert(fd2 >= i32(0), "modify open failed");
-  mod_msg := *(u8)("modified content");
+  mod_msg := (*u8)("modified content");
   wr2 := io.await(file.write(fd2, mod_msg, u32(16), u64(0)), io);
   assert(wr2 == i32(16), "modify write failed");
   cr2 := io.await(file.close(fd2), io);
@@ -117,10 +117,10 @@ test("fs_event stop prevents further callbacks", {
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
-  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, *(u8)(result_ptr));
+  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, (*u8)(result_ptr));
   assert(ret == i32(0), "fs_event_start failed");
   // Stop immediately
   stop_ret := events.fs_event_stop(handle);
@@ -128,7 +128,7 @@ test("fs_event stop prevents further callbacks", {
   // Now create a file - callback should NOT fire
   fd := io.await(file.openat(AT_FDCWD, test_file_path, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
   assert(fd >= i32(0), "open failed");
-  msg := *(u8)("data");
+  msg := (*u8)("data");
   wr := io.await(file.write(fd, msg, u32(4), u64(0)), io);
   assert(wr == i32(4), "write failed");
   cr := io.await(file.close(fd), io);
@@ -155,10 +155,10 @@ test("fs_event detects file deletion", {
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.fs_event_init();
-  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, *(u8)(result_ptr));
+  ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event_record, (*u8)(result_ptr));
   assert(ret == i32(0), "fs_event_start failed");
   // Delete the file
   io.await(dir.unlink(AT_FDCWD, test_file_path, i32(0)), io);

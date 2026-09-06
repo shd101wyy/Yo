@@ -29,7 +29,7 @@ test("fallocate mode 0 extends file size", {
   assert(ret == i32(0), "fallocate mode 0 should succeed");
   size_after := file.file_size(fd);
   assert(size_after >= i64(8192), "fallocate mode 0 should extend file size to at least 8192 bytes");
-  marker := *(u8)("X");
+  marker := (*u8)("X");
   wr := io.await(file.write(fd, marker, u32(1), u64(8191)), io);
   assert(wr == i32(1), "writing marker at offset 8191 after fallocate should succeed");
   close_ret := io.await(file.close(fd), io);
@@ -44,7 +44,7 @@ test("fallocate KEEP_SIZE preserves file size", {
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
   assert(fd >= i32(0), "mkstemp for KEEP_SIZE test should succeed");
-  seed := *(u8)("ABCD");
+  seed := (*u8)("ABCD");
   wr := io.await(file.write(fd, seed, u32(4), u64(0)), io);
   assert(wr == i32(4), "writing 4-byte seed for KEEP_SIZE test should succeed");
   size_before := file.file_size(fd);
@@ -69,7 +69,7 @@ test("fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
       assert(fd >= i32(0), "mkstemp for Linux flag test should succeed");
       trunc := io.await(file.ftruncate(fd, i64(4096)), io);
       assert(trunc == i32(0), "ftruncate to 4096 for Linux flag test should succeed");
-      byte_ff := *(u8)("Z");
+      byte_ff := (*u8)("Z");
       wr1 := io.await(file.write(fd, byte_ff, u32(1), u64(1024)), io);
       wr2 := io.await(file.write(fd, byte_ff, u32(1), u64(2048)), io);
       assert(wr1 == i32(1), "writing sentinel at offset 1024 should succeed");
@@ -78,7 +78,7 @@ test("fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
       cond(
         (zero_ret == i32(0)) => {
           byte_uninit := MaybeUninit(Array(u8, usize(1))).new();
-          byte_buf := *(u8)(byte_uninit.as_ptr());
+          byte_buf := (*u8)(byte_uninit.as_ptr());
           rd := io.await(file.read(fd, byte_buf, u32(1), u64(1024)), io);
           assert(rd == i32(1), "reading byte from ZERO_RANGE segment should succeed");
           assert(byte_buf.* == u8(0), "ZERO_RANGE should zero data at the start of the range");
@@ -93,7 +93,7 @@ test("fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
       cond(
         (punch_ret == i32(0)) => {
           byte_uninit2 := MaybeUninit(Array(u8, usize(1))).new();
-          byte_buf2 := *(u8)(byte_uninit2.as_ptr());
+          byte_buf2 := (*u8)(byte_uninit2.as_ptr());
           rd2 := io.await(file.read(fd, byte_buf2, u32(1), u64(2048)), io);
           assert(rd2 == i32(1), "reading byte from PUNCH_HOLE segment should succeed");
           assert(byte_buf2.* == u8(0), "PUNCH_HOLE should read as zero from punched range");

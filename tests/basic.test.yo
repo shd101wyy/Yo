@@ -1164,7 +1164,7 @@ test("Test raw pointer", {
       (ptr.add(1)).* = 84;
       assert(ptr.* == 42);
       assert((ptr.add(1)).* == 84);
-      free(.Some(*(void)(ptr)));
+      free(.Some((*void)(ptr)));
     };
   };
   // mutate pointer
@@ -1203,20 +1203,20 @@ test("Test raw pointer", {
       );
       // Dereference a void pointer is prohibited.
       // We need to cast it to a specific type first.
-      i32_ptr := *(i32)(ptr);
+      i32_ptr := (*i32)(ptr);
     });
     mutate_void_ptr :: (fn(ptr : *void) -> unit)({
       comptime_expect_error(
         x := ptr.*,
         "Cannot use DST directly"
       );
-      i32_ptr := *(i32)(ptr);
+      i32_ptr := (*i32)(ptr);
       i32_ptr.* = 16;
     });
     x := 12;
-    use_void_ptr(*(void)(&x));
+    use_void_ptr((*void)(&x));
     assert(x == 12);
-    mutate_void_ptr(*(void)(&x));
+    mutate_void_ptr((*void)(&x));
     assert(x == 16);
   };
 });

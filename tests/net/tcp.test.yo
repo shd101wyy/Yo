@@ -87,7 +87,7 @@ test("TCP echo with write_str and read", {
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(10), "should send 10 bytes");
   // Server reads
-  recv_buf := *(u8)(malloc(usize(256)).unwrap());
+  recv_buf := (*u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(10), "should receive 10 bytes");
@@ -96,7 +96,7 @@ test("TCP echo with write_str and read", {
   assert((recv_buf.add(usize(2))).* == u8(108), "l");
   assert((recv_buf.add(usize(3))).* == u8(108), "l");
   assert((recv_buf.add(usize(4))).* == u8(111), "o");
-  free(.Some(*(void)(recv_buf)));
+  free(.Some((*void)(recv_buf)));
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
@@ -120,11 +120,11 @@ test("TCP echo with write String", {
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(13), "should send 13 bytes");
   // Server reads
-  recv_buf := *(u8)(malloc(usize(256)).unwrap());
+  recv_buf := (*u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(13), "should receive 13 bytes");
-  free(.Some(*(void)(recv_buf)));
+  free(.Some((*void)(recv_buf)));
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
@@ -152,7 +152,7 @@ test("TCP write_bytes", {
   unsafe(printf("  sent = %zu\n", n));
   assert(n == usize(4), "should send 4 bytes");
   // Server reads
-  recv_buf := *(u8)(malloc(usize(256)).unwrap());
+  recv_buf := (*u8)(malloc(usize(256)).unwrap());
   nr := io.await(server_stream.read(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
   unsafe(printf("  received = %zu\n", nr));
   assert(nr == usize(4), "should receive 4 bytes");
@@ -160,7 +160,7 @@ test("TCP write_bytes", {
   assert((recv_buf.add(usize(1))).* == u8(2), "byte 1");
   assert((recv_buf.add(usize(2))).* == u8(3), "byte 2");
   assert((recv_buf.add(usize(3))).* == u8(4), "byte 3");
-  free(.Some(*(void)(recv_buf)));
+  free(.Some((*void)(recv_buf)));
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
@@ -339,10 +339,10 @@ test("one listener accepts three sequential connections", {
     server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
     n := io.await(client.write_str("x", io), IoExn(io : io, exn : exn));
     assert(n == usize(1), "should send 1 byte");
-    buf := *(u8)(malloc(usize(8)).unwrap());
+    buf := (*u8)(malloc(usize(8)).unwrap());
     nr := io.await(server_stream.read(buf, usize(8), io), IoExn(io : io, exn : exn));
     assert(nr == usize(1), "server should read the 1 byte");
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     io.await(server_stream.close(io), IoExn(io : io, exn : exn));
     io.await(client.close(io), IoExn(io : io, exn : exn));
     unsafe(printf("  round %d: done\n", round));
@@ -399,7 +399,7 @@ _d6_ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
 });
 _d6_read_headers :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
-    buf := *(u8)(malloc(usize(4096)).unwrap());
+    buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
     eof := false;
     while(runtime(!eof && !_d6_ends_headers(bytes)), {
@@ -417,7 +417,7 @@ _d6_read_headers :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoEx
         }
       );
     });
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     String.from_bytes(bytes)
   })
 );

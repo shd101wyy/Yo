@@ -315,7 +315,7 @@ test("File sequential read calls advance the position", {
   fpath := Path.new(path_join(tmp, `yo_fs_file_pos_read.txt`));
   io.await(fs_file.write_string(fpath, `ABCDEF`, io), IoExn(io : io, exn : exn));
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
-  buf := *(u8)(malloc(usize(8)).unwrap());
+  buf := (*u8)(malloc(usize(8)).unwrap());
   n1 := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
   assert(n1 == usize(3), "first read should return 3 bytes");
   first := (((buf).* == u8(65)) && ((buf.add(usize(1))).* == u8(66)) && ((buf.add(usize(2))).* == u8(67)));
@@ -324,7 +324,7 @@ test("File sequential read calls advance the position", {
   assert(n2 == usize(3), "second read should return 3 bytes");
   second := (((buf).* == u8(68)) && ((buf.add(usize(1))).* == u8(69)) && ((buf.add(usize(2))).* == u8(70)));
   assert(second, "second read must be DEF — the position must advance");
-  free(.Some(*(void)(buf)));
+  free(.Some((*void)(buf)));
   io.await(f.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
@@ -344,12 +344,12 @@ test("File.seek positions the next read", {
   f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
   moved := f.seek(i64(5), .Start, exn);
   assert(moved == i64(5), "seek should report the new offset");
-  buf := *(u8)(malloc(usize(8)).unwrap());
+  buf := (*u8)(malloc(usize(8)).unwrap());
   n := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
   assert(n == usize(3), "read after seek should return 3 bytes");
   got := (((buf).* == u8(53)) && ((buf.add(usize(1))).* == u8(54)) && ((buf.add(usize(2))).* == u8(55)));
   assert(got, "read after seek(5) must be 567, not 012");
-  free(.Some(*(void)(buf)));
+  free(.Some((*void)(buf)));
   io.await(f.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });
@@ -421,12 +421,12 @@ test("File.from_fd wraps an existing descriptor", {
   // double-close the fd.
   wrapped := File.from_fd(opened.fd());
   opened._is_closed = true;
-  buf := *(u8)(malloc(usize(8)).unwrap());
+  buf := (*u8)(malloc(usize(8)).unwrap());
   n := io.await(wrapped.read(buf, usize(8), io), IoExn(io : io, exn : exn));
   assert(n == usize(8), "read through the wrapped handle");
   assert((buf).* == u8(119), "first byte is 'w'");
   assert((buf.add(usize(7))).* == u8(33), "last byte is '!'");
-  free(.Some(*(void)(buf)));
+  free(.Some((*void)(buf)));
   io.await(wrapped.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });

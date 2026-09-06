@@ -92,12 +92,12 @@ impl(
       ctrl_result,
       .None => .Err(.AllocError(error : .OutOfMemory)),
       .Some(ctrl_void_ptr) => {
-        ctrl_ptr := *(u8)(ctrl_void_ptr);
+        ctrl_ptr := (*u8)(ctrl_void_ptr);
         data_result := malloc(data_size);
         match(
           data_result,
           .None => {
-            free(.Some(*(void)(ctrl_ptr)));
+            free(.Some((*void)(ctrl_ptr)));
             .Err(.AllocError(error : .OutOfMemory))
           },
           .Some(data_void_ptr) => {
@@ -321,12 +321,12 @@ impl(
         );
         match(
           self.ctrl,
-          .Some(ptr) => free(.Some(*(void)(ptr))),
+          .Some(ptr) => free(.Some((*void)(ptr))),
           .None => ()
         );
         match(
           self.data,
-          .Some(ptr) => free(.Some(*(void)(ptr))),
+          .Some(ptr) => free(.Some((*void)(ptr))),
           .None => ()
         );
         self.ctrl = new_map.ctrl;
@@ -595,12 +595,12 @@ impl(
       );
       match(
         self.ctrl,
-        .Some(ptr) => free(.Some(*(void)(ptr))),
+        .Some(ptr) => free(.Some((*void)(ptr))),
         .None => ()
       );
       match(
         self.data,
-        .Some(ptr) => free(.Some(*(void)(ptr))),
+        .Some(ptr) => free(.Some((*void)(ptr))),
         .None => ()
       );
     })

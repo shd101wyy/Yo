@@ -49,25 +49,25 @@ impl(
       // Allocate a mutable C string for mkdtemp
       template_bytes := template_str.as_bytes();
       buf_len := (template_bytes.len() + usize(1));
-      buf := *(u8)(malloc(buf_len).unwrap());
+      buf := (*u8)(malloc(buf_len).unwrap());
       // SAFETY: `buf` is a fresh malloc'd `buf_len = template_bytes.len() + 1`
       // byte buffer; we copy exactly `template_bytes.len()` bytes from
       // `template_bytes`'s underlying storage (alive for the duration of this
       // statement — it's the bytes of `template_str` which we own) and write
       // the trailing NUL at `buf[template_bytes.len()]`. `buf` is freed in
       // both the error branch and after `IO_temp.mkdtemp` returns.
-      unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
+      unsafe(memcpy((*void)(buf), (*void)(template_bytes.ptr().unwrap()), template_bytes.len()));
       (buf.add(template_bytes.len())).* = u8(0);
       result := IO_temp.mkdtemp(buf);
       cond(
         (result < i32(0)) => {
-          free(.Some(*(void)(buf)));
+          free(.Some((*void)(buf)));
           e.exn.throw(dyn(IoError.from_errno(i32(0) - result)));
         },
         true => ()
       );
       path_str := String.from_cstr(buf).unwrap();
-      free(.Some(*(void)(buf)));
+      free(.Some((*void)(buf)));
       TempDir(_path : Path.new(path_str), _removed : false)
     })
   ),
@@ -111,12 +111,12 @@ impl(
               { _rmdir } :: import("../libc/windows");
               // SAFETY: path_cstr points at the NUL-terminated bytes of
               // path_cstr_bytes, alive for this whole block.
-              unsafe(_rmdir(*(char)(path_cstr)));
+              unsafe(_rmdir((*char)(path_cstr)));
             },
             true => {
               { rmdir } :: import("../libc/unistd");
               // SAFETY: as above — NUL-terminated, alive for the call.
-              unsafe(rmdir(*(char)(path_cstr)));
+              unsafe(rmdir((*char)(path_cstr)));
             }
           );
           self._removed = true;
@@ -144,23 +144,23 @@ impl(
       template_str := template_path.to_string();
       template_bytes := template_str.as_bytes();
       buf_len := (template_bytes.len() + usize(1));
-      buf := *(u8)(malloc(buf_len).unwrap());
+      buf := (*u8)(malloc(buf_len).unwrap());
       // SAFETY: as in `TempDir.new_in` above — `buf` is a fresh malloc'd
       // `template_bytes.len() + 1` byte buffer, we copy exactly the template
       // bytes plus a trailing NUL. `buf` is freed in the error branch and
       // released to mkstemp's owned-fd lifecycle on success.
-      unsafe(memcpy(*(void)(buf), *(void)(template_bytes.ptr().unwrap()), template_bytes.len()));
+      unsafe(memcpy((*void)(buf), (*void)(template_bytes.ptr().unwrap()), template_bytes.len()));
       (buf.add(template_bytes.len())).* = u8(0);
       fd := IO_temp.mkstemp(buf);
       cond(
         (fd < i32(0)) => {
-          free(.Some(*(void)(buf)));
+          free(.Some((*void)(buf)));
           e.exn.throw(dyn(IoError.from_errno(i32(0) - fd)));
         },
         true => ()
       );
       path_str := String.from_cstr(buf).unwrap();
-      free(.Some(*(void)(buf)));
+      free(.Some((*void)(buf)));
       path := Path.new(path_str);
       file := _file_mod.File(_fd : fd, _path : path, _is_closed : false, _pos : u64(0));
       TempFile(_file : file, _path : path, _removed : false)
@@ -220,12 +220,12 @@ impl(
               { _unlink } :: import("../libc/windows");
               // SAFETY: path_cstr points at the NUL-terminated bytes of
               // path_cstr_bytes, alive for this whole block.
-              unsafe(_unlink(*(char)(path_cstr)));
+              unsafe(_unlink((*char)(path_cstr)));
             },
             true => {
               { unlink } :: import("../libc/unistd");
               // SAFETY: as above — NUL-terminated, alive for the call.
-              unsafe(unlink(*(char)(path_cstr)));
+              unsafe(unlink((*char)(path_cstr)));
             }
           );
           self._removed = true;

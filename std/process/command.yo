@@ -247,7 +247,7 @@ _build_env_storage :: (fn(self : Command) -> ArrayList(ArrayList(u8)))({
           env_done = true;
         },
         .Some(entry_ptr) => {
-          entry := String.from_cstr(*(u8)(entry_ptr)).unwrap();
+          entry := String.from_cstr((*u8)(entry_ptr)).unwrap();
           key := match(
             entry.index_of("=", usize(0)),
             .Some(eq2) => entry.substring(usize(0), eq2),
@@ -325,7 +325,7 @@ _spawn_with_fds :: (
     // Allocate argv buffer: argc entries + 1 null terminator.
     argv_bytes := (sizeof(?*u8) * (argc + usize(1)));
     argv_raw := malloc(argv_bytes).unwrap();
-    argv_buf := *(?*u8)(argv_raw);
+    argv_buf := (*?*u8)(argv_raw);
     // Fill argv pointers from each owning ArrayList(u8) in storage.
     j := usize(0);
     while(runtime(j < argc), {
@@ -358,7 +358,7 @@ _spawn_with_fds :: (
       envp_bytes := (sizeof(?*u8) * (envc + usize(1)));
       envp_mem := malloc(envp_bytes).unwrap();
       envp_raw = .Some(envp_mem);
-      envp_buf := *(?*u8)(envp_mem);
+      envp_buf := (*?*u8)(envp_mem);
       (ej : usize) = usize(0);
       while(runtime(ej < envc), {
         match(
@@ -430,13 +430,13 @@ _mark_parent_end :: (fn(fd : i32, exn : Exception) -> unit)({
 _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
   io.async(e => {
     buf_size := usize(4096);
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     out := ArrayList(u8).new();
     while(runtime(true), {
       n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)), e.io);
       cond(
         (n < i32(0)) => {
-          free(.Some(*(void)(buf)));
+          free(.Some((*void)(buf)));
           e.exn.throw(dyn(IoError.from_errno(i32(0) - n)));
         },
         (n == i32(0)) => break,
@@ -449,7 +449,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
         }
       );
     });
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     out
   })
 );
@@ -482,7 +482,7 @@ impl(
     io.async(e => {
       // Create stdout and stderr pipes.
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
-      out_fd := *(i32)(out_fd_buf.as_ptr());
+      out_fd := (*i32)(out_fd_buf.as_ptr());
       pr1 := IO_pipe.pipe(out_fd);
       cond(
         (pr1 < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - pr1))),
@@ -491,7 +491,7 @@ impl(
       out_read := (out_fd.add(usize(0))).*;
       out_write := (out_fd.add(usize(1))).*;
       err_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
-      err_fd := *(i32)(err_fd_buf.as_ptr());
+      err_fd := (*i32)(err_fd_buf.as_ptr());
       pr2 := IO_pipe.pipe(err_fd);
       cond(
         (pr2 < i32(0)) => {
@@ -688,7 +688,7 @@ _stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i3
     },
     .Piped => {
       fd_buf := MaybeUninit(Array(i32, usize(2))).new();
-      fds := *(i32)(fd_buf.as_ptr());
+      fds := (*i32)(fd_buf.as_ptr());
       pr := IO_pipe.pipe(fds);
       cond(
         (pr < i32(0)) => exn.throw(dyn(IoError.from_errno(i32(0) - pr))),
