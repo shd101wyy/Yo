@@ -1,5 +1,6 @@
 { assert } :: import("std/assert");
 open(import("std/fmt"));
+{ Writer } :: import("std/fmt/writer");
 // Side-effect witness for the unit-receiver test at the bottom of this file.
 (_unit_side_effects : i32) = i32(0);
 _unit_mark :: (fn(n : i32) -> unit)({
@@ -157,4 +158,22 @@ test("numeric to_string through the shared snprintf helper", {
   assert(u64(18446744073709551615).to_string() == `18446744073709551615`, "u64 max");
   assert(f64(0.5).to_string() == `0.5`, "f64 %g drops trailing zeros");
   assert(f32(2.5).to_string() == `2.5`, "f32 widened");
+});
+test("Writer.to_string detaches the buffer: later writes never mutate a returned String", {
+  // issues/fixed/fmt-writer-to-string-aliases-the-live-buffer.md — the
+  // returned String used to SHARE the writer's ArrayList, so `w.write_str`
+  // after `to_string` rewrote a value the caller already held (and both
+  // dropped the same bytes).
+  w := Writer.new();
+  w.write_str("abc");
+  first := w.to_string();
+  w.write_str("def");
+  assert(first == `abc`, "the first String must not see bytes written after it was taken");
+  assert(first.len() == usize(3), "and its length is fixed at 3");
+  assert(w.to_string() == `def`, "to_string hands over the buffer, so the writer starts empty");
+  assert(w.len() == usize(0), "the writer is empty after to_string");
+  w.write_str("x");
+  assert(w.to_string() == `x`, "and is reusable afterwards");
+  empty := Writer.new().to_string();
+  assert(empty.len() == usize(0), "an empty writer yields an empty String");
 });

@@ -86,3 +86,16 @@ test("shuffle permutes in place; choice picks a member", {
   empty := ArrayList(i32).new();
   assert(r.choice(empty).is_none(), "empty choice is None");
 });
+test("one-element ranges are the safe edge: range(x, x+1) is x and next_below(1) is 0", {
+  // issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md
+  // documents the unsafe edge — `range(x, x)` and `next_below(0)` — which is
+  // now a panic (tests/cli-cases/rand-empty-range-panics). The legal boundary
+  // right next to it must keep working without rejection-sampling forever.
+  r := Rng.new(u64(7));
+  (i : usize) = usize(0);
+  while(i < usize(50), i = (i + usize(1)), {
+    assert(r.range(i64(5), i64(6)) == i64(5), "range(5, 6) is always 5");
+    assert(r.next_below(u64(1)) == u64(0), "next_below(1) is always 0");
+    assert(r.range(i64(-3), i64(-2)) == i64(-3), "negative one-element range");
+  });
+});

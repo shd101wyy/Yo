@@ -183,10 +183,16 @@ impl(
       }
     )
   }),
-  /// Consume the Writer and return an owned String.
-  to_string : (fn(self : Self) -> String)(
-    String.from_bytes(self.buf)
-  ),
+  /// Take the accumulated bytes out as an owned String, leaving the Writer
+  /// empty and reusable. The String OWNS the buffer: `String.from_bytes` does
+  /// not copy, so handing over the live buffer used to alias it — a later
+  /// `write_*` rewrote a String the caller already held
+  /// (issues/fixed/fmt-writer-to-string-aliases-the-live-buffer.md).
+  to_string : (fn(self : Self) -> String)({
+    bytes := self.buf;
+    self.buf = ArrayList(u8).new();
+    String.from_bytes(bytes)
+  }),
   /// Return the current byte length of the buffer.
   len : (fn(self : Self) -> usize)(
     self.buf.len()
