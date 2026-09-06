@@ -361,20 +361,21 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         out.push_str("){ ");
         n := fields.len();
         (i : usize) = usize(0);
+        (any_elem : bool) = false;
         while(i < n, {
-          if(i > usize(0), {
-            out.push_str(", ");
-          });
           fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          out.push_str("._");
-          out.push_string(i.to_string());
-          out.push_str(" = ");
-          // A `unit` element has no comptime C value (it falls through the
-          // dispatch's catch-all to a skip marker) and its field is now a
-          // one-byte placeholder, so initialize it with the dead byte. Done
-          // here rather than as a `.UnitVal` arm on the dispatch: other callers
-          // key off that skip-marker string.
-          match(fields.get(i), .Some(fv) => out.push_string(if(is_unit_type(fty), String.from("0"), recur(fv, fty, context))), .None => ());
+          // A `unit` element is zero-sized and has no `_N` member
+          // (types/generation.yo): no initializer.
+          if(!is_unit_type(fty), {
+            if(any_elem, {
+              out.push_str(", ");
+            });
+            any_elem = true;
+            out.push_str("._");
+            out.push_string(i.to_string());
+            out.push_str(" = ");
+            match(fields.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
+          });
           i = (i + usize(1));
         });
         out.push_str(" }");
@@ -384,7 +385,14 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
     ),
     .ArrayVal(elements) => match(
       ty,
-      .Array({ element }) => {
+      // `Array(unit, N)` is zero-sized: its wrapper has no `data` member
+      // (types/generation.yo), so the literal is the empty struct.
+      .Array({ element }) => if(is_unit_type(element), {
+        out := String.from("(");
+        out.push_string(get_type_string(ty, context));
+        out.push_str("){ }");
+        out
+      }, {
         out := String.from("(");
         out.push_string(get_type_string(ty, context));
         out.push_str("){ .data = { ");
@@ -399,7 +407,7 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
         });
         out.push_str(" } }");
         out
-      },
+      }),
       _ => String.from("/* skip generating array value */")
     ),
     // --- struct (newtype / object-constructor / plain literal) ---
@@ -442,12 +450,14 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
                 .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
                 .None => false
               );
-              if(!(field_is_ct), {
+              fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+              // A `unit` field is zero-sized: the ctor has no parameter for it
+              // (functions/constructors.yo).
+              if(!(field_is_ct) && !(is_unit_type(fty)), {
                 if(any_arg, {
                   out.push_str(", ");
                 });
                 any_arg = true;
-                fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
                 match(field_values.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
               });
               i = (i + usize(1));

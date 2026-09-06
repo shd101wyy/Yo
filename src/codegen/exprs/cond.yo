@@ -693,8 +693,16 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
   (current_indent : String) = indent.clone();
   (else_depth : usize) = usize(0);
   (has_emitted : bool) = false;
+  // A comptime-TRUE condition in a non-first arm is the chain's final `else`:
+  // every arm after it is unreachable and must NOT be emitted — the arm is
+  // written as a bare `else { … }` (no `if`), so a following arm's `else {`
+  // would have no `if` to attach to ("expected expression" at the `else`).
+  // Reached by `cond(<runtime> => a, sizeof(T) == usize(0) => b, true => c)`
+  // specialized at a zero-sized T (std/collections/array_list.yo). The
+  // first-arm case never gets here: `can_opt` collapses it to direct emission.
+  (ct_true_emitted : bool) = false;
   (i2 : usize) = usize(0);
-  while(i2 < nargs, {
+  while((i2 < nargs) && !ct_true_emitted, {
     match(
       args.get(i2),
       .Some(arg) => if(ast_expr_is_fn_call_of(arg, "=>", Option(usize).Some(usize(2))), {
@@ -769,6 +777,9 @@ generate_cond_expression :: (fn(expr : AstExpr, indent : String, context : Funct
                   cl := current_indent.clone();
                   cl.push_str("}");
                   em.emit_string_line(cl);
+                });
+                if(is_ct_true, {
+                  ct_true_emitted = true;
                 });
               });
             },

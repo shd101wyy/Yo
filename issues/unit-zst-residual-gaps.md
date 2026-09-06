@@ -1,34 +1,42 @@
 # `unit` as a value type — the shapes still not covered
 
 **Status:** OPEN (deliberate scope boundary, not regressions)
-**Context:** follow-up to issues/fixed/unit-typed-params-and-fields-emit-c-void.md,
-which made `unit` work in parameter, field, tuple and generic-container positions
-by spelling storage positions with a one-byte placeholder
-(`get_storage_type_string`).
+**Context:** follow-up to issues/fixed/unit-typed-params-and-fields-emit-c-void.md
+(which made `unit` work in parameter, field, tuple and generic-container
+positions) and — **re-prescribed 2026-09-06** — to
+issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md, which made
+`unit` a TRUE zero-sized type: `sizeof(unit) == 0`, and every STORAGE position
+erases it (no struct/tuple member, no `Array` data, no ArrayList bytes).
 
-Every shape in the "Not covered" table below fails **today exactly as it failed
-before** that change. Each is the same one-line recipe — route the site through
-`get_storage_type_string` instead of `get_type_string`, and fill the matching
-empty argument slot — but each needs its own reproducer and test, so they were
-left out rather than changed blind. (Of the two extra defects at the bottom,
-item 2 is **FIXED 2026-09-05**; item 1 is still open.)
+That changes the recipe below. The old prescription for every row was "route
+the site through `get_storage_type_string`" — i.e. give it the one-byte
+placeholder. **That is now only right for a PARAMETER position** (C cannot
+declare a `void` parameter, and a parameter is calling convention, not layout).
+A STORAGE position must be ERASED instead — emit no member / no slot / no
+global — the way struct fields, tuple elements and enum variant fields already
+are. The layout model (`get_size_of_type(.Unit)` is 0) already assumes erasure
+at every one of these sites, so an erasure needs no matching change in
+`src/types/utils.yo`; a placeholder at a storage site would now be the
+model/emitter mismatch that
+issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md
+was, in the other direction.
+
+Every shape in the table fails **today exactly as it failed before** either
+change. Each needs its own reproducer and test, so they were left out rather
+than changed blind.
 
 ## Not covered
 
-| shape | site |
-| --- | --- |
-| `[unit; N]` array element | `src/codegen/types/generation.yo` (array struct declaration) |
-| a `unit` member of a `union` | `src/codegen/types/generation.yo` (union declaration) |
-| `dyn` interface vtable fn-pointer parameters and non-function members | `src/codegen/types/generation.yo`, `src/codegen/functions/dyn.yo` |
-| a module-level `unit` global | module-variable emission |
-| a `unit` local that crosses an `io.await` (async state-machine slot) | `src/codegen/async/` |
-| a `unit` parameter of `main` | `src/codegen/functions/generation.yo` (`_main_call_args` emits `(void){0}`) |
-| parallelism spawn zero-initialization | `src/codegen/parallelism/` |
-
-The layout model already ASSUMES the placeholder at every one of these sites
-(`get_size_of_type(.Unit)` is one byte since the fix in item 2 below), so routing
-any of them through `get_storage_type_string` needs no matching change in
-`src/types/utils.yo` — the size it reports is already the size that lands.
+| shape | site | fix direction |
+| --- | --- | --- |
+| `[unit; N]` array element | `src/codegen/types/generation.yo` (array wrapper) | **DONE 2026-09-06** — the wrapper emits no `data` member, only the one-byte `_zst_dummy` (`sizeof(Array(unit, N)) == 1`); the comptime and runtime array literals emit the empty struct and an index read emits nothing (`fill`/`len`/index pinned in tests/unit_as_value_type.test.yo) |
+| a `unit` member of a `union` | `src/codegen/types/generation.yo` (union declaration) | storage → **erase** the member |
+| `dyn` interface vtable fn-pointer parameters | `src/codegen/types/generation.yo`, `src/codegen/functions/dyn.yo` | parameter → placeholder (`get_storage_type_string`) |
+| `dyn` interface non-function members | same | storage → **erase** |
+| a module-level `unit` global | module-variable emission | storage → **erase** (no global) |
+| a `unit` local that crosses an `io.await` (async state-machine slot) | `src/codegen/async/` | storage → **erase** (no slot) |
+| a `unit` parameter of `main` | `src/codegen/functions/generation.yo` (`_main_call_args` emits `(void){0}`) | parameter → placeholder, fed `0` |
+| parallelism spawn zero-initialization | `src/codegen/parallelism/` | storage → **erase** |
 
 ## Two pre-existing defects surfaced while mapping this
 
@@ -58,10 +66,12 @@ any of them through `get_storage_type_string` needs no matching change in
    > unit store is ever needed, raise the size to 8 bits first, and note that this
    > is a user-visible change to the `size_of` builtin's comptime value.
 
-   The unit-store guards in `src/codegen/exprs/assignment.yo:109,124,240` are
-   still in place and are now merely redundant rather than load-bearing (the
-   block they protect is no longer zero-sized). Removing them is a **separate**
-   change, deliberately not bundled with the size raise.
+   **Re-reversed 2026-09-06:** `unit` is zero-sized again — RIGHTLY this time,
+   because the storage is erased rather than merely unmeasured. `ArrayList` of a
+   zero-sized type takes a one-byte anchor block with `SIZE_MAX` capacity
+   (`_zst_anchor`) instead of `malloc(0)`. The unit-store guards in
+   `src/codegen/exprs/assignment.yo:109,124,240` are load-bearing once more: a
+   unit field has no C member to store into.
 
 ## Also worth doing
 

@@ -1359,29 +1359,17 @@ get_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)(
     }
   )
 );
-/// C type string in a STORAGE position — a parameter, a struct/tuple/union
-/// field, a local, or a cast target. C has no zero-sized object type, so a type
-/// whose spelling is exactly `void` (`unit`, `void`, or a SomeT that RESOLVES to
-/// either — `get_type_string` walks the resolution chain, `is_unit_type` does
-/// not) is spelled as a one-byte placeholder that is declared and never read.
-/// RETURN position keeps `get_type_string`, where `void` is legal, and pointer
-/// types spell `void*` rather than `void`, so both are untouched.
-///
-/// The guard fires only where today's output is already invalid C
-/// (`void x` / `void f(void x)` / `void b;`), which is what keeps the emitted C
-/// for every currently-compiling program byte-identical. See
-/// issues/fixed/unit-typed-params-and-fields-emit-c-void.md; the existing 1-byte
-/// precedents are `generate_future_trait_declaration` (types/generation.yo) and
-/// the await result slot (exprs/await.yo).
-///
-/// THE LAYOUT MODEL MIRRORS THIS: because the placeholder is a real byte, a
-/// `unit` in a storage position measures 1 byte / alignment 1 in
-/// `get_size_of_type` (src/types/utils.yo) — that is where `sizeof` comes from,
-/// and `sizeof` sizes the allocations that C-typed pointer arithmetic then
-/// strides through. Changing the placeholder's width, or dropping the
-/// placeholder at some position, means changing that arm too; leaving them
-/// apart under-allocates every container of an aggregate with a `unit` field
-/// (issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md).
+/// The C type a Yo type is DECLARED with in a by-value PARAMETER position.
+/// `unit` is a zero-sized type: every STORAGE position erases it outright (a
+/// struct/tuple field emits no member, an enum variant field is erased from the
+/// data union, an `Array(unit, N)` has no `data`, a unit local declares
+/// nothing) — but C cannot declare a `void`-typed parameter, so a by-value
+/// `unit` parameter is spelled as a one-byte `uint8_t` and its argument slot
+/// is filled with `0`. This is a calling-convention detail, not layout:
+/// `get_size_of_type(.Unit)` is 0 and `sizeof` never observes the byte. A
+/// REF/`inout` unit parameter keeps `void*`
+/// (issues/fixed/inout-unit-receiver-void-ref-spill.md). Every other type is
+/// unchanged.
 get_storage_type_string :: (fn(t : TypeValue, context : CodeGenContext) -> String)({
   s := get_type_string(t, context);
   if(s == `void`, String.from("uint8_t"), s)

@@ -99,13 +99,28 @@ _array_wrapper_names_sorted :: (fn(context : CodeGenContext) -> ArrayList(String
   });
   sorted_keys
 });
+/// The one member a struct/tuple/array wrapper gets when every field was
+/// erased. An EMPTY C struct is not a portable zero-sized type: clang gives it
+/// 0 bytes on GNU targets but 4 on the MSVC ABI (`*-windows-msvc`), so a
+/// container of such an aggregate was under-allocated on Windows. One byte lays
+/// out identically everywhere; `_c_aggregate_size` (src/types/utils.yo) reports
+/// exactly this byte.
+_emit_zst_dummy :: (fn(context : CodeGenContext) -> unit)(
+  context.emitter.emit_declaration_line("  uint8_t _zst_dummy; // member-less aggregate: 1 byte on every target (an empty struct is 4 on MSVC, 0 on GNU)")
+);
 /// Emit one array-wrapper typedef.
 _emit_array_wrapper :: (fn(context : CodeGenContext, name : String) -> unit)({
   match(
     context.array_struct_types.get(name.clone()),
     .Some(info) => {
       context.emitter.emit_declaration_line("typedef struct { // Array wrapper struct");
-      context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
+      // `Array(unit, N)`: the element is zero-sized, so there is no `data`
+      // member (`void data[N]` is not C); the wrapper carries the dummy byte.
+      if(info.child_type != "void", {
+        context.emitter.emit_declaration_string_line(`  ${info.child_type} data[${info.length.to_string()}];`);
+      }, {
+        _emit_zst_dummy(context);
+      });
       context.emitter.emit_declaration_string_line(`} ${name};`);
       context.emitter.emit_declaration_line("");
     },
@@ -157,25 +172,32 @@ generate_str_type_declaration :: (fn(context : CodeGenContext) -> unit)({
 });
 /// Emit `  <type> <name>;` for each runtime struct field.
 /// (Defined before generate_struct_declaration — Yo has no forward references.)
-_emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> unit)({
+_emit_runtime_fields :: (fn(fields : ArrayList(RuntimeStructField), context : CodeGenContext) -> bool)({
   n := fields.len();
   (i : usize) = usize(0);
+  (emitted : bool) = false;
   while(i < n, {
     match(
       fields.get(i),
-      .Some(field) => {
-        // A `unit` field is spelled as a dead byte rather than `void` — C has
-        // no zero-sized object type. Field COUNT and ORDER are preserved, so
-        // both constructor parameter lists and the compound literal stay
-        // aligned with the layout.
-        fts := get_storage_type_string(field.ty, context);
+      // A `unit` field is a zero-sized type and emits NO member — C struct
+      // members are accessed by name, so erasing one shifts nothing. Every
+      // consumer of the layout skips the same fields: the `__yo_new_` ctor's
+      // parameters and stores (functions/constructors.yo, declarations.yo),
+      // the ctor call and the value-struct compound literal
+      // (exprs/other_fn_call.yo, exprs/comptime_value.yo), and a read of the
+      // field (exprs/property_access.yo). A struct whose every field is `unit`
+      // is an empty C struct (GNU extension, sizeof 0 — same as Rust).
+      .Some(field) => if(!is_unit_type(field.ty), {
+        fts := get_type_string(field.ty, context);
         fname := sanitize_for_c_identifier(field.label.clone(), false);
         context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
-      },
+        emitted = true;
+      }),
       .None => ()
     );
     i = (i + usize(1));
   });
+  emitted
 });
 /// Generate a struct/object declaration. Newtypes lower to a typedef;
 /// reference-semantics structs carry the RC header. Mirrors `generateStructDeclaration`.
@@ -202,12 +224,14 @@ generate_struct_declaration :: (fn(struct_type : TypeValue, c_name : String, con
           }, {
             context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
           });
-          _emit_runtime_fields(runtime_fields, context);
+          _rf := _emit_runtime_fields(runtime_fields, context);
           context.emitter.emit_declaration_line("};");
         },
         true => {
           context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)}`);
-          _emit_runtime_fields(runtime_fields, context);
+          if(!_emit_runtime_fields(runtime_fields, context), {
+            _emit_zst_dummy(context);
+          });
           context.emitter.emit_declaration_line("};");
         }
       );
@@ -223,29 +247,28 @@ generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, conte
     tuple_type,
     .Tuple({ field_types }) => {
       context.emitter.emit_declaration_string_line(`typedef struct { // ${type_to_string(tuple_type)}`);
-      cond(
-        (field_types.len() == usize(0)) => {
-          context.emitter.emit_declaration_line("  uint8_t _dummy; // zero-sized type marker");
-        },
-        true => {
-          n := field_types.len();
-          (i : usize) = usize(0);
-          while(i < n, {
-            match(
-              field_types.get(i),
-              .Some(ft) => {
-                // As for struct fields: a `unit` element becomes a dead byte.
-                // The zero-field branch above keeps its own `_dummy` marker —
-                // with placeholders a NON-empty tuple can never render empty.
-                fts := get_storage_type_string(ft, context);
-                context.emitter.emit_declaration_string_line(`  ${fts} _${i.to_string()};`);
-              },
-              .None => ()
-            );
-            i = (i + usize(1));
-          });
-        }
-      );
+      n := field_types.len();
+      (i : usize) = usize(0);
+      (emitted : bool) = false;
+      while(i < n, {
+        match(
+          field_types.get(i),
+          // As for struct fields: a `unit` element is zero-sized and emits no
+          // member; `_N` keeps its declaration index, so accesses stay aligned.
+          .Some(ft) => if(!is_unit_type(ft), {
+            fts := get_type_string(ft, context);
+            context.emitter.emit_declaration_string_line(`  ${fts} _${i.to_string()};`);
+            emitted = true;
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      // A zero-field or all-`unit` tuple would be an empty struct — not portable
+      // (see _emit_zst_dummy).
+      if(!emitted, {
+        _emit_zst_dummy(context);
+      });
       context.emitter.emit_declaration_string_line(`} ${c_name};`);
       context.emitter.emit_declaration_line("");
     },
@@ -335,12 +358,37 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
       _emit_enum_tags(c_name, variant_names, variant_discriminants, context);
       context.emitter.emit_declaration_string_line(`} ${tag_enum_name};`);
       context.emitter.emit_declaration_line("");
-      // Data union (struct per variant with non-unit fields).
+      // Data union (struct per variant with non-unit fields). When NO variant
+      // has a non-unit field the union would be EMPTY, and an empty union is not
+      // portable: 0 bytes on GNU targets, 4 on the MSVC ABI — so `{ tag; data }`
+      // was 8 bytes on Windows while the layout model (tag only) said 4, and
+      // every container of an `enum(A(u : unit), B)`-shaped enum was
+      // under-allocated there (issues/fixed/empty-enum-data-union-is-4-bytes-on-msvc.md).
+      // Such an enum gets no union and no `data` member: it IS its tag.
       variant_union_name := String.from("");
       variant_union_name.push_string(c_name.clone());
       variant_union_name.push_str("_data");
-      context.emitter.emit_declaration_line("typedef union {");
+      (union_has_members : bool) = false;
       nv := variant_names.len();
+      (pvi : usize) = usize(0);
+      while(pvi < nv, {
+        pfields := match(variant_fields.get(pvi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        (pfi : usize) = usize(0);
+        while(pfi < pfields.len(), {
+          match(
+            pfields.get(pfi),
+            .Some(ft) => if(!is_unit_type(ft), {
+              union_has_members = true;
+            }),
+            .None => ()
+          );
+          pfi = (pfi + usize(1));
+        });
+        pvi = (pvi + usize(1));
+      });
+      if(union_has_members, {
+        context.emitter.emit_declaration_line("typedef union {");
+      });
       (vi : usize) = usize(0);
       while(vi < nv, {
         fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
@@ -380,8 +428,10 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
         });
         vi = (vi + usize(1));
       });
-      context.emitter.emit_declaration_string_line(`} ${variant_union_name};`);
-      context.emitter.emit_declaration_line("");
+      if(union_has_members, {
+        context.emitter.emit_declaration_string_line(`} ${variant_union_name};`);
+        context.emitter.emit_declaration_line("");
+      });
       // Tagged-union struct. A reference-semantics enum (`ref(enum(…))`) is a
       // heap-allocated, RC-managed handle (like a reference-semantics struct):
       // prepend the reference-count header, and the `${c_name}` typedef is a
@@ -397,14 +447,18 @@ generate_enum_declaration :: (fn(enum_type : TypeValue, c_name : String, context
           context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_tag}eference count header`);
         });
         context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
-        context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+        if(union_has_members, {
+          context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+        });
         context.emitter.emit_declaration_line("};");
         context.emitter.emit_declaration_line("");
         return(());
       });
       context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(enum_type)}`);
       context.emitter.emit_declaration_string_line(`  ${tag_enum_name} tag;`);
-      context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+      if(union_has_members, {
+        context.emitter.emit_declaration_string_line(`  ${variant_union_name} data;`);
+      });
       context.emitter.emit_declaration_line("};");
       context.emitter.emit_declaration_line("");
     },

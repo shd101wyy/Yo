@@ -3011,12 +3011,11 @@ test("Test sizeof", {
   // comptime_assert(sizeof(Linear) == 0);
   comptime_assert(sizeof(comptime_int) == 0);
   comptime_assert(sizeof(comptime_float) == 0);
-  // `unit` measures the one-byte C placeholder every storage position spells it
-  // as (get_storage_type_string) — NOT 0. `Type`, `comptime_int` and
-  // `comptime_float` above are comptime-only and never occupy storage, so they
-  // stay 0. See tests/unit_as_value_type.test.yo for the aggregate rule and
-  // issues/fixed/sizeof-of-aggregate-with-unit-field-disagrees-with-emitted-c-struct.md.
-  comptime_assert(sizeof(unit) == 1);
+  // `unit` is a true zero-sized type (Rust: `size_of::<()>() == 0`): a unit
+  // field emits no C member, so nothing is laid out. See
+  // tests/unit_as_value_type.test.yo for the aggregate rule and
+  // issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md.
+  comptime_assert(sizeof(unit) == 0);
   comptime_assert(sizeof(u8) == 1);
   comptime_assert(sizeof(u16) == 2);
   comptime_assert(sizeof(u32) == 4);

@@ -451,6 +451,12 @@ _generate_index_trait_call :: (fn(expr : AstExpr, ei : ExprInfo, indent : String
     ),
     .None => _index_method_call_by_name(method_value, recv_arg.clone(), index_code.clone(), context)
   );
+  // A zero-sized element (`Array(unit, N)`): the wrapper has no `data` member
+  // to index, and the element VALUE is `unit`, which — like every unit
+  // expression — emits no C. Its address is a null `void*`.
+  if(is_unit_type(ei.ty), {
+    return(match(ei.is_index_trait_address_of, .Some(true) => String.from("((void*)0)"), _ => String.from("")));
+  });
   // Auto-deref the returned pointer unless this is `&(value(i))`.
   match(ei.is_index_trait_address_of, .Some(true) => call_code, _ => `(*${call_code})`)
 });

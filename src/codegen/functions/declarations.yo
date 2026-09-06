@@ -322,20 +322,24 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
       .Some(entry) => if(is_reference_struct_type(entry.ty), {
         runtime_fields := get_runtime_struct_fields(entry.ty);
         if(!_object_decl_has_generic_fields(runtime_fields), {
+          // Twin of `_generate_one_constructor`'s parameter list: a `unit`
+          // field is zero-sized and takes no parameter.
           params := String.from("");
           nf := runtime_fields.len();
           (pi : usize) = usize(0);
+          (any_param : bool) = false;
           while(pi < nf, {
             match(
               runtime_fields.get(pi),
-              .Some(field) => {
-                if(pi > usize(0), {
+              .Some(field) => if(!is_unit_type(field.ty), {
+                if(any_param, {
                   params.push_str(", ");
                 });
-                params.push_string(get_storage_type_string(field.ty, context));
+                any_param = true;
+                params.push_string(get_type_string(field.ty, context));
                 params.push_str(" ");
                 params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
-              },
+              }),
               .None => ()
             );
             pi = (pi + usize(1));

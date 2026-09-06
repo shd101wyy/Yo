@@ -9,7 +9,7 @@ open(import("std/string"));
 { AstExpr, ast_expr_id, ast_expr_is_fn_call } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_array_type } :: import("../../types/guards.yo");
+{ is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { random_id } :: import("../../utils.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -81,9 +81,16 @@ generate_anonymous_array :: (fn(expr : AstExpr, indent : String, context : Funct
       array_type_name := get_type_string(array_type, context.base);
       array_value := String.from("(");
       array_value.push_string(array_type_name);
-      array_value.push_str("){ .data = { ");
-      array_value.push_string(args_list);
-      array_value.push_str(" } }");
+      // `Array(unit, N)` has no `data` member (the element is zero-sized), so
+      // the literal is the empty struct; the element expressions above still
+      // ran for their side effects.
+      if(match(array_type, .Array({ element : ae }) => is_unit_type(ae), _ => false), {
+        array_value.push_str("){ }");
+      }, {
+        array_value.push_str("){ .data = { ");
+        array_value.push_string(args_list);
+        array_value.push_str(" } }");
+      });
       match(
         ei.variable_name,
         .Some(temp_var) => {
@@ -139,6 +146,12 @@ generate_yo_array_fill :: (fn(expr : AstExpr, indent : String, context : Functio
   decl.push_string(temp_var_name.clone());
   decl.push_str(";");
   em.emit_string_line(decl);
+  // `Array(unit, N)`: no `data` member to fill (the element is zero-sized); the
+  // declaration above is the whole value. `fill_value_code` was generated
+  // above, so a side-effecting fill expression already ran.
+  if(match(array_type, .Array(fe, _, _) => is_unit_type(fe), _ => false), {
+    return(temp_var_name);
+  });
   // Fill loop header.
   hdr := indent.clone();
   hdr.push_str("for (int ");

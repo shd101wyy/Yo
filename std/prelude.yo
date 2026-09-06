@@ -818,6 +818,34 @@ impl(unit, Acyclic());
 impl(unit, Comptime());
 impl(unit, Runtime());
 impl(unit, Send());
+// `unit` is a zero-sized type with exactly one value, so — as Rust's `()` —
+// it implements the derivable traits trivially. Without these, `derive(Eq)`
+// (or Ord/Hash/Clone) over a struct with a `unit` field fails: the generated
+// `lhs.u == rhs.u` has no `Eq` to resolve to.
+impl(
+  unit,
+  Eq(unit)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(true),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(false)
+  )
+);
+impl(
+  unit,
+  Ord(unit)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(false),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(true),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(false),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(true),
+    cmp : (fn(lhs : Self, rhs : Self) -> Ordering)(Ordering.Equal)
+  )
+);
+impl(
+  unit,
+  Hash(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(())
+  )
+);
+impl(unit, Clone(clone : (fn(self : Self) -> Self)(())));
 /// void
 impl(void, Acyclic());
 impl(void, Runtime());
