@@ -42,7 +42,7 @@ _(env : proc_env) :: import("std/env");
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
-{ InitOptions, init_project } :: import("./init.yo");
+{ InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir } :: import("./cache.yo");
 { FetchOptions, run_fetch } :: import("./fetch_command.yo");
 { InstallOptions, run_install } :: import("./install_command.yo");
@@ -3083,13 +3083,15 @@ run_test :: (
 /// Run the `init` subcommand — scaffold a new Yo project.
 ///
 /// Flag contract mirrors the TS command (`src/yo-cli.ts:840-859`):
-///   yo init [dir] [--name <project-name>]
+///   yo init [dir] [--name <project-name>] [--no-skills]
 /// `dir` is a POSITIONAL defaulting to "." and `--name` overrides the project
 /// name that would otherwise be derived from the directory basename. Anything
 /// else is rejected rather than silently swallowed — `main.yo`'s other arg loops
 /// assign unrecognized tokens to a path, which is how `yo test ./tests --profile`
 /// ends up running against a path literally named `--profile`
 /// (plans/archive/P1_CLI_PARITY.md §3). Do not copy that shape here.
+/// `--no-skills` is a post-P2.5 addition (no TS counterpart): it skips the
+/// bundled agent skill files and the AGENTS.md/CLAUDE.md scaffolding.
 run_init :: (
   fn(
     argv : ArrayList(String),
@@ -3100,6 +3102,7 @@ run_init :: (
   (dir : String) = String.from(".");
   (dir_seen : bool) = false;
   (name : Option(String)) = Option(String).None;
+  (install_skills : bool) = true;
   (ai : usize) = usize(2); // skip program name + "init"
   while(ai < argv.len(), {
     arg := argv(ai);
@@ -3114,11 +3117,14 @@ run_init :: (
       arg.starts_with(String.from("--name=")) => {
         name = Option(String).Some(arg.substring(usize(7), arg.len()));
       },
+      (arg == "--no-skills") => {
+        install_skills = false;
+      },
       arg.starts_with(String.from("-")) => {
-        exn.throw(dyn(`init: unknown option '${arg}'. Usage: yo init [dir] [--name <name>]`));
+        exn.throw(dyn(`init: unknown option '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`));
       },
       dir_seen => {
-        exn.throw(dyn(`init: unexpected extra argument '${arg}'. Usage: yo init [dir] [--name <name>]`));
+        exn.throw(dyn(`init: unexpected extra argument '${arg}'. Usage: yo init [dir] [--name <name>] [--no-skills]`));
       },
       true => {
         dir = arg;
@@ -3127,7 +3133,14 @@ run_init :: (
     );
     ai = (ai + usize(1));
   });
-  io.await(init_project(InitOptions(dir : dir, name : name), io, exn), IoExn(io : io, exn : exn));
+  project_dir := io.await(init_project(InitOptions(dir : dir, name : name), io, exn), IoExn(io : io, exn : exn));
+  // Agent scaffolding runs AFTER the scaffold itself and degrades to a note
+  // when the bundled skills are missing — it must never fail `yo init`.
+  // install_agent_files is SYNC (blocking awaits inside, like
+  // run_skills_install) — a plain call, no io.await.
+  if(install_skills, {
+    install_agent_files(project_dir, io, exn);
+  });
 });
 run_fmt :: (
   fn(
@@ -4416,20 +4429,24 @@ Examples:
       tr(
         `Usage: yo init [dir] [options]
 
-Initialize a new Yo project (build.yo, src/, .gitignore).
+Initialize a new Yo project (build.yo, src/, .gitignore, README.md), then
+install the bundled agent skill files and write AGENTS.md + CLAUDE.md.
 
 Options:
   --name <s>                Project name (default: directory name)
+  --no-skills               Skip the agent skill files and AGENTS.md/CLAUDE.md
 
 Examples:
   $ yo init
   $ yo init my-project --name my-project`,
         `用法：yo init [dir] [options]
 
-初始化一个新的 Yo 项目（build.yo、src/、.gitignore）。
+初始化一个新的 Yo 项目（build.yo、src/、.gitignore、README.md），然后安装随
+发行版捆绑的 agent 技能文件并生成 AGENTS.md 与 CLAUDE.md。
 
 选项：
   --name <s>                项目名（默认：目录名）
+  --no-skills               跳过 agent 技能文件与 AGENTS.md/CLAUDE.md
 
 示例：
   $ yo init

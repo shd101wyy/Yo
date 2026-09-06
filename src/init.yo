@@ -4,7 +4,12 @@
 //!   build.yo, deps.yo, src/main.yo, src/lib.yo,
 //!   tests/main.test.yo, .gitignore, README.md
 //!
-//! This mirrors `src/init.ts`.
+//! Unless skipped with `--no-skills`, it then installs the bundled agent
+//! skill files into the project's agent config dirs and writes `AGENTS.md`
+//! (listing them) plus `CLAUDE.md` (pointing at `AGENTS.md`) — see
+//! `install_agent_files`.
+//!
+//! The plain scaffold mirrors `src/init.ts`.
 open(import("std/string"));
 open(import("std/fmt"));
 { env } :: import("std/env");
@@ -14,6 +19,8 @@ open(import("std/fmt"));
 { cwd } :: import("std/env");
 { exists, write_string } :: import("std/fs/file");
 { create_dir_all } :: import("std/fs/dir");
+{ install_skills_into, print_skills_summary, SkillEntry, SkillsInstallResult } :: import("./skills_command.yo");
+{ tr } :: import("./cli_lang.yo");
 // ---------------------------------------------------------------------------
 // Data types
 // ---------------------------------------------------------------------------
@@ -127,19 +134,141 @@ A project written in Yo programming language.
 
 ` + String.from("```bash\nyo build\n```\n\n## Run\n\n```bash\nyo build run\n```\n\n## Test\n\n```bash\nyo build test\n```\n\n## Documentation\n\n```bash\nyo build doc\n```\n")
 );
+/// Generate the content of `AGENTS.md` — the agent-facing entry point
+/// listing the installed Yo skill files. `targets` are the agent config
+/// dirs the skills were copied into (".agents", …) and only feed the
+/// location sentence; an empty `skills` list renders the section as "not
+/// installed yet" (callers normally skip the file in that case).
+generate_agents_md :: (
+  fn(skills : ArrayList(SkillEntry), targets : ArrayList(String)) -> String
+)({
+  (locations : String) = String.from("");
+  (l : usize) = usize(0);
+  while(l < targets.len(), {
+    if(l > usize(0), {
+      locations.push_str(", ");
+    });
+    locations.push_str("`");
+    locations.push_string(targets(l).clone());
+    locations.push_str("/skills/`");
+    l = (l + usize(1));
+  });
+  (bullets : String) = String.new();
+  (s : usize) = usize(0);
+  while(s < skills.len(), {
+    bullets.push_str("- **");
+    bullets.push_string(skills(s).name.clone());
+    bullets.push_str("**");
+    if(skills(s).description.len() > usize(0), {
+      bullets.push_str(" — ");
+      bullets.push_string(skills(s).description.clone());
+    });
+    bullets.push_str("\n");
+    s = (s + usize(1));
+  });
+  header :=
+    `# AGENTS.md
+
+Guidance for AI coding agents working in this project.
+
+This project is written in [Yo](https://github.com/shd101wyy/Yo) — a
+programming language that compiles to readable C11. Build, test, and format
+it with the yo toolchain:
+
+`;
+  fence := String.from("```bash\nyo build run     # build and run the app\nyo build test    # run the test suite\nyo fmt           # format the source\n```\n\n");
+  skills_section := cond(
+    (skills.len() > usize(0)) => (
+      `## Yo agent skills
+
+Version-matched Yo skill files are installed under ${locations} — one
+subdirectory per skill, each with a SKILL.md file. Read the relevant skill
+before writing or reviewing Yo code:
+
+` + bullets
+    ),
+    true =>
+      `## Yo agent skills
+
+No Yo skill files are installed in this project yet. Run: yo skills install
+`
+  );
+  footer := String.from("\nRefresh the skills after upgrading the compiler: yo skills install\n");
+  ((header + fence) + skills_section) + footer
+});
+/// Generate the content of `CLAUDE.md` — a one-line pointer at `AGENTS.md`,
+/// the same convention this repository itself uses, so Claude Code reads
+/// the same guidance without a second copy to keep in sync.
+generate_claude_md :: (fn() -> str)("@AGENTS.md\n");
+/// Post-scaffold agent setup, run by `yo init` unless `--no-skills`:
+/// install the bundled skill files into `project_dir`'s agent config dirs,
+/// then write `AGENTS.md` (listing the installed skills) and `CLAUDE.md`
+/// (pointing at `AGENTS.md`) when they do not already exist.
+///
+/// Best-effort by design: a missing bundled skills dir only prints a note —
+/// it must never fail `yo init` itself. Sync (blocking awaits): called from
+/// `run_init` after init_project's future has resolved.
+install_agent_files :: (
+  fn(
+    project_dir : Path,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  res_opt := install_skills_into(project_dir, io, exn);
+  match(
+    res_opt,
+    .None => {
+      println(
+        tr(
+          `note: bundled skill files not found; skipping agent scaffolding (AGENTS.md, CLAUDE.md).`,
+          `注意：找不到随发行版捆绑的技能文件，跳过 agent 脚手架（AGENTS.md、CLAUDE.md）。`
+        )
+      );
+    },
+    .Some(res) => {
+      // Empty bundled dir: the "No skill files found" message already
+      // printed; an AGENTS.md listing zero skills is not worth creating.
+      if(res.skills.len() == usize(0), {
+        return(());
+      });
+      agents_path := project_dir.join(Path.new(String.from("AGENTS.md")));
+      agents_exists := io.await(exists(agents_path.clone(), io), io);
+      cond(
+        !agents_exists => {
+          io.await(write_string(agents_path, generate_agents_md(res.skills, res.targets), io), IoExn(io : io, exn : exn));
+          println(String.from("  create     AGENTS.md"));
+        },
+        true => ()
+      );
+      claude_path := project_dir.join(Path.new(String.from("CLAUDE.md")));
+      claude_exists := io.await(exists(claude_path.clone(), io), io);
+      cond(
+        !claude_exists => {
+          io.await(write_string(claude_path, String.from(generate_claude_md()), io), IoExn(io : io, exn : exn));
+          println(String.from("  create     CLAUDE.md"));
+        },
+        true => ()
+      );
+      print_skills_summary(res);
+    }
+  );
+});
 // ---------------------------------------------------------------------------
 // Main init function
 // ---------------------------------------------------------------------------
 /// Initialise a new Yo project in `options.dir`.
 ///
 /// Skips files that already exist.  Aborts (throws) if `build.yo` already
-/// exists to avoid silently overwriting a project.
+/// exists to avoid silently overwriting a project.  Resolves to the
+/// absolute project directory so `run_init` can run the follow-up agent
+/// scaffolding against it.
 init_project :: (
   fn(
     options : InitOptions,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(unit, IoExn))
+  ) -> Impl(Future(Path, IoExn))
 )(
   io.async(e => {
     // Resolve user CWD (yo-cli overrides this env var when it changes directory)
@@ -259,6 +388,7 @@ init_project :: (
     );
     println(String.from("    yo build run"));
     println(String.from(""));
+    project_dir
   })
 );
 export(
@@ -271,5 +401,8 @@ export(
   generate_deps_yo,
   generate_gitignore,
   generate_readme,
+  generate_agents_md,
+  generate_claude_md,
+  install_agent_files,
   init_project
 );
