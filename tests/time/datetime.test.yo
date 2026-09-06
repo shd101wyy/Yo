@@ -4,6 +4,8 @@ open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
 { DateTime, DateTimeError } :: import("std/time/datetime");
+{ env } :: import("std/env");
+{ platform, Platform, arch, Arch } :: import("std/process");
 { Duration } :: import("std/time/duration");
 // ============================================================================
 // DateTime tests
@@ -245,4 +247,29 @@ test("Ord compares instants", {
   assert(early > late_wallclock_early_instant, "reverse");
   assert(early >= early, "reflexive >=");
   assert(early <= early, "reflexive <=");
+});
+test("DateTime.now honours TZ: Asia/Tokyo is +09:00", {
+  // issues/fixed/datetime-now-returned-utc-and-called-it-local.md — `now()`
+  // returned `now_utc()`. This must be the FIRST local-time call in the
+  // batch: the C library reads TZ once, on its first conversion.
+  cond(
+    (platform == Platform.Windows) => (),
+    // MSVC's TZ syntax differs ("JST-9"); the consistency test below covers Windows
+    (arch == Arch.Wasm32) => (),
+    // wasi-libc / emscripten ship no zone database: the offset is 0 there by design
+    true => {
+      env.set("TZ", "Asia/Tokyo");
+      local := DateTime.now();
+      assert(local.utc_offset_secs == i32(32400), "+09:00");
+      assert(local.to_string().ends_with(`+09:00`), "rendered with the offset, not Z");
+    }
+  );
+});
+test("DateTime.now is local: its fields agree with utc_offset_secs and its instant with now_utc", {
+  (utc : DateTime) = DateTime.now_utc();
+  (local : DateTime) = DateTime.now();
+  diff := (local.to_unix_utc() - utc.to_unix());
+  assert((diff >= i64(0)) && (diff < i64(5)), "the same instant, whatever the zone");
+  assert((local.utc_offset_secs > i32(-86400)) && (local.utc_offset_secs < i32(86400)), "offset within a day");
+  assert((local.to_unix() - local.to_unix_utc()) == i64(local.utc_offset_secs), "wall clock = UTC + offset");
 });

@@ -1,5 +1,6 @@
 { assert } :: import("std/assert");
 { glob_match, GlobPattern } :: import("std/glob");
+open(import("std/string"));
 test("glob exact match", {
   assert(glob_match(`hello.txt`, `hello.txt`), "exact match");
   assert(!glob_match(`hello.txt`, `world.txt`), "no match");
@@ -44,4 +45,35 @@ test("GlobPattern object", {
   pat := GlobPattern.new(`*.yo`);
   assert(pat.matches(`main.yo`), "pattern matches");
   assert(!pat.matches(`main.txt`), "pattern rejects");
+});
+test("glob character ranges", {
+  // issues/fixed/glob-ranges-unimplemented-and-star-exponential.md: `[a-z]`
+  // used to compare members literally, so it matched only a, - and z.
+  assert(glob_match(`[a-c].txt`, `b.txt`), "[a-c] matches b");
+  assert(!glob_match(`[a-c].txt`, `d.txt`), "[a-c] rejects d");
+  assert(glob_match(`[0-9][0-9].log`, `42.log`), "two digit ranges");
+  assert(!glob_match(`[0-9][0-9].log`, `4a.log`), "range rejects a letter");
+  assert(glob_match(`[!a-c].txt`, `d.txt`), "negated range matches d");
+  assert(!glob_match(`[!a-c].txt`, `b.txt`), "negated range rejects b");
+  assert(glob_match(`[a-cx].txt`, `x.txt`), "range and single member mixed");
+  assert(glob_match(`[-a].txt`, `-.txt`), "leading - is literal");
+  assert(glob_match(`[a-].txt`, `-.txt`), "trailing - is literal");
+  assert(glob_match(`[]a].txt`, `].txt`), "] first is a literal member");
+  assert(!glob_match(`[a-z].txt`, `/.txt`), "a class never matches /");
+  assert(!glob_match(`[!a].txt`, `/.txt`), "nor does a negated one");
+});
+test("glob star is polynomial: adversarial star chains terminate promptly", {
+  // The old matcher recursed on every `*` — exponential in the number of stars.
+  (text : String) = String.with_capacity(usize(64));
+  (i : usize) = usize(0);
+  while(i < usize(60), i = (i + usize(1)), {
+    _a := text.push_str("a");
+  });
+  _b := text.push_str("b");
+  assert(!glob_match(`*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*c`, text), "17 stars against 60 a's + b: false, promptly");
+  assert(glob_match(`*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b`, text), "…and true when the tail matches");
+  assert(glob_match(`**/a*/**/b?/*.txt`, `x/y/ab/z/bq/f.txt`), "** and * interleaved");
+  assert(!glob_match(`**/a*/**/b?/*.txt`, `x/y/ab/z/bq/f/g.txt`), "* still stops at /");
+  assert(glob_match(`a*b/c`, `axb/c`), "literal / after a star");
+  assert(!glob_match(`a*b/c`, `ax/b/c`), "the star cannot reach past a /");
 });

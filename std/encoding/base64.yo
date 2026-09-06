@@ -80,6 +80,14 @@ _decode_with :: (fn(s : String, alpha : str, exn : Exception) -> ArrayList(u8))(
   // Strip trailing padding
   len := s.len();
   while((len > usize(0)) && (s.byte_at(len - usize(1)) == _PAD), len = (len - usize(1)), ());
+  // One leftover sextet encodes nothing: no encoder emits it, so it is an
+  // error, not a zero byte (issues/fixed/base64-decode-accepted-impossible-lengths-and-trailing-bits.md).
+  cond(
+    ((len % usize(4)) == usize(1)) => {
+      exn.throw(dyn(EncodingError.InvalidLength));
+    },
+    true => ()
+  );
   out := ArrayList(u8).with_capacity((len * usize(3)) / usize(4));
   i := usize(0);
   while(i < len, i = (i + usize(4)), {
@@ -98,15 +106,37 @@ _decode_with :: (fn(s : String, alpha : str, exn : Exception) -> ArrayList(u8))(
             c3 := _decode_char(s.byte_at(i + usize(3)), alpha, exn);
             out.push(((c2 & u8(3)) << u8(6)) | c3);
           },
-          true => ()
+          true => {
+            // Three symbols carry 18 bits for two bytes; the last symbol's
+            // low two bits must be zero, or the input has no canonical
+            // encoding (Rust rejects it as InvalidLastSymbol).
+            cond(
+              ((c2 & u8(3)) != u8(0)) => {
+                exn.throw(dyn(EncodingError.InvalidLastSymbol(s.byte_at(i + usize(2)))));
+              },
+              true => ()
+            );
+          }
         );
       },
-      true => ()
+      true => {
+        // Two symbols carry 12 bits for one byte; the low four bits of the
+        // second must be zero.
+        cond(
+          ((c1 & u8(15)) != u8(0)) => {
+            exn.throw(dyn(EncodingError.InvalidLastSymbol(s.byte_at(i + usize(1)))));
+          },
+          true => ()
+        );
+      }
     );
   });
   out
 });
-/// Decode a standard base64 string to bytes. Throws via `Exception` on invalid input.
+/// Decode a standard base64 string to bytes. Throws via `Exception` on invalid
+/// input: a symbol outside the alphabet (`InvalidChar`), a length of 1 mod 4
+/// (`InvalidLength`), or a final symbol with non-zero unused bits
+/// (`InvalidLastSymbol`). Padding is optional and, when present, trailing.
 base64_decode :: (fn(s : String, exn : Exception) -> ArrayList(u8))(
   _decode_with(s, _STD_ALPHA, exn)
 );

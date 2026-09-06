@@ -27,6 +27,14 @@ c_include(
     (fn(timer : *time_t) -> ?*tm),
   localtime :
     (fn(timer : *time_t) -> ?*tm),
+  // POSIX re-entrant form (glibc, Apple, musl/wasi). Not on MSVC — there the
+  // equivalent is `_localtime64_s` in std/libc/windows.yo; MSVC's `localtime_s`
+  // has its two arguments REVERSED from the C11 Annex K prototype below.
+  // Typed through `void*` on purpose: the opaque `tm` above is emitted as a
+  // bare `tm` in C, which needs the `struct` tag, while `void*` converts to
+  // and from `struct tm*` implicitly.
+  localtime_r :
+    (fn(timer : *void, result : *void) -> ?*void),
   strftime :
     (fn(s : *char, maxsize : usize, format : *char, timeptr : *tm) -> usize),
   // C11 Annex K - Safe time functions
@@ -65,6 +73,7 @@ export(
   ctime,
   gmtime,
   localtime,
+  localtime_r,
   strftime,
   // C11 safe functions
   asctime_s,
