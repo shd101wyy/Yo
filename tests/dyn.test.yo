@@ -2,7 +2,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 open(import("std/libc/stdio.yo"));
 open(import("std/string"));
-{ Exception, IoExn } :: import("std/error");
+{ AnyError, Error, Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
   print : (fn(self : *Self) -> unit),
   return_i32 : (fn(self : *Self) -> i32)
@@ -108,7 +108,6 @@ test("Test Dyn with multiple traits", {
   Run :: trait(
     run : (fn(self : Self) -> i32)
   );
-  // Dog :: struct(); // This should give error working with `dyn`.
   Dog :: ref(struct());
   DogSpeak :: impl(
     Dog,
@@ -398,4 +397,86 @@ test("a Dyn payload that owns heap memory releases it", {
     (g_dyn_payload_disposed - before) == i32(1),
     "the heap-owning payload is released exactly once"
   );
+});
+// ---------------------------------------------------------------------------
+// Regression (issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md):
+// `dyn(x)` never verified that `x`'s type implements the traits of the `Dyn` it
+// is coerced into. A required member the type does not implement (and that has
+// no trait `?=` default) resolved to a `.None` field value: codegen's wrapper
+// emitter SKIPPED the method with a comment while its vtable emitter still named
+// the wrapper, so a plain type error surfaced as `use of undeclared identifier
+// '__yo_wrap_..._to_string'` from the C compiler. And where the member DID have
+// a default (`Error.source`), nothing looked wrong at all — a type the compiler
+// itself reports as not implementing `Error` was stored in an `AnyError` and
+// dispatched through it.
+//
+// The `Dog :: struct();` comment that used to sit in "Test Dyn with multiple
+// traits" ("This should give error working with `dyn`") is now these tests.
+// ---------------------------------------------------------------------------
+test("Test dyn rejects a type that implements none of the Dyn's traits", {
+  // No `impl(NoImpls, TestDyn(...))` anywhere: neither `print` nor `return_i32`
+  // resolves, so this is symptom 1 — the undeclared-wrapper C failure.
+  NoImpls :: ref(struct());
+  comptime_expect_error(use_test_dyn(dyn(NoImpls())));
+  // The same hole through the AUTO-BOX path: a value enum with no impls at all.
+  NoImplsValue :: enum(Boom);
+  comptime_expect_error(use_test_dyn(dyn(NoImplsValue.Boom)));
+});
+test("Test dyn rejects a type that satisfies only PART of the Dyn's traits", {
+  // `AnyError` is `Dyn(Error)` and `Error` carries `where(Self <: ToString)`, so
+  // `Dyn(Error)`'s required set is (Error, ToString). A ToString-only type used
+  // to be accepted and dispatched — symptom 2, the silent one: `source` resolved
+  // to the trait's `?=` default, so the program ran and printed plausible text.
+  ToStringOnly :: enum(Boom);
+  impl(ToStringOnly, ToString(to_string : (self -> `boom`)));
+  comptime_expect_error({
+    (e : AnyError) = dyn(ToStringOnly.Boom);
+    e
+  });
+});
+// --- Over-rejection canaries for the check above. Every shape below is a LEGAL
+// --- `dyn()` and must keep compiling AND running.
+test("Test Dyn(Error) over a trait default the implementor omits", {
+  // Neither type overrides `Error.source`, which has a `?=` default — "no impl
+  // for this member" must NOT be read as "does not implement the trait".
+  RefErr :: ref(struct(msg : String));
+  impl(
+    RefErr,
+    ToString(
+      to_string : (fn(inout(self) : Self) -> String)({
+        return(self.msg.clone());
+      })
+    )
+  );
+  impl(RefErr, Error());
+  // A VALUE enum goes through the auto-box path, so the bound must be decided on
+  // the UNBOXED concrete rather than on `Box(ValErr)`.
+  ValErr :: enum(Boom, Bust);
+  impl(
+    ValErr,
+    ToString(
+      to_string : (fn(inout(self) : Self) -> String)(
+        match(self, .Boom => `boom`, .Bust => `bust`)
+      )
+    )
+  );
+  impl(ValErr, Error());
+  (re : AnyError) = dyn(RefErr(`ref-err`));
+  assert(`${re}` == `ref-err`, "Dyn(Error) from a ref struct");
+  match(re.source(), .Some(_) => assert(false, "default source must be None"), .None => ());
+  (ve : AnyError) = dyn(ValErr.Bust);
+  assert(`${ve}` == `bust`, "Dyn(Error) from a value enum (auto-box)");
+  match(ve.source(), .Some(_) => assert(false, "default source must be None (enum)"), .None => ());
+});
+_use_to_string_dyn :: (fn(v : Dyn(ToString)) -> String)(v.to_string());
+_generic_show :: (fn(generic(T : Type), v : T, where(T <: ToString)) -> String)(
+  _use_to_string_dyn(dyn(v))
+);
+test("Test dyn inside a generic body whose concrete is still a type variable", {
+  // At DEFINITION time `T` is an unbound `SomeT`, so the bound is undecidable —
+  // `type_implements_trait` answers `false` for want of a concrete. Rejecting
+  // there would break every `dyn(v)` written under a `where(T <: Trait)`; the
+  // check has to defer to the specialization below.
+  assert(_generic_show(i32(5)) == `5`, "dyn() of a generic parameter");
+  assert(_generic_show(true) == `true`, "dyn() of a generic parameter, second instantiation");
 });

@@ -20,6 +20,7 @@ open(import("std/string"));
   expr_info_set_dyn_call_trait_values
 } :: import("../../expr_info.yo");
 { Environment, synthetic_token, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
+{ Token } :: import("../../token.yo");
 { EvalContext, ExpectedTypeCtx, ArgEntry, ArgValues, VarArgEntry } :: import("../context.yo");
 { EvalValue, is_func_val, create_type_value } :: import("../../value.yo");
 { get_func_type, get_closure_capture_info } :: import("../../function_value.yo");
@@ -27,6 +28,11 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_resolved_cell, generate_some_type_id } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_reference_struct_type, is_boxed_type } :: import("../../types/guards.yo");
+{ type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ type_implements_trait_bool } :: import("../trait_checking.yo");
+{ flag_flow_violation, flow_violation_pending, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { format_error_message } :: import("../../error.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression } :: import("../exprs/expr.yo");
@@ -122,6 +128,127 @@ _unwrap_box_for_method_lookup :: (fn(t : TypeValue) -> TypeValue)({
     );
   });
   result
+});
+/// The type a `dyn()`'s trait bound is decided against, or `.None` when it
+/// cannot be decided at this point.
+///
+/// A payload that IS — or merely CONTAINS — an unbound type variable is
+/// "unknown", not "no": `type_implements_trait` answers `false` for want of a
+/// concrete, and a generic body is evaluated once at DEFINITION time with its
+/// `SomeT`s still free. Rejecting there would break every `dyn(v)` written
+/// inside a `where(T <: Trait)`-constrained fn. Such a site is re-evaluated
+/// with the binding in place at specialization, which is where the bound is
+/// enforced instead. Same conservative scoping as
+/// `validate_where_constraints_for_call`'s no-SomeT guard
+/// (issues/yo-self-where-clause-full-enforcement.md).
+_dyn_bound_check_type :: (fn(t : TypeValue, env : Environment) -> Option(TypeValue))({
+  if(type_contains_some_type_deep(t), {
+    return(Option(TypeValue).None);
+  });
+  if(!is_some_type(t), {
+    return(Option(TypeValue).Some(t));
+  });
+  // `type_contains_some_type` waves through a `SomeT` that already carries its
+  // concrete on the per-object `resolved_concrete` cell (closures/futures).
+  // Follow that cell, then the env binding chain; if neither lands on a
+  // concrete the bound is still undecidable here.
+  own_rc := match(t, .SomeT({ resolved_concrete : rc }) => rc.get(usize(0)), _ => Option(TypeValue).None);
+  resolved := match(own_rc, .Some(o) => o, .None => get_value_of_some_type_from_env(env, t));
+  cond(
+    is_some_type(resolved) => Option(TypeValue).None,
+    true => Option(TypeValue).Some(resolved)
+  )
+});
+/// Reject a `dyn(x)` whose payload type does not implement every required trait
+/// of the `Dyn` it is being coerced into.
+///
+/// yo-self had NO trait-satisfaction check on the coercion path: a required
+/// member the concrete type does not implement (and that has no trait `?=`
+/// default) resolved to a `.None` field value, which
+/// `_resolve_dyn_trait_values` pushed without complaint. Codegen then diverged
+/// on that `.None` — the wrapper emitter SKIPS the method with a comment
+/// (`codegen/functions/dyn.yo`, "Module field ... is not a function value")
+/// while the vtable emitter names the wrapper unconditionally — so a plain type
+/// error surfaced as `use of undeclared identifier '__yo_wrap_..._to_string'`
+/// from the C compiler, naming a symbol the user never wrote. And with a member
+/// that DOES have a default (`Error.source`), nothing looked wrong at all: a
+/// type the compiler itself reports as not implementing `Error` was stored in
+/// an `AnyError` and dispatched through it, making `impl(_, Error())`
+/// decorative (issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md).
+///
+/// TS rejects the same shapes right here — "Required trait X is not implemented
+/// by type Y." (`values/dyn.ts:543`), reached by searching the concrete type's
+/// `trait.fields` for a trait value compatible with the required one. yo-self's
+/// equivalent question is `type_implements_trait`, which asks the same
+/// type-id-keyed registry (`register_type_trait_value`, written by every
+/// concrete `impl(T, Trait(...))`) and additionally answers through generic
+/// impls and the builtin markers — i.e. it is strictly MORE permissive than the
+/// mechanism TS uses, which is the safe direction for a new rejection.
+///
+/// Only nominal `TraitT` requirements are checked. A `FnTraitT` requirement is
+/// a dyn'd CLOSURE, which IS its own implementation — there is no registry impl
+/// to find (the same arm `_resolve_dyn_trait_values` special-cases below), and
+/// every other required-type shape is not a nominal trait at all.
+_require_dyn_traits_implemented :: (
+  fn(
+    dyn_type : TypeValue,
+    value_type : TypeValue,
+    token : Token,
+    ctx : EvalContext,
+    env : Environment,
+    exn : Exception
+  ) -> unit
+)({
+  // Decide the bound on the UNDERLYING type when the payload is a Box: both
+  // `dyn(box(i32(42)))` and the auto-box path arrive here as `Box(i32)`, while
+  // the impl is registered against `i32` (the same unwrap the trait-value
+  // resolution does before its registry lookups).
+  check_ty := match(
+    _dyn_bound_check_type(_unwrap_box_for_method_lookup(value_type), env),
+    .Some(c) => c,
+    .None => {
+      return(());
+    }
+  );
+  match(
+    dyn_type,
+    .DynT(required_trait_types : rtt) => {
+      n := rtt.len();
+      (i : usize) = usize(0);
+      while(i < n, {
+        req := match(
+          rtt.get(i),
+          .Some(t) => t,
+          .None => {
+            i = (i + usize(1));
+            continue;
+          }
+        );
+        req_is_nominal := match(req, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
+        if(req_is_nominal && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
+          // Prefer the trait's declared NAME; an anonymous trait has none, and
+          // `type_to_string` renders its field dump instead.
+          req_name := match(req, .TraitT(name : rn) => rn.clone(), _ => String.new());
+          req_str := cond(
+            req_name.is_empty() => type_to_string(req.clone()),
+            true => req_name
+          );
+          msg := `Type ${type_to_string(check_ty.clone())} does not implement the trait ${req_str} required by ${type_to_string(dyn_type.clone())}.`;
+          // A deliberate user-facing rejection: outside a dry run, flag it on
+          // the flow-violation channel so the def-time caller re-raises it via
+          // the real exn — the def-eval wall otherwise SWALLOWS the throw and
+          // the enclosing body silently hollows (same pattern as
+          // anonymous_function.yo's return-type rejection).
+          if(!ctx.is_in_function_call_checking_phase && (!propagate_def_time_errors() && !flow_violation_pending()), {
+            flag_flow_violation(msg.clone());
+          });
+          exn.throw(dyn(format_error_message(token, msg)));
+        });
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
 });
 /// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
 /// The registered default is GENERIC over `Self` (e.g. `Error.source ?= (self)
@@ -419,6 +546,11 @@ evaluate_dyn_value :: (
     // evaluates fn bodies in validating mode) has the vtable FuncVals. The
     // resolution is structural (registry lookup), not execution-dependent.
     ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(ii) => ii.ty, .None => t_unit());
+    // Whether the inner expression actually produced an ExprInfo. With none, the
+    // `t_unit()` fallback above is a STAND-IN, not the payload's type — checking
+    // the trait bound against it would report "unit does not implement …" on top
+    // of whatever really failed inside the inner.
+    ne_have_inner_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(_) => true, .None => false);
     // Auto-box a non-object, non-dyn payload (mirrors TS evaluateDynValue, which
     // always boxes), evaluating the synthetic `box(value)` with the EXPECTED
     // `Box(value_type)` so the box's `generic(V)` binds. The synthetic atom/call
@@ -518,6 +650,9 @@ evaluate_dyn_value :: (
     rt_args_ne.push(ne_final_expr);
     out_info.runtime_arg_exprs_in_order = .Some(rt_args_ne);
     if(is_dyn_type(ret_type.clone()), {
+      if(ne_have_inner_ty, {
+        _require_dyn_traits_implemented(ret_type.clone(), ne_value_type.clone(), expr_tok, ctx, env, exn);
+      });
       expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(_resolve_dyn_trait_values(ret_type, ne_value_type, ctx, env, exn)));
     });
     expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
@@ -661,6 +796,10 @@ evaluate_dyn_value :: (
       }
     )
   );
+  // The payload must actually implement what the Dyn requires (TS
+  // values/dyn.ts:543). Checked on the pre-box concrete type, like the trait
+  // values below.
+  _require_dyn_traits_implemented(dyn_type.clone(), value_type.clone(), expr_tok, ctx, cur_env, exn);
   // Collect a TraitVal for each required trait, resolving the concrete type's
   // registered impl methods (the registry-based stand-in for TS's
   // `concreteType.trait.fields`). Resolved on the pre-box concrete type.
