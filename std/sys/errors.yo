@@ -123,6 +123,57 @@ impl(
       true => .Other(errno)
     )
   ),
+  /// Classify a Win32 `GetLastError()` code.
+  ///
+  /// Win32 APIs do not set `errno`, and their codes share no numbering with
+  /// it — `3` is `ERROR_PATH_NOT_FOUND` on Windows and `ESRCH` on POSIX. A
+  /// structured error is only worth having if it classifies the SAME failure
+  /// the same way on every platform, so the codes that have an `IoError`
+  /// meaning are mapped here and the rest fall through to `Other`, which
+  /// keeps the raw code. (Rust does the same for `io::ErrorKind`.)
+  ///
+  /// The literals are the stable Win32 values from `<winerror.h>`; they are
+  /// written numerically so this file stays platform-independent.
+  from_win32 : (fn(code : i32) -> Self)(
+    cond(
+      // ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_INVALID_NAME,
+      // ERROR_BAD_PATHNAME
+      ((code == i32(2)) || ((code == i32(3)) || ((code == i32(123)) || (code == i32(161))))) => .NotFound,
+      // ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION,
+      // ERROR_WRITE_PROTECT
+      ((code == i32(5)) || ((code == i32(32)) || ((code == i32(33)) || (code == i32(19))))) => .PermissionDenied,
+      // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS
+      ((code == i32(80)) || (code == i32(183))) => .AlreadyExists,
+      // ERROR_DIRECTORY ("the directory name is invalid" — the path names a
+      // file where a directory was required)
+      (code == i32(267)) => .NotADirectory,
+      // ERROR_DIR_NOT_EMPTY
+      (code == i32(145)) => .DirectoryNotEmpty,
+      // ERROR_BROKEN_PIPE, ERROR_NO_DATA
+      ((code == i32(109)) || (code == i32(232))) => .BrokenPipe,
+      // ERROR_INVALID_PARAMETER, ERROR_NEGATIVE_SEEK
+      ((code == i32(87)) || (code == i32(131))) => .InvalidInput,
+      // ERROR_TOO_MANY_OPEN_FILES
+      (code == i32(4)) => .TooManyOpenFiles,
+      // ERROR_DISK_FULL, ERROR_HANDLE_DISK_FULL
+      ((code == i32(112)) || (code == i32(39))) => .NoSpace,
+      // ERROR_NOT_SAME_DEVICE
+      (code == i32(17)) => .CrossDeviceLink,
+      // ERROR_FILENAME_EXCED_RANGE
+      (code == i32(206)) => .NameTooLong,
+      // ERROR_NOT_SUPPORTED, ERROR_CALL_NOT_IMPLEMENTED
+      ((code == i32(50)) || (code == i32(120))) => .NotSupported,
+      // ERROR_SEM_TIMEOUT, WAIT_TIMEOUT
+      ((code == i32(121)) || (code == i32(258))) => .TimedOut,
+      // ERROR_BUSY, ERROR_DEVICE_IN_USE
+      ((code == i32(170)) || (code == i32(2404))) => .Busy,
+      // ERROR_INVALID_HANDLE
+      (code == i32(6)) => .BadFileDescriptor,
+      // ERROR_OPERATION_ABORTED
+      (code == i32(995)) => .Interrupted,
+      true => .Other(code)
+    )
+  ),
   from_result : (fn(result : i32) -> Result(i32, Self))(
     cond(
       (result >= i32(0)) => .Ok(result),
