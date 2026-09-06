@@ -316,7 +316,7 @@ test("accept reports the real peer address", {
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
-test("one listener accepts three sequential connections (D6 Windows re-arm probe)", {
+test("one listener accepts three sequential connections", {
   // issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md: the
   // http redirect test hangs on Windows while single-accept TCP passes there.
   // This is the first half of that shape in isolation — accept, exchange a
@@ -350,7 +350,7 @@ test("one listener accepts three sequential connections (D6 Windows re-arm probe
   });
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
-test("client reads to EOF after the server closes, twice on one listener (D6 Windows probe)", {
+test("client reads to EOF after the server closes, twice on one listener", {
   // Second half of the redirect shape: the SERVER writes and closes first, the
   // client reads until EOF (how an http response without keep-alive ends),
   // then the client reconnects to the same listener for the next hop.
@@ -380,12 +380,15 @@ test("client reads to EOF after the server closes, twice on one listener (D6 Win
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 // ---------------------------------------------------------------------------
-// D6 Windows probes, round 2 (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md).
-// The sequential accept/reconnect probes above PASS on windows-latest, so the
-// redirect test's remaining distinctive shape is reproduced here in raw TCP:
-// the server runs as a SPAWNED task whose `accept` is already pending when
-// the client connects, then reads the request up to the blank line, writes,
+// The shape that deadlocked Windows for four hours, pinned in raw TCP
+// (issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md): the
+// server runs as a SPAWNED task whose `accept` is already pending when the
+// client connects, then reads the request up to the blank line, writes,
 // closes — three times — while the client reconnects after each response.
+// Windows `accept` used to be a BLOCKING accept() on the event-loop thread,
+// so the loop sat in it forever and the client — on the same loop — never got
+// to connect. Every pre-existing TCP test connected first and accepted
+// second, which is why nothing caught it until a server was spawned first.
 // ---------------------------------------------------------------------------
 _d6_ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
   n := b.len();
@@ -436,7 +439,7 @@ _d6_scripted_server :: (
     return(());
   })
 );
-test("accept pending in a spawned task before the client connects (D6 Windows probe)", {
+test("accept pending in a spawned task before the client connects", {
   exn := Exception(
     throw : (
       err -> {
@@ -463,7 +466,7 @@ test("accept pending in a spawned task before the client connects (D6 Windows pr
   assert(seen(usize(0)).starts_with(`GET /one`), "the request line");
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
-test("three request/response rounds against a spawned scripted server (D6 Windows probe — the redirect shape in raw TCP)", {
+test("three request/response rounds against a spawned scripted server", {
   exn := Exception(
     throw : (
       err -> {
