@@ -203,3 +203,59 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
   threw = (r.len() == usize(0));
   assert(threw, "the decode must have unwound before returning bytes");
 });
+// ===== Canonical-form rejection =====
+// issues/fixed/base64-decode-accepted-impossible-lengths-and-trailing-bits.md
+test("base64_decode rejects a length of 1 mod 4", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  base64_decode(String.from("QUJDR"), exn);
+  assert(false, "a lone trailing sextet encodes nothing and must throw InvalidLength");
+});
+test("base64_decode rejects non-zero trailing bits in a two-symbol group", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  // "QR": Q=16, R=17 → the second symbol's low four bits are 0001, which no
+  // byte can occupy. The canonical encoding of 0x41 is "QQ==".
+  base64_decode(String.from("QR=="), exn);
+  assert(false, "must throw InvalidLastSymbol");
+});
+test("base64_decode rejects non-zero trailing bits in a three-symbol group", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  // "QUJ": J=9 → low two bits 01. "AB" encodes canonically as "QUI=".
+  base64_decode(String.from("QUJ="), exn);
+  assert(false, "must throw InvalidLastSymbol");
+});
+test("base64_decode still accepts the canonical short groups, padded or not", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  a := base64_decode(String.from("QQ=="), exn);
+  assert((a.len() == usize(1)) && (a(usize(0)) == u8(65)), "QQ== is A");
+  b := base64_decode(String.from("QQ"), exn);
+  assert((b.len() == usize(1)) && (b(usize(0)) == u8(65)), "QQ is A without padding");
+  c := base64_decode(String.from("QUI="), exn);
+  assert((c.len() == usize(2)) && ((c(usize(0)) == u8(65)) && (c(usize(1)) == u8(66))), "QUI= is AB");
+  d := base64_decode(String.from("QUI"), exn);
+  assert(d.len() == usize(2), "QUI is AB without padding");
+});

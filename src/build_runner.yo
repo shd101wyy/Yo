@@ -661,7 +661,7 @@ compile_artifact :: (
       .Some(v) => ` ${v}`,
       .None => String.new()
     );
-    rel_output := Path.new(output_path.to_string()).strip_prefix(Path.new(ctx.project_dir.clone()));
+    rel_output := Path.new(output_path.to_string()).relative_to(Path.new(ctx.project_dir.clone()));
     lib_suffix := match(artifact.kind, .StaticLibrary => ".a", _ => "");
     println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
     cmd := Command.new(_self_exe());

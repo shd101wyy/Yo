@@ -131,12 +131,23 @@ Wrong values:
    reports port 0 (`net/udp.yo:87`; TCP got this fix as C2, `tcp.yo:168-181`);
    **`UdpSocket.send` requires a `connect` that does not exist** (`udp.yo:119`).
 8. **`Path.strip_prefix` is node's `relative` under Rust's name** — emits `..`
-   segments instead of the remainder-or-error (`path.yo:561`).
-9. **`DateTime.now()` returns UTC and calls it local** (`time/datetime.yo:117`).
+   segments instead of the remainder-or-error (`path.yo:561`) — **FIXED
+   2026-09-06**: `strip_prefix -> Option(Path)` (remainder or `.None`, like
+   `String.strip_prefix`); the node behaviour survives as `relative_to`, which
+   the compiler's four display-path callers now use
+   (`issues/fixed/path-strip-prefix-was-nodes-relative.md`).
+9. **`DateTime.now()` returns UTC and calls it local** (`time/datetime.yo:117`)
+   — **FIXED 2026-09-06**: the zone offset comes from `localtime_r`
+   (`_localtime64_s` on Windows — MSVC's `localtime_s` has REVERSED arguments)
+   (`issues/fixed/datetime-now-returned-utc-and-called-it-local.md`).
 10. **`base64_decode` accepts `len % 4 == 1` and non-canonical trailing bits**
-    (`encoding/base64.yo:79-110`); **`glob` `[a-z]` ranges are not implemented**
-    (literal compare, `glob.yo:133-150`) and `*` backtracks exponentially
-    (`glob.yo:22-88`).
+    (`encoding/base64.yo:79-110`) — **FIXED 2026-09-06**: `InvalidLength` /
+    `InvalidLastSymbol(ch)` (`issues/fixed/base64-decode-accepted-impossible-lengths-and-trailing-bits.md`);
+    **`glob` `[a-z]` ranges are not implemented** (literal compare,
+    `glob.yo:133-150`) and `*` backtracks exponentially (`glob.yo:22-88`) —
+    **FIXED 2026-09-06**: iterative single-`*` matcher (recursion only at
+    `**`), ranges, POSIX `]`-first and literal `-`
+    (`issues/fixed/glob-ranges-unimplemented-and-star-exponential.md`).
 11. ~~**Four `derive_rule`s degrade silently on a non-struct/enum**~~ —
     **WITHDRAWN 2026-09-06 (#447)**: the `derive` builtin itself already rejects
     anything but a struct or enum ("derive only works on struct and enum

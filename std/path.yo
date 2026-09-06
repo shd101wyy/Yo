@@ -550,15 +550,44 @@ impl(
   is_relative : (fn(self : Self) -> bool)(
     !self._is_absolute
   ),
+  /// The remainder of `self` after `base`, as a relative path — Rust's
+  /// `Path::strip_prefix`: `.None` unless `base` is a segment-wise prefix
+  /// (`starts_with`); equal paths leave the empty relative path (renders as
+  /// `.`). For "how do I get from `base` to `self`", `..` segments and all,
+  /// use `relative_to` — node's `path.relative`, which is what this method
+  /// used to do (issues/fixed/path-strip-prefix-was-nodes-relative.md).
+  strip_prefix : (fn(self : Self, base : Self) -> Option(Self))({
+    cond(
+      !self.starts_with(base) => {
+        return(.None);
+      },
+      true => ()
+    );
+    segments := ArrayList(String).new();
+    (j : usize) = base._segments.len();
+    while(j < self._segments.len(), {
+      match(
+        self._segments.get(j),
+        .Some(seg) => {
+          segments.push(seg);
+        },
+        .None => ()
+      );
+      j = (j + usize(1));
+    });
+    .Some(Self(_prefix : String.new(), _segments : segments, _is_absolute : false))
+  }),
   /// Return `self` expressed relative to `base`: drop the segments the two
   /// share, emit one `..` per remaining `base` segment, then the rest of
-  /// `self`. Equivalent to node's `path.relative(base, self)`.
+  /// `self`. Equivalent to node's `path.relative(base, self)`. (This was
+  /// `strip_prefix` until 2026-09-06; Rust's `strip_prefix` is the
+  /// remainder-or-`None` above.)
   ///
   /// Returns an empty relative path when the two are equal. When `base` and
   /// `self` differ in absoluteness there is no common root to walk from, so
   /// `self` is returned unchanged (node resolves both against the cwd first;
   /// this has no cwd to resolve against).
-  strip_prefix : (fn(self : Self, base : Self) -> Self)({
+  relative_to : (fn(self : Self, base : Self) -> Self)({
     cond(
       (self._is_absolute != base._is_absolute) => {
         return(self);

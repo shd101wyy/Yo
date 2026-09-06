@@ -10,6 +10,16 @@ export(DWORD);
 export(WCHAR);
 export(BOOL);
 c_include(
+  "<time.h>",
+  // MSVC's re-entrant localtime: (struct tm* result, const __time64_t* timer)
+  // — note the order is the REVERSE of C11 Annex K's `localtime_s`, which is
+  // why std/libc/time.yo's Annex-K binding must not be called on Windows. The
+  // result parameter is typed `*(void)` so this file needs no `tm` of its
+  // own (C converts `void*` to `struct tm*` implicitly).
+  _localtime64_s : (fn(result : *void, timer : *i64) -> int)
+);
+export(_localtime64_s);
+c_include(
   "<windows.h>",
   // GetCurrentDirectoryW - Gets the current directory (Unicode version)
   // Returns the length of the string copied to the buffer (excluding null terminator)

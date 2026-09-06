@@ -1,181 +1,184 @@
 //! Glob pattern matching for file paths.
 open(import("./string"));
 { ArrayList } :: import("./collections/array_list");
-// Recursive byte-level glob pattern matching
-_glob_match_impl :: (fn(pb : ArrayList(u8), pi : usize, tb : ArrayList(u8), ti : usize) -> bool)({
-  // Base: both pattern and text consumed
+// Index of the `]` closing the class whose body starts at `ci` (just past `[`
+// and any `!` / `^`), or `pb.len()` when the class is unterminated. A `]` in
+// the first position is a literal member, as in POSIX.
+_class_end :: (fn(pb : ArrayList(u8), ci : usize) -> usize)({
+  plen := pb.len();
+  (k : usize) = ci;
   cond(
-    ((pi == pb.len()) && (ti == tb.len())) => {
-      return(true);
+    ((k < plen) && (pb(k) == u8(93))) => {
+      k = (k + usize(1));
     },
     true => ()
   );
-  // Pattern consumed but text remains
-  cond(
-    (pi == pb.len()) => {
-      return(false);
-    },
-    true => ()
-  );
-  p := pb(pi);
-  // Handle * and **
-  cond(
-    (p == u8(42)) => {
-      is_dbl := cond(
-        ((pi + usize(1)) < pb.len()) => (pb(pi + usize(1)) == u8(42)),
-        true => false
-      );
-      cond(
-        is_dbl => {
-          // ** matches any characters including /
-          npi := (pi + usize(2));
-          // Skip optional trailing /
-          cond(
-            (npi < pb.len()) => {
-              cond(
-                (pb(npi) == u8(47)) => {
-                  npi = (npi + usize(1));
-                },
-                true => ()
-              );
-            },
-            true => ()
-          );
-          // Try ** matching nothing
-          cond(
-            recur(pb, npi, tb, ti) => {
-              return(true);
-            },
-            true => ()
-          );
-          // Try ** consuming one char
-          cond(
-            (ti < tb.len()) => {
-              return(recur(pb, pi, tb, ti + usize(1)));
-            },
-            true => {
-              return(false);
-            }
-          );
-        },
-        true => {
-          // Single * matches any except /
-          // Try * matching nothing
-          cond(
-            recur(pb, pi + usize(1), tb, ti) => {
-              return(true);
-            },
-            true => ()
-          );
-          // Try * consuming one non-/ char
-          cond(
-            (ti < tb.len()) => {
-              tc := tb(ti);
-              cond(
-                (tc != u8(47)) => {
-                  return(recur(pb, pi, tb, ti + usize(1)));
-                },
-                true => {
-                  return(false);
-                }
-              );
-            },
-            true => {
-              return(false);
-            }
-          );
-        }
-      );
-    },
-    true => ()
-  );
-  // Text consumed but non-star pattern remains
-  cond(
-    (ti == tb.len()) => {
-      return(false);
-    },
-    true => ()
-  );
-  t := tb(ti);
-  // Handle ?
-  cond(
-    (p == u8(63)) => {
-      cond(
-        (t != u8(47)) => {
-          return(recur(pb, pi + usize(1), tb, ti + usize(1)));
-        },
-        true => {
-          return(false);
-        }
-      );
-    },
-    true => ()
-  );
-  // Handle [...]
-  cond(
-    (p == u8(91)) => {
-      ci := (pi + usize(1));
-      neg := false;
-      // Check for negation: ! or ^
-      cond(
-        (ci < pb.len()) => {
-          nc := pb(ci);
-          cond(
-            ((nc == u8(33)) || (nc == u8(94))) => {
-              neg = true;
-              ci = (ci + usize(1));
-            },
-            true => ()
-          );
-        },
-        true => ()
-      );
-      // Scan characters in class until ]
-      found := false;
-      cdone := false;
-      while((ci < pb.len()) && !cdone, ci = (ci + usize(1)), {
-        ch := pb(ci);
+  while((k < plen) && (pb(k) != u8(93)), k = (k + usize(1)), ());
+  k
+});
+// Whether byte `t` is a member of the class body `pb(ci .. end)`: single
+// bytes and `lo-hi` ranges; a `-` first or last is literal.
+_class_matches :: (fn(pb : ArrayList(u8), ci : usize, end : usize, t : u8) -> bool)({
+  (k : usize) = ci;
+  while(k < end, {
+    lo := pb(k);
+    cond(
+      (((k + usize(2)) < end) && (pb(k + usize(1)) == u8(45))) => {
+        hi := pb(k + usize(2));
         cond(
-          (ch == u8(93)) => {
-            cdone = true;
+          ((t >= lo) && (t <= hi)) => {
+            return(true);
           },
-          true => {
+          true => ()
+        );
+        k = (k + usize(3));
+      },
+      true => {
+        cond(
+          (t == lo) => {
+            return(true);
+          },
+          true => ()
+        );
+        k = (k + usize(1));
+      }
+    );
+  });
+  false
+});
+// One matching run over pattern bytes `pb` from `pi0` and text bytes `tb`
+// from `ti0`.
+//
+// A single `*` (any bytes except `/`) is resolved ITERATIVELY: a mismatch
+// backtracks to the most recent `*` and lets it absorb one more byte, so a
+// run is O(|pattern| · |text|). That is the classic wildcard algorithm, and
+// the `/` barrier keeps it exact: every literal `/` in the pattern must match
+// a `/` in the text and no `*` may eat one, so the text a later `*` is asked
+// to absorb on backtrack never contains a `/` that an earlier `*` "should
+// have" taken. Only `**` (any bytes, `/` included) recurses — once per
+// candidate resume position — so cost is polynomial in the text and
+// exponential only in the number of `**`s. The previous matcher recursed on
+// EVERY `*` as well (`*a*a*a*a…` against a long run of `a`s never returned)
+// and compared class members literally, so `[a-z]` matched only `a`, `-`
+// and `z` (issues/fixed/glob-ranges-unimplemented-and-star-exponential.md).
+//
+// `?` and `[…]` match one byte that is not `/`; `[!…]` / `[^…]` negate; an
+// unterminated `[` matches nothing.
+_glob_match_impl :: (fn(pb : ArrayList(u8), pi0 : usize, tb : ArrayList(u8), ti0 : usize) -> bool)({
+  plen := pb.len();
+  tlen := tb.len();
+  (pi : usize) = pi0;
+  (ti : usize) = ti0;
+  (has_star : bool) = false;
+  (star_p : usize) = usize(0);
+  (star_t : usize) = usize(0);
+  while(true, {
+    (advanced : bool) = false;
+    cond(
+      (pi < plen) => {
+        p := pb(pi);
+        cond(
+          ((p == u8(42)) && (((pi + usize(1)) < plen) && (pb(pi + usize(1)) == u8(42)))) => {
+            // `**`, plus an optional `/` right after it: hand every resume
+            // position to a fresh run.
+            (npi : usize) = (pi + usize(2));
             cond(
-              (ch == t) => {
-                found = true;
+              ((npi < plen) && (pb(npi) == u8(47))) => {
+                npi = (npi + usize(1));
               },
               true => ()
             );
-          }
+            (k : usize) = ti;
+            while(k <= tlen, k = (k + usize(1)), {
+              cond(
+                recur(pb, npi, tb, k) => {
+                  return(true);
+                },
+                true => ()
+              );
+            });
+            return(false);
+          },
+          (p == u8(42)) => {
+            has_star = true;
+            star_p = (pi + usize(1));
+            star_t = ti;
+            pi = (pi + usize(1));
+            advanced = true;
+          },
+          (ti < tlen) => {
+            t := tb(ti);
+            cond(
+              (p == u8(63)) => {
+                cond(
+                  (t != u8(47)) => {
+                    pi = (pi + usize(1));
+                    ti = (ti + usize(1));
+                    advanced = true;
+                  },
+                  true => ()
+                );
+              },
+              (p == u8(91)) => {
+                (ci : usize) = (pi + usize(1));
+                (neg : bool) = false;
+                cond(
+                  ((ci < plen) && ((pb(ci) == u8(33)) || (pb(ci) == u8(94)))) => {
+                    neg = true;
+                    ci = (ci + usize(1));
+                  },
+                  true => ()
+                );
+                end := _class_end(pb, ci);
+                cond(
+                  (end >= plen) => {
+                    return(false);
+                  },
+                  true => ()
+                );
+                member := _class_matches(pb, ci, end, t);
+                ok := cond(
+                  neg => !member,
+                  true => member
+                );
+                cond(
+                  ((t != u8(47)) && ok) => {
+                    pi = (end + usize(1));
+                    ti = (ti + usize(1));
+                    advanced = true;
+                  },
+                  true => ()
+                );
+              },
+              (p == t) => {
+                pi = (pi + usize(1));
+                ti = (ti + usize(1));
+                advanced = true;
+              },
+              true => ()
+            );
+          },
+          true => ()
         );
-      });
-      // Malformed pattern (no closing ])
-      cond(
-        !cdone => {
-          return(false);
-        },
-        true => ()
-      );
-      matched := cond(
-        neg => !found,
-        true => found
-      );
-      cond(
-        matched => {
-          return(recur(pb, ci, tb, ti + usize(1)));
-        },
-        true => {
-          return(false);
-        }
-      );
-    },
-    true => ()
-  );
-  // Literal byte match
-  cond(
-    (p == t) => recur(pb, pi + usize(1), tb, ti + usize(1)),
-    true => false
-  )
+      },
+      (ti == tlen) => {
+        return(true);
+      },
+      true => ()
+    );
+    cond(
+      advanced => (),
+      (has_star && (star_t < tlen) && (tb(star_t) != u8(47))) => {
+        star_t = (star_t + usize(1));
+        ti = star_t;
+        pi = star_p;
+      },
+      true => {
+        return(false);
+      }
+    );
+  });
+  false
 });
 glob_match :: (fn(pattern : String, text : String) -> bool)(
   _glob_match_impl(pattern.as_bytes(), usize(0), text.as_bytes(), usize(0))

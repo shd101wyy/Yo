@@ -20,7 +20,14 @@ EncodingError :: enum(
   /// Invalid character encountered during decoding.
   InvalidChar(ch : u8),
   /// Input string has odd length (hex requires even length).
-  OddLength
+  OddLength,
+  /// base64 input whose length is 1 mod 4 (after padding): one sextet
+  /// cannot encode a byte, so no encoder produces it.
+  InvalidLength,
+  /// base64 input whose final symbol carries bits that no byte can occupy
+  /// (a 2-symbol group must end in one of `AQgw`, a 3-symbol group in a
+  /// symbol whose low two bits are zero); Rust's `InvalidLastSymbol`.
+  InvalidLastSymbol(ch : u8)
 );
 impl(
   EncodingError,
@@ -30,7 +37,9 @@ impl(
         match(
           self,
           .InvalidChar(ch) => `encoding error: invalid character ${ch}`,
-          .OddLength => `encoding error: odd length`
+          .OddLength => `encoding error: odd length`,
+          .InvalidLength => `encoding error: base64 length is 1 mod 4`,
+          .InvalidLastSymbol(ch) => `encoding error: non-canonical trailing bits in base64 symbol ${ch}`
         )
     )
   )

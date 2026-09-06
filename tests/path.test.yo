@@ -794,3 +794,17 @@ test("Path drive letter is a root too", {
   assert(Path.new(`C:`).parent().is_none(), "a bare drive has no parent");
   assert(Path.new(`C:/a`) != Path.new(`D:/a`), "different drives are different paths");
 });
+test("Path.strip_prefix is Rust's: the remainder when base is a prefix, None otherwise", {
+  // issues/fixed/path-strip-prefix-was-nodes-relative.md
+  p := Path.new(`/usr/local/lib/yo`);
+  assert(p.strip_prefix(Path.new(`/usr/local`)).unwrap().to_string() == `lib/yo`, "remainder as a relative path");
+  assert(p.strip_prefix(Path.new(`/usr/local/lib/yo`)).unwrap().to_string() == `.`, "equal paths leave the empty relative path");
+  assert(p.strip_prefix(Path.new(`/usr/share`)).is_none(), "not a prefix");
+  assert(p.strip_prefix(Path.new(`/usr/loc`)).is_none(), "prefix is segment-wise, not textual");
+  assert(p.strip_prefix(Path.new(`usr/local`)).is_none(), "absolute vs relative never match");
+  assert(Path.new(`a/b/c`).strip_prefix(Path.new(`a/b`)).unwrap().to_string() == `c`, "relative paths too");
+});
+test("Path.relative_to is node's relative: it walks up with .. (what strip_prefix used to do)", {
+  assert(Path.new(`/usr/share/doc`).relative_to(Path.new(`/usr/local/lib`)).to_string() == `../../share/doc`, "up two, down two");
+  assert(Path.new(`/usr/local/lib/yo`).relative_to(Path.new(`/usr/local`)).to_string() == `lib/yo`, "a plain descendant needs no ..");
+});

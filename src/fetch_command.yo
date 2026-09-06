@@ -134,7 +134,7 @@ run_fetch :: (
     while(j < result.resolved_names.len(), {
       name := match(result.resolved_names.get(j), .Some(x) => x, .None => String.new());
       dep_path := match(result.resolved_paths.get(j), .Some(x) => x, .None => String.new());
-      println(`  ${name} → ${Path.new(dep_path).strip_prefix(Path.new(project_dir.clone())).to_string()}`);
+      println(`  ${name} → ${Path.new(dep_path).relative_to(Path.new(project_dir.clone())).to_string()}`);
       j = (j + usize(1));
     });
     e.io.await(ensure_gitignore(project_dir, e.io, e.exn), e);

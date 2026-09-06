@@ -12,6 +12,8 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ToString } :: import("../fmt");
 { CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
+{ localtime_r } :: import("../libc/time");
+{ platform, Platform } :: import("../process");
 { snprintf } :: import("../libc/stdio");
 { panic } :: import("../assert");
 { Duration } :: import("./duration");
@@ -97,6 +99,44 @@ _from_unix_secs :: (fn(secs : i64, nanos : i64) -> DateTime)({
     utc_offset_secs : i32(0)
   )
 });
+/// The zone offset in force at `secs` (seconds east of UTC, DST included),
+/// from the C library's local-time tables: break the instant down with
+/// `localtime_r` (`_localtime64_s` on Windows), read the broken-down wall
+/// clock back as an epoch AS IF it were UTC, and difference the two. Only the
+/// first nine `int` members of `struct tm` are read (`tm_sec` … `tm_isdst`),
+/// which every libc we target lays out in that order (glibc, Apple, MSVC,
+/// musl/wasi); the buffer is 64 bytes, larger than any of their `struct tm`.
+/// Falls back to 0 (UTC) when the conversion fails.
+_local_utc_offset :: (fn(secs : i64) -> i32)({
+  t := secs;
+  tm_buf := Array(i32, usize(16)).fill(i32(0));
+  ok := cond(
+    (platform == Platform.Windows) => {
+      // Package-absolute for the same reason as std/env.yo: a relative import
+      // inside a conditional body resolves against the caller's directory.
+      { _localtime64_s } :: import("std/libc/windows");
+      unsafe(_localtime64_s((*(void))(&tm_buf(usize(0))), &(t))) == int(0)
+    },
+    true => unsafe(localtime_r((*(void))(&(t)), (*(void))(&tm_buf(usize(0))))).is_some()
+  );
+  cond(
+    ok => (),
+    true => {
+      return(i32(0));
+    }
+  );
+  (wall : DateTime) = DateTime(
+    year : (tm_buf(usize(5)) + i32(1900)),
+    month : u8(tm_buf(usize(4)) + i32(1)),
+    day : u8(tm_buf(usize(3))),
+    hour : u8(tm_buf(usize(2))),
+    minute : u8(tm_buf(usize(1))),
+    second : u8(tm_buf(usize(0))),
+    nanosecond : u32(0),
+    utc_offset_secs : i32(0)
+  );
+  i32(wall.to_unix() - secs)
+});
 impl(
   DateTime,
   // Current UTC date/time.
@@ -114,10 +154,25 @@ impl(
     );
     _from_unix_secs(sec, nsec)
   }),
-  // Current local date/time (UTC offset not resolved; same as now_utc for now).
-  now : (fn() -> Self)(
-    DateTime.now_utc()
-  ),
+  /// Current LOCAL date/time: the wall clock in the process's zone (`TZ`, else
+  /// the system zone) with `utc_offset_secs` set to that zone's offset at this
+  /// instant, DST included — so `to_unix_utc` is exact and `to_string` renders
+  /// `±HH:MM`. Until 2026-09-06 this returned `now_utc()` under a local name
+  /// (issues/fixed/datetime-now-returned-utc-and-called-it-local.md). Where the
+  /// C library has no zone information (wasm) the offset is 0.
+  now : (fn() -> Self)({
+    sec := i64(0);
+    nsec := i64(0);
+    rc := clock_gettime(CLOCK_REALTIME, &(sec), &(nsec));
+    cond(
+      (rc == i32(0)) => (),
+      true => panic(`DateTime.now: clock_gettime(CLOCK_REALTIME) failed (rc=${rc})`)
+    );
+    off := _local_utc_offset(sec);
+    (local : DateTime) = _from_unix_secs(sec + i64(off), nsec);
+    local.utc_offset_secs = off;
+    local
+  }),
   // Construct from a Unix timestamp.
   from_unix : (fn(secs : i64, nanos : i64) -> Self)(
     _from_unix_secs(secs, nanos)
