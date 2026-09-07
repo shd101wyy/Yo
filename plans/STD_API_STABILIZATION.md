@@ -104,9 +104,24 @@ the work in §4 does not re-open them.
   `utf16_to_utf8`. Converting the tests from "it unwound" to a direct assertion
   on the error immediately showed one passing for the WRONG reason:
   `"Zm9v YmFy"` is 9 symbols, so the 1-mod-4 LENGTH check fires before the scan
-  ever reaches the space. STILL OPEN: `Url.parse` (exn.throw threaded through a
-  long parser — a restructure, not a wrapper) and json.yo's TWO complete
-  parsers, ~94 call sites.
+  ever reaches the space.
+  **PART 2 ALSO LANDED** — `Url.parse -> Result(Url, UrlError)` (11 `exn.throw`
+  sites became `return(.Err(...))`, `_parse_port` returns a `Result`, and
+  `parse_exn` is the wrapper the two `std/http/client.yo` callers take, being
+  already inside effect scopes); `json_parse` / `json_parse_bytes` /
+  `json_parse_string` all return `Result`, with `*_exn` wrappers and
+  `json_parse_result` kept one release as a deprecated alias.
+  CORRECTION to this bullet's own premise: json.yo does NOT ship two complete
+  parsers. There is ONE — `_parse_value`, which already returned `Result` — and
+  the `json_parse*` names were thin `exn` wrappers over it, with
+  `json_parse_result` a fourth wrapper. The real work was flipping which
+  spelling is primary, not unifying two implementations.
+  Ten error-expecting tests across url and json were written as "call it, then
+  `assert(false)` — the handler unwinds so we never get here"; they now assert
+  the outcome directly, and four name the variant (`EmptyInput`,
+  `MissingScheme`, `InvalidPort`). One carried a comment explaining that the
+  outcome had to be encoded in REACHABILITY because a ctl handler cannot
+  capture an enclosing runtime local — that contortion is gone.
 - **D14 — `iter()` yields POINTERS everywhere** (D2 already says so).
   `ArrayList.iter` and `OrderedMap.iter` yield values → they become
   `into_iter`; `iter` gets the pointer iterator. **LANDED (#461)** — every other
@@ -122,11 +137,32 @@ the work in §4 does not re-open them.
   user-facing message and all ten std error enums hand-write `to_string` +
   `Error()`. → `Debug` trait + `derive(Debug)` (the current structural rule),
   `ToString` stays hand-written or comes from `derive(Error)` with per-variant
-  format strings (thiserror's `#[error("...")]`).
+  format strings (thiserror's `#[error("...")]`). **LANDED** — `Debug` trait,
+  `derive(Debug)`, and explicit `Debug` impls for the 18 primitives. It is a
+  FACTORING, not a duplication: `__derive_structural_body(T, method)` produces
+  the render once and `derive(Debug)` / the deprecated `derive(ToString)` each
+  wrap it in their own trait, so the legacy rule is behaviourally untouched.
+  A blanket `impl(T <: ToString) Debug for T` was TRIED and rejected: it
+  compiles, and an explicit impl silently shadows it, but it would give any
+  type with a hand-written message a `debug_string` returning that MESSAGE
+  rather than a structural render — exactly the conflation D15 removes.
+  `derive(Error)` with per-variant format strings is NOT done; `derive_rule`
+  does receive `trait_params`, so it looks expressible.
 - **D16 — `HashSet(T)` IS `HashMap(T, unit)`.** 498 of 929 lines of
   `hash_set.yo` are byte-identical to `hash_map.yo`, and the tombstone bug
   (§3) is present in both. `unit` is a true ZST as of v0.2.26, so the map's
   value slot costs nothing. Same treatment for `imm/set` over `imm/map`.
+  **LANDED for `hash_set`** — 962 lines to 452, all 65 HashSet tests passing.
+  `HashSet(T)` is a `ref` newtype over `HashMap(T, unit)`; the control bytes,
+  quadratic probe, tombstone accounting, resize AND the hand-written `Dispose`
+  all go (the backing map's `Dispose` handles cleanup).
+  NOTE the tombstone half of this bullet's rationale was already STALE when
+  the work started: #448 fixed reclamation in both files. The value is that the
+  next such fix cannot be applied to only one of them.
+  It also exposed a D2 violation the bullet does not mention: the tests read
+  `capacity`, `tombstones` and `k1` as PUBLIC STRUCT FIELDS. Those are now
+  delegating accessors (`capacity()`, `_tombstones()`, `_k0()`/`_k1()`).
+  `imm/set` over `imm/map` is NOT done.
 - **D17 — `sort` is stable; `sort_unstable` is the heapsort.** Today `sort` is
   heapsort under Rust's stable name — **LANDED**: `sort`/`sort_by` are stable,
   `sort_unstable`/`sort_unstable_by` keep the allocation-free heapsort. The
@@ -148,19 +184,28 @@ the work in §4 does not re-open them.
   and `Aborted`. Two variants, not Rust's single `Elapsed`, because Yo's
   `timeout` takes a `JoinHandle` rather than a future, which makes cancellation
   a genuinely separate failure. The two are distinguishable ONLY inside the
-  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF BLOCKED ON A COMPILER BUG, NOT ON DESIGN.** The std-side shape is
-  written and recorded: `Thread(T)` holds a capacity-1 `Channel(T)`, `spawn`
-  takes `Impl(Fn(io : Io) -> T, Send)`, and `join` keeps the join-once assert
-  and detach-on-drop `Dispose` before reading the value with `try_recv`. It
-  does not compile at `T = unit` — which is what all 152 existing call sites
-  become — because the thread-spawn lowering binds the captured callback's
-  ZST result to a `void*` temp and never emits the `Channel(unit).send`
-  specialisation. Narrowed with three controls that all work (`Channel(unit)`
-  alone; a generic fn calling an `Impl(Fn() -> T)` at `T = unit`; the same
-  closure captured into a second closure), so it is specific to
+  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF ALSO LANDED.** `Thread(T)` holds a capacity-1 `Channel(T)`,
+  `spawn` takes `Impl(Fn(io : Io) -> T, Send)`, and `join` keeps the join-once
+  assert and detach-on-drop `Dispose` before taking the value with `try_recv`
+  (the OS join has already returned, so the value is buffered and a blocking
+  `recv` could only hang when the body unwound). 152 call sites — all in
+  `tests/` — become `Thread(unit).spawn`, and `ArrayList(Thread)` becomes
+  `ArrayList(Thread(unit))` now that `Thread` is a type constructor.
+  `Thread(String)` is correctly REJECTED: `String` is not `Send`, so a
+  non-atomically-refcounted value cannot cross the join.
+  It very nearly did not land. Writing the call-and-send inline in the spawn
+  closure does not compile at `T = unit`: the emitted C has
+  `void* tmp = <void expr>` for the captured callback's ZST result, and the
+  `Channel(unit).send` specialisation is never emitted. Three controls narrowed
+  it — `Channel(unit)` alone works, a generic fn calling an `Impl(Fn() -> T)`
+  at `T = unit` works, and that closure captured into a SECOND closure works —
+  so it is specific to the thread-spawn lowering in
   `src/codegen/exprs/parallelism.yo`, whose own comment says it "selects the
-  primitive + (unit) return convention". Full write-up, evidence and the ready
-  design: `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`.
+  primitive + (unit) return convention". The second control is also the way
+  out: moving the call-and-send into a top-level generic helper
+  (`_run_and_send`) keeps it off that path entirely, so no compiler change was
+  needed. The underlying codegen bug is REAL and still open —
+  `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`.
 
 - **D19 — `Box` KEEPS its name, and says loudly that it is Rust's `Rc`.**
   (Maintainer, 2026-09-06.) `Box(V)` is `ref(struct((*) : V))`, so copying a
