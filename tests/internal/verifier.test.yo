@@ -1,0 +1,383 @@
+//! Verifier harness unit tests (V2 of plans/backlog/FORMAL_VERIFICATION.md).
+//!
+//! Hermetic layers (no solver needed): term/encode goldens, name mangling,
+//! S-expression scanning, verdict mapping, cache-key stability.
+//! Real-solver tests run ONLY with YO_TEST_Z3=1 (CI's verify job installs
+//! the pinned Z3 and sets YO_Z3_PATH); without it they self-skip with a
+//! passing note so the rest of the suite stays hermetic.
+open(import("std/string"));
+open(import("std/fmt"));
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{ ArrayList } :: import("std/collections/array_list");
+{ VcSort, VcOp, VcTerm, VcQuantKind, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_imp, vc_distinct } :: import("../../src/verifier/terms.yo");
+{ mangle_vc_name, encode_sort, encode_term, encode_content, encode_script, default_encode_options } :: import("../../src/verifier/encode.yo");
+{ Z3Sexpr, parse_z3_sexprs, z3_sexpr_to_string, z3_check_sat_of, z3_unsat_core_of, z3_value_pairs_of, run_z3_script, ensure_z3 } :: import("../../src/verifier/z3.yo");
+{ default_verify_run_config, verify_cache_key, verdict_of_response, VerifyVerdict, VerifyRunConfig, resolve_solver_sync, SolverResolution, verifier_harness_self_test } :: import("../../src/verifier/driver.yo");
+// ---------------------------------------------------------------------------
+// Small term-construction helpers (shared by the golden tests below)
+// ---------------------------------------------------------------------------
+_bv32_var :: (fn(name : String) -> VcTerm)(
+  VcTerm.Var(name : name, sort : VcSort.BvS(width : usize(32)))
+);
+_bv32_lit :: (fn(v : u64) -> VcTerm)(VcTerm.BvLit(value : v, width : usize(32)));
+_app2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  args.push(b);
+  VcTerm.App(op, args)
+});
+// ---------------------------------------------------------------------------
+// Sorts
+// ---------------------------------------------------------------------------
+test("encode_sort: bool and bitvector spellings", {
+  assert(encode_sort(VcSort.BoolS) == "Bool", "Bool");
+  assert(encode_sort(VcSort.BvS(width : usize(8))) == "(_ BitVec 8)", "bv8");
+  assert(encode_sort(VcSort.BvS(width : usize(64))) == "(_ BitVec 64)", "bv64");
+});
+// ---------------------------------------------------------------------------
+// Name mangling
+// ---------------------------------------------------------------------------
+test("mangle_vc_name: function-unique prefix + sanitized name", {
+  assert(mangle_vc_name(String.from("f"), String.from("result")) == "__yo_vf_result", "plain names pass through");
+  assert(mangle_vc_name(String.from("my fn"), String.from("a-b")) == "__yo_vmy_fn_a_b", "spaces/dashes become underscores");
+});
+test("mangle_vc_name: stable across calls (cache/golden requirement)", {
+  a := mangle_vc_name(String.from("divide"), String.from("result"));
+  b := mangle_vc_name(String.from("divide"), String.from("result"));
+  assert(a == b, "same input, same mangle");
+});
+// ---------------------------------------------------------------------------
+// Term encoding goldens
+// ---------------------------------------------------------------------------
+test("encode_term: literals and operators", {
+  assert(encode_term(_bv32_lit(u64(5))) == "(_ bv5 32)", "bv literal");
+  assert(encode_term(VcTerm.BoolLit(true)) == "true", "bool literal true");
+  assert(encode_term(VcTerm.BoolLit(false)) == "false", "bool literal false");
+  assert(
+    encode_term(_app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))) == "(bvadd (_ bv1 32) (_ bv1 32))",
+    "bvadd application"
+  );
+  assert(
+    encode_term(vc_not(vc_eq(_bv32_var(String.from("x")), _bv32_lit(u64(2))))) == "(not (= x (_ bv2 32)))",
+    "not/equality nesting"
+  );
+});
+test("encode_term: indexed operators (casts)", {
+  assert(
+    encode_term(_app2(VcOp.SignExtendOp(extra : usize(32)), _bv32_var(String.from("x")), VcTerm.BoolLit(true))) ==
+      "((_ sign_extend 32) x true)",
+    "sign_extend shape (arity is the builder's concern in V2)"
+  );
+});
+test("encode_term: quantifier shape", {
+  names := ArrayList(String).new();
+  names.push(String.from("i"));
+  sorts := ArrayList(VcSort).new();
+  sorts.push(VcSort.BvS(width : usize(64)));
+  body := vc_eq(VcTerm.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64))), VcTerm.BvLit(value : u64(0), width : usize(64)));
+  q := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body);
+  assert(
+    encode_term(q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
+    "forall with typed binder"
+  );
+});
+// ---------------------------------------------------------------------------
+// Query encoding goldens (the canonical self-test query)
+// ---------------------------------------------------------------------------
+test("encode_content: declarations, named assumptions, negated goal, check-sat", {
+  q := new_vc_query(String.from("golden"));
+  q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
+  q.assume_named(String.from("a1"), _app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))));
+  q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(u64(2)));
+  expected :=
+    `(declare-fun x () (_ BitVec 32))
+(assert (! (= x (bvadd (_ bv1 32) (_ bv1 32))) :named a1))
+(assert (not (= x (_ bv2 32))))
+(check-sat)
+`;
+  assert(encode_content(q) == expected, "content golden");
+});
+test("encode_script: options, content, evidence directives in fixed order", {
+  q := new_vc_query(String.from("golden"));
+  q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
+  q.assume(_app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))));
+  q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(u64(3)));
+  opts := default_encode_options();
+  expected :=
+    `(set-logic ALL)
+(set-option :rlimit 5000000)
+(set-option :random-seed 0)
+(set-option :timeout 30000)
+(set-option :produce-unsat-cores true)
+(set-option :produce-models true)
+(declare-fun x () (_ BitVec 32))
+(assert (= x (bvadd (_ bv1 32) (_ bv1 32))))
+(assert (not (= x (_ bv3 32))))
+(check-sat)
+(get-unsat-core)
+(get-value (x))
+`;
+  assert(encode_script(q, opts) == expected, "script golden");
+});
+// ---------------------------------------------------------------------------
+// S-expression scanning
+// ---------------------------------------------------------------------------
+test("parse_z3_sexprs: atoms, lists, nesting, comments", {
+  forms := parse_z3_sexprs(String.from("unsat\n(a1 a2)\n; a comment\n((x #x00000002))"));
+  assert(forms.len() == usize(3), "three top-level forms");
+  assert(
+    match(
+      forms.get(usize(0)),
+      .Some(form) => match(
+        form,
+        .Atom(t) => (t == "unsat"),
+        _ => false
+      ),
+      .None => false
+    ),
+    "first form is the atom unsat"
+  );
+  core := z3_unsat_core_of(forms);
+  assert(core.len() == usize(2), "core has two names");
+  assert(
+    match(
+      core.get(usize(1)),
+      .Some(n) => (n == "a2"),
+      .None => false
+    ),
+    "core names parse"
+  );
+  vals := z3_value_pairs_of(forms);
+  assert(
+    match(
+      vals.get(usize(0)),
+      .Some(p) => (p == "x = #x00000002"),
+      .None => false
+    ),
+    "get-value pair renders as name = value"
+  );
+});
+test("parse_z3_sexprs: nested value sexprs render losslessly", {
+  forms := parse_z3_sexprs(String.from("sat\n((x (concat #x00000001 #x02)))"));
+  vals := z3_value_pairs_of(forms);
+  assert(
+    match(
+      vals.get(usize(0)),
+      .Some(p) => (p == "x = (concat #x00000001 #x02)"),
+      .None => false
+    ),
+    "concat value keeps its structure"
+  );
+});
+test("z3_check_sat_of: finds the verdict atom, skips non-verdict atoms", {
+  forms := parse_z3_sexprs(String.from("sat\n((x #x02))"));
+  assert(
+    match(
+      z3_check_sat_of(forms),
+      .Some(v) => (v == "sat"),
+      .None => false
+    ),
+    "sat detected"
+  );
+  forms2 := parse_z3_sexprs(String.from("unknown\n(:reason-unknown (incomplete quantifiers))"));
+  assert(
+    match(
+      z3_check_sat_of(forms2),
+      .Some(v) => (v == "unknown"),
+      .None => false
+    ),
+    "unknown detected"
+  );
+  forms3 := parse_z3_sexprs(String.from("(error \"line 1 column 1: unknown constant\")"));
+  assert(z3_check_sat_of(forms3).is_none(), "error stream has no verdict");
+});
+// ---------------------------------------------------------------------------
+// Verdict mapping (the mocked-runner seam: canned responses)
+// ---------------------------------------------------------------------------
+test("verdict_of_response: unsat ⇒ Proved with core", {
+  v := verdict_of_response(String.from("unsat\n(a1)\n"));
+  match(
+    v,
+    .Proved(core) => {
+      assert(
+        match(
+          core.get(usize(0)),
+          .Some(n) => (n == "a1"),
+          .None => false
+        ),
+        "core carries the clause name"
+      );
+    },
+    _ => {
+      assert(false, "expected Proved");
+    }
+  );
+});
+test("verdict_of_response: sat ⇒ Refuted with counter-example", {
+  v := verdict_of_response(String.from("sat\n((x #x00000002))\n"));
+  match(
+    v,
+    .Refuted(ce) => {
+      assert(ce.len() == usize(1), "one counter-example entry");
+      assert(
+        match(
+          ce.get(usize(0)),
+          .Some(p) => (p == "x = #x00000002"),
+          .None => false
+        ),
+        "entry renders as x = value"
+      );
+    },
+    _ => {
+      assert(false, "expected Refuted");
+    }
+  );
+});
+test("verdict_of_response: unknown ⇒ Unproven; garbage ⇒ SolverError", {
+  match(
+    verdict_of_response(String.from("unknown\n")),
+    .Unproven(_) => (),
+    _ => {
+      assert(false, "expected Unproven");
+    }
+  );
+  match(
+    verdict_of_response(String.new()),
+    .SolverError(_) => (),
+    _ => {
+      assert(false, "expected SolverError on empty output");
+    }
+  );
+});
+// ---------------------------------------------------------------------------
+// Cache keys
+// ---------------------------------------------------------------------------
+_golden_query :: (fn(goal_val : u64) -> VcQuery)({
+  q := new_vc_query(String.from("cache-key"));
+  q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
+  q.assume(_app2(VcOp.EqOp, _bv32_var(String.from("x")), _app2(VcOp.BvAdd, _bv32_lit(u64(1)), _bv32_lit(u64(1)))));
+  q.goal = vc_eq(_bv32_var(String.from("x")), _bv32_lit(goal_val));
+  q
+});
+test("verify_cache_key: stable for identical input, sensitive to options and content", {
+  cfg := default_verify_run_config();
+  k1 := verify_cache_key(_golden_query(u64(2)), cfg);
+  k2 := verify_cache_key(_golden_query(u64(2)), cfg);
+  assert(k1 == k2, "same query + options ⇒ same key");
+  assert(k1.len() == usize(64), "sha256 hex length");
+  cfg2 := default_verify_run_config();
+  cfg2.encode_opts.rlimit = usize(1000);
+  k3 := verify_cache_key(_golden_query(u64(2)), cfg2);
+  assert(k1 != k3, "budget bump ⇒ different key");
+  k4 := verify_cache_key(_golden_query(u64(3)), cfg);
+  assert(k1 != k4, "goal change ⇒ different key");
+});
+// ---------------------------------------------------------------------------
+// Real-solver tests — YO_TEST_Z3=1 gated
+// ---------------------------------------------------------------------------
+test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)", {
+  enabled := match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == "1"),
+    .None => false
+  );
+  if(!enabled, {
+    println(String.from("  (skipped: set YO_TEST_Z3=1 to run the real-solver tests)"));
+  }, {
+    cfg := default_verify_run_config();
+    binary := match(
+      resolve_solver_sync(cfg),
+      .Resolved(path) => path,
+      .InvalidPath(path) => {
+        assert(false, `explicit solver path '${path}' does not exist`);
+        String.new()
+      },
+      .Installable => {
+        // The sync harness cannot download; YO_Z3_PATH or a cached install
+        // must provide the solver for the real tests.
+        assert(false, "no solver found: set YO_Z3_PATH or install the pinned z3 into the cache");
+        String.new()
+      }
+    );
+    results := verifier_harness_self_test(cfg, binary.clone());
+    match(
+      results.get(usize(0)),
+      .Some(r1) => {
+        match(
+          r1.verdict,
+          .Proved(_) => (),
+          _ => {
+            assert(false, "1+1==2 must prove");
+          }
+        );
+      },
+      .None => {
+        assert(false, "missing first self-test result");
+      }
+    );
+    match(
+      results.get(usize(1)),
+      .Some(r2) => {
+        match(
+          r2.verdict,
+          .Refuted(ce) => {
+            assert(ce.len() > usize(0), "refutation must carry a counter-example");
+            println(`  counter-example: ${ce.get(usize(0)).unwrap()}`);
+          },
+          _ => {
+            assert(false, "1+1==3 must refute");
+          }
+        );
+      },
+      .None => {
+        assert(false, "missing second self-test result");
+      }
+    );
+  });
+});
+test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
+  enabled := match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == "1"),
+    .None => false
+  );
+  if(!enabled, {
+    println(String.from("  (skipped: set YO_TEST_Z3=1 to run the real-solver tests)"));
+  }, {
+    cfg := default_verify_run_config();
+    cfg.no_cache = true;
+    binary := match(
+      resolve_solver_sync(cfg),
+      .Resolved(path) => path,
+      _ => {
+        assert(false, "no solver found: set YO_Z3_PATH or install the pinned z3");
+        String.new()
+      }
+    );
+    first := verifier_harness_self_test(cfg, binary.clone());
+    match(
+      first.get(usize(0)),
+      .Some(r) => {
+        assert(!r.cached, "no-cache run must not be cached");
+      },
+      .None => ()
+    );
+    cfg2 := default_verify_run_config();
+    second := verifier_harness_self_test(cfg2, binary.clone());
+    match(
+      second.get(usize(0)),
+      .Some(r2) => {
+        assert(r2.cached, "cached run must hit");
+        match(
+          r2.verdict,
+          .Proved(_) => (),
+          _ => {
+            assert(false, "cached verdict must still be Proved");
+          }
+        );
+      },
+      .None => ()
+    );
+  });
+});
