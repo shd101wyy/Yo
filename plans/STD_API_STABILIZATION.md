@@ -83,7 +83,19 @@ the work in §4 does not re-open them.
   (§3) is present in both. `unit` is a true ZST as of v0.2.26, so the map's
   value slot costs nothing. Same treatment for `imm/set` over `imm/map`.
 - **D17 — `sort` is stable; `sort_unstable` is the heapsort.** Today `sort` is
-  heapsort under Rust's stable name.
+  heapsort under Rust's stable name — **LANDED**: `sort`/`sort_by` are stable,
+  `sort_unstable`/`sort_unstable_by` keep the allocation-free heapsort. The
+  stable path sorts an INDEX array with a bottom-up merge (a tie takes the
+  left run) and then permutes the elements in place through the *same* swap
+  the heapsort uses — witnessed RC-balanced with a `Dispose` counter, so no
+  RC-typed uninitialised scratch exists to get `consume(p.* = v)` wrong on.
+  Two things fell out: the heapsort's bare-deref swaps are NOT an `imm/vec`
+  style bug (measured, suspicion refuted), and reusing the generic
+  `_heapsort_by` at a second `T` tripped a specializer bug — the element
+  comparator was handed the index type and the emitted C passed a `size_t`
+  where the closure wanted the element struct
+  (`issues/generic-fn-specialized-at-two-types-hands-the-closure-the-wrong-param-type.md`);
+  the merge is monomorphic to avoid it.
 - **D18 — `timeout` returns `Result(T, Elapsed)`; `Thread(T).spawn` carries
   its result and `join() -> T`.** `timeout -> Option(T)` conflates timed-out /
   aborted / `Some(None)`; D7's blocker on the join result is fixed.
