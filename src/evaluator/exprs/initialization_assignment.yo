@@ -186,7 +186,10 @@ _evaluate_inout_local_binding :: (
       )
     );
   });
-  // Where the binding is declared.
+  // Where the binding is declared. (An `io.async` closure body is evaluated
+  // as an ordinary closure — the state machine is a codegen decision — so the
+  // `AsyncBlock` arm below is a belt; the enforcing check is in
+  // codegen/exprs/init_assignment.yo `_generate_inout_local_binding`.)
   match(
     ctx.is_evaluating_function_body_or_async_block,
     .None => {

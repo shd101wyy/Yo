@@ -1053,3 +1053,46 @@ test("alias made inside a nested block, base reassigned there, base used after",
   assert(h.n == i32(100), "outer base reads the replacement");
   assert(rc(h) == 1, "one owner");
 });
+// Same optimizer, the two sibling shapes (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md):
+// reassigning the ALIAS dropped a value the alias never owned (its
+// replacement leaked), and a chained alias with the base reassigned in a
+// nested block under-released. Dispose deltas pin "every object exactly once".
+test("reassigning the alias itself disposes both objects exactly once", {
+  before := g_alias_disposed;
+  {
+    a := AliasHandle(tag : i32(1));
+    b := a;
+    b = AliasHandle(tag : i32(3));
+    assert(a.tag == i32(1), "a keeps the original");
+    assert(b.tag == i32(3), "b names the replacement");
+  };
+  assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
+});
+test("chained aliases with the base reassigned in a nested block", {
+  before := g_alias_disposed;
+  {
+    a := AliasHandle(tag : i32(1));
+    b := a;
+    c := b;
+    {
+      a = AliasHandle(tag : i32(2));
+    };
+    assert((b.tag == i32(1)) && (c.tag == i32(1)), "both aliases still name the original");
+    assert(a.tag == i32(2), "the base names the replacement");
+  };
+  assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
+});
+test("alias made in an inner block, base reassigned there, base used after", {
+  before := g_alias_disposed;
+  {
+    a := AliasHandle(tag : i32(1));
+    {
+      b := a;
+      b.tag = i32(9);
+      a = AliasHandle(tag : i32(2));
+      assert(b.tag == i32(9), "the inner alias reads the original");
+    };
+    assert(a.tag == i32(2), "the outer base reads the replacement");
+  };
+  assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
+});

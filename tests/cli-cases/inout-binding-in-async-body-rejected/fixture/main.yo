@@ -1,10 +1,16 @@
 { assert } :: import("std/assert");
 { Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+// A real state machine: the body suspends, so `x` lives in `sm->var_x` and
+// also as a per-state C copy — the shape the rejection protects against.
 task :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
     x := i32(1);
+    e.io.await(sleep(Duration.from_millis(i64(1)), e.io), e.io);
     inout(y) := x; // rejected: not supported inside an io.async body (v1)
     y = i32(2);
+    e.io.await(sleep(Duration.from_millis(i64(1)), e.io), e.io);
     return(x);
   })
 );

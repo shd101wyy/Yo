@@ -517,10 +517,42 @@ files with the stage-1 binary, `scripts/bootstrap/fixpoint_only.sh`
 exit; cli case `inout-interior-borrow-growth-panics`; release-side tests in
 `tests/ref_field_borrow.test.yo`; `issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md`.
 
-### Phase B — `inout(name) := place` for variables and fields (P1–P4)
+### Phase B — `inout(name) := place` for variables and fields (P1–P4) — **IMPLEMENTED 2026-09-07** (branch `feat/inout-local-bindings`, stacked on #473)
 
 Ships on its own; nothing in std may use the form until a seed accepts it
 (`yo-seed-gates-source-forms`), so B is user-facing first, std later.
+
+Implementation notes (what landed vs. the steps below):
+
+- B1/B3/B4 as written: `_evaluate_inout_local_binding`
+  (`src/evaluator/exprs/initialization_assignment.yo`) and
+  `_generate_inout_local_binding` (`src/codegen/exprs/init_assignment.yo`).
+  The pin is a hidden owning local created with `add_variable_to_env`; codegen
+  emits `Obj* pin = <dup(obj)>;` from the `inout(name)` node's ExprInfo
+  (`source_variable` + `macro_expansion` as the channel).
+- The `io.async` rejection (H5) is enforced in **codegen**, not the evaluator:
+  an `io.async` closure body is evaluated as an ordinary closure and the state
+  machine is a codegen decision, exactly like the await-position rules in
+  `async/state_code_gen.yo`. Pinned by
+  `tests/cli-cases/inout-binding-in-async-body-rejected`.
+- B2 as written (`VariableRare.inout_borrow_root_id`, `find_live_inout_borrowers`,
+  the gate in `set_expr_as_consumed`).
+- B2′: `VariableRare.is_inout_borrow_root` excludes the root from
+  `_optimize_dup_drop_pairs`. (NOT from `_schedule_scope_end_drops` — the two
+  share an `e3 := (e2 && !v.is_ref)` line; patching the scheduler would skip
+  the root's own drop.)
+- Two pre-existing bugs surfaced and fixed on the way:
+  `issues/fixed/inout-return-in-nested-block-shadows-pointer.md` (`return(m)`
+  of an `inout` PARAM inside a nested block emitted a self-dereferencing
+  shadow) and `issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md`
+  (the same-frame alias dup elision released the shared object when the base
+  was reassigned in a nested block — a use-after-free in safe code on the
+  shipped compiler; plus the alias-reassigned leak and the chained-alias
+  under-release). Both carry regression tests (`tests/ref_params.test.yo`,
+  `tests/rc.test.yo`).
+- Same-frame alias semantics matter for tests: `h2 := h` shares ONE count
+  unless `h` or `h2` is reassigned in the block, so `rc()` expectations must
+  say which case they are in.
 
 - **B1 Evaluator — accept the binding.**
   `src/evaluator/exprs/initialization_assignment.yo:159-173`: replace the

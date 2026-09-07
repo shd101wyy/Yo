@@ -35,16 +35,38 @@ block as the alias that is after every use of `h2` (fine); inside a NESTED
 block it runs before the alias's remaining uses — and before the alias's
 own scope end, where nothing drops (the alias was marked consumed).
 
+## Sibling shapes (same root, found by probing)
+
+- **Alias reassigned** (`b := a; b = new;`): the alias was marked consumed,
+  so its scope-end drop was skipped — the REPLACEMENT leaked (dispose count
+  short by one on the seed).
+- **Chained aliases, base reassigned in a nested block** (`b := a; c := b;
+  { a = new; }`): under-released on the seed (dispose count short by one).
+- Plain last-use-then-reassign (`take(a); a = new;`, same or nested block) was
+  already correct on the seed and is left alone.
+
 ## Fix
 
-The optimizer now checks, for an alias candidate (`base.id != v.id`),
-whether the base variable is assigned anywhere in the block's subtree
-(`_subtree_assigns_variable`, macro-expansion aware). If so the dup is kept:
-each handle owns its own count, the reassignment releases only the base's,
-and the alias's scope-end drop releases its own. Cost: one dup/drop pair in
-exactly the shape that was unsound.
+`_optimize_dup_drop_pairs` now treats an alias candidate (`base.id != v.id`)
+whose alias OR base is assigned anywhere in the block's subtree
+(`_subtree_assigns_variable`, macro-expansion aware) as non-elidable: the dup
+is kept, so each handle owns its own count, the reassignment releases only
+the reassigned handle's count, and every scope-end drop releases its own.
+The base is then also protected from the plain move path (which would
+otherwise remove the same dup when the base is the candidate and mark the
+base consumed — the base's replacement would leak). The decision is recorded
+on the BASE variable (`VariableRare.keep_alias_dups`), not only in the
+epilogue's local set: an alias made in an INNER block (`{ b := a; a = new; }`)
+is decided by the inner epilogue while the base's candidate pass runs in the
+OUTER block's epilogue — a first version that kept the decision local made
+exactly that shape crash under GuardMalloc although it is clean on the seed
+(caught by re-probing every sibling shape after the fix). Cost: one dup/drop
+pair in exactly the shapes that were unsound.
 
 ## Tests
 
 `tests/rc.test.yo` — "alias survives a reassignment of its base inside a
-nested block" and the inner-alias twin. GuardMalloc-clean.
+nested block", the inner-alias twin, "reassigning the alias itself disposes
+both objects exactly once", and "chained aliases with the base reassigned in
+a nested block", "alias made in an inner block, base reassigned there, base
+used after" (dispose deltas). GuardMalloc-clean.

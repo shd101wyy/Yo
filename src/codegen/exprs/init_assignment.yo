@@ -181,6 +181,19 @@ _generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : Stri
   );
   var_name := ast_expr_token(name_expr).value;
   place_type := resolve_some_type_to_concrete(name_ei.ty);
+  // §9 H5: a state machine addresses a local both as `sm->var_x` and as a
+  // per-state C copy, so a reference binding could read a stale copy after a
+  // write through it. The evaluator cannot see the state machine (an
+  // `io.async` closure body is evaluated as an ordinary closure; the machine
+  // is a codegen decision, like the await-position rules in
+  // async/state_code_gen.yo), so the rejection lives here.
+  if(context.in_async_state_machine.is_some(), {
+    return(
+      Option(String).Some(
+        codegen_fatal_expr(`'inout(${var_name}) := ...' is not supported inside an 'io.async' body yet. Read the value into a local, or call a function that takes 'inout(name) : T'.`)
+      )
+    );
+  });
   // The pin, if any.
   match(
     context.base.get_expr_info(lhs),
