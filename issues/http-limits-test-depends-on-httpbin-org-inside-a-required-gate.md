@@ -28,7 +28,7 @@ the first to be throttled — note the 1-hop test in the same file passed.
 
 The failure mode is maximally misleading: it is reported against whichever PR
 happens to be running, as a *new regression under the self-hosted compiler*.
-It already cost one false alarm — `plans/HANDOVER_STD_AUDIT_2026-09-06.md` §8
+It already cost one false alarm — `plans/archive/HANDOVER_STD_AUDIT_2026-09-06.md` §8
 recorded it as "a NEW regression … which touches btree_map, priority_queue,
 process/command and the command test only".
 

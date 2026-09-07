@@ -1,5 +1,15 @@
 # Handover — std API stabilization, P0 sweep nearly complete (2026-09-06, 17:30 CST)
 
+> **CLOSED 2026-09-07 — SUPERSEDED by `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.**
+>
+> Every PR this document tracks has since landed: #441, #442, #443, #449, #450,
+> #451, #452, #453, #454, #455 are all merged, and **v0.2.26 and v0.2.27
+> shipped**. The three red legs §8 asks the next agent to triage were resolved
+> (D6's Windows TLS fix is in v0.2.26). The §3 "rules that bit this session"
+> and §0's standing constraints are still accurate and were carried forward
+> into the new handover; the rest is a historical snapshot and should not be
+> used as live state.
+
 **For the agent taking over the std campaign.** Written for the 17:30 CST
 handover on 2026-09-06; the state below was last refreshed at the time given
 in §8. Everything was verified against `origin/develop` at `c733b1a92` (the
