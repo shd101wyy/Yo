@@ -81,7 +81,14 @@ Pragma :: enum(
   VerifyOrAssert,
   /// Formal verification: erase contract clauses entirely (no proof,
   /// no runtime assert). For release/benchmark builds.
-  NoContracts
+  NoContracts,
+  /// Strict borrowed loops: inside `for(coll, inout(x) => …)` bodies of this
+  /// file, a call the compiler cannot prove harmless to the borrowed
+  /// element — a mutating method on the borrowed collection or an alias of
+  /// it, or a callee whose effects are unknown (a closure, a dynamic
+  /// dispatch, a function pointer) — is a compile error instead of a
+  /// runtime borrow panic. See docs/FLOWABILITY.md.
+  StrictBorrow
 );
 export(Pragma);
 
@@ -8640,19 +8647,22 @@ for :: (
                   unquote(coll_var) := unquote(coll);
                   unquote(guard_var) := __borrow_guard(unquote(coll_var));
                   unquote(iter_var) := unquote(coll_var).iter();
-                  while(runtime(true), {
-                    unquote(temp_var) := unquote(iter_var).next();
-                    match(
-                      unquote(temp_var),
-                      .Some(unquote(ptr_var)) => {
-                        inout(unquote(elem)) := unquote(ptr_var).*;
-                        unquote(body)
-                      },
-                      .None => {
-                        break;
-                      }
-                    )
-                  });
+                  __yo_borrow_check(
+                    unquote(coll_var),
+                    while(runtime(true), {
+                      unquote(temp_var) := unquote(iter_var).next();
+                      match(
+                        unquote(temp_var),
+                        .Some(unquote(ptr_var)) => {
+                          inout(unquote(elem)) := unquote(ptr_var).*;
+                          unquote(body)
+                        },
+                        .None => {
+                          break;
+                        }
+                      )
+                    })
+                  );
                 })
               },
               is_map_ref_form => {
@@ -8671,20 +8681,23 @@ for :: (
                   unquote(coll_var) := unquote(coll);
                   unquote(guard_var) := __borrow_guard(unquote(coll_var));
                   unquote(iter_var) := unquote(coll_var).iter();
-                  while(runtime(true), {
-                    unquote(temp_var) := unquote(iter_var).next();
-                    match(
-                      unquote(temp_var),
-                      .Some(unquote(ptr_var)) => {
-                        unquote(key_name) := (unquote(ptr_var).*).key;
-                        inout(unquote(val_name)) := (unquote(ptr_var).*).value;
-                        unquote(body)
-                      },
-                      .None => {
-                        break;
-                      }
-                    )
-                  });
+                  __yo_borrow_check(
+                    unquote(coll_var),
+                    while(runtime(true), {
+                      unquote(temp_var) := unquote(iter_var).next();
+                      match(
+                        unquote(temp_var),
+                        .Some(unquote(ptr_var)) => {
+                          unquote(key_name) := (unquote(ptr_var).*).key;
+                          inout(unquote(val_name)) := (unquote(ptr_var).*).value;
+                          unquote(body)
+                        },
+                        .None => {
+                          break;
+                        }
+                      )
+                    })
+                  );
                 })
               },
               true => {

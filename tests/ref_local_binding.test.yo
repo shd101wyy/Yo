@@ -287,6 +287,18 @@ comptime_expect_error(
     );
   })
 );
+// Safe code cannot HOLD a raw pointer value either (Phase D): the pointer
+// iterator's `next()` yields `Option(*(T))`, which only privileged code (or
+// the prelude's borrowed `for`) may bind or pass.
+comptime_expect_error(
+  pointer_value_rejected :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    it := xs.iter();
+    first := it.next();
+    consume(first);
+  })
+);
 comptime_expect_error(
   shadowing_rejected :: (fn() -> unit)({
     x := i32(1);

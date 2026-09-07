@@ -562,6 +562,8 @@ main :: (fn() -> unit)({
 });
 ```
 
+Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(coll, inout(x) => …)` instead. A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
+
 Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
 
 - Pointer dereference: `p.*` (read), `p.* = v` (write)

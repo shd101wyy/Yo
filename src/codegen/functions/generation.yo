@@ -28,7 +28,7 @@ open(import("std/string"));
 { TypeValue } :: import("../../types/definitions.yo");
 { has_any_control_flow, get_module_level_init_exprs, fid_fully_specialized, expr_info_consumed_variable_drop_expressions, is_module_level_global, module_global_c_suffix } :: import("../../expr_info.yo");
 { is_unit_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
-{ function_may_mutate_param_storage } :: import("../../evaluator/effects/mutation_summary.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { is_target_posix, is_target_linux, is_target_windows } :: import("../../target.yo");
@@ -41,6 +41,8 @@ open(import("std/string"));
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
+_(env : gen_dbg_env) :: import("std/env");
+{ eprintln } :: import("std/fmt");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
 { generate_sys_runtime, AsyncRuntimeOptions, generate_tls_runtime } :: import("../async/runtime_io_common.yo");
 { generate_async_runtime } :: import("../async/runtime.yo");
@@ -491,33 +493,71 @@ generate_function_body :: (fn(body_expr : AstExpr, function_type : TypeValue, in
 });
 /// Generate a single function (signature + linkage + body). Mirrors `generateFunction`.
 /// Law of Exclusivity, the compiler-emitted half (plans/INOUT_LOCAL_BINDINGS_AUDIT.md
-/// §8 C5): at the entry of every METHOD of an RC object (first parameter
-/// `self` of reference-struct type) whose body may mutate storage reachable
-/// from its parameters (`function_may_mutate_param_storage` — a length
-/// decrement, a slot overwrite, a node unlink, a realloc/free, a call it
-/// cannot see through), emit `__yo_borrow_assert_unborrowed((void*)self);`.
-/// A collection held by a borrowed `for` (or an interior `inout` argument)
-/// then panics deterministically on ANY mutating method, whoever wrote the
-/// collection — no annotation exists or is needed (Yo has no `mut`: the body
-/// is the signature). Read-only methods (`len`, `get`, `iter`, `to_string`)
-/// answer "no" and cost nothing. Async methods (state machines) and closures
-/// are skipped: their C prototypes do not start with `self`.
+/// §8 C5): at the entry of every function, for every RC-object PARAMETER whose
+/// reachable storage the body may mutate (`function_param_mutation_mask` — a
+/// length decrement, a slot overwrite, a node unlink, a realloc/free, a call
+/// it cannot see through; a fresh local the body builds and mutates does not
+/// count), emit `__yo_borrow_assert_unborrowed((void*)<param>);`. A collection
+/// held by a borrowed `for` (or an interior `inout` argument) then panics
+/// deterministically on ANY invalidating method, whoever wrote the collection
+/// — no annotation exists or is needed (Yo has no `mut`: the body is the
+/// signature). Read-only methods (`len`, `get`, `iter`, `clone`, `to_string`)
+/// carry no assert and cost nothing. Async functions (state machines) and
+/// closures are skipped: their C prototypes do not carry the parameters.
 _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id : String, body : AstExpr, em : Emitter, context : FunctionGenerationContext) -> unit)({
   if(is_closure_fn(func_id.clone()), return(()));
   match(
     function_type,
     .Func({ param_types : pts, result : r, meta : __fm }) => {
       if(__fm.*.param_labels.len() == usize(0), return(()));
-      first_is_self := match(__fm.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false);
-      if(!first_is_self, return(()));
-      self_is_object := match(pts.get(usize(0)), .Some(t) => (is_reference_struct_type(t) || is_atomic_reference_struct_type(t)), .None => false);
-      if(!self_is_object, return(()));
       if(type_implements_future(r), return(()));
-      if(function_may_mutate_param_storage(func_id, body, context.base.info_table), {
-        // An `inout(self)` receiver is passed as `T** self` (a pointer to the
-        // caller's handle slot); the object the flag lives on is `*self`.
-        self_is_ref := match(__fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false);
-        em.emit_string_line(String.from(if(self_is_ref, "  __yo_borrow_assert_unborrowed((void*)(*self));", "  __yo_borrow_assert_unborrowed((void*)self);")));
+      // Any RC-object parameter at all? (Cheap pre-check before the analysis.)
+      (has_object_param : bool) = false;
+      (pi : usize) = usize(0);
+      while(pi < pts.len(), {
+        match(
+          pts.get(pi),
+          .Some(t) => if(is_reference_struct_type(t) || is_atomic_reference_struct_type(t), {
+            has_object_param = true;
+          }),
+          .None => ()
+        );
+        pi = (pi + usize(1));
+      });
+      if(!has_object_param, return(()));
+      mask := function_param_mutation_mask(func_id, body, context.base.info_table);
+      // `YO_DEBUG_BORROW_MASK=1`: print every analysed function's mask.
+      if(match(gen_dbg_env.get(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
+        (bits : String) = String.new();
+        (bi : usize) = usize(0);
+        while(bi < pts.len(), {
+          bits.push_str(if(param_mutation_mask_hits(mask, bi), "1", "0"));
+          bi = (bi + usize(1));
+        });
+        eprintln(`[borrow-mask] ${func_id} all=${mask.all} params=${bits}`);
+      });
+      (i : usize) = usize(0);
+      while(i < pts.len(), {
+        pt := match(pts.get(i), .Some(t) => t, .None => t_unit());
+        is_object := (is_reference_struct_type(pt) || is_atomic_reference_struct_type(pt));
+        label := match(__fm.*.param_labels.get(i), .Some(l) => l, .None => String.new());
+        if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(mask, i), {
+          // An `inout` receiver/parameter is passed as `T** name` (a pointer to
+          // the caller's handle slot); the object the flag lives on is `*name`.
+          is_ref := match(__fm.*.param_is_ref.get(i), .Some(b) => b, .None => false);
+          pname := sanitize_for_c_identifier(label.clone(), false);
+          line := String.from("  __yo_borrow_assert_unborrowed((void*)");
+          if(is_ref, {
+            line.push_str("(*");
+            line.push_string(pname);
+            line.push_str(")");
+          }, {
+            line.push_string(pname);
+          });
+          line.push_str(");");
+          em.emit_string_line(line);
+        });
+        i = (i + usize(1));
       });
     },
     _ => ()

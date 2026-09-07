@@ -490,3 +490,71 @@ test("borrowed for: read-only methods with typed local declarations do not trip 
   });
   assert(seen == i32(8), "a user method with a typed local inside the borrowed body");
 });
+// The invalidation assert is decided PER PARAMETER from where each mutated
+// value's storage lives (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §9, third pass):
+// a method that mutates only storage it allocated itself (`clone` pushing into
+// its result), or an iterator's own cursor while walking the collection, does
+// not mutate the collection and carries no assert. A method that makes fresh
+// storage reachable from `self` and then mutates it does — pinned by
+// tests/cli-cases/inout-for-store-fresh-into-self-panics.
+impl(
+  Bag,
+  sum_by_value_for : (fn(self : Self) -> i32)({
+    total := i32(0);
+    for(self.items, x => {
+      total = (total + x);
+    });
+    total
+  }),
+  sum_by_borrowed_for : (fn(self : Self) -> i32)({
+    total := i32(0);
+    for(self, inout(x) => {
+      total = (total + x);
+    });
+    total
+  }),
+  doubled_copy : (fn(self : Self) -> ArrayList(i32))({
+    copy := self.items.clone();
+    i := usize(0);
+    while(i < copy.len(), {
+      copy(i) = (copy(i) * i32(2));
+      i = (i + usize(1));
+    });
+    copy.push(i32(0));
+    copy
+  })
+);
+test("borrowed for: methods mutating only fresh storage, or iterating the collection, do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  names := ArrayList(String).new();
+  names.push(String.from("a"));
+  names.push(String.from("bb"));
+  total := i32(0);
+  for(xs, inout(x) => {
+    snapshot := xs.clone();
+    snapshot.push(i32(100));
+    total = (total + i32(snapshot.len()));
+    collected := xs.into_iter().collect(ArrayList(i32));
+    collected.push(i32(7));
+    total = (total + i32(collected.len()));
+    x = (x + i32(1));
+  });
+  assert(total == i32(12), "clone and collect inside the borrowed body: fresh results, mutated freely");
+  assert((xs(usize(0)) == i32(2)) && (xs(usize(1)) == i32(3)), "the elements were written through");
+  for(names, inout(n) => {
+    copy := names.clone();
+    copy.push(String.from("c"));
+    n.push_str("!");
+  });
+  assert((names(usize(0)) == "a!") && (names.len() == usize(2)), "cloning a collection of RC elements inside the borrowed body");
+  bag := Bag(items : xs, version : i32(0));
+  seen := i32(0);
+  for(bag, inout(x) => {
+    seen = (seen + bag.sum_by_value_for() + bag.sum_by_borrowed_for());
+    d := bag.doubled_copy();
+    seen = (seen + i32(d.len()));
+  });
+  assert(seen == i32(26), "methods iterating self (both for forms) and mutating a fresh copy: no assert");
+});

@@ -11,6 +11,7 @@
 //! handler always throws to mark the enclosing function as not CTFE-capable.
 open(import("std/string"));
 open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
   ast_expr_token,
@@ -18,11 +19,15 @@ open(import("std/fmt"));
   ast_expr_to_string,
   ast_expr_is_fn_call_of,
   BF_RUNTIME,
+  BF_YO_BORROW_CHECK,
   make_err_expr
 } :: import("../../expr.yo");
+{ get_variables_from_env } :: import("../../env.yo");
+{ strict_borrow_violations } :: import("../effects/mutation_summary.yo");
+{ format_error_messages } :: import("../../error.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
-{ Environment } :: import("../../env.yo");
+{ Environment, Variable } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_i32 } :: import("../../types/creators.yo");
@@ -108,4 +113,99 @@ evaluate_runtime :: (
 // Unused fallback used to satisfy the type system for the impossible
 // `.None` arm above. The match is guarded by the preceding `if`-throw,
 // so this branch is unreachable.
-export(evaluate_runtime);
+/// `__yo_borrow_check(coll, loop)` — emitted by the prelude's borrowed `for`
+/// around the loop it expands to. Evaluates `loop` transparently (the outer
+/// node takes its type and env, like `runtime(x)`), then, for calls in the
+/// loop written in a file under `pragma(Pragma.StrictBorrow)`, rejects at
+/// compile time what would otherwise be a runtime borrow panic: a call whose
+/// callee the mutation summary cannot see through, or one that mutates the
+/// borrowed collection (`coll`, the hidden pin local, or any same-frame alias
+/// of the variable it copies). plans/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D.
+evaluate_borrow_check :: (
+  fn(
+    expr : AstExpr,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  if(!ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, .Some(usize(2))), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          `Expected __yo_borrow_check(coll, loop), got:\n${ast_expr_to_string(expr)}`
+        )
+      )
+    );
+  });
+  coll_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  loop_expr := match(
+    expr,
+    .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
+    .Atom(_, _) => make_err_expr()
+  );
+  evaluated_coll := evaluate_expression_raw(coll_expr, env, ctx, exn);
+  evaluated_loop := evaluate_expression_raw(loop_expr, env, ctx, exn);
+  loop_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_loop)),
+    .Some(i) => i,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(evaluated_loop),
+            `Failed to evaluate the borrowed loop:\n${ast_expr_to_string(evaluated_loop)}`
+          )
+        )
+      );
+      new_expr_info(env, t_i32())
+    }
+  );
+  // The borrowed collection: the pin variable and every same-frame alias
+  // it was copied from (`coll_var := xs` records `xs` as the shared owner).
+  borrowed_ids := ArrayList(usize).new();
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_coll)),
+    .Some(ci) => match(
+      ci.variable_name,
+      .Some(vn) => {
+        vars := get_variables_from_env(ci.env, vn);
+        match(
+          vars.get(vars.len() - usize(1)),
+          .Some(v) => {
+            borrowed_ids.push(v.id);
+            (cur : Option(Box(Variable))) = v.is_owning_the_same_rc_value_as;
+            (hops : usize) = usize(0);
+            while(cur.is_some() && (hops < usize(64)), {
+              match(
+                cur,
+                .Some(b) => {
+                  borrowed_ids.push(b.*.id);
+                  cur = b.*.is_owning_the_same_rc_value_as;
+                },
+                .None => ()
+              );
+              hops = (hops + usize(1));
+            });
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
+  violations := strict_borrow_violations(evaluated_loop, borrowed_ids, ctx.expr_info_table);
+  if(violations.len() > usize(0), {
+    exn.throw(dyn(format_error_messages(violations)));
+  });
+  out_info := new_expr_info(loop_info.env, loop_info.ty);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr
+});
+export(evaluate_runtime, evaluate_borrow_check);

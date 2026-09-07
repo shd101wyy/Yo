@@ -1,6 +1,6 @@
 # `inout` local bindings — feasibility audit
 
-Status: **IMPLEMENTED 2026-09-07 (Phases A–C)** — decision in §7,
+Status: **IMPLEMENTED 2026-09-07 (Phases A–C, D1, D3)** — decision in §7,
 implementation steps and landing notes in §8, soundness review in §9 (audit
 §1–§6 is the record the decision rests on). Phase A is PR #473; Phases B and
 C are on `feat/inout-local-bindings`, stacked on it. Follow-ups deliberately
@@ -789,14 +789,40 @@ feature-carrying binary before that.
   (`for` value vs borrowed form; `iter()` is the protocol, not the API);
   `plans/archive/ITERATOR_REDESIGN.md` banner gains a pointer here.
 
-### Phase D — optional follow-ups (not scheduled)
+### Phase D — follow-ups — **D1 and D3 IMPLEMENTED 2026-09-07 (same branch); D2 deferred**
 
-- A strict pragma that turns the alias-only runtime cases into compile
-  errors by rejecting calls the mutation summary cannot see through.
-- Last-use live ranges for `inout` bindings (Hylo), so a `push` after the
-  last read of `x` inside the body is accepted statically.
-- Hiding pointer-yielding `iter()` from non-privileged code once the borrowed
-  `for` covers every use.
+- **D1 `pragma(Pragma.StrictBorrow)` — implemented.** The prelude's borrowed
+  `for` wraps its loop in the compiler builtin `__yo_borrow_check(pin, loop)`
+  (`evaluate_borrow_check`, `src/evaluator/exprs/runtime.yo`; codegen emits
+  only the loop). After the loop body is evaluated — so every callee it
+  reaches has an evaluated body — `strict_borrow_violations`
+  (`mutation_summary.yo`) walks the loop and, for each call written in a
+  strict file, requires the per-parameter mask to vouch for it: a mutating
+  callee whose mutated parameter receives the borrowed collection (the pin,
+  or any same-frame alias recorded by `is_owning_the_same_rc_value_as`) is
+  an error, as is a callee with `all` (unknown effects), an unresolvable
+  callee (closure, `dyn`, function pointer, effect handler), an extern with
+  a callback, or an extern that may write through a borrowed argument.
+  Calls in non-strict files, including the prelude's own loop machinery,
+  stay on the runtime flag. Tests: `tests/for_macro_borrow_strict.test.yo`.
+- **D3 raw pointer VALUES only in unsafe-capable code — implemented.** The
+  central evaluator (`_evaluate_expression_raw_wrapper`, `_expr.yo`) rejects
+  any runtime expression whose type is a pointer or carries one directly
+  (`Option(*(T))`, one level deep so the collections themselves stay usable)
+  outside `unsafe(...)`, outside a privileged file, and outside the standard
+  library (the trusted base hands pointers between its own layers, e.g.
+  `string_builder.yo` passing `s.ptr()` into its byte buffer, without
+  dereferencing them in every file). `it.next()` on a
+  pointer iterator is therefore an error in safe code; the borrowed `for`
+  (whose expansion carries the prelude's privilege) is the one way safe code
+  borrows an element; combinators that never surface the pointer (`count`,
+  `map`) remain available. Every std/test user of `iter()` was already
+  privileged. Test: `pointer_value_rejected` in
+  `tests/ref_local_binding.test.yo`.
+- **D2 last-use live ranges — deferred.** It changes when the borrow flag is
+  released (the binding's last use instead of the loop's end): a liveness
+  analysis plus a restructured expansion, for little value now that methods
+  mutating only fresh storage no longer assert.
 
 ## 9. Soundness review (2026-09-07, after the decision)
 
@@ -898,22 +924,52 @@ field (object and value struct), an array root with an index store through
 the binding, `contains`/`get`/`==`/`into_iter().collect()` inside a borrowed
 body (no assert), `sort` inside a borrowed body (panics, as designed).
 
-**Known imprecision (not a soundness hole): read-only methods that build a
-fresh result by mutating a LOCAL.** `xs.clone()` inside `for(xs, inout(x) =>
-…)` panics: `clone`'s body calls `result.push(…)` on a fresh local, and the
-MAY summary propagates any mutating callee to the caller regardless of which
-object it mutates. The sound refinement is a per-parameter mutation mask
-(callee mutates param *i*) mapped through the call's arguments, plus a
-freshness analysis for locals (initialised only from constructors or
-returns-fresh callees, never fed a param-rooted handle — the iterator over
-`self` is NOT fresh because it stores `self`). Until then the escape is to
-copy before the loop (`snapshot := xs.clone()` outside the borrowed body).
+**Per-parameter mutation masks (2026-09-07, implemented after the third
+pass).** The first C5 summary was a single MAY bit per function: any
+mutating callee anywhere in the body flagged the caller, so `xs.clone()`
+inside `for(xs, inout(x) => …)` panicked (`clone` pushes into its fresh
+result) and every method iterating `self` with `for` was asserted. The
+summary is now `ParamMutationMask` (`function_param_mutation_mask`,
+`src/evaluator/effects/mutation_summary.yo`): per parameter, whether storage
+reachable from it may be mutated — its OWN storage (`shallow`: a field or
+slot store, a deref store through a pointer read from it, a realloc of its
+buffer) or storage reached THROUGH it (`deep`: another object it holds) —
+plus `all` for unknown effects. Codegen asserts every RC-object parameter in
+the mask, dereferencing `inout` receivers. Precision comes from rooting each
+value in the function being analysed: `Param(i)`, `Fresh` (allocated here,
+holding only fresh or inert values), `Shell` (allocated here but holding
+rooted handles — an iterator over `self`), `Rooted` (unknown), `None`
+(inert). Locals get their root from a fixpoint over the body's definitions,
+pattern bindings and flows; callees contribute their mask mapped through the
+call's arguments (receiver first for method-form calls) and the root of what
+they return (`Param(j)` maps back to the argument). A shell's own fields may
+be written freely (the iterator's cursor), so a read-only `for` over `self`
+contributes nothing; a deep mutation through a shell is unknown. Everything
+that could make fresh storage reachable from a parameter taints it: storing
+it into parameter or global storage, passing it to a callee that mutates a
+rooted argument (the callee may store any argument anywhere), a constructor
+argument, a closure capture, a callee with unknown effects, an extern that
+may mutate or writes bytes (`memmove`/`memcpy`/`memset`). Allocation externs
+(`malloc`/`__yo_malloc`/`calloc`) return fresh storage. Cycles are optimistic
+on in-progress edges and memoized only when no such edge was crossed (the
+`_MsW` discipline); a callee whose body is not yet evaluated answers
+`all` and poisons no memo. A callee's own `all` verdict is mapped through the
+call's argument roots unless a closure is involved (the callee is one, or an
+argument is function-typed: captures are storage the call does not name).
+Diagnostics: `YO_DEBUG_BORROW_MASK=1` prints every analysed function's mask,
+the roots its locals settled on, and the expression that made a mask `all`. Verified: `clone`/`collect`/`index_of`/`for`-over-self
+methods carry no assert; `push`/`pop`/`insert`/`sort`, a method storing a
+fresh list into `self` and then pushing into it, and nested-storage mutation
+(`OrderedMap.insert` → `self._map.insert`) still assert.
+
 Overhead measured on the stage-1 binary: a 400 M-iteration `push`/`pop` +
 100 M-iteration `push_str`/`clear` microbenchmark runs 0.45 s (seed, no
 asserts) vs 0.48–0.49 s (entry asserts): ~7–9 % on ~1 ns method bodies, one
 predictable load-compare per mutating method call; read-only methods,
 bindings to variables/fields, and the per-loop acquire/release cost nothing
-measurable.
+measurable. The mask does not change the cost of a mutating call; it removes
+asserts (and false panics) from methods that mutate only their own fresh
+storage.
 
 **Where the guarantee comes from, stated once.** For P1–P4 the guarantee is
 static: slot lifetime by scoping, escape by the absence of a type, moves by

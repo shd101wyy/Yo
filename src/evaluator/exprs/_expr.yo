@@ -77,6 +77,7 @@ open(import("std/fmt"));
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
+  BF_YO_BORROW_CHECK,
   BF_UNWIND,
   BF_RECUR,
   BF_DOT,
@@ -208,7 +209,11 @@ open(import("std/fmt"));
 { evaluate_initialization_assignment } :: import("./initialization_assignment.yo");
 { evaluate_assignment } :: import("./assignment.yo");
 { evaluate_recur } :: import("./recur.yo");
-{ evaluate_runtime } :: import("./runtime.yo");
+{ evaluate_runtime, evaluate_borrow_check } :: import("./runtime.yo");
+{ is_pointer_type } :: import("../../types/guards.yo");
+{ is_pointer_value_capable_file } :: import("../memory_safety.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ is_unknown_val } :: import("../../value.yo");
 { evaluate_extern } :: import("./extern.yo");
 { evaluate_c_include } :: import("./c_include.yo");
 { evaluate_test } :: import("./test.yo");
@@ -573,6 +578,8 @@ _evaluate_expression :: (
           evaluate_recur(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_RUNTIME, .None)) =>
           evaluate_runtime(expr, env, ctx, exn),
+        ((__dk_len == usize(17)) && ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, .None)) =>
+          evaluate_borrow_check(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_EXTERN, .None)) =>
           evaluate_extern(expr, env, ctx, exn),
         ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None)) =>
@@ -1175,6 +1182,46 @@ _evaluate_expression_wrapper :: (
 /// Phase 3 verified that the codegen does in fact handle this — the
 /// previous panic was masking real evaluator coverage gaps as crashes
 /// instead of recoverable errors.
+/// Does a value of this type carry a raw pointer at its surface — a pointer,
+/// or an enum with a pointer directly among a variant's fields
+/// (`Option(*(T))`, what a pointer iterator's `next` yields)? Structs are
+/// deliberately NOT inspected: std hands safe code value structs that wrap a
+/// pointer (`JoinHandle`, iterators) and only privileged code can read the
+/// field out — that read is itself a pointer-typed expression and is gated.
+_surfaces_raw_pointer :: (fn(ty : TypeValue) -> bool)({
+  if(is_pointer_type(ty), {
+    return(true);
+  });
+  match(
+    ty,
+    .EnumT({ variant_fields : all_fields }) => {
+      (found : bool) = false;
+      (vi : usize) = usize(0);
+      while((vi < all_fields.len()) && !found, {
+        match(
+          all_fields.get(vi),
+          .Some(v_fields) => {
+            (fi : usize) = usize(0);
+            while((fi < v_fields.len()) && !found, {
+              match(
+                v_fields.get(fi),
+                .Some(ft) => if(is_pointer_type(ft), {
+                  found = true;
+                }),
+                .None => ()
+              );
+              fi = (fi + usize(1));
+            });
+          },
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+      found
+    },
+    _ => false
+  )
+});
 _evaluate_expression_raw_wrapper :: (
   fn(
     expr : AstExpr,
@@ -1185,6 +1232,36 @@ _evaluate_expression_raw_wrapper :: (
 )({
   result := _evaluate_expression(expr, env, ctx, exn);
   _bridge_expr_info(expr, result, ctx);
+  // Memory-safety gate (plans/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D): a raw
+  // pointer VALUE — not only its dereference — exists only in unsafe-capable
+  // code. Safe code that could hold `it.next()`'s `Option(*(T))` could pass
+  // or store a pointer into a collection's buffer past the point the buffer
+  // is reallocated; the borrowed `for` (whose expansion carries the prelude's
+  // privilege) is the one way safe code borrows an element.
+  if(!ctx.unsafe_context, {
+    match(
+      expr_info_table_get(ctx.expr_info_table, ast_expr_id(result)),
+      .Some(ri) => {
+        is_runtime := match(ri.value, .Some(v) => is_unknown_val(v), .None => true);
+        if(is_runtime && _surfaces_raw_pointer(ri.ty), {
+          tok := ast_expr_token(result);
+          if(!is_pointer_value_capable_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  tok,
+                  `Raw pointer values are not available in safe code: '${ast_expr_to_string(result)}' has type '${type_to_string(ri.ty)}'.
+
+To borrow the elements of a collection, iterate it with 'for(coll, inout(x) => ...)'. If this file genuinely needs raw pointers, declare 'pragma(Pragma.AllowUnsafe);'.`
+                )
+              )
+            );
+          });
+        });
+      },
+      .None => ()
+    );
+  });
   result
 });
 /// Register the expression evaluator. Call once during evaluator initialization.

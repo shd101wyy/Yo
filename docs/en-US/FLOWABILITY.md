@@ -116,19 +116,36 @@ check rather than a compile-time rejection (Swift's model for shared
 storage); the compiler emits the assert at the entry of every method of an RC object
 whose body may mutate the object (decided from the body, since Yo has no
 `mut`), so any collection — std or third-party — is covered without
-annotations. The decision is a may-analysis and is not per-parameter: a
-read-only method whose body mutates a *fresh local* (`clone` pushes into its
-result) is still classed as mutating, so `xs.clone()` inside a borrowed loop
-over `xs` panics — copy before the loop instead (`snapshot := xs.clone();`).
-Read-only methods (`len`, `get`, `contains`, `index_of`, `==`, iteration)
-carry no assert and cost nothing; a mutating method pays one load-compare
-at entry (~7–9 % on a nanosecond-scale `push`/`pop` microbenchmark, unmeasurable
-elsewhere). Plain
+annotations. The decision is per parameter and tracks where each mutated
+value's storage lives: a method that mutates only storage it allocated itself
+(`clone` pushing into its result, `collect`), or walks the collection with
+`for`, carries no assert; a method that stores fresh storage into `self` and
+then mutates it does. Read-only methods (`len`, `get`, `contains`,
+`index_of`, `==`, `clone`, iteration) cost nothing; a mutating method pays one
+load-compare at entry (~7–9 % on a nanosecond-scale `push`/`pop`
+microbenchmark, unmeasurable elsewhere). Plain
 `inout(e)` over a map yields the whole entry; prefer `(k, inout(v))`, which
 keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
 or an index loop. Inside an `io.async` body that suspends (a real state
 machine) neither `inout` bindings nor the borrowed `for` are available yet;
 use the value form there.
+
+Two opt-in tightenings close the remaining runtime cases at compile time.
+`pragma(Pragma.StrictBorrow);` makes every call inside a borrowed loop body
+of that file a compile error unless the compiler can prove it leaves the
+element valid: a mutating method on the borrowed collection (or a same-frame
+alias of it) is rejected, and so is any callee whose effects are unknown — a
+closure or `dyn` call, a function pointer, an effect handler, an extern with
+a callback, or a body that reaches storage through a global or raw pointer.
+Read-only methods, `clone`, `collect`, element writes through `x`, and calls
+on other collections are accepted; the escape is to move the call out of the
+loop or copy the collection first. Independently of the pragma, safe code can
+no longer *hold* a raw pointer value: `it.next()` on a pointer iterator yields
+`Option(*(T))`, which is an error outside `pragma(Pragma.AllowUnsafe)` files
+(the standard library, the audited trusted base, is exempt),
+so the borrowed `for` is the only way safe code borrows an element (iterator
+combinators such as `count` or `map` that never surface the pointer remain
+available).
 
 There is no `project` and no `Indexable`. `str` remains the immortal
 static-bytes view (freely copyable, no constraints), and range indexing

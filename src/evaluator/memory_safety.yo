@@ -151,6 +151,21 @@ _lex_abs_path :: (fn(p : String) -> String)({
     .Err(_) => path.to_string()
   )
 });
+/// Is `mp` a module under the standard library root? Module paths reach here
+/// in several forms — raw relative ("./std/prelude.yo"), absolute `file:///...`
+/// URIs (import-resolved std modules), and whatever form `--std-path` /
+/// `YO_STD` was given in — so absolutize BOTH sides lexically before the
+/// prefix check.
+_is_std_module_path :: (fn(mp : String, std_path : String) -> bool)({
+  (sp : String) = std_path.clone();
+  while(sp.ends_with(`/`), {
+    sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
+  });
+  if(sp.len() == usize(0), {
+    return(false);
+  });
+  _lex_abs_path(mp.clone()).starts_with(`${_lex_abs_path(sp)}/`)
+});
 is_macro_def_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
   match(
     module_path,
@@ -159,21 +174,31 @@ is_macro_def_capable_file :: (fn(module_path : Option(String), std_path : String
       if(mp.starts_with(String.from("auto-generated://")), {
         return(true);
       });
-      // std exemption: module paths reach here in several forms — raw
-      // relative ("./std/prelude.yo"), absolute `file:///...` URIs
-      // (import-resolved std modules), and whatever form `--std-path` /
-      // `YO_STD` was given in — so absolutize BOTH sides lexically before
-      // the prefix check.
-      (sp : String) = std_path.clone();
-      while(sp.ends_with(`/`), {
-        sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
-      });
-      if(sp.len() > usize(0), {
-        if(_lex_abs_path(mp.clone()).starts_with(`${_lex_abs_path(sp)}/`), {
-          return(true);
-        });
+      // std exemption (see _is_std_module_path).
+      if(_is_std_module_path(mp.clone(), std_path.clone()), {
+        return(true);
       });
       file_has_pragma(Option(String).Some(mp.clone()), Pragma.AllowMacroDef)
+    }
+  )
+);
+/// May code in this module HOLD a raw pointer value (bind, pass, store or
+/// return one — not only dereference it)? True for unsafe-capable files
+/// (`pragma(Pragma.AllowUnsafe)`), for compiler-synthesized expansions
+/// (`auto-generated://`, inheriting the caller's policy), and for the
+/// standard library — the audited trusted base, whose safe abstractions hand
+/// pointers between their own layers (`s.ptr()` into a byte buffer) without
+/// dereferencing them in every file. Everything else borrows elements with
+/// `for(coll, inout(x) => …)` (plans/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D).
+is_pointer_value_capable_file :: (fn(module_path : Option(String), std_path : String) -> bool)(
+  match(
+    module_path,
+    .None => false,
+    .Some(mp) => {
+      if(is_implicitly_unsafe_capable_file(Option(String).Some(mp.clone())), {
+        return(true);
+      });
+      _is_std_module_path(mp.clone(), std_path.clone())
     }
   )
 );
@@ -212,6 +237,7 @@ export(
   is_implicitly_unsafe_capable_file,
   is_auto_generated_expansion,
   is_macro_def_capable_file,
+  is_pointer_value_capable_file,
   is_overload_set_capable_file,
   _lex_abs_path
 );

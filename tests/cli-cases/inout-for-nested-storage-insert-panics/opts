@@ -1,0 +1,9 @@
+# plans/INOUT_LOCAL_BINDINGS_AUDIT.md §9 H37 / per-parameter masks: the elements
+# of an OrderedMap live in the storage of a PRIVATE inner map. `insert` on the
+# outer object mutates only `self._map`, another object, so the inner map's own
+# entry assert would check the wrong flag. The per-parameter mask records that
+# `insert` mutates storage reachable THROUGH `self` (a deep bit), so the outer
+# object carries the assert and panics under a live borrow of its entries.
+# `build run` propagates the panic as rc≠0.
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300

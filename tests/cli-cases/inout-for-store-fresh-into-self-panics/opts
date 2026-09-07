@@ -1,0 +1,9 @@
+# plans/INOUT_LOCAL_BINDINGS_AUDIT.md §9 third pass: the per-parameter mutation
+# mask treats storage a method allocates itself as FRESH (mutating it is not a
+# mutation of the collection) — but the moment that storage is stored into
+# `self`, it is reachable from the parameter and every later mutation of it
+# counts. `rebuild` builds a fresh list, stores it into `self.items`, then
+# pushes into it: the method must carry the entry assert and panic under a
+# live borrow. `build run` propagates the panic as rc≠0.
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300
