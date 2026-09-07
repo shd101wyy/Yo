@@ -403,13 +403,19 @@ _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, co
 _is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)), .Some(l) => if(l == "self", match(pts.get(usize(0)), .Some(t) => is_reference_struct_type(t), .None => false), false), .None => false)), _ => false), .None => false)
 );
+/// Is the current function's `self` an `inout(self)` receiver? Such a receiver
+/// is passed as `T** self` (a pointer to the caller's handle slot), so the
+/// object is `*self`.
+_current_self_param_is_ref :: (fn(context : FunctionGenerationContext) -> bool)(
+  match(context.current_function_type, .Some(ft) => match(ft, .Func({ meta : __fm1 }) => match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
+);
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
   if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
     em := context.base.emitter;
     line := indent.clone();
-    line.push_str("__yo_borrow_assert_unborrowed((void*)self);");
+    line.push_str(if(_current_self_param_is_ref(context), "__yo_borrow_assert_unborrowed((void*)(*self));", "__yo_borrow_assert_unborrowed((void*)self);"));
     em.emit_string_line(line);
   })
 );

@@ -402,3 +402,40 @@ test("borrowed for: read-only methods on the iterated collection do not trip the
   });
   assert(total == i32(8), "len/contains/get inside the borrowed body");
 });
+// A user-defined collection: `iter()` delegates to the ArrayList's pointer
+// iterator, and the mutating methods take `inout(self)`. Their compiler-emitted
+// invalidation assert must read the OBJECT's borrow flag (`*self`, the
+// receiver is passed as a pointer to the caller's handle slot), not the slot's
+// address — issues/fixed/inout-self-method-borrow-assert-reads-handle-slot.md.
+// The panic side (a mutating `inout(self)` method under a live borrow) is
+// pinned by tests/cli-cases/inout-self-method-under-borrow-panics.
+Bag :: ref(struct(items : ArrayList(i32), version : i32));
+impl(
+  Bag,
+  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(inout(self) : Self) -> unit)({
+    self.version = (self.version + i32(1));
+  }),
+  reset : (fn(inout(self) : Self) -> unit)({
+    self = Bag(items : ArrayList(i32).new(), version : i32(0));
+  })
+);
+test("borrowed for over a user collection; inout(self) methods assert on the object, not the handle slot", {
+  bag := Bag(items : ArrayList(i32).new(), version : i32(0));
+  bag.items.push(i32(1));
+  bag.items.push(i32(2));
+  bag.bump_version();
+  assert(bag.version == i32(1), "field store through inout(self) outside any borrow");
+  total := i32(0);
+  for(bag, inout(x) => {
+    total = (total + x);
+    x = (x * i32(10));
+  });
+  assert(total == i32(3), "the user collection's iter() drives the borrowed loop");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "elements mutated in place");
+  bag.bump_version();
+  assert(bag.version == i32(2), "the flag is released after the loop: no false panic");
+  bag.reset();
+  assert((bag.version == i32(0)) && (bag.items.len() == usize(0)), "reassigning through inout(self) replaces the caller's handle");
+  assert(rc(bag) == 1, "the old object was released, the new one is owned once");
+});

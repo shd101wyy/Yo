@@ -855,6 +855,24 @@ steps above; this section is the record of what was checked.
   handle to the inner storage can invalidate the borrow. `OrderedMap` over a
   private `HashMap` is the worked example.
 
+**Second pass (2026-09-07, after merging `develop` into the branch).** Re-read
+the whole branch diff shape by shape. One hole, fixed: both emitters of the
+method-entry / realloc-free assert spelled the receiver `(void*)self`, which
+for an `inout(self) : Self` method on a reference struct is the address of
+the CALLER's handle slot (`T** self`), not the object — the assert read stack
+memory, so a mutating `inout(self)` method under a live borrow slipped
+through (`issues/fixed/inout-self-method-borrow-assert-reads-handle-slot.md`;
+the emitters now deref when `FuncMeta.param_is_ref[0]`). Checked and found
+sound: the param-storage mutation summary (deref hops, index/call targets
+resolved to their root, `is_ref`/parameter/global roots, RC-typed locals as
+possible aliases, separate memo per mode, unresolvable → mutates); the
+interior-argument acquire (the container goes through the atom emitter, which
+already derefs `is_ref` roots); the pin selection, place rules, consume gate,
+alias-elision fix, return path, env accessors and the prelude expansion. The
+"loop traversal borrow-chain optimisation" a TS-era reviewer would ask about
+is a stubbed no-op in this compiler (`begin.yo`), so it cannot elide a drop
+under an `inout` binding.
+
 **Where the guarantee comes from, stated once.** For P1–P4 the guarantee is
 static: slot lifetime by scoping, escape by the absence of a type, moves by
 the consume gate and B2′, object lifetime by the pin. For P5 the guarantee

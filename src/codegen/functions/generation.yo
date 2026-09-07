@@ -514,7 +514,10 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : TypeValue, func_id
       if(!self_is_object, return(()));
       if(type_implements_future(r), return(()));
       if(function_may_mutate_param_storage(func_id, body, context.base.info_table), {
-        em.emit_string_line(String.from("  __yo_borrow_assert_unborrowed((void*)self);"));
+        // An `inout(self)` receiver is passed as `T** self` (a pointer to the
+        // caller's handle slot); the object the flag lives on is `*self`.
+        self_is_ref := match(__fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false);
+        em.emit_string_line(String.from(if(self_is_ref, "  __yo_borrow_assert_unborrowed((void*)(*self));", "  __yo_borrow_assert_unborrowed((void*)self);")));
       });
     },
     _ => ()

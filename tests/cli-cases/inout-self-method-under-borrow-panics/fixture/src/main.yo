@@ -1,0 +1,21 @@
+open(import("std/collections/array_list"));
+{ assert } :: import("std/assert");
+Bag :: ref(struct(items : ArrayList(i32), version : i32));
+impl(
+  Bag,
+  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(inout(self) : Self) -> unit)({
+    self.version = (self.version + i32(1));
+  })
+);
+main :: (fn() -> unit)({
+  bag := Bag(items : ArrayList(i32).new(), version : i32(0));
+  bag.items.push(i32(1));
+  bag.items.push(i32(2));
+  for(bag, inout(x) => {
+    bag.bump_version(); // panics: a mutating `inout(self)` method while `x` borrows an element
+    x = i32(9);
+  });
+  assert(false, "unreachable: bump_version must panic first");
+});
+export(main);
