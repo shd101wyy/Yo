@@ -3,7 +3,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ join_all, race, any, timeout } :: import("std/async");
+{ join_all, race, any, timeout, TimeoutError } :: import("std/async");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 
@@ -100,7 +100,24 @@ test("Test any with all aborted", {
 test("Test timeout completes in time", {
   h := io.spawn(sleepy(i32(7), u64(5), io), io);
   r := timeout(h, Duration.from_millis(i64(200)), io);
-  assert(match(r, .Some(v) => (v == i32(7)), .None => false), "task inside the limit should deliver its value");
+  assert(match(r, .Ok(v) => (v == i32(7)), .Err(_) => false), "task inside the limit should deliver its value");
+});
+// ---------------------------------------------------------------------------
+// 7b. timeout — a SELF-aborted task is Aborted, not Elapsed (D18)
+// ---------------------------------------------------------------------------
+test("Test timeout distinguishes an aborted task from an elapsed deadline", {
+  fut := io.async((io : Io) => {
+    io.await(sleep(u64(200)), io);
+    return(i32(1));
+  });
+  h := io.spawn(fut, io);
+  // Cancel the task ourselves, well inside a generous deadline.
+  h.abort();
+  r := timeout(h, Duration.from_millis(i64(500)), io);
+  assert(
+    match(r, .Ok(_) => false, .Err(e) => match(e, .Aborted => true, .Elapsed => false)),
+    "a task cancelled before its deadline must report Aborted"
+  );
 });
 // ---------------------------------------------------------------------------
 // 7. timeout — deadline aborts the task
@@ -114,7 +131,10 @@ test("Test timeout aborts on deadline", {
   });
   h := io.spawn(fut, io);
   r := timeout(h, Duration.from_millis(i64(10)), io);
-  assert(match(r, .Some(_) => false, .None => true), "an over-deadline task should time out to .None");
+  assert(
+    match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)),
+    "an over-deadline task should report Elapsed, not a bare .None"
+  );
   // Outlive the aborted task's timer so its completion fires the entry guard.
   io.await(sleep(u64(120)), io);
   assert(!(ran.*), "the timed-out body must not resume past its suspension point");
