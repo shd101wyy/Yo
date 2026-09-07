@@ -145,14 +145,14 @@ random_u64 :: (fn(exn : Exception) -> u64)({
 // Uses the top 53 bits (the double mantissa width): every result is exactly
 // representable and 1.0 is unreachable. The old version divided by u64::MAX,
 // which produced the CLOSED range [0.0, 1.0] and results rounded off the
-// 53-bit grid (plans/STD_API_AUDIT.md C5).
+// 53-bit grid (plans/archive/STD_API_AUDIT.md C5).
 random_f64 :: (fn(exn : Exception) -> f64)(
   f64(random_u64(exn) >> u64(11)) / f64(9007199254740992.0)
 );
 // Return a random integer in the half-open range [min, max).
 // Uniform via rejection sampling: `r % span` alone over-weights the low
 // residues whenever span does not divide 2^64 — a bias defect in a module
-// advertising cryptographic security (plans/STD_API_AUDIT.md C5). Draws
+// advertising cryptographic security (plans/archive/STD_API_AUDIT.md C5). Draws
 // above the largest span-multiple are rejected and redrawn; the retry
 // probability is < 2^-1 per draw even in the worst case.
 random_range :: (fn(min : i64, max : i64, exn : Exception) -> i64)({

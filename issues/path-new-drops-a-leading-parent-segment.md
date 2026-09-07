@@ -1,7 +1,7 @@
 # `Path.new` silently drops a leading `..`, turning a sibling of the cwd into a child of it
 
 **Found**: 2026-09-04, during the std-API audit re-measurement of the path row.
-The plan (`plans/STD_API_AUDIT.md`, path row) frames the item as "revisit eager
+The plan (`plans/archive/STD_API_AUDIT.md`, path row) frames the item as "revisit eager
 `..` normalization (symlink semantics)" — an eager-vs-lazy design question. The
 symlink question is real but secondary: this value is wrong under BOTH
 conventions. **Status**: OPEN. **Severity**: wrong-value.

@@ -1,6 +1,6 @@
 # `mkdir_all` feeds a BYTE index to the rune-indexed `substring`
 
-**Status: FIXED 2026-08-26 by `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3** —
+**Status: FIXED 2026-08-26 by `plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3** —
 with no edit to `std/fs/dir.yo` at all. `String.substring` is byte-indexed now,
 which is the basis `i` always had, so the two agree.
 
@@ -59,7 +59,7 @@ mkdir_all(Path.from(`/tmp/yo-d4/日本語/deep/leaf`));
 ## Family
 
 This is the same shape as the six already recorded in
-`plans/STD_API_AUDIT_D4_PLAN.md` §5.1 — `src/main.yo:789-802` `_win_dirname`,
+`plans/archive/STD_API_AUDIT_D4_PLAN.md` §5.1 — `src/main.yo:789-802` `_win_dirname`,
 `src/main.yo:852-866` `_path_has_extension`, `src/install_command.yo:60,66`,
 `src/pkg_config.yo:34-66` `_split_whitespace` — a `len()`/`as_bytes()` byte walk
 whose index is then handed to a rune-indexed slice. It is the **eighth**

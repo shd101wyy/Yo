@@ -3,7 +3,7 @@
 **Status: FIXED 2026-09-05** — `tests/internal/doc_stability.test.yo` now pins the JSON `"stability"` key, the HTML badge (end to end through `render_doc_site`) and the Markdown note, plus the section-reading rules themselves.
 
 **Found**: 2026-09-04, auditing the S5 stability-freeze mechanics
-(`plans/STD_API_AUDIT.md` §9, recorded as DONE). **Severity:** LOW (coverage gap, no
+(`plans/archive/STD_API_AUDIT.md` §9, recorded as DONE). **Severity:** LOW (coverage gap, no
 runtime symptom of its own) — but it is why
 `yo-doc-truncates-a-multi-line-stability-marker-to-its-first-line.md` has shipped
 undetected in every release since v0.2.20, and by the audit's own C34 rule ("freezing an export no

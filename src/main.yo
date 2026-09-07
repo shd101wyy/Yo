@@ -485,7 +485,7 @@ _resolve_for_match :: (fn(p : String) -> String)({
         _popped := kept.pop();
       }),
       true => {
-        _kp := kept.push(part);
+        kept.push(part);
       }
     );
   });
@@ -959,7 +959,7 @@ _remove_batch_artifact :: (fn(path : String, io : Io) -> unit)({
 /// at all, in which case spawning throws (TS wraps the same probe in try/catch).
 /// A swallowed probe leaves `out` empty, read as "not available", so a box
 /// without liburing still links — matching TS, which warns and omits the flag.
-/// OpenSSL discovery for `std/crypto/tls` (plans/D6_TLS_PLAN.md): run
+/// OpenSSL discovery for `std/crypto/tls` (plans/archive/D6_TLS_PLAN.md): run
 /// `pkg-config --cflags --libs openssl`, retrying under the Homebrew keg
 /// pkg-config paths on failure (brew does not put keg `.pc` dirs on the
 /// default path). Pushes `-I` dirs into `includes`, `-L` dirs into
@@ -1143,7 +1143,7 @@ impl(
     Self(recorded : ArrayList(String).new())
   ),
   arg : (fn(inout(self) : Self, a : String) -> unit)({
-    _p := self.recorded.push(a);
+    self.recorded.push(a);
     ()
   })
 );
@@ -2279,7 +2279,7 @@ run_compile :: (
     });
   });
   // OpenSSL for std/crypto/tls — the same probe-and-add stance as liburing
-  // (plans/D6_TLS_PLAN.md): when pkg-config finds it, its include/lib dirs
+  // (plans/archive/D6_TLS_PLAN.md): when pkg-config finds it, its include/lib dirs
   // and -lssl -lcrypto are added so a program importing the tls module
   // compiles and links; when absent, only tls users fail, at their own
   // build, with the linker naming the missing library.
@@ -3165,7 +3165,7 @@ run_fmt :: (
         exn.throw(dyn(`fmt: unknown option '${arg}'. Usage: yo fmt [paths...] [--check]`));
       },
       true => {
-        _r := input_paths.push(arg);
+        input_paths.push(arg);
       }
     );
     ai = (ai + usize(1));
@@ -3457,10 +3457,10 @@ run_build_cmd :: (
         match(
           body.index_of(String.from("=")),
           .Some(pos) => {
-            _di := defines.insert(body.substring(usize(0), pos), body.substring(pos + usize(1), body.len()));
+            defines.insert(body.substring(usize(0), pos), body.substring(pos + usize(1), body.len()));
           },
           .None => {
-            _di := defines.insert(body.clone(), String.from("true"));
+            defines.insert(body.clone(), String.from("true"));
           }
         );
       },

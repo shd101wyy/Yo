@@ -252,7 +252,7 @@ test("TCP read_to_end gets all data", {
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
-  // plans/STD_API_AUDIT.md C2: _make_sockaddr used to map EVERY V6 address to
+  // plans/archive/STD_API_AUDIT.md C2: _make_sockaddr used to map EVERY V6 address to
   // ::1, so binding the documentation address 2001:db8::1 SUCCEEDED (it bound
   // the loopback instead). Post-fix the real address reaches bind(2), which
   // refuses a non-local address (EADDRNOTAVAIL) — and on a host with no IPv6
@@ -278,7 +278,7 @@ test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)",
   assert(false, "bind to non-local 2001:db8::1 must fail — the sockaddr was hardcoded to ::1");
 });
 test("ephemeral bind reports the real port via local_addr", {
-  // plans/STD_API_AUDIT.md C2: local_addr echoed the BIND argument, so a
+  // plans/archive/STD_API_AUDIT.md C2: local_addr echoed the BIND argument, so a
   // port-0 bind reported port 0 instead of the kernel-assigned port.
   exn := Exception(
     throw : (
@@ -295,7 +295,7 @@ test("ephemeral bind reports the real port via local_addr", {
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
 test("accept reports the real peer address", {
-  // plans/STD_API_AUDIT.md C2: accept fabricated the peer as 0.0.0.0 (it read
+  // plans/archive/STD_API_AUDIT.md C2: accept fabricated the peer as 0.0.0.0 (it read
   // only the port out of the sockaddr the kernel filled in).
   exn := Exception(
     throw : (

@@ -22,14 +22,14 @@ test("PriorityQueue.push adds multiple elements", {
   assert(pq.len() == usize(3), "len should be 3");
 });
 // ===== Peek Tests =====
-test("PriorityQueue.peek returns smallest element", {
+test("PriorityQueue.peek returns largest element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(30));
   pq.push(i32(10));
   pq.push(i32(20));
   v := pq.peek();
   assert(v.is_some(), "peek should return Some");
-  assert(v.unwrap() == i32(10), "smallest should be 10");
+  assert(v.unwrap() == i32(30), "largest should be 30");
   assert(pq.len() == usize(3), "len should still be 3 after peek");
 });
 test("PriorityQueue.peek returns None for empty queue", {
@@ -44,32 +44,32 @@ test("PriorityQueue.peek does not remove element", {
   assert(pq.len() == usize(1), "peek should not change len");
 });
 // ===== Pop Tests =====
-test("PriorityQueue.pop returns smallest element", {
+test("PriorityQueue.pop returns largest element", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(5));
   pq.push(i32(1));
   pq.push(i32(3));
   v := pq.pop();
   assert(v.is_some(), "pop should return Some");
-  assert(v.unwrap() == i32(1), "smallest should be 1");
+  assert(v.unwrap() == i32(5), "largest should be 5");
   assert(pq.len() == usize(2), "len should be 2 after pop");
 });
 test("PriorityQueue.pop returns None for empty queue", {
   pq := PriorityQueue(i32).new();
   assert(pq.pop().is_none(), "pop on empty should be None");
 });
-test("PriorityQueue.pop returns elements in ascending order", {
+test("PriorityQueue.pop returns elements in DESCENDING order", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(50));
   pq.push(i32(10));
   pq.push(i32(40));
   pq.push(i32(20));
   pq.push(i32(30));
-  assert(pq.pop().unwrap() == i32(10), "1st pop should be 10");
-  assert(pq.pop().unwrap() == i32(20), "2nd pop should be 20");
+  assert(pq.pop().unwrap() == i32(50), "1st pop should be 50");
+  assert(pq.pop().unwrap() == i32(40), "2nd pop should be 40");
   assert(pq.pop().unwrap() == i32(30), "3rd pop should be 30");
-  assert(pq.pop().unwrap() == i32(40), "4th pop should be 40");
-  assert(pq.pop().unwrap() == i32(50), "5th pop should be 50");
+  assert(pq.pop().unwrap() == i32(20), "4th pop should be 20");
+  assert(pq.pop().unwrap() == i32(10), "5th pop should be 10");
   assert(pq.pop().is_none(), "6th pop should be None");
 });
 test("PriorityQueue.pop single element", {
@@ -83,8 +83,8 @@ test("PriorityQueue.pop two elements", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(20));
   pq.push(i32(10));
-  assert(pq.pop().unwrap() == i32(10), "first pop should be 10");
-  assert(pq.pop().unwrap() == i32(20), "second pop should be 20");
+  assert(pq.pop().unwrap() == i32(20), "first pop should be 20");
+  assert(pq.pop().unwrap() == i32(10), "second pop should be 10");
   assert(pq.is_empty(), "should be empty");
 });
 // ===== Duplicate elements =====
@@ -94,10 +94,10 @@ test("PriorityQueue handles duplicate elements", {
   pq.push(i32(5));
   pq.push(i32(3));
   pq.push(i32(3));
-  assert(pq.pop().unwrap() == i32(3), "1st pop should be 3");
-  assert(pq.pop().unwrap() == i32(3), "2nd pop should be 3");
-  assert(pq.pop().unwrap() == i32(5), "3rd pop should be 5");
-  assert(pq.pop().unwrap() == i32(5), "4th pop should be 5");
+  assert(pq.pop().unwrap() == i32(5), "1st pop should be 5");
+  assert(pq.pop().unwrap() == i32(5), "2nd pop should be 5");
+  assert(pq.pop().unwrap() == i32(3), "3rd pop should be 3");
+  assert(pq.pop().unwrap() == i32(3), "4th pop should be 3");
 });
 // ===== Sorted input =====
 test("PriorityQueue with already sorted input", {
@@ -107,11 +107,11 @@ test("PriorityQueue with already sorted input", {
   pq.push(i32(3));
   pq.push(i32(4));
   pq.push(i32(5));
-  assert(pq.pop().unwrap() == i32(1), "1st should be 1");
-  assert(pq.pop().unwrap() == i32(2), "2nd should be 2");
+  assert(pq.pop().unwrap() == i32(5), "1st should be 5");
+  assert(pq.pop().unwrap() == i32(4), "2nd should be 4");
   assert(pq.pop().unwrap() == i32(3), "3rd should be 3");
-  assert(pq.pop().unwrap() == i32(4), "4th should be 4");
-  assert(pq.pop().unwrap() == i32(5), "5th should be 5");
+  assert(pq.pop().unwrap() == i32(2), "4th should be 2");
+  assert(pq.pop().unwrap() == i32(1), "5th should be 1");
 });
 test("PriorityQueue with reverse sorted input", {
   pq := PriorityQueue(i32).new();
@@ -120,25 +120,25 @@ test("PriorityQueue with reverse sorted input", {
   pq.push(i32(3));
   pq.push(i32(2));
   pq.push(i32(1));
-  assert(pq.pop().unwrap() == i32(1), "1st should be 1");
-  assert(pq.pop().unwrap() == i32(2), "2nd should be 2");
+  assert(pq.pop().unwrap() == i32(5), "1st should be 5");
+  assert(pq.pop().unwrap() == i32(4), "2nd should be 4");
   assert(pq.pop().unwrap() == i32(3), "3rd should be 3");
-  assert(pq.pop().unwrap() == i32(4), "4th should be 4");
-  assert(pq.pop().unwrap() == i32(5), "5th should be 5");
+  assert(pq.pop().unwrap() == i32(2), "4th should be 2");
+  assert(pq.pop().unwrap() == i32(1), "5th should be 1");
 });
 // ===== Interleaved push and pop =====
 test("PriorityQueue interleaved push and pop", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(5));
-  assert(pq.pop().unwrap() == i32(5), "should get 5");
+  assert(pq.pop().unwrap() == i32(10), "should get 10");
   pq.push(i32(3));
   pq.push(i32(8));
-  assert(pq.pop().unwrap() == i32(3), "should get 3");
-  pq.push(i32(1));
-  assert(pq.pop().unwrap() == i32(1), "should get 1");
   assert(pq.pop().unwrap() == i32(8), "should get 8");
-  assert(pq.pop().unwrap() == i32(10), "should get 10");
+  pq.push(i32(1));
+  assert(pq.pop().unwrap() == i32(5), "should get 5");
+  assert(pq.pop().unwrap() == i32(3), "should get 3");
+  assert(pq.pop().unwrap() == i32(1), "should get 1");
   assert(pq.is_empty(), "should be empty");
 });
 // ===== Many elements =====
@@ -166,27 +166,62 @@ test("PriorityQueue with many elements", {
   pq.push(i32(6));
   pq.push(i32(10));
   assert(pq.len() == usize(20), "len should be 20");
-  // Pop all and verify ascending order
-  prev := i32(-1);
+  // Pop all and verify DESCENDING order
+  prev := i32(100);
   remaining := usize(20);
   while(remaining > usize(0), remaining = (remaining - usize(1)), {
     v := pq.pop().unwrap();
-    assert(v > prev, "elements should come out in ascending order");
+    assert(v < prev, "elements should come out in descending order");
     prev = v;
   });
   assert(pq.is_empty(), "should be empty after popping all");
 });
 // ===== Peek after pop =====
-test("PriorityQueue.peek reflects new minimum after pop", {
+test("PriorityQueue.peek reflects new maximum after pop", {
   pq := PriorityQueue(i32).new();
   pq.push(i32(10));
   pq.push(i32(5));
   pq.push(i32(15));
-  assert(pq.peek().unwrap() == i32(5), "min should be 5");
+  assert(pq.peek().unwrap() == i32(15), "max should be 15");
   pq.pop();
-  assert(pq.peek().unwrap() == i32(10), "min should be 10 after removing 5");
+  assert(pq.peek().unwrap() == i32(10), "max should be 10 after removing 15");
   pq.pop();
-  assert(pq.peek().unwrap() == i32(15), "min should be 15 after removing 10");
+  assert(pq.peek().unwrap() == i32(5), "max should be 5 after removing 10");
+});
+// ===== Reverse(T) gives a min-heap (D11) =====
+test("PriorityQueue(Reverse(T)) is a min-heap", {
+  pq := PriorityQueue(Reverse(i32)).new();
+  pq.push(Reverse(i32)(i32(50)));
+  pq.push(Reverse(i32)(i32(10)));
+  pq.push(Reverse(i32)(i32(40)));
+  pq.push(Reverse(i32)(i32(20)));
+  pq.push(Reverse(i32)(i32(30)));
+  assert(pq.peek().unwrap().value == i32(10), "peek is the SMALLEST under Reverse");
+  assert(pq.pop().unwrap().value == i32(10), "1st pop should be 10");
+  assert(pq.pop().unwrap().value == i32(20), "2nd pop should be 20");
+  assert(pq.pop().unwrap().value == i32(30), "3rd pop should be 30");
+  assert(pq.pop().unwrap().value == i32(40), "4th pop should be 40");
+  assert(pq.pop().unwrap().value == i32(50), "5th pop should be 50");
+  assert(pq.pop().is_none(), "6th pop should be None");
+});
+test("Reverse inverts every Ord operator and keeps Eq", {
+  a := Reverse(i32)(i32(1));
+  b := Reverse(i32)(i32(2));
+  assert(b < a, "2 wrapped is LESS than 1 wrapped");
+  assert(b <= a, "<= inverted");
+  assert(a > b, "> inverted");
+  assert(a >= b, ">= inverted");
+  assert(a == Reverse(i32)(i32(1)), "Eq is NOT inverted");
+  assert(!(a == b), "distinct values are not equal");
+});
+test("Reverse works on unsigned types, where negating keys cannot", {
+  pq := PriorityQueue(Reverse(usize)).new();
+  pq.push(Reverse(usize)(usize(3)));
+  pq.push(Reverse(usize)(usize(0)));
+  pq.push(Reverse(usize)(usize(7)));
+  assert(pq.pop().unwrap().value == usize(0), "0 is the minimum");
+  assert(pq.pop().unwrap().value == usize(3), "then 3");
+  assert(pq.pop().unwrap().value == usize(7), "then 7");
 });
 // ---- Iterator Tests ----
 test("PriorityQueue into_iter - empty queue", {

@@ -430,7 +430,7 @@ pinned in the same place.
 > so the mechanism below is available again. It is still an open design question
 > whether it is the right one; nothing was rewritten as part of this fix.
 
-`plans/STD_API_AUDIT.md:541` and `plans/HANDOVER_STD_AUDIT_NEXT.md:124` propose
+`plans/archive/STD_API_AUDIT.md:541` and `plans/archive/HANDOVER_STD_AUDIT_NEXT.md:124` propose
 "HashSet = HashMap(T, unit) to kill ~500 duplicated SwissTable lines". That
 mechanism is unavailable until this is fixed: `src/` has 188 `HashSet(`
 instantiation sites, and the rewrite would hand every one of them a

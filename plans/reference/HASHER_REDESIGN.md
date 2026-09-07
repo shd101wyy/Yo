@@ -1,7 +1,7 @@
 # D3.9 — the `Hasher` redesign (Rust-style streaming hashing)
 
 **Status: LANDED 2026-08-28** (this PR). Decided by the user 2026-08-24
-(plans/STD_API_AUDIT.md D3.9): "full Rust-style `Hasher` trait" — a hash
+(plans/archive/STD_API_AUDIT.md D3.9): "full Rust-style `Hasher` trait" — a hash
 method that feeds bytes into a pluggable hasher, streaming `write_*`/`finish`,
 seeded algorithms, `derive(Hash)` rework, every impl and both map drivers
 rewritten.

@@ -66,7 +66,7 @@ and `# <well-known-name>`, so this text is filed as description, not as the
 
 The text is still visible on the rendered HTML and Markdown pages, inside the module
 description — which is why the gap was not noticed. It is invisible in exactly the
-place a tool looks. `plans/STD_API_AUDIT.md:540` records the `spec/` row as
+place a tool looks. `plans/archive/STD_API_AUDIT.md:540` records the `spec/` row as
 "**DONE 2026-09-04**: both files carry an EXPERIMENTAL / not-covered-by-the-stability-promise
 banner", so the audit believes this row is closed while `doc.json` says these modules
 are stable.
@@ -110,7 +110,7 @@ That requires two supporting changes, because today's marker vocabulary assumes
 Note also that the section must be written on one line, or joined by the fix in that
 same issue, or it will be truncated mid-clause.
 
-Then correct the `spec/` row at `plans/STD_API_AUDIT.md:540` to name the mechanism
+Then correct the `spec/` row at `plans/archive/STD_API_AUDIT.md:540` to name the mechanism
 actually used.
 
 No workaround (teaching `parse_doc_comment` to sniff for the word "EXPERIMENTAL" in

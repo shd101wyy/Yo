@@ -93,7 +93,7 @@ separate, deliberately ASCII-only implementation and do not call this module.
    `String.to_lowercase`/`to_uppercase`, keeping `to_ascii_lowercase`/
    `to_ascii_uppercase` as the honest ASCII pair.
 
-`plans/STD_API_AUDIT.md`'s string row already asks for "Unicode-correct
+`plans/archive/STD_API_AUDIT.md`'s string row already asks for "Unicode-correct
 `to_lowercase` (+ `to_ascii_*` variants)", so this is that row's real content:
 the Unicode path does not currently exist, it only appears to.
 

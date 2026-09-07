@@ -3,7 +3,7 @@
 **Status: FIXED 2026-09-05** — `module_stability` (`src/doc/builder.yo`) now COLLAPSES the whole section — blank lines dropped, remaining lines joined with one space — instead of reading only the first. Pinned by `tests/internal/doc_stability.test.yo`.
 
 **Found**: 2026-09-04, during the std-API-audit re-measurement of the S5
-stability-freeze mechanics (`plans/STD_API_AUDIT.md` §9). **Severity:** MEDIUM
+stability-freeze mechanics (`plans/archive/STD_API_AUDIT.md` §9). **Severity:** MEDIUM
 (wrong value on a published surface): the freeze marker is the one machine-readable
 signal that tells a consumer whether a std module is frozen, and for any marker
 written on more than one line it is emitted **cut mid-clause**, in the JSON

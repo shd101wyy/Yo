@@ -49,7 +49,7 @@ same giant-frame pathology as AGENTS.md's -O0 deep-recursion pitfall, here
 at compile time instead of run time).
 
 The audit already flags the runtime build for replacement
-(plans/STD_API_AUDIT.md §4 encoding row): a comptime/static table also
+(plans/archive/STD_API_AUDIT.md §4 encoding row): a comptime/static table also
 removes the lazy `_state_initialized` module global.
 
 ## Plan

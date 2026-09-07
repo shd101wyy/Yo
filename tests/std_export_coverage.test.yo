@@ -1,5 +1,5 @@
 //! S5 stability freeze — exported std surface that no test named before
-//! (plans/STD_API_AUDIT.md §9, "Test coverage of the exported surface").
+//! (plans/archive/STD_API_AUDIT.md §9, "Test coverage of the exported surface").
 //! Each block exercises an export at runtime with a pinned expectation, so
 //! marking it stable is backed by a test rather than a name grep.
 { assert } :: import("std/assert");
@@ -33,24 +33,16 @@ test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
 });
 // --- encoding/json: the byte / String entry points and pretty printing.
 test("json_parse_bytes, json_parse_string, json_stringify_pretty", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, `unexpected error: ${err}`);
-        unwind(());
-      }
-    )
-  );
   src := `{"a": [1, 2, {"b": true}], "c": "x"}`;
-  v1 := json_parse_bytes(src.as_bytes(), exn);
-  v2 := json_parse_string(src, exn);
+  v1 := json_parse_bytes(src.as_bytes()).unwrap();
+  v2 := json_parse_string(src).unwrap();
   assert(json_stringify(v1) == json_stringify(v2), "bytes and String entry points agree");
   pretty := json_stringify_pretty(v1, usize(2));
   assert(pretty.contains("\n"), "pretty output is multi-line");
   assert(pretty.contains(`  "a": [`), "two-space indent under the root");
   assert(pretty.contains(`      "b": true`), "nested objects indent further");
   // pretty output parses back to the same value
-  back := json_parse_string(pretty, exn);
+  back := json_parse_string(pretty).unwrap();
   assert(json_stringify(back) == json_stringify(v1), "pretty round-trips");
   four := json_stringify_pretty(v1, usize(4));
   assert(four.contains(`    "a": [`), "indent width is honoured");

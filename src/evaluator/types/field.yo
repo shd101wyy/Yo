@@ -88,9 +88,11 @@ EvalTypeFieldResult :: struct(
 /// the struct. `get_struct_fields` is used by code that needs field extras
 /// (defaults, is_comptime, doc_comment, etc.).
 (g_struct_field_registry : HashMap(String, ArrayList(TypeField))) = HashMap(String, ArrayList(TypeField)).new();
-register_struct_fields :: (fn(id : String, fields : ArrayList(TypeField)) -> unit)(
-  ___ := g_struct_field_registry.insert(id, fields)
-);
+register_struct_fields :: (fn(id : String, fields : ArrayList(TypeField)) -> unit)({
+  // `insert` returns the previous entry (D9); a re-registration legitimately
+  // replaces one, so the value is discarded. `{ e; }` is unit-valued.
+  g_struct_field_registry.insert(id, fields);
+});
 get_struct_fields :: (fn(id : String) -> Option(ArrayList(TypeField)))(
   g_struct_field_registry.get(id)
 );

@@ -428,12 +428,12 @@ compute_cross_boundary_variables :: (
       cn_cvs.get(cni),
       .Some(cv) => {
         if(!(captured_name_ids.contains_key(cv.base.name.clone())), {
-          _r := captured_name_ids.insert(cv.base.name.clone(), cv.base.id.to_string());
+          captured_name_ids.insert(cv.base.name.clone(), cv.base.id.to_string());
         });
         if(cv.base.decl_site.len() > usize(0), {
           site_key := `${cv.base.name.clone()}@${cv.base.decl_site.clone()}`;
           if(!(captured_name_ids.contains_key(site_key.clone())), {
-            _r2 := captured_name_ids.insert(site_key, cv.base.id.to_string());
+            captured_name_ids.insert(site_key, cv.base.id.to_string());
           });
         });
       },
@@ -3094,7 +3094,7 @@ _emit_while_cond_await_exprs :: (
   em := context.base.emitter;
   exprs := if(ast_expr_is_fn_call(expr) && ast_expr_is_fn_call_of(expr, BK_BEGIN, Option(usize).None), match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
     one := ArrayList(AstExpr).new();
-    _r := one.push(expr);
+    one.push(expr);
     one
   });
   (i : usize) = usize(0);

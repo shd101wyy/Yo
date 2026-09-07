@@ -14,7 +14,7 @@ open(import("std/string"));
 { HashMap } :: import("std/collections/hash_map");
 open(import("std/error"));
 open(import("std/fmt"));
-{ JsonValue, json_parse_string, json_stringify } :: import("std/encoding/json");
+{ JsonValue, json_parse_string_exn, json_stringify } :: import("std/encoding/json");
 { read_lsp_message, write_lsp_message } :: import("./transport.yo");
 {
   jb,
@@ -140,7 +140,7 @@ _analyze_and_publish :: (
   match(
     out_state.get(usize(0)),
     .Some(oc) => {
-      _st := docs.insert(
+      docs.insert(
         uri.clone(),
         DocState(text : text.clone(), entry_abs : fs_path.clone(), outcome : oc)
       );
@@ -239,7 +239,9 @@ _handle_message :: (
       }
     )
   );
-  v := json_parse_string(body, local_exn);
+  // D13: the Result form is ; this caller is already
+  // inside an effect scope, so it takes the _exn wrapper.
+  v := json_parse_string_exn(body, local_exn);
   method := _jfield_str(v, "method");
   id_opt := v.get(String.from("id"));
   cond(

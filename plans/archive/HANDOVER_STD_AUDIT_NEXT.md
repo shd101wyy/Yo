@@ -1,5 +1,9 @@
 # Handover — std API audit, the road to the freeze (post-v0.2.24, 2026-09-05)
 
+> **ARCHIVED 2026-09-07 — superseded.** Its §0 (the standing goal and the
+> maintainer's pre-authorizations) was carried forward verbatim into
+> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`, which is the live handover.
+
 **For the next agent picking up the std campaign.** Written at the v0.2.24
 release point. Everything here was verified against `origin/develop` at
 `0e218fed7` (the v0.2.24 version-bump commit) unless marked otherwise.
@@ -8,7 +12,7 @@ release point. Everything here was verified against `origin/develop` at
 
 ## 0. The standing goal (verbatim, from the maintainer)
 
-> "Finish everything in plans/STD_API_AUDIT.md. Update related docs as you
+> "Finish everything in plans/archive/STD_API_AUDIT.md. Update related docs as you
 > progress. Document and fix any surfaced bugs and issues. No workaround is
 > allowed. Try to stabilize the std API and make it well designed. Feel free
 > to admin merge PRs to save CI cycles. Feel free to cut patch release when
@@ -30,7 +34,7 @@ Consequences you should internalize:
   every breaking change must be CALLED OUT in the release notes.
 
 **Read first, in order:** `AGENTS.md` (root — the era table, commands,
-pitfalls), `plans/STD_API_AUDIT.md` (the whole campaign state),
+pitfalls), `plans/archive/STD_API_AUDIT.md` (the whole campaign state),
 `.github/instructions/yo-design.instructions.md` + `yo-syntax.instructions.md`.
 The three untracked session diaries `plans/HANDOVER_STD_AUDIT_2026-{08-30,
 09-01,09-02}.md` carry the blow-by-blow history of the last two weeks
@@ -186,7 +190,7 @@ extracted into §6 below.
     P0+ curl→`std/http` swap for `src/version_cache.yo`, fully written. Its
     old seed gate (v0.2.20) is long satisfied, but it is **now blocked on
     Windows TLS**: the compiler must build on the windows legs, and OpenSSL
-    isn't there (`plans/D6_TLS_PLAN.md` item 3). Rebase + land it as part of
+    isn't there (`plans/archive/D6_TLS_PLAN.md` item 3). Rebase + land it as part of
     the Schannel work (17) or decide to platform-gate the import.
 17. **Windows Schannel TLS** (D6 remainder) — OpenSSL-first landed; Windows
     has no TLS until a Schannel pass over `TlsStream`. Unblocks 16 and

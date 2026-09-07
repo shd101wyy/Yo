@@ -11,34 +11,32 @@ test("HashSet.with_capacity creates set with specified capacity", {
   set := HashSet(i32).with_capacity(usize(32));
   assert(set.len() == usize(0));
   assert(set.is_empty());
-  assert(set.capacity >= usize(32));
+  assert(set.capacity() >= usize(32));
 });
 test("HashSet.with_capacity rounds up to power of 2", {
   set := HashSet(i32).with_capacity(usize(20));
   assert(set.len() == usize(0));
   // Should round up to 32
-  assert(set.capacity >= usize(20));
+  assert(set.capacity() >= usize(20));
 });
 test("HashSet.with_capacity with small capacity uses default", {
   set := HashSet(i32).with_capacity(usize(4));
   assert(set.len() == usize(0));
   // Should use DEFAULT_CAPACITY (16)
-  assert(set.capacity >= usize(4));
+  assert(set.capacity() >= usize(4));
 });
 // ===== Add Tests =====
 test("HashSet.add inserts new element", {
   set := HashSet(i32).new();
   result := set.insert(i32(42));
-  assert(result.is_ok());
-  assert(result.unwrap() == true);
+  assert(result == true);
   assert(set.len() == usize(1));
 });
 test("HashSet.add returns false for duplicate element", {
   set := HashSet(i32).new();
   set.insert(i32(10));
   result := set.insert(i32(10));
-  assert(result.is_ok());
-  assert(result.unwrap() == false);
+  assert(result == false);
   assert(set.len() == usize(1));
 });
 test("HashSet.add inserts multiple elements", {
@@ -271,7 +269,6 @@ test("HashSet.union creates combined set", {
   set2.insert(i32(2));
   set2.insert(i32(3));
   result := set1.union(set2);
-  assert(result.is_ok());
   union_set := result.unwrap();
   assert(union_set.len() == usize(3));
   assert(union_set.contains(i32(1)));
@@ -284,7 +281,6 @@ test("HashSet.union with empty set", {
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
   result := set1.union(set2);
-  assert(result.is_ok());
   union_set := result.unwrap();
   assert(union_set.len() == usize(2));
   assert(union_set.contains(i32(1)));
@@ -300,7 +296,6 @@ test("HashSet.intersection creates common elements set", {
   set2.insert(i32(3));
   set2.insert(i32(4));
   result := set1.intersection(set2);
-  assert(result.is_ok());
   inter_set := result.unwrap();
   assert(inter_set.len() == usize(2));
   assert(inter_set.contains(i32(2)));
@@ -314,7 +309,6 @@ test("HashSet.intersection with empty set", {
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
   result := set1.intersection(set2);
-  assert(result.is_ok());
   inter_set := result.unwrap();
   assert(inter_set.is_empty());
 });
@@ -327,7 +321,6 @@ test("HashSet.difference creates elements in first but not second", {
   set2.insert(i32(2));
   set2.insert(i32(4));
   result := set1.difference(set2);
-  assert(result.is_ok());
   diff_set := result.unwrap();
   assert(diff_set.len() == usize(2));
   assert(diff_set.contains(i32(1)));
@@ -341,7 +334,6 @@ test("HashSet.difference with empty set returns copy", {
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
   result := set1.difference(set2);
-  assert(result.is_ok());
   diff_set := result.unwrap();
   assert(diff_set.len() == usize(2));
   assert(diff_set.contains(i32(1)));
@@ -357,7 +349,6 @@ test("HashSet.symmetric_difference creates elements in either but not both", {
   set2.insert(i32(3));
   set2.insert(i32(4));
   result := set1.symmetric_difference(set2);
-  assert(result.is_ok());
   sym_diff := result.unwrap();
   assert(sym_diff.len() == usize(2));
   assert(sym_diff.contains(i32(1)));
@@ -373,7 +364,6 @@ test("HashSet.symmetric_difference with disjoint sets", {
   set2.insert(i32(3));
   set2.insert(i32(4));
   result := set1.symmetric_difference(set2);
-  assert(result.is_ok());
   sym_diff := result.unwrap();
   assert(sym_diff.len() == usize(4));
   assert(sym_diff.contains(i32(1)));
@@ -469,8 +459,8 @@ test("HashSet.add duplicate returns false and doesn't increase size", {
   set := HashSet(i32).new();
   result1 := set.insert(i32(5));
   result2 := set.insert(i32(5));
-  assert(result1.unwrap() == true);
-  assert(result2.unwrap() == false);
+  assert(result1 == true);
+  assert(result2 == false);
   assert(set.len() == usize(1));
 });
 test("HashSet maintains uniqueness", {
@@ -497,10 +487,8 @@ test("HashSet with Box elements - duplicate rejected and cleaned up", {
   set := HashSet(Box(i32)).new();
   result1 := set.insert(Box(i32)(42));
   result2 := set.insert(Box(i32)(42));
-  assert(result1.is_ok());
-  assert(result1.unwrap() == true);
-  assert(result2.is_ok());
-  assert(result2.unwrap() == false);
+  assert(result1 == true);
+  assert(result2 == false);
   assert(set.len() == usize(1));
   // The duplicate Box(42) should be properly dropped
 });
@@ -610,7 +598,7 @@ test("HashSet.remove of an isolated element leaves no tombstone", {
   set := HashSet(i32).new();
   set.insert(i32(7));
   set.remove(i32(7));
-  assert(set.tombstones == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
+  assert(set._tombstones() == usize(0), "a slot whose successor is EMPTY goes straight back to EMPTY");
   assert(set.len() == usize(0));
 });
 test("HashSet insert/remove churn keeps live + tombstones under the load threshold and stays correct", {
@@ -619,16 +607,16 @@ test("HashSet insert/remove churn keeps live + tombstones under the load thresho
   while(k < i32(2000), k = (k + i32(1)), {
     set.insert(k);
   });
-  cap0 := set.capacity;
+  cap0 := set.capacity();
   (n : i32) = i32(0);
   while(n < i32(20000), n = (n + i32(1)), {
     assert(set.remove(n), "the oldest element is present");
     set.insert(i32(2000) + n);
-    threshold := ((set.capacity * usize(7)) / usize(8));
-    assert((set.len() + set.tombstones) <= threshold, "live + tombstones never exceeds the load threshold");
+    threshold := ((set.capacity() * usize(7)) / usize(8));
+    assert((set.len() + set._tombstones()) <= threshold, "live + tombstones never exceeds the load threshold");
   });
   assert(set.len() == usize(2000), "size is unchanged by churn");
-  assert(set.capacity == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
+  assert(set.capacity() == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
   (c : i32) = i32(20000);
   while(c < i32(22000), c = (c + i32(1)), {
     assert(set.contains(c), "every live element is reachable");

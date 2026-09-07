@@ -1,11 +1,14 @@
 # HANDOVER — std API audit campaign (2026-08-30)
 
-The goal being handed over: **«Finish everything in plans/STD_API_AUDIT.md.
+> **ARCHIVED 2026-09-07 — superseded.** Live handover:
+> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.
+
+The goal being handed over: **«Finish everything in plans/archive/STD_API_AUDIT.md.
 Make sure the std APIs are well designed and stable for the future. Document
 and fix any surfaced issue and bug. No workaround is allowed. Admin merges are
 authorized to save CI cycles.»**
 
-Read `plans/STD_API_AUDIT.md` §2 (compiler rows) and §9 (phasing) alongside
+Read `plans/archive/STD_API_AUDIT.md` §2 (compiler rows) and §9 (phasing) alongside
 this. Every claim below is recorded in an issue file or PR body.
 
 ---

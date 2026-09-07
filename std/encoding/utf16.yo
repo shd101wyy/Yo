@@ -49,11 +49,12 @@ export(utf8_to_utf16);
 // ============================================================================
 // UTF-16 → UTF-8
 // ============================================================================
-/// Convert UTF-16 code units to a UTF-8 `String`.
+/// Convert UTF-16 code units to a UTF-8 `String` (D13 — a pure transform
+/// returns a `Result`; `utf16_to_utf8_exn` is the effect-carrying wrapper).
 ///
 /// Decodes surrogate pairs back into supplementary code points.
-/// Throws via `Exception` on unpaired surrogates.
-utf16_to_utf8 :: (fn(data : ArrayList(u16), exn : Exception) -> String)({
+/// `.Err(EncodingError.InvalidChar)` on an unpaired surrogate.
+utf16_to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))({
   out := ArrayList(u8).new();
   i := usize(0);
   while(i < data.len(), {
@@ -63,14 +64,14 @@ utf16_to_utf8 :: (fn(data : ArrayList(u16), exn : Exception) -> String)({
       ((w >= u32(0xD800)) && (w <= u32(0xDBFF))) => {
         cond(
           ((i + usize(1)) >= data.len()) => {
-            exn.throw(dyn(EncodingError.InvalidChar(u8(0))));
+            return(.Err(EncodingError.InvalidChar(u8(0))));
           },
           true => ()
         );
         w2 := u32(data(i + usize(1)));
         cond(
           ((w2 < u32(0xDC00)) || (w2 > u32(0xDFFF))) => {
-            exn.throw(dyn(EncodingError.InvalidChar(u8(0))));
+            return(.Err(EncodingError.InvalidChar(u8(0))));
           },
           true => ()
         );
@@ -81,9 +82,9 @@ utf16_to_utf8 :: (fn(data : ArrayList(u16), exn : Exception) -> String)({
       // A LOW surrogate that was not consumed by the branch above is
       // unpaired. The old code let it fall through and wrote it out as a
       // 3-byte CESU-8 sequence — invalid UTF-8 — despite this function's
-      // documented "throws on unpaired surrogates" contract.
+      // documented "rejects unpaired surrogates" contract.
       ((w >= u32(0xDC00)) && (w <= u32(0xDFFF))) => {
-        exn.throw(dyn(EncodingError.InvalidChar(u8(0))));
+        return(.Err(EncodingError.InvalidChar(u8(0))));
       },
       true => {
         // A BMP scalar: nothing is ever substituted here.
@@ -92,6 +93,11 @@ utf16_to_utf8 :: (fn(data : ArrayList(u16), exn : Exception) -> String)({
       }
     );
   });
-  String.from_bytes(out)
+  .Ok(String.from_bytes(out))
 });
-export(utf16_to_utf8);
+/// `utf16_to_utf8` as an effect: throws the `EncodingError` through `exn`
+/// instead of returning it. Kept for callers already inside an effect scope.
+utf16_to_utf8_exn :: (fn(data : ArrayList(u16), exn : Exception) -> String)(
+  match(utf16_to_utf8(data), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+);
+export(utf16_to_utf8, utf16_to_utf8_exn);

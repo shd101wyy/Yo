@@ -11,7 +11,7 @@ spawned `sleep` (`_fetch_with_deadline`). Six loopback-server tests in
 tests/http/http.test.yo. Landing it surfaced C36 (dispatch-mode cond skipped a
 chained sibling arm — FIXED), C37 (blocking await nested inside a task —
 OPEN), C38 (while-with-await inside a match arm — OPEN), C39 (handler
-closure with Box capture — OPEN) and C40 (a yield loop starved the I/O poll — FIXED); see plans/STD_API_AUDIT.md §2.
+closure with Box capture — OPEN) and C40 (a yield loop starved the I/O poll — FIXED); see plans/archive/STD_API_AUDIT.md §2.
 
 **Design note that changed while landing:** the plan below to run the
 request through `std/async`'s `timeout(handle, limit, io)` was WRONG —

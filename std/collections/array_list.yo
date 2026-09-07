@@ -86,7 +86,7 @@ impl(
       match(
         self.get(i),
         .Some(v) => {
-          ___ := out.push(v);
+          out.push(v);
         },
         .None => ()
       );
@@ -102,7 +102,7 @@ impl(
       match(
         self.get(i),
         .Some(v) => {
-          ___ := out.push(v);
+          out.push(v);
         },
         .None => ()
       );
@@ -177,9 +177,11 @@ impl(
     )
   ),
   /**
-  * Add an element to the end of the ArrayList
+  * Add an element to the end of the ArrayList, reporting allocation failure.
+  *
+  * The allocator-aware form (D9). `push` is the one to reach for.
   */
-  push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
+  try_push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
       (self._length >= self._capacity) => {
@@ -227,6 +229,24 @@ impl(
           },
           .None => __yo_panic("ArrayList has capacity but no ptr")
         )
+    )
+  ),
+  /**
+  * Add an element to the end of the ArrayList.
+  *
+  * PANICS on allocation failure — Rust's `Vec::push` aborts, and so do this
+  * list's own `ensure_total_capacity` / `with_capacity`. Before D9 this
+  * returned a `Result` that every one of its callers discarded, usually via a
+  * throwaway `_p :=` binding: a `Result` nobody checks is strictly worse than
+  * a panic, because it reads as if the failure were handled.
+  *
+  * Use `try_push` when the caller genuinely handles OOM.
+  */
+  push : (fn(self : Self, value : T) -> unit)(
+    match(
+      Self.try_push(self, value),
+      .Ok(_) => (),
+      .Err(_) => __yo_panic("ArrayList.push: allocation failed")
     )
   ),
   /**
@@ -748,19 +768,78 @@ impl(
     )
   )
 );
+/**
+* Pointer iterator for ArrayList — yields `*(T)` INTO the list's own buffer
+* (D14). This is what `iter()` returns; `into_iter()` keeps yielding values.
+*
+* The elements are borrowed, not dup'd, so iterating a list of RC values costs
+* no refcount traffic and writing through the pointer mutates the list in
+* place. HashMapIterPtr established the shape.
+*
+* The pointers alias the buffer, so any operation that REALLOCATES it (`push`
+* past capacity, `reserve`, `shrink_to_fit`) invalidates every pointer already
+* yielded. Live-length semantics are otherwise the same as ArrayListIter's:
+* `_length` is re-read on each `next`.
+*/
+ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _list : ArrayList(T),
+    _index : usize,
+    /// See ArrayListIter._back_taken — a COUNTER, so the forward guard keeps
+    /// reading `_list._length` live.
+    _back_taken : usize
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListIterPtr(T),
+  Iterator(
+    Item : *(T),
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
+      cond(
+        ((self._index + self._back_taken) >= self._list._length) => .None,
+        true => {
+          // The guard above proves `_length > _index >= 0`, so the buffer is
+          // allocated and `_ptr` is `.Some`.
+          base := self._list._ptr.unwrap();
+          p := base.add(self._index);
+          self._index = (self._index + usize(1));
+          .Some(p)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListIterPtr(T),
+  DoubleEndedIterator(
+    Item : *(T),
+    next_back : (fn(inout(self) : Self) -> Option(*(T)))(
+      cond(
+        ((self._index + self._back_taken) >= self._list._length) => .None,
+        true => {
+          base := self._list._ptr.unwrap();
+          self._back_taken = (self._back_taken + usize(1));
+          .Some(base.add(self._list._length - self._back_taken))
+        }
+      )
+    )
+  )
+);
 impl(
   generic(T : Type),
   ArrayList(T),
   /**
-  * Non-consuming iteration over a shared handle: yields each element by
-  * value (each dup'd), leaving the list intact — for(list.iter(), ...)
-  * where into_iter would move the list. HashMap.keys/values established
-  * the shape: the receiver arrives RC-dup'd at the method boundary, so
-  * moving it into the iterator is balanced. Live-length semantics are the
-  * iterator's own (see ArrayListIter).
+  * Non-consuming iteration over a shared handle: yields a `*(T)` into the
+  * list's buffer, leaving the list intact — `for(list.iter(), ptr => ...)`
+  * where `into_iter` would move the list and yield values (D14; this is the
+  * `iter` / `into_iter` split every other std collection already had).
+  * The receiver arrives RC-dup'd at the method boundary, so moving it into
+  * the iterator is balanced and the buffer outlives the walk.
   */
-  iter : (fn(self : Self) -> ArrayListIter(T))(
-    ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
+  iter : (fn(self : Self) -> ArrayListIterPtr(T))(
+    ArrayListIterPtr(T)(_list : self, _index : usize(0), _back_taken : usize(0))
   )
 );
 impl(
@@ -926,16 +1005,136 @@ _heapsort_by :: (
     });
   });
 });
+/// STABLE sort over raw storage (D17): equal elements keep their input
+/// order, which is what `sort` means in Rust, Python, Java and Go.
+///
+/// The elements are not what gets sorted — an INDEX array is, by a bottom-up
+/// merge sort (naturally stable: a tie takes the left run). The elements then
+/// move exactly once each, through the same three-line swap `_heapsort_by`
+/// uses, which is witnessed RC-balanced (nothing is disposed during a sort;
+/// every element is released exactly once at scope end).
+///
+/// Sorting indices rather than elements buys two things: the scratch is
+/// plain `usize`, so there is no RC-typed uninitialised buffer to get the
+/// `consume(p.* = v)` discipline wrong on (the trap that bit `imm/vec`), and
+/// the merge is monomorphic — instantiating the generic `_heapsort_by` at a
+/// second `T` made the specializer hand the element comparator the index
+/// type, emitting C that passes a `size_t` where the closure wants the
+/// element struct.
+_merge_sort_indices :: (
+  fn(
+    generic(T : Type),
+    order : ArrayList(usize),
+    scratch : ArrayList(usize),
+    ptr : *(T),
+    n : usize,
+    less : Impl(Fn(a : T, b : T) -> bool)
+  ) -> unit
+)({
+  (width : usize) = usize(1);
+  while(width < n, {
+    (lo : usize) = usize(0);
+    while(lo < n, {
+      mid := cond(((lo + width) < n) => (lo + width), true => n);
+      hi := cond(((mid + width) < n) => (mid + width), true => n);
+      (a : usize) = lo;
+      (b : usize) = mid;
+      (w : usize) = lo;
+      while(w < hi, {
+        take_left := cond(
+          (a >= mid) => false,
+          (b >= hi) => true,
+          // `!less(right, left)` — on a tie the LEFT run wins, which is
+          // exactly what makes the merge stable.
+          true => !unsafe(less((ptr.add(order(b))).*, (ptr.add(order(a))).*))
+        );
+        cond(
+          take_left => {
+            scratch(w) = order(a);
+            a = (a + usize(1));
+          },
+          true => {
+            scratch(w) = order(b);
+            b = (b + usize(1));
+          }
+        );
+        w = (w + usize(1));
+      });
+      lo = (lo + (width * usize(2)));
+    });
+    (c : usize) = usize(0);
+    while(c < n, {
+      order(c) = scratch(c);
+      c = (c + usize(1));
+    });
+    width = (width * usize(2));
+  });
+});
+_stable_sort_by :: (
+  fn(generic(T : Type), ptr : *(T), n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> unit
+)({
+  order := ArrayList(usize).new();
+  scratch := ArrayList(usize).new();
+  (k : usize) = usize(0);
+  while(k < n, {
+    order.push(k);
+    scratch.push(k);
+    k = (k + usize(1));
+  });
+  _merge_sort_indices(order, scratch, ptr, n, less);
+  // `order(i)` is the SOURCE index of the element that belongs at `i`. The
+  // cycle-following swap below consumes DESTINATION indices ("the element
+  // at i moves to dest(i)"), so invert first — applying the cycle walk to
+  // source indices sorts the wrong way round (`[A,B,C]` with `order=[2,0,1]`
+  // yields `[B,C,A]`, not `[C,A,B]`). `scratch` is free now, so the inverse
+  // costs no extra allocation.
+  (m : usize) = usize(0);
+  while(m < n, {
+    scratch(order(m)) = m;
+    m = (m + usize(1));
+  });
+  // Apply the permutation in place by following cycles: O(n) swaps, and the
+  // only element movement in the whole routine.
+  (i : usize) = usize(0);
+  while(i < n, {
+    while(scratch(i) != i, {
+      j := scratch(i);
+      tmp := unsafe((ptr.add(i)).*);
+      unsafe((ptr.add(i)).* = (ptr.add(j)).*);
+      unsafe((ptr.add(j)).* = tmp);
+      scratch(i) = scratch(j);
+      scratch(j) = j;
+    });
+    i = (i + usize(1));
+  });
+});
 impl(
   generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
   /**
-  * Sort elements in ascending order (heapsort — see _heapsort_by).
+  * Sort elements in ascending order. STABLE: equal elements keep their
+  * input order, as `sort` does in Rust, Python, Java and Go. Use
+  * `sort_unstable` for the allocation-free heapsort when order among
+  * equals does not matter.
   */
   sort : (fn(self : Self) -> unit)({
-    // Heapsort (was O(n²) insertion sort — plans/STD_API_AUDIT.md §7
-    // collections row): O(n log n) worst case, in place, not stable.
+    cond(
+      (self._length <= usize(1)) => (),
+      true =>
+        match(
+          self._ptr,
+          .Some(_ptr) => _stable_sort_by(_ptr, self._length, (a, b) => (a < b)),
+          .None => ()
+        )
+    );
+  }),
+  /**
+  * Sort elements in ascending order WITHOUT preserving the order of equal
+  * elements (heapsort — see `_heapsort_by`). O(n log n) worst case, in
+  * place, no allocation. Rust's `sort_unstable`.
+  */
+  sort_unstable : (fn(self : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true =>
@@ -1023,7 +1222,8 @@ impl(
 export(
   ArrayList,
   ArrayListError,
-  ArrayListIter
+  ArrayListIter,
+  ArrayListIterPtr
 );
 // =============================================================================
 // array_list! literal macro
@@ -1124,7 +1324,7 @@ impl(
 
 // ============================================================================
 // Real sort (heapsort), sort_by, binary_search, retain, extend
-// (plans/STD_API_AUDIT.md §7 collections row)
+// (plans/archive/STD_API_AUDIT.md §7 collections row)
 // ============================================================================
 impl(
   generic(T : Type),
@@ -1132,7 +1332,22 @@ impl(
   /// Sort ascending by a strict "less" closure — `less(a, b)` true when `a`
   /// must come before `b`. Heapsort: O(n log n) worst case, in place, not
   /// stable.
+  /// Sort by a caller-supplied strict "less". STABLE — equal elements keep
+  /// their input order, matching Rust's `sort_by`. Use `sort_unstable_by`
+  /// for the allocation-free heapsort.
   sort_by : (fn(self : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
+    cond(
+      (self._length <= usize(1)) => (),
+      true => match(
+        self._ptr,
+        .Some(_ptr) => _stable_sort_by(_ptr, self._length, less),
+        .None => ()
+      )
+    );
+  }),
+  /// Sort by a caller-supplied strict "less" WITHOUT preserving the order of
+  /// equal elements (heapsort). Rust's `sort_unstable_by`.
+  sort_unstable_by : (fn(self : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
       true => match(
