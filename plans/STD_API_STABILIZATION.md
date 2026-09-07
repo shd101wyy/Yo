@@ -184,27 +184,31 @@ the work in §4 does not re-open them.
   and `Aborted`. Two variants, not Rust's single `Elapsed`, because Yo's
   `timeout` takes a `JoinHandle` rather than a future, which makes cancellation
   a genuinely separate failure. The two are distinguishable ONLY inside the
-  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF ALSO LANDED.** `Thread(T)` holds a capacity-1 `Channel(T)`,
-  `spawn` takes `Impl(Fn(io : Io) -> T, Send)`, and `join` keeps the join-once
-  assert and detach-on-drop `Dispose` before taking the value with `try_recv`
-  (the OS join has already returned, so the value is buffered and a blocking
-  `recv` could only hang when the body unwound). 152 call sites — all in
-  `tests/` — become `Thread(unit).spawn`, and `ArrayList(Thread)` becomes
-  `ArrayList(Thread(unit))` now that `Thread` is a type constructor.
-  `Thread(String)` is correctly REJECTED: `String` is not `Send`, so a
-  non-atomically-refcounted value cannot cross the join.
-  It very nearly did not land. Writing the call-and-send inline in the spawn
-  closure does not compile at `T = unit`: the emitted C has
-  `void* tmp = <void expr>` for the captured callback's ZST result, and the
-  `Channel(unit).send` specialisation is never emitted. Three controls narrowed
-  it — `Channel(unit)` alone works, a generic fn calling an `Impl(Fn() -> T)`
-  at `T = unit` works, and that closure captured into a SECOND closure works —
-  so it is specific to the thread-spawn lowering in
-  `src/codegen/exprs/parallelism.yo`, whose own comment says it "selects the
-  primitive + (unit) return convention". The second control is also the way
-  out: moving the call-and-send into a top-level generic helper
-  (`_run_and_send`) keeps it off that path entirely, so no compiler change was
-  needed. The underlying codegen bug is REAL and still open —
+  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF NOT LANDED — blocked from BOTH directions.** The std-side design
+  is written and works in isolation (`Thread(T)` holding a capacity-1
+  `Channel(T)`; `join` keeping the join-once assert and detach-on-drop
+  `Dispose` before `try_recv`; `Thread(i32).join()` returning the body's
+  value), but it cannot be landed:
+  * writing the call-and-send INLINE in the spawn closure does not compile at
+    `T = unit` — the emitted C is `void* tmp = <void expr>` for the captured
+    callback's ZST result and the `Channel(unit).send` specialisation is never
+    emitted. Narrowed to `src/codegen/exprs/parallelism.yo`, which gives spawn
+    callbacks their own capture-struct lowering ("selects the primitive +
+    (unit) return convention"), with three controls that all work.
+  * routing it through a top-level generic helper dodges that, and then hits
+    the OTHER wall: the spawn closure now CAPTURES `cb`, and #451's Send
+    enforcement rejects it —
+    `Captured variable 'cb' ... does not implement Send`. Adding the `Send`
+    bound to the helper's parameter does NOT help, because
+    `_capture_judgement_type` resolves a captured closure to its own CAPTURE
+    STRUCT and judges that; one more level of nesting puts a struct in front
+    of the checker that carries no `Send` impl. Before this change `cb` went
+    straight to `__yo_thread_spawn` and was never a captured variable, so the
+    check never saw it.
+  Landing it therefore needs a compiler change — either the ZST lowering or
+  teaching the capture judgement to see a closure whose own captures are all
+  `Send` as `Send`. The latter is a security-relevant checker and should not be
+  rushed. Evidence and the ready design:
   `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`.
 
 - **D19 — `Box` KEEPS its name, and says loudly that it is Rust's `Rc`.**
