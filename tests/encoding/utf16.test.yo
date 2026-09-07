@@ -1,6 +1,6 @@
 { assert } :: import("std/assert");
 open(import("std/string"));
-{ utf8_to_utf16, utf16_to_utf8 } :: import("std/encoding/utf16");
+{ utf8_to_utf16, utf16_to_utf8, utf16_to_utf8_exn } :: import("std/encoding/utf16");
 { ArrayList } :: import("std/collections/array_list");
 { Error, AnyError, Exception } :: import("std/error");
 // Helper: build a str from raw bytes via ArrayList(u8) -> String -> as_str()
@@ -27,26 +27,16 @@ _make_str_4 :: (fn(b0 : u8, b1 : u8, b2 : u8, b3 : u8) -> String)({
   arr.push(b3);
   String.from_bytes(arr)
 });
-/// Run `utf16_to_utf8` over "A" + an unpaired LOW surrogate and report whether
-/// it threw. The handler `unwind`s out of this function, so the trailing
-/// `false` is only reached when nothing was thrown.
+/// Decode "A" + an unpaired LOW surrogate and report whether it was rejected.
 ///
 /// The old decoder let a lone low surrogate fall through and wrote it out as a
-/// 3-byte CESU-8 sequence — invalid UTF-8 — despite the documented "throws on
+/// 3-byte CESU-8 sequence — invalid UTF-8 — despite the documented "rejects
 /// unpaired surrogates" contract.
-_lone_low_surrogate_throws :: (fn() -> bool)({
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(true);
-      }
-    )
-  );
+_lone_low_surrogate_rejected :: (fn() -> bool)({
   data := ArrayList(u16).new();
   data.push(u16(0x0041));
   data.push(u16(0xDC00));
-  utf16_to_utf8(data, exn);
-  false
+  match(utf16_to_utf8(data), .Ok(_) => false, .Err(_) => true)
 });
 // ===== UTF-8 to UTF-16 =====
 test("utf8_to_utf16 empty string", {
@@ -86,49 +76,25 @@ test("utf8_to_utf16 four-byte UTF-8 surrogate pair", {
 });
 // ===== UTF-16 to UTF-8 =====
 test("utf16_to_utf8 empty", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   data := ArrayList(u16).new();
-  result := utf16_to_utf8(data, exn);
+  result := utf16_to_utf8(data).unwrap();
   assert(result == "", "should be empty string");
 });
 test("utf16_to_utf8 ASCII", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   data := ArrayList(u16).new();
   data.push(u16(72));
   data.push(u16(101));
   data.push(u16(108));
   data.push(u16(108));
   data.push(u16(111));
-  result := utf16_to_utf8(data, exn);
+  result := utf16_to_utf8(data).unwrap();
   assert(result == "Hello", "should be Hello");
 });
 test("utf16_to_utf8 BMP character", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   // U+20AC = € (euro sign)
   data := ArrayList(u16).new();
   data.push(u16(0x20AC));
-  s := utf16_to_utf8(data, exn);
+  s := utf16_to_utf8(data).unwrap();
   bytes := s.as_bytes();
   assert(bytes.len() == usize(3), "euro sign should be 3 UTF-8 bytes");
   assert(bytes(usize(0)) == u8(0xE2), "byte 0");
@@ -136,19 +102,11 @@ test("utf16_to_utf8 BMP character", {
   assert(bytes(usize(2)) == u8(0xAC), "byte 2");
 });
 test("utf16_to_utf8 surrogate pair", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   // U+1F600 as surrogate pair: D83D DE00
   data := ArrayList(u16).new();
   data.push(u16(0xD83D));
   data.push(u16(0xDE00));
-  s := utf16_to_utf8(data, exn);
+  s := utf16_to_utf8(data).unwrap();
   bytes := s.as_bytes();
   assert(bytes.len() == usize(4), "U+1F600 should be 4 UTF-8 bytes");
   assert(bytes(usize(0)) == u8(0xF0), "byte 0");
@@ -158,47 +116,23 @@ test("utf16_to_utf8 surrogate pair", {
 });
 // ===== Roundtrip =====
 test("utf16 roundtrip ASCII", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   input := String.from("Hello, World!");
   utf16 := utf8_to_utf16(input);
-  result := utf16_to_utf8(utf16, exn);
+  result := utf16_to_utf8(utf16).unwrap();
   assert(result == input, "ASCII roundtrip should preserve string");
 });
 test("utf16 roundtrip two-byte", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   // é = U+00E9 as UTF-8 bytes
   input := _make_str_2(u8(0xC3), u8(0xA9));
   utf16 := utf8_to_utf16(input);
-  result := utf16_to_utf8(utf16, exn);
+  result := utf16_to_utf8(utf16).unwrap();
   assert(result == input, "two-byte roundtrip should preserve string");
 });
 test("utf16 roundtrip surrogate pair", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   // U+1F600 as UTF-8 bytes
   input := _make_str_4(u8(0xF0), u8(0x9F), u8(0x98), u8(0x80));
   utf16 := utf8_to_utf16(input);
-  result := utf16_to_utf8(utf16, exn);
+  result := utf16_to_utf8(utf16).unwrap();
   bytes := result.as_bytes();
   assert(bytes.len() == usize(4), "roundtrip should preserve length");
   assert(bytes(usize(0)) == u8(0xF0), "roundtrip byte 0");
@@ -206,6 +140,20 @@ test("utf16 roundtrip surrogate pair", {
   assert(bytes(usize(2)) == u8(0x98), "roundtrip byte 2");
   assert(bytes(usize(3)) == u8(0x80), "roundtrip byte 3");
 });
+test("utf16_to_utf8_exn still throws for callers inside an effect scope", {
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  data := ArrayList(u16).new();
+  data.push(u16(0x0041));
+  data.push(u16(0xDC00));
+  utf16_to_utf8_exn(data, exn);
+  assert(false, "an unpaired low surrogate should have thrown");
+});
 test("utf16_to_utf8 rejects an unpaired low surrogate", {
-  assert(_lone_low_surrogate_throws(), "an unpaired low surrogate should throw");
+  assert(_lone_low_surrogate_rejected(), "an unpaired low surrogate should throw");
 });
