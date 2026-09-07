@@ -41,7 +41,7 @@ local_data := MyList.new();
 
 // Atomic object — can be sent across threads
 shared_counter := AtomicBool(false);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   shared_counter.store(true, MemoryOrder.Release);
 });
 ```
@@ -188,7 +188,7 @@ Negative impls do **not** require `pragma(Pragma.AllowUnsafe)` — they are rest
 data := Box(MyData).new(...);
 iso := ^(data);   // '^' macro — wraps value in Iso
 
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   // extract() returns the inner value directly,
   // panicking if rc != 1 or already extracted
   inner := iso.extract();

@@ -127,9 +127,9 @@ test("RwLock with_read admits several readers at the same time", {
       });
     }
   );
-  t1 := Thread.spawn(io => reader());
-  t2 := Thread.spawn(io => reader());
-  t3 := Thread.spawn(io => reader());
+  t1 := Thread(unit).spawn(io => reader());
+  t2 := Thread(unit).spawn(io => reader());
+  t3 := Thread(unit).spawn(io => reader());
   t1.join();
   t2.join();
   t3.join();
@@ -138,7 +138,7 @@ test("RwLock with_read admits several readers at the same time", {
 test("RwLock writer thread modifies the protected value", {
   if(arch == Arch.Wasm32, return(()));
   lock := RwLock(i32).new(i32(0));
-  t := Thread.spawn(io => {
+  t := Thread(unit).spawn(io => {
     lock.with_write(v => {
       v = i32(42);
       v
@@ -162,8 +162,8 @@ test("RwLock two writer threads increment the protected counter", {
       });
     }
   );
-  t1 := Thread.spawn(io => bump());
-  t2 := Thread.spawn(io => bump());
+  t1 := Thread(unit).spawn(io => bump());
+  t2 := Thread(unit).spawn(io => bump());
   t1.join();
   t2.join();
   assert(lock.with_read(v => v) == i32(200), "no increment was lost across 2 threads x 100 writes");
@@ -231,11 +231,11 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
       });
     }
   );
-  r1 := Thread.spawn(io => reader());
-  r2 := Thread.spawn(io => reader());
-  r3 := Thread.spawn(io => reader());
-  w1 := Thread.spawn(io => writer());
-  w2 := Thread.spawn(io => writer());
+  r1 := Thread(unit).spawn(io => reader());
+  r2 := Thread(unit).spawn(io => reader());
+  r3 := Thread(unit).spawn(io => reader());
+  w1 := Thread(unit).spawn(io => writer());
+  w2 := Thread(unit).spawn(io => writer());
   r1.join();
   r2.join();
   r3.join();
@@ -264,7 +264,7 @@ test("RwLock readers blocked behind a held writer are woken on release", {
   done_while_held := AtomicI32(i32(-1));
   // The writer holds the lock for the whole window in which the readers
   // arrive, so all three park in `_read_cv.wait`.
-  w := Thread.spawn(io => {
+  w := Thread(unit).spawn(io => {
     lock.with_write(v => {
       v = i32(99);
       writer_inside.store(i32(1), MemoryOrder.Release);
@@ -291,9 +291,9 @@ test("RwLock readers blocked behind a held writer are woken on release", {
       });
     }
   );
-  t1 := Thread.spawn(io => reader());
-  t2 := Thread.spawn(io => reader());
-  t3 := Thread.spawn(io => reader());
+  t1 := Thread(unit).spawn(io => reader());
+  t2 := Thread(unit).spawn(io => reader());
+  t3 := Thread(unit).spawn(io => reader());
   t1.join();
   t2.join();
   t3.join();

@@ -70,7 +70,7 @@ NotSendCell :: ref(struct(v : i32));
 comptime_expect_error({
   _spawn_with_ref_struct :: (fn() -> unit)({
     cell := NotSendCell(v : i32(1));
-    t := Thread.spawn(io => {
+    t := Thread(unit).spawn(io => {
       _v := cell.v;
       ()
     });
@@ -81,7 +81,7 @@ comptime_expect_error({
 comptime_expect_error({
   _spawn_with_array_list :: (fn() -> unit)({
     items := ArrayList(i32).new();
-    t := Thread.spawn(io => {
+    t := Thread(unit).spawn(io => {
       items.push(i32(1));
       ()
     });
@@ -99,7 +99,7 @@ comptime_expect_error({
         items.push(i32(1));
       }
     );
-    t := Thread.spawn(io => worker());
+    t := Thread(unit).spawn(io => worker());
     t.join();
   });
   _spawn_with_closure_over_ref();
@@ -116,7 +116,7 @@ _send_captures_still_spawn :: (fn() -> unit)({
       hits.fetch_add(i32(1), MemoryOrder.AcqRel);
     }
   );
-  t := Thread.spawn(io => {
+  t := Thread(unit).spawn(io => {
     _s := (n + a.*);
     bump();
     ()

@@ -66,13 +66,13 @@ impl(Thread,
 { yield } :: import "std/async";
 
 // 派生一个专用线程（不使用异步）
-thread := Thread.spawn((io) => {
+thread := Thread(unit).spawn((io) => {
   printf("Hello from thread\n");
 });
 thread.join();
 
 // 派生一个支持异步 I/O 的线程
-thread := Thread.spawn((io : Io) => {
+thread := Thread(unit).spawn((io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield());
     return i32(42);
@@ -191,12 +191,12 @@ Channel（`std/sync/channel.yo`）提供有界的多生产者多消费者线程�
 ch := Channel(i32).new(usize(10));
 
 // 生产者线程
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   ch.send(i32(42));
 });
 
 // 消费者线程
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   val := ch.recv();
   cond(
     val.is_some() => printf("Got %d\n", val.unwrap()),
@@ -220,14 +220,14 @@ Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 
 ```rust
 // ✅ 可发送
 Point :: struct(x: i32, y: i32);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   p := Point(1, 2);  // OK：在线程内部创建
 });
 
 // ❌ 不可发送
 Node :: ref(struct(value: i32));
 node := Node(42);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   // 错误：无法捕获 `node`（ref(struct(...)) 不是 Send）
   // node.value;
 });
@@ -279,7 +279,7 @@ Thread.spawn((io) => {
 { Channel } :: import "std/sync/channel";
 
 // 带异步 I/O 的专用线程
-thread := Thread.spawn((io : Io) => {
+thread := Thread(unit).spawn((io : Io) => {
   // 此线程拥有自己的事件循环
   task := io.async((io : Io) => { io.await(yield()); });
   io.await(task);

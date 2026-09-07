@@ -150,7 +150,7 @@ impl(MyHandle, !(Send()));   // MyHandle 不是 Send
 ```rust
 data := Box(MyData).new(...);
 iso := ^(data);
-Thread.spawn((io) => {
+Thread(unit).spawn((io) => {
   inner := iso.extract();  // rc != 1 或已提取时 panic
 });
 ```

@@ -48,7 +48,7 @@ main :: (fn(io : Io) -> unit)({
 });
 
 // Parallelism: Different threads, true simultaneous execution
-thread := Thread.spawn((io) => {
+thread := Thread(unit).spawn((io) => {
   // Runs on a DIFFERENT thread, with its own independent event loop.
   // Isolated: only Send values cross the boundary.
   ()

@@ -16,7 +16,7 @@
 //! { Thread } :: import "std/thread";
 //!
 //! out := Channel(i32).new(usize(1));
-//! t := Thread.spawn((io) => {
+//! t := Thread(unit).spawn((io) => {
 //!   out.send(i32(42));
 //!   ()
 //! });
@@ -58,27 +58,80 @@ extern(
 /// finishes). Reference-counted so that detach-on-drop runs exactly once
 /// however many copies of the handle exist
 /// (issues/fixed/thread-join-was-re-callable-and-handles-leaked.md).
-Thread :: ref(
-  struct(
-    handle : __yo_thread_t,
-    _joined : bool
+/// Run `cb` and hand its result to `sink`. Deliberately a top-level generic
+/// function rather than inline in the spawn closure — see `Thread(T).spawn`.
+_run_and_send :: (
+  fn(
+    generic(T : Type),
+    cb : Impl(Fn(io : Io) -> T),
+    sink : Channel(T),
+    io : Io,
+    where(T <: (Send, Acyclic))
+  ) -> unit
+)({
+  sink.send(cb(io));
+});
+/// `Thread(T)` carries the value its body produced (D18). `Thread(unit)` is
+/// the fire-and-forget form and is what every pre-D18 call site becomes.
+///
+/// The result travels through a capacity-1 `Channel(T)`: the runtime's
+/// `__yo_thread_spawn` only accepts a `Fn(io) -> unit`, so the body's value is
+/// SENT rather than returned, and `join` reads it after the OS join has
+/// established happens-before.
+Thread :: (
+  fn(
+    comptime(T) : Type,
+    where(T <: (Send, Acyclic))
+  ) -> comptime(Type)
+)(
+  ref(
+    struct(
+      handle : __yo_thread_t,
+      _joined : bool,
+      _result : Channel(T)
+    )
   )
 );
 impl(
-  Thread,
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  Thread(T),
   /// Spawn a new OS thread running the given closure.
-  /// The closure receives its own per-thread Io event loop.
-  spawn : (fn(cb : Impl(Fn(io : Io) -> unit, Send)) -> Self)({
-    raw := __yo_thread_spawn(cb);
-    Self(handle : raw, _joined : false)
+  /// The closure receives its own per-thread Io event loop, and whatever it
+  /// returns is delivered to `join`.
+  spawn : (fn(cb : Impl(Fn(io : Io) -> T, Send)) -> Self)({
+    chan := Channel(T).new(usize(1));
+    // `Channel` is atomically refcounted, so the copy the closure captures and
+    // the copy the handle keeps name the SAME queue.
+    sink := chan;
+    raw := __yo_thread_spawn((io : Io) => {
+      // The call-and-send lives in a PLAIN generic helper, not inline here:
+      // the thread-spawn lowering gives this closure body its own
+      // capture-struct treatment that binds a ZST result to a `void*` temp
+      // (issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md).
+      // An ordinary generic function lowers it correctly.
+      _run_and_send(cb, sink, io);
+      ()
+    });
+    Self(handle : raw, _joined : false, _result : chan)
   }),
-  /// Block the current thread until this thread completes. Panics on a second
-  /// call: joining a thread twice is undefined behaviour in every threading
-  /// API underneath (`pthread_join` on a joined thread; a closed `HANDLE`).
-  join : (fn(self : Self) -> unit)({
+  /// Block the current thread until this thread completes, and take the value
+  /// its body produced. Panics on a second call: joining a thread twice is
+  /// undefined behaviour in every threading API underneath (`pthread_join` on
+  /// a joined thread; a closed `HANDLE`).
+  ///
+  /// Also panics if the body produced nothing, which happens only when it
+  /// unwound — there is no `T` to hand back. `__yo_thread_join` has already
+  /// returned by then, so the value is buffered and `try_recv` cannot block.
+  join : (fn(self : Self) -> T)({
     assert(!self._joined, "Thread.join: this thread was already joined");
     self._joined = true;
-    __yo_thread_join(self.handle)
+    __yo_thread_join(self.handle);
+    match(
+      self._result.try_recv(),
+      .Some(v) => v,
+      .None => __yo_panic("Thread.join: the thread body produced no value (it unwound)")
+    )
   }),
   /// True once `join` has returned.
   is_joined : (fn(self : Self) -> bool)(
@@ -86,7 +139,9 @@ impl(
   )
 );
 impl(
-  Thread,
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  Thread(T),
   Dispose(
     dispose : (fn(self : Self) -> unit)({
       cond(
