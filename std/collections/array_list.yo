@@ -51,7 +51,6 @@ impl(
   * Only use when you've manually populated the buffer (e.g., via direct memory writes)
   */
   set_len : (fn(self : Self, new_len : usize) -> unit)({
-    __yo_borrow_assert_unborrowed(self);
     cond(
       (new_len <= self._capacity) => {
         self._length = new_len;
@@ -253,9 +252,7 @@ impl(
   /**
   * Remove and return the last element
   */
-  pop : (fn(self : Self) -> Option(T))({
-    __yo_borrow_assert_unborrowed(self);
-
+  pop : (fn(self : Self) -> Option(T))(
     cond(
       (self._length == usize(0)) => .None,
       true => {
@@ -274,7 +271,7 @@ impl(
         )
       }
     )
-  }),
+  ),
   /**
   * Get an element by index (bounds checked)
   */
@@ -363,7 +360,6 @@ impl(
   * single-index `remove`.)
   */
   drain : (fn(self : Self, r : Range(usize)) -> Self)({
-    __yo_borrow_assert_unborrowed(self);
     if((r.start > r.end) || (r.end > self._length), {
       __yo_panic("ArrayList.drain: invalid range for this length");
     });
@@ -456,7 +452,6 @@ impl(
   * Panics if `idx` is out of bounds (the `Index` impl's contract).
   */
   remove : (fn(self : Self, idx : usize) -> T)({
-    __yo_borrow_assert_unborrowed(self);
     if(idx >= self._length, {
       __yo_panic("ArrayList.remove: index out of bounds");
     });
@@ -601,7 +596,6 @@ impl(
   * Clear all elements but keep capacity
   */
   clear : (fn(self : Self) -> unit)({
-    __yo_borrow_assert_unborrowed(self);
     Self._free_elements(self);
     self._length = usize(0);
   }),
@@ -1374,7 +1368,6 @@ impl(
   /// backwards over `drain`, which was O(n²) with an allocation per rejection
   /// (issues/fixed/array-list-retain-is-quadratic.md).
   retain : (fn(self : Self, pred : Impl(Fn(v : T) -> bool)) -> unit)({
-    __yo_borrow_assert_unborrowed(self);
     n := self._length;
     kept := Self.with_capacity(n);
     (i : usize) = usize(0);

@@ -113,8 +113,10 @@ growth, shrink, removal, on the collection itself or through any alias —
 reference … borrows from it`) instead of leaving the element reference
 dangling. This is the one place where Yo's safety guarantee is a runtime
 check rather than a compile-time rejection (Swift's model for shared
-storage); the collection's methods that shrink or remove call the assert
-explicitly, and every reallocation and free asserts automatically. Plain
+storage); the compiler emits the assert at the entry of every method of an RC object
+whose body may mutate the object (decided from the body, since Yo has no
+`mut`), so any collection — std or third-party — is covered without
+annotations. Plain
 `inout(e)` over a map yields the whole entry; prefer `(k, inout(v))`, which
 keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
 or an index loop. Inside an `io.async` body that suspends (a real state

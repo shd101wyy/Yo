@@ -79,7 +79,6 @@ impl(
   /// (issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md).
   /// For new keys: append at end then shift-left to the sorted position.
   insert : (fn(self : Self, k : K, v : V, where(K <: Ord(K))) -> Option(V))({
-    __yo_borrow_assert_unborrowed(self);
     r := self._find(k);
     cond(
       r.found => {
@@ -108,7 +107,6 @@ impl(
   }),
   // Remove the entry with key `k`. Returns the old value, or .None.
   remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
-    __yo_borrow_assert_unborrowed(self);
     r := self._find(k);
     cond(
       r.found => {

@@ -669,15 +669,22 @@ Implementation notes (what landed vs. the steps below):
 - C4 **static in-body check deferred**: the runtime flag is the guarantee;
   the same-variable `push` is pinned as a RUNTIME panic
   (`tests/cli-cases/inout-for-push-same-variable-panics`).
-- C5 landed as **std discipline**: `__yo_borrow_assert_unborrowed(self)` at
-  the top of every length-decreasing / removing method of the eight
-  collections (ArrayList pop/clear/remove/retain/drain/set_len; Deque
-  pop_front/pop_back; HashMap remove/clear; HashSet remove/clear/insert;
-  OrderedMap remove/clear/insert; BTreeMap remove/insert; LinkedList
-  pop_front/pop_back/remove/clear; PriorityQueue pop). Realloc and free
-  assert automatically. The wrappers (`HashSet`, `OrderedMap`) assert on the
-  WRAPPER object, which is what the loop pins (H37). The mutation-summary
-  auto-emit is the follow-up that would make a missed method impossible.
+- C5 landed as the **compiler auto-emit** (the maintainer rejected a
+  hand-written assert list as unmaintainable and unknowable to third-party
+  authors): `_maybe_emit_method_entry_borrow_assert`
+  (`src/codegen/functions/generation.yo`) emits
+  `__yo_borrow_assert_unborrowed((void*)self)` at the entry of every method
+  whose first parameter is `self` of reference-struct type and whose body
+  may mutate storage reachable from its parameters —
+  `function_may_mutate_param_storage`, a second mode of
+  `src/evaluator/effects/mutation_summary.yo` that counts ANY store rooted at
+  a parameter / `inout` binding / global / RC-typed local, any deref-hop
+  store, realloc/free/memmove externs, and every callee it cannot see
+  through (MAY-analysis, memoized per function, separate memo from the
+  RC-drop mode). Read-only methods answer "no" and cost nothing. Because Yo
+  has no `mut`, the body IS the signature; std carries no manual asserts.
+  Wrappers (`HashSet`, `OrderedMap`) are covered on the wrapper object
+  because their mutating methods store through `self` (H37).
 - Map form `(k, inout(v))` is parsed by the macro from the `tuple` head.
 - **v1 limitation (H5 revisited):** the borrowed `for` inside an `io.async`
   body that suspends is REJECTED, not supported — the element binding is an

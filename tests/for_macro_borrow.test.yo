@@ -381,3 +381,24 @@ comptime_expect_error(
     });
   })
 );
+// Read-only methods on the borrowed collection are fine inside the body: the
+// compiler emits the borrow assert only at the entry of methods whose body may
+// mutate the object (`len`, `get`, `contains` and the like answer "no").
+test("borrowed for: read-only methods on the iterated collection do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  total := i32(0);
+  for(xs, inout(x) => {
+    total = (total + (x * i32(xs.len())));
+    assert(xs.contains(x), "contains reads");
+    match(
+      xs.get(usize(0)),
+      .Some(first) => {
+        total = (total + first);
+      },
+      .None => ()
+    );
+  });
+  assert(total == i32(8), "len/contains/get inside the borrowed body");
+});

@@ -469,7 +469,6 @@ impl(
   * Returns Some(value) if the key was found and removed, None otherwise
   */
   remove : (fn(self : Self, key : K) -> Option(V))({
-    __yo_borrow_assert_unborrowed(self);
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
@@ -520,7 +519,6 @@ impl(
   * Resets all control bytes to EMPTY
   */
   clear : (fn(self : Self) -> unit)({
-    __yo_borrow_assert_unborrowed(self);
     // Drop all occupied buckets before clearing
     cond(
       (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {

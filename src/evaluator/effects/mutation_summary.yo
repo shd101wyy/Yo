@@ -28,9 +28,16 @@ open(import("std/string"));
 {
   AstExpr,
   ast_expr_id,
-  ast_expr_is_atom
+  ast_expr_is_atom,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom_of,
+  ast_expr_token,
+  BF_DOT
 } :: import("../../expr.yo");
+{ get_variables_from_env } :: import("../../env.yo");
 {
+  ExprInfoTable,
   expr_info_table_get,
   expr_info_case_executed,
   expr_info_closure_function_value,
@@ -63,6 +70,89 @@ open(import("std/string"));
 (g_ms_summary_by_fid : HashMap(String, bool)) = HashMap(String, bool).new();
 /// func_ids whose bodies are currently being walked (cycle guard).
 (g_ms_in_progress : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Memo for the PARAM-STORAGE mode (`function_may_mutate_param_storage`);
+/// the two modes answer different questions and must not share verdicts.
+(g_ms_param_summary_by_fid : HashMap(String, bool)) = HashMap(String, bool).new();
+/// Which question the walker is answering (set by the public entries).
+(g_ms_param_storage_mode : bool) = false;
+_ms_memo_get :: (fn(fid : String) -> Option(bool))(
+  if(g_ms_param_storage_mode, g_ms_param_summary_by_fid.get(fid), g_ms_summary_by_fid.get(fid))
+);
+_ms_memo_set :: (fn(fid : String, v : bool) -> unit)({
+  if(g_ms_param_storage_mode, {
+    g_ms_param_summary_by_fid.insert(fid, v);
+  }, {
+    g_ms_summary_by_fid.insert(fid, v);
+  });
+});
+/// PARAM-STORAGE mode: does a store to `lhs` mutate storage reachable from
+/// a parameter? See `function_may_mutate_param_storage`.
+_ms_lhs_targets_param_storage :: (fn(lhs : AstExpr, table : ExprInfoTable) -> bool)({
+  (cur : AstExpr) = lhs;
+  (walking : bool) = true;
+  while(walking, {
+    cond(
+      (ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2)))) => match(
+        cur,
+        .FnCall(_, _, dargs, _, _) => {
+          // A deref hop: the pointer may point into parameter storage.
+          match(
+            dargs.get(usize(1)),
+            .Some(fld) => if(ast_expr_is_atom_of(fld, "*"), {
+              return(true);
+            }),
+            .None => ()
+          );
+          cur = match(dargs.get(usize(0)), .Some(b) => b, .None => cur);
+        },
+        .Atom(_, _) => {
+          walking = false;
+        }
+      ),
+      // An index store `xs(i) = v` or any other call-shaped target: look
+      // through to the callee's root.
+      ast_expr_is_fn_call(cur) => match(
+        cur,
+        .FnCall(_, f, _, _, _) => {
+          cur = f;
+        },
+        .Atom(_, _) => {
+          walking = false;
+        }
+      ),
+      true => {
+        walking = false;
+      }
+    );
+  });
+  if(!ast_expr_is_atom(cur), {
+    return(true);
+  });
+  match(
+    expr_info_table_get(table, ast_expr_id(cur)),
+    .Some(ri) => {
+      vars := get_variables_from_env(ri.env, ast_expr_token(cur).value);
+      match(
+        vars.get(vars.len() - usize(1)),
+        .Some(v) => {
+          if((v.is_parameter || v.is_ref) || v.is_module_level, {
+            return(true);
+          });
+          // A local: its storage is the frame's — unless it is an RC handle
+          // (or carries one), which can alias parameter storage. A plain
+          // reassignment of the local itself (atom lhs) mutates no storage.
+          is_whole_local := (ast_expr_id(cur) == ast_expr_id(lhs));
+          if(is_whole_local, {
+            return(false);
+          });
+          type_contains_rc_type(v.ty)
+        },
+        .None => true
+      )
+    },
+    .None => true
+  )
+});
 /// Builtin heads that are pure structure/control flow: walk the arguments,
 /// the head itself mutates nothing. Mirrors TS `SAFE_RECURSE_HEADS`.
 _ms_head_is_safe_recurse :: (fn(h : String) -> bool)(
@@ -186,12 +276,12 @@ impl(
     fn(
       fid : String,
       body : AstExpr,
-      ctx : EvalContext,
+      table : ExprInfoTable,
       touched : ArrayList(String)
     ) -> bool
   )({
     match(
-      g_ms_summary_by_fid.get(fid.clone()),
+      _ms_memo_get(fid.clone()),
       .Some(m) => {
         return(m);
       },
@@ -203,12 +293,12 @@ impl(
     });
     // A body with no ExprInfo has not been evaluated (definition in progress
     // or a raw generic original): conservative, and NOT memoized.
-    if(expr_info_table_get(ctx.expr_info_table, ast_expr_id(body)).is_none(), {
+    if(expr_info_table_get(table, ast_expr_id(body)).is_none(), {
       return(true);
     });
     g_ms_in_progress.insert(fid.clone(), true);
     local_touched := ArrayList(String).new();
-    mutates := _MsW.walk(body, ctx, local_touched);
+    mutates := _MsW.walk(body, table, local_touched);
     ___ := g_ms_in_progress.remove(fid.clone());
     // Remove the self edge (pure self-recursion does not poison memoization).
     (li : usize) = usize(0);
@@ -224,10 +314,10 @@ impl(
       li = (li + usize(1));
     });
     if(mutates, {
-      g_ms_summary_by_fid.insert(fid.clone(), true);
+      _ms_memo_set(fid.clone(), true);
     });
     if((!(mutates)) && (filtered_touched.len() == usize(0)), {
-      g_ms_summary_by_fid.insert(fid.clone(), false);
+      _ms_memo_set(fid.clone(), false);
     });
     (ti : usize) = usize(0);
     while(ti < filtered_touched.len(), {
@@ -244,7 +334,7 @@ impl(
   walk_args : (
     fn(
       args : ArrayList(AstExpr),
-      ctx : EvalContext,
+      table : ExprInfoTable,
       touched : ArrayList(String)
     ) -> bool
   )({
@@ -254,7 +344,7 @@ impl(
     while((i < n) && !(found), {
       match(
         args.get(i),
-        .Some(a) => if(_MsW.walk(a, ctx, touched), {
+        .Some(a) => if(_MsW.walk(a, table, touched), {
           found = true;
         }),
         .None => ()
@@ -267,10 +357,10 @@ impl(
   /// (plain calls), falling back to the method-callee side-table (method
   /// calls — yo-self does not stamp the dot node with the resolved FuncVal).
   callee_value : (
-    fn(call_expr : AstExpr, func_expr : AstExpr, ctx : EvalContext) -> Option(EvalValue)
+    fn(call_expr : AstExpr, func_expr : AstExpr, table : ExprInfoTable) -> Option(EvalValue)
   )({
     from_info := match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(func_expr)),
+      expr_info_table_get(table, ast_expr_id(func_expr)),
       .Some(fi) => fi.value,
       .None => Option(EvalValue).None
     );
@@ -296,9 +386,9 @@ impl(
     (((is_io_async_call(e) || is_io_await_call(e)) || is_io_state_call(e)) || is_io_spawn_call(e)) || is_join_handle_await_call(e)
   ),
   walk : (
-    fn(e : AstExpr, ctx : EvalContext, touched : ArrayList(String)) -> bool
+    fn(e : AstExpr, table : ExprInfoTable, touched : ArrayList(String)) -> bool
   )({
-    info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(e));
+    info_opt := expr_info_table_get(table, ast_expr_id(e));
     match(
       info_opt,
       .Some(info) => {
@@ -306,7 +396,7 @@ impl(
         match(
           info.macro_expansion,
           .Some(mx) => {
-            return(_MsW.walk(mx, ctx, touched));
+            return(_MsW.walk(mx, table, touched));
           },
           .None => ()
         );
@@ -357,7 +447,10 @@ impl(
     // value. Non-RC stores free nothing; recurse both sides.
     if((head == "=") && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
-      lhs_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(lhs));
+      if(g_ms_param_storage_mode && _ms_lhs_targets_param_storage(lhs, table), {
+        return(true);
+      });
+      lhs_info := expr_info_table_get(table, ast_expr_id(lhs));
       match(
         lhs_info,
         .Some(li) => {
@@ -369,12 +462,12 @@ impl(
           return(true);
         }
       );
-      return(_MsW.walk_args(args, ctx, touched));
+      return(_MsW.walk_args(args, table, touched));
     });
     // Declarations create a fresh local — only the initializer runs.
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
-      return(_MsW.walk(rhs, ctx, touched));
+      return(_MsW.walk(rhs, table, touched));
     });
     // match arms are `pattern => body`: the pattern side binds, it never
     // executes runtime calls (Yo has no match guards) and its variant
@@ -383,7 +476,7 @@ impl(
     if(head == "match", {
       match(
         args.get(usize(0)),
-        .Some(scrut) => if(_MsW.walk(scrut, ctx, touched), {
+        .Some(scrut) => if(_MsW.walk(scrut, table, touched), {
           return(true);
         }),
         .None => ()
@@ -394,7 +487,7 @@ impl(
           args.get(mi),
           .Some(arm) => {
             arm_case_off := match(
-              expr_info_table_get(ctx.expr_info_table, ast_expr_id(arm)),
+              expr_info_table_get(table, ast_expr_id(arm)),
               .Some(ai) => match(
                 expr_info_case_executed(ai),
                 .Some(ce) => !(ce),
@@ -417,10 +510,10 @@ impl(
               );
               match(
                 arm_body,
-                .Some(ab) => if(_MsW.walk(ab, ctx, touched), {
+                .Some(ab) => if(_MsW.walk(ab, table, touched), {
                   return(true);
                 }),
-                .None => if(_MsW.walk(arm, ctx, touched), {
+                .None => if(_MsW.walk(arm, table, touched), {
                   return(true);
                 })
               );
@@ -439,7 +532,7 @@ impl(
       return(true);
     });
     if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
-      return(_MsW.walk_args(args, ctx, touched));
+      return(_MsW.walk_args(args, table, touched));
     });
     // A compile-time-known result is inlined by codegen — the call never runs
     // at runtime, so nothing inside it can mutate.
@@ -466,7 +559,7 @@ impl(
       return(true);
     });
     // General call: classify the callee.
-    callee_opt := _MsW.callee_value(e, func_expr, ctx);
+    callee_opt := _MsW.callee_value(e, func_expr, table);
     match(
       callee_opt,
       .Some(callee) => match(
@@ -474,10 +567,10 @@ impl(
         .TypeVal(_) => {
           // Type application: a cast or a struct/enum construction —
           // allocates a fresh value, mutates nothing pre-existing.
-          if(_MsW.walk(func_expr, ctx, touched), {
+          if(_MsW.walk(func_expr, table, touched), {
             return(true);
           });
-          return(_MsW.walk_args(args, ctx, touched));
+          return(_MsW.walk_args(args, table, touched));
         },
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
@@ -506,15 +599,15 @@ impl(
               });
             },
             .None => {
-              if(_MsW.summary_for(fid.clone(), fvd.*.body, ctx, touched), {
+              if(_MsW.summary_for(fid.clone(), fvd.*.body, table, touched), {
                 return(true);
               });
             }
           );
-          if(_MsW.walk(func_expr, ctx, touched), {
+          if(_MsW.walk(func_expr, table, touched), {
             return(true);
           });
-          return(_MsW.walk_args(args, ctx, touched));
+          return(_MsW.walk_args(args, table, touched));
         },
         _ => {
           return(true);
@@ -525,12 +618,12 @@ impl(
     // Primitive builtins with dedicated evaluator paths: pure computations,
     // reads, and aborts are safe.
     if((head.len() > usize(0)) && _ms_head_is_pure_builtin(head.clone()), {
-      return(_MsW.walk_args(args, ctx, touched));
+      return(_MsW.walk_args(args, table, touched));
     });
     // Callee value unresolved but a resolved callee TYPE exists (extern C
     // declarations resolve this way).
     (type_only : Option(TypeValue)) = match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(func_expr)),
+      expr_info_table_get(table, ast_expr_id(func_expr)),
       .Some(fi2) => Option(TypeValue).Some(fi2.ty),
       .None => Option(TypeValue).None
     );
@@ -554,10 +647,10 @@ impl(
               if(_ms_extern_may_mutate(ten, tpt, tvt), {
                 return(true);
               });
-              if(_MsW.walk(func_expr, ctx, touched), {
+              if(_MsW.walk(func_expr, table, touched), {
                 return(true);
               });
-              return(_MsW.walk_args(args, ctx, touched));
+              return(_MsW.walk_args(args, table, touched));
             },
             .None => ()
           );
@@ -578,6 +671,35 @@ function_may_mutate_rc_storage :: (
   fn(fid : String, body : AstExpr, ctx : EvalContext) -> bool
 )({
   touched := ArrayList(String).new();
-  _MsW.summary_for(fid, body, ctx, touched)
+  g_ms_param_storage_mode = false;
+  _MsW.summary_for(fid, body, ctx.expr_info_table, touched)
 });
-export(function_may_mutate_rc_storage);
+/// Public entry, PARAM-STORAGE mode: may the function `fid` (with evaluated
+/// `body`) transitively mutate ANY storage reachable from its parameters —
+/// not only stores that release an RC value, but a length decrement, a
+/// control-byte write, a node unlink, a `realloc`/`free`/`memmove`? This is
+/// the question the borrowed `for`'s runtime borrow flag needs answered
+/// (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C5): codegen emits
+/// `__yo_borrow_assert_unborrowed((void*)self)` at the entry of every method
+/// of an RC object for which this is true, so a collection held by a
+/// borrowed loop panics on ANY mutating method — with no annotation from the
+/// library author (Yo has no `mut`; the body is the signature). Takes the
+/// ExprInfo table directly because codegen has no EvalContext.
+///
+/// What counts (MAY-analysis, unresolvable = mutates): an assignment whose
+/// target is a field/index/deref chain rooted at a parameter, an `inout`
+/// binding, a module-level variable, or a LOCAL of RC-containing type (a
+/// local handle can alias parameter storage); any deref hop on the target
+/// (a pointer may point into parameter storage); a call to a callee whose
+/// own summary says it mutates; the extern rules of the RC mode. Locals of
+/// value type and plain reassignments of local handles are not mutations.
+function_may_mutate_param_storage :: (
+  fn(fid : String, body : AstExpr, table : ExprInfoTable) -> bool
+)({
+  touched := ArrayList(String).new();
+  g_ms_param_storage_mode = true;
+  r := _MsW.summary_for(fid, body, table, touched);
+  g_ms_param_storage_mode = false;
+  r
+});
+export(function_may_mutate_rc_storage, function_may_mutate_param_storage);
