@@ -32,6 +32,10 @@
 //!   );
 //! };
 //! ```
+// `iter()` yields `*(MapEntry(K, V))` into the backing HashMap's buckets (D14),
+// so this module names a raw pointer type. The pointers are produced by
+// `HashMap.get_entry_ptr` and never dereferenced here.
+pragma(Pragma.AllowUnsafe);
 { MapEntry } :: import("./entry.yo");
 open(import("./array_list"));
 open(import("./hash_map"));
@@ -216,32 +220,97 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapIter(K, V),
-  next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))({
-    cond(
-      (self._index >= self._map._order.len()) => {
-        return(.None);
-      },
-      true => ()
-    );
-    match(
-      self._map._order.get(self._index),
-      .Some(k) => {
-        self._index = (self._index + usize(1));
-        match(
-          self._map._map.get(k),
-          .Some(v) => {
-            return(.Some(MapEntry(K, V)(key : k, value : v)));
-          },
-          .None => {
-            return(.None);
-          }
-        );
-      },
-      .None => {
-        return(.None);
-      }
-    );
-  })
+  Iterator(
+    Item : MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))({
+      cond(
+        (self._index >= self._map._order.len()) => {
+          return(.None);
+        },
+        true => ()
+      );
+      match(
+        self._map._order.get(self._index),
+        .Some(k) => {
+          self._index = (self._index + usize(1));
+          match(
+            self._map._map.get(k),
+            .Some(v) => {
+              return(.Some(MapEntry(K, V)(key : k, value : v)));
+            },
+            .None => {
+              return(.None);
+            }
+          );
+        },
+        .None => {
+          return(.None);
+        }
+      );
+    })
+  )
+);
+/// Pointer iterator over an `OrderedMap`'s `(key, value)` pairs, in insertion
+/// order — what `iter()` returns (D14).
+///
+/// Each `next` yields a `*(MapEntry(K, V))` INTO the backing `HashMap`'s
+/// bucket array (the same storage `HashMap.iter()` hands out), so entries are
+/// borrowed rather than rebuilt by value, and writing `p.*.value` updates the
+/// map in place. Any mutation that rehashes the map (`insert` that grows it,
+/// `remove`, `clear`) invalidates pointers already yielded.
+OrderedMapIterPtr :: (
+  fn(
+    comptime(K) : Type,
+    comptime(V) : Type,
+    where(K <: (Eq(K), Hash))
+  ) -> comptime(Type)
+)(
+  ref(
+    struct(
+      _map : OrderedMap(K, V),
+      _index : usize
+    )
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  OrderedMapIterPtr(K, V),
+  Iterator(
+    Item : *MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(*MapEntry(K, V)))({
+      cond(
+        (self._index >= self._map._order.len()) => {
+          return(.None);
+        },
+        true => ()
+      );
+      match(
+        self._map._order.get(self._index),
+        .Some(k) => {
+          self._index = (self._index + usize(1));
+          return(self._map._map.get_entry_ptr(k));
+        },
+        .None => {
+          return(.None);
+        }
+      );
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  OrderedMap(K, V),
+  IntoIterator(
+    Item : MapEntry(K, V),
+    IntoIter : OrderedMapIter(K, V),
+    /// Iterate `(key, value)` pairs BY VALUE in insertion order — the shape
+    /// `iter()` had before D14, and what `for(map, ...)` expands to.
+    into_iter : (fn(self : Self) -> OrderedMapIter(K, V))(
+      OrderedMapIter(K, V)(_map : self, _index : usize(0))
+    )
+  )
 );
 impl(
   generic(K : Type, V : Type),
@@ -255,9 +324,11 @@ impl(
   values : (fn(self : Self) -> OrderedMapValues(K, V))(
     OrderedMapValues(K, V)(_map : self, _index : usize(0))
   ),
-  /// Iterator over `(key, value)` pairs in insertion order.
-  iter : (fn(self : Self) -> OrderedMapIter(K, V))(
-    OrderedMapIter(K, V)(_map : self, _index : usize(0))
+  /// Iterator over `(key, value)` pairs in insertion order, yielding a
+  /// `*(MapEntry(K, V))` into the map's own storage (D14). Use `into_iter()`
+  /// for the by-value form.
+  iter : (fn(self : Self) -> OrderedMapIterPtr(K, V))(
+    OrderedMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
 );
 export(
@@ -265,5 +336,6 @@ export(
   MapEntry,
   OrderedMapKeys,
   OrderedMapValues,
-  OrderedMapIter
+  OrderedMapIter,
+  OrderedMapIterPtr
 );

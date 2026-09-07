@@ -417,6 +417,26 @@ impl(
     )
   }),
   /**
+  * Pointer to the LIVE entry for `key`, or `.None` when the key is absent.
+  *
+  * The pointer aliases the map's own bucket array — the same storage
+  * `iter()` hands out (D14) — so writing `p.*.value` updates the map in
+  * place, and any operation that REHASHES the table (an `insert` that grows
+  * it, `remove`, `clear`) invalidates it.
+  */
+  get_entry_ptr : (fn(self : Self, key : K) -> Option(*(MapEntry(K, V))))({
+    cond(
+      (self.capacity == usize(0)) => return(.None),
+      true => ()
+    );
+    hash := self._hash(key);
+    match(
+      Self._find_bucket(self, key, hash),
+      .Some(index) => .Some(Self._data_ptr(self).add(index)),
+      .None => .None
+    )
+  }),
+  /**
   * Check if a key exists in the map
   */
   contains_key : (fn(self : Self, key : K) -> bool)({
