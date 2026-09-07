@@ -333,7 +333,7 @@ generate_pending_deferred_drops :: (fn(indent : String, context : FunctionGenera
                   .Some(d) => match(
                     get_deferred_drop_target_atom_name(d),
                     .Some(vn) => {
-                      _a := already.insert(vn);
+                      already.insert(vn);
                     },
                     .None => ()
                   ),
@@ -600,7 +600,7 @@ handle_func_call_deferred_dup :: (fn(expr : AstExpr, indent : String, context : 
             // Register the declared temp BEFORE the dup pass below — the dup
             // emitter's undeclared-temp gate silently suppresses the +1 for
             // names not yet in declared_c_var_names (round-3 field-tail UAF).
-            _hd := context.base.declared_c_var_names.insert(expr_temp_var.clone());
+            context.base.declared_c_var_names.insert(expr_temp_var.clone());
           });
         },
         .None => {
@@ -690,7 +690,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
             dline.push_str(";");
             em2 := context.base.emitter;
             em2.emit_string_line(dline);
-            _ad := context.base.declared_c_var_names.insert(arg_temp_var.clone());
+            context.base.declared_c_var_names.insert(arg_temp_var.clone());
           });
           arg_code = if(is_inout_arg_atom, raw_arg_code, arg_temp_var);
         },
@@ -837,7 +837,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
                   .Some(de) => match(
                     get_deferred_drop_target_atom_name(de),
                     .Some(vn) => {
-                      _a := dropped_by_this_return.insert(vn);
+                      dropped_by_this_return.insert(vn);
                     },
                     .None => ()
                   ),
@@ -858,7 +858,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
                   .Some(de) => match(
                     get_deferred_drop_target_atom_name(de),
                     .Some(vn) => {
-                      _a := dropped_by_this_return.insert(vn);
+                      dropped_by_this_return.insert(vn);
                     },
                     .None => ()
                   ),
@@ -930,7 +930,7 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
                 vars.get(vars.len() - usize(1)),
                 .Some(v) => if(v.is_owning_the_rc_value, {
                   s := HashSet(String).new();
-                  _a := s.insert(name);
+                  s.insert(name);
                   Option(HashSet(String)).Some(s)
                 }, Option(HashSet(String)).None),
                 .None => Option(HashSet(String)).None

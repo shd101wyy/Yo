@@ -87,7 +87,7 @@ watch_round :: (
           match(
             dropped.get(di),
             .Some(k) => {
-              _a := removed.insert(k);
+              removed.insert(k);
               ()
             },
             .None => ()
@@ -181,7 +181,7 @@ watch_snapshot :: (
       .Some(p) => match(
         _stat_key(p.clone(), io),
         .Some(k) => {
-          _a := stats.insert(p.clone(), k);
+          stats.insert(p.clone(), k);
           ()
         },
         .None => ()
@@ -214,7 +214,7 @@ wait_for_change :: (
           .Some(k) => {
             prev := match(stats.get(p.clone()), .Some(sv) => sv, .None => String.new());
             if(!(prev == k), {
-              _b := stats.insert(p.clone(), k);
+              stats.insert(p.clone(), k);
               changed.push(p.clone());
             });
           },

@@ -343,7 +343,7 @@ impl(
   * Insert or update a key-value pair
   * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
   */
-  insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+  try_insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
@@ -436,6 +436,22 @@ impl(
       .None => .None
     )
   }),
+  /**
+  * Insert a key/value pair, returning the PREVIOUS value for that key.
+  *
+  * PANICS on allocation failure (D9) — `HashMap.new` already does, and so
+  * does `ArrayList.push`. Before D9 this returned a `Result` that essentially
+  * every caller discarded through a throwaway `_x :=` binding.
+  *
+  * Use `try_insert` when the caller genuinely handles OOM.
+  */
+  insert : (fn(self : Self, key : K, value : V) -> Option(V))(
+    match(
+      Self.try_insert(self, key, value),
+      .Ok(prev) => prev,
+      .Err(_) => __yo_panic("HashMap.insert: allocation failed")
+    )
+  ),
   /**
   * Check if a key exists in the map
   */
@@ -544,7 +560,7 @@ impl(
       self.get(key),
       .Some(v) => v,
       .None => {
-        _r := self.insert(key, default);
+        self.insert(key, default);
         default
       }
     )
@@ -557,7 +573,7 @@ impl(
       .Some(v) => v,
       .None => {
         made := make();
-        _r := self.insert(key, made);
+        self.insert(key, made);
         made
       }
     )
@@ -568,7 +584,7 @@ impl(
     match(
       self.get(key),
       .Some(v) => {
-        _r := self.insert(key, f(v));
+        self.insert(key, f(v));
         true
       },
       .None => false
@@ -929,7 +945,7 @@ export(
 // =============================================================================
 // hash_map! literal macro
 // =============================================================================
-/// Internal helper: build a list of `tmp.insert(k, v).unwrap()` statements from
+/// Internal helper: build a list of `tmp.insert(k, v)` statements from
 /// a sequence of `k => v` arrow expressions.
 __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList) -> comptime(ExprList))(
   cond(
@@ -944,7 +960,10 @@ __hash_map_build_sets :: (fn(comptime(tmp) : Expr, comptime(entries) : ExprList)
       __2 :: comptime_assert(pair.len() == usize(2), "hash_map entries must use 'k => v'");
       key :: pair.car();
       val :: pair.cdr().car();
-      stmt :: quote(unquote(tmp).insert(unquote(key), unquote(val)).unwrap());
+      // NO `.unwrap()` here (D9): `insert` returns the PREVIOUS value as an
+      // `Option(V)`, so unwrapping it would panic on every FRESH key — the
+      // normal case for a literal. It used to unwrap the `Result`.
+      stmt :: quote(unquote(tmp).insert(unquote(key), unquote(val)));
       stmt.cons(recur(tmp, rest))
     }
   )
@@ -980,7 +999,7 @@ hash_map :: (fn(...(quote(entries))) -> unquote(Expr))({
     unquote(k_tmp) := unquote(first_key);
     unquote(v_tmp) := unquote(first_val);
     unquote(tmp) := HashMap(typeof(unquote(k_tmp)), typeof(unquote(v_tmp))).new();
-    unquote(tmp).insert(unquote(k_tmp), unquote(v_tmp)).unwrap();
+    unquote(tmp).insert(unquote(k_tmp), unquote(v_tmp));
     unquote_splicing(rest_sets);
     unquote(tmp)
   })

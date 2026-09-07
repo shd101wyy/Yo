@@ -81,9 +81,11 @@ impl(
   ///
   /// Returns `Ok(.Some(old_value))` if key already existed, `Ok(.None)` for
   /// a new key, or `.Err(_)` on allocation failure.
-  insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
+  ///
+  /// The allocator-aware form (D9); `insert` is the one to reach for.
+  try_insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     is_new := !self._map.contains_key(key);
-    result := self._map.insert(key, value);
+    result := self._map.try_insert(key, value);
     cond(
       is_new => match(
         result,
@@ -96,6 +98,18 @@ impl(
     );
     return(result);
   }),
+  /// Insert a key/value pair, returning the PREVIOUS value for that key.
+  /// A new key is appended to the insertion order; an existing key keeps its
+  /// position.
+  ///
+  /// PANICS on allocation failure (D9). Use `try_insert` to handle OOM.
+  insert : (fn(self : Self, key : K, value : V) -> Option(V))(
+    match(
+      Self.try_insert(self, key, value),
+      .Ok(prev) => prev,
+      .Err(_) => __yo_panic("OrderedMap.insert: allocation failed")
+    )
+  ),
   /// Remove `key`. Returns the removed value or `.None`.
   /// O(n) — rebuilds the key order list to drop the removed key.
   remove : (fn(self : Self, key : K) -> Option(V))({

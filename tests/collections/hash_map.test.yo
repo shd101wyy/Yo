@@ -30,18 +30,17 @@ test("HashMap.with_capacity with small capacity uses default", {
 test("HashMap.set inserts new key-value pair", {
   map := HashMap(i32, i32).new();
   result := map.insert(i32(42), i32(100));
-  assert(result.is_ok());
-  assert(result.unwrap().is_none());
+  assert(result.is_none());
   assert(map.len() == usize(1));
 });
 test("HashMap.set updates existing key", {
   map := HashMap(i32, i32).new();
   map.insert(i32(10), i32(100));
+  // `insert` returns the PREVIOUS value directly now (D9) — there is no
+  // Result layer to unwrap first.
   result := map.insert(i32(10), i32(200));
-  assert(result.is_ok());
-  old_value := result.unwrap();
-  assert(old_value.is_some());
-  assert(old_value.unwrap() == i32(100));
+  assert(result.is_some());
+  assert(result.unwrap() == i32(100));
   assert(map.len() == usize(1));
 });
 test("HashMap.set inserts multiple key-value pairs", {
@@ -360,8 +359,7 @@ test("HashMap with Box values - update existing key cleans up old value", {
   map.insert(Box(i32)(1), Box(i32)(100));
   // Update with new value - old Box(100) should be dropped
   result := map.insert(Box(i32)(1), Box(i32)(200));
-  assert(result.is_ok());
-  assert(result.unwrap().is_some());
+  assert(result.is_some());
   assert(map.len() == usize(1));
   assert(map(Box(i32)(1)).* == i32(200));
   // The old Box(100) value should be properly dropped
@@ -609,7 +607,7 @@ test("get_or_insert_with defers construction", {
 });
 test("update_with maps present values only", {
   m := HashMap(String, i32).new();
-  _i := m.insert(`n`.to_string(), i32(10));
+  m.insert(`n`.to_string(), i32(10));
   did := m.update_with(`n`.to_string(), v => (v + i32(5)));
   assert(did, "updated");
   assert(match(m.get(`n`.to_string()), .Some(v) => (v == i32(15)), .None => false), "value mapped");
