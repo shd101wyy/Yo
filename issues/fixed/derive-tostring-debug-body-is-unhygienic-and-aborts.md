@@ -101,9 +101,14 @@ all four stdout lines missing) and PASS after.
 The unit tree cannot host this: `tests/derive.test.yo` imports `String`, and
 `yo check` reports OK on the broken program either way.
 
-## Still open
+## The general defect behind it — now fixed separately
 
-`derive` swallowing a definition-time body failure — the FTT stub plus a green
-`check` is why this survived a release. The `__attribute__((error(...)))` on the
-stub does not fire at `-O2` even when the function is reached. That is the more
-general defect and is NOT fixed here.
+`derive` swallowing a definition-time body failure was why this survived a
+release: the FTT stub plus a green `check` meant nothing anywhere reported it.
+The root cause of the SILENCE turned out to be measurable — GNU's `error`
+attribute on the stub is diagnosed from the backend, AFTER optimization, so at
+`-O2` (every real build) the call to the `noreturn` stub is folded away and the
+guard never fires. Fixed in
+`issues/fixed/ftt-stub-error-attribute-does-not-fire-at-O2.md`: the stub now
+names itself on stderr before aborting, so this class is loud at any
+optimization level even though the swallow itself remains.
