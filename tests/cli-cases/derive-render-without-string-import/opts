@@ -1,0 +1,12 @@
+# The fixture derives Debug/ToString in a file with NO `String` import, so the
+# derived body must reference no name from the deriving module. Before the fix
+# this compiled "successfully" and then aborted with rc=134 and empty stdout
+# (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md), which only a
+# `build run` case can catch — `yo check` reports OK and the unit-test tree
+# imports `String` everywhere.
+#
+# `build run` shells out to a C compiler, so clang diagnostics and the emitted
+# .c path are not comparable; keep the program's own four lines plus the build's
+# step lines.
+stdout_keep=^(P\(1, 2\)|Z\(\)|E\.B|Q\(3\)|Building |Build Summary|Error|error:)
+timeout=900
