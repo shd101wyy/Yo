@@ -6,10 +6,17 @@
 // In Phase 0, requires/ensures lower to runtime assert(...) (runtime
 // functions) or comptime_assert(...) (comptime functions). invariant,
 // ghost, ghost_fn, and old are markers/transparent in Phase 0. The
-// SMT verifier (Phase 1+) is not part of this surface.
+// SMT verifier (Phase V2+) is not part of this surface.
+//
+// Phase V1 (decision D3): there is no magic `result` identifier — a
+// post-condition names the return value through the signature's labeled
+// return `-> (name : T)`. The label is an ordinary binding whose scope is
+// the contract clauses.
 { assert } :: import("std/assert");
 test("requires/ensures on a satisfying call run without panicking", {
-  divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+  divide :: (
+    fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> (result : i32)
+  )(
     x / y
   );
   assert(divide(i32(10), i32(2)) == i32(5), "divide(10,2) == 5");
@@ -17,7 +24,15 @@ test("requires/ensures on a satisfying call run without panicking", {
 });
 
 test("multiple predicates inside a single requires/ensures", {
-  clamped :: (fn(x : i32, lo : i32, hi : i32, requires(lo <= hi, x >= i32(-1000)), ensures(result >= lo, result <= hi)) -> i32)(
+  clamped :: (
+    fn(
+      x : i32,
+      lo : i32,
+      hi : i32,
+      requires(lo <= hi, x >= i32(-1000)),
+      ensures(result >= lo, result <= hi)
+    ) -> (result : i32)
+  )(
     cond(
       (x < lo) => lo,
       (x > hi) => hi,
@@ -210,7 +225,7 @@ test("comptime requires(...) PASSES at compile time for valid input", {
 // test-runner's batched compile), so comptime_expect_error never sees
 // it.
 test("ensures(...) is lowered and PASSES on a valid runtime postcondition", {
-  abs :: (fn(x : i32, ensures(result >= i32(0))) -> i32)(
+  abs :: (fn(x : i32, ensures(result >= i32(0))) -> (result : i32))(
     cond((x >= i32(0)) => x, true => -x)
   );
   assert(abs(i32(-5)) == i32(5), "abs(-5) == 5");
@@ -218,7 +233,9 @@ test("ensures(...) is lowered and PASSES on a valid runtime postcondition", {
 });
 
 test("ensures(...) with multiple postconditions in a single call", {
-  abs :: (fn(x : i32, ensures(result >= i32(0), (result == x) || (result == -x))) -> i32)(
+  abs :: (
+    fn(x : i32, ensures(result >= i32(0), (result == x) || (result == -x))) -> (result : i32)
+  )(
     cond((x >= i32(0)) => x, true => -x)
   );
   assert(abs(i32(-3)) == i32(3), "abs(-3) == 3");
@@ -234,7 +251,7 @@ test("ensures(...) with old(...) captures the entry value of a ref param", {
 });
 
 test("comptime ensures(...) PASSES at compile time for valid input", {
-  sq :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> comptime(i32))(x * x);
+  sq :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> (comptime(result) : i32))(x * x);
   R :: sq(i32(4));
   assert(R == i32(16), "4^2 == 16");
 });
@@ -287,14 +304,15 @@ test("ensures(...) on a unit-returning function with a side effect", {
 test("requires + ensures + old() together on a non-unit return", {
   // Exercises the full wrapped-body shape:
   //   { <old snapshot>; <requires>; result := (body); <ensures>; result }
-  // `result` references the return value AND old(n) references the
-  // entry value of the mutated ref param, in the same ensures clause.
+  // `result` (the labeled return) references the return value AND old(n)
+  // references the entry value of the mutated ref param, in the same
+  // ensures clause.
   bump_and_report :: (
     fn(
       inout(n) : i32,
       requires(n >= i32(0)),
       ensures(n == (old(n) + i32(1)), result == old(n))
-    ) -> i32
+    ) -> (result : i32)
   )({
     prev := n;
     n = (n + i32(1));
@@ -319,4 +337,90 @@ test("ensures(...) with multiple old(...) snapshots", {
   swap_check(p, q);
   assert(p == i32(2), "a got b's old value");
   assert(q == i32(1), "b got a's old value");
+});
+
+// ---------------------------------------------------------------------------
+// Phase V1 — named-return contract binding (decision D3: no magic `result`).
+// ---------------------------------------------------------------------------
+test("V1: an arbitrary return label names the return value in ensures(...)", {
+  negate :: (fn(x : i32, ensures(answer == -x)) -> (answer : i32))(-x);
+  assert(negate(i32(4)) == i32(-4), "negate(4) == -4");
+  assert(negate(i32(-9)) == i32(9), "negate(-9) == 9");
+});
+
+test("V1: the label resolves alongside old(...) and requires(...)", {
+  bump_and_report :: (
+    fn(
+      inout(n) : i32,
+      requires(n >= i32(0)),
+      ensures(n == (old(n) + i32(1)), result == old(n))
+    ) -> (result : i32)
+  )({
+    prev := n;
+    n = (n + i32(1));
+    prev
+  });
+  x := i32(3);
+  r := bump_and_report(x);
+  assert(x == i32(4), "n bumped");
+  assert(r == i32(3), "returns the entry value via the label");
+});
+
+test("V1: unlabeled non-unit return supports param-only ensures(...)", {
+  // No label: predicates may still constrain parameters and old(...)
+  // expressions — the wrapper threads the return value under an
+  // unspeakable internal name.
+  set_and_get :: (fn(inout(n) : i32, x : i32, ensures(n == x)) -> i32)({
+    n = x;
+    x
+  });
+  n := i32(0);
+  v := set_and_get(n, i32(42));
+  assert(n == i32(42), "n set through the ref param");
+  assert(v == i32(42), "returned the new value");
+});
+
+test("V1: unbound name in ensures(...) with an unlabeled return gets the label hint", {
+  comptime_expect_error({
+    // `retval` is not the label — the ordinary not-found error must carry
+    // the "label the return" hint (additive, not a new error class).
+    f :: (fn(x : i32, ensures(retval >= i32(0))) -> i32)(x);
+    f(i32(1));
+  }, "label the return");
+});
+
+test("V1: referencing the unit return label inside ensures(...) is rejected", {
+  comptime_expect_error({
+    f :: (fn(inout(n) : i32, ensures(n == i32(1), nothing == i32(0))) -> (nothing : unit))({
+      n = i32(1);
+    });
+    x := i32(0);
+    f(x);
+  }, "no return value to name");
+});
+
+test("V1: a unit return label unreferenced by ensures(...) is accepted", {
+  // `-> (name : unit)` parses; only REFERENCING the label in ensures(...)
+  // is an error.
+  set :: (fn(inout(n) : i32, x : i32, ensures(n == x)) -> (unused : unit))({
+    n = x;
+  });
+  n := i32(0);
+  set(n, i32(7));
+  assert(n == i32(7), "unit-return with unreferenced label works");
+});
+
+test("V1: tuple-return label projects fields", {
+  pair_up :: (
+    fn(x : i32, ensures((pair.0 == x) && (pair.1 == (x + i32(1))))) -> (pair : Tuple(i32, i32))
+  )((x, x + i32(1)));
+  t := pair_up(i32(5));
+  assert(t.0 == i32(5), "pair.0 == 5");
+  assert(t.1 == i32(6), "pair.1 == 6");
+});
+
+test("V1: labeled comptime return binds in comptime ensures(...)", {
+  sq :: (fn(comptime(x) : i32, ensures(result >= i32(0))) -> (comptime(result) : i32))(x * x);
+  R :: sq(i32(5));
+  assert(R == i32(25), "5^2 == 25 via labeled comptime return");
 });

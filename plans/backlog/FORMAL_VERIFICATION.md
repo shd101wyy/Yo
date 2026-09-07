@@ -843,6 +843,24 @@ ordered by dependency. Estimates assume one focused contributor.
 
 ### Phase V1 — Named-return contract binding (removes magic `result`)
 
+> **Status: LANDED 2026-09-07.** The return label rides the contract
+> side-table lifecycle (`g_func_return_label` in
+> `src/evaluator/types/function.yo`, re-keyed by
+> `copy_func_contract_exprs`); `wrap_function_body_with_contracts` binds the
+> label (unlabeled non-unit returns thread `__yo_contract_result`); the
+> label-the-return hint fires through the `g_unlabeled_ensures_atom_ids`
+> registry in `src/evaluator/context.yo` at the identifier-resolution
+> not-found site; `-> (name : unit)` label references in `ensures(...)` are
+> rejected at signature evaluation. In-repo migration turned out to be
+> 8 files (not just `tests/spec/`): `tests/comptime.test.yo`, two
+> `tests/cli-cases/contracts-runtime-*` fixtures (goldens re-recorded —
+> the `contracts-runtime-ensures` stdout golden was ALREADY stale on
+> develop: the `(at file://…)` panic-location suffix disappeared with the
+> 0.2.27 seed + current std), `tests/codegen-bootstrap/
+> contracts_no_assert_import.yo` (emitted C byte-identical after the
+> migration — golden unchanged), plus the planned tests/spec sites and the
+> cheatsheet.
+
 **Scope:** thread the already-parsed `return_label`
 (`src/evaluator/types/function.yo:3810-3945`) into the contract surface.
 
