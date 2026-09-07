@@ -228,6 +228,52 @@ test("indexed element to a ref param without the container", {
   assert(xs(usize(0)) == i32(42), "in-place element bump through the ref");
 });
 
+// --- Runtime borrow flag around interior-ref calls ---
+// Regression (issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md):
+// an element-only ref call brackets the CONTAINER with
+// `__yo_borrow_acquire` / `__yo_borrow_release`, so a growth method reached
+// through an alias the static rule cannot see panics instead of reallocating
+// under the reference (the panicking shape is pinned by
+// tests/cli-cases/inout-interior-borrow-growth-panics). The release half is
+// what these two tests pin: after the call returns — normally, or by an
+// effect unwind THROUGH the call site — the flag is back to zero, so the
+// container is freely growable again. Were the release missing (or skipped
+// on the unwind path), the `push` below would panic.
+test("interior-ref call releases the container's borrow flag on return", {
+  bump4 :: (fn(inout(v) : i32) -> unit)({
+    v = (v + i32(1));
+  });
+  xs := ArrayList(i32).new();
+  xs.push(i32(41));
+  bump4(xs(usize(0)));
+  xs.push(i32(5)); // realloc-capable growth right after the borrowed call
+  assert(xs.len() == usize(2), "push after the borrowed call ran");
+  assert(xs(usize(0)) == i32(42), "the bump landed before the growth");
+});
+test("interior-ref call releases the container's borrow flag on unwind", {
+  Raise :: (ctl() -> unit);
+  bump_then_raise :: (fn(inout(v) : i32, raise : Raise) -> unit)({
+    v = (v + i32(1));
+    raise(); // the handler unwinds the INSTALLING function, through this call site
+    v = i32(0); // never reached
+  });
+  run_borrowed :: (fn(target : ArrayList(i32)) -> unit)({
+    (raise : Raise) = (
+      () -> {
+        unwind(());
+      }
+    );
+    bump_then_raise(target(usize(0)), raise);
+    assert(false, "unreachable: the handler unwound run_borrowed");
+  });
+  xs := ArrayList(i32).new();
+  xs.push(i32(41));
+  run_borrowed(xs);
+  xs.push(i32(5)); // must not panic: the unwind path released the flag
+  assert(xs.len() == usize(2), "push after the unwound borrowed call ran");
+  assert(xs(usize(0)) == i32(42), "the bump landed before the unwind");
+});
+
 // Positive: the migration recipe — copy the element out, then the
 // container is freely usable in the same call.
 test("copy the element out to combine with container use", {

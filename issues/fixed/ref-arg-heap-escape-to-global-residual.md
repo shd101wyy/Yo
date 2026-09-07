@@ -1,6 +1,16 @@
 # Soundness residual: indexed/deref ref-arg into a container that escaped to a global
 
 **Status: FIXED (commit 9bf7f2748) — runtime borrow-flag backstop (Swift's model).**
+**2026-09-07 addendum:** the acquire/release half of the backstop was present
+in the TypeScript compiler only — the self-hosted port defined the emitters
+but never called them, so the shipped compiler had no backstop until
+`issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md` wired it
+(with a CLI case pinning the panic).
+**2026-09-07 addendum:** the acquire/release half of the backstop was present
+in the TypeScript compiler only — the self-hosted port defined the emitters
+but never called them, so the shipped compiler had no backstop until
+`issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md` wired it
+(with a CLI case pinning the panic).
 Decided 2026-06-12 to close completely via a runtime exclusivity flag
 (after a benchmark proved ~0% time / 0 bytes memory — same-cache-line
 load + predicted branch). **Foundation landed (commit 0ca4b7784):**

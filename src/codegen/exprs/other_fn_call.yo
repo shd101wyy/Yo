@@ -1286,6 +1286,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             cm_is_install := _call_is_handler_installation(cm_install_ei, cm_mft, cm_ptypes, dm_runtime, context);
             if(is_unit_type(ei.ty), {
               cm_em := context.base.emitter;
+              // Interior-`inout` borrow flags around the method call (see the
+              // direct-call unit exit in generate_other_function_call).
+              cm_bc := _emit_borrow_acquires(dm_runtime, cm_param_is_ref, indent.clone(), context);
               if(cm_may_unwind, {
                 cm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               });
@@ -1293,6 +1296,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               cml.push_string(cm_call);
               cml.push_str(";");
               cm_em.emit_string_line(cml);
+              _emit_borrow_releases(cm_bc, indent.clone(), context);
               generate_deferred_drop_expressions(expr, indent.clone(), context, true);
               if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
               return(Option(String).Some(String.from("")));
@@ -1301,6 +1305,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               ei.variable_name,
               .Some(tv) => {
                 cm_em2 := context.base.emitter;
+                cm_bc2 := _emit_borrow_acquires(dm_runtime, cm_param_is_ref, indent.clone(), context);
                 if(cm_may_unwind, {
                   cm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -1311,6 +1316,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 cmd.push_string(cm_call);
                 cmd.push_str(";");
                 cm_em2.emit_string_line(cmd);
+                _emit_borrow_releases(cm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(cm_may_unwind, emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr));
                 return(Option(String).Some(tv));
@@ -1401,6 +1407,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             rm_is_install := _call_is_handler_installation(rm_install_ei, rm_mft, rm_ptypes, rm_runtime, context);
             if(is_unit_type(ei.ty), {
               rm_em := context.base.emitter;
+              // Interior-`inout` borrow flags around the method call (see the
+              // direct-call unit exit in generate_other_function_call).
+              rm_bc := _emit_borrow_acquires(rm_runtime, rm_pir, indent.clone(), context);
               if(rm_may_unwind, {
                 rm_em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
               });
@@ -1408,6 +1417,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               rml.push_string(rm_call);
               rml.push_str(";");
               rm_em.emit_string_line(rml);
+              _emit_borrow_releases(rm_bc, indent.clone(), context);
               generate_deferred_drop_expressions(expr, indent.clone(), context, true);
               if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
               return(Option(String).Some(String.from("")));
@@ -1416,6 +1426,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               ei.variable_name,
               .Some(tv) => {
                 rm_em2 := context.base.emitter;
+                rm_bc2 := _emit_borrow_acquires(rm_runtime, rm_pir, indent.clone(), context);
                 if(rm_may_unwind, {
                   rm_em2.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -1426,6 +1437,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 rmd.push_string(rm_call);
                 rmd.push_str(";");
                 rm_em2.emit_string_line(rmd);
+                _emit_borrow_releases(rm_bc2, indent.clone(), context);
                 generate_deferred_drop_expressions(expr, indent.clone(), context, true);
                 if(rm_may_unwind, emit_effect_unwind_check(indent.clone(), context, rm_is_install, expr));
                 return(Option(String).Some(tv));
@@ -1991,6 +2003,11 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
           // Fn/Future trait arms.
           rt_void := if(is_some_type(result_type), get_type_string(result_type, context.base) == `void`, is_unit_type(result_type));
           if(rt_void, {
+            // Acquire the runtime borrow flag on every container an interior
+            // `inout` arg (`xs(i)`) points into, and release it right after the
+            // call — BEFORE the deferred drops and the unwind check, so an
+            // unwinding callee still releases. Mirrors other-fn-call.ts:1403/1423.
+            ou_bc := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
             // Clear __yo_effect_escaped before the call so a stale flag from
             // a previous unwind (already handled by a higher-level handler)
             // doesn't leak into this call's escape check.
@@ -2003,6 +2020,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
             line.push_string(casted);
             line.push_str(");");
             em.emit_string_line(line);
+            _emit_borrow_releases(ou_bc, indent.clone(), context);
             generate_deferred_drop_expressions(expr, indent.clone(), context, true);
             if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
             return(Option(String).Some(String.from("")));
@@ -2060,6 +2078,8 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 // Clear __yo_effect_escaped before the call so a stale flag from
                 // a previous unwind (already handled by a higher-level handler)
                 // doesn't leak into this call's escape check.
+                // Interior-`inout` borrow flags around the call (see the unit exit).
+                ou_bc2 := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
                 if(ou_may_unwind, {
                   em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
                 });
@@ -2087,6 +2107,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 line.push_string(casted);
                 line.push_str(");");
                 em.emit_string_line(line);
+                _emit_borrow_releases(ou_bc2, indent.clone(), context);
               });
               generate_deferred_drop_expressions(expr, indent.clone(), context, true);
               if(ou_may_unwind, emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr));
@@ -2287,12 +2308,16 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       true => false
     );
     if(ou_result_is_void, {
+      // Interior-`inout` borrow flags around the indirect call (see the
+      // direct-call unit exit). Mirrors other-fn-call.ts:2286/2298.
+      fp_bc := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       ucall := indent.clone();
       ucall.push_string(out.clone());
       ucall.push_str(";");
       em.emit_string_line(ucall);
+      _emit_borrow_releases(fp_bc, indent.clone(), context);
       generate_deferred_drop_expressions(expr, indent.clone(), context, true);
       emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);
       return(Option(String).Some(String.from("")));
@@ -2312,6 +2337,9 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         }
       );
       fpc := get_type_string(result_type, context.base);
+      // Interior-`inout` borrow flags around the indirect call (see the
+      // direct-call unit exit). Mirrors other-fn-call.ts:2286/2317.
+      fp_bc2 := _emit_borrow_acquires(runtime_args, param_is_ref, indent.clone(), context);
       // Clear __yo_effect_escaped before the indirect call
       em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       if(ctl_generic_ret, {
@@ -2343,6 +2371,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
         fline.push_str(";");
         em.emit_string_line(fline);
       });
+      _emit_borrow_releases(fp_bc2, indent.clone(), context);
     });
     generate_deferred_drop_expressions(expr, indent.clone(), context, true);
     emit_effect_unwind_check(indent.clone(), context, ou_is_install, expr);

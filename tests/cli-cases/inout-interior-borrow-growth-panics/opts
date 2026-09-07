@@ -1,0 +1,11 @@
+# issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md: an element of
+# a container passed as an `inout` argument (`bump(xs(usize(0)))`) acquires the
+# RC header's borrow flag on `xs` for the call; the callee reaches `xs` through
+# a module-level structure the static place rule cannot see and grows it, and
+# `push` must PANIC ("container operation while an interior reference ...
+# borrows from it") instead of reallocating the buffer the reference points
+# into. The program compiles cleanly and panics at run time; `build run`
+# propagates that as a non-zero rc. The panic rides stderr with build chatter,
+# so stdout keeps only the diagnostic substring.
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300

@@ -1,0 +1,33 @@
+// Reproducer for issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md
+//
+//   yo compile issues/repros/interior-ref-arg-borrow-acquire-never-emitted.yo --optimize 2 -o /tmp/r && /tmp/r
+//   → the assert fails (rc=134): the write through `v` landed in a FREED buffer.
+//   DYLD_INSERT_LIBRARIES=/usr/lib/libgmalloc.dylib /tmp/r  → rc=139 (SEGV)
+//
+// Expected with the runtime borrow flag wired: a deterministic panic
+//   "container operation while an interior reference (...) borrows from it"
+// raised by `inner.push` inside `grow_global`, because `bump(xs(usize(0)))`
+// holds an interior borrow on `xs`.
+open(import("std/collections/array_list"));
+{ assert } :: import("std/assert");
+g_outer := ArrayList(ArrayList(i32)).new();
+grow_global :: (fn() -> unit)({
+  inner := match(g_outer.get(usize(0)), .Some(x) => x, .None => ArrayList(i32).new());
+  i := usize(0);
+  while(i < usize(4096), {
+    inner.push(i32(0));
+    i = (i + usize(1));
+  });
+});
+bump :: (fn(inout(v) : i32) -> unit)({
+  grow_global(); // reaches `xs` through the global and reallocates its buffer
+  v = i32(99); // writes into the freed buffer
+});
+main :: (fn() -> unit)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(41));
+  g_outer.push(xs); // `xs` escapes into a module-level heap structure
+  bump(xs(usize(0))); // element-only inout arg — allowed by the static place rule
+  assert(xs(usize(0)) == i32(99), "write landed");
+});
+export(main);
