@@ -1,4 +1,4 @@
-//! Binary min-heap priority queue.
+//! Binary MAX-heap priority queue — Rust's `BinaryHeap` (D11).
 //!
 //! ## Example
 //!
@@ -9,12 +9,24 @@
 //! pq.push(5);
 //! pq.push(1);
 //! pq.push(3);
-//! x := pq.pop().unwrap();  // 1
+//! x := pq.pop().unwrap();  // 5 — the LARGEST
+//! ```
+//!
+//! For a min-heap, wrap the elements in the prelude's `Reverse(T)`, whose
+//! `Ord` is the inverted one:
+//!
+//! ```rust
+//! pq := PriorityQueue(Reverse(i32)).new();
+//! pq.push(Reverse(i32)(5));
+//! pq.push(Reverse(i32)(1));
+//! x := pq.pop().unwrap().value;  // 1 — the SMALLEST
 //! ```
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("./array_list");
-/// Min-heap backed by an ArrayList.
-/// Elements are ordered ascending (smallest first). Negate keys for max-heap behavior.
+/// MAX-heap backed by an ArrayList (D11 — Rust's `BinaryHeap`).
+/// `peek`/`pop` yield the LARGEST element. For a min-heap, use
+/// `PriorityQueue(Reverse(T))` rather than negating keys — negation is wrong
+/// for unsigned types and for the minimum of a signed type.
 PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
@@ -37,7 +49,7 @@ impl(
   is_empty : (fn(self : Self) -> bool)(
     self._data.len() == usize(0)
   ),
-  // Inspect the smallest element without removing it.
+  // Inspect the largest element without removing it.
   peek : (fn(self : Self) -> Option(T))(
     cond(
       (self._data.len() == usize(0)) => .None,
@@ -59,7 +71,7 @@ impl(
       child_val := self._data(i);
       parent_val := self._data(parent);
       cond(
-        (child_val < parent_val) => {
+        (child_val > parent_val) => {
           &(self._data(i)).* = parent_val;
           &(self._data(parent)).* = child_val;
           i = parent;
@@ -70,7 +82,7 @@ impl(
       );
     });
   }),
-  // Remove and return the smallest element.
+  // Remove and return the largest element.
   pop : (fn(self : Self, where(T <: Ord(T))) -> Option(T))({
     n := self._data.len();
     cond(
@@ -85,30 +97,30 @@ impl(
         while(runtime(true), {
           left := ((i * usize(2)) + usize(1));
           right := ((i * usize(2)) + usize(2));
-          smallest := i;
+          largest := i;
           new_n := self._data.len();
           cond(
-            ((left < new_n) && (self._data(left) < self._data(smallest))) => {
-              smallest = left;
+            ((left < new_n) && (self._data(left) > self._data(largest))) => {
+              largest = left;
             },
             true => ()
           );
           cond(
-            ((right < new_n) && (self._data(right) < self._data(smallest))) => {
-              smallest = right;
+            ((right < new_n) && (self._data(right) > self._data(largest))) => {
+              largest = right;
             },
             true => ()
           );
           cond(
-            (smallest == i) => {
+            (largest == i) => {
               break;
             },
             true => {
               a := self._data(i);
-              b := self._data(smallest);
+              b := self._data(largest);
               &(self._data(i)).* = b;
-              &(self._data(smallest)).* = a;
-              i = smallest;
+              &(self._data(largest)).* = a;
+              i = largest;
             }
           );
         });

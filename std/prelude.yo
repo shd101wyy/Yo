@@ -667,6 +667,49 @@ Ord :: (
   )
 );
 export(Ord);
+/**
+* `Reverse(T)` — a wrapper whose `Ord` is `T`'s, inverted (Rust's
+* `core::cmp::Reverse`).
+*
+* It turns any max-ordered structure into a min-ordered one without a second
+* implementation. `PriorityQueue` is a MAX-heap (D11), so a min-heap is:
+*
+* ```rust
+* pq := PriorityQueue(Reverse(i32)).new();
+* pq.push(Reverse(i32)(i32(5)));
+* pq.push(Reverse(i32)(i32(1)));
+* pq.pop().unwrap().value;  // 1 — the SMALLEST
+* ```
+*
+* It is equally the way to sort descending: `list.sort_by((a, b) ->
+* (Reverse(i32)(a) < Reverse(i32)(b)))`.
+*/
+Reverse :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    value : T
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Eq(T)),
+  Reverse(T),
+  Eq(Reverse(T))(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.value == rhs.value)
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Ord(T)),
+  Reverse(T),
+  Ord(Reverse(T))(
+    // Every operator swaps its operands — that IS the inversion.
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(rhs.value < lhs.value),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(rhs.value <= lhs.value),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(rhs.value > lhs.value),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(rhs.value >= lhs.value)
+  )
+);
+export(Reverse);
 ComptimeOrd :: (
   fn(
     comptime(Rhs) : Type,
