@@ -131,7 +131,7 @@ termination obvious.
 The right way to land it is to stop having two copies at all — route both
 `_normalize_label`s through a single corrected decoder in
 `src/common/utils.yo`, which is the subject of the companion issue and is what
-D4 PR 9 (`plans/STD_API_AUDIT_D4_PLAN.md:461`) asked for. Do that **inside the
+D4 PR 9 (`plans/archive/STD_API_AUDIT_D4_PLAN.md:461`) asked for. Do that **inside the
 vendor**, not by importing `std/encoding/utf8`: the std route would make an
 independent markdown library hard-depend on one Yo std module for a 40-line
 codec, and `std/encoding/utf8.yo`'s `decode_parts` (`:186-233`) is RFC-3629

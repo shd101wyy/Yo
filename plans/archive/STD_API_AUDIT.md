@@ -1,9 +1,33 @@
 # std API audit — the road to a stable, batteries-included standard library
 
+> **CLOSED 2026-09-07 — COMPLETE, and superseded by
+> `plans/STD_API_STABILIZATION.md`.**
+>
+> Every item this file's own status header listed as remaining is done, and was
+> re-verified on 2026-09-07 rather than taken on trust:
+>
+> * **D6 PR-3, the curl swap** — LANDED. `src/version_cache.yo` imports
+>   `std/http/client`; no `curl` shell-out remains.
+> * **§7 S4 / P1 tail** — every P1 item is struck through (HTTP server,
+>   chunked/redirect/timeout client, TLS, CSV, DateTime, `fs.watch`,
+>   `assert_eq` family, log rewrite, glob, `Semaphore`/`Barrier`/`ThreadPool`,
+>   format specs, entry API + `binary_search`, `std/term`).
+> * **§9 S5 stability freeze** — done 2026-08-29, plus the 2026-09-05 marker
+>   pass that froze `std/term`, `std/encoding/csv` and `std/http/server`.
+> * **the seed-gated queue** — gated on v0.2.20; `SEED_VERSION` is v0.2.26.
+>
+> Two threads survive it and are carried in the successor plan, not here:
+> `Url` does not yet percent-encode/decode its components (§7 P0 item 1's
+> "URL/query integration"), and `std/fs/watch` deliberately stays `unstable`
+> until the Windows `ReadDirectoryChangesW` backend lands. §7 P2 is explicitly
+> "decide-later" and was never in scope.
+>
+> Numbers below are frozen at their writing dates.
+
 **Status: IN PROGRESS.** Audit complete 2026-08-22; all §8 open questions
 DECIDED by the user 2026-08-23; **S0, S1 and almost all of S2 are LANDED**
 (PRs #229–#294, 2026-08-23 → 2026-08-26). Remaining: D6 PR-3 (the
-curl swap, plans/D6_TLS_PLAN.md), the §7 S4/P1 tail, §9 S5 stability freeze,
+curl swap, plans/archive/D6_TLS_PLAN.md), the §7 S4/P1 tail, §9 S5 stability freeze,
 and the seed-gated queue (plans/backlog/SEED_VERSION_AUTOMATION.md). D3.9
 (Hasher) LANDED 2026-08-28 — plans/reference/HASHER_REDESIGN.md.
 D4 PR 9 closed BY EVENTS 2026-08-28: the vendor migrated upstream
@@ -17,8 +41,8 @@ in the backlog doc).
 > trimmed to short records; the full history lives in this file's git history,
 > the PR trail, and `issues/` (fixed bugs are in `issues/fixed/` with
 > mechanisms and reproducers). Operational knowledge lives in
-> `plans/STD_API_AUDIT_HANDOVER.md` (the battery script, the measurement
-> traps, the working method) and `plans/STD_API_AUDIT_D4_PLAN.md` (the
+> `plans/archive/STD_API_AUDIT_HANDOVER.md` (the battery script, the measurement
+> traps, the working method) and `plans/archive/STD_API_AUDIT_D4_PLAN.md` (the
 > string-indexing sub-plan). Per the handover: **rows in this file have
 > repeatedly measured wrong — re-measure before executing, and correct the
 > row in the same PR.**
@@ -257,7 +281,7 @@ the git history and the named issue docs. The record, one line each:
 ### D4 — String indexing model
 
 **DECIDED (O1, 2026-08-23): byte-indexed, like Rust/Go — and LANDED.** The
-migration ran as PRs 0–9 per `plans/STD_API_AUDIT_D4_PLAN.md` (the measured
+migration ran as PRs 0–9 per `plans/archive/STD_API_AUDIT_D4_PLAN.md` (the measured
 sub-plan: per-method contracts, call-site counts, trap list). PRs 1–8 all
 merged 2026-08-26 (#286, #288, #290, #291). Final state:
 
@@ -397,7 +421,7 @@ Because the `extern("Yo") __yo_tls_*` ABI is backend-agnostic, Schannel needed
 C's own `#if defined(_WIN32)` in `generate_tls_runtime`, plus `-lsecur32
 -lcrypt32` on Windows targets. Full mechanism, gates and the deliberate
 non-goals (client certs, pinning, ALPN, a server-side `TlsListener`) are in
-`plans/D6_TLS_PLAN.md`. The historical record follows.
+`plans/archive/D6_TLS_PLAN.md`. The historical record follows.
 
 No TLS in tree; C1 makes https throw for now. **DECIDED (O2, 2026-08-23):
 `std/crypto/tls.yo` over platform libraries (SecureTransport/Schannel/OpenSSL)
@@ -405,7 +429,7 @@ via the existing `pkg_config` mechanism, behind one `TlsStream` type
 implementing the D5 traits.** **PR-1 LANDED 2026-08-28**: `TlsStream` over
 OpenSSL (memory-BIO async pump, cert+hostname+SNI on, D5 Reader/Writer),
 proven by a live example.com:443 handshake; `_probe_openssl` in src/main.yo
-(plans/D6_TLS_PLAN.md). Remaining: route `std/http` https through it (PR-2)
+(plans/archive/D6_TLS_PLAN.md). Remaining: route `std/http` https through it (PR-2)
 and the P0+ curl→std/http swap (PR-3, the only D6 remainder); Windows
 Schannel joins the Windows platform audit.
 **PR-3 BLOCKED 2026-08-30 (Windows TLS) → UNBLOCKED 2026-09-01, RESCHEDULED
@@ -581,8 +605,8 @@ Open D7 items:
 | process | EXTEND | Child/spawn/Stdio + env + builders-return-Self + `code() -> Option(i32)` DONE 2026-08-27; `current_dir` — stale item, `env.cwd()` already covers it (Rust places it in std::env too); still: hide `raw` (needs module-private visibility) |
 | cli | EXTEND or DROP-TO-PACKAGE | typed values, required enforcement, `--`, repeated opts, help-not-an-error; tty/color access DONE 2026-08-29 (`std/term`: `is_terminal`/`size`/`supports_color`/raw mode). Recommendation: keep minimal-but-correct in std |
 | net | FIX + EXTEND | C2/C3 DONE; `Shutdown` enum DONE; usize counts DONE; UnixStream/UnixListener DONE 2026-08-27 (incl. their Reader/Writer impls); still: `incoming()`, UDP `connect` + typed `recv_from`, `parse_v6`, `SocketAddr.parse`, `Eq`/`Hash` on addr types, RFC 5952 V6 formatting |
-| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); ~~binary bodies~~ **DONE 2026-08-29** (`body : String` IS the bytes form — String is an unchecked byte buffer; pinned byte-for-byte client+server incl. invalid UTF-8, and `parse_request` now byte-slices the body — issues/fixed/http-parse-request-binary-body-boundary-panic.md); keep-alive: **DEFERRED post-freeze** (connection pooling; the client sends `Connection: close` by design and the unstable server closes per response); ~~**server (P1)**: `parse_request`, `HttpServer` on `TcpListener`~~ **DONE 2026-08-29** (`std/http/server.yo`: `HttpServer.bind/serve_once/serve/stop/close`, `parse_request`, `HttpResponse.to_string/with_status/header/with_body`, `HttpMethod.from_str` + `OPTIONS`; wire framing shared with the client in `std/http/wire.yo`; 7 loopback tests incl. a chunked request body); ~~collapse `FetchOptions` into `HttpRequest`~~ **REJECTED 2026-08-29**: `FetchOptions` is the client-policy record (JS-fetch `init` + deadline/redirect/size caps) while `HttpRequest` is the WIRE message the server parses INTO — merging would put client policy on a shared wire type; both are shipped API; the compiler's own curl→`std/http` swap (D6 PR-3) is **BLOCKED on Windows TLS** (plans/D6_TLS_PLAN.md item 3); ~~RFC 9112 §5 field-value parsing~~ **DONE 2026-09-05** (C62: the OWS after a colon is optional and is any run of SP/HTAB, field names are anchored to a line start instead of substring-matched, and an unreadable `Content-Length` is `HttpError.MalformedContentLength` rather than a silent `-1` — issues/fixed/http-content-length-ows-and-invalid-values.md); RFC 9112 §5.1 (whitespace BEFORE the colon must make a request a 400) still open — issues/http-whitespace-before-header-colon-not-rejected.md |
-| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); ~~binary bodies~~ **DONE 2026-08-29** (`body : String` IS the bytes form — String is an unchecked byte buffer; pinned byte-for-byte client+server incl. invalid UTF-8, and `parse_request` now byte-slices the body — issues/fixed/http-parse-request-binary-body-boundary-panic.md); keep-alive: **DEFERRED post-freeze** (connection pooling; the client sends `Connection: close` by design and the unstable server closes per response); ~~**server (P1)**: `parse_request`, `HttpServer` on `TcpListener`~~ **DONE 2026-08-29** (`std/http/server.yo`: `HttpServer.bind/serve_once/serve/stop/close`, `parse_request`, `HttpResponse.to_string/with_status/header/with_body`, `HttpMethod.from_str` + `OPTIONS`; wire framing shared with the client in `std/http/wire.yo`; 7 loopback tests incl. a chunked request body); ~~collapse `FetchOptions` into `HttpRequest`~~ **REJECTED 2026-08-29**: `FetchOptions` is the client-policy record (JS-fetch `init` + deadline/redirect/size caps) while `HttpRequest` is the WIRE message the server parses INTO — merging would put client policy on a shared wire type; both are shipped API; the compiler's own curl→`std/http` swap (D6 PR-3) **LANDED as #364, 2026-09-02**, and the Windows TLS gap it left closed 2026-09-04 with the **Schannel backend** — D6 is CLOSED (plans/D6_TLS_PLAN.md) |
+| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); ~~binary bodies~~ **DONE 2026-08-29** (`body : String` IS the bytes form — String is an unchecked byte buffer; pinned byte-for-byte client+server incl. invalid UTF-8, and `parse_request` now byte-slices the body — issues/fixed/http-parse-request-binary-body-boundary-panic.md); keep-alive: **DEFERRED post-freeze** (connection pooling; the client sends `Connection: close` by design and the unstable server closes per response); ~~**server (P1)**: `parse_request`, `HttpServer` on `TcpListener`~~ **DONE 2026-08-29** (`std/http/server.yo`: `HttpServer.bind/serve_once/serve/stop/close`, `parse_request`, `HttpResponse.to_string/with_status/header/with_body`, `HttpMethod.from_str` + `OPTIONS`; wire framing shared with the client in `std/http/wire.yo`; 7 loopback tests incl. a chunked request body); ~~collapse `FetchOptions` into `HttpRequest`~~ **REJECTED 2026-08-29**: `FetchOptions` is the client-policy record (JS-fetch `init` + deadline/redirect/size caps) while `HttpRequest` is the WIRE message the server parses INTO — merging would put client policy on a shared wire type; both are shipped API; the compiler's own curl→`std/http` swap (D6 PR-3) is **BLOCKED on Windows TLS** (plans/archive/D6_TLS_PLAN.md item 3); ~~RFC 9112 §5 field-value parsing~~ **DONE 2026-09-05** (C62: the OWS after a colon is optional and is any run of SP/HTAB, field names are anchored to a line start instead of substring-matched, and an unreadable `Content-Length` is `HttpError.MalformedContentLength` rather than a silent `-1` — issues/fixed/http-content-length-ows-and-invalid-values.md); RFC 9112 §5.1 (whitespace BEFORE the colon must make a request a 400) still open — issues/http-whitespace-before-header-colon-not-rejected.md |
+| http | FIX + EXTEND | C1 DONE; ~~https over TLS~~ **DONE 2026-08-28** (D6 PR-2: scheme branch, shared generic Reader response loop, TcpStream|TlsStream transport, default port 443); ~~timeouts, redirects~~ **DONE 2026-08-28** (C33); ~~chunked decoding~~ **DONE 2026-08-29** (C53); ~~binary bodies~~ **DONE 2026-08-29** (`body : String` IS the bytes form — String is an unchecked byte buffer; pinned byte-for-byte client+server incl. invalid UTF-8, and `parse_request` now byte-slices the body — issues/fixed/http-parse-request-binary-body-boundary-panic.md); keep-alive: **DEFERRED post-freeze** (connection pooling; the client sends `Connection: close` by design and the unstable server closes per response); ~~**server (P1)**: `parse_request`, `HttpServer` on `TcpListener`~~ **DONE 2026-08-29** (`std/http/server.yo`: `HttpServer.bind/serve_once/serve/stop/close`, `parse_request`, `HttpResponse.to_string/with_status/header/with_body`, `HttpMethod.from_str` + `OPTIONS`; wire framing shared with the client in `std/http/wire.yo`; 7 loopback tests incl. a chunked request body); ~~collapse `FetchOptions` into `HttpRequest`~~ **REJECTED 2026-08-29**: `FetchOptions` is the client-policy record (JS-fetch `init` + deadline/redirect/size caps) while `HttpRequest` is the WIRE message the server parses INTO — merging would put client policy on a shared wire type; both are shipped API; the compiler's own curl→`std/http` swap (D6 PR-3) **LANDED as #364, 2026-09-02**, and the Windows TLS gap it left closed 2026-09-04 with the **Schannel backend** — D6 is CLOSED (plans/archive/D6_TLS_PLAN.md) |
 | async | PROMOTE | combinator home: `join_all`, `race`, `any`, `timeout`, interval, cancellation for `JoinHandle` (`abort()`), async channel/mutex (D7). `sleep(Duration, io)` lives in `std/time/sleep.yo` — do NOT add a second one; re-export if wanted |
 | thread/worker/sync | REDESIGN (D7) | ThreadPool DONE; `join() -> T` + panic propagation blocked below std — see D7 |
 | time | EXTEND | ~~`Duration`: `Add/Sub` operators, `Eq/Ord/Hash`, `from_secs_f64`, `subsec_*`, consts~~ + ~~`Instant` `add/sub`, `Eq/Ord`~~ **DONE 2026-08-28** (PR #312: operators mirror add/sub incl. zero-saturation, total-nanos Hash, from_secs_f64 clamps negatives, SECOND…HOUR consts, Instant.sub clamps at clock zero); **make std USE it** (timeouts, sleeps); ~~`DateTime`: RFC3339 `parse`/`format`, component ctor, arithmetic, `Eq/Ord`~~ **DONE 2026-08-28** (leap-aware `parse` incl. lowercase t/z + space separator + nano fractions + numeric offsets, typed `DateTimeError`, validating `new`, `add`/`sub(Duration)` offset-preserving, INSTANT-basis `Eq`/`Ord` + `to_unix_utc`; `to_string` was already RFC3339 — round-trip pinned); sleep unification DONE (§5) |

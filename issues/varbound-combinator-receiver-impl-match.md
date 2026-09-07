@@ -20,7 +20,7 @@ under-resolution the rre adoption notes in calls/function.yo deliberately
 work around for the per-call closure-F identity.
 
 Found 2026-08-24 implementing the S1
-iterator chunk (plans/STD_API_AUDIT.md D3.4): `for_each` on the new
+iterator chunk (plans/archive/STD_API_AUDIT.md D3.4): `for_each` on the new
 `IterFilterMap`/`IterFlatMap` combinators failed, and reduction showed the
 same failure on plain `.map(f)` — pre-existing on `develop`, latent because
 nothing in tree ever bound a `B`-carrying combinator to a variable before

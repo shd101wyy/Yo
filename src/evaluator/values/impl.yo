@@ -1539,7 +1539,7 @@ _inject_forall_captures :: (
             new_cvs := ArrayList(EvalValue).new();
             // Campaign 2 step 3: inherit the shared handle list; the
             // per-generic bindings appended below get minted capture
-            // Variables (plans/FUNCVAL_ENV_SHARING.md).
+            // Variables (plans/backlog/FUNCVAL_ENV_SHARING.md).
             new_cvars := ArrayList(Variable).new();
             (ifc_env_key : usize) = usize(0);
             (ifc_have_vars : bool) = false;
@@ -1610,7 +1610,7 @@ _inject_forall_captures :: (
               register_funcval_cap_vars(ifc_env_key, new_cvars);
             });
             injected := EvalValue.FuncVal(box(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
-            _memo := g_ifc_memo.insert(memo_key, injected);
+            g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
           }
         )

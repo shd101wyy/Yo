@@ -755,7 +755,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     lhs_info_opt,
                     .Some(li) => if(li.value.is_none(), {
                       record_module_level_init_expr(evaluated);
-                      _r1 := g_module_level_static_names.insert(ast_expr_token(init_lhs).value);
+                      g_module_level_static_names.insert(ast_expr_token(init_lhs).value);
                     }),
                     .None => ()
                   );
@@ -771,7 +771,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                     binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
                     if(ast_expr_is_atom(binding_lhs), {
                       record_module_level_init_expr(evaluated);
-                      _r2 := g_module_level_static_names.insert(ast_expr_token(binding_lhs).value);
+                      g_module_level_static_names.insert(ast_expr_token(binding_lhs).value);
                     });
                   }, {
                     // Bare-atom reassignment of a previously recorded static.

@@ -145,7 +145,7 @@ positions).
 
 The comments at `src/lsp/rename.yo:35-36`, `definition.yo:104`,
 `references.yo:34`, `hover.yo:50-51` and `symbols.yo:98` all say "RUNE column + RUNE width" on purpose: D4 PR 3
-(`plans/STD_API_AUDIT_D4_PLAN.md` §5.4) made the server's *internal* basis
+(`plans/archive/STD_API_AUDIT_D4_PLAN.md` §5.4) made the server's *internal* basis
 coherent and deliberately deferred the protocol-visible correction. The seam it
 promised is in place — `rune_col_to_byte_offset` (`src/lsp/protocol.yo:90-108`)
 and `byte_offset_to_rune_col` (`:114-131`) — and this issue is the follow-up

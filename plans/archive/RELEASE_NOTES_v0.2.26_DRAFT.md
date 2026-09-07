@@ -1,5 +1,8 @@
 # v0.2.26
 
+> **ARCHIVED 2026-09-07 — v0.2.26 shipped.** This was the pre-release draft;
+> the published notes are on the GitHub release.
+
 A substantial release: **`unit` is now a true zero-sized type**, the
 lazy-binding campaign closes with forward references allowed in `std/` and
 `src/` themselves, the std API stabilization campaign lands its whole P0

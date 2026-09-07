@@ -5,7 +5,7 @@ accepts `# <name>` for the well-known section names (arbitrary `#` headings
 stay description content) and ignores `#` lines inside fenced code blocks;
 std's 62 single-`#` known headings were normalised to `## `. Tests:
 `tests/internal/doc_sections.test.yo` (3 new cases). Found 2026-08-29 adding the `## Stability` module marker
-(plans/STD_API_AUDIT.md §9 S5). **Severity:** LOW (rendering only): the text
+(plans/archive/STD_API_AUDIT.md §9 S5). **Severity:** LOW (rendering only): the text
 still appears inside the description, but `# Examples` / `# Returns` /
 `# Deprecated` written with a single `#` are not parsed as the well-known
 sections (`src/doc/sections.yo` `is_section_heading_` requires `## `), so the

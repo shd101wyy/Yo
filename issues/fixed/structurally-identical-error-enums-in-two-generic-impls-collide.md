@@ -1,7 +1,7 @@
 # Two structurally identical error enums in two generic impls are conflated
 
 **Status:** **FIXED 2026-08-29.** Found 2026-08-25 while executing
-`plans/STD_API_AUDIT.md` §6 round 2 (deleting measured-dead std
+`plans/archive/STD_API_AUDIT.md` §6 round 2 (deleting measured-dead std
 declarations). It **blocked** the `HashMapError` / `HashSetError` half of that
 item; the other two items (`PathError`, `CustomAllocator`) landed.
 

@@ -182,7 +182,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
               },
               .Symlink => {
                 // WalkOptions.follow_symlinks was declared and never read
-                // (plans/STD_API_AUDIT.md C9). Record the entry; the follow
+                // (plans/archive/STD_API_AUDIT.md C9). Record the entry; the follow
                 // decision needs awaits, which are deferred to the
                 // pending-links pass below (awaits nested this deep trip
                 // issues/async-nested-cond-await-duplicate-while-labels.md).
@@ -223,7 +223,7 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
             canon_s := e.io.await(_canon_dir_target(lp, e.io), e);
             cond(
               (!canon_s.is_empty() && !followed.contains(canon_s)) => {
-                match(followed.insert(canon_s), .Ok(_) => (), .Err(_) => ());
+                followed.insert(canon_s);
                 stack.push({ path : lp, depth : (cur_depth + u32(1)) });
               },
               true => ()

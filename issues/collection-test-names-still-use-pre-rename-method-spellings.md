@@ -7,7 +7,7 @@
 `collections/*` row, while looking for `insert` coverage in
 `tests/collections/`.
 
-The §5 API-rename sweep (`plans/STD_API_AUDIT.md:575-582`, DONE 2026-08-25)
+The §5 API-rename sweep (`plans/archive/STD_API_AUDIT.md:575-582`, DONE 2026-08-25)
 renamed the map/set mutators and accessors and migrated every call site. It did
 not touch the string literals in `test("...")`, so 37 tests across five files
 still advertise methods that were deleted in that sweep. `--test-name-pattern`
@@ -68,7 +68,7 @@ overwritten `Box` is dropped. Its name should say that, not name a method.
 
 ## Root cause
 
-`plans/STD_API_AUDIT.md:575-582` records the renames:
+`plans/archive/STD_API_AUDIT.md:575-582` records the renames:
 
 - "Map/set `set`/`add` → `insert`"
 - "`HashMap.iter_ptr` → `iter`"
@@ -129,7 +129,7 @@ that name it, since `--test-name-pattern` is the documented way to run one test.
 
 ## Scope check — what this does NOT break
 
-The §9 export-coverage read (`plans/STD_API_AUDIT.md:868-877`) greps every
+The §9 export-coverage read (`plans/archive/STD_API_AUDIT.md:868-877`) greps every
 `export(...)` name across the whole of `tests/`, bodies included, so it is
 unaffected: `insert`, `contains`, `contains_key`, `first_entry` and `last_entry`
 all appear in the bodies and score as covered. The damage is confined to the

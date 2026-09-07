@@ -1,7 +1,7 @@
 # A spawn wrapper closure that forwards its `io : Io` parameter gets a stale `Io` C type
 
 **Status:** OPEN — blocks a std-side wrapper around a user task closure
-(per-task `JoinHandle`-analog, completion accounting), plans/STD_API_AUDIT.md D7.
+(per-task `JoinHandle`-analog, completion accounting), plans/archive/STD_API_AUDIT.md D7.
 
 ## Symptom
 

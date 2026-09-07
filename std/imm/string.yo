@@ -88,7 +88,7 @@ impl(
   ///
   /// For "how many runes" use `chars().count()` (O(n)); to walk runes together with
   /// the byte offset each one starts at, use `char_indices()`.
-  /// (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this returned a RUNE count
+  /// (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this returned a RUNE count
   /// before that flip, and a `bytes_len()` alias carried the byte count; the
   /// alias was DELETED with the flip because it had no consumer left.)
   len : (fn(self : Self) -> usize)(
@@ -592,7 +592,7 @@ impl(
   }),
   /// Decode the rune that STARTS at byte offset `index`.
   ///
-  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this took a
+  /// **BYTE basis** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 4 — this took a
   /// rune index before the flip; it now mirrors `std/string`'s `String.at`).
   /// `.None` is returned for the three ways a byte offset can fail to name a
   /// rune: at or past `len()`, inside a rune (a UTF-8 continuation byte), or
@@ -611,7 +611,7 @@ impl(
 /// this type never had. Offsets are **BYTES** throughout — the rune count
 /// is `chars().count()` — and since D4 PR 4 flipped `len()` and `at()`, that
 /// is the basis the WHOLE type speaks: this block is the rune vocabulary on
-/// top of it. See `plans/STD_API_AUDIT_D4_PLAN.md`.
+/// top of it. See `plans/archive/STD_API_AUDIT_D4_PLAN.md`.
 ///
 /// `char_indices` is built on `std/encoding/utf8` and inherits its
 /// malformed-input behaviour: `char_indices` and `chars` stop at

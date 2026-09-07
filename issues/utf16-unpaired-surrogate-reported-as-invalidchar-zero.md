@@ -65,5 +65,5 @@ deliberately rather than smuggled in.
 4. Add tests to `tests/encoding/utf16.test.yo` for both paths, asserting the
    payload is the real code unit and not `0`.
 
-Related: `plans/STD_API_AUDIT.md` D1/D2 (one error style per module) and D8
+Related: `plans/archive/STD_API_AUDIT.md` D1/D2 (one error style per module) and D8
 (the `EncodingError` relocation this was found under).

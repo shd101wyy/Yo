@@ -1,6 +1,6 @@
 # `std/term`'s `unstable` marker is undatable, four releases past its window, and names an exit condition that never happened
 
-**Status: FIXED 2026-09-05** — Option (a) taken — `std/term` is FROZEN (section dropped). The same pass decided the three siblings: `std/encoding/csv` and `std/http/server` frozen, `std/fs/watch` restated with the real Windows blocker. Recorded in `plans/STD_API_AUDIT.md` §9 S5.
+**Status: FIXED 2026-09-05** — Option (a) taken — `std/term` is FROZEN (section dropped). The same pass decided the three siblings: `std/encoding/csv` and `std/http/server` frozen, `std/fs/watch` restated with the real Windows blocker. Recorded in `plans/archive/STD_API_AUDIT.md` §9 S5.
 
 **Found**: 2026-09-04, by the std-API-audit re-measurement of the `cli` row.
 **Severity**: LOW (papercut), but it is a published stability promise on a
@@ -92,7 +92,7 @@ Decide the module's actual status and write it down. Two honest options:
 - **(a) Freeze it.** Delete the `## Stability` section from `std/term.yo:5-9`.
   `std/term` becomes stable and additive-only, and a future colour vocabulary
   is an additive addition that needs no unstable window. Record the freeze in
-  `plans/STD_API_AUDIT.md` §7.
+  `plans/archive/STD_API_AUDIT.md` §7.
 - **(b) Restate it with a real reason and a real version.** Replace the text
   with the sibling wording and a condition that is actually reachable, e.g.
   `unstable — new in v0.2.20; no in-tree consumer yet, so the API may still
@@ -127,7 +127,7 @@ deciding deliberately rather than letting the marker rot.
 No unit test can pin a doc marker's truthfulness. Two mechanical guards are
 available and either would have caught this:
 
-- Extend the `plans/STD_API_AUDIT.md` §7 table to record, per unstable module,
+- Extend the `plans/archive/STD_API_AUDIT.md` §7 table to record, per unstable module,
   the version it entered in — and add a CI check that fails when a module has
   carried `## Stability` across more than one release since that recorded
   version.

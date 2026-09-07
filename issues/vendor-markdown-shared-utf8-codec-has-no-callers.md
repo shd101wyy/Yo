@@ -87,7 +87,7 @@ sites re-derived the logic in place. That re-derivation is where the divergence
 crept in: `link.yo` and `reference.yo` fall back to `cp = ch_byte` on truncation
 instead of U+FFFD, which is the wrong-value bug filed alongside this one.
 
-`plans/STD_API_AUDIT_D4_PLAN.md:461` (D4 PR 9) asked for exactly this dedup, but
+`plans/archive/STD_API_AUDIT_D4_PLAN.md:461` (D4 PR 9) asked for exactly this dedup, but
 the row's site list is an undercount in two ways: it names four files and misses
 `src/common/punycode.yo`, `src/renderer.yo` and `src/common/unescape.yo`, and it
 counts no encoders at all — the same omission `#286`'s commit message called out
@@ -153,5 +153,5 @@ This is the last surviving item of that row. The six non-vendor sites it lists
 `src/formatter.yo`) are all done: the five std ones route through
 `std/encoding/utf8` (landed in `#286`), and `src/formatter.yo`'s decoder was
 deleted outright by `#290` when `Token.byte_offset` retired
-`_byte_offset_of_char_index`. `plans/STD_API_AUDIT.md:284-288` still lists the
+`_byte_offset_of_char_index`. `plans/archive/STD_API_AUDIT.md:284-288` still lists the
 whole row as remaining.

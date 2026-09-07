@@ -123,7 +123,7 @@ No codegen change is needed — `__yo_aligned_free` already exists in every
 emitted header.
 
 Because this is additive it must land **before** the S5 export freeze
-(`plans/STD_API_AUDIT.md` §9); after the freeze, the broken pairing is frozen in
+(`plans/archive/STD_API_AUDIT.md` §9); after the freeze, the broken pairing is frozen in
 and the only remaining option would be a breaking removal of `aligned_alloc`.
 
 The alternative — **delete `aligned_alloc`** as a zero-consumer export under

@@ -119,7 +119,7 @@ pinned by the two reproducers recorded above rather than by tests.
 unlike `CapacityOverflow` they are dead **by design**: lookups return `Option`,
 so a not-found *error* has no producer and needs none. Deleting them is a
 breaking change to a public enum, so it belongs to the pre-S5 deletion sweep
-(`plans/STD_API_AUDIT.md` §6) rather than to this memory-safety fix.
+(`plans/archive/STD_API_AUDIT.md` §6) rather than to this memory-safety fix.
 `std/allocator`'s `Layout` / `layout_of` are also unconsumed in-tree — there is
 no `alloc(Layout)` entry point that would use them — which is worth a decision
 in the same sweep.

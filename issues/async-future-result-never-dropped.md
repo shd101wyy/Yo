@@ -1,7 +1,7 @@
 # Async future's owned RC result is never dropped — Dispose of async-produced objects never runs
 
 **Status: FIXED in tree (2026-08-23). Found while implementing std S0 C12
-(plans/STD_API_AUDIT.md): the new `TempDir`/`TempFile` `Dispose` impls never
+(plans/archive/STD_API_AUDIT.md): the new `TempDir`/`TempFile` `Dispose` impls never
 fired because every TempDir is born through `io.await(TempDir.new(io), …)`.**
 
 ## Symptom

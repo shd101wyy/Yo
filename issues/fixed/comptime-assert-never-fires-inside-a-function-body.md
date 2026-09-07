@@ -98,7 +98,7 @@ Two of the audit's own conventions lean on `comptime_assert`:
 
 - the O7 `Acyclic` pins use `comptime_assert(Type.impls(payload, Send))` to
   guarantee "the expected error can only be Acyclic's"
-  (`plans/STD_API_AUDIT.md` §8 O7) — an inert guard there means the
+  (`plans/archive/STD_API_AUDIT.md` §8 O7) — an inert guard there means the
   `comptime_expect_error` tests may be passing for the wrong reason;
 - `std/prelude.yo`'s own `for`-macro validation uses
   `comptime_assert(args.len() == 2, …)` inside a macro body, which is a

@@ -1,7 +1,7 @@
 # `File.from_fd(fd).metadata()` returns the CURRENT DIRECTORY's metadata, not the file behind the descriptor
 
 **Found**: 2026-09-04, during the std-API audit re-measurement of the fs row
-(`plans/STD_API_AUDIT.md` item "stop `metadata` re-stat by path", which the plan
+(`plans/archive/STD_API_AUDIT.md` item "stop `metadata` re-stat by path", which the plan
 files under EXTEND + POLISH). It is not polish — it is a wrong-value bug that
 hands a caller plausible metadata for a completely different object with no
 error. **Status**: OPEN. **Severity**: wrong-value.

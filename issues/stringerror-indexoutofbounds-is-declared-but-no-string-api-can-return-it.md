@@ -72,7 +72,7 @@ string one anywhere.
 Two independent causes let it survive:
 
 1. **The design went the other way and the enum was not trimmed.** D4 (byte
-   indexing, `plans/STD_API_AUDIT.md:243-283`) settled the boundary policy
+   indexing, `plans/archive/STD_API_AUDIT.md:243-283`) settled the boundary policy
    explicitly: "out-of-range CLAMPS; a non-boundary index PANICS in infallible
    `substring` (`try_substring` returns `.None`)". The non-panicking spellings that
    landed are `Option`-returning, not `Result`-returning —
@@ -91,7 +91,7 @@ Two independent causes let it survive:
    every path.
 
 2. **A plan note records the intention as though it were the implementation.**
-   `plans/STD_API_AUDIT.md:676-680` reads "**`StringError` — WIRED UP, not
+   `plans/archive/STD_API_AUDIT.md:676-680` reads "**`StringError` — WIRED UP, not
    deleted** (2026-08-25 correction) … `IndexOutOfBounds` is the natural error for
    D4 bounds failures." Only the `InvalidUtf8` half was ever wired. A reader
    checking the audit before the enum sweep would conclude the variant is live,
@@ -149,7 +149,7 @@ not resurrect this variant.
 
 ### Also fix the plan note
 
-`plans/STD_API_AUDIT.md:678-679` must stop stating the intention as fact. Replace
+`plans/archive/STD_API_AUDIT.md:678-679` must stop stating the intention as fact. Replace
 "`IndexOutOfBounds` is the natural error for D4 bounds failures" with
 "`IndexOutOfBounds` was never constructed — D4 chose panics plus `Option`-returning
 `try_*` accessors — and is deleted." Leaving the sentence in place is what let the
@@ -189,7 +189,7 @@ variants anyway.
 Yes. `StringError` is exported (`std/string/string.yo:2880`) and removing a public
 variant breaks any exhaustive `match` on it in user code. It is free to do
 **before** the API freeze and breaking after, so it belongs in the pre-freeze
-deletion sweep (`plans/STD_API_AUDIT.md` §6) alongside the already-landed
+deletion sweep (`plans/archive/STD_API_AUDIT.md` §6) alongside the already-landed
 `HashMapError.KeyNotFound` / `HashSetError.ElementNotFound` deletion (#374,
 `11c34a8b6`). Release-note line: "`StringError.IndexOutOfBounds` is deleted; it was
 never constructed — string bounds failures panic (D4) and the non-panicking

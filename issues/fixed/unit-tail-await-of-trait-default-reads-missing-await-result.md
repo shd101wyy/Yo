@@ -1,7 +1,7 @@
 # A unit-resolving tail await emitted `sm->await_result_N;` — a field the state struct never declares
 
 **Status: FIXED 2026-08-26.** Found implementing D5 slice 2
-(`plans/STD_API_AUDIT.md` §D5): the very first where-bound generic wrapper over
+(`plans/archive/STD_API_AUDIT.md` §D5): the very first where-bound generic wrapper over
 the new `Writer.write_all` trait default failed to C-compile.
 
 ## Symptom

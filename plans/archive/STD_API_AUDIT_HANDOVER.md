@@ -1,8 +1,14 @@
 # STD_API_AUDIT — handover
 
-**Written 2026-08-26.** Hand-off of the `plans/STD_API_AUDIT.md` campaign. Read
-this file, then `plans/STD_API_AUDIT.md` (the audit itself) and
-`plans/STD_API_AUDIT_D4_PLAN.md` (the string-indexing sub-plan, which is the
+> **CLOSED 2026-09-07 — the campaign it hands over
+> (`plans/archive/STD_API_AUDIT.md`) is complete.** Its method notes — the
+> battery script, the measurement traps, the "re-measure before executing"
+> rule — were carried into `plans/HANDOVER_STD_AUDIT_2026-09-07.md`, which is
+> the live handover.
+
+**Written 2026-08-26.** Hand-off of the `plans/archive/STD_API_AUDIT.md` campaign. Read
+this file, then `plans/archive/STD_API_AUDIT.md` (the audit itself) and
+`plans/archive/STD_API_AUDIT_D4_PLAN.md` (the string-indexing sub-plan, which is the
 only large piece still in flight).
 
 ---
@@ -104,7 +110,7 @@ S0 correctness, S1 (D1–D3 conventions + prelude traits), and **almost all of S
 
 ## 3. What is LEFT
 
-### 3.1 D4 — PRs 4–8 ALL DONE 2026-08-26; only PR 9 remains — `plans/STD_API_AUDIT_D4_PLAN.md` §4 has the full table
+### 3.1 D4 — PRs 4–8 ALL DONE 2026-08-26; only PR 9 remains — `plans/archive/STD_API_AUDIT_D4_PLAN.md` §4 has the full table
 
 | PR | content | note |
 | --- | --- | --- |
@@ -134,12 +140,12 @@ silent `=`-assign await no-op) en route. **The bufio MOVE completed 2026-08-28**
 once v0.2.18 became the seed: the three compiler consumers read stdin through
 `BufReader(Stdin)` and `std/sys/bufio` is deleted (`BufWriter` regained
 `write_string`/`write_bytes` with it). Remaining: C17 blocks only the
-`Dyn(Reader)` spelling. Full current state: `plans/STD_API_AUDIT.md` §D5.
+`Dyn(Reader)` spelling. Full current state: `plans/archive/STD_API_AUDIT.md` §D5.
 
 ### 3.3 §7 additions — S3 (P0) and S4 (P1)
 
 Untouched, and much larger than everything above combined. Ranked list is in
-`plans/STD_API_AUDIT.md` §7. P0: percent-encoding, `std/encoding/utf8` *(done)*,
+`plans/archive/STD_API_AUDIT.md` §7. P0: percent-encoding, `std/encoding/utf8` *(done)*,
 the io redesign *(= D5)*, `fs.copy`/`remove_dir_all`/`read_link`/
 `set_permissions`/`try_exists`, `process.Child`/`spawn`/`Stdio`, async
 combinators + async channel/mutex + `timeout`, crypto (HMAC, SHA-1, SHA-512,
@@ -176,7 +182,7 @@ other generation-gated follow-ups.
 Item 6's own `HttpError.Timeout` question turned into a scripted sweep of the
 public surface, which found four defects. Two were memory-safety or
 silently-wrong-value bugs, and both are FIXED with tests; the ledger rows are
-C32–C35 in `plans/STD_API_AUDIT.md` §2.
+C32–C35 in `plans/archive/STD_API_AUDIT.md` §2.
 
 | row | what | state |
 | --- | --- | --- |
@@ -281,7 +287,7 @@ of "verified" that were not, check the four `yo check` blind spots, grep for
 missed call sites across `std/ src/ tests/ docs/ .github/ vendor/`, and look for
 tests that pass vacuously. That prompt is worth reusing verbatim.
 
-**`plans/STD_API_AUDIT.md` is not reliable as a specification.** Roughly a dozen
+**`plans/archive/STD_API_AUDIT.md` is not reliable as a specification.** Roughly a dozen
 of its rows have been measured wrong so far — dead things that were alive
 (`WaitGroup`, `StringError`), live things that were dead (`MAX_SLOTS`),
 mis-stated mechanisms (`starts_with(position)` is a *broken char walk*, not

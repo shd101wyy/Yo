@@ -1,9 +1,9 @@
 # `std/term`'s stability marker says "new in this release" — a floating reference that has been wrong in four shipped releases
 
-**Status: FIXED 2026-09-05** — Resolved by option (a) of the sibling issue: `std/term` is FROZEN and the section is gone, so there is no longer a version to get wrong. Recorded in `plans/STD_API_AUDIT.md` §9 S5.
+**Status: FIXED 2026-09-05** — Resolved by option (a) of the sibling issue: `std/term` is FROZEN and the section is gone, so there is no longer a version to get wrong. Recorded in `plans/archive/STD_API_AUDIT.md` §9 S5.
 
 **Found**: 2026-09-04, taking the inventory of `## Stability` markers across `std/`
-for the S5 freeze (`plans/STD_API_AUDIT.md` §9). **Severity:** LOW-MEDIUM (published
+for the S5 freeze (`plans/archive/STD_API_AUDIT.md` §9). **Severity:** LOW-MEDIUM (published
 API lie, and it disables the policy's own expiry rule): the marker rendered on the
 docs for v0.2.21, v0.2.22, v0.2.23 and v0.2.24 tells every reader that `std/term` is
 "new in this release" when it shipped in v0.2.20.
@@ -84,9 +84,9 @@ Two parts, and the first has a decision in it.
 
    **Recommend (a)** unless `std/cli`'s adoption is genuinely still moving the API,
    in which case (b) with the reason spelled out. Whichever is chosen, record it in
-   the `plans/STD_API_AUDIT.md` §7 "when frozen" table the policy at
+   the `plans/archive/STD_API_AUDIT.md` §7 "when frozen" table the policy at
    `yo-design.instructions.md:155` promises — that table does not exist yet
-   (`grep -n 'frozen' plans/STD_API_AUDIT.md` finds no such record).
+   (`grep -n 'frozen' plans/archive/STD_API_AUDIT.md` finds no such record).
 
    The same decision is owed for the other three expired markers
    (`std/encoding/csv.yo`, `std/http/server.yo`, `std/fs/watch.yo`); `std/fs/watch`

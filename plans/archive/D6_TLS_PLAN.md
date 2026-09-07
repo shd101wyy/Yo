@@ -1,5 +1,9 @@
 # D6 — `std/crypto/tls`: TlsStream over OpenSSL and Schannel (measured execution plan)
 
+> **ARCHIVED 2026-09-07.** D6 closed 2026-09-04 (see the status line below);
+> Windows Schannel TLS shipped in v0.2.26 and the curl→`std/http` swap (PR-3)
+> landed. Nothing pending.
+
 **Status: D6 CLOSED (2026-09-04).** All three PRs landed. PR-3 (the compiler's
 own curl→`std/http` swap) shipped as #364 on 2026-09-02, and the Windows gap it
 left — `yo version install` / `yo version list --remote` refusing to run with

@@ -1,7 +1,7 @@
 # The live-TLS tests pass vacuously when the handshake fails — in CI too
 
 **Found** 2026-09-04, while removing the `SkipWindows` pragmas for the Schannel
-backend (D6, `plans/D6_TLS_PLAN.md` item 3).
+backend (D6, `plans/archive/D6_TLS_PLAN.md` item 3).
 
 **Class:** hollow green. Not a wrong answer — an *absent* answer that reads as a
 pass.
@@ -40,7 +40,7 @@ The comment says the design is "skips when the connection can't be made so an
 offline box stays green", which is a reasonable intent. The defect is that the
 test cannot tell an offline box from a broken TLS stack, so it treats a
 regression as an offline box **on the CI runners as well**, where egress is
-guaranteed (`plans/D6_TLS_PLAN.md` §7: "CI runners have egress; offline boxes
+guaranteed (`plans/archive/D6_TLS_PLAN.md` §7: "CI runners have egress; offline boxes
 skip").
 
 ## Why it matters now
@@ -78,7 +78,7 @@ mandatory under CI accepts that an egress hiccup on a runner turns a leg red,
 where today it is invisible. A red leg is retryable and visible; a vacuous pass
 is neither.
 
-## FIXED 2026-09-04 (with the Schannel backend, `plans/D6_TLS_PLAN.md`)
+## FIXED 2026-09-04 (with the Schannel backend, `plans/archive/D6_TLS_PLAN.md`)
 
 Both test files now carry a module-level
 `_network_required :: (fn() -> bool)(env.get("CI").is_some());`, and their

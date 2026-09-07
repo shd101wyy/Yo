@@ -1,7 +1,7 @@
 # A verified-FIXED issue doc still sits in `issues/` root, and five references point at the `issues/fixed/` path it does not have
 
 **Found**: 2026-09-04, by the std-API audit re-measurement, when the C36 row's
-cross-reference in `plans/STD_API_AUDIT.md` turned out to be a dead path.
+cross-reference in `plans/archive/STD_API_AUDIT.md` turned out to be a dead path.
 **Class**: papercut — bookkeeping, but it corrupts the open-issue tally and
 breaks five links, two of them from compiler source comments. **Status**: OPEN.
 
@@ -33,8 +33,8 @@ in the root by `5ecee4350` (the C33/C36 PR #333) and never moved.
 Five places already spell the path as if the move had happened
 (`grep -rn 'issues/fixed/async-cond-dispatch-skips-chained-sibling-arm'`):
 
-- `plans/STD_API_AUDIT.md:104` — the C36 row
-- `plans/HANDOVER_2026_08_28.md:30` — the C36 handover row
+- `plans/archive/STD_API_AUDIT.md:104` — the C36 row
+- `plans/archive/HANDOVER_2026_08_28.md:30` — the C36 handover row
 - `issues/fixed/second-cond-internal-await-result-not-stored.md:4`
 - `src/codegen/async/state_code_gen.yo:2271` — a comment explaining why a
   result is dropped
@@ -54,7 +54,7 @@ lands on nothing, and the tree contradicts itself about where the doc lives.
 
 - The open-issue count is wrong. `ls issues/*.md | wc -l` reports 89 (88 issue
   docs plus `README.md`); one of those 88 is a closed bug.
-- `plans/STD_API_AUDIT.md`'s own C36 row — the record the S5 coverage read is
+- `plans/archive/STD_API_AUDIT.md`'s own C36 row — the record the S5 coverage read is
   driven from — points at a file that does not exist, so the audit cannot be
   followed to its evidence.
 - Two compiler source comments cite a nonexistent path, which is the worst of

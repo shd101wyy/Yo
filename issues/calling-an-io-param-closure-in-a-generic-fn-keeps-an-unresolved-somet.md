@@ -292,7 +292,7 @@ prototype: that would paper over link 2, leaving `Cell(T).put` still keyed on a
 
 ## Why the `std/thread` result-carry row is blocked on this
 
-`plans/HANDOVER_STD_AUDIT_NEXT.md` item 12 records `join() -> T` as unblocked
+`plans/archive/HANDOVER_STD_AUDIT_NEXT.md` item 12 records `join() -> T` as unblocked
 because `issues/fixed/spawn-closure-generic-captures-erased-to-void-ptr.md`
 measured fixed. It is not. `Thread.spawn`'s callback is
 `Impl(Fn(io : Io) -> unit, Send)` (`std/thread.yo:57`), so a result-carrying
@@ -329,5 +329,5 @@ reproducers pass it. The test must be a compile-and-run case.
   "FIXED BY EVENTS / therefore unblocked" header contradicts the doc's own
   boundary table and its "Why this blocks `join() -> T`" section. Narrow it to
   the capture-struct half and point it here.
-* `plans/HANDOVER_STD_AUDIT_NEXT.md` item 12 and
-  `plans/STD_API_AUDIT.md` D7 — the row is BLOCKED, on this.
+* `plans/archive/HANDOVER_STD_AUDIT_NEXT.md` item 12 and
+  `plans/archive/STD_API_AUDIT.md` D7 — the row is BLOCKED, on this.

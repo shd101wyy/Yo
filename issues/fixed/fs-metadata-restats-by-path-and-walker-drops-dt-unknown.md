@@ -1,7 +1,7 @@
 # `File.metadata` re-stats by PATH (a `from_fd` handle reports the CWD), and `read_dir` calls `DT_UNKNOWN` `.Other` so the walker skips whole subtrees
 
 **Found**: 2026-09-05, auditing `std/fs` after `File.from_fd` landed
-(2026-09-04, `plans/STD_API_AUDIT.md` fs row). **Fixed**: same day. Two
+(2026-09-04, `plans/archive/STD_API_AUDIT.md` fs row). **Fixed**: same day. Two
 independent wrong-value defects, both of them silent — no error, no
 diagnostic, just an answer about the wrong object.
 

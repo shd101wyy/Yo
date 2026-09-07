@@ -34,7 +34,7 @@ _mark_sc_target_emitted :: (fn(target : String, context : FunctionGenerationCont
   match(
     context.short_circuit_emitted_drop_targets,
     .Some(em_set) => {
-      _i := em_set.insert(target);
+      em_set.insert(target);
     },
     .None => ()
   );
@@ -103,7 +103,7 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
           match(
             ei.variable_name,
             .Some(vn) => {
-              _a := result.insert(vn.clone());
+              result.insert(vn.clone());
             },
             .None => ()
           );
@@ -128,7 +128,7 @@ _collect_created_var_names_from_expr :: (fn(expr : AstExpr, result : HashSet(Str
                     .Some(dei) => match(
                       dei.variable_name,
                       .Some(dvn) => {
-                        _b := result.insert(dvn.clone());
+                        result.insert(dvn.clone());
                       },
                       .None => ()
                     ),
@@ -227,12 +227,12 @@ _emit_node_list_drops :: (
                     // double-drop that sank two earlier attempts at the chain
                     // fix; record unconditionally, emit conditionally.
                     nd_code := _call_generate_expr(nd_drop, indent.clone(), context);
-                    _ng := context.emitted_deferred_drop_ids.insert(ast_expr_id(nd_drop));
+                    context.emitted_deferred_drop_ids.insert(ast_expr_id(nd_drop));
                     _mark_sc_target_emitted(ntarget.clone(), context);
                     match(
                       context.short_circuit_handled_drop_var_names,
                       .Some(ns) => {
-                        _ni := ns.insert(ntarget);
+                        ns.insert(ntarget);
                       },
                       .None => ()
                     );
@@ -313,7 +313,7 @@ _emit_drops_for_conditional_branch :: (
                   drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
                   // Same decoupling as the node source below: the generator
                   // may have emitted a multi-line drop already and returned "".
-                  _g := context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                  context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
                   _mark_sc_target_emitted(target.clone(), context);
                   if(drop_code.len() > usize(0), {
                     line := indent.clone();
@@ -326,7 +326,7 @@ _emit_drops_for_conditional_branch :: (
                 match(
                   context.short_circuit_handled_drop_var_names,
                   .Some(s) => {
-                    _a := s.insert(target);
+                    s.insert(target);
                   },
                   .None => ()
                 );

@@ -46,7 +46,7 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
     .V6(_) => {
       // Render the real address text (full uncompressed hex form — valid
       // inet_pton input). This used to hardcode "::1" for EVERY V6 address
-      // (plans/STD_API_AUDIT.md C2).
+      // (plans/archive/STD_API_AUDIT.md C2).
       ip_txt := addr.ip.to_string();
       ip_c := ip_txt.to_cstr();
       IO_tcp.make_sockaddr_in6(ip_c.ptr().unwrap(), addr.port)
@@ -169,7 +169,7 @@ impl(
       );
       // Read back the ACTUAL bound address — a port-0 bind gets its port
       // from the kernel; echoing the bind argument reported port 0
-      // (plans/STD_API_AUDIT.md C2).
+      // (plans/archive/STD_API_AUDIT.md C2).
       la_buf := (*u8)(malloc(usize(128)).unwrap());
       la_len := (*u32)(malloc(usize(4)).unwrap());
       la_len.* = u32(128);
@@ -201,7 +201,7 @@ impl(
         true => ()
       );
       // Parse the peer address the kernel filled in. This used to read only
-      // the port and fabricate 0.0.0.0 as the IP (plans/STD_API_AUDIT.md C2).
+      // the port and fabricate 0.0.0.0 as the IP (plans/archive/STD_API_AUDIT.md C2).
       peer_addr := sockaddr_to_socket_addr(addr_buf);
       free(.Some((*void)(addr_buf)));
       free(.Some((*void)(addr_len)));

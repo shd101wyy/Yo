@@ -328,7 +328,7 @@ impl(
   * Insert an element into the set
   * Returns Ok(true) if element was newly inserted, Ok(false) if already present
   */
-  insert : (fn(self : Self, element : T) -> Result(bool, HashSetError))({
+  try_insert : (fn(self : Self, element : T) -> Result(bool, HashSetError))({
     hash := self._hash(element);
     slot_opt := Self._find_slot(self, element, hash);
     match(
@@ -374,6 +374,19 @@ impl(
   /**
   * Check if an element exists in the set
   */
+  /**
+  * Insert an element, returning true when it was NOT already present.
+  *
+  * PANICS on allocation failure (D9); `try_insert` is the allocator-aware
+  * form.
+  */
+  insert : (fn(self : Self, element : T) -> bool)(
+    match(
+      Self.try_insert(self, element),
+      .Ok(added) => added,
+      .Err(_) => __yo_panic("HashSet.insert: allocation failed")
+    )
+  ),
   contains : (fn(self : Self, element : T) -> bool)({
     hash := self._hash(element);
     slot_opt := Self._find_slot(self, element, hash);
@@ -610,7 +623,7 @@ impl(
               element := (data_ptr.add(i)).*;
               cond(
                 (larger.contains(element)) => {
-                  _ := result_set.insert(element);
+                  result_set.insert(element);
                 },
                 true => ()
               );
@@ -643,7 +656,7 @@ impl(
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
-                  _ := result_set.insert(element);
+                  result_set.insert(element);
                 },
                 true => ()
               );
@@ -676,7 +689,7 @@ impl(
               contains_result := other.contains(element);
               cond(
                 (contains_result == false) => {
-                  _ := result_set.insert(element);
+                  result_set.insert(element);
                 },
                 true => ()
               );
@@ -695,7 +708,7 @@ impl(
               contains_result := self.contains(element);
               cond(
                 (contains_result == false) => {
-                  _ := result_set.insert(element);
+                  result_set.insert(element);
                 },
                 true => ()
               );
@@ -903,14 +916,15 @@ export(
 // =============================================================================
 // hash_set! literal macro
 // =============================================================================
-/// Internal helper: build a list of `tmp.insert(elem).unwrap()` statements from `elems`.
+/// Internal helper: build a list of `tmp.insert(elem)` statements from `elems`.
 __hash_set_build_adds :: (fn(comptime(tmp) : Expr, comptime(elems) : ExprList) -> comptime(ExprList))(
   cond(
     (elems.len() == usize(0)) => ExprList(),
     true => {
       first :: elems.car();
       rest :: elems.cdr();
-      stmt :: quote(unquote(tmp).insert(unquote(first)).unwrap());
+      // NO `.unwrap()` here (D9): `insert` returns a bool now, not a Result.
+      stmt :: quote(unquote(tmp).insert(unquote(first)));
       stmt.cons(recur(tmp, rest))
     }
   )
@@ -937,7 +951,7 @@ hash_set :: (fn(...(quote(elems))) -> unquote(Expr))({
   quote({
     unquote(first_tmp) := unquote(first);
     unquote(tmp) := HashSet(typeof(unquote(first_tmp))).new();
-    unquote(tmp).insert(unquote(first_tmp)).unwrap();
+    unquote(tmp).insert(unquote(first_tmp));
     unquote_splicing(rest_adds);
     unquote(tmp)
   })

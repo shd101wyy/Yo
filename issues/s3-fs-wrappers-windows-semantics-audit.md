@@ -9,7 +9,7 @@ stays honest about the rest; the debt is recorded here.
 
 ## What is untested/broken on Windows
 
-The `plans/STD_API_AUDIT.md` §7 P0 item 4 wrappers (PR #303):
+The `plans/archive/STD_API_AUDIT.md` §7 P0 item 4 wrappers (PR #303):
 
 - `fs_file.copy` — copies contents + PERMISSION BITS (fchmod). On Windows,
   `_chmod` supports only the read-only bit; the mode round-trip assertion

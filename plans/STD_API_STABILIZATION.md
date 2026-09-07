@@ -1,6 +1,6 @@
 # std API stabilization — the 2026-09-06 audit against the code and against Rust
 
-**Status: ACTIVE.** Successor to the remaining rows of `plans/STD_API_AUDIT.md`
+**Status: ACTIVE.** Successor to the remaining rows of `plans/archive/STD_API_AUDIT.md`
 (whose §1–§3 decisions D1–D8 stay in force and are NOT re-litigated here). This
 document is the measured state of `std/` on 2026-09-06 — every finding below was
 verified by reading the implementation, not the doc comment — plus the decisions
@@ -52,36 +52,117 @@ the work in §4 does not re-open them.
   all *panic* on the same failure. A `Result` nobody checks is worse than a
   panic. Rust: `Vec::push` aborts on OOM. → `push -> unit` (abort), `try_push ->
   Result`; same for `HashMap.insert -> Option(V)` + `try_insert`. Breaking, one
-  release.
+  release. **LANDED in two PRs** — push (#468) and insert (this one). The line
+  drawn: an ALLOCATION failure panics, a CALLER MISTAKE keeps its `Result`, so
+  `LinkedList.insert -> Result(unit, LinkedListError)` is deliberately
+  untouched (out-of-bounds index). 226 + 267 throwaway `_p :=` / `___ :=`
+  bindings — invented only to swallow the discarded `Result` — are gone.
+  Two hazards worth remembering: `map.insert(k, v).unwrap()` used to unwrap the
+  RESULT and would now unwrap the OPTION and panic on a fresh key (the 8 sites
+  were inside the `hash_map!` / `hash_set!` literal macros, which expand into
+  USER code); and `check` cannot verify any of this, because it does not
+  evaluate deferred generic bodies — the gate is `yo build` plus the suite.
 - **D10 — `replace` replaces ALL; `replacen(pat, to, n)` is the bounded form.**
   `String.replace` and `ImmString.replace` replace the first occurrence — every
   Rust/Python/Go user gets a silently different string. → swap semantics; keep
-  `replace_first` for one release as a deprecated alias.
+  `replace_first` for one release as a deprecated alias. **LANDED (#464)**,
+  with `replacen(pat, to, n)` as the bounded form and one `_replace_scan`
+  primitive behind all four spellings. `Regex.replace` is deliberately NOT
+  flipped — first-match IS the Rust regex crate's shape. The audit of all 61
+  call sites found NO site that wanted first-only, and four COMPILER sites that
+  were already silently wrong (Windows `\`->`/` normalisation stopping at the
+  first backslash; `/./` collapsing; a "whitespace-stripped" pragma scan
+  stripping one space and one tab, so a spaced `pragma( Pragma.SkipWasm )` was
+  ignored and the test RAN on wasm) —
+  `issues/fixed/string-replace-first-only-broke-compiler-callers.md`.
 - **D11 — `PriorityQueue` is a MAX-heap, with `Reverse(T)` for min.** Today it
   is a min-heap under a name every Rust user reads as `BinaryHeap`. → flip +
-  ship `Reverse(T)`; breaking.
+  ship `Reverse(T)`; breaking. **LANDED (#465)** with `Reverse(T)` in the
+  prelude next to `Ord`. Its old doc offered "negate keys for max-heap
+  behaviour", which is wrong for unsigned types and for a signed minimum —
+  hence `Reverse` shipping WITH the flip rather than after it. NOTE this is the
+  campaign's one contestable flip and the PR says so: `PriorityQueue` is
+  max-ordered in C++ but MIN-ordered in Java, so the name alone does not settle
+  it; Rust's shape decides it here.
 - **D12 — numeric parsing is `Result(T, ParseIntError | ParseFloatError)` via a
   `FromStr` trait and `s.parse(T)`.** Eight `parse_*` methods return `Option`,
   collapsing empty / garbage / overflow into `.None` (the C34/C65 failure mode).
-  The `Option` spellings stay one release as deprecated aliases.
+  The `Option` spellings stay one release as deprecated aliases. **LANDED
+  (#466)** — additive, so nothing breaks. `FromStr` carries an associated
+  `Err`; `s.parse(T)` spells `T` out because it can only be inferred from the
+  RESULT, which Yo does not do. Layering forced the pieces apart
+  (`string` < `fmt` < `error`): enums + trait in std/string, renderings in
+  std/fmt, `Error()` impls in std/error — the same split `impl(String, Error())`
+  already uses. Subtlety with a regression test: the magnitude scanner can only
+  report `PosOverflow`, so the signed core RE-SIGNS it.
 - **D13 — pure decoders return `Result`; the effect form is a wrapper, never
   the primary.** `Url.parse`, `json_parse`(×3), `base64_decode`, `hex_decode`,
   `utf16_to_utf8` all throw through `Exception` for pure transforms; `json.yo`
   ships both styles in one file. → `Result` is the exported name; `*_exn`
-  wrappers only where a caller demonstrably wants them.
+  wrappers only where a caller demonstrably wants them. **PART 1 LANDED
+  (#467)** — `hex_decode`, `base64_decode`, `base64_decode_url`,
+  `utf16_to_utf8`. Converting the tests from "it unwound" to a direct assertion
+  on the error immediately showed one passing for the WRONG reason:
+  `"Zm9v YmFy"` is 9 symbols, so the 1-mod-4 LENGTH check fires before the scan
+  ever reaches the space.
+  **PART 2 ALSO LANDED** — `Url.parse -> Result(Url, UrlError)` (11 `exn.throw`
+  sites became `return(.Err(...))`, `_parse_port` returns a `Result`, and
+  `parse_exn` is the wrapper the two `std/http/client.yo` callers take, being
+  already inside effect scopes); `json_parse` / `json_parse_bytes` /
+  `json_parse_string` all return `Result`, with `*_exn` wrappers and
+  `json_parse_result` kept one release as a deprecated alias.
+  CORRECTION to this bullet's own premise: json.yo does NOT ship two complete
+  parsers. There is ONE — `_parse_value`, which already returned `Result` — and
+  the `json_parse*` names were thin `exn` wrappers over it, with
+  `json_parse_result` a fourth wrapper. The real work was flipping which
+  spelling is primary, not unifying two implementations.
+  Ten error-expecting tests across url and json were written as "call it, then
+  `assert(false)` — the handler unwinds so we never get here"; they now assert
+  the outcome directly, and four name the variant (`EmptyInput`,
+  `MissingScheme`, `InvalidPort`). One carried a comment explaining that the
+  outcome had to be encoded in REACHABILITY because a ctl handler cannot
+  capture an enclosing runtime local — that contortion is gone.
 - **D14 — `iter()` yields POINTERS everywhere** (D2 already says so).
   `ArrayList.iter` and `OrderedMap.iter` yield values → they become
-  `into_iter`; `iter` gets the pointer iterator.
+  `into_iter`; `iter` gets the pointer iterator. **LANDED (#461)** — every other
+  std collection already did this, and both cheatsheets already DOCUMENTED
+  `.iter()` as yielding pointers, so the code was the thing that was wrong.
+  `ArrayList`'s old `iter` was a byte-identical copy of `into_iter`;
+  `OrderedMap` gains a real `IntoIterator`, so `for(map, ...)` works for the
+  first time, and a new `HashMap.get_entry_ptr` lets it point INTO the backing
+  map rather than rebuild entries. Elements are now BORROWED, so iterating RC
+  values costs no refcount traffic.
 - **D15 — `Debug` is split from `ToString`.** `derive(ToString)` emits a
   structural render (Rust's `Debug`), so no error enum can derive its
   user-facing message and all ten std error enums hand-write `to_string` +
   `Error()`. → `Debug` trait + `derive(Debug)` (the current structural rule),
   `ToString` stays hand-written or comes from `derive(Error)` with per-variant
-  format strings (thiserror's `#[error("...")]`).
+  format strings (thiserror's `#[error("...")]`). **LANDED** — `Debug` trait,
+  `derive(Debug)`, and explicit `Debug` impls for the 18 primitives. It is a
+  FACTORING, not a duplication: `__derive_structural_body(T, method)` produces
+  the render once and `derive(Debug)` / the deprecated `derive(ToString)` each
+  wrap it in their own trait, so the legacy rule is behaviourally untouched.
+  A blanket `impl(T <: ToString) Debug for T` was TRIED and rejected: it
+  compiles, and an explicit impl silently shadows it, but it would give any
+  type with a hand-written message a `debug_string` returning that MESSAGE
+  rather than a structural render — exactly the conflation D15 removes.
+  `derive(Error)` with per-variant format strings is NOT done; `derive_rule`
+  does receive `trait_params`, so it looks expressible.
 - **D16 — `HashSet(T)` IS `HashMap(T, unit)`.** 498 of 929 lines of
   `hash_set.yo` are byte-identical to `hash_map.yo`, and the tombstone bug
   (§3) is present in both. `unit` is a true ZST as of v0.2.26, so the map's
   value slot costs nothing. Same treatment for `imm/set` over `imm/map`.
+  **LANDED for `hash_set`** — 962 lines to 452, all 65 HashSet tests passing.
+  `HashSet(T)` is a `ref` newtype over `HashMap(T, unit)`; the control bytes,
+  quadratic probe, tombstone accounting, resize AND the hand-written `Dispose`
+  all go (the backing map's `Dispose` handles cleanup).
+  NOTE the tombstone half of this bullet's rationale was already STALE when
+  the work started: #448 fixed reclamation in both files. The value is that the
+  next such fix cannot be applied to only one of them.
+  It also exposed a D2 violation the bullet does not mention: the tests read
+  `capacity`, `tombstones` and `k1` as PUBLIC STRUCT FIELDS. Those are now
+  delegating accessors (`capacity()`, `_tombstones()`, `_k0()`/`_k1()`).
+  `imm/set` over `imm/map` is NOT done.
 - **D17 — `sort` is stable; `sort_unstable` is the heapsort.** Today `sort` is
   heapsort under Rust's stable name — **LANDED**: `sort`/`sort_by` are stable,
   `sort_unstable`/`sort_unstable_by` keep the allocation-free heapsort. The
@@ -98,7 +179,37 @@ the work in §4 does not re-open them.
   the merge is monomorphic to avoid it.
 - **D18 — `timeout` returns `Result(T, Elapsed)`; `Thread(T).spawn` carries
   its result and `join() -> T`.** `timeout -> Option(T)` conflates timed-out /
-  aborted / `Some(None)`; D7's blocker on the join result is fixed.
+  aborted / `Some(None)`; D7's blocker on the join result is fixed. **FIRST
+  HALF LANDED (#462)** — `timeout -> Result(T, TimeoutError)` with `Elapsed`
+  and `Aborted`. Two variants, not Rust's single `Elapsed`, because Yo's
+  `timeout` takes a `JoinHandle` rather than a future, which makes cancellation
+  a genuinely separate failure. The two are distinguishable ONLY inside the
+  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF NOT LANDED — blocked from BOTH directions.** The std-side design
+  is written and works in isolation (`Thread(T)` holding a capacity-1
+  `Channel(T)`; `join` keeping the join-once assert and detach-on-drop
+  `Dispose` before `try_recv`; `Thread(i32).join()` returning the body's
+  value), but it cannot be landed:
+  * writing the call-and-send INLINE in the spawn closure does not compile at
+    `T = unit` — the emitted C is `void* tmp = <void expr>` for the captured
+    callback's ZST result and the `Channel(unit).send` specialisation is never
+    emitted. Narrowed to `src/codegen/exprs/parallelism.yo`, which gives spawn
+    callbacks their own capture-struct lowering ("selects the primitive +
+    (unit) return convention"), with three controls that all work.
+  * routing it through a top-level generic helper dodges that, and then hits
+    the OTHER wall: the spawn closure now CAPTURES `cb`, and #451's Send
+    enforcement rejects it —
+    `Captured variable 'cb' ... does not implement Send`. Adding the `Send`
+    bound to the helper's parameter does NOT help, because
+    `_capture_judgement_type` resolves a captured closure to its own CAPTURE
+    STRUCT and judges that; one more level of nesting puts a struct in front
+    of the checker that carries no `Send` impl. Before this change `cb` went
+    straight to `__yo_thread_spawn` and was never a captured variable, so the
+    check never saw it.
+  Landing it therefore needs a compiler change — either the ZST lowering or
+  teaching the capture judgement to see a closure whose own captures are all
+  `Send` as `Send`. The latter is a security-relevant checker and should not be
+  rushed. Evidence and the ready design:
+  `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`.
 
 - **D19 — `Box` KEEPS its name, and says loudly that it is Rust's `Rc`.**
   (Maintainer, 2026-09-06.) `Box(V)` is `ref(struct((*) : V))`, so copying a

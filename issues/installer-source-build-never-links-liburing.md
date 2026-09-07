@@ -99,7 +99,7 @@ that every other job happened to have.
 
 ## The class recurred 2026-09-04 — the link-flag list lives in FOUR places
 
-The Schannel TLS backend (`plans/D6_TLS_PLAN.md`) needed `-lsecur32 -lcrypt32`
+The Schannel TLS backend (`plans/archive/D6_TLS_PLAN.md`) needed `-lsecur32 -lcrypt32`
 on Windows targets. Adding them to `src/main.yo`'s link command was not enough,
 and the PR's Windows legs failed at link with `undefined symbol:
 AcquireCredentialsHandleW`:
