@@ -33,8 +33,15 @@ my-project/
 ├── tests/
 │   └── main.test.yo      ← Test file
 ├── .gitignore
+├── AGENTS.md             ← Guidance for AI coding agents (lists the skills)
+├── CLAUDE.md             ← Points at AGENTS.md
+├── .agents/skills/       ← Bundled agent skill files (see yo skills install)
 └── README.md
 ```
+
+The agent files are skipped when you pass `--no-skills`, and are only created
+if they do not already exist. Refresh the skill files after upgrading `yo`
+with `yo skills install`.
 
 Build output goes to `yo-out/<target>/`, organized by target triple (like Cargo):
 
@@ -683,6 +690,7 @@ Arguments:
 
 Options:
   --name <name>          Project name (default: directory name)
+  --no-skills            Skip the agent skill files and AGENTS.md/CLAUDE.md
 ```
 
 Creates the following files:
@@ -693,6 +701,14 @@ Creates the following files:
 - `src/lib.yo` — Library code
 - `tests/main.test.yo` — Test file
 - `.gitignore`, `README.md`
+
+Then, unless `--no-skills` is passed, it installs the bundled agent skill
+files into the project's agent config directories (`.agents/skills/` on a
+fresh project) and writes two entry points for AI coding agents:
+
+- `AGENTS.md` — lists the installed skills with their descriptions; created
+  only if absent
+- `CLAUDE.md` — a one-line pointer at `AGENTS.md`; created only if absent
 
 ## Multi-Target Builds
 

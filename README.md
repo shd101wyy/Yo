@@ -132,7 +132,9 @@ $ yo build run              # Build and run
 Hello, world!
 ```
 
-`yo init` generates a project with a build file, source, and tests:
+`yo init` generates a project with a build file, source, and tests — plus the
+bundled agent skill files and `AGENTS.md`/`CLAUDE.md` so AI coding agents pick
+up version-matched Yo knowledge (skip with `yo init --no-skills`):
 
 ```
 my-project/
@@ -140,8 +142,11 @@ my-project/
 ├── src/
 │   ├── main.yo           # Entry point
 │   └── lib.yo            # Library module
-└── tests/
-    └── main.test.yo      # Unit tests
+├── tests/
+│   └── main.test.yo      # Unit tests
+├── .agents/skills/       # Agent skill files (AGENTS.md lists them)
+├── AGENTS.md             # Guidance for AI coding agents
+└── CLAUDE.md             # Points at AGENTS.md
 ```
 
 `src/main.yo`:
@@ -281,7 +286,7 @@ This repository ships a set of **agent skill files** that teach AI agents how to
 
 ### Using in your own project
 
-The easiest way is with the `yo` CLI:
+`yo init` installs the skills automatically (along with an `AGENTS.md` that lists them). For a project created another way, use the `yo` CLI:
 
 ```bash
 yo skills install
