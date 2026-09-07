@@ -5,8 +5,7 @@ implementation steps and landing notes in §8, soundness review in §9 (audit
 §1–§6 is the record the decision rests on). Phase A is PR #473; Phases B and
 C are on `feat/inout-local-bindings`, stacked on it. Follow-ups deliberately
 left open, in priority order: the `Iterable` marker trait (also refuses plain
-`inout(e)` on maps/sets), the mutation-summary auto-emit of invalidation
-asserts (§8 C5), the compile-time same-variable diagnostic (§8 C4), last-use
+`inout(e)` on maps/sets), the compile-time same-variable diagnostic (§8 C4), last-use
 live ranges, a user-facing codegen error channel (the async-body rejection
 currently surfaces through `codegen_fatal`'s "internal compiler error"
 wrapper, like the await-position rules). Written against `develop` at
