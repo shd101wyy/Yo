@@ -752,7 +752,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : AstExpr, cleanup_point : Token, vari
           fi = (fi + usize(1));
         });
         if(!found, {
-          _p := existing.push(drop_expr);
+          existing.push(drop_expr);
           ei.early_return_only_deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(existing);
         });
       });
@@ -1303,7 +1303,7 @@ _schedule_scope_end_drops :: (
         e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
         e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
         if(e7, {
-          _p := to_drop.push(v);
+          to_drop.push(v);
         });
       },
       .None => ()
@@ -1334,7 +1334,7 @@ _schedule_scope_end_drops :: (
         drop_code := `___drop(${v.name})`;
         drop_expr := generate_expr_from_code(drop_code, exn);
         evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
-        _p := deferred.push(evaluated);
+        deferred.push(evaluated);
       },
       .None => ()
     );

@@ -94,7 +94,7 @@ _byte_slice :: (fn(s : String, from : usize, to : usize) -> String)({
   out := ArrayList(u8).new();
   (i : usize) = from;
   while((i < to) && (i < bytes.len()), {
-    _p := out.push(match(bytes.get(i), .Some(b) => b, .None => u8(0)));
+    out.push(match(bytes.get(i), .Some(b) => b, .None => u8(0)));
     i = (i + usize(1));
   });
   String.from_bytes(out)
@@ -226,7 +226,7 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
           depth = (depth - usize(1));
         });
         if((b == u8(44)) && (depth == usize(0)), {
-          _p := out.push(cur.trim());
+          out.push(cur.trim());
           cur = String.from("");
         }, {
           cur.push_byte(b);
@@ -236,7 +236,7 @@ _split_top_level_args_list :: (fn(s : String) -> ArrayList(String))({
     i = (i + usize(1));
   });
   if(cur.trim().len() > usize(0), {
-    _p := out.push(cur.trim());
+    out.push(cur.trim());
   });
   out
 });
@@ -341,7 +341,7 @@ _emit_borrow_acquires :: (fn(runtime_arg_exprs : ArrayList(AstExpr), runtime_par
       .Some(arg) => match(
         _get_interior_ref_container_code(arg, is_ref, indent.clone(), context),
         .Some(cc) => {
-          _p := containers.push(cc.clone());
+          containers.push(cc.clone());
           line := indent.clone();
           line.push_str("__yo_borrow_acquire((void*)(");
           line.push_string(cc);
@@ -616,7 +616,7 @@ _apply_ref_amp :: (fn(args : ArrayList(String), param_is_ref : ArrayList(bool), 
         )
       )
     );
-    _p := out.push(transformed);
+    out.push(transformed);
     i = (i + usize(1));
   });
   out
@@ -655,7 +655,7 @@ _ctor_args_from_labeled :: (fn(wrapped : TypeValue, fncall_args : ArrayList(AstE
     match(
       found,
       .Some(v) => {
-        _p := out.push(v);
+        out.push(v);
       },
       .None => ()
     );
@@ -1200,7 +1200,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
                 match(
                   dm_runtime.get(ia_i),
                   .Some(a) => {
-                    _iap := inline_args.push(_call_generate_expr(a, indent.clone(), context));
+                    inline_args.push(_call_generate_expr(a, indent.clone(), context));
                   },
                   .None => ()
                 );
@@ -1254,7 +1254,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               match(
                 dm_runtime.get(cmi),
                 .Some(a) => {
-                  _cmp := cm_arg_list.push({
+                  cm_arg_list.push({
                     mc := _call_generate_expr(a, indent.clone(), context);
                     hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
@@ -1380,7 +1380,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
               match(
                 rm_runtime.get(rmi),
                 .Some(a) => {
-                  _rmp := rm_args.push({
+                  rm_args.push({
                     mc := _call_generate_expr(a, indent.clone(), context);
                     hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
@@ -1856,7 +1856,7 @@ generate_other_function_call :: (fn(expr : AstExpr, indent : String, context : F
       runtime_args.get(ai),
       .Some(arg) => {
         mc := _materialize_arg(arg, pref, expr, indent.clone(), context);
-        _p := args.push(if((mc.len() == usize(0)) && has_slot, String.from("0"), mc));
+        args.push(if((mc.len() == usize(0)) && has_slot, String.from("0"), mc));
       },
       .None => ()
     );

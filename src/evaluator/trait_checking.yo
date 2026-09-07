@@ -105,11 +105,11 @@ register_type_trait :: (fn(type_id : String, trait_name : str, env : Environment
       match(
         g_type_trait_registry.get(type_id),
         .Some(list) => {
-          _push := list.push(trait_ty);
+          list.push(trait_ty);
         },
         .None => {
           new_list := ArrayList(TypeValue).new();
-          _push2 := new_list.push(trait_ty);
+          new_list.push(trait_ty);
           _set := g_type_trait_registry.insert(type_id, new_list);
         }
       );
@@ -126,11 +126,11 @@ register_type_trait_value :: (fn(type_id : String, trait_ty : TypeValue) -> unit
   match(
     g_type_trait_registry.get(type_id),
     .Some(list) => {
-      _push := list.push(trait_ty);
+      list.push(trait_ty);
     },
     .None => {
       new_list := ArrayList(TypeValue).new();
-      _push2 := new_list.push(trait_ty);
+      new_list.push(trait_ty);
       _set := g_type_trait_registry.insert(type_id, new_list);
     }
   );
@@ -224,11 +224,11 @@ _marker_name_of :: (fn(trait_type : TypeValue, env : Environment) -> String)({
     return(String.from(""));
   });
   markers := ArrayList(String).new();
-  ___m0 := markers.push(String.from("Send"));
-  ___m1 := markers.push(String.from("Comptime"));
-  ___m2 := markers.push(String.from("Acyclic"));
-  ___m3 := markers.push(String.from("Runtime"));
-  ___m4 := markers.push(String.from("Rc"));
+  markers.push(String.from("Send"));
+  markers.push(String.from("Comptime"));
+  markers.push(String.from("Acyclic"));
+  markers.push(String.from("Runtime"));
+  markers.push(String.from("Rc"));
   (i : usize) = usize(0);
   (found : String) = String.from("");
   while((i < markers.len()) && found.is_empty(), {
@@ -897,7 +897,7 @@ type_implements_trait :: (
             vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
             (vj : usize) = usize(0);
             while(vj < vf.len(), {
-              _pf := flat.push(match(vf.get(vj), .Some(t) => t, .None => TypeValue.Unit));
+              flat.push(match(vf.get(vj), .Some(t) => t, .None => TypeValue.Unit));
               vj = (vj + usize(1));
             });
             vi = (vi + usize(1));
@@ -919,7 +919,7 @@ type_implements_trait :: (
         // `impl(generic(T), where(T <: Send), *(T), Send())`).
         .Pointer(pointee_box) => if((tn == "Send") || (tn == "Acyclic"), {
           pfields := ArrayList(TypeValue).new();
-          _pp := pfields.push(pointee_box);
+          pfields.push(pointee_box);
           fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
         }),
         _ => ()
@@ -930,7 +930,7 @@ type_implements_trait :: (
       match(
         fields_opt,
         .Some(fields) => {
-          _gpush := g_ondemand_marker_guard.push(ondemand_key.clone());
+          g_ondemand_marker_guard.push(ondemand_key.clone());
           (all_pass : bool) = true;
           (fi : usize) = usize(0);
           while((fi < fields.len()) && all_pass, {
@@ -1753,7 +1753,7 @@ type_contains_some_type_for_codegen_param :: (
     if(seen, {
       return(false);
     });
-    _push := checked_ids.push(nominal_id.clone());
+    checked_ids.push(nominal_id.clone());
   });
   if(is_some_type(ty), {
     // SomeType: TS excludes extern + resolved-concrete (no-ops in yo-self) and

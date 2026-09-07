@@ -1001,8 +1001,8 @@ _specialize_and_register_trace :: (
   // reads no `.value` for regular args), so the placeholder None value is fine;
   // `self`'s arg_type = ct binds Self, reinforced by ctx.self_type below.
   reg_args := ArrayList(ArgEntry).new();
-  _a0 := reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : ct.clone(), arg_type : ct.clone()));
-  _a1 := reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : tracer_ty.clone(), arg_type : tracer_ty));
+  reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : ct.clone(), arg_type : ct.clone()));
+  reg_args.push(ArgEntry(value : Option(EvalValue).None, parameter_type : tracer_ty.clone(), arg_type : tracer_ty));
   av := ArgValues(
     forall_args : ArrayList(ArgEntry).new(),
     args : reg_args,
@@ -1085,7 +1085,7 @@ collect_trace_methods_from_generic_impls :: (
       .Some(entry) => {
         ty := entry.ty;
         if(is_reference_struct_type(ty) || is_reference_enum_type(ty), {
-          _p := type_list.push(ty);
+          type_list.push(ty);
         });
       },
       .None => {
@@ -1444,7 +1444,7 @@ collect_dispose_methods :: (
       // predicate here so no `___dispose` is registered for a body that will
       // never be emitted.
       .Some(entry) => if((is_reference_struct_type(entry.ty) || is_reference_enum_type(entry.ty)) && !(type_contains_some_type_deep(entry.ty)), {
-        _p := type_list.push(entry.ty);
+        type_list.push(entry.ty);
       }),
       .None => {
         go = false;

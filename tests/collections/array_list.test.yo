@@ -21,12 +21,21 @@ test("ArrayList.with_capacity with zero capacity creates empty list", {
 // ===== Push Tests =====
 test("ArrayList.push adds single element", {
   list := ArrayList(i32).new();
-  result := list.push(i32(42));
-  assert(result.is_ok());
+  // `push` is infallible as of D9 — it panics on allocation failure rather
+  // than returning a Result nobody checked. `try_push` is the Result form.
+  list.push(i32(42));
   assert(list.len() == usize(1));
   first := list.get(usize(0));
   assert(first.is_some());
   assert(first.unwrap() == i32(42));
+});
+test("ArrayList.try_push is the allocator-aware form (D9)", {
+  list := ArrayList(i32).new();
+  assert(list.try_push(i32(1)).is_ok(), "try_push reports success");
+  assert(list.try_push(i32(2)).is_ok(), "and again after a grow");
+  assert(list.len() == usize(2), "both elements landed");
+  assert(list(usize(0)) == i32(1), "first element");
+  assert(list(usize(1)) == i32(2), "second element");
 });
 test("ArrayList.push adds multiple elements", {
   list := ArrayList(i32).new();

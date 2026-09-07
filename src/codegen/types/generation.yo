@@ -72,7 +72,7 @@ _array_wrapper_names_sorted :: (fn(context : CodeGenContext) -> ArrayList(String
     match(
       kit.next(),
       .Some(k) => {
-        _kp := keys.push(k);
+        keys.push(k);
       },
       .None => {
         kdone = true;
@@ -1071,7 +1071,7 @@ generate_dyn_forward_declarations :: (fn(context : CodeGenContext) -> unit)({
     match(
       fkit.next(),
       .Some(k) => {
-        _kp := keys.push(k);
+        keys.push(k);
       },
       .None => {
         fkdone = true;
@@ -1258,7 +1258,7 @@ generate_dyn_box_types :: (fn(context : CodeGenContext) -> unit)({
     match(
       bkit.next(),
       .Some(k) => {
-        _kp := keys.push(k);
+        keys.push(k);
       },
       .None => {
         bkdone = true;
@@ -1683,15 +1683,15 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
             !skip,
             cond(
               is_struct_type(ty) => {
-                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
+                entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
                 _m := cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
               (is_enum_type(ty) && (!can_optimize_as_simple_enum(ty) && !can_optimize_as_nullable_pointer(ty).is_some())) => {
-                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
+                entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
                 _m := cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
               is_tuple_type(ty) => {
-                _e := entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
+                entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
                 _m := cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
               true => ()
@@ -1797,7 +1797,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
       .Some(e) => match(
         in_degree.get(e.type_id.clone()),
         .Some(d) => if(d == usize(0), {
-          _q := queue.push(e.type_id.clone());
+          queue.push(e.type_id.clone());
         }),
         .None => ()
       ),
@@ -1810,7 +1810,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
   while(head < queue.len(), {
     tid := match(queue.get(head), .Some(t) => t, .None => String.from(""));
     head = (head + usize(1));
-    _s := sorted_ids.push(tid.clone());
+    sorted_ids.push(tid.clone());
     // Decrement in-degree of every node that depends on tid.
     (oi : usize) = usize(0);
     while(oi < ne, {
@@ -1823,7 +1823,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
             nd := if(cur > usize(0), cur - usize(1), usize(0));
             _u := in_degree.insert(other.type_id.clone(), nd);
             if(nd == usize(0), {
-              _qq := queue.push(other.type_id.clone());
+              queue.push(other.type_id.clone());
             });
           }),
           .None => ()
@@ -1854,7 +1854,7 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
             si = (si + usize(1));
           });
           if(!seen, {
-            _f := sorted_ids.push(e.type_id.clone());
+            sorted_ids.push(e.type_id.clone());
           });
         },
         .None => ()

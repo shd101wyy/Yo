@@ -86,10 +86,14 @@ impl(
         &(self._entries(r.idx)).* = MapEntry(K, V)(key : entry.key, value : v);
         .Some(entry.value)
       },
-      // An allocation failure must not leave the map half-updated and then
-      // underflow `len() - 1`; it is the same panic ArrayList.with_capacity raises.
-      self._entries.push(MapEntry(K, V)(key : k, value : v)).is_err() => __yo_panic("BTreeMap.insert: allocation failed"),
       true => {
+        // The push moved OUT of a cond condition here: before D9 this arm's
+        // predecessor was `push(...).is_err() => __yo_panic(...)`, which
+        // performed the push as a side effect of testing it. `push` now
+        // panics on allocation failure itself — the same outcome that arm
+        // spelled out, since a half-updated map that then underflows
+        // `len() - 1` is not recoverable.
+        self._entries.push(MapEntry(K, V)(key : k, value : v));
         pos := (self._entries.len() - usize(1));
         while(pos > r.idx, pos = (pos - usize(1)), {
           curr := self._entries(pos);

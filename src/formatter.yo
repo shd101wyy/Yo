@@ -435,7 +435,7 @@ find_matching_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, 
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LParen) => {
-          _r := stack.push(i);
+          stack.push(i);
         },
         (t.kind == TokenKind.RParen) => {
           if(stack.len() > usize(0), {
@@ -468,7 +468,7 @@ find_parent_paren_indices :: (fn(tokens : ArrayList(Token)) -> HashMap(usize, us
             parent := match(stack.get(stack.len() - usize(1)), .Some(x) => x, .None => usize(0));
             _r := parents.insert(i, parent);
           });
-          _r2 := stack.push(i);
+          stack.push(i);
         },
         (t.kind == TokenKind.RParen) => {
           if(stack.len() > usize(0), {
@@ -503,10 +503,10 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LCurlyBracket) => {
-          _r1 := stack_indices.push(i);
-          _r2 := stack_paren_depths.push(paren_depth);
-          _r3 := stack_bracket_depths.push(bracket_depth);
-          _r4 := stack_has_top_level_semi.push(false);
+          stack_indices.push(i);
+          stack_paren_depths.push(paren_depth);
+          stack_bracket_depths.push(bracket_depth);
+          stack_has_top_level_semi.push(false);
         },
         (t.kind == TokenKind.Semicolon) => {
           if(stack_indices.len() > usize(0), {
@@ -516,7 +516,7 @@ find_inline_curly_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usize))({
             if((frame_paren == paren_depth) && (frame_bracket == bracket_depth), {
               // pop+push to update top-of-stack (ArrayList has no set-at-index)
               _p := stack_has_top_level_semi.pop();
-              _r := stack_has_top_level_semi.push(true);
+              stack_has_top_level_semi.push(true);
             });
           });
         },
@@ -567,7 +567,7 @@ find_multiline_bracket_indices :: (fn(tokens : ArrayList(Token)) -> HashSet(usiz
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LBracket) => {
-          _r := stack.push(i);
+          stack.push(i);
         },
         (t.kind == TokenKind.RBracket) => {
           if(stack.len() > usize(0), {
@@ -601,7 +601,7 @@ find_multiline_inline_curly_indices :: (fn(tokens : ArrayList(Token), inline_cur
       .None => (),
       .Some(t) => cond(
         (t.kind == TokenKind.LCurlyBracket) => {
-          _r := stack.push(i);
+          stack.push(i);
         },
         (t.kind == TokenKind.RCurlyBracket) => {
           if(stack.len() > usize(0), {
@@ -1737,7 +1737,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : ArrayList(Token)) -> ArrayList(
             tokens.get(k),
             .None => (),
             .Some(anchor) => {
-              _r0 := out.push(
+              out.push(
                 Token(
                   kind : TokenKind.RParen,
                   value : String.from(")"),
@@ -1760,7 +1760,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : ArrayList(Token)) -> ArrayList(
                 tokens.get(k),
                 .None => (),
                 .Some(anchor_o) => {
-                  _r1 := out.push(
+                  out.push(
                     Token(
                       kind : TokenKind.LParen,
                       value : String.from("("),
@@ -1779,7 +1779,7 @@ canonicalize_callee_prefix_calls :: (fn(tokens : ArrayList(Token)) -> ArrayList(
               tokens.get(k),
               .None => (),
               .Some(tk) => {
-                _r2 := out.push(tk);
+                out.push(tk);
               }
             );
           }
@@ -2042,7 +2042,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
           );
           k = (k + usize(1));
         });
-        _r := lines.push(line_str);
+        lines.push(line_str);
         start = (i + usize(1));
       });
       i = (i + usize(1));
@@ -2102,7 +2102,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
             match(
               lines.get(usize(0)),
               .Some(first) => {
-                _r := out.push(first);
+                out.push(first);
               },
               .None => ()
             );
@@ -2126,7 +2126,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
                     });
                   });
                   if(only_ws, {
-                    _r := out.push(String.from(""));
+                    out.push(String.from(""));
                   }, {
                     // Drop the first `ci` bytes
                     new_line := String.new();
@@ -2141,7 +2141,7 @@ normalize_multiline_block_comment :: (fn(raw : String) -> ArrayList(String))({
                       );
                       sk = (sk + usize(1));
                     });
-                    _r := out.push(new_line);
+                    out.push(new_line);
                   });
                 }
               );
@@ -2302,7 +2302,7 @@ _format_yo_source_impl :: (
           match(
             all_tokens.get(ti),
             .Some(t) => if(t.kind != TokenKind.Whitespace, {
-              _r := significant_tokens.push(t);
+              significant_tokens.push(t);
             }),
             .None => ()
           );
@@ -2329,7 +2329,7 @@ _format_yo_source_impl :: (
         rn := significant_tokens.len();
         (ri : usize) = usize(0);
         while(ri < rn, {
-          _r := raw_values.push(raw_token_value(input, significant_tokens, ri));
+          raw_values.push(raw_token_value(input, significant_tokens, ri));
           ri = (ri + usize(1));
         });
       };
@@ -2521,8 +2521,8 @@ _format_yo_source_impl :: (
                     cond(
                       inline_curly_indices.contains(index) => {
                         is_multiline := multiline_inline_curly_indices.contains(index);
-                        _r1 := curly_stack_inline.push(true);
-                        _r2 := curly_stack_multiline.push(is_multiline);
+                        curly_stack_inline.push(true);
+                        curly_stack_multiline.push(is_multiline);
                         curly_depth = (curly_depth + usize(1));
                         inline_curly_depth = (inline_curly_depth + usize(1));
                         cond(
@@ -2566,8 +2566,8 @@ _format_yo_source_impl :: (
                         );
                       },
                       true => {
-                        _r1 := curly_stack_inline.push(false);
-                        _r2 := curly_stack_multiline.push(false);
+                        curly_stack_inline.push(false);
+                        curly_stack_multiline.push(false);
                         if(at_line_start, {
                           (sp : usize) = usize(0);
                           count := (indent_level * INDENT_SIZE);
@@ -2686,8 +2686,8 @@ _format_yo_source_impl :: (
                       at_line_start = false;
                     });
                     result.push_str("(");
-                    _r1 := paren_stack_indices.push(index);
-                    _r2 := paren_stack_multiline.push(is_multiline);
+                    paren_stack_indices.push(index);
+                    paren_stack_multiline.push(is_multiline);
                     paren_depth = (paren_depth + usize(1));
                     if(is_multiline, {
                       indent_level = (indent_level + usize(1));
@@ -2702,7 +2702,7 @@ _format_yo_source_impl :: (
                   },
                   (token.kind == TokenKind.LBracket) => {
                     is_multiline := multiline_bracket_indices.contains(index);
-                    _r := bracket_stack_multiline.push(is_multiline);
+                    bracket_stack_multiline.push(is_multiline);
                     bracket_depth = (bracket_depth + usize(1));
                     if(at_line_start, {
                       (sp : usize) = usize(0);
@@ -3068,9 +3068,9 @@ _format_yo_source_impl :: (
                             });
                             at_line_start = true;
                             indent_level = (indent_level + usize(1));
-                            _r1 := continuation_paren.push(paren_depth);
-                            _r2 := continuation_bracket.push(bracket_depth);
-                            _r3 := continuation_curly.push(curly_depth);
+                            continuation_paren.push(paren_depth);
+                            continuation_bracket.push(bracket_depth);
+                            continuation_curly.push(curly_depth);
                           },
                           true => {
                             if(!at_line_start && !result.ends_with(String.from(" ")), {
@@ -3145,9 +3145,9 @@ _format_yo_source_impl :: (
                             });
                             at_line_start = true;
                             indent_level = (indent_level + usize(1));
-                            _r1 := continuation_paren.push(paren_depth);
-                            _r2 := continuation_bracket.push(bracket_depth);
-                            _r3 := continuation_curly.push(curly_depth);
+                            continuation_paren.push(paren_depth);
+                            continuation_bracket.push(bracket_depth);
+                            continuation_curly.push(curly_depth);
                           },
                           true => {
                             if(!at_line_start && !result.ends_with(String.from(" ")), {
@@ -3274,7 +3274,7 @@ collect_yo_files :: (
     is_file_p => {
       path_str := target_path.to_string();
       if(path_str.ends_with(String.from(".yo")), {
-        _r := files.push(path_str);
+        files.push(path_str);
       });
     },
     true => {
@@ -3324,7 +3324,7 @@ find_yo_format_files :: (
   paths_to_format := cond(
     (input_paths.len() == usize(0)) => {
       defaults := ArrayList(String).new();
-      _r := defaults.push(String.from("."));
+      defaults.push(String.from("."));
       defaults
     },
     true => input_paths
@@ -3367,7 +3367,7 @@ find_yo_format_files :: (
           )
         );
         if(!is_dup, {
-          _r := deduped.push(f.clone());
+          deduped.push(f.clone());
         });
       }
     );
@@ -3399,7 +3399,7 @@ format_yo_files :: (
         original := String.from_bytes(bytes);
         formatted := format_yo_source(original, file, exn);
         if(formatted != original, {
-          _r := changed.push(file);
+          changed.push(file);
           if(!options.check, {
             io.await(write_string(Path.new(file), formatted, io), IoExn(io : io, exn : exn));
           });
