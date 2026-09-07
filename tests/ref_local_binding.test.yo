@@ -1,4 +1,3 @@
-pragma(Pragma.AllowUnsafe); // only for the `p.*` rejection probe below; every other case is safe code
 { assert } :: import("std/assert");
 /// `inout(name) := place` — LOCAL second-class reference bindings
 /// (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7 decision 1, §8 Phase B).
@@ -253,12 +252,22 @@ comptime_expect_error(
     r = i32(2);
   })
 );
+// A deref place is rejected in SAFE code (the borrowed `for` binds one from
+// the privileged prelude expansion, where it is legal). The pointer comes
+// from the pointer iterator, which safe code may hold but not dereference.
 comptime_expect_error(
   deref_place_rejected :: (fn() -> unit)({
-    x := i32(1);
-    p := &x;
-    inout(r) := p.*;
-    r = i32(2);
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    it := xs.iter();
+    match(
+      it.next(),
+      .Some(p) => {
+        inout(r) := p.*;
+        r = i32(2);
+      },
+      .None => ()
+    );
   })
 );
 comptime_expect_error(
