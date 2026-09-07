@@ -1,0 +1,21 @@
+# A LIVE failed-to-transpile stub must NAME ITSELF before aborting.
+#
+# Codegen guards these stubs with GNU's `error` attribute, intending the C
+# toolchain to be the deadness oracle. But that attribute is diagnosed from the
+# BACKEND, after optimization: at -O2 LLVM folds the call to the noreturn stub
+# away and it never fires. Measured on one unchanged .c — `clang -O0` reports
+# the call, `clang -O2` reports nothing, and neither `-fno-inline` nor
+# `noinline` brings it back. Every real build is -O2, so a live stub used to be
+# a bare rc=134 with no output anywhere, which is how one shipped in a release
+# (issues/fixed/ftt-stub-error-attribute-does-not-fire-at-O2.md).
+#
+# The fixture builds at ReleaseSafe (-O2) deliberately: at -O0 the attribute
+# fails the C compile and this runtime path is never reached, which would make
+# the case pass before AND after the fix. Verified: it does exactly that.
+#
+# Keep only the INVARIANT substring. The message also names the mangled fn id,
+# but grep -oE stores whatever the pattern matches, so including the id would bake
+# it into the golden and renumber it on any evaluator change. Measured: the first
+# cut did exactly that.
+stdout_keep_match=whose body failed to transpile
+timeout=900

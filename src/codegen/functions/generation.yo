@@ -767,8 +767,39 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
         // zig cc, emcc), so the GNU error attribute is always available.
         stub_attr := `__attribute__((error("yo: the body of ${c_function_name} failed to transpile — its definition-time evaluation failed and was swallowed (run yo check with YO_DEBUG_SWALLOW=1); this call would abort at runtime")))`;
         _insert_attr_before_first_decl(em, c_function_name.clone(), stub_attr.clone(), stub_mark_b);
+        // THE ERROR ATTRIBUTE ALONE IS NOT A GATE AT -O2, WHICH IS EVERY BUILD.
+        // GNU's `error` attribute is diagnosed from the BACKEND, after
+        // optimization: the stub body is `abort()`, so at -O2 LLVM folds the
+        // call to a noreturn function away and the diagnostic never fires.
+        // MEASURED on one unchanged .c: `clang -O0` reports the call, `clang
+        // -O2` reports nothing, and neither `-fno-inline` nor `noinline` on the
+        // stub brings it back. So the attribute only guards `-O0` builds, while
+        // every real build is -O2 — which is how a live stub shipped in a
+        // release as an rc=134 abort with NO diagnostic anywhere
+        // (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
+        //
+        // Making the LINKER the oracle instead — have the body call an
+        // undefined extern symbol, so a surviving call fails the link at every
+        // -O level — was built and REVERTED: it has a false-positive class.
+        // An FTT stub whose ADDRESS is taken survives DCE even with no call,
+        // so the unresolved reference fails the link for a stub that never
+        // runs. Measured: tests/http batch 102 installs one as an exception
+        // handler, `(__yo_t16){ .throw = fn_yo_id_17122 }`, and that batch
+        // passes today. The linker cannot tell "address stored in a vtable"
+        // from "called", which is the same wall the comment above describes.
+        //
+        // What IS always safe is refusing to be SILENT. The stub now names
+        // itself on stderr before aborting, so a live stub is a legible
+        // failure at any optimization level instead of a bare rc=134, with no
+        // liveness judgement required. `yo check` still cannot see this — the
+        // marker is a codegen artifact — so the message carries the
+        // YO_DEBUG_SWALLOW hint that recovers the original error.
+        // Regression test: tests/cli-cases/ftt-stub-live-call-fails-the-build.
         em.emit_string_line(stub_attr);
         em.emit_string_line(open.clone());
+        em.emit_string_line(
+          `  fprintf(stderr, "yo: FATAL: reached ${c_function_name}, whose body failed to transpile - its definition-time evaluation failed and was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see the original error.\\n");`
+        );
         em.emit_string_line(
           if(
             stub_is_superseded,

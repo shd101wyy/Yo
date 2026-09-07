@@ -1,0 +1,10 @@
+build :: import("std/build");
+// ReleaseSafe (-O2) is the POINT of this case: at Debug (-O0) the stub's
+// `error` attribute fails the C compile instead, so the runtime path this
+// case asserts is never reached.
+exe :: build.executable({ name : "prog", root : "./src/main.yo", optimize : build.Optimize.ReleaseSafe });
+run_exe :: build.run(exe);
+run_step :: build.step("run", "Run the program");
+run_step.depend_on(run_exe);
+install :: build.step("install", "Build");
+install.depend_on(exe);
