@@ -100,6 +100,19 @@ Verification (stage-1 binary built from this tree):
   (normal return, effect unwind through the call site) — both would panic on
   the following `push` if a release were missing.
 
+## Follow-up from the PR's first CI run
+
+Wiring the emitters surfaced a latent bug in `_get_interior_ref_container_code`
+(never reachable while the emitters were dead): it accepted ANY index-place
+container, so an indexed element of an `Array(T, N)` **value** passed as an
+`inout` argument (`tests/array.test.yo`, `tests/fmt.test.yo`) emitted
+`__yo_borrow_acquire((void*)(arr))` on a stack array — a C type error
+("operand of type 'Array_…' where arithmetic or pointer type is required").
+Only an RC-managed object carries the `borrow_count` header, and a fixed-size
+value array cannot be reallocated under the reference anyway, so the helper
+now acquires only when the container's type is a reference (or atomic
+reference) struct. The two existing test files are the regression coverage.
+
 ## Original fix sketch
 
 - Call `_emit_borrow_acquires` before, and `_emit_borrow_releases` right
