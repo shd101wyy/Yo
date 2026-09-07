@@ -718,3 +718,41 @@ test("derive on a tuple, union or array is a comptime error; the smallest aggreg
   assert(hash_one(DeriveUnitE.A) != hash_one(DeriveUnitE.B), "unit enum Hash separates variants");
   assert(DeriveUnitE.B.to_string() == `DeriveUnitE.B`, "unit enum ToString");
 });
+// ===== D15: Debug is split from ToString =====
+_D15Err :: enum(NotFound(path : String), Denied);
+derive(_D15Err, Debug);
+impl(
+  _D15Err,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .NotFound(path) => `no such file: ${path}`,
+          .Denied => `permission denied`
+        )
+    )
+  )
+);
+_D15Point :: struct(x : i32, y : i32);
+derive(_D15Point, Debug);
+test("derive(Debug) and a hand-written ToString coexist (D15)", {
+  // The whole point of D15: before it, `derive(ToString)` emitted the
+  // STRUCTURAL render, so an error type could not derive a structural dump
+  // AND carry a user-facing message. Now they are separate channels.
+  e := _D15Err.NotFound(path : `/tmp/x`);
+  assert(e.to_string() == `no such file: /tmp/x`, "user-facing message");
+  assert(e.debug_string() == `_D15Err.NotFound(/tmp/x)`, "structural render");
+  d := _D15Err.Denied;
+  assert(d.to_string() == `permission denied`, "unit variant message");
+  assert(d.debug_string() == `_D15Err.Denied`, "unit variant structural");
+});
+test("derive(Debug) on a struct renders structurally (D15)", {
+  p := _D15Point(x : i32(1), y : i32(2));
+  assert(p.debug_string() == `_D15Point(1, 2)`, "struct structural render");
+});
+test("Debug on the primitives matches their display form (D15)", {
+  assert(i32(42).debug_string() == `42`, "i32");
+  assert(true.debug_string() == `true`, "bool");
+  assert(String.from("hi").debug_string() == `hi`, "String");
+});

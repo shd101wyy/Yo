@@ -10,6 +10,32 @@ ToString :: trait(
   to_string : (fn(inout(self) : Self) -> String)
 );
 export(ToString);
+/**
+* `Debug` — the STRUCTURAL render of a value (Rust's `std::fmt::Debug`), split
+* from `ToString` by D15.
+*
+* `derive(ToString)` used to emit the structural render, which is Rust's
+* `Debug`, not Rust's `Display`. That conflation meant no error type could
+* DERIVE its user-facing message — all ten std error enums hand-write
+* `to_string` — while also getting a structural dump for free.
+*
+* Now the two are separate channels:
+*
+* ```rust
+* MyError :: enum(NotFound(path : String));
+* derive(Debug);                    // "MyError.NotFound(/tmp/x)"  — structural
+* impl(MyError, ToString(...));     // "no such file: /tmp/x"      — user-facing
+* ```
+*
+* There is deliberately NO blanket `impl(T <: ToString) Debug for T`: it would
+* give any type with a hand-written message a `debug_string` that returns that
+* MESSAGE rather than a structural render, which is exactly the conflation
+* D15 removes.
+*/
+Debug :: trait(
+  debug_string : (fn(inout(self) : Self) -> String)
+);
+export(Debug);
 /// The one shared body behind every numeric `ToString` impl (audit fmt row:
 /// dedupe the snprintf helpers). `fmt` is a comptime `str` parameter, so it
 /// forwards into the extern call as a literal — no runtime conversion.
@@ -392,10 +418,134 @@ impl(
     )
   )
 );
+impl(ParseBoolError, ToString(to_string : (self -> `provided string was not \`true\` or \`false\``)));
+// ============================================================================
+// Debug for the primitives (D15) — structural and display coincide here.
+// ============================================================================
+/// `Debug` for `i8` — a primitive renders the same either way.
 impl(
-  ParseBoolError,
-  ToString(
-    to_string : (self -> `provided string was not \`true\` or \`false\``)
+  i8,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `i16` — a primitive renders the same either way.
+impl(
+  i16,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `i32` — a primitive renders the same either way.
+impl(
+  i32,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `i64` — a primitive renders the same either way.
+impl(
+  i64,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `u8` — a primitive renders the same either way.
+impl(
+  u8,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `u16` — a primitive renders the same either way.
+impl(
+  u16,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `u32` — a primitive renders the same either way.
+impl(
+  u32,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `u64` — a primitive renders the same either way.
+impl(
+  u64,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `usize` — a primitive renders the same either way.
+impl(
+  usize,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `isize` — a primitive renders the same either way.
+impl(
+  isize,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `f32` — a primitive renders the same either way.
+impl(
+  f32,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `f64` — a primitive renders the same either way.
+impl(
+  f64,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `bool` — a primitive renders the same either way.
+impl(
+  bool,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `char` — a primitive renders the same either way.
+impl(
+  char,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `rune` — a primitive renders the same either way.
+impl(
+  rune,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `str` — a primitive renders the same either way.
+impl(
+  str,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `String` — a primitive renders the same either way.
+impl(
+  String,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
+  )
+);
+/// `Debug` for `unit` — a primitive renders the same either way.
+impl(
+  unit,
+  Debug(
+    debug_string : (fn(inout(self) : Self) -> String)(self.to_string())
   )
 );
 // --- derive_rule for ToString ---
@@ -430,7 +580,12 @@ __derive_join_plus :: (fn(comptime(parts) : comptime_str, comptime(new_part) : c
     true => __ts_s5("(", parts, " + ", new_part, ")")
   )
 );
-__derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+/// The structural render shared by `derive(Debug)` and the deprecated
+/// `derive(ToString)` (D15). Returns the BODY EXPRESSION as comptime source;
+/// the caller wraps it in whichever trait impl it wants. `m` is the method
+/// invoked on each field — `".debug_string()"` for Debug, `".to_string()"`
+/// for the legacy ToString rule.
+__derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) -> comptime(comptime_str))({
   type_name :: Type.to_comptime_string(T);
   info :: Type.get_info(T);
   cond(
@@ -440,13 +595,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
       cond(
         (fc == 0) => {
           label :: __ts_s3("String.from(\"", type_name, "()\")");
-          ctx.make_impl(
-            quote(
-              ToString(
-                to_string : ((self) -> #(label.to_expr()))
-              )
-            )
-          )
+          label
         },
         true => {
           body :: __ts_fold_range(
@@ -458,17 +607,11 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
                 (fi == 0) => a,
                 true => __derive_join_plus(a, "String.from(\", \")")
               );
-              __derive_join_plus(with_sep, __ts_s3("self.", fname, ".to_string()"))
+              __derive_join_plus(with_sep, __ts_s4("self.", fname, m, ""))
             })
           );
           full_body :: __derive_join_plus(body, "String.from(\")\")");
-          ctx.make_impl(
-            quote(
-              ToString(
-                to_string : ((self) -> #(full_body.to_expr()))
-              )
-            )
-          )
+          full_body
         }
       )
     },
@@ -504,7 +647,7 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
                     (fi == 0) => a,
                     true => __derive_join_plus(a, "String.from(\", \")")
                   );
-                  __derive_join_plus(with_sep, __ts_s3("__v_", fname, ".to_string()"))
+                  __derive_join_plus(with_sep, __ts_s4("__v_", fname, m, ""))
                 })
               );
               full_body :: __derive_join_plus(body, "String.from(\")\")");
@@ -518,24 +661,39 @@ __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comp
         })
       );
       match_body :: __ts_s3("match(self,\n    ", ts_branches, "\n  )");
-      ctx.make_impl(
-        quote(
-          ToString(
-            to_string : ((self) -> #(match_body.to_expr()))
-          )
-        )
-      )
+      match_body
     },
     true => {
       label :: __ts_s3("String.from(\"", type_name, "\")");
-      ctx.make_impl(
-        quote(
-          ToString(
-            to_string : ((self) -> #(label.to_expr()))
-          )
-        )
-      )
+      label
     }
+  )
+});
+/// `derive(Debug)` — Rust's structural render, now its OWN trait (D15).
+__derive_debug :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  body :: __derive_structural_body(T, ".debug_string()");
+  ctx.make_impl(
+    quote(
+      Debug(
+        debug_string : ((self) -> #(body.to_expr()))
+      )
+    )
+  )
+});
+derive_rule(Debug, __derive_debug);
+/// `derive(ToString)` — DEPRECATED (D15), kept for one release. It emits the
+/// same STRUCTURAL render, which is Rust's `Debug`, not Rust's `Display`: that
+/// conflation is why no error enum could derive its user-facing message and
+/// all ten std error enums hand-write `to_string`. Use `derive(Debug)` for the
+/// structural form and hand-write `ToString` for the message.
+__derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
+  body :: __derive_structural_body(T, ".to_string()");
+  ctx.make_impl(
+    quote(
+      ToString(
+        to_string : ((self) -> #(body.to_expr()))
+      )
+    )
   )
 });
 derive_rule(ToString, __derive_tostring);
