@@ -117,7 +117,9 @@ storage); the collection's methods that shrink or remove call the assert
 explicitly, and every reallocation and free asserts automatically. Plain
 `inout(e)` over a map yields the whole entry; prefer `(k, inout(v))`, which
 keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
-or an index loop.
+or an index loop. Inside an `io.async` body that suspends (a real state
+machine) neither `inout` bindings nor the borrowed `for` are available yet;
+use the value form there.
 
 There is no `project` and no `Indexable`. `str` remains the immortal
 static-bytes view (freely copyable, no constraints), and range indexing

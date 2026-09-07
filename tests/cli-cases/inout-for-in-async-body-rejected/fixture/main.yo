@@ -1,0 +1,22 @@
+{ assert } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+{ ArrayList } :: import("std/collections/array_list");
+task :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    e.io.await(sleep(Duration.from_millis(i64(1)), e.io), e.io);
+    for(xs, inout(x) => {
+      x = (x + i32(1)); // rejected (v1): an inout local inside a state machine
+    });
+    return(xs(usize(0)));
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  r := io.await(task(io), e);
+  assert(r == i32(2), "unreachable");
+});
+export(main);

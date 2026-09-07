@@ -679,6 +679,14 @@ Implementation notes (what landed vs. the steps below):
   WRAPPER object, which is what the loop pins (H37). The mutation-summary
   auto-emit is the follow-up that would make a missed method impossible.
 - Map form `(k, inout(v))` is parsed by the macro from the `tuple` head.
+- **v1 limitation (H5 revisited):** the borrowed `for` inside an `io.async`
+  body that suspends is REJECTED, not supported — the element binding is an
+  `inout` local and the codegen rejection covers every `inout` local in a
+  state machine (pinned by `tests/cli-cases/inout-for-in-async-body-rejected`).
+  §9 H5's "unaffected" holds for the POINTEE (heap storage) but the binding's
+  own pointer would have to be spilled into the state struct; lifting the
+  restriction is the follow-up. A body without an `await` is a plain
+  function and works.
 
 
 Requires B in the **seed** (the prelude will contain `inout(x) := …`), so C

@@ -356,3 +356,28 @@ test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
   });
   assert(om.get(i32(7)) == Option(i32).Some(i32(8)), "ordered-map value mutated in place");
 });
+// The element binding is an `inout` local: it cannot be captured by a
+// closure (the existing second-class-reference gate).
+comptime_expect_error(
+  borrowed_element_captured :: (fn() -> unit)({
+    run :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(xs, inout(x) => {
+      run(() => {
+        x = i32(2);
+      });
+    });
+  })
+);
+// A combinator chain owns no storage: it has no `iter()`, so the borrowed
+// form is a compile error (use the value form).
+comptime_expect_error(
+  borrowed_form_over_a_chain :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(xs.into_iter().map(v => (v + i32(1))), inout(x) => {
+      x = i32(0);
+    });
+  })
+);
