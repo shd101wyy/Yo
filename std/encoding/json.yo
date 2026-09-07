@@ -792,23 +792,19 @@ _expect_eof :: (fn(p : _Parser) -> Result(unit, JsonError))({
     .Some(c) => .Err(JsonError.UnexpectedChar(c, p.pos))
   )
 });
-/// Parse JSON bytes into a `JsonValue` tree. Throws via `Exception` on invalid
-/// input, INCLUDING any content after the single top-level value.
-json_parse_bytes :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)({
+/// Parse JSON bytes into a `JsonValue` tree (D13 — a pure transform returns a
+/// `Result`). `.Err` on invalid input, INCLUDING any content after the single
+/// top-level value.
+json_parse_bytes :: (fn(bytes : ArrayList(u8)) -> Result(JsonValue, JsonError))({
   p := _Parser.new(bytes);
   match(
     _parse_value(p),
-    .Ok(v) =>
-      match(
-        _expect_eof(p),
-        .Ok(_) => v,
-        .Err(e) => exn.throw(dyn(e))
-      ),
-    .Err(e) => exn.throw(dyn(e))
+    .Ok(v) => match(_expect_eof(p), .Ok(_) => .Ok(v), .Err(e) => .Err(e)),
+    .Err(e) => .Err(e)
   )
 });
-/// Parse a JSON string into a `JsonValue` tree. Throws via `Exception` on invalid input.
-json_parse :: (fn(s : str, exn : Exception) -> JsonValue)({
+/// Parse a static `str` of JSON into a `JsonValue` tree.
+json_parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
   bytes := ArrayList(u8).new();
   n := s.len();
   (i : usize) = usize(0);
@@ -816,15 +812,35 @@ json_parse :: (fn(s : str, exn : Exception) -> JsonValue)({
     bytes.push(s.bytes(i));
     i = (i + usize(1));
   });
-  json_parse_bytes(bytes, exn)
+  json_parse_bytes(bytes)
 });
-/// Parse a runtime `String` of JSON into a `JsonValue` tree. Throws via
-/// `Exception` on invalid input. (`json_parse` takes the STATIC `str` view;
-/// runtime input — an HTTP body, an LSP frame — arrives as `String`.)
-json_parse_string :: (fn(s : String, exn : Exception) -> JsonValue)(
-  json_parse_bytes(s.as_bytes(), exn)
+/// Parse a runtime `String` of JSON into a `JsonValue` tree. (`json_parse`
+/// takes the STATIC `str` view; runtime input — an HTTP body, an LSP frame —
+/// arrives as `String`.)
+json_parse_string :: (fn(s : String) -> Result(JsonValue, JsonError))(
+  json_parse_bytes(s.as_bytes())
 );
-export(json_parse, json_parse_bytes, json_parse_string);
+/// `json_parse_bytes` as an effect, for callers already inside an effect
+/// scope. Same for the two below.
+json_parse_bytes_exn :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)(
+  match(json_parse_bytes(bytes), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+);
+/// `json_parse` as an effect.
+json_parse_exn :: (fn(s : str, exn : Exception) -> JsonValue)(
+  match(json_parse(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+);
+/// `json_parse_string` as an effect.
+json_parse_string_exn :: (fn(s : String, exn : Exception) -> JsonValue)(
+  match(json_parse_string(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+);
+export(
+  json_parse,
+  json_parse_bytes,
+  json_parse_string,
+  json_parse_exn,
+  json_parse_bytes_exn,
+  json_parse_string_exn
+);
 // ============================================================================
 // Serialisation
 // ============================================================================
@@ -1354,14 +1370,11 @@ impl(
 );
 /// Parse a JSON `String` into a `JsonValue`, as a `Result` (no Exception
 /// plumbing — the decode-side counterpart of `json_stringify`).
-json_parse_result :: (fn(s : String) -> Result(JsonValue, JsonError))({
-  p := _Parser.new(s.as_bytes());
-  match(
-    _parse_value(p),
-    .Ok(v) => match(_expect_eof(p), .Ok(_) => .Ok(v), .Err(e) => .Err(e)),
-    .Err(e) => .Err(e)
-  )
-});
+/// DEPRECATED (D13), kept for one release: `json_parse_string` now returns the
+/// same `Result`. This name existed only because `json_parse*` used to throw.
+json_parse_result :: (fn(s : String) -> Result(JsonValue, JsonError))(
+  json_parse_string(s)
+);
 /// Serialise any `ToJson` value to JSON text.
 json_encode :: (fn(generic(T : Type), v : T, where(T <: ToJson)) -> String)(
   json_stringify(v.to_json())

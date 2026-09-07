@@ -109,7 +109,9 @@ _fetch_once :: (
 )(
   io.async(e => {
     // Parse URL
-    url := Url.parse(url_str, e.exn);
+    // D13: Url.parse returns a Result; this caller is already inside an
+    // effect scope, so it uses the _exn wrapper.
+    url := Url.parse_exn(url_str, e.exn);
     // Validate scheme
     scheme := url.scheme();
     is_http := (scheme == `http`);
@@ -240,7 +242,7 @@ _resolve_location :: (fn(base_str : String, location : String, exn : Exception) 
   cond(
     location.contains(`://`) => location,
     true => {
-      base := Url.parse(base_str, exn);
+      base := Url.parse_exn(base_str, exn);
       origin := base.origin();
       cond(
         location.starts_with(`/`) => `${origin}${location}`,

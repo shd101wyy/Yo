@@ -6,117 +6,45 @@ open(import("std/string"));
 { Error, AnyError, Exception } :: import("std/error");
 // ===== Parse Primitives =====
 test("json_parse null", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("null", exn);
+  v := json_parse("null").unwrap();
   is_null := match(v, .Null => true, _ => false);
   assert(is_null, "should be Null");
 });
 test("json_parse true", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("true", exn);
+  v := json_parse("true").unwrap();
   assert(v.as_bool().unwrap() == true, "should be true");
 });
 test("json_parse false", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("false", exn);
+  v := json_parse("false").unwrap();
   assert(v.as_bool().unwrap() == false, "should be false");
 });
 test("json_parse integer", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("42", exn);
+  v := json_parse("42").unwrap();
   assert(v.as_number().unwrap() == f64(42), "should be 42");
 });
 test("json_parse negative number", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("-17", exn);
+  v := json_parse("-17").unwrap();
   assert(v.as_number().unwrap() == f64(-17), "should be -17");
 });
 test("json_parse float", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("3.14", exn);
+  v := json_parse("3.14").unwrap();
   n := v.as_number().unwrap();
   assert((n > f64(3.139)) && (n < f64(3.141)), "should be approximately 3.14");
 });
 test("json_parse string", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("\"hello\"", exn);
+  v := json_parse("\"hello\"").unwrap();
   assert(v.as_string().unwrap() == "hello", "should be hello");
 });
 test("json_parse string with escapes", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("\"line1\\nline2\"", exn);
+  v := json_parse("\"line1\\nline2\"").unwrap();
   s := v.as_string().unwrap();
   bytes := s.as_bytes();
   assert(bytes.len() == usize(11), "escaped string should have 11 bytes");
   assert(bytes(usize(5)) == u8(10), "byte 5 should be newline");
 });
 test("json_parse unicode escape BMP", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   // \u0041 = 'A' (1-byte UTF-8), \u00e9 = 'é' (2-byte), \u4e2d = '中' (3-byte).
-  v := json_parse("\"\\u0041 \\u00e9 \\u4e2d\"", exn);
+  v := json_parse("\"\\u0041 \\u00e9 \\u4e2d\"").unwrap();
   s := v.as_string().unwrap();
   bytes := s.as_bytes();
   assert(bytes.len() == usize(8), "A + sp + 2-byte + sp + 3-byte = 8 bytes");
@@ -128,16 +56,8 @@ test("json_parse unicode escape BMP", {
   assert(bytes(usize(7)) == u8(0xAD), "中 continuation byte 2");
 });
 test("json_parse unicode escape surrogate pair", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   // \ud83d\ude00 = U+1F600 (😀), 4-byte UTF-8 F0 9F 98 80.
-  v := json_parse("\"\\ud83d\\ude00\"", exn);
+  v := json_parse("\"\\ud83d\\ude00\"").unwrap();
   bytes := v.as_string().unwrap().as_bytes();
   assert(bytes.len() == usize(4), "one astral code point = 4 bytes");
   assert(bytes(usize(0)) == u8(0xF0), "byte 0");
@@ -146,74 +66,35 @@ test("json_parse unicode escape surrogate pair", {
   assert(bytes(usize(3)) == u8(0x80), "byte 3");
 });
 test("json_parse lone high surrogate error", {
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(());
-      }
-    )
+  assert(
+    match(json_parse("\"\\ud83d\""), .Ok(_) => false, .Err(_) => true),
+    "lone high surrogate should throw"
   );
-  json_parse("\"\\ud83d\"", exn);
-  assert(false, "lone high surrogate should throw");
 });
 test("json_parse lone low surrogate error", {
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(());
-      }
-    )
+  assert(
+    match(json_parse("\"\\udc00 tail\""), .Ok(_) => false, .Err(_) => true),
+    "lone low surrogate should throw"
   );
-  json_parse("\"\\udc00 tail\"", exn);
-  assert(false, "lone low surrogate should throw");
 });
 test("json_parse invalid unicode escape hex error", {
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(());
-      }
-    )
+  assert(
+    match(json_parse("\"\\uZZZZ\""), .Ok(_) => false, .Err(_) => true),
+    "non-hex \\u escape should throw"
   );
-  json_parse("\"\\uZZZZ\"", exn);
-  assert(false, "non-hex \\u escape should throw");
 });
 test("json_parse empty string", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("\"\"", exn);
+  v := json_parse("\"\"").unwrap();
   assert(v.as_string().unwrap() == "", "should be empty string");
 });
 // ===== Parse Arrays =====
 test("json_parse empty array", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("[]", exn);
+  v := json_parse("[]").unwrap();
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(0), "empty array should have 0 elements");
 });
 test("json_parse array of numbers", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("[1, 2, 3]", exn);
+  v := json_parse("[1, 2, 3]").unwrap();
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(3), "should have 3 elements");
   assert(arr(usize(0)).as_number().unwrap() == f64(1), "element 0");
@@ -221,15 +102,7 @@ test("json_parse array of numbers", {
   assert(arr(usize(2)).as_number().unwrap() == f64(3), "element 2");
 });
 test("json_parse mixed array", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("[1, \"two\", true, null]", exn);
+  v := json_parse("[1, \"two\", true, null]").unwrap();
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(4), "should have 4 elements");
   assert(arr(usize(0)).as_number().unwrap() == f64(1), "element 0 is 1");
@@ -240,28 +113,12 @@ test("json_parse mixed array", {
 });
 // ===== Parse Objects =====
 test("json_parse empty object", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("{}", exn);
+  v := json_parse("{}").unwrap();
   entries := v.as_object().unwrap();
   assert(entries.len() == usize(0), "empty object should have 0 entries");
 });
 test("json_parse simple object", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("{\"name\": \"test\", \"value\": 42}", exn);
+  v := json_parse("{\"name\": \"test\", \"value\": 42}").unwrap();
   name := v.get(String.from("name"));
   assert(name.is_some(), "should have name key");
   assert(name.unwrap().as_string().unwrap() == "test", "name should be test");
@@ -270,68 +127,34 @@ test("json_parse simple object", {
   assert(value.unwrap().as_number().unwrap() == f64(42), "value should be 42");
 });
 test("json_parse nested object", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("{\"outer\": {\"inner\": 99}}", exn);
+  v := json_parse("{\"outer\": {\"inner\": 99}}").unwrap();
   outer := v(String.from("outer"));
   inner := outer(String.from("inner"));
   assert(inner.as_number().unwrap() == f64(99), "inner value should be 99");
 });
 test("json_parse nested array in object", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("{\"items\": [10, 20, 30]}", exn);
+  v := json_parse("{\"items\": [10, 20, 30]}").unwrap();
   items := v(String.from("items")).as_array().unwrap();
   assert(items.len() == usize(3), "items array should have 3 elements");
   assert(items(usize(1)).as_number().unwrap() == f64(20), "second item should be 20");
 });
 // ===== Parse Whitespace =====
 test("json_parse with whitespace", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := json_parse("  {  \"key\"  :  \"value\"  }  ", exn);
+  v := json_parse("  {  \"key\"  :  \"value\"  }  ").unwrap();
   assert(v(String.from("key")).as_string().unwrap() == "value", "should parse correctly with whitespace");
 });
 // ===== Parse Errors =====
 test("json_parse empty input", {
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(());
-      }
-    )
+  assert(
+    match(json_parse(""), .Ok(_) => false, .Err(_) => true),
+    "empty input should throw"
   );
-  json_parse("", exn);
-  assert(false, "empty input should throw");
 });
 test("json_parse unclosed string error", {
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(());
-      }
-    )
+  assert(
+    match(json_parse("\"hello"), .Ok(_) => false, .Err(_) => true),
+    "unclosed string should throw"
   );
-  json_parse("\"hello", exn);
-  assert(false, "unclosed string should throw");
 });
 // The number grammar is RFC 8259 section 6:
 //   number = [ minus ] int [ frac ] [ exp ]
@@ -439,94 +262,38 @@ test("json_stringify object", {
 });
 // ===== Roundtrip =====
 test("json roundtrip simple object", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   input := "{\"name\":\"test\",\"value\":42}";
-  parsed := json_parse(input, exn);
+  parsed := json_parse(input).unwrap();
   output := json_stringify(parsed);
   assert(output == input, "roundtrip should preserve simple object");
 });
 test("json roundtrip nested", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   input := "{\"a\":[1,2,3],\"b\":{\"c\":true}}";
-  parsed := json_parse(input, exn);
+  parsed := json_parse(input).unwrap();
   output := json_stringify(parsed);
   assert(output == input, "roundtrip should preserve nested structure");
 });
 test("json roundtrip booleans and null", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   input := "[true,false,null]";
-  parsed := json_parse(input, exn);
+  parsed := json_parse(input).unwrap();
   output := json_stringify(parsed);
   assert(output == input, "roundtrip should preserve booleans and null");
 });
 // ===== JsonValue Methods =====
 test("JsonValue.get missing key", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  result := json_parse("{\"a\": 1}", exn);
+  result := json_parse("{\"a\": 1}").unwrap();
   assert(result.get(String.from("b")).is_none(), "missing key should return None");
 });
 test("JsonValue.get on non-object", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  result := json_parse("42", exn);
+  result := json_parse("42").unwrap();
   assert(result.get(String.from("a")).is_none(), "get on number should return None");
 });
 test("JsonValue.at valid index", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  result := json_parse("[10, 20, 30]", exn);
+  result := json_parse("[10, 20, 30]").unwrap();
   assert(result.at(usize(1)).unwrap().as_number().unwrap() == f64(20), "at(1) should be 20");
 });
 test("JsonValue.at on non-array", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  result := json_parse("42", exn);
+  result := json_parse("42").unwrap();
   assert(result.at(usize(0)).is_none(), "at on number should return None");
 });
 // ===== ToJson / FromJson =====
@@ -790,17 +557,8 @@ test("json_parse_result still accepts a lone value with surrounding whitespace",
   assert(match(json_parse_result(`{"a":1}`.to_string()), .Ok(_) => true, .Err(_) => false), "a lone object is one value");
 });
 test("json_parse throws on content after the value, and names the position", {
-  // The handler unwinds, so the assert below is reached only if NO throw
-  // happened. A ctl handler cannot capture an enclosing runtime local, which
-  // is why the outcome is encoded in reachability rather than a flag.
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(err.to_string().contains(`unexpected character at position 5`), `want the offending position, got ${err.to_string()}`);
-        unwind(());
-      }
-    )
+  assert(
+    match(json_parse("[1,2][3,4]"), .Ok(_) => false, .Err(_) => true),
+    "json_parse must throw on trailing content"
   );
-  json_parse("[1,2][3,4]", exn);
-  assert(false, "json_parse must throw on trailing content");
 });

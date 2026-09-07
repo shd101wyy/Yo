@@ -101,10 +101,10 @@ _is_uri_byte :: (fn(b : u8) -> bool)(
 // ============================================================================
 // Helper: parse port number from bytes
 // ============================================================================
-_parse_port :: (fn(s : String, start : usize, end : usize, exn : Exception) -> u16)({
+_parse_port :: (fn(s : String, start : usize, end : usize) -> Result(u16, UrlError))({
   cond(
     (start >= end) => {
-      exn.throw(dyn(UrlError.InvalidPort));
+      return(.Err(UrlError.InvalidPort));
     },
     true => ()
   );
@@ -117,18 +117,18 @@ _parse_port :: (fn(s : String, start : usize, end : usize, exn : Exception) -> u
         val = ((val * u32(10)) + u32(ch - _ZERO));
         cond(
           (val > u32(65535)) => {
-            exn.throw(dyn(UrlError.InvalidPort));
+            return(.Err(UrlError.InvalidPort));
           },
           true => ()
         );
       },
       true => {
-        exn.throw(dyn(UrlError.InvalidPort));
+        return(.Err(UrlError.InvalidPort));
       }
     );
     i = (i + usize(1));
   });
-  u16(val)
+  .Ok(u16(val))
 });
 /// Parsed URL with scheme, host, port, path, query, and fragment components.
 Url :: ref(
@@ -147,10 +147,15 @@ impl(
   // Parse a URL string.
   // Supports: scheme://[userinfo@]host[:port]/path[?query][#fragment]
   // Also supports scheme:path (opaque URIs like mailto:user@example.com)
-  parse : (fn(s : String, exn : Exception) -> Url)({
+  /// Parse a URL string into a `Url` (D13 — a pure transform returns a
+  /// `Result`; `parse_exn` is the effect-carrying wrapper).
+  ///
+  /// Supports `scheme://[userinfo@]host[:port]/path[?query][#fragment]` and
+  /// opaque `scheme:path` URIs like `mailto:user@example.com`.
+  parse : (fn(s : String) -> Result(Url, UrlError))({
     cond(
       (s.len() == usize(0)) => {
-        exn.throw(dyn(UrlError.EmptyInput));
+        return(.Err(UrlError.EmptyInput));
       },
       true => ()
     );
@@ -166,7 +171,7 @@ impl(
       cond(
         _is_uri_byte(s.byte_at(vi)) => (),
         true => {
-          exn.throw(dyn(UrlError.InvalidCharacter(pos : vi)));
+          return(.Err(UrlError.InvalidCharacter(pos : vi)));
         }
       );
       vi = (vi + usize(1));
@@ -176,7 +181,7 @@ impl(
     scheme_end := usize(0);
     cond(
       (src_len == usize(0)) => {
-        exn.throw(dyn(UrlError.MissingScheme));
+        return(.Err(UrlError.MissingScheme));
       },
       true => ()
     );
@@ -185,7 +190,7 @@ impl(
     cond(
       (((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z))) => (),
       true => {
-        exn.throw(dyn(UrlError.MissingScheme));
+        return(.Err(UrlError.MissingScheme));
       }
     );
     i := usize(1);
@@ -200,14 +205,14 @@ impl(
         },
         (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)) || (((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS) || ((ch == _MINUS) || (ch == _DOT)))) => (),
         true => {
-          exn.throw(dyn(UrlError.MissingScheme));
+          return(.Err(UrlError.MissingScheme));
         }
       );
       i = (i + usize(1));
     });
     cond(
       !found_colon => {
-        exn.throw(dyn(UrlError.MissingScheme));
+        return(.Err(UrlError.MissingScheme));
       },
       true => ()
     );
@@ -301,7 +306,15 @@ impl(
             after_bracket := (bracket_end + usize(1));
             cond(
               ((after_bracket < auth_end) && (s.byte_at(after_bracket) == _COLON)) => {
-                port = .Some(_parse_port(s, after_bracket + usize(1), auth_end, exn));
+                port = .Some(
+                  match(
+                    _parse_port(s, after_bracket + usize(1), auth_end),
+                    .Ok(v) => v,
+                    .Err(e) => {
+                      return(.Err(e));
+                    }
+                  )
+                );
               },
               true => ()
             );
@@ -331,7 +344,15 @@ impl(
                   hh2 = (hh2 + usize(1));
                 });
                 host = .Some(String.from_bytes(host_b));
-                port = .Some(_parse_port(s, cp_val + usize(1), auth_end, exn));
+                port = .Some(
+                  match(
+                    _parse_port(s, cp_val + usize(1), auth_end),
+                    .Ok(v) => v,
+                    .Err(e) => {
+                      return(.Err(e));
+                    }
+                  )
+                );
               },
               .None => {
                 // No port, entire range is host
@@ -431,20 +452,27 @@ impl(
     // Ensure authority-based URLs have a path starting with "/" or empty
     cond(
       (has_authority && (!path_str.is_empty() && (path_str.as_bytes()(usize(0)) != _SLASH))) => {
-        exn.throw(dyn(UrlError.Other(`authority path must start with '/'`)));
+        return(.Err(UrlError.Other(`authority path must start with '/'`)));
       },
       true => ()
     );
-    Self(
-      _scheme : scheme,
-      _host : host,
-      _port : port,
-      _path : path_str,
-      _query : query,
-      _fragment : fragment,
-      _userinfo : userinfo
+    .Ok(
+      Self(
+        _scheme : scheme,
+        _host : host,
+        _port : port,
+        _path : path_str,
+        _query : query,
+        _fragment : fragment,
+        _userinfo : userinfo
+      )
     )
   }),
+  /// `parse` as an effect: throws the `UrlError` through `exn` instead of
+  /// returning it. Kept for callers already inside an effect scope.
+  parse_exn : (fn(s : String, exn : Exception) -> Url)(
+    match(Self.parse(s), .Ok(u) => u, .Err(e) => exn.throw(dyn(e)))
+  ),
   // --- Accessors ---
   scheme : (fn(self : Self) -> String)(
     self._scheme
