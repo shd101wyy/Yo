@@ -16,14 +16,14 @@ export(ToString);
 *
 * `derive(ToString)` used to emit the structural render, which is Rust's
 * `Debug`, not Rust's `Display`. That conflation meant no error type could
-* DERIVE its user-facing message — all ten std error enums hand-write
+* DERIVE its user-facing message — every std error enum hand-writes
 * `to_string` — while also getting a structural dump for free.
 *
 * Now the two are separate channels:
 *
 * ```rust
 * MyError :: enum(NotFound(path : String));
-* derive(Debug);                    // "MyError.NotFound(/tmp/x)"  — structural
+* derive(MyError, Debug);           // "MyError.NotFound(/tmp/x)"  — structural
 * impl(MyError, ToString(...));     // "no such file: /tmp/x"      — user-facing
 * ```
 *
@@ -684,7 +684,7 @@ derive_rule(Debug, __derive_debug);
 /// `derive(ToString)` — DEPRECATED (D15), kept for one release. It emits the
 /// same STRUCTURAL render, which is Rust's `Debug`, not Rust's `Display`: that
 /// conflation is why no error enum could derive its user-facing message and
-/// all ten std error enums hand-write `to_string`. Use `derive(Debug)` for the
+/// every std error enum hand-writes `to_string`. Use `derive(Debug)` for the
 /// structural form and hand-write `ToString` for the message.
 __derive_tostring :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(trait_params) : ComptimeList(Expr)) -> comptime(Expr))({
   body :: __derive_structural_body(T, ".to_string()");
