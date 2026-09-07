@@ -144,18 +144,35 @@ _skill_description :: (
     return(desc);
   });
   content := io.await(read_to_string(skill_md.clone(), io), IoExn(io : io, exn : exn));
+  description_from_frontmatter(content)
+});
+/// The pure half of `_skill_description`: pull `description:` out of a
+/// SKILL.md's YAML frontmatter. Split from the file read so it can be tested
+/// without touching the disk (`tests/internal/init.test.yo`).
+description_from_frontmatter :: (fn(content : String) -> String)({
+  (desc : String) = String.from("");
   lines := content.split(String.from("\n"));
+  // "description:" is 12 bytes, so the value starts at 12 — NOT 13. Slicing
+  // at 13 ate the first character of an unspaced `description:Foo`, and only
+  // looked right because every bundled SKILL.md happens to write exactly one
+  // space. `trim` handles any amount of space after the colon.
+  key := String.from("description:");
   (in_frontmatter : bool) = false;
+  (closed : bool) = false;
   (i : usize) = usize(0);
-  while((i < lines.len()) && (desc.len() == usize(0)), {
+  // Stop at the CLOSING `---`. Without that the scan fell back into the
+  // "looking for the opening fence" state and a markdown horizontal rule in
+  // the body would re-open it, letting body prose match `description:`.
+  while((i < lines.len()) && (desc.len() == usize(0)) && !closed, {
     line := lines(i);
     if(in_frontmatter, {
       cond(
         (line.trim() == String.from("---")) => {
           in_frontmatter = false;
+          closed = true;
         },
-        line.starts_with(String.from("description:")) => {
-          desc = line.substring(usize(13), line.len()).trim();
+        line.starts_with(key) => {
+          desc = line.substring(key.len(), line.len()).trim();
         },
         true => ()
       );
@@ -415,4 +432,4 @@ run_skills_install :: (
   });
   print_skills_summary(res);
 });
-export(run_skills_install, install_skills_into, print_skills_summary, SkillEntry, SkillsInstallResult);
+export(run_skills_install, install_skills_into, print_skills_summary, description_from_frontmatter, SkillEntry, SkillsInstallResult);

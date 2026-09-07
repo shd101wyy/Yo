@@ -14,7 +14,7 @@ open(import("std/fmt"));
   generate_agents_md,
   generate_claude_md
 } :: import("../../src/init.yo");
-{ SkillEntry } :: import("../../src/skills_command.yo");
+{ SkillEntry, description_from_frontmatter } :: import("../../src/skills_command.yo");
 // ---------------------------------------------------------------------------
 // sanitize_project_name
 // ---------------------------------------------------------------------------
@@ -122,4 +122,37 @@ test("generate_agents_md: empty skill list still valid markdown", {
   assert(md.contains(String.from("# AGENTS.md")), "title present");
   assert(md.contains(String.from("yo skills install")), "points at the install command");
   assert(!md.contains(String.from("- **")), "no skill bullets");
+});
+// ---------------------------------------------------------------------------
+// description_from_frontmatter — the SKILL.md frontmatter scan
+// ---------------------------------------------------------------------------
+test("description_from_frontmatter: reads the value after 'description:'", {
+  md := String.from("---\nname: yo-syntax\ndescription: Write and repair Yo source code.\n---\n\nbody\n");
+  assert(description_from_frontmatter(md) == "Write and repair Yo source code.", "value is read verbatim");
+});
+test("description_from_frontmatter: keeps the first character when there is no space", {
+  // "description:" is 12 bytes; slicing at 13 ate the 'U' and yielded
+  // "nspaced". Every bundled SKILL.md writes one space, so the off-by-one
+  // was invisible until a skill omitted it.
+  md := String.from("---\ndescription:Unspaced value\n---\n");
+  assert(description_from_frontmatter(md) == "Unspaced value", "no leading character is dropped");
+});
+test("description_from_frontmatter: tolerates extra spaces after the colon", {
+  md := String.from("---\ndescription:    Padded   \n---\n");
+  assert(description_from_frontmatter(md) == "Padded", "surrounding space is trimmed");
+});
+test("description_from_frontmatter: a body horizontal rule cannot resurrect the scan", {
+  // The scan stops at the CLOSING fence. Without that it fell back to
+  // "looking for an opening ---", so a markdown hrule in the body re-opened
+  // frontmatter and body prose could match `description:`.
+  md := String.from("---\nname: only-a-name\n---\n\nintro\n\n---\n\ndescription: body prose, not the frontmatter\n");
+  assert(description_from_frontmatter(md) == "", "body text is never taken as the description");
+});
+test("description_from_frontmatter: missing description yields empty", {
+  md := String.from("---\nname: no-description\n---\n\nbody\n");
+  assert(description_from_frontmatter(md) == "", "absent description is empty, not an error");
+});
+test("description_from_frontmatter: content with no frontmatter yields empty", {
+  md := String.from("# Just a heading\n\ndescription: not in frontmatter\n");
+  assert(description_from_frontmatter(md) == "", "a description outside frontmatter is ignored");
 });
