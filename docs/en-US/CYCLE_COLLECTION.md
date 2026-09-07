@@ -226,7 +226,7 @@ Yo uses **complete thread isolation** - spawned tasks run on separate threads wi
 x := 42;
 node := Node(1, .None);  // Cycle-forming type, stays on this thread
 
-// Spawn an isolated OS thread — `Thread.spawn` from std/thread.
+// Spawn an isolated OS thread — `Thread(T).spawn` from std/thread.
 // (There is no `Task` type; the async API is `io.async` / `io.await` / `io.spawn`,
 // which are single-threaded and do NOT create threads.)
 handle := Thread(unit).spawn((io) => {

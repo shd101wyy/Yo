@@ -2178,7 +2178,7 @@ _evaluate_funcval_runtime_call :: (
   // helper.ts:1911-1929) — a NON-generic soft-generic function (one with a
   // SomeType param, e.g. a closure param `cb : Impl(Fn(...))`) also
   // specializes so its concrete arg types lower into the specialized C
-  // function (e.g. Thread.spawn's `cb` → its capture struct). Control
+  // function (e.g. Thread(T).spawn's `cb` → its capture struct). Control
   // (ctl/effect-handler) functions are excluded — the effect system handles
   // them.
   // Soft-generic spec trigger: TS's guard is BARE
@@ -2282,7 +2282,7 @@ _evaluate_funcval_runtime_call :: (
         // resolved_ret as that unresolved SomeT — which makes codegen's
         // should_skip_function_codegen drop the specialized method as
         // "has_generic_return" (declarations.yo skip2), so e.g. the
-        // specialized `Thread.spawn -> Self` would never be emitted.
+        // specialized `Thread(T).spawn -> Self` would never be emitted.
         // Resolve `Self` to the concrete static-dot receiver here (the
         // body constructs that concrete type). Gated to a SomeT return
         // NAMED "Self" — only the `-> Self` shape means the receiver. A

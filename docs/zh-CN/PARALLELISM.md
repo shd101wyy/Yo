@@ -33,7 +33,7 @@ Yo 提供两种并行执行机制：
 - **Linux**：每线程独立的 `io_uring` 实例
 - **macOS**：每线程独立的 `kqueue` 描述符
 - **Windows**：每线程独立的 IOCP 句柄
-- **WASM**：不适用——WASM 是单线程的；不支持并行（`Thread.spawn`、线程池）。请改用 `io.async`/`io.await` 进行协作式并发。
+- **WASM**：不适用——WASM 是单线程的；不支持并行（`Thread(T).spawn`、线程池）。请改用 `io.async`/`io.await` 进行协作式并发。
 
 这意味着派生的线程和线程池任务可以通过 `io.async`/`io.await` 执行异步 I/O，且无需竞争——每个线程的事件循环完全独立。
 

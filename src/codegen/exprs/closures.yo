@@ -303,7 +303,7 @@ generate_closure_construction :: (fn(expr : AstExpr, indent : String, context : 
 /// Pre-pass: register every collected closure's impl fn into impl_closure_call_map
 /// (keyed by its concrete capture-struct id) BEFORE any function body is generated.
 /// Without this, a specialized callee whose body calls the closure (e.g. the
-/// specialized `Thread.spawn` body → `__yo_thread_spawn(cb)`) can be codegen'd
+/// specialized `Thread(T).spawn` body → `__yo_thread_spawn(cb)`) can be codegen'd
 /// before the closure's construction site (which also registers the map), so the
 /// call-site lookup misses. Mirrors TS `registerImplClosureCallMappings`
 /// (closures.ts:223); yo-self has no FunctionValue.closureInfo, so it reads the

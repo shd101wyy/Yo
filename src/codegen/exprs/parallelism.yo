@@ -86,7 +86,7 @@ _closure_fid :: (fn(cb_ei_value : Option(EvalValue), cb_closure_fn_val : Option(
   match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()), .None => String.new())
 });
 /// `, (<cType>){0}, …` — zero-inits for the closure's runtime params (e.g. the
-/// `io : Io` of a `Thread.spawn` callback). Mirrors the `runtimeParamArgs` build
+/// `io : Io` of a `Thread(T).spawn` callback). Mirrors the `runtimeParamArgs` build
 /// in generateSpawnWrapper. yo-self's Func param_types already exclude comptime
 /// params, so every entry is a runtime param.
 _closure_runtime_arg_zeroinits :: (fn(closure_fid : String, context : FunctionGenerationContext) -> String)({
@@ -163,11 +163,11 @@ _generate_spawn_call :: (fn(expr : AstExpr, indent : String, context : FunctionG
   );
   cei := match(context.base.get_expr_info(cb), .Some(e) => e, .None => return(Option(String).None));
   // `cb` is either a closure literal (cei.capture_type set) OR — inside a
-  // SPECIALIZED Thread.spawn body — the lowered capture-struct PARAM (cei.ty IS
+  // SPECIALIZED Thread(T).spawn body — the lowered capture-struct PARAM (cei.ty IS
   // the capture struct, registered in impl_closure_call_map by the closure
   // construction at the call site). Resolve the capture struct + closure impl fn
   // from whichever is present.
-  // For a closure-PARAM cb (specialized Thread.spawn body), cei.ty is the SomeT
+  // For a closure-PARAM cb (specialized Thread(T).spawn body), cei.ty is the SomeT
   // the param was bound to (callable) — resolve it to the concrete capture struct
   // (via g_some_resolved_concrete) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
