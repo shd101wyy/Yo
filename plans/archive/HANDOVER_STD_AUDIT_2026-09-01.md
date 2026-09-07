@@ -1,10 +1,13 @@
 # Handover — std API audit campaign, session ending 2026-09-01 (evening)
 
-Supersedes `plans/HANDOVER_STD_AUDIT_2026-08-30.md` (keep it — the deep
+> **ARCHIVED 2026-09-07 — superseded.** Live handover:
+> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.
+
+Supersedes `plans/archive/HANDOVER_STD_AUDIT_2026-08-30.md` (keep it — the deep
 background on C-numbered issues, the E-class arc, and the smoke-hang
 investigation lives there; THIS doc is the current state).
 
-The active /goal is unchanged: finish everything in `plans/STD_API_AUDIT.md`,
+The active /goal is unchanged: finish everything in `plans/archive/STD_API_AUDIT.md`,
 well-designed stable std APIs, document + fix every surfaced bug, **no
 workarounds**, admin merges authorized to save CI cycles.
 
@@ -132,7 +135,7 @@ stage-1 — as the seed stand-in): emit→clang→check ./src+./std, tls probe
 commits on predictive base develop+#376 (rebase --onto real develop when
 the time comes), including tonight's follow-up commit `3cae9af08`
 (weak-canary `__yo_tls_available`, version_cache `tls_available()` gating
-with clean errors, rewritten PR-3 note in plans/STD_API_AUDIT.md).
+with clean errors, rewritten PR-3 note in plans/archive/STD_API_AUDIT.md).
 
 **Still to fold into #364 when it rides (post-v0.2.21)**:
 release.yml OpenSSL sites — (a) seed-cross-emit apt `libssl-dev

@@ -161,7 +161,7 @@ impl(
   ///
   /// For "how many runes" use `chars().count()` (O(n)); to walk runes together with
   /// the byte offset each one starts at, use `char_indices()`.
-  /// (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this returned a RUNE count
+  /// (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this returned a RUNE count
   /// before that flip.)
   len : (fn(self : Self) -> usize)(
     match(self._bytes, .Some(b) => b.len(), .None => usize(0))
@@ -257,7 +257,7 @@ impl(
   ),
   /// Decode the rune that STARTS at byte offset `index`.
   ///
-  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this took a
+  /// **BYTE basis** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — this took a
   /// rune index before the flip). `.None` is returned for the three ways a
   /// byte offset can fail to name a rune: at or past `len()`, inside a rune
   /// (a UTF-8 continuation byte), or on bytes that do not decode.
@@ -413,7 +413,7 @@ impl(
   ),
   /// Owned copy of the bytes in `[start, end)`.
   ///
-  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — these were
+  /// **BYTE basis** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — these were
   /// rune indices before the flip).
   ///
   /// **Boundary policy, in full:**
@@ -467,7 +467,7 @@ impl(
   ),
   /// Byte offset of the first occurrence of `substr` at or after `from_index`.
   ///
-  /// **BYTE basis, in AND out** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
+  /// **BYTE basis, in AND out** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
   /// both were rune indices before the flip). `from_index` is a byte offset;
   /// the returned index is the byte offset the match starts at, so it can be
   /// fed straight back into `substring`.
@@ -554,7 +554,7 @@ impl(
   ),
   /// Private: is `substr` present at or after BYTE offset `from_index`?
   ///
-  /// **BYTE basis** for `from_index` (`plans/STD_API_AUDIT_D4_PLAN.md` D4
+  /// **BYTE basis** for `from_index` (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4
   /// PR 3 — it was a rune index before the flip). Not called directly — go
   /// through `contains`.
   _contains_impl : (fn(self : Self, substr : Self, (from_index : usize) ?= 0) -> bool)(
@@ -572,7 +572,7 @@ impl(
     result := ArrayList(Self).new();
     cond(
       // The empty separator means "split into CHARACTERS", and it has to keep
-      // meaning that after `plans/STD_API_AUDIT_D4_PLAN.md` rebases `len()`
+      // meaning that after `plans/archive/STD_API_AUDIT_D4_PLAN.md` rebases `len()`
       // and `substring` onto bytes — a byte split would hand back fragments
       // that are not valid UTF-8. Pinned to the rune vocabulary (§5.2 S5).
       separator.is_empty() => {
@@ -691,7 +691,7 @@ impl(
   /// Byte offset of the LAST occurrence of `substr` starting at or before
   /// `from_index`.
   ///
-  /// **BYTE basis, in AND out** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
+  /// **BYTE basis, in AND out** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
   /// both were rune indices before the flip). `from_index` is the highest byte
   /// offset a match is allowed to START at; the default `usize.MAX` means
   /// "anywhere". The result is the byte offset of the match, and for a
@@ -776,7 +776,7 @@ impl(
   /// Private: does this string have `prefix` starting at BYTE offset
   /// `position`?
   ///
-  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3). Before the
+  /// **BYTE basis** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3). Before the
   /// flip `position` was walked rune-by-rune — and walked WRONG: the counter
   /// advanced on a lead byte while the loop also stepped one byte, so
   /// `"你好".starts_with("好", 1)` stopped at byte 1, in the middle of `你`.
@@ -846,7 +846,7 @@ impl(
   /// Private: does the first `end_position` BYTES of this string end with
   /// `suffix`?
   ///
-  /// **BYTE basis** (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
+  /// **BYTE basis** (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 —
   /// `end_position` was a rune count before the flip). The default
   /// `usize.MAX` means "the whole string"; anything past `len()` clamps to it.
   /// Like `_has_prefix`, a mid-rune `end_position` needs no rejection: a
@@ -1308,7 +1308,7 @@ impl(
 /// See plans/backlog/OVERLOADING_REDESIGN.md §4.
 ///
 /// **Every index in this trait is a BYTE offset into `haystack`**, in both
-/// directions (`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — they were rune
+/// directions (`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3 — they were rune
 /// indices before the flip). No index is boundary-checked: UTF-8 is
 /// self-synchronizing, so a valid-UTF-8 pattern can only ever match at a rune
 /// boundary, and a mid-rune argument answers `false` / `.None` rather than
@@ -1513,7 +1513,7 @@ impl(
 /// (P = str) and `s.X(other)` (P = String) both resolve to the one generic method via
 /// trait dispatch — no overload resolution. See plans/backlog/OVERLOADING_REDESIGN.md §4.
 ///
-/// **Every index below is a BYTE offset** (`plans/STD_API_AUDIT_D4_PLAN.md`
+/// **Every index below is a BYTE offset** (`plans/archive/STD_API_AUDIT_D4_PLAN.md`
 /// D4 PR 3), matching `len()` and `substring`, so `index_of`'s answer can be
 /// fed straight back into `substring` with nothing in between.
 impl(
@@ -1896,7 +1896,7 @@ impl(
 /// === Rune-aware indexing (D4 vocabulary) ===
 ///
 /// Everything in this block is stated in **BYTE** offsets.
-/// `plans/STD_API_AUDIT_D4_PLAN.md` moved `String`'s index basis from
+/// `plans/archive/STD_API_AUDIT_D4_PLAN.md` moved `String`'s index basis from
 /// characters to bytes; the API here is Rust-shaped (2026-08-26 decision):
 /// byte slicing plus `chars()` / `char_indices()` composed with iterator
 /// methods for all rune work — `s.chars().count()` is the rune count,

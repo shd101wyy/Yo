@@ -79,7 +79,7 @@ Use `recur(args)` only when calling the type constructor with **different** type
 - Double quote string returns `str` type (contains `[u8]` byte slice)
 - Template string returns `String` type (utf-8 encoded reference-semantics type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.
 - `str` is a builtin type — don't use it as a variable or type name.
-- **String indexing is BYTE-based, everywhere** (D4, `plans/STD_API_AUDIT_D4_PLAN.md`, 2026-08-26): `String.len()` is the byte count at O(1), and `at` / `substring` / `s(a..b)` / `index_of` / `last_index_of` / the positional arguments of `contains` / `starts_with` / `ends_with` / the `Pattern` trait all take and return byte offsets — the same unit as `str.len()` and `StringBuilder.len()`, which were always bytes. `substring` clamps out-of-range but PANICS on an offset inside a rune; `try_substring` is the non-panicking form, `floor_char_boundary` / `ceil_char_boundary` snap arbitrary offsets. Rune work goes through `chars()` / `char_indices()` composed with iterator methods — the rune count is `s.chars().count()` (the iterator spelling keeps the O(n) cost visible; `len()` is O(1) everywhere in std). Comptime strings share the byte basis (D4 PR 7). Full contract: `docs/en-US/STRINGS.md` / `docs/zh-CN/STRINGS.md`.
+- **String indexing is BYTE-based, everywhere** (D4, `plans/archive/STD_API_AUDIT_D4_PLAN.md`, 2026-08-26): `String.len()` is the byte count at O(1), and `at` / `substring` / `s(a..b)` / `index_of` / `last_index_of` / the positional arguments of `contains` / `starts_with` / `ends_with` / the `Pattern` trait all take and return byte offsets — the same unit as `str.len()` and `StringBuilder.len()`, which were always bytes. `substring` clamps out-of-range but PANICS on an offset inside a rune; `try_substring` is the non-panicking form, `floor_char_boundary` / `ceil_char_boundary` snap arbitrary offsets. Rune work goes through `chars()` / `char_indices()` composed with iterator methods — the rune count is `s.chars().count()` (the iterator spelling keeps the O(n) cost visible; `len()` is O(1) everywhere in std). Comptime strings share the byte basis (D4 PR 7). Full contract: `docs/en-US/STRINGS.md` / `docs/zh-CN/STRINGS.md`.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
 - **`replace` replaces EVERY occurrence** (D10, `plans/STD_API_STABILIZATION.md` §2, 2026-09-07): `String.replace` and `ImmString.replace` are Rust's `str::replace`. `replacen(pattern, new, count)` is the bounded form, and `replace_first` (= `replacen(..., usize(1))`) is the pre-D10 meaning, kept deprecated for one release; `replace_all` stays one release as a deprecated synonym of `replace`. **`Regex.replace(haystack, rep)` — the method ON a `Regex` — still replaces the FIRST match**, because that is the Rust regex crate's shape (`Regex::replace` vs `Regex::replace_all`); it is `String.replace(re, rep)` (the `Pattern` dispatch) that replaces all. Before the flip, four compiler call sites already assumed replace-all and were silently wrong — see `issues/fixed/string-replace-first-only-broke-compiler-callers.md`.
 - Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
@@ -146,7 +146,7 @@ Current goal: make Yo work on Linux, macOS, and Windows.
 
 ## API stability: the language may still break, `std` may not
 
-Yo the LANGUAGE is still evolving — language-level breaking changes are acceptable when the design calls for them. The STANDARD LIBRARY closed its breaking window with the S2 sweep (`plans/STD_API_AUDIT.md` §1, §5–§6): every `std` module is **stable** unless its module doc carries a `## Stability` section, and stable modules change **additively only**:
+Yo the LANGUAGE is still evolving — language-level breaking changes are acceptable when the design calls for them. The STANDARD LIBRARY closed its breaking window with the S2 sweep (`plans/archive/STD_API_AUDIT.md` §1, §5–§6): every `std` module is **stable** unless its module doc carries a `## Stability` section, and stable modules change **additively only**:
 
 - Additive = new modules, new exported functions/types/constants, new trait impls, new enum variants only where the enum is documented as non-exhaustive, new optional builder methods, wider accepted inputs, bug fixes that make behaviour match the documentation. Renames, signature changes, removed exports, changed error variants, changed defaults and changed wire/serialization formats are NOT additive — they need a documented deprecation (`# Deprecated` doc section on the old name, kept working) and land only with a new module or as a parallel API.
 - A NEW module enters as `unstable` for one release: its inner doc ends with
@@ -486,7 +486,7 @@ Key semantics:
 
 ## std error handling: three blessed styles, no fourth
 
-Decided in `plans/STD_API_AUDIT.md` D1. Before this, std shipped four styles,
+Decided in `plans/archive/STD_API_AUDIT.md` D1. Before this, std shipped four styles,
 sometimes inside one file. When you add or change a fallible std API, pick from
 exactly these three — and if none fits, that is a design discussion, not a
 licence to invent a fourth.
@@ -518,7 +518,7 @@ Rules that follow from it:
 
 ## std naming conventions
 
-Decided in `plans/STD_API_AUDIT.md` D2. One name per concept, across the whole
+Decided in `plans/archive/STD_API_AUDIT.md` D2. One name per concept, across the whole
 tree. Use these when adding an API; a new module that invents a synonym is a
 review defect, not a style preference.
 

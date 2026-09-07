@@ -1,11 +1,14 @@
 # Handover — std API audit campaign, session ending 2026-09-02
 
-Supersedes `plans/HANDOVER_STD_AUDIT_2026-09-01.md` (whose §0/§0a/§0b addenda
+> **ARCHIVED 2026-09-07 — superseded.** Live handover:
+> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.
+
+Supersedes `plans/archive/HANDOVER_STD_AUDIT_2026-09-01.md` (whose §0/§0a/§0b addenda
 are the detailed log of 09-01 → 09-02 morning; keep it) and, for deep
-background, `plans/HANDOVER_STD_AUDIT_2026-08-30.md`. THIS doc is the current
+background, `plans/archive/HANDOVER_STD_AUDIT_2026-08-30.md`. THIS doc is the current
 state and the queue.
 
-The /goal is unchanged: finish everything in `plans/STD_API_AUDIT.md`,
+The /goal is unchanged: finish everything in `plans/archive/STD_API_AUDIT.md`,
 well-designed stable std APIs, document + fix every surfaced bug, no
 workarounds. **Admin merges are ALLOWED again (user, 2026-09-02 midday)** —
 the 09-01 night ban was about coverage, not the button; the checklist that
@@ -419,7 +422,7 @@ worktree — see §4), FIXPOINT_HOLDS, CLI `--network` 55/0/0, dyn 9/9.
    sites (std: async/channel ×2 FIFO pops, btree_map, array_list's retain;
    src: module_loader ×7, module_manager ×2, trait_checking ×3,
    unsafe_report ×2, type_trait_methods ×2). Pre-freeze breaking change;
-   `plans/STD_API_AUDIT.md` §5 row has the measurement.
+   `plans/archive/STD_API_AUDIT.md` §5 row has the measurement.
 3. **`plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P0** — the check-time "forward
    reference to X (defined at line N)" diagnostic replacing the silent
    swallow (small, independent; the rest of that plan is a campaign the user
@@ -727,7 +730,7 @@ Post-merge develop run 33887236877 on 16054559a; v0.2.24 dispatched from it
   `latest`, tagged on the bump commit. Tarball verified: `yo 0.2.24`.
 - SEED_VERSION auto-bump: 78abb90ba on develop (no [skip ci] → its Test run
   33900306095 validates the new seed).
-- Successor handover written: **plans/HANDOVER_STD_AUDIT_NEXT.md** (queue,
+- Successor handover written: **plans/archive/HANDOVER_STD_AUDIT_NEXT.md** (queue,
   open bugs, decisions, process, pitfalls). The /private/tmp/yo-str worktree
   is gone (removed/OS-swept — branch was merged, nothing lost).
 

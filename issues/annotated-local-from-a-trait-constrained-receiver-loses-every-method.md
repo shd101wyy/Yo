@@ -170,7 +170,7 @@ it stands is invisible: nothing in the error mentions the binding.
 
 ## What it blocks
 
-`plans/STD_API_AUDIT.md` §4's `imm/*` row calls for deduplicating the
+`plans/archive/STD_API_AUDIT.md` §4's `imm/*` row calls for deduplicating the
 `Set` / `SortedSet` pair, which currently share 93 byte-identical lines of set
 algebra (`std/imm/set.yo:60-157` vs `std/imm/sorted_set.yo:86-180`). The
 dedupe works by hoisting those bodies into one generic helper over a private

@@ -1,6 +1,6 @@
 # `yo unsafe-report` / `yo public-safe-report` cut the relative path with a BYTE length
 
-**Status: FIXED 2026-08-26 by `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3** —
+**Status: FIXED 2026-08-26 by `plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3** —
 with no edit to either file. `String.substring` is byte-indexed now, which is
 the basis `root_prefix_len` always had.
 

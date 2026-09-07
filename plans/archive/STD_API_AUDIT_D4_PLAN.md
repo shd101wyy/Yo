@@ -1,5 +1,10 @@
 # D4 — String indexing model: the executable migration plan
 
+> **CLOSED 2026-09-07 — sub-plan of the completed
+> `plans/archive/STD_API_AUDIT.md`.** D4 (byte-indexed strings) landed; PR 9
+> closed BY EVENTS when the vendor migrated upstream. Kept for the migration
+> method and the S-numbered review findings.
+
 > **Status:** **PRs 1-3 LANDED 2026-08-26** (PR 2 got a skeptical review pass on
 > the same branch that added §5.2 **S11**; **PR 3 got one too — it found one
 > live regression the flip introduced, `_capitalize_last_segment`, §5.1's last
@@ -14,7 +19,7 @@
 > §0/§2/§3 below are the pre-flip survey and are kept as the historical record
 > of what the migration measured, not as a description of the tree today.
 > (Survey complete 2026-08-25.)
-> **Parent decision:** `plans/STD_API_AUDIT.md` §3 **D4** + §8 **O1** —
+> **Parent decision:** `plans/archive/STD_API_AUDIT.md` §3 **D4** + §8 **O1** —
 > `String` goes byte-indexed like Rust/Go. Scope extended (user, 2026-08-25)
 > to `std/imm/string` and the `imm.String` → `ImmString` rename.
 > **This document does not re-open the decision.** It measures the blast
@@ -1133,7 +1138,7 @@ PR 9: vendor companion commits pushed upstream **before** the pointer bump.
 
 ---
 
-## 7. Corrections to `plans/STD_API_AUDIT.md` §D4
+## 7. Corrections to `plans/archive/STD_API_AUDIT.md` §D4
 
 Three rows in the D4 section are wrong or incomplete; fix them when this plan
 is adopted.

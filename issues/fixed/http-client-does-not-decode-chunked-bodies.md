@@ -1,7 +1,7 @@
 # `std/http` never decoded `Transfer-Encoding: chunked` — the body kept its hex chunk framing
 
 **Status: FIXED 2026-08-29** (`std/http/client.yo`). **Found:** 2026-08-29 while
-closing plans/STD_API_AUDIT.md §7 P1 "chunked/redirect/timeout client" —
+closing plans/archive/STD_API_AUDIT.md §7 P1 "chunked/redirect/timeout client" —
 redirects and the deadline had landed (C33), chunked never had. **Severity:**
 HIGH for correctness — HTTP/1.1 servers chunk dynamic responses by default,
 so `fetch` returned bodies like `7\r\nhello, \r\n8\r\nchunked \r\n0\r\n\r\n`

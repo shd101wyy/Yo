@@ -1,10 +1,10 @@
-//! The BYTE index basis of `String` — `plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3.
+//! The BYTE index basis of `String` — `plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3.
 //!
 //! Every assertion here is against multibyte content with HAND-COMPUTED byte
 //! offsets, and every one of them has a DIFFERENT answer under the pre-D4
 //! rune basis. That is the point: a basis error is invisible to ASCII input by
 //! construction, so an ASCII test of these methods proves nothing
-//! (`plans/STD_API_AUDIT_D4_PLAN.md` §6.1-§6.2). The pre-D4 answer is written
+//! (`plans/archive/STD_API_AUDIT_D4_PLAN.md` §6.1-§6.2). The pre-D4 answer is written
 //! beside each assertion that has one, so the discrimination is auditable
 //! without running the old code.
 //!
@@ -294,7 +294,7 @@ test("String starts_with position is a byte offset — the 1.3(a) fix", {
   // Before D4 `_has_prefix` advanced a rune counter and ALSO stepped one byte
   // per iteration, so `"你好".starts_with("好", 1)` stopped at byte 1 — the
   // middle of 你 — and answered false. `position` was neither a rune index
-  // nor a byte offset (plans/STD_API_AUDIT_D4_PLAN.md §1.3(a)). It is now
+  // nor a byte offset (plans/archive/STD_API_AUDIT_D4_PLAN.md §1.3(a)). It is now
   // plainly a byte offset, and the walk that caused the defect is gone.
   s := `你好`;
   assert(s.len() == usize(6), "6 bytes");
@@ -348,7 +348,7 @@ test("String byte_at and Index still read raw bytes", {
 // ===========================================================================
 test("String split with an empty separator still splits into runes", {
   // A byte split would hand back fragments that are not valid UTF-8
-  // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S5).
+  // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S5).
   s := _subject();
   parts := s.split(``);
   assert(parts.len() == usize(4), "4 runes, not 10 bytes");

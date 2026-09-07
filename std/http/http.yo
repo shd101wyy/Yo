@@ -358,7 +358,7 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, HttpParseError))({
   head := raw.substring(usize(0), header_end);
   // The body is sliced as BYTES: it may be binary (a body starting with a
   // UTF-8 continuation byte panicked the boundary-checked `substring`) —
-  // bodies are byte-transparent end to end (plans/STD_API_AUDIT.md, the
+  // bodies are byte-transparent end to end (plans/archive/STD_API_AUDIT.md, the
   // binary-bodies row; pinned by tests/http/server.test.yo).
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
@@ -437,7 +437,7 @@ HttpError :: enum(
   TooManyRedirects,
   /// The URL scheme is neither `http` nor `https` (`https` speaks real TLS
   /// through `std/crypto/tls`, D6). Anything else is refused before any DNS
-  /// or socket work — never downgraded (plans/STD_API_AUDIT.md C1).
+  /// or socket work — never downgraded (plans/archive/STD_API_AUDIT.md C1).
   UnsupportedScheme(scheme : String),
   /// The raw response (status line, headers and body) grew past
   /// `FetchOptions.max_response_bytes`; the connection is dropped there.

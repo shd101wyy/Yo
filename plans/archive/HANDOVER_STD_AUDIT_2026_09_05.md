@@ -1,6 +1,9 @@
 # Handover — std API audit, the road to the freeze (post-v0.2.24, 2026-09-05)
 
-**Supersedes `plans/HANDOVER_STD_AUDIT_NEXT.md`**, which was measured wrong in
+> **ARCHIVED 2026-09-07 — superseded.** Live handover:
+> `plans/HANDOVER_STD_AUDIT_2026-09-07.md`.
+
+**Supersedes `plans/archive/HANDOVER_STD_AUDIT_NEXT.md`**, which was measured wrong in
 eleven places. Every row below was RE-MEASURED against develop on 2026-09-04/05
 by fifteen parallel agents, each of which read the tree and ran reproducers;
 the load-bearing claims were then adversarially verified. Where this document
@@ -11,7 +14,7 @@ checked.
 
 ## 0. The standing goal (unchanged)
 
-> "Finish everything in plans/STD_API_AUDIT.md. Update related docs as you
+> "Finish everything in plans/archive/STD_API_AUDIT.md. Update related docs as you
 > progress. Document and fix any surfaced bugs and issues. No workaround is
 > allowed. Try to stabilize the std API and make it well designed. Feel free to
 > admin merge PRs to save CI cycles. Feel free to cut patch release when

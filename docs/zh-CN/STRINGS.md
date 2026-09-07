@@ -12,7 +12,7 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 | `comptime_str`（编译期） | 字节数 | `slice(a, b)` / `s(a..b)` —— 字节 | `s(i)` → 单 rune 的 `comptime_str` |
 
 `str` 和 `StringBuilder` 一直是字节基准；`String` 在 D4 迁移中与它们对齐
-（2026-08-26，`plans/STD_API_AUDIT_D4_PLAN.md`），编译期字符串操作也在同一
+（2026-08-26，`plans/archive/STD_API_AUDIT_D4_PLAN.md`），编译期字符串操作也在同一
 役中完成对齐。字符串索引只有一个故事。
 
 ## 唯一的规则
@@ -160,4 +160,4 @@ comptime_assert(s(3 .. 6) == "中");     // 字节区间
 
 `std/imm` 中的不可变字符串（`ImmString`）遵循同样的契约：`len()` 以 O(1)
 返回字节数，`at()` 解码从给定字节偏移开始的字符；见
-`plans/STD_API_AUDIT_D4_PLAN.md`。
+`plans/archive/STD_API_AUDIT_D4_PLAN.md`。

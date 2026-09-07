@@ -426,7 +426,7 @@ ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> co
 );
 export(ComptimeBitRightShift);
 // `Exponentiation`/`ComptimeExponentiation` were DELETED here (std S1,
-// plans/STD_API_AUDIT.md §4 prelude row): the `**` operator token was
+// plans/archive/STD_API_AUDIT.md §4 prelude row): the `**` operator token was
 // already removed 2026-08-21 (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md), and
 // the traits had zero impls and zero call sites — dead surface.
 /// Negate trait — enables unary `-value` operator.
@@ -636,7 +636,7 @@ export(Ordering);
 /// Requires the type to also implement `Eq`.
 ///
 /// `cmp` is contractually a TOTAL order for every std impl (the audit's
-/// no-PartialOrd decision, plans/STD_API_AUDIT.md D3.3): the default is
+/// no-PartialOrd decision, plans/archive/STD_API_AUDIT.md D3.3): the default is
 /// derived from `<`/`==`, and types whose operators are only partial
 /// (floats: NaN is incomparable under IEEE `<`) OVERRIDE `cmp` with a
 /// total order instead of splitting the trait.
@@ -818,7 +818,7 @@ export(Clone);
 /// Call explicitly via `(T <: Default).default()` in generic code, or
 /// `MyType.default()` on a concrete type. Unblocks
 /// `Option.unwrap_or_default` and map `or_default`-style helpers
-/// (plans/STD_API_AUDIT.md D3.1).
+/// (plans/archive/STD_API_AUDIT.md D3.1).
 Default :: trait(
   /// The default value of the type.
   default : (fn() -> Self)
@@ -3552,7 +3552,7 @@ impl(
     (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
     (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
     (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs)),
-    // TOTAL-order override (plans/STD_API_AUDIT.md D3.3, no-PartialOrd
+    // TOTAL-order override (plans/archive/STD_API_AUDIT.md D3.3, no-PartialOrd
     // decision): the OPERATORS stay IEEE (NaN incomparable), but `cmp`
     // must be total so float sorts are deterministic. NaNs compare equal
     // to each other and greater than every number (incl. +inf); -0 and
@@ -4306,7 +4306,7 @@ impl(
   )
 );
 // ---------------------------------------------------------------------------
-// Range operators for the remaining integer types (plans/STD_API_AUDIT.md
+// Range operators for the remaining integer types (plans/archive/STD_API_AUDIT.md
 // D3.5 — previously only `usize` could form a range at runtime;
 // compile-time literal contexts route through comptime_int's ops).
 // ---------------------------------------------------------------------------
@@ -6802,7 +6802,7 @@ impl(
     )
   )
 );
-/// In-place helpers for `Option(T)` (plans/STD_API_AUDIT.md D3.7).
+/// In-place helpers for `Option(T)` (plans/archive/STD_API_AUDIT.md D3.7).
 impl(
   generic(T : Type),
   Option(T),
@@ -6840,7 +6840,7 @@ impl(
     default : (fn() -> Self)(Option(T).None)
   )
 );
-/// Default-aware helpers for `Option(T)` (plans/STD_API_AUDIT.md D3.1/D3.7).
+/// Default-aware helpers for `Option(T)` (plans/archive/STD_API_AUDIT.md D3.1/D3.7).
 impl(
   generic(T : Type),
   where(T <: Default),
@@ -7695,7 +7695,7 @@ impl(
   )
 );
 /// Extract the `Ok` value, or `OkType`'s default when `Err`
-/// (plans/STD_API_AUDIT.md D3.1/D3.7).
+/// (plans/archive/STD_API_AUDIT.md D3.1/D3.7).
 impl(
   generic(OkType : Type, ErrorType : Type),
   where(OkType <: Default),
@@ -7852,7 +7852,7 @@ impl(
   )
 );
 /// Ordering for `Option(T)` — `None` sorts before every `Some`
-/// (plans/STD_API_AUDIT.md D3.7).
+/// (plans/archive/STD_API_AUDIT.md D3.7).
 impl(
   generic(T : Type),
   where(T <: Ord(T)),
@@ -7909,7 +7909,7 @@ impl(
   )
 );
 /// Hash for `Option(T)` — variant tag mixed with the inner hash, so
-/// options can key maps (plans/STD_API_AUDIT.md D3.7).
+/// options can key maps (plans/archive/STD_API_AUDIT.md D3.7).
 impl(
   generic(T : Type),
   where(T <: Hash),
@@ -7968,7 +7968,7 @@ impl(
   )
 );
 /// Ordering for `Result(T, E)` — every `Ok` sorts before every `Err`
-/// (plans/STD_API_AUDIT.md D3.7).
+/// (plans/archive/STD_API_AUDIT.md D3.7).
 impl(
   generic(T : Type, E : Type),
   where(T <: Ord(T), E <: Ord(E)),
@@ -8041,7 +8041,7 @@ impl(
   )
 );
 /// Hash for `Result(T, E)` — variant tag mixed with the inner hash
-/// (plans/STD_API_AUDIT.md D3.7).
+/// (plans/archive/STD_API_AUDIT.md D3.7).
 impl(
   generic(T : Type, E : Type),
   where(T <: Hash, E <: Hash),
@@ -8426,7 +8426,7 @@ impl(
 );
 /// TryFrom trait — fallible conversion from one type to another.
 /// From trait — infallible conversion FROM another type
-/// (plans/STD_API_AUDIT.md D3.2; the fallible pair is `TryFrom` below).
+/// (plans/archive/STD_API_AUDIT.md D3.2; the fallible pair is `TryFrom` below).
 From :: (fn(comptime(Source) : Type) -> comptime(Trait))(
   trait(
     /// Convert `value` into `Self`.
@@ -8613,7 +8613,7 @@ IterPair :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
   struct(_0 : A, _1 : B)
 );
 export(IterPair);
-/// Zip two options into an option of a pair (plans/STD_API_AUDIT.md D3.7;
+/// Zip two options into an option of a pair (plans/archive/STD_API_AUDIT.md D3.7;
 /// defined here because it needs `IterPair`).
 impl(
   generic(T : Type),
@@ -8666,7 +8666,7 @@ export(IterMap);
 /// Created by calling `.filter(pred)` on any iterator.
 /// `I` is the source iterator type, `F` is the predicate closure type
 /// satisfying `Fn(item : A) -> bool` — by value, symmetric with `map`
-/// (plans/STD_API_AUDIT.md D3.4's callback-asymmetry fix).
+/// (plans/archive/STD_API_AUDIT.md D3.4's callback-asymmetry fix).
 IterFilter :: (fn(comptime(I) : Type, comptime(F) : Type) -> comptime(Type))(
   struct(_inner : I, _f : F)
 );
@@ -9069,7 +9069,7 @@ impl(
 );
 export(IterRev);
 // ---------------------------------------------------------------------------
-// Range iteration (plans/STD_API_AUDIT.md D3.5): `for(0..10, (i) => ...)`
+// Range iteration (plans/archive/STD_API_AUDIT.md D3.5): `for(0..10, (i) => ...)`
 // and every iterator combinator work on integer ranges. Per-type impls —
 // a generic impl would need a `Step` notion (a generic "one") the prelude
 // does not have; chunk-1 `From` covers only lossless widening, which

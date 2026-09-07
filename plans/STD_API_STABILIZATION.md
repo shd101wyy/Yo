@@ -1,6 +1,6 @@
 # std API stabilization — the 2026-09-06 audit against the code and against Rust
 
-**Status: ACTIVE.** Successor to the remaining rows of `plans/STD_API_AUDIT.md`
+**Status: ACTIVE.** Successor to the remaining rows of `plans/archive/STD_API_AUDIT.md`
 (whose §1–§3 decisions D1–D8 stay in force and are NOT re-litigated here). This
 document is the measured state of `std/` on 2026-09-06 — every finding below was
 verified by reading the implementation, not the doc comment — plus the decisions

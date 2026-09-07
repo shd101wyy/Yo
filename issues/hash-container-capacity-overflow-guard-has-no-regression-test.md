@@ -10,7 +10,7 @@ otherwise). **Status**: OPEN.
 
 `grep -rn 'CapacityOverflow' tests --include='*.yo'` returns **nothing**.
 
-C35 (`plans/STD_API_AUDIT.md:103`,
+C35 (`plans/archive/STD_API_AUDIT.md:103`,
 `issues/fixed/collection-capacity-overflow-unchecked.md`) fixed a silent
 heap-corruption bug: every collection computed `sizeof(T) * count` unchecked, so
 a wrapped size reached `malloc` while the container still reported the full
@@ -24,7 +24,7 @@ capacity. The fix has two observable halves:
   `.Err(.CapacityOverflow)` (`std/collections/hash_map.yo:78-80`,
   `std/collections/hash_set.yo:73-75`). Covered by **nothing**.
 
-`plans/STD_API_AUDIT.md:103` credits the whole fix with "plus new
+`plans/archive/STD_API_AUDIT.md:103` credits the whole fix with "plus new
 tests/allocator.test.yo (the helper had zero coverage)". That file tests
 `size_would_overflow` and `layout_of` (`tests/allocator.test.yo:15-53`) and
 never constructs a `HashMap` or `HashSet`. A revert of either container's guard
@@ -72,7 +72,7 @@ Nothing in the code is wrong. This is a coverage hole plus a stale record:
 - `std/collections/hash_map.yo:8-12` and `std/collections/hash_set.yo:7-11`
   declare `CapacityOverflow`; the only producers are
   `hash_map.yo:79` and `hash_set.yo:74`; no test names either.
-- `plans/STD_API_AUDIT.md:103` describes the fix's coverage in a way that reads
+- `plans/archive/STD_API_AUDIT.md:103` describes the fix's coverage in a way that reads
   as complete for all three containers.
 
 ## Fix
@@ -85,7 +85,7 @@ Nothing in the code is wrong. This is a coverage hole plus a stale record:
    `usize` is 32 bits. Add the matching negative case — an ordinary capacity
    returns `.Ok` — so the test cannot pass by rejecting everything.
 2. `tests/collections/hash_set.test.yo` — the same pair for `HashSet`.
-3. Correct `plans/STD_API_AUDIT.md:103` in the same PR, per the audit's own
+3. Correct `plans/archive/STD_API_AUDIT.md:103` in the same PR, per the audit's own
    re-measure convention: say which halves of C35 are covered by which file.
 
 Both tests must be verified RED first, by temporarily removing the

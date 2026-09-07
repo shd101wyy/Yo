@@ -3,7 +3,7 @@
 **Status: FIXED 2026-08-26** (branch `fix/c23-generic-impl-async-self`).
 Found 2026-08-26 while reviewing the C16 fix; **pre-existing**, reproduced
 identically on develop tip (`732d52b8e`). This was the C23 row of
-`plans/STD_API_AUDIT.md` §2 and the remaining blocker for D5's
+`plans/archive/STD_API_AUDIT.md` §2 and the remaining blocker for D5's
 `BufReader(R)`/`BufWriter(W)`.
 
 ## Symptom

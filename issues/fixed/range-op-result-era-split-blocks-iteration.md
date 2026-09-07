@@ -1,7 +1,7 @@
 # `..`/`..=` operator results live in their own type era — Range(T) can never dispatch trait impls
 
 **Status: FIXED (2026-08-24, branch `fix/range-op-era-split`).** Found
-implementing S1 chunk 4 (plans/STD_API_AUDIT.md D3.5, Range iteration).
+implementing S1 chunk 4 (plans/archive/STD_API_AUDIT.md D3.5, Range iteration).
 This was WHY "today ranges don't iterate": it was never just missing impls.
 
 ## Symptom

@@ -872,7 +872,7 @@ handle_completion :: (
   // `rune_col_to_byte_offset`), while `bytes` and `line_text` are BYTE
   // indexed. Everything below this line works in BYTES; `dot_col` converts
   // back before it is compared against `Token.column`
-  // (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S9). The previous shape clamped the
+  // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S9). The previous shape clamped the
   // rune column against a byte length and then sliced with it — two bases in
   // one expression, wrong on any line containing a multibyte character.
   (cur : usize) = rune_col_to_byte_offset(line_text, character);
@@ -930,7 +930,7 @@ handle_completion :: (
       );
       if(!(trivia), {
         // `t.column` and `dot_col` are RUNE columns, so the token width added
-        // to one has to be a rune count (plans/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
+        // to one has to be a rune count (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
         ends_at_dot := ((t.row == line) && ((t.column + t.value.chars().count()) == dot_col));
         if(ends_at_dot && (t.kind == TokenKind.Identifier), {
           receiver = Option(Token).Some(t);

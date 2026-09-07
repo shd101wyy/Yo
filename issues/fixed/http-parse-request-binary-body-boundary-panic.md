@@ -1,7 +1,7 @@
 # `parse_request` panicked on a binary request body starting with a UTF-8 continuation byte
 
 **Status: FIXED** (2026-08-29, `std/http/http.yo`). Found writing the
-binary-bodies pin (plans/STD_API_AUDIT.md, http row).
+binary-bodies pin (plans/archive/STD_API_AUDIT.md, http row).
 
 `parse_request` sliced the body with the boundary-checked
 `raw.substring(header_end + 4, raw.len())`; a body whose first byte is

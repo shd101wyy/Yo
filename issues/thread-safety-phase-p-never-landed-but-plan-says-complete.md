@@ -66,6 +66,6 @@ Beyond `sync`, the phase was also to close ordinary encapsulation holes
    thread-safety feature) or to record it as deliberately deferred with the
    residual risk stated.
 
-Related: the same survey found `plans/STD_API_AUDIT.md` stale in ~10 verified
+Related: the same survey found `plans/archive/STD_API_AUDIT.md` stale in ~10 verified
 places (rows marked open that are done, deletions recommended for documented
 public API, a rename listed for a module already deleted).

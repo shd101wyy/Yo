@@ -1521,7 +1521,7 @@ total := sums.fold(i32(0), (fn(acc : i32, x : i32) -> i32)((acc + x)));
 **Test API format**: Use `evaluate_module_body(exprs, &(env))` (reference syntax, returns `Option`). Match with function-style `match(result, .None => ..., .Some(m) => ...)`. Do NOT use block-style `match(result) { ... }` — it causes a parse error ("Paren-less function and operator calls are not supported").
 
 **String indexing is BYTE-based, everywhere.** Since 2026-08-26
-(`plans/STD_API_AUDIT_D4_PLAN.md` D4 PR 3) `String.len()`, `at`, `substring`,
+(`plans/archive/STD_API_AUDIT_D4_PLAN.md` D4 PR 3) `String.len()`, `at`, `substring`,
 the `s(a..b)` / `s(a..=b)` sugar, `index_of`, `last_index_of`,
 `contains(from_index)`, `starts_with(position)`, `ends_with(end_position)` and
 the whole `Pattern` trait all speak BYTE offsets — the same unit as

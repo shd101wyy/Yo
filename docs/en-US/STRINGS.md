@@ -12,7 +12,7 @@ ordinary code and at compile time:
 | `comptime_str` (compile time) | bytes | `slice(a, b)` / `s(a..b)` — bytes | `s(i)` → 1-rune `comptime_str` |
 
 `str` and `StringBuilder` were always byte-based; `String` joined them in the
-D4 migration (2026-08-26, `plans/STD_API_AUDIT_D4_PLAN.md`), and the comptime
+D4 migration (2026-08-26, `plans/archive/STD_API_AUDIT_D4_PLAN.md`), and the comptime
 string operations were aligned in the same campaign. There is one
 string-indexing story.
 
@@ -172,4 +172,4 @@ Two comptime-specific points:
 
 The immutable string in `std/imm` (`ImmString`) follows the same contract:
 `len()` is the byte count at O(1) and `at()` decodes the rune starting at a
-byte offset; see `plans/STD_API_AUDIT_D4_PLAN.md`.
+byte offset; see `plans/archive/STD_API_AUDIT_D4_PLAN.md`.

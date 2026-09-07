@@ -19,21 +19,22 @@ writing dates — the banner is the authoritative summary.
 
 ## Current entry points
 
-Active work (root):
+Active work (root) — **7 docs, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
-- [`STD_API_AUDIT.md`](STD_API_AUDIT.md) — the std API stabilization campaign
-  (audit done; the §8 open questions are being worked), with
-  [`STD_API_AUDIT_D4_PLAN.md`](STD_API_AUDIT_D4_PLAN.md) (D4 sub-plan) and
-  [`STD_API_AUDIT_HANDOVER.md`](STD_API_AUDIT_HANDOVER.md) (method notes).
-- [`HANDOVER_2026_08_28.md`](HANDOVER_2026_08_28.md) — the live handover for
-  that campaign.
+- [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — the live std
+  campaign. **All eleven §2 decisions (D9–D19) are LANDED**; §4 (P1 batteries
+  per module group) and §5 (maintainer decisions: `imm`/`Vec` structure,
+  `MemoryOrder.Consume`, HashMap random keys) remain. Raw per-module findings:
+  [`STD_API_STABILIZATION_FINDINGS.md`](STD_API_STABILIZATION_FINDINGS.md).
+- [`HANDOVER_STD_AUDIT_2026-09-07.md`](HANDOVER_STD_AUDIT_2026-09-07.md) — the
+  live handover: the PR stack and its verified merge order, what is still open
+  and why, and the rules that bit the last session.
 - [`THREAD_SAFETY.md`](THREAD_SAFETY.md) — 13 of 14 phases landed; Phase P
-  (field visibility) is still open.
-- [`FUNCVAL_ENV_SHARING.md`](FUNCVAL_ENV_SHARING.md) — capture-rebuild env
-  sharing; the endgame steps remain.
-- [`PERF_BORROW_ELISION.md`](PERF_BORROW_ELISION.md) and
-  [`D6_TLS_PLAN.md`](D6_TLS_PLAN.md) (PR-2/PR-3 remain) — in flight.
+  (field visibility) never landed — `_`-prefixed fields are private by
+  CONVENTION only.
+- [`PERF_BORROW_ELISION.md`](PERF_BORROW_ELISION.md) — cutting RC traffic in
+  the self-compile; in progress.
 
 Closed campaigns (`archive/`) — self-hosting is **finished**. The compiler has
 been self-hosting since 2026-08-03, the TypeScript compiler was retired
@@ -44,6 +45,18 @@ GOAL ACHIEVED) and
 (the P1–P4 umbrella); the per-phase records (`P1_CLI_PARITY.md`,
 `P2_RETIRE_SRC.md`, `P2_5_RETIRE_EXECUTION.md`, `P3_DISTRIBUTION.md`,
 `P4_LSP.md`) sit alongside them.
+
+The **std API campaign's first half** closed 2026-09-07:
+[`archive/STD_API_AUDIT.md`](archive/STD_API_AUDIT.md) (the 2026-08-22 audit —
+S0–S5 complete, superseded by `STD_API_STABILIZATION.md`), with its sub-plan
+[`archive/STD_API_AUDIT_D4_PLAN.md`](archive/STD_API_AUDIT_D4_PLAN.md)
+(byte-indexed strings) and method notes
+[`archive/STD_API_AUDIT_HANDOVER.md`](archive/STD_API_AUDIT_HANDOVER.md).
+Its superseded handovers (`HANDOVER_2026_08_28.md`,
+`HANDOVER_STD_AUDIT_NEXT.md`, and the dated 08-30 / 09-01 / 09-02 / 09-05 /
+09-06 files) are archived alongside;
+[`archive/D6_TLS_PLAN.md`](archive/D6_TLS_PLAN.md) closed with Windows
+Schannel TLS in v0.2.26.
 
 Landed designs & decisions (`reference/`) — done but still true. Subsystem
 designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
@@ -60,6 +73,16 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 [`reference/OPERATOR_SET_AND_PRECEDENCE.md`](reference/OPERATOR_SET_AND_PRECEDENCE.md),
 [`reference/WINDOWS_ALLOCATOR_DECISION.md`](reference/WINDOWS_ALLOCATOR_DECISION.md),
 ….
+
+Backlog (`backlog/`) — written, not started. Recent additions:
+[`backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md`](backlog/UNSAFE_SCOPING_AND_POINTER_ITERATORS.md)
+(unsafety is FILE-scoped in Yo, which is what makes the D14 pointer `iter()`
+expensive — with probes and a Rust/Swift comparison),
+[`backlog/FUNCVAL_ENV_SHARING.md`](backlog/FUNCVAL_ENV_SHARING.md) (the
+mechanism was built and rejected twice; kept because the failure modes
+generalize) and
+[`backlog/ZEROLANG_AGENT_FIRST_LESSONS.md`](backlog/ZEROLANG_AGENT_FIRST_LESSONS.md)
+(a keep/reject audit, explicitly not a commitment).
 
 ## Conventions
 

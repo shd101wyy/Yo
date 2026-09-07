@@ -99,7 +99,7 @@ name today.
 the rule two lines above that one — "every `std` module is **stable** unless its
 module doc carries a `## Stability` section" — all nine names are ALREADY
 stable, and removing them would already be a breaking change. That is the
-opposite of the audit's own O4 verdict (`plans/STD_API_AUDIT.md:778-780`: keep
+opposite of the audit's own O4 verdict (`plans/archive/STD_API_AUDIT.md:778-780`: keep
 `imm/` in std, "mark unstable until it has real consumers").
 
 ## Note, NOT part of this defect: the `MapEntry` re-export
@@ -156,14 +156,14 @@ consumer breaks and no out-of-tree consumer can have had one that worked.
 
 The cheapest way to make this honest rather than merely defensible is to land
 the `## Stability` marker on all seven `std/imm` modules FIRST (the audit's O4
-verdict, `plans/STD_API_AUDIT.md:778-780`, still un-executed: `grep -rn "## Stability" std/`
+verdict, `plans/archive/STD_API_AUDIT.md:778-780`, still un-executed: `grep -rn "## Stability" std/`
 returns only `std/term.yo:6`, `std/encoding/csv.yo:20`, `std/http/server.yo:18`,
 `std/fs/watch.yo:28`). With the family marked unstable the deletion is inside
 the declared window and needs no deprecation dance.
 
 ## Sequencing
 
-Do this AFTER the imm iteration work (`plans/STD_API_AUDIT.md` §4 imm row: no
+Do this AFTER the imm iteration work (`plans/archive/STD_API_AUDIT.md` §4 imm row: no
 `std/imm` module has an `IntoIterator` — `grep -n "IntoIterator" std/imm/*.yo`
 is empty across all seven — while seven `std/collections` modules do
 (`array_list`, `deque`, `linked_list`, `hash_map`, `hash_set`, `btree_map`,

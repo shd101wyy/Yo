@@ -21,7 +21,7 @@ standing goal, the pre-authorizations) still applies verbatim.
 
 ## 0. The standing goal and the maintainer's standing constraints
 
-> "Finish @plans/HANDOVER_STD_AUDIT_NEXT.md. Document and fix any surfaced bug
+> "Finish @plans/archive/HANDOVER_STD_AUDIT_NEXT.md. Document and fix any surfaced bug
 > and issue along the way. No workaround is allowed. Feel free to open PRs or
 > stacked PRs, and admin merge when needed to save CI cycles."
 
@@ -100,7 +100,7 @@ earlier #440, #434, #436, #438.
 
 Every change made this session is committed and pushed on one of the branches
 above. The working tree on `fix/std-p0-http-server-resilience` holds only
-two untracked docs, this file and `plans/RELEASE_NOTES_v0.2.26_DRAFT.md` —
+two untracked docs, this file and `plans/archive/RELEASE_NOTES_v0.2.26_DRAFT.md` —
 commit them to develop (a docs-only PR is fine to admin-merge).
 
 Nine worktrees under `/private/tmp/yo-*` were used for the stacked branches
@@ -242,7 +242,7 @@ bodies — 1559 dormant assertions), #441 (json trailing junk),
 ## 5. D6 — Windows TLS (Schannel) re-land — ROOT CAUSE FOUND, FIX PUSHED
 
 Record: `issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`
-(read its "Root cause" section). Plan: `plans/D6_TLS_PLAN.md`. Worktree
+(read its "Root cause" section). Plan: `plans/archive/D6_TLS_PLAN.md`. Worktree
 `/private/tmp/yo-d6`, branch `d6/step2-unskip` (PR #443, base = #442's branch).
 
 **Root cause.** `__yo_async_accept_start` in
@@ -276,7 +276,7 @@ Follow-up in the same class: `__yo_async_connect_start` is still a blocking
 
 ## 6. v0.2.26 release
 
-Draft notes: **`plans/RELEASE_NOTES_v0.2.26_DRAFT.md`** (update it). Breaking
+Draft notes: **`plans/archive/RELEASE_NOTES_v0.2.26_DRAFT.md`** (update it). Breaking
 entries to call out: `sizeof(unit)` is 0 again (was 1 in v0.2.25; all-unit
 aggregates are 1 byte, MSVC gives empty aggregates 4); `Path.strip_prefix ->
 Option` (old behaviour is `relative_to`); `Thread` is a ref type with join-once

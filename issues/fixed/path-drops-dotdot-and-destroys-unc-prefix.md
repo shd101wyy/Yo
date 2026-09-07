@@ -101,7 +101,7 @@ rewritten the drive.)
 
 ## The design question this forced
 
-`plans/STD_API_AUDIT.md`'s path row had "revisit eager `..` normalization
+`plans/archive/STD_API_AUDIT.md`'s path row had "revisit eager `..` normalization
 (symlink semantics)" open. It is load-bearing here, so it is decided:
 
 **`new`, `join` and `push` record components as written; `..` is folded only by

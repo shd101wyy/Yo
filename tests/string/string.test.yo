@@ -67,7 +67,7 @@ test("String UTF-8 2-byte character length", {
   bytes.push(u8(0xA9));
   s := String.from_bytes(bytes);
   // U+00A9 © is one rune in two bytes. `len()` counts BYTES since D4
-  // (plans/STD_API_AUDIT_D4_PLAN.md PR 3); `chars().count()` is the rune count
+  // (plans/archive/STD_API_AUDIT_D4_PLAN.md PR 3); `chars().count()` is the rune count
   // this used to assert.
   assert(s.len() == usize(2));
   assert(s.chars().count() == usize(1));
@@ -1706,7 +1706,7 @@ test("String starts_with position skips prefix", {
 test("String starts_with position UTF-8", {
   // `position` is a BYTE offset. Before D4 this was a rune walk that stopped
   // one byte past a lead byte, so `starts_with("世界", 2)` could not be
-  // expressed at all (plans/STD_API_AUDIT_D4_PLAN.md §1.3(a)).
+  // expressed at all (plans/archive/STD_API_AUDIT_D4_PLAN.md §1.3(a)).
   s := String.from("你好世界");
   assert(s.starts_with(String.from("你好"), usize(0)));
   assert(s.starts_with(String.from("世界"), usize(6)));
