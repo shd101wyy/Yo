@@ -1,0 +1,289 @@
+//! verifier/encode — VC terms → SMT-LIB 2 text (V2).
+//!
+//! The emitter is deterministic by construction (fixed walk order, no
+//! timestamps, no hashing-visible state), so golden-string unit tests can
+//! exact-match the output — the plan's requirement for readable goldens of
+//! emitted SMT-LIB.
+//!
+//! The output splits in two:
+//!   - `encode_content` — declarations + assumptions + negated goal +
+//!     check-sat: the LOGIC of the obligation. This text feeds the cache
+//!     key together with the run options.
+//!   - `encode_script` — the full script: determinism options, then the
+//!     content, then the post-check-sat evidence directives
+//!     (get-unsat-core / get-value for the counter-example).
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ VcSort, VcOp, VcTerm, VcQuantKind, VcQuery } :: import("./terms.yo");
+// ============================================================================
+// Name mangling
+// ============================================================================
+/// Sanitize a source identifier for SMT-LIB: keep [A-Za-z0-9_], replace
+/// every other byte with `_`. Mangled names are stable across runs because
+/// the walk order that produces them is stable.
+_sanitize_smt_name :: (fn(name : String) -> String)({
+  sb := StringBuilder.new();
+  {
+    it := name.chars();
+    while(true, {
+      r := match(it.next(), .Some(x) => x, .None => break);
+      c := r.char;
+      if(((c >= u32(0x41)) && (c <= u32(0x5A))) ||
+        ((c >= u32(0x61)) && (c <= u32(0x7A))) ||
+          ((c >= u32(0x30)) && (c <= u32(0x39))) || (c == u32(0x5F)), {
+        sb.write_rune(r);
+      }, {
+        sb.write_byte(u8(0x5F));
+      });
+    });
+  };
+  sb.to_string()
+});
+/// Mangle a source variable for function `fn_prefix` into the stable
+/// `__yo_v<fn>_<name>` form (the plan's name-mangling contract), so
+/// counter-examples render as the user's own names.
+mangle_vc_name :: (fn(fn_prefix : String, name : String) -> String)(
+  `__yo_v${_sanitize_smt_name(fn_prefix)}_${_sanitize_smt_name(name)}`
+);
+// ============================================================================
+// Sorts
+// ============================================================================
+/// The SMT-LIB spelling of a sort.
+encode_sort :: (fn(s : VcSort) -> String)(
+  match(
+    s,
+    .BoolS => String.from("Bool"),
+    .BvS(w) => `(_ BitVec ${w.to_string()})`
+  )
+);
+// ============================================================================
+// Operators
+// ============================================================================
+/// The SMT-LIB head for a plain (non-indexed) operator.
+_op_name :: (fn(op : VcOp) -> String)(
+  match(
+    op,
+    .BvAdd => String.from("bvadd"),
+    .BvSub => String.from("bvsub"),
+    .BvMul => String.from("bvmul"),
+    .BvSdiv => String.from("bvsdiv"),
+    .BvUdiv => String.from("bvudiv"),
+    .BvSrem => String.from("bvsrem"),
+    .BvUrem => String.from("bvurem"),
+    .BvNeg => String.from("bvneg"),
+    .BvShl => String.from("bvshl"),
+    .BvLshr => String.from("bvlshr"),
+    .BvAshr => String.from("bvashr"),
+    .BvNotOp => String.from("bvnot"),
+    .BvAndOp => String.from("bvand"),
+    .BvOrOp => String.from("bvor"),
+    .BvXorOp => String.from("bvxor"),
+    .BvUlt => String.from("bvult"),
+    .BvUle => String.from("bvule"),
+    .BvUgt => String.from("bvugt"),
+    .BvUge => String.from("bvuge"),
+    .BvSlt => String.from("bvslt"),
+    .BvSle => String.from("bvsle"),
+    .BvSgt => String.from("bvsgt"),
+    .BvSge => String.from("bvsge"),
+    .EqOp => String.from("="),
+    .DistinctOp => String.from("distinct"),
+    .NotOp => String.from("not"),
+    .AndOp => String.from("and"),
+    .OrOp => String.from("or"),
+    .ImpOp => String.from("=>"),
+    .IteOp => String.from("ite"),
+    // Indexed operators are handled structurally in encode_term.
+    .SignExtendOp(_) => String.from("sign_extend"),
+    .ZeroExtendOp(_) => String.from("zero_extend"),
+    .ExtractOp(_, _) => String.from("extract")
+  )
+);
+// ============================================================================
+// Terms
+// ============================================================================
+/// The SMT-LIB spelling of a term (deterministic walk).
+encode_term :: (fn(t : VcTerm) -> String)(
+  match(
+    t,
+    .Var(name, _) => name.clone(),
+    .BvLit(value, width) => `(_ bv${value.to_string()} ${width.to_string()})`,
+    .BoolLit(value) => cond(value => String.from("true"), true => String.from("false")),
+    .App(op, args) => {
+      head := match(
+        op,
+        .SignExtendOp(k) => `(_ sign_extend ${k.to_string()})`,
+        .ZeroExtendOp(k) => `(_ zero_extend ${k.to_string()})`,
+        .ExtractOp(hi, lo) => `(_ extract ${hi.to_string()} ${lo.to_string()})`,
+        _ => _op_name(op)
+      );
+      sb := StringBuilder.new();
+      sb.write_byte(u8(0x28));
+      sb.write_string(head);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            sb.write_byte(u8(0x20));
+            sb.write_string(encode_term(a));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      sb.write_byte(u8(0x29));
+      sb.to_string()
+    },
+    .Quant(kind, names, sorts, body) => {
+      kw := match(
+        kind,
+        .Forall => String.from("forall"),
+        .Exists => String.from("exists")
+      );
+      sb := StringBuilder.new();
+      sb.write_byte(u8(0x28));
+      sb.write_string(kw);
+      sb.write_str(" (");
+      (i : usize) = usize(0);
+      while(i < names.len(), {
+        n := match(names.get(i), .Some(x) => x, .None => String.from("_"));
+        s := match(
+          sorts.get(i),
+          .Some(x) => encode_sort(x),
+          .None => String.from("Bool")
+        );
+        if(i > usize(0), {
+          sb.write_byte(u8(0x20));
+        });
+        sb.write_byte(u8(0x28));
+        sb.write_string(n);
+        sb.write_byte(u8(0x20));
+        sb.write_string(s);
+        sb.write_byte(u8(0x29));
+        i = (i + usize(1));
+      });
+      sb.write_byte(u8(0x29));
+      sb.write_byte(u8(0x20));
+      sb.write_string(encode_term(body));
+      sb.write_byte(u8(0x29));
+      sb.to_string()
+    }
+  )
+);
+// ============================================================================
+// Queries
+// ============================================================================
+/// The logic content of one obligation: declarations, named assumptions,
+/// the negated goal, and check-sat. No options, no evidence directives —
+/// this text (plus run options) is the cache key input.
+encode_content :: (fn(q : VcQuery) -> String)({
+  sb := StringBuilder.new();
+  (di : usize) = usize(0);
+  while(di < q.declarations.len(), {
+    match(
+      q.declarations.get(di),
+      .Some(d) => {
+        sb.write_string(`(declare-fun ${d.name} () ${encode_sort(d.sort)})\n`);
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  (ai : usize) = usize(0);
+  while(ai < q.assumptions.len(), {
+    match(
+      q.assumptions.get(ai),
+      .Some(a) => {
+        match(
+          a.name,
+          .Some(n) => {
+            sb.write_string(`(assert (! ${encode_term(a.term)} :named ${n}))\n`);
+          },
+          .None => {
+            sb.write_string(`(assert ${encode_term(a.term)})\n`);
+          }
+        );
+      },
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  sb.write_string(`(assert (not ${encode_term(q.goal)}))\n`);
+  sb.write_str("(check-sat)\n");
+  sb.to_string()
+});
+/// Determinism/evidence options for one solver run. Part of the cache key
+/// (a budget bump is an honestly different query).
+EncodeOptions :: struct(
+  /// Z3's deterministic resource budget (`:rlimit`).
+  rlimit : usize,
+  /// Fixed seed (`:random-seed 0` — never time-derived).
+  random_seed : usize,
+  /// Wall-clock crash guard backstop (`:timeout`, ms). If it fires before
+  /// the rlimit the verdict is Unproven, never a different logical outcome.
+  timeout_ms : u64,
+  /// Emit `(get-unsat-core)` after check-sat (Proved clause attribution).
+  want_unsat_core : bool,
+  /// Emit `(get-value ...)` over the query's declarations after check-sat
+  /// (counter-example extraction on Refuted).
+  want_counterexample : bool
+);
+/// Default options: rlimit 5,000,000 (a few seconds of BV work), fixed
+/// seed, 30 s backstop, all evidence on.
+default_encode_options :: (fn() -> EncodeOptions)(
+  EncodeOptions(
+    rlimit : usize(5000000),
+    random_seed : usize(0),
+    timeout_ms : u64(30000),
+    want_unsat_core : true,
+    want_counterexample : true
+  )
+);
+/// The full SMT-LIB script for one obligation. Layout is fixed:
+/// set-logic, options (deterministic order), content, evidence directives.
+encode_script :: (fn(q : VcQuery, opts : EncodeOptions) -> String)({
+  sb := StringBuilder.new();
+  sb.write_str("(set-logic ALL)\n");
+  sb.write_string(`(set-option :rlimit ${opts.rlimit.to_string()})\n`);
+  sb.write_string(`(set-option :random-seed ${opts.random_seed.to_string()})\n`);
+  sb.write_string(`(set-option :timeout ${opts.timeout_ms.to_string()})\n`);
+  if(opts.want_unsat_core, {
+    sb.write_str("(set-option :produce-unsat-cores true)\n");
+  });
+  if(opts.want_counterexample, {
+    sb.write_str("(set-option :produce-models true)\n");
+  });
+  sb.write_string(encode_content(q));
+  if(opts.want_unsat_core, {
+    sb.write_str("(get-unsat-core)\n");
+  });
+  if(opts.want_counterexample && (q.declarations.len() > usize(0)), {
+    sb.write_str("(get-value (");
+    (i : usize) = usize(0);
+    while(i < q.declarations.len(), {
+      match(
+        q.declarations.get(i),
+        .Some(d) => {
+          if(i > usize(0), {
+            sb.write_byte(u8(0x20));
+          });
+          sb.write_string(d.name);
+        },
+        .None => ()
+      );
+      i = (i + usize(1));
+    });
+    sb.write_str("))\n");
+  });
+  sb.to_string()
+});
+export(
+  mangle_vc_name,
+  encode_sort,
+  encode_term,
+  encode_content,
+  encode_script,
+  EncodeOptions,
+  default_encode_options
+);
