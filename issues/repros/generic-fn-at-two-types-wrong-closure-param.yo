@@ -1,0 +1,34 @@
+pragma(Pragma.AllowUnsafe);
+open(import("std/fmt"));
+open(import("std/string"));
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc } :: GlobalAllocator;
+Rec :: struct(key : i32, tag : i32);
+_inner :: (
+  fn(generic(T : Type), ptr : *(T), n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> bool
+)(
+  cond(
+    (n < usize(2)) => true,
+    true => unsafe(less((ptr.add(usize(0))).*, (ptr.add(usize(1))).*))
+  )
+);
+/// The real shape: an OUTER generic over T that instantiates `_inner` at a
+/// DIFFERENT type (usize) while its own T is live, with a closure that
+/// captures the outer T's data.
+_outer :: (
+  fn(generic(T : Type), ptr : *(T), n : usize, less : Impl(Fn(a : T, b : T) -> bool)) -> bool
+)({
+  idx := (*(usize))(malloc(sizeof(usize) * usize(2)).unwrap());
+  unsafe(consume((idx.add(usize(0))).* = usize(0)));
+  unsafe(consume((idx.add(usize(1))).* = usize(1)));
+  // _inner at T = usize, from inside _outer whose T = Rec; the comparator
+  // closes over the OUTER ptr/less.
+  _inner(idx, n, (a, b) => unsafe(less((ptr.add(a)).*, (ptr.add(b)).*)))
+});
+main :: (fn() -> unit)({
+  recs := (*(Rec))(malloc(sizeof(Rec) * usize(2)).unwrap());
+  unsafe(consume((recs.add(usize(0))).* = Rec(key : i32(1), tag : i32(0))));
+  unsafe(consume((recs.add(usize(1))).* = Rec(key : i32(2), tag : i32(1))));
+  println(`outer=${_outer(recs, usize(2), (p, q) => (p.key < q.key))}`);
+});
+export(main);
