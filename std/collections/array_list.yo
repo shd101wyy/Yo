@@ -748,19 +748,78 @@ impl(
     )
   )
 );
+/**
+* Pointer iterator for ArrayList — yields `*(T)` INTO the list's own buffer
+* (D14). This is what `iter()` returns; `into_iter()` keeps yielding values.
+*
+* The elements are borrowed, not dup'd, so iterating a list of RC values costs
+* no refcount traffic and writing through the pointer mutates the list in
+* place. HashMapIterPtr established the shape.
+*
+* The pointers alias the buffer, so any operation that REALLOCATES it (`push`
+* past capacity, `reserve`, `shrink_to_fit`) invalidates every pointer already
+* yielded. Live-length semantics are otherwise the same as ArrayListIter's:
+* `_length` is re-read on each `next`.
+*/
+ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _list : ArrayList(T),
+    _index : usize,
+    /// See ArrayListIter._back_taken — a COUNTER, so the forward guard keeps
+    /// reading `_list._length` live.
+    _back_taken : usize
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListIterPtr(T),
+  Iterator(
+    Item : *(T),
+    next : (fn(inout(self) : Self) -> Option(*(T)))(
+      cond(
+        ((self._index + self._back_taken) >= self._list._length) => .None,
+        true => {
+          // The guard above proves `_length > _index >= 0`, so the buffer is
+          // allocated and `_ptr` is `.Some`.
+          base := self._list._ptr.unwrap();
+          p := base.add(self._index);
+          self._index = (self._index + usize(1));
+          .Some(p)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListIterPtr(T),
+  DoubleEndedIterator(
+    Item : *(T),
+    next_back : (fn(inout(self) : Self) -> Option(*(T)))(
+      cond(
+        ((self._index + self._back_taken) >= self._list._length) => .None,
+        true => {
+          base := self._list._ptr.unwrap();
+          self._back_taken = (self._back_taken + usize(1));
+          .Some(base.add(self._list._length - self._back_taken))
+        }
+      )
+    )
+  )
+);
 impl(
   generic(T : Type),
   ArrayList(T),
   /**
-  * Non-consuming iteration over a shared handle: yields each element by
-  * value (each dup'd), leaving the list intact — for(list.iter(), ...)
-  * where into_iter would move the list. HashMap.keys/values established
-  * the shape: the receiver arrives RC-dup'd at the method boundary, so
-  * moving it into the iterator is balanced. Live-length semantics are the
-  * iterator's own (see ArrayListIter).
+  * Non-consuming iteration over a shared handle: yields a `*(T)` into the
+  * list's buffer, leaving the list intact — `for(list.iter(), ptr => ...)`
+  * where `into_iter` would move the list and yield values (D14; this is the
+  * `iter` / `into_iter` split every other std collection already had).
+  * The receiver arrives RC-dup'd at the method boundary, so moving it into
+  * the iterator is balanced and the buffer outlives the walk.
   */
-  iter : (fn(self : Self) -> ArrayListIter(T))(
-    ArrayListIter(T)(_list : self, _index : usize(0), _back_taken : usize(0))
+  iter : (fn(self : Self) -> ArrayListIterPtr(T))(
+    ArrayListIterPtr(T)(_list : self, _index : usize(0), _back_taken : usize(0))
   )
 );
 impl(
@@ -1023,7 +1082,8 @@ impl(
 export(
   ArrayList,
   ArrayListError,
-  ArrayListIter
+  ArrayListIter,
+  ArrayListIterPtr
 );
 // =============================================================================
 // array_list! literal macro

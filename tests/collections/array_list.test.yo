@@ -286,14 +286,14 @@ test("ArrayList.drain end == length is allowed", {
   assert(drained(usize(0)) == i32(2));
   assert(list.len() == usize(1));
 });
-test("ArrayList.iter yields every element and does not consume the list", {
+test("ArrayList.iter yields POINTERS and does not consume the list", {
   list := ArrayList(i32).new();
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
   sum := i32(0);
-  for(list.iter(), x => {
-    sum = (sum + x);
+  for(list.iter(), ptr => {
+    sum = (sum + ptr.*);
   });
   assert(sum == i32(6));
   // The list is intact after iter(): into_iter() would have moved it.
@@ -301,17 +301,55 @@ test("ArrayList.iter yields every element and does not consume the list", {
   assert(list(usize(0)) == i32(1));
   assert(list(usize(2)) == i32(3));
 });
+test("ArrayList.iter pointers alias the buffer — writing through one mutates the list", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  for(list.iter(), ptr => {
+    ptr.* = (ptr.* * i32(10));
+  });
+  assert(list(usize(0)) == i32(10), "first doubled in place");
+  assert(list(usize(1)) == i32(20), "second doubled in place");
+  assert(list(usize(2)) == i32(30), "third doubled in place");
+  assert(list.len() == usize(3));
+});
+test("ArrayList.into_iter still yields VALUES", {
+  list := ArrayList(i32).new();
+  list.push(i32(4));
+  list.push(i32(5));
+  sum := i32(0);
+  for(list.into_iter(), x => {
+    sum = (sum + x);
+  });
+  assert(sum == i32(9));
+});
 test("ArrayList.iter works on a list of RC strings", {
   list := ArrayList(String).new();
   list.push(String.from("a"));
   list.push(String.from("b"));
   count := usize(0);
-  for(list.iter(), s => {
-    assert(s.len() == usize(1));
+  for(list.iter(), ptr => {
+    assert(ptr.*.len() == usize(1));
     count = (count + usize(1));
   });
   assert(count == usize(2));
   assert(list.len() == usize(2));
+  // The strings are BORROWED through the pointers, never dup'd, so the list
+  // still owns them and reading them again is safe.
+  assert(list(usize(0)) == String.from("a"));
+  assert(list(usize(1)) == String.from("b"));
+});
+test("ArrayList.iter walks backwards through next_back", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  it := list.iter();
+  assert(it.next_back().unwrap().* == i32(3), "last first");
+  assert(it.next().unwrap().* == i32(1), "then the front");
+  assert(it.next_back().unwrap().* == i32(2), "then the middle");
+  assert(it.next().is_none(), "exhausted from both ends");
 });
 // ===== Slice Tests =====
 test("ArrayList.slice creates new list with subset of elements", {
@@ -795,7 +833,7 @@ test("ArrayList into_iter - multiple elements in order", {
   assert(count == usize(3), "should yield all elements");
   assert(sum == i32(60), "sum should be correct");
 });
-test("ArrayList iter - empty list", {
+test("ArrayList for(list) - empty list", {
   list := ArrayList(i32).new();
   count := usize(0);
   for(list, x => {
@@ -804,7 +842,7 @@ test("ArrayList iter - empty list", {
   });
   assert(count == usize(0), "empty list should yield no elements");
 });
-test("ArrayList iter - reads elements by value", {
+test("ArrayList for(list) - reads elements by value (into_iter)", {
   list := ArrayList(i32).new();
   list.push(i32(100));
   list.push(i32(200));

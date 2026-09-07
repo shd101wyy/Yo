@@ -1,3 +1,4 @@
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { OrderedMap, MapEntry } :: import("std/collections/ordered_map");
 open(import("std/collections/array_list"));
@@ -86,7 +87,7 @@ test("OrderedMap iteration in insertion order", {
   assert(vs(usize(1)) == i32(1), "1 second");
   assert(vs(usize(2)) == i32(13), "13 third");
 });
-test("OrderedMap iter pairs", {
+test("OrderedMap iter yields entry POINTERS in insertion order", {
   m := OrderedMap(String, i32).new();
   m.insert(`one`, i32(1));
   m.insert(`two`, i32(2));
@@ -94,10 +95,35 @@ test("OrderedMap iter pairs", {
   e1 := it.next().unwrap();
   e2 := it.next().unwrap();
   assert(it.next().is_none(), "two entries");
-  assert(e1.key == `one`, "first key");
-  assert(e1.value == i32(1), "first value");
-  assert(e2.key == `two`, "second key");
-  assert(e2.value == i32(2), "second value");
+  assert(e1.*.key == `one`, "first key");
+  assert(e1.*.value == i32(1), "first value");
+  assert(e2.*.key == `two`, "second key");
+  assert(e2.*.value == i32(2), "second value");
+});
+test("OrderedMap iter pointers alias the map — writing through one updates it", {
+  m := OrderedMap(String, i32).new();
+  m.insert(`a`, i32(1));
+  m.insert(`b`, i32(2));
+  for(m.iter(), ptr => {
+    ptr.*.value = (ptr.*.value + i32(100));
+  });
+  assert(m.get(`a`).unwrap() == i32(101), "a updated in place");
+  assert(m.get(`b`).unwrap() == i32(102), "b updated in place");
+});
+test("OrderedMap into_iter yields entries BY VALUE in insertion order", {
+  m := OrderedMap(String, i32).new();
+  m.insert(`one`, i32(1));
+  m.insert(`two`, i32(2));
+  keys := ArrayList(String).new();
+  total := i32(0);
+  for(m.into_iter(), e => {
+    keys.push(e.key);
+    total = (total + e.value);
+  });
+  assert(keys.len() == usize(2), "two entries");
+  assert(keys(usize(0)) == `one`, "insertion order preserved");
+  assert(keys(usize(1)) == `two`, "insertion order preserved");
+  assert(total == i32(3), "values summed");
 });
 test("OrderedMap remove", {
   m := OrderedMap(String, i32).new();
