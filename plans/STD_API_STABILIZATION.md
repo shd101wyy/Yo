@@ -148,10 +148,19 @@ the work in §4 does not re-open them.
   and `Aborted`. Two variants, not Rust's single `Elapsed`, because Yo's
   `timeout` takes a `JoinHandle` rather than a future, which makes cancellation
   a genuinely separate failure. The two are distinguishable ONLY inside the
-  poll loop, so the deadline arm records which arm ended the wait. STILL OPEN:
-  `Thread(T).spawn` carrying its result — `Thread` is non-generic today and
-  `Thread.spawn` is wired into the evaluator's closure-specialisation and the
-  codegen/parallelism paths (174 occurrences), so it needs its own change.
+  poll loop, so the deadline arm records which arm ended the wait. **SECOND HALF BLOCKED ON A COMPILER BUG, NOT ON DESIGN.** The std-side shape is
+  written and recorded: `Thread(T)` holds a capacity-1 `Channel(T)`, `spawn`
+  takes `Impl(Fn(io : Io) -> T, Send)`, and `join` keeps the join-once assert
+  and detach-on-drop `Dispose` before reading the value with `try_recv`. It
+  does not compile at `T = unit` — which is what all 152 existing call sites
+  become — because the thread-spawn lowering binds the captured callback's
+  ZST result to a `void*` temp and never emits the `Channel(unit).send`
+  specialisation. Narrowed with three controls that all work (`Channel(unit)`
+  alone; a generic fn calling an `Impl(Fn() -> T)` at `T = unit`; the same
+  closure captured into a second closure), so it is specific to
+  `src/codegen/exprs/parallelism.yo`, whose own comment says it "selects the
+  primitive + (unit) return convention". Full write-up, evidence and the ready
+  design: `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`.
 
 - **D19 — `Box` KEEPS its name, and says loudly that it is Rust's `Rc`.**
   (Maintainer, 2026-09-06.) `Box(V)` is `ref(struct((*) : V))`, so copying a
