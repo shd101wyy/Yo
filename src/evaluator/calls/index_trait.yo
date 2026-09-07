@@ -988,14 +988,14 @@ _specialize_index_method :: (
 )({
   recv := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => expr);
   margs := ArrayList(AstExpr).new();
-  _a0 := margs.push(recv);
-  _a1 := margs.push(idx_expr);
+  margs.push(recv);
+  margs.push(idx_expr);
   inner_exn := Exception(throw : (_err -> unwind(())));
   r := try_to_call_function_with_arguments(mv, mty, expr, recv, margs, caller_env, ctx, true, false, false, inner_exn);
   match(
     r.specialized_function_value,
     .Some(sv) => {
-      _p := out.push(sv);
+      out.push(sv);
     },
     .None => ()
   );
@@ -1289,14 +1289,14 @@ _try_comptime_custom_type_index :: (
     ct_param_token
   );
   ct_args := ArrayList(ArgEntry).new();
-  _ct_a0 := ct_args.push(
+  ct_args.push(
     ArgEntry(
       value : Option(EvalValue).Some(self_ptr_value),
       parameter_type : ct_p0_ty,
       arg_type : self_ptr_type
     )
   );
-  _ct_a1 := ct_args.push(
+  ct_args.push(
     ArgEntry(
       value : Option(EvalValue).Some(arg_value),
       parameter_type : ct_p1_ty,

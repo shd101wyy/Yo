@@ -1149,7 +1149,7 @@ try_match_generic_impl :: (
     match(
       _resolve_one_forall_binding(match_env, fa_some2, fa_name2),
       .Some(t) => {
-        _b := bindings.push(t);
+        bindings.push(t);
         g_last_match_binding_vals.push(fa_val2);
       },
       .None => {
@@ -1162,7 +1162,7 @@ try_match_generic_impl :: (
         match(
           _bind_forall_from_type_args(entry.receiver_type_pattern, resolved_concrete, fa_some2),
           .Some(t2) => {
-            _b2 := bindings.push(t2);
+            bindings.push(t2);
             g_last_match_binding_vals.push(EvalValue.UnitVal);
           },
           .None => {
@@ -1259,7 +1259,7 @@ try_match_generic_impl :: (
             match(
               wcr_bound,
               .Some(wcr_t) => {
-                _b3 := bindings.push(wcr_t);
+                bindings.push(wcr_t);
                 g_last_match_binding_vals.push(EvalValue.UnitVal);
               },
               .None => {
@@ -1564,9 +1564,9 @@ _inject_forall_captures :: (
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
             while(ci < cns.len(), {
-              _a := new_cns.push(match(cns.get(ci), .Some(x) => x, .None => String.from("")));
-              _b := new_cts.push(match(cts.get(ci), .Some(x) => x, .None => t_unit()));
-              _c := new_cvs.push(match(cvs.get(ci), .Some(x) => x, .None => EvalValue.UnitVal));
+              new_cns.push(match(cns.get(ci), .Some(x) => x, .None => String.from("")));
+              new_cts.push(match(cts.get(ci), .Some(x) => x, .None => t_unit()));
+              new_cvs.push(match(cvs.get(ci), .Some(x) => x, .None => EvalValue.UnitVal));
               ci = (ci + usize(1));
             });
             // Append one capture per impl generic param (bound to its concrete type).
@@ -1575,7 +1575,7 @@ _inject_forall_captures :: (
             while(fi2 < n_fa, {
               fa_n := match(forall_names.get(fi2), .Some(n) => n, .None => String.from(""));
               fa_t := match(bindings.get(fi2), .Some(t) => t, .None => t_unit());
-              _a2 := new_cns.push(fa_n);
+              new_cns.push(fa_n);
               // VALUE binder (`generic(U : usize)`): inject the VALUE (IntLit)
               // at its declared type — injecting TypeVal(usize) made the body's
               // `U` a TYPE (the array-family "expected usize, got Type").
@@ -1586,8 +1586,8 @@ _inject_forall_captures :: (
                   bv,
                   .IntLit(bv_raw) => {
                     fa_is_val = true;
-                    _b2v := new_cts.push(t_usize());
-                    _c2v := new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
+                    new_cts.push(t_usize());
+                    new_cvs.push(EvalValue.IntLit(bv_raw.clone()));
                     if(ifc_have_vars, {
                       new_cvars.push(make_capture_variable(fa_n.clone(), t_usize(), Option(EvalValue).Some(EvalValue.IntLit(bv_raw.clone())), String.from("")));
                     });
@@ -1597,8 +1597,8 @@ _inject_forall_captures :: (
                 .None => ()
               );
               if(!fa_is_val, {
-                _b2 := new_cts.push(t_type());
-                _c2 := new_cvs.push(EvalValue.TypeVal(fa_t));
+                new_cts.push(t_type());
+                new_cvs.push(EvalValue.TypeVal(fa_t));
                 if(ifc_have_vars, {
                   new_cvars.push(make_capture_variable(fa_n.clone(), t_type(), Option(EvalValue).Some(EvalValue.TypeVal(fa_t)), String.from("")));
                 });
@@ -3279,8 +3279,8 @@ _collect_impl_where_constraints :: (
               match(
                 _try_lookup_trait_type(re, forall_env, ctx, exn),
                 .Some(tr) => {
-                  _s := out_some_types.push(st.clone());
-                  _t := out_traits.push(tr);
+                  out_some_types.push(st.clone());
+                  out_traits.push(tr);
                   // ALSO stamp the constraint on the generic SomeT itself —
                   // yo-self's established equivalent of TS recording
                   // frame-scoped where evidence (subtype-of.ts:159-174 →
@@ -3308,8 +3308,8 @@ _collect_impl_where_constraints :: (
             match(
               _try_lookup_trait_type(rhs, forall_env, ctx, exn),
               .Some(tr) => {
-                _s := out_some_types.push(st.clone());
-                _t := out_traits.push(tr);
+                out_some_types.push(st.clone());
+                out_traits.push(tr);
                 // Stamp on the SomeT too — see the tuple arm above.
                 match(
                   st,

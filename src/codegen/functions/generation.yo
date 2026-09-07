@@ -148,7 +148,7 @@ _copy_expr_list :: (fn(opt : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))(
         match(
           d.get(i),
           .Some(e) => {
-            _p := out.push(e);
+            out.push(e);
           },
           .None => ()
         );
@@ -613,7 +613,7 @@ generate_function :: (fn(function_value : EvalValue, c_function_name : String, c
               }
             );
             _dp := context.base.declared_c_var_names.insert(_pnm.clone());
-            _dps := context.base.declared_scopes.push(_pnm);
+            context.base.declared_scopes.push(_pnm);
             _pi = (_pi + usize(1));
           });
         },
@@ -1007,7 +1007,7 @@ emit_module_level_variable_declarations :: (
                 });
               });
               rhs := match(_args(init_expr).get(usize(1)), .Some(e) => e, .None => make_err_expr());
-              _p := result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));
+              result.push(ModuleLevelVarEntry(c_var_name : c_var_name, rhs : rhs));
             });
           }
         )
