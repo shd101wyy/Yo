@@ -2137,6 +2137,107 @@ test("String replace_all with empty search inserts everywhere", {
   assert(s.replace_all(String.from(""), String.from("-")) == String.from("-a-b-c-"), "Rust: \"abc\".replace_all(\"\", \"-\") == \"-a-b-c-\"");
   assert(String.from("").replace_all(String.from(""), String.from("-")) == String.from("-"), "the empty string still has one boundary");
 });
+// ===== FromStr / s.parse(T) (D12) =====
+test("parse(i32) distinguishes empty, garbage and overflow", {
+  // The whole point of D12: parse_i32 collapsed all three into .None.
+  assert(match(`42`.parse(i32), .Ok(v) => (v == i32(42)), .Err(_) => false), "42 parses");
+  assert(
+    match(``.parse(i32), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)),
+    "empty string is Empty, not InvalidDigit"
+  );
+  assert(
+    match(`12x`.parse(i32), .Ok(_) => false, .Err(e) => match(e, .InvalidDigit => true, _ => false)),
+    "trailing garbage is InvalidDigit"
+  );
+  assert(
+    match(`2147483648`.parse(i32), .Ok(_) => false, .Err(e) => match(e, .PosOverflow => true, _ => false)),
+    "i32.MAX + 1 is PosOverflow, NOT InvalidDigit"
+  );
+  assert(
+    match(`-2147483649`.parse(i32), .Ok(_) => false, .Err(e) => match(e, .NegOverflow => true, _ => false)),
+    "i32.MIN - 1 is NegOverflow"
+  );
+  assert(
+    match(`-`.parse(i32), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)),
+    "a lone sign has an empty digit run"
+  );
+});
+test("parse(i32) keeps the boundary values", {
+  assert(match(`2147483647`.parse(i32), .Ok(v) => (v == i32(2147483647)), .Err(_) => false), "i32.MAX");
+  assert(match(`-2147483648`.parse(i32), .Ok(v) => (v == i32(-2147483648)), .Err(_) => false), "i32.MIN");
+});
+test("parse(i64) keeps i64.MIN and rejects one past it", {
+  assert(
+    match(`-9223372036854775808`.parse(i64), .Ok(v) => (v == i64.MIN), .Err(_) => false),
+    "i64.MIN is representable"
+  );
+  assert(
+    match(`-9223372036854775809`.parse(i64), .Ok(_) => false, .Err(e) => match(e, .NegOverflow => true, _ => false)),
+    "one past i64.MIN is NegOverflow"
+  );
+  assert(
+    match(`9223372036854775808`.parse(i64), .Ok(_) => false, .Err(e) => match(e, .PosOverflow => true, _ => false)),
+    "one past i64.MAX is PosOverflow"
+  );
+});
+test("a u64-magnitude overflow on a NEGATIVE number reports NegOverflow", {
+  // The magnitude scanner overflows u64 and can only say PosOverflow; the
+  // signed core has to re-sign it. Regression guard for exactly that.
+  assert(
+    match(
+      `-99999999999999999999999`.parse(i64),
+      .Ok(_) => false,
+      .Err(e) => match(e, .NegOverflow => true, _ => false)
+    ),
+    "a huge negative is NegOverflow, not PosOverflow"
+  );
+});
+test("parse(u32)/parse(u64) reject a leading minus as a digit error", {
+  assert(match(`7`.parse(u32), .Ok(v) => (v == u32(7)), .Err(_) => false), "7 parses");
+  assert(
+    match(`-1`.parse(u32), .Ok(_) => false, .Err(e) => match(e, .InvalidDigit => true, _ => false)),
+    "unsigned rejects a sign as InvalidDigit, like Rust"
+  );
+  assert(
+    match(`4294967296`.parse(u32), .Ok(_) => false, .Err(e) => match(e, .PosOverflow => true, _ => false)),
+    "u32.MAX + 1 is PosOverflow"
+  );
+  assert(match(`+9`.parse(u64), .Ok(v) => (v == u64(9)), .Err(_) => false), "a leading + is allowed");
+});
+test("parse(f64) and parse(bool) carry their own error types", {
+  assert(match(`1.5`.parse(f64), .Ok(v) => (v == 1.5), .Err(_) => false), "1.5 parses");
+  assert(
+    match(``.parse(f64), .Ok(_) => false, .Err(e) => match(e, .Empty => true, .Invalid => false)),
+    "empty is ParseFloatError.Empty"
+  );
+  assert(
+    match(`nope`.parse(f64), .Ok(_) => false, .Err(e) => match(e, .Invalid => true, .Empty => false)),
+    "garbage is ParseFloatError.Invalid"
+  );
+  assert(match(`true`.parse(bool), .Ok(v) => v, .Err(_) => false), "true parses");
+  assert(match(`false`.parse(bool), .Ok(v) => !v, .Err(_) => false), "false parses");
+  assert(match(`True`.parse(bool), .Ok(_) => false, .Err(_) => true), "only lowercase, like Rust");
+});
+test("the radix parsers report a bad radix instead of silently failing", {
+  assert(
+    match(`ff`.parse_u64_radix_res(u32(16)), .Ok(v) => (v == u64(255)), .Err(_) => false),
+    "hex ff is 255"
+  );
+  assert(
+    match(`ff`.parse_u64_radix_res(u32(99)), .Ok(_) => false, .Err(e) => match(e, .InvalidRadix => true, _ => false)),
+    "radix 99 is InvalidRadix, not InvalidDigit"
+  );
+  assert(
+    match(`-80`.parse_i64_radix_res(u32(16)), .Ok(v) => (v == i64(-128)), .Err(_) => false),
+    "signed hex with a sign"
+  );
+});
+test("the deprecated parse_* Option methods still agree with parse(T)", {
+  assert(`42`.parse_i32().unwrap() == i32(42), "parse_i32 still works");
+  assert(`12x`.parse_i32().is_none(), "and still collapses garbage to .None");
+  assert(`2147483648`.parse_i32().is_none(), "and overflow to .None");
+  assert(`ff`.parse_u64_radix(u32(16)).unwrap() == u64(255), "radix form still works");
+});
 // ===== parse_f64 =====
 test("String parse_f64 accepts the Rust f64::from_str grammar", {
   assert_approx(String.from("3.25").parse_f64().unwrap_or(f64(0)), f64(3.25), f64(0.000000000001), "plain decimal");

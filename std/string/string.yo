@@ -2222,6 +2222,9 @@ impl(
   /**
   * Parse the string as a boolean.
   * Returns .Some(true) for "true", .Some(false) for "false", .None for anything else.
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(bool)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
   parse_bool : (fn(self : Self) -> Option(bool))(
     match(
@@ -2402,11 +2405,71 @@ _radix_digit :: (fn(b : u8, radix : u32) -> Option(u64))({
 });
 /// Magnitude of the digit run starting at `start` (sign already consumed),
 /// with overflow checks. The whole remainder must be digits.
-_radix_magnitude :: (fn(s : String, radix : u32, start : usize) -> Option(u64))({
+/**
+* Why a string could not be parsed as an integer — Rust's `ParseIntError`
+* (D12). The older `parse_*() -> Option(T)` methods collapsed all of these
+* into `.None`, so a caller could not tell a missing field from a malformed
+* one from one that simply did not fit.
+*/
+ParseIntError :: enum(
+  /// The string was empty, or held only a sign.
+  Empty,
+  /// A byte was not a digit in the requested radix.
+  InvalidDigit,
+  /// The value is larger than the type's maximum.
+  PosOverflow,
+  /// The value is smaller than the type's minimum.
+  NegOverflow,
+  /// The radix passed to a `*_radix` parser was outside 2..=36. Rust panics
+  /// here; Yo reports it, because the radix is often user input too.
+  InvalidRadix
+);
+/// Why a string could not be parsed as a float — Rust's `ParseFloatError`.
+ParseFloatError :: enum(
+  /// The string was empty.
+  Empty,
+  /// The string did not match the float grammar.
+  Invalid
+);
+/// Why a string could not be parsed as a bool — Rust's `ParseBoolError`.
+/// Only `"true"` and `"false"` are accepted.
+ParseBoolError :: enum(
+  Invalid
+);
+/**
+* `FromStr` — parse a value of this type out of a `String` (Rust's
+* `core::str::FromStr`).
+*
+* Call it as `s.parse(T)`, which forwards to `T.from_str(s)`:
+*
+* ```rust
+* match(`42`.parse(i32), .Ok(v) => v, .Err(e) => i32(0));
+* ```
+*
+* `Err` is the type's own error, so a caller can tell an EMPTY string from
+* garbage from an out-of-range value — the distinction the older
+* `parse_*() -> Option(T)` methods threw away (D12).
+*/
+FromStr :: trait(
+  /// What this type reports when the string is not a valid value.
+  Err : Type,
+  from_str : (fn(s : String) -> Result(Self, Self.Err))
+);
+/// Magnitude scanner shared by every integer parser. Distinguishes an empty
+/// digit run, a non-digit and an overflow — the whole point of D12.
+_radix_magnitude_res :: (
+  fn(s : String, radix : u32, start : usize) -> Result(u64, ParseIntError)
+)({
+  cond(
+    ((radix < u32(2)) || (radix > u32(36))) => {
+      return(.Err(ParseIntError.InvalidRadix));
+    },
+    true => ()
+  );
   bytes := s.as_bytes();
   (n : usize) = bytes.len();
   if(start >= n, {
-    return(.None);
+    return(.Err(ParseIntError.Empty));
   });
   (mag : u64) = u64(0);
   i := start;
@@ -2415,17 +2478,88 @@ _radix_magnitude :: (fn(s : String, radix : u32, start : usize) -> Option(u64))(
       _radix_digit(bytes(i), radix),
       .Some(v) => v,
       .None => {
-        return(.None);
+        return(.Err(ParseIntError.InvalidDigit));
       }
     );
     // mag * radix + d > u64.MAX  ⇔  mag > (u64.MAX - d) / radix
     if(mag > ((u64.MAX - d) / u64(radix)), {
-      return(.None);
+      return(.Err(ParseIntError.PosOverflow));
     });
     mag = ((mag * u64(radix)) + d);
     i = (i + usize(1));
   });
-  .Some(mag)
+  .Ok(mag)
+});
+/// Signed core: sign, then magnitude, then the i64 range check. The sign is
+/// what turns a magnitude overflow into Pos- or NegOverflow.
+_parse_i64_radix_res :: (
+  fn(s : String, radix : u32) -> Result(i64, ParseIntError)
+)({
+  cond(
+    ((radix < u32(2)) || (radix > u32(36))) => {
+      return(.Err(ParseIntError.InvalidRadix));
+    },
+    true => ()
+  );
+  bytes := s.as_bytes();
+  (n : usize) = bytes.len();
+  if(n == usize(0), {
+    return(.Err(ParseIntError.Empty));
+  });
+  (neg : bool) = false;
+  (start : usize) = usize(0);
+  (b0 : u8) = bytes(usize(0));
+  if((b0 == u8(0x2B)) || (b0 == u8(0x2D)), {
+    neg = (b0 == u8(0x2D));
+    start = usize(1);
+  });
+  match(
+    _radix_magnitude_res(s, radix, start),
+    .Ok(mag) => cond(
+      neg => cond(
+        // -2^63 is representable; anything past it is not
+        (mag == u64(0x8000000000000000)) => .Ok(i64.MIN),
+        (mag <= u64(9223372036854775807)) => .Ok(i64(0) - i64(mag)),
+        true => .Err(ParseIntError.NegOverflow)
+      ),
+      true => cond(
+        (mag <= u64(9223372036854775807)) => .Ok(i64(mag)),
+        true => .Err(ParseIntError.PosOverflow)
+      )
+    ),
+    // A magnitude that overflowed u64 is a NEGATIVE overflow when signed.
+    .Err(e) => match(
+      e,
+      .PosOverflow => cond(
+        neg => .Err(ParseIntError.NegOverflow),
+        true => .Err(ParseIntError.PosOverflow)
+      ),
+      _ => .Err(e)
+    )
+  )
+});
+/// Unsigned core: an optional `+`, then the magnitude. A leading `-` is a
+/// digit error, not a negative number — same as Rust.
+_parse_u64_radix_res :: (
+  fn(s : String, radix : u32) -> Result(u64, ParseIntError)
+)({
+  cond(
+    ((radix < u32(2)) || (radix > u32(36))) => {
+      return(.Err(ParseIntError.InvalidRadix));
+    },
+    true => ()
+  );
+  bytes := s.as_bytes();
+  (n : usize) = bytes.len();
+  if(n == usize(0), {
+    return(.Err(ParseIntError.Empty));
+  });
+  (start : usize) = usize(0);
+  (b0 : u8) = bytes(usize(0));
+  if(b0 == u8(0x2B), {
+    start = usize(1);
+  });
+  _radix_magnitude_res(s, radix, start)
 });
 impl(
   String,
@@ -2434,6 +2568,9 @@ impl(
   * with optional fraction and exponent, or `inf`/`infinity`/`nan`
   * (case-insensitive). Leading/trailing whitespace and hex floats are NOT
   * accepted. `.None` when the string is not a valid number.
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(f64)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
   parse_f64 : (fn(self : Self) -> Option(f64))({
     (ok : bool) = _f64_grammar_ok(self.as_bytes());
@@ -2452,71 +2589,31 @@ impl(
   * Rust's `i64::from_str_radix`. An optional leading `+`/`-` is allowed;
   * `_` is not. `.None` on an empty digit run, any non-digit, a bad radix,
   * or overflow.
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
-  parse_i64_radix : (fn(self : Self, radix : u32) -> Option(i64))({
-    (bad : bool) = ((radix < u32(2)) || (radix > u32(36)));
-    cond(
-      bad => .None,
-      true => {
-        bytes := self.as_bytes();
-        (n : usize) = bytes.len();
-        if(n == usize(0), {
-          return(.None);
-        });
-        (neg : bool) = false;
-        (start : usize) = usize(0);
-        (b0 : u8) = bytes(usize(0));
-        if((b0 == u8(0x2B)) || (b0 == u8(0x2D)), {
-          neg = (b0 == u8(0x2D));
-          start = usize(1);
-        });
-        match(
-          _radix_magnitude(self, radix, start),
-          .Some(mag) => cond(
-            neg => cond(
-              // -2^63 is representable; anything past it is not
-              (mag == u64(0x8000000000000000)) => .Some(i64.MIN),
-              (mag <= u64(9223372036854775807)) => .Some(i64(0) - i64(mag)),
-              true => .None
-            ),
-            true => cond(
-              (mag <= u64(9223372036854775807)) => .Some(i64(mag)),
-              true => .None
-            )
-          ),
-          .None => .None
-        )
-      }
-    )
-  }),
+  parse_i64_radix : (fn(self : Self, radix : u32) -> Option(i64))(
+    match(_parse_i64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
+  ),
   /**
   * Parse a `u64` in the given `radix` (2..=36) — Rust's
   * `u64::from_str_radix`. An optional leading `+` is allowed; `-` is not.
   * `.None` on any non-digit, a bad radix, or overflow.
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
-  parse_u64_radix : (fn(self : Self, radix : u32) -> Option(u64))({
-    (bad : bool) = ((radix < u32(2)) || (radix > u32(36)));
-    cond(
-      bad => .None,
-      true => {
-        bytes := self.as_bytes();
-        (n : usize) = bytes.len();
-        if(n == usize(0), {
-          return(.None);
-        });
-        (start : usize) = usize(0);
-        (b0 : u8) = bytes(usize(0));
-        if(b0 == u8(0x2B), {
-          start = usize(1);
-        });
-        _radix_magnitude(self, radix, start)
-      }
-    )
-  }),
+  parse_u64_radix : (fn(self : Self, radix : u32) -> Option(u64))(
+    match(_parse_u64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
+  ),
   /**
   * Parse the string as a signed 32-bit integer — Rust's `i32::from_str`.
   * An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
   * any non-digit, or a value outside `i32`.
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(i32)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
   parse_i32 : (fn(self : Self) -> Option(i32))(
     match(
@@ -2532,12 +2629,18 @@ impl(
   * Parse the string as a signed 64-bit integer — Rust's `i64::from_str`.
   * An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
   * any non-digit, or overflow (`i64.MIN` itself is accepted).
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
   parse_i64 : (fn(self : Self) -> Option(i64))(self.parse_i64_radix(u32(10))),
   /**
   * Parse the string as an unsigned 32-bit integer — Rust's `u32::from_str`.
   * An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
   * run, any non-digit, or a value outside `u32`.
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(u32)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
   parse_u32 : (fn(self : Self) -> Option(u32))(
     match(
@@ -2553,8 +2656,117 @@ impl(
   * Parse the string as an unsigned 64-bit integer — Rust's `u64::from_str`.
   * An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
   * run, any non-digit, or overflow.
+  *
+  * DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
+  * WHY the parse failed instead of collapsing every reason into `.None`.
   */
   parse_u64 : (fn(self : Self) -> Option(u64))(self.parse_u64_radix(u32(10)))
+);
+// ============================================================================
+// FromStr impls + `s.parse(T)` (D12)
+// ============================================================================
+impl(
+  i64,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(i64, ParseIntError))(
+      _parse_i64_radix_res(s, u32(10))
+    )
+  )
+);
+impl(
+  u64,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(u64, ParseIntError))(
+      _parse_u64_radix_res(s, u32(10))
+    )
+  )
+);
+impl(
+  i32,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(i32, ParseIntError))(
+      match(
+        _parse_i64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > i64(2147483647)) => .Err(ParseIntError.PosOverflow),
+          (v < i64(-2147483648)) => .Err(ParseIntError.NegOverflow),
+          true => .Ok(i32(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  u32,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(u32, ParseIntError))(
+      match(
+        _parse_u64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > u64(4294967295)) => .Err(ParseIntError.PosOverflow),
+          true => .Ok(u32(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  f64,
+  FromStr(
+    Err : ParseFloatError,
+    from_str : (fn(s : String) -> Result(f64, ParseFloatError))(
+      cond(
+        (s.len() == usize(0)) => .Err(ParseFloatError.Empty),
+        true => match(s.parse_f64(), .Some(v) => .Ok(v), .None => .Err(ParseFloatError.Invalid))
+      )
+    )
+  )
+);
+impl(
+  bool,
+  FromStr(
+    Err : ParseBoolError,
+    from_str : (fn(s : String) -> Result(bool, ParseBoolError))(
+      match(s.parse_bool(), .Some(v) => .Ok(v), .None => .Err(ParseBoolError.Invalid))
+    )
+  )
+);
+impl(
+  String,
+  /**
+  * Parse this string as a `T` — Rust's `str::parse::<T>()` (D12).
+  *
+  * ```rust
+  * match(`42`.parse(i32), .Ok(v) => v, .Err(_) => i32(0));
+  * ```
+  *
+  * The error is `T`'s own, so a caller can tell an empty string from garbage
+  * from an out-of-range value. `T` is written out because it cannot be
+  * inferred from the arguments — only from the result, which Yo does not do.
+  */
+  parse : (fn(self : Self, comptime(T) : Type, where(T <: FromStr)) -> Result(T, T.Err))(
+    T.from_str(self)
+  ),
+  /**
+  * Parse a signed integer in `radix` (2..=36) — Rust's `i64::from_str_radix`,
+  * reporting WHY it failed.
+  */
+  parse_i64_radix_res : (fn(self : Self, radix : u32) -> Result(i64, ParseIntError))(
+    _parse_i64_radix_res(self, radix)
+  ),
+  /**
+  * Parse an unsigned integer in `radix` (2..=36) — Rust's
+  * `u64::from_str_radix`, reporting WHY it failed.
+  */
+  parse_u64_radix_res : (fn(self : Self, radix : u32) -> Result(u64, ParseIntError))(
+    _parse_u64_radix_res(self, radix)
+  )
 );
 /// Index trait implementation — access a single byte by index.
 /// Panics if the string is empty.
@@ -2627,5 +2839,9 @@ export(
   StringCharIndices,
   StringBytes,
   StringLines,
-  Pattern
+  Pattern,
+  FromStr,
+  ParseIntError,
+  ParseFloatError,
+  ParseBoolError
 );
