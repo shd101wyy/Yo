@@ -77,7 +77,7 @@ open(import("std/string"));
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
+{ is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type, is_unit_type } :: import("../../types/guards.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { Token, TokenKind, is_reserved_operator_name } :: import("../../token.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
@@ -350,6 +350,11 @@ _evaluate_inout_local_binding :: (
     exn.throw(dyn(format_error_message(root_tok, place_recipe.clone())));
   });
   place_type := rhs_info.ty;
+  // A `unit` local has no C storage (its declaration emits nothing), so there
+  // is no address to alias; reject instead of lowering `&()`.
+  if(is_unit_type(place_type), {
+    exn.throw(dyn(format_error_message(ast_expr_token(rhs), String.from("Cannot bind 'inout' to a unit-typed place: it has no runtime storage to alias."))));
+  });
   if(type_requires_comptime_modifier(place_type), {
     exn.throw(
       dyn(

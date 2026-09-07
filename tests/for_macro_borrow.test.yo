@@ -439,3 +439,54 @@ test("borrowed for over a user collection; inout(self) methods assert on the obj
   assert((bag.version == i32(0)) && (bag.items.len() == usize(0)), "reassigning through inout(self) replaces the caller's handle");
   assert(rc(bag) == 1, "the old object was released, the new one is owned once");
 });
+// Two read-only shapes the compiler-emitted invalidation assert must not fire
+// for: a body that DECLARES a typed local `(r : T) = init` (`ArrayList.index_of`;
+// the declaration's lhs is a colon pair, not a place —
+// issues/fixed/borrow-assert-typed-local-declaration-false-positive.md), and a
+// body that READS elements by index `self.items(i)` (an index-trait call whose
+// callee is recorded on the call, not on its func expr —
+// issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
+impl(
+  Bag,
+  first_over : (fn(self : Self, limit : i32) -> Option(i32))({
+    (found : Option(i32)) = .None;
+    i := usize(0);
+    while((i < self.items.len()) && found.is_none(), {
+      v := self.items(i);
+      if(v > limit, {
+        found = .Some(v);
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
+test("borrowed for: read-only methods with typed local declarations do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(5));
+  xs.push(i32(7));
+  hits := i32(0);
+  for(xs, inout(x) => {
+    match(
+      xs.index_of(x),
+      .Some(_) => {
+        hits = (hits + i32(1));
+      },
+      .None => ()
+    );
+    x = (x + i32(1));
+  });
+  assert(hits == i32(2), "index_of inside the borrowed body");
+  bag := Bag(items : xs, version : i32(0));
+  seen := i32(0);
+  for(bag, inout(x) => {
+    match(
+      bag.first_over(i32(6)),
+      .Some(v) => {
+        seen = v;
+      },
+      .None => ()
+    );
+  });
+  assert(seen == i32(8), "a user method with a typed local inside the borrowed body");
+});

@@ -865,12 +865,22 @@ check_if_function_parameter_matches_argument :: (
         arg_vars := get_variables_from_env(caller_env_r, arg_var_name);
         if(arg_vars.len() > usize(0), {
           arg_var := match(arg_vars.get(arg_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(caller_env_r));
-          if(arg_var.is_owning_the_rc_value, {
-            set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
-          }, {
-            set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
-            set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
-          });
+          cond(
+            // An `inout` parameter or `inout(name) := place` binding names a
+            // slot it does not own: the callee gets a COPY (+1) of the
+            // referenced handle, and the binding stays usable — nothing is
+            // moved (issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
+            arg_var.is_ref => {
+              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+            },
+            arg_var.is_owning_the_rc_value => {
+              set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
+            },
+            true => {
+              set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+              set_expr_as_consumed(evaled_arg, caller_env_r, true, ctx, exn);
+            }
+          );
         });
       }
     );

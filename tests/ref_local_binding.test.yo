@@ -196,6 +196,15 @@ comptime_expect_error(
     r = String.from("dangling");
   })
 );
+test("passing the binding itself to an own parameter copies; the root survives and the binding stays usable", {
+  s := String.from("abc");
+  inout(r) := s;
+  n := sink(r);
+  assert(n == usize(3), "callee saw the value");
+  r.push_str("!");
+  assert(s == "abc!", "root intact, binding usable after the own call (issues/fixed/inout-arg-to-own-param-moves-without-dup.md)");
+  assert(rc(s) == 1, "the callee released its copy; the root owns its value once");
+});
 test("moving the root after the binding's scope ended is fine", {
   s := String.from("ok");
   {
@@ -243,6 +252,14 @@ comptime_expect_error(
     x := i32(1);
     inout(r) :: x;
     consume(r);
+  })
+);
+// A unit local has no C storage, so there is no address to alias.
+comptime_expect_error(
+  unit_root_rejected :: (fn() -> unit)({
+    u := ();
+    inout(r) := u;
+    r = ();
   })
 );
 comptime_expect_error(

@@ -33,7 +33,8 @@ open(import("std/string"));
   ast_expr_is_fn_call_of,
   ast_expr_is_atom_of,
   ast_expr_token,
-  BF_DOT
+  BF_DOT,
+  BK_COLON
 } :: import("../../expr.yo");
 { get_variables_from_env } :: import("../../env.yo");
 {
@@ -447,6 +448,15 @@ impl(
     // value. Non-RC stores free nothing; recurse both sides.
     if((head == "=") && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
+      // The typed declaration `(name : T) = init` is a declaration, not a
+      // store: its lhs is a colon pair, and only the initializer runs.
+      // (Misreading it as a store rooted at the atom `:` made every method
+      // with a typed local — `ArrayList.index_of` — "mutating": a false
+      // invalidation panic inside a borrowed `for`.)
+      if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, Option(usize).Some(usize(2))), {
+        rhs0 := match(args.get(usize(1)), .Some(r) => r, .None => e);
+        return(_MsW.walk(rhs0, table, touched));
+      });
       if(g_ms_param_storage_mode && _ms_lhs_targets_param_storage(lhs, table), {
         return(true);
       });
@@ -558,8 +568,22 @@ impl(
     if(_MsW.is_io_builtin_call(e), {
       return(true);
     });
-    // General call: classify the callee.
-    callee_opt := _MsW.callee_value(e, func_expr, table);
+    // General call: classify the callee. An index-trait call `xs(i)` carries
+    // no callee value on its func expr (that is the COLLECTION); the evaluator
+    // records the specialized `index` method on the call's own ExprInfo
+    // (`index_method_value`, the value codegen calls). Without this route the
+    // call was opaque and every method that READS an element by index was
+    // "mutating" (issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
+    index_callee := match(
+      info_opt,
+      .Some(ci) => match(
+        ci.index_method_value,
+        .Some(imv) => match(imv, .FuncVal(_, _) => Option(EvalValue).Some(imv), _ => Option(EvalValue).None),
+        .None => Option(EvalValue).None
+      ),
+      .None => Option(EvalValue).None
+    );
+    callee_opt := match(index_callee, .Some(_) => index_callee, .None => _MsW.callee_value(e, func_expr, table));
     match(
       callee_opt,
       .Some(callee) => match(

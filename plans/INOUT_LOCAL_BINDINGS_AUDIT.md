@@ -873,6 +873,48 @@ alias-elision fix, return path, env accessors and the prelude expansion. The
 is a stubbed no-op in this compiler (`begin.yo`), so it cannot elide a drop
 under an `inout` binding.
 
+**Third pass (2026-09-07, adversarial probes on the built compiler).** Three
+more findings, all fixed on the branch:
+- An `inout` argument (parameter OR local binding) passed to an `own`
+  parameter moved the referenced slot's only count into the callee — a UAF
+  in safe code, pre-existing for parameters
+  (`issues/fixed/inout-arg-to-own-param-moves-without-dup.md`). Copy
+  semantics now: the callee gets a `+1`, the binding stays usable.
+- The param-storage mutation summary read the typed declaration
+  `(r : T) = init` as a store to an unresolvable place, so read-only methods
+  with a typed local (`ArrayList.index_of`) carried an entry assert and
+  panicked inside a borrowed `for`
+  (`issues/fixed/borrow-assert-typed-local-declaration-false-positive.md`).
+- `inout(r) := u` with a `unit` root reached codegen with no C storage to
+  address (internal compiler error); the evaluator now rejects it.
+- An index-trait read `xs(i)` was an OPAQUE call to the summary (its callee
+  is recorded on the call's ExprInfo, not on the func expr), so every method
+  reading an element by index carried an entry assert
+  (`issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md`).
+
+Probed and confirmed correct: tail-return and explicit `return` of a borrowed
+root, an `own` parameter as root, bindings rooted at an `inout` parameter's
+field (object and value struct), an array root with an index store through
+the binding, `contains`/`get`/`==`/`into_iter().collect()` inside a borrowed
+body (no assert), `sort` inside a borrowed body (panics, as designed).
+
+**Known imprecision (not a soundness hole): read-only methods that build a
+fresh result by mutating a LOCAL.** `xs.clone()` inside `for(xs, inout(x) =>
+…)` panics: `clone`'s body calls `result.push(…)` on a fresh local, and the
+MAY summary propagates any mutating callee to the caller regardless of which
+object it mutates. The sound refinement is a per-parameter mutation mask
+(callee mutates param *i*) mapped through the call's arguments, plus a
+freshness analysis for locals (initialised only from constructors or
+returns-fresh callees, never fed a param-rooted handle — the iterator over
+`self` is NOT fresh because it stores `self`). Until then the escape is to
+copy before the loop (`snapshot := xs.clone()` outside the borrowed body).
+Overhead measured on the stage-1 binary: a 400 M-iteration `push`/`pop` +
+100 M-iteration `push_str`/`clear` microbenchmark runs 0.45 s (seed, no
+asserts) vs 0.48–0.49 s (entry asserts): ~7–9 % on ~1 ns method bodies, one
+predictable load-compare per mutating method call; read-only methods,
+bindings to variables/fields, and the per-loop acquire/release cost nothing
+measurable.
+
 **Where the guarantee comes from, stated once.** For P1–P4 the guarantee is
 static: slot lifetime by scoping, escape by the absence of a type, moves by
 the consume gate and B2′, object lifetime by the pin. For P5 the guarantee

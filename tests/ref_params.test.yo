@@ -99,3 +99,22 @@ test("returning an inout param from inside a nested block", {
   assert(first_positive(b) == i32(-1), "fallthrough writes back and returns");
   assert(b == i32(-1), "write-back landed");
 });
+open(import("std/string"));
+// issues/fixed/inout-arg-to-own-param-moves-without-dup.md: an `inout`
+// parameter passed BY VALUE to an `own` parameter hands the callee a COPY
+// (+1) of the referenced handle; the referenced slot keeps its own count and
+// the parameter stays usable. (The dup was skipped for the `(*name)` read, so
+// the callee's release over-released the caller's variable.)
+own_len :: (fn(own(v) : String) -> usize)(v.len());
+test("inout parameter passed to an own parameter copies, the referenced slot survives", {
+  via_param :: (fn(inout(p) : String) -> usize)({
+    n := own_len(p);
+    p.push_str("!");
+    n
+  });
+  s := String.from("abc");
+  n := via_param(s);
+  assert(n == usize(3), "callee saw the value");
+  assert(s == "abc!", "the referenced slot is intact and the parameter stayed usable after the own call");
+  assert(rc(s) == 1, "the copy handed to the own parameter was released by the callee; the slot owns its value once");
+});
