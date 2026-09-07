@@ -83,7 +83,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout` is **second-class** and exists in parameter position (`inout(name) : T`) and as a local binding (`inout(name) := place`). Functions cannot return `inout`, there is no first-class "`inout` type", and a borrow cannot leak into a struct field or a closure capture. An `inout` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope, and a variable cannot be moved while a binding to it is live — so the borrowed storage is alive for the whole borrow by construction. Element places (`xs(i)`) are not bindable. See [FLOWABILITY.md](./FLOWABILITY.md).
+`inout` is **second-class** and exists in parameter position (`inout(name) : T`) and as a local binding (`inout(name) := place`). Functions cannot return `inout`, there is no first-class "`inout` type", and a borrow cannot leak into a struct field or a closure capture. An `inout` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope, and a variable cannot be moved while a binding to it is live — so the borrowed storage is alive for the whole borrow by construction. Element places (`xs(i)`) are not bindable by hand; elements are borrowed only through `for(coll, inout(x) => …)`, which pins the collection and holds its runtime borrow flag for the loop. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 

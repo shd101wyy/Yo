@@ -639,7 +639,40 @@ Implementation notes (what landed vs. the steps below):
 - **B7 Gate.** Standing gates + `tests/ref_*.test.yo`, `tests/comptime_ref`,
   `tests/inout_*`, `tests/iterator_combinators` (inout-heavy).
 
-### Phase C — the borrowed `for` (P5, one shape)
+### Phase C — the borrowed `for` (P5, one shape) — **IMPLEMENTED 2026-09-07** (same branch)
+
+Implementation notes (what landed vs. the steps below):
+
+- The seed gating turned out weaker than written: the borrowed arm lives
+  inside the macro's `quote(...)` template, which the seed only PARSES
+  (expansion happens in user code compiled by the stage-1 binary), so Phase
+  C landed in the same PR as Phase B.
+- C1 **trait deferred**: the macro duck-types `.iter()`; a collection without
+  it (`Array(T, N)`, a combinator chain) fails with the ordinary
+  method-not-found error. The `Iterable` marker trait — which would also let
+  the macro refuse plain `inout(e)` on maps/sets (key mutation is a semantic
+  hazard, not a memory-safety one) — is a follow-up.
+- C2 as written: a deref hop is accepted as a binding place only when the
+  RHS token is privileged (`is_implicitly_unsafe_capable_file`), no pin.
+- C3: `__borrow_guard(coll)` / `__BorrowGuard(C)` (a `Dispose`-carrying ref
+  struct, the `__MutexUnlocker` pattern) plus the `__yo_borrow_acquire` /
+  `__yo_borrow_release` prelude builtins; `__yo_borrow_acquire` panics on
+  saturation (H14). The guard is one allocation per loop — measure before
+  optimising.
+- C4 **static in-body check deferred**: the runtime flag is the guarantee;
+  the same-variable `push` is pinned as a RUNTIME panic
+  (`tests/cli-cases/inout-for-push-same-variable-panics`).
+- C5 landed as **std discipline**: `__yo_borrow_assert_unborrowed(self)` at
+  the top of every length-decreasing / removing method of the eight
+  collections (ArrayList pop/clear/remove/retain/drain/set_len; Deque
+  pop_front/pop_back; HashMap remove/clear; HashSet remove/clear/insert;
+  OrderedMap remove/clear/insert; BTreeMap remove/insert; LinkedList
+  pop_front/pop_back/remove/clear; PriorityQueue pop). Realloc and free
+  assert automatically. The wrappers (`HashSet`, `OrderedMap`) assert on the
+  WRAPPER object, which is what the loop pins (H37). The mutation-summary
+  auto-emit is the follow-up that would make a missed method impossible.
+- Map form `(k, inout(v))` is parsed by the macro from the `tuple` head.
+
 
 Requires B in the **seed** (the prelude will contain `inout(x) := …`), so C
 lands one release after B. C1–C3 can be built and tested against a

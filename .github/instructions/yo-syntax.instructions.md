@@ -756,7 +756,7 @@ Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level
 
 ## `for` loop macro — correct form
 
-The `for` macro is a 2-argument prelude macro iterating BY VALUE (it expands to `coll.into_iter()`):
+The `for` macro is a 2-argument prelude macro. The value form iterates BY VALUE (it expands to `coll.into_iter()`); the BORROWED form `for(coll, inout(x) => body)` / `for(map, (k, inout(v)) => body)` binds each element as an `inout` local into the collection's storage (pointer iterator `iter()` under the hood):
 
 ```rust
 for(list, (x) => { process(x); });               // value form: macro expands to list.into_iter()
@@ -766,7 +766,7 @@ for(chain.map(f), (y) => println(y));            // combinator chain: pass as th
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
 - Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for reference-semantics element types — mutating it mutates the element in place).
-- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, `plans/archive/BORROW_EXCLUSIVITY.md` — no interior refs). It produces a teaching compile error. For in-place struct/scalar element mutation use an index loop with index writes: `while(i < coll.len(), { coll(i) = transform(coll(i)); i = (i + usize(1)); })`.
+- **The borrowed form `for(coll, inout(x) => body)`** (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is bound to a hidden local (pinned) and its RUNTIME borrow flag is held for the whole loop; `x` is an `inout` local into the element's storage — struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same pointer. `break`/`continue`/`return`/`unwind` release the flag. Growing, shrinking or removing from the collection inside the body — through the same variable or ANY alias — PANICS (`container operation while an interior reference … borrows from it`); collect changes and apply them after the loop. Maps: use `for(map, (k, inout(v)) => body)` (key by value, value borrowed); plain `inout(e)` yields the whole entry. Works on every collection with a pointer `iter()` (ArrayList, Deque, LinkedList, PriorityQueue, HashMap, HashSet, OrderedMap, BTreeMap); `Array(T, N)` and combinator chains take the value form. The old spelling `ref(x) =>` is gone.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
 
 ## Function call syntax — required immediate `(`

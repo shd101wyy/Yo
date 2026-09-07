@@ -1,24 +1,34 @@
-//! v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): the borrow-invalidation gates were
-//! REMOVED together with `inout(name) := …` local bindings — with no local
-//! borrows left, there is nothing to invalidate. These tests pin the
-//! element-access model that replaced them: `get` returns the element (a
-//! HANDLE for object types) that no container operation can invalidate,
-//! so the container stays freely usable.
+//! The borrow-invalidation gates of the v4 era were REMOVED together with
+//! the `inout(name) := …` local binding; the binding form is BACK
+//! (plans/INOUT_LOCAL_BINDINGS_AUDIT.md, 2026-09-07) but it names a SLOT, not
+//! an element, so there is still nothing a container operation can
+//! invalidate. These tests pin the element-access model: `get` returns the
+//! element (a HANDLE for object types) that no container operation can
+//! invalidate, and a binding to the container VARIABLE survives any growth
+//! of the container it names.
 { assert } :: import("std/assert");
 open(import("std/fmt"));
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 
-// The old borrow shapes are inexpressible — the binding form itself is
-// rejected (with the migration recipe in the error).
-comptime_expect_error(
-  borrow_binding_removed :: (fn() -> unit)({
-    xs := ArrayList(String).new();
-    xs.push(String.from("element-zero"));
-    inout(r) := xs;
-    consume(r);
-  })
-);
+// The historical UAF shape — borrow, then grow — cannot dangle any more:
+// `inout(r) := xs` names xs's SLOT (the handle), not an element inside its
+// buffer, so 64 pushes (the realloc trigger of the original repro) leave `r`
+// pointing at the same, still-valid list handle.
+test("inout binding to the container variable survives container growth", {
+  xs := ArrayList(String).new();
+  xs.push(String.from("element-zero"));
+  inout(r) := xs;
+  i := usize(0);
+  while(i < usize(64), {
+    xs.push(String.from("filler"));
+    i = (i + usize(1));
+  });
+  assert(r.len() == usize(65), "the binding sees every push");
+  assert(match(r.get(usize(0)), .Some(s) => (s == "element-zero"), .None => false), "first element through the binding");
+  r = ArrayList(String).new();
+  assert(xs.len() == usize(0), "assigning through the binding replaced the container");
+});
 
 // `get` returns a HANDLE to the element object — it points at the
 // String itself, not into the list's buffer, so container growth

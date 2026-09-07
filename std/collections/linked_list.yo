@@ -101,7 +101,9 @@ impl(
   * Remove and return the element from the front
   * O(1) time complexity
   */
-  pop_front : (fn(self : Self) -> Option(T))(
+  pop_front : (fn(self : Self) -> Option(T))({
+    __yo_borrow_assert_unborrowed(self);
+
     match(
       self.head,
       .None => .None,
@@ -123,12 +125,14 @@ impl(
         .Some(value)
       }
     )
-  ),
+  }),
   /**
   * Remove and return the element from the back
   * O(1) time complexity
   */
-  pop_back : (fn(self : Self) -> Option(T))(
+  pop_back : (fn(self : Self) -> Option(T))({
+    __yo_borrow_assert_unborrowed(self);
+
     match(
       self.tail,
       .None => .None,
@@ -150,7 +154,7 @@ impl(
         .Some(value)
       }
     )
-  ),
+  }),
   /**
   * Get reference to the front element without removing it
   */
@@ -261,7 +265,9 @@ impl(
   * Remove element at a specific index
   * O(n) time complexity
   */
-  remove : (fn(self : Self, index : usize) -> Result(T, LinkedListError))(
+  remove : (fn(self : Self, index : usize) -> Result(T, LinkedListError))({
+    __yo_borrow_assert_unborrowed(self);
+
     cond(
       (index >= self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
       (index == usize(0)) =>
@@ -321,11 +327,12 @@ impl(
         )
       }
     )
-  ),
+  }),
   /**
   * Clear all elements from the list
   */
   clear : (fn(self : Self) -> unit)({
+    __yo_borrow_assert_unborrowed(self);
     while(self.length > usize(0), {
       _ := self.pop_front();
     });

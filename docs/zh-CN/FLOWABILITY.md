@@ -78,10 +78,31 @@ xs(i) = t2;              //   …… 再写回
 for(xs, (x) => { ... }); // 迭代是值形式（into_iter）
 ```
 
-`project`、`Indexable`、以及 `for` 的借用形式都已不存在 ——
-`for(coll, inout(x) => …)` 会产生带迁移指引的编译错误。`str` 仍然是永生的
-静态字节视图（自由复制、无约束），区间索引**拷贝**（`arr(a..b)` 返回新
-`ArrayList`），所以修改源永远不会影响结果。
+元素也可以被**借用**，但只在一个地方：借用形式的 `for`。
+
+```rust
+for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); });   // struct 元素就地修改
+for(names, inout(s) => { s.push_str("!"); });            // RC 元素：每个元素不再 dup
+for(counts, inout(c) => { bump(c); });                   // 把元素交给 inout 参数
+for(scores, (k, inout(v)) => { v = (v + i32(10)); });    // map：键按值、值被借用
+```
+
+宏会把集合绑定到一个隐藏局部变量（循环期间它不可能被释放），在整个循环
+期间持有该集合的**运行时借用标志**，并通过指针迭代器 `iter()` 把每个元素
+绑定为指向集合自身存储的 `inout` 局部 —— 这也是 `iter()` 存在并交出 `*(T)`
+的原因：它是 `for` 消费的协议，而不是给用户代码用的 API。`break`、
+`continue`、`return` 与效应 `unwind` 都会释放该标志。标志被持有期间，任何
+可能使元素失效的操作 —— 增长、收缩、删除，无论作用在集合自身还是经由任何
+别名 —— 都会**确定性地 panic**（`container operation while an interior
+reference … borrows from it`），而不是让元素引用悬垂。这是 Yo 的安全保证中
+唯一以运行时检查而非编译期拒绝实现的地方（Swift 对共享存储的模型）：集合中
+会收缩或删除的方法显式调用该断言，而每次重新分配与释放都会自动断言。对 map
+使用普通的 `inout(e)` 会交出整个条目；请优先使用 `(k, inout(v))`，它保持键
+不可变。`Array(T, N)` 没有 `iter()`，请使用值形式或索引循环。
+
+`project` 与 `Indexable` 已不存在。`str` 仍然是永生的静态字节视图（自由
+复制、无约束），区间索引**拷贝**（`arr(a..b)` 返回新 `ArrayList`），所以
+修改源永远不会影响结果。
 
 ## 一条调用点规则
 

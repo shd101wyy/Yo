@@ -96,6 +96,8 @@ extern(
   __yo_return_self : (fn(generic(T : Type), self : T) -> T),
   __yo_noop : (fn(generic(T : Type)) -> T),
   __yo_borrow_assert_unborrowed : (fn(generic(T : Type), obj : T) -> unit),
+  __yo_borrow_acquire : (fn(generic(T : Type), obj : T) -> unit),
+  __yo_borrow_release : (fn(generic(T : Type), obj : T) -> unit),
   __yo_as : (fn(generic(_Self : Type), self : _Self, comptime(Target) : Type) -> Target),
   // Arithmetic Operators
   /// +
@@ -8509,6 +8511,32 @@ export(TryInto);
 // with the algebraic-effects system. Match on the `Result` instead, or
 // define an equivalent macro locally under `pragma(Pragma.AllowMacroDef);`
 // (tests/macro_def_pragma.test.yo keeps a working three-line version).
+/// The borrowed `for`'s loop-scoped borrow flag: `__borrow_guard(coll)`
+/// acquires `coll`'s `borrow_count` and the guard's `Dispose` releases it
+/// when the loop's block ends — on fall-through, `break`, `return` and effect
+/// `unwind` alike (the same scope-exit path `Mutex.with_lock`'s unlocker
+/// rides). While the flag is held, every container operation that could
+/// invalidate an element panics deterministically (`__yo_borrow_assert_unborrowed`).
+__BorrowGuard :: (fn(comptime(C) : Type) -> comptime(Type))(
+  ref(
+    struct(
+      _c : C
+    )
+  )
+);
+impl(
+  generic(C : Type),
+  __BorrowGuard(C),
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      __yo_borrow_release(self._c);
+    })
+  )
+);
+__borrow_guard :: (fn(generic(C : Type), c : C) -> __BorrowGuard(C))({
+  __yo_borrow_acquire(c);
+  __BorrowGuard(C)(_c : c)
+});
 /// `for` macro — iterate over a collection.
 ///
 ///   `for(coll, (x) => body)` — calls `coll.into_iter()` and binds `x`
@@ -8561,16 +8589,103 @@ for :: (
               },
               true => false
             );
+            // Map form `(k, inout(v)) => body`: the key by value, the value
+            // borrowed — so a loop body can never rewrite a key in place.
+            is_map_ref_form :: cond(
+              variable.is_fn_call() => {
+                mv_callee :: variable.get_callee();
+                cond(
+                  (mv_callee.is_atom() && (mv_callee == quote(tuple))) => {
+                    mv_args :: variable.get_args();
+                    cond(
+                      (mv_args.len() == 2) => {
+                        mv_second :: mv_args.cdr().car();
+                        cond(
+                          mv_second.is_fn_call() => {
+                            mv_second_callee :: mv_second.get_callee();
+                            mv_second_callee.is_atom() && (mv_second_callee == quote(inout))
+                          },
+                          true => false
+                        )
+                      },
+                      true => false
+                    )
+                  },
+                  true => false
+                )
+              },
+              true => false
+            );
             cond(
               is_ref_form => {
-                // The borrow form is gone: it handed out refs into
-                // reallocatable storage. Teach the migration instead
-                // of failing with a resolution error.
-                comptime_assert(
-                  false,
-                  "'for(coll, inout(x) => ...)' was removed - use the value form 'for(coll, (x) => ...)'. Object elements are handles and mutate in place; for struct elements use an index loop with get/set."
-                );
-                quote(())
+                // Borrowed form (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7
+                // decision 2): the collection is bound to a hidden local (the
+                // PIN — it cannot be freed while the loop runs), the runtime
+                // borrow flag is held for the whole loop by a guard whose
+                // Dispose releases it on every exit (fall-through, `break`,
+                // `return`, effect `unwind`), and each element is bound as an
+                // `inout` local through the pointer iterator `iter()`. A
+                // container operation that could invalidate the element
+                // (growth, shrink, removal) reached through ANY handle panics
+                // deterministically instead of leaving `x` dangling.
+                elem_args :: variable.get_args();
+                comptime_assert(elem_args.len() == 1, "'for(coll, inout(x) => ...)' takes exactly one name inside inout(...)");
+                elem :: elem_args.car();
+                coll_var :: gensym("for_coll");
+                guard_var :: gensym("for_guard");
+                iter_var :: gensym("for_iter_var");
+                temp_var :: gensym("for_temp_var");
+                ptr_var :: gensym("for_ptr");
+                quote({
+                  unquote(coll_var) := unquote(coll);
+                  unquote(guard_var) := __borrow_guard(unquote(coll_var));
+                  unquote(iter_var) := unquote(coll_var).iter();
+                  while(runtime(true), {
+                    unquote(temp_var) := unquote(iter_var).next();
+                    match(
+                      unquote(temp_var),
+                      .Some(unquote(ptr_var)) => {
+                        inout(unquote(elem)) := unquote(ptr_var).*;
+                        unquote(body)
+                      },
+                      .None => {
+                        break;
+                      }
+                    )
+                  });
+                })
+              },
+              is_map_ref_form => {
+                mv_args2 :: variable.get_args();
+                key_name :: mv_args2.car();
+                val_inout :: mv_args2.cdr().car();
+                val_args :: val_inout.get_args();
+                comptime_assert(val_args.len() == 1, "'for(map, (k, inout(v)) => ...)' takes exactly one name inside inout(...)");
+                val_name :: val_args.car();
+                coll_var :: gensym("for_coll");
+                guard_var :: gensym("for_guard");
+                iter_var :: gensym("for_iter_var");
+                temp_var :: gensym("for_temp_var");
+                ptr_var :: gensym("for_ptr");
+                quote({
+                  unquote(coll_var) := unquote(coll);
+                  unquote(guard_var) := __borrow_guard(unquote(coll_var));
+                  unquote(iter_var) := unquote(coll_var).iter();
+                  while(runtime(true), {
+                    unquote(temp_var) := unquote(iter_var).next();
+                    match(
+                      unquote(temp_var),
+                      .Some(unquote(ptr_var)) => {
+                        unquote(key_name) := (unquote(ptr_var).*).key;
+                        inout(unquote(val_name)) := (unquote(ptr_var).*).value;
+                        unquote(body)
+                      },
+                      .None => {
+                        break;
+                      }
+                    )
+                  });
+                })
               },
               true => {
                 iter_var :: gensym("for_iter_var");

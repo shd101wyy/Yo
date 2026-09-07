@@ -253,7 +253,11 @@ _is_c_lvalue_chain :: (fn(code : String) -> bool)({
   c0 := code.byte_at(i);
   is_ident_start := (((c0 >= u8(97)) && (c0 <= u8(122))) || ((c0 >= u8(65)) && (c0 <= u8(90))) || (c0 == u8(95)));
   if(!is_ident_start, return(false));
+  // Balance brackets over the WHOLE string (the leading `(`/`*` prefix that
+  // the identifier scan skipped above counts too: `(*p).value` is a valid
+  // lvalue chain whose first `(` closes after the identifier).
   (depth : i32) = i32(0);
+  i = usize(0);
   while(i < n, {
     c := code.byte_at(i);
     cond(

@@ -103,16 +103,19 @@ impl(
   /// position.
   ///
   /// PANICS on allocation failure (D9). Use `try_insert` to handle OOM.
-  insert : (fn(self : Self, key : K, value : V) -> Option(V))(
+  insert : (fn(self : Self, key : K, value : V) -> Option(V))({
+    __yo_borrow_assert_unborrowed(self);
+
     match(
       Self.try_insert(self, key, value),
       .Ok(prev) => prev,
       .Err(_) => __yo_panic("OrderedMap.insert: allocation failed")
     )
-  ),
+  }),
   /// Remove `key`. Returns the removed value or `.None`.
   /// O(n) — rebuilds the key order list to drop the removed key.
   remove : (fn(self : Self, key : K) -> Option(V))({
+    __yo_borrow_assert_unborrowed(self);
     removed := self._map.remove(key);
     match(
       removed,
@@ -142,6 +145,7 @@ impl(
   }),
   /// Remove all entries.
   clear : (fn(self : Self) -> unit)({
+    __yo_borrow_assert_unborrowed(self);
     self._map.clear();
     self._order = ArrayList(K).new();
   })

@@ -91,11 +91,38 @@ xs(i) = t2;              //   … write back
 for(xs, (x) => { ... }); // iteration is the value form (into_iter)
 ```
 
-There is no `project`, no `Indexable`, and no borrow form of `for` —
-`for(coll, inout(x) => …)` produces a compile error with this migration
-recipe. `str` remains the immortal static-bytes view (freely copyable,
-no constraints), and range indexing **copies** (`arr(a..b)` returns a
-new `ArrayList`), so mutating the source never affects the result.
+Elements can also be **borrowed**, in exactly one place: the borrowed
+`for`.
+
+```rust
+for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); });   // struct elements, in place
+for(names, inout(s) => { s.push_str("!"); });            // RC elements, no dup per element
+for(counts, inout(c) => { bump(c); });                   // hand the element to an inout param
+for(scores, (k, inout(v)) => { v = (v + i32(10)); });    // maps: key by value, value borrowed
+```
+
+The macro binds the collection to a hidden local (it cannot be freed while
+the loop runs), holds the collection's **runtime borrow flag** for the whole
+loop, and binds each element as an `inout` local into the collection's own
+storage through the pointer iterator `iter()` — which is why `iter()` exists
+and why it yields `*(T)`: it is the protocol `for` consumes, not an API for
+user code. `break`, `continue`, `return` and effect `unwind` all release the
+flag. While it is held, any operation that could invalidate an element —
+growth, shrink, removal, on the collection itself or through any alias —
+**panics deterministically** (`container operation while an interior
+reference … borrows from it`) instead of leaving the element reference
+dangling. This is the one place where Yo's safety guarantee is a runtime
+check rather than a compile-time rejection (Swift's model for shared
+storage); the collection's methods that shrink or remove call the assert
+explicitly, and every reallocation and free asserts automatically. Plain
+`inout(e)` over a map yields the whole entry; prefer `(k, inout(v))`, which
+keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
+or an index loop.
+
+There is no `project` and no `Indexable`. `str` remains the immortal
+static-bytes view (freely copyable, no constraints), and range indexing
+**copies** (`arr(a..b)` returns a new `ArrayList`), so mutating the source
+never affects the result.
 
 ## One call-site rule
 

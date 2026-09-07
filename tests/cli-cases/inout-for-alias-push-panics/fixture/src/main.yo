@@ -1,0 +1,17 @@
+open(import("std/collections/array_list"));
+{ assert } :: import("std/assert");
+g_lists := ArrayList(ArrayList(i32)).new();
+grow_first :: (fn() -> unit)({
+  match(g_lists.get(usize(0)), .Some(l) => l.push(i32(0)), .None => ());
+});
+main :: (fn() -> unit)({
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  g_lists.push(list); // an alias the loop's static view cannot see
+  for(list, inout(x) => {
+    grow_first(); // panics: reaches `list` through the global and grows it
+    x = i32(9);
+  });
+  assert(false, "unreachable: push must panic first");
+});
+export(main);

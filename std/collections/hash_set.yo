@@ -85,17 +85,21 @@ impl(
   ///
   /// PANICS on allocation failure (D9); `try_insert` is the allocator-aware
   /// form.
-  insert : (fn(self : Self, element : T) -> bool)(
+  insert : (fn(self : Self, element : T) -> bool)({
+    __yo_borrow_assert_unborrowed(self);
+
     self._map.insert(element, ()).is_none()
-  ),
+  }),
   /// True when `element` is in the set.
   contains : (fn(self : Self, element : T) -> bool)(
     self._map.contains_key(element)
   ),
   /// Remove `element`. Returns true when it WAS present.
-  remove : (fn(self : Self, element : T) -> bool)(
+  remove : (fn(self : Self, element : T) -> bool)({
+    __yo_borrow_assert_unborrowed(self);
+
     self._map.remove(element).is_some()
-  ),
+  }),
   /// Number of elements.
   len : (fn(self : Self) -> usize)(
     self._map.len()
@@ -125,9 +129,11 @@ impl(
     self._map.is_empty()
   ),
   /// Remove every element, keeping the allocation.
-  clear : (fn(self : Self) -> unit)(
+  clear : (fn(self : Self) -> unit)({
+    __yo_borrow_assert_unborrowed(self);
+
     self._map.clear()
-  ),
+  }),
   /**
   * Check if this set is a subset of another set.
   * Returns true if all elements in self are also in other.

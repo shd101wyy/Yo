@@ -92,6 +92,7 @@ open(import("std/string"));
 { clone_value } :: import("../values/clone_value.yo");
 { find_rc_value_owner_relationship, throw_expr_is_implicit_variable_error, require_expr_not_consumed, set_expr_as_needs_to_call_dup, doc_comment_lookup_key_from_token } :: import("../utils.yo");
 { generate_new_temp_variable_name } :: import("../../utils.yo");
+{ is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { Exception } :: import("std/error");
 // ---------------------------------------------------------------------------
 // evaluate_initialization_assignment
@@ -279,11 +280,17 @@ _evaluate_inout_local_binding :: (
   );
   // A `*` hop is a pointer dereference — an interior place with no owner the
   // binding could pin (§2 P5). Element borrows are the `for` macro's job.
+  // …except in privileged code (`pragma(Pragma.AllowUnsafe)` files and
+  // compiler-synthesized expansions): the prelude's borrowed `for` binds the
+  // element as `inout(x) := ptr.*` while the collection is pinned by a hidden
+  // local and guarded by the runtime borrow flag (§8 C2/C3). No pin is taken
+  // for a deref place — the pointer has no owner the binding could hold.
+  rhs_is_privileged := is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(rhs).module_path.clone()));
   (hi : usize) = usize(0);
   while(hi < hops.len(), {
     match(
       hops.get(hi),
-      .Some(hop) => if(ast_expr_is_atom_of(hop.field, "*"), {
+      .Some(hop) => if(ast_expr_is_atom_of(hop.field, "*") && !rhs_is_privileged, {
         exn.throw(
           dyn(
             format_error_message(

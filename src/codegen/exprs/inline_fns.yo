@@ -33,6 +33,8 @@ open(import("std/string"));
   BF_YO_MS_SLEEP,
   BF_YO_DECR_RC,
   BF_YO_BORROW_ASSERT_UNBORROWED,
+  BF_YO_BORROW_ACQUIRE,
+  BF_YO_BORROW_RELEASE,
   BF_YO_PTR_ADD,
   BF_YO_PTR_SUB,
   BF_YO_PTR_DIFF,
@@ -150,6 +152,24 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_BORROW_ASSERT_UNBORROWED) => {
       line := indent.clone();
       line.push_str("__yo_borrow_assert_unborrowed((void*)(");
+      line.push_string(_a(args, usize(0)));
+      line.push_str("));");
+      em := context.base.emitter;
+      em.emit_string_line(line);
+      String.from("")
+    },
+    (function_name == BF_YO_BORROW_ACQUIRE) => {
+      line := indent.clone();
+      line.push_str("__yo_borrow_acquire((void*)(");
+      line.push_string(_a(args, usize(0)));
+      line.push_str("));");
+      em := context.base.emitter;
+      em.emit_string_line(line);
+      String.from("")
+    },
+    (function_name == BF_YO_BORROW_RELEASE) => {
+      line := indent.clone();
+      line.push_str("__yo_borrow_release((void*)(");
       line.push_string(_a(args, usize(0)));
       line.push_str("));");
       em := context.base.emitter;
