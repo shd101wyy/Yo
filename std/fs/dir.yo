@@ -253,11 +253,11 @@ read_link :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     bufsize := usize(4096);
-    buf := *(u8)(malloc(bufsize).unwrap());
+    buf := (*u8)(malloc(bufsize).unwrap());
     n := IO_dir.readlink(AT_FDCWD, cstr, buf, bufsize);
     cond(
       (n < i32(0)) => {
-        free(.Some(*(void)(buf)));
+        free(.Some((*void)(buf)));
         e.exn.throw(dyn(IoError.from_errno(i32(0) - n)))
       },
       true => {
@@ -266,7 +266,7 @@ read_link :: (fn(path : Path, io : Io) -> Impl(Future(Path, IoExn)))(
         while(rli < usize(n), rli = (rli + usize(1)), {
           target_bytes.push((buf.add(rli)).*);
         });
-        free(.Some(*(void)(buf)));
+        free(.Some((*void)(buf)));
         Path.new(String.from_bytes(target_bytes))
       }
     )
@@ -302,7 +302,7 @@ file_type :: (fn(path : Path, io : Io) -> Impl(Future(FileType, IoExn)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), e.io);
     // The buffer must be freed on BOTH paths, so the classification happens
     // before the free and the throw after it. Both `cond`s are statements
@@ -316,7 +316,7 @@ file_type :: (fn(path : Path, io : Io) -> Impl(Future(FileType, IoExn)))(
       },
       true => ()
     );
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     cond(
       (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
       true => ()
@@ -334,13 +334,13 @@ _file_type_or_other :: (fn(path : Path, io : Io) -> Impl(Future(FileType, Io)))(
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+    buf := (*u8)(malloc(buf_size).unwrap());
     result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), io);
     ft := cond(
       (result < i32(0)) => FileType.Other,
       true => _statx_file_type(buf, buf_size)
     );
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     ft
   })
 );
@@ -368,12 +368,12 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
     // The mapping — and the stat — happen in pass 2, one loop up.
     raw := ArrayList(struct(name : String, dt : u8, ino : u64)).new();
     buf_size := u32(4096);
-    buf := *(u8)(malloc(usize(buf_size)).unwrap());
+    buf := (*u8)(malloc(usize(buf_size)).unwrap());
     while(runtime(true), {
       n := e.io.await(IO_dir.getdents(fd, buf, buf_size), e.io);
       cond(
         (n < i32(0)) => {
-          free(.Some(*(void)(buf)));
+          free(.Some((*void)(buf)));
           e.io.await(IO_file.close(fd), e.io);
           e.exn.throw(dyn(IoError.from_errno(i32(0) - n)));
         },
@@ -402,7 +402,7 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
         }
       );
     });
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     e.io.await(IO_file.close(fd), e.io);
     // Pass 2 — `d_type` to `FileType`.
     entries := ArrayList(DirEntry).new();

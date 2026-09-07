@@ -8,7 +8,7 @@ field_non_empty :: (fn(buf : *u8, offset : usize) -> bool)(
 );
 test("sysinfo uname fills required fields", {
   uts_uninit := MaybeUninit(Array(u8, sysinfo_io.UTSNAME_SIZE)).new();
-  uts_buf := *(u8)(uts_uninit.as_ptr());
+  uts_buf := (*u8)(uts_uninit.as_ptr());
   ret := sysinfo_io.uname(uts_buf);
   assert(ret == i32(0), "uname should succeed");
   assert(field_non_empty(uts_buf, sysinfo_io.UTSNAME_SYSNAME), "uname sysname should be non-empty");
@@ -20,7 +20,7 @@ test("sysinfo uname fills required fields", {
 });
 test("sysinfo gethostname returns non-empty name", {
   host_uninit := MaybeUninit(Array(u8, usize(256))).new();
-  host_buf := *(u8)(host_uninit.as_ptr());
+  host_buf := (*u8)(host_uninit.as_ptr());
   ret := sysinfo_io.gethostname(host_buf, usize(256));
   assert(ret == i32(0), "gethostname should succeed");
   assert(host_buf.* != u8(0), "hostname should be non-empty");

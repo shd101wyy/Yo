@@ -62,7 +62,7 @@ impl(
       __yo_panic("Deque: capacity overflow");
     });
     size := (new_cap * sizeof(T));
-    new_buf := *(T)(malloc(size).unwrap());
+    new_buf := (*T)(malloc(size).unwrap());
     // Linearise existing elements into the new buffer
     i := usize(0);
     while(i < self._len, i = (i + usize(1)), {
@@ -85,7 +85,7 @@ impl(
     );
     match(
       self._buf,
-      .Some(p) => free(.Some(*(void)(p))),
+      .Some(p) => free(.Some((*void)(p))),
       .None => ()
     );
     self._buf = .Some(new_buf);
@@ -181,7 +181,7 @@ impl(
             },
             true => ()
           );
-          free(.Some(*(void)(p)));
+          free(.Some((*void)(p)));
           self._buf = .None;
         },
         .None => ()

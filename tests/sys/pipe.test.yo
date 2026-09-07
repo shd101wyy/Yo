@@ -6,7 +6,7 @@ file :: import("std/sys/file");
 pipe_io :: import("std/sys/pipe");
 test("pipe read/write", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   unsafe(printf("  pipe = %d\n", pr));
   assert(pr == i32(0));
@@ -14,13 +14,13 @@ test("pipe read/write", {
   write_fd := (pipefd.add(usize(1))).*;
   assert(read_fd >= i32(0));
   assert(write_fd >= i32(0));
-  data := *(u8)("hello pipe");
+  data := (*u8)("hello pipe");
   data_len := u32(10);
   wr := io.await(file.write(write_fd, data, data_len, u64(0)), io);
   unsafe(printf("  write = %d\n", wr));
   assert(wr == i32(data_len));
   buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
-  buf := *(u8)(buf_uninit.as_ptr());
+  buf := (*u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
   unsafe(printf("  read = %d\n", rd));
   assert(rd == i32(data_len));
@@ -34,7 +34,7 @@ test("pipe read/write", {
 });
 test("dup reads from original pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0));
   read_fd := (pipefd.add(usize(0))).*;
@@ -44,12 +44,12 @@ test("dup reads from original pipe", {
   assert(dup_fd >= i32(0));
   close_read := io.await(file.close(read_fd), io);
   assert(close_read == i32(0));
-  data := *(u8)("dup test");
+  data := (*u8)("dup test");
   data_len := u32(8);
   wr := io.await(file.write(write_fd, data, data_len, u64(0)), io);
   assert(wr == i32(data_len));
   buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
-  buf := *(u8)(buf_uninit.as_ptr());
+  buf := (*u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(dup_fd, buf, u32(16), u64(0)), io);
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(100));
@@ -61,11 +61,11 @@ test("dup reads from original pipe", {
 });
 test("dup2 redirects to target fd", {
   pipefd_a_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd_a := *(i32)(pipefd_a_uninit.as_ptr());
+  pipefd_a := (*i32)(pipefd_a_uninit.as_ptr());
   pr1 := pipe_io.pipe(pipefd_a);
   assert(pr1 == i32(0));
   pipefd_b_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd_b := *(i32)(pipefd_b_uninit.as_ptr());
+  pipefd_b := (*i32)(pipefd_b_uninit.as_ptr());
   pr2 := pipe_io.pipe(pipefd_b);
   assert(pr2 == i32(0));
   read_fd := (pipefd_a.add(usize(0))).*;
@@ -79,12 +79,12 @@ test("dup2 redirects to target fd", {
   c2 := io.await(file.close(read_fd_b), io);
   assert(c1 == i32(0));
   assert(c2 == i32(0));
-  data := *(u8)("dup2 ok");
+  data := (*u8)("dup2 ok");
   data_len := u32(7);
   wr := io.await(file.write(write_fd_dst, data, data_len, u64(0)), io);
   assert(wr == i32(data_len));
   buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
-  buf := *(u8)(buf_uninit.as_ptr());
+  buf := (*u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(read_fd, buf, u32(16), u64(0)), io);
   assert(rd == i32(data_len));
   assert((buf.add(usize(0))).* == u8(100));

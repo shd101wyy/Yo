@@ -100,7 +100,7 @@ export(TlsError);
 _ssl_err_string :: (fn() -> String)({
   buf := ArrayList(u8).with_capacity(usize(256));
   buf.resize_with_byte(usize(256), int(0));
-  unsafe(__yo_tls_err_string(*(char)(buf.ptr().unwrap()), usize(256)));
+  unsafe(__yo_tls_err_string((*char)(buf.ptr().unwrap()), usize(256)));
   String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown TLS error`.to_string())
 });
 _throw_tls :: (fn(err : TlsError, exn : Exception) -> unit)(
@@ -127,7 +127,7 @@ _flush_wbio :: (fn(s : TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
     buf.resize_with_byte(_PUMP_CAP(), int(0));
     (pending : usize) = unsafe(__yo_tls_bio_pending(wbio));
     while(pending > usize(0), {
-      n := unsafe(__yo_tls_bio_read(wbio, *(void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
+      n := unsafe(__yo_tls_bio_read(wbio, (*void)(buf.ptr().unwrap()), int(_PUMP_CAP())));
       cond(
         (n > int(0)) => {
           // write_all over the raw chunk.
@@ -155,7 +155,7 @@ _feed_rbio :: (fn(s : TlsStream, io : Io) -> Impl(Future(usize, IoExn)))({
     n := e.io.await(tcp.read(buf.ptr().unwrap(), _PUMP_CAP(), e.io), e);
     cond(
       (n > usize(0)) => {
-        _w := unsafe(__yo_tls_bio_write(rbio, *(void)(buf.ptr().unwrap()), int(n)));
+        _w := unsafe(__yo_tls_bio_write(rbio, (*void)(buf.ptr().unwrap()), int(n)));
       },
       true => ()
     );
@@ -187,7 +187,7 @@ impl(
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
       });
       ctx := ctx_opt.unwrap();
-      ssl_opt := unsafe(__yo_tls_ssl_new(ctx, *(char)(host_c.ptr().unwrap())));
+      ssl_opt := unsafe(__yo_tls_ssl_new(ctx, (*char)(host_c.ptr().unwrap())));
       if(ssl_opt.is_none(), {
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
       });
@@ -240,7 +240,7 @@ impl(
       (out : usize) = usize(0);
       (settled : bool) = false;
       while(!settled, {
-        rc := unsafe(__yo_tls_read(ssl, *(void)(buf), int(size)));
+        rc := unsafe(__yo_tls_read(ssl, (*void)(buf), int(size)));
         (act : int) = int(0);
         cond(
           (rc > int(0)) => {
@@ -297,7 +297,7 @@ impl(
       (out : usize) = usize(0);
       (settled : bool) = false;
       while(!settled, {
-        rc := unsafe(__yo_tls_write(ssl, *(void)(buf), int(size)));
+        rc := unsafe(__yo_tls_write(ssl, (*void)(buf), int(size)));
         e.io.await(_flush_wbio(self, e.io), e);
         (need_read : bool) = false;
         cond(

@@ -18,7 +18,7 @@ _min :: (fn(a : usize, b : usize) -> usize)(
 _alloc_bytes :: (fn(n : usize) -> *(u8))(
   match(
     malloc(n),
-    .Some(p) => *(u8)(p),
+    .Some(p) => (*u8)(p),
     .None => __yo_panic("ImmString: allocation failed")
   )
 );
@@ -46,7 +46,7 @@ impl(
     dispose : (fn(self : Self) -> unit)({
       match(
         self._ptr,
-        .Some(p) => free(.Some(*(void)(p))),
+        .Some(p) => free(.Some((*void)(p))),
         .None => ()
       );
     })
@@ -65,7 +65,7 @@ impl(
       return(Self(_ptr : .None, _len : usize(0), _capacity : usize(0)));
     });
     ptr := _alloc_bytes(slen);
-    unsafe(memcpy(*(void)(ptr), *(void)(s.ptr()), slen));
+    unsafe(memcpy((*void)(ptr), (*void)(s.ptr()), slen));
     return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
   }),
   /// Create a string from a standard (mutable) String by copying its bytes.
@@ -76,7 +76,7 @@ impl(
     });
     ptr := _alloc_bytes(slen);
     rb := s.raw_bytes();
-    unsafe(memcpy(*(void)(ptr), *(void)(rb.ptr), slen));
+    unsafe(memcpy((*void)(ptr), (*void)(rb.ptr), slen));
     return(Self(_ptr : .Some(ptr), _len : slen, _capacity : slen));
   }),
   /// Number of BYTES in this string's UTF-8 encoding — O(1).
@@ -103,7 +103,7 @@ impl(
     match(
       self._ptr,
       .Some(p) => str.from_raw_parts(p, self._len),
-      .None => str.from_raw_parts(*(u8)(""), usize(0))
+      .None => str.from_raw_parts((*u8)(""), usize(0))
     )
   ),
   /// Get the byte at a given index, or `.None` if out of bounds.
@@ -136,7 +136,7 @@ impl(
           .Some(op) => match(
             self._ptr,
             .Some(sp) => {
-              unsafe(memcpy(*(void)(sp.add(self._len)), *(void)(op), other._len));
+              unsafe(memcpy((*void)(sp.add(self._len)), (*void)(op), other._len));
             },
             .None => ()
           ),
@@ -153,15 +153,15 @@ impl(
       match(
         self._ptr,
         .Some(sp) => {
-          unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
-          free(.Some(*(void)(sp)));
+          unsafe(memcpy((*void)(ptr), (*void)(sp), self._len));
+          free(.Some((*void)(sp)));
         },
         .None => ()
       );
       match(
         other._ptr,
         .Some(op) => {
-          unsafe(memcpy(*(void)(ptr.add(self._len)), *(void)(op), other._len));
+          unsafe(memcpy((*void)(ptr.add(self._len)), (*void)(op), other._len));
         },
         .None => ()
       );
@@ -174,14 +174,14 @@ impl(
     match(
       self._ptr,
       .Some(sp) => {
-        unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
+        unsafe(memcpy((*void)(ptr), (*void)(sp), self._len));
       },
       .None => ()
     );
     match(
       other._ptr,
       .Some(op) => {
-        unsafe(memcpy(*(void)(ptr.add(self._len)), *(void)(op), other._len));
+        unsafe(memcpy((*void)(ptr.add(self._len)), (*void)(op), other._len));
       },
       .None => ()
     );
@@ -201,7 +201,7 @@ impl(
     match(
       self._ptr,
       .Some(sp) => {
-        unsafe(memcpy(*(void)(ptr), *(void)(sp.add(clamped_start)), new_len));
+        unsafe(memcpy((*void)(ptr), (*void)(sp.add(clamped_start)), new_len));
       },
       .None => ()
     );
@@ -219,7 +219,7 @@ impl(
       self._ptr,
       .Some(sp) => match(
         prefix._ptr,
-        .Some(pp) => (unsafe(memcmp(*(void)(sp), *(void)(pp), prefix._len)) == int(0)),
+        .Some(pp) => (unsafe(memcmp((*void)(sp), (*void)(pp), prefix._len)) == int(0)),
         .None => true
       ),
       .None => (prefix._len == usize(0))
@@ -238,7 +238,7 @@ impl(
       self._ptr,
       .Some(sp) => match(
         suffix._ptr,
-        .Some(xp) => (unsafe(memcmp(*(void)(sp.add(offset)), *(void)(xp), suffix._len)) == int(0)),
+        .Some(xp) => (unsafe(memcmp((*void)(sp.add(offset)), (*void)(xp), suffix._len)) == int(0)),
         .None => true
       ),
       .None => (suffix._len == usize(0))
@@ -267,7 +267,7 @@ impl(
           i := from_index;
           limit := ((self._len - needle._len) + usize(1));
           while(i < limit, i = (i + usize(1)), {
-            if(unsafe(memcmp(*(void)(sp.add(i)), *(void)(np), needle._len)) == int(0), {
+            if(unsafe(memcmp((*void)(sp.add(i)), (*void)(np), needle._len)) == int(0), {
               return(.Some(i));
             });
           });
@@ -408,7 +408,7 @@ impl(
           return(self);
         });
         ptr := _alloc_bytes(self._len);
-        unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
+        unsafe(memcpy((*void)(ptr), (*void)(sp), self._len));
         i := usize(0);
         while(i < self._len, i = (i + usize(1)), {
           (b : u8) = (ptr.add(i)).*;
@@ -445,7 +445,7 @@ impl(
           return(self);
         });
         ptr := _alloc_bytes(self._len);
-        unsafe(memcpy(*(void)(ptr), *(void)(sp), self._len));
+        unsafe(memcpy((*void)(ptr), (*void)(sp), self._len));
         i := usize(0);
         while(i < self._len, i = (i + usize(1)), {
           (b : u8) = (ptr.add(i)).*;
@@ -514,7 +514,7 @@ impl(
       .Some(sp) => {
         i := usize(0);
         while(i < n, i = (i + usize(1)), {
-          unsafe(memcpy(*(void)(ptr.add(i * self._len)), *(void)(sp), self._len));
+          unsafe(memcpy((*void)(ptr.add(i * self._len)), (*void)(sp), self._len));
         });
       },
       .None => ()
@@ -755,7 +755,7 @@ impl(
         self._ptr,
         .Some(sp) => match(
           other._ptr,
-          .Some(op) => (unsafe(memcmp(*(void)(sp), *(void)(op), self._len)) == int(0)),
+          .Some(op) => (unsafe(memcmp((*void)(sp), (*void)(op), self._len)) == int(0)),
           .None => false
         ),
         .None => match(
@@ -785,7 +785,7 @@ impl(
     });
     match(
       self._ptr,
-      .Some(sp) => (unsafe(memcmp(*(void)(sp), *(void)(other.ptr()), self._len)) == int(0)),
+      .Some(sp) => (unsafe(memcmp((*void)(sp), (*void)(other.ptr()), self._len)) == int(0)),
       .None => (other_len == usize(0))
     )
   })
@@ -802,7 +802,7 @@ impl(
           .Some(sp) => match(
             other._ptr,
             .Some(op) => {
-              (cmp_result : int) = unsafe(memcmp(*(void)(sp), *(void)(op), min_len));
+              (cmp_result : int) = unsafe(memcmp((*void)(sp), (*void)(op), min_len));
               if(cmp_result != int(0), {
                 return(cmp_result < int(0));
               });

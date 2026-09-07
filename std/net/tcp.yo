@@ -40,7 +40,7 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
       // Build the IP string "a.b.c.d"
       { snprintf } :: import("../libc/stdio");
       buf := Array(u8, usize(16)).fill(u8(0));
-      unsafe(snprintf(*(char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
+      unsafe(snprintf((*char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
       IO_tcp.make_sockaddr_in(&buf(usize(0)), addr.port)
     },
     .V6(_) => {
@@ -146,7 +146,7 @@ impl(
       // Set SO_REUSEADDR
       reuse_val := i32(1);
       reuse_ptr := &reuse_val;
-      e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, *(u8)(reuse_ptr), u32(4)), e.io);
+      e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*u8)(reuse_ptr), u32(4)), e.io);
       // Bind
       saddr := _make_sockaddr(addr);
       bind_result := e.io.await(IO_tcp.bind(fd, saddr.buf, saddr.len), e.io);
@@ -170,16 +170,16 @@ impl(
       // Read back the ACTUAL bound address — a port-0 bind gets its port
       // from the kernel; echoing the bind argument reported port 0
       // (plans/STD_API_AUDIT.md C2).
-      la_buf := *(u8)(malloc(usize(128)).unwrap());
-      la_len := *(u32)(malloc(usize(4)).unwrap());
+      la_buf := (*u8)(malloc(usize(128)).unwrap());
+      la_len := (*u32)(malloc(usize(4)).unwrap());
       la_len.* = u32(128);
       gsn := SockInfo.getsockname(fd, la_buf, la_len);
       local := cond(
         (gsn == i32(0)) => sockaddr_to_socket_addr(la_buf),
         true => addr
       );
-      free(.Some(*(void)(la_buf)));
-      free(.Some(*(void)(la_len)));
+      free(.Some((*void)(la_buf)));
+      free(.Some((*void)(la_len)));
       return(TcpListener(_fd : fd, _local_addr : local, _is_closed : false));
     })
   ),
@@ -188,14 +188,14 @@ impl(
     fd := self._fd;
     io.async(e => {
       // Allocate space for the peer address
-      addr_buf := *(u8)(malloc(usize(128)).unwrap());
-      addr_len := *(u32)(malloc(usize(4)).unwrap());
+      addr_buf := (*u8)(malloc(usize(128)).unwrap());
+      addr_len := (*u32)(malloc(usize(4)).unwrap());
       addr_len.* = u32(128);
       client_fd := e.io.await(IO_tcp.accept(fd, addr_buf, addr_len), e.io);
       cond(
         (client_fd < i32(0)) => {
-          free(.Some(*(void)(addr_buf)));
-          free(.Some(*(void)(addr_len)));
+          free(.Some((*void)(addr_buf)));
+          free(.Some((*void)(addr_len)));
           _throw_io(i32(0) - client_fd, e.exn);
         },
         true => ()
@@ -203,8 +203,8 @@ impl(
       // Parse the peer address the kernel filled in. This used to read only
       // the port and fabricate 0.0.0.0 as the IP (plans/STD_API_AUDIT.md C2).
       peer_addr := sockaddr_to_socket_addr(addr_buf);
-      free(.Some(*(void)(addr_buf)));
-      free(.Some(*(void)(addr_len)));
+      free(.Some((*void)(addr_buf)));
+      free(.Some((*void)(addr_len)));
       return(
         TcpStream(
           _fd : client_fd,
@@ -386,7 +386,7 @@ impl(
     io.async(e => {
       val := cond(nodelay => i32(1), true => i32(0));
       val_ptr := &val;
-      r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, *(u8)(val_ptr), u32(4)), e.io);
+      r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, (*u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {
           _throw_io(i32(0) - r, e.exn);
@@ -401,7 +401,7 @@ impl(
     io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := &val;
-      r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, *(u8)(val_ptr), u32(4)), e.io);
+      r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, (*u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {
           _throw_io(i32(0) - r, e.exn);

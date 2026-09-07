@@ -206,7 +206,7 @@ _ends_headers :: (fn(b : ArrayList(u8)) -> bool)({
 // one that did not.
 _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
-    buf := *(u8)(malloc(usize(4096)).unwrap());
+    buf := (*u8)(malloc(usize(4096)).unwrap());
     bytes := ArrayList(u8).new();
     eof := false;
     while(runtime(!eof && !_ends_headers(bytes)), {
@@ -224,7 +224,7 @@ _read_request :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn))
         }
       );
     });
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     String.from_bytes(bytes)
   })
 );

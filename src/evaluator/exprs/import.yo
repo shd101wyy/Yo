@@ -45,7 +45,7 @@ open(import("std/string"));
 _file_exists_sync :: (fn(absolute_path : String) -> bool)({
   { malloc, free } :: GlobalAllocator;
   cstr := absolute_path.to_cstr();
-  ptr := *(char)(cstr.ptr().unwrap());
+  ptr := (*char)(cstr.ptr().unwrap());
   // 512 bytes comfortably exceeds `struct stat` on every supported target;
   // only the return code is read.
   buf := malloc(usize(512)).unwrap();

@@ -568,7 +568,7 @@ Inside an unsafe-capable file, the following operations require an explicit `uns
 - Pointer arithmetic: `.add(n)`, `.sub(n)`, `.offset_from(q)`
 - `consume(p.* = v)` (deref-and-init)
 
-Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`==`, `<`, etc.), and pointer-type casts (`*(u8)(p)`).
+Operations that stay safe (no wrap needed): `&(x)` to take an address, passing/storing/returning pointers, pointer comparison (`==`, `<`, etc.), and pointer-type casts (`(*u8)(p)`).
 
 `unsafe(expr)` is a regular builtin call taking exactly one argument — the same shape as `return(...)`, `consume(...)`. It's a compile-time marker only; at codegen it lowers to its inner expression.
 
@@ -605,13 +605,35 @@ pragma(Pragma.AllowUnsafe);
 { memcpy, strlen } :: import("std/libc/string");
 
 copy :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
-  _ := unsafe(memcpy((*(void))(dst), (*(void))(src), n));   // wrap required
+  _ := unsafe(memcpy((*void)(dst), (*void)(src), n));   // wrap required
 });
 
 len :: (fn(s : *(char)) -> usize)(unsafe(strlen(s)));        // wrap required
 ```
 
 `asm(...)` and `extern(...)`/`c_include(...)` declarations themselves do NOT need a wrap — the `asm` keyword and the declaration syntax are themselves the per-site markers, and the pragma is the file-level gate.
+
+### `*T(x)` is NOT a pointer cast — write `(*T)(x)`
+
+A bare prefix operator binds ONE postfix expression, and a call is one postfix
+expression (same rule as `-f(x)` ⇒ `-(f(x))`). So `*void(p)` parses as
+`*(void(p))` — `*` applied to the VALUE `void(p)` — and the evaluator rejects it
+(`*(val)` where val is not a type → error, `src/evaluator/calls/pointer.yo`). The
+pointer-type constructor must get a TYPE as its operand, then the resulting
+pointer type is called with the value:
+
+```rust
+free(.Some((*void)(buf)));    // CANONICAL — grouped type, then the value
+free(.Some(*(void)(buf)));    // same AST, but yo fmt rewrites it to the above
+```
+
+`(*void)(buf)` and `*(void)(buf)` parse identically; the grouped form is the one
+canonical spelling (DECIDED 2026-09-06, `plans/reference/FMT_CALLEE_PREFIX_CANONICALIZATION.md`):
+`yo fmt` moves the parens for ANY prefix operator call in callee position —
+`*(u8)(s)` → `(*u8)(s)`, `*(*(u8))(p)` → `(**u8)(p)`, `-(x)(y)` → `(-x)(y)` —
+and never touches the broken bare spellings (`*void(p)` stays: fmt cannot invent
+a cast). In type position the chain rule applies: `**i32` = `*(*(i32))` is the
+pointer-to-pointer type, `?*u8` the optional pointer.
 
 ### c_include-typed integers: cast to a Yo int before comparing
 
@@ -622,11 +644,11 @@ errors). Casts DO emit correctly, so bind through a cast at the call site:
 
 ```rust
 // WRONG — may emit "// Failed to transpile n <= isize(0)":
-n := unsafe(write(int(fd), *(void)(p), count));   // n : ssize_t
+n := unsafe(write(int(fd), (*void)(p), count));   // n : ssize_t
 if(n <= isize(0), { ... });
 
 // CORRECT — cast to a Yo integer at the binding:
-n := i64(unsafe(write(int(fd), *(void)(p), count)));
+n := i64(unsafe(write(int(fd), (*void)(p), count)));
 if(n <= i64(0), { ... });
 ```
 
@@ -795,7 +817,7 @@ match(opt,
     return(str.from_raw_parts(p, len));
   },
   .None => {
-    return(str.from_raw_parts(*(u8)(""), usize(0)));
+    return(str.from_raw_parts((*u8)(""), usize(0)));
   }
 )
 ```
@@ -807,7 +829,7 @@ Better yet, if the entire function body is just a match/cond expression, use the
 raw_bytes : (fn(self: Self) -> RawSlice(u8))(
   match(self._bytes._ptr,
     .Some(p) => RawSlice(u8)(ptr : p, len : self._bytes._length),
-    .None => RawSlice(u8)(ptr : *(u8)(""), len : usize(0))
+    .None => RawSlice(u8)(ptr : (*u8)(""), len : usize(0))
   )
 )
 ```
@@ -885,9 +907,9 @@ The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)`
 ## String literal types
 
 - Double-quoted strings `"hello"` return `str` (the BUILTIN view of static string bytes) at runtime, but `comptime_str` at compile time.
-- `comptime_str` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if you need a runtime `str`.
-- `*(u8)("literal")` works — casting `comptime_str` to pointer is valid.
-- Only pointer-to-pointer and `comptime_str`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
+- `comptime_str` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts((*u8)("..."), usize(N))` if you need a runtime `str`.
+- `(*u8)("literal")` works — casting `comptime_str` to pointer is valid.
+- Only pointer-to-pointer and `comptime_str`-to-pointer casts are allowed. Integer-to-pointer casts like `(*void)(usize(0))` are NOT supported.
 - **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.
 - **String indexing is BYTE-based** (D4, 2026-08-26): `len()` is the byte count (O(1)); `at` / `substring` / `s(a..b)` / `index_of` and every positional string argument speak byte offsets, at compile time (`comptime_str`) and at runtime alike. `substring` panics on an offset inside a rune (`try_substring` is the non-panicking form); rune work goes through `chars()` / `char_indices()`, and the rune count is `s.chars().count()`. Full contract: `docs/en-US/STRINGS.md`; pitfalls: the string-indexing section of `.github/skills/yo-syntax/syntax-cheatsheet.md`.
 

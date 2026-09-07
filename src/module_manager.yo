@@ -137,7 +137,7 @@ _path_exists_sync :: (fn(path : String) -> bool)({
   // 512 bytes comfortably exceeds `struct stat` on every supported target;
   // only the return code is read.
   buf := malloc(usize(512)).unwrap();
-  rc := unsafe(stat(*(char)(cstr), buf));
+  rc := unsafe(stat((*char)(cstr), buf));
   free(.Some(buf));
   return(rc == int(0));
 });
@@ -167,20 +167,20 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
   { GlobalAllocator } :: import("std/allocator");
   { malloc, free } :: GlobalAllocator;
   cstr := path.to_cstr().ptr().unwrap();
-  fd := unsafe(fcntl.open(*(char)(cstr), int(fcntl.O_RDONLY)));
+  fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
   if(fd < int(0), {
     exn.throw(dyn(IoError.from_errno(__yo_errno())));
   });
   result := ArrayList(u8).new();
-  buf := *(u8)(malloc(usize(4096)).unwrap());
+  buf := (*u8)(malloc(usize(4096)).unwrap());
   while(runtime(true), {
     // i64 immediately: the c_include `ssize_t` type has no constructor a
     // body can name (`ssize_t(0)` fails def-eval, silently hollowing this
     // fn — the C22-adjacent swallow), but casting its RESULT is fine.
-    n := i64(unsafe(unistd.read(fd, *(void)(buf), usize(4096))));
+    n := i64(unsafe(unistd.read(fd, (*void)(buf), usize(4096))));
     cond(
       (n < i64(0)) => {
-        free(.Some(*(void)(buf)));
+        free(.Some((*void)(buf)));
         _ := unsafe(unistd.close(fd));
         exn.throw(dyn(IoError.from_errno(__yo_errno())));
       },
@@ -194,7 +194,7 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
       }
     );
   });
-  free(.Some(*(void)(buf)));
+  free(.Some((*void)(buf)));
   _ := unsafe(unistd.close(fd));
   result
 });
@@ -219,12 +219,12 @@ resolve_std_path :: (fn() -> String)({
     .None => {}
   );
   name_cstr := String.from("YO_STD").to_cstr().ptr().unwrap();
-  val_ptr := unsafe(getenv(*(char)(name_cstr)));
+  val_ptr := unsafe(getenv((*char)(name_cstr)));
   match(
     val_ptr,
     .None => {},
     .Some(ptr) => {
-      v := String.from_cstr(*(u8)(ptr)).unwrap();
+      v := String.from_cstr((*u8)(ptr)).unwrap();
       if(v.len() > usize(0), {
         return(v);
       });

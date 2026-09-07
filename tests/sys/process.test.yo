@@ -9,30 +9,30 @@ process :: import("std/sys/process");
 { platform, Platform } :: import("std/process");
 test("spawn and waitpid", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
   argv_uninit := MaybeUninit(Array(?*u8, usize(5))).new();
-  argv := *(?*u8)(argv_uninit.as_ptr());
+  argv := (*?*u8)(argv_uninit.as_ptr());
   cond(
     (platform == Platform.Windows) => {
-      (argv.add(usize(0))).* = .Some(*(u8)("cmd.exe"));
-      (argv.add(usize(1))).* = .Some(*(u8)("/C"));
-      (argv.add(usize(2))).* = .Some(*(u8)("echo"));
-      (argv.add(usize(3))).* = .Some(*(u8)("yo_proc_test"));
+      (argv.add(usize(0))).* = .Some((*u8)("cmd.exe"));
+      (argv.add(usize(1))).* = .Some((*u8)("/C"));
+      (argv.add(usize(2))).* = .Some((*u8)("echo"));
+      (argv.add(usize(3))).* = .Some((*u8)("yo_proc_test"));
       (argv.add(usize(4))).* = .None;
     },
     true => {
-      (argv.add(usize(0))).* = .Some(*(u8)("echo"));
-      (argv.add(usize(1))).* = .Some(*(u8)("yo_proc_test"));
+      (argv.add(usize(0))).* = .Some((*u8)("echo"));
+      (argv.add(usize(1))).* = .Some((*u8)("yo_proc_test"));
       (argv.add(usize(2))).* = .None;
     }
   );
   file_path := cond(
-    (platform == Platform.Windows) => *(u8)("cmd.exe"),
-    true => *(u8)("echo")
+    (platform == Platform.Windows) => (*u8)("cmd.exe"),
+    true => (*u8)("echo")
   );
   pid := io.await(process.spawn(file_path, argv, .None, i32(-1), write_fd, i32(-1)), io);
   unsafe(printf("  pid = %d\n", pid));
@@ -40,7 +40,7 @@ test("spawn and waitpid", {
   c1 := io.await(file.close(write_fd), io);
   assert(c1 == i32(0), "close write end failed");
   buf_uninit := MaybeUninit(Array(u8, usize(64))).new();
-  buf := *(u8)(buf_uninit.as_ptr());
+  buf := (*u8)(buf_uninit.as_ptr());
   rd := io.await(file.read(read_fd, buf, u32(64), u64(0)), io);
   unsafe(printf("  read = %d\n", rd));
   expected_len := cond(

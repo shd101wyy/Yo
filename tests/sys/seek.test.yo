@@ -19,7 +19,7 @@ test("lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
   assert(fd >= i32(0), "mkstemp for seek regular test should succeed");
-  payload := *(u8)("0123456789");
+  payload := (*u8)("0123456789");
   wr := io.await(file.write(fd, payload, u32(10), u64(0)), io);
   assert(wr == i32(10), "writing 10-byte payload for seek regular test should succeed");
   assert(seek_io.SEEK_SET == i32(0), "SEEK_SET constant should be 0");
@@ -62,7 +62,7 @@ test("lseek invalid fd invalid whence and negative offset errors", {
 });
 test("lseek on pipe returns non-seekable error", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation for seek-on-pipe test should succeed");
   read_fd := (pipefd.add(usize(0))).*;

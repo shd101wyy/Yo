@@ -76,7 +76,7 @@ impl(
   write_i64 : (fn(self : Self, n : i64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
     buf_ptr := &buf(usize(0));
-    unsafe(snprintf(*(char)(buf_ptr), usize(24), "%lld", n));
+    unsafe(snprintf((*char)(buf_ptr), usize(24), "%lld", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
   }),
@@ -84,7 +84,7 @@ impl(
   write_u64 : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
     buf_ptr := &buf(usize(0));
-    unsafe(snprintf(*(char)(buf_ptr), usize(24), "%llu", n));
+    unsafe(snprintf((*char)(buf_ptr), usize(24), "%llu", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
   }),
@@ -92,7 +92,7 @@ impl(
   write_f64 : (fn(self : Self, n : f64, precision : i32) -> Self)({
     buf := Array(u8, usize(64)).fill(u8(0));
     buf_ptr := &buf(usize(0));
-    unsafe(snprintf(*(char)(buf_ptr), usize(64), "%.*f", precision, n));
+    unsafe(snprintf((*char)(buf_ptr), usize(64), "%.*f", precision, n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
   }),
@@ -107,7 +107,7 @@ impl(
   write_hex : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(20)).fill(u8(0));
     buf_ptr := &buf(usize(0));
-    unsafe(snprintf(*(char)(buf_ptr), usize(20), "%llx", n));
+    unsafe(snprintf((*char)(buf_ptr), usize(20), "%llx", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
   }),
@@ -115,7 +115,7 @@ impl(
   write_octal : (fn(self : Self, n : u64) -> Self)({
     buf := Array(u8, usize(24)).fill(u8(0));
     buf_ptr := &buf(usize(0));
-    unsafe(snprintf(*(char)(buf_ptr), usize(24), "%llo", n));
+    unsafe(snprintf((*char)(buf_ptr), usize(24), "%llo", n));
     s := String.from_cstr(buf_ptr).unwrap();
     self.write_string(s)
   }),

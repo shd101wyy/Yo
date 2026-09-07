@@ -38,7 +38,7 @@ _make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
     addr.ip,
     .V4(a, b, c, d) => {
       buf := Array(u8, usize(16)).fill(u8(0));
-      unsafe(snprintf(*(char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
+      unsafe(snprintf((*char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
       IO_tcp.make_sockaddr_in(&buf(usize(0)), addr.port)
     },
     .V6(_) => {
@@ -90,16 +90,16 @@ impl(
       // the kernel; echoing the bind argument reported port 0 forever. Same
       // fix as TcpListener.bind (C2), which UDP never received
       // (issues/fixed/udpsocket-bind-echoes-its-argument-and-send-has-no-connect.md).
-      la_buf := *(u8)(malloc(usize(128)).unwrap());
-      la_len := *(u32)(malloc(usize(4)).unwrap());
+      la_buf := (*u8)(malloc(usize(128)).unwrap());
+      la_len := (*u32)(malloc(usize(4)).unwrap());
       la_len.* = u32(128);
       gsn := SockInfo.getsockname(fd, la_buf, la_len);
       local := cond(
         (gsn == i32(0)) => sockaddr_to_socket_addr(la_buf),
         true => addr
       );
-      free(.Some(*(void)(la_buf)));
-      free(.Some(*(void)(la_len)));
+      free(.Some((*void)(la_buf)));
+      free(.Some((*void)(la_len)));
       return(UdpSocket(_fd : fd, _local_addr : local, _is_closed : false));
     })
   ),
@@ -184,7 +184,7 @@ impl(
     io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := &val;
-      r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, *(u8)(val_ptr), u32(4)), e.io);
+      r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (*u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {
           _throw_net_io(i32(0) - r, e.exn);

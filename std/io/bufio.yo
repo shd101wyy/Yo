@@ -81,7 +81,7 @@ impl(
   /// number of bytes now buffered; `0` means the inner reader hit EOF.
   _fill : (fn(self : Self, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
-      p := match(self._buf.ptr(), .Some(q) => q, .None => *(u8)(""));
+      p := match(self._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
       n := e.io.await(self._inner.read(p, self._capacity, io), e);
       self._pos = usize(0);
       self._filled = n;
@@ -238,7 +238,7 @@ impl(
       n := bytes.len();
       cond(
         (n > usize(0)) => {
-          p := match(bytes.ptr(), .Some(q) => q, .None => *(u8)(""));
+          p := match(bytes.ptr(), .Some(q) => q, .None => (*u8)(""));
           e.io.await(Self.write_all(self, p, n, io), e);
         },
         true => ()
@@ -252,7 +252,7 @@ impl(
       n := data.len();
       cond(
         (n > usize(0)) => {
-          p := match(data.ptr(), .Some(q) => q, .None => *(u8)(""));
+          p := match(data.ptr(), .Some(q) => q, .None => (*u8)(""));
           e.io.await(Self.write_all(self, p, n, io), e);
         },
         true => ()
@@ -265,7 +265,7 @@ impl(
     io.async(e => {
       cond(
         (self._buf.len() > usize(0)) => {
-          p := match(self._buf.ptr(), .Some(q) => q, .None => *(u8)(""));
+          p := match(self._buf.ptr(), .Some(q) => q, .None => (*u8)(""));
           e.io.await(self._inner.write_all(p, self._buf.len(), io), e);
           self._buf = ArrayList(u8).with_capacity(self._capacity);
         },

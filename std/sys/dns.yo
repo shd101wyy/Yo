@@ -76,7 +76,7 @@ freeaddrinfo :: (fn(res : *u8) -> unit)(
 // Allocate a *(?(*(u8))) to hold the getaddrinfo result pointer.
 // Initialized to .None. Caller must free with free_result() after use.
 alloc_result :: (fn() -> *?*u8)({
-  ptr := *(?*u8)(malloc(usize(8)).unwrap());
+  ptr := (*?*u8)(malloc(usize(8)).unwrap());
   ptr.* = .None;
   ptr
 });
@@ -87,7 +87,7 @@ get_result :: (fn(result : *?*u8) -> ?*u8)(
 );
 // Free the result pointer slot (not the addrinfo list itself).
 free_result :: (fn(result : *?*u8) -> unit)(
-  free(.Some(*(void)(result)))
+  free(.Some((*void)(result)))
 );
 // ============================================================================
 // Addrinfo Accessors (for iterating the linked list)
@@ -136,7 +136,7 @@ addrinfo_next :: (fn(ai : *u8) -> ?*u8)(
 // Caller must free with free_hints() after the getaddrinfo call.
 alloc_hints :: (fn() -> *u8)({
   size := __yo_addrinfo_size();
-  ptr := *(u8)(malloc(size).unwrap());
+  ptr := (*u8)(malloc(size).unwrap());
   i := usize(0);
   while(i < size, {
     (ptr.add(i)).* = u8(0);
@@ -146,7 +146,7 @@ alloc_hints :: (fn() -> *u8)({
 });
 // Free a hints buffer allocated with alloc_hints.
 free_hints :: (fn(hints : *u8) -> unit)(
-  free(.Some(*(void)(hints)))
+  free(.Some((*void)(hints)))
 );
 export(
   getaddrinfo,

@@ -10596,11 +10596,11 @@ impl(
   /// The task's current `FutureState`, read without blocking or driving the
   /// event loop (unlike `await`, which polls the loop to completion).
   state : (fn(self : JoinHandle(T)) -> FutureState)(
-    __yo_join_handle_state_raw(*(void)(self.__future))
+    __yo_join_handle_state_raw((*void)(self.__future))
   ),
   /// True once the task is terminal — `Completed` or `Aborted`.
   is_finished : (fn(self : JoinHandle(T)) -> bool)({
-    s := __yo_join_handle_state_raw(*(void)(self.__future));
+    s := __yo_join_handle_state_raw((*void)(self.__future));
     (s == FutureState.Completed) || (s == FutureState.Aborted)
   }),
   /// Cancel the task: a non-terminal task is marked `Aborted` and will not
@@ -10611,6 +10611,6 @@ impl(
   /// operation it is suspended on — a task parked on I/O that never
   /// completes stays allocated until process exit.
   abort : (fn(self : JoinHandle(T)) -> unit)(
-    __yo_join_handle_abort_raw(*(void)(self.__future))
+    __yo_join_handle_abort_raw((*void)(self.__future))
   )
 );

@@ -16,14 +16,14 @@ comptime_expect_error(
 //             obligation belongs to the body-author, not the caller.
 yo_strlen :: (fn(s : *char) -> usize)(unsafe(strlen(s)));
 test("call-site wrap: stdlib wrappers don't propagate the unsafe requirement", {
-  cstr := *(char)("hello");
+  cstr := (*char)("hello");
   // No `unsafe(...)` needed at this call site — `yo_strlen`'s body
   // already wrapped its own extern call.
   n := yo_strlen(cstr);
   assert(n == usize(5), "yo_strlen returns the expected length");
 });
 test("call-site wrap: direct extern call works inside unsafe(...)", {
-  cstr := *(char)("world!");
+  cstr := (*char)("world!");
   n := unsafe(strlen(cstr));
   assert(n == usize(6), "wrapped strlen returns the expected length");
 });

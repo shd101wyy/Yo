@@ -53,7 +53,7 @@ Reader :: trait(
           while(ci < usize(4096), ci = (ci + usize(1)), {
             chunk.push(u8(0));
           });
-          p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+          p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
           (done : bool) = false;
           while(!done, {
             n := e.io.await(Self.read(self, p, usize(4096), io), e);
@@ -128,7 +128,7 @@ copy :: (
     while(ci < usize(4096), ci = (ci + usize(1)), {
       chunk.push(u8(0));
     });
-    p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+    p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
     (done : bool) = false;
     while(!done, {
       n := e.io.await(r.read(p, usize(4096), e.io), e);

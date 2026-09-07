@@ -203,7 +203,7 @@ impl(
         match(
           new_some_ptr,
           .Some(new_ptr) => {
-            typed_ptr := *(T)(new_ptr);
+            typed_ptr := (*T)(new_ptr);
             self._ptr = .Some(typed_ptr);
             self._capacity = new_capacity;
             // Now add the element at position length
@@ -284,7 +284,7 @@ impl(
             match(
               self._ptr,
               .Some(_ptr) => {
-                GlobalAllocator.free(.Some(*(void)(_ptr)));
+                GlobalAllocator.free(.Some((*void)(_ptr)));
                 self._ptr = .None;
                 self._capacity = usize(0);
               },
@@ -299,13 +299,13 @@ impl(
               .None => __yo_panic("ArrayList has capacity but no ptr"),
               .Some(old_ptr) => {
                 new_some_ptr := GlobalAllocator.realloc(
-                  .Some(*(void)(old_ptr)),
+                  .Some((*void)(old_ptr)),
                   sizeof(T) * self._length
                 );
                 match(
                   new_some_ptr,
                   .Some(new_ptr) => {
-                    self._ptr = .Some(*(T)(new_ptr));
+                    self._ptr = .Some((*T)(new_ptr));
                     self._capacity = self._length;
                     .Ok(())
                   },
@@ -395,8 +395,8 @@ impl(
                     // For non-RC types, use fast memmove
                     element_size := sizeof(T);
                     bytes_to_move := (elements_after * element_size);
-                    dst_void := *(void)(dst_ptr);
-                    src_void := *(void)(src_ptr);
+                    dst_void := (*void)(dst_ptr);
+                    src_void := (*void)(src_ptr);
                     // SAFETY: dst_ptr and src_ptr both point into self._ptr's
                     // contiguous element buffer. `elements_after = self._length - (r.start + count)`
                     // counts elements still in-bounds after the drain range,
@@ -654,7 +654,7 @@ impl(
         .Some(_ptr) => {
           Self._free_elements(self);
           self._length = usize(0);
-          GlobalAllocator.free(.Some(*(void)(_ptr)));
+          GlobalAllocator.free(.Some((*void)(_ptr)));
           self._ptr = .None;
         },
         .None => ()

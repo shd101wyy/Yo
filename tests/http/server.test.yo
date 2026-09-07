@@ -30,7 +30,7 @@ _echo :: (fn(req : HttpRequest) -> HttpResponse)({
 _read_all :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
     out := ArrayList(u8).new();
-    buf := *(u8)(malloc(usize(4096)).unwrap());
+    buf := (*u8)(malloc(usize(4096)).unwrap());
     done := false;
     while(runtime(!done), {
       n := e.io.await(stream.read(buf, usize(4096), e.io), e);
@@ -47,7 +47,7 @@ _read_all :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
         }
       );
     });
-    free(.Some(*(void)(buf)));
+    free(.Some((*void)(buf)));
     String.from_bytes(out)
   })
 );

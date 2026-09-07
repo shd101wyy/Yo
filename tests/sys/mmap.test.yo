@@ -70,7 +70,7 @@ test("mmap shared file region and msync persists writes", {
   unmap_ret := mmap_io.munmap(ptr, usize(4096));
   assert(unmap_ret == i32(0), "munmap for file-backed mapping should succeed");
   read_buf_uninit := MaybeUninit(Array(u8, usize(2))).new();
-  read_buf := *(u8)(read_buf_uninit.as_ptr());
+  read_buf := (*u8)(read_buf_uninit.as_ptr());
   rd := io.await(file.read(fd, read_buf, u32(2), u64(0)), io);
   assert(rd == i32(2), "reading first 2 bytes after msync should return 2");
   assert((read_buf.add(usize(0))).* == u8(90), "persisted byte 0 should be 90");

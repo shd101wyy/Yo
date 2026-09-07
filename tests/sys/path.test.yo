@@ -30,7 +30,7 @@ test("realpath resolves . and ..", {
   write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, file_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
-  data := *(u8)("realpath data");
+  data := (*u8)("realpath data");
   wr := io.await(file.write(fd, data, u32(13), u64(0)), io);
   assert(wr == i32(13));
   io.await(file.close(fd), io);
@@ -39,12 +39,12 @@ test("realpath resolves . and ..", {
   dot_path_c := dot_path_str.to_cstr();
   dot_path := dot_path_c.ptr().unwrap();
   buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
-  buf := *(u8)(buf_uninit.as_ptr());
+  buf := (*u8)(buf_uninit.as_ptr());
   rp := path_io.realpath(dot_path, buf);
   unsafe(printf("  realpath = %d\n", rp));
   assert(rp == i32(0));
   expected_buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
-  expected_buf := *(u8)(expected_buf_uninit.as_ptr());
+  expected_buf := (*u8)(expected_buf_uninit.as_ptr());
   expected_rp := path_io.realpath(file_path, expected_buf);
   assert(expected_rp == i32(0));
   resolved_str := String.from_cstr(buf).unwrap();
@@ -73,7 +73,7 @@ test("realpath resolves symlink target", {
   write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   fd := io.await(file.openat(AT_FDCWD, target_path, write_flags, i32(0o644)), io);
   assert(fd >= i32(0));
-  data := *(u8)("symlink target");
+  data := (*u8)("symlink target");
   wr := io.await(file.write(fd, data, u32(14), u64(0)), io);
   assert(wr == i32(14));
   io.await(file.close(fd), io);
@@ -82,12 +82,12 @@ test("realpath resolves symlink target", {
   cond(
     (sym_result == i32(0)) => {
       buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
-      buf := *(u8)(buf_uninit.as_ptr());
+      buf := (*u8)(buf_uninit.as_ptr());
       rp := path_io.realpath(link_path, buf);
       unsafe(printf("  realpath link = %d\n", rp));
       assert(rp == i32(0));
       expected_buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
-      expected_buf := *(u8)(expected_buf_uninit.as_ptr());
+      expected_buf := (*u8)(expected_buf_uninit.as_ptr());
       expected_rp := path_io.realpath(target_path, expected_buf);
       assert(expected_rp == i32(0));
       resolved_str := String.from_cstr(buf).unwrap();
@@ -107,7 +107,7 @@ test("realpath on nonexistent returns error", {
   bad_path := bad_path_c.ptr().unwrap();
   io.await(dir.unlink(AT_FDCWD, bad_path, i32(0)), io);
   buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
-  buf := *(u8)(buf_uninit.as_ptr());
+  buf := (*u8)(buf_uninit.as_ptr());
   rp := path_io.realpath(bad_path, buf);
   unsafe(printf("  realpath missing = %d\n", rp));
   assert(rp < i32(0));

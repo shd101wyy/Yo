@@ -76,7 +76,7 @@ make_sockaddr_un :: (fn(path : *u8) -> UnixAddr)({
   cond(
     (size == usize(0)) => UnixAddr(.None, u32(0)),
     true => {
-      buf := *(u8)(malloc(size).unwrap());
+      buf := (*u8)(malloc(size).unwrap());
       i := usize(0);
       while(runtime(i < size), {
         (buf.add(i)).* = u8(0);
@@ -96,7 +96,7 @@ get_path :: (fn(addr_buf : *u8) -> *u8)(
 free_addr :: (fn(addr : UnixAddr) -> unit)(
   match(
     addr.buf,
-    .Some(p) => free(.Some(*(void)(p))),
+    .Some(p) => free(.Some((*void)(p))),
     .None => ()
   )
 );

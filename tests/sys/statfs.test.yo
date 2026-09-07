@@ -13,7 +13,7 @@ test("statfs returns block statistics", {
   dir_c := dir_str.to_cstr();
   dir_path := dir_c.ptr().unwrap();
   buf_size := statfs.statfs_buf_size();
-  buf := *(u8)(malloc(buf_size).unwrap());
+  buf := (*u8)(malloc(buf_size).unwrap());
   ret := statfs.statfs(dir_path, buf);
   assert(ret == i32(0));
   bsize := statfs.statfs_bsize(buf);
@@ -24,5 +24,5 @@ test("statfs returns block statistics", {
   assert(blocks > u64(0));
   assert(bfree <= blocks);
   assert(bavail <= blocks);
-  free(.Some(*(void)(buf)));
+  free(.Some((*void)(buf)));
 });

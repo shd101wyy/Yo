@@ -9,22 +9,22 @@ events :: import("std/sys/events");
 { sleep } :: import("std/sys/timer");
 // Callback that records events into user_data (pointer to i32)
 on_poll_record :: (fn(events_mask : i32, status : i32, user_data : *u8) -> unit)({
-  ptr := *(i32)(user_data);
+  ptr := (*i32)(user_data);
   ptr.* = events_mask;
   status;
 });
 test("poll init/start/stop", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
   handle := events.poll_init(read_fd);
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
-  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, *(u8)(result_ptr));
+  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, (*u8)(result_ptr));
   assert(ret == i32(0), "poll_start failed");
   stop_ret := events.poll_stop(handle);
   assert(stop_ret == i32(0), "poll_stop failed");
@@ -36,20 +36,20 @@ test("poll init/start/stop", {
 });
 test("poll detects readable pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
   // Write data to make read end readable BEFORE starting poll
-  data := *(u8)("hello");
+  data := (*u8)("hello");
   wr := io.await(file.write(write_fd, data, u32(5), u64(0)), io);
   assert(wr == i32(5), "write failed");
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.poll_init(read_fd);
-  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, *(u8)(result_ptr));
+  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, (*u8)(result_ptr));
   assert(ret == i32(0), "poll_start failed");
   // Yield to event loop so tick fires
   io.await(sleep(u64(50)), io);
@@ -66,17 +66,17 @@ test("poll detects readable pipe", {
 });
 test("poll detects writable pipe", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   // Poll write end for writability (pipe is empty, so should be immediately writable)
   handle := events.poll_init(write_fd);
-  ret := events.poll_start(handle, events.POLL_WRITABLE, on_poll_record, *(u8)(result_ptr));
+  ret := events.poll_start(handle, events.POLL_WRITABLE, on_poll_record, (*u8)(result_ptr));
   assert(ret == i32(0), "poll_start failed");
   // Yield to event loop
   io.await(sleep(u64(50)), io);
@@ -93,19 +93,19 @@ test("poll detects writable pipe", {
 });
 test("poll detects disconnect", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   // Close write end first to trigger HUP on read end
   cw := io.await(file.close(write_fd), io);
   assert(cw == i32(0), "close write_fd failed");
   handle := events.poll_init(read_fd);
-  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, *(u8)(result_ptr));
+  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, (*u8)(result_ptr));
   assert(ret == i32(0), "poll_start failed");
   io.await(sleep(u64(50)), io);
   recorded := result_ptr.*;
@@ -120,22 +120,22 @@ test("poll detects disconnect", {
 });
 test("poll stop prevents further callbacks", {
   pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-  pipefd := *(i32)(pipefd_uninit.as_ptr());
+  pipefd := (*i32)(pipefd_uninit.as_ptr());
   pr := pipe_io.pipe(pipefd);
   assert(pr == i32(0), "pipe creation failed");
   read_fd := (pipefd.add(usize(0))).*;
   write_fd := (pipefd.add(usize(1))).*;
   result_buf := MaybeUninit(i32).new();
-  result_ptr := *(i32)(result_buf.as_ptr());
+  result_ptr := (*i32)(result_buf.as_ptr());
   result_ptr.* = i32(0);
   handle := events.poll_init(read_fd);
-  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, *(u8)(result_ptr));
+  ret := events.poll_start(handle, events.POLL_READABLE, on_poll_record, (*u8)(result_ptr));
   assert(ret == i32(0), "poll_start failed");
   // Stop immediately before any events can fire
   stop_ret := events.poll_stop(handle);
   assert(stop_ret == i32(0), "poll_stop failed");
   // Now write data
-  data := *(u8)("hi");
+  data := (*u8)("hi");
   wr := io.await(file.write(write_fd, data, u32(2), u64(0)), io);
   assert(wr == i32(2), "write failed");
   // Yield to event loop

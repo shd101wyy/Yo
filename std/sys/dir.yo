@@ -17,7 +17,7 @@
 //   { mkdir, unlink, rename } :: import "std/sys/dir";
 //
 //   task := async {
-//     result := await mkdir(AT_FDCWD, *(u8)("/tmp/yo_test_dir"), i32(0o755));
+//     result := await mkdir(AT_FDCWD, (*u8)("/tmp/yo_test_dir"), i32(0o755));
 //     assert(result == i32(0));
 //   };
 pragma(Pragma.AllowUnsafe);
@@ -72,8 +72,8 @@ readlink :: (fn(dirfd : i32, path : *u8, buf : *u8, bufsize : usize) -> i32)(
 //   { getdents, dirent_name, dirent_type } :: import "std/sys/dir";
 //
 //   async {
-//     fd := await openat(AT_FDCWD, *(u8)("/tmp"), (O_RDONLY | O_DIRECTORY), i32(0));
-//     buf := *(u8)(malloc(usize(4096)).unwrap());
+//     fd := await openat(AT_FDCWD, (*u8)("/tmp"), (O_RDONLY | O_DIRECTORY), i32(0));
+//     buf := (*u8)(malloc(usize(4096)).unwrap());
 //     offset := u32(0);
 //     while runtime(true), {
 //       n := await getdents(fd, buf, u32(4096));
@@ -91,7 +91,7 @@ readlink :: (fn(dirfd : i32, path : *u8, buf : *u8, bufsize : usize) -> i32)(
 //         }
 //       );
 //     };
-//     free(.Some(*(void)(buf)));
+//     free(.Some((*void)(buf)));
 //     await close(fd);
 //   };
 getdents :: (fn(fd : i32, buf : *u8, buf_size : u32) -> IoFuture)(

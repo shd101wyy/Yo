@@ -588,7 +588,7 @@ impl(
       num_buf.push(self.src(start + j));
     });
     num_buf.push(u8(0));
-    num_ptr := *(char)(num_buf.ptr().unwrap());
+    num_ptr := (*char)(num_buf.ptr().unwrap());
     { atof } :: import("../libc/stdlib");
     val := unsafe(atof(num_ptr));
     .Ok(val)
@@ -891,7 +891,7 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
     .Number(n) => {
       buf := Array(u8, usize(32)).fill(u8(0));
       buf_ptr := &(buf(usize(0)));
-      unsafe(snprintf(*(char)(buf_ptr), usize(32), "%g", n));
+      unsafe(snprintf((*char)(buf_ptr), usize(32), "%g", n));
       s2 := String.from_cstr(buf_ptr).unwrap();
       bytes := s2.as_bytes();
       i := usize(0);

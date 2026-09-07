@@ -258,3 +258,73 @@ test("fmt elision D2: prefix operands are not chain operators", {
   );
   assert(_fmt(out.clone()) == out, "idempotent");
 });
+// ---------------------------------------------------------------------------
+// D4 (callee canonicalization): a prefix operator call whose result is
+// immediately called renders grouped — `op(x)(y)` → `(op x)(y)` — so the
+// pointer-cast spelling `*(T)(x)` becomes `(*T)(x)`. Operator-generic: D3's
+// shape with the next-token condition inverted (args `(` instead of
+// "nothing that re-binds").
+// ---------------------------------------------------------------------------
+test("fmt D4: pointer cast canonicalizes to the grouped spelling", {
+  src := String.from("main :: (fn() -> unit)({\n  free(.Some(*(void)(buf)));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("free(.Some((*void)(buf)));")),
+    "*(void)(buf) renders as (*void)(buf)"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt D4: double pointer cast collapses the chain", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(*(*(u8))(p));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink((**u8)(p));")), "*(*(u8))(p) renders as (**u8)(p)");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt D4: option-pointer cast groups the whole prefix chain", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(?(*(u8))(p));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("sink((?*u8)(p));")), "?(*(u8))(p) renders as (?*u8)(p)");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt D4: every prefix operator, not just *", {
+  src := String.from("main :: (fn() -> unit)({\n  sink((-(x))(y), (~(x))(y));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(-x)(y)")), "-(x)(y) renders as (-x)(y)");
+  assert(out.contains(String.from("(~x)(y)")), "~(x)(y) renders as (~x)(y)");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt D4: bare-prefix operand spelling is untouched", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(*void(p));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("sink(*void(p));")),
+    "the *void(p) spelling stays — fmt never invents a cast"
+  );
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt D4: -x(y) stays — it is -(x(y)), a different AST from (-x)(y)", {
+  src := String.from("main :: (fn() -> unit)({\n  sink((-x(y), -(x)(y)));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("-x(y)")), "bare prefix binds the call — spelling stays");
+  assert(out.contains(String.from("(-x)(y)")), "the operator-call callee form canonicalizes");
+  assert(_fmt(out.clone()) == out, "idempotent");
+});
+test("fmt D4: spaced func spelling stays (adjacency is structural)", {
+  src := String.from("main :: (fn() -> unit)({\n  sink(* (void)(p));\n});\nexport(main);\n");
+  out := _fmt(src.clone());
+  assert(
+    out.contains(String.from("* (void)")),
+    "the spaced spelling parses differently — it is not canonicalized"
+  );
+});
+test("fmt D4: multi-arg and infix-operand funcs keep their call parens", {
+  src := String.from(
+    "main :: (fn() -> unit)({\n  sink((-(1, 2))(y));\n  sink(*((a + b))(y));\n});\nexport(main);\n"
+  );
+  out := _fmt(src.clone());
+  assert(out.contains(String.from("(-(1, 2))(y)")), "multi-arg func call keeps its parens");
+  // Non-atom operand: D4 does not fire — the inner group's own parens elide
+  // via the pre-existing rules (same output the seed produced), and the
+  // operator keeps its call paren.
+  assert(out.contains(String.from("*(a + b)(y)")), "non-atom operand is not canonicalized by D4");
+});

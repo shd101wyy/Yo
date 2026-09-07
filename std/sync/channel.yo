@@ -58,7 +58,7 @@ impl(
   /// Capacity must be > 0.
   new : (fn(capacity : usize) -> Self)({
     assert(capacity > usize(0), "Channel.new: capacity must be > 0");
-    (ptr : *T) = *(T)(malloc(capacity * sizeof(T)).unwrap());
+    (ptr : *T) = (*T)(malloc(capacity * sizeof(T)).unwrap());
     return(
       Self(
         _data : ptr,
@@ -214,7 +214,7 @@ impl(
         unsafe.drop((self._data.add(idx)).*);
         i = (i + usize(1));
       });
-      free(.Some(*(void)(self._data)));
+      free(.Some((*void)(self._data)));
     })
   )
 );

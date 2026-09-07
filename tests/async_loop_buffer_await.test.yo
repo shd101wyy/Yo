@@ -26,7 +26,7 @@ Reader :: trait(
             chunk.push(u8(0));
           });
           (done : bool) = false;
-          p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+          p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
           while(!done, {
             n := e.io.await(Self.read(self, p, usize(4), io), e);
             if(n == usize(0), {
@@ -70,7 +70,7 @@ read_to_end_free :: (
     while(ci < usize(4), ci = (ci + usize(1)), {
       chunk.push(u8(0));
     });
-    p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+    p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
     (done : bool) = false;
     while(!done, {
       n := e.io.await(the_r.read(p, usize(4), e.io), e);
@@ -101,7 +101,7 @@ impl(
     io.async(e => {
       tmp := ArrayList(u8).with_capacity(usize(8));
       tmp.push(u8(0));
-      p := match(tmp.ptr(), .Some(q) => q, .None => *(u8)(""));
+      p := match(tmp.ptr(), .Some(q) => q, .None => (*u8)(""));
       n := e.io.await(self._inner.read(p, usize(8), io), e);
       n
     })
@@ -114,7 +114,7 @@ impl(
       while(ci < usize(4), ci = (ci + usize(1)), {
         chunk.push(u8(0));
       });
-      p := match(chunk.ptr(), .Some(q) => q, .None => *(u8)(""));
+      p := match(chunk.ptr(), .Some(q) => q, .None => (*u8)(""));
       (done : bool) = false;
       while(!done, {
         n := e.io.await(self._inner.read(p, usize(4), io), e);

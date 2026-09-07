@@ -53,7 +53,7 @@ impl(
         .None => {
           e.io.await(IO_unix.close(fd), e.io);
           e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
-          *(u8)("")
+          (*u8)("")
         }
       );
       bind_result := e.io.await(IO_unix.bind(fd, addr_buf, addr.len), e.io);
@@ -80,12 +80,12 @@ impl(
   accept : (fn(self : Self, io : Io) -> Impl(Future(UnixStream, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      addr_buf := *(u8)(malloc(usize(128)).unwrap());
-      addr_len := *(u32)(malloc(usize(4)).unwrap());
+      addr_buf := (*u8)(malloc(usize(128)).unwrap());
+      addr_len := (*u32)(malloc(usize(4)).unwrap());
       addr_len.* = u32(128);
       client_fd := e.io.await(IO_unix.accept(fd, addr_buf, addr_len), e.io);
-      free(.Some(*(void)(addr_buf)));
-      free(.Some(*(void)(addr_len)));
+      free(.Some((*void)(addr_buf)));
+      free(.Some((*void)(addr_len)));
       cond(
         (client_fd < i32(0)) => _throw_io(i32(0) - client_fd, e.exn),
         true => ()
@@ -138,7 +138,7 @@ impl(
         .None => {
           e.io.await(IO_unix.close(fd), e.io);
           e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
-          *(u8)("")
+          (*u8)("")
         }
       );
       conn_result := e.io.await(IO_unix.connect(fd, addr_buf, addr.len), e.io);
