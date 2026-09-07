@@ -1,0 +1,16 @@
+{ assert } :: import("std/assert");
+{ Exception, IoExn } :: import("std/error");
+task :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async(e => {
+    x := i32(1);
+    inout(y) := x; // rejected: not supported inside an io.async body (v1)
+    y = i32(2);
+    return(x);
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  r := io.await(task(io), e);
+  assert(r == i32(2), "unreachable");
+});
+export(main);

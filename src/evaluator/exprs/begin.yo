@@ -52,7 +52,7 @@ open(import("std/string"));
   has_control_flow,
   has_any_control_flow
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -875,6 +875,69 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
 /// SHARE the spliced arg nodes; yo-self expansions are fresh-id clones, so the
 /// walk must follow `macro_expansion` explicitly — the same reachability the
 /// collector uses, or a cancelled dup would survive in the emitted tree.
+/// Does `e` (following `macro_expansion`) contain an assignment `name = …`?
+/// Used by `_optimize_dup_drop_pairs`: the alias-binding dup elision
+/// (`h2 := h` sharing ONE count, the alias marked consumed so the base keeps
+/// it) is sound only while the base's count outlives every use of the alias.
+/// A reassignment of the base schedules its OLD value's drop at the end of
+/// the block the assignment sits in — INSIDE a nested block that is earlier
+/// than the alias's scope end, so the alias read freed memory
+/// (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md). When
+/// the base is reassigned anywhere in the subtree the dup is kept and each
+/// handle owns its own count.
+_subtree_assigns_variable :: (fn(e : AstExpr, name : String, ctx : EvalContext) -> bool)(
+  match(
+    e,
+    .FnCall(
+      _,
+      f,
+      fargs,
+      _,
+      _
+    ) => {
+      if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))), {
+        match(
+          fargs.get(usize(0)),
+          .Some(lhs) => if(ast_expr_is_atom(lhs) && (ast_expr_token(lhs).value == name), {
+            return(true);
+          }),
+          .None => ()
+        );
+      });
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+        .Some(ei) => match(
+          ei.macro_expansion,
+          .Some(mx) => if(recur(mx, name.clone(), ctx), {
+            return(true);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      if(recur(f, name.clone(), ctx), {
+        return(true);
+      });
+      (ai : usize) = usize(0);
+      (found : bool) = false;
+      while((ai < fargs.len()) && !found, {
+        match(
+          fargs.get(ai),
+          .Some(a) => if(recur(a, name.clone(), ctx), {
+            found = true;
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      found
+    },
+    .Atom(
+      _,
+      _
+    ) => false
+  )
+);
 _remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), ctx : EvalContext) -> unit)({
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
@@ -1071,7 +1134,10 @@ _optimize_dup_drop_pairs :: (
       .Some(v) => {
         e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
         e2 := (e1 && !v.is_module_level);
-        e3 := (e2 && !v.is_ref);
+        // A root of an `inout` local binding is used through the alias, which
+        // is not a syntactic use: cancelling its dup here would MOVE the count
+        // while a binding may still write through the slot (§9 H6).
+        e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(v));
         some_undroppable := match(
           v.ty,
           .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),

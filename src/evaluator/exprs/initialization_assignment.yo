@@ -30,7 +30,9 @@ open(import("std/string"));
   BK_CONST,
   BK_INIT_ASSIGN,
   BK_GIVEN,
-  BK_INOUT
+  BK_INOUT,
+  BF_DOT,
+  ast_expr_is_atom_of
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -42,7 +44,16 @@ open(import("std/string"));
   expr_info_set_runtime_destructurings,
   register_module_level_global
 } :: import("../../expr_info.yo");
-{ Environment, Variable, add_variable_to_env, get_variables_from_env, variable_set_doc_comment } :: import("../../env.yo");
+{
+  Environment,
+  Variable,
+  add_variable_to_env,
+  get_variables_from_env,
+  variable_set_doc_comment,
+  variable_set_inout_borrow_root_id,
+  variable_mark_inout_borrow_root,
+  make_err_variable
+} :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -51,7 +62,7 @@ open(import("std/string"));
   pending_prebound_variable,
   record_pending_def_variable
 } :: import("../context.yo");
-{ EvalValue, create_unknown_val, is_runtime_only_unknown_val } :: import("../../value.yo");
+{ EvalValue, create_unknown_val, is_runtime_only_unknown_val, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
@@ -66,7 +77,7 @@ open(import("std/string"));
 } :: import("../../types/utils.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
-{ is_function_type_and_returns_comptime_value } :: import("../../types/guards.yo");
+{ is_function_type_and_returns_comptime_value, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
 { format_error_message, format_error_messages, TokenAndError } :: import("../../error.yo");
 { Token, TokenKind, is_reserved_operator_name } :: import("../../token.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
@@ -89,6 +100,336 @@ open(import("std/string"));
 ///
 /// Mirrors `evaluateInitializationAssignment` in
 /// `src/evaluator/exprs/initialization-assignment.ts`.
+/// One hop of an `inout` place chain `root.f1.f2…fn`: the `.`/2 node and the
+/// field atom it selects.
+_InoutPlaceHop :: struct(node : AstExpr, field : AstExpr);
+/// Walk a place expression to its root atom, collecting the `.`/2 hops from
+/// the OUTERMOST (the full place) to the INNERMOST (the hop on the root).
+/// `.None` when the chain does not root at an atom (a call, an index, a
+/// literal, a nested rvalue).
+_inout_place_chain :: (fn(place : AstExpr, hops : ArrayList(_InoutPlaceHop)) -> Option(AstExpr))({
+  (cur : AstExpr) = place;
+  (walking : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call(cur) && ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2))), {
+      match(
+        cur,
+        .FnCall(_, _, dargs, _, _) => {
+          recv := match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+          fld := match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr());
+          hops.push(_InoutPlaceHop(node : cur, field : fld));
+          cur = recv;
+        },
+        .Atom(_, _) => {
+          walking = false;
+        }
+      );
+    }, {
+      walking = false;
+    });
+  });
+  cond(
+    ast_expr_is_atom(cur) => Option(AstExpr).Some(cur),
+    true => Option(AstExpr).None
+  )
+});
+/// `inout(name) := place;` — bind `name` as a second-class reference to the
+/// storage `place` names (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7, decision 1;
+/// §8 Phase B).
+///
+/// Accepted places (the parameter place rule, minus the cross-argument
+/// clause that has no meaning here): a whole variable of any scope; a field
+/// chain rooted at a value-struct variable; a field chain that hops through
+/// an RC object — the INNERMOST object on the chain is then PINNED: a hidden
+/// owning local holds a `+1` on it for the binding's scope, so reassigning
+/// or dropping the visible handle cannot free the storage `name` points into
+/// (§2 P4). Rejected: index/deref places (`xs(i)`, `p.*` — element borrows
+/// are the `for` macro's job), rvalues, `Type.member`, compile-time roots,
+/// the `::` form, module-level declarations, and `io.async` bodies (a state
+/// machine keeps both `sm->var_x` and a per-state C copy of a local, so an
+/// alias could read a stale copy — §9 H5).
+///
+/// The bound variable is `is_ref` (reads emit `(*name)`, writes write
+/// through), `is_reassignable`, NOT owning (no scope-end drop of the
+/// pointee), and records its root's id (`inout_borrow_root_id`) for the
+/// consume gate; the root is marked `is_inout_borrow_root` so the last-use
+/// optimizers never turn its dup into a move (§9 H6). For a whole-variable
+/// place the binding SHARES the root's `Variable.value` cell, so compile-time
+/// reads through the alias observe the root (H27); field places are
+/// runtime-only.
+///
+/// Codegen channel (init_assignment.yo `_generate_inout_local_binding`): the
+/// `:=` node's ExprInfo has unit type; the `inout(name)` LHS node's ExprInfo
+/// carries the PIN when one exists — `source_variable` = the hidden owning
+/// local, `macro_expansion` = the object expression it holds. The LHS node
+/// is never dispatched through `generate_expression`, so neither field is
+/// read by anything else.
+_evaluate_inout_local_binding :: (
+  fn(
+    expr : AstExpr,
+    lhs : AstExpr,
+    rhs : AstExpr,
+    is_compile_time_only : bool,
+    env : Environment,
+    ctx : EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  lhs_tok := ast_expr_token(lhs);
+  if(is_compile_time_only, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          lhs_tok,
+          String.from("'inout(name) :: ...' is not allowed: an 'inout' binding aliases runtime storage. Use ':=' for the binding, or '::' for a compile-time value.")
+        )
+      )
+    );
+  });
+  // Where the binding is declared.
+  match(
+    ctx.is_evaluating_function_body_or_async_block,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            lhs_tok,
+            String.from("'inout(name) := ...' bindings are local: declare the binding inside a function body.")
+          )
+        )
+      );
+    },
+    .Some(fctx) => match(
+      fctx.kind,
+      .AsyncBlock => {
+        exn.throw(
+          dyn(
+            format_error_message(
+              lhs_tok,
+              String.from("'inout(name) := ...' is not supported inside an 'io.async' body yet. Read the value into a local, or call a function that takes 'inout(name) : T'.")
+            )
+          )
+        );
+      },
+      _ => ()
+    )
+  );
+  // The LHS: `inout(name)`, one identifier.
+  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  if(lhs_args.len() != usize(1), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          lhs_tok,
+          `Expected one name in "inout(name) := ...", got ${lhs_args.len().to_string()} arguments.`
+        )
+      )
+    );
+  });
+  name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  if(!ast_expr_is_atom(name_expr) || !is_valid_variable_name(name_expr), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(name_expr),
+          `Expected an identifier in "inout(name) := ...", got ${ast_expr_to_string(name_expr)}.`
+        )
+      )
+    );
+  });
+  name_tok := ast_expr_token(name_expr);
+  var_name := name_tok.value.clone();
+  shadow_existing := get_variables_from_env(env, var_name.clone());
+  if(shadow_existing.len() > usize(0), {
+    match(
+      shadow_existing.get(shadow_existing.len() - usize(1)),
+      .Some(shadow_var) => {
+        sh_entries := ArrayList(TokenAndError).new();
+        sh_entries.push(
+          TokenAndError(
+            token : name_tok,
+            error_message : `Failed to define variable "${var_name}":`
+          )
+        );
+        sh_entries.push(
+          TokenAndError(
+            token : shadow_var.token,
+            error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`
+          )
+        );
+        exn.throw(dyn(format_error_messages(sh_entries)));
+      },
+      .None => ()
+    );
+  });
+  // The RHS must be a PLACE: an atom, or a `.` chain rooted at one. Checked
+  // on the AST before evaluation so the message names the shape, not a type.
+  place_recipe := String.from("An 'inout' binding needs a place: a variable, or a field path rooted at one ('x', 'h.n', 'a.b.c'). To borrow an ELEMENT of a collection, iterate it with 'for(coll, inout(x) => ...)'; to hold a computed value, bind it with ':='.");
+  hops := ArrayList(_InoutPlaceHop).new();
+  root_atom := match(
+    _inout_place_chain(rhs, hops),
+    .Some(r) => r,
+    .None => {
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), place_recipe.clone())));
+      make_err_expr()
+    }
+  );
+  // A `*` hop is a pointer dereference — an interior place with no owner the
+  // binding could pin (§2 P5). Element borrows are the `for` macro's job.
+  (hi : usize) = usize(0);
+  while(hi < hops.len(), {
+    match(
+      hops.get(hi),
+      .Some(hop) => if(ast_expr_is_atom_of(hop.field, "*"), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(hop.field),
+              String.from("An 'inout' binding cannot borrow through a pointer dereference ('p.*'): the storage has no owner the binding could keep alive. Iterate the collection with 'for(coll, inout(x) => ...)' to borrow an element, or copy the value out.")
+            )
+          )
+        );
+      }),
+      .None => ()
+    );
+    hi = (hi + usize(1));
+  });
+  root_tok := ast_expr_token(root_atom);
+  root_vars := get_variables_from_env(env, root_tok.value.clone());
+  if(root_vars.len() == usize(0), {
+    exn.throw(dyn(format_error_message(root_tok, `Variable "${root_tok.value}" is not defined.`)));
+  });
+  root_var := match(root_vars.get(root_vars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
+  if(root_var.is_compile_time_only, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          root_tok,
+          `Cannot bind 'inout' to "${root_tok.value}": it is a compile-time value with no runtime storage to alias.`
+        )
+      )
+    );
+  });
+  // Evaluate the place as an expression (types for every hop), WITHOUT the
+  // dup-on-store a value binding performs — nothing is copied.
+  old_expected_type := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  evaluated_rhs := evaluate_expression_raw(rhs, env, ctx, exn);
+  ctx.expected_type = old_expected_type;
+  rhs_info := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs)),
+    .Some(ri) => ri,
+    .None => {
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Failed to evaluate, got ${ast_expr_to_string(rhs)}`)));
+      new_expr_info(env, t_unit())
+    }
+  );
+  env.frames = rhs_info.env.frames;
+  env.module_path = rhs_info.env.module_path;
+  env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
+  env.input_string = rhs_info.env.input_string;
+  prohibit_void_type(rhs_info.ty, ast_expr_token(rhs), exn);
+  require_expr_not_consumed(evaluated_rhs, env, ctx, exn);
+  // `Type.member` is a namespace access, not storage.
+  root_is_type := match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(root_atom)),
+    .Some(ri) => is_type_value(ri.value),
+    .None => false
+  );
+  if(root_is_type, {
+    exn.throw(dyn(format_error_message(root_tok, place_recipe.clone())));
+  });
+  place_type := rhs_info.ty;
+  if(type_requires_comptime_modifier(place_type), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(rhs),
+          `Cannot bind 'inout' to a value of compile-time-only type "${type_to_string(place_type)}": it has no runtime storage to alias.`
+        )
+      )
+    );
+  });
+  // The PIN (§2 P4): the innermost RC object on the chain — the root itself,
+  // or an intermediate hop — owns the storage the binding points into. Hops
+  // are collected outermost-first, so hops[len-1] selects a field of the
+  // root, hops[len-2] a field of that, …; the receiver of hops[k] is the node
+  // of hops[k+1] (or the root atom for the last one). Walk from the field
+  // being borrowed toward the root and take the first object receiver.
+  (pin_expr : Option(AstExpr)) = Option(AstExpr).None;
+  (pin_type : TypeValue) = t_unit();
+  (pk : usize) = usize(0);
+  while((pk < hops.len()) && pin_expr.is_none(), {
+    recv_expr := if(
+      (pk + usize(1)) < hops.len(),
+      match(hops.get(pk + usize(1)), .Some(h2) => h2.node, .None => make_err_expr()),
+      root_atom
+    );
+    recv_type := if(
+      (pk + usize(1)) < hops.len(),
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv_expr)),
+        .Some(ri) => ri.ty,
+        .None => t_unit()
+      ),
+      root_var.ty
+    );
+    if(is_reference_struct_type(recv_type) || is_atomic_reference_struct_type(recv_type), {
+      pin_expr = Option(AstExpr).Some(recv_expr);
+      pin_type = recv_type;
+    });
+    pk = (pk + usize(1));
+  });
+  // Register the pin as a hidden OWNING local: the existing named-local
+  // machinery dups it at the binding (codegen) and drops it at scope end —
+  // on `break`, `return` and effect `unwind` alike (§8 B4).
+  (pin_var : Option(Variable)) = Option(Variable).None;
+  match(
+    pin_expr,
+    .Some(_) => {
+      pin_name := generate_new_temp_variable_name(env.module_path);
+      pin_var = add_variable_to_env(env, pin_name, pin_type, Option(EvalValue).None, false, false, true, false, name_tok);
+    },
+    .None => ()
+  );
+  // The binding itself.
+  bound_opt := add_variable_to_env(env, var_name.clone(), place_type, Option(EvalValue).None, false, true, false, false, name_tok);
+  match(
+    bound_opt,
+    .Some(bound) => {
+      bound.is_ref = true;
+      variable_set_inout_borrow_root_id(bound, root_var.id);
+      if(hops.len() == usize(0), {
+        // Whole-variable place: alias the root's value cell so compile-time
+        // reads through the binding observe the root (§9 H27).
+        bound.value = root_var.value;
+      });
+    },
+    .None => ()
+  );
+  variable_mark_inout_borrow_root(root_var);
+  // ExprInfos: the name atom (typed as the place), the `inout(name)` node
+  // (the pin channel), and the `:=` node (unit).
+  name_info := new_expr_info(env, place_type);
+  name_info.path_collection = path_collection_new();
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(name_expr), name_info);
+  lhs_info := new_expr_info(env, t_unit());
+  lhs_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  match(
+    pin_var,
+    .Some(pv) => {
+      lhs_info.source_variable = Option(Variable).Some(pv);
+      lhs_info.macro_expansion = pin_expr;
+    },
+    .None => ()
+  );
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
+  expr_info := new_expr_info(env, t_unit());
+  expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info.is_compile_time_only_assignment = Option(bool).Some(false);
+  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
+  expr
+});
 evaluate_initialization_assignment :: (
   fn(
     expr : AstExpr,
@@ -156,18 +497,11 @@ evaluate_initialization_assignment :: (
   // Detect given(name) wrapper on LHS for implicit parameter declaration.
   (is_implicit : bool) = false;
   (actual_lhs : AstExpr) = lhs;
-  // v4.1 (plans/archive/BORROW_EXCLUSIVITY.md): local `inout(name) := …` bindings
-  // were REMOVED — `ref` exists only in parameter position. Mirrors the
-  // TS rejection in initialization-assignment.ts.
+  // `inout(name) := place` — a LOCAL second-class reference binding
+  // (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
+  // field places only; element borrows go through the `for` macro.
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_INOUT, .None), {
-    exn.throw(
-      dyn(
-        format_error_message(
-          ast_expr_token(lhs),
-          String.from("'inout(name) := ...' local bindings were removed — 'ref' exists only in parameter position. Read and write fields directly ('h.s = v'), or bind the handle ('b := a.b') to keep an object alive.")
-        )
-      )
-    );
+    return(_evaluate_inout_local_binding(expr, lhs, rhs, is_compile_time_only, env, ctx, exn));
   });
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None), {
     n_given_args := match(

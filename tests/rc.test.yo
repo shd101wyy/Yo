@@ -1023,3 +1023,33 @@ test("an own parameter of a generic function releases its value exactly once", {
   s := own_ident(`round trip`);
   assert(s == `round trip`, "a String survives the round trip through an own parameter");
 });
+// Regression (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md):
+// `h2 := h` shares ONE count (the alias dup is elided and `h2` is marked
+// consumed, so `h` keeps the count). Reassigning `h` INSIDE a nested block
+// scheduled the old value's drop at that block's end — before the outer alias's
+// last use — so `h2` read freed memory (GuardMalloc SEGV). The optimizer now
+// keeps the dup whenever the base is reassigned anywhere in the block.
+AliasHolder :: ref(struct(n : i32));
+test("alias survives a reassignment of its base inside a nested block", {
+  h := AliasHolder(n : i32(1));
+  h2 := h;
+  {
+    h.n = i32(7);
+    h = AliasHolder(n : i32(100));
+  };
+  assert(h2.n == i32(7), "the alias still names the original object");
+  assert(h.n == i32(100), "the base names the replacement");
+  assert(rc(h2) == 1, "the original is owned by the alias alone");
+  assert(rc(h) == 1, "the replacement is owned by the base alone");
+});
+test("alias made inside a nested block, base reassigned there, base used after", {
+  h := AliasHolder(n : i32(1));
+  {
+    h2 := h;
+    h2.n = i32(9);
+    h = AliasHolder(n : i32(100));
+    assert(h2.n == i32(9), "inner alias reads the original");
+  };
+  assert(h.n == i32(100), "outer base reads the replacement");
+  assert(rc(h) == 1, "one owner");
+});

@@ -79,3 +79,23 @@ test("ref read returns current caller value", {
   result := read_back(v);
   assert(result == i32(100), "read through ref");
 });
+// Regression (issues/fixed/inout-return-in-nested-block-shadows-pointer.md):
+// `return(m)` of an inout PARAM from inside a nested block emitted
+// `int32_t m = (*m);` — a C local shadowing the pointer parameter whose
+// initializer dereferences itself — "indirection requires pointer operand".
+// The top-level tail `m` never hit it (no nested block, no shadow).
+test("returning an inout param from inside a nested block", {
+  first_positive :: (fn(inout(m) : i32) -> i32)({
+    if(m > i32(0), {
+      return(m);
+    });
+    m = i32(-1);
+    m
+  });
+  a := i32(4);
+  assert(first_positive(a) == i32(4), "returned through the pointer");
+  assert(a == i32(4), "untouched on the early path");
+  b := i32(0);
+  assert(first_positive(b) == i32(-1), "fallthrough writes back and returns");
+  assert(b == i32(-1), "write-back landed");
+});

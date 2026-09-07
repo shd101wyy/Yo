@@ -136,8 +136,10 @@ propagate_def_time_errors :: (fn() -> bool)(
 /// Options refining the base R1–R4 rule. Mirrors the TS options bag.
 FlowOptions :: ref(
   struct(
-    /// Accept a same-frame (non-module) local — the `inout(name) := …` binding
-    /// site. Bounded by `max_local_frame_level` when that is `.Some`.
+    /// Accept a same-frame (non-module) local (the assignment-target checks).
+    /// Bounded by `max_local_frame_level` when that is `.Some`. (`inout(name)
+    /// := …` bindings do not use this rule: their place shape is validated in
+    /// `_evaluate_inout_local_binding`, evaluator/exprs/initialization_assignment.yo.)
     allow_same_frame_local : bool,
     /// Accept a parameter of the enclosing function (slice-flowability).
     allow_parameter_source : bool,

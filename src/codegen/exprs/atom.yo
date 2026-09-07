@@ -9,8 +9,8 @@
 //!     `sm->__capture` block, and the async-completion `return`) — Phase 5;
 //!     gated by `in_async_state_machine` (false for the corpus) and replaced
 //!     with a phase-marker panic.
-//!   * `inout(name) : T` deref to `(*name)` — yo-self `Variable` has no `is_ref`
-//!     flag (model gap), so the deref branch is omitted (no inout in the corpus).
+//!   * `inout(name) : T` params and `inout(name) := place` locals read as
+//!     `(*name)` (`_var_read_code`, keyed on `Variable.is_ref`).
 //!   * The `value.type.isClosure` fallback closure-detection (Gap 2: FuncVal
 //!     carries no TypeValue) is omitted.
 open(import("std/string"));
@@ -293,8 +293,8 @@ _generate_sm_atom :: (fn(expr : AstExpr, var_name : String, context : FunctionGe
     );
   });
   // 5) Local C variable in the resume function: comptime-only constants
-  //    inline their value; otherwise the codegen name. (`inout` deref is
-  //    omitted — yo-self Variable has no is_ref flag; documented divergence.)
+  //    inline their value; otherwise the codegen name (an `is_ref` variable
+  //    reads as `(*name)` — see `_var_read_code`).
   match(
     ei_opt,
     .Some(ei5) => match(

@@ -8,19 +8,40 @@ not rejected by a clever analysis — they are _inexpressible_.
 
 ## Where an `inout` can exist
 
-`inout` is Yo's second-class reference, and it exists in exactly ONE
-place: **parameter position**. `inout(name) : T` receives a caller lvalue
-(write-back, and no copy for big structs). Callback parameters that
-receive refs (`body : Impl(Fn(inout(v) : T) -> R)`, as in
-`Mutex.with_lock`) are the same thing one level down.
+`inout` is Yo's second-class reference, and it exists in exactly TWO
+places: **parameter position** and **local binding position**.
+`inout(name) : T` receives a caller lvalue (write-back, and no copy for big
+structs); callback parameters that receive refs
+(`body : Impl(Fn(inout(v) : T) -> R)`, as in `Mutex.with_lock`) are the
+same thing one level down. `inout(name) := place;` binds `name`, for the
+rest of the enclosing block, to the storage `place` denotes:
 
-**Functions cannot return `inout`**, there are **no local ref bindings**
-(`inout(r) := …` is rejected with a migration recipe — fields read and
-write in place, `h.s = v`; binding the handle `b := a.b` keeps an
-object alive), and refs cannot be stored in fields, captured by
-closures, or placed inside generic types. An `inout` is born at a call
-boundary and dies when the call returns — it can never outlive the
-storage it points into.
+```rust
+x := i32(1);
+inout(y) := x;        // y names x's slot
+y = i32(2);           // writes x
+x = i32(5);           // y reads 5: the binding names the SLOT, not a value
+inout(n) := h.n;      // a field of an RC object: h's object is pinned for the scope
+inout(px) := p.x;     // a field of a value struct
+copy := y;            // copies the pointee — there is no "inout type" to store
+```
+
+A local binding accepts the same **places** an argument does (below), with
+one addition: a field reached through an RC object (`h.n`, `a.b.n`) is
+allowed and **pins** the innermost object — a hidden owning local keeps it
+alive until the binding's scope ends, on `break`, `return` and effect
+`unwind` alike — so reassigning or dropping the visible handle cannot free
+the storage the binding names. Two things a binding forbids: **moving its
+root while it is live** (`sink(own(x))` with `inout(y) := x` in scope is a
+compile error — copy the value out, or end the binding's scope first), and
+**element places** (`xs(i)`, `p.*`): a pointer into a collection's storage
+has no owner a binding could pin. Bindings are local (not at module level),
+not available inside `io.async` bodies, and take `:=` only.
+
+**Functions cannot return `inout`**, and refs cannot be stored in fields,
+captured by closures, or placed inside generic types. An `inout` is born
+at a call boundary or a binding and dies with the enclosing scope — it can
+never outlive the storage it points into.
 
 The argument passed to an `inout` parameter is a simple lvalue **place**:
 

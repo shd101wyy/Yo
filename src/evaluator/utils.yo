@@ -80,7 +80,8 @@ open(import("std/string"));
   find_variable_in_env,
   make_err_variable,
   generate_variable_id,
-  add_variable_to_begin_block_frame
+  add_variable_to_begin_block_frame,
+  find_live_inout_borrowers
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext } :: import("./context.yo");
@@ -570,6 +571,29 @@ set_expr_as_consumed :: (
             exn.throw(dyn(format_error_messages_with_help(entries, hint)));
           });
           v := match(vars.get(vars.len() - usize(1)), .Some(x) => x, .None => make_err_variable(env));
+          // `inout` local bindings (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B2):
+          // a live binding aliases this variable's SLOT; moving the slot's
+          // count out (an `own` argument) would leave the alias reading a
+          // handle it does not own, and a later write through the alias
+          // would over-release it (§2.1). Reject while any borrower is live.
+          borrowers := find_live_inout_borrowers(env, v.id);
+          if(borrowers.len() > usize(0), {
+            b := match(borrowers.get(usize(0)), .Some(x) => x, .None => make_err_variable(env));
+            b_entries := ArrayList(TokenAndError).new();
+            b_entries.push(
+              TokenAndError(
+                token : ast_expr_token(expr),
+                error_message : `Cannot move "${name}" while the 'inout' binding "${b.name}" borrows it: the binding would keep a reference to storage whose value was moved out. Copy the value out, or end the binding's scope before moving.`
+              )
+            );
+            b_entries.push(
+              TokenAndError(
+                token : b.token,
+                error_message : `"${b.name}" borrows "${name}" here:`
+              )
+            );
+            exn.throw(dyn(format_error_messages(b_entries)));
+          });
           match(
             v.consumed_at_token,
             // Step 5: not yet consumed → mark now. `v` IS the env's Variable
