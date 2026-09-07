@@ -1,6 +1,6 @@
 # `derive(ToString)` / `derive(Debug)` splice an unhygienic body — a file without `String` in scope compiles to `abort()`
 
-**Status:** open
+**Status:** FIXED 2026-09-07
 **Found:** 2026-09-07, while checking the `derive` arity in `std/fmt/to_string.yo`'s doc comment
 **Severity:** silent miscompile — `yo check` reports "evaluator OK", the binary aborts with no message
 
@@ -64,26 +64,46 @@ is reached, so nothing surfaces until runtime.
   every std module that derives. Only a user file that renders a derived type
   *without* naming `String` hits it.
 
-## Candidate fix (verified by hand)
+## Fix
 
-Emit the body from backtick literals and `${}` interpolation, which need no
-`String` binding in the caller's scope:
+`__derive_structural_body` now emits every literal as `"text".to_string()` — a
+`str` literal plus a method call. A `str` literal introduces no identifier and
+the method resolves through `impl(str, ToString(...))` by receiver type, so the
+body has **no free identifier** except `self`, the `__v_*` arm bindings and the
+`.`-prefixed variant tags, all of which are bound at the splice site.
 
-```rust
-impl(P, Debug(debug_string : ((self) -> `P(${self.x.debug_string()}, ${self.y.debug_string()})`)));
-```
+Verified with **no** `String` import in the deriving file:
 
-Verified: compiles and prints `P(1, 2)` in a file with **no** `String` import.
-This also removes the `+`-chain, so `__derive_structural_body` gets simpler.
+| shape | before | after |
+| --- | --- | --- |
+| `derive(P, Debug)` struct | rc=134, 1 FTT stub | `P(1, 2)` |
+| `derive(Z, Debug)` empty struct | rc=134 | `Z()` |
+| `derive(E, Debug)` payload-free enum | rc=134 | `E2.B` |
+| `derive(P, ToString)` | rc=134 | `P(1, 2)` |
+| `derive(E1, Debug)` enum w/ payload | `E1.NotFound(/tmp/x)` | unchanged |
 
-Two follow-ups worth separating:
-1. The hygiene bug itself (this issue).
-2. **`derive` should not silently swallow a def-time body failure** — the FTT stub
-   plus a green `check` is the reason this survived. That is the more general defect.
+The first route tried was a template literal (`` `P(${self.x.debug_string()})` ``),
+which is also identifier-free, but `.to_expr()` cannot parse one — filed
+separately as `issues/comptime-str-to-expr-cannot-parse-a-template-literal.md`.
 
-## Tests to add
+Note `quote(...)` is only partially hygienic, which is worth knowing before the
+next derive rule is written: a name **defined** at this module's top level does
+resolve from the splice site, but an **imported** name (`String`) does not, and
+nothing inside a `.to_expr()`-parsed string does. Measured, not assumed.
 
-`tests/derive.test.yo` cannot cover it (it imports `String`). Needs a case in
-`tests/cli-cases/` — a `build run` fixture whose source omits the `String` import
-and whose expected stdout is the rendered value, so the abort is caught as a
-runtime diff rather than a compile-time pass.
+## Regression test
+
+`tests/cli-cases/derive-render-without-string-import` — a `build run` fixture
+that derives `Debug`/`ToString` in a file with no `String` import and asserts
+all four rendered lines. Verified to FAIL on the pre-fix std (rc golden=0 run=1,
+all four stdout lines missing) and PASS after.
+
+The unit tree cannot host this: `tests/derive.test.yo` imports `String`, and
+`yo check` reports OK on the broken program either way.
+
+## Still open
+
+`derive` swallowing a definition-time body failure — the FTT stub plus a green
+`check` is why this survived a release. The `__attribute__((error(...)))` on the
+stub does not fire at `-O2` even when the function is reached. That is the more
+general defect and is NOT fixed here.

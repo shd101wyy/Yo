@@ -1,0 +1,28 @@
+// Regression fixture: this file deliberately does NOT import `String`.
+//
+// `derive(Debug)` / `derive(ToString)` build their body as SOURCE TEXT that is
+// re-parsed by `.to_expr()`, so every free name in it resolves in THIS file's
+// scope — not in std/fmt/to_string.yo's. A body that emitted `String.from(...)`
+// therefore failed definition-time evaluation here, the failure was swallowed,
+// and the emitted C was an `abort()` stub: `yo check` reported OK and the
+// program died with rc=134 and no output.
+// issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md
+//
+// tests/derive.test.yo cannot cover this — it imports `String`.
+{ Debug } :: import("std/fmt/to_string");
+{ println } :: import("std/fmt");
+P :: struct(x : i32, y : i32);
+derive(P, Debug);
+Z :: struct();
+derive(Z, Debug);
+E :: enum(A, B);
+derive(E, Debug);
+Q :: struct(a : i32);
+derive(Q, ToString);
+main :: (fn() -> unit)({
+  println(P(x : i32(1), y : i32(2)).debug_string());
+  println(Z().debug_string());
+  println(E.B.debug_string());
+  println(Q(a : i32(3)).to_string());
+});
+export(main);

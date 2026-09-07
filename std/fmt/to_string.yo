@@ -585,6 +585,18 @@ __derive_join_plus :: (fn(comptime(parts) : comptime_str, comptime(new_part) : c
 /// the caller wraps it in whichever trait impl it wants. `m` is the method
 /// invoked on each field — `".debug_string()"` for Debug, `".to_string()"`
 /// for the legacy ToString rule.
+///
+/// INVARIANT — the emitted source must contain NO free identifier.
+/// The caller splices it through `.to_expr()`, which re-parses it, so every
+/// name in it resolves in the DERIVING file's scope, not in this module's.
+/// This body therefore builds every literal as `"text".to_string()` — a `str`
+/// literal plus a method call, both resolved by type, never by scope. It used
+/// to emit `String.from("text")`, and any file deriving without `String` in
+/// scope silently got an `abort()` stub while `yo check` reported OK
+/// (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
+/// `self`, the `__v_*` arm bindings and the `.`-prefixed variant tags are the
+/// only other names, and all three are bound at the splice site.
+/// Regression test: tests/cli-cases/derive-render-without-string-import.
 __derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) -> comptime(comptime_str))({
   type_name :: Type.to_comptime_string(T);
   info :: Type.get_info(T);
@@ -594,23 +606,23 @@ __derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) 
       fc :: fields.len();
       cond(
         (fc == 0) => {
-          label :: __ts_s3("String.from(\"", type_name, "()\")");
+          label :: __ts_s3("\"", type_name, "()\".to_string()");
           label
         },
         true => {
           body :: __ts_fold_range(
             fc,
-            __ts_s3("String.from(\"", type_name, "(\")"),
+            __ts_s3("\"", type_name, "(\".to_string()"),
             (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
               with_sep :: cond(
                 (fi == 0) => a,
-                true => __derive_join_plus(a, "String.from(\", \")")
+                true => __derive_join_plus(a, "\", \".to_string()")
               );
               __derive_join_plus(with_sep, __ts_s4("self.", fname, m, ""))
             })
           );
-          full_body :: __derive_join_plus(body, "String.from(\")\")");
+          full_body :: __derive_join_plus(body, "\")\".to_string()");
           full_body
         }
       )
@@ -625,7 +637,7 @@ __derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) 
           v :: variants.get(vi);
           branch :: cond(
             (v.fields.len() == 0) =>
-              __ts_s5(".", v.name, " => String.from(\"", type_name, __ts_s3(".", v.name, "\")")),
+              __ts_s5(".", v.name, " => \"", type_name, __ts_s3(".", v.name, "\".to_string()")),
             true => {
               bindings :: __ts_fold_range(
                 v.fields.len(),
@@ -640,17 +652,17 @@ __derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) 
               );
               body :: __ts_fold_range(
                 v.fields.len(),
-                __ts_s5("String.from(\"", type_name, ".", v.name, "(\")"),
+                __ts_s5("\"", type_name, ".", v.name, "(\".to_string()"),
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   with_sep :: cond(
                     (fi == 0) => a,
-                    true => __derive_join_plus(a, "String.from(\", \")")
+                    true => __derive_join_plus(a, "\", \".to_string()")
                   );
                   __derive_join_plus(with_sep, __ts_s4("__v_", fname, m, ""))
                 })
               );
-              full_body :: __derive_join_plus(body, "String.from(\")\")");
+              full_body :: __derive_join_plus(body, "\")\".to_string()");
               __ts_s4(".", v.name, __ts_s3("(", bindings, ") => "), full_body)
             }
           );
@@ -664,7 +676,7 @@ __derive_structural_body :: (fn(comptime(T) : Type, comptime(m) : comptime_str) 
       match_body
     },
     true => {
-      label :: __ts_s3("String.from(\"", type_name, "\")");
+      label :: __ts_s3("\"", type_name, "\".to_string()");
       label
     }
   )

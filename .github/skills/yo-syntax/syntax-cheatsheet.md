@@ -1216,8 +1216,15 @@ which otherwise surfaces as the misleading
 - Code strings passed to `.to_expr()` must parse as EXACTLY ONE
   expression — wrap statement blocks in parens: `"({ a := 1; () })"`,
   never a bare `"{ … }"`.
-- A raw backtick inside a `"..."` code string splits the parse — generate
-  `String.from("x")` in the code instead of a template literal.
+- A raw backtick inside a `"..."` code string splits the parse, so a spliced
+  body cannot be a template literal
+  (issues/comptime-str-to-expr-cannot-parse-a-template-literal.md).
+  Generate `"x".to_string()`, NOT `String.from("x")`: a spliced body is
+  re-parsed, so its free names resolve in the DERIVING file's scope, and
+  `String` need not be in scope there — that emitted a silent `abort()` stub
+  with a green `yo check`
+  (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
+  A `str` literal plus a type-resolved method call introduces no name at all.
 - Invoke derives with trait arguments: `derive(Point, Eq(Point))`. The bare
   `derive(Point, Eq)` is REJECTED — since 2026-09-05 with the real cause
   anchored on the `derive(...)` line ("derive on \"Point\" failed: Argument count
