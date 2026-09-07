@@ -1595,109 +1595,80 @@ impl(
     )
   }),
   /**
-  * Replace the FIRST occurrence of `search_value` with `new_value`.
-  *
-  * `search_value` is any `Pattern` — a `str`, a `String`, a single `rune`, or
-  * a compiled `Regex`. A zero-width match (empty string pattern, regex that
-  * matches empty) PREPENDS `new_value`, matching Rust's
-  * `"abc".replace("", "-") == "-abc"`. Returns `self` unchanged when the
-  * pattern never matches.
+  * Shared left-to-right scanner behind `replace`, `replacen` and
+  * `replace_first`. When `bounded` is true it stops after `limit`
+  * replacements and copies the rest of the string verbatim; `limit == 0`
+  * with `bounded` replaces nothing.
   */
-  replace : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)({
-    (first : Option(usize)) = search_value.index_in(self, usize(0));
-    match(
-      first,
-      .Some(at) => {
-        mlen := search_value.length_in(self, at);
-        out := ArrayList(u8).with_capacity(self.len());
-        self_bytes := self.as_bytes();
-        match(
-          self_bytes.ptr(),
-          .Some(p) => {
-            if(at > usize(0), {
-              out.extend_from_ptr(p, at);
-            });
-          },
-          .None => ()
-        );
-        nv_bytes := new_value.as_bytes();
-        match(
-          nv_bytes.ptr(),
-          .Some(p) => out.extend_from_ptr(p, nv_bytes.len()),
-          .None => ()
-        );
-        (after : usize) = (at + mlen);
-        (n : usize) = self_bytes.len();
-        if(after < n, {
-          match(
-            self_bytes.ptr(),
-            .Some(p) => out.extend_from_ptr(p.add(after), n - after),
-            .None => ()
-          );
-        });
-        String.from_bytes(out)
-      },
-      .None => self
-    )
-  }),
-  /**
-  * Replace EVERY occurrence of `search_value` with `new_value`.
-  *
-  * `search_value` is any `Pattern`. A zero-width match inserts `new_value`
-  * between every pair of runes and at both ends — Rust's
-  * `"abc".replace_all("", "-") == "-a-b-c-"` — by stepping one rune past
-  * each zero-width match so the scan always advances.
-  */
-  replace_all : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)({
+  _replace_scan : (
+    fn(
+      generic(P : Type),
+      self : Self,
+      search_value : P,
+      new_value : Self,
+      limit : usize,
+      bounded : bool,
+      where(P <: Pattern)
+    ) -> Self
+  )({
     self_bytes := self.as_bytes();
     (n : usize) = self_bytes.len();
     out := ArrayList(u8).new();
     nv_bytes := new_value.as_bytes();
     (cut : usize) = usize(0);
+    (done : usize) = usize(0);
     pos := usize(0);
     while(pos <= n, {
-      match(
-        search_value.index_in(self, pos),
-        .Some(at) => {
-          // bytes between the last cut and this match
-          if(at > cut, {
+      cond(
+        // Budget spent: leave the loop so the tail copy below runs. It
+        // copies from `cut`, which is exactly the unreplaced remainder.
+        (bounded && (done >= limit)) => {
+          pos = (n + usize(1));
+        },
+        true => match(
+          search_value.index_in(self, pos),
+          .Some(at) => {
+            // bytes between the last cut and this match
+            if(at > cut, {
+              match(
+                self_bytes.ptr(),
+                .Some(p) => out.extend_from_ptr(p.add(cut), at - cut),
+                .None => ()
+              );
+            });
             match(
-              self_bytes.ptr(),
-              .Some(p) => out.extend_from_ptr(p.add(cut), at - cut),
+              nv_bytes.ptr(),
+              .Some(p) => out.extend_from_ptr(p, nv_bytes.len()),
               .None => ()
             );
-          });
-          match(
-            nv_bytes.ptr(),
-            .Some(p) => out.extend_from_ptr(p, nv_bytes.len()),
-            .None => ()
-          );
-          mlen := search_value.length_in(self, at);
-          (after : usize) = (at + mlen);
-          cut = after;
-          cond(
-            // Zero-width match: advance one rune so the next scan starts
-            // after the character the insertion sits beside — and the loop
-            // always makes progress.
-            (mlen == usize(0)) => {
-              cond(
-                (after >= n) => {
-                  pos = (after + usize(1));
-                },
-                true => {
-                  d := utf8.decode_lossy(self_bytes, after);
-                  pos = (after + d.width);
-                }
-              );
-            },
-            true => {
-              pos = after;
-            }
-          );
-        },
-        .None => {
-          pos = (n + usize(1));
-        }
+            done = (done + usize(1));
+            mlen := search_value.length_in(self, at);
+            (after : usize) = (at + mlen);
+            cut = after;
+            cond(
+              // Zero-width match: advance one rune so the next scan starts
+              // after the character the insertion sits beside — and the loop
+              // always makes progress.
+              (mlen == usize(0)) => {
+                cond(
+                  (after >= n) => {
+                    pos = (after + usize(1));
+                  },
+                  true => {
+                    d := utf8.decode_lossy(self_bytes, after);
+                    pos = (after + d.width);
+                  }
+                );
+              },
+              true => {
+                pos = after;
+              }
+            );
+          },
+          .None => {
+            pos = (n + usize(1));
+          }
+        )
       );
     });
     if(cut < n, {
@@ -1708,7 +1679,60 @@ impl(
       );
     });
     String.from_bytes(out)
-  })
+  }),
+  /**
+  * Replace EVERY occurrence of `search_value` with `new_value` (D10 —
+  * Rust's `str::replace`).
+  *
+  * `search_value` is any `Pattern` — a `str`, a `String`, a single `rune`, or
+  * a compiled `Regex`. A zero-width match inserts `new_value` between every
+  * pair of runes and at both ends — Rust's `"abc".replace("", "-") ==
+  * "-a-b-c-"` — by stepping one rune past each zero-width match so the scan
+  * always advances. Returns `self` unchanged when the pattern never matches.
+  *
+  * NOTE this replaced only the FIRST occurrence before D10. Use `replacen`
+  * for a bounded count.
+  */
+  replace : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)(
+    Self._replace_scan(self, search_value, new_value, usize(0), false)
+  ),
+  /**
+  * Replace the first `count` occurrences of `search_value` with `new_value`,
+  * leaving any later ones alone — Rust's `str::replacen`.
+  *
+  * `replacen(p, v, usize(1))` is the pre-D10 meaning of `replace`.
+  * `count == 0` returns `self` unchanged.
+  */
+  replacen : (
+    fn(
+      generic(P : Type),
+      self : Self,
+      search_value : P,
+      new_value : Self,
+      count : usize,
+      where(P <: Pattern)
+    ) -> Self
+  )(
+    Self._replace_scan(self, search_value, new_value, count, true)
+  ),
+  /**
+  * Replace the FIRST occurrence of `search_value` with `new_value`.
+  *
+  * DEPRECATED (D10), kept for one release: this is what `replace` used to
+  * mean. Write `replacen(search_value, new_value, usize(1))` instead.
+  */
+  replace_first : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)(
+    Self._replace_scan(self, search_value, new_value, usize(1), true)
+  ),
+  /**
+  * Replace EVERY occurrence of `search_value` with `new_value`.
+  *
+  * DEPRECATED (D10), kept for one release: `replace` now means this. Rust
+  * spells it `replace`, with no `replace_all` on `str`.
+  */
+  replace_all : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)(
+    Self._replace_scan(self, search_value, new_value, usize(0), false)
+  )
 );
 /// Hash trait implementation — FNV-1a hash over the string's bytes.
 /// Bytes are read through the raw buffer pointer (same pattern as `==`'s
