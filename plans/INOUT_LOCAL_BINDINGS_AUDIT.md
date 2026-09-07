@@ -1,9 +1,16 @@
 # `inout` local bindings — feasibility audit
 
-Status: **DECIDED 2026-09-07 — implementation plan in §7–§8** (audit §1–§6
-is the record the decision rests on). Written against `develop` at
-`c787fdc45` (`yo 0.2.27`) and PR #461 (`std-d14-iter-pointers`). Phase A
-(the dead runtime backstop) is PR #473.
+Status: **IMPLEMENTED 2026-09-07 (Phases A–C)** — decision in §7,
+implementation steps and landing notes in §8, soundness review in §9 (audit
+§1–§6 is the record the decision rests on). Phase A is PR #473; Phases B and
+C are on `feat/inout-local-bindings`, stacked on it. Follow-ups deliberately
+left open, in priority order: the `Iterable` marker trait (also refuses plain
+`inout(e)` on maps/sets), the mutation-summary auto-emit of invalidation
+asserts (§8 C5), the compile-time same-variable diagnostic (§8 C4), last-use
+live ranges, a user-facing codegen error channel (the async-body rejection
+currently surfaces through `codegen_fatal`'s "internal compiler error"
+wrapper, like the await-position rules). Written against `develop` at
+`c787fdc45` (`yo 0.2.27`) and PR #461 (`std-d14-iter-pointers`).
 Every "today" claim below was checked against `src/` and `std/` on that day,
 not against the historical plans (`plans/archive/BORROW_EXCLUSIVITY.md` is a
 v4 record and its "KEPT" table predates v4.1; do not read it as the current
