@@ -36,12 +36,28 @@ it away in another. Whatever selects between them is NOT the pointer type, the
 enclosing `Iterator(...)`, the `where` clause, or where `MapEntry` comes from —
 those are the same on both sides.
 
-A reduced probe (a fresh file with the same `impl` shape and a one-line `.None`
-body) reports rc=1, i.e. it behaves like `ordered_map.yo`, NOT like
-`hash_map.yo` — so `hash_map.yo` is the outlier and something in its context is
-suppressing the rewrite. The remaining difference between the two real files is
-the shape of the `next` BODY: `hash_map.yo` opens `(` + newline + `cond(`,
-while `ordered_map.yo` opens `({`.
+Three experiments narrow it to a **file-scope** trigger, not a construct-scope
+one:
+
+1. **A reduced probe fails.** A fresh file containing the same `impl` shape
+   (same `where`, same `Iterator(...)`, `MapEntry` imported from
+   `std/collections/entry.yo`) reports rc=1 — it behaves like
+   `ordered_map.yo`, so `hash_map.yo` is the outlier.
+2. **`hash_map.yo`'s rc=0 is NOT vacuous** — fmt really does process it.
+   Damaging an unrelated line (`contains_key`'s indent, ~250 lines away)
+   makes `fmt --check` report rc=1, and `fmt` then repairs that indent — while
+   leaving `Item : *(MapEntry(K, V))` on line 690 untouched in the same run.
+   So this is not fmt bailing out on the file.
+3. **The SAME block is preserved when pasted INTO `hash_map.yo`.** Appending
+   the reduced probe's `impl` verbatim to the end of `hash_map.yo` and running
+   `fmt` leaves BOTH `Item : *(MapEntry(K, V))` lines (690 and 998) intact —
+   the identical text that gets rewritten in a standalone file.
+
+So something at FILE scope in `hash_map.yo` makes the formatter keep the
+parentheses, and it is not the pointer type, the enclosing `Iterator(...)`,
+the `where` clause, where `MapEntry` comes from, or the surrounding `impl`.
+The mechanism is NOT yet isolated — that needs reading `src/formatter.yo`,
+which is why this is filed rather than fixed.
 
 ## Why it matters
 
