@@ -1,9 +1,15 @@
 # `inout` local bindings — feasibility audit
 
-Status: **DECIDED 2026-09-07 — implementation plan in §7–§8** (audit §1–§6
-is the record the decision rests on). Written against `develop` at
-`c787fdc45` (`yo 0.2.27`) and PR #461 (`std-d14-iter-pointers`). Phase A
-(the dead runtime backstop) is PR #473.
+Status: **IMPLEMENTED 2026-09-07 (Phases A–C, D1, D3)** — decision in §7,
+implementation steps and landing notes in §8, soundness review in §9 (audit
+§1–§6 is the record the decision rests on). Phase A is PR #473; Phases B and
+C are on `feat/inout-local-bindings`, stacked on it. Follow-ups deliberately
+left open, in priority order: the `Iterable` marker trait (also refuses plain
+`inout(e)` on maps/sets), the compile-time same-variable diagnostic (§8 C4), last-use
+live ranges, a user-facing codegen error channel (the async-body rejection
+currently surfaces through `codegen_fatal`'s "internal compiler error"
+wrapper, like the await-position rules). Written against `develop` at
+`c787fdc45` (`yo 0.2.27`) and PR #461 (`std-d14-iter-pointers`).
 Every "today" claim below was checked against `src/` and `std/` on that day,
 not against the historical plans (`plans/archive/BORROW_EXCLUSIVITY.md` is a
 v4 record and its "KEPT" table predates v4.1; do not read it as the current
@@ -517,10 +523,42 @@ files with the stage-1 binary, `scripts/bootstrap/fixpoint_only.sh`
 exit; cli case `inout-interior-borrow-growth-panics`; release-side tests in
 `tests/ref_field_borrow.test.yo`; `issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md`.
 
-### Phase B — `inout(name) := place` for variables and fields (P1–P4)
+### Phase B — `inout(name) := place` for variables and fields (P1–P4) — **IMPLEMENTED 2026-09-07** (branch `feat/inout-local-bindings`, stacked on #473)
 
 Ships on its own; nothing in std may use the form until a seed accepts it
 (`yo-seed-gates-source-forms`), so B is user-facing first, std later.
+
+Implementation notes (what landed vs. the steps below):
+
+- B1/B3/B4 as written: `_evaluate_inout_local_binding`
+  (`src/evaluator/exprs/initialization_assignment.yo`) and
+  `_generate_inout_local_binding` (`src/codegen/exprs/init_assignment.yo`).
+  The pin is a hidden owning local created with `add_variable_to_env`; codegen
+  emits `Obj* pin = <dup(obj)>;` from the `inout(name)` node's ExprInfo
+  (`source_variable` + `macro_expansion` as the channel).
+- The `io.async` rejection (H5) is enforced in **codegen**, not the evaluator:
+  an `io.async` closure body is evaluated as an ordinary closure and the state
+  machine is a codegen decision, exactly like the await-position rules in
+  `async/state_code_gen.yo`. Pinned by
+  `tests/cli-cases/inout-binding-in-async-body-rejected`.
+- B2 as written (`VariableRare.inout_borrow_root_id`, `find_live_inout_borrowers`,
+  the gate in `set_expr_as_consumed`).
+- B2′: `VariableRare.is_inout_borrow_root` excludes the root from
+  `_optimize_dup_drop_pairs`. (NOT from `_schedule_scope_end_drops` — the two
+  share an `e3 := (e2 && !v.is_ref)` line; patching the scheduler would skip
+  the root's own drop.)
+- Two pre-existing bugs surfaced and fixed on the way:
+  `issues/fixed/inout-return-in-nested-block-shadows-pointer.md` (`return(m)`
+  of an `inout` PARAM inside a nested block emitted a self-dereferencing
+  shadow) and `issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md`
+  (the same-frame alias dup elision released the shared object when the base
+  was reassigned in a nested block — a use-after-free in safe code on the
+  shipped compiler; plus the alias-reassigned leak and the chained-alias
+  under-release). Both carry regression tests (`tests/ref_params.test.yo`,
+  `tests/rc.test.yo`).
+- Same-frame alias semantics matter for tests: `h2 := h` shares ONE count
+  unless `h` or `h2` is reassigned in the block, so `rc()` expectations must
+  say which case they are in.
 
 - **B1 Evaluator — accept the binding.**
   `src/evaluator/exprs/initialization_assignment.yo:159-173`: replace the
@@ -607,7 +645,55 @@ Ships on its own; nothing in std may use the form until a seed accepts it
 - **B7 Gate.** Standing gates + `tests/ref_*.test.yo`, `tests/comptime_ref`,
   `tests/inout_*`, `tests/iterator_combinators` (inout-heavy).
 
-### Phase C — the borrowed `for` (P5, one shape)
+### Phase C — the borrowed `for` (P5, one shape) — **IMPLEMENTED 2026-09-07** (same branch)
+
+Implementation notes (what landed vs. the steps below):
+
+- The seed gating turned out weaker than written: the borrowed arm lives
+  inside the macro's `quote(...)` template, which the seed only PARSES
+  (expansion happens in user code compiled by the stage-1 binary), so Phase
+  C landed in the same PR as Phase B.
+- C1 **trait deferred**: the macro duck-types `.iter()`; a collection without
+  it (`Array(T, N)`, a combinator chain) fails with the ordinary
+  method-not-found error. The `Iterable` marker trait — which would also let
+  the macro refuse plain `inout(e)` on maps/sets (key mutation is a semantic
+  hazard, not a memory-safety one) — is a follow-up.
+- C2 as written: a deref hop is accepted as a binding place only when the
+  RHS token is privileged (`is_implicitly_unsafe_capable_file`), no pin.
+- C3: `__borrow_guard(coll)` / `__BorrowGuard(C)` (a `Dispose`-carrying ref
+  struct, the `__MutexUnlocker` pattern) plus the `__yo_borrow_acquire` /
+  `__yo_borrow_release` prelude builtins; `__yo_borrow_acquire` panics on
+  saturation (H14). The guard is one allocation per loop — measure before
+  optimising.
+- C4 **static in-body check deferred**: the runtime flag is the guarantee;
+  the same-variable `push` is pinned as a RUNTIME panic
+  (`tests/cli-cases/inout-for-push-same-variable-panics`).
+- C5 landed as the **compiler auto-emit** (the maintainer rejected a
+  hand-written assert list as unmaintainable and unknowable to third-party
+  authors): `_maybe_emit_method_entry_borrow_assert`
+  (`src/codegen/functions/generation.yo`) emits
+  `__yo_borrow_assert_unborrowed((void*)self)` at the entry of every method
+  whose first parameter is `self` of reference-struct type and whose body
+  may mutate storage reachable from its parameters —
+  `function_may_mutate_param_storage`, a second mode of
+  `src/evaluator/effects/mutation_summary.yo` that counts ANY store rooted at
+  a parameter / `inout` binding / global / RC-typed local, any deref-hop
+  store, realloc/free/memmove externs, and every callee it cannot see
+  through (MAY-analysis, memoized per function, separate memo from the
+  RC-drop mode). Read-only methods answer "no" and cost nothing. Because Yo
+  has no `mut`, the body IS the signature; std carries no manual asserts.
+  Wrappers (`HashSet`, `OrderedMap`) are covered on the wrapper object
+  because their mutating methods store through `self` (H37).
+- Map form `(k, inout(v))` is parsed by the macro from the `tuple` head.
+- **v1 limitation (H5 revisited):** the borrowed `for` inside an `io.async`
+  body that suspends is REJECTED, not supported — the element binding is an
+  `inout` local and the codegen rejection covers every `inout` local in a
+  state machine (pinned by `tests/cli-cases/inout-for-in-async-body-rejected`).
+  §9 H5's "unaffected" holds for the POINTEE (heap storage) but the binding's
+  own pointer would have to be spilled into the state struct; lifting the
+  restriction is the follow-up. A body without an `await` is a plain
+  function and works.
+
 
 Requires B in the **seed** (the prelude will contain `inout(x) := …`), so C
 lands one release after B. C1–C3 can be built and tested against a
@@ -703,14 +789,40 @@ feature-carrying binary before that.
   (`for` value vs borrowed form; `iter()` is the protocol, not the API);
   `plans/archive/ITERATOR_REDESIGN.md` banner gains a pointer here.
 
-### Phase D — optional follow-ups (not scheduled)
+### Phase D — follow-ups — **D1 and D3 IMPLEMENTED 2026-09-07 (same branch); D2 deferred**
 
-- A strict pragma that turns the alias-only runtime cases into compile
-  errors by rejecting calls the mutation summary cannot see through.
-- Last-use live ranges for `inout` bindings (Hylo), so a `push` after the
-  last read of `x` inside the body is accepted statically.
-- Hiding pointer-yielding `iter()` from non-privileged code once the borrowed
-  `for` covers every use.
+- **D1 `pragma(Pragma.StrictBorrow)` — implemented.** The prelude's borrowed
+  `for` wraps its loop in the compiler builtin `__yo_borrow_check(pin, loop)`
+  (`evaluate_borrow_check`, `src/evaluator/exprs/runtime.yo`; codegen emits
+  only the loop). After the loop body is evaluated — so every callee it
+  reaches has an evaluated body — `strict_borrow_violations`
+  (`mutation_summary.yo`) walks the loop and, for each call written in a
+  strict file, requires the per-parameter mask to vouch for it: a mutating
+  callee whose mutated parameter receives the borrowed collection (the pin,
+  or any same-frame alias recorded by `is_owning_the_same_rc_value_as`) is
+  an error, as is a callee with `all` (unknown effects), an unresolvable
+  callee (closure, `dyn`, function pointer, effect handler), an extern with
+  a callback, or an extern that may write through a borrowed argument.
+  Calls in non-strict files, including the prelude's own loop machinery,
+  stay on the runtime flag. Tests: `tests/for_macro_borrow_strict.test.yo`.
+- **D3 raw pointer VALUES only in unsafe-capable code — implemented.** The
+  central evaluator (`_evaluate_expression_raw_wrapper`, `_expr.yo`) rejects
+  any runtime expression whose type is a pointer or carries one directly
+  (`Option(*(T))`, one level deep so the collections themselves stay usable)
+  outside `unsafe(...)`, outside a privileged file, and outside the standard
+  library (the trusted base hands pointers between its own layers, e.g.
+  `string_builder.yo` passing `s.ptr()` into its byte buffer, without
+  dereferencing them in every file). `it.next()` on a
+  pointer iterator is therefore an error in safe code; the borrowed `for`
+  (whose expansion carries the prelude's privilege) is the one way safe code
+  borrows an element; combinators that never surface the pointer (`count`,
+  `map`) remain available. Every std/test user of `iter()` was already
+  privileged. Test: `pointer_value_rejected` in
+  `tests/ref_local_binding.test.yo`.
+- **D2 last-use live ranges — deferred.** It changes when the borrow flag is
+  released (the binding's last use instead of the loop's end): a liveness
+  analysis plus a restructured expansion, for little value now that methods
+  mutating only fresh storage no longer assert.
 
 ## 9. Soundness review (2026-09-07, after the decision)
 
@@ -768,6 +880,96 @@ steps above; this section is the record of what was checked.
   storage reachable exclusively through `self`; otherwise an unasserted
   handle to the inner storage can invalidate the borrow. `OrderedMap` over a
   private `HashMap` is the worked example.
+
+**Second pass (2026-09-07, after merging `develop` into the branch).** Re-read
+the whole branch diff shape by shape. One hole, fixed: both emitters of the
+method-entry / realloc-free assert spelled the receiver `(void*)self`, which
+for an `inout(self) : Self` method on a reference struct is the address of
+the CALLER's handle slot (`T** self`), not the object — the assert read stack
+memory, so a mutating `inout(self)` method under a live borrow slipped
+through (`issues/fixed/inout-self-method-borrow-assert-reads-handle-slot.md`;
+the emitters now deref when `FuncMeta.param_is_ref[0]`). Checked and found
+sound: the param-storage mutation summary (deref hops, index/call targets
+resolved to their root, `is_ref`/parameter/global roots, RC-typed locals as
+possible aliases, separate memo per mode, unresolvable → mutates); the
+interior-argument acquire (the container goes through the atom emitter, which
+already derefs `is_ref` roots); the pin selection, place rules, consume gate,
+alias-elision fix, return path, env accessors and the prelude expansion. The
+"loop traversal borrow-chain optimisation" a TS-era reviewer would ask about
+is a stubbed no-op in this compiler (`begin.yo`), so it cannot elide a drop
+under an `inout` binding.
+
+**Third pass (2026-09-07, adversarial probes on the built compiler).** Three
+more findings, all fixed on the branch:
+- An `inout` argument (parameter OR local binding) passed to an `own`
+  parameter moved the referenced slot's only count into the callee — a UAF
+  in safe code, pre-existing for parameters
+  (`issues/fixed/inout-arg-to-own-param-moves-without-dup.md`). Copy
+  semantics now: the callee gets a `+1`, the binding stays usable.
+- The param-storage mutation summary read the typed declaration
+  `(r : T) = init` as a store to an unresolvable place, so read-only methods
+  with a typed local (`ArrayList.index_of`) carried an entry assert and
+  panicked inside a borrowed `for`
+  (`issues/fixed/borrow-assert-typed-local-declaration-false-positive.md`).
+- `inout(r) := u` with a `unit` root reached codegen with no C storage to
+  address (internal compiler error); the evaluator now rejects it.
+- An index-trait read `xs(i)` was an OPAQUE call to the summary (its callee
+  is recorded on the call's ExprInfo, not on the func expr), so every method
+  reading an element by index carried an entry assert
+  (`issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md`).
+
+Probed and confirmed correct: tail-return and explicit `return` of a borrowed
+root, an `own` parameter as root, bindings rooted at an `inout` parameter's
+field (object and value struct), an array root with an index store through
+the binding, `contains`/`get`/`==`/`into_iter().collect()` inside a borrowed
+body (no assert), `sort` inside a borrowed body (panics, as designed).
+
+**Per-parameter mutation masks (2026-09-07, implemented after the third
+pass).** The first C5 summary was a single MAY bit per function: any
+mutating callee anywhere in the body flagged the caller, so `xs.clone()`
+inside `for(xs, inout(x) => …)` panicked (`clone` pushes into its fresh
+result) and every method iterating `self` with `for` was asserted. The
+summary is now `ParamMutationMask` (`function_param_mutation_mask`,
+`src/evaluator/effects/mutation_summary.yo`): per parameter, whether storage
+reachable from it may be mutated — its OWN storage (`shallow`: a field or
+slot store, a deref store through a pointer read from it, a realloc of its
+buffer) or storage reached THROUGH it (`deep`: another object it holds) —
+plus `all` for unknown effects. Codegen asserts every RC-object parameter in
+the mask, dereferencing `inout` receivers. Precision comes from rooting each
+value in the function being analysed: `Param(i)`, `Fresh` (allocated here,
+holding only fresh or inert values), `Shell` (allocated here but holding
+rooted handles — an iterator over `self`), `Rooted` (unknown), `None`
+(inert). Locals get their root from a fixpoint over the body's definitions,
+pattern bindings and flows; callees contribute their mask mapped through the
+call's arguments (receiver first for method-form calls) and the root of what
+they return (`Param(j)` maps back to the argument). A shell's own fields may
+be written freely (the iterator's cursor), so a read-only `for` over `self`
+contributes nothing; a deep mutation through a shell is unknown. Everything
+that could make fresh storage reachable from a parameter taints it: storing
+it into parameter or global storage, passing it to a callee that mutates a
+rooted argument (the callee may store any argument anywhere), a constructor
+argument, a closure capture, a callee with unknown effects, an extern that
+may mutate or writes bytes (`memmove`/`memcpy`/`memset`). Allocation externs
+(`malloc`/`__yo_malloc`/`calloc`) return fresh storage. Cycles are optimistic
+on in-progress edges and memoized only when no such edge was crossed (the
+`_MsW` discipline); a callee whose body is not yet evaluated answers
+`all` and poisons no memo. A callee's own `all` verdict is mapped through the
+call's argument roots unless a closure is involved (the callee is one, or an
+argument is function-typed: captures are storage the call does not name).
+Diagnostics: `YO_DEBUG_BORROW_MASK=1` prints every analysed function's mask,
+the roots its locals settled on, and the expression that made a mask `all`. Verified: `clone`/`collect`/`index_of`/`for`-over-self
+methods carry no assert; `push`/`pop`/`insert`/`sort`, a method storing a
+fresh list into `self` and then pushing into it, and nested-storage mutation
+(`OrderedMap.insert` → `self._map.insert`) still assert.
+
+Overhead measured on the stage-1 binary: a 400 M-iteration `push`/`pop` +
+100 M-iteration `push_str`/`clear` microbenchmark runs 0.45 s (seed, no
+asserts) vs 0.48–0.49 s (entry asserts): ~7–9 % on ~1 ns method bodies, one
+predictable load-compare per mutating method call; read-only methods,
+bindings to variables/fields, and the per-loop acquire/release cost nothing
+measurable. The mask does not change the cost of a mutating call; it removes
+asserts (and false panics) from methods that mutate only their own fresh
+storage.
 
 **Where the guarantee comes from, stated once.** For P1–P4 the guarantee is
 static: slot lifetime by scoping, escape by the absence of a type, moves by

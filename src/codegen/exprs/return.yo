@@ -797,7 +797,39 @@ generate_return :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
           }
         )
       };
-      return_temp_var := match(ei.variable_name, .Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))), .None => Option(String).None);
+      // `return(name)` where `name` is an `inout` binding — a parameter or a
+      // local `inout(name) := place` — reads as `(*name)`, and its return temp
+      // is derived from the SAME source name: `T name = (*name);` would declare
+      // a shadowing C local whose initializer dereferences ITSELF (in C the
+      // declarator is in scope in its own initializer) — "indirection requires
+      // pointer operand" whenever the return sits in a nested block, where the
+      // shadow is legal C (issues/fixed/inout-return-in-nested-block-shadows-pointer.md;
+      // the deferred-dup site above has the same guard). Return `(*name)`
+      // directly instead.
+      (arg_is_ref_atom : bool) = false;
+      if(ast_expr_is_atom(arg), {
+        match(
+          context.base.get_expr_info(arg),
+          .Some(ra_ei) => {
+            ra_vars := get_variables_from_env(ra_ei.env, ast_expr_token(arg).value);
+            if(ra_vars.len() > usize(0), {
+              match(
+                ra_vars.get(ra_vars.len() - usize(1)),
+                .Some(rav) => if(rav.is_ref, {
+                  arg_is_ref_atom = true;
+                }),
+                .None => ()
+              );
+            });
+          },
+          .None => ()
+        );
+      });
+      return_temp_var := if(
+        arg_is_ref_atom,
+        Option(String).None,
+        match(ei.variable_name, .Some(vn) => Option(String).Some(get_variable_name_for_codegen(vn, Option(Environment).Some(ei.env))), .None => Option(String).None)
+      );
       match(
         return_temp_var,
         .Some(rtv) => if(!handled_deferred_dup && !is_unit && !(rtv == arg_code), {

@@ -15,11 +15,12 @@
 //! gated dead (in_async_state_machine = .None for the corpus).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call_of, ast_expr_token, BK_COMPTIME, BK_ARRAY_VAL, BK_INOUT, BF_DOT } :: import("../../expr.yo");
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings } :: import("../../expr_info.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
+{ t_ptr } :: import("../../types/creators.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -149,6 +150,129 @@ _emit_destructurings :: (fn(destructurings : ArrayList(RuntimeDestructuring), rh
   });
 });
 /// Initialization assignment. Mirrors `generateInitializationAssignment`.
+/// `inout(name) := place;` → `T* name = &(place);` (+ the owner pin).
+/// Evaluator twin: `_evaluate_inout_local_binding`
+/// (evaluator/exprs/initialization_assignment.yo) — it has already rejected
+/// every shape this cannot lower (rvalues, index/deref places, async bodies,
+/// module level, `::`), so the place code here is always a C lvalue chain.
+///
+/// - The place is generated as an rvalue expression and then ADDRESSED: a
+///   `(*x)` (the place is itself an `inout`) folds to `x` — the pointer is
+///   passed through, never re-taken; anything else becomes `(&(code))`.
+///   A spill would be a COPY, so there is no spill fallback: an unexpected
+///   shape is a codegen fatal, not a silent value binding.
+/// - The declared C type is the pointer to the place's type
+///   (`get_variable_type_string` over `t_ptr(T)`, so array/function
+///   declarators are spelled by the same code that spells them everywhere).
+/// - The PIN (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §8 B4): when the evaluator
+///   stamped the `inout(name)` node with `source_variable` (the hidden owning
+///   local) and `macro_expansion` (the object expression), emit
+///   `Obj* pin = <dup(obj)>;` BEFORE the binding. The pin is an ordinary
+///   owning local of the frame, so the scope-end drop the evaluator already
+///   scheduled for it releases the `+1` on every exit path.
+_generate_inout_local_binding :: (fn(lhs : AstExpr, rhs : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
+  em := context.base.emitter;
+  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
+  name_expr := match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
+  name_ei := match(
+    context.base.get_expr_info(name_expr),
+    .Some(e) => e,
+    .None => return(Option(String).Some(`// Error: No type information for inout binding ${ast_expr_token(name_expr).value}`))
+  );
+  var_name := ast_expr_token(name_expr).value;
+  place_type := resolve_some_type_to_concrete(name_ei.ty);
+  // §9 H5: a state machine addresses a local both as `sm->var_x` and as a
+  // per-state C copy, so a reference binding could read a stale copy after a
+  // write through it. The evaluator cannot see the state machine (an
+  // `io.async` closure body is evaluated as an ordinary closure; the machine
+  // is a codegen decision, like the await-position rules in
+  // async/state_code_gen.yo), so the rejection lives here.
+  if(context.in_async_state_machine.is_some(), {
+    return(
+      Option(String).Some(
+        codegen_fatal_expr(`'inout(${var_name}) := ...' is not supported inside an 'io.async' body yet. Read the value into a local, or call a function that takes 'inout(name) : T'.`)
+      )
+    );
+  });
+  // The pin, if any.
+  match(
+    context.base.get_expr_info(lhs),
+    .Some(lhs_ei) => match(
+      lhs_ei.source_variable,
+      .Some(pin_var) => match(
+        lhs_ei.macro_expansion,
+        .Some(pin_expr) => {
+          pin_code := _call_generate_expr(pin_expr, indent.clone(), context);
+          pin_decl := indent.clone();
+          pin_decl.push_string(get_variable_type_string(pin_var.ty, pin_var.name.clone(), context.base));
+          pin_decl.push_str(" = ");
+          pin_decl.push_string(generate_dup_code_for_value(pin_code, pin_var.ty, context));
+          pin_decl.push_str(";");
+          em.emit_string_line(pin_decl);
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    .None => ()
+  );
+  place_code := _call_generate_expr(rhs, indent.clone(), context);
+  // Address the place: fold a `(*x)` pass-through, otherwise `(&(code))`.
+  (addr : String) = String.new();
+  if(place_code.starts_with("(*") && place_code.ends_with(")"), {
+    addr = place_code.substring(usize(2), place_code.len() - usize(1));
+  }, {
+    if(!_is_c_lvalue_chain(place_code), {
+      return(Option(String).Some(codegen_fatal_expr(`inout binding "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
+    });
+    addr = String.from("(&(");
+    addr.push_string(place_code.clone());
+    addr.push_str("))");
+  });
+  line := indent.clone();
+  line.push_string(get_variable_type_string(t_ptr(place_type), var_name.clone(), context.base));
+  line.push_str(" = ");
+  line.push_string(addr);
+  line.push_str(";");
+  em.emit_string_line(line);
+  Option(String).Some(String.from(""))
+});
+/// Is `code` plausibly a C lvalue chain — it starts with an identifier (after
+/// any `(`/`*` prefix) and its brackets balance? The shapes the evaluator
+/// admits as `inout` places (variables, field chains) lower to exactly these;
+/// this is a last-line guard against a codegen path that spilled the place
+/// into a temp or a compound literal, which would silently bind a COPY.
+_is_c_lvalue_chain :: (fn(code : String) -> bool)({
+  n := code.len();
+  if(n == usize(0), return(false));
+  (i : usize) = usize(0);
+  while((i < n) && ((code.byte_at(i) == u8(40)) || (code.byte_at(i) == u8(42)) || (code.byte_at(i) == u8(32))), {
+    i = (i + usize(1));
+  });
+  if(i >= n, return(false));
+  c0 := code.byte_at(i);
+  is_ident_start := (((c0 >= u8(97)) && (c0 <= u8(122))) || ((c0 >= u8(65)) && (c0 <= u8(90))) || (c0 == u8(95)));
+  if(!is_ident_start, return(false));
+  // Balance brackets over the WHOLE string (the leading `(`/`*` prefix that
+  // the identifier scan skipped above counts too: `(*p).value` is a valid
+  // lvalue chain whose first `(` closes after the identifier).
+  (depth : i32) = i32(0);
+  i = usize(0);
+  while(i < n, {
+    c := code.byte_at(i);
+    cond(
+      ((c == u8(91)) || (c == u8(40))) => {
+        depth = (depth + i32(1));
+      },
+      ((c == u8(93)) || (c == u8(41))) => {
+        depth = (depth - i32(1));
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  depth == i32(0)
+});
 generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, context : FunctionGenerationContext) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -157,6 +281,9 @@ generate_initialization_assignment :: (fn(expr : AstExpr, indent : String, conte
   // Compile-time variable → no runtime code.
   if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
     return(Option(String).Some(String.from("")));
+  });
+  if(ast_expr_is_fn_call_of(lhs, BK_INOUT, Option(usize).Some(usize(1))), {
+    return(_generate_inout_local_binding(lhs, rhs, indent.clone(), context));
   });
   // Destructuring binds.
   match(

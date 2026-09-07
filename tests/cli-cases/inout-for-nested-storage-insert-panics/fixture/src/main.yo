@@ -1,0 +1,14 @@
+{ OrderedMap } :: import("std/collections/ordered_map");
+{ assert } :: import("std/assert");
+open(import("std/string"));
+main :: (fn() -> unit)({
+  scores := OrderedMap(String, i32).new();
+  scores.insert(String.from("a"), i32(1));
+  scores.insert(String.from("b"), i32(2));
+  for(scores, (k, inout(v)) => {
+    scores.insert(String.from("c"), i32(3)); // panics: mutates the inner map while `v` borrows an entry
+    v = (v + i32(1));
+  });
+  assert(false, "unreachable: insert must panic first");
+});
+export(main);

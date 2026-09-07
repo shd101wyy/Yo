@@ -1,0 +1,7 @@
+build :: import("std/build");
+exe :: build.executable({ name : "prog", root : "./src/main.yo" });
+run_exe :: build.run(exe);
+run_step :: build.step("run", "Run the program");
+run_step.depend_on(run_exe);
+install :: build.step("install", "Build");
+install.depend_on(exe);

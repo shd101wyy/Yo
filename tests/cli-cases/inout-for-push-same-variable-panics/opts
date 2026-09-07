@@ -1,0 +1,9 @@
+# plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7 decision 2 / §8 C3: the borrowed `for`
+# holds the collection's runtime borrow flag for the whole loop, so growing
+# the collection being iterated — here through the SAME variable — panics at
+# `push` instead of reallocating the buffer under the live element reference.
+# (A compile-time diagnostic for the lexically visible case is the C4
+# follow-up; the runtime flag is the guarantee.) `build run` propagates the
+# panic as a non-zero rc; stdout keeps only the diagnostic substring.
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300

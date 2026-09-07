@@ -56,6 +56,7 @@ Each of the following is a compile error in a file without `pragma(Pragma.AllowU
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `*(T)` type expression in a parameter, field, or return      | "raw pointer types are not available in safe code"                               | owned collections (`ArrayList`/`String`), `inout(name) : T`, a reference-semantics type, or a stdlib wrapper |
 | `&(expr)` address-of                                         | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` parameter, or pass the owned collection                                          |
+| Holding a raw pointer VALUE (`it.next()` on a pointer iterator yields `Option(*(T))`) | "Raw pointer values are not available in safe code"                       | `for(coll, inout(x) => …)` borrows an element for the loop; iterator combinators (`count`, `map`) stay available |
 | `unsafe(...)` call                                           | "`unsafe(...)` is not available in safe code"                                    | Use the stdlib's safe API, or add `pragma(Pragma.AllowUnsafe);` if you genuinely need raw ops      |
 | `asm(...)` block                                             | "inline assembly is not available in safe code"                                  | Same                                                                                               |
 | `extern(...)` / `c_include(...)` declaration                 | "extern FFI declarations are not available in safe code"                         | Call a stdlib wrapper (e.g., `std/sys`, `std/fs`)                                                  |
@@ -83,7 +84,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout` is **second-class** and exists ONLY in parameter position (`inout(name) : T`). Functions cannot return `inout`, there are no local ref bindings (`inout(r) := …` is rejected — fields read and write in place), there is no first-class "`inout` type", and a borrow cannot leak into a struct field or a closure capture. An `inout` argument is a simple lvalue place (a variable, or `var.field` rooted at a local/param), so the borrowed storage is alive for the whole call by construction. See [FLOWABILITY.md](./FLOWABILITY.md).
+`inout` is **second-class** and exists in parameter position (`inout(name) : T`) and as a local binding (`inout(name) := place`). Functions cannot return `inout`, there is no first-class "`inout` type", and a borrow cannot leak into a struct field or a closure capture. An `inout` argument or binding names a simple lvalue place (a variable, or a field path rooted at one); a binding through an RC object pins that object for its scope, and a variable cannot be moved while a binding to it is live — so the borrowed storage is alive for the whole borrow by construction. Element places (`xs(i)`) are not bindable by hand; elements are borrowed only through `for(coll, inout(x) => …)`, which pins the collection and holds its runtime borrow flag for the loop. See [FLOWABILITY.md](./FLOWABILITY.md).
 
 Use cases:
 

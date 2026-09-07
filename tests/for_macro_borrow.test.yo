@@ -1,13 +1,20 @@
 { assert } :: import("std/assert");
-/// `for` macro runtime coverage — value form `for(coll, (x) => body)`
-/// across `Array(T, N)`, `ArrayList(T)`, `String`, and range copies.
-/// The borrow form `for(coll, inout(x) => body)` was REMOVED (v4 of
-/// plans/archive/BORROW_EXCLUSIVITY.md): interior refs into reallocatable
-/// storage are no longer expressible. In-place element mutation uses
-/// index writes (`coll(i) = v`); object elements mutate in place
-/// through the value handle.
+/// `for` macro runtime coverage — the value form `for(coll, (x) => body)`
+/// across `Array(T, N)`, `ArrayList(T)`, `String`, and range copies, and the
+/// BORROWED form `for(coll, inout(x) => body)` / `for(map, (k, inout(v)) => body)`
+/// (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7 decision 2): the collection is
+/// pinned and its runtime borrow flag held for the loop; each element is an
+/// `inout` local into the collection's storage (no per-element dup, in-place
+/// mutation). A container operation that could invalidate the element
+/// panics at run time — pinned by tests/cli-cases/inout-for-* (the `yo test`
+/// runner has no expected-panic assertion).
 open(import("std/collections/array_list"));
 open(import("std/string"));
+{ HashMap } :: import("std/collections/hash_map");
+{ Deque } :: import("std/collections/deque");
+{ LinkedList } :: import("std/collections/linked_list");
+{ BTreeMap } :: import("std/collections/btree_map");
+{ OrderedMap } :: import("std/collections/ordered_map");
 test("for(arr, (x) => body) iterates and reads", {
   arr := [i32(1), i32(2), i32(3), i32(4)];
   sum := i32(0);
@@ -167,3 +174,387 @@ comptime_expect_error(
     consume(total);
   })
 );
+
+// --- Borrowed form -------------------------------------------------------------
+Enemy :: struct(hp : i32, name : String);
+bump_i32 :: (fn(inout(v) : i32) -> unit)({
+  v = (v + i32(1));
+});
+test("for(list, inout(x) => body) mutates ArrayList elements in place", {
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3));
+  for(list, inout(x) => {
+    x = (x * i32(10));
+  });
+  assert(list(usize(0)) == i32(10), "0 -> 10");
+  assert(list(usize(1)) == i32(20), "1 -> 20");
+  assert(list(usize(2)) == i32(30), "2 -> 30");
+  assert(list.len() == usize(3), "length untouched");
+});
+test("borrowed for over struct elements: field writes land in the buffer", {
+  enemies := ArrayList(Enemy).new();
+  enemies.push(Enemy(hp : i32(3), name : String.from("a")));
+  enemies.push(Enemy(hp : i32(1), name : String.from("b")));
+  for(enemies, inout(e) => {
+    e.hp = (e.hp - i32(1));
+  });
+  assert(enemies(usize(0)).hp == i32(2), "a: 3 -> 2");
+  assert(enemies(usize(1)).hp == i32(0), "b: 1 -> 0");
+});
+test("borrowed for over RC elements: no per-element dup, mutate through the reference", {
+  names := ArrayList(String).new();
+  names.push(String.from("x"));
+  names.push(String.from("y"));
+  first := names(usize(0));
+  before := rc(first);
+  for(names, inout(s) => {
+    s.push_str("!");
+    assert(rc(first) == before, "the element is borrowed, not dup'd");
+  });
+  assert(names(usize(0)) == "x!", "x!");
+  assert(names(usize(1)) == "y!", "y!");
+  assert(rc(first) == before, "counts unchanged after the loop");
+});
+test("borrowed for: element handed to an inout parameter, break and continue", {
+  list := ArrayList(i32).new();
+  i := i32(0);
+  while(i < i32(6), {
+    list.push(i);
+    i = (i + i32(1));
+  });
+  for(list, inout(x) => {
+    if(x == i32(1), {
+      continue;
+    });
+    if(x == i32(4), {
+      break;
+    });
+    bump_i32(x);
+  });
+  assert(list(usize(0)) == i32(1), "0 bumped");
+  assert(list(usize(1)) == i32(1), "1 skipped by continue");
+  assert(list(usize(2)) == i32(3), "2 bumped");
+  assert(list(usize(3)) == i32(4), "3 bumped");
+  assert(list(usize(4)) == i32(4), "4 not reached (break)");
+  assert(list(usize(5)) == i32(5), "5 not reached");
+  list.push(i32(99)); // the guard released on `break`: growth is allowed again
+  assert(list.len() == usize(7), "push after the loop");
+});
+test("borrowed for: return from the body and unwind through the body release the guard", {
+  Raise :: (ctl() -> unit);
+  find_first_even :: (fn(xs : ArrayList(i32)) -> i32)({
+    for(xs, inout(x) => {
+      if((x % i32(2)) == i32(0), {
+        return(x);
+      });
+    });
+    i32(-1)
+  });
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(4));
+  list.push(i32(5));
+  assert(find_first_even(list) == i32(4), "returned from inside the borrowed loop");
+  list.push(i32(6)); // must not panic: the return path released the flag
+  assert(list.len() == usize(4), "push after the early return");
+  unwind_out :: (fn(xs : ArrayList(i32)) -> unit)({
+    (raise : Raise) = (
+      () -> {
+        unwind(());
+      }
+    );
+    for(xs, inout(x) => {
+      x = i32(0);
+      raise();
+    });
+    assert(false, "unreachable");
+  });
+  unwind_out(list);
+  assert(list(usize(0)) == i32(0), "the first write landed before the unwind");
+  list.push(i32(7)); // must not panic: the unwind path released the flag
+  assert(list.len() == usize(5), "push after the unwind");
+});
+test("nested borrowed loops over two collections and over the same collection", {
+  a := ArrayList(i32).new();
+  a.push(i32(1));
+  a.push(i32(2));
+  b := ArrayList(i32).new();
+  b.push(i32(10));
+  b.push(i32(20));
+  for(a, inout(x) => {
+    for(b, inout(y) => {
+      y = (y + x);
+    });
+  });
+  assert((b(usize(0)) == i32(13)) && (b(usize(1)) == i32(23)), "inner loop saw both outer elements");
+  total := i32(0);
+  for(a, inout(x) => {
+    for(a, inout(y) => {
+      total = (total + (x * y));
+    });
+  });
+  assert(total == i32(9), "shared reads of one collection in nested borrowed loops");
+  a.push(i32(3)); // both guards released
+  assert(a.len() == usize(3), "push after nested loops");
+});
+test("borrowed for over a rvalue collection", {
+  make :: (fn() -> ArrayList(i32))({
+    xs := ArrayList(i32).new();
+    xs.push(i32(5));
+    xs
+  });
+  sum := i32(0);
+  for(make(), inout(x) => {
+    x = (x + i32(1));
+    sum = (sum + x);
+  });
+  assert(sum == i32(6), "the hidden local kept the temporary alive for the loop");
+});
+test("for(map, (k, inout(v)) => body): key by value, value borrowed", {
+  scores := HashMap(String, i32).new();
+  scores.insert(String.from("a"), i32(1));
+  scores.insert(String.from("b"), i32(2));
+  keys := ArrayList(String).new();
+  for(scores, (k, inout(v)) => {
+    v = (v + i32(10));
+    keys.push(k);
+  });
+  assert(scores.get(String.from("a")) == Option(i32).Some(i32(11)), "a bumped in place");
+  assert(scores.get(String.from("b")) == Option(i32).Some(i32(12)), "b bumped in place");
+  assert(keys.len() == usize(2), "both keys visited");
+  scores.insert(String.from("c"), i32(3)); // guard released
+  assert(scores.len() == usize(3), "insert after the loop");
+});
+test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
+  dq := Deque(i32).new();
+  dq.push_back(i32(1));
+  dq.push_back(i32(2));
+  for(dq, inout(x) => {
+    x = (x + i32(100));
+  });
+  assert(dq.pop_front() == Option(i32).Some(i32(101)), "deque element mutated in place");
+  ll := LinkedList(i32).new();
+  ll.push_back(i32(1));
+  ll.push_back(i32(2));
+  for(ll, inout(x) => {
+    x = (x * i32(3));
+  });
+  assert(ll.pop_front() == Option(i32).Some(i32(3)), "linked-list node value mutated in place");
+  bt := BTreeMap(i32, i32).new();
+  bt.insert(i32(1), i32(10));
+  bt.insert(i32(2), i32(20));
+  for(bt, (k, inout(v)) => {
+    v = (v + k);
+  });
+  assert(bt.get(i32(2)) == Option(i32).Some(i32(22)), "btree value mutated in place");
+  om := OrderedMap(i32, i32).new();
+  om.insert(i32(7), i32(1));
+  for(om, (k, inout(v)) => {
+    v = (v + k);
+  });
+  assert(om.get(i32(7)) == Option(i32).Some(i32(8)), "ordered-map value mutated in place");
+});
+// The element binding is an `inout` local: it cannot be captured by a
+// closure (the existing second-class-reference gate).
+comptime_expect_error(
+  borrowed_element_captured :: (fn() -> unit)({
+    run :: (fn(f : Impl(Fn() -> unit)) -> unit)(f());
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(xs, inout(x) => {
+      run(() => {
+        x = i32(2);
+      });
+    });
+  })
+);
+// A combinator chain owns no storage: it has no `iter()`, so the borrowed
+// form is a compile error (use the value form).
+comptime_expect_error(
+  borrowed_form_over_a_chain :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(xs.into_iter().map(v => (v + i32(1))), inout(x) => {
+      x = i32(0);
+    });
+  })
+);
+// Read-only methods on the borrowed collection are fine inside the body: the
+// compiler emits the borrow assert only at the entry of methods whose body may
+// mutate the object (`len`, `get`, `contains` and the like answer "no").
+test("borrowed for: read-only methods on the iterated collection do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  total := i32(0);
+  for(xs, inout(x) => {
+    total = (total + (x * i32(xs.len())));
+    assert(xs.contains(x), "contains reads");
+    match(
+      xs.get(usize(0)),
+      .Some(first) => {
+        total = (total + first);
+      },
+      .None => ()
+    );
+  });
+  assert(total == i32(8), "len/contains/get inside the borrowed body");
+});
+// A user-defined collection: `iter()` delegates to the ArrayList's pointer
+// iterator, and the mutating methods take `inout(self)`. Their compiler-emitted
+// invalidation assert must read the OBJECT's borrow flag (`*self`, the
+// receiver is passed as a pointer to the caller's handle slot), not the slot's
+// address — issues/fixed/inout-self-method-borrow-assert-reads-handle-slot.md.
+// The panic side (a mutating `inout(self)` method under a live borrow) is
+// pinned by tests/cli-cases/inout-self-method-under-borrow-panics.
+Bag :: ref(struct(items : ArrayList(i32), version : i32));
+impl(
+  Bag,
+  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(inout(self) : Self) -> unit)({
+    self.version = (self.version + i32(1));
+  }),
+  reset : (fn(inout(self) : Self) -> unit)({
+    self = Bag(items : ArrayList(i32).new(), version : i32(0));
+  })
+);
+test("borrowed for over a user collection; inout(self) methods assert on the object, not the handle slot", {
+  bag := Bag(items : ArrayList(i32).new(), version : i32(0));
+  bag.items.push(i32(1));
+  bag.items.push(i32(2));
+  bag.bump_version();
+  assert(bag.version == i32(1), "field store through inout(self) outside any borrow");
+  total := i32(0);
+  for(bag, inout(x) => {
+    total = (total + x);
+    x = (x * i32(10));
+  });
+  assert(total == i32(3), "the user collection's iter() drives the borrowed loop");
+  assert((bag.items(usize(0)) == i32(10)) && (bag.items(usize(1)) == i32(20)), "elements mutated in place");
+  bag.bump_version();
+  assert(bag.version == i32(2), "the flag is released after the loop: no false panic");
+  bag.reset();
+  assert((bag.version == i32(0)) && (bag.items.len() == usize(0)), "reassigning through inout(self) replaces the caller's handle");
+  assert(rc(bag) == 1, "the old object was released, the new one is owned once");
+});
+// Two read-only shapes the compiler-emitted invalidation assert must not fire
+// for: a body that DECLARES a typed local `(r : T) = init` (`ArrayList.index_of`;
+// the declaration's lhs is a colon pair, not a place —
+// issues/fixed/borrow-assert-typed-local-declaration-false-positive.md), and a
+// body that READS elements by index `self.items(i)` (an index-trait call whose
+// callee is recorded on the call, not on its func expr —
+// issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
+impl(
+  Bag,
+  first_over : (fn(self : Self, limit : i32) -> Option(i32))({
+    (found : Option(i32)) = .None;
+    i := usize(0);
+    while((i < self.items.len()) && found.is_none(), {
+      v := self.items(i);
+      if(v > limit, {
+        found = .Some(v);
+      });
+      i = (i + usize(1));
+    });
+    found
+  })
+);
+test("borrowed for: read-only methods with typed local declarations do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(5));
+  xs.push(i32(7));
+  hits := i32(0);
+  for(xs, inout(x) => {
+    match(
+      xs.index_of(x),
+      .Some(_) => {
+        hits = (hits + i32(1));
+      },
+      .None => ()
+    );
+    x = (x + i32(1));
+  });
+  assert(hits == i32(2), "index_of inside the borrowed body");
+  bag := Bag(items : xs, version : i32(0));
+  seen := i32(0);
+  for(bag, inout(x) => {
+    match(
+      bag.first_over(i32(6)),
+      .Some(v) => {
+        seen = v;
+      },
+      .None => ()
+    );
+  });
+  assert(seen == i32(8), "a user method with a typed local inside the borrowed body");
+});
+// The invalidation assert is decided PER PARAMETER from where each mutated
+// value's storage lives (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §9, third pass):
+// a method that mutates only storage it allocated itself (`clone` pushing into
+// its result), or an iterator's own cursor while walking the collection, does
+// not mutate the collection and carries no assert. A method that makes fresh
+// storage reachable from `self` and then mutates it does — pinned by
+// tests/cli-cases/inout-for-store-fresh-into-self-panics.
+impl(
+  Bag,
+  sum_by_value_for : (fn(self : Self) -> i32)({
+    total := i32(0);
+    for(self.items, x => {
+      total = (total + x);
+    });
+    total
+  }),
+  sum_by_borrowed_for : (fn(self : Self) -> i32)({
+    total := i32(0);
+    for(self, inout(x) => {
+      total = (total + x);
+    });
+    total
+  }),
+  doubled_copy : (fn(self : Self) -> ArrayList(i32))({
+    copy := self.items.clone();
+    i := usize(0);
+    while(i < copy.len(), {
+      copy(i) = (copy(i) * i32(2));
+      i = (i + usize(1));
+    });
+    copy.push(i32(0));
+    copy
+  })
+);
+test("borrowed for: methods mutating only fresh storage, or iterating the collection, do not trip the flag", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  names := ArrayList(String).new();
+  names.push(String.from("a"));
+  names.push(String.from("bb"));
+  total := i32(0);
+  for(xs, inout(x) => {
+    snapshot := xs.clone();
+    snapshot.push(i32(100));
+    total = (total + i32(snapshot.len()));
+    collected := xs.into_iter().collect(ArrayList(i32));
+    collected.push(i32(7));
+    total = (total + i32(collected.len()));
+    x = (x + i32(1));
+  });
+  assert(total == i32(12), "clone and collect inside the borrowed body: fresh results, mutated freely");
+  assert((xs(usize(0)) == i32(2)) && (xs(usize(1)) == i32(3)), "the elements were written through");
+  for(names, inout(n) => {
+    copy := names.clone();
+    copy.push(String.from("c"));
+    n.push_str("!");
+  });
+  assert((names(usize(0)) == "a!") && (names.len() == usize(2)), "cloning a collection of RC elements inside the borrowed body");
+  bag := Bag(items : xs, version : i32(0));
+  seen := i32(0);
+  for(bag, inout(x) => {
+    seen = (seen + bag.sum_by_value_for() + bag.sum_by_borrowed_for());
+    d := bag.doubled_copy();
+    seen = (seen + i32(d.len()));
+  });
+  assert(seen == i32(26), "methods iterating self (both for forms) and mutating a fresh copy: no assert");
+});

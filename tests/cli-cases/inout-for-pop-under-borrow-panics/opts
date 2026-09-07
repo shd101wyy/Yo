@@ -1,0 +1,8 @@
+# plans/INOUT_LOCAL_BINDINGS_AUDIT.md §8 C5 / §9 H13: a LENGTH DECREASE under a
+# live borrow leaves a released or duplicated handle in a slot the element
+# reference still names — it must panic even though no realloc/free runs. The
+# assert is emitted by the COMPILER at the entry of every RC-object method
+# whose body may mutate the object (`pop` stores `self._length`), not written
+# by the collection's author. `build run` propagates the panic as rc≠0.
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300

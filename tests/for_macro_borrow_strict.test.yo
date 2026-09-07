@@ -1,0 +1,104 @@
+pragma(Pragma.StrictBorrow);
+{ assert } :: import("std/assert");
+/// `pragma(Pragma.StrictBorrow)` (plans/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D):
+/// inside a borrowed `for` body of this file, a call the compiler cannot
+/// prove harmless to the borrowed element is a COMPILE error instead of a
+/// runtime borrow panic — a mutating method on the borrowed collection or an
+/// alias of it, or a callee whose effects are unknown. Everything the
+/// per-parameter mutation mask can vouch for stays accepted.
+open(import("std/collections/array_list"));
+open(import("std/string"));
+Bag :: ref(struct(items : ArrayList(i32), version : i32));
+impl(
+  Bag,
+  iter : (fn(self : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(inout(self) : Self) -> unit)({
+    self.version = (self.version + i32(1));
+  }),
+  total : (fn(self : Self) -> i32)({
+    t := i32(0);
+    for(self.items, x => {
+      t = (t + x);
+    });
+    t
+  })
+);
+test("strict: read-only calls, fresh-storage mutation, element writes and other collections are accepted", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  others := ArrayList(i32).new();
+  names := ArrayList(String).new();
+  names.push(String.from("a"));
+  total := i32(0);
+  for(xs, inout(x) => {
+    total = (total + (x * i32(xs.len())));
+    assert(xs.contains(x), "read-only method on the borrowed collection");
+    snapshot := xs.clone();
+    snapshot.push(i32(9));
+    others.push(x); // a different collection
+    x = (x + i32(10));
+  });
+  assert(total == i32(6), "body ran twice");
+  assert((xs(usize(0)) == i32(11)) && (others.len() == usize(2)), "element writes and the other collection's growth");
+  bag := Bag(items : xs, version : i32(0));
+  seen := i32(0);
+  for(bag, inout(x) => {
+    seen = (seen + bag.total());
+    for(names, inout(n) => {
+      n.push_str("!");
+    });
+  });
+  assert((seen == i32(46)) && (names(usize(0)) == "a!!"), "a read-only method iterating self, and a nested borrowed loop over another collection");
+});
+comptime_expect_error(
+  push_on_borrowed_rejected :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(xs, inout(x) => {
+      xs.push(x);
+    });
+  })
+);
+comptime_expect_error(
+  pop_on_borrowed_rejected :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    for(xs, inout(x) => {
+      xs.pop();
+    });
+  })
+);
+comptime_expect_error(
+  alias_push_rejected :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    ys := xs;
+    for(xs, inout(x) => {
+      ys.push(x);
+    });
+  })
+);
+comptime_expect_error(
+  mutating_inout_self_method_rejected :: (fn() -> unit)({
+    bag := Bag(items : ArrayList(i32).new(), version : i32(0));
+    bag.items.push(i32(1));
+    for(bag, inout(x) => {
+      bag.bump_version();
+    });
+  })
+);
+comptime_expect_error(
+  closure_call_rejected :: (fn() -> unit)({
+    run :: (fn(xs : ArrayList(i32), f : Impl(Fn() -> unit)) -> unit)({
+      for(xs, inout(x) => {
+        f(); // unknown effects
+      });
+    });
+    xs := ArrayList(i32).new();
+    xs.push(i32(1));
+    run(xs, () => {
+      xs.push(i32(2));
+    });
+  })
+);

@@ -52,7 +52,7 @@ open(import("std/string"));
   has_control_flow,
   has_any_control_flow
 } :: import("../../expr_info.yo");
-{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
+{ Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups } :: import("../../env.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -875,6 +875,69 @@ _contains_return_for_opt :: (fn(e : AstExpr, ctx : EvalContext) -> bool)({
 /// SHARE the spliced arg nodes; yo-self expansions are fresh-id clones, so the
 /// walk must follow `macro_expansion` explicitly — the same reachability the
 /// collector uses, or a cancelled dup would survive in the emitted tree.
+/// Does `e` (following `macro_expansion`) contain an assignment `name = …`?
+/// Used by `_optimize_dup_drop_pairs`: the alias-binding dup elision
+/// (`h2 := h` sharing ONE count, the alias marked consumed so the base keeps
+/// it) is sound only while the base's count outlives every use of the alias.
+/// A reassignment of the base schedules its OLD value's drop at the end of
+/// the block the assignment sits in — INSIDE a nested block that is earlier
+/// than the alias's scope end, so the alias read freed memory
+/// (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md). When
+/// the base is reassigned anywhere in the subtree the dup is kept and each
+/// handle owns its own count.
+_subtree_assigns_variable :: (fn(e : AstExpr, name : String, ctx : EvalContext) -> bool)(
+  match(
+    e,
+    .FnCall(
+      _,
+      f,
+      fargs,
+      _,
+      _
+    ) => {
+      if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))), {
+        match(
+          fargs.get(usize(0)),
+          .Some(lhs) => if(ast_expr_is_atom(lhs) && (ast_expr_token(lhs).value == name), {
+            return(true);
+          }),
+          .None => ()
+        );
+      });
+      match(
+        expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+        .Some(ei) => match(
+          ei.macro_expansion,
+          .Some(mx) => if(recur(mx, name.clone(), ctx), {
+            return(true);
+          }),
+          .None => ()
+        ),
+        .None => ()
+      );
+      if(recur(f, name.clone(), ctx), {
+        return(true);
+      });
+      (ai : usize) = usize(0);
+      (found : bool) = false;
+      while((ai < fargs.len()) && !found, {
+        match(
+          fargs.get(ai),
+          .Some(a) => if(recur(a, name.clone(), ctx), {
+            found = true;
+          }),
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+      found
+    },
+    .Atom(
+      _,
+      _
+    ) => false
+  )
+);
 _remove_dup_calls_from_tree :: (fn(expr : AstExpr, remove_ids : HashSet(usize), ctx : EvalContext) -> unit)({
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
@@ -1050,6 +1113,13 @@ _optimize_dup_drop_pairs :: (
   //    e1-e7 gates plus the captured filter (begin.ts:1802-1804) so only
   //    variables the scheduler WOULD drop are optimized.
   remove_ids := HashSet(usize).new();
+  // Bases whose alias dup must be KEPT because the alias or the base is
+  // reassigned in this block (see `_subtree_assigns_variable`). Filled while
+  // visiting the alias (frames are walked backwards, so an alias is visited
+  // before its base) and consulted when the base itself is the candidate:
+  // the base's only dup IS the alias binding, and moving it into the alias
+  // while the alias keeps its own count would over- or under-release.
+  protected_bases := HashSet(String).new();
   // Walk the frame in REVERSE declaration order. TS iterates
   // `getVariablesNeedingDrop(env)` (begin.ts:1889, 1997), and that helper
   // returns its list ALREADY REVERSED (env.ts:2304-2305, "Return in reverse
@@ -1071,7 +1141,10 @@ _optimize_dup_drop_pairs :: (
       .Some(v) => {
         e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
         e2 := (e1 && !v.is_module_level);
-        e3 := (e2 && !v.is_ref);
+        // A root of an `inout` local binding is used through the alias, which
+        // is not a syntactic use: cancelling its dup here would MOVE the count
+        // while a binding may still write through the slot (§9 H6).
+        e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(v));
         some_undroppable := match(
           v.ty,
           .SomeT({ required_trait_types : s_rtt, resolved_concrete : s_rc }) => ((s_rc.len() == usize(0)) && (s_rtt.len() == usize(0))),
@@ -1099,9 +1172,39 @@ _optimize_dup_drop_pairs :: (
             );
           });
           base_id := base.id.to_string();
+          // Alias candidate (`v := base`): the elision shares ONE count that the
+          // BASE keeps and releases. It is sound only while nothing releases
+          // that count before the alias's last use — a reassignment of the
+          // base inside a nested block schedules the old value's drop at that
+          // block's end (UAF through the alias), and a reassignment of the
+          // alias drops a value the alias never owned (leak / over-release).
+          // Keep the dup in both cases and protect the base from the plain
+          // move path below.
+          (alias_reassigned : bool) = false;
+          if(!(base.id == v.id), {
+            (ari : usize) = usize(0);
+            while((ari < begin_args.len()) && !alias_reassigned, {
+              match(
+                begin_args.get(ari),
+                .Some(arc) => if(_subtree_assigns_variable(arc, v.name.clone(), ctx) || _subtree_assigns_variable(arc, base.name.clone(), ctx), {
+                  alias_reassigned = true;
+                }),
+                .None => ()
+              );
+              ari = (ari + usize(1));
+            });
+            if(alias_reassigned, {
+              _pb := protected_bases.insert(base_id.clone());
+              // The base may live in an OUTER frame whose epilogue runs later
+              // with its own `protected_bases`; persist the decision on the
+              // variable itself.
+              variable_mark_keep_alias_dups(base);
+            });
+          });
+          base_is_protected := ((base.id == v.id) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(v)));
           match(
             merged.dup_calls.get(base_id.clone()),
-            .Some(dups) => if(dups.len() > usize(0), {
+            .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
               // Value types with RC fields: `y = temp` is a C memcpy; both
               // copies need their own drop — never cancel (begin.ts:1900-1909).
               value_type_with_rc := (!is_reference_struct_type(base.ty) && type_contains_rc_type(base.ty));

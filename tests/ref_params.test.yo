@@ -79,3 +79,42 @@ test("ref read returns current caller value", {
   result := read_back(v);
   assert(result == i32(100), "read through ref");
 });
+// Regression (issues/fixed/inout-return-in-nested-block-shadows-pointer.md):
+// `return(m)` of an inout PARAM from inside a nested block emitted
+// `int32_t m = (*m);` — a C local shadowing the pointer parameter whose
+// initializer dereferences itself — "indirection requires pointer operand".
+// The top-level tail `m` never hit it (no nested block, no shadow).
+test("returning an inout param from inside a nested block", {
+  first_positive :: (fn(inout(m) : i32) -> i32)({
+    if(m > i32(0), {
+      return(m);
+    });
+    m = i32(-1);
+    m
+  });
+  a := i32(4);
+  assert(first_positive(a) == i32(4), "returned through the pointer");
+  assert(a == i32(4), "untouched on the early path");
+  b := i32(0);
+  assert(first_positive(b) == i32(-1), "fallthrough writes back and returns");
+  assert(b == i32(-1), "write-back landed");
+});
+open(import("std/string"));
+// issues/fixed/inout-arg-to-own-param-moves-without-dup.md: an `inout`
+// parameter passed BY VALUE to an `own` parameter hands the callee a COPY
+// (+1) of the referenced handle; the referenced slot keeps its own count and
+// the parameter stays usable. (The dup was skipped for the `(*name)` read, so
+// the callee's release over-released the caller's variable.)
+own_len :: (fn(own(v) : String) -> usize)(v.len());
+test("inout parameter passed to an own parameter copies, the referenced slot survives", {
+  via_param :: (fn(inout(p) : String) -> usize)({
+    n := own_len(p);
+    p.push_str("!");
+    n
+  });
+  s := String.from("abc");
+  n := via_param(s);
+  assert(n == usize(3), "callee saw the value");
+  assert(s == "abc!", "the referenced slot is intact and the parameter stayed usable after the own call");
+  assert(rc(s) == 1, "the copy handed to the own parameter was released by the callee; the slot owns its value once");
+});

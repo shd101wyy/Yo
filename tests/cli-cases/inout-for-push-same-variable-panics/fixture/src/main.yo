@@ -1,0 +1,12 @@
+open(import("std/collections/array_list"));
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  for(list, inout(x) => {
+    list.push(x); // panics: `list` is borrowed by this loop
+  });
+  assert(false, "unreachable: push must panic first");
+});
+export(main);

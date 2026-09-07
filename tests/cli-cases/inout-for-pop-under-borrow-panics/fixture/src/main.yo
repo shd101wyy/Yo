@@ -1,0 +1,14 @@
+open(import("std/collections/array_list"));
+{ assert } :: import("std/assert");
+main :: (fn() -> unit)({
+  list := ArrayList(i32).new();
+  list.push(i32(1));
+  list.push(i32(2));
+  list.push(i32(3)); // capacity has room: no realloc will happen below
+  for(list, inout(x) => {
+    list.pop(); // panics: a length decrease while `x` borrows an element
+    x = i32(9);
+  });
+  assert(false, "unreachable: pop must panic first");
+});
+export(main);

@@ -56,6 +56,7 @@ main :: (fn() -> unit)({
 | --------------------------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | 参数、字段或返回值中的 `*(T)` 类型                  | "raw pointer types are not available in safe code"                               | 自有集合（`ArrayList`/`String`）、`inout(name) : T`、引用语义类型（`ref(struct(...))`/`ref(enum(...))`），或标准库包装 |
 | `&(expr)` 取地址                                    | "this expression has type `*(T)`, which is not available in safe code"           | `inout(name) : T` 参数，或直接传自有集合                                                                               |
+| 持有原始指针**值**（指针迭代器的 `it.next()` 交出 `Option(*(T))`） | "Raw pointer values are not available in safe code"                              | `for(coll, inout(x) => …)` 在循环期间借用元素；迭代器组合子（`count`、`map`）仍可用 |
 | `unsafe(...)` 调用                                  | "`unsafe(...)` is not available in safe code"                                    | 使用标准库的安全 API，或在确实需要原始操作时加 `pragma(Pragma.AllowUnsafe);`                                           |
 | `asm(...)` 块                                       | "inline assembly is not available in safe code"                                  | 同上                                                                                                                   |
 | `extern(...)` / `c_include(...)` 声明               | "extern FFI declarations are not available in safe code"                         | 调用标准库包装（如 `std/sys`、`std/fs`）                                                                               |
@@ -83,7 +84,7 @@ main :: (fn() -> unit)({
 });
 ```
 
-`inout` 是**二等的**，且只存在于参数位置（`inout(name) : T`）。函数不能返回 `inout`，没有局部 inout 绑定（`inout(r) := …` 会被拒绝 —— 字段本来就能就地读写），不存在一等的"`inout` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中。inout 实参是一个简单的左值位置（变量，或以局部/参数为根的 `var.field`），因此被借用的存储按构造在整个调用期间存活。见 [FLOWABILITY.md](./FLOWABILITY.md)。
+`inout` 是**二等的**，存在于参数位置（`inout(name) : T`）和局部绑定（`inout(name) := place`）。函数不能返回 `inout`，不存在一等的"`inout` 类型"，借用也无法泄漏到 struct 字段或闭包捕获中。inout 实参或绑定命名一个简单的左值位置（变量，或以变量为根的字段路径）；经过 RC 对象的绑定会在其作用域内钉住该对象，且在绑定存活期间不能移动被绑定的变量 —— 因此被借用的存储按构造在整个借用期间存活。元素位置（`xs(i)`）不能手动绑定；元素只能通过 `for(coll, inout(x) => …)` 借用，它会钉住集合并在循环期间持有其运行时借用标志。见 [FLOWABILITY.md](./FLOWABILITY.md)。
 
 使用场景：
 

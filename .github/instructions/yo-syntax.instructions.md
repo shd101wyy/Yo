@@ -562,6 +562,8 @@ main :: (fn() -> unit)({
 });
 ```
 
+Safe code cannot even HOLD a raw pointer value (2026-09-07): an expression whose type is `*(T)` or carries one directly (`Option(*(T))` from a pointer iterator's `next()`) is a compile error outside an unsafe-capable file (std, the trusted base, is exempt) — borrow elements with `for(coll, inout(x) => …)` instead. A file may also declare `pragma(Pragma.StrictBorrow);` to turn the borrowed loop's runtime invalidation panics into compile errors (calls the mutation summary cannot prove harmless are rejected).
+
 Inside an unsafe-capable file, the following operations require an explicit `unsafe(...)` wrap (so the unsafe surface stays greppable):
 
 - Pointer dereference: `p.*` (read), `p.* = v` (write)
@@ -678,7 +680,7 @@ The builtin `Slice(T)` and the view methods `String.as_str()` /
 
 ### Return-slot modifiers: `inout` is BANNED; `comptime` goes on the label
 
-**Functions cannot return `inout`, and there are no local inout bindings** (v4/v4.1, `plans/archive/BORROW_EXCLUSIVITY.md`): they are second-class and exist ONLY in parameter position. `inout(r) := …` is rejected (fields read/write in place: `h.s = v`). Return the value instead (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `inout(name) : T`. An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected (bind the value to a local first: `b := a.b`).
+**Functions cannot return `inout`.** It is second-class and exists in parameter position and as a LOCAL BINDING (`plans/INOUT_LOCAL_BINDINGS_AUDIT.md`): `inout(y) := x;` names x's slot for the rest of the block (`y = v` writes x; `x = v` is seen through y; `copy := y` copies the pointee). Accepted places: a whole variable of any scope, a field path rooted at a value struct, or a field path through a reference-semantics value (`h.n`, `a.b.n`) — that innermost object is then PINNED for the binding's scope (a hidden owning local; released on break/return/unwind). Rejected: element places (`xs(i)`, `p.*` — borrow elements with the `for` macro), rvalues, `Type.member`, compile-time roots, `::`, module-level declarations, `io.async` bodies, and MOVING the root while a binding is live (`sink(own(x))`). Return the value instead of an inout (reference-semantics values are handles that mutate in place; struct values copy), or take a callback parameter that receives `inout(name) : T`. An inout ARGUMENT is a simple lvalue place: a variable, or `var.field` rooted at a local/param — chains through an intermediate reference-semantics value and module-level field roots are rejected for ARGUMENTS (bind the value to a local first: `b := a.b`, or use a local `inout` binding, which pins).
 
 | Form                                                              | Verdict                                       |
 | ----------------------------------------------------------------- | --------------------------------------------- |
@@ -756,7 +758,7 @@ Verify with `yo public-safe-report ./std` (or `./src`). It scans every top-level
 
 ## `for` loop macro — correct form
 
-The `for` macro is a 2-argument prelude macro iterating BY VALUE (it expands to `coll.into_iter()`):
+The `for` macro is a 2-argument prelude macro. The value form iterates BY VALUE (it expands to `coll.into_iter()`); the BORROWED form `for(coll, inout(x) => body)` / `for(map, (k, inout(v)) => body)` binds each element as an `inout` local into the collection's storage (pointer iterator `iter()` under the hood):
 
 ```rust
 for(list, (x) => { process(x); });               // value form: macro expands to list.into_iter()
@@ -766,7 +768,7 @@ for(chain.map(f), (y) => println(y));            // combinator chain: pass as th
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).
 - Second argument: an anonymous closure `(x) => body`; `x` is `T` by value (a handle for reference-semantics element types — mutating it mutates the element in place).
-- **The borrow form `for(coll, ref(x) => body)` was REMOVED** (v4, `plans/archive/BORROW_EXCLUSIVITY.md` — no interior refs). It produces a teaching compile error. For in-place struct/scalar element mutation use an index loop with index writes: `while(i < coll.len(), { coll(i) = transform(coll(i)); i = (i + usize(1)); })`.
+- **The borrowed form `for(coll, inout(x) => body)`** (plans/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is bound to a hidden local (pinned) and its RUNTIME borrow flag is held for the whole loop; `x` is an `inout` local into the element's storage — struct fields write in place, RC elements are not dup'd, `bump(x)` passes the same pointer. `break`/`continue`/`return`/`unwind` release the flag. Growing, shrinking or removing from the collection inside the body — through the same variable or ANY alias — PANICS (`container operation while an interior reference … borrows from it`); collect changes and apply them after the loop — the compiler emits that assert at the entry of every RC-object method whose body may mutate the object, so third-party collections need no annotation. Maps: use `for(map, (k, inout(v)) => body)` (key by value, value borrowed); plain `inout(e)` yields the whole entry. Works on every collection with a pointer `iter()` (ArrayList, Deque, LinkedList, PriorityQueue, HashMap, HashSet, OrderedMap, BTreeMap); `Array(T, N)` and combinator chains take the value form. Not available inside an `io.async` body that suspends (v1; same rule as `inout` local bindings). The old spelling `ref(x) =>` is gone.
 - **Do NOT use `for(x, arr, { body })`** — this older 3-arg form is an evaluator-internal representation and is not valid top-level Yo source. (The self-hosted evaluator's internal for-loop handler currently only understands the 3-arg form; this is tracked in `issues/eval-for-loop-3arg-vs-2arg.md`.)
 
 ## Function call syntax — required immediate `(`

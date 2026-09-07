@@ -4870,12 +4870,21 @@ Fix: wrap the call:
                   fv_avars := get_variables_from_env(env, fv_avn);
                   if(fv_avars.len() > usize(0), {
                     fv_avar := match(fv_avars.get(fv_avars.len() - usize(1)), .Some(v) => v, .None => make_err_variable(env));
-                    if(fv_avar.is_owning_the_rc_value, {
-                      set_expr_as_consumed(evaled_arg, env, true, ctx, exn);
-                    }, {
-                      set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
-                      set_expr_as_consumed(evaled_arg, env, true, ctx, exn);
-                    });
+                    cond(
+                      // An `inout` parameter / binding: the callee gets a
+                      // COPY (+1), nothing is moved (mirrors helper.yo;
+                      // issues/fixed/inout-arg-to-own-param-moves-without-dup.md).
+                      fv_avar.is_ref => {
+                        set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+                      },
+                      fv_avar.is_owning_the_rc_value => {
+                        set_expr_as_consumed(evaled_arg, env, true, ctx, exn);
+                      },
+                      true => {
+                        set_expr_as_needs_to_call_dup(evaled_arg, ctx, exn);
+                        set_expr_as_consumed(evaled_arg, env, true, ctx, exn);
+                      }
+                    );
                   });
                 }
               );

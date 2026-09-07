@@ -403,13 +403,19 @@ _emit_borrow_releases :: (fn(containers : ArrayList(String), indent : String, co
 _is_inside_object_method :: (fn(context : FunctionGenerationContext) -> bool)(
   match(context.current_function_type, .Some(ft) => match(ft, .Func({ param_types : pts, meta : __fm1 }) => if(__fm1.*.param_labels.len() == usize(0), false, match(__fm1.*.param_labels.get(usize(0)), .Some(l) => if(l == "self", match(pts.get(usize(0)), .Some(t) => is_reference_struct_type(t), .None => false), false), .None => false)), _ => false), .None => false)
 );
+/// Is the current function's `self` an `inout(self)` receiver? Such a receiver
+/// is passed as `T** self` (a pointer to the caller's handle slot), so the
+/// object is `*self`.
+_current_self_param_is_ref :: (fn(context : FunctionGenerationContext) -> bool)(
+  match(context.current_function_type, .Some(ft) => match(ft, .Func({ meta : __fm1 }) => match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), .None => false)
+);
 /// Auto-emit `__yo_borrow_assert_unborrowed((void*)self)` before a realloc/free
 /// inside an RC-managed object method. Mirrors `maybeEmitAutoBorrowAssert`.
 _maybe_emit_auto_borrow_assert :: (fn(extern_func_name : String, indent : String, context : FunctionGenerationContext) -> unit)(
   if(((extern_func_name == "__yo_realloc") || (extern_func_name == "__yo_free")) && _is_inside_object_method(context), {
     em := context.base.emitter;
     line := indent.clone();
-    line.push_str("__yo_borrow_assert_unborrowed((void*)self);");
+    line.push_str(if(_current_self_param_is_ref(context), "__yo_borrow_assert_unborrowed((void*)(*self));", "__yo_borrow_assert_unborrowed((void*)self);"));
     em.emit_string_line(line);
   })
 );
@@ -539,8 +545,14 @@ _materialize_arg :: (fn(arg : AstExpr, param_is_ref : bool, expr : AstExpr, inde
         final_name := if(emitted || already_in_scope, vname, arg_code.clone());
         // dup-on-store for an owned param: emit the arg's deferred `___dup` (set by
         // helper.yo's move-ownership branch) before the call uses it. Only in the
-        // value-pass case — ref/`inout`/comptime/sm/deref args transfer no ownership.
-        if(((is_comptime_only || is_sm) || param_is_ref) || is_deref_read, arg_code, emit_deferred_dup_or_code(arg, sanitize_for_c_identifier(final_name, false), indent.clone(), context))
+        // value-pass case — ref/`inout`/comptime/sm args transfer no ownership.
+        // A deref read `(*name)` (an `inout` parameter or local binding passed
+        // BY VALUE) does carry one when the parameter is `own`: the callee
+        // receives a COPY of the referenced handle and releases it, so the
+        // dup must be emitted or the referenced slot is over-released
+        // (issues/fixed/inout-arg-to-own-param-moves-without-dup.md). The dup
+        // emitter keeps the `(*name)` spelling and declares nothing.
+        if((is_comptime_only || is_sm) || param_is_ref, arg_code, emit_deferred_dup_or_code(arg, if(is_deref_read, arg_code.clone(), sanitize_for_c_identifier(final_name, false)), indent.clone(), context))
       },
       .None => _call_generate_expr(arg, indent.clone(), context)
     ),

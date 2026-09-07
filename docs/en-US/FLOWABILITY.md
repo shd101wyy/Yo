@@ -8,19 +8,40 @@ not rejected by a clever analysis — they are _inexpressible_.
 
 ## Where an `inout` can exist
 
-`inout` is Yo's second-class reference, and it exists in exactly ONE
-place: **parameter position**. `inout(name) : T` receives a caller lvalue
-(write-back, and no copy for big structs). Callback parameters that
-receive refs (`body : Impl(Fn(inout(v) : T) -> R)`, as in
-`Mutex.with_lock`) are the same thing one level down.
+`inout` is Yo's second-class reference, and it exists in exactly TWO
+places: **parameter position** and **local binding position**.
+`inout(name) : T` receives a caller lvalue (write-back, and no copy for big
+structs); callback parameters that receive refs
+(`body : Impl(Fn(inout(v) : T) -> R)`, as in `Mutex.with_lock`) are the
+same thing one level down. `inout(name) := place;` binds `name`, for the
+rest of the enclosing block, to the storage `place` denotes:
 
-**Functions cannot return `inout`**, there are **no local ref bindings**
-(`inout(r) := …` is rejected with a migration recipe — fields read and
-write in place, `h.s = v`; binding the handle `b := a.b` keeps an
-object alive), and refs cannot be stored in fields, captured by
-closures, or placed inside generic types. An `inout` is born at a call
-boundary and dies when the call returns — it can never outlive the
-storage it points into.
+```rust
+x := i32(1);
+inout(y) := x;        // y names x's slot
+y = i32(2);           // writes x
+x = i32(5);           // y reads 5: the binding names the SLOT, not a value
+inout(n) := h.n;      // a field of an RC object: h's object is pinned for the scope
+inout(px) := p.x;     // a field of a value struct
+copy := y;            // copies the pointee — there is no "inout type" to store
+```
+
+A local binding accepts the same **places** an argument does (below), with
+one addition: a field reached through an RC object (`h.n`, `a.b.n`) is
+allowed and **pins** the innermost object — a hidden owning local keeps it
+alive until the binding's scope ends, on `break`, `return` and effect
+`unwind` alike — so reassigning or dropping the visible handle cannot free
+the storage the binding names. Two things a binding forbids: **moving its
+root while it is live** (`sink(own(x))` with `inout(y) := x` in scope is a
+compile error — copy the value out, or end the binding's scope first), and
+**element places** (`xs(i)`, `p.*`): a pointer into a collection's storage
+has no owner a binding could pin. Bindings are local (not at module level),
+not available inside `io.async` bodies, and take `:=` only.
+
+**Functions cannot return `inout`**, and refs cannot be stored in fields,
+captured by closures, or placed inside generic types. An `inout` is born
+at a call boundary or a binding and dies with the enclosing scope — it can
+never outlive the storage it points into.
 
 The argument passed to an `inout` parameter is a simple lvalue **place**:
 
@@ -70,11 +91,66 @@ xs(i) = t2;              //   … write back
 for(xs, (x) => { ... }); // iteration is the value form (into_iter)
 ```
 
-There is no `project`, no `Indexable`, and no borrow form of `for` —
-`for(coll, inout(x) => …)` produces a compile error with this migration
-recipe. `str` remains the immortal static-bytes view (freely copyable,
-no constraints), and range indexing **copies** (`arr(a..b)` returns a
-new `ArrayList`), so mutating the source never affects the result.
+Elements can also be **borrowed**, in exactly one place: the borrowed
+`for`.
+
+```rust
+for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); });   // struct elements, in place
+for(names, inout(s) => { s.push_str("!"); });            // RC elements, no dup per element
+for(counts, inout(c) => { bump(c); });                   // hand the element to an inout param
+for(scores, (k, inout(v)) => { v = (v + i32(10)); });    // maps: key by value, value borrowed
+```
+
+The macro binds the collection to a hidden local (it cannot be freed while
+the loop runs), holds the collection's **runtime borrow flag** for the whole
+loop, and binds each element as an `inout` local into the collection's own
+storage through the pointer iterator `iter()` — which is why `iter()` exists
+and why it yields `*(T)`: it is the protocol `for` consumes, not an API for
+user code. `break`, `continue`, `return` and effect `unwind` all release the
+flag. While it is held, any operation that could invalidate an element —
+growth, shrink, removal, on the collection itself or through any alias —
+**panics deterministically** (`container operation while an interior
+reference … borrows from it`) instead of leaving the element reference
+dangling. This is the one place where Yo's safety guarantee is a runtime
+check rather than a compile-time rejection (Swift's model for shared
+storage); the compiler emits the assert at the entry of every method of an RC object
+whose body may mutate the object (decided from the body, since Yo has no
+`mut`), so any collection — std or third-party — is covered without
+annotations. The decision is per parameter and tracks where each mutated
+value's storage lives: a method that mutates only storage it allocated itself
+(`clone` pushing into its result, `collect`), or walks the collection with
+`for`, carries no assert; a method that stores fresh storage into `self` and
+then mutates it does. Read-only methods (`len`, `get`, `contains`,
+`index_of`, `==`, `clone`, iteration) cost nothing; a mutating method pays one
+load-compare at entry (~7–9 % on a nanosecond-scale `push`/`pop`
+microbenchmark, unmeasurable elsewhere). Plain
+`inout(e)` over a map yields the whole entry; prefer `(k, inout(v))`, which
+keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
+or an index loop. Inside an `io.async` body that suspends (a real state
+machine) neither `inout` bindings nor the borrowed `for` are available yet;
+use the value form there.
+
+Two opt-in tightenings close the remaining runtime cases at compile time.
+`pragma(Pragma.StrictBorrow);` makes every call inside a borrowed loop body
+of that file a compile error unless the compiler can prove it leaves the
+element valid: a mutating method on the borrowed collection (or a same-frame
+alias of it) is rejected, and so is any callee whose effects are unknown — a
+closure or `dyn` call, a function pointer, an effect handler, an extern with
+a callback, or a body that reaches storage through a global or raw pointer.
+Read-only methods, `clone`, `collect`, element writes through `x`, and calls
+on other collections are accepted; the escape is to move the call out of the
+loop or copy the collection first. Independently of the pragma, safe code can
+no longer *hold* a raw pointer value: `it.next()` on a pointer iterator yields
+`Option(*(T))`, which is an error outside `pragma(Pragma.AllowUnsafe)` files
+(the standard library, the audited trusted base, is exempt),
+so the borrowed `for` is the only way safe code borrows an element (iterator
+combinators such as `count` or `map` that never surface the pointer remain
+available).
+
+There is no `project` and no `Indexable`. `str` remains the immortal
+static-bytes view (freely copyable, no constraints), and range indexing
+**copies** (`arr(a..b)` returns a new `ArrayList`), so mutating the source
+never affects the result.
 
 ## One call-site rule
 

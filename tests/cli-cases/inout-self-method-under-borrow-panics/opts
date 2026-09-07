@@ -1,0 +1,8 @@
+# issues/fixed/inout-self-method-borrow-assert-reads-handle-slot.md: a mutating
+# method whose receiver is `inout(self)` is passed a pointer to the caller's
+# HANDLE SLOT (`T** self`). Its compiler-emitted invalidation assert must read
+# the object's borrow flag through that pointer; reading the slot's address
+# instead checked stack memory and let a mutation under a live borrow through.
+# `build run` propagates the panic as rc≠0.
+stdout_keep_match=panic: container operation while an interior reference.*
+timeout=300
