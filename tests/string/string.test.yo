@@ -1381,9 +1381,21 @@ test("String ends_with emoji", {
   assert(not(s.ends_with(String.from("😀"))));
 });
 // ===== replace Tests =====
-test("String replace first occurrence", {
+test("String replace replaces EVERY occurrence (D10)", {
   s := String.from("hello world hello");
   result := s.replace(String.from("hello"), String.from("hi"));
+  assert(result == String.from("hi world hi"));
+});
+test("String replacen bounds the count", {
+  s := String.from("a a a a");
+  assert(s.replacen(String.from("a"), String.from("b"), usize(0)) == s, "count 0 changes nothing");
+  assert(s.replacen(String.from("a"), String.from("b"), usize(1)) == String.from("b a a a"), "count 1");
+  assert(s.replacen(String.from("a"), String.from("b"), usize(2)) == String.from("b b a a"), "count 2");
+  assert(s.replacen(String.from("a"), String.from("b"), usize(9)) == String.from("b b b b"), "count past the end");
+});
+test("String replace_first is the pre-D10 replace", {
+  s := String.from("hello world hello");
+  result := s.replace_first(String.from("hello"), String.from("hi"));
   assert(result == String.from("hi world hello"));
 });
 test("String replace only occurrence", {
@@ -1407,10 +1419,13 @@ test("String replace not found", {
   result := s.replace(String.from("xyz"), String.from("abc"));
   assert(result == s);
 });
-test("String replace empty search prepends", {
+test("String replace with an empty search interleaves", {
   s := String.from("hello");
   result := s.replace(String.from(""), String.from("X"));
-  assert(result == String.from("Xhello"));
+  // Rust: "hello".replace("", "X") == "XhXeXlXlXoX"
+  assert(result == String.from("XhXeXlXlXoX"));
+  // The bounded form still just prepends.
+  assert(s.replacen(String.from(""), String.from("X"), usize(1)) == String.from("Xhello"));
 });
 test("String replace with empty string", {
   s := String.from("hello world");
@@ -1420,12 +1435,12 @@ test("String replace with empty string", {
 test("String replace UTF-8", {
   s := String.from("你好世界你好");
   result := s.replace(String.from("你好"), String.from("再见"));
-  assert(result == String.from("再见世界你好"));
+  assert(result == String.from("再见世界再见"));
 });
 test("String replace emoji", {
   s := String.from("😀😁😀");
   result := s.replace(String.from("😀"), String.from("😂"));
-  assert(result == String.from("😂😁😀"));
+  assert(result == String.from("😂😁😂"));
 });
 test("String replace at beginning", {
   s := String.from("hello world");
@@ -2092,7 +2107,8 @@ test("rune pattern: starts_with / ends_with / split / split_once", {
 });
 test("rune pattern: replace / replace_all", {
   s := String.from("aébéc");
-  assert(s.replace(rune(u32(0xE9)), String.from("E")) == String.from("aEbéc"), "replace first é");
+  assert(s.replace(rune(u32(0xE9)), String.from("E")) == String.from("aEbEc"), "replace every é");
+  assert(s.replacen(rune(u32(0xE9)), String.from("E"), usize(1)) == String.from("aEbéc"), "replacen 1 é");
   assert(s.replace_all(rune(u32(0xE9)), String.from("E")) == String.from("aEbEc"), "replace_all é");
   assert(s.replace(rune(u32(0xFF)), String.from("X")) == s, "absent rune replaces nothing");
 });

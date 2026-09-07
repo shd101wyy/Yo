@@ -1377,12 +1377,17 @@ test("String pattern methods with a Regex: starts_with / ends_with / split / spl
     .None => assert(false, "digit run present")
   );
 });
-test("String replace / replace_all with a Regex pattern", {
+test("String replace / replacen with a Regex pattern", {
   re := Regex.new(`[0-9]+`, ``).unwrap();
-  assert(`a1b22c`.replace(re, `#`) == `a#b22c`, "replace first match");
-  assert(`a1b22c`.replace_all(re, `#`) == `a#b#c`, "replace all matches");
+  // D10: String.replace replaces EVERY match, for a Regex pattern as for a
+  // literal one. `Regex.replace` (the method ON the regex) keeps Rust's
+  // regex-crate shape and still replaces the FIRST match only.
+  assert(`a1b22c`.replace(re, `#`) == `a#b#c`, "replace every match");
+  assert(`a1b22c`.replacen(re, `#`, usize(1)) == `a#b22c`, "replacen 1 = the first match");
+  assert(`a1b22c`.replace_first(re, `#`) == `a#b22c`, "replace_first is the pre-D10 replace");
+  assert(`a1b22c`.replace_all(re, `#`) == `a#b#c`, "replace_all agrees with replace");
   zero := Regex.new(`x*`, ``).unwrap();
-  assert(`abc`.replace_all(zero, `-`) == `-a-b-c-`, "zero-width regex inserts between runes, like the empty string");
+  assert(`abc`.replace(zero, `-`) == `-a-b-c-`, "zero-width regex inserts between runes, like the empty string");
 });
 test("Regex Pattern offsets are String BYTE offsets", {
   re := Regex.new(`é+`, ``).unwrap();

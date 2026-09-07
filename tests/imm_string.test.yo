@@ -103,9 +103,27 @@ test("ImmString to_uppercase and to_lowercase", {
 test("ImmString replace", {
   s := ImmString.from("foo bar foo");
   r := s.replace(ImmString.from("foo"), ImmString.from("baz"));
-  assert(r == ImmString.from("baz bar foo"), "replace first occurrence");
+  assert(r == ImmString.from("baz bar baz"), "replace replaces EVERY occurrence (D10)");
   ra := s.replace_all(ImmString.from("foo"), ImmString.from("baz"));
-  assert(ra == ImmString.from("baz bar baz"), "replace all occurrences");
+  assert(ra == ImmString.from("baz bar baz"), "replace_all agrees with replace");
+  rf := s.replace_first(ImmString.from("foo"), ImmString.from("baz"));
+  assert(rf == ImmString.from("baz bar foo"), "replace_first is the pre-D10 replace");
+  assert(
+    s.replacen(ImmString.from("foo"), ImmString.from("baz"), usize(0)) == s,
+    "replacen 0 changes nothing"
+  );
+  assert(
+    s.replacen(ImmString.from("foo"), ImmString.from("baz"), usize(1)) == ImmString.from("baz bar foo"),
+    "replacen 1"
+  );
+  assert(
+    s.replacen(ImmString.from("foo"), ImmString.from("baz"), usize(5)) == ImmString.from("baz bar baz"),
+    "replacen past the end"
+  );
+  assert(
+    s.replace(ImmString.new(), ImmString.from("X")) == s,
+    "an empty search never matches"
+  );
 });
 test("ImmString repeat", {
   s := ImmString.from("ab");

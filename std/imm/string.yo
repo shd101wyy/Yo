@@ -459,46 +459,74 @@ impl(
       }
     )
   }),
-  /// Replace the first occurrence of `search` with `replacement`.
-  replace : (fn(self : Self, search : Self, replacement : Self) -> Self)(
-    match(
-      self.index_of(search, usize(0)),
-      .None => {
-        return(self);
-      },
-      .Some(idx) => {
-        before := self.slice(usize(0), idx);
-        after := self.slice(idx + search._len, self._len);
-        tmp := before.concat(replacement);
-        return(tmp.concat(after));
-      }
-    )
-  ),
-  /// Replace all occurrences of `search` with `replacement`.
-  replace_all : (fn(self : Self, search : Self, replacement : Self) -> Self)({
+  /// Shared left-to-right scanner behind `replace`, `replacen` and
+  /// `replace_first`. When `bounded` is true it stops after `limit`
+  /// replacements and copies the rest verbatim; `limit == 0` with `bounded`
+  /// replaces nothing. An empty `search` never matches (it would not
+  /// terminate), matching the pre-D10 `replace_all`.
+  _replace_scan : (
+    fn(self : Self, search : Self, replacement : Self, limit : usize, bounded : bool) -> Self
+  )({
     if(search._len == usize(0), {
       return(self);
     });
     result := Self.new();
     pos := usize(0);
+    (done_n : usize) = usize(0);
     done := false;
     while(!(done), {
-      match(
-        self.index_of(search, pos),
-        .Some(idx) => {
-          segment := self.slice(pos, idx);
-          result = result.concat(segment);
-          result = result.concat(replacement);
-          pos = (idx + search._len);
-        },
-        .None => {
+      cond(
+        // Budget spent: copy the unreplaced remainder and stop.
+        (bounded && (done_n >= limit)) => {
           result = result.concat(self.slice(pos, self._len));
           done = true;
-        }
+        },
+        true => match(
+          self.index_of(search, pos),
+          .Some(idx) => {
+            segment := self.slice(pos, idx);
+            result = result.concat(segment);
+            result = result.concat(replacement);
+            pos = (idx + search._len);
+            done_n = (done_n + usize(1));
+          },
+          .None => {
+            result = result.concat(self.slice(pos, self._len));
+            done = true;
+          }
+        )
       );
     });
     result
   }),
+  /// Replace EVERY occurrence of `search` with `replacement` (D10 — Rust's
+  /// `str::replace`). An empty `search` returns `self` unchanged.
+  ///
+  /// NOTE this replaced only the FIRST occurrence before D10. Use `replacen`
+  /// for a bounded count.
+  replace : (fn(self : Self, search : Self, replacement : Self) -> Self)(
+    Self._replace_scan(self, search, replacement, usize(0), false)
+  ),
+  /// Replace the first `count` occurrences of `search` with `replacement`,
+  /// leaving any later ones alone — Rust's `str::replacen`.
+  ///
+  /// `replacen(s, r, usize(1))` is the pre-D10 meaning of `replace`.
+  replacen : (fn(self : Self, search : Self, replacement : Self, count : usize) -> Self)(
+    Self._replace_scan(self, search, replacement, count, true)
+  ),
+  /// Replace the first occurrence of `search` with `replacement`.
+  ///
+  /// DEPRECATED (D10), kept for one release: this is what `replace` used to
+  /// mean. Write `replacen(search, replacement, usize(1))` instead.
+  replace_first : (fn(self : Self, search : Self, replacement : Self) -> Self)(
+    Self._replace_scan(self, search, replacement, usize(1), true)
+  ),
+  /// Replace all occurrences of `search` with `replacement`.
+  ///
+  /// DEPRECATED (D10), kept for one release: `replace` now means this.
+  replace_all : (fn(self : Self, search : Self, replacement : Self) -> Self)(
+    Self._replace_scan(self, search, replacement, usize(0), false)
+  ),
   /// Repeat the string `n` times.
   repeat : (fn(self : Self, n : usize) -> Self)({
     if((n == usize(0)) || (self._len == usize(0)), {
