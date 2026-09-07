@@ -1,8 +1,11 @@
 # `Thread(T).spawn` cannot take a callback returning a ZST — the spawn path emits `void* tmp = <void expr>`
 
-**Status:** OPEN. Found 2026-09-07 attempting **D18 part 2**
+**Status:** OPEN — the codegen bug is real and unfixed. D18 part 2 **DID land**
+by routing around it; see "The workaround that landed" below.
+
+Found 2026-09-07 attempting **D18 part 2**
 (`plans/STD_API_STABILIZATION.md` §2: *"`Thread(T).spawn` carries its result and
-`join() -> T`"*). It is the reason that half is not landed.
+`join() -> T`"*).
 
 ## What fails
 
@@ -119,3 +122,40 @@ join : (fn(self : Self) -> T)({
 buffered and a blocking `recv` would only risk hanging when the body unwound
 without sending. `unit` is both `Send` and `Acyclic` (`std/prelude.yo:817,820`),
 so `Channel(unit)` satisfies the bound.
+
+## The workaround that landed
+
+Control #2 above is also the way out. Moving the call-and-send OFF the
+spawn-lowered closure body and into an ordinary top-level generic function
+keeps it on the normal closure path, which handles the ZST correctly:
+
+```rust
+/// Deliberately a top-level generic function rather than inline in the spawn
+/// closure — see `Thread(T).spawn`.
+_run_and_send :: (
+  fn(
+    generic(T : Type),
+    cb : Impl(Fn(io : Io) -> T),
+    sink : Channel(T),
+    io : Io,
+    where(T <: (Send, Acyclic))
+  ) -> unit
+)({
+  sink.send(cb(io));
+});
+```
+
+and the spawn closure becomes:
+
+```rust
+raw := __yo_thread_spawn((io : Io) => {
+  _run_and_send(cb, sink, io);
+  ()
+});
+```
+
+`Thread(unit)` and `Thread(i32)` both compile and run with that shape, so **no
+compiler change was required to land D18**. The bug below is still worth
+fixing: any future API that hands a spawn callback a non-`unit` return type
+will hit it again, and the workaround is non-obvious enough that it needs the
+comment it now carries in `std/thread.yo`.
