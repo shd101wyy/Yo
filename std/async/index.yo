@@ -25,6 +25,9 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { assert } :: import("../assert");
 { Duration } :: import("../time/duration");
+{ Error } :: import("../error");
+{ ToString } :: import("../fmt");
+open(import("../string"));
 IO_timer :: import("../sys/timer");
 extern(
   "Yo",
@@ -116,16 +119,46 @@ any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Op
   });
   result
 });
-/// Await `handle` with a deadline: its result if it finishes within `limit`
-/// (`.None` if it was aborted), otherwise `abort()` it and return `.None`.
-/// The handle is consumed either way. Millisecond granularity (the timer
-/// contract of `std/time/sleep`).
+/// Why `timeout(...)` produced no value (D18).
+///
+/// The old `Option(T)` return collapsed these two outcomes into each other —
+/// and, when `T` was itself an `Option`, into a task that legitimately
+/// returned `.None`. A caller that wants to retry on a slow task but give up
+/// on a cancelled one could not tell them apart.
+TimeoutError :: enum(
+  /// The deadline fired first; `timeout` aborted the handle.
+  Elapsed,
+  /// The task was already aborted (or unwound) while the deadline was still
+  /// unexpired, so it never produced a value.
+  Aborted
+);
+impl(
+  TimeoutError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .Elapsed => `timeout: the deadline elapsed before the task finished`,
+          .Aborted => `timeout: the task was aborted before it produced a value`
+        )
+    )
+  )
+);
+impl(TimeoutError, Error());
+/// Await `handle` with a deadline: `.Ok(v)` if it finishes within `limit`,
+/// `.Err(TimeoutError.Elapsed)` if the deadline fires first (the handle is
+/// `abort()`ed), `.Err(TimeoutError.Aborted)` if the task was cancelled on
+/// its own. The handle is consumed either way. Millisecond granularity (the
+/// timer contract of `std/time/sleep`).
 ///
 /// KNOWN RESIDUAL (bounded): when the task finishes BEFORE the deadline, the
 /// deadline timer stays armed in the I/O backend until it fires, and its
 /// future struct (~tens of bytes) is never reclaimed — see
 /// `issues/timeout-deadline-timer-future-leak.md`.
-timeout :: (fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Option(T))({
+timeout :: (
+  fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Result(T, TimeoutError)
+)({
   // The deadline is a spawned TASK, not a bare io-timer future: a raw
   // `IoFuture` local would be auto-dropped at scope end while the backend
   // still holds the armed timer (issues/pending-io-future-local-drop-uaf.md);
@@ -137,6 +170,10 @@ timeout :: (fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io :
   });
   dh := io.spawn(deadline_fut, io);
   (waiting : bool) = true;
+  // Which arm ended the wait — the ONLY place the two failure modes are
+  // distinguishable. After the loop, `handle.await` reports `.None` for a
+  // deadline abort and a self-abort alike.
+  (elapsed : bool) = false;
   while(waiting, {
     cond(
       handle.is_finished() => {
@@ -144,6 +181,7 @@ timeout :: (fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io :
       },
       dh.is_finished() => {
         handle.abort();
+        elapsed = true;
         waiting = false;
       },
       true => __yo_async_poll_step()
@@ -155,6 +193,13 @@ timeout :: (fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io :
   // releases the state machine then.
   dh.abort();
   _deadline_r := dh.await(io);
-  handle.await(io)
+  match(
+    handle.await(io),
+    .Some(v) => .Ok(v),
+    .None => cond(
+      elapsed => .Err(TimeoutError.Elapsed),
+      true => .Err(TimeoutError.Aborted)
+    )
+  )
 });
-export(yield, join_all, race, any, timeout);
+export(yield, join_all, race, any, timeout, TimeoutError);
