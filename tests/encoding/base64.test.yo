@@ -59,27 +59,11 @@ test("base64_encode_url no padding", {
 });
 // ===== Decoding Tests =====
 test("base64_decode empty string", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  bytes := base64_decode(String.from(""), exn);
+  bytes := base64_decode(String.from("")).unwrap();
   assert(bytes.len() == usize(0), "empty string should decode to 0 bytes");
 });
 test("base64_decode Hello", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  bytes := base64_decode(String.from("SGVsbG8="), exn);
+  bytes := base64_decode(String.from("SGVsbG8=")).unwrap();
   assert(bytes.len() == usize(5), "SGVsbG8= should decode to 5 bytes");
   assert(bytes(usize(0)) == u8(72), "byte 0 = H");
   assert(bytes(usize(1)) == u8(101), "byte 1 = e");
@@ -88,15 +72,7 @@ test("base64_decode Hello", {
   assert(bytes(usize(4)) == u8(111), "byte 4 = o");
 });
 test("base64_decode no padding", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  bytes := base64_decode(String.from("TWFu"), exn);
+  bytes := base64_decode(String.from("TWFu")).unwrap();
   assert(bytes.len() == usize(3), "TWFu should decode to 3 bytes");
   assert(bytes(usize(0)) == u8(77), "byte 0 = M");
   assert(bytes(usize(1)) == u8(97), "byte 1 = a");
@@ -110,19 +86,11 @@ test("base64_decode invalid character error", {
       }
     )
   );
-  base64_decode(String.from("!!!!"), exn);
+  base64_decode_exn(String.from("!!!!"), exn);
   assert(false, "invalid chars should have thrown");
 });
 // ===== Roundtrip Tests =====
 test("base64 roundtrip", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   data := ArrayList(u8).new();
   i := u8(0);
   while(i < u8(255), i = (i + u8(1)), {
@@ -130,7 +98,7 @@ test("base64 roundtrip", {
   });
   data.push(u8(255));
   encoded := base64_encode(data);
-  decoded := base64_decode(encoded, exn);
+  decoded := base64_decode(encoded).unwrap();
   assert(decoded.len() == usize(256), "roundtrip should preserve length");
   j := usize(0);
   while(j < usize(256), j = (j + usize(1)), {
@@ -138,20 +106,12 @@ test("base64 roundtrip", {
   });
 });
 test("base64 url roundtrip", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
   data := ArrayList(u8).new();
   data.push(u8(0xFB));
   data.push(u8(0xFF));
   data.push(u8(0xFE));
   encoded := base64_encode_url(data);
-  decoded := base64_decode_url(encoded, exn);
+  decoded := base64_decode_url(encoded).unwrap();
   assert(decoded.len() == usize(3), "url roundtrip should preserve length");
   assert(decoded(usize(0)) == u8(0xFB), "url roundtrip byte 0");
   assert(decoded(usize(1)) == u8(0xFF), "url roundtrip byte 1");
@@ -171,37 +131,42 @@ test("encode a String's bytes", {
   assert(base64_encode(String.from("Hello, World!").as_bytes()) == "SGVsbG8sIFdvcmxkIQ==", "Hello, World!");
 });
 test("decode to a String through from_utf8", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected decode error");
-        unwind(());
-      }
-    )
-  );
-  s := String.from_utf8(base64_decode(String.from("SGVsbG8sIFdvcmxkIQ=="), exn));
+  s := String.from_utf8(base64_decode(String.from("SGVsbG8sIFdvcmxkIQ==")).unwrap());
   assert(match(s, .Ok(v) => (v == "Hello, World!"), .Err(_) => false), "Hello, World!");
   // "w6k=" is 0xC3 0xA9 — U+00E9, valid UTF-8.
-  m := String.from_utf8(base64_decode(String.from("w6k="), exn));
+  m := String.from_utf8(base64_decode(String.from("w6k=")).unwrap());
   assert(match(m, .Ok(v) => ((v.chars().count() == usize(1)) && (v.len() == usize(2))), .Err(_) => false), "one rune, two bytes");
   // "/w==" is the single byte 0xFF, never valid UTF-8: the byte decode is fine,
   // the String conversion is the honest error.
-  bad := String.from_utf8(base64_decode(String.from("/w=="), exn));
+  bad := String.from_utf8(base64_decode(String.from("/w==")).unwrap());
   assert(match(bad, .Ok(_) => false, .Err(_) => true), "a non-UTF-8 payload is a StringError, not a broken String");
 });
 test("whitespace inside base64 text is rejected, like any other non-alphabet byte", {
-  (threw : bool) = false;
-  r := ArrayList(u8).new();
-  exn := Exception(
-    throw : (
-      err -> {
-        unwind(());
-      }
-    )
+  // Under D13 this is a direct assertion on the error, not the old proxy of
+  // "the returned list came back empty, so it must have unwound" — and the
+  // direct assertion immediately showed that the two inputs below fail for
+  // DIFFERENT reasons, which the old test could not see.
+  //
+  // "Zm9v YmFy" is 9 symbols, so the 1-mod-4 LENGTH check fires before the
+  // scan ever reaches the space.
+  assert(
+    match(
+      base64_decode(String.from("Zm9v YmFy")),
+      .Ok(_) => false,
+      .Err(e) => match(e, .InvalidLength => true, _ => false)
+    ),
+    "a 9-symbol input is InvalidLength, whatever else is wrong with it"
   );
-  r = base64_decode(String.from("Zm9v YmFy"), exn);
-  threw = (r.len() == usize(0));
-  assert(threw, "the decode must have unwound before returning bytes");
+  // "Zm9v YmFyIQ==" strips to 11 symbols (3 mod 4), so the scan runs and the
+  // space itself is reported.
+  assert(
+    match(
+      base64_decode(String.from("Zm9v YmFyIQ==")),
+      .Ok(_) => false,
+      .Err(e) => match(e, .InvalidChar(c) => (c == u8(32)), _ => false)
+    ),
+    "the space is reported as InvalidChar(0x20)"
+  );
 });
 // ===== Canonical-form rejection =====
 // issues/fixed/base64-decode-accepted-impossible-lengths-and-trailing-bits.md
@@ -213,7 +178,7 @@ test("base64_decode rejects a length of 1 mod 4", {
       }
     )
   );
-  base64_decode(String.from("QUJDR"), exn);
+  base64_decode_exn(String.from("QUJDR"), exn);
   assert(false, "a lone trailing sextet encodes nothing and must throw InvalidLength");
 });
 test("base64_decode rejects non-zero trailing bits in a two-symbol group", {
@@ -226,7 +191,7 @@ test("base64_decode rejects non-zero trailing bits in a two-symbol group", {
   );
   // "QR": Q=16, R=17 → the second symbol's low four bits are 0001, which no
   // byte can occupy. The canonical encoding of 0x41 is "QQ==".
-  base64_decode(String.from("QR=="), exn);
+  base64_decode_exn(String.from("QR=="), exn);
   assert(false, "must throw InvalidLastSymbol");
 });
 test("base64_decode rejects non-zero trailing bits in a three-symbol group", {
@@ -238,24 +203,16 @@ test("base64_decode rejects non-zero trailing bits in a three-symbol group", {
     )
   );
   // "QUJ": J=9 → low two bits 01. "AB" encodes canonically as "QUI=".
-  base64_decode(String.from("QUJ="), exn);
+  base64_decode_exn(String.from("QUJ="), exn);
   assert(false, "must throw InvalidLastSymbol");
 });
 test("base64_decode still accepts the canonical short groups, padded or not", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  a := base64_decode(String.from("QQ=="), exn);
+  a := base64_decode(String.from("QQ==")).unwrap();
   assert((a.len() == usize(1)) && (a(usize(0)) == u8(65)), "QQ== is A");
-  b := base64_decode(String.from("QQ"), exn);
+  b := base64_decode(String.from("QQ")).unwrap();
   assert((b.len() == usize(1)) && (b(usize(0)) == u8(65)), "QQ is A without padding");
-  c := base64_decode(String.from("QUI="), exn);
+  c := base64_decode(String.from("QUI=")).unwrap();
   assert((c.len() == usize(2)) && ((c(usize(0)) == u8(65)) && (c(usize(1)) == u8(66))), "QUI= is AB");
-  d := base64_decode(String.from("QUI"), exn);
+  d := base64_decode(String.from("QUI")).unwrap();
   assert(d.len() == usize(2), "QUI is AB without padding");
 });
