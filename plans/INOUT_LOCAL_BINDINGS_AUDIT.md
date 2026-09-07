@@ -1,7 +1,9 @@
 # `inout` local bindings — feasibility audit
 
-Status: **AUDIT — decision pending (maintainer).** Written 2026-09-07 against
-`develop` at `c787fdc45` (`yo 0.2.27`) and PR #461 (`std-d14-iter-pointers`).
+Status: **DECIDED 2026-09-07 — implementation plan in §7–§8** (audit §1–§6
+is the record the decision rests on). Written against `develop` at
+`c787fdc45` (`yo 0.2.27`) and PR #461 (`std-d14-iter-pointers`). Phase A
+(the dead runtime backstop) is PR #473.
 Every "today" claim below was checked against `src/` and `std/` on that day,
 not against the historical plans (`plans/archive/BORROW_EXCLUSIVITY.md` is a
 v4 record and its "KEPT" table predates v4.1; do not read it as the current
@@ -456,3 +458,213 @@ Under that layering the shipped runtime check is a backstop the compiler can
 name at each site, not the safety story — which is the compile-time-first
 stance without lifetimes, without `mut`, and without changing the
 representation of collections.
+
+## 7. Decision (maintainer, 2026-09-07)
+
+1. **`inout(name) := place` returns, for variables and object fields only.**
+   Whole variables (any scope), value-struct field chains, and fields reached
+   through RC objects (the owning object is pinned for the binding's scope).
+   Index and deref places (`xs(i)`, `p.*`) are **not** accepted in user code.
+   Static, no runtime check.
+2. **`for(coll, inout(x) => body)` is the only way to borrow an element.**
+   The prelude macro (privileged, F3) consumes the pointer iterator `iter()`
+   (D14), pins the collection through a hidden local, acquires the borrow
+   flag once for the loop, statically rejects a may-mutate call on the same
+   variable (or a known alias) inside the body, and relies on the runtime
+   flag only for aliases the compiler cannot see. The language rule stays one
+   sentence: *`inout` binds a variable or a field; elements are borrowed only
+   by `for`.*
+3. **Nothing else changes**: no `mut`, no lifetimes, collections stay
+   `ref(struct)` handles. A strict "no dynamic checks" pragma is a possible
+   later addition, not part of this plan.
+4. **`iter()` is the protocol `for` consumes, not a user-facing API.** Users
+   see `into_iter` (values) and the borrowed `for` (in place). Map iteration
+   binds the key by value and only the value as `inout`.
+5. **Keyword: `inout`**, not a new word (Hylo's `inout y = x` precedent;
+   `ref` is the type constructor).
+
+What the borrowed form accepts and rejects (the reference examples):
+
+```rust
+for(list, x => { total = (total + x); });                          // value form, unchanged
+for(list.into_iter().map(v => (v * i32(2))), x => { … });          // chains: value form only
+
+for(enemies, inout(e) => { e.hp = (e.hp - i32(1)); if(e.hp <= i32(0), { break; }); });
+for(names, inout(s) => { s.push_str("!"); });                      // RC elements: no dup per element
+for(counts, inout(c) => { bump(c); });                             // element to an inout param
+for(scores, (k, inout(v)) => { v = (v + i32(10)); });              // maps: key by value, value borrowed
+
+for(list, inout(x) => { list.push(x); });        // COMPILE error: `list` is borrowed by this loop
+other := list;
+for(list, inout(x) => { other.push(x); });       // RUNTIME panic: alias the compiler cannot see
+for(list.into_iter().filter(…), inout(x) => …);  // COMPILE error: borrowed form needs a collection
+
+inout(y) := x;          y = i32(2);              // variable: static, free
+inout(n) := holder.n;   n = (n + i32(1));        // object field: holder pinned for the scope
+inout(e) := list(usize(0));                      // COMPILE error: use for(list, inout(e) => …)
+```
+
+## 8. Implementation steps
+
+Each phase is independently shippable and gated. Standing gates for every
+phase: `yo check ./src`, `yo fmt --check` on touched files, the named test
+files with the stage-1 binary, `scripts/bootstrap/fixpoint_only.sh`
+(FIXPOINT_HOLDS), and the cli-diff scorecard for touched cases.
+
+### Phase A — wire the runtime backstop (R0) — **PR #473, done**
+
+`_emit_borrow_acquires/_releases` called at every statement-emitting call
+exit; cli case `inout-interior-borrow-growth-panics`; release-side tests in
+`tests/ref_field_borrow.test.yo`; `issues/fixed/interior-ref-arg-borrow-acquire-never-emitted.md`.
+
+### Phase B — `inout(name) := place` for variables and fields (P1–P4)
+
+Ships on its own; nothing in std may use the form until a seed accepts it
+(`yo-seed-gates-source-forms`), so B is user-facing first, std later.
+
+- **B1 Evaluator — accept the binding.**
+  `src/evaluator/exprs/initialization_assignment.yo:159-173`: replace the
+  teaching error. Evaluate the RHS as a *place*: factor the place-shape
+  logic out of `require_valid_ref_argument_places` (`src/types/flowability.yo:857-981`,
+  helpers `_place_root_atom`, the object-hop walk) into a
+  `require_valid_inout_binding_place` that accepts (a) a whole variable of
+  any scope, (b) a field chain rooted at a local/param value struct,
+  (c) a field chain whose innermost object hop is an RC object (pinned in
+  B4); rejects index places (`ExprInfo.index_trait_ptr_type` set), deref
+  places (`.*`), rvalues/temporaries, `Type.member` namespace access, and the
+  `::` form. Error for the index case must name the recipe: "borrow an
+  element with `for(xs, inout(e) => …)`, or copy it out with `.get(i)`".
+  Bind through `add_parameter_to_env`-equivalent flags: `is_ref : true`,
+  `is_reassignable : true`, `is_owning_the_rc_value : false` (scope-end
+  drops must skip the pointee), type = the place's type. `env.yo:1143`
+  (`add_variable_to_env` hardcodes `is_ref : false`) gains a parameter or a
+  sibling constructor.
+- **B2 Evaluator — the consume gate (2.1).** `Variable` gains
+  `borrow_root : Option(Box(Self))` (a non-bool field: place it ABOVE the
+  bool group per the `env.yo:168-175` layout rule), set on the binding to the
+  place's root variable. In `set_expr_as_consumed` (`src/evaluator/utils.yo:534`)
+  and the `own`-argument binders, walk the live env frames for an `is_ref`
+  variable whose `borrow_root` is the consumed variable and throw:
+  "cannot pass `x` to an `own` parameter while `y` borrows it — copy the
+  value out, or end the binding's scope first". No clearing step: a binding
+  that left scope is no longer in any frame.
+- **B3 Codegen — the binding.** `src/codegen/exprs/init_assignment.yo`: for
+  an `is_ref` local emit `T* y = &(place);` through the `_apply_ref_amp`
+  cascade (`other_fn_call.yo:536-620`): fold `(&(*x))` when the place is
+  itself an `inout`, address-of for addressable lvalues, and a **compile
+  error** (not a spill) if the cascade would spill — a spill is a copy.
+  Reads/writes already flow through `_var_read_code` (`atom.yo:408-435`).
+  The declared C type of an `is_ref` local must be `T*` wherever locals are
+  typed (`get_variable_type_string`; the parameter analogue is
+  `declarations.yo:188-196`, incl. the `unit → void*` case). Async: verify
+  `_store_temp_var_to_state_machine_if_needed` stores the pointer into
+  `sm->var_y`, and that a binding whose place is another spilled local takes
+  `&sm->var_x` (heap, stable across `await`).
+- **B4 Owner pin (P4) — as a desugar, not new RC machinery.** For place
+  kind (c), the evaluator rewrites `inout(y) := a.b.n` (innermost object
+  hop `a.b`) into `__pin_N := a.b; inout(y) := __pin_N.n;`. A named local
+  handle is dup'd on bind and dropped at scope end by the existing
+  named-local machinery (`_schedule_scope_end_drops`, deferred lists,
+  `emitted_deferred_drop_ids` idempotence) — `break`/`return`/`unwind` are
+  already covered. Cost: 2 RC ops per binding.
+- **B5 Tests.** Rewrite `tests/ref_local_binding.test.yo` from "banned" to
+  the matrix: P1 read/write-through (value and RC-typed), reassigning the
+  source while bound (Pascal slot semantics), the consume gate
+  (`comptime_expect_error`), chained `inout(z) := y` where `y` is an
+  `inout` param or local, P3 value-struct field, P4 field of a local object
+  + reassigning the handle while bound still reads the OLD object (pin) with
+  `rc()` asserting the pin count, module-level object field, index/deref/
+  rvalue/`::` rejections (`comptime_expect_error`), capture/return bans
+  still hold for the local, an async body binding across an `await`, and a
+  GuardMalloc/ASan run of the P4 cases (`--sanitize address --allocator system`).
+- **B6 Docs + knowledge files.** `docs/{en-US,zh-CN}/FLOWABILITY.md` (the
+  "Where an `inout` can exist" section), `docs/*/MEMORY_SAFETY.md`,
+  `.github/instructions/yo-syntax.instructions.md`,
+  `.github/skills/yo-syntax/syntax-cheatsheet.md`,
+  `.github/skills/yo-core-patterns/core-patterns-cheatsheet.md`; fix the
+  three stale seams (`FlowOptions.allow_same_frame_local` doc,
+  `Variable.is_ref` doc, `atom.yo:12-13,296-297`); `plans/README.md` entry.
+- **B7 Gate.** Standing gates + `tests/ref_*.test.yo`, `tests/comptime_ref`,
+  `tests/inout_*`, `tests/iterator_combinators` (inout-heavy).
+
+### Phase C — the borrowed `for` (P5, one shape)
+
+Requires B in the **seed** (the prelude will contain `inout(x) := …`), so C
+lands one release after B. C1–C3 can be built and tested against a
+feature-carrying binary before that.
+
+- **C1 std protocol.** Decide trait vs duck typing for the macro's `iter()`
+  call; recommended: a prelude trait
+  `Iterable :: trait(Item : Type, Iter : Type, iter : (fn(self : Self) -> Self.Iter), where(Self.Iter <: Iterator(Item := *(Self.Item))))`
+  so the "needs a collection" error is a trait error, and every D14
+  collection (`ArrayList`, `OrderedMap`, `HashMap`, `HashSet`, `Deque`,
+  `PriorityQueue`, `BTreeMap`, `LinkedList`) implements it. Map shape: the
+  macro destructures the `MapEntry` pointer — key by value, value borrowed.
+- **C2 Privileged deref places.** B1 rejects deref places in user code; the
+  prelude expansion needs `inout(x) := unsafe(__p.*)`. Allow a deref place
+  as a binding RHS only when the token is privileged (`is_implicitly_unsafe_capable_file`,
+  `src/evaluator/memory_safety.yo:97`) and wrapped in `unsafe(...)`. This is
+  the one place P5 enters the language, and it is std-only.
+- **C3 Prelude `for` borrowed arm** (`std/prelude.yo:8484-8502`, replacing
+  the `comptime_assert`):
+  ```rust
+  {
+    __c := coll;                       // hidden local: pins the collection
+    __g := __BorrowGuard(__c);         // acquire now; Dispose releases at scope end
+    __it := __c.iter();
+    while(runtime(true), {
+      match(__it.next(),
+        .Some(__p) => { inout(x) := unsafe(__p.*); body },
+        .None => { break; }
+      );
+    });
+  }
+  ```
+  The guard follows `std/sync/mutex.yo`'s `__MutexUnlocker` precedent so
+  `break`/`return`/`unwind` all release through the existing scope-end
+  machinery. `__yo_borrow_acquire`/`__yo_borrow_release` become prelude
+  builtins like `__yo_borrow_assert_unborrowed` (`std/prelude.yo:98`,
+  `src/codegen/exprs/inline_fns.yo:150-158`, `src/expr.yo:132`,
+  `src/codegen/constants.yo`). Measure the guard's allocation on a hot loop;
+  if it shows, give the guard a value-struct form or make the acquire/release
+  a compiler-recognized scope (`__yo_borrow_scope`) with a deferred release.
+- **C4 Static in-body check.** The macro emits a marker
+  `__yo_borrow_static_check(__c, quote(body))` (or the evaluator recognizes
+  the expansion); the evaluator walks `body` following `macro_expansion` and
+  rejects any call whose receiver or argument is the same variable as
+  `__c`'s source root (or an alias via `is_owning_the_same_rc_value_as`)
+  when `mutation_summary` (`src/evaluator/effects/mutation_summary.yo`)
+  says the callee may mutate. Error: "`list` is borrowed by this `for` loop;
+  collect the changes and apply them after the loop". Captures of `x` are
+  already banned (`is_ref`).
+- **C5 Invalidation asserts (2.2).** Target: codegen auto-emits
+  `__yo_borrow_assert_unborrowed((void*)self)` at entry of every method of a
+  type implementing `Iterable` whose `mutation_summary` says it may mutate
+  storage reachable from `self` (one emission site, keyed on the summary;
+  reads stay free). Interim, if the auto-emit slips: explicit
+  `__yo_borrow_assert_unborrowed(self)` calls at the top of every mutating
+  method of the eight collections, enumerated from
+  `plans/STD_API_STABILIZATION.md`'s per-module inventories.
+- **C6 Tests.** `tests/for_macro_borrow.test.yo` revived for the borrowed
+  form: struct elements mutated in place, RC elements with `rc()` constant
+  across the loop (no per-element dup), element passed to an `inout` param,
+  `break`/`continue`/`return`/`unwind` out of the body followed by a `push`
+  (release ran), nested borrowed loops over two collections, the map
+  `(k, inout(v))` shape, a borrowed loop inside an `io.async` body across an
+  `await`; `comptime_expect_error` for same-variable `push`, for a chain
+  receiver, and for capturing `x`; a cli case (`build run`,
+  `stdout_keep_match`) for the alias-push runtime panic; GuardMalloc/ASan on
+  the runtime cases.
+- **C7 Docs.** `docs/*/FLOWABILITY.md` ("Element access" and the borrowed
+  `for`), iterator docs, `yo-syntax` instructions and both cheatsheets
+  (`for` value vs borrowed form; `iter()` is the protocol, not the API);
+  `plans/archive/ITERATOR_REDESIGN.md` banner gains a pointer here.
+
+### Phase D — optional follow-ups (not scheduled)
+
+- A strict pragma that turns the alias-only runtime cases into compile
+  errors by rejecting calls the mutation summary cannot see through.
+- Last-use live ranges for `inout` bindings (Hylo), so a `push` after the
+  last read of `x` inside the body is accepted statically.
+- Hiding pointer-yielding `iter()` from non-privileged code once the borrowed
+  `for` covers every use.
