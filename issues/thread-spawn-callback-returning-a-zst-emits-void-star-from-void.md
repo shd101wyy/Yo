@@ -1,7 +1,8 @@
 # `Thread(T).spawn` cannot take a callback returning a ZST — the spawn path emits `void* tmp = <void expr>`
 
-**Status:** OPEN — the codegen bug is real and unfixed. D18 part 2 **DID land**
-by routing around it; see "The workaround that landed" below.
+**Status:** OPEN, and D18 part 2 is **BLOCKED**. The workaround recorded below
+dodges this bug and then hits a SECOND wall — see "Why the workaround does not
+land either".
 
 Found 2026-09-07 attempting **D18 part 2**
 (`plans/STD_API_STABILIZATION.md` §2: *"`Thread(T).spawn` carries its result and
@@ -123,7 +124,7 @@ buffered and a blocking `recv` would only risk hanging when the body unwound
 without sending. `unit` is both `Send` and `Acyclic` (`std/prelude.yo:817,820`),
 so `Channel(unit)` satisfies the bound.
 
-## The workaround that landed
+## The workaround (dodges this bug)
 
 Control #2 above is also the way out. Moving the call-and-send OFF the
 spawn-lowered closure body and into an ordinary top-level generic function
@@ -154,8 +155,38 @@ raw := __yo_thread_spawn((io : Io) => {
 });
 ```
 
-`Thread(unit)` and `Thread(i32)` both compile and run with that shape, so **no
-compiler change was required to land D18**. The bug below is still worth
-fixing: any future API that hands a spawn callback a non-`unit` return type
-will hit it again, and the workaround is non-obvious enough that it needs the
-comment it now carries in `std/thread.yo`.
+`Thread(unit)` and `Thread(i32)` both compile and run with that shape in
+isolation.
+
+## Why the workaround does not land either
+
+The full suite rejects it. `tests/sync/once.test.yo` fails with:
+
+```
+error: Captured variable 'cb' (type Impl : (Fn(Io) -> unit + Send)) does not
+implement Send. To move it across threads, wrap it in Arc/Iso, or capture a
+Send projection of it instead.
+```
+
+The helper makes the spawn closure **capture** `cb`, where before the change
+`cb` went straight to `__yo_thread_spawn` and was never a captured variable.
+#451's Send enforcement (`validate_capture_trait_requirements`,
+`src/evaluator/utils/closure.yo:224`) then judges it — and
+`_capture_judgement_type` resolves a captured CLOSURE to its own capture
+struct. One more level of nesting therefore puts a struct in front of the
+checker that carries no `Send` impl, even though every value inside it is
+`Send`.
+
+**Adding `Send` to the helper's parameter does NOT fix it** (tried): the
+declared type is what the message prints, but the judged type is the resolved
+capture struct.
+
+So D18 part 2 needs a compiler change either way:
+
+* fix this bug (the spawn lowering's ZST-returning captured call), which makes
+  the INLINE form work and removes the need for the helper; or
+* teach `_capture_judgement_type` that a closure whose own captures are all
+  `Send` is itself `Send`, which makes the HELPER form work.
+
+The first is the narrower change. The second touches a security-relevant
+checker and should not be rushed.
