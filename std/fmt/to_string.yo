@@ -1,6 +1,6 @@
 //! ToString trait and implementations for all primitive types.
 pragma(Pragma.AllowUnsafe);
-{ String, rune } :: import("../string");
+{ String, rune, ParseIntError, ParseFloatError, ParseBoolError } :: import("../string");
 { snprintf } :: import("../libc/stdio");
 { ArrayList } :: import("../collections/array_list");
 utf8 :: import("../encoding/utf8");
@@ -358,6 +358,44 @@ impl(
       });
       `${out}]`
     })
+  )
+);
+/// The D12 parse errors live in `std/string` (below this module, so they
+/// cannot name `ToString` themselves); their renderings live here, the same
+/// split `impl(String, Error())` uses one layer up.
+impl(
+  ParseIntError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .Empty => `cannot parse integer from empty string`,
+          .InvalidDigit => `invalid digit found in string`,
+          .PosOverflow => `number too large to fit in target type`,
+          .NegOverflow => `number too small to fit in target type`,
+          .InvalidRadix => `radix must be between 2 and 36`
+        )
+    )
+  )
+);
+impl(
+  ParseFloatError,
+  ToString(
+    to_string : (
+      self ->
+        match(
+          self,
+          .Empty => `cannot parse float from empty string`,
+          .Invalid => `invalid float literal`
+        )
+    )
+  )
+);
+impl(
+  ParseBoolError,
+  ToString(
+    to_string : (self -> `provided string was not \`true\` or \`false\``)
   )
 );
 // --- derive_rule for ToString ---
