@@ -534,6 +534,15 @@ Ships on its own; nothing in std may use the form until a seed accepts it
   places (`.*`), rvalues/temporaries, `Type.member` namespace access, and the
   `::` form. Error for the index case must name the recipe: "borrow an
   element with `for(xs, inout(e) => …)`, or copy it out with `.get(i)`".
+  **Reject the binding inside an `io.async` body (v1)** — see §9 H5: state
+  machines address a local both as `sm->var_x` and as a per-state C copy, so
+  an alias could read a stale copy after a write through the reference; lift
+  the restriction only after the state-machine variable model routes every
+  access of a borrowed root through one storage (test: write through `y`,
+  read `x`, across and within a state). At **compile time** (CTFE) mirror
+  whatever `check_if_function_parameter_matches_argument` does for an
+  `inout` argument: a whole-variable binding shares the root's `value` cell;
+  a field-place binding is runtime-only (value `.None`).
   Bind through `add_parameter_to_env`-equivalent flags: `is_ref : true`,
   `is_reassignable : true`, `is_owning_the_rc_value : false` (scope-end
   drops must skip the pointee), type = the place's type. `env.yo:1143`
@@ -548,6 +557,17 @@ Ships on its own; nothing in std may use the form until a seed accepts it
   "cannot pass `x` to an `own` parameter while `y` borrows it — copy the
   value out, or end the binding's scope first". No clearing step: a binding
   that left scope is no longer in any frame.
+- **B2′ Evaluator — borrowed roots are LIVE for every last-use optimizer.**
+  `_optimize_dup_drop_pairs` (`src/evaluator/exprs/begin.yo`) turns the
+  deferred `___dup` of a named local's last syntactic use into a MOVE by
+  cancelling it against the scope-end drop; `optimizeLoopTraversalBorrowChain`
+  strips RC ops from a traversal variable. A use through `y` is not a
+  syntactic use of `x`, so `inout(y) := s; h := Holder(s : s); y = other;`
+  would move `s`'s count into `h` and then over-release it through `y`
+  (§9 H6). Rule: a variable that is the `borrow_root` of any binding in the
+  block is treated as used through the end of that binding's scope by BOTH
+  optimizers (simplest: skip the optimization for such roots). Add a test
+  that asserts `rc()` after exactly this shape.
 - **B3 Codegen — the binding.** `src/codegen/exprs/init_assignment.yo`: for
   an `is_ref` local emit `T* y = &(place);` through the `_apply_ref_amp`
   cascade (`other_fn_call.yo:536-620`): fold `(&(*x))` when the place is
@@ -600,6 +620,15 @@ feature-carrying binary before that.
   collection (`ArrayList`, `OrderedMap`, `HashMap`, `HashSet`, `Deque`,
   `PriorityQueue`, `BTreeMap`, `LinkedList`) implements it. Map shape: the
   macro destructures the `MapEntry` pointer — key by value, value borrowed.
+  **Std-authoring rule (load-bearing, §9 H37):** `iter()` may yield pointers
+  only into storage that is reachable exclusively through `self`'s own
+  methods (private fields, never handed out by value), so that every
+  invalidating operation on that storage passes an assert on `self`.
+  `OrderedMap` (#461) points into its backing `HashMap` — legal only while
+  that map stays private. Value-type collections (`Array(T, N)`) are
+  **excluded** from the borrowed form in v1: `__c := coll` would copy the
+  array and the loop would mutate the copy (§9 H21); use an index loop or
+  `into_iter`.
 - **C2 Privileged deref places.** B1 rejects deref places in user code; the
   prelude expansion needs `inout(x) := unsafe(__p.*)`. Allow a deref place
   as a binding RHS only when the token is privileged (`is_implicitly_unsafe_capable_file`,
@@ -628,6 +657,11 @@ feature-carrying binary before that.
   `src/codegen/constants.yo`). Measure the guard's allocation on a hot loop;
   if it shows, give the guard a value-struct form or make the acquire/release
   a compiler-recognized scope (`__yo_borrow_scope`) with a deferred release.
+  `__yo_borrow_acquire` panics on saturation (`borrow_count == 0xFFFF`) so a
+  wrapped counter can never read as zero (§9 H14). An aborted task
+  (`FutureState.Aborted`) must run the guard's dispose — pin it with a test
+  (§9 H15); a stuck counter would turn every later growth into a spurious
+  panic, which is worse than the residual.
 - **C4 Static in-body check.** The macro emits a marker
   `__yo_borrow_static_check(__c, quote(body))` (or the evaluator recognizes
   the expansion); the evaluator walks `body` following `macro_expansion` and
@@ -637,7 +671,16 @@ feature-carrying binary before that.
   says the callee may mutate. Error: "`list` is borrowed by this `for` loop;
   collect the changes and apply them after the loop". Captures of `x` are
   already banned (`is_ref`).
-- **C5 Invalidation asserts (2.2).** Target: codegen auto-emits
+- **C5 Invalidation asserts (2.2).** The operations that must assert are
+  exactly: any capacity change (realloc), any free, and any LENGTH DECREASE
+  or entry removal (`pop`, `truncate`, `clear`, `remove`, `swap_remove`,
+  `retain`, `drain`, `dedup`, map `remove`/tombstoning, list-node unlink,
+  tree-node merge). Uniqueness-preserving moves between slots (`insert`'s
+  shift, `sort`, `reverse`, `swap`) and slot overwrites (`xs(i) = v`, `set`)
+  are memory-safe under a live borrow — the slot still holds exactly one
+  valid value — but a length decrease leaves a RELEASED or DUPLICATED handle
+  in a slot the reference still names, and a later `y = other` over-releases
+  it (§9 H13). Target: codegen auto-emits
   `__yo_borrow_assert_unborrowed((void*)self)` at entry of every method of a
   type implementing `Iterable` whose `mutation_summary` says it may mutate
   storage reachable from `self` (one emission site, keyed on the summary;
@@ -668,3 +711,80 @@ feature-carrying binary before that.
   last read of `x` inside the body is accepted statically.
 - Hiding pointer-yielding `iter()` from non-privileged code once the borrowed
   `for` covers every use.
+
+## 9. Soundness review (2026-09-07, after the decision)
+
+Adversarial pass over §7–§8, shape by shape. Holes found are folded into the
+steps above; this section is the record of what was checked.
+
+**Sound as designed (no change needed).**
+
+- H1/H2 whole-variable bindings to RC-typed locals or globals: the binding
+  names the *slot*; reassignment of the root drops the old count and stores
+  a new owned one, and `y` simply sees the new value. Writing through `y`
+  drops/dups against the slot's own count. Consistent in both directions.
+- H3/H4 scope: `y` is declared in a block where the root is visible, so the
+  root's slot always outlives `y`; loop-body rebinding creates matching
+  slots each iteration.
+- H7 P4 pin: `__pin := a.b` keeps the innermost object alive for the scope;
+  reassigning `a.b` leaves `y` on the old object (memory-safe, documented);
+  a `Box` deref is a field hop into the Box allocation, pinned the same way.
+- H19 element escape: `is_ref` bans capture and return; `y := x` copies the
+  pointee; passing `x` to an `inout` parameter hands out the same pointer
+  while the loop's acquire is still held, so a callee growing the list
+  through an alias hits the assert.
+- H18 nested borrowed loops over one collection: shared reads, count 2.
+- H23 pointer iterators recompute `data_ptr.add(i)` per `next`, so only the
+  outstanding element reference, never the iterator, is what the flag
+  protects.
+- H43 Phase A per-call acquire: release is emitted before the effect-escape
+  check; a panic aborts the process, so no release is needed there.
+
+**Holes found → rules added.**
+
+- **H5 async state machines (→ B1).** Verified: in an `io.async` body an
+  `inout` argument takes `&(sm->var_x)`, but each state also declares a
+  per-state C copy of the local. A local reference binding could write
+  `sm->var_x` while a read in the same state uses the stale copy. v1 rejects
+  `inout(name) :=` inside async bodies. The borrowed `for` is unaffected
+  (`x` points into heap storage, `x` itself is a spilled `T*`), but C6 tests
+  a borrowed loop body that contains an `await`.
+- **H6 last-use optimizers (→ B2′).** A read through `y` is not a syntactic
+  use of the root, so the dup/drop pair optimizer would MOVE a borrowed
+  local's count into a struct literal and a later write through `y` would
+  over-release. Borrowed roots are live through the binding's scope for
+  every such optimizer.
+- **H13 which methods must assert (→ C5).** Length decreases and entry
+  removals, not just realloc/free; slot moves and overwrites are safe.
+- **H14 counter wrap (→ C3).** `u16` acquire saturates with a panic.
+- **H15 task abort (→ C3/C6).** Guard dispose on the abort path is tested,
+  because a stuck counter is a worse failure than the residual it closes.
+- **H21 value-type collections (→ C1).** `Array(T, N)` excluded in v1: the
+  hidden pin local would be a copy.
+- **H27 CTFE (→ B1).** A binding evaluated at compile time must alias the
+  root's `Variable.value` cell for whole variables and be runtime-only for
+  field places, mirroring the `inout` argument binder.
+- **H37 std authoring (→ C1).** A pointer iterator may only yield into
+  storage reachable exclusively through `self`; otherwise an unasserted
+  handle to the inner storage can invalidate the borrow. `OrderedMap` over a
+  private `HashMap` is the worked example.
+
+**Where the guarantee comes from, stated once.** For P1–P4 the guarantee is
+static: slot lifetime by scoping, escape by the absence of a type, moves by
+the consume gate and B2′, object lifetime by the pin. For P5 the guarantee
+is the runtime flag: every operation that can invalidate an element of `__c`
+asserts `borrow_count == 0`, the flag is held for the loop, and it is
+released on every exit including abort. The static in-body check (C4)
+catches conflicts the compiler can see — a call on the same variable, or on
+a same-function alias tracked by `is_owning_the_same_rc_value_as`
+(`list2 := list` IS caught, exactly as `evil(xs(0), xs2)` is rejected
+today) — and is a diagnostic, not the safety argument. Aliases the compiler
+cannot track (through function boundaries, struct fields, globals, closures,
+or stored inside another collection) are the runtime flag's job.
+
+**Accepted, documented non-goals.** Two `inout` aliases of one slot
+(`swap(x, x)`) are legal aliasing, not a hole. Cross-thread access to a
+borrowed object's fields is governed by Yo's existing `Send`/`Mutex` rules,
+not by this design. Pessimism of the MAY mutation summary can reject a
+read-only body call (a method taking a closure); the escape is
+restructuring, not `unsafe`.
