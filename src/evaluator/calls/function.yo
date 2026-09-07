@@ -2370,7 +2370,7 @@ _evaluate_funcval_runtime_call :: (
           .None => ()
         );
       });
-      _sfa := spec_forall_args.push(
+      spec_forall_args.push(
         ArgEntry(
           value : Option(EvalValue).Some(fbv),
           parameter_type : TypeValue.TypeUni(usize(0)),
@@ -2412,7 +2412,7 @@ _evaluate_funcval_runtime_call :: (
       if(!(sra_is_ct) && (is_comptime_int_type(arg_ty_spec) || is_comptime_float_type(arg_ty_spec)), {
         arg_ty_spec = convert_comptime_type_to_runtime_type(arg_ty_spec, env);
       });
-      _sra := spec_reg_args.push(
+      spec_reg_args.push(
         ArgEntry(value : ainfo.value, parameter_type : ainfo.ty, arg_type : arg_ty_spec)
       );
       sra_i = (sra_i + usize(1));
@@ -4480,7 +4480,7 @@ Fix: wrap the call:
             });
             q_info := new_expr_info(env, t_expr_t());
             q_info.value = Option(EvalValue).Some(EvalValue.ExprVal(clone_expr_fresh_ids(q_arg_expr)));
-            _push_q := evaled_arg_infos.push(q_info);
+            evaled_arg_infos.push(q_info);
             ai = (ai + usize(1));
             continue;
           });
@@ -4834,7 +4834,7 @@ Fix: wrap the call:
               );
               eprintln(`[arg-eval] expr=${ast_expr_to_string(arg_expr_eff)} ty=${type_to_string(arg_info.ty)} val=${ae_val_str}`);
             });
-            _push_arg := evaled_arg_infos.push(arg_info);
+            evaled_arg_infos.push(arg_info);
             // A COMPTIME variadic's trailing args (indices >= n_p) are not C
             // arguments either — `rt_ct_flags_args` only covers the FIXED
             // params, so without this they fell through the `.None => false`
@@ -4846,7 +4846,7 @@ Fix: wrap the call:
               true => match(rt_ct_flags_args.get(ai), .Some(f) => f, .None => false)
             );
             if(!(rt_arg_is_ct), {
-              _push_rt := runtime_arg_exprs.push(evaled_arg);
+              runtime_arg_exprs.push(evaled_arg);
             });
             // Step 4b own-consume (port of helper.ts:411-451 / helper.yo:543):
             // this inline FuncVal arg loop BYPASSES
@@ -5418,7 +5418,7 @@ Fix: wrap the call:
           match(
             var_opt,
             .Some(v) => {
-              _push_pv := param_vars.push(v);
+              param_vars.push(v);
             },
             .None => ()
           );
@@ -5439,7 +5439,7 @@ Fix: wrap the call:
             match(
               fv_args.get(vidx),
               .Some(varg) => {
-                _vp := velems.push(EvalValue.ExprVal(clone_expr_fresh_ids(varg)));
+                velems.push(EvalValue.ExprVal(clone_expr_fresh_ids(varg)));
               },
               .None => ()
             );
@@ -5482,7 +5482,7 @@ Fix: wrap the call:
               .Some(ct_vinfo) => match(
                 ct_vinfo.value,
                 .Some(ct_vv) => {
-                  _ctvp := ct_velems.push(ct_vv);
+                  ct_velems.push(ct_vv);
                 },
                 .None => ()
               ),
@@ -5642,7 +5642,7 @@ Fix: wrap the call:
               .Some(i) => i,
               .None => new_expr_info(env, t_unit())
             );
-            _ct_push := ct_arg_entries.push(
+            ct_arg_entries.push(
               ArgEntry(
                 value : ct_info.value,
                 parameter_type : ct_info.ty,

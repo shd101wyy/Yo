@@ -86,7 +86,7 @@ impl(
       match(
         self.get(i),
         .Some(v) => {
-          ___ := out.push(v);
+          out.push(v);
         },
         .None => ()
       );
@@ -102,7 +102,7 @@ impl(
       match(
         self.get(i),
         .Some(v) => {
-          ___ := out.push(v);
+          out.push(v);
         },
         .None => ()
       );
@@ -177,9 +177,11 @@ impl(
     )
   ),
   /**
-  * Add an element to the end of the ArrayList
+  * Add an element to the end of the ArrayList, reporting allocation failure.
+  *
+  * The allocator-aware form (D9). `push` is the one to reach for.
   */
-  push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
+  try_push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
       (self._length >= self._capacity) => {
@@ -227,6 +229,24 @@ impl(
           },
           .None => __yo_panic("ArrayList has capacity but no ptr")
         )
+    )
+  ),
+  /**
+  * Add an element to the end of the ArrayList.
+  *
+  * PANICS on allocation failure — Rust's `Vec::push` aborts, and so do this
+  * list's own `ensure_total_capacity` / `with_capacity`. Before D9 this
+  * returned a `Result` that every one of its callers discarded, usually via a
+  * throwaway `_p :=` binding: a `Result` nobody checks is strictly worse than
+  * a panic, because it reads as if the failure were handled.
+  *
+  * Use `try_push` when the caller genuinely handles OOM.
+  */
+  push : (fn(self : Self, value : T) -> unit)(
+    match(
+      Self.try_push(self, value),
+      .Ok(_) => (),
+      .Err(_) => __yo_panic("ArrayList.push: allocation failed")
     )
   ),
   /**

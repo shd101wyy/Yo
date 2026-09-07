@@ -73,7 +73,7 @@ nest_rebuild :: (fn(t : Nest) -> Nest)(
         match(
           items.get(i),
           .Some(e) => {
-            _ := out.push(recur(e));
+            out.push(recur(e));
           },
           .None => ()
         );
@@ -126,9 +126,9 @@ test("recursive ref(enum) RECONSTRUCTION (Self + ArrayList(Self) fields)", {
   // Build a Nest reached through both a direct `Self` (`One`) and an
   // `ArrayList(Self)` (`Many`) field.
   leaves := ArrayList(Nest).new();
-  _ := leaves.push(Nest.Tip(n : i32(1)));
-  _ := leaves.push(Nest.One(inner : Nest.Tip(n : i32(2))));
-  _ := leaves.push(Nest.Tip(n : i32(4)));
+  leaves.push(Nest.Tip(n : i32(1)));
+  leaves.push(Nest.One(inner : Nest.Tip(n : i32(2))));
+  leaves.push(Nest.Tip(n : i32(4)));
   n := Nest.One(inner : Nest.Many(items : leaves));
   assert(nest_sum(n) == i32(7), "sum over a recursive ref-enum");
   // Reconstructing it (a `fn(t) -> Self`) must compile (regression: the size /

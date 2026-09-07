@@ -59,15 +59,15 @@ test("str range windows stay static str", {
 // ---------------------------------------------------------------------------
 test("range copies survive source reassignment and growth", {
   buf := ArrayList(i32).new();
-  ___1 := buf.push(i32(42));
-  ___2 := buf.push(i32(7));
+  buf.push(i32(42));
+  buf.push(i32(7));
   s := buf(usize(0) .. usize(2));
   // (a) reassignment of the source — the copy is unaffected
   buf = ArrayList(i32).new();
   // (b) growth/realloc of the source — the copy is unaffected
   i := usize(0);
   while(i < usize(100), i = (i + usize(1)), {
-    ___ := buf.push(i32(1));
+    buf.push(i32(1));
   });
   assert(s.len() == usize(2), "copy length stable");
   assert(match(s.get(usize(0)), .Some(v) => (v == i32(42)), .None => false), "copy data stable");

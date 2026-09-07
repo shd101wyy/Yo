@@ -766,7 +766,7 @@ impl(
         match(
           self._segments.get(i),
           .Some(seg) => {
-            _p := segments.push(seg.clone());
+            segments.push(seg.clone());
           },
           .None => ()
         );
@@ -850,7 +850,7 @@ impl(
   ancestors : (fn(self : Self) -> ArrayList(Self))({
     out := ArrayList(Self).new();
     cur := self.clone();
-    _p := out.push(cur.clone());
+    out.push(cur.clone());
     while(true, {
       nxt := cur.parent();
       // `parent` of a single relative segment is the EMPTY relative path
@@ -862,7 +862,7 @@ impl(
           cond(
             ((n._segments.len() == usize(0)) && !n._is_absolute) => true,
             true => {
-              _p2 := out.push(n.clone());
+              out.push(n.clone());
               cur = n;
               false
             }
@@ -892,7 +892,7 @@ split_paths :: (fn(s : String) -> ArrayList(Path))({
     cond(
       part.is_empty() => (),
       true => {
-        _p := out.push(Path.new(part.clone()));
+        out.push(Path.new(part.clone()));
       }
     );
   });

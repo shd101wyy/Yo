@@ -790,7 +790,7 @@ _ti_bind_type_field_list :: (
     label := match(labels.get(i), .Some(l) => l, .None => String.from(""));
     field_ty := match(types.get(i), .Some(t) => t, .None => t_unit());
     fi_val := _ti_build_type_field_info(env_ptr, label, field_ty, ctx, exn);
-    _push := fi_vals.push(fi_val);
+    fi_vals.push(fi_val);
     i = (i + usize(1));
   });
   _ti_bind_comptime_list(env_ptr, fi_vals, String.from("TypeFieldInfo"), String.from("fl"), ctx, exn)
@@ -841,7 +841,7 @@ _ti_bind_variant_info_list :: (
     v_fields := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
     v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
     vi_val := _ti_build_variant_info(env_ptr, v_name, v_field_labels, v_fields, enum_ty, i, ctx, exn);
-    _push := vi_vals.push(vi_val);
+    vi_vals.push(vi_val);
     i = (i + usize(1));
   });
   _ti_bind_comptime_list(env_ptr, vi_vals, String.from("VariantInfo"), String.from("vl"), ctx, exn)
@@ -868,7 +868,7 @@ _ti_bind_trait_info_list :: (
     match(
       _ti_eval_code(env_ptr, code, ctx, exn),
       .Some(v) => {
-        _p := values.push(v);
+        values.push(v);
       },
       .None => ()
     );
@@ -937,13 +937,13 @@ _ti_bind_function_info :: (
     while(i < n, {
       lbl := match(param_labels.get(i), .Some(l) => l, .None => String.new());
       pty := match(param_types.get(i), .Some(t) => t, .None => t_unit());
-      _p := param_vals.push(_ti_build_param_info(env_ptr, lbl, pty, false, false, ctx, exn));
+      param_vals.push(_ti_build_param_info(env_ptr, lbl, pty, false, false, ctx, exn));
       i = (i + usize(1));
     });
     match(
       variadic_types.get(usize(0)),
       .Some(vty) => {
-        _pv := param_vals.push(
+        param_vals.push(
           _ti_build_param_info(env_ptr, variadic_label.clone(), vty, variadic_comptime, true, ctx, exn)
         );
       },
@@ -968,7 +968,7 @@ _ti_bind_function_info :: (
       match(
         _ti_eval_code(env_ptr, code, ctx, exn),
         .Some(v) => {
-          _p := forall_vals.push(v);
+          forall_vals.push(v);
         },
         .None => ()
       );
@@ -992,7 +992,7 @@ _ti_bind_function_info :: (
       match(
         _ti_eval_code(env_ptr, code, ctx, exn),
         .Some(v) => {
-          _p := implicit_vals.push(v);
+          implicit_vals.push(v);
         },
         .None => ()
       );
@@ -1073,7 +1073,7 @@ _ti_bind_trait_field_info_list :: (
     match(
       _ti_eval_code(env_ptr, code, ctx, exn),
       .Some(v) => {
-        _p := values.push(v);
+        values.push(v);
       },
       .None => ()
     );
@@ -1841,7 +1841,7 @@ evaluate_type_join_fields :: (
         make_err_expr()
       }
     );
-    _push := result_exprs.push(result_expr);
+    result_exprs.push(result_expr);
     si = (si + usize(1));
   });
   // Combine all Exprs left-associatively using combiner token.
@@ -1851,8 +1851,8 @@ evaluate_type_join_fields :: (
   while(ri < result_exprs.len(), {
     rhs := match(result_exprs.get(ri), .Some(e) => e, .None => make_err_expr());
     combine_args := ArrayList(AstExpr).new();
-    _p1 := combine_args.push(acc_expr);
-    _p2 := combine_args.push(rhs);
+    combine_args.push(acc_expr);
+    combine_args.push(rhs);
     acc_expr = AstExpr.FnCall(usize(0), AstExpr.Atom(usize(0), tok), combine_args, true, tok);
     ri = (ri + usize(1));
   });
@@ -2061,7 +2061,7 @@ evaluate_type_map_variants :: (
         EvalValue.UnitVal
       }
     );
-    _push := result_vals.push(result_ev);
+    result_vals.push(result_ev);
     vi = (vi + usize(1));
   });
   // Return a ComptimeList(Expr).

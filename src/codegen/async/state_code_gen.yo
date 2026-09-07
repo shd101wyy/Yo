@@ -563,7 +563,7 @@ split_into_state_segments :: (
                   .Some(completion) => {
                     // The completion segment was just created EMPTY, so a push
                     // is TS's unshift.
-                    _r2 := completion.expressions.push(enclosing);
+                    completion.expressions.push(enclosing);
                     completion.hoisted_await_point = Option(AwaitPoint).Some(tap);
                   },
                   .None => ()
@@ -739,13 +739,13 @@ hoist_non_splittable_awaits :: (fn(segments : ArrayList(StateSegment)) -> unit)(
                     // ArrayList has no `insert`; rebuild with the hoisted
                     // expression first.
                     rebuilt := ArrayList(AstExpr).new();
-                    _r2 := rebuilt.push(enclosing);
+                    rebuilt.push(enclosing);
                     (ni : usize) = usize(0);
                     while(ni < next.expressions.len(), {
                       match(
                         next.expressions.get(ni),
                         .Some(ex) => {
-                          _r3 := rebuilt.push(ex);
+                          rebuilt.push(ex);
                         },
                         .None => ()
                       );
@@ -1593,7 +1593,7 @@ generate_whole_while_body :: (
   );
   exprs := if(ast_expr_is_fn_call(body_expr) && ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), match(body_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new()), {
     one := ArrayList(AstExpr).new();
-    _r := one.push(body_expr);
+    one.push(body_expr);
     one
   });
   (i : usize) = usize(0);
