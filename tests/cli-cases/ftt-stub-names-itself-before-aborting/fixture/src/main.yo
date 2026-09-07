@@ -1,0 +1,33 @@
+// Regression fixture: a LIVE "failed to transpile" stub must FAIL THE BUILD,
+// not produce a binary that aborts with no diagnostic.
+//
+// The derive rule below splices a body naming something that does not exist at
+// the splice site. `.to_expr()` re-parses the body, so the name resolves in
+// THIS file's scope, fails, and the failure is SWALLOWED — codegen then emits
+// an `abort()` stub for the function.
+//
+// Codegen guards that with GNU's `error` attribute, making the C toolchain the
+// deadness oracle: a dead stub links clean, a live one must fail. But that
+// attribute is diagnosed from the BACKEND, after optimization, so at -O2 —
+// which is every real build — LLVM folded the call to the noreturn stub away
+// and the diagnostic never fired. The program compiled clean and died at
+// rc=134 with no output.
+// issues/fixed/ftt-stub-error-attribute-does-not-fire-at-O2.md
+//
+// The stub body now also calls an UNDEFINED extern symbol, so a surviving call
+// leaves an unresolved reference and the LINK fails at every optimization
+// level. This build must therefore fail, naming `failed_to_transpile`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Lbl :: trait(lbl : (fn(inout(self) : Self) -> String));
+__r :: (
+  fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
+)({
+  src :: "__NoSuchNameAtTheSpliceSite.from(\"x\")";
+  ctx.make_impl(quote(Lbl(lbl : ((self) -> #(src.to_expr())))))
+});
+derive_rule(Lbl, __r);
+P :: struct(x : i32);
+derive(P, Lbl);
+main :: (fn() -> unit)(println(P(x : i32(1)).lbl()));
+export(main);
