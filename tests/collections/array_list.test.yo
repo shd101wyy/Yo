@@ -1203,3 +1203,179 @@ test("starts_with / ends_with compare element runs", {
   bigger.push(i32(4));
   assert(l.starts_with(bigger) == false, "a longer prefix cannot match");
 });
+// ===== resize / fill =====
+test("resize grows with copies of the value and shrinks by dropping the tail", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.resize(usize(5), i32(9));
+  assert(xs.len() == usize(5), "grew to the requested length");
+  assert(xs(usize(0)) == i32(1), "the original head is untouched");
+  assert(xs(usize(1)) == i32(2), "and so is the second element");
+  assert(xs(usize(2)) == i32(9), "the new slots carry the fill value");
+  assert(xs(usize(4)) == i32(9), "all the way to the end");
+  xs.resize(usize(2), i32(0));
+  assert(xs.len() == usize(2), "shrank to the requested length");
+  assert(xs(usize(1)) == i32(2), "keeping the head");
+  xs.resize(usize(2), i32(7));
+  assert(xs.len() == usize(2), "resizing to the current length is a no-op");
+});
+test("resize works on an RC element type", {
+  xs := ArrayList(String).new();
+  xs.push(`a`);
+  xs.resize(usize(3), `pad`);
+  assert(xs.len() == usize(3), "grew");
+  assert(xs(usize(0)) == `a`, "original element intact");
+  assert(xs(usize(2)) == `pad`, "and the padding arrived");
+  xs.resize(usize(1), `unused`);
+  assert(xs.len() == usize(1), "shrank");
+  assert(xs(usize(0)) == `a`, "with the survivor intact");
+});
+test("fill overwrites every element and keeps the length", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.push(i32(3));
+  xs.fill(i32(8));
+  assert(xs.len() == usize(3), "length is unchanged");
+  assert(xs(usize(0)) == i32(8), "first slot overwritten");
+  assert(xs(usize(2)) == i32(8), "last slot overwritten");
+  empty := ArrayList(i32).new();
+  empty.fill(i32(1));
+  assert(empty.is_empty(), "filling an empty list is a no-op");
+});
+// ===== sort_by_key / binary_search_by =====
+test("sort_by_key sorts by a key of a DIFFERENT type", {
+  xs := ArrayList(String).new();
+  xs.push(`ccc`);
+  xs.push(`a`);
+  xs.push(`bb`);
+  xs.sort_by_key(s => s.len());
+  assert(xs(usize(0)) == `a`, "shortest first");
+  assert(xs(usize(1)) == `bb`, "then the middle");
+  assert(xs(usize(2)) == `ccc`, "then the longest");
+});
+test("sort_by_key is stable across equal keys", {
+  xs := ArrayList(String).new();
+  xs.push(`ax`);
+  xs.push(`by`);
+  xs.push(`c`);
+  xs.push(`dz`);
+  xs.sort_by_key(s => s.len());
+  assert(xs(usize(0)) == `c`, "the sole short key sorts first");
+  assert(xs(usize(1)) == `ax`, "equal keys keep their input order");
+  assert(xs(usize(2)) == `by`, "second of the run");
+  assert(xs(usize(3)) == `dz`, "third of the run");
+});
+test("binary_search_by finds a match and reports the insertion point otherwise", {
+  xs := ArrayList(i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(10), i = (i + i32(1)), {
+    xs.push(i * i32(2));
+  });
+  assert(match(xs.binary_search_by(v => v.cmp(i32(6))), .Ok(at) => (at == usize(3)), .Err(_) => false), "an even target is found at its index");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(0))), .Ok(at) => (at == usize(0)), .Err(_) => false), "the first element is found");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(18))), .Ok(at) => (at == usize(9)), .Err(_) => false), "the last element is found");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(7))), .Ok(_) => false, .Err(at) => (at == usize(4))), "an absent target reports where it would go");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(-1))), .Ok(_) => false, .Err(at) => (at == usize(0))), "below the range inserts at the front");
+  assert(match(xs.binary_search_by(v => v.cmp(i32(100))), .Ok(_) => false, .Err(at) => (at == usize(10))), "above the range inserts at the end");
+});
+test("binary_search_by searches without constructing a T", {
+  // The point of the `_by` form: the comparator closes over a key, so nothing
+  // of the element type has to be built to search for one.
+  xs := ArrayList(String).new();
+  xs.push(`a`);
+  xs.push(`bb`);
+  xs.push(`cccc`);
+  assert(match(xs.binary_search_by(s => s.len().cmp(usize(2))), .Ok(at) => (at == usize(1)), .Err(_) => false), "found by key");
+  assert(match(xs.binary_search_by(s => s.len().cmp(usize(3))), .Ok(_) => false, .Err(at) => (at == usize(2))), "and reports the gap");
+});
+// ===== chunks / windows =====
+_drain_lens :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := ArrayList(i32)))) -> ArrayList(usize))({
+  out := ArrayList(usize).new();
+  iter := it;
+  while(runtime(true), {
+    match(
+      iter.next(),
+      .None => {
+        break;
+      },
+      .Some(c) => {
+        out.push(c.len());
+      }
+    );
+  });
+  out
+});
+test("chunks splits into non-overlapping pieces with a short tail", {
+  xs := ArrayList(i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(7), i = (i + i32(1)), {
+    xs.push(i);
+  });
+  lens := _drain_lens(xs.chunks(usize(3)));
+  assert(lens.len() == usize(3), "7 elements in chunks of 3 is three chunks");
+  assert(lens(usize(0)) == usize(3), "first chunk is full");
+  assert(lens(usize(1)) == usize(3), "second chunk is full");
+  assert(lens(usize(2)) == usize(1), "the tail chunk is short");
+});
+test("chunks yields the elements in order", {
+  xs := ArrayList(i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(5), i = (i + i32(1)), {
+    xs.push(i);
+  });
+  it := xs.chunks(usize(2));
+  first := match(it.next(), .Some(c) => c, .None => ArrayList(i32).new());
+  assert(first.len() == usize(2), "first chunk has two elements");
+  assert(first(usize(0)) == i32(0), "starting at the head");
+  assert(first(usize(1)) == i32(1), "in source order");
+  second := match(it.next(), .Some(c) => c, .None => ArrayList(i32).new());
+  assert(second(usize(0)) == i32(2), "the second chunk continues where the first stopped");
+});
+test("a chunk is a COPY — mutating it does not touch the source", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  it := xs.chunks(usize(2));
+  c := match(it.next(), .Some(x) => x, .None => ArrayList(i32).new());
+  c(usize(0)) = i32(99);
+  assert(xs(usize(0)) == i32(1), "the source list is unchanged");
+  assert(c(usize(0)) == i32(99), "and the chunk took the write");
+});
+test("chunks larger than the list yield one short chunk", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  lens := _drain_lens(xs.chunks(usize(10)));
+  assert(lens.len() == usize(1), "one chunk");
+  assert(lens(usize(0)) == usize(2), "holding everything");
+  empty := ArrayList(i32).new();
+  assert(_drain_lens(empty.chunks(usize(3))).len() == usize(0), "an empty list yields no chunks");
+});
+test("windows are overlapping and always exactly the requested size", {
+  xs := ArrayList(i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(5), i = (i + i32(1)), {
+    xs.push(i);
+  });
+  lens := _drain_lens(xs.windows(usize(3)));
+  assert(lens.len() == usize(3), "5 elements gives 3 windows of 3");
+  assert(lens(usize(0)) == usize(3), "each window is full");
+  assert(lens(usize(2)) == usize(3), "including the last");
+  it := xs.windows(usize(3));
+  w0 := match(it.next(), .Some(w) => w, .None => ArrayList(i32).new());
+  w1 := match(it.next(), .Some(w) => w, .None => ArrayList(i32).new());
+  assert(w0(usize(0)) == i32(0), "the first window starts at the head");
+  assert(w1(usize(0)) == i32(1), "and the next advances by ONE, not by the size");
+  assert(w0(usize(1)) == w1(usize(0)), "so consecutive windows overlap");
+});
+test("windows at or beyond the length", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.push(i32(3));
+  assert(_drain_lens(xs.windows(usize(3))).len() == usize(1), "a window the size of the list yields exactly one");
+  assert(_drain_lens(xs.windows(usize(4))).len() == usize(0), "a window longer than the list yields none");
+  assert(_drain_lens(xs.windows(usize(1))).len() == usize(3), "windows of one yield one per element");
+});
