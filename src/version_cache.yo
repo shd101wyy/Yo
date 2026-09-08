@@ -586,55 +586,14 @@ _scan_release_page :: (fn(json : String) -> _ReleasePage)({
   });
   _ReleasePage(tags : tags, object_count : object_count)
 });
-/// Recursively copy the directory tree `from` to `to` (which must not
-/// exist yet). The byte-safe `std/fs` `copy` carries regular files (the
-/// bundle's `bin/yo` is a binary — a text read would corrupt it);
-/// directories recurse; symlinks and other exotic entries throw (release
-/// bundles carry none).
-_copy_dir_recursive :: (
-  fn(from : Path, to : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn))
-)(
-  io.async((e : IoExn) => {
-    e.io.await(create_dir_all(to.clone(), e.io), e);
-    entries := e.io.await(read_dir(from.clone(), e.io), e);
-    (i : usize) = usize(0);
-    while(i < entries.len(), {
-      entry := entries(i);
-      entry_from := from.clone().join(Path.new(entry.name.clone()));
-      entry_to := to.clone().join(Path.new(entry.name.clone()));
-      match(
-        entry.file_type,
-        .Directory => {
-          e.io.await(_copy_dir_recursive(entry_from, entry_to, e.io, e.exn), e);
-        },
-        .File => {
-          _ := e.io.await(copy(entry_from, entry_to, e.io), e);
-        },
-        _ => {
-          e.exn.throw(
-            dyn(
-              `version install: refusing to copy non-regular entry ${entry.name} (symlink/other) — bundle layout changed?`
-            )
-          );
-        }
-      );
-      i = (i + usize(1));
-    });
-    ()
-  })
-);
-/// Rename-failure signal for `_move_dir_cross_device`'s inner handler.
-/// A module-level global rather than a captured local: `->` handlers
-/// cannot capture outer runtime variables. The event loop is
-/// single-threaded and one install runs at a time, so a plain flag is
-/// race-free.
-(g_vc_rename_failed : bool) = false;
 /// Move a directory tree `from` to `to`, tolerating the two living on
 /// DIFFERENT filesystems: `rename(2)` fails with EXDEV there — the common
 /// case on Linux desktops, where the system temp root (`/tmp`) is tmpfs
 /// and `~/.cache` is a disk (issues/version-install-cross-device-link.md).
-/// rename stays the fast path; on failure the tree is copied recursively
-/// and the source removed.
+/// rename stays the fast path; on EXDEV the tree is copied with `cp -a`
+/// (the same shell-out the tarball extraction two steps up already relies
+/// on — `cp` is at least as available as `tar`/`unzip` there) and the
+/// source removed.
 _move_dir_cross_device :: (
   fn(from : Path, to : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn))
 )(
@@ -642,7 +601,10 @@ _move_dir_cross_device :: (
     // Try rename first (same-filesystem fast path). The inner handler
     // swallows the rename's IoError and records the failure — EXDEV is
     // expected; anything else falls through to the copy, which surfaces
-    // a real error if the tree is unreadable.
+    // a real error if the tree is unreadable. A module-level flag rather
+    // than a captured local: `->` handlers cannot capture outer runtime
+    // variables. The event loop is single-threaded and one install runs
+    // at a time, so a plain flag is race-free.
     g_vc_rename_failed = false;
     rename_exn := Exception(
       throw : (
@@ -656,34 +618,23 @@ _move_dir_cross_device :: (
       rename(from.clone(), to.clone(), e.io),
       IoExn(io : e.io, exn : rename_exn)
     );
-    // Awaits stay in PLAIN segments (early return, not an if-arm): an
-    // await nested in a branch arm of a capture-mode state machine loses
-    // the `.io` member projection on its io argument
-    // (issues/async-closure-value-struct-param-emits-invalid-c-cast.md).
     if(g_vc_rename_failed == false, {
       return(());
     });
-    e.io.await(_copy_dir_recursive(from.clone(), to.clone(), e.io, e.exn), e);
-    e.io.await(remove_dir_all(from.clone(), e), e);
-    ()
-  })
-);
-/// Failure cleanup for `download_version`: remove the (possibly partial)
-/// version directory and the temp directory. Ports the TS catch+finally.
-_cleanup_failed_download :: (
-  fn(
-    version_dir : String,
-    tmp_path : Path,
-    io : Io,
-    exn : Exception
-  ) -> Impl(Future(unit, IoExn))
-)(
-  io.async((e : IoExn) => {
-    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
-    if(ver_exists, {
-      e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
+    cp_cmd := Command.new(String.from("cp"));
+    cp_cmd.arg(String.from("-a"));
+    cp_cmd.arg(from.path().to_string());
+    cp_cmd.arg(to.path().to_string());
+    cp_out := e.io.await(cp_cmd.output(e.io), e);
+    if(!cp_out.status.success(), {
+      e.exn.throw(
+        dyn(
+          `Failed to move the extracted bundle into the cache (rename crossed filesystems and 'cp -a' failed): ${cp_out.status.raw.to_string()}`
+        )
+      );
     });
-    e.io.await(remove_dir_all(tmp_path, e.io), e);
+    e.io.await(remove_dir_all(from.clone(), e.io), e);
+    ()
   })
 );
 /// Download a specific Yo version's native bundle from GitHub Releases and
@@ -912,6 +863,6 @@ export(
   clean_version_cache,
   download_version,
   ensure_cached_version,
-  fetch_remote_versions
-,
-  _move_dir_cross_device);
+  fetch_remote_versions,
+  _move_dir_cross_device
+);
