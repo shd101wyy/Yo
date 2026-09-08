@@ -65,6 +65,63 @@ impl(
 );
 export(BenchResult);
 // ============================================================================
+// black_box
+// ============================================================================
+/// True when the target has no inline assembly, so `black_box` cannot place a
+/// barrier. Comptime, so the `asm` below is eliminated on those targets rather
+/// than reaching a backend that would reject it.
+_NO_INLINE_ASM :: (
+  (__yo_process_platform() == "wasi") || (__yo_process_platform() == "emscripten")
+);
+/// Hide `v` from the optimizer and hand it back — Rust's `black_box`.
+///
+/// Without it a benchmark whose result is discarded measures NOTHING, because
+/// the whole computation is dead code. Measured on this tree, 20 000 calls to
+/// a 2 000-iteration loop at `--optimize 2`:
+///
+/// | body | time |
+/// | --- | --- |
+/// | `_r := work(i);` | 0 ns — the loop was deleted outright |
+/// | `black_box(work(i));` | 39 273 000 ns |
+///
+/// The barrier is an empty `asm` that takes the value in a REGISTER with a
+/// `"memory"` clobber. A version that instead stored the value's address into
+/// a module-level global was measured too and does NOT work — both loops came
+/// back at 0 ns, because a store to a never-read global is itself dead, and
+/// there is no `volatile` in the language to say otherwise
+/// (issues/no-volatile-so-black-box-needs-inline-asm.md). On the wasm targets,
+/// which have no inline assembly, this is a NO-OP and elision-sensitive
+/// microbenchmarks there cannot be trusted.
+///
+/// ## `v` must be a scalar
+///
+/// Primitive numeric, pointer or bool — the compiler enforces it ("asm in()
+/// value type is not valid for inline assembly"), which covers the value a
+/// benchmark body normally produces. An aggregate or RC type would have to go
+/// in by ADDRESS, and that route is blocked twice over:
+///
+/// - `&param` inside a generic fn emits a placeholder into the C
+///   (issues/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md), so
+///   the address has to be taken of a local copy; and
+/// - copying an RC value into a local, taking its address, and returning it
+///   DOUBLE-DROPS the inner buffer — found by CI's Linux ASan leg on the first
+///   cut of this function, `heap-use-after-free in __yo_decr_rc`
+///   (issues/rc-value-copied-address-taken-and-returned-is-double-dropped.md).
+///
+/// So this ships scalar-only rather than shipping a double free. To keep an
+/// aggregate alive across a benchmark, black_box a scalar derived from it —
+/// `black_box(xs.len())`, `black_box(s.byte_at(0))`.
+black_box :: (fn(generic(T : Type), v : T) -> T)({
+  cond(
+    _NO_INLINE_ASM => (),
+    true => {
+      unsafe(asm("", in(reg, v), clobber("memory")));
+    }
+  );
+  v
+});
+export(black_box);
+// ============================================================================
 // bench
 // ============================================================================
 /// Run `body` for `iterations` times and return timing statistics.
@@ -106,3 +163,70 @@ bench :: (fn(name : String, iterations : u64, body : Impl(Fn() -> unit)) -> Benc
   )
 });
 export(bench);
+/// The wall time `bench_auto` aims to fill, in nanoseconds (100 ms).
+///
+/// Long enough that clock granularity and scheduler noise are both
+/// negligible, short enough that a suite of a few dozen cases stays
+/// interactive.
+_AUTO_TARGET_NS :: i64(100000000);
+/// A pilot run must last at least this long (1 ms) for its measurement to be
+/// worth extrapolating from — comfortably above any platform's clock
+/// granularity.
+_PILOT_FLOOR_NS :: i64(1000000);
+/// Ceiling on both the pilot and the final count, so neither can run away on a
+/// body too fast to measure.
+_PILOT_MAX_ITERS :: u64(1048576);
+/// `bench`, with the iteration count CHOSEN for you.
+///
+/// Escalates a pilot run until it lasts at least `_PILOT_FLOOR_NS`, then
+/// extrapolates the count that should fill `_AUTO_TARGET_NS`. Removes the two
+/// ways a hand-picked count goes wrong: too few iterations on a fast body, so
+/// the result is clock granularity rather than the body; far too many on a
+/// slow one, so the suite stalls.
+///
+/// ```rust
+/// println(bench_auto(`sort`, () => sort_a_thousand()).to_string());
+/// ```
+///
+/// The pilot is a real `bench` call timed by WALL clock, not a bare loop over
+/// `body`. That matters more than it looks: `bench` reads the clock TWICE per
+/// iteration, and for a trivial body those two reads are the entire cost. A
+/// first version timed only `body`, measured ~0 for `() => ()`, and so asked
+/// for the maximum 100 000 000 iterations — a 3.4 s run on a fast machine and
+/// minutes on a CI runner under sanitizers. Extrapolating from the wall time of
+/// the thing actually being repeated cannot make that mistake.
+bench_auto :: (fn(name : String, body : Impl(Fn() -> unit)) -> BenchResult)({
+  (pilot_iters : u64) = u64(64);
+  (wall_ns : i64) = i64(0);
+  while(runtime(true), {
+    t_start := Instant.now();
+    _pilot := bench(name, pilot_iters, body);
+    wall_ns = Instant.now().duration_since(t_start).as_nanos();
+    cond(
+      (wall_ns >= _PILOT_FLOOR_NS) => {
+        break;
+      },
+      (pilot_iters >= _PILOT_MAX_ITERS) => {
+        break;
+      },
+      true => {
+        pilot_iters = (pilot_iters * u64(4));
+      }
+    );
+  });
+  iterations := cond(
+    // Still unmeasurable at the ceiling: run the ceiling rather than divide by
+    // zero, which bounds the work at whatever the pilot already cost.
+    (wall_ns <= i64(0)) => pilot_iters,
+    true => {
+      scaled := ((i64(pilot_iters) * _AUTO_TARGET_NS) / wall_ns);
+      cond(
+        (scaled < i64(1)) => u64(1),
+        (scaled > i64(_PILOT_MAX_ITERS)) => _PILOT_MAX_ITERS,
+        true => u64(scaled)
+      )
+    }
+  );
+  bench(name, iterations, body)
+});
+export(bench_auto);
