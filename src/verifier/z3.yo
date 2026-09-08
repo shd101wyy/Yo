@@ -185,31 +185,6 @@ _z3_unlink_sync :: (fn(path : String) -> unit)({
   _ := unsafe(unistd.unlink((*char)(cstr)));
   ()
 });
-/// Create `path` and every missing ancestor (mkdir -p; existing segments
-/// are fine). The mode is the literal 0o700 — `S_IRWXU` is POSIX-only and
-/// broke the Windows cross-emit legs (constants land in the C text even in
-/// dead branches).
-_z3_mkdir_p_sync :: (fn(path : String) -> unit)({
-  (i : usize) = usize(0);
-  b := path.as_bytes();
-  while(i < b.len(), {
-    match(
-      b.get(i),
-      .Some(c) => {
-        if((c == u8(47)) && (i > usize(0)), {
-          seg := path.substring(usize(0), i);
-          seg_buf := seg.to_cstr();
-          _ := unsafe(stat.mkdir((*char)(seg_buf.ptr().unwrap()), 0o700));
-        });
-      },
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
-  path_buf := path.to_cstr();
-  _ := unsafe(stat.mkdir((*char)(path_buf.ptr().unwrap()), 0o700));
-  ()
-});
 /// Monotonic counter for temp-file names — unique within one process run,
 /// like the contract wrapper's `g_contract_old_counter`.
 (g_z3_tmp_counter : usize) = usize(0);
@@ -259,8 +234,10 @@ _install_z3 :: (
         )
       );
     });
+    // `unzip -d` creates the target dir (including parents) itself — no
+    // mkdir needed (Windows CRT mkdir is single-argument, so a libc mkdir-p
+    // would need per-platform shapes for nothing).
     solvers_root := `${_yo_cache_root()}/solvers`;
-    _z3_mkdir_p_sync(solvers_root.clone());
     zip_path := _z3_temp_path(String.from("zip"));
     url := z3_download_url();
     opts := FetchOptions.new();
@@ -672,7 +649,6 @@ export(
   _z3_exists_sync,
   _z3_read_file_sync,
   _z3_write_file_sync,
-  _z3_mkdir_p_sync,
   Z3Sexpr,
   parse_z3_sexprs,
   z3_sexpr_to_string,
