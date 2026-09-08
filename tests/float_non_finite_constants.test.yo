@@ -1,0 +1,38 @@
+//! A NON-FINITE comptime float constant must emit valid C.
+//!
+//! C `%g` renders the three non-finite doubles as `inf` / `-inf` / `nan`, none
+//! of which carries a radix point or exponent — so the float-literal emitter's
+//! "does this look like a C float literal?" test appended `.0` and produced
+//! `inf.0`, which is not C. See
+//! issues/fixed/comptime-float-infinity-emits-invalid-c.md.
+//!
+//! Every assertion runs the constant through a RUNTIME comparison, so none of
+//! them can pass vacuously by folding away.
+{ assert } :: import("std/assert");
+impl(
+  f64,
+  POS_INF : f64(1.0e400),
+  NEG_INF : f64(-1.0e400)
+);
+impl(
+  f32,
+  POS_INF : f32(1.0e40),
+  NEG_INF : f32(-1.0e40)
+);
+test("an f64 infinity constant survives codegen", {
+  (big : f64) = runtime(f64(1.0e308));
+  assert(f64.POS_INF > big, "positive infinity exceeds the largest finite double");
+  assert(f64.NEG_INF < -big, "negative infinity is below its negation");
+  assert(f64.POS_INF > f64.NEG_INF, "and the two are ordered");
+});
+test("an f64 infinity constant absorbs a finite addend", {
+  (one : f64) = runtime(f64(1.0));
+  (big : f64) = runtime(f64(1.0e308));
+  assert((f64.POS_INF + one) > big, "infinity plus one is still past every finite double");
+  assert(!(f64.POS_INF < f64.POS_INF), "and compares equal to itself");
+});
+test("an f32 infinity constant survives codegen", {
+  (big : f32) = runtime(f32(1.0e38));
+  assert(f32.POS_INF > big, "positive infinity exceeds the largest finite float");
+  assert(f32.NEG_INF < -big, "negative infinity is below its negation");
+});

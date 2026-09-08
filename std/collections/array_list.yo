@@ -537,6 +537,33 @@ impl(
       }
     );
   }),
+  /// Resize to exactly `new_len`, dropping the tail when shrinking and
+  /// appending copies of `value` when growing. Rust's `resize`.
+  ///
+  /// Distinct from `resize_with_byte`, which memsets raw storage and is only
+  /// meaningful for a plain-old-data element type.
+  resize : (fn(self : Self, new_len : usize, value : T) -> unit)({
+    cond(
+      (new_len < self._length) => {
+        self.truncate(new_len);
+      },
+      (new_len > self._length) => {
+        self.reserve(new_len - self._length);
+        while(self._length < new_len, {
+          self.push(value);
+        });
+      },
+      true => ()
+    );
+  }),
+  /// Overwrite every element with `value`, keeping the length. Rust's `fill`.
+  fill : (fn(self : Self, value : T) -> unit)({
+    (i : usize) = usize(0);
+    n := self._length;
+    while(i < n, i = (i + usize(1)), {
+      self(i) = value;
+    });
+  }),
   /// Split off `[at, len)` into a new list, leaving `[0, at)` here.
   split_off : (fn(self : Self, at : usize) -> Self)({
     if(at > self._length, {
@@ -1387,11 +1414,74 @@ impl(
     })
   )
 );
+/// Iterator over non-overlapping CHUNKS of a list.
+///
+/// Yo has no slice type, so each chunk is a freshly allocated `ArrayList(T)`
+/// COPY rather than a borrowed view — the honest rendering of Rust's `chunks`,
+/// whose item is a `&[T]`. Mutating a yielded chunk does not touch the source.
+ArrayListChunks :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _src : ArrayList(T),
+    _index : usize,
+    _size : usize
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListChunks(T),
+  Iterator(
+    Item : ArrayList(T),
+    next : (fn(inout(self) : Self) -> Option(ArrayList(T)))({
+      n := self._src.len();
+      cond(
+        (self._index >= n) => Option(ArrayList(T)).None,
+        true => {
+          end := cond(
+            ((self._index + self._size) < n) => (self._index + self._size),
+            true => n
+          );
+          out := self._src.slice_copy(self._index .. end);
+          self._index = end;
+          Option(ArrayList(T)).Some(out)
+        }
+      )
+    })
+  )
+);
+/// Iterator over overlapping WINDOWS of a list — see `ArrayListChunks` for why
+/// each window is a copy.
+ArrayListWindows :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _src : ArrayList(T),
+    _index : usize,
+    _size : usize
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayListWindows(T),
+  Iterator(
+    Item : ArrayList(T),
+    next : (fn(inout(self) : Self) -> Option(ArrayList(T)))({
+      n := self._src.len();
+      cond(
+        ((self._index + self._size) > n) => Option(ArrayList(T)).None,
+        true => {
+          out := self._src.slice_copy(self._index .. (self._index + self._size));
+          self._index = (self._index + usize(1));
+          Option(ArrayList(T)).Some(out)
+        }
+      )
+    })
+  )
+);
 export(
   ArrayList,
   ArrayListError,
   ArrayListIter,
-  ArrayListIterPtr
+  ArrayListIterPtr,
+  ArrayListChunks,
+  ArrayListWindows
 );
 // =============================================================================
 // array_list! literal macro
@@ -1512,6 +1602,74 @@ impl(
         .None => ()
       )
     );
+  }),
+  /// Sort ascending by a KEY extracted from each element — Rust's
+  /// `sort_by_key`. Stable, like `sort_by`, which it delegates to.
+  ///
+  /// The key type is a method-level `generic(K : Type)`, which the clause
+  /// order requires to come BEFORE `self`; it is inferred from the closure at
+  /// the call site, so `xs.sort_by_key((p) => p.age)` needs no annotation.
+  sort_by_key : (
+    fn(
+      generic(K : Type),
+      self : Self,
+      key : Impl(Fn(v : T) -> K),
+      where(K <: Ord(K))
+    ) -> unit
+  )(
+    self.sort_by((a, b) => (key(a) < key(b)))
+  ),
+  /// Binary search over a list ordered by `cmp` — Rust's `binary_search_by`.
+  ///
+  /// `cmp` reports how each ELEMENT orders against the target (`.Less` when
+  /// the element comes first), so searching does not require constructing a
+  /// `T` to compare against — which is the whole reason to reach for this
+  /// over `binary_search`. `.Ok(index)` of a match (any one of an equal run),
+  /// or `.Err(insertion_index)`.
+  binary_search_by : (fn(self : Self, cmp : Impl(Fn(v : T) -> Ordering)) -> Result(usize, usize))({
+    (lo : usize) = usize(0);
+    (hi : usize) = self._length;
+    (found : Option(usize)) = Option(usize).None;
+    while((lo < hi) && found.is_none(), {
+      mid := (lo + ((hi - lo) / usize(2)));
+      match(
+        cmp(self(mid)),
+        .Less => {
+          lo = (mid + usize(1));
+        },
+        .Greater => {
+          hi = mid;
+        },
+        .Equal => {
+          found = Option(usize).Some(mid);
+        }
+      );
+    });
+    match(
+      found,
+      .Some(at) => Result(usize, usize).Ok(at),
+      .None => Result(usize, usize).Err(lo)
+    )
+  }),
+  /// Non-overlapping chunks of `size`, in order — Rust's `chunks`. The final
+  /// chunk is SHORT when the length is not a multiple of `size`.
+  ///
+  /// PANICS on `size == 0`, as Rust does.
+  chunks : (fn(self : Self, size : usize) -> ArrayListChunks(T))({
+    if(size == usize(0), {
+      __yo_panic("ArrayList.chunks: size must be non-zero");
+    });
+    ArrayListChunks(T)(_src : self, _index : usize(0), _size : size)
+  }),
+  /// Overlapping windows of EXACTLY `size`, advancing one element at a time —
+  /// Rust's `windows`. Yields nothing when the list is shorter than `size`.
+  ///
+  /// PANICS on `size == 0`, as Rust does.
+  windows : (fn(self : Self, size : usize) -> ArrayListWindows(T))({
+    if(size == usize(0), {
+      __yo_panic("ArrayList.windows: size must be non-zero");
+    });
+    ArrayListWindows(T)(_src : self, _index : usize(0), _size : size)
   }),
   /// Sort by a caller-supplied strict "less" WITHOUT preserving the order of
   /// equal elements (heapsort). Rust's `sort_unstable_by`.

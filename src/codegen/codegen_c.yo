@@ -330,6 +330,13 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   base.add_c_include(String.from("<string.h>"));
   base.add_c_include(String.from("<errno.h>"));
   base.add_c_include(String.from("<fcntl.h>"));
+  // <math.h> unconditionally: a NON-FINITE float constant is emitted as
+  // `HUGE_VAL` / `HUGE_VALF` / `NAN` (the C11 spellings — `(1.0/0.0)` is a
+  // division by zero where a constant expression may be required), and the
+  // value generators run long after `emit_c_includes` below, so they cannot
+  // register a header of their own.
+  // See issues/fixed/comptime-float-infinity-emits-invalid-c.md.
+  base.add_c_include(String.from("<math.h>"));
   ctx := FunctionGenerationContext.new(base);
   base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
   // First pass: collect functions and types reachable from the module exports.

@@ -1,0 +1,64 @@
+//! `std/error`'s §4 Core ergonomics: `error_is` and `Context`.
+//!
+//! `ErrorChain`/`root_cause` are absent on purpose — `Error.source`'s result
+//! cannot be held at `Option(AnyError)`, so the chain cannot be walked past
+//! one link. See issues/error-source-result-cannot-be-held-as-anyerror.md.
+{ assert } :: import("std/assert");
+{ Error, AnyError, error_is, Context } :: import("std/error");
+{ ToString } :: import("std/fmt/to_string");
+open(import("std/string"));
+NotFound :: struct(path : String);
+impl(
+  NotFound,
+  ToString(to_string : (fn(inout(self) : Self) -> String)(`no such file: ${self.path}`))
+);
+impl(NotFound, Error());
+Denied :: struct(who : String);
+impl(
+  Denied,
+  ToString(to_string : (fn(inout(self) : Self) -> String)(`denied for ${self.who}`))
+);
+impl(Denied, Error());
+test("error_is identifies the concrete type behind an AnyError", {
+  (e : AnyError) = dyn(NotFound(path : `/tmp/x`));
+  assert(error_is(e, NotFound), "the type it really is");
+  assert(!error_is(e, Denied), "and not another error type");
+});
+test("error_is over a second error type", {
+  (e : AnyError) = dyn(Denied(who : `nobody`));
+  assert(error_is(e, Denied), "identified");
+  assert(!error_is(e, NotFound), "not confused with the first");
+});
+test("downcast recovers the value, which is what error_is tests for", {
+  (e : AnyError) = dyn(NotFound(path : `/etc/hosts`));
+  assert(match(downcast(e, NotFound), .Some(nf) => (nf.path == `/etc/hosts`), .None => false), "the payload survives");
+  assert(match(downcast(e, Denied), .Some(_) => false, .None => true), "and the wrong type gives None");
+});
+test("Context renders its message ahead of the cause", {
+  (inner : AnyError) = dyn(NotFound(path : `cfg.toml`));
+  c := Context.new(`while loading the config`, inner);
+  assert(c.to_string() == `while loading the config: no such file: cfg.toml`, "message, colon, cause");
+});
+test("Context nests, and each layer adds a prefix", {
+  (inner : AnyError) = dyn(NotFound(path : `a`));
+  (one : AnyError) = dyn(Context.new(`reading`, inner));
+  two := Context.new(`starting up`, one);
+  assert(two.to_string() == `starting up: reading: no such file: a`, "the whole chain renders innermost last");
+});
+test("Context overrides source, and the cause is reachable inline", {
+  (inner : AnyError) = dyn(Denied(who : `root`));
+  (c : AnyError) = dyn(Context.new(`connecting`, inner));
+  // Inline only: the result cannot be stored at Option(AnyError) — see the
+  // module doc and the issue it points at.
+  assert(match(c.source(), .Some(s) => (s.to_string() == `denied for root`), .None => false), "source yields the cause");
+});
+test("an error that does NOT override source reports none", {
+  (e : AnyError) = dyn(NotFound(path : `x`));
+  assert(match(e.source(), .Some(_) => false, .None => true), "the trait default is .None");
+});
+test("error_is sees Context itself, not its cause", {
+  (inner : AnyError) = dyn(NotFound(path : `x`));
+  (c : AnyError) = dyn(Context.new(`ctx`, inner));
+  assert(error_is(c, Context), "the outer type");
+  assert(!error_is(c, NotFound), "error_is does NOT look through the chain, as in Rust");
+});

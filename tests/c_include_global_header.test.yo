@@ -1,0 +1,25 @@
+//! A `c_include`d extern GLOBAL must emit the header it was declared under.
+//!
+//! Header collection walks `context.extern_functions`, and that registry is
+//! fed only by `.Func`-typed callees — so before the fix `<math.h>` arrived if
+//! and only if the program also CALLED a math function. Nothing in this file
+//! calls one, which is the whole point: reading `M_PI` alone used to emit
+//! `use of undeclared identifier 'M_PI'`.
+//! See issues/fixed/c-include-global-does-not-emit-its-header.md.
+{ M_PI, M_E, HUGE_VAL } :: import("std/libc/math");
+{ assert } :: import("std/assert");
+test("a c_include'd constant is readable with no call into its header", {
+  p := M_PI;
+  assert(p > f64(3.14159), "M_PI is above the lower bound");
+  assert(p < f64(3.1416), "and below the upper one");
+});
+test("a second constant from the same header needs no second include", {
+  e := M_E;
+  assert(e > f64(2.71828), "M_E is above the lower bound");
+  assert(e < f64(2.71829), "and below the upper one");
+});
+test("HUGE_VAL reads as a value beyond the finite range", {
+  h := HUGE_VAL;
+  assert(h > f64(1.0e308), "HUGE_VAL is past the largest finite double");
+  assert(!(h < h), "and compares with itself as an ordinary double");
+});
