@@ -155,3 +155,55 @@ test("FetchOptions builders set the new fields", {
   assert(d.max_response_bytes == usize(67108864), "default 64 MiB ceiling");
   assert(match(d.timeout, .Some(_) => false, .None => true), "no default timeout");
 });
+/// `Location` resolution is RFC 3986 §5.3 (`Url.join`) rather than the
+/// origin-plus-directory paste it used to be. The three shapes that paste got
+/// wrong, all of which a real server can send:
+///
+/// - `/a/b/c` → `../x` used to become `/a/b/../x` verbatim; it must be `/a/x`.
+/// - `//host/p` used to become `//host/p` on the CURRENT host; it is a
+///   protocol-relative reference to `host`.
+/// - `?q=1` used to replace the path with the base's DIRECTORY; it must keep
+///   the whole path.
+///
+/// Only the first is exercised end to end here — the other two are pinned
+/// directly on `Url.join` in `tests/url/url.test.yo`, because reaching another
+/// host or asserting on a query needs no round trip.
+_dotdot_redirect :: (fn(req : HttpRequest) -> HttpResponse)(
+  cond(
+    (req.path == `/a/b/c`) => {
+      resp := HttpResponse.with_status(i32(302));
+      resp.headers.push(HttpHeader.new(`Location`, `../x`));
+      resp
+    },
+    (req.path == `/a/x`) => HttpResponse.with_status(i32(200)).with_body(`landed`),
+    true => HttpResponse.with_status(i32(404)).with_body(`no such path: ${req.path}`)
+  )
+);
+test("a `../` Location climbs a directory instead of being pasted verbatim", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19987)), io), IoExn(io : io, exn : exn));
+  task := io.spawn(
+    server.serve(req => {
+      cond(
+        (req.path != `/a/b/c`) => {
+          server.stop();
+        },
+        true => ()
+      );
+      _dotdot_redirect(req)
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
+  r := io.await(fetch(`http://127.0.0.1:19987/a/b/c`, io), IoExn(io : io, exn : exn));
+  assert(r.status_code == i32(200), `expected a 200 at /a/x, got ${r.status_code}`);
+  assert(r.body == "landed", `expected the /a/x body, got ${r.body}`);
+  task.await(io);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});

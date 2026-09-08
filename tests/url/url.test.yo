@@ -277,3 +277,101 @@ test("Url parse still accepts every legal URI byte", {
     i = (i + usize(1));
   });
 });
+// ============================================================================
+// join — RFC 3986 §5.3 reference resolution
+// ============================================================================
+_joined :: (fn(base : String, reference : String) -> String)(
+  Url.parse(base).unwrap().join(reference).unwrap().to_string()
+);
+test("Url.join: the RFC 3986 §5.4.1 normal examples", {
+  b := `http://a/b/c/d;p?q`;
+  assert(_joined(b, `g:h`) == `g:h`, "an absolute reference replaces everything");
+  assert(_joined(b, `g`) == `http://a/b/c/g`, "a relative segment resolves against the directory");
+  assert(_joined(b, `./g`) == `http://a/b/c/g`, "./ is the same directory");
+  assert(_joined(b, `g/`) == `http://a/b/c/g/`, "a trailing slash survives");
+  assert(_joined(b, `/g`) == `http://a/g`, "an absolute path keeps only the authority");
+  assert(_joined(b, `//g`) == `http://g`, "a network-path reference keeps only the scheme");
+  assert(_joined(b, `?y`) == `http://a/b/c/d;p?y`, "a bare query keeps the path");
+  assert(_joined(b, `g?y`) == `http://a/b/c/g?y`, "path and query together");
+  assert(_joined(b, `#s`) == `http://a/b/c/d;p?q#s`, "a bare fragment keeps path AND query");
+  assert(_joined(b, `g#s`) == `http://a/b/c/g#s`, "path and fragment");
+  assert(_joined(b, `;x`) == `http://a/b/c/;x`, "a segment starting with ; is still a segment");
+  assert(_joined(b, `g;x`) == `http://a/b/c/g;x`, "parameters ride along on the segment");
+  assert(_joined(b, ``) == `http://a/b/c/d;p?q`, "an empty reference keeps path and query");
+  assert(_joined(b, `.`) == `http://a/b/c/`, ". is the current directory");
+  assert(_joined(b, `./`) == `http://a/b/c/`, "./ likewise");
+  assert(_joined(b, `..`) == `http://a/b/`, ".. goes up one");
+  assert(_joined(b, `../`) == `http://a/b/`, "../ likewise");
+  assert(_joined(b, `../g`) == `http://a/b/g`, "up one, then a segment");
+  assert(_joined(b, `../..`) == `http://a/`, "up two");
+  assert(_joined(b, `../../g`) == `http://a/g`, "up two, then a segment");
+});
+test("Url.join: the RFC 3986 §5.4.2 abnormal examples", {
+  b := `http://a/b/c/d;p?q`;
+  // Extra `..` cannot climb above the root — it is discarded, not an error.
+  assert(_joined(b, `../../../g`) == `http://a/g`, "one .. too many is discarded");
+  assert(_joined(b, `../../../../g`) == `http://a/g`, "two too many, likewise");
+  assert(_joined(b, `/./g`) == `http://a/g`, "a leading ./ on an absolute path");
+  assert(_joined(b, `/../g`) == `http://a/g`, "a leading ../ on an absolute path");
+  // A dot only counts as a dot segment when it IS the whole segment.
+  assert(_joined(b, `g.`) == `http://a/b/c/g.`, "g. is a segment named g.");
+  assert(_joined(b, `.g`) == `http://a/b/c/.g`, ".g is a segment named .g");
+  assert(_joined(b, `g..`) == `http://a/b/c/g..`, "g.. is a segment named g..");
+  assert(_joined(b, `..g`) == `http://a/b/c/..g`, "..g is a segment named ..g");
+  assert(_joined(b, `./../g`) == `http://a/b/g`, "./../ is just ../");
+  assert(_joined(b, `./g/.`) == `http://a/b/c/g/`, "a trailing . leaves the slash");
+  assert(_joined(b, `g/./h`) == `http://a/b/c/g/h`, "an interior ./");
+  assert(_joined(b, `g/../h`) == `http://a/b/c/h`, "an interior ../");
+});
+test("Url.join: empty interior segments survive, and a relative path may hold a colon", {
+  b := `https://h/a/b`;
+  assert(_joined(b, `/x//y`) == `https://h/x//y`, "an empty interior segment is a segment");
+  // `a/b:c` is a relative path whose second segment contains a colon — NOT a
+  // URL with scheme `a/b`. The scheme split has to stop at the first slash.
+  assert(_joined(b, `p/q:r`) == `https://h/a/p/q:r`, "a colon after the first slash is not a scheme");
+  // But a colon BEFORE any slash is a scheme, so this one is absolute.
+  assert(_joined(b, `mailto:a@b`) == `mailto:a@b`, "a colon before any slash IS a scheme");
+});
+test("Url.join drops the base fragment and resolves a base with no path", {
+  assert(_joined(`https://h/a#frag`, `b`) == `https://h/b`, "the base fragment never carries over");
+  assert(_joined(`https://h`, `b`) == `https://h/b`, "an empty base path merges as /");
+  assert(_joined(`https://h/a/b?x=1`, ``) == `https://h/a/b?x=1`, "an empty reference keeps the base query");
+  assert(_joined(`https://h/a/b?x=1`, `#f`) == `https://h/a/b?x=1#f`, "a bare fragment keeps the base query");
+  assert(_joined(`https://h/a/b?x=1`, `c`) == `https://h/a/c`, "any other reference drops the base query");
+});
+// ============================================================================
+// query_pairs / path_segments
+// ============================================================================
+test("Url.query_pairs decodes form-encoded pairs in order", {
+  u := Url.parse(`https://h/p?a=1&b=two&a=3`).unwrap();
+  ps := u.query_pairs();
+  assert(ps.len() == usize(3), "three pairs, duplicates kept");
+  assert((ps(usize(0)).0 == `a`) && (ps(usize(0)).1 == `1`), "first pair");
+  assert((ps(usize(1)).0 == `b`) && (ps(usize(1)).1 == `two`), "second pair");
+  assert((ps(usize(2)).0 == `a`) && (ps(usize(2)).1 == `3`), "duplicate key preserved in order");
+});
+test("Url.query_pairs handles +, percent escapes, bare keys and empty pairs", {
+  u := Url.parse(`https://h/p?q=hello+world&name=a%20b&flag&&x=1=2`).unwrap();
+  ps := u.query_pairs();
+  assert(ps.len() == usize(4), "the empty pair between && is skipped");
+  assert(ps(usize(0)).1 == `hello world`, "+ decodes to a space");
+  assert(ps(usize(1)).1 == `a b`, "%20 decodes to a space");
+  assert((ps(usize(2)).0 == `flag`) && (ps(usize(2)).1 == ``), "a bare key has an empty value");
+  assert((ps(usize(3)).0 == `x`) && (ps(usize(3)).1 == `1=2`), "only the FIRST = splits");
+  assert(Url.parse(`https://h/p`).unwrap().query_pairs().len() == usize(0), "no query is no pairs");
+  assert(Url.parse(`https://h/p?`).unwrap().query_pairs().len() == usize(0), "an empty query is no pairs");
+});
+test("Url.path_segments splits the path and is None without an authority", {
+  segs := Url.parse(`https://h/a/b%20c/d`).unwrap().path_segments().unwrap();
+  assert(segs.len() == usize(3), "three segments");
+  assert(segs(usize(0)) == `a`, "first");
+  assert(segs(usize(1)) == `b c`, "percent-decoded");
+  assert(segs(usize(2)) == `d`, "third");
+  trailing := Url.parse(`https://h/a/`).unwrap().path_segments().unwrap();
+  assert(trailing.len() == usize(2), "a trailing slash yields a final empty segment");
+  assert(trailing(usize(1)) == ``, "and it is empty");
+  root := Url.parse(`https://h/`).unwrap().path_segments().unwrap();
+  assert(root.len() == usize(0), "the root path has no segments");
+  // `mailto:` has an opaque path, not a /-separated hierarchy.
+  assert(Url.parse(`mailto:a@b.com`).unwrap().path_segments().is_none(), "a URL that cannot be a base has no segments");
+});
