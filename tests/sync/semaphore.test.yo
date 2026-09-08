@@ -312,3 +312,30 @@ test("Semaphore of one permit serializes a read-modify-write", {
   t4.join();
   assert(counter.load(MemoryOrder.Acquire) == i32(100), "no update may be lost under a 1-permit semaphore");
 });
+// ============================================================================
+// with_permit
+// ============================================================================
+test("with_permit takes a permit for the body and gives it back", {
+  sem := Semaphore.new(i32(2));
+  inside := sem.with_permit(() => sem.available_permits());
+  assert(inside == i32(1), "one permit was held while the body ran");
+  assert(sem.available_permits() == i32(2), "and released on the way out");
+});
+test("with_permit returns the body's value", {
+  sem := Semaphore.new(i32(1));
+  assert(sem.with_permit(() => i32(42)) == i32(42), "an i32");
+  assert(sem.with_permit(() => true) == true, "and a bool — R is generic");
+});
+// NOTE there is deliberately no "releases when the body unwinds" test: the
+// body is an `Impl(Fn() -> R)` closure, and the compiler rejects capturing a
+// control-bound value into a closure ("Closures cannot capture a value of
+// control-bound type ... would unwind to a dead install frame"). So the body
+// CANNOT raise an effect, and that path is unreachable through this signature.
+// `with_permit`'s doc says exactly that rather than claiming unwind safety it
+// cannot demonstrate. See issues/with-lock-and-with-permit-cannot-see-an-unwind.md.
+test("with_permit nests down to zero and back", {
+  sem := Semaphore.new(i32(2));
+  deepest := sem.with_permit(() => sem.with_permit(() => sem.available_permits()));
+  assert(deepest == i32(0), "both permits were held at the innermost point");
+  assert(sem.available_permits() == i32(2), "and both came back");
+});

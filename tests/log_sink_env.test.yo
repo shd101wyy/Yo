@@ -1,0 +1,133 @@
+//! `std/log`'s `Sink` trait, `level_from_str` and `init_from_env`.
+//!
+//! The existing tests/log.test.yo notes that it can only assert on FILTER
+//! behaviour because output goes to a real fd. A `Sink` is what makes the
+//! record itself observable, so these tests check the parts a sink receives —
+//! level, target and message — which was previously untestable.
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+log :: import("std/log");
+{ env } :: import("std/env");
+open(import("std/string"));
+open(import("std/collections/array_list"));
+/// `LEVEL|target|msg` for the level `l` — built the same way `Recorder` does,
+/// so the expectation does not hardcode `Level.to_string()`'s column padding
+/// (`"INFO "`, note the trailing space). That padding is the DEFAULT
+/// renderer's alignment concern; a sink is free to ignore it, which is the
+/// point of handing the sink a `Level` rather than a formatted line.
+_row :: (fn(l : log.Level, target : String, msg : String) -> String)({
+  out := l.to_string();
+  out.push_str("|");
+  out.push_string(target);
+  out.push_str("|");
+  out.push_string(msg);
+  out
+});
+/// A sink that keeps every record, so a test can look at it.
+Recorder :: ref(
+  struct(
+    lines : ArrayList(String)
+  )
+);
+impl(
+  Recorder,
+  new : (fn() -> Self)(
+    Self(lines : ArrayList(String).new())
+  )
+);
+impl(
+  Recorder,
+  log.Sink(
+    write_line : (fn(inout(self) : Self, level : log.Level, target : String, msg : String) -> unit)({
+      row := level.to_string();
+      row.push_str("|");
+      row.push_string(target);
+      row.push_str("|");
+      row.push_string(msg);
+      self.lines.push(row);
+    })
+  )
+);
+test("level_from_str accepts every level name, case-insensitively", {
+  assert(match(log.level_from_str(`trace`), .Some(l) => (l == log.Level.Trace), .None => false), "trace");
+  assert(match(log.level_from_str(`DEBUG`), .Some(l) => (l == log.Level.Debug), .None => false), "upper case");
+  assert(match(log.level_from_str(`Info`), .Some(l) => (l == log.Level.Info), .None => false), "mixed case");
+  assert(match(log.level_from_str(`warn`), .Some(l) => (l == log.Level.Warn), .None => false), "warn");
+  assert(match(log.level_from_str(`warning`), .Some(l) => (l == log.Level.Warn), .None => false), "warning is accepted for warn");
+  assert(match(log.level_from_str(`error`), .Some(l) => (l == log.Level.Error), .None => false), "error");
+  assert(match(log.level_from_str(`off`), .Some(l) => (l == log.Level.Off), .None => false), "off");
+  assert(match(log.level_from_str(`  info  `), .Some(l) => (l == log.Level.Info), .None => false), "surrounding space is trimmed");
+});
+test("level_from_str rejects anything else", {
+  assert(match(log.level_from_str(`verbose`), .Some(_) => false, .None => true), "not a level name");
+  assert(match(log.level_from_str(``), .Some(_) => false, .None => true), "the empty string");
+  assert(match(log.level_from_str(`inf`), .Some(_) => false, .None => true), "a prefix is not a match");
+});
+test("a Sink receives the record's parts", {
+  log.set_level(log.Level.Trace);
+  r := Recorder.new();
+  log.set_sink(dyn(r));
+  log.info(`plain message`);
+  log.log_target(log.Level.Warn, "mymod", `targeted message`);
+  log.clear_sink();
+  log.set_level(log.Level.Info);
+  assert(r.lines.len() == usize(2), "both records arrived");
+  assert(r.lines(usize(0)) == _row(log.Level.Info, ``, `plain message`), "level, empty target, message");
+  assert(r.lines(usize(1)) == _row(log.Level.Warn, `mymod`, `targeted message`), "and the target when one was given");
+});
+test("the level filter still applies with a sink installed", {
+  log.set_level(log.Level.Warn);
+  r := Recorder.new();
+  log.set_sink(dyn(r));
+  log.debug(`suppressed`);
+  log.info(`also suppressed`);
+  log.warn(`kept`);
+  log.error(`also kept`);
+  log.clear_sink();
+  log.set_level(log.Level.Info);
+  assert(r.lines.len() == usize(2), "only the two at or above Warn");
+  assert(r.lines(usize(0)) == _row(log.Level.Warn, ``, `kept`), "the warn record");
+  assert(r.lines(usize(1)) == _row(log.Level.Error, ``, `also kept`), "the error record");
+});
+test("Off silences a sink completely", {
+  log.set_level(log.Level.Off);
+  r := Recorder.new();
+  log.set_sink(dyn(r));
+  log.error(`not delivered`);
+  log.clear_sink();
+  log.set_level(log.Level.Info);
+  assert(r.lines.len() == usize(0), "nothing reached the sink");
+});
+test("clear_sink stops delivery to the old sink", {
+  log.set_level(log.Level.Trace);
+  r := Recorder.new();
+  log.set_sink(dyn(r));
+  log.info(`before`);
+  log.clear_sink();
+  log.info(`after`);
+  log.set_level(log.Level.Info);
+  assert(r.lines.len() == usize(1), "only the record logged while it was installed");
+  assert(r.lines(usize(0)) == _row(log.Level.Info, ``, `before`), "the one before clearing");
+});
+test("init_from_env applies YO_LOG", {
+  log.set_level(log.Level.Info);
+  env.set("YO_LOG", "debug");
+  applied := log.init_from_env();
+  assert(applied == log.Level.Debug, "the returned level is the one applied");
+  assert(log.get_level() == log.Level.Debug, "and the filter really moved");
+  env.set("YO_LOG", "off");
+  assert(log.init_from_env() == log.Level.Off, "a second call re-reads it");
+  env.remove("YO_LOG");
+  log.set_level(log.Level.Info);
+});
+test("init_from_env leaves the level alone when YO_LOG is unset or junk", {
+  env.remove("YO_LOG");
+  log.set_level(log.Level.Warn);
+  assert(log.init_from_env() == log.Level.Warn, "unset leaves it");
+  assert(log.get_level() == log.Level.Warn, "really unchanged");
+  env.set("YO_LOG", "not-a-level");
+  assert(log.init_from_env() == log.Level.Warn, "a typo must not silence a program");
+  assert(log.get_level() == log.Level.Warn, "still unchanged");
+  env.remove("YO_LOG");
+  log.set_level(log.Level.Info);
+});
