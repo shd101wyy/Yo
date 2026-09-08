@@ -16,7 +16,7 @@ open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, make_err_expr, BK_TEST, BF_DOT, BF_COMPTIME_EXPECT_ERROR } :: import("../../expr.yo");
 { get_type_trait_methods_by_name, type_id_or_empty, register_type_trait_method, MethodEntry } :: import("../../evaluator/values/type_trait_methods.yo");
-{ ExprInfoTable, expr_info_table_get, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
+{ ExprInfoTable, ExprInfo, expr_info_table_get, get_extern_c_global_type, lookup_method_callee_value, lookup_macro_expansion, expr_info_effect_analysis, expr_info_closure_function_value, expr_info_dyn_call_trait_values } :: import("../../expr_info.yo");
 { EvalValue, is_func_val, is_struct_val, is_type_value, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_function_type, is_unit_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_boxed_type, is_expr_type } :: import("../../types/guards.yo");
@@ -28,7 +28,7 @@ open(import("std/string"));
 // create_specialized_function_inline. These are the normal codegen->evaluator
 // direction (the evaluator is codegen-free, so no import cycle).
 { Exception } :: import("std/error");
-{ Environment, clone_env, add_variable_to_env, synthetic_token } :: import("../../env.yo");
+{ Environment, clone_env, add_variable_to_env, synthetic_token, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ArgValues, ArgEntry, VarArgEntry } :: import("../../evaluator/context.yo");
 { find_methods_from_generic_impls } :: import("../../evaluator/values/impl.yo");
 { create_specialized_function_inline } :: import("../../evaluator/calls/helper.yo");
@@ -291,6 +291,46 @@ _register_extern_fn_callee :: (
       .None => ()
     ),
     _ => ()
+  );
+});
+/// Register the `<header.h>` of a `c_include`d extern GLOBAL that this atom
+/// reads.
+///
+/// Header collection walks `context.extern_functions`, which
+/// `_register_extern_fn_callee` fills for `.Func` callees ONLY — so a global
+/// (`M_PI`, `HUGE_VAL`, `stdout`) never contributed one, and `<math.h>`
+/// arrived if and only if the program also CALLED a math function. Reading
+/// `M_PI` alone emitted `use of undeclared identifier`
+/// (issues/fixed/c-include-global-does-not-emit-its-header.md).
+///
+/// It has to happen HERE, in the collection pass: `emit_c_includes` runs
+/// before any function body is generated, so registering when the identifier
+/// is EMITTED is too late — the include set has already been written out.
+///
+/// The registry is NAME-keyed, so the DECLARED type is matched against the
+/// resolved binding's, exactly as `get_variable_name_for_codegen` does: a
+/// local that merely shares the name (`IoError.from_errno`'s `errno : i32`
+/// beside <errno.h>'s `errno : *(int)`) is not the global and must not drag
+/// its header in.
+_register_extern_global_header :: (
+  fn(name : String, ei_opt : Option(ExprInfo), context : CodeGenContext) -> unit
+)({
+  gty := match(get_extern_c_global_type(name.clone()), .Some(g) => g, .None => return(()));
+  ei := match(ei_opt, .Some(e) => e, .None => return(()));
+  vs := get_variables_from_env(ei.env, name.clone());
+  n := vs.len();
+  cond(
+    (n == usize(0)) => return(()),
+    true => ()
+  );
+  v := match(vs.get(n - usize(1)), .Some(x) => x, .None => return(()));
+  cond(
+    (type_key(gty) == type_key(v.ty)) => match(
+      get_c_include_for_extern(name.clone()),
+      .Some(header) => context.add_c_include(header),
+      .None => ()
+    ),
+    true => ()
   );
 });
 /// func_id of a FuncVal EvalValue, or "".
@@ -772,7 +812,7 @@ find_function_calls_in_expr :: (fn(expr : AstExpr, context : CodeGenContext, inf
         ai = (ai + usize(1));
       });
     },
-    .Atom(_, _) => ()
+    .Atom(_, atom_tok) => _register_extern_global_header(atom_tok.value, ei_opt, context)
   );
   // Anonymous function value bound to this expression.
   match(

@@ -63,6 +63,15 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
     context.emitter.emit_header_line("#ifndef _WINSOCKAPI_");
     context.emitter.emit_header_line("#define _WINSOCKAPI_");
     context.emitter.emit_header_line("#endif");
+    // `M_PI` and the rest of the `M_*` constants are a POSIX extension, NOT
+    // C11: the MS CRT's <math.h> defines them only under this macro, so
+    // without it every one of them is an undeclared identifier on Windows.
+    // `std/libc/math.yo` exports all fourteen, so the compiler owes it to that
+    // declaration to make them exist on every target. Must precede the
+    // includes below, which is why it sits with the other feature macros.
+    context.emitter.emit_header_line("#ifndef _USE_MATH_DEFINES");
+    context.emitter.emit_header_line("#define _USE_MATH_DEFINES");
+    context.emitter.emit_header_line("#endif");
   }, {
     context.emitter.emit_header_line("#define _DEFAULT_SOURCE");
     context.emitter.emit_header_line("#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux");
