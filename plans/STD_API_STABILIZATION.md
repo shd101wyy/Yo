@@ -374,6 +374,57 @@ window as D9–D18):
 
 ## 4. P1 — expected of a modern, Rust-shaped std (by module group)
 
+> **RE-MEASURED 2026-09-08, after v0.2.28.** This list was written 2026-09-06;
+> the D-batch and #473/#474/#476/#477 landed since. Every row below was
+> re-checked against `origin/develop` by grepping for the METHOD ENTRY
+> (`  name : (fn(`), not the bare name — a bare-name grep reports a local
+> `first :: elems.car()`, a doc comment, and an `import` line as hits, and did
+> so three times while measuring this. **Eight rows are already done or are
+> narrower than written** and are corrected below; everything else was confirmed
+> still missing.
+
+**Already DONE — strike these from the list:**
+
+| row as written | actual state |
+| --- | --- |
+| `Alignment` exported | done — `std/fmt/writer.yo:22` |
+| `JoinHandle` `Dispose` | done — Yo's `Thread` IS Rust's `JoinHandle` and has `Dispose` (`std/thread.yo:88`, detach-on-drop) |
+| HTTP byte bodies (*"`parse_response` string-concats the body — binary responses are broken client-side"*) | **done, and the claim is stale**: the body is copied byte-wise and wrapped with unchecked `String.from_bytes` (`std/http/http.yo:363-374`), byte-transparent end to end, pinned by `tests/http/server.test.yo` |
+| `OrderedMap` `IntoIterator` | done via D14 — `std/collections/ordered_map.yo:319` |
+
+**Narrower than written — the neighbouring capability exists, the asked-for one does not:**
+
+| row as written | actual state |
+| --- | --- |
+| `Seek` trait | `SeekFrom` exists (`std/fs/types.yo:66`); there is no `Seek` TRAIT |
+| `Reader.read_exact` as a default | exists as a `BufReader` method (`std/io/bufio.yo:137`); NOT a `Reader` trait default |
+| `Stdout.write_string` | exists on `BufWriter(W)` (`std/io/bufio.yo:235`); NOT on `Stdout` |
+| `FromIterator` on `HashMap`/`BTreeMap`/`imm/*` | exists on `HashSet` only (`std/collections/hash_set.yo:411`); `hash_map.yo` and `btree_map.yo` have zero |
+
+**Confirmed still missing** (spot list; the group paragraphs below stand otherwise):
+`ArrayList` — `first/last/insert/swap/swap_remove/truncate/resize/fill/dedup/
+split_off/append/chunks/windows/starts_with/ends_with/sort_by_key/
+binary_search_by/reserve` (all 18). `HashMap` — `entry/retain/extend/
+remove_entry/get_key_value` (all 5). `Deque.front`/`back`. `BTreeMap` —
+`contains_key/range/pop_first/pop_last`. `OrderedMap.swap_remove`. `imm/*` —
+no `Iterator` on any of the six collection types (`imm/string.yo:627` has one).
+Text — every listed `String` method, `next_back`, `is_ascii_*` renames. Encoding
+— `Url.join/query_pairs/path_segments`, `JsonValue` mutation/`as_i64`/`pointer`,
+`EncodingError` offsets, regex naming, `glob()`. I/O — `OpenOptions`, `Watcher`
+`Dispose`, `SystemTime`/`UNIX_EPOCH`, `SocketAddr` `Eq`/`Hash`,
+`TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`,
+`StatusCode`, `HeaderMap`. Core — **all of it**: every `checked_/wrapping_/
+saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
+`f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
+`ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
+`thread_rng`. Concurrency — `Thread` is NOT generic and `join -> unit`
+(`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split,
+`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*`,
+`Semaphore.with_permit`, `interval`, `spawn_blocking`, `TryRecvError` all absent;
+`_raw_lock` is still public (`std/sync/once.yo:70`) — that row asks for REMOVAL,
+so "present" means the work remains.
+
+
 **Collections.** `IntoIterator`/`Iterator` on every `imm` type (zero today);
 `Default`/`Eq`/`Clone`/`ToString` on all nine collections, `Hash`/`Ord` where
 Rust has them; `FromIterator` on `HashMap`/`BTreeMap`/`imm/*` (one spelling of
@@ -450,16 +501,19 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
 
 ## 6. Phasing
 
-1. **P0 memory/UB/deadlock (§3 1–5)** — one PR per module (`imm/vec`,
+1. **P0 memory/UB/deadlock (§3 1–5)** — **DONE** (all 17 §3 rows carry a FIXED/LANDED marker). One PR per module (`imm/vec`,
    `thread`, `html`+`log`), each with red-first tests over RC element types
    under `MallocScribble`; the `Send` enforcement is a compiler PR with
    `comptime_expect_error` canaries and an over-rejection canary per exempt
    shape.
-2. **P0 wrong values + cliffs (§3 6–14)** — small PRs, each a bug with its test.
-3. **The breaking window (§2 + §3 15–18)** — one release (v0.2.27 target),
-   every change in the release notes' breaking section, deprecated aliases
-   where an old spelling can survive one release.
-4. **P1 additive work (§4)** — module by module, `## Stability` marker on every
+2. **P0 wrong values + cliffs (§3 6–14)** — **DONE**. Small PRs, each a bug with its test.
+3. **The breaking window (§2 + §3 15–18)** — **SHIPPED in v0.2.28** (not the
+   v0.2.27 originally targeted; the batch grew and slipped one release). Every
+   D9–D18 decision landed except **D18b** (`Thread(T).join() -> T`), which is
+   blocked on a compiler fix — `Thread` is still non-generic with `join -> unit`.
+   Breaking changes are in the v0.2.28 release notes; deprecated aliases kept
+   for one release are `derive(ToString)` and `json_parse_result`.
+4. **P1 additive work (§4)** — NEXT, and re-measured 2026-09-08 (see the §4 banner: eight rows already done or narrower than written). Module by module, `## Stability` marker on every
    module touched, `///` sweep of the same module in the same PR.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
