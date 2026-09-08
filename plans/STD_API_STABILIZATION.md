@@ -524,8 +524,39 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    blocked on a compiler fix — `Thread` is still non-generic with `join -> unit`.
    Breaking changes are in the v0.2.28 release notes; deprecated aliases kept
    for one release are `derive(ToString)` and `json_parse_result`.
-4. **P1 additive work (§4)** — NEXT, and re-measured 2026-09-08 (see the §4 banner: eight rows already done or narrower than written). Module by module, `## Stability` marker on every
-   module touched, `///` sweep of the same module in the same PR.
+4. **P1 additive work (§4)** — IN PROGRESS, re-measured 2026-09-08 (see the §4
+   banner: eight rows already done or narrower than written). Module by module,
+   `## Stability` marker on every module touched, `///` sweep of the same module
+   in the same PR.
+
+   **Collections: DONE** as of 2026-09-08. `ArrayList` has all 18 rows
+   (`first/last/insert/append/swap/swap_remove/truncate/split_off/reserve/
+   dedup/starts_with/ends_with/resize/fill/sort_by_key/binary_search_by/
+   chunks/windows`); `HashMap` has a real single-probe `entry` API plus
+   `retain/extend/remove_entry/get_key_value`; `Deque.front`/`back`;
+   `BTreeMap.contains_key/range/pop_first/pop_last`; `FromIterator` on
+   `HashMap` and `BTreeMap`. Two shapes are deliberate divergences from Rust,
+   documented at the definition: `chunks`/`windows` yield COPIES because Yo has
+   no slice type, and `extend` is bounded by `IntoIterator`, which an iterator
+   does NOT satisfy (issues/blanket-into-iter-is-not-an-intoiterator-impl.md).
+   Still open in this group: `imm/*` iterators and `remove` shape,
+   `OrderedMap.swap_remove`, private `ctrl/data/size` fields, the `imm/Vec`
+   RRB-vs-flat-COW doc (§5).
+
+   **Core numerics: integers DONE, floats UNBLOCKED.** Every
+   `checked_/wrapping_/saturating_/overflowing_` plus `abs/pow/clamp` landed as
+   ONE generic impl over an `Integer` marker trait. The `f64`/`f32` half was
+   blocked by three compiler bugs, all found by trying to write it and two now
+   fixed: a non-finite comptime float emitted `inf.0`
+   (issues/fixed/comptime-float-infinity-emits-invalid-c.md) and a `c_include`d
+   constant never emitted its header
+   (issues/fixed/c-include-global-does-not-emit-its-header.md). The module home
+   is decided: **`std/math.yo`**, following `std/string/rune.yo`, which already
+   gives a PRIMITIVE type inherent methods from a non-prelude module — the
+   prelude imports nothing and has no `c_include`, so it cannot host them. Its
+   constants are Yo literals rather than libc's, which sidesteps
+   issues/c-include-rvalue-macro-constant-cannot-be-addressed.md and is the
+   better design anyway (comptime, no header dependency).
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 
