@@ -683,16 +683,31 @@ impl(
       );
     });
   }),
-  /// Insert every entry of `other`, overwriting on duplicate keys — Rust's
+  /// Insert every entry of `iterable`, overwriting on duplicate keys — Rust's
   /// `Extend`.
   ///
-  /// Takes a MAP rather than an arbitrary iterator. Building a map from a
-  /// sequence is `collect(HashMap(K, V))` (`FromIterator`, below), and a
-  /// generic iterator parameter here would land on
-  /// issues/generic-fn-forall-unresolved-when-argument-is-a-method-call.md,
-  /// whose failing shape is exactly `m.extend(xs.into_iter())`.
-  extend : (fn(self : Self, other : Self) -> unit)({
-    it := other.into_iter();
+  /// Takes anything that implements `IntoIterator` over map entries, so a map,
+  /// an `OrderedMap`, a `BTreeMap` or an `ArrayList(MapEntry(K, V))` all work:
+  ///
+  /// ```rust
+  /// defaults.extend(overrides);
+  /// ```
+  ///
+  /// An ITERATOR is not accepted, only something that yields one. The prelude's
+  /// blanket `into_iter` on `Iterator` is a bare METHOD, not an `IntoIterator`
+  /// impl, so an iterator does not satisfy this bound however much its doc
+  /// comment says every iterator is its own `IntoIterator` — see
+  /// issues/blanket-into-iter-is-not-an-intoiterator-impl.md. Feed a chain
+  /// through `collect` first.
+  extend : (
+    fn(
+      generic(I : Type),
+      self : Self,
+      iterable : I,
+      where(I <: IntoIterator(Item := MapEntry(K, V)))
+    ) -> unit
+  )({
+    it := iterable.into_iter();
     while(runtime(true), {
       match(
         it.next(),

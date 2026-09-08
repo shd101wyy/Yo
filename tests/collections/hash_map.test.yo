@@ -831,6 +831,17 @@ test("extend merges another map, overwriting on duplicates", {
   assert(a.get(i32(3)).unwrap() == i32(30), "a new key arrives");
   assert(b.len() == usize(2), "the source map is unchanged");
 });
+test("extend accepts any IntoIterator over entries, not just a map", {
+  a := HashMap(i32, i32).new();
+  a.insert(i32(1), i32(10));
+  entries := ArrayList(MapEntry(i32, i32)).new();
+  entries.push(MapEntry(i32, i32)(key : i32(2), value : i32(20)));
+  entries.push(MapEntry(i32, i32)(key : i32(1), value : i32(99)));
+  a.extend(entries);
+  assert(a.len() == usize(2), "the list's entries arrived");
+  assert(a.get(i32(2)).unwrap() == i32(20), "a new key");
+  assert(a.get(i32(1)).unwrap() == i32(99), "and a duplicate overwrote");
+});
 test("extend from an empty map is a no-op", {
   a := HashMap(i32, i32).new();
   a.insert(i32(1), i32(10));
