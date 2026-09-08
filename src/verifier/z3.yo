@@ -112,7 +112,8 @@ z3_download_url :: (fn() -> String)(
 /// Whether `path` exists (libc `stat`; 512-byte statx buffer like
 /// module_manager's `_path_exists_sync`).
 _z3_exists_sync :: (fn(path : String) -> bool)({
-  cstr := path.to_cstr().ptr().unwrap();
+  path_buf := path.to_cstr();
+  cstr := path_buf.ptr().unwrap();
   buf := malloc(usize(512)).unwrap();
   rc := unsafe(stat.stat((*char)(cstr), buf));
   free(.Some(buf));
@@ -185,8 +186,9 @@ _z3_unlink_sync :: (fn(path : String) -> unit)({
   ()
 });
 /// Create `path` and every missing ancestor (mkdir -p; existing segments
-/// are fine). `mode` uses the exported `S_IRWXU` constant — `mode_t` is an
-/// opaque extern type with no nameable constructor (stat.yo's note).
+/// are fine). The mode is the literal 0o700 — `S_IRWXU` is POSIX-only and
+/// broke the Windows cross-emit legs (constants land in the C text even in
+/// dead branches).
 _z3_mkdir_p_sync :: (fn(path : String) -> unit)({
   (i : usize) = usize(0);
   b := path.as_bytes();
@@ -196,16 +198,16 @@ _z3_mkdir_p_sync :: (fn(path : String) -> unit)({
       .Some(c) => {
         if((c == u8(47)) && (i > usize(0)), {
           seg := path.substring(usize(0), i);
-          cstr := seg.to_cstr().ptr().unwrap();
-          _ := unsafe(stat.mkdir((*char)(cstr), stat.S_IRWXU));
+          seg_buf := seg.to_cstr();
+          _ := unsafe(stat.mkdir((*char)(seg_buf.ptr().unwrap()), 0o700));
         });
       },
       .None => ()
     );
     i = (i + usize(1));
   });
-  cstr2 := path.to_cstr().ptr().unwrap();
-  _ := unsafe(stat.mkdir((*char)(cstr2), stat.S_IRWXU));
+  path_buf := path.to_cstr();
+  _ := unsafe(stat.mkdir((*char)(path_buf.ptr().unwrap()), 0o700));
   ()
 });
 /// Monotonic counter for temp-file names — unique within one process run,
