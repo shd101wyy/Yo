@@ -455,6 +455,29 @@ impl(
   /**
   * Check if a key exists in the map
   */
+  /// The stored KEY alongside its value — Rust's `get_key_value`.
+  ///
+  /// Distinct from `get` whenever the key type has equal-but-distinguishable
+  /// values (a case-insensitive string key, say): this returns the key the map
+  /// actually holds, not the one used to look it up.
+  get_key_value : (fn(self : Self, key : K) -> Option(MapEntry(K, V)))(
+    match(
+      self.get_entry_ptr(key),
+      .Some(p) => Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : p.*.key, value : p.*.value)),
+      .None => Option(MapEntry(K, V)).None
+    )
+  ),
+  /// Remove `key` and return the entry that was stored — Rust's `remove_entry`.
+  remove_entry : (fn(self : Self, key : K) -> Option(MapEntry(K, V)))(
+    match(
+      self.get_key_value(key),
+      .Some(e) => {
+        _r := self.remove(key);
+        Option(MapEntry(K, V)).Some(e)
+      },
+      .None => Option(MapEntry(K, V)).None
+    )
+  ),
   contains_key : (fn(self : Self, key : K) -> bool)({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);

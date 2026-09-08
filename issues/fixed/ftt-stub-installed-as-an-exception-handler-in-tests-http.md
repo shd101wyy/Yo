@@ -1,6 +1,6 @@
 # A swallowed exception-handler body ships as an FTT stub in the tests/http batch
 
-**Status:** open
+**Status:** FIXED 2026-09-08
 **Found:** 2026-09-07, by the undefined-symbol experiment in
 `issues/fixed/ftt-stub-error-attribute-does-not-fire-at-O2.md`
 
@@ -39,3 +39,22 @@ it carries the source position of the handler body.
 The stub is not reached today, and as of the fix above it announces itself
 loudly if it ever is. But a handler that aborts is not a handler, and the
 swallow is hiding a real evaluation failure in a supported source form.
+
+## Fix
+
+`tests/http/http_limits.test.yo` used `println` in its no-egress fallback
+handlers but never imported `std/fmt`. The handler bodies therefore failed
+definition-time evaluation with `E0401: Variable "println" not found`, were
+swallowed, and shipped as `abort()` stubs.
+
+The irony is the point: those handlers exist **precisely to skip the test when
+there is no network**, so the one path written for a hostile environment would
+have aborted the run instead of skipping. Nothing reported it because a
+swallowed handler body is exactly the silence
+`issues/fixed/ftt-stub-error-attribute-does-not-fire-at-O2.md` describes.
+
+Added the missing import. Verified: `YO_DEBUG_SWALLOW=1` count for
+`Variable "println" not found` goes 1 → 0, and the file passes 5/5.
+
+Scanned the whole `tests/` tree for the same class — every other file that calls
+`println` does import `std/fmt`. This was the only one.

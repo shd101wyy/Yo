@@ -22,3 +22,51 @@ test("String.raw_bytes privileged view lengths", {
   cafe := String.from("caf\u00e9");
   assert(cafe.raw_bytes().len == usize(5), "utf8 raw_bytes len");
 });
+test("split_whitespace discards empty pieces at both ends and between runs", {
+  a := `  hello   world  `.split_whitespace();
+  assert(a.len() == usize(2), "two words despite the padding");
+  assert(a(usize(0)) == `hello`, "first word");
+  assert(a(usize(1)) == `world`, "second word");
+  b := `one`.split_whitespace();
+  assert(b.len() == usize(1), "single word");
+  c := `   `.split_whitespace();
+  assert(c.len() == usize(0), "all whitespace yields nothing");
+  d := ``.split_whitespace();
+  assert(d.len() == usize(0), "empty yields nothing");
+  e := `a\tb\nc`.split_whitespace();
+  assert(e.len() == usize(3), "tab and newline are whitespace too");
+});
+test("splitn bounds the piece count and the last piece keeps the rest", {
+  a := `a,b,c,d`.splitn(usize(2), `,`);
+  assert(a.len() == usize(2), "two pieces");
+  assert(a(usize(0)) == `a`, "first piece");
+  assert(a(usize(1)) == `b,c,d`, "last piece keeps the separators");
+  b := `a,b`.splitn(usize(9), `,`);
+  assert(b.len() == usize(2), "n larger than the split count");
+  c := `abc`.splitn(usize(3), `,`);
+  assert(c.len() == usize(1), "no separator yields the whole string");
+  d := `a,b`.splitn(usize(0), `,`);
+  assert(d.len() == usize(0), "n = 0 yields nothing");
+  e := `a,b,c`.splitn(usize(1), `,`);
+  assert(e.len() == usize(1), "n = 1 is the whole string");
+  assert(e(usize(0)) == `a,b,c`, "and it is unsplit");
+});
+test("is_ascii and eq_ignore_ascii_case fold only A-Z", {
+  assert(`hello`.is_ascii() == true, "plain ascii");
+  assert(``.is_ascii() == true, "empty is ascii");
+  assert(`héllo`.is_ascii() == false, "non-ascii byte detected");
+  assert(`Hello`.eq_ignore_ascii_case(`hELLO`) == true, "case folds");
+  assert(`hello`.eq_ignore_ascii_case(`hello`) == true, "identical");
+  assert(`hello`.eq_ignore_ascii_case(`world`) == false, "different letters");
+  assert(`hello`.eq_ignore_ascii_case(`hell`) == false, "different lengths");
+  assert(`_`.eq_ignore_ascii_case(`?`) == false, "non-letters must match exactly");
+});
+test("truncate shortens by BYTES and ignores a longer length", {
+  s := `hello`;
+  s.truncate(usize(99));
+  assert(s == `hello`, "longer new_len is a no-op");
+  s.truncate(usize(2));
+  assert(s == `he`, "truncated to two bytes");
+  s.truncate(usize(0));
+  assert(s.is_empty() == true, "truncate to zero empties");
+});

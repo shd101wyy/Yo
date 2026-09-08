@@ -14,6 +14,12 @@ pragma(Pragma.AllowUnsafe);
 { fetch, fetch_with, FetchOptions, HttpError } :: import("std/http");
 { Exception, IoExn } :: import("std/error");
 { Duration } :: import("std/time/duration");
+// println is used by the no-egress fallback handlers below. Without this import
+// those handler bodies failed definition-time evaluation, were SWALLOWED, and
+// shipped as abort() stubs — so the very path written to skip the test when
+// there is no network would have aborted the run instead
+// (issues/fixed/ftt-stub-installed-as-an-exception-handler-in-tests-http.md).
+{ println } :: import("std/fmt");
 open(import("std/string"));
 
 test("with_timeout drives a too-short deadline to HttpError.Timeout", {
