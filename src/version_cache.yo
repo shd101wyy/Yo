@@ -586,55 +586,22 @@ _scan_release_page :: (fn(json : String) -> _ReleasePage)({
   });
   _ReleasePage(tags : tags, object_count : object_count)
 });
-/// Move a directory tree `from` to `to`, tolerating the two living on
-/// DIFFERENT filesystems: `rename(2)` fails with EXDEV there — the common
-/// case on Linux desktops, where the system temp root (`/tmp`) is tmpfs
-/// and `~/.cache` is a disk (issues/version-install-cross-device-link.md).
-/// rename stays the fast path; on EXDEV the tree is copied with `cp -a`
-/// (the same shell-out the tarball extraction two steps up already relies
-/// on — `cp` is at least as available as `tar`/`unzip` there) and the
-/// source removed.
-_move_dir_cross_device :: (
-  fn(from : Path, to : Path, io : Io, exn : Exception) -> Impl(Future(unit, IoExn))
+/// Failure cleanup for `download_version`: remove the (possibly partial)
+/// version dir and the staging dir. Mirrors the TS helper.
+_cleanup_failed_download :: (
+  fn(
+    version_dir : String,
+    tmp_path : Path,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    // Try rename first (same-filesystem fast path). The inner handler
-    // swallows the rename's IoError and records the failure — EXDEV is
-    // expected; anything else falls through to the copy, which surfaces
-    // a real error if the tree is unreadable. A module-level flag rather
-    // than a captured local: `->` handlers cannot capture outer runtime
-    // variables. The event loop is single-threaded and one install runs
-    // at a time, so a plain flag is race-free.
-    g_vc_rename_failed = false;
-    rename_exn := Exception(
-      throw : (
-        _e -> unwind({
-          g_vc_rename_failed = true;
-          ()
-        })
-      )
-    );
-    e.io.await(
-      rename(from.clone(), to.clone(), e.io),
-      IoExn(io : e.io, exn : rename_exn)
-    );
-    if(g_vc_rename_failed == false, {
-      return(());
+    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
+    if(ver_exists, {
+      e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
-    cp_cmd := Command.new(String.from("cp"));
-    cp_cmd.arg(String.from("-a"));
-    cp_cmd.arg(from.path().to_string());
-    cp_cmd.arg(to.path().to_string());
-    cp_out := e.io.await(cp_cmd.output(e.io), e);
-    if(!cp_out.status.success(), {
-      e.exn.throw(
-        dyn(
-          `Failed to move the extracted bundle into the cache (rename crossed filesystems and 'cp -a' failed): ${cp_out.status.raw.to_string()}`
-        )
-      );
-    });
-    e.io.await(remove_dir_all(from.clone(), e.io), e);
-    ()
+    e.io.await(remove_dir_all(tmp_path, e.io), e);
   })
 );
 /// Download a specific Yo version's native bundle from GitHub Releases and
@@ -673,8 +640,18 @@ download_version :: (
     // (plans/reference/RELEASE_ASSET_TRIPLES.md).
     (bundle_name : String) = host_bundle_triple_name(version, e.exn);
     version_dir := get_version_cache_dir(version);
-    // 1. Download the tarball to a temp directory.
-    tmp_dir := e.io.await(TempDir.new(e.io), e);
+    // 1. Download the tarball to a temp directory. The EXTRACTION STAGING
+    // dir lives INSIDE the versions cache (~/.cache/yo/versions/), not the
+    // system temp root: the final move into the version directory is a
+    // rename(2), which fails with EXDEV across filesystems — tmpfs `/tmp` +
+    // disk `$HOME` is the common Linux desktop layout, and it aborted every
+    // `yo version install` after a completed download+extraction
+    // (issues/version-install-cross-device-link.md). Same-filesystem staging
+    // makes the rename structural, with no cross-device fallback needed
+    // (catch-and-continue inside io.async closures is not expressible:
+    // `unwind` from a handler aborts the closure rather than resuming it).
+    e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
+    tmp_dir := e.io.await(TempDir.new_in(Path.new(get_global_versions_cache_dir()), e.io), e);
     tmp_path_str := tmp_dir.path().to_string();
     (url : String) = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
     (tarball_path : String) = `${tmp_path_str}/${bundle_name}.tar.gz`;
@@ -765,11 +742,7 @@ download_version :: (
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
-    e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
-    e.io.await(
-      _move_dir_cross_device(Path.new(extracted_dir), Path.new(version_dir), e.io, e.exn),
-      e
-    );
+    e.io.await(rename(Path.new(extracted_dir), Path.new(version_dir), e.io), e);
     println(`Installed Yo v${version} to ${version_dir}`);
     // 4. Clean up the temp directory (the tarball stays behind in it).
     e.io.await(remove_dir_all(tmp_dir.path(), e.io), e);
@@ -863,6 +836,5 @@ export(
   clean_version_cache,
   download_version,
   ensure_cached_version,
-  fetch_remote_versions,
-  _move_dir_cross_device
+  fetch_remote_versions
 );

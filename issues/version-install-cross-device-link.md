@@ -26,13 +26,22 @@ systemd's default on most distros), `rename(2)` fails with `EXDEV`
 ("cross-device link") and the whole install aborts after the download
 completes.
 
-## Fix direction
+## Fix direction (LANDED 2026-09-08, on the V3 branch)
 
-Fallback to a copy-then-delete when `rename` fails with EXDEV (mirror
-`std/fs`'s cross-device story: a recursive copy of the extracted tree,
-then remove the temp dir). Alternatively extract directly into the
-versions cache under a `.tmp` suffix and rename within the same
-filesystem.
+Extract into a STAGING DIR INSIDE the versions cache
+(`TempDir.new_in(~/.cache/yo/versions)`), so the final move is a
+same-filesystem `rename(2)` — structural, no cross-device fallback
+needed. Two fallback designs were tried and are recorded as dead ends:
+
+- A recursive-copy fallback on rename failure cannot be expressed:
+  `unwind` from an exception handler ABORTS the io.async closure rather
+  than resuming it with a value, so catch-and-continue does not exist
+  inside async closures (the pre-check idiom the std uses everywhere is
+  the only supported shape).
+- A module-level flag written by the rename's inner handler is invisible
+  to the closure: the async state machine captures module globals as
+  per-SM copies (`sm->var_N`), so the handler's write to the module
+  global never reaches the closure's read — the move silently no-ops.
 
 ## Notes
 
