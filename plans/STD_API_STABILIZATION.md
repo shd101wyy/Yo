@@ -701,6 +701,30 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    worse than not having it (a blocking await inside a task nests the loop and
    deadlocks). The row wants an async-iteration abstraction first; it is a
    language/std design question, not a missing method.
+   **`f64`/`f32` non-finite constants: DONE (2026-09-09), unblocked by the
+   v0.2.29 seed.** `INFINITY`, `NEG_INFINITY` and `NAN` are the last three
+   names `std/math` was missing. They had to wait for a seed because the
+   v0.2.28 compiler emitted a non-finite float constant as the invalid C
+   literal `inf.0` (issues/fixed/comptime-float-infinity-emits-invalid-c.md,
+   fixed in #487 and therefore first present in a seed at v0.2.29), and `std/`
+   must build under the seed.
+
+   None of the three has a token, so each is spelled as the thing that produces
+   it: an OVERFLOWING literal (`f64(1.0e400)`) for the infinities and `∞ - ∞`
+   for the NaN. Both alternatives were tried and rejected against the actual
+   compiler: `0.0 / 0.0` is refused outright ("Division by zero in comptime
+   float operation: __yo_comptime_f64_div"), and `x * y - x * y` is fused into
+   an FMA by `-ffp-contract=on` and evaluates to `-inf` rather than NaN.
+
+   The tests do not stop at `is_infinite()`/`is_nan()`. They assert
+   `INFINITY > MAX`, `NEG_INFINITY < MIN`, `NEG_INFINITY == -INFINITY`, that
+   NaN is unequal to ITSELF (the reason `is_nan()` exists), and that arithmetic
+   on the constants behaves — `inf + 1`, `inf * -1`, `1 / inf`, NaN
+   propagation. That last group is the one that would have caught `inf.0`:
+   a constant that never reaches the C compiler correctly cannot be added to.
+
+   `std/math` is now marked stable with ONE remaining gap: the `f32`
+   transcendentals C has no single-precision entry point for.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

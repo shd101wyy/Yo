@@ -31,18 +31,22 @@
 //! makes them real comptime constants with no header dependency, and they are
 //! exact: each is the shortest decimal that round-trips to the same double.
 //!
-//! `INFINITY`, `NEG_INFINITY` and `NAN` are NOT here yet. The only comptime
-//! spelling of them is an overflowing literal (`f64(1.0e400)`), which the
-//! v0.2.28 seed still miscompiles to `inf.0`
-//! (issues/fixed/comptime-float-infinity-emits-invalid-c.md) — `std/` has to
-//! build under the seed, so they wait for the next seed bump. `is_nan`,
-//! `is_infinite` and `is_finite` are here and work today.
+//! `INFINITY`, `NEG_INFINITY` and `NAN` are here as of the v0.2.29 seed. They
+//! have no token of their own, so each is spelled as the thing that produces
+//! it: an OVERFLOWING literal (`f64(1.0e400)`) for the infinities, and
+//! `∞ - ∞` for the NaN. Two alternatives were tried and rejected — `0.0 / 0.0`
+//! is refused outright ("Division by zero in comptime float operation"), and
+//! `x * y - x * y` is fused into an FMA by `-ffp-contract=on` and evaluates to
+//! `-inf`. They had to wait for a seed because the v0.2.28 compiler emitted a
+//! non-finite float constant as the invalid C literal `inf.0`
+//! (issues/fixed/comptime-float-infinity-emits-invalid-c.md), and `std/` must
+//! build under the seed.
+//!
 //! ## Stability
 //!
 //! stable — the method and constant names follow Rust's `f64`/`f32` inherent
-//! surface, and the two deliberate gaps (`INFINITY`/`NEG_INFINITY`/`NAN`, and
-//! the `f32` transcendentals C has no single-precision entry point for) are
-//! additive when they arrive.
+//! surface, and the one remaining gap (the `f32` transcendentals C has no
+//! single-precision entry point for) is additive when it arrives.
 pragma(Pragma.AllowUnsafe);
 {
   sqrt : _c_sqrt,
@@ -128,7 +132,19 @@ impl(
   /// The most negative finite double — `-MAX`, NOT the smallest positive.
   MIN : f64(-1.7976931348623157e308),
   /// The smallest positive NORMAL double. Subnormals go lower.
-  MIN_POSITIVE : f64(2.2250738585072014e-308)
+  MIN_POSITIVE : f64(2.2250738585072014e-308),
+  /// Positive infinity. The only comptime spelling of a non-finite double is
+  /// an OVERFLOWING literal — there is no `inf` token — so `1.0e400` is
+  /// deliberate, not a typo. Codegen emits it as C's `HUGE_VAL`.
+  INFINITY : f64(1.0e400),
+  /// Negative infinity.
+  NEG_INFINITY : f64(-1.0e400),
+  /// A quiet NaN. `∞ - ∞` rather than `0.0 / 0.0`, which would be a
+  /// division by zero the comptime evaluator refuses, and rather than
+  /// `x * y - x * y`, which `-ffp-contract=on` fuses into an FMA and turns
+  /// into `-inf`. NaN compares unequal to EVERYTHING, itself included — use
+  /// `is_nan()`, never `== f64.NAN`.
+  NAN : (f64(1.0e400) - f64(1.0e400))
 );
 /// The same constants at `f32` precision.
 impl(
@@ -144,7 +160,10 @@ impl(
   EPSILON : f32(1.1920929e-7),
   MAX : f32(3.4028235e38),
   MIN : f32(-3.4028235e38),
-  MIN_POSITIVE : f32(1.1754944e-38)
+  MIN_POSITIVE : f32(1.1754944e-38),
+  INFINITY : f32(1.0e400),
+  NEG_INFINITY : f32(-1.0e400),
+  NAN : (f32(1.0e400) - f32(1.0e400))
 );
 impl(
   f64,
