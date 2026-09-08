@@ -2035,9 +2035,27 @@ impl(
 * Rune iterator for `String` — yields decoded Unicode runes.
 * Used by `chars()` and `into_iter()`.
 */
+/// Byte index of the rune boundary immediately BEFORE `at` — the start of the
+/// rune that ENDS at `at`.
+///
+/// `at` must itself be a boundary and greater than zero. Used by the
+/// `next_back` half of the string iterators: UTF-8 is self-synchronising, so
+/// walking back over continuation bytes finds the previous rune's first byte
+/// without any table.
+_prev_rune_start :: (fn(s : String, at : usize) -> usize)({
+  (i : usize) = (at - usize(1));
+  while((i > usize(0)) && !s.is_char_boundary(i), {
+    i = (i - usize(1));
+  });
+  i
+});
 StringChars :: struct(
   _string : String,
-  _byte_index : usize
+  _byte_index : usize,
+  /// Exclusive BACK cursor, moved by `next_back`. The two ends have met when
+  /// `_end <= _byte_index`, which is what makes forward and backward
+  /// iteration composable on one iterator.
+  _end : usize
 );
 impl(
   StringChars,
@@ -2048,7 +2066,7 @@ impl(
         self._string._bytes,
         .None => .None,
         .Some(al) => cond(
-          (self._byte_index >= al.len()) => .None,
+          (self._byte_index >= self._end) => .None,
           true => {
             first_byte_opt := al.get(self._byte_index);
             match(
@@ -2067,13 +2085,34 @@ impl(
     )
   )
 );
+/// `chars()` from the back — this is what makes `s.chars().rev()` work, via
+/// the prelude's blanket `rev` over `DoubleEndedIterator` (promised by D4).
+impl(
+  StringChars,
+  DoubleEndedIterator(
+    Item : rune,
+    next_back : (fn(inout(self) : Self) -> Option(rune))(
+      cond(
+        (self._end <= self._byte_index) => Option(rune).None,
+        true => {
+          start := _prev_rune_start(self._string, self._end);
+          r := self._string._decode_rune_at(start);
+          self._end = start;
+          r
+        }
+      )
+    )
+  )
+);
 /**
 * Byte iterator for `String` — yields raw UTF-8 bytes.
 * Used by `bytes()`.
 */
 StringBytes :: struct(
   _string : String,
-  _index : usize
+  _index : usize,
+  /// Exclusive BACK cursor — see `StringChars._end`.
+  _end : usize
 );
 impl(
   StringBytes,
@@ -2084,13 +2123,32 @@ impl(
         self._string._bytes,
         .None => .None,
         .Some(al) => cond(
-          (self._index >= al.len()) => .None,
+          (self._index >= self._end) => .None,
           true => {
             byte_opt := al.get(self._index);
             self._index = (self._index + usize(1));
             byte_opt
           }
         )
+      )
+    )
+  )
+);
+impl(
+  StringBytes,
+  DoubleEndedIterator(
+    Item : u8,
+    next_back : (fn(inout(self) : Self) -> Option(u8))(
+      cond(
+        (self._end <= self._index) => Option(u8).None,
+        true => {
+          self._end = (self._end - usize(1));
+          match(
+            self._string._bytes,
+            .None => Option(u8).None,
+            .Some(al) => al.get(self._end)
+          )
+        }
       )
     )
   )
@@ -2105,7 +2163,9 @@ impl(
 */
 StringCharIndices :: struct(
   _string : String,
-  _byte_index : usize
+  _byte_index : usize,
+  /// Exclusive BACK cursor — see `StringChars._end`.
+  _end : usize
 );
 impl(
   StringCharIndices,
@@ -2116,7 +2176,7 @@ impl(
         self._string._bytes,
         .None => .None,
         .Some(al) => cond(
-          (self._byte_index >= al.len()) => .None,
+          (self._byte_index >= self._end) => .None,
           true => {
             offset := self._byte_index;
             first_byte_opt := al.get(offset);
@@ -2140,24 +2200,44 @@ impl(
   )
 );
 impl(
+  StringCharIndices,
+  DoubleEndedIterator(
+    Item : IterPair(usize, rune),
+    next_back : (fn(inout(self) : Self) -> Option(IterPair(usize, rune)))(
+      cond(
+        (self._end <= self._byte_index) => Option(IterPair(usize, rune)).None,
+        true => {
+          start := _prev_rune_start(self._string, self._end);
+          self._end = start;
+          match(
+            self._string._decode_rune_at(start),
+            .Some(r) => Option(IterPair(usize, rune)).Some(IterPair(usize, rune)(_0 : start, _1 : r)),
+            .None => Option(IterPair(usize, rune)).None
+          )
+        }
+      )
+    )
+  )
+);
+impl(
   String,
   /**
   * Returns a rune iterator over the string's Unicode characters
   */
   chars : (fn(self : Self) -> StringChars)(
-    StringChars(_string : self, _byte_index : usize(0))
+    StringChars(_string : self, _byte_index : usize(0), _end : self.len())
   ),
   /**
   * Returns a byte iterator over the string's raw UTF-8 bytes
   */
   bytes : (fn(self : Self) -> StringBytes)(
-    StringBytes(_string : self, _index : usize(0))
+    StringBytes(_string : self, _index : usize(0), _end : self.len())
   ),
   /**
   * Consume the string and return a rune iterator (default iteration)
   */
   into_iter : (fn(self : Self) -> StringChars)(
-    StringChars(_string : self, _byte_index : usize(0))
+    StringChars(_string : self, _byte_index : usize(0), _end : self.len())
   )
 );
 /// === Rune-aware indexing (D4 vocabulary) ===
@@ -2188,7 +2268,7 @@ impl(
   /// the replacement for the `while(i < s.len()) { s.at(i) }` shape, which
   /// now visits continuation bytes and hands back `.None` at each of them.
   char_indices : (fn(self : Self) -> StringCharIndices)(
-    StringCharIndices(_string : self, _byte_index : usize(0))
+    StringCharIndices(_string : self, _byte_index : usize(0), _end : self.len())
   ),
   /// The largest byte offset `<= index` that sits on a rune boundary.
   ///
@@ -2292,8 +2372,49 @@ impl(
 */
 StringLines :: struct(
   _string : String,
-  _byte_index : usize
+  _byte_index : usize,
+  /// Exclusive BACK cursor — see `StringChars._end`.
+  _end : usize
 );
+/// A line's content, with ONE trailing `\r` dropped.
+///
+/// `lines()` splits on `\n` and must not leave the carriage return of a
+/// Windows `\r\n` at the end of the line — Rust's `str::lines` strips it, and
+/// a reader that forgot to would silently compare unequal against every
+/// literal. Only one `\r` goes: `"a\r\r\n"` really does end with a `\r`.
+_line_slice :: (fn(al : ArrayList(u8), start : usize, stop : usize) -> String)({
+  (cut : usize) = stop;
+  cond(
+    (cut > start) => match(
+      al.get(cut - usize(1)),
+      .Some(last) => cond(
+        (last == u8(13)) => {
+          cut = (cut - usize(1));
+        },
+        true => ()
+      ),
+      .None => ()
+    ),
+    true => ()
+  );
+  cond(
+    (cut <= start) => String(_bytes : .None),
+    true => {
+      buf := ArrayList(u8).with_capacity(cut - start);
+      (j : usize) = start;
+      while(j < cut, j = (j + usize(1)), {
+        match(
+          al.get(j),
+          .Some(b) => {
+            buf.push(b);
+          },
+          .None => ()
+        );
+      });
+      String(_bytes : .Some(buf))
+    }
+  )
+});
 impl(
   StringLines,
   Iterator(
@@ -2303,13 +2424,13 @@ impl(
         self._string._bytes,
         .None => .None,
         .Some(al) => {
-          total := al.len();
+          stop := self._end;
           cond(
-            (self._byte_index >= total) => .None,
+            (self._byte_index >= stop) => .None,
             true => {
               start := self._byte_index;
               i := start;
-              while(i < total, i = (i + usize(1)), {
+              while(i < stop, i = (i + usize(1)), {
                 byte_opt := al.get(i);
                 match(
                   byte_opt,
@@ -2324,29 +2445,62 @@ impl(
                   .None => ()
                 );
               });
-              line_buf := ArrayList(u8).with_capacity(i - start);
-              j := start;
-              while(j < i, j = (j + usize(1)), {
-                byte_opt := al.get(j);
-                match(
-                  byte_opt,
-                  .Some(b) => {
-                    line_buf.push(b);
-                  },
-                  .None => ()
-                );
-              });
               self._byte_index = cond(
-                (i < total) => (i + usize(1)),
-                true => total
+                (i < stop) => (i + usize(1)),
+                true => stop
               );
-              cond(
-                (line_buf.len() == usize(0)) => .Some(String(_bytes : .None)),
-                true => .Some(String(_bytes : .Some(line_buf)))
-              )
+              .Some(_line_slice(al, start, i))
             }
           )
         }
+      )
+    )
+  )
+);
+/// `lines()` from the back.
+///
+/// The mirror of `next`'s rule that a trailing `\n` TERMINATES the last line
+/// rather than starting an empty one after it: the first thing `next_back`
+/// does is step over one such newline.
+impl(
+  StringLines,
+  DoubleEndedIterator(
+    Item : String,
+    next_back : (fn(inout(self) : Self) -> Option(String))(
+      match(
+        self._string._bytes,
+        .None => .None,
+        .Some(al) => cond(
+          (self._end <= self._byte_index) => Option(String).None,
+          true => {
+            (stop : usize) = self._end;
+            cond(
+              match(al.get(stop - usize(1)), .Some(b) => (b == u8(10)), .None => false) => {
+                stop = (stop - usize(1));
+              },
+              true => ()
+            );
+            // Scan back for the newline that ends the PREVIOUS line; the line
+            // we are yielding starts just after it.
+            (line_start : usize) = self._byte_index;
+            (k : usize) = stop;
+            while(k > self._byte_index, {
+              k = (k - usize(1));
+              cond(
+                match(al.get(k), .Some(b) => (b == u8(10)), .None => false) => {
+                  line_start = (k + usize(1));
+                  break;
+                },
+                true => ()
+              );
+            });
+            self._end = cond(
+              (line_start > self._byte_index) => (line_start - usize(1)),
+              true => self._byte_index
+            );
+            Option(String).Some(_line_slice(al, line_start, stop))
+          }
+        )
       )
     )
   )
@@ -2367,7 +2521,7 @@ impl(
   * ```
   */
   lines : (fn(self : Self) -> StringLines)(
-    StringLines(_string : self, _byte_index : usize(0))
+    StringLines(_string : self, _byte_index : usize(0), _end : self.len())
   ),
   /**
   * Returns a new string containing `n` copies of `self`.
