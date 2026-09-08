@@ -1,67 +1,34 @@
 //! lsp/rename — textDocument/rename (plans/archive/P4_LSP.md slice 5).
 //!
-//! Port of the attic `rename.ts`: rename all same-file references by name.
-//! Produces a WorkspaceEdit whose `changes` map the document uri to one
-//! TextEdit per occurrence (deduplicated by position — the same Atom can be
-//! reachable through several AST paths).
+//! Renames the BINDING under the cursor: the occurrences come from
+//! references.yo's `collect_symbol_occurrences` (declaration identity, not
+//! spelling — see that module's header), and the WorkspaceEdit maps the
+//! document uri to one TextEdit per occurrence. A cursor on a member name or
+//! a label answers nothing, so the client shows "cannot rename" instead of
+//! rewriting a field.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
 open(import("std/error"));
 { Token, TokenKind } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
 { AstExpr } :: import("../expr.yo");
+{ ExprInfoTable } :: import("../expr_info.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, j_range } :: import("./protocol.yo");
+{ jb, jstr, j_range_in } :: import("./protocol.yo");
 { _find_token_at } :: import("./hover.yo");
-
-_collect_rename_edits :: (
-  fn(
-    e : AstExpr,
-    old_name : String,
-    new_name : String,
-    seen : HashSet(String),
-    out : ArrayList(JsonValue)
-  ) -> unit
-)({
-  match(
-    e,
-    .Atom(_, tok) => {
-      if(tok.value == old_name, {
-        key := `${tok.row}:${tok.column}`;
-        if(!seen.contains(key.clone()), {
-          seen.insert(key);
-          out.push(
-            // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11). A byte width here would
-            // make the replaced range overrun a multibyte identifier.
-            jb().put("range", j_range(tok.row, tok.column, tok.row, tok.column + old_name.chars().count())).put("newText", jstr(new_name.clone())).obj()
-          );
-        });
-      });
-    },
-    .FnCall(_, func_box, args, _, _) => {
-      recur(func_box, old_name, new_name, seen, out);
-      (i : usize) = usize(0);
-      while(i < args.len(), {
-        match(
-          args.get(i),
-          .Some(a) => recur(a, old_name, new_name, seen, out),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-    }
-  );
-});
+{ collect_symbol_occurrences } :: import("./references.yo");
 
 /// Build the WorkspaceEdit for renaming the symbol at (line, character), or
-/// `.None` when there is nothing renameable under the cursor.
+/// `.None` when there is nothing renameable under the cursor. RUNE positions
+/// in, wire-encoded ranges out.
 handle_rename :: (
   fn(
     text : String,
     doc_abs : String,
+    lines : ArrayList(String),
     uri : String,
     exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
     line : usize,
     character : usize,
     new_name : String
@@ -83,19 +50,26 @@ handle_rename :: (
   if((target.kind != TokenKind.Identifier) || (new_name.len() == usize(0)), {
     return(Option(JsonValue).None);
   });
+  occurrences := collect_symbol_occurrences(exprs, info_table, target);
+  if(occurrences.len() == usize(0), {
+    return(Option(JsonValue).None);
+  });
   edits := ArrayList(JsonValue).new();
-  seen := HashSet(String).new();
-  (ei : usize) = usize(0);
-  while(ei < exprs.len(), {
+  (oi : usize) = usize(0);
+  while(oi < occurrences.len(), {
     match(
-      exprs.get(ei),
-      .Some(e) => _collect_rename_edits(e, target.value.clone(), new_name.clone(), seen, edits),
+      occurrences.get(oi),
+      .Some(tk) => {
+        edits.push(
+          // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
+          // converted to the wire encoding — a byte or rune width on the
+          // wire would make the replaced range overrun the identifier.
+          jb().put("range", j_range_in(lines, tk.row, tk.column, tk.row, tk.column + tk.value.chars().count())).put("newText", jstr(new_name.clone())).obj()
+        );
+      },
       .None => ()
     );
-    ei = (ei + usize(1));
-  });
-  if(edits.len() == usize(0), {
-    return(Option(JsonValue).None);
+    oi = (oi + usize(1));
   });
   changes_keys := ArrayList(String).new();
   changes_vals := ArrayList(JsonValue).new();

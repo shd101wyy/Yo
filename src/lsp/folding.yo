@@ -3,9 +3,13 @@
 //! Port of the attic `folding.ts`: region ranges from multi-line `{...}`
 //! and `(...)` pairs (a shared stack, exactly like the original — a
 //! mismatched closer pops whatever is on top, which is fine for folding),
-//! plus comment ranges for multi-line block comments.
+//! plus comment ranges for multi-line block comments. A `(` and a `{` that
+//! open on one line and close on another — every `(fn(...) -> T)({ ... })`
+//! body — describe the SAME fold, so identical (start, end) pairs are
+//! emitted once (issues/fixed/lsp-folding-emits-duplicate-ranges.md).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 open(import("std/error"));
 { Token, TokenKind } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
@@ -13,8 +17,13 @@ open(import("std/error"));
 { jb, jstr, jnum } :: import("./protocol.yo");
 
 _push_fold :: (
-  fn(out : ArrayList(JsonValue), start_line : usize, end_line : usize, kind : str) -> unit
+  fn(out : ArrayList(JsonValue), seen : HashSet(String), start_line : usize, end_line : usize, kind : str) -> unit
 )({
+  key := `${start_line}:${end_line}:${kind}`;
+  if(seen.contains(key.clone()), {
+    return(());
+  });
+  seen.insert(key);
   out.push(
     jb().put("startLine", jnum(start_line)).put("endLine", jnum(end_line)).put("kind", jstr(String.from(kind))).obj()
   );
@@ -30,6 +39,7 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
   );
   tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
   open_rows := ArrayList(usize).new();
+  seen := HashSet(String).new();
   (i : usize) = usize(0);
   n := tokens.len();
   while(i < n, {
@@ -51,7 +61,7 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
           open_row := match(open_rows.get(open_rows.len() - usize(1)), .Some(r) => r, .None => t.row);
           _p := open_rows.pop();
           if(open_row < t.row, {
-            _push_fold(out, open_row, t.row, "region");
+            _push_fold(out, seen, open_row, t.row, "region");
           });
         });
       },
@@ -61,7 +71,7 @@ handle_folding_ranges :: (fn(text : String, doc_abs : String) -> JsonValue)({
       ) => {
         line_count := t.value.split(String.from("\n")).len();
         if(line_count > usize(1), {
-          _push_fold(out, t.row, (t.row + line_count) - usize(1), "comment");
+          _push_fold(out, seen, t.row, (t.row + line_count) - usize(1), "comment");
         });
       },
       true => ()

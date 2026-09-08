@@ -1,5 +1,22 @@
 # `yo lsp` emits and accepts RUNE columns where LSP specifies UTF-16 — `textDocument/rename` rewrites the wrong span
 
+**FIXED 2026-09-08** — the server now negotiates and honours the wire
+encoding. `initialize` reads `general.positionEncodings`: when the client
+lists `utf-32` (the server's native rune unit) it answers
+`positionEncoding: utf-32` and nothing is converted; otherwise it answers
+`utf-16` and converts EVERY column at the boundary — incoming
+`position.character` through `client_col_to_rune` (server.yo
+`_rune_position`), outgoing ranges through `j_range_in` (hover, definition,
+references, rename, document symbols, diagnostics; completion and signature
+help emit no columns, folding emits lines). `src/lsp/protocol.yo` holds the
+conversions (`rune_col_to_utf16_col` / `utf16_col_to_rune_col`; a column
+landing inside a surrogate pair belongs to that rune). Regression tests:
+`tests/cli-cases/lsp-position-encoding-utf16` (the exact document below —
+hover at UTF-16 column 17 answers, at 16 does not; rename on the emoji line is
+`[22, 29)`; the diagnostic underline starts at 17) and
+`tests/cli-cases/lsp-position-encoding-utf32` (same requests, rune columns),
+plus the unit conversions in `tests/internal/lsp_protocol.test.yo`.
+
 **Status:** OPEN — found 2026-09-04 during the std-API-audit re-measurement of
 the D4 PR 9 / LSP row. Reproduced at runtime against `yo 0.2.24`.
 **Severity:** wrong-value, and **destructive** on the rename path: the client
@@ -110,7 +127,7 @@ it does not emit:
 (That response is pinned byte-for-byte as the 405-byte first frame of
 `tests/cli-cases/lsp-handshake/expected_stdout`.) The structural reason the
 server cannot negotiate its way out of this is filed separately as
-`issues/lsp-initialize-discards-the-clients-params.md`.
+`issues/fixed/lsp-initialize-discards-the-clients-params.md`.
 
 ## Root cause
 

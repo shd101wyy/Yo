@@ -12,18 +12,23 @@
 //! channel that makes the parsing unnecessary is P3 of
 //! plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md.
 //!
-//! KNOWN MVP LIMITS (plans/archive/P4_LSP.md kickoff notes):
-//!   - Imports are cached for the process lifetime: an edit to an imported
-//!     file is not seen until the server restarts. Invalidation is the
-//!     incremental-compilation arc (plans/reference/INCREMENTAL_COMPILATION.md).
-//!   - Re-analysis re-registers the document's impls under fresh type ids;
-//!     the stale entries leak (bounded by edit count). The site-keyed
-//!     duplicate-inherent-method gate is replay-safe by construction.
+//! Analysis state is kept even when the document has an error: a parse
+//! failure yields `parsed == false` (the server then keeps serving the last
+//! parsed outcome), an evaluation failure keeps the parsed program AND the
+//! ExprInfo the evaluator recorded up to the error (`mm_eval_entry_exprs`
+//! returns its real ctx on failure), so hover / completion / signature help
+//! keep working on the part of the file that evaluated
+//! (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md).
+//!
+//! Imports: an edit to an open imported file is visible to the next analysis
+//! of an importing document (Phase B, plans/reference/INCREMENTAL_COMPILATION.md
+//! — overlay + `mm_invalidate_document` in server.yo). Re-analysis purges the
+//! document's previous registry generation before re-registering.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 open(import("std/error"));
 { parse } :: import("../parser.yo");
-{ Diagnostic } :: import("../diagnostics.yo");
+{ Diagnostic, Severity } :: import("../diagnostics.yo");
 { stash_error_diagnostics, take_error_diagnostics } :: import("../error.yo");
 { AstExpr } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("../expr_info.yo");
@@ -42,7 +47,22 @@ LspDiag :: struct(
   row : usize,
   col : usize,
   end_col : usize,
+  /// LSP DiagnosticSeverity: 1 error, 2 warning, 3 information (a `note`),
+  /// 4 hint (a `help`).
+  severity : usize,
+  /// Registry code (`E0401`) when the diagnostic carries one.
+  code : Option(String),
   message : String
+);
+/// LSP severity number for a renderer/registry `Severity`.
+lsp_severity_of :: (fn(sev : Severity) -> usize)(
+  match(
+    sev,
+    .Error => usize(1),
+    .Warning => usize(2),
+    .Note => usize(3),
+    .Help => usize(4)
+  )
 );
 export(LspDiag);
 
@@ -124,11 +144,19 @@ _is_row_line :: (fn(l : String) -> bool)({
   (b0 == u8(32)) && (b1 == u8(124))
 });
 
+/// A rendered block's header, split: the LSP severity of the header word,
+/// the `[CODE]` when present, and the message after the colon.
+SevPrefix :: struct(
+  severity : usize,
+  code : Option(String),
+  message : String
+);
 /// `<word>` optionally followed by `[CODE]`, then `: ` — strip through the
 /// colon; .None when the message does not start with that shape.
-_strip_sev_word :: (fn(message : String, word : str) -> Option(String))({
+_strip_sev_word :: (fn(message : String, word : str, severity : usize) -> Option(SevPrefix))({
   w := String.from(word);
   rest := String.new();
+  (code : Option(String)) = Option(String).None;
   if((message.len() > w.len()) && message.starts_with(w), {
     rest = message.substring(w.len(), message.len());
     if(rest.starts_with(String.from("[")), {
@@ -136,6 +164,7 @@ _strip_sev_word :: (fn(message : String, word : str) -> Option(String))({
       match(
         close,
         .Some(c) => {
+          code = Option(String).Some(rest.substring(usize(1), c));
           rest = rest.substring(c + usize(1), rest.len());
         },
         .None => {
@@ -145,22 +174,49 @@ _strip_sev_word :: (fn(message : String, word : str) -> Option(String))({
     });
   });
   if((rest.len() > usize(0)) && rest.starts_with(String.from(": ")), {
-    return(Option(String).Some(rest.substring(usize(2), rest.len())));
+    return(
+      Option(SevPrefix).Some(
+        SevPrefix(severity : severity, code : code, message : rest.substring(usize(2), rest.len()))
+      )
+    );
   });
-  Option(String).None
+  Option(SevPrefix).None
 });
-/// Strip one severity header prefix off a rendered block's message — the
+/// Split one severity header prefix off a rendered block's message — the
 /// bare form (`error: `) and the coded form (`error[E0401]: `), which is
-/// what the renderer emits for classified diagnostics (P2).
-_strip_severity_prefix :: (fn(message : String) -> String)(
-  cond(
-    _strip_sev_word(message, "error").is_some() => _strip_sev_word(message, "error").unwrap_or(message),
-    _strip_sev_word(message, "warning").is_some() => _strip_sev_word(message, "warning").unwrap_or(message),
-    _strip_sev_word(message, "note").is_some() => _strip_sev_word(message, "note").unwrap_or(message),
-    _strip_sev_word(message, "help").is_some() => _strip_sev_word(message, "help").unwrap_or(message),
-    true => message
-  )
-);
+/// what the renderer emits for classified diagnostics (P2). A message with
+/// no header is an error with no code.
+_strip_severity_prefix :: (fn(message : String) -> SevPrefix)({
+  match(
+    _strip_sev_word(message.clone(), "error", usize(1)),
+    .Some(p) => {
+      return(p);
+    },
+    .None => ()
+  );
+  match(
+    _strip_sev_word(message.clone(), "warning", usize(2)),
+    .Some(p) => {
+      return(p);
+    },
+    .None => ()
+  );
+  match(
+    _strip_sev_word(message.clone(), "note", usize(3)),
+    .Some(p) => {
+      return(p);
+    },
+    .None => ()
+  );
+  match(
+    _strip_sev_word(message.clone(), "help", usize(4)),
+    .Some(p) => {
+      return(p);
+    },
+    .None => ()
+  );
+  SevPrefix(severity : usize(1), code : Option(String).None, message : message)
+});
 
 /// Extract diagnostics from a rendered diagnostic-group string (the P1
 /// human format of src/diagnostics.yo): blocks of `severity[code]: message`
@@ -214,9 +270,10 @@ parse_error_text :: (
                 // path containing ':' cannot confuse it)
                 tail_len := (row_s.len() + col_s.len() + usize(2));
                 a_path := body.substring(usize(0), body.len() - tail_len);
-                message := _strip_severity_prefix(
+                header := _strip_severity_prefix(
                   String.from("\n").join(msg_parts).trim()
                 );
+                message := header.message;
                 if(message.len() > usize(0), {
                   same_file := ((a_path == doc_abs) || a_path.ends_with(doc_abs.clone()));
                   cond(
@@ -267,7 +324,14 @@ parse_error_text :: (
                       li = (li + consumed);
                       end_col := (a_col + caret_len);
                       out.push(
-                        LspDiag(row : a_row, col : a_col, end_col : end_col, message : message)
+                        LspDiag(
+                          row : a_row,
+                          col : a_col,
+                          end_col : end_col,
+                          severity : header.severity,
+                          code : header.code,
+                          message : message
+                        )
                       );
                     },
                     true => {
@@ -276,6 +340,8 @@ parse_error_text :: (
                           row : usize(0),
                           col : usize(0),
                           end_col : usize(1),
+                          severity : header.severity,
+                          code : header.code,
                           message : `${message} (in ${a_path}:${(a_row + usize(1))}:${(a_col + usize(1))})`
                         )
                       );
@@ -308,6 +374,8 @@ parse_error_text :: (
         row : usize(0),
         col : usize(0),
         end_col : usize(1),
+        severity : usize(1),
+        code : Option(String).None,
         message : err_text.trim()
       )
     );
@@ -340,40 +408,71 @@ _ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
 /// The retained result of one document analysis: the parsed program and
 /// the ExprInfo side table the evaluation filled in. Hover / definition /
 /// symbols read these between edits (plans/archive/P4_LSP.md slice 3+).
+///
+/// `parsed == false` means the text did not parse: `exprs` is empty and
+/// `info_table` fresh, and the server keeps the previous outcome for feature
+/// requests. `parsed && !ok` means the evaluation stopped at an error:
+/// `exprs` is the full program and `info_table` holds everything recorded
+/// before the error.
 AnalyzeOutcome :: ref(
   struct(
     ok : bool,
+    parsed : bool,
     exprs : ArrayList(AstExpr),
     info_table : ExprInfoTable
   )
 );
 export(AnalyzeOutcome);
-/// Parse + evaluate the document text under a swallowing handler. The
-/// handler's `unwind` exits THIS AnalyzeOutcome-typed frame (see
+/// Parse the document text under a swallowing handler; `.None` when it does
+/// not parse. The handler's `unwind` exits THIS Option-typed frame (see
 /// _ensure_prelude's note — the unwind value must match the frame the
-/// Exception was bound in). Mirrors module_manager's
-/// _eval_module_exprs_capturing_error structure.
-_analyze_eval :: (
-  fn(entry_abs : String, text : String, std_path : String, io : Io) -> AnalyzeOutcome
+/// Exception was bound in). A separate frame from `_analyze_eval` so a
+/// failed EVALUATION cannot discard the successfully parsed program.
+_parse_document :: (
+  fn(entry_abs : String, text : String) -> Option(ArrayList(AstExpr))
 )({
   local_exn := Exception(
     throw : (
       err -> {
         _stash_parse_error(err.to_string());
         stash_error_diagnostics(err);
-        unwind(
-          AnalyzeOutcome(
-            ok : false,
-            exprs : ArrayList(AstExpr).new(),
-            info_table : expr_info_table_new()
-          )
-        )
+        unwind(Option(ArrayList(AstExpr)).None)
       }
     )
   );
-  exprs := parse(text, entry_abs.clone(), local_exn);
+  Option(ArrayList(AstExpr)).Some(parse(text, entry_abs.clone(), local_exn))
+});
+/// The evaluation half: `ok` plus the ExprInfo table the run filled in.
+EvalOutcome :: struct(
+  ok : bool,
+  info_table : ExprInfoTable
+);
+/// A failed evaluation with nothing recorded — what the loader-thrown path
+/// (an imported file that does not parse) unwinds with. A FUNCTION because
+/// an effect handler cannot reference outer runtime variables.
+_failed_eval :: (fn() -> EvalOutcome)(
+  EvalOutcome(ok : false, info_table : expr_info_table_new())
+);
+/// Evaluate the parsed program. Evaluation errors are captured INSIDE
+/// `mm_eval_entry_exprs` (its `_eval_module_exprs_capturing_error`), which
+/// then returns `ok : false` with the real ctx — so the ExprInfo recorded
+/// before the error survives here. Only a throw from the demand LOADER
+/// (an import whose file fails to read or parse) reaches the local handler,
+/// which unwinds with an empty table.
+_analyze_eval :: (
+  fn(entry_abs : String, exprs : ArrayList(AstExpr), std_path : String, io : Io) -> EvalOutcome
+)({
+  local_exn := Exception(
+    throw : (
+      err -> {
+        _stash_parse_error(err.to_string());
+        stash_error_diagnostics(err);
+        unwind(_failed_eval())
+      }
+    )
+  );
   outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, local_exn);
-  AnalyzeOutcome(ok : outcome.ok, exprs : exprs, info_table : outcome.ctx.expr_info_table)
+  EvalOutcome(ok : outcome.ok, info_table : outcome.ctx.expr_info_table)
 });
 
 /// Map STRUCTURED diagnostics (the P3 typed channel) to LSP diagnostics —
@@ -396,6 +495,8 @@ _typed_to_lsp :: (
               row : d.span.row,
               col : d.span.col,
               end_col : (d.span.col + d.span.len),
+              severity : lsp_severity_of(d.severity),
+              code : d.code,
               message : d.message
             )
           );
@@ -405,6 +506,8 @@ _typed_to_lsp :: (
               row : usize(0),
               col : usize(0),
               end_col : usize(1),
+              severity : lsp_severity_of(d.severity),
+              code : d.code,
               message : `${d.message} (in ${d.span.path}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))})`
             )
           );
@@ -429,13 +532,31 @@ analyze_document :: (
 )({
   _ensure_prelude(std_path.clone(), io);
   entry_abs := mm_resolve_entry_abs(doc_fs_path.clone(), std_path.clone());
-  outcome := _analyze_eval(entry_abs.clone(), text.clone(), std_path.clone(), io);
+  outcome := match(
+    _parse_document(entry_abs.clone(), text.clone()),
+    .Some(exprs) => {
+      ev := _analyze_eval(entry_abs.clone(), exprs, std_path.clone(), io);
+      AnalyzeOutcome(ok : ev.ok, parsed : true, exprs : exprs, info_table : ev.info_table)
+    },
+    .None => AnalyzeOutcome(
+      ok : false,
+      parsed : false,
+      exprs : ArrayList(AstExpr).new(),
+      info_table : expr_info_table_new()
+    )
+  );
   out_state.push(outcome);
   diags := ArrayList(LspDiag).new();
+  // Drain EVERY error channel this round filled, unconditionally — a
+  // handler stashes the same error as typed diagnostics AND as rendered
+  // text, and a stash left behind is reported by the NEXT round as a
+  // phantom diagnostic (issues/fixed/lsp-stale-parse-diagnostic-survives-the-fix.md).
+  typed := take_error_diagnostics();
+  parse_text := _take_parse_error();
+  load_text := _take_load_error();
   // P3 typed channel first: structured diagnostics for BOTH parse and eval
   // failures (every stage throws YoError now). The text parsers remain the
   // fallback for non-structured string throws only.
-  typed := take_error_diagnostics();
   match(
     typed,
     .Some(tds) => {
@@ -456,7 +577,7 @@ analyze_document :: (
   );
   if(diags.len() == usize(0), {
     match(
-      _take_parse_error(),
+      parse_text,
       .Some(pe) => {
         pds := parse_error_text(pe, entry_abs.clone(), text.clone());
         (pi : usize) = usize(0);
@@ -474,7 +595,7 @@ analyze_document :: (
       .None => ()
     );
     match(
-      _take_load_error(),
+      load_text,
       .Some(le) => {
         lds := parse_error_text(le, entry_abs.clone(), text.clone());
         (ei : usize) = usize(0);

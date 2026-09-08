@@ -345,6 +345,26 @@ _open_doc_text :: (fn(fs_path : String) -> Option(String))(
     .None => Option(String).None
   )
 );
+/// The current source text of the module at filesystem path `fs_path`: the
+/// open-buffer overlay when the editor holds it, else the file on disk;
+/// `.None` when neither exists. The LSP reads a definition target's text
+/// through this to convert its columns to the wire encoding — the target is
+/// usually an IMPORTED file the server has no `DocState` for.
+mm_module_source :: (fn(fs_path : String) -> Option(String))({
+  match(
+    _open_doc_text(fs_path.clone()),
+    .Some(t) => {
+      return(Option(String).Some(t));
+    },
+    .None => ()
+  );
+  read_exn := Exception(
+    throw : (
+      _err -> unwind(Option(String).None)
+    )
+  );
+  Option(String).Some(String.from_bytes(_read_file_sync(fs_path, read_exn)))
+});
 /// LSP invalidation entry (Phase B1, plans/reference/INCREMENTAL_COMPILATION.md):
 /// drop the module cached for this FILESYSTEM path and every transitive
 /// dependent, so the next analysis of any document re-evaluates exactly the
@@ -648,7 +668,19 @@ mm_eval_entry_exprs :: (
       env : env,
       ctx : ctx
     ),
-    .None => _failed_outcome()
+    // Not ok, but with the REAL env/ctx: the evaluation stopped at its first
+    // error, and everything it recorded before that — the ExprInfo of every
+    // expression it did reach — lives in `ctx.expr_info_table`. The LSP
+    // serves hover/completion/signature help from that table while the
+    // document has an error (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md);
+    // `check`/`build` read only `ok` on this path.
+    .None => ModuleLoadOutcome(
+      ok : false,
+      module_value : EvalValue.UnitVal,
+      module_type : TypeValue.Unit,
+      env : env,
+      ctx : ctx
+    )
   )
 });
 /// Run the evaluator against a single `.yo` file, catching any thrown evaluator
@@ -836,6 +868,7 @@ export(
   mm_invalidate_document,
   mm_set_open_document,
   mm_forget_open_document,
+  mm_module_source,
   mm_reset,
   demand_load_module,
   mm_load_prelude_file,

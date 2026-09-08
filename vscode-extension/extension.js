@@ -8,6 +8,10 @@
 //
 // The server is the `yo` binary itself (`yo lsp`, stdio transport). The
 // binary comes from the `yo.binPath` setting, defaulting to "yo" on PATH.
+//
+// The client id is "yo" so the library's built-in tracing reads the
+// `yo.trace.server` setting (declared in package.json) — the id is the
+// settings prefix vscode-languageclient looks under.
 
 "use strict";
 
@@ -26,19 +30,14 @@ function serverOptions() {
   };
 }
 
-async function startClient(context) {
+async function startClient() {
   const clientOptions = {
     documentSelector: [{ scheme: "file", language: "yo" }],
     // Full-document sync is what the server advertises; the client library
     // follows the server's capabilities automatically.
   };
 
-  client = new LanguageClient(
-    "yoLsp",
-    "Yo Language Server",
-    serverOptions(),
-    clientOptions
-  );
+  client = new LanguageClient("yo", "Yo Language Server", serverOptions(), clientOptions);
 
   try {
     await client.start();
@@ -68,20 +67,36 @@ async function stopClient() {
   }
 }
 
+// Stop the running server (if any) and start a fresh one when the setting
+// allows it — the shape both the settings watcher and the restart command
+// need.
+async function restartClient() {
+  await stopClient();
+  const cfg = vscode.workspace.getConfiguration("yo");
+  if (cfg.get("lsp.enabled") !== false) {
+    await startClient();
+  }
+}
+
 function activate(context) {
   const config = vscode.workspace.getConfiguration("yo");
   if (config.get("lsp.enabled") !== false) {
-    startClient(context);
+    startClient();
   }
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("yo.restartLanguageServer", async () => {
+      await restartClient();
+      if (client) {
+        vscode.window.setStatusBarMessage("Yo: language server restarted", 3000);
+      }
+    })
+  );
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration(async (e) => {
       if (e.affectsConfiguration("yo.binPath") || e.affectsConfiguration("yo.lsp.enabled")) {
-        await stopClient();
-        const cfg = vscode.workspace.getConfiguration("yo");
-        if (cfg.get("lsp.enabled") !== false) {
-          await startClient(context);
-        }
+        await restartClient();
       }
     })
   );

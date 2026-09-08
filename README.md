@@ -238,16 +238,14 @@ and how to run the test suites — LLM-assisted contributions included.
 
 ## Editor Support
 
-- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang), providing syntax highlighting for `.yo` files.
+- A VS Code extension is available [here](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang), providing syntax highlighting and a language client for `.yo` files.
 
-  **The bundled Language Server Protocol (LSP) support is currently gone.**
-  Hover, auto-completion, go-to-definition, find references, rename, document
-  symbols, signature help, diagnostics and folding were served by a TypeScript
-  LSP server that called the TypeScript evaluator directly, and it was deleted
-  along with the rest of the TypeScript compiler when Yo became self-hosted.
-  Nothing replaces it yet; a Yo-native server is planned.
-  See [docs/en-US/LSP.md](./docs/en-US/LSP.md) for the behaviour it is expected
-  to restore.
+  The language server is the `yo` binary itself (`yo lsp`, stdio): diagnostics,
+  hover, completion, go-to-definition, document symbols, find references,
+  rename, signature help, folding and formatting, all served by the Yo
+  evaluator. The extension starts it when a `yo` binary is on `PATH` (or at
+  `yo.binPath`); any other LSP-capable editor can spawn `yo lsp` directly.
+  See [docs/en-US/LSP.md](./docs/en-US/LSP.md) for setup and the feature list.
 
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.

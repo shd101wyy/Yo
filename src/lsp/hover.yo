@@ -1,4 +1,5 @@
-//! lsp/hover — textDocument/hover (plans/archive/P4_LSP.md slice 3).
+//! lsp/hover — textDocument/hover (plans/archive/P4_LSP.md slice 3), plus the
+//! position/match helpers every other feature module shares.
 //!
 //! Port of the retired TypeScript `src/lsp/hover.ts` + the position/match
 //! helpers from `src/lsp/utils.ts` (src-attic-final). The algorithm:
@@ -15,8 +16,18 @@
 //!   ```
 //!   ---
 //!   doc comment
+//!
+//! **Atom roles.** Not every identifier atom is a variable reference: the
+//! name after a `.` (`p.x`, `String.from`, `.Some`) is a MEMBER, and the name
+//! before a `:` in a call that introduces no binding (`Point(x : 1)`,
+//! `impl(T, m : …)`, `struct(x : i32)`) is a LABEL. `classify_atom_roles`
+//! walks the program once and marks both; hover reads a member's type
+//! WITHOUT the env refinement (which resolved `p.x` to a same-named local),
+//! definition answers nothing for them, and references/rename skip them
+//! (issues/fixed/lsp-member-and-label-atoms-resolve-to-same-named-locals.md).
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 open(import("std/error"));
 { Token, TokenKind, is_reserved_operator_name } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
@@ -26,7 +37,7 @@ open(import("std/error"));
 { type_to_string } :: import("../types/string.yo");
 { EvalValue, value_to_string } :: import("../value.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, j_range } :: import("./protocol.yo");
+{ jb, jstr, j_range_in } :: import("./protocol.yo");
 
 /// Find the token at (line, character), skipping whitespace and comments.
 _find_token_at :: (
@@ -157,12 +168,213 @@ _select_best_variable :: (
   )
 });
 
+// ---------------------------------------------------------------------------
+// Atom roles
+/// Expression ids of the atoms that are member names or labels (see the
+/// module header).
+AtomRoles :: ref(
+  struct(
+    members : HashSet(usize),
+    labels : HashSet(usize)
+  )
+);
+/// Callees whose `name : T` arguments INTRODUCE `name` as a binding —
+/// parameters and typed declarations. Every other call's colon pairs are
+/// labels (struct literals, labelled arguments, `impl` methods, `struct` /
+/// `enum` field declarations).
+_is_declaring_callee :: (fn(callee : String) -> bool)(
+  (callee == "fn") || ((callee == "unsafe_fn") || (callee == "ctl")) ||
+    (
+      (callee == "Fn") || ((callee == "generic") || (callee == "given")) ||
+        ((callee == "=") || ((callee == ":=") || (callee == "?=")))
+    )
+);
+/// Mark the member position `a` of a `.` call: a bare atom (`p.x`, `.Red`)
+/// or a call whose callee is the member (`p.dist()`, `.Some(v)`) — the
+/// call's ARGUMENTS are ordinary expressions and are classified normally.
+_mark_member :: (fn(a : AstExpr, roles : AtomRoles) -> unit)({
+  match(
+    a,
+    .Atom(id, _) => {
+      roles.members.insert(id);
+    },
+    .FnCall(_, func_box, cargs, _, _) => {
+      match(
+        func_box,
+        .Atom(fid, _) => {
+          roles.members.insert(fid);
+        },
+        .FnCall(_, _, _, _, _) => _classify_roles(func_box, roles)
+      );
+      (i : usize) = usize(0);
+      while(i < cargs.len(), {
+        match(
+          cargs.get(i),
+          .Some(ca) => _classify_roles(ca, roles),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+_classify_roles :: (fn(e : AstExpr, roles : AtomRoles) -> unit)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, is_infix, _) => {
+      callee := match(
+        func_box,
+        .Atom(_, t) => t.value,
+        .FnCall(_, _, _, _, _) => String.new()
+      );
+      cond(
+        (callee == ".") => {
+          // infix `a.b`: args[0] is the receiver, the rest are members;
+          // prefix `.Variant`: every arg is a member.
+          (start : usize) = usize(0);
+          if(is_infix, {
+            match(
+              args.get(usize(0)),
+              .Some(receiver) => recur(receiver, roles),
+              .None => ()
+            );
+            start = usize(1);
+          });
+          (i : usize) = start;
+          while(i < args.len(), {
+            match(
+              args.get(i),
+              .Some(a) => _mark_member(a, roles),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+        },
+        true => {
+          declaring := _is_declaring_callee(callee);
+          recur(func_box, roles);
+          (j : usize) = usize(0);
+          while(j < args.len(), {
+            match(
+              args.get(j),
+              .Some(a) => {
+                (handled : bool) = false;
+                if(!declaring, {
+                  match(
+                    a,
+                    .FnCall(_, pair_fn, pair_args, pair_infix, _) => {
+                      is_pair := (pair_infix && match(pair_fn, .Atom(_, pt) => (pt.value == ":"), .FnCall(_, _, _, _, _) => false));
+                      if(is_pair && (pair_args.len() == usize(2)), {
+                        handled = true;
+                        match(
+                          pair_args.get(usize(0)),
+                          .Some(lhs) => match(
+                            lhs,
+                            .Atom(lid, _) => {
+                              roles.labels.insert(lid);
+                            },
+                            .FnCall(_, _, _, _, _) => recur(lhs, roles)
+                          ),
+                          .None => ()
+                        );
+                        match(
+                          pair_args.get(usize(1)),
+                          .Some(rhs) => recur(rhs, roles),
+                          .None => ()
+                        );
+                      });
+                    },
+                    .Atom(_, _) => ()
+                  );
+                });
+                if(!handled, {
+                  recur(a, roles);
+                });
+              },
+              .None => ()
+            );
+            j = (j + usize(1));
+          });
+        }
+      );
+    }
+  );
+});
+/// Classify every atom of the program (see the module header).
+classify_atom_roles :: (fn(exprs : ArrayList(AstExpr)) -> AtomRoles)({
+  roles := AtomRoles(members : HashSet(usize).new(), labels : HashSet(usize).new());
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => _classify_roles(e, roles),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  roles
+});
+/// True iff atom `id` is a member name or a label — not a variable
+/// reference.
+atom_is_member_or_label :: (fn(roles : AtomRoles, id : usize) -> bool)(
+  roles.members.contains(id) || roles.labels.contains(id)
+);
+
+/// The innermost `.` call whose member position holds an atom at `target`
+/// — the type of THAT call is the accessed member's type (`p.x` → the field
+/// type), which is what hover shows for a member.
+_find_member_access :: (
+  fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -> unit
+)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, is_infix, _) => {
+      is_dot := match(func_box, .Atom(_, t) => (t.value == "."), .FnCall(_, _, _, _, _) => false);
+      if(is_dot, {
+        (i : usize) = cond(is_infix => usize(1), true => usize(0));
+        while(i < args.len(), {
+          match(
+            args.get(i),
+            .Some(a) => {
+              mt := match(
+                a,
+                .Atom(_, at) => at,
+                .FnCall(_, mf, _, _, ct) => match(mf, .Atom(_, ft) => ft, .FnCall(_, _, _, _, _) => ct)
+              );
+              if((mt.row == target.row) && ((mt.column == target.column) && (mt.value == target.value)), {
+                out.push(e);
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      });
+      recur(func_box, target, out);
+      (j : usize) = usize(0);
+      while(j < args.len(), {
+        match(
+          args.get(j),
+          .Some(a2) => recur(a2, target, out),
+          .None => ()
+        );
+        j = (j + usize(1));
+      });
+    }
+  );
+});
+
 /// Build the hover response value for (line, character), or `.None` when
-/// nothing meaningful is under the cursor.
+/// nothing meaningful is under the cursor. `line`/`character` are RUNE
+/// positions; the emitted range is converted to the wire encoding against
+/// `lines`.
 handle_hover :: (
   fn(
     text : String,
     doc_abs : String,
+    lines : ArrayList(String),
     exprs : ArrayList(AstExpr),
     info_table : ExprInfoTable,
     line : usize,
@@ -199,7 +411,43 @@ handle_hover :: (
       return(Option(JsonValue).None);
     }
   );
-  info_opt := expr_info_table_get(info_table, ast_expr_id(expr));
+  roles := classify_atom_roles(exprs);
+  is_member := roles.members.contains(ast_expr_id(expr));
+  if(roles.labels.contains(ast_expr_id(expr)), {
+    // A label names a field or a method slot, not a value — nothing to show
+    // that would not be a guess.
+    return(Option(JsonValue).None);
+  });
+  (info_opt : Option(ExprInfo)) = expr_info_table_get(info_table, ast_expr_id(expr));
+  if(is_member, {
+    // A member's type is the type of the ACCESS, recorded on the enclosing
+    // `.` call — the atom itself may carry nothing, or a stale reading.
+    accesses := ArrayList(AstExpr).new();
+    (ai : usize) = usize(0);
+    while(ai < exprs.len(), {
+      match(
+        exprs.get(ai),
+        .Some(e) => _find_member_access(e, target, accesses),
+        .None => ()
+      );
+      ai = (ai + usize(1));
+    });
+    (mi : usize) = usize(0);
+    while(mi < accesses.len(), {
+      match(
+        accesses.get(mi),
+        .Some(acc) => match(
+          expr_info_table_get(info_table, ast_expr_id(acc)),
+          .Some(acc_info) => {
+            info_opt = Option(ExprInfo).Some(acc_info);
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      mi = (mi + usize(1));
+    });
+  });
   (name : String) = target.value.clone();
   if(is_reserved_operator_name(name.clone()) || (target.kind == TokenKind.Operator), {
     name = `(${name})`;
@@ -224,34 +472,37 @@ handle_hover :: (
       );
       doc_opt = info.doc_comment;
       // Env refinement: several bindings can share the name; pick the one
-      // declared at/nearest the cursor (mirrors TS's env pass).
-      vars := get_variables_from_env(info.env, target.value.clone());
-      if(vars.len() > usize(0), {
-        match(
-          _select_best_variable(vars, target),
-          .Some(sv) => {
-            ty_opt = Option(String).Some(type_to_string(sv.ty));
-            is_comptime = sv.is_compile_time_only;
-            match(
-              sv.value.get(usize(0)),
-              .Some(vv) => {
-                vs2 := value_to_string(vv);
-                if(vs2 != "<runtime value>", {
-                  val_opt = Option(String).Some(vs2);
-                });
-              },
-              .None => ()
-            );
-            match(
-              variable_doc_comment(sv),
-              .Some(dc) => {
-                doc_opt = Option(String).Some(dc);
-              },
-              .None => ()
-            );
-          },
-          .None => ()
-        );
+      // declared at/nearest the cursor (mirrors TS's env pass). NOT for a
+      // member — `p.x` is the field, never the local `x` in scope.
+      if(!is_member, {
+        vars := get_variables_from_env(info.env, target.value.clone());
+        if(vars.len() > usize(0), {
+          match(
+            _select_best_variable(vars, target),
+            .Some(sv) => {
+              ty_opt = Option(String).Some(type_to_string(sv.ty));
+              is_comptime = sv.is_compile_time_only;
+              match(
+                sv.value.get(usize(0)),
+                .Some(vv) => {
+                  vs2 := value_to_string(vv);
+                  if(vs2 != "<runtime value>", {
+                    val_opt = Option(String).Some(vs2);
+                  });
+                },
+                .None => ()
+              );
+              match(
+                variable_doc_comment(sv),
+                .Some(dc) => {
+                  doc_opt = Option(String).Some(dc);
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        });
       });
     },
     .None => {
@@ -291,8 +542,17 @@ handle_hover :: (
       jb().put("kind", jstr(String.from("markdown"))).put("value", jstr(content)).obj()
     ).put(
       "range",
-      j_range(target.row, target.column, target.row, target.column + target.value.chars().count())
+      j_range_in(lines, target.row, target.column, target.row, target.column + target.value.chars().count())
     ).obj()
   )
 });
-export(handle_hover, _find_token_at, _collect_candidates, _best_candidate, _select_best_variable);
+export(
+  handle_hover,
+  AtomRoles,
+  classify_atom_roles,
+  atom_is_member_or_label,
+  _find_token_at,
+  _collect_candidates,
+  _best_candidate,
+  _select_best_variable
+);

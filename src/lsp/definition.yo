@@ -5,7 +5,9 @@
 //! `initialized_at_token` → an LSP Location. The TS file's further channels
 //! (struct-field definitions, enum-variant constructors, import-path
 //! strings) are recorded follow-ups — the variable channel already covers
-//! locals, functions, types, and imported names bound with `::`.
+//! locals, functions, types, and imported names bound with `::`. A MEMBER or
+//! LABEL atom (`p.x`, `Point(x : 1)`) answers nothing: the variable channel
+//! would otherwise jump to a same-named local (hover.yo "Atom roles").
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 open(import("std/error"));
@@ -14,29 +16,44 @@ open(import("std/error"));
 { AstExpr, ast_expr_id } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { get_variables_from_env } :: import("../env.yo");
+{ mm_module_source } :: import("../module_manager.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, j_range } :: import("./protocol.yo");
+{ jb, jstr, j_range, j_range_in, module_path_to_uri, uri_to_fs_path } :: import("./protocol.yo");
 {
+  classify_atom_roles,
+  atom_is_member_or_label,
   _find_token_at,
   _collect_candidates,
   _best_candidate,
   _select_best_variable
 } :: import("./hover.yo");
 
-/// A token's module_path as an LSP file:// uri. Module paths arrive either
-/// as `file:///abs` (import-resolved) or plain `/abs`.
-_module_path_to_uri :: (fn(mp : String) -> String)(
-  cond(
-    mp.starts_with(String.from("file://")) => mp,
-    true => `file://${mp}`
+/// The lines of the file a definition token points into: the open document's
+/// own lines when it is this document, else the target module's current
+/// source (open-buffer overlay or disk). `.None` when the file cannot be
+/// read — the caller then emits the rune columns unconverted (exact for
+/// every BMP-only line, the only thing knowable without the text).
+_target_lines :: (
+  fn(def_tok : Token, doc_abs : String, doc_lines : ArrayList(String)) -> Option(ArrayList(String))
+)({
+  target_fs := uri_to_fs_path(def_tok.module_path.clone());
+  if(target_fs == uri_to_fs_path(doc_abs.clone()), {
+    return(Option(ArrayList(String)).Some(doc_lines));
+  });
+  match(
+    mm_module_source(target_fs),
+    .Some(src) => Option(ArrayList(String)).Some(src.split(String.from("\n"))),
+    .None => Option(ArrayList(String)).None
   )
-);
+});
 
 /// Resolve the definition Location for (line, character), or `.None`.
+/// `line`/`character` are RUNE positions.
 handle_definition :: (
   fn(
     text : String,
     doc_abs : String,
+    lines : ArrayList(String),
     exprs : ArrayList(AstExpr),
     info_table : ExprInfoTable,
     line : usize,
@@ -73,6 +90,10 @@ handle_definition :: (
       return(Option(JsonValue).None);
     }
   );
+  roles := classify_atom_roles(exprs);
+  if(atom_is_member_or_label(roles, ast_expr_id(expr)), {
+    return(Option(JsonValue).None);
+  });
   info := match(
     expr_info_table_get(info_table, ast_expr_id(expr)),
     .Some(i) => i,
@@ -98,12 +119,16 @@ handle_definition :: (
       return(Option(JsonValue).None);
     }
   );
+  // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
+  // converted to the wire encoding against the TARGET file's lines.
+  end_col := (def_tok.column + def_tok.value.chars().count());
+  range := match(
+    _target_lines(def_tok, doc_abs.clone(), lines),
+    .Some(target_lines) => j_range_in(target_lines, def_tok.row, def_tok.column, def_tok.row, end_col),
+    .None => j_range(def_tok.row, def_tok.column, def_tok.row, end_col)
+  );
   Option(JsonValue).Some(
-    jb().put("uri", jstr(_module_path_to_uri(def_tok.module_path.clone()))).put(
-      "range",
-      // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11).
-      j_range(def_tok.row, def_tok.column, def_tok.row, def_tok.column + def_tok.value.chars().count())
-    ).obj()
+    jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", range).obj()
   )
 });
 export(handle_definition);

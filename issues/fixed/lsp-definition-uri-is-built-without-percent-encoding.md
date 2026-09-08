@@ -1,5 +1,17 @@
 # `textDocument/definition` builds its `file://` URI by concatenation, so a `#`, space or `%` in the path yields a URI that resolves elsewhere
 
+**FIXED 2026-09-08** — `fs_path_to_uri` / `module_path_to_uri` in
+`src/lsp/protocol.yo` percent-encode every path segment through
+`std/encoding/percent`'s `percent_encode` (a Windows drive path becomes
+`file:///C%3A/…`, the spelling VS Code emits), and `textDocument/definition`
+emits its Location through them. `uri_to_fs_path` moved to the same module so
+the decode and encode halves live together. Regression tests:
+`tests/internal/lsp_protocol.test.yo` ("fs_path_to_uri percent-encodes segments
+and round-trips" — space, `#`, `%`, non-ASCII, drive letter, backslashes,
+round trip). The shared-converter end state below (one `std` helper for all
+four private copies) is still open; this fix makes the LSP pair correct and
+symmetric.
+
 ## Status
 
 **OPEN** — found 2026-09-04 during the std-API audit re-measurement of the
