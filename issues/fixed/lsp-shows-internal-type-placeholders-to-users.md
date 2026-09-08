@@ -1,5 +1,21 @@
 # LSP completion/hover shows `<struct:struct_yo_id_4057>` instead of a type name
 
+**FIXED 2026-09-08** — not by naming instantiations (the compatibility layer
+treats a struct/enum NAME as nominal identity, so stamping every instantiation
+broke unification — see the Box note in `src/evaluator/calls/comptime_fn.yo`)
+but by a RENDER-ONLY side table: `src/types/string.yo` keeps
+`type_id → "Ctor(args)"`, filled by the comptime constructor call that mints
+the instantiation (`register_type_display_name` in comptime_fn.yo — the callee
+spelling, identifier or operator such as the `?` Option shorthand, plus the
+rendered arguments), and `type_to_string` consults it whenever a struct/enum
+has no written name. Nothing else reads the table, so identity is untouched.
+`mm_reset` clears it. Result: hover reads `list : ArrayList(i32)`,
+`opt : Option(i32)`; completion details read `fn(self : ArrayList(T)) -> …`
+(`tests/cli-cases/lsp-member-definition`, and the re-recorded
+`lsp-completion` golden — which also stops churning on prelude id renumbering).
+Enum instantiations needed no new type field after all: the id is enough as
+the key.
+
 **Status:** OPEN
 **Found:** 2026-08-25, reading the `lsp-completion` CLI golden while landing
 `derive(Default)`.

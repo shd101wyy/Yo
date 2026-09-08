@@ -84,11 +84,16 @@ add_one
 ```
 
 On a member access (`p.x`, `list.len`) the hover shows the member's type.
+Instantiated generics render as written — `ArrayList(i32)`, `Option(String)`,
+`?(*(T))` — never as an internal id.
 
 ### 3. Completion
 
 - **Import paths**: inside `import("std/…` or `import("./…` the directory's
   modules and subdirectories are listed.
+- **Import lists**: with the cursor inside the braces of
+  `{ … } :: import("mod")`, the module's exports are offered (minus the names
+  already listed), whether or not the document parses at that moment.
 - **Dot completion** (`expr.`): struct fields, enum variants, union fields,
   module members, trait methods, inherent and generic-impl methods, with
   parameter snippets. Type-valued receivers work too (`Point.`, `Option(i32).`);
@@ -103,8 +108,13 @@ On a member access (`p.x`, `list.len`) the hover shows the member's type.
 ### 4. Go to Definition
 
 Jumps to the declaration of a variable, function, type or imported name —
-across files when the name was imported. Member names and labels (`p.x`,
-`Point(x : 1)`) have no definition target yet.
+across files when the name was imported — and of members: a field access or
+struct-literal label (`p.x`, `Point(x : …)`) lands on the field inside
+`struct(...)`, a variant (`Color.Red`, a `.Red` pattern) on the variant inside
+`enum(...)`, a method (`p.dist()`, `list.push`) on its `label : value` pair in
+the declaring `impl(...)` block (inherent, trait or generic, in this file or in
+the standard library), and `mod.f` on the `f ::` binding of the imported
+module.
 
 ### 5. Document Symbols
 

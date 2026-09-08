@@ -2068,6 +2068,74 @@ _format_generic_impl_signature :: (fn(entry : GenericImplEntry) -> String)({
 /// trait_type as Unit with the fields on the entry itself, so the non-TraitT
 /// arm reads `entry.field_names` / `field_types` — the same members TS finds
 /// on its synthesized anonymous TraitType.
+/// The VALUE (normally a `FuncVal`) an impl block provides for method `name`
+/// on `concrete_type`, searching the generic-impl registry with the same
+/// match rule `get_generic_impl_doc_entries` uses (unification first, then
+/// constructor-id and name fallbacks). The LSP's go-to-definition reads the
+/// method body's token off the value to locate the declaring `impl`
+/// (issues/fixed/lsp-member-definition-targets.md). `.None` when no matching
+/// impl declares `name`.
+find_generic_impl_method_value :: (
+  fn(concrete_type : TypeValue, env : Environment, name : String) -> Option(EvalValue)
+)({
+  (resolved : TypeValue) = concrete_type;
+  if(is_some_type(concrete_type), {
+    r := get_value_of_some_type_from_env(env, concrete_type);
+    if(!is_some_type(r), {
+      resolved = r;
+    });
+  });
+  concrete_base_id := _receiver_base_type_id_for_doc(resolved);
+  concrete_name := _type_name_for_doc(resolved);
+  n_keys := g_impl_registry_keys.len();
+  (ki : usize) = usize(0);
+  while(ki < n_keys, {
+    entry_list := match(
+      g_impl_registry_entry_lists.get(ki),
+      .Some(l) => l,
+      .None => ArrayList(GenericImplEntry).new()
+    );
+    n_entries := entry_list.len();
+    (ei : usize) = usize(0);
+    while(ei < n_entries, {
+      match(
+        entry_list.get(ei),
+        .Some(entry) => {
+          (fi : usize) = usize(0);
+          (has_name : bool) = false;
+          (found_idx : usize) = usize(0);
+          while(fi < entry.field_names.len(), {
+            if(match(entry.field_names.get(fi), .Some(l) => (l == name), .None => false), {
+              has_name = true;
+              found_idx = fi;
+            });
+            fi = (fi + usize(1));
+          });
+          if(has_name, {
+            (matched : bool) = try_match_generic_impl(resolved, entry, env, false).is_some();
+            if(!matched && (concrete_base_id.len() > usize(0)), {
+              if(_receiver_base_type_id_for_doc(entry.receiver_type_pattern) == concrete_base_id, {
+                matched = true;
+              });
+            });
+            if(!matched && (concrete_name.len() > usize(0)), {
+              if(_type_name_for_doc(entry.receiver_type_pattern) == concrete_name, {
+                matched = true;
+              });
+            });
+            if(matched, {
+              return(entry.field_values.get(found_idx));
+            });
+          });
+        },
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
+    ki = (ki + usize(1));
+  });
+  Option(EvalValue).None
+});
 get_generic_impl_doc_entries :: (
   fn(
     concrete_type : TypeValue,
@@ -4563,5 +4631,5 @@ export(is_concrete_impl_being_registered);
 export(mark_concrete_impl_being_registered);
 export(unmark_concrete_impl_being_registered);
 export(has_negative_impl);
-export(GenericImplDocEntry, get_generic_impl_doc_entries);
+export(GenericImplDocEntry, get_generic_impl_doc_entries, find_generic_impl_method_value);
 export(purge_generic_impls_owned_by, generic_impl_entry_count);
