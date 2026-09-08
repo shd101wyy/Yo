@@ -1,0 +1,139 @@
+//! `DoubleEndedIterator` on the four `String` iterators, and `lines()`'s
+//! `\r\n` handling.
+//!
+//! D4 promised `chars().rev()`; that works through the prelude's blanket `rev`
+//! over `DoubleEndedIterator`, so these tests exercise `next_back` both
+//! directly and through `rev`.
+{ assert } :: import("std/assert");
+open(import("std/string"));
+open(import("std/collections/array_list"));
+_runes :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := rune))) -> ArrayList(rune))({
+  out := ArrayList(rune).new();
+  iter := it;
+  while(runtime(true), {
+    match(
+      iter.next(),
+      .None => {
+        break;
+      },
+      .Some(r) => {
+        out.push(r);
+      }
+    );
+  });
+  out
+});
+_lines :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := String))) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  iter := it;
+  while(runtime(true), {
+    match(
+      iter.next(),
+      .None => {
+        break;
+      },
+      .Some(s) => {
+        out.push(s);
+      }
+    );
+  });
+  out
+});
+test("chars().rev() yields the runes backwards", {
+  got := _runes(`abc`.chars().rev());
+  assert(got.len() == usize(3), "three runes");
+  assert(got(usize(0)) == rune(99), "the last rune comes first");
+  assert(got(usize(1)) == rune(98), "then the middle");
+  assert(got(usize(2)) == rune(97), "then the first");
+});
+test("chars().rev() over multi-byte runes", {
+  got := _runes(`aéb`.chars().rev());
+  assert(got.len() == usize(3), "three runes from four bytes");
+  assert(got(usize(0)) == rune(98), "b");
+  assert(got(usize(1)) == rune(0x00E9), "é — walked back over its continuation byte");
+  assert(got(usize(2)) == rune(97), "a");
+});
+test("chars next and next_back meet in the middle", {
+  it := `abcd`.chars();
+  assert(match(it.next(), .Some(r) => (r == rune(97)), .None => false), "front: a");
+  assert(match(it.next_back(), .Some(r) => (r == rune(100)), .None => false), "back: d");
+  assert(match(it.next(), .Some(r) => (r == rune(98)), .None => false), "front: b");
+  assert(match(it.next_back(), .Some(r) => (r == rune(99)), .None => false), "back: c");
+  assert(match(it.next(), .Some(_) => false, .None => true), "the ends have met, so next is None");
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "and so is next_back");
+});
+test("chars next_back on an empty string", {
+  it := ``.chars();
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "nothing to take");
+});
+test("bytes next_back walks raw bytes", {
+  it := `aé`.bytes();
+  assert(it.next_back().is_some(), "the last continuation byte");
+  assert(match(it.next(), .Some(b) => (b == u8(97)), .None => false), "front is still 'a'");
+  assert(it.next_back().is_some(), "the lead byte of é");
+  assert(match(it.next(), .Some(_) => false, .None => true), "then the ends meet");
+});
+test("char_indices next_back reports the rune's OWN start offset", {
+  it := `aéb`.char_indices();
+  match(
+    it.next_back(),
+    .Some(p) => {
+      assert(p._0 == usize(3), "b starts at byte 3");
+      assert(p._1 == rune(98), "and is 'b'");
+    },
+    .None => assert(false, "expected a pair")
+  );
+  match(
+    it.next_back(),
+    .Some(p) => {
+      assert(p._0 == usize(1), "é starts at byte 1, not 2");
+      assert(p._1 == rune(0x00E9), "and is 'é'");
+    },
+    .None => assert(false, "expected a pair")
+  );
+});
+test("lines strips the carriage return of a CRLF", {
+  got := _lines(`a\r\nb\r\n`.lines());
+  assert(got.len() == usize(2), "two lines, no trailing empty one");
+  assert(got(usize(0)) == `a`, "the CR is gone from the first line");
+  assert(got(usize(1)) == `b`, "and from the second");
+});
+test("lines keeps a LONE carriage return that is not part of a CRLF", {
+  got := _lines(`a\r\r\n`.lines());
+  assert(got.len() == usize(1), "one line");
+  assert(got(usize(0)) == `a\r`, "only ONE trailing CR is stripped");
+});
+test("lines over LF-only input is unchanged", {
+  got := _lines(`a\nb`.lines());
+  assert(got.len() == usize(2), "two lines");
+  assert(got(usize(0)) == `a`, "first");
+  assert(got(usize(1)) == `b`, "second, unterminated");
+  trailing := _lines(`a\n`.lines());
+  assert(trailing.len() == usize(1), "a trailing newline TERMINATES rather than adding an empty line");
+});
+test("lines().rev() yields the lines backwards", {
+  got := _lines(`a\nb\nc`.lines().rev());
+  assert(got.len() == usize(3), "three lines");
+  assert(got(usize(0)) == `c`, "the last line first");
+  assert(got(usize(1)) == `b`, "then the middle");
+  assert(got(usize(2)) == `a`, "then the first");
+});
+test("lines().rev() with a trailing newline and CRLF", {
+  got := _lines(`a\r\nb\r\n`.lines().rev());
+  assert(got.len() == usize(2), "the trailing newline adds no empty line from the back either");
+  assert(got(usize(0)) == `b`, "b first, CR stripped");
+  assert(got(usize(1)) == `a`, "then a");
+});
+test("lines next and next_back meet in the middle", {
+  it := `a\nb\nc\nd`.lines();
+  assert(match(it.next(), .Some(s) => (s == `a`), .None => false), "front: a");
+  assert(match(it.next_back(), .Some(s) => (s == `d`), .None => false), "back: d");
+  assert(match(it.next(), .Some(s) => (s == `b`), .None => false), "front: b");
+  assert(match(it.next_back(), .Some(s) => (s == `c`), .None => false), "back: c");
+  assert(match(it.next(), .Some(_) => false, .None => true), "the ends have met");
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "from both directions");
+});
+test("lines next_back on an empty string", {
+  it := ``.lines();
+  assert(match(it.next_back(), .Some(_) => false, .None => true), "nothing to take");
+});
