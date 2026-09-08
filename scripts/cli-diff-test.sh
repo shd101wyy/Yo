@@ -195,7 +195,9 @@ normalize_stream() {
 # reply with the exact byte count of what it sent. Streams without frames
 # pass through untouched.
 refit_lsp_frames() {
-  perl -0777 -Mbytes -pe 's/Content-Length: \d+(\r?\n\r?\n)(.*?)(?=Content-Length: |\z)/"Content-Length: " . length($2) . $1 . $2/gse'
+  # A body ends at the next header, at the harness's own `rc=N` trailer, or
+  # at the end of the stream.
+  perl -0777 -Mbytes -pe 's/Content-Length: \d+(\r?\n\r?\n)(.*?)(?=Content-Length: |rc=\d+\n\z|\z)/"Content-Length: " . length($2) . $1 . $2/gse'
 }
 
 # Emit "<relpath>\t<sha>" for every regular file under $1, skipping ignored
