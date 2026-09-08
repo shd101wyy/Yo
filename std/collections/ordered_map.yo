@@ -345,6 +345,17 @@ impl(
     OrderedMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
 );
+/// `Default` — the empty map.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  OrderedMap(K, V),
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
+  )
+);
 export(
   OrderedMap,
   MapEntry,

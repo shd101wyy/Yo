@@ -177,3 +177,8 @@ test("Writer.to_string detaches the buffer: later writes never mutate a returned
   empty := Writer.new().to_string();
   assert(empty.len() == usize(0), "an empty writer yields an empty String");
 });
+test("Writer Default is an empty writer", {
+  w := Writer.default();
+  assert(w.to_string() == ``, "default writer renders empty");
+  assert(w.write_str("hi").to_string() == `hi`, "the default writer is a usable writer");
+});
