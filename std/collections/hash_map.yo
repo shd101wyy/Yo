@@ -1235,6 +1235,18 @@ impl(
     })
   )
 );
+/// `Default` — the empty map, so `HashMap(K, V)` works as a struct field
+/// default and behind `Option.unwrap_or_default`.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
+  )
+);
 export(
   HashMap,
   HashMapEntry,

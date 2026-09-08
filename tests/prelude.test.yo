@@ -401,3 +401,9 @@ test("Option and Result to_string render variant and payload", {
   assert(err.to_string() == `Err(2)`, "Err renders payload");
   println(some);
 });
+test("Box Default holds the payload type's default", {
+  b := Box(i32).default();
+  assert(unsafe(b.*) == i32(0), "Box(i32).default() wraps i32's default");
+  s := Box(bool).default();
+  assert(!unsafe(s.*), "Box(bool).default() wraps false");
+});

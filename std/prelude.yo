@@ -898,6 +898,7 @@ impl(
   )
 );
 impl(unit, Clone(clone : (fn(self : Self) -> Self)(())));
+impl(unit, Default(default : (fn() -> Self)(())));
 /// void
 impl(void, Acyclic());
 impl(void, Runtime());
@@ -8333,6 +8334,18 @@ impl(
   Box(T),
   Clone(
     clone : ((self) -> box(self.*.clone()))
+  )
+);
+/// `Default` — a box holding `T`'s default, matching Rust's
+/// `impl<T: Default> Default for Box<T>`.
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  Box(T),
+  Default(
+    default : (fn() -> Self)(
+      box((T <: Default).default())
+    )
   )
 );
 export(

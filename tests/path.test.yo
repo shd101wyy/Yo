@@ -808,3 +808,8 @@ test("Path.relative_to is node's relative: it walks up with .. (what strip_prefi
   assert(Path.new(`/usr/share/doc`).relative_to(Path.new(`/usr/local/lib`)).to_string() == `../../share/doc`, "up two, down two");
   assert(Path.new(`/usr/local/lib/yo`).relative_to(Path.new(`/usr/local`)).to_string() == `lib/yo`, "a plain descendant needs no ..");
 });
+test("Path Default is the empty relative path", {
+  p := Path.default();
+  assert(p.to_string() == ``, "default path renders empty");
+  assert(!p.is_absolute(), "default path is relative");
+});

@@ -265,3 +265,11 @@ test("hash_one_with_keys matches a map's bucket hash inputs", {
   assert(hash_one_with_keys(s, K0, K1) == h.finish(), "same bytes, same keys");
   assert(hash_one_with_keys(s, K0, K1) != hash_one(s), "keys change the hash");
 });
+test("Default on both hashers matches new()", {
+  h := SipHasher13.default();
+  hn := SipHasher13.new();
+  assert(h.finish() == hn.finish(), "SipHasher13.default() == new()");
+  f := Fnv1aHasher.default();
+  fnw := Fnv1aHasher.new();
+  assert(f.finish() == fnw.finish(), "Fnv1aHasher.default() == new()");
+});

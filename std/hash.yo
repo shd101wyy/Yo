@@ -217,4 +217,23 @@ hash_one_with_keys :: (fn(generic(T : Type), inout(value) : T, k0 : u64, k1 : u6
   value.hash(h);
   h.finish()
 });
+/// `Default` — a hasher with the default keys, so `DefaultHasher.default()`
+/// is spellable in generic code bounded by `Default`.
+impl(
+  SipHasher13,
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
+  )
+);
+/// `Default` — a hasher at the FNV-1a offset basis.
+impl(
+  Fnv1aHasher,
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
+  )
+);
 export(DEFAULT_KEY_0, DEFAULT_KEY_1, SipHasher13, Fnv1aHasher, DefaultHasher, hash_one, hash_one_with_keys);

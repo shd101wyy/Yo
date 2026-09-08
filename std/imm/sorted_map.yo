@@ -695,6 +695,17 @@ impl(
     )
   )
 );
+/// `Default` — the empty sorted map.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic)),
+  SortedMap(K, V),
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
+  )
+);
 export(SortedMap);
 export(RBNode);
 export(Color);

@@ -364,3 +364,9 @@ test("collect builds a BTreeMap through FromIterator", {
   assert(out.get(i32(3)).unwrap() == i32(30), "last entry");
   assert(match(out.pop_first(), .Some(e) => (e.key == i32(1)), .None => false), "and the collection is SORTED");
 });
+test("BTreeMap Default is the empty map", {
+  m := BTreeMap(i32, i32).default();
+  assert(m.len() == usize(0), "default map is empty");
+  m.insert(i32(1), i32(10));
+  assert(m.get(i32(1)).unwrap() == i32(10), "the default map is a usable map");
+});
