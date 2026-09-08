@@ -1,166 +1,185 @@
 # Language Server Protocol (LSP) Support
 
-> **Not currently shipping.** The server described here was a TypeScript
-> program that called the TypeScript evaluator directly, and it was deleted
-> together with the rest of the TypeScript compiler when Yo became
-> self-hosted. The VS Code extension is syntax highlighting only today, and
-> there is no `yo lsp` subcommand. A Yo-native replacement built on the
-> self-hosted evaluator is planned; this document is kept as the specification
-> of the behaviour it has to restore.
-
-Yo's LSP server gives `.yo` files rich editor support. It reuses the Yo evaluator rather than a separate parser, so the types and values it reports are exactly the compiler's.
+`yo lsp` is a language server built into the `yo` binary. It speaks LSP over
+stdio and reuses the Yo evaluator rather than a separate parser, so the types
+and values it reports are exactly the compiler's. The VS Code extension bundles
+a client for it; any other LSP-capable editor can spawn `yo lsp` directly.
 
 ## Architecture
 
 ```
-VS Code Extension (thin client)
+Editor (VS Code extension, or any LSP client)
   ↕ stdio JSON-RPC
-LSP Server
+yo lsp  (src/lsp/, one module per feature)
   ↕ direct function calls
-Yo Evaluator
+Yo evaluator (module_manager: cached prelude, demand-loaded imports)
 ```
 
-The VS Code extension is a thin `LanguageClient` wrapper (~80 lines). All intelligence lives in the LSP server, which calls the evaluator directly for type resolution, completion, and diagnostics.
-
-## Features
-
-### 1. Hover Information
-
-Hover over any identifier to see its type, value (if compile-time known), and doc comment.
-
-- **Variables**: Shows type and value
-- **Functions**: Shows full signature with parameter names and types
-- **Struct fields**: Shows field type and doc comment
-- **Impl method labels**: Shows method signature and doc comment
-- **Type-level access**: `Point.origin` shows the method's type
-
-### 2. Auto-Completion
-
-#### Dot-completion (`expr.`)
-
-Type a `.` after an expression to see available members:
-
-- **Struct fields**: All fields with types and doc comments
-- **Enum variants**: Variant names with field types (e.g., `Some(T)`, `None`), auto-inserted as snippets with parameter placeholders
-- **Module members**: Exported functions and types with doc comments
-- **Impl methods**: Methods from `impl` blocks with parameter snippet placeholders (e.g., `add(${1:other})`)
-- **Array/str**: `.len` property
-- **Type-level**: `Point.` shows static methods and constructors
-- **Pointer auto-deref**: `ptr.field` automatically dereferences
-- **Nested structs**: `outer.inner.` shows fields of the inner struct
-
-#### Enum variant dot-prefix (`.Variant`)
-
-In typed contexts, type `.` to see enum variants:
-
-```rust
-(x : Option(i32)) = .  // Shows: .Some, .None
-match(color,
-  .  // Shows: .Red, .Green, .Blue
-)
-```
-
-#### Identifier completion
-
-Type any prefix to see matching variables, functions, and keywords in scope. This includes:
-
-- **Prelude types**: `Option`, `Result`, `Box`, `Io`, and other types available without imports
-- **Imported types**: Types and functions from `open import` statements
-- **Local variables**: Variables declared earlier in the same scope
-- **Internal names filtered**: `__yo_*` and `___*` compiler-internal symbols are hidden
-
-### 3. Go to Definition
-
-`Ctrl+Click` or `F12` on any identifier to jump to its definition.
-
-- **Variables**: Jump to the declaration site
-- **Import paths**: Click on `"std/string"` to open the imported file
-- **Struct/enum/function names**: Jump to the type or function definition
-- **Enum variants**: `.Red`, `.Some(...)` — jump to the variant definition in the enum
-
-### 4. Document Symbols
-
-`Ctrl+Shift+O` to see all top-level declarations in the current file.
-
-### 5. Find References
-
-`Shift+F12` to find all references to a symbol across the current file.
-
-### 6. Rename Symbol
-
-`F2` to rename a symbol and all its references.
-
-### 7. Signature Help
-
-Type `(` after a function name to see parameter hints as you type.
-
-### 8. Folding Ranges
-
-Code folding for function bodies, struct definitions, impl blocks, and other multi-line constructs.
-
-### 9. Diagnostics
-
-Real-time error reporting as you type, powered by the Yo evaluator.
+The server is written in Yo and lives in `src/lsp/`. The VS Code extension is a
+thin `LanguageClient` wrapper (`vscode-extension/extension.js`, plain
+JavaScript, no build step). All intelligence lives in the server.
 
 ## Setup
 
-There is nothing to set up at the moment — no server binary exists to point an editor at.
+### VS Code
 
-Installing the Yo extension from the VS Code marketplace still gives you syntax highlighting, and the extension is built with `npm run package` inside `vscode-extension/` (it is a deliberate npm-only carve-out). But it no longer bundles a language client, and the old stdio entry point — `node out/cjs/yo-lsp.cjs --stdio`, for editors other than VS Code — went away with the TypeScript build.
+Install the [Yo extension](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang)
+and have a `yo` binary on your `PATH` (see the install guides for
+[macOS](./INSTALL_MACOS.md), [Linux](./INSTALL_LINUX.md) and
+[Windows](./INSTALL_WINDOWS.md)). The extension starts `yo lsp` when a `.yo`
+file is opened.
 
-## Implementation Details
+Settings:
 
-### Dirty Buffer Support
+| Setting            | Default | Meaning                                                                                        |
+| ------------------ | ------- | ---------------------------------------------------------------------------------------------- |
+| `yo.binPath`       | `"yo"`  | Path to the `yo` binary used for the server, when it is not on `PATH`.                          |
+| `yo.lsp.enabled`   | `true`  | Start the language server. With `false` the extension is syntax highlighting only.             |
+| `yo.trace.server`  | `"off"` | `messages` or `verbose` logs the JSON-RPC traffic to the "Yo Language Server" output channel.  |
 
-When the buffer has unsaved/incomplete code (e.g., `p.` or `Option(i32).`), the LSP uses a multi-level fallback strategy:
+The command **Yo: Restart Language Server** stops and restarts the server (for
+example after installing a new `yo` version). Changing `yo.binPath` or
+`yo.lsp.enabled` restarts it automatically.
 
-1. **Current module** — attempt evaluation of the latest text
-2. **Last good module** — fall back to the most recent successful evaluation
-3. **Text-based resolution** — parse the text before the cursor to resolve types without evaluation
+### Other editors
 
-This ensures completions and hover remain available even while typing incomplete expressions.
+Point the editor's LSP client at the command `yo lsp` (no arguments, stdio
+transport) for the `yo` language / `.yo` files. For example, with Neovim's
+built-in client:
 
-### Module Caching
+```lua
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = "yo",
+  callback = function()
+    vim.lsp.start({ name = "yo", cmd = { "yo", "lsp" } })
+  end,
+})
+```
 
-The LSP maintains a "last good module" cache. When the user is typing (e.g., `p2.`), the incomplete expression may cause evaluation errors. The server falls back to the last successful evaluation to provide completions.
+The server locates the standard library the same way the compiler does
+(`--std-path` is not available here; set `YO_STD` if `yo` cannot find `std/`
+next to itself).
 
-### Trait Field Snapshots
+## Features
 
-When a module is re-evaluated, `deleteModule` mutates shared type objects (clearing impl-added trait fields). The LSP snapshots all trait field arrays before deletion and restores them for the cached module, ensuring method completions remain available.
+### 1. Diagnostics
 
-### Generic Impl Resolution
+Errors are published on open and on every change, at the exact range the
+compiler's own diagnostic renderer underlines, with the diagnostic's severity
+(`error`, `warning`, `note`, `help`) and its code (`E0401`, …) when it has one.
+Errors in an imported file surface at the top of the importing document with
+the location in the message.
 
-Methods from generic `impl` blocks (e.g., `impl(generic(T), Option(T), ...)`) are resolved through the global `genericImplRegistry`. The LSP enumerates these to provide completions for types like `ArrayList`, `Option`, `Result`, and `HashMap`.
+The evaluator stops at the first error, so a document shows at most one primary
+diagnostic (plus its notes) at a time.
 
-### Doc Comment Propagation
+### 2. Hover
 
-Doc comments (`///`) are extracted during lexing, associated with declarations via `docCommentLookup`, and propagated through:
+Hover over an identifier to see its type, its value when it is known at
+compile time, and its doc comment:
 
-- Struct field evaluation → `TypeField.docComment`
-- Module field evaluation → `TypeField.docComment`
-- Impl field evaluation → `TraitField.docComment`
-- `attachTraitToReceiverType()` → copies doc comments to receiver types
+```
+add_one
+: fn(x : i32) -> i32
+```
+
+On a member access (`p.x`, `list.len`) the hover shows the member's type.
+
+### 3. Completion
+
+- **Import paths**: inside `import("std/…` or `import("./…` the directory's
+  modules and subdirectories are listed.
+- **Dot completion** (`expr.`): struct fields, enum variants, union fields,
+  module members, trait methods, inherent and generic-impl methods, with
+  parameter snippets. Type-valued receivers work too (`Point.`, `Option(i32).`);
+  pointers are auto-dereferenced.
+- **Enum variant prefix** (`.` after `=`, `(`, `,`, `{`, `;`, `=>`, `:=` or
+  `return`): the variants of the expected enum, inferred from a typed
+  declaration or the subject of the enclosing `match`.
+- **Identifiers**: names already used in the document, everything visible in
+  the deepest enclosing scope (prelude types such as `Option` and `Result`,
+  imports), and keywords.
+
+### 4. Go to Definition
+
+Jumps to the declaration of a variable, function, type or imported name —
+across files when the name was imported. Member names and labels (`p.x`,
+`Point(x : 1)`) have no definition target yet.
+
+### 5. Document Symbols
+
+Every top-level `name :: value` binding, classified by the value's shape
+(function, struct, enum, trait, impl, constant). Works while the document has
+evaluation errors.
+
+### 6. Find References and Rename
+
+Both follow the **binding** under the cursor, not its spelling: renaming a
+local `x` leaves a struct field `x`, the label in `Point(x : …)` and the access
+`p.x` untouched. Inside a `generic(...)` function body that has not been
+specialized, occurrences are matched by name (the evaluator has not visited
+them). References and rename are same-file.
+
+### 7. Signature Help
+
+After `(` or `,` inside a call, the callee's parameters with the active one
+highlighted.
+
+### 8. Folding Ranges
+
+Multi-line `{ … }` / `( … )` regions and multi-line block comments.
+
+### 9. Formatting
+
+Whole-document formatting through `yo fmt`'s formatter. A document that does
+not parse is left untouched. The VS Code extension enables format-on-save for
+`.yo` files by default.
+
+## Behaviour while editing
+
+Most keystrokes leave a document that does not parse. The server keeps the
+**last parsed** analysis of each document for hover, completion, symbols,
+references and rename, so those keep answering mid-edit; positions are matched
+against the current text by token, so a stale analysis answers only where the
+two still agree. A document that parses but fails to evaluate keeps its full
+program and every type the evaluator recorded before the error.
+
+Edits to an open imported file are visible to the next analysis of any
+document that imports it (the server overlays open buffers on the module
+loader and invalidates the dependents). Edits to an imported file made
+**outside** the editor, and edits to `std/prelude.yo`, need a server restart.
+
+## Position encoding
+
+The compiler's columns are Unicode scalar values (one column per rune). At
+`initialize` the server negotiates the wire encoding: when the client lists
+`utf-32` in `general.positionEncodings` the server picks it and columns pass
+through unchanged; otherwise it uses the protocol default `utf-16` and converts
+every column it sends or receives — an emoji or other astral-plane character
+occupies two UTF-16 units, one rune.
+
+## Source layout
+
+| File                          | Serves                                              |
+| ----------------------------- | --------------------------------------------------- |
+| `src/lsp/server.yo`           | JSON-RPC dispatch, `initialize`, document sync       |
+| `src/lsp/transport.yo`        | `Content-Length` framing over stdio                  |
+| `src/lsp/protocol.yo`         | JSON builders, position encoding, `file:` URIs       |
+| `src/lsp/diagnostics.yo`      | document analysis and `publishDiagnostics`           |
+| `src/lsp/hover.yo`            | hover, shared token/candidate helpers, atom roles    |
+| `src/lsp/completion.yo`       | `textDocument/completion`                            |
+| `src/lsp/definition.yo`       | `textDocument/definition`                            |
+| `src/lsp/references.yo`       | `textDocument/references` and the occurrence walker  |
+| `src/lsp/rename.yo`           | `textDocument/rename`                                |
+| `src/lsp/symbols.yo`          | `textDocument/documentSymbol`                        |
+| `src/lsp/signature_help.yo`   | `textDocument/signatureHelp`                         |
+| `src/lsp/folding.yo`          | `textDocument/foldingRange`                          |
 
 ## Testing
 
-The LSP test suite lived in `src/tests/lsp.test.ts` and was deleted with the TypeScript tree; nothing covers this surface today. The cases below are the coverage a replacement has to reproduce:
-
-- Struct field completion
-- Enum variant completion (value and type level, with snippet insertions)
-- Module member completion (with doc comments)
-- Array `.len` completion
-- Impl method completion (with parameter snippet placeholders)
-- Type-level completion (static methods)
-- Self-completion inside methods
-- Prelude type completion (e.g., `Option` methods)
-- Result type completion (methods and enum variants)
-- Nested struct field completion
-- Dirty buffer dot-completion (type constructors, simple variables)
-- Keyword completion
-- Variable, type, and function hover
-- Impl field label hover
-- Hover fallback on dirty buffers
-- Go-to-definition for variables, import paths, and enum variants
-- Import path completion (std library and subdirectories)
-- Environment-based identifier completion (prelude types, imported symbols)
-- Generic type method completion (`Option(i32).`, `Result(T,E).`)
+The server is driven exactly as an editor drives it: the `lsp-*` cases under
+`tests/cli-cases/` feed framed JSON-RPC to `yo lsp` over stdin and compare the
+framed replies against recorded goldens (`scripts/cli-diff-test.sh`). The pure
+helpers (URI conversion, position encoding) and the analysis-state guarantees
+are covered by `tests/internal/lsp_protocol.test.yo`; module invalidation by
+`tests/internal/module_invalidation.test.yo`.

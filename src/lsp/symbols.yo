@@ -11,7 +11,7 @@ open(import("std/string"));
 { Token } :: import("../token.yo");
 { AstExpr, ast_expr_token, ast_expr_is_fn_call_of, ast_expr_is_atom } :: import("../expr.yo");
 { JsonValue } :: import("std/encoding/json");
-{ jb, jstr, jnum, j_range } :: import("./protocol.yo");
+{ jb, jstr, jnum, j_range_in } :: import("./protocol.yo");
 
 /// Is `e` a function TYPE expression? `fn(...) -> T` parses as an `->`
 /// INFIX call whose first argument is the `fn(...)` call, so both shapes
@@ -69,9 +69,10 @@ _symbol_kind_of :: (fn(value_expr : AstExpr) -> usize)({
   usize(14)
 });
 
-/// Collect DocumentSymbols from the top-level statements.
+/// Collect DocumentSymbols from the top-level statements. Ranges are
+/// converted to the wire encoding against `lines`.
 handle_document_symbols :: (
-  fn(exprs : ArrayList(AstExpr)) -> JsonValue
+  fn(exprs : ArrayList(AstExpr), lines : ArrayList(String)) -> JsonValue
 )({
   items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
@@ -91,7 +92,8 @@ handle_document_symbols :: (
           value_expr := match(args.get(usize(1)), .Some(a) => a, .None => e);
           if(ast_expr_is_atom(name_expr), {
             name_tok := ast_expr_token(name_expr);
-            rng := j_range(
+            rng := j_range_in(
+              lines,
               name_tok.row,
               name_tok.column,
               name_tok.row,

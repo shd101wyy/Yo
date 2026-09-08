@@ -255,7 +255,7 @@ yo version clean 0.1.12         # Remove specific cached version
 - When `.yo-version` exists with a different version, `yo` auto-dispatches to the cached version
 - Versions are downloaded as native release bundles from GitHub Releases; the old npm channel stopped at v0.2.0
 - Commit `.yo-version` to version control for reproducible builds across the team
-- There is currently **no language server** — the old TypeScript LSP (which also read `.yo-version` for go-to-definition) was deleted along with the TypeScript compiler, and `yo` has no `lsp` subcommand. The VS Code extension is syntax highlighting only.
+- `yo lsp` is the language server (stdio LSP, `src/lsp/`): diagnostics, hover, completion, definition, symbols, references, rename, signature help, folding, formatting. The VS Code extension spawns it (`yo.binPath`); other editors run `yo lsp` directly. It does not read `.yo-version` — it is whichever `yo` the editor launches. See `docs/en-US/LSP.md`.
 
 ## Dependency management
 

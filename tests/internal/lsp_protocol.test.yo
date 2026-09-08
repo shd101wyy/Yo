@@ -1,0 +1,131 @@
+//! Tests for the LSP protocol boundary (`src/lsp/protocol.yo`) and the
+//! analysis-state guarantees of `src/lsp/diagnostics.yo`:
+//!
+//!   - `file:` URI ↔ filesystem path, including the Windows drive form and
+//!     percent-encoding, on every platform (pure string handling)
+//!     (issues/fixed/lsp-uri-to-fs-path-leaves-a-leading-slash-on-windows-drive-uris.md,
+//!     issues/fixed/lsp-definition-uri-is-built-without-percent-encoding.md);
+//!   - rune ↔ UTF-16 column conversion around an astral-plane rune
+//!     (issues/fixed/lsp-emits-rune-columns-where-the-protocol-says-utf16.md);
+//!   - `analyze_document` keeps the parsed program and the partial ExprInfo
+//!     when evaluation fails, and reports `parsed == false` when parsing fails
+//!     (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md).
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert, assert_eq } :: import("std/assert");
+{ Path } :: import("std/path");
+{ create_dir_all } :: import("std/fs/dir");
+{ write_string } :: import("std/fs/file");
+{
+  uri_to_fs_path,
+  fs_path_to_uri,
+  module_path_to_uri,
+  rune_col_to_utf16_col,
+  utf16_col_to_rune_col
+} :: import("../../src/lsp/protocol.yo");
+{ analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
+{ handle_hover } :: import("../../src/lsp/hover.yo");
+{ resolve_std_path, mm_forget_open_document, mm_invalidate_document } :: import("../../src/module_manager.yo");
+
+test("uri_to_fs_path: POSIX, Windows drive, legacy drive, percent escapes", {
+  assert_eq(uri_to_fs_path(`file:///home/u/a.yo`), `/home/u/a.yo`, "posix absolute");
+  assert_eq(uri_to_fs_path(`file:///C:/w/a.yo`), `C:/w/a.yo`, "windows drive keeps no leading slash");
+  assert_eq(uri_to_fs_path(`file:///c%3A/w/a.yo`), `c:/w/a.yo`, "VS Code's encoded drive colon");
+  assert_eq(uri_to_fs_path(`file:///C|/w/a.yo`), `C:/w/a.yo`, "legacy `|` drive spelling");
+  assert_eq(uri_to_fs_path(`file:///home/u/my%20dir/a%23b.yo`), `/home/u/my dir/a#b.yo`, "percent-decoded");
+  assert_eq(uri_to_fs_path(`/already/a/path.yo`), `/already/a/path.yo`, "plain path passes through");
+});
+
+test("fs_path_to_uri percent-encodes segments and round-trips", {
+  assert_eq(fs_path_to_uri(`/home/u/a.yo`), `file:///home/u/a.yo`, "posix absolute");
+  assert_eq(fs_path_to_uri(`/home/u/my dir/a#b%.yo`), `file:///home/u/my%20dir/a%23b%25.yo`, "space, hash and percent encoded");
+  assert_eq(fs_path_to_uri(`C:/w/a.yo`), `file:///C%3A/w/a.yo`, "windows drive gets the empty-authority slash");
+  assert_eq(fs_path_to_uri(`C:\\w\\a.yo`), `file:///C%3A/w/a.yo`, "backslashes normalized");
+  assert_eq(uri_to_fs_path(fs_path_to_uri(`/x/ä ö/#1.yo`)), `/x/ä ö/#1.yo`, "round trip");
+  assert_eq(module_path_to_uri(`file:///abs/dir/x.yo`), `file:///abs/dir/x.yo`, "file:// module path");
+  assert_eq(module_path_to_uri(`/abs/dir/x y.yo`), `file:///abs/dir/x%20y.yo`, "plain module path");
+});
+
+test("rune <-> UTF-16 columns around an astral-plane rune", {
+  line := `ab😀cd`;
+  assert_eq(rune_col_to_utf16_col(line.clone(), usize(0)), usize(0), "start");
+  assert_eq(rune_col_to_utf16_col(line.clone(), usize(2)), usize(2), "before the emoji");
+  assert_eq(rune_col_to_utf16_col(line.clone(), usize(3)), usize(4), "after the emoji: +1 unit");
+  assert_eq(rune_col_to_utf16_col(line.clone(), usize(5)), usize(6), "end");
+  assert_eq(rune_col_to_utf16_col(line.clone(), usize(99)), usize(6), "past the end clamps");
+  assert_eq(utf16_col_to_rune_col(line.clone(), usize(2)), usize(2), "before the emoji");
+  assert_eq(utf16_col_to_rune_col(line.clone(), usize(3)), usize(3), "inside the surrogate pair belongs to the emoji");
+  assert_eq(utf16_col_to_rune_col(line.clone(), usize(4)), usize(3), "after the emoji: -1 unit");
+  assert_eq(utf16_col_to_rune_col(line.clone(), usize(6)), usize(5), "end");
+  assert_eq(utf16_col_to_rune_col(line.clone(), usize(99)), usize(5), "past the end clamps");
+  cjk := `中文x`;
+  assert_eq(rune_col_to_utf16_col(cjk.clone(), usize(2)), usize(2), "BMP runes are one unit each");
+  assert_eq(utf16_col_to_rune_col(cjk, usize(2)), usize(2), "BMP inverse");
+});
+
+_GOOD :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> unit)({\n  y := add_one(i32(41));\n  _z := y;\n  ()\n});\nexport(main);\n";
+_EVAL_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> unit)({\n  y := add_one(i32(41));\n  _z := y;\n  ()\n});\nexport(main);\nlater :: (fn() -> unit)({\n  undefined_qq();\n});\n";
+_PARSE_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> unit)({\n  y := add_one(\n});\n";
+
+/// Analyze `text` as `doc_path`; the outcome the server would retain.
+_analyze :: (fn(doc_path : String, text : String, std_path : String, io : Io) -> Option(AnalyzeOutcome))({
+  out := ArrayList(AnalyzeOutcome).new();
+  _diags := analyze_document(doc_path.clone(), text, std_path, io, out);
+  out.get(usize(0))
+});
+
+test("analysis state survives evaluation and parse errors", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `test io failed: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  dir := `/tmp/yo_lsp_protocol_fixture`;
+  io.await(create_dir_all(Path.new(dir.clone()), io), ioexn);
+  doc_path := `${dir}/doc.yo`;
+  io.await(write_string(Path.new(doc_path.clone()), String.from(_GOOD), io), ioexn);
+  std_path := resolve_std_path();
+  // Make sure no earlier state for this path leaks between runs.
+  mm_forget_open_document(doc_path.clone());
+  _pre := mm_invalidate_document(doc_path.clone());
+  (good_len : usize) = usize(0);
+  match(
+    _analyze(doc_path.clone(), String.from(_GOOD), std_path.clone(), io),
+    .Some(good) => {
+      assert(good.ok && good.parsed, "clean document analyzes ok");
+      assert(good.exprs.len() >= usize(3), "clean document: the program is retained");
+      good_len = good.exprs.len();
+    },
+    .None => assert(false, "clean document: no outcome")
+  );
+  _inv1 := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_EVAL_ERR), std_path.clone(), io),
+    .Some(ev) => {
+      assert(ev.parsed, "evaluation error: the text parsed");
+      assert(!ev.ok, "evaluation error: not ok");
+      // One more top-level statement (`later`) than the clean text.
+      assert_eq(ev.exprs.len(), good_len + usize(1), "evaluation error keeps the whole program");
+      // The ExprInfo recorded before the error is still there: hover on `y`
+      // (line 3, column 8 — `_z := y`) is typed.
+      lines := String.from(_EVAL_ERR).split(String.from("\n"));
+      hover := handle_hover(String.from(_EVAL_ERR), doc_path.clone(), lines, ev.exprs, ev.info_table, usize(3), usize(8));
+      assert(hover.is_some(), "hover still answers from the partial ExprInfo after an evaluation error");
+    },
+    .None => assert(false, "evaluation error: no outcome")
+  );
+  _inv2 := mm_invalidate_document(doc_path.clone());
+  match(
+    _analyze(doc_path.clone(), String.from(_PARSE_ERR), std_path.clone(), io),
+    .Some(pe) => {
+      assert(!pe.parsed, "parse error: parsed == false");
+      assert(!pe.ok, "parse error: not ok");
+      assert_eq(pe.exprs.len(), usize(0), "parse error: no program");
+    },
+    .None => assert(false, "parse error: no outcome")
+  );
+});

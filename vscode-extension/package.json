@@ -1,7 +1,7 @@
 {
   "name": "yolang",
   "displayName": "Yo Language",
-  "description": "Yo language support: syntax highlighting + language server (diagnostics)",
+  "description": "Yo language support: syntax highlighting + language server (diagnostics, hover, completion, navigation, rename, formatting)",
   "icon": "Yo_logo.png",
   "version": "0.2.28",
   "categories": [
@@ -51,10 +51,26 @@
         "yo.lsp.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Start the Yo language server (`yo lsp`) for diagnostics. Syntax highlighting works regardless."
+          "description": "Start the Yo language server (`yo lsp`) for diagnostics, hover, completion, navigation, rename and formatting. Syntax highlighting works regardless."
+        },
+        "yo.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Trace the JSON-RPC traffic between VS Code and `yo lsp` in the \"Yo Language Server\" output channel."
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "yo.restartLanguageServer",
+        "title": "Yo: Restart Language Server"
+      }
+    ]
   },
   "engines": {
     "vscode": "^1.70.0"
@@ -64,7 +80,8 @@
   },
   "main": "./extension.js",
   "activationEvents": [
-    "onLanguage:yo"
+    "onLanguage:yo",
+    "onCommand:yo.restartLanguageServer"
   ],
   "dependencies": {
     "vscode-languageclient": "^9.0.1"

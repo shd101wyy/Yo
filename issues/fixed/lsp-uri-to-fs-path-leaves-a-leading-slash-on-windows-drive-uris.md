@@ -1,5 +1,15 @@
 # `uri_to_fs_path` strips exactly 7 bytes, so every Windows `file:///C:/…` document URI becomes the path `/C:/…`
 
+**FIXED 2026-09-08** — `uri_to_fs_path` (now in `src/lsp/protocol.yo`)
+strips the scheme, percent-decodes through `std/encoding/percent`, and drops
+the leading `/` of a `/X:` or legacy `/X|` drive prefix (the `|` form decodes to
+`X:`), so `file:///C:/w/a.yo` and VS Code's `file:///c%3A/w/a.yo` both key the
+document as the loader does. Regression tests:
+`tests/internal/lsp_protocol.test.yo` ("uri_to_fs_path: POSIX, Windows drive,
+legacy drive, percent escapes"). The drive letter's case is left as sent
+(Windows paths are case-insensitive and `_mg_canon` does not fold it either);
+the shared std converter proposed below remains the end state.
+
 ## Status
 
 **OPEN** — found 2026-09-04 during the std-API audit re-measurement of the

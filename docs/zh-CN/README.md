@@ -228,13 +228,12 @@ export(main);
 
 ## 编辑器支持
 
-- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，为 `.yo` 文件提供语法高亮。
+- VS Code 扩展可在 [这里](https://marketplace.visualstudio.com/items?itemName=shd101wyy.yolang) 获取，为 `.yo` 文件提供语法高亮和语言客户端。
 
-  **扩展内置的语言服务器协议（LSP）支持目前已经没有了。** 悬停信息、自动补全、跳转到
-  定义、查找引用、重命名符号、文档符号、签名帮助、诊断和代码折叠都由一个 TypeScript
-  编写的 LSP 服务器提供，它直接调用 TypeScript 求值器；Yo 转为自举之后，它与整个
-  TypeScript 编译器一起被删除了。目前还没有替代品，Yo 原生的服务器正在计划中。
-  它需要恢复的行为记录在 [docs/zh-CN/LSP.md](./LSP.md)。
+  语言服务器就是 `yo` 二进制本身（`yo lsp`，stdio）：诊断、悬停信息、自动补全、跳转到
+  定义、文档符号、查找引用、重命名、签名帮助、代码折叠和格式化，全部由 Yo 求值器提供。
+  只要 `PATH` 中有 `yo`（或设置了 `yo.binPath`），扩展就会启动它；其他支持 LSP 的编辑器
+  可以直接启动 `yo lsp`。设置方法与功能列表见 [docs/zh-CN/LSP.md](./LSP.md)。
 
 - Vim / Neovim：最小化的语法文件和使用说明位于 `vscode-extension/syntaxes/`。
   详见 [vscode-extension/syntaxes/README.md](../../vscode-extension/syntaxes/README.md) 了解安装步骤、`ftdetect` 示例和 `home-manager` 片段。

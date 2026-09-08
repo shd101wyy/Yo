@@ -1,12 +1,21 @@
 # `yo lsp`'s `initialize` handler discards the client's `params`, so the server can negotiate nothing
 
+**FIXED 2026-09-08** — `_initialize_result` takes the request's `params`,
+reads `capabilities.general.positionEncodings`, picks `utf-32` when offered
+(else `utf-16`), records the choice for the whole session
+(`set_utf16_positions`) and declares it as `capabilities.positionEncoding`.
+Regression tests: `tests/cli-cases/lsp-position-encoding-utf32` (client offers
+`["utf-16","utf-32"]` → server answers `utf-32`, rune columns on the wire) vs
+`tests/cli-cases/lsp-position-encoding-utf16` (no offer → `utf-16`). The
+`lsp-handshake` golden's first frame now carries `"positionEncoding":"utf-16"`.
+
 **Status:** OPEN — found 2026-09-04 during the std-API-audit re-measurement of
 the D4 PR 9 / LSP row. Reproduced at runtime against `yo 0.2.24`.
 **Severity:** api-lie. The server answers `initialize` with a fixed capability
 object it computed without ever looking at the request, and the object omits
 `positionEncoding`, which per LSP 3.17 means "I use the default, utf-16" — a
 claim this server does not honour
-(`issues/lsp-emits-rune-columns-where-the-protocol-says-utf16.md`).
+(`issues/fixed/lsp-emits-rune-columns-where-the-protocol-says-utf16.md`).
 
 ## Symptom
 
@@ -95,7 +104,7 @@ implementation must handle it.
 2. Declare `positionEncoding` in the capability object at
    `src/lsp/server.yo:193`. Land the honest constant `"utf-16"` together with
    the conversion work in
-   `issues/lsp-emits-rune-columns-where-the-protocol-says-utf16.md`; declaring
+   `issues/fixed/lsp-emits-rune-columns-where-the-protocol-says-utf16.md`; declaring
    `"utf-16"` while still emitting runes only makes the lie explicit.
 3. *Optional, and only after (2).* Read
    `params.capabilities.general.positionEncodings` (a JSON array of strings),
