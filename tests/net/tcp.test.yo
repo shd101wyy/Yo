@@ -494,3 +494,31 @@ test("three request/response rounds against a spawned scripted server", {
   assert(seen.len() == usize(3), "three requests seen");
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
+test("TCP local_addr is this end, and it is the peer's peer_addr", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  addr := SocketAddr.loopback(u16(19934));
+  listener := io.await(TcpListener.bind(addr, io), IoExn(io : io, exn : exn));
+  client := io.await(TcpStream.connect(addr, io), IoExn(io : io, exn : exn));
+  server_stream := io.await(listener.accept(io), IoExn(io : io, exn : exn));
+  cl := client.local_addr();
+  // The kernel picks the source port, so the value cannot be predicted — but
+  // it must be a real ephemeral port on the loopback interface, and it must
+  // NOT be the port we connected to.
+  assert(cl.ip.is_loopback(), "the client's local address is on loopback");
+  assert(cl.port != u16(0), "the kernel assigned a source port");
+  assert(cl.port != u16(19934), "the source port is not the destination port");
+  // The two ends agree: what the client calls local, the server calls peer.
+  assert(server_stream.peer_addr() == cl, "the server's peer_addr is the client's local_addr");
+  // And the accepted socket's local address is the listener's.
+  assert(server_stream.local_addr().port == u16(19934), "the accepted socket is bound to the listening port");
+  io.await(server_stream.close(io), IoExn(io : io, exn : exn));
+  io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
