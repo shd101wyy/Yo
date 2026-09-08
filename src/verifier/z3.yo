@@ -185,6 +185,24 @@ _z3_unlink_sync :: (fn(path : String) -> unit)({
   _ := unsafe(unistd.unlink((*char)(cstr)));
   ()
 });
+/// Ensure a directory (and its parents) exist — portable BECAUSE it shells
+/// out: libc `mkdir` is 2-arg on POSIX but 1-arg in the Windows CRT, and the
+/// 2-arg call breaks the Windows cross-emit even from dead code, while
+/// `system(3)` — already this module's solver-spawn primitive — compiles
+/// everywhere. POSIX `mkdir -p` and cmd's `md` both create intermediates;
+/// the exit status is advisory (Windows `md` errors on an existing dir) and
+/// deliberately ignored: a failed creation surfaces as the fopen failure in
+/// `_z3_write_file_sync`, i.e. "cache off", not a verifier error.
+_z3_ensure_dir_sync :: (fn(path : String) -> unit)({
+  cmd := cond(
+    is_target_windows(host_target()) => `cmd /c md "${path}"`,
+    true => `mkdir -p "${path}"`
+  );
+  cmd_buf := cmd.to_cstr();
+  cmd_cstr := cmd_buf.ptr().unwrap();
+  _ := unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
+  ()
+});
 /// Monotonic counter for temp-file names — unique within one process run,
 /// like the contract wrapper's `g_contract_old_counter`.
 (g_z3_tmp_counter : usize) = usize(0);
@@ -649,6 +667,7 @@ export(
   _z3_exists_sync,
   _z3_read_file_sync,
   _z3_write_file_sync,
+  _z3_ensure_dir_sync,
   Z3Sexpr,
   parse_z3_sexprs,
   z3_sexpr_to_string,

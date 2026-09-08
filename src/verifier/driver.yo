@@ -27,7 +27,7 @@ open(import("std/fmt"));
   _z3_exists_sync,
   _z3_read_file_sync,
   _z3_write_file_sync,
-  _z3_mkdir_p_sync
+  _z3_ensure_dir_sync
 } :: import("./z3.yo");
 // ============================================================================
 // Options & verdicts
@@ -308,7 +308,7 @@ _cache_lookup :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> Option(VerifyResult)
 /// Cache store for one obligation. Terminal verdicts only — a SolverError
 /// (missing/crashed solver) must retry on the next run.
 _cache_store :: (fn(q : VcQuery, verdict : VerifyVerdict) -> unit)({
-  _z3_mkdir_p_sync(verify_cache_dir());
+  _z3_ensure_dir_sync(verify_cache_dir());
   key := verify_cache_key(q, default_verify_run_config());
   cache_path := `${verify_cache_dir()}/${key}.json`;
   payload := _json_obj2(
