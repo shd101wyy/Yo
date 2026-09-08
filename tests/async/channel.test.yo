@@ -11,7 +11,10 @@ pragma(Pragma.AllowUnsafe);
 test("Test channel try ops", {
   ch := Channel(i32).new(usize(2));
   assert(ch.len() == usize(0), "new channel should be empty");
-  assert(match(ch.try_recv(), .Some(_) => false, .None => true), "try_recv on empty should be .None");
+  assert(
+    match(ch.try_recv(), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)),
+    "try_recv on an OPEN empty channel is Empty, not Disconnected"
+  );
   s1 := ch.try_send(i32(1));
   s2 := ch.try_send(i32(2));
   assert(match(s1, .Ok(_) => true, .Err(_) => false), "first try_send should fit");
@@ -20,8 +23,28 @@ test("Test channel try ops", {
   assert(match(s3, .Ok(_) => false, .Err(v) => (v == i32(3))), "over-capacity try_send should hand the value back");
   r1 := ch.try_recv();
   r2 := ch.try_recv();
-  assert(match(r1, .Some(v) => (v == i32(1)), .None => false), "FIFO: first out is 1");
-  assert(match(r2, .Some(v) => (v == i32(2)), .None => false), "FIFO: second out is 2");
+  assert(match(r1, .Ok(v) => (v == i32(1)), .Err(_) => false), "FIFO: first out is 1");
+  assert(match(r2, .Ok(v) => (v == i32(2)), .Err(_) => false), "FIFO: second out is 2");
+});
+// A CLOSED channel is Disconnected only once it is also DRAINED — the two
+// answers `Option(T)` used to collapse into one `.None`, which is why this
+// returns a `Result` now (the same `TryRecvError` `std/sync/channel` reports).
+test("async try_recv separates Empty from Disconnected", {
+  ch := Channel(i32).new(usize(2));
+  _s := ch.try_send(i32(7));
+  ch.close();
+  buffered := ch.try_recv();
+  assert(match(buffered, .Ok(v) => (v == i32(7)), .Err(_) => false), "a closed channel still yields what it buffered");
+  drained := ch.try_recv();
+  assert(
+    match(drained, .Ok(_) => false, .Err(e) => match(e, .Disconnected => true, _ => false)),
+    "closed AND drained is Disconnected"
+  );
+  open_empty := Channel(i32).new(usize(1));
+  assert(
+    match(open_empty.try_recv(), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)),
+    "an open empty channel is Empty"
+  );
 });
 // ---------------------------------------------------------------------------
 // 2. async producer → awaiting consumer, buffer smaller than the stream
