@@ -20,16 +20,20 @@ _work :: (fn(n : u64) -> u64)({
 test("black_box returns its argument unchanged", {
   (n : u64) = runtime(u64(42));
   assert(black_box(n) == u64(42), "an integer");
-  (s : String) = runtime(`hello`);
-  assert(black_box(s) == `hello`, "and an RC type");
 });
-test("black_box over several types", {
+test("black_box over every scalar kind it accepts", {
+  // Scalars only, and the compiler enforces it ("asm in() value type is not
+  // valid for inline assembly"). An RC or aggregate value would have to go in
+  // by ADDRESS, which double-drops today — found by CI's Linux ASan leg, filed
+  // as issues/rc-value-copied-address-taken-and-returned-is-double-dropped.md.
+  // Derive a scalar instead: `black_box(xs.len())`.
   assert(black_box(runtime(i32(-7))) == i32(-7), "i32");
   assert(black_box(runtime(true)) == true, "bool");
   assert(black_box(runtime(usize(9))) == usize(9), "usize");
+  assert(black_box(runtime(f64(1.5))) == f64(1.5), "f64");
   xs := ArrayList(i32).new();
   xs.push(i32(1));
-  assert(black_box(xs).len() == usize(1), "a collection survives the round trip");
+  assert(black_box(xs.len()) == usize(1), "and a scalar DERIVED from a collection");
 });
 test("black_box actually stops the body being optimized away", {
   // The point of the function. `_work` is pure and its result discarded, so
