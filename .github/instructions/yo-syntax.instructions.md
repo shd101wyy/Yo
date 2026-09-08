@@ -1223,6 +1223,44 @@ before hunting elsewhere.
 ## Closure arguments: `->` literals and `=>` closures both infer the result type
 - **Either arrow binds an inferred result type.** When an argument's return type must be INFERRED into a type variable (`o.map((x) -> ...)`, `m.with_lock((v) => ...)`, any `Impl(Fn(..) -> R)` / `where(F <: Fn(..) -> R)` param), a capture-free `->` fn literal and a `=>` closure both bind `R` (fixed 2026-08-29, `issues/fixed/arrow-fn-literal-result-type-not-inferred.md`, C55). Pick `=>` only when the body needs to capture. `->` stays required for effect handlers, whose declared result is the per-call-site `ResumeType` and is never bound at the literal.
 
+## A `fn` literal does NOT capture — only `=>` closures do
+
+A `(fn(...) -> T)(body)` literal is a plain function, not a closure. It cannot
+see the enclosing scope's locals, and referring to one is a hard error at the
+USE site, which reads as if the variable never existed:
+
+```rust
+test("...", {
+  m := BTreeMap(i32, i32).new();
+  // WRONG — `m` is not in scope inside a `fn` literal.
+  count := (fn(lo : i32, hi : i32) -> usize)({
+    it := m.range(lo, hi);   // error[E0401]: Variable "m" not found.
+    ...
+  });
+});
+```
+
+Two ways out, in order of preference:
+
+```rust
+// 1. Pass it in. Explicit, and it works for every value type.
+count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
+  it := mm.range(lo, hi);
+  ...
+});
+count(m, i32(3), i32(6));
+
+// 2. Use a closure, which does capture — BY VALUE. A reference type
+//    (`ref(struct(...))`: ArrayList, HashMap, String, …) still aliases its
+//    buffer through the copy, so a closure CAN be used as a recorder:
+calls := ArrayList(i32).new();
+f := (() => { calls.push(i32(1)); i32(7) });
+```
+
+That by-value rule is why an `i32` counter mutated inside a closure never comes
+back out, while pushing to a captured `ArrayList` does — see
+`.github/skills/yo-core-patterns/` and the `inout` audit note.
+
 ## An `Impl(Fn(...))` parameter only accepts a CALLABLE argument (E0606)
 
 Since 2026-09-05 (C67, `issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md`)
