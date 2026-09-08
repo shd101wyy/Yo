@@ -810,6 +810,10 @@ test("Path.relative_to is node's relative: it walks up with .. (what strip_prefi
 });
 test("Path Default is the empty relative path", {
   p := Path.default();
-  assert(p.to_string() == ``, "default path renders empty");
   assert(!p.is_absolute(), "default path is relative");
+  assert(p.components().len() == usize(0), "default path has no components");
+  // A segment-less relative path RENDERS as "." — that is the deliberate
+  // render-level rule above `ToString`, not an artefact of `Default`.
+  assert(p.to_string() == `.`, "an empty relative path renders as .");
+  assert(p.join(`a`).to_string() == `a`, "the default path is a usable base");
 });
