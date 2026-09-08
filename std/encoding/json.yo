@@ -162,6 +162,211 @@ impl(
     )
   )
 );
+/// Is `token` a valid RFC 6901 array index — `"0"`, or digits with no leading
+/// zero? The RFC is explicit that `"01"` is not an index, so it must not
+/// silently resolve to element 1.
+_is_rfc6901_index :: (fn(token : String) -> bool)({
+  b := token.as_bytes();
+  if(b.len() == usize(0), {
+    return(false);
+  });
+  i := usize(0);
+  while(i < b.len(), i = (i + usize(1)), {
+    c := b(i);
+    if((c < u8(48)) || (c > u8(57)), {
+      return(false);
+    });
+  });
+  (b.len() == usize(1)) || (b(usize(0)) != u8(48))
+});
+/// Variant predicates and the numeric / mutating batteries
+/// (`serde_json::Value`'s `is_*`, `as_i64`/`as_u64`, `Map::insert`/`remove`,
+/// `Value::pointer`).
+///
+/// `insert`, `remove` and `push` PANIC when the receiver is the wrong variant,
+/// the same contract the two `Index` impls above already have: in `serde_json`
+/// those live on `Map`/`Vec`, so the variant check happens when you call
+/// `as_object_mut()`. Here the check is `is_object()` / `is_array()`, which is
+/// why those predicates come first.
+impl(
+  JsonValue,
+  /// True for JSON `null`.
+  is_null : (fn(self : Self) -> bool)(
+    match(self, .Null => true, _ => false)
+  ),
+  /// True for a JSON boolean.
+  is_bool : (fn(self : Self) -> bool)(
+    match(self, .Bool(_) => true, _ => false)
+  ),
+  /// True for a JSON number.
+  is_number : (fn(self : Self) -> bool)(
+    match(self, .Number(_) => true, _ => false)
+  ),
+  /// True for a JSON string.
+  is_string : (fn(self : Self) -> bool)(
+    match(self, .Str(_) => true, _ => false)
+  ),
+  /// True for a JSON array.
+  is_array : (fn(self : Self) -> bool)(
+    match(self, .Array(_) => true, _ => false)
+  ),
+  /// True for a JSON object.
+  is_object : (fn(self : Self) -> bool)(
+    match(self, .Object(_, _) => true, _ => false)
+  ),
+  /// The numeric value as an `f64` — Rust's name for what `as_number`
+  /// already did. Both spellings are kept: `as_f64` sits beside `as_i64` /
+  /// `as_u64`, and `as_number` is what the rest of this module calls.
+  as_f64 : (fn(self : Self) -> Option(f64))(
+    self.as_number()
+  ),
+  /// The numeric value as an `i64`, or `.None` when it is not a number, not
+  /// integral, or outside `i64` — `serde_json::Value::as_i64`'s contract.
+  ///
+  /// JSON numbers are IEEE-754 doubles here (there is no separate integer
+  /// arm), so "integral" is decided by a round trip: `2^63` is exactly
+  /// representable as a double, which makes `[-2^63, 2^63)` an exact bound,
+  /// and NaN / ±infinity fail both comparisons and land in `.None`.
+  as_i64 : (fn(self : Self) -> Option(i64))(
+    match(
+      self,
+      .Number(n) => cond(
+        ((n >= f64(-9223372036854775808.0)) && (n < f64(9223372036854775808.0))) => {
+          t := i64(n);
+          cond((f64(t) == n) => Option(i64).Some(t), true => Option(i64).None)
+        },
+        true => Option(i64).None
+      ),
+      _ => Option(i64).None
+    )
+  ),
+  /// The numeric value as a `u64`, or `.None` when it is not a number, not
+  /// integral, negative, or outside `u64` — `serde_json::Value::as_u64`.
+  as_u64 : (fn(self : Self) -> Option(u64))(
+    match(
+      self,
+      .Number(n) => cond(
+        ((n >= f64(0.0)) && (n < f64(18446744073709551616.0))) => {
+          t := u64(n);
+          cond((f64(t) == n) => Option(u64).Some(t), true => Option(u64).None)
+        },
+        true => Option(u64).None
+      ),
+      _ => Option(u64).None
+    )
+  ),
+  /// An empty JSON object — `serde_json::Value::Object(Map::new())`.
+  object : (fn() -> Self)(
+    Self.Object(ArrayList(String).new(), ArrayList(JsonValue).new())
+  ),
+  /// An empty JSON array.
+  array : (fn() -> Self)(
+    Self.Array(ArrayList(JsonValue).new())
+  ),
+  /// Set `key` to `value`, returning the value it REPLACED (`.None` when the
+  /// key is new) — `serde_json`'s `Map::insert`. Insertion order is preserved
+  /// and a replacement keeps the key's original position.
+  ///
+  /// Panics when `self` is not an object.
+  insert : (fn(self : Self, key : String, value : JsonValue) -> Option(JsonValue))(
+    match(
+      self,
+      .Object(keys, values) => {
+        i := usize(0);
+        while(i < keys.len(), i = (i + usize(1)), {
+          if(keys(i) == key, {
+            old := values(i);
+            values(i) = value;
+            return(Option(JsonValue).Some(old));
+          });
+        });
+        keys.push(key);
+        values.push(value);
+        Option(JsonValue).None
+      },
+      _ => __yo_panic("JsonValue.insert: requires the .Object variant")
+    )
+  ),
+  /// Remove `key`, returning its value (`.None` when absent) —
+  /// `serde_json`'s `Map::remove`. The remaining keys keep their order.
+  ///
+  /// Panics when `self` is not an object.
+  remove : (fn(self : Self, key : String) -> Option(JsonValue))(
+    match(
+      self,
+      .Object(keys, values) => {
+        i := usize(0);
+        while(i < keys.len(), i = (i + usize(1)), {
+          if(keys(i) == key, {
+            keys.remove(i);
+            return(Option(JsonValue).Some(values.remove(i)));
+          });
+        });
+        Option(JsonValue).None
+      },
+      _ => __yo_panic("JsonValue.remove: requires the .Object variant")
+    )
+  ),
+  /// Append `value` to an array.
+  ///
+  /// Panics when `self` is not an array.
+  push : (fn(self : Self, value : JsonValue) -> unit)(
+    match(
+      self,
+      .Array(items) => items.push(value),
+      _ => __yo_panic("JsonValue.push: requires the .Array variant")
+    )
+  ),
+  /// Resolve an RFC 6901 JSON Pointer — `serde_json::Value::pointer`.
+  ///
+  /// `""` is the whole document. Otherwise the pointer must start with `/`
+  /// and each following token names an object key or an array index, with
+  /// `~1` decoding to `/` and `~0` to `~`. An array index must be `0` or a
+  /// digit string with no leading zero, as the RFC requires — `"01"` is not a
+  /// valid index and resolves to `.None`, not to element 1.
+  pointer : (fn(self : Self, path : String) -> Option(JsonValue))({
+    if(path.is_empty(), {
+      return(Option(JsonValue).Some(self));
+    });
+    if(!path.starts_with(`/`), {
+      return(Option(JsonValue).None);
+    });
+    // `"/a/b"`.split("/") is ["", "a", "b"] — drop the leading empty token.
+    tokens := path.split(`/`);
+    (current : JsonValue) = self;
+    ti := usize(1);
+    while(ti < tokens.len(), ti = (ti + usize(1)), {
+      raw := tokens(ti);
+      token := raw.replace(`~1`, `/`).replace(`~0`, `~`);
+      step := match(
+        current,
+        .Object(_, _) => current.get(token),
+        // `parse(u64)`, not `parse(usize)`: `FromStr` is implemented for
+        // i64/u64/i32/u32/f64/bool only — `usize` has none
+        // (issues/fromstr-missing-on-seven-numeric-primitives.md).
+        .Array(items) => cond(
+          _is_rfc6901_index(token) => match(
+            token.parse(u64),
+            .Ok(idx) => items.get(usize(idx)),
+            .Err(_) => Option(JsonValue).None
+          ),
+          true => Option(JsonValue).None
+        ),
+        _ => Option(JsonValue).None
+      );
+      match(
+        step,
+        .Some(next) => {
+          current = next;
+        },
+        .None => {
+          return(Option(JsonValue).None);
+        }
+      );
+    });
+    Option(JsonValue).Some(current)
+  })
+);
 /// Index trait — `v(key)` returns the child JsonValue for `key`, panicking
 /// if `v` is not an Object or the key is missing.
 impl(
@@ -1050,6 +1255,138 @@ json_stringify_pretty :: (fn(value : JsonValue, indent : usize) -> String)(
       _stringify_pretty_into(value, indent, usize(0), out);
       String.from_bytes(out)
     }
+  )
+);
+/// `ToString` — the COMPACT JSON text, matching `serde_json::Value`'s
+/// `Display`. The structural, Yo-shaped render is `Debug`'s job (D15), so
+/// these two do not collide.
+impl(
+  JsonValue,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      json_stringify(self)
+    )
+  )
+);
+/// Deep-clone a value tree. `JsonValue` is a VALUE enum whose `Array` and
+/// `Object` payloads are `ArrayList`s — reference-counted handles — so a plain
+/// copy ALIASES the children, and `b := a; b.push(x)` would be visible through
+/// `a`. `Clone` is what makes an independent tree, and it recurses through a
+/// free function rather than `ArrayList.clone` so the `T <: Clone` bound does
+/// not have to be satisfied by the impl being defined.
+_json_clone :: (fn(v : JsonValue) -> JsonValue)(
+  match(
+    v,
+    .Null => JsonValue.Null,
+    .Bool(b) => JsonValue.Bool(b),
+    .Number(n) => JsonValue.Number(n),
+    .Str(s) => JsonValue.Str(s.clone()),
+    .Array(items) => {
+      out := ArrayList(JsonValue).new();
+      i := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        out.push(_json_clone(items(i)));
+      });
+      JsonValue.Array(out)
+    },
+    .Object(keys, values) => {
+      out_keys := ArrayList(String).new();
+      out_values := ArrayList(JsonValue).new();
+      i := usize(0);
+      while(i < keys.len(), i = (i + usize(1)), {
+        out_keys.push(keys(i).clone());
+        out_values.push(_json_clone(values(i)));
+      });
+      JsonValue.Object(out_keys, out_values)
+    }
+  )
+);
+impl(
+  JsonValue,
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)(
+      _json_clone(self)
+    )
+  )
+);
+/// Structural equality. Objects compare as MAPS, not positionally — the same
+/// key set with equal values, whatever order the keys were parsed in. That is
+/// `serde_json`'s behaviour under both its map backends (`BTreeMap` and, with
+/// `preserve_order`, `IndexMap`), and it is the only reading that survives a
+/// round trip through a format whose object order is not significant. With
+/// duplicate keys the first occurrence wins on each side.
+///
+/// Numbers compare as `f64`, so two `Number`s that are both NaN are NOT equal.
+///
+/// ONE self-recursive function, not a trio of helpers, for the same reason
+/// `_json_clone` is one: a helper that compares two children with `==` and an
+/// `Eq` body that calls that helper are mutually recursive THROUGH the impl,
+/// and impl fields get no signature-first binding phase, so the helper's
+/// definition-time evaluation fails, is swallowed, and codegen emits an
+/// abort()-ing stub behind a green `yo check`
+/// (issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md).
+_json_eq :: (fn(lhs : JsonValue, rhs : JsonValue) -> bool)(
+  match(
+    lhs,
+    .Null => match(rhs, .Null => true, _ => false),
+    .Bool(a) => match(rhs, .Bool(b) => (a == b), _ => false),
+    .Number(a) => match(rhs, .Number(b) => (a == b), _ => false),
+    .Str(a) => match(rhs, .Str(b) => (a == b), _ => false),
+    .Array(a) => match(
+      rhs,
+      .Array(b) => {
+        if(a.len() != b.len(), {
+          return(false);
+        });
+        i := usize(0);
+        while(i < a.len(), i = (i + usize(1)), {
+          if(!_json_eq(a(i), b(i)), {
+            return(false);
+          });
+        });
+        true
+      },
+      _ => false
+    ),
+    .Object(a_keys, a_values) => match(
+      rhs,
+      .Object(b_keys, b_values) => {
+        if(a_keys.len() != b_keys.len(), {
+          return(false);
+        });
+        i := usize(0);
+        while(i < a_keys.len(), i = (i + usize(1)), {
+          key := a_keys(i);
+          (found : bool) = false;
+          j := usize(0);
+          while(j < b_keys.len(), j = (j + usize(1)), {
+            if(b_keys(j) == key, {
+              if(!_json_eq(a_values(i), b_values(j)), {
+                return(false);
+              });
+              found = true;
+              j = b_keys.len();
+            });
+          });
+          if(!found, {
+            return(false);
+          });
+        });
+        true
+      },
+      _ => false
+    )
+  )
+);
+impl(
+  JsonValue,
+  Eq(JsonValue)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      _json_eq(lhs, rhs)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !_json_eq(lhs, rhs)
+    )
   )
 );
 export(json_stringify, json_stringify_pretty);

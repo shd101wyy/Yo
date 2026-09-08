@@ -567,3 +567,85 @@ test("JsonValue Default is null", {
   assert(match(v, .Null => true, _ => false), "default JsonValue is .Null");
   assert(json_stringify(v) == `null`, "the default value stringifies as null");
 });
+test("JsonValue variant predicates", {
+  n := JsonValue.Null;
+  b := JsonValue.Bool(true);
+  num := JsonValue.Number(f64(1.5));
+  s := JsonValue.Str(`x`);
+  a := JsonValue.array();
+  o := JsonValue.object();
+  assert(n.is_null() && !n.is_bool(), "Null");
+  assert(b.is_bool() && !b.is_number(), "Bool");
+  assert(num.is_number() && !num.is_string(), "Number");
+  assert(s.is_string() && !s.is_array(), "Str");
+  assert(a.is_array() && !a.is_object(), "Array");
+  assert(o.is_object() && !o.is_null(), "Object");
+});
+test("JsonValue.as_i64 / as_u64 accept only integral in-range numbers", {
+  assert(JsonValue.Number(f64(42.0)).as_i64().unwrap() == i64(42), "42 is an i64");
+  assert(JsonValue.Number(f64(-7.0)).as_i64().unwrap() == i64(-7), "-7 is an i64");
+  assert(JsonValue.Number(f64(1.5)).as_i64().is_none(), "1.5 is not integral");
+  assert(JsonValue.Number(f64(9.3e18)).as_i64().is_none(), "above i64::MAX");
+  assert(JsonValue.Number(f64(42.0)).as_u64().unwrap() == u64(42), "42 is a u64");
+  assert(JsonValue.Number(f64(-1.0)).as_u64().is_none(), "-1 is not a u64");
+  assert(JsonValue.Str(`42`).as_i64().is_none(), "a string is not a number");
+  assert(JsonValue.Number(f64(2.5)).as_f64().unwrap() == f64(2.5), "as_f64 is as_number");
+});
+test("JsonValue object mutation: insert replaces in place, remove keeps order", {
+  o := JsonValue.object();
+  assert(o.insert(`a`, JsonValue.Number(f64(1.0))).is_none(), "a is new");
+  assert(o.insert(`b`, JsonValue.Number(f64(2.0))).is_none(), "b is new");
+  prev := o.insert(`a`, JsonValue.Number(f64(3.0)));
+  assert(prev.unwrap().as_f64().unwrap() == f64(1.0), "insert returns the replaced value");
+  assert(json_stringify(o) == `{"a":3,"b":2}`, "a keeps its original position");
+  gone := o.remove(`a`);
+  assert(gone.unwrap().as_f64().unwrap() == f64(3.0), "remove returns the value");
+  assert(o.remove(`a`).is_none(), "removing twice is None");
+  assert(json_stringify(o) == `{"b":2}`, "the survivor keeps its order");
+});
+test("JsonValue array mutation", {
+  a := JsonValue.array();
+  a.push(JsonValue.Number(f64(1.0)));
+  a.push(JsonValue.Str(`two`));
+  assert(json_stringify(a) == `[1,"two"]`, "push appends");
+  assert(a.at(usize(1)).unwrap().as_string().unwrap() == `two`, "at reads back");
+});
+test("JsonValue.pointer resolves RFC 6901 paths", {
+  v := json_parse("{\"a\":{\"b\":[10,20]},\"x~y\":1,\"p/q\":2,\"\":3,\"~1\":4}").unwrap();
+  assert(v.pointer(``).unwrap() == v, "the empty pointer is the whole document");
+  assert(v.pointer(`/a/b/1`).unwrap().as_i64().unwrap() == i64(20), "object then array");
+  assert(v.pointer(`/x~0y`).unwrap().as_i64().unwrap() == i64(1), "~0 decodes to ~");
+  assert(v.pointer(`/p~1q`).unwrap().as_i64().unwrap() == i64(2), "~1 decodes to /");
+  assert(v.pointer(`/`).unwrap().as_i64().unwrap() == i64(3), "the empty key");
+  assert(v.pointer(`/a/b/2`).is_none(), "index past the end");
+  assert(v.pointer(`/a/b/01`).is_none(), "a leading zero is not an index (RFC 6901)");
+  assert(v.pointer(`/a/missing`).is_none(), "missing key");
+  assert(v.pointer(`a/b`).is_none(), "a pointer must start with /");
+  assert(v.pointer(`/a/b/x`).is_none(), "a non-numeric token cannot index an array");
+  // Escape ORDER matters: `~1` must decode before `~0`, or `~01` would come
+  // out as `/` instead of the literal key `~1`.
+  assert(v.pointer(`/~01`).unwrap().as_i64().unwrap() == i64(4), "~01 decodes to the literal ~1");
+});
+test("JsonValue Eq compares objects as maps, not positionally", {
+  a := json_parse("{\"x\":1,\"y\":[2,{\"z\":null}]}").unwrap();
+  b := json_parse("{\"y\":[2,{\"z\":null}],\"x\":1}").unwrap();
+  assert(a == b, "key order is not significant");
+  c := json_parse("{\"x\":1,\"y\":[2,{\"z\":true}]}").unwrap();
+  assert(a != c, "a nested difference is caught");
+  d := json_parse("{\"x\":1}").unwrap();
+  assert(a != d, "a missing key is caught");
+  assert(JsonValue.Null == JsonValue.Null, "Null == Null");
+  assert(JsonValue.Null != JsonValue.Bool(false), "Null != false");
+});
+test("JsonValue Clone makes an independent tree", {
+  a := json_parse("{\"xs\":[1]}").unwrap();
+  b := a.clone();
+  assert(a == b, "the clone starts equal");
+  b.pointer(`/xs`).unwrap().push(JsonValue.Number(f64(2.0)));
+  assert(json_stringify(a) == `{"xs":[1]}`, "the original is untouched");
+  assert(json_stringify(b) == `{"xs":[1,2]}`, "the clone grew");
+});
+test("JsonValue ToString is the compact JSON text", {
+  v := json_parse("{\"a\": [1, 2]}").unwrap();
+  assert(v.to_string() == `{"a":[1,2]}`, "ToString == json_stringify");
+});
