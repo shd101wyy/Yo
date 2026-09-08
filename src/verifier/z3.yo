@@ -49,20 +49,21 @@ extern(
 // ============================================================================
 // Pin manifest
 // ============================================================================
-/// The one pinned Z3 version (plan: start 4.13.3). Bumps are deliberate
+/// The one pinned Z3 version (bumped 4.13.3 → 5.1.0, 2026-09-08 — the
+/// current stable; asset stems moved to glibc-2.39/osx-13.3). Bumps are deliberate
 /// release-note events, never a side effect; the verification cache keys on
 /// this string so a bump invalidates honestly.
-Z3_VERSION :: "4.13.3";
-/// The host's Z3 release-asset stem (e.g. `x64-glibc-2.35`), derived from
+Z3_VERSION :: "5.1.0";
+/// The host's Z3 release-asset stem (e.g. `x64-glibc-2.39`), derived from
 /// the canonical triple vocabulary of `src/target.yo`.
 z3_host_asset_stem :: (fn() -> String)({
   t := host_target();
   arch := String.from(arch_triple_str(t.arch));
   cond(
-    (is_target_linux(t) && (arch == "x86_64")) => String.from("x64-glibc-2.35"),
-    (is_target_linux(t) && (arch == "aarch64")) => String.from("arm64-glibc-2.34"),
-    (is_target_macos(t) && (arch == "x86_64")) => String.from("x64-osx-13.7"),
-    (is_target_macos(t) && (arch == "aarch64")) => String.from("arm64-osx-13.7"),
+    (is_target_linux(t) && (arch == "x86_64")) => String.from("x64-glibc-2.39"),
+    (is_target_linux(t) && (arch == "aarch64")) => String.from("arm64-glibc-2.38"),
+    (is_target_macos(t) && (arch == "x86_64")) => String.from("x64-osx-13.3"),
+    (is_target_macos(t) && (arch == "aarch64")) => String.from("arm64-osx-13.3"),
     (is_target_windows(t) && (arch == "x86_64")) => String.from("x64-win"),
     (is_target_windows(t) && (arch == "aarch64")) => String.from("arm64-win"),
     true => String.from("")
@@ -315,15 +316,23 @@ ensure_z3 :: (
 run_z3_script :: (fn(binary : String, script : String) -> Result(String, String))({
   script_path := _z3_temp_path(String.from("smt2"));
   out_path := _z3_temp_path(String.from("out"));
-  if(!_z3_write_file_sync(script_path.clone(), script), {
+  sp_write := script_path.clone();
+  if(!_z3_write_file_sync(sp_write, script), {
     return(Result(String, String).Err(`verify: failed to write ${script_path}`));
   });
   cmd := `${binary} -smt2 ${script_path} > ${out_path} 2>&1`;
-  cmd_cstr := cmd.to_cstr().ptr().unwrap();
+  // Bind the WHOLE ArrayList, not just its raw pointer: a method-chain
+  // temporary (`cmd.to_cstr().ptr().unwrap()`) is dropped only on some
+  // codegen paths, leaking its heap buffer (ASan: 40B per solver run).
+  cmd_buf := cmd.to_cstr();
+  cmd_cstr := cmd_buf.ptr().unwrap();
   status := unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
-  out_opt := _z3_read_file_sync(out_path.clone());
-  _z3_unlink_sync(script_path.clone());
-  _z3_unlink_sync(out_path.clone());
+  op_read := out_path.clone();
+  out_opt := _z3_read_file_sync(op_read);
+  sp_unlink := script_path.clone();
+  _z3_unlink_sync(sp_unlink);
+  op_unlink := out_path.clone();
+  _z3_unlink_sync(op_unlink);
   out := match(
     out_opt,
     .Some(o) => o,
@@ -337,7 +346,8 @@ run_z3_script :: (fn(binary : String, script : String) -> Result(String, String)
   // z3 exits nonzero when a post-check-sat EVIDENCE request is unavailable
   // (get-value on unsat, get-unsat-core on sat) — it still prints the error
   // AND the verdict, so a parseable verdict wins over the exit status.
-  if((exit_code != int(0)) && z3_check_sat_of(parse_z3_sexprs(out.clone())).is_none(), {
+  out_scan := out.clone();
+  if((exit_code != int(0)) && z3_check_sat_of(parse_z3_sexprs(out_scan)).is_none(), {
     return(
       Result(String, String).Err(`verify: z3 exited with status ${exit_code.to_string()}\n${out}`)
     );

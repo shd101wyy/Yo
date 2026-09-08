@@ -727,7 +727,8 @@ tools emit).
 
 ### Acquisition
 
-- **One pinned Z3 version** (start: Z3 4.13.3), recorded in a manifest
+- **One pinned Z3 version** (started 4.13.3; bumped to Z3 5.1.0 on
+  2026-09-08 — the current stable; asset stems glibc-2.39/osx-13.3), recorded in a manifest
   constant in `src/verifier/z3.yo`. Bundled *once* per machine into
   `~/.cache/yo/solvers/z3-<version>-<target-triple>/` following the
   version-cache model (`src/version_cache.yo`, releases fetched from
