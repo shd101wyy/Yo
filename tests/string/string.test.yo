@@ -2300,3 +2300,105 @@ test("String parse_u64_radix", {
   assert(String.from("2").parse_u64_radix(u32(2)).is_none(), "digit not valid in radix");
   assert(String.from("100000000000000000000").parse_u64_radix(u32(10)).is_none(), "overflows u64");
 });
+// ===== trim_*_matches =====
+test("trim_start_matches removes EVERY leading occurrence", {
+  assert(`aaab`.trim_start_matches(`a`) == `b`, "repeats, unlike strip_prefix");
+  assert(`b`.trim_start_matches(`a`) == `b`, "no occurrence is a no-op");
+  assert(`aaa`.trim_start_matches(`a`) == ``, "stripping everything gives the empty string");
+  assert(`abab`.trim_start_matches(`ab`) == ``, "a multi-byte-long pattern");
+  assert(`xabab`.trim_start_matches(`ab`) == `xabab`, "an interior occurrence is not leading");
+});
+test("trim_end_matches removes EVERY trailing occurrence", {
+  assert(`baaa`.trim_end_matches(`a`) == `b`, "repeats, unlike strip_suffix");
+  assert(`b`.trim_end_matches(`a`) == `b`, "no occurrence is a no-op");
+  assert(`aaa`.trim_end_matches(`a`) == ``, "stripping everything");
+  assert(`ababx`.trim_end_matches(`ab`) == `ababx`, "an interior occurrence is not trailing");
+});
+test("trim_matches removes from both ends", {
+  assert(`aabaa`.trim_matches(`a`) == `b`, "both ends");
+  assert(`--x--`.trim_matches(`-`) == `x`, "a punctuation pattern");
+  assert(`aaa`.trim_matches(`a`) == ``, "everything");
+  assert(`xay`.trim_matches(`a`) == `xay`, "an interior occurrence survives");
+});
+test("a zero-width pattern terminates instead of spinning", {
+  assert(`abc`.trim_start_matches(``) == `abc`, "empty pattern strips nothing at the start");
+  assert(`abc`.trim_end_matches(``) == `abc`, "nor at the end");
+  assert(`abc`.trim_matches(``) == `abc`, "nor at both");
+});
+// ===== rsplit =====
+test("rsplit yields split's pieces in reverse order", {
+  parts := `a.b.c`.rsplit(`.`);
+  assert(parts.len() == usize(3), "three pieces");
+  assert(parts(usize(0)) == `c`, "the LAST piece comes first");
+  assert(parts(usize(1)) == `b`, "then the middle");
+  assert(parts(usize(2)) == `a`, "then the first");
+  fwd := `a.b.c`.split(`.`);
+  assert(fwd(usize(0)) == `a`, "and split is unchanged");
+});
+test("rsplit over edge cases", {
+  one := `abc`.rsplit(`.`);
+  assert(one.len() == usize(1), "no separator gives one piece");
+  assert(one(usize(0)) == `abc`, "the whole string");
+  empties := `a..b`.rsplit(`.`);
+  assert(empties.len() == usize(3), "adjacent separators keep the empty piece");
+  assert(empties(usize(1)) == ``, "which is in the middle after reversing");
+});
+// ===== push_rune / insert / remove / pop =====
+test("push_rune appends a UTF-8 encoded rune", {
+  s := String.new();
+  s.push_rune(rune(65));
+  s.push_rune(rune(0x00E9));
+  assert(s.len() == usize(3), "one ASCII byte plus a two-byte rune");
+  assert(s.chars().count() == usize(2), "but two runes");
+  assert(s.starts_with(`A`), "the ASCII rune came first");
+});
+test("insert_str shifts the tail right", {
+  s := String.from("hello");
+  s.insert_str(usize(0), `>>`);
+  assert(s == `>>hello`, "at the front");
+  s2 := String.from("hello");
+  s2.insert_str(usize(5), `!`);
+  assert(s2 == `hello!`, "at the end");
+  s3 := String.from("ho");
+  s3.insert_str(usize(1), `ell`);
+  assert(s3 == `hello`, "in the middle");
+});
+test("insert places a single rune", {
+  s := String.from("ac");
+  s.insert(usize(1), rune(98));
+  assert(s == `abc`, "an ASCII rune");
+  m := String.from("ab");
+  m.insert(usize(1), rune(0x00E9));
+  assert(m.len() == usize(4), "a two-byte rune grows the string by two bytes");
+  assert(m.chars().count() == usize(3), "and by one rune");
+});
+test("remove takes the rune at a byte index and returns it", {
+  s := String.from("abc");
+  assert(s.remove(usize(1)) == rune(98), "returns the removed rune");
+  assert(s == `ac`, "and closes the gap");
+  m := String.from("aéb");
+  assert(m.len() == usize(4), "é is two bytes");
+  assert(m.remove(usize(1)) == rune(0x00E9), "removing a multi-byte rune");
+  assert(m == `ab`, "removes ALL of its bytes");
+  assert(m.len() == usize(2), "so the byte length drops by two");
+});
+test("pop takes the last rune", {
+  s := String.from("abc");
+  assert(match(s.pop(), .Some(r) => (r == rune(99)), .None => false), "the last rune");
+  assert(s == `ab`, "and shortens the string");
+  m := String.from("aé");
+  assert(match(m.pop(), .Some(r) => (r == rune(0x00E9)), .None => false), "a multi-byte last rune");
+  assert(m == `a`, "removing both of its bytes");
+  assert(match(m.pop(), .Some(r) => (r == rune(97)), .None => false), "then the first");
+  assert(m.is_empty(), "leaving it empty");
+  assert(match(m.pop(), .Some(_) => false, .None => true), "popping an empty string is None");
+});
+test("insert/remove/pop round-trip", {
+  s := String.from("bd");
+  s.insert(usize(0), rune(97));
+  s.insert(usize(2), rune(99));
+  assert(s == `abcd`, "built up by insertion");
+  assert(s.remove(usize(2)) == rune(99), "removed the inserted middle");
+  assert(match(s.pop(), .Some(r) => (r == rune(100)), .None => false), "popped the tail");
+  assert(s == `ab`, "back to the two survivors");
+});

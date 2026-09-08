@@ -357,6 +357,24 @@ impl(
       }
     );
   }),
+  /// Append one rune, UTF-8 encoded — Rust's `String::push`.
+  ///
+  /// `push_byte` appends a single BYTE and will happily build invalid UTF-8;
+  /// this is the rune-level counterpart, so it is what you want for anything
+  /// outside ASCII.
+  push_rune : (fn(inout(self) : Self, r : rune) -> unit)({
+    match(
+      self._bytes,
+      .None => {
+        (new_al : ArrayList(u8)) = ArrayList(u8).with_capacity(usize(8));
+        utf8.encode_into(r, new_al);
+        self._bytes = .Some(new_al);
+      },
+      .Some(al) => {
+        utf8.encode_into(r, al);
+      }
+    );
+  }),
   /// Reserve capacity for at least `additional` more bytes.
   /// If the string is empty, creates a new buffer with the given capacity.
   reserve : (fn(inout(self) : Self, additional : usize) -> unit)({
@@ -1654,9 +1672,146 @@ impl(
       }
     );
   }),
+  /// `self` with every leading occurrence of `pat` removed — Rust's
+  /// `trim_start_matches`. Repeats, so `"aaab".trim_start_matches("a")` is
+  /// `"b"`, unlike the single-shot `strip_prefix`.
+  ///
+  /// A ZERO-WIDTH pattern (the empty string, a regex matching empty) strips
+  /// nothing and terminates rather than spinning.
+  trim_start_matches : (fn(generic(P : Type), self : Self, pat : P, where(P <: Pattern)) -> Self)({
+    (out : Self) = self.substring(usize(0), self.len());
+    while(runtime(true), {
+      before := out.len();
+      match(
+        out.strip_prefix(pat),
+        .Some(rest) => {
+          out = rest;
+        },
+        .None => {
+          break;
+        }
+      );
+      cond(
+        (out.len() == before) => {
+          break;
+        },
+        true => ()
+      );
+    });
+    out
+  }),
+  /// `self` with every trailing occurrence of `pat` removed — Rust's
+  /// `trim_end_matches`. Repeats, and terminates on a zero-width pattern.
+  trim_end_matches : (fn(generic(P : Type), self : Self, pat : P, where(P <: Pattern)) -> Self)({
+    (out : Self) = self.substring(usize(0), self.len());
+    while(runtime(true), {
+      before := out.len();
+      match(
+        out.strip_suffix(pat),
+        .Some(rest) => {
+          out = rest;
+        },
+        .None => {
+          break;
+        }
+      );
+      cond(
+        (out.len() == before) => {
+          break;
+        },
+        true => ()
+      );
+    });
+    out
+  }),
+  /// `self` with every leading AND trailing occurrence of `pat` removed —
+  /// Rust's `trim_matches`.
+  trim_matches : (fn(generic(P : Type), self : Self, pat : P, where(P <: Pattern)) -> Self)(
+    self.trim_start_matches(pat).trim_end_matches(pat)
+  ),
   split : (fn(generic(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))(
     separator.split_of(self)
   ),
+  /// `split`'s pieces from the RIGHT — Rust's `rsplit`.
+  ///
+  /// The pieces are the same ones `split` produces; only the ORDER is
+  /// reversed, so `"a.b.c".rsplit(".")` is `["c", "b", "a"]`. (Rust's returns
+  /// a lazy iterator; Yo's `split` already returns the whole list, so this
+  /// reverses it.)
+  rsplit : (fn(generic(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))({
+    parts := self.split(separator);
+    parts.reverse();
+    parts
+  }),
+  /// Insert `s` at BYTE index `idx`, shifting the rest right — Rust's
+  /// `insert_str`.
+  ///
+  /// PANICS when `idx` is past the end or is not a char boundary, as Rust
+  /// does; `len()` is bytes, so an index into the middle of a multi-byte rune
+  /// would otherwise produce invalid UTF-8.
+  insert_str : (fn(self : Self, idx : usize, s : Self) -> unit)({
+    if(idx > self.len(), {
+      __yo_panic("String.insert_str: index out of bounds");
+    });
+    if(!self.is_char_boundary(idx), {
+      __yo_panic("String.insert_str: index is not a char boundary");
+    });
+    head := self.substring(usize(0), idx);
+    tail := self.substring(idx, self.len());
+    self.clear();
+    self.push_string(head);
+    self.push_string(s);
+    self.push_string(tail);
+  }),
+  /// Insert one rune at BYTE index `idx` — Rust's `insert`. Same panics as
+  /// `insert_str`.
+  insert : (fn(self : Self, idx : usize, r : rune) -> unit)({
+    one := Self.new();
+    one.push_rune(r);
+    self.insert_str(idx, one);
+  }),
+  /// Remove and return the rune STARTING at byte index `idx` — Rust's
+  /// `remove`.
+  ///
+  /// PANICS when `idx` is out of bounds or not a char boundary.
+  remove : (fn(self : Self, idx : usize) -> rune)({
+    if(idx >= self.len(), {
+      __yo_panic("String.remove: index out of bounds");
+    });
+    r := match(
+      self.at(idx),
+      .Some(x) => x,
+      .None => __yo_panic("String.remove: index is not a char boundary")
+    );
+    head := self.substring(usize(0), idx);
+    tail := self.substring(idx + utf8.encoded_len(r), self.len());
+    self.clear();
+    self.push_string(head);
+    self.push_string(tail);
+    r
+  }),
+  /// Remove and return the LAST rune, or `.None` when empty — Rust's `pop`.
+  pop : (fn(self : Self) -> Option(rune))({
+    cond(
+      (self.len() == usize(0)) => return(Option(rune).None),
+      true => ()
+    );
+    // Walk back from the final byte to the boundary that starts the last rune.
+    // `floor_char_boundary` does exactly this, but it lives in a LATER impl
+    // block and a forward method reference across impl blocks is not resolved
+    // yet, so the walk is inlined here.
+    (start : usize) = (self.len() - usize(1));
+    while((start > usize(0)) && !self.is_char_boundary(start), {
+      start = (start - usize(1));
+    });
+    r := match(
+      self.at(start),
+      .Some(x) => x,
+      .None => return(Option(rune).None)
+    );
+    self.truncate(start);
+    Option(rune).Some(r)
+  }),
   /// Split at the FIRST occurrence of `separator`: `.Some((before; after))`
   /// with the separator itself removed, or `.None` when it never occurs.
   /// Rust's `str::split_once`. A zero-width separator (empty string pattern,
