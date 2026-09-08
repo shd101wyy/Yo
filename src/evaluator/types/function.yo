@@ -42,7 +42,7 @@ open(import("std/fmt"));
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_type_val, is_unknown_val } :: import("../../value.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, generate_some_type_id } :: import("../../types/creators.yo");
-{ is_some_type, is_trait_type, is_function_type, is_type_0 } :: import("../../types/guards.yo");
+{ is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { is_expr_type, is_expr_list_type, is_fn_trait_type, is_type_application_type, is_effects_row_type }
 :: import("../../types/guards.yo");
@@ -563,6 +563,12 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
 /// (src/types/definitions.ts:875).
 (g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
+/// Phase V1 (plans/backlog/FORMAL_VERIFICATION.md): the signature's labeled
+/// return `-> (name : T)` — same keys and lifecycle as the predicate tables
+/// above. `ensures(...)` predicates name the return value through this label
+/// (decision D3: no magic `result` identifier); the body-wrapping lowering
+/// binds `<label> := (<body>)` instead of the Phase-0 magic binding.
+(g_func_return_label : HashMap(String, String)) = HashMap(String, String).new();
 /// Register the signature's `requires(...)` predicates. No-op when empty
 /// (keeps the table sparse, like the where-constraints table).
 register_func_requires_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr)) -> unit)({
@@ -592,6 +598,13 @@ copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
     },
     .None => ()
   );
+  match(
+    g_func_return_label.get(from_id.clone()),
+    .Some(label) => {
+      g_func_return_label.insert(to_id.clone(), label);
+    },
+    .None => ()
+  );
 });
 /// Return the `requires(...)` predicates for `func_id` (empty when none).
 get_func_requires_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
@@ -608,6 +621,23 @@ get_func_ensures_exprs :: (fn(func_id : String) -> ArrayList(AstExpr))(
     .Some(preds) => preds,
     .None => ArrayList(AstExpr).new()
   )
+);
+/// Register the labeled-return name. No-op when unlabeled (sparse table,
+/// like the predicate registrations above).
+register_func_return_label :: (
+  fn(func_id : String, label : Option(String)) -> unit
+)({
+  match(
+    label,
+    .Some(l) => {
+      g_func_return_label.insert(func_id.clone(), l.clone());
+    },
+    .None => ()
+  );
+});
+/// Return the labeled-return name for `func_id` (None when unlabeled).
+get_func_return_label :: (fn(func_id : String) -> Option(String))(
+  g_func_return_label.get(func_id.clone())
 );
 /// Append (label, trait, negated) entries for every required/negative trait
 /// carried on `ty` when it is a SomeT (the where clause mutated the param
@@ -879,6 +909,36 @@ _zone_label :: (fn(zone : usize) -> String)(
 _is_contract_clause :: (fn(e : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) ||
     ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None)
+);
+/// Whether any identifier atom in `e` has the name `name` — Phase V1: the
+/// unit-return label check for `ensures(...)`. Walks FnCall heads and
+/// arguments recursively (AstExpr has only Atom and FnCall nodes).
+_atom_name_occurs :: (fn(e : AstExpr, name : String) -> bool)(
+  match(
+    e,
+    .Atom(_, at_tok) => (at_tok.value == name),
+    .FnCall(_, f_box, f_args, _, _) => cond(
+      recur(f_box, name.clone()) => true,
+      true => {
+        (found : bool) = false;
+        (ai : usize) = usize(0);
+        while(ai < f_args.len(), {
+          match(
+            f_args.get(ai),
+            .Some(a) => {
+              if(recur(a, name.clone()), {
+                found = true;
+                break;
+              });
+            },
+            .None => ()
+          );
+          ai = (ai + usize(1));
+        });
+        found
+      }
+    )
+  )
 );
 /// Add a where-clause trait constraint directly to a SomeType's constraint lists.
 /// Since `required_trait_types` in SomeT is an `ArrayList(TypeValue)` (object =
@@ -4107,6 +4167,44 @@ evaluate_function_type :: (
   // Mirrors function.ts:2273-2274 storing them on the FunctionType.
   register_func_requires_exprs(ast_expr_id(expr).to_string(), params_result.requires_exprs);
   register_func_ensures_exprs(ast_expr_id(expr).to_string(), params_result.ensures_exprs);
+  // Phase V1: `-> (name : unit)` parses, but the label names nothing — reject
+  // `ensures(...)` predicates that reference it (decision D3,
+  // plans/backlog/FORMAL_VERIFICATION.md). Checked here, where the evaluated
+  // return type and the extracted predicates are both in scope.
+  match(
+    return_label,
+    .Some(rl) => {
+      if(is_unit_type(return_type), {
+        (uli : usize) = usize(0);
+        while(uli < params_result.ensures_exprs.len(), {
+          ep := match(
+            params_result.ensures_exprs.get(uli),
+            .Some(p) => p,
+            .None => {
+              uli = params_result.ensures_exprs.len();
+              break;
+            }
+          );
+          if(_atom_name_occurs(ep, rl.clone()), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(ep),
+                  `Unit-returning function has no return value to name: the return label "${rl}" cannot be referenced inside 'ensures(...)'. Constrain parameters or 'old(...)' expressions instead.`
+                )
+              )
+            );
+          });
+          uli = (uli + usize(1));
+        });
+      });
+    },
+    .None => ()
+  );
+  // Phase V1: register the labeled-return name (same two-step re-keying as
+  // the predicate tables above) so the body-wrapping lowering binds it for
+  // `ensures(...)` predicates instead of the Phase-0 magic `result`.
+  register_func_return_label(ast_expr_id(expr).to_string(), return_label);
   // Register the variadic parameter's name/type (see the side table above).
   if(params_result.has_variadic, {
     register_func_variadic_param(
@@ -4876,7 +4974,9 @@ export(
 export(
   register_func_requires_exprs,
   register_func_ensures_exprs,
+  register_func_return_label,
   copy_func_contract_exprs,
   get_func_requires_exprs,
-  get_func_ensures_exprs
+  get_func_ensures_exprs,
+  get_func_return_label
 );

@@ -34,7 +34,7 @@ open(import("std/fmt"));
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, note_unlabeled_ensures_atom } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
 { t_unit } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -212,12 +212,46 @@ evaluate_old :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : 
 // Lowering shape (all four combinations):
 //   no contracts     -> <body> (unchanged)
 //   requires only    -> { assert(R1); ...; <body> }
-//   ensures only     -> { result := (<body>); assert(E1); ...; result }
-//   both             -> { assert(R1); ...; result := (<body>); assert(E1); ...; result }
+//   ensures only     -> { <ret> := (<body>); assert(E1); ...; <ret> }
+//   both             -> { assert(R1); ...; <ret> := (<body>); assert(E1); ...; <ret> }
+//
+// `<ret>` is the signature's labeled return `-> (name : T)` when present
+// (Phase V1, decision D3), else the unspeakable internal name below.
 // ---------------------------------------------------------------------------
-/// The identifier bound to a function's return value inside `ensures(...)`.
-/// Mirrors `RESULT_IDENTIFIER` (contracts.ts:238).
-_RESULT_IDENTIFIER :: "result";
+/// The internal name the wrapper threads the return value under when the
+/// return is UNLABELED — deliberately unspeakable so predicates cannot
+/// reference it. Phase V1 (decision D3,
+/// plans/backlog/FORMAL_VERIFICATION.md) removed the Phase-0 magic `result`
+/// identifier: a post-condition names the return value through the labeled
+/// return. Replaces `RESULT_IDENTIFIER` (contracts.ts:238).
+__YO_CONTRACT_RESULT :: "__yo_contract_result";
+/// Phase V1: record the node ids of every identifier atom inside a spliced
+/// `ensures(...)` predicate of an UNLABELED-return function, so the ordinary
+/// `Variable "x" not found.` error at identifier resolution can append the
+/// label-the-return hint. With a labeled return an unbound name is an
+/// ordinary typo and nothing registers.
+_note_unlabeled_ensures_atoms :: (fn(e : AstExpr) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => {
+      note_unlabeled_ensures_atom(ast_expr_id(e));
+    },
+    .FnCall(_, f_box, f_args, _, _) => {
+      recur(f_box);
+      (ai : usize) = usize(0);
+      while(ai < f_args.len(), {
+        match(
+          f_args.get(ai),
+          .Some(a) => {
+            recur(a);
+          },
+          .None => ()
+        );
+        ai = (ai + usize(1));
+      });
+    }
+  )
+);
 /// Build a synthetic atom borrowing `src_tok`'s source position so diagnostics
 /// point at the user's contract clause. Mirrors `synthAtom` (contracts.ts:245).
 _synth_atom :: (fn(value : String, kind : TokenKind, src_tok : Token) -> AstExpr)(
@@ -430,9 +464,13 @@ _hoist_old_in :: (
 );
 /// Splice the contract predicates into `body`.
 ///
+/// `return_label` (Phase V1) is the signature's labeled return
+/// `-> (name : T)` — `ensures(...)` predicates reference the return value
+/// through it. Unlabeled non-unit returns thread the value under the
+/// unspeakable `__yo_contract_result` (decision D3: no magic `result`).
 /// `is_comptime_fn` selects `comptime_assert` + `::` over `assert` + `:=`
 /// (mirrors `fnType.return.isCompileTimeOnly`). `returns_unit` suppresses the
-/// `result` binding (a `void result = ...` would be invalid C).
+/// return binding (a `void result = ...` would be invalid C).
 /// Returns `body` unchanged when there are no contracts, or when the body's
 /// file declared `pragma(Pragma.NoContracts);`.
 wrap_function_body_with_contracts :: (
@@ -440,6 +478,7 @@ wrap_function_body_with_contracts :: (
     body : AstExpr,
     requires_exprs : ArrayList(AstExpr),
     ensures_exprs : ArrayList(AstExpr),
+    return_label : Option(String),
     is_comptime_fn : bool,
     returns_unit : bool
   ) -> AstExpr
@@ -458,6 +497,13 @@ wrap_function_body_with_contracts :: (
     true => String.from("assert")
   );
   bind_op := cond(is_comptime_fn => String.from("::"), true => String.from(":="));
+  // Phase V1 (decision D3): the binding the wrapper threads the return value
+  // under — the user's label when present, else the unspeakable internal name.
+  ret_name := match(
+    return_label,
+    .Some(label) => label,
+    .None => String.from(__YO_CONTRACT_RESULT)
+  );
   // requires asserts. `clone_expr_fresh_ids` gives each spliced predicate its
   // own node ids: yo-self keys ExprInfo by node id (expr.yo:307-313), so
   // reusing the signature's nodes would alias table entries across
@@ -529,6 +575,13 @@ wrap_function_body_with_contracts :: (
       ensures_exprs.get(ei),
       .Some(p) => {
         rewritten := _hoist_old_in(clone_expr_fresh_ids(p.clone()), snapshots, bind_op.clone());
+        if(return_label.is_none(), {
+          // Phase V1: unlabeled return — register the spliced predicate's
+          // atom ids so an unbound-name failure can carry the
+          // label-the-return hint. (Unit returns never reach here with a
+          // label reference; that case is rejected at signature evaluation.)
+          _note_unlabeled_ensures_atoms(rewritten);
+        });
         // label_pred is the ORIGINAL predicate (still shows `old(...)`).
         ensures_asserts.push(
           _build_assert_call(
@@ -567,13 +620,14 @@ wrap_function_body_with_contracts :: (
     qi = (qi + usize(1));
   });
   if(returns_unit, {
-    // Unit return: `result` is not useful and `void result = ...` is invalid C.
-    // Run the body as a statement, then the ensures asserts.
+    // Unit return: the return value is not nameable and
+    // `void result = ...` is invalid C. Run the body as a statement, then
+    // the ensures asserts.
     out_args.push(body);
   }, {
     out_args.push(
       _build_binding(
-        String.from(_RESULT_IDENTIFIER),
+        ret_name.clone(),
         body,
         body_tok.clone(),
         bind_op.clone()
@@ -593,7 +647,7 @@ wrap_function_body_with_contracts :: (
   });
   if(!returns_unit, {
     out_args.push(
-      _synth_atom(String.from(_RESULT_IDENTIFIER), TokenKind.Identifier, body_tok.clone())
+      _synth_atom(ret_name.clone(), TokenKind.Identifier, body_tok.clone())
     );
   });
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
