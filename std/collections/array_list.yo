@@ -451,6 +451,73 @@ impl(
   * Removes and returns the element at `idx`, shifting the tail left.
   * Panics if `idx` is out of bounds (the `Index` impl's contract).
   */
+  /// First element, or `.None` when empty.
+  first : (fn(self : Self) -> Option(T))(
+    self.get(usize(0))
+  ),
+  /// Last element, or `.None` when empty.
+  last : (fn(self : Self) -> Option(T))(
+    cond(
+      (self._length == usize(0)) => Option(T).None,
+      true => self.get(self._length - usize(1))
+    )
+  ),
+  /// Reserve room for `additional` MORE elements.
+  ///
+  /// Rust's spelling. `ensure_total_capacity` takes a TOTAL, which is the same
+  /// call with a different meaning and an easy one to get wrong at a call site.
+  reserve : (fn(self : Self, additional : usize) -> unit)(
+    self.ensure_total_capacity(self._length + additional)
+  ),
+  /// Exchange the elements at `i` and `j`.
+  ///
+  /// Moves the raw slots, like `reverse` — no dup/drop, so this is RC-neutral
+  /// however the element type is refcounted.
+  swap : (fn(self : Self, i : usize, j : usize) -> unit)({
+    if((i >= self._length) || (j >= self._length), {
+      __yo_panic("ArrayList.swap: index out of bounds");
+    });
+    cond(
+      (i == j) => (),
+      true =>
+        match(
+          self._ptr,
+          .Some(_ptr) => {
+            tmp := (_ptr.add(i)).*;
+            (_ptr.add(i)).* = (_ptr.add(j)).*;
+            (_ptr.add(j)).* = tmp;
+          },
+          .None => ()
+        )
+    );
+  }),
+  /// Remove the element at `idx` and return it, moving the LAST element into
+  /// the hole — O(1), and it does not preserve order. Rust's `swap_remove`.
+  swap_remove : (fn(self : Self, idx : usize) -> T)({
+    if(idx >= self._length, {
+      __yo_panic("ArrayList.swap_remove: index out of bounds");
+    });
+    self.swap(idx, self._length - usize(1));
+    match(self.pop(), .Some(v) => v, .None => __yo_panic("ArrayList.swap_remove: pop failed after bounds check"))
+  }),
+  /// Shorten to `new_len`, dropping the elements past it. Longer `new_len` is
+  /// a no-op, as in Rust.
+  truncate : (fn(self : Self, new_len : usize) -> unit)({
+    cond(
+      (new_len >= self._length) => (),
+      true => {
+        _t := self.drain(new_len .. self._length);
+        ()
+      }
+    );
+  }),
+  /// Split off `[at, len)` into a new list, leaving `[0, at)` here.
+  split_off : (fn(self : Self, at : usize) -> Self)({
+    if(at > self._length, {
+      __yo_panic("ArrayList.split_off: index out of bounds");
+    });
+    self.drain(at .. self._length)
+  }),
   remove : (fn(self : Self, idx : usize) -> T)({
     if(idx >= self._length, {
       __yo_panic("ArrayList.remove: index out of bounds");

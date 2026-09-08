@@ -244,3 +244,28 @@ test("BTreeMap.insert returns None for a new key and Some(old) when it replaces"
   assert(m.get(i32(5)).unwrap() == i32(55), "and the new value is stored");
   assert(m.len() == usize(2), "replacing does not grow the map");
 });
+test("contains_key reports membership without cloning the value", {
+  m := BTreeMap(i32, i32).new();
+  m.insert(i32(2), i32(20));
+  m.insert(i32(1), i32(10));
+  assert(m.contains_key(i32(1)) == true, "present key");
+  assert(m.contains_key(i32(2)) == true, "other present key");
+  assert(m.contains_key(i32(99)) == false, "absent key");
+  e := BTreeMap(i32, i32).new();
+  assert(e.contains_key(i32(1)) == false, "empty map contains nothing");
+});
+test("pop_first/pop_last remove from the sorted ends", {
+  m := BTreeMap(i32, i32).new();
+  m.insert(i32(3), i32(30));
+  m.insert(i32(1), i32(10));
+  m.insert(i32(2), i32(20));
+  assert(match(m.pop_first(), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "lowest first");
+  assert(m.len() == usize(2), "pop_first removed one");
+  assert(m.contains_key(i32(1)) == false, "the popped key is gone");
+  assert(match(m.pop_last(), .Some(e) => ((e.key == i32(3)) && (e.value == i32(30))), .None => false), "highest last");
+  assert(m.len() == usize(1), "pop_last removed one");
+  assert(match(m.pop_first(), .Some(e) => (e.key == i32(2)), .None => false), "the survivor pops");
+  assert(m.is_empty() == true, "map is empty");
+  assert(match(m.pop_first(), .Some(_) => false, .None => true), "pop_first on empty is None");
+  assert(match(m.pop_last(), .Some(_) => false, .None => true), "pop_last on empty is None");
+});
