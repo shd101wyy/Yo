@@ -352,3 +352,35 @@ test("a generic struct at T = unit erases the field; Array(unit, N) constructs, 
   e := arr(usize(1));
   assert(sizeof(Array(unit, usize(3))) == usize(1), "Array(unit, 3) is the dummy byte");
 });
+// `unit` OPERANDS. A unit-typed operand has no C representation in expression
+// position, so it renders as the EMPTY string — and `_binop`'s degraded-render
+// guard reads an empty operand as "this operand failed to transpile". Every
+// `unit == unit` therefore became a `// Failed to transpile` comment: fatal in
+// `main`, and inside a DERIVED `==` an abort()-ing stub, so `derive(Eq)` over a
+// struct with a `unit` field produced a binary that died on the first
+// comparison (it also failed to C-compile at -O0, where the GNU `error`
+// attribute on the stub fires). The prelude's `impl(unit, Eq(unit))` /
+// `Ord(unit)` are real functions, so codegen now routes unit operands to the
+// trait-method path instead of the builtin-inline one.
+// See issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md.
+_EqUnitField :: struct(u : unit, n : i32);
+derive(_EqUnitField, Eq(_EqUnitField));
+derive(_EqUnitField, Ord(_EqUnitField), Eq(_EqUnitField));
+test("unit operands compare through the prelude's Eq/Ord impls", {
+  a := ();
+  b := ();
+  assert(a == b, "unit values are equal");
+  assert(!(a != b), "unit values are never unequal");
+  assert(a <= b, "unit <= unit");
+  assert(a >= b, "unit >= unit");
+  assert(!(a < b), "unit is never < unit");
+  assert(!(a > b), "unit is never > unit");
+});
+test("derive(Eq)/derive(Ord) over a struct with a unit field", {
+  x := _EqUnitField(u : (), n : i32(1));
+  y := _EqUnitField(u : (), n : i32(1));
+  z := _EqUnitField(u : (), n : i32(2));
+  assert(x == y, "the unit field does not break structural equality");
+  assert(x != z, "the non-unit field still distinguishes");
+  assert(x < z, "derived Ord over a unit field orders by the non-unit field");
+});

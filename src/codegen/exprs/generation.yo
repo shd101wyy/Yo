@@ -212,9 +212,21 @@ _is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGeneration
         // `&`-prefixed pointer operators had a pointer-LHS carve-out here;
         // pointer arithmetic now lowers through the add/sub/offset_from
         // method bodies' `__yo_ptr_*` builtins instead.)
+        // UNIT IS EXCLUDED even though it is primitive. A `unit`-typed
+        // operand has no C representation in expression position, so it
+        // renders as the EMPTY string — and `_binop`'s degraded-render guard
+        // (inline_fns.yo) rightly reads an empty operand as "this operand
+        // failed to transpile" and emits a `// Failed to transpile` comment.
+        // That turned every `unit == unit` into an untranspiled expression:
+        // fatal in `main`, and in a derived `==` an abort()-ing stub — so
+        // `derive(Eq)` over a struct with a `unit` field produced a binary
+        // that died on the first comparison
+        // (issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md).
+        // The prelude's `impl(unit, Eq(unit))` / `Ord(unit)` are real
+        // functions, so the trait-method path emits a real call for them.
         .Some(lhs) => match(
           context.base.get_expr_info(lhs),
-          .Some(lei) => is_primitive_type(lei.ty),
+          .Some(lei) => (is_primitive_type(lei.ty) && !is_unit_type(lei.ty)),
           .None => false
         ),
         .None => false
