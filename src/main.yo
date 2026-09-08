@@ -54,6 +54,16 @@ _(env : proc_env) :: import("std/env");
 { generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
 { HashMap } :: import("std/collections/hash_map");
 { remove_dir_all } :: import("./fetch.yo");
+{
+  verify_mode_of_string,
+  default_verify_run_config,
+  resolve_solver_sync,
+  SolverResolution,
+  verifier_harness_self_test
+} :: import("./verifier/driver.yo");
+{ ensure_z3 } :: import("./verifier/z3.yo");
+{ Z3_VERSION } :: import("./verifier/z3.yo");
+{ json_stringify, JsonValue } :: import("std/encoding/json");
 { Environment } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
 // ExprInfoTable and std-path resolution all live in `module_manager.yo` — the
@@ -776,6 +786,301 @@ run_check :: (
   if(failed > usize(0), {
     exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
   });
+});
+/// Run the `verify` subcommand — the compile-time verifier driver (V2 of
+/// plans/backlog/FORMAL_VERIFICATION.md).
+///
+/// V2 scope: resolve the pinned Z3 (YO_Z3_PATH → `~/.cache/yo/solvers/…`,
+/// auto-install on miss), run the harness SELF-TEST obligations through
+/// the full encode → spawn → parse → cache pipeline, and report harness
+/// health. The path argument is accepted and scanned (so bad paths fail
+/// fast); real per-function verification obligations land in V3.
+run_verify_cmd :: (
+  fn(
+    argv : ArrayList(String),
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  (target_path : String) = String.new();
+  (solver_path : Option(String)) = Option(String).None;
+  (mode_str : String) = String.new();
+  (rlimit_opt : Option(usize)) = Option(usize).None;
+  (format_json : bool) = false;
+  (no_cache : bool) = false;
+  (explain_fn : Option(String)) = Option(String).None;
+  (ai : usize) = usize(2);
+  while(ai < argv.len(), {
+    a := argv(ai);
+    (a_name : String) = a.clone();
+    (a_val : Option(String)) = Option(String).None;
+    if(a.starts_with("--"), {
+      (eq_at : isize) = (isize(0) - isize(1));
+      (sc_i : usize) = usize(0);
+      while((sc_i < a.len()) && (eq_at < isize(0)), {
+        if(a.byte_at(sc_i) == u8(61), {
+          eq_at = isize(sc_i);
+        });
+        sc_i = (sc_i + usize(1));
+      });
+      if(eq_at > isize(0), {
+        a_name = a.substring(usize(0), usize(eq_at));
+        a_val = Option(String).Some(a.substring(usize(eq_at) + usize(1), a.len()));
+      });
+    });
+    cond(
+      ((a_name == "--verify-mode") || (a_name == "--solver-path")) => {
+        v := _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        if(a_name == "--verify-mode", {
+          mode_str = v;
+        }, {
+          solver_path = Option(String).Some(v);
+        });
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--rlimit") => {
+        v2 := _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        match(
+          v2.parse_u64(),
+          .Some(n) => {
+            rlimit_opt = Option(usize).Some(usize(n));
+          },
+          .None => {
+            exn.throw(dyn(`verify: --rlimit expects a non-negative integer, got '${v2}'`));
+          }
+        );
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--format") => {
+        v3 := _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        if(v3 == "json", {
+          format_json = true;
+        }, {
+          if(v3 == "text", {
+            format_json = false;
+          }, {
+            exn.throw(dyn(`verify: --format expects 'text' or 'json', got '${v3}'`));
+          });
+        });
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--no-cache") => {
+        no_cache = true;
+        ai = (ai + usize(1));
+      },
+      (a_name == "--explain") => {
+        explain_fn = Option(String).Some(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
+        ai = (ai + _opt_step(a_val));
+      },
+      a.starts_with(String.from("-")) => {
+        exn.throw(
+          dyn(
+            `verify: unknown option '${a}'. Usage: yo verify [path] [--verify-mode runtime|verify|verify+] [--solver-path PATH] [--rlimit N] [--format text|json] [--explain FN] [--no-cache]`
+          )
+        );
+      },
+      true => {
+        if(target_path.len() > usize(0), {
+          exn.throw(dyn(`verify: multiple paths given ('${target_path}' and '${a}') — verify one path per invocation`));
+        });
+        target_path = a.clone();
+        ai = (ai + usize(1));
+      }
+    );
+  });
+  if(mode_str.len() > usize(0), {
+    match(
+      verify_mode_of_string(mode_str.clone()),
+      .Some(_) => (),
+      .None => {
+        exn.throw(
+          dyn(`verify: --verify-mode expects 'runtime', 'verify', or 'verify+', got '${mode_str}'`)
+        );
+      }
+    );
+  });
+  if(explain_fn.is_some(), {
+    exn.throw(dyn(`verify: --explain arrives with the per-function verification pass (Phase V3)`));
+  });
+  // Validate the target path up front (fail fast on a typo) and report the
+  // file count; the verification pass itself is V3.
+  (file_count : usize) = usize(0);
+  if(target_path.len() > usize(0), {
+    files := collect_check_files(target_path.clone(), ArrayList(String).new(), io, exn);
+    file_count = files.len();
+    if(file_count == usize(0), {
+      exn.throw(dyn(`verify: no .yo files found at ${target_path}`));
+    });
+  });
+  cfg := default_verify_run_config();
+  cfg.solver_path = solver_path;
+  cfg.no_cache = no_cache;
+  match(
+    rlimit_opt,
+    .Some(n) => {
+      cfg.encode_opts.rlimit = n;
+    },
+    .None => ()
+  );
+  // Sync resolution first (discovery / explicit path); only a discovery MISS
+  // runs the async one-time download install — the rest of the harness is
+  // synchronous by design (see src/verifier/z3.yo's header note).
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(path) => path,
+    .InvalidPath(path) => {
+      exn.throw(dyn(`verify: solver path '${path}' does not exist`));
+      String.new()
+    },
+    .Installable => io.await(ensure_z3(io, exn), IoExn(io : io, exn : exn))
+  );
+  results := verifier_harness_self_test(cfg, binary.clone());
+  // Harness health: obligation 1 must PROVE, obligation 2 must REFUTE with
+  // a concrete counter-example (guards against a solver that answers
+  // garbage, or an encoding that proves by being wrong).
+  (harness_ok : bool) = true;
+  match(
+    results.get(usize(0)),
+    .Some(r1) => {
+      match(
+        r1.verdict,
+        .Proved(_) => (),
+        _ => {
+          harness_ok = false;
+        }
+      );
+    },
+    .None => {
+      harness_ok = false;
+    }
+  );
+  match(
+    results.get(usize(1)),
+    .Some(r2) => {
+      match(
+        r2.verdict,
+        .Refuted(ce) => {
+          if(ce.len() == usize(0), {
+            harness_ok = false;
+          });
+        },
+        _ => {
+          harness_ok = false;
+        }
+      );
+    },
+    .None => {
+      harness_ok = false;
+    }
+  );
+  if(format_json, {
+    entries := ArrayList(JsonValue).new();
+    (ri : usize) = usize(0);
+    while(ri < results.len(), {
+      match(
+        results.get(ri),
+        .Some(r) => {
+          verdict_json := match(
+            r.verdict,
+            .Proved(_) => JsonValue.Str(String.from("proved")),
+            .Refuted(ce) => _verify_json_strs(ce),
+            .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
+            .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
+          );
+          ks := ArrayList(String).new();
+          ks.push(String.from("query"));
+          ks.push(String.from("verdict"));
+          ks.push(String.from("cached"));
+          vs := ArrayList(JsonValue).new();
+          vs.push(JsonValue.Str(r.query_name.clone()));
+          vs.push(verdict_json);
+          vs.push(JsonValue.Bool(r.cached));
+          entries.push(JsonValue.Object(keys : ks, values : vs));
+        },
+        .None => ()
+      );
+      ri = (ri + usize(1));
+    });
+    ks2 := ArrayList(String).new();
+    ks2.push(String.from("solver"));
+    ks2.push(String.from("z3_pin"));
+    ks2.push(String.from("harness_ok"));
+    ks2.push(String.from("self_test"));
+    vs2 := ArrayList(JsonValue).new();
+    vs2.push(JsonValue.Str(binary.clone()));
+    vs2.push(JsonValue.Str(String.from(Z3_VERSION)));
+    vs2.push(JsonValue.Bool(harness_ok));
+    vs2.push(JsonValue.Array(entries));
+    println(json_stringify(JsonValue.Object(keys : ks2, values : vs2)));
+  }, {
+    println(`verify: solver: ${binary} (z3 ${Z3_VERSION})`);
+    if(target_path.len() > usize(0), {
+      println(`verify: target: ${target_path} (${file_count.to_string()} .yo file(s)) — per-function verification arrives in V3`);
+    });
+    (ri2 : usize) = usize(0);
+    while(ri2 < results.len(), {
+      match(
+        results.get(ri2),
+        .Some(r) => {
+          cached_mark := if(r.cached, String.from(" (cached)"), String.from(""));
+          detail := match(
+            r.verdict,
+            .Proved(_) => String.from("PROVED"),
+            .Refuted(ce) => `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`,
+            .Unproven(reason) => `UNPROVEN  ${reason}`,
+            .SolverError(msg) => `SOLVER-ERROR  ${msg}`
+          );
+          println(`verify: ${r.query_name}: ${detail}${cached_mark}`);
+        },
+        .None => ()
+      );
+      ri2 = (ri2 + usize(1));
+    });
+    println(
+      cond(
+        harness_ok => tr(String.from("verify: harness OK"), String.from("verify：自检通过")),
+        true => tr(String.from("verify: harness FAILED"), String.from("verify：自检失败"))
+      )
+    );
+  });
+  if(!(harness_ok), {
+    exn.throw(dyn(String.from("verify: solver harness self-test failed")));
+  });
+});
+/// JSON array of strings (the verify subcommand's counter-example shape).
+_verify_json_strs :: (fn(ss : ArrayList(String)) -> JsonValue)({
+  items := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < ss.len(), {
+    match(
+      ss.get(i),
+      .Some(s) => {
+        items.push(JsonValue.Str(s.clone()));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items)
+});
+/// Comma-join (the verify subcommand's text rendering).
+_verify_join_strs :: (fn(ss : ArrayList(String), sep : String) -> String)({
+  sb := StringBuilder.new();
+  (i : usize) = usize(0);
+  while(i < ss.len(), {
+    match(
+      ss.get(i),
+      .Some(s) => {
+        if(i > usize(0), {
+          sb.write_string(sep);
+        });
+        sb.write_string(s);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb.to_string()
 });
 /// How far the arg cursor advances for a value option: 1 when the value was
 /// attached (`--flag=value`), 2 for the space form.
@@ -3900,6 +4205,11 @@ Examples:
   $ yo fmt src tests             Format .yo files under src and tests
   $ yo fmt --check               Check formatting without writing files
 
+yo verify [path] [options]       Compile-time verification (Z3)
+Examples:
+  $ yo verify ./src              Verify a file/directory
+  $ yo verify --format json      Machine-readable verdicts
+
 yo doc [path] [options]          Generate API documentation
 Examples:
   $ yo doc                       Document all .yo files in current directory
@@ -3980,6 +4290,11 @@ yo fmt [paths...] [options]      格式化 Yo 源文件
   $ yo fmt                       格式化当前目录下所有 .yo 文件
   $ yo fmt src tests             格式化 src 和 tests 下的 .yo 文件
   $ yo fmt --check               只检查格式，不写入文件
+
+yo verify [path] [options]       编译期验证（Z3）
+示例：
+  $ yo verify ./src              验证文件/目录
+  $ yo verify --format json      输出机器可读的判定结果
 
 yo doc [path] [options]          生成 API 文档
 示例：
@@ -4363,6 +4678,51 @@ Examples:
 示例：
   $ yo check ./src
   $ yo check ./std --exclude std/libc`
+      )
+    ),
+    (subcmd == "verify") => Option(String).Some(
+      tr(
+        `Usage: yo verify [path] [options]
+
+Compile-time verification with the pinned Z3 solver (Dafny/SPARK model;
+Phase V2 of plans/backlog/FORMAL_VERIFICATION.md — currently the solver
+harness self-test; per-function proof obligations arrive in V3).
+
+The solver is resolved from YO_Z3_PATH, then the pinned install in
+~/.cache/yo/solvers/, and is auto-downloaded from GitHub Releases when
+neither exists.
+
+Options:
+  --verify-mode <mode>      runtime | verify | verify+ (default runtime)
+  --solver-path <path>      Use this z3 binary (overrides discovery)
+  --rlimit <n>              Solver resource budget (default 5000000)
+  --format <text|json>      Output format (default text)
+  --explain <fn>            Show the VC set for one function (V3)
+  --no-cache                Skip the verification cache
+
+Examples:
+  $ yo verify ./src
+  $ yo verify --solver-path /usr/bin/z3 --format json`,
+        `用法：yo verify [路径] [选项]
+
+使用固定版本的 Z3 求解器做编译期验证（Dafny/SPARK 模型；
+plans/backlog/FORMAL_VERIFICATION.md 的 V2 阶段——目前为求解器管线
+自检；逐函数证明义务在 V3 落地）。
+
+求解器依次从 YO_Z3_PATH、~/.cache/yo/solvers/ 中的固定安装解析，
+都不存在时自动从 GitHub Releases 下载。
+
+选项：
+  --verify-mode <模式>     runtime | verify | verify+（默认 runtime）
+  --solver-path <路径>     使用指定的 z3 二进制（覆盖自动发现）
+  --rlimit <n>             求解器资源预算（默认 5000000）
+  --format <text|json>     输出格式（默认 text）
+  --explain <函数名>       展示单个函数的验证条件集（V3）
+  --no-cache               跳过验证缓存
+
+示例：
+  $ yo verify ./src
+  $ yo verify --solver-path /usr/bin/z3 --format json`
       )
     ),
     (subcmd == "fmt") => Option(String).Some(
@@ -4919,6 +5279,8 @@ main :: (fn(io : Io) -> unit)({
     run_fmt(argv, io, exn);
   }, if(subcmd == "check", {
     run_check(argv, io, exn);
+  }, if(subcmd == "verify", {
+    run_verify_cmd(argv, io, exn);
   }, if(subcmd == "init", {
     run_init(argv, io, exn);
   }, if(subcmd == "build", {
@@ -4940,7 +5302,7 @@ main :: (fn(io : Io) -> unit)({
   }, if(subcmd == "version", {
     run_version_cmd(argv, io, exn);
   }, {
-    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`, `未知子命令 '${subcmd}'。用法：yo <compile|test|fmt|check|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`)));
+    exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <compile|test|fmt|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`, `未知子命令 '${subcmd}'。用法：yo <compile|test|fmt|check|verify|init|build|fetch|install|cache|doc|version|lsp|unsafe-report|public-safe-report|skills> ...`)));
   })))))))))))))));
 });
 export(main);

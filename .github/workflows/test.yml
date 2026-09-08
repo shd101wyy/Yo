@@ -332,6 +332,82 @@ jobs:
           path: yo-out/site
           retention-days: 7
 
+  # Formal verification (V2 of plans/backlog/FORMAL_VERIFICATION.md): the
+  # verifier harness against the REAL pinned Z3 — the hermetic layers of
+  # tests/internal/verifier.test.yo run in the ordinary `test` job; this job
+  # flips YO_TEST_Z3=1 so the real-solver obligations execute, and produces
+  # the `yo verify` JSON report as an artifact for inspection. NOT a
+  # required check until V3 lands (the plan's CI section); a red job here
+  # is a solver-harness regression, not a language regression.
+  verify:
+    name: Formal verification (pinned Z3)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      Z3_VERSION: "5.1.0"
+      YO_TEST_Z3: "1"
+      # discover_z3() resolves YO_Z3_PATH then the solvers cache — it never
+      # searches PATH, so the /usr/local/bin install above must be named here.
+      YO_Z3_PATH: /usr/local/bin/z3
+      YO_STD: ${{ github.workspace }}/std
+      YO_SKILLS: ${{ github.workspace }}/.github/skills
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Z3 pin consistency guard
+        run: |
+          set -euo pipefail
+          pin_src=$(grep -E '^Z3_VERSION :: "' src/verifier/z3.yo | sed -E 's/^Z3_VERSION :: "([^"]+)".*/\1/')
+          pin_wf="${Z3_VERSION}"
+          if [ -z "$pin_src" ] || [ "$pin_src" != "$pin_wf" ]; then
+            echo "::error::Z3 pin diverges: src/verifier/z3.yo has '$pin_src', test.yml has '$pin_wf' — a bump must change BOTH (plans/backlog/FORMAL_VERIFICATION.md §Solver harness)."
+            exit 1
+          fi
+          echo "Z3 pin consistent: $pin_src"
+
+      - name: Install the pinned Z3
+        run: |
+          set -euo pipefail
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y unzip
+          curl -fsSL -o /tmp/z3.zip \
+            "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-x64-glibc-2.39.zip"
+          unzip -o /tmp/z3.zip -d /tmp/z3-install
+          sudo cp "/tmp/z3-install/z3-${Z3_VERSION}-x64-glibc-2.39/bin/z3" /usr/local/bin/z3
+          z3 --version
+
+      # The seed links liburing dynamically and cannot start without it.
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+        run: |
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+
+      - name: Install the seed compiler
+        uses: ./.github/actions/install-seed
+        with:
+          version: ${{ env.SEED_VERSION }}
+
+      - name: Verifier unit tests (real solver)
+        run: yo test ./tests/internal/verifier.test.yo --bail -v
+
+      - name: yo verify harness report (JSON)
+        run: |
+          yo verify ./std/spec --format json | tee verify-report.json
+
+      - name: Upload the verify report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-report
+          path: verify-report.json
+          retention-days: 7
+
   test:
     needs: changes
     if: needs.changes.outputs.code == 'true'

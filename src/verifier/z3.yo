@@ -1,0 +1,677 @@
+//! verifier/z3 — the Z3 solver harness (V2): pin, discovery, acquisition,
+//! and the request/response protocol.
+//!
+//! One solver, pinned and versioned (decision D2). Same source + same
+//! compiler + same pin ⇒ byte-identical verdicts:
+//!   - `:rlimit` budgets (deterministic resource accounting), never
+//!     wall-clock semantics; the `:timeout` is a crash-guard backstop only.
+//!   - fixed `:random-seed 0`.
+//!   - one fresh Z3 process per query — stronger isolation than the plan's
+//!     original "one process per function with push/pop" (no solver state
+//!     bleeds between obligations at all) at a few ms of spawn cost.
+//!
+//! SYNCHRONOUS ON PURPOSE (the `module_manager.yo` comptime-file-IO
+//! idiom): the verifier runs inside compile-time evaluation and inside
+//! async CLI tasks, where async `std/fs` compiles to a blocking poll loop
+//! that drives the event loop from inside a task (C37/C42 — the runtime
+//! guard aborts under YO_ASYNC_STRICT=1). Script I/O and the solver spawn
+//! use libc directly (`system(3)` + open/read/fopen); the ONLY async path
+//! is the one-time download install (`_install_z3` — std/http has no sync
+//! form), which mirrors `src/version_cache.yo`'s release-fetch shape.
+//!
+//! The query protocol (plan §"The query protocol"): each obligation runs as
+//! a complete SMT-LIB script passed as a FILE argument (`z3 -smt2 <file>`)
+//! with stdout/stderr redirected to a second file — no pipes, no
+//! truncation, no interactive state. The script asserts the assumptions,
+//! the NEGATED goal, and asks check-sat, then requests evidence:
+//!   unsat    ⇒ Proved (get-unsat-core names the participating clauses)
+//!   sat      ⇒ Refuted (get-value over the declarations = counter-example)
+//!   unknown  ⇒ Unproven (budget)
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ env, temp_dir, home_dir } :: import("std/env");
+{ Exception, IoExn } :: import("std/error");
+{ FetchOptions, fetch_with } :: import("std/http/client");
+{ Command } :: import("std/process/command");
+{ host_target, is_target_windows, is_target_linux, is_target_macos, arch_triple_str } :: import("../target.yo");
+stat :: import("std/libc/sys/stat");
+fcntl :: import("std/libc/fcntl");
+unistd :: import("std/libc/unistd");
+stdio :: import("std/libc/stdio");
+stdlib :: import("std/libc/stdlib");
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, free } :: GlobalAllocator;
+extern(
+  "Yo",
+  __yo_errno : (fn() -> i32)
+);
+// ============================================================================
+// Pin manifest
+// ============================================================================
+/// The one pinned Z3 version (bumped 4.13.3 → 5.1.0, 2026-09-08 — the
+/// current stable; asset stems moved to glibc-2.39/osx-13.3). Bumps are deliberate
+/// release-note events, never a side effect; the verification cache keys on
+/// this string so a bump invalidates honestly.
+Z3_VERSION :: "5.1.0";
+/// The host's Z3 release-asset stem (e.g. `x64-glibc-2.39`), derived from
+/// the canonical triple vocabulary of `src/target.yo`.
+z3_host_asset_stem :: (fn() -> String)({
+  t := host_target();
+  arch := String.from(arch_triple_str(t.arch));
+  cond(
+    (is_target_linux(t) && (arch == "x86_64")) => String.from("x64-glibc-2.39"),
+    (is_target_linux(t) && (arch == "aarch64")) => String.from("arm64-glibc-2.38"),
+    (is_target_macos(t) && (arch == "x86_64")) => String.from("x64-osx-13.3"),
+    (is_target_macos(t) && (arch == "aarch64")) => String.from("arm64-osx-13.3"),
+    (is_target_windows(t) && (arch == "x86_64")) => String.from("x64-win"),
+    (is_target_windows(t) && (arch == "aarch64")) => String.from("arm64-win"),
+    true => String.from("")
+  )
+});
+/// The global Yo cache root, mirroring `src/cache.yo`'s resolution order
+/// (`YO_CACHE_DIR` → `XDG_CACHE_HOME/yo` → `~/.cache/yo`).
+_yo_cache_root :: (fn() -> String)({
+  yo_cache_env := env.get(String.from("YO_CACHE_DIR"));
+  match(
+    yo_cache_env,
+    .Some(d) => d,
+    .None => {
+      xdg := env.get(String.from("XDG_CACHE_HOME"));
+      match(
+        xdg,
+        .Some(d) => d.concat(String.from("/yo")),
+        .None => {
+          home := home_dir();
+          match(
+            home,
+            .Some(h) => h.concat(String.from("/.cache/yo")),
+            .None => String.from(".yo-cache")
+          )
+        }
+      )
+    }
+  )
+});
+/// The solver binary's path inside the install directory.
+z3_binary_path :: (fn() -> String)({
+  stem := z3_host_asset_stem();
+  exe := cond(
+    is_target_windows(host_target()) => String.from("z3.exe"),
+    true => String.from("z3")
+  );
+  `${_yo_cache_root()}/solvers/z3-${Z3_VERSION}-${stem}/bin/${exe}`
+});
+/// The GitHub Releases download URL for the pinned asset.
+z3_download_url :: (fn() -> String)(
+  `https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/z3-${Z3_VERSION}-${z3_host_asset_stem()}.zip`
+);
+// ============================================================================
+// Sync file shims (the module_manager.yo comptime-file-IO idiom)
+// ============================================================================
+/// Whether `path` exists (libc `stat`; 512-byte statx buffer like
+/// module_manager's `_path_exists_sync`).
+_z3_exists_sync :: (fn(path : String) -> bool)({
+  path_buf := path.to_cstr();
+  cstr := path_buf.ptr().unwrap();
+  buf := malloc(usize(512)).unwrap();
+  rc := unsafe(stat.stat((*char)(cstr), buf));
+  free(.Some(buf));
+  rc == int(0)
+});
+/// Read a whole file synchronously; `.None` on any failure (the caller
+/// decides what a missing/unreadable file means).
+_z3_read_file_sync :: (fn(path : String) -> Option(String))({
+  cstr := path.to_cstr().ptr().unwrap();
+  fd := unsafe(fcntl.open((*char)(cstr), int(fcntl.O_RDONLY)));
+  if(fd < int(0), {
+    return(Option(String).None);
+  });
+  result := ArrayList(u8).new();
+  buf := (*u8)(malloc(usize(4096)).unwrap());
+  while(runtime(true), {
+    // i64 immediately: `ssize_t` has no nameable constructor, but casting
+    // its RESULT is fine (module_manager.yo's note).
+    n := i64(unsafe(unistd.read(fd, (*void)(buf), usize(4096))));
+    cond(
+      (n < i64(0)) => {
+        free(.Some((*void)(buf)));
+        _ := unsafe(unistd.close(fd));
+        return(Option(String).None);
+      },
+      (n == i64(0)) => break,
+      true => {
+        (i : usize) = usize(0);
+        while(i < usize(n), {
+          result.push((buf.add(i)).*);
+          i = (i + usize(1));
+        });
+      }
+    );
+  });
+  free(.Some((*void)(buf)));
+  _ := unsafe(unistd.close(fd));
+  match(
+    String.from_utf8(result),
+    .Ok(s) => Option(String).Some(s),
+    .Err(_) => Option(String).None
+  )
+});
+/// Write a whole file synchronously (fopen "w": creates/truncates).
+/// `.false` on failure.
+_z3_write_file_sync :: (fn(path : String, contents : String) -> bool)({
+  pcstr := path.to_cstr().ptr().unwrap();
+  mcstr := String.from("w").to_cstr().ptr().unwrap();
+  f := unsafe(stdio.fopen((*char)(pcstr), (*char)(mcstr)));
+  match(
+    f,
+    .Some(fh) => {
+      b := contents.as_bytes();
+      bptr := match(
+        b.ptr(),
+        .Some(p) => p,
+        .None => (*u8)(malloc(usize(1)).unwrap())
+      );
+      wrote := unsafe(stdio.fwrite((*void)(bptr), usize(1), b.len(), fh));
+      _ := unsafe(stdio.fclose(fh));
+      wrote == b.len()
+    },
+    .None => false
+  )
+});
+/// Unlink a file (best effort — failures ignored; the temp dir recovers).
+_z3_unlink_sync :: (fn(path : String) -> unit)({
+  cstr := path.to_cstr().ptr().unwrap();
+  _ := unsafe(unistd.unlink((*char)(cstr)));
+  ()
+});
+/// Ensure a directory (and its parents) exist — portable BECAUSE it shells
+/// out: libc `mkdir` is 2-arg on POSIX but 1-arg in the Windows CRT, and the
+/// 2-arg call breaks the Windows cross-emit even from dead code, while
+/// `system(3)` — already this module's solver-spawn primitive — compiles
+/// everywhere. POSIX `mkdir -p` and cmd's `md` both create intermediates;
+/// the exit status is advisory (Windows `md` errors on an existing dir) and
+/// deliberately ignored: a failed creation surfaces as the fopen failure in
+/// `_z3_write_file_sync`, i.e. "cache off", not a verifier error.
+_z3_ensure_dir_sync :: (fn(path : String) -> unit)({
+  cmd := cond(
+    is_target_windows(host_target()) => `cmd /c md "${path}"`,
+    true => `mkdir -p "${path}"`
+  );
+  cmd_buf := cmd.to_cstr();
+  cmd_cstr := cmd_buf.ptr().unwrap();
+  _ := unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
+  ()
+});
+/// Monotonic counter for temp-file names — unique within one process run,
+/// like the contract wrapper's `g_contract_old_counter`.
+(g_z3_tmp_counter : usize) = usize(0);
+/// A fresh temp path under the system temp dir (`<tmp>/yo-verify-<n>.<ext>`).
+_z3_temp_path :: (fn(ext : String) -> String)({
+  p := `${temp_dir()}/yo-verify-${g_z3_tmp_counter.to_string()}.${ext}`;
+  g_z3_tmp_counter = (g_z3_tmp_counter + usize(1));
+  p
+});
+// ============================================================================
+// Discovery & acquisition
+// ============================================================================
+/// Discovery order (plan §"Acquisition"): `YO_Z3_PATH` env override → the
+/// pinned install in the cache. `.None` when neither exists.
+discover_z3 :: (fn() -> Option(String))({
+  override := env.get(String.from("YO_Z3_PATH"));
+  match(
+    override,
+    .Some(p) => Option(String).Some(p),
+    .None => {
+      cached := z3_binary_path();
+      if(
+        _z3_exists_sync(cached.clone()),
+        Option(String).Some(cached),
+        Option(String).None
+      )
+    }
+  )
+});
+/// Download the pinned Z3 release asset into the solver cache and return
+/// the binary path. The ONLY async function in the harness: std/http has
+/// no sync form. Shape mirrors `src/version_cache.yo`'s release fetch —
+/// straight-line `e.io.await` calls, String-only values (the async backend
+/// mis-lowers captures of richer shapes; see
+/// issues/async-closure-value-struct-param-emits-invalid-c-cast.md).
+/// unzip extracts straight into the solvers root (`unzip -o` overwrites),
+/// so no rename/remove-dir dance is needed.
+_install_z3 :: (
+  fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn))
+)(
+  io.async((e : IoExn) => {
+    stem := z3_host_asset_stem();
+    if(stem.len() == usize(0), {
+      e.exn.throw(
+        dyn(
+          `verify: no pinned Z3 release asset for this host (${host_target().triple}). Set YO_Z3_PATH to an existing z3 binary.`
+        )
+      );
+    });
+    // `unzip -d` creates the target dir (including parents) itself — no
+    // mkdir needed (Windows CRT mkdir is single-argument, so a libc mkdir-p
+    // would need per-platform shapes for nothing).
+    solvers_root := `${_yo_cache_root()}/solvers`;
+    zip_path := _z3_temp_path(String.from("zip"));
+    url := z3_download_url();
+    opts := FetchOptions.new();
+    opts = opts.with_header(`User-Agent`, `yo-verifier`);
+    opts = opts.with_max_redirects(usize(5));
+    opts = opts.with_max_response_bytes(usize(268435456));
+    resp := e.io.await(fetch_with(url.clone(), opts, e.io), e);
+    if(resp.status_code >= i32(400), {
+      e.exn.throw(dyn(`verify: failed to download Z3 (HTTP ${resp.status_code.to_string()}) from ${url}`));
+    });
+    if(!_z3_write_file_sync(zip_path.clone(), resp.body), {
+      e.exn.throw(dyn(`verify: failed to write ${zip_path}`));
+    });
+    uc := Command.new(String.from("unzip"));
+    uc.arg(String.from("-o"));
+    uc.arg(zip_path.clone());
+    uc.arg(String.from("-d"));
+    uc.arg(solvers_root.clone());
+    uout := e.io.await(uc.output(e.io), e);
+    _z3_unlink_sync(zip_path.clone());
+    if(!uout.status.success(), {
+      e.exn.throw(
+        dyn(
+          `verify: 'unzip' failed to extract the Z3 archive. Install 'unzip' (or set YO_Z3_PATH to an existing z3 binary).`
+        )
+      );
+    });
+    bin := z3_binary_path();
+    if(!_z3_exists_sync(bin.clone()), {
+      e.exn.throw(
+        dyn(`verify: Z3 archive extracted but ${bin} is missing — unexpected archive layout from ${url}`)
+      );
+    });
+    bin
+  })
+);
+/// Resolve the solver: discovery first, install on miss.
+ensure_z3 :: (
+  fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn))
+)(
+  io.async(
+    (e : IoExn) => match(
+      discover_z3(),
+      .Some(p) => p,
+      .None => e.io.await(_install_z3(e.io, e.exn), e)
+    )
+  )
+);
+// ============================================================================
+// The query protocol
+// ============================================================================
+/// Run one complete SMT-LIB script through a fresh `z3 -smt2 <file>`
+/// process and return its combined stdout (stderr redirected in). Errors
+/// carry the exit status and the captured output for the diagnostic.
+run_z3_script :: (fn(binary : String, script : String) -> Result(String, String))({
+  script_path := _z3_temp_path(String.from("smt2"));
+  out_path := _z3_temp_path(String.from("out"));
+  sp_write := script_path.clone();
+  if(!_z3_write_file_sync(sp_write, script), {
+    return(Result(String, String).Err(`verify: failed to write ${script_path}`));
+  });
+  cmd := `${binary} -smt2 ${script_path} > ${out_path} 2>&1`;
+  // Bind the WHOLE ArrayList, not just its raw pointer: a method-chain
+  // temporary (`cmd.to_cstr().ptr().unwrap()`) is dropped only on some
+  // codegen paths, leaking its heap buffer (ASan: 40B per solver run).
+  cmd_buf := cmd.to_cstr();
+  cmd_cstr := cmd_buf.ptr().unwrap();
+  status := unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
+  op_read := out_path.clone();
+  out_opt := _z3_read_file_sync(op_read);
+  sp_unlink := script_path.clone();
+  _z3_unlink_sync(sp_unlink);
+  op_unlink := out_path.clone();
+  _z3_unlink_sync(op_unlink);
+  out := match(
+    out_opt,
+    .Some(o) => o,
+    .None => String.new()
+  );
+  if(status < int(0), {
+    return(Result(String, String).Err(`verify: failed to spawn z3 (${status.to_string()})`));
+  });
+  // system(3) returns the WAIT status; the exit code is the high byte.
+  exit_code := (status / int(256));
+  // z3 exits nonzero when a post-check-sat EVIDENCE request is unavailable
+  // (get-value on unsat, get-unsat-core on sat) — it still prints the error
+  // AND the verdict, so a parseable verdict wins over the exit status.
+  out_scan := out.clone();
+  if((exit_code != int(0)) && z3_check_sat_of(parse_z3_sexprs(out_scan)).is_none(), {
+    return(
+      Result(String, String).Err(`verify: z3 exited with status ${exit_code.to_string()}\n${out}`)
+    );
+  });
+  Result(String, String).Ok(out)
+});
+// ============================================================================
+// S-expression scanning (verdict parsing — pure, unit-testable)
+// ============================================================================
+/// A parsed S-expression: atom or list.
+Z3Sexpr :: ref(
+  enum(Atom(text : String), List(items : ArrayList(Self)))
+);
+/// Parse ALL top-level S-expressions in `text` (whitespace and `;` line
+/// comments tolerated). Unclosed lists are dropped rather than thrown —
+/// the caller decides what missing evidence means.
+parse_z3_sexprs :: (fn(text : String) -> ArrayList(Z3Sexpr))({
+  out := ArrayList(Z3Sexpr).new();
+  stack := ArrayList(ArrayList(Z3Sexpr)).new();
+  b := text.as_bytes();
+  (i : usize) = usize(0);
+  while(i < b.len(), {
+    c := match(b.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      ((c == u8(0x20)) || (c == u8(0x09)) || (c == u8(0x0A)) || (c == u8(0x0D))) => {
+        i = (i + usize(1));
+      },
+      (c == u8(0x3B)) => {
+        // ';' comment — skip to end of line (leave the \n for the next pass).
+        (j : usize) = i;
+        while(j < b.len(), {
+          cc := match(b.get(j), .Some(x) => x, .None => u8(0x0A));
+          if(cc == u8(0x0A), {
+            break;
+          });
+          j = (j + usize(1));
+        });
+        i = j;
+      },
+      (c == u8(0x28)) => {
+        frame := ArrayList(Z3Sexpr).new();
+        stack.push(frame);
+        i = (i + usize(1));
+      },
+      (c == u8(0x29)) => {
+        frame := match(
+          stack.pop(),
+          .Some(f) => f,
+          .None => ArrayList(Z3Sexpr).new()
+        );
+        list := Z3Sexpr.List(frame);
+        match(
+          stack.pop(),
+          .Some(parent) => {
+            parent.push(list);
+            stack.push(parent);
+          },
+          .None => {
+            out.push(list);
+          }
+        );
+        i = (i + usize(1));
+      },
+      true => {
+        // Atom: run of bytes that are not whitespace, parens, or comment.
+        start := i;
+        while(i < b.len(), {
+          cc := match(b.get(i), .Some(x) => x, .None => u8(0));
+          if((cc == u8(0x20)) || (cc == u8(0x09)) || (cc == u8(0x0A)) || (cc == u8(0x0D)) || (cc == u8(0x28)) || (cc == u8(0x29)) || (cc == u8(0x3B)), {
+            break;
+          });
+          i = (i + usize(1));
+        });
+        // substring takes (start, END), not (start, len).
+        atom := Z3Sexpr.Atom(text.substring(start, i));
+        match(
+          stack.pop(),
+          .Some(parent) => {
+            parent.push(atom);
+            stack.push(parent);
+          },
+          .None => {
+            out.push(atom);
+          }
+        );
+      }
+    );
+  });
+  out
+});
+/// Render one sexpr back to text (counter-example rendering).
+z3_sexpr_to_string :: (fn(s : Z3Sexpr) -> String)(
+  match(
+    s,
+    .Atom(t) => t.clone(),
+    .List(items) => {
+      sb := StringBuilder.new();
+      sb.write_byte(u8(0x28));
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(
+          items.get(i),
+          .Some(x) => {
+            if(i > usize(0), {
+              sb.write_byte(u8(0x20));
+            });
+            sb.write_string(z3_sexpr_to_string(x));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      sb.write_byte(u8(0x29));
+      sb.to_string()
+    }
+  )
+);
+/// The check-sat verdict of a response stream: the FIRST top-level atom
+/// among `unsat` / `sat` / `unknown`. `.None` when the stream has none
+/// (solver error — the caller reports the raw output).
+z3_check_sat_of :: (fn(forms : ArrayList(Z3Sexpr)) -> Option(String))({
+  (i : usize) = usize(0);
+  while(i < forms.len(), {
+    match(
+      forms.get(i),
+      .Some(form) => {
+        // Nested patterns do not parse — match twice.
+        match(
+          form,
+          .Atom(t) => {
+            if((t == "unsat") || (t == "sat") || (t == "unknown"), {
+              return(Option(String).Some(t.clone()));
+            });
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(String).None
+});
+/// The text of `items[0]` when it is an atom (`.None` otherwise) — the
+/// nested-match helper for keyword-led response forms.
+_head_atom_text :: (fn(items : ArrayList(Z3Sexpr)) -> Option(String))(
+  match(
+    items.get(usize(0)),
+    .Some(head) => match(
+      head,
+      .Atom(t) => Option(String).Some(t.clone()),
+      _ => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
+/// The unsat core: the first top-level BARE list of atoms (z3 prints it as
+/// `(name1 name2 ...)` right after unsat). Keyword-led forms (`(error …)`,
+/// `(model …)`, `(define-fun …)`) and the get-value response shape are
+/// skipped.
+z3_unsat_core_of :: (fn(forms : ArrayList(Z3Sexpr)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < forms.len(), {
+    match(
+      forms.get(i),
+      .Some(form) => {
+        match(
+          form,
+          .List(items) => {
+            head_kw := match(
+              _head_atom_text(items),
+              .Some(t) => ((t == "error") || (t == "model") || (t == "define-fun")),
+              .None => false
+            );
+            if(!head_kw, {
+              all_atoms := true;
+              (j : usize) = usize(0);
+              while(j < items.len(), {
+                match(
+                  items.get(j),
+                  .Some(item) => {
+                    match(
+                      item,
+                      .Atom(_) => (),
+                      _ => {
+                        all_atoms = false;
+                      }
+                    );
+                  },
+                  .None => ()
+                );
+                if(!all_atoms, {
+                  break;
+                });
+                j = (j + usize(1));
+              });
+              if(all_atoms && (items.len() > usize(0)), {
+                (k : usize) = usize(0);
+                while(k < items.len(), {
+                  match(
+                    items.get(k),
+                    .Some(item2) => {
+                      match(
+                        item2,
+                        .Atom(t) => {
+                          out.push(t.clone());
+                        },
+                        _ => ()
+                      );
+                    },
+                    .None => ()
+                  );
+                  k = (k + usize(1));
+                });
+                return(out);
+              });
+            });
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+/// The `(get-value ...)` response: a top-level list of `(name value)`
+/// pairs, rendered as `name = value` strings in response order.
+z3_value_pairs_of :: (fn(forms : ArrayList(Z3Sexpr)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < forms.len(), {
+    match(
+      forms.get(i),
+      .Some(form) => {
+        match(
+          form,
+          .List(pairs) => {
+            plausible := (pairs.len() > usize(0));
+            (j : usize) = usize(0);
+            while(j < pairs.len(), {
+              match(
+                pairs.get(j),
+                .Some(pair) => {
+                  match(
+                    pair,
+                    .List(kv) => {
+                      if(kv.len() != usize(2), {
+                        plausible = false;
+                      });
+                    },
+                    _ => {
+                      plausible = false;
+                    }
+                  );
+                },
+                .None => {
+                  plausible = false;
+                }
+              );
+              if(!plausible, {
+                break;
+              });
+              j = (j + usize(1));
+            });
+            if(plausible, {
+              (k : usize) = usize(0);
+              while(k < pairs.len(), {
+                match(
+                  pairs.get(k),
+                  .Some(pair2) => {
+                    match(
+                      pair2,
+                      .List(kv2) => {
+                        n := match(
+                          kv2.get(usize(0)),
+                          .Some(name_form) => match(
+                            name_form,
+                            .Atom(t) => t.clone(),
+                            _ => String.from("?")
+                          ),
+                          .None => String.from("?")
+                        );
+                        v := match(
+                          kv2.get(usize(1)),
+                          .Some(value_form) => z3_sexpr_to_string(value_form),
+                          .None => String.from("?")
+                        );
+                        out.push(`${n} = ${v}`);
+                      },
+                      _ => ()
+                    );
+                  },
+                  .None => ()
+                );
+                k = (k + usize(1));
+              });
+              return(out);
+            });
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
+export(
+  Z3_VERSION,
+  z3_host_asset_stem,
+  z3_binary_path,
+  z3_download_url,
+  discover_z3,
+  ensure_z3,
+  run_z3_script,
+  _z3_exists_sync,
+  _z3_read_file_sync,
+  _z3_write_file_sync,
+  _z3_ensure_dir_sync,
+  Z3Sexpr,
+  parse_z3_sexprs,
+  z3_sexpr_to_string,
+  z3_check_sat_of,
+  z3_unsat_core_of,
+  z3_value_pairs_of
+);

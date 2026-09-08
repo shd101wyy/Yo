@@ -727,7 +727,8 @@ tools emit).
 
 ### Acquisition
 
-- **One pinned Z3 version** (start: Z3 4.13.3), recorded in a manifest
+- **One pinned Z3 version** (started 4.13.3; bumped to Z3 5.1.0 on
+  2026-09-08 — the current stable; asset stems glibc-2.39/osx-13.3), recorded in a manifest
   constant in `src/verifier/z3.yo`. Bundled *once* per machine into
   `~/.cache/yo/solvers/z3-<version>-<target-triple>/` following the
   version-cache model (`src/version_cache.yo`, releases fetched from
@@ -896,6 +897,37 @@ all `tests/spec/` green; cheatsheet updated.
 **Estimate:** ~1 week.
 
 ### Phase V2 — Solver harness & verifier skeleton
+
+> **Status: LANDED 2026-09-07.** `src/verifier/{terms,encode,z3,driver}.yo`
+> + the `yo verify` subcommand + `tests/internal/verifier.test.yo`
+> (17 tests: encode goldens, mangling, sexpr scanning, verdict mapping,
+> cache-key stability, and two YO_TEST_Z3=1-gated real-solver tests) + the
+> `verify` CI job in test.yml (installs the pinned Z3, Z3-pin consistency
+> guard, JSON report artifact; NOT a required check until V3).
+> Validated end-to-end locally: `yo verify` proves `1+1==2`, refutes
+> `1+1==3` with counter-example `x = #x00000002`, harness OK; cache
+> roundtrip verified.
+>
+> **Deviations from the plan (recorded):**
+> 1. The harness is **synchronous** (the `module_manager.yo`
+>    comptime-file-IO idiom: libc open/read/fopen + `system(3)` for the
+>    solver spawn; script and redirected output travel as FILE paths).
+>    The async route hit a cluster of pre-existing capture-mode
+>    state-machine bugs — invalid C struct casts, `.io` member-projection
+>    loss in cond-branch arms, an ASan-confirmed use-after-free on resume
+>    — filed as
+>    `issues/async-closure-value-struct-param-emits-invalid-c-cast.md`.
+>    The ONE async path left is the one-time download install
+>    (`_install_z3`), in `version_cache.yo`'s proven shape.
+> 2. **One z3 process per query** (stronger isolation than push/pop per
+>    function) — spawn cost is ms-scale.
+> 3. z3's nonzero exit on unavailable post-check-sat evidence
+>    (get-value on unsat / get-unsat-core on sat) is tolerated when a
+>    verdict was parsed; `system(3)`'s wait status is decoded.
+> 4. Surfaced and filed on the way:
+>    `issues/plain-recursive-enum-segfaults-the-evaluator.md` (a plain
+>    `enum` recursing into itself SIGSEGVs the size walk instead of
+>    erroring — the V2 IR uses `ref(enum)` per the `AstExpr` precedent).
 
 **Scope:** everything needed to talk to Z3, before any real VC.
 

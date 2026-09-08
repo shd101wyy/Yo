@@ -1,0 +1,428 @@
+//! verifier/driver — scheduling, budgets, verdicts, caching (V2).
+//!
+//! The driver owns the per-obligation lifecycle: build the cache key
+//! (sha256 of the query's SMT content + the pin + the run options), look
+//! the verdict up in `~/.cache/yo/verify-cache/<key>.json`, and only on a
+//! miss spawn the solver. Cache hits are reported (`cached: proved`) so CI
+//! logs stay honest. Any input change — predicate text, callee contract
+//! set, solver pin, mode, options — invalidates the key.
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ env, home_dir } :: import("std/env");
+{ Exception, IoExn } :: import("std/error");
+{ json_parse_string, json_stringify, JsonValue } :: import("std/encoding/json");
+{ sha256_hex } :: import("std/crypto/sha256");
+{ VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
+{ encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
+{
+  Z3_VERSION,
+  ensure_z3,
+  discover_z3,
+  run_z3_script,
+  parse_z3_sexprs,
+  z3_check_sat_of,
+  z3_unsat_core_of,
+  z3_value_pairs_of,
+  _z3_exists_sync,
+  _z3_read_file_sync,
+  _z3_write_file_sync,
+  _z3_ensure_dir_sync
+} :: import("./z3.yo");
+// ============================================================================
+// Options & verdicts
+// ============================================================================
+/// Verification mode per the plan's pragma table (`runtime` default).
+VerifyMode :: enum(
+  /// Contracts lower to runtime asserts — today's behavior, no solver.
+  Runtime,
+  /// Proof obligations; refuted or unprovable ⇒ compile error.
+  Verify,
+  /// Flagship: prove when possible, fall back to runtime asserts.
+  VerifyOrAssert
+);
+/// Parse a `--verify-mode` spelling (`runtime` / `verify` / `verify+`).
+verify_mode_of_string :: (fn(s : String) -> Option(VerifyMode))(
+  cond(
+    (s == "runtime") => Option(VerifyMode).Some(VerifyMode.Runtime),
+    (s == "verify") => Option(VerifyMode).Some(VerifyMode.Verify),
+    (s == "verify+") => Option(VerifyMode).Some(VerifyMode.VerifyOrAssert),
+    true => Option(VerifyMode).None
+  )
+);
+/// Run configuration: budgets and overrides. Part of the cache key.
+VerifyRunConfig :: struct(
+  /// Solver binary override (`--solver-path`); `.None` = discover/install.
+  solver_path : Option(String),
+  /// Encode/run options (rlimit budget, seed, backstop, evidence).
+  encode_opts : EncodeOptions,
+  /// Skip the verification cache for this run (`--no-cache`).
+  no_cache : bool
+);
+/// Default run config: default encode options, no override, cache on.
+default_verify_run_config :: (fn() -> VerifyRunConfig)(
+  VerifyRunConfig(
+    solver_path : Option(String).None,
+    encode_opts : default_encode_options(),
+    no_cache : false
+  )
+);
+/// The verdict of one obligation.
+VerifyVerdict :: enum(
+  /// unsat — the goal holds under the assumptions. Carries the unsat
+  /// core's clause names when available.
+  Proved(core : ArrayList(String)),
+  /// sat — the goal FAILS; the counter-example names the inputs.
+  Refuted(counterexample : ArrayList(String)),
+  /// unknown / budget exhausted — nothing concluded.
+  Unproven(reason : String),
+  /// The solver could not be run at all (missing, crashed).
+  SolverError(message : String)
+);
+/// One obligation result: what was asked and what came back.
+VerifyResult :: ref(
+  struct(
+    query_name : String,
+    verdict : VerifyVerdict,
+    /// `true` when the verdict came from the cache, not the solver.
+    cached : bool
+  )
+);
+// ============================================================================
+// JSON helpers
+// ============================================================================
+/// A two-key JSON object.
+_json_obj2 :: (fn(k1 : String, v1 : JsonValue, k2 : String, v2 : JsonValue) -> JsonValue)({
+  ks := ArrayList(String).new();
+  ks.push(k1);
+  ks.push(k2);
+  vs := ArrayList(JsonValue).new();
+  vs.push(v1);
+  vs.push(v2);
+  JsonValue.Object(keys : ks, values : vs)
+});
+/// A JSON array of strings.
+_strs_to_json :: (fn(ss : ArrayList(String)) -> JsonValue)({
+  items := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < ss.len(), {
+    match(
+      ss.get(i),
+      .Some(s) => {
+        items.push(JsonValue.Str(s.clone()));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  JsonValue.Array(items)
+});
+/// A `ArrayList(String)` out of a JSON array of strings (mismatched items
+/// are skipped).
+_strs_of_json :: (fn(j : JsonValue) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  match(
+    j.as_array(),
+    .Some(items) => {
+      (i : usize) = usize(0);
+      while(i < items.len(), {
+        match(
+          items.get(i),
+          .Some(item) => {
+            // Nested patterns do not parse — match twice.
+            match(
+              item,
+              .Str(s) => {
+                out.push(s.clone());
+              },
+              _ => ()
+            );
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
+  out
+});
+/// Serialize a verdict to the cache-file JSON shape.
+_verdict_to_json :: (fn(v : VerifyVerdict) -> JsonValue)(
+  match(
+    v,
+    .Proved(core) => _json_obj2(
+      String.from("verdict"),
+      JsonValue.Str(String.from("proved")),
+      String.from("core"),
+      _strs_to_json(core)
+    ),
+    .Refuted(ce) => _json_obj2(
+      String.from("verdict"),
+      JsonValue.Str(String.from("refuted")),
+      String.from("counterexample"),
+      _strs_to_json(ce)
+    ),
+    .Unproven(reason) => _json_obj2(
+      String.from("verdict"),
+      JsonValue.Str(String.from("unproven")),
+      String.from("reason"),
+      JsonValue.Str(reason.clone())
+    ),
+    .SolverError(msg) => _json_obj2(
+      String.from("verdict"),
+      JsonValue.Str(String.from("solver-error")),
+      String.from("message"),
+      JsonValue.Str(msg.clone())
+    )
+  )
+);
+/// Parse a cached verdict back. Returns `.None` on any shape mismatch —
+/// a corrupt cache entry is a miss, not an error.
+_verdict_of_json :: (fn(v : JsonValue) -> Option(VerifyVerdict))({
+  // Nested patterns (`.Some(.Str(s))`) do not parse — match twice, and arm
+  // bodies nest their match DIRECTLY (a `{ match(...); }` block would make
+  // the arm's value unit).
+  kind := match(
+    v.get(String.from("verdict")),
+    .Some(kind_val) => match(
+      kind_val,
+      .Str(s) => s.clone(),
+      _ => String.new()
+    ),
+    .None => String.new()
+  );
+  if(kind.len() == usize(0), {
+    return(Option(VerifyVerdict).None);
+  });
+  cond(
+    (kind == "proved") => match(
+      v.get(String.from("core")),
+      .Some(core_json) => Option(VerifyVerdict).Some(VerifyVerdict.Proved(_strs_of_json(core_json))),
+      .None => Option(VerifyVerdict).Some(VerifyVerdict.Proved(ArrayList(String).new()))
+    ),
+    (kind == "refuted") => match(
+      v.get(String.from("counterexample")),
+      .Some(ce_json) => Option(VerifyVerdict).Some(VerifyVerdict.Refuted(_strs_of_json(ce_json))),
+      .None => Option(VerifyVerdict).None
+    ),
+    (kind == "unproven") => match(
+      v.get(String.from("reason")),
+      .Some(reason_val) => match(
+        reason_val,
+        .Str(r) => Option(VerifyVerdict).Some(VerifyVerdict.Unproven(r.clone())),
+        _ => Option(VerifyVerdict).None
+      ),
+      .None => Option(VerifyVerdict).None
+    ),
+    (kind == "solver-error") => match(
+      v.get(String.from("message")),
+      .Some(msg_val) => match(
+        msg_val,
+        .Str(m) => Option(VerifyVerdict).Some(VerifyVerdict.SolverError(m.clone())),
+        _ => Option(VerifyVerdict).None
+      ),
+      .None => Option(VerifyVerdict).None
+    ),
+    true => Option(VerifyVerdict).None
+  )
+});
+// ============================================================================
+// Cache
+// ============================================================================
+/// The verification cache directory.
+verify_cache_dir :: (fn() -> String)({
+  root := match(
+    env.get(String.from("YO_CACHE_DIR")),
+    .Some(d) => d,
+    .None => match(
+      env.get(String.from("XDG_CACHE_HOME")),
+      .Some(d) => d.concat(String.from("/yo")),
+      .None => match(
+        home_dir(),
+        .Some(h) => h.concat(String.from("/.cache/yo")),
+        .None => String.from(".yo-cache")
+      )
+    )
+  );
+  `${root}/verify-cache`
+});
+/// The cache key: sha256 of (solver pin, run options, query content). All
+/// inputs are text; each part is newline-terminated so the concatenation
+/// is unambiguous.
+verify_cache_key :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> String)({
+  material := StringBuilder.new();
+  material.write_string(`z3=${Z3_VERSION}\n`);
+  material.write_string(`rlimit=${cfg.encode_opts.rlimit.to_string()}\n`);
+  material.write_string(`seed=${cfg.encode_opts.random_seed.to_string()}\n`);
+  material.write_string(`timeout=${cfg.encode_opts.timeout_ms.to_string()}\n`);
+  material.write_string(encode_content(q));
+  sha256_hex(material.to_string().as_bytes())
+});
+// ============================================================================
+// Running one obligation
+// ============================================================================
+/// Interpret a raw solver response stream into a verdict (pure — the
+/// unit-testable seam between the harness and the protocol).
+verdict_of_response :: (fn(response : String) -> VerifyVerdict)({
+  forms := parse_z3_sexprs(response);
+  match(
+    z3_check_sat_of(forms),
+    .Some(v) => cond(
+      (v == "unsat") => VerifyVerdict.Proved(z3_unsat_core_of(forms)),
+      (v == "sat") => VerifyVerdict.Refuted(z3_value_pairs_of(forms)),
+      true => VerifyVerdict.Unproven(response.trim())
+    ),
+    .None => VerifyVerdict.SolverError(response.trim())
+  )
+});
+/// Cache lookup for one obligation: `.Some(result)` on a hit, `.None` on
+/// miss/no-cache/corrupt entry. Synchronous (see the z3.yo header note).
+_cache_lookup :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> Option(VerifyResult))({
+  if(cfg.no_cache, {
+    return(Option(VerifyResult).None);
+  });
+  key := verify_cache_key(q, cfg);
+  cache_path := `${verify_cache_dir()}/${key}.json`;
+  match(
+    _z3_read_file_sync(cache_path.clone()),
+    .None => Option(VerifyResult).None,
+    .Some(content) => match(
+      json_parse_string(content),
+      // The store's shape is {query, verdict: {...}} — unwrap the verdict
+      // member before parsing it. A corrupt cache entry is a MISS, not an
+      // error — the store overwrites.
+      .Ok(j) => match(
+        j.get(String.from("verdict")),
+        .Some(vj) => match(
+          _verdict_of_json(vj),
+          .Some(v) => Option(VerifyResult).Some(VerifyResult(query_name : q.name.clone(), verdict : v, cached : true)),
+          .None => Option(VerifyResult).None
+        ),
+        .None => Option(VerifyResult).None
+      ),
+      .Err(_) => Option(VerifyResult).None
+    )
+  )
+});
+/// Cache store for one obligation. Terminal verdicts only — a SolverError
+/// (missing/crashed solver) must retry on the next run.
+_cache_store :: (fn(q : VcQuery, verdict : VerifyVerdict) -> unit)({
+  _z3_ensure_dir_sync(verify_cache_dir());
+  key := verify_cache_key(q, default_verify_run_config());
+  cache_path := `${verify_cache_dir()}/${key}.json`;
+  payload := _json_obj2(
+    String.from("query"),
+    JsonValue.Str(q.name.clone()),
+    String.from("verdict"),
+    _verdict_to_json(verdict)
+  );
+  _ := _z3_write_file_sync(cache_path.clone(), json_stringify(payload));
+  ()
+});
+/// Run one obligation end-to-end: cache lookup → solver → parse → cache
+/// store. Synchronous — the solver spawn itself is libc `system(3)`
+/// (z3.yo), so there is no event-loop interaction anywhere in the hot path.
+run_vc_query :: (fn(q : VcQuery, cfg : VerifyRunConfig, binary : String) -> VerifyResult)({
+  cached_opt := _cache_lookup(q, cfg);
+  match(
+    cached_opt,
+    .Some(cached) => {
+      return(cached);
+    },
+    .None => ()
+  );
+  script := encode_script(q, cfg.encode_opts);
+  verdict := match(
+    run_z3_script(binary.clone(), script),
+    .Ok(response) => verdict_of_response(response),
+    .Err(msg) => VerifyVerdict.SolverError(msg)
+  );
+  is_terminal := match(
+    verdict,
+    .SolverError(_) => false,
+    _ => true
+  );
+  if(is_terminal, {
+    _cache_store(q, verdict);
+  });
+  VerifyResult(query_name : q.name.clone(), verdict : verdict, cached : false)
+});
+/// Outcome of the synchronous solver resolution.
+SolverResolution :: enum(
+  /// A usable binary path.
+  Resolved(path : String),
+  /// Nothing found — the caller may run the async one-time install
+  /// (`ensure_z3`).
+  Installable,
+  /// An explicit `--solver-path` that does not exist (a hard error).
+  InvalidPath(path : String)
+);
+/// Sync solver resolution: an explicit `--solver-path` is validated;
+/// otherwise discovery. No event-loop interaction.
+resolve_solver_sync :: (fn(cfg : VerifyRunConfig) -> SolverResolution)(
+  match(
+    cfg.solver_path,
+    .Some(p) => if(
+      _z3_exists_sync(p.clone()),
+      SolverResolution.Resolved(path : p),
+      SolverResolution.InvalidPath(path : p)
+    ),
+    .None => match(
+      discover_z3(),
+      .Some(p) => SolverResolution.Resolved(path : p),
+      .None => SolverResolution.Installable
+    )
+  )
+);
+// ============================================================================
+// Harness self-test (V2): the two canonical obligations
+// ============================================================================
+/// The self-test assumption `x == (bvadd 1 1)` over a fresh 32-bit x.
+_self_test_sum_assumption :: (fn() -> VcTerm)({
+  eq_args := ArrayList(VcTerm).new();
+  eq_args.push(VcTerm.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32))));
+  add_args := ArrayList(VcTerm).new();
+  add_args.push(VcTerm.BvLit(value : u64(1), width : usize(32)));
+  add_args.push(VcTerm.BvLit(value : u64(1), width : usize(32)));
+  eq_args.push(VcTerm.App(VcOp.BvAdd, add_args));
+  VcTerm.App(VcOp.EqOp, eq_args)
+});
+/// Build one self-test obligation: `x := 1+1 ⊢ x == goal_val`.
+_self_test_query :: (fn(name : String, goal_val : u64) -> VcQuery)({
+  q := new_vc_query(name);
+  q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
+  q.assume(_self_test_sum_assumption());
+  q.goal = vc_eq(
+    VcTerm.Var(name : String.from("x"), sort : VcSort.BvS(width : usize(32))),
+    VcTerm.BvLit(value : goal_val, width : usize(32))
+  );
+  q
+});
+/// The harness self-test obligations (plan V2 task 6): `1+1==2` must prove
+/// (unsat) and `1+1==3` must refute with a concrete counter-example (sat +
+/// model). They exercise the full encode → spawn → parse → cache pipeline
+/// with zero language surface.
+verifier_harness_self_test :: (fn(cfg : VerifyRunConfig, binary : String) -> ArrayList(VerifyResult))({
+  results := ArrayList(VerifyResult).new();
+  q1 := _self_test_query(String.from("self-test: one_plus_one_eq_2"), u64(2));
+  results.push(run_vc_query(q1, cfg, binary.clone()));
+  q2 := _self_test_query(String.from("self-test: one_plus_one_eq_3"), u64(3));
+  results.push(run_vc_query(q2, cfg, binary.clone()));
+  results
+});
+export(
+  VerifyMode,
+  verify_mode_of_string,
+  VerifyRunConfig,
+  default_verify_run_config,
+  VerifyVerdict,
+  VerifyResult,
+  verify_cache_dir,
+  verify_cache_key,
+  verdict_of_response,
+  run_vc_query,
+  resolve_solver_sync,
+  SolverResolution,
+  verifier_harness_self_test
+);

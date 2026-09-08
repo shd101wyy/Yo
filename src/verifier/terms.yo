@@ -1,0 +1,229 @@
+//! verifier/terms — the in-memory VC term representation (V2).
+//!
+//! Pure data, no I/O: sorts, terms, quantifiers, and the per-obligation
+//! query shape the encoder turns into SMT-LIB 2 and the solver harness
+//! discharges. The term vocabulary follows the SMT encoding reference in
+//! plans/backlog/FORMAL_VERIFICATION.md (bitvectors first — Yo's integers
+//! are the exact-width two's-complement values the C backend emits).
+//!
+//! Query shape: one obligation is a list of ASSUMED terms plus one GOAL.
+//! The runner asserts the assumptions, asserts the negation of the goal,
+//! and asks check-sat:
+//!   unsat    ⇒ the goal is PROVED under the assumptions
+//!   sat      ⇒ REFUTED — the model is the counter-example
+//!   unknown  ⇒ Unproven (budget)
+open(import("std/string"));
+{ ArrayList } :: import("std/collections/array_list");
+{ ToString } :: import("std/fmt/to_string");
+// ============================================================================
+// Sorts
+// ============================================================================
+/// A VC sort. The verifiable subset starts at `bool` and exact-width
+/// bitvectors (the plan's sorts table); datatypes/arrays/Seq join in V3–V5.
+VcSort :: enum(
+  /// SMT `Bool`.
+  BoolS,
+  /// SMT `(_ BitVec <width>)` — widths 8/16/32/64 (and the target's usize).
+  BvS(width : usize)
+);
+derive(VcSort, Eq(VcSort));
+impl(
+  VcSort,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      match(
+        self,
+        .BoolS => String.from("bool"),
+        .BvS(w) => `bv${w.to_string()}`
+      )
+    )
+  )
+);
+// ============================================================================
+// Operators
+// ============================================================================
+/// A VC operator. Variant names follow SMT-LIB where there is one; the
+/// encoder maps each to its exact SMT-LIB spelling.
+VcOp :: enum(
+  // Bitvector arithmetic (exact-width, two's complement — matches the
+  // emitted C under -fwrapv).
+  BvAdd,
+  BvSub,
+  BvMul,
+  BvSdiv,
+  BvUdiv,
+  BvSrem,
+  BvUrem,
+  BvNeg,
+  // Bitvector shifts and bitwise.
+  BvShl,
+  BvLshr,
+  BvAshr,
+  BvNotOp,
+  BvAndOp,
+  BvOrOp,
+  BvXorOp,
+  // Bitvector comparisons (signedness is per the plan's operator table).
+  BvUlt,
+  BvUle,
+  BvUgt,
+  BvUge,
+  BvSlt,
+  BvSle,
+  BvSgt,
+  BvSge,
+  // Equality over any one sort.
+  EqOp,
+  DistinctOp,
+  // Boolean connectives.
+  NotOp,
+  AndOp,
+  OrOp,
+  ImpOp,
+  /// `ite` — if-then-else (3 args: cond, then, else).
+  IteOp,
+  // Width-changing casts (payload = bits added / hi..lo extracted).
+  /// `(_ sign_extend k)` — k = extra bits.
+  SignExtendOp(extra : usize),
+  /// `(_ zero_extend k)` — k = extra bits.
+  ZeroExtendOp(extra : usize),
+  /// `(_ extract hi lo)` — hi..lo inclusive, hi >= lo.
+  ExtractOp(hi : usize, lo : usize)
+);
+// ============================================================================
+// Terms
+// ============================================================================
+/// Quantifier kind (V5 surface; the term IR carries them from V2 so the
+/// encoder and goldens are stable across phases).
+VcQuantKind :: enum(Forall, Exists);
+/// A VC term. Variables reference DECLARED constants (SSA-style: every
+/// Yo binding/renaming introduces a fresh declared name — no let binders).
+VcTerm :: ref(
+  enum(
+    /// Reference to a declared constant.
+    Var(name : String, sort : VcSort),
+    /// Bitvector literal as its unsigned two's-complement bit pattern
+    /// (covers every value of widths <= 64).
+    BvLit(value : u64, width : usize),
+    /// Boolean literal.
+    BoolLit(value : bool),
+    /// Operator application. Arity/widths are the BUILDER's responsibility
+    /// (checked at VC-construction time in V3, not re-checked here).
+    App(op : VcOp, args : ArrayList(Self)),
+    /// Quantifier with explicitly-typed bound variables.
+    Quant(kind : VcQuantKind, names : ArrayList(String), sorts : ArrayList(VcSort), body : Self)
+  )
+);
+/// One declared constant of a query.
+VcDecl :: struct(name : String, sort : VcSort);
+/// One assumed term of a query. The optional name participates in unsat
+/// cores (`(! term :named <name>)`) so a proof failure can name the
+/// smallest violated clause.
+VcAssumption :: struct(name : Option(String), term : VcTerm);
+/// One verification obligation: assumptions Φ and a goal P. Discharging
+/// means proving Φ ⇒ P (the runner checks Φ ∧ ¬P for unsat).
+VcQuery :: ref(
+  struct(
+    /// Obligation group name (function name + site) for diagnostics.
+    name : String,
+    /// Declared constants (variables of Φ and P).
+    declarations : ArrayList(VcDecl),
+    /// Assumed terms, conjoined.
+    assumptions : ArrayList(VcAssumption),
+    /// The obligation proper.
+    goal : VcTerm
+  )
+);
+impl(
+  VcQuery,
+  /// Builder: push a declaration.
+  declare : (fn(self : Self, name : String, sort : VcSort) -> Self)({
+    self.declarations.push(VcDecl(name : name.clone(), sort : sort));
+    self
+  }),
+  /// Builder: push an unnamed assumption.
+  assume : (fn(self : Self, term : VcTerm) -> Self)({
+    self.assumptions.push(VcAssumption(name : Option(String).None, term : term));
+    self
+  }),
+  /// Builder: push a named assumption (unsat-core attribution).
+  assume_named : (fn(self : Self, name : String, term : VcTerm) -> Self)({
+    self.assumptions.push(VcAssumption(name : Option(String).Some(name.clone()), term : term));
+    self
+  })
+);
+/// Construct an empty query with a diagnostic name.
+new_vc_query :: (fn(name : String) -> VcQuery)(
+  VcQuery(
+    name : name,
+    declarations : ArrayList(VcDecl).new(),
+    assumptions : ArrayList(VcAssumption).new(),
+    goal : VcTerm.BoolLit(true)
+  )
+);
+// ============================================================================
+// Convenience constructors (keep VC construction sites terse and uniform)
+// ============================================================================
+/// Boolean negation.
+vc_not :: (fn(t : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(t);
+  VcTerm.App(VcOp.NotOp, args)
+});
+/// N-ary conjunction.
+vc_and :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
+  if(ts.len() == usize(0), {
+    return(VcTerm.BoolLit(true));
+  });
+  if(ts.len() == usize(1), {
+    return(match(ts.get(usize(0)), .Some(t) => t, .None => VcTerm.BoolLit(true)));
+  });
+  VcTerm.App(VcOp.AndOp, ts)
+});
+/// N-ary disjunction.
+vc_or :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
+  if(ts.len() == usize(0), {
+    return(VcTerm.BoolLit(false));
+  });
+  if(ts.len() == usize(1), {
+    return(match(ts.get(usize(0)), .Some(t) => t, .None => VcTerm.BoolLit(false)));
+  });
+  VcTerm.App(VcOp.OrOp, ts)
+});
+/// Implication `a => b` (right-associative chain when built pairwise).
+vc_imp :: (fn(a : VcTerm, b : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  args.push(b);
+  VcTerm.App(VcOp.ImpOp, args)
+});
+/// Equality `a = b`.
+vc_eq :: (fn(a : VcTerm, b : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  args.push(b);
+  VcTerm.App(VcOp.EqOp, args)
+});
+/// Distinctness `a != b`.
+vc_distinct :: (fn(a : VcTerm, b : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  args.push(b);
+  VcTerm.App(VcOp.DistinctOp, args)
+});
+export(
+  VcSort,
+  VcOp,
+  VcTerm,
+  VcQuantKind,
+  VcDecl,
+  VcAssumption,
+  VcQuery,
+  new_vc_query,
+  vc_not,
+  vc_and,
+  vc_or,
+  vc_imp,
+  vc_eq,
+  vc_distinct
+);
