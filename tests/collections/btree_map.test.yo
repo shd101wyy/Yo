@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 open(import("std/collections/btree_map"));
 // ===== Construction Tests =====
 test("BTreeMap.new creates empty map", {
@@ -268,4 +269,98 @@ test("pop_first/pop_last remove from the sorted ends", {
   assert(m.is_empty() == true, "map is empty");
   assert(match(m.pop_first(), .Some(_) => false, .None => true), "pop_first on empty is None");
   assert(match(m.pop_last(), .Some(_) => false, .None => true), "pop_last on empty is None");
+});
+// ===== range / FromIterator =====
+test("range yields the half-open key window in order", {
+  m := BTreeMap(i32, i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(10), i = (i + i32(1)), {
+    m.insert(i, i * i32(10));
+  });
+  seen := ArrayList(i32).new();
+  it := m.range(i32(3), i32(6));
+  while(runtime(true), {
+    match(
+      it.next(),
+      .None => {
+        break;
+      },
+      .Some(e) => {
+        seen.push(e.key);
+        assert(e.value == (e.key * i32(10)), "the entry carries its own value");
+      }
+    );
+  });
+  assert(seen.len() == usize(3), "[3, 6) holds three keys");
+  assert(seen(usize(0)) == i32(3), "start is inclusive");
+  assert(seen(usize(1)) == i32(4), "in key order");
+  assert(seen(usize(2)) == i32(5), "end is exclusive");
+});
+test("range bounds need not be present in the map", {
+  m := BTreeMap(i32, i32).new();
+  m.insert(i32(10), i32(1));
+  m.insert(i32(20), i32(2));
+  m.insert(i32(30), i32(3));
+  // A `fn` literal is not a closure — the map is passed in explicitly.
+  count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
+    it := mm.range(lo, hi);
+    (n : usize) = usize(0);
+    while(runtime(true), {
+      match(
+        it.next(),
+        .None => {
+          break;
+        },
+        .Some(_) => {
+          n = (n + usize(1));
+        }
+      );
+    });
+    n
+  });
+  assert(count(m, i32(15), i32(25)) == usize(1), "absent bounds pick the enclosed key");
+  assert(count(m, i32(0), i32(100)) == usize(3), "a window past both ends holds everything");
+  assert(count(m, i32(11), i32(19)) == usize(0), "a window between keys is empty");
+  assert(count(m, i32(25), i32(15)) == usize(0), "an inverted window yields nothing");
+  assert(count(m, i32(10), i32(10)) == usize(0), "an empty window yields nothing");
+  assert(count(m, i32(30), i32(31)) == usize(1), "the last key is reachable");
+});
+test("adjacent ranges partition without overlap", {
+  m := BTreeMap(i32, i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(6), i = (i + i32(1)), {
+    m.insert(i, i);
+  });
+  drain := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> ArrayList(i32))({
+    out := ArrayList(i32).new();
+    it := mm.range(lo, hi);
+    while(runtime(true), {
+      match(
+        it.next(),
+        .None => {
+          break;
+        },
+        .Some(e) => {
+          out.push(e.key);
+        }
+      );
+    });
+    out
+  });
+  a := drain(m, i32(0), i32(3));
+  b := drain(m, i32(3), i32(6));
+  assert((a.len() + b.len()) == usize(6), "the two halves cover every key exactly once");
+  assert(a(a.len() - usize(1)) == i32(2), "the first half stops below the split");
+  assert(b(usize(0)) == i32(3), "the second half starts at it");
+});
+test("collect builds a BTreeMap through FromIterator", {
+  src := BTreeMap(i32, i32).new();
+  src.insert(i32(3), i32(30));
+  src.insert(i32(1), i32(10));
+  src.insert(i32(2), i32(20));
+  out := src.into_iter().collect(BTreeMap(i32, i32));
+  assert(out.len() == usize(3), "every entry arrived");
+  assert(out.get(i32(1)).unwrap() == i32(10), "first entry");
+  assert(out.get(i32(3)).unwrap() == i32(30), "last entry");
+  assert(match(out.pop_first(), .Some(e) => (e.key == i32(1)), .None => false), "and the collection is SORTED");
 });
