@@ -341,13 +341,10 @@ impl(
       step := match(
         current,
         .Object(_, _) => current.get(token),
-        // `parse(u64)`, not `parse(usize)`: `FromStr` is implemented for
-        // i64/u64/i32/u32/f64/bool only — `usize` has none
-        // (issues/fromstr-missing-on-seven-numeric-primitives.md).
         .Array(items) => cond(
           _is_rfc6901_index(token) => match(
-            token.parse(u64),
-            .Ok(idx) => items.get(usize(idx)),
+            token.parse(usize),
+            .Ok(idx) => items.get(idx),
             .Err(_) => Option(JsonValue).None
           ),
           true => Option(JsonValue).None

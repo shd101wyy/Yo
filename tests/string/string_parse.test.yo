@@ -1,5 +1,6 @@
 { assert } :: import("std/assert");
 open(import("std/string"));
+open(import("std/math"));
 // === parse_i32 tests ===
 test("String parse_i32 positive", {
   s := `42`;
@@ -265,4 +266,68 @@ test("String parse_i64 agrees with parse_i64_radix(10) everywhere", {
   assert(_agree("18446744073709551616"), "2^64");
   assert(_agree(""), "empty");
   assert(_agree("abc"), "letters");
+});
+// === FromStr on every numeric primitive (D12 coverage) ===
+//
+// `FromStr` was implemented for i64/u64/i32/u32/f64/bool only, so
+// `s.parse(usize)` — the width that indexes every collection — did not
+// compile. All thirteen numeric primitives now have it, each rejecting
+// out-of-range input with the side-specific overflow variant rather than a
+// truncated value. `usize`/`isize` bounds come from the width-aware
+// `MIN`/`MAX` constants, so these assertions hold on a 32-bit target too.
+test("FromStr on usize and isize", {
+  assert(`42`.parse(usize).unwrap() == usize(42), "usize 42");
+  assert(`0`.parse(usize).unwrap() == usize(0), "usize 0");
+  assert(usize.MAX.to_string().parse(usize).unwrap() == usize.MAX, "usize.MAX round-trips");
+  assert(match(`-1`.parse(usize), .Ok(_) => false, .Err(_) => true), "usize rejects a sign");
+  assert(match(``.parse(usize), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)), "usize empty");
+  assert(`-42`.parse(isize).unwrap() == isize(-42), "isize -42");
+  assert(isize.MAX.to_string().parse(isize).unwrap() == isize.MAX, "isize.MAX round-trips");
+  assert(isize.MIN.to_string().parse(isize).unwrap() == isize.MIN, "isize.MIN round-trips");
+});
+test("FromStr on the narrow integers reports which side overflowed", {
+  assert(`127`.parse(i8).unwrap() == i8(127), "i8.MAX");
+  assert(`-128`.parse(i8).unwrap() == i8(-128), "i8.MIN");
+  assert(
+    match(`128`.parse(i8), .Ok(_) => false, .Err(e) => match(e, .PosOverflow => true, _ => false)),
+    "i8.MAX + 1 is PosOverflow"
+  );
+  assert(
+    match(`-129`.parse(i8), .Ok(_) => false, .Err(e) => match(e, .NegOverflow => true, _ => false)),
+    "i8.MIN - 1 is NegOverflow"
+  );
+  assert(`255`.parse(u8).unwrap() == u8(255), "u8.MAX");
+  assert(
+    match(`256`.parse(u8), .Ok(_) => false, .Err(e) => match(e, .PosOverflow => true, _ => false)),
+    "u8.MAX + 1 is PosOverflow"
+  );
+  assert(`32767`.parse(i16).unwrap() == i16(32767), "i16.MAX");
+  assert(`-32768`.parse(i16).unwrap() == i16(-32768), "i16.MIN");
+  assert(
+    match(`32768`.parse(i16), .Ok(_) => false, .Err(e) => match(e, .PosOverflow => true, _ => false)),
+    "i16.MAX + 1 is PosOverflow"
+  );
+  assert(
+    match(`-32769`.parse(i16), .Ok(_) => false, .Err(e) => match(e, .NegOverflow => true, _ => false)),
+    "i16.MIN - 1 is NegOverflow"
+  );
+  assert(`65535`.parse(u16).unwrap() == u16(65535), "u16.MAX");
+  assert(
+    match(`65536`.parse(u16), .Ok(_) => false, .Err(e) => match(e, .PosOverflow => true, _ => false)),
+    "u16.MAX + 1 is PosOverflow"
+  );
+});
+test("FromStr on f32 shares f64's grammar and saturates on overflow", {
+  assert(`1.5`.parse(f32).unwrap() == f32(1.5), "f32 1.5");
+  assert(`-0.25`.parse(f32).unwrap() == f32(-0.25), "f32 -0.25");
+  assert(
+    match(``.parse(f32), .Ok(_) => false, .Err(e) => match(e, .Empty => true, _ => false)),
+    "f32 empty"
+  );
+  assert(
+    match(`abc`.parse(f32), .Ok(_) => false, .Err(e) => match(e, .Invalid => true, _ => false)),
+    "f32 garbage"
+  );
+  // Rust: `"1e39".parse::<f32>()` is `Ok(inf)`, not an error.
+  assert(`1e39`.parse(f32).unwrap().is_infinite(), "an over-large literal saturates to infinity");
 });

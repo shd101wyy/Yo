@@ -3161,6 +3161,130 @@ impl(
     )
   )
 );
+/// `usize` and `isize` are POINTER-WIDTH, so their bounds come from the
+/// width-aware `MIN`/`MAX` associated constants rather than a hard-coded
+/// literal — a 32-bit target rejects `4294967296` here and a 64-bit one
+/// accepts it.
+impl(
+  usize,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(usize, ParseIntError))(
+      match(
+        _parse_u64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > u64(usize.MAX)) => .Err(ParseIntError.PosOverflow),
+          true => .Ok(usize(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  isize,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(isize, ParseIntError))(
+      match(
+        _parse_i64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > i64(isize.MAX)) => .Err(ParseIntError.PosOverflow),
+          (v < i64(isize.MIN)) => .Err(ParseIntError.NegOverflow),
+          true => .Ok(isize(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  i16,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(i16, ParseIntError))(
+      match(
+        _parse_i64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > i64(i16.MAX)) => .Err(ParseIntError.PosOverflow),
+          (v < i64(i16.MIN)) => .Err(ParseIntError.NegOverflow),
+          true => .Ok(i16(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  u16,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(u16, ParseIntError))(
+      match(
+        _parse_u64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > u64(u16.MAX)) => .Err(ParseIntError.PosOverflow),
+          true => .Ok(u16(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  i8,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(i8, ParseIntError))(
+      match(
+        _parse_i64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > i64(i8.MAX)) => .Err(ParseIntError.PosOverflow),
+          (v < i64(i8.MIN)) => .Err(ParseIntError.NegOverflow),
+          true => .Ok(i8(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  u8,
+  FromStr(
+    Err : ParseIntError,
+    from_str : (fn(s : String) -> Result(u8, ParseIntError))(
+      match(
+        _parse_u64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > u64(u8.MAX)) => .Err(ParseIntError.PosOverflow),
+          true => .Ok(u8(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+/// `f32` shares `f64`'s grammar and then narrows. A literal too large for
+/// `f32` becomes an INFINITY rather than an error, matching Rust
+/// (`"1e39".parse::<f32>()` is `Ok(inf)`, not `Err`) — the narrowing is C's
+/// double-to-float conversion, which every target here implements per IEC
+/// 60559 (C Annex F), so it saturates to ±infinity instead of trapping.
+impl(
+  f32,
+  FromStr(
+    Err : ParseFloatError,
+    from_str : (fn(s : String) -> Result(f32, ParseFloatError))(
+      cond(
+        (s.len() == usize(0)) => .Err(ParseFloatError.Empty),
+        true => match(
+          s.parse_f64(),
+          .Some(v) => .Ok(f32(v)),
+          .None => .Err(ParseFloatError.Invalid)
+        )
+      )
+    )
+  )
+);
 impl(
   f64,
   FromStr(

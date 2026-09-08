@@ -1,6 +1,7 @@
 # `FromStr` is implemented for 6 of the 13 numeric primitives
 
-**Status: OPEN.** Found 2026-09-09 while writing `JsonValue.pointer`.
+**Status: FIXED** (2026-09-09) — all thirteen numeric primitives now
+implement `FromStr`. Found while writing `JsonValue.pointer`.
 
 ## Symptom
 
@@ -34,6 +35,9 @@ match(token.parse(u64), .Ok(idx) => items.get(usize(idx)), .Err(_) => …)
 `usize` is the width most likely to be parsed from text — it is what indexes
 every collection — so its absence is the sharpest of the seven.
 
+The first caller to hit it, `JsonValue.pointer`, had to parse a `u64` and
+narrow; it now says `token.parse(usize)`.
+
 ## Why it is not just a missing line
 
 The existing impls delegate to `_parse_i64_radix_res` / the `u64` scanner and
@@ -48,13 +52,29 @@ input.
 range (Rust returns `inf` for an overflowing `f32` literal rather than an
 error — the impl must match that, not reject it).
 
-## Fix sketch
+## Fix
 
-One generic impl is not possible today (there is no `Integer`-marker-bounded
-`FromStr` blanket that can name its own width), so this is seven impls plus a
-test per width covering: a value, the exact `MAX`, `MAX + 1` → `PosOverflow`,
-the exact `MIN`, `MIN - 1` → `NegOverflow` for the signed ones, an empty
-string, and a `+`/`-` sign.
+Seven impls in `std/string/string.yo`, beside the six that were there. One
+generic impl is not possible today — there is no `Integer`-marker-bounded
+`FromStr` blanket that can name its own width — so each narrows the shared
+`_parse_i64_radix_res` / `_parse_u64_radix_res` result and reports the
+side-specific overflow variant.
+
+`usize` and `isize` take their bounds from the width-aware `MIN`/`MAX`
+associated constants (which are already `cond`ed on
+`__yo_pointer_size_bits()`), not from a literal, so a 32-bit target rejects
+`4294967296` where a 64-bit one accepts it.
+
+`f32` shares `f64`'s grammar and then narrows, and an over-large literal
+becomes an INFINITY rather than an error — `"1e39".parse::<f32>()` is
+`Ok(inf)` in Rust too. The narrowing is C's double-to-float conversion, which
+saturates per IEC 60559 (C Annex F) on every target here.
+
+Tests in `tests/string/string_parse.test.yo`: for each width a value, the exact
+`MAX` (round-tripped through `to_string()` so the assertion cannot disagree with
+the constant), `MAX + 1` → `PosOverflow`, and for the signed ones the exact
+`MIN` and `MIN - 1` → `NegOverflow`; plus an empty string, a rejected sign on
+`usize`, and `f32`'s empty / garbage / saturating cases.
 
 Related: D12 (`FromStr` parsing returns `Result`) is LANDED — this is a
 coverage gap in that decision, not a shape disagreement.
