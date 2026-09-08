@@ -414,3 +414,22 @@ test("Deque iter - mutate through pointer", {
   assert(d(usize(1)) == i32(20));
   assert(d(usize(2)) == i32(30));
 });
+test("front/back peek the ends without removing", {
+  e := Deque(i32).new();
+  assert(match(e.front(), .Some(_) => false, .None => true), "empty front is None");
+  assert(match(e.back(), .Some(_) => false, .None => true), "empty back is None");
+  d := Deque(i32).new();
+  d.push_back(i32(1));
+  d.push_back(i32(2));
+  d.push_back(i32(3));
+  assert(match(d.front(), .Some(v) => (v == i32(1)), .None => false), "front is 1");
+  assert(match(d.back(), .Some(v) => (v == i32(3)), .None => false), "back is 3");
+  assert(d.len() == usize(3), "peeking does not remove");
+  d.push_front(i32(0));
+  assert(match(d.front(), .Some(v) => (v == i32(0)), .None => false), "push_front changes front");
+  assert(match(d.back(), .Some(v) => (v == i32(3)), .None => false), "back unchanged");
+  one := Deque(i32).new();
+  one.push_back(i32(9));
+  assert(match(one.front(), .Some(v) => (v == i32(9)), .None => false), "single front");
+  assert(match(one.back(), .Some(v) => (v == i32(9)), .None => false), "single back is the same");
+});

@@ -122,6 +122,32 @@ impl(
   /// Named `first_entry`/`last_entry` rather than `min`/`max` because this is a
   /// MAP: it returns a whole `MapEntry`, not a key. Sets keep `min`/`max`,
   /// which do return the element (plans/archive/STD_API_AUDIT.md §5).
+  /// Whether `k` is present — Rust's `contains_key`.
+  contains_key : (fn(self : Self, k : K, where(K <: Ord(K))) -> bool)(
+    match(self.get(k), .Some(_) => true, .None => false)
+  ),
+  /// Remove and return the lowest entry — Rust's `pop_first`.
+  pop_first : (fn(self : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
+    match(
+      self.first_entry(),
+      .Some(e) => {
+        _r := self.remove(e.key);
+        Option(MapEntry(K, V)).Some(e)
+      },
+      .None => Option(MapEntry(K, V)).None
+    )
+  ),
+  /// Remove and return the highest entry — Rust's `pop_last`.
+  pop_last : (fn(self : Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
+    match(
+      self.last_entry(),
+      .Some(e) => {
+        _r := self.remove(e.key);
+        Option(MapEntry(K, V)).Some(e)
+      },
+      .None => Option(MapEntry(K, V)).None
+    )
+  ),
   first_entry : (fn(self : Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
