@@ -295,6 +295,78 @@ impl(
     BTreeMapValues(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
+/**
+* Range iterator for BTreeMap - yields MapEntry(K, V) over a key window
+* in sorted key order.
+*/
+BTreeMapRange :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _entries : ArrayList(MapEntry(K, V)),
+    _index : usize,
+    _end : usize
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  BTreeMapRange(K, V),
+  Iterator(
+    Item : MapEntry(K, V),
+    next : (fn(inout(self) : Self) -> Option(MapEntry(K, V)))(
+      cond(
+        (self._index >= self._end) => .None,
+        true => {
+          entry := self._entries(self._index);
+          self._index = (self._index + usize(1));
+          .Some(entry)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  BTreeMap(K, V),
+  /// The entries whose keys lie in `[start, end)`, in key order — Rust's
+  /// `range`.
+  ///
+  /// Half-open, like every other range in the language, so `range(a, b)` and
+  /// `range(b, c)` partition `[a, c)` with nothing counted twice. An inverted
+  /// window yields nothing rather than erroring.
+  ///
+  /// The bounds do NOT have to be present in the map: `_find` reports the
+  /// insertion point for an absent key, which is exactly the first entry at or
+  /// past it.
+  range : (fn(self : Self, start : K, end : K, where(K <: Ord(K))) -> BTreeMapRange(K, V))({
+    lo := self._find(start).idx;
+    hi := self._find(end).idx;
+    BTreeMapRange(K, V)(
+      _entries : self._entries,
+      _index : lo,
+      _end : cond(
+        (hi < lo) => lo,
+        true => hi
+      )
+    )
+  })
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: Ord(K)),
+  BTreeMap(K, V),
+  /// Build a map from a sequence of entries — `xs.collect(BTreeMap(K, V))`.
+  ///
+  /// Later duplicates overwrite earlier ones, as `insert` does.
+  FromIterator(
+    Elem : MapEntry(K, V),
+    from_iter_new : (fn() -> Self)(
+      BTreeMap(K, V).new()
+    ),
+    from_iter_add : (fn(acc : Self, item : MapEntry(K, V)) -> Self)({
+      acc.insert(item.key, item.value);
+      acc
+    })
+  )
+);
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
@@ -312,6 +384,7 @@ export(
   BTreeMap,
   BTreeMapIter,
   BTreeMapIterPtr,
+  BTreeMapRange,
   BTreeMapKeys,
   BTreeMapValues
 );

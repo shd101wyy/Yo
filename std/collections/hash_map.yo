@@ -39,6 +39,19 @@ mix_u64 :: (fn(hash : u64) -> u64)({
 });
 /// Extract H1 hash (upper bits) for bucket index calculation.
 h1_hash :: (fn(hash : u64, capacity : usize) -> usize)(usize(mix_u64(hash) >> u64(7)) % capacity);
+/// The outcome of ONE walk of a key's probe sequence — "where does this key
+/// live, or where would it go?".
+///
+/// `_find_bucket` answers only the first half and `_find_insert_bucket` only
+/// the second, so every get-then-insert accessor walked the sequence TWICE.
+/// `_probe` answers both at once (hashbrown's `find_or_find_insert_slot`).
+BucketProbe :: enum(
+  /// The key is present, in this bucket.
+  Occupied(index : usize),
+  /// The key is absent; this is the bucket it would be written to — PROVIDED
+  /// the table is not resized first, since a rehash moves everything.
+  Vacant(index : usize)
+);
 /// High-performance hash map using SwissTable algorithm.
 /// Keys must implement `Eq` and `Hash`. Provides O(1) average lookup, insert, and delete.
 HashMap :: (
@@ -236,6 +249,62 @@ impl(
     });
     .None
   }),
+  /// Walk the probe sequence for `key` ONCE, reporting either the bucket that
+  /// holds it or the bucket it would be inserted into.
+  ///
+  /// The vacant answer prefers the first TOMBSTONE on the chain over the
+  /// terminating empty slot, so insert/remove churn reuses slots instead of
+  /// lengthening every chain — the same choice `_find_insert_bucket` makes.
+  _probe : (fn(self : Self, key : K, hash : u64) -> BucketProbe)({
+    h2 := h2_hash(hash);
+    index := h1_hash(hash, self.capacity);
+    probe := usize(0);
+    first_deleted := Option(usize).None;
+    ctrl_ptr := Self._ctrl_ptr(self);
+    data_ptr := Self._data_ptr(self);
+    while(probe < self.capacity, probe = (probe + usize(1)), {
+      probe_index := ((index + probe) % self.capacity);
+      ctrl_byte := (ctrl_ptr.add(probe_index)).*;
+      cond(
+        (ctrl_byte == CTRL_EMPTY) => {
+          return(
+            match(
+              first_deleted,
+              .Some(d) => BucketProbe.Vacant(index : d),
+              .None => BucketProbe.Vacant(index : probe_index)
+            )
+          );
+        },
+        (ctrl_byte == CTRL_DELETED) => {
+          cond(
+            first_deleted.is_none() => {
+              first_deleted = .Some(probe_index);
+            },
+            true => ()
+          );
+        },
+        (ctrl_byte == h2) => {
+          bucket := (data_ptr.add(probe_index)).*;
+          cond(
+            (bucket.key == key) => {
+              return(BucketProbe.Occupied(index : probe_index));
+            },
+            true => ()
+          );
+        },
+        true => ()
+      );
+    });
+    // Every slot held a live key or a tombstone. A table at the load factor
+    // has already been resized by its caller, so only the tombstone answer is
+    // reachable here; a full table with none is the same invariant violation
+    // `_find_insert_bucket` panics on.
+    match(
+      first_deleted,
+      .Some(d) => BucketProbe.Vacant(index : d),
+      .None => __yo_panic("HashMap is full - should have resized")
+    )
+  }),
   /**
   * Find first available bucket (EMPTY or DELETED) for insertion
   * Returns bucket index using quadratic probing
@@ -399,6 +468,50 @@ impl(
       }
     )
   }),
+  /// Write `key`/`value` into `index`, a slot `_probe` reported VACANT, and
+  /// return the value written.
+  ///
+  /// Resizes first when the new entry would cross the load factor — and in
+  /// that case re-finds the slot, because the rehash moved everything. This is
+  /// the half of `try_insert` that runs after the probe; `entry` reuses it so
+  /// that a miss costs one probe rather than two.
+  ///
+  /// PANICS on allocation failure, like `insert` (D9).
+  _insert_at : (fn(self : Self, index : usize, hash : u64, key : K, value : V) -> V)({
+    slot := cond(
+      (Self._needs_resize(self)) => {
+        new_capacity := cond(
+          (((self.size + usize(1)) * usize(2)) <= self.capacity) => self.capacity,
+          true => (self.capacity * usize(2))
+        );
+        match(
+          Self._resize(self, new_capacity),
+          .Err(_) => {
+            // A block, so the arm is unit-valued: `__yo_panic` is i32-typed
+            // here rather than bottom, and a bare arm would not unify with
+            // the `.Ok` arm's `()`.
+            __yo_panic("HashMap.entry: allocation failed");
+          },
+          .Ok(_) => ()
+        );
+        Self._find_insert_bucket(self, hash)
+      },
+      true => index
+    );
+    ctrl_ptr := Self._ctrl_ptr(self);
+    data_ptr := Self._data_ptr(self);
+    cond(
+      ((ctrl_ptr.add(slot)).* == CTRL_DELETED) => {
+        self.tombstones = (self.tombstones - usize(1));
+      },
+      true => ()
+    );
+    (ctrl_ptr.add(slot)).* = h2_hash(hash);
+    new_bucket := MapEntry(K, V)(key : key, value : value);
+    consume((data_ptr.add(slot)).* = new_bucket);
+    self.size = (self.size + usize(1));
+    value
+  }),
   /**
   * Get a value by key
   * Returns Some(value) if found, None otherwise
@@ -541,6 +654,57 @@ impl(
   * Clear all key-value pairs
   * Resets all control bytes to EMPTY
   */
+  /// Drop every entry for which `keep(key, value)` is false — Rust's `retain`.
+  ///
+  /// Scans the bucket array directly rather than probing per key. Removal only
+  /// rewrites the removed bucket's control byte and never moves another entry,
+  /// so the scan stays valid across the removals it performs.
+  retain : (fn(self : Self, keep : Impl(Fn(k : K, v : V) -> bool)) -> unit)({
+    cond(
+      (self.capacity == usize(0)) => return(()),
+      true => ()
+    );
+    ctrl_ptr := Self._ctrl_ptr(self);
+    data_ptr := Self._data_ptr(self);
+    i := usize(0);
+    while(i < self.capacity, i = (i + usize(1)), {
+      ctrl_byte := (ctrl_ptr.add(i)).*;
+      cond(
+        ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+          bucket := (data_ptr.add(i)).*;
+          cond(
+            !keep(bucket.key, bucket.value) => {
+              self.remove(bucket.key);
+            },
+            true => ()
+          );
+        },
+        true => ()
+      );
+    });
+  }),
+  /// Insert every entry of `other`, overwriting on duplicate keys — Rust's
+  /// `Extend`.
+  ///
+  /// Takes a MAP rather than an arbitrary iterator. Building a map from a
+  /// sequence is `collect(HashMap(K, V))` (`FromIterator`, below), and a
+  /// generic iterator parameter here would land on
+  /// issues/generic-fn-forall-unresolved-when-argument-is-a-method-call.md,
+  /// whose failing shape is exactly `m.extend(xs.into_iter())`.
+  extend : (fn(self : Self, other : Self) -> unit)({
+    it := other.into_iter();
+    while(runtime(true), {
+      match(
+        it.next(),
+        .None => {
+          break;
+        },
+        .Some(e) => {
+          self.insert(e.key, e.value);
+        }
+      );
+    });
+  }),
   clear : (fn(self : Self) -> unit)({
     // Drop all occupied buckets before clearing
     cond(
@@ -570,49 +734,46 @@ impl(
     self.tombstones = usize(0);
   })
 );
-/// The entry-style accessors (plans/archive/STD_API_AUDIT.md §7 collections row):
-/// Yo's pragmatic shape of Rust's Entry — no borrow object, just
-/// get-or-insert in one probe-and-settle call.
+/// The entry API. `entry(key)` resolves the key's slot in ONE probe and hands
+/// back a `HashMapEntry`; the three shorthands under it are the common
+/// combinations, each now a single probe as well (they were get-then-insert —
+/// two full walks of the probe sequence — until 2026-09-08).
 impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
+  /// The slot for `key`, resolved in one probe — Rust's `entry`.
+  ///
+  /// ```rust
+  /// counts.entry(word).and_modify((n) => (n + i32(1))).or_insert(i32(1));
+  /// ```
+  ///
+  /// See `HashMapEntry` for the invalidation rule.
+  entry : (fn(self : Self, key : K) -> HashMapEntry(K, V))({
+    hash := self._hash(key);
+    HashMapEntry(K, V)(_map : self, _key : key, _hash : hash, _slot : Self._probe(self, key, hash))
+  }),
   /// The value for `key`, inserting `default` first when absent.
   get_or_insert : (fn(self : Self, key : K, default : V) -> V)(
-    match(
-      self.get(key),
-      .Some(v) => v,
-      .None => {
-        self.insert(key, default);
-        default
-      }
-    )
+    self.entry(key).or_insert(default)
   ),
   /// The value for `key`, inserting `make()`'s result first when absent —
   /// use over `get_or_insert` when constructing the default is costly.
   get_or_insert_with : (fn(self : Self, key : K, make : Impl(Fn() -> V)) -> V)(
-    match(
-      self.get(key),
-      .Some(v) => v,
-      .None => {
-        made := make();
-        self.insert(key, made);
-        made
-      }
-    )
+    self.entry(key).or_insert_with(make)
   ),
   /// Update the value for `key` through `f` when present; no-op when absent.
   /// Returns true when an update happened.
-  update_with : (fn(self : Self, key : K, f : Impl(Fn(v : V) -> V)) -> bool)(
-    match(
-      self.get(key),
-      .Some(v) => {
-        self.insert(key, f(v));
+  update_with : (fn(self : Self, key : K, f : Impl(Fn(v : V) -> V)) -> bool)({
+    e := self.entry(key);
+    cond(
+      e.is_occupied() => {
+        e.and_modify(f);
         true
       },
-      .None => false
+      true => false
     )
-  )
+  })
 );
 impl(
   generic(K : Type, V : Type),
@@ -664,6 +825,91 @@ impl(
       );
     })
   )
+);
+/// One key's slot in a `HashMap`, resolved by a SINGLE probe — Rust's `Entry`.
+///
+/// Yo has no borrow object, so this is a plain struct that pins the map, the
+/// key, its hash, and the bucket the probe landed on. That last field is what
+/// makes the entry worth having over `get` + `insert`: the miss path already
+/// knows where to write.
+///
+/// It is invalidated by anything that rehashes the table — an `insert` that
+/// grows it, `remove`, `clear` — exactly like the pointer `get_entry_ptr`
+/// hands out. Use an entry and drop it; do not store one.
+HashMapEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _map : HashMap(K, V),
+    _key : K,
+    _hash : u64,
+    _slot : BucketProbe
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMapEntry(K, V),
+  /// The key this entry was looked up with.
+  key : (fn(self : Self) -> K)(self._key),
+  /// True when the key is already in the map.
+  is_occupied : (fn(self : Self) -> bool)(
+    match(
+      self._slot,
+      .Occupied(_) => true,
+      .Vacant(_) => false
+    )
+  ),
+  /// True when the key is absent.
+  is_vacant : (fn(self : Self) -> bool)(!self.is_occupied()),
+  /// The stored value, or `.None` when the entry is vacant.
+  value : (fn(self : Self) -> Option(V))(
+    match(
+      self._slot,
+      .Occupied(index) => Option(V).Some((self._map._data_ptr().add(index)).*.value),
+      .Vacant(_) => Option(V).None
+    )
+  ),
+  /// The value for this key, inserting `default` first when vacant.
+  or_insert : (fn(self : Self, default : V) -> V)(
+    match(
+      self._slot,
+      .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
+      .Vacant(index) => self._map._insert_at(index, self._hash, self._key, default)
+    )
+  ),
+  /// The value for this key, inserting `make()`'s result first when vacant —
+  /// use over `or_insert` when constructing the default is costly.
+  or_insert_with : (fn(self : Self, make : Impl(Fn() -> V)) -> V)(
+    match(
+      self._slot,
+      .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
+      .Vacant(index) => self._map._insert_at(index, self._hash, self._key, make())
+    )
+  ),
+  /// Replace the stored value with `f(value)` when occupied; a no-op when
+  /// vacant. Returns the entry, so it chains ahead of `or_insert`:
+  ///
+  /// ```rust
+  /// counts.entry(word).and_modify((n) => (n + i32(1))).or_insert(i32(1));
+  /// ```
+  and_modify : (fn(self : Self, f : Impl(Fn(v : V) -> V)) -> Self)({
+    match(
+      self._slot,
+      .Occupied(index) => {
+        p := self._map._data_ptr().add(index);
+        // Whole-bucket assignment, as `try_insert` does on its occupied path:
+        // it drops the old entry and dups the new one as one step.
+        p.* = MapEntry(K, V)(key : p.*.key, value : f(p.*.value));
+      },
+      .Vacant(_) => ()
+    );
+    self
+  }),
+  /// Remove this key from the map, returning the value it held.
+  ///
+  /// Re-probes rather than using the pinned slot: removal has to decide
+  /// between an empty slot and a tombstone from the chain that follows it, and
+  /// that logic lives in `remove`.
+  remove : (fn(self : Self) -> Option(V))(self._map.remove(self._key))
 );
 /**
 * Value iterator for HashMap - yields MapEntry(K, V) by value
@@ -956,8 +1202,28 @@ impl(
     })
   )
 );
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash)),
+  HashMap(K, V),
+  /// Build a map from a sequence of entries — `xs.collect(HashMap(K, V))`.
+  ///
+  /// Later duplicates overwrite earlier ones, as `insert` does.
+  FromIterator(
+    Elem : MapEntry(K, V),
+    from_iter_new : (fn() -> Self)(
+      HashMap(K, V).new()
+    ),
+    from_iter_add : (fn(acc : Self, item : MapEntry(K, V)) -> Self)({
+      acc.insert(item.key, item.value);
+      acc
+    })
+  )
+);
 export(
   HashMap,
+  HashMapEntry,
+  BucketProbe,
   HashMapError,
   MapEntry,
   HashMapIter,

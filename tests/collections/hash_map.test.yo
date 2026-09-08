@@ -1,5 +1,6 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
 open(import("std/collections/hash_map"));
 open(import("std/string"));
 // ===== Construction Tests =====
@@ -673,4 +674,176 @@ test("remove_entry hands back the entry it removed", {
   assert(match(m.remove_entry(i32(1)), .Some(_) => false, .None => true), "removing twice is None");
   assert(match(m.remove_entry(i32(2)), .Some(e) => (e.value == i32(20)), .None => false), "the survivor removes");
   assert(m.is_empty() == true, "map is empty");
+});
+// ===== Entry API =====
+test("entry reports occupancy and hands back the key", {
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  e := m.entry(i32(1));
+  assert(e.is_occupied() == true, "present key is occupied");
+  assert(e.is_vacant() == false, "and not vacant");
+  assert(e.key() == i32(1), "the key it was looked up with");
+  assert(match(e.value(), .Some(v) => (v == i32(10)), .None => false), "the stored value");
+  v := m.entry(i32(2));
+  assert(v.is_occupied() == false, "absent key is vacant");
+  assert(match(v.value(), .Some(_) => false, .None => true), "a vacant entry has no value");
+});
+test("entry.or_insert returns the stored value and inserts only when vacant", {
+  m := HashMap(i32, i32).new();
+  assert(m.entry(i32(1)).or_insert(i32(10)) == i32(10), "vacant inserts the default");
+  assert(m.len() == usize(1), "and grew the map");
+  assert(m.entry(i32(1)).or_insert(i32(99)) == i32(10), "occupied keeps the stored value");
+  assert(m.len() == usize(1), "and did not grow the map");
+  assert(m.get(i32(1)).unwrap() == i32(10), "the stored value is untouched");
+});
+test("entry.or_insert_with only calls make on the vacant path", {
+  m := HashMap(i32, i32).new();
+  // The recorder is an ArrayList because a closure captures by VALUE, and an
+  // ArrayList copy shares its buffer — an i32 counter would not come back out.
+  calls := ArrayList(i32).new();
+  assert(
+    m.entry(i32(1)).or_insert_with(() => {
+      calls.push(i32(1));
+      i32(7)
+    }) == i32(7),
+    "vacant makes a value"
+  );
+  assert(calls.len() == usize(1), "make ran once");
+  assert(
+    m.entry(i32(1)).or_insert_with(() => {
+      calls.push(i32(1));
+      i32(9)
+    }) == i32(7),
+    "occupied returns the stored value"
+  );
+  assert(calls.len() == usize(1), "make did NOT run again");
+});
+test("entry.and_modify updates in place and chains into or_insert", {
+  m := HashMap(i32, i32).new();
+  m.entry(i32(1)).and_modify(n => (n + i32(1))).or_insert(i32(1));
+  assert(m.get(i32(1)).unwrap() == i32(1), "first sighting inserts");
+  m.entry(i32(1)).and_modify(n => (n + i32(1))).or_insert(i32(1));
+  m.entry(i32(1)).and_modify(n => (n + i32(1))).or_insert(i32(1));
+  assert(m.get(i32(1)).unwrap() == i32(3), "later sightings increment");
+  assert(m.len() == usize(1), "the counter idiom keeps one entry");
+});
+test("entry.remove takes the entry out of the map", {
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  assert(match(m.entry(i32(1)).remove(), .Some(v) => (v == i32(10)), .None => false), "returns the value");
+  assert(m.contains_key(i32(1)) == false, "the key is gone");
+  assert(match(m.entry(i32(1)).remove(), .Some(_) => false, .None => true), "a vacant entry removes nothing");
+});
+test("entry inserts correctly across the resize its own insert triggers", {
+  m := HashMap(i32, i32).with_capacity(usize(16));
+  // Fill to the load factor so the NEXT vacant insert has to resize, which
+  // rehashes the table and invalidates the slot the probe found.
+  (i : i32) = i32(0);
+  while(i < i32(64), i = (i + i32(1)), {
+    assert(m.entry(i).or_insert(i * i32(2)) == (i * i32(2)), "each fresh key inserts its default");
+  });
+  assert(m.len() == usize(64), "every key landed");
+  (j : i32) = i32(0);
+  while(j < i32(64), j = (j + i32(1)), {
+    assert(m.get(j).unwrap() == (j * i32(2)), "and is reachable after the rehashes");
+  });
+});
+test("entry reuses a tombstone rather than lengthening the chain", {
+  m := HashMap(i32, i32).with_capacity(usize(16));
+  m.insert(i32(1), i32(10));
+  m.insert(i32(2), i32(20));
+  m.insert(i32(3), i32(30));
+  m.remove(i32(2));
+  before := m.tombstones;
+  cap := m.capacity;
+  m.entry(i32(2)).or_insert(i32(22));
+  assert(m.get(i32(2)).unwrap() == i32(22), "the key came back");
+  assert(m.tombstones <= before, "reusing the slot did not add a tombstone");
+  assert(m.capacity == cap, "and did not force a resize");
+  assert(m.len() == usize(3), "with the other two intact");
+  assert(m.get(i32(1)).unwrap() == i32(10), "key 1 survived");
+  assert(m.get(i32(3)).unwrap() == i32(30), "key 3 survived");
+});
+test("entry works with an RC key and value type", {
+  m := HashMap(String, String).new();
+  m.entry(`a`).or_insert(`one`);
+  m.entry(`a`).and_modify(s => (s + `!`));
+  assert(m.get(`a`).unwrap() == `one!`, "and_modify replaced the value");
+  m.entry(`b`).or_insert_with(() => `two`);
+  assert(m.get(`b`).unwrap() == `two`, "or_insert_with stored its value");
+  assert(m.len() == usize(2), "two entries");
+  assert(match(m.entry(`a`).remove(), .Some(s) => (s == `one!`), .None => false), "remove hands the value back");
+  assert(m.len() == usize(1), "one entry left");
+});
+// ===== retain / extend / FromIterator =====
+test("retain keeps exactly the entries the predicate accepts", {
+  m := HashMap(i32, i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(20), i = (i + i32(1)), {
+    m.insert(i, i * i32(10));
+  });
+  m.retain((k, _v) => ((k % i32(2)) == i32(0)));
+  assert(m.len() == usize(10), "half the keys survive");
+  (j : i32) = i32(0);
+  while(j < i32(20), j = (j + i32(1)), {
+    cond(
+      ((j % i32(2)) == i32(0)) => {
+        assert(m.get(j).unwrap() == (j * i32(10)), "an even key kept its value");
+      },
+      true => {
+        assert(m.get(j).is_none(), "an odd key is gone");
+      }
+    );
+  });
+});
+test("retain can see the value and can empty the map", {
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(5));
+  m.insert(i32(2), i32(50));
+  m.retain((_k, v) => (v > i32(10)));
+  assert(m.len() == usize(1), "one entry cleared the bar");
+  assert(m.contains_key(i32(2)) == true, "the right one");
+  m.retain((_k, _v) => false);
+  assert(m.is_empty() == true, "rejecting everything empties the map");
+  m.insert(i32(3), i32(30));
+  assert(m.get(i32(3)).unwrap() == i32(30), "and the map is still usable");
+});
+test("retain over an RC-typed map", {
+  m := HashMap(String, String).new();
+  m.insert(`keep`, `yes`);
+  m.insert(`drop`, `no`);
+  m.retain((k, _v) => (k == `keep`));
+  assert(m.len() == usize(1), "one survivor");
+  assert(m.get(`keep`).unwrap() == `yes`, "with its value");
+  assert(m.get(`drop`).is_none(), "the other is gone");
+});
+test("extend merges another map, overwriting on duplicates", {
+  a := HashMap(i32, i32).new();
+  a.insert(i32(1), i32(10));
+  a.insert(i32(2), i32(20));
+  b := HashMap(i32, i32).new();
+  b.insert(i32(2), i32(99));
+  b.insert(i32(3), i32(30));
+  a.extend(b);
+  assert(a.len() == usize(3), "the union of the key sets");
+  assert(a.get(i32(1)).unwrap() == i32(10), "an untouched key");
+  assert(a.get(i32(2)).unwrap() == i32(99), "a duplicate takes the other map's value");
+  assert(a.get(i32(3)).unwrap() == i32(30), "a new key arrives");
+  assert(b.len() == usize(2), "the source map is unchanged");
+});
+test("extend from an empty map is a no-op", {
+  a := HashMap(i32, i32).new();
+  a.insert(i32(1), i32(10));
+  a.extend(HashMap(i32, i32).new());
+  assert(a.len() == usize(1), "nothing changed");
+  assert(a.get(i32(1)).unwrap() == i32(10), "value intact");
+});
+test("collect builds a HashMap through FromIterator", {
+  src := HashMap(i32, i32).new();
+  src.insert(i32(1), i32(10));
+  src.insert(i32(2), i32(20));
+  out := src.into_iter().collect(HashMap(i32, i32));
+  assert(out.len() == usize(2), "both entries arrived");
+  assert(out.get(i32(1)).unwrap() == i32(10), "first entry");
+  assert(out.get(i32(2)).unwrap() == i32(20), "second entry");
 });
