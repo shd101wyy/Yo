@@ -224,6 +224,28 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       out
     },
     .FloatLit(raw) => {
+      // The three NON-FINITE doubles come out of C `%g` as `inf`, `-inf` and
+      // `nan` — none of which carries a radix point or an exponent, so the
+      // float-marker test below appended `.0` and produced `inf.0`, which is
+      // not C at all (issues/comptime-float-infinity-emits-invalid-c.md).
+      // They are reachable from any comptime arithmetic that overflows the
+      // range, and `f64(1.0e400)` is the only spelling of `f64.INFINITY`
+      // available today. `HUGE_VAL`/`HUGE_VALF`/`NAN` are the C11 <math.h>
+      // spellings (7.12/4, 7.12/5); `(1.0/0.0)` is NOT a substitute, being a
+      // division by zero in a context that may require a constant expression.
+      lowered := raw.clone().to_lowercase();
+      non_finite := cond(
+        ((lowered == "inf") || (lowered == "infinity")) => if(_is_f32(ty), String.from("HUGE_VALF"), String.from("HUGE_VAL")),
+        ((lowered == "-inf") || (lowered == "-infinity")) => if(_is_f32(ty), String.from("(-HUGE_VALF)"), String.from("(-HUGE_VAL)")),
+        ((lowered == "nan") || (lowered == "-nan")) => if(_is_f32(ty), String.from("NAN"), String.from("((double)NAN)")),
+        true => String.from("")
+      );
+      // No `add_c_include` here: `emit_c_includes` has already run by the time
+      // any value is generated. `<math.h>` is in codegen_c's unconditional base
+      // include set for exactly this reason.
+      if(non_finite.len() > usize(0), {
+        return(non_finite);
+      });
       // A C floating constant is already float-typed if it has a radix point
       // (`.`) OR an exponent (`e`/`E`). yo-self float raws come from f64
       // `.to_string()` (C `%g`), which renders large magnitudes in exponent
