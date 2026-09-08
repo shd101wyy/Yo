@@ -2582,3 +2582,33 @@ test("a local shadows a C-interop type name", {
 test("the C type still resolves where it is NOT shadowed", {
   assert(_ct_takes_long(long(3)) == long(3), "long names the type in a signature");
 });
+// A tuple reached THROUGH A POINTER from a struct emitted earlier — an
+// `ArrayList(Tuple(..))`'s `_ptr` is exactly that shape — needs its C type
+// NAME declared before that struct. Tuples were emitted as an anonymous
+// `typedef struct {...} __yo_tN;`, which cannot be forward-declared, so the
+// element pointer referred to a name C had not seen yet:
+//
+//   struct __yo_t0_struct { ... __yo_t2* _ptr; ... };   <- line 386
+//   typedef struct { ... } __yo_t2;                      <- line 438
+//   error: unknown type name '__yo_t2'
+//
+// See issues/fixed/tuple-type-has-no-forward-declaration.md.
+test("a tuple element type inside a generic container declares its C name in time", {
+  open(import("std/collections/array_list"));
+  open(import("std/string"));
+  xs := ArrayList(Tuple(String, String)).new();
+  xs.push((`k`, `v`));
+  xs.push((`a`, `b`));
+  assert(xs.len() == usize(2), "two pairs");
+  p := xs(usize(0));
+  assert(p.0 == `k`, "first element of the first pair");
+  assert(p.1 == `v`, "second element of the first pair");
+  assert(xs(usize(1)).0 == `a`, "the second pair too");
+  // The same shape one level deeper: a tuple whose element is itself a
+  // container, in a container.
+  ys := ArrayList(Tuple(i32, ArrayList(i32))).new();
+  inner := ArrayList(i32).new();
+  inner.push(i32(7));
+  ys.push((i32(1), inner));
+  assert(ys(usize(0)).1(usize(0)) == i32(7), "a container inside a tuple inside a container");
+});
