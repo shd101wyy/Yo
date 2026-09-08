@@ -4579,6 +4579,121 @@ impl(
 );
 _usize :: usize;
 export(usize : _usize);
+/**
+* `Integer` — marker for the ten built-in integer types, so the arithmetic
+* below can be written ONCE over `T` instead of ten times per method.
+*
+* It exists because those bodies need `T.MIN`/`T.MAX` and ordering, which a
+* `where(T <: Integer)` impl resolves through the type parameter. `f32`/`f64`
+* are deliberately NOT members: float arithmetic saturates to infinity rather
+* than overflowing, so `checked_*` would be meaningless on them.
+*/
+Integer :: trait();
+export(Integer);
+impl(i8, Integer());
+impl(i16, Integer());
+impl(i32, Integer());
+impl(i64, Integer());
+impl(isize, Integer());
+impl(u8, Integer());
+impl(u16, Integer());
+impl(u32, Integer());
+impl(u64, Integer());
+impl(usize, Integer());
+/**
+* Overflow-aware integer arithmetic, Rust's shapes: `checked_*` reports
+* overflow as `.None`, `saturating_*` clamps to the type's bound.
+*
+* Every bound test is written so that it also holds for the UNSIGNED types,
+* where `MIN` is 0 and the `rhs < 0` arms are simply never taken.
+*
+* The multiply is checked by DIVISION against the bound, never by forming the
+* product first and inspecting it: signed overflow is undefined behaviour in
+* C, so the product must not exist unless it is already known to fit.
+*/
+impl(
+  generic(T : Type),
+  where(T <: Integer),
+  T,
+  /// `self + rhs`, or `.None` if it would overflow.
+  checked_add : (fn(self : T, rhs : T) -> Option(T))(
+    cond(
+      ((rhs > T(0)) && (self > (T.MAX - rhs))) => Option(T).None,
+      ((rhs < T(0)) && (self < (T.MIN - rhs))) => Option(T).None,
+      true => Option(T).Some((self + rhs))
+    )
+  ),
+  /// `self - rhs`, or `.None` if it would overflow.
+  checked_sub : (fn(self : T, rhs : T) -> Option(T))(
+    cond(
+      ((rhs < T(0)) && (self > (T.MAX + rhs))) => Option(T).None,
+      ((rhs > T(0)) && (self < (T.MIN + rhs))) => Option(T).None,
+      true => Option(T).Some((self - rhs))
+    )
+  ),
+  /// `self * rhs`, or `.None` if it would overflow.
+  checked_mul : (fn(self : T, rhs : T) -> Option(T))(
+    cond(
+      ((self == T(0)) || (rhs == T(0))) => Option(T).Some(T(0)),
+      ((self > T(0)) && (rhs > T(0))) =>
+        cond((self > (T.MAX / rhs)) => Option(T).None, true => Option(T).Some((self * rhs))),
+      ((self > T(0)) && (rhs < T(0))) =>
+        cond((rhs < (T.MIN / self)) => Option(T).None, true => Option(T).Some((self * rhs))),
+      ((self < T(0)) && (rhs > T(0))) =>
+        cond((self < (T.MIN / rhs)) => Option(T).None, true => Option(T).Some((self * rhs))),
+      true =>
+        cond((self < (T.MAX / rhs)) => Option(T).None, true => Option(T).Some((self * rhs)))
+    )
+  ),
+  /// `self / rhs`, or `.None` on divide-by-zero and on `MIN / -1`.
+  ///
+  /// `-1` is spelled `T(0) - rhs == T(1)` rather than `T(-1)`: a negative
+  /// literal does not type-check at the unsigned specializations, and the
+  /// `rhs < T(0)` guard short-circuits before the subtraction there.
+  checked_div : (fn(self : T, rhs : T) -> Option(T))(
+    cond(
+      (rhs == T(0)) => Option(T).None,
+      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
+      true => Option(T).Some((self / rhs))
+    )
+  ),
+  /// `self % rhs`, or `.None` on divide-by-zero and on `MIN % -1`.
+  checked_rem : (fn(self : T, rhs : T) -> Option(T))(
+    cond(
+      (rhs == T(0)) => Option(T).None,
+      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
+      true => Option(T).Some((self % rhs))
+    )
+  ),
+  /// `self + rhs`, clamped to the type's bounds instead of overflowing.
+  saturating_add : (fn(self : T, rhs : T) -> T)(
+    match(
+      self.checked_add(rhs),
+      .Some(v) => v,
+      .None => cond((rhs > T(0)) => T.MAX, true => T.MIN)
+    )
+  ),
+  /// `self - rhs`, clamped to the type's bounds instead of overflowing.
+  saturating_sub : (fn(self : T, rhs : T) -> T)(
+    match(
+      self.checked_sub(rhs),
+      .Some(v) => v,
+      .None => cond((rhs < T(0)) => T.MAX, true => T.MIN)
+    )
+  ),
+  /// `self * rhs`, clamped to the type's bounds instead of overflowing.
+  saturating_mul : (fn(self : T, rhs : T) -> T)(
+    match(
+      self.checked_mul(rhs),
+      .Some(v) => v,
+      .None =>
+        cond(
+          (((self > T(0)) && (rhs > T(0))) || ((self < T(0)) && (rhs < T(0)))) => T.MAX,
+          true => T.MIN
+        )
+    )
+  )
+);
 /// char
 impl(char, Send());
 impl(char, Acyclic());
