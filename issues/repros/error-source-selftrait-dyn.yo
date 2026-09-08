@@ -1,0 +1,19 @@
+{ Error, AnyError } :: import("std/error");
+{ ToString } :: import("std/fmt/to_string");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+E1 :: struct(n : i32);
+impl(E1, ToString(to_string : (fn(inout(self) : Self) -> String)(`E1(${self.n})`)));
+impl(E1, Error());
+E2 :: struct(inner : AnyError);
+impl(E2, ToString(to_string : (fn(inout(self) : Self) -> String)(`E2`)));
+// PROVIDING an override typed Option(AnyError) is accepted.
+impl(E2, Error(source : (fn(inout(self) : Self) -> Option(AnyError))(Option(AnyError).Some(self.inner))));
+main :: (fn() -> unit)({
+  (a : AnyError) = dyn(E1(n : i32(1)));
+  (b : AnyError) = dyn(E2(inner : a));
+  // CONSUMING the result as an AnyError is rejected.
+  (held : Option(AnyError)) = b.source();
+  match(held, .Some(x) => println(x.to_string()), .None => println(`none`));
+});
+export(main);

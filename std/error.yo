@@ -22,6 +22,76 @@ impl(String, Error());
 impl(ParseIntError, Error());
 impl(ParseFloatError, Error());
 impl(ParseBoolError, Error());
+/// True when the type-erased `err` is really a `T` — Rust's `dyn Error::is`.
+///
+/// A FREE function rather than a method because a blanket inherent method over
+/// `E <: Error` resolves on a `Dyn(Error)` receiver and then miscompiles: codegen
+/// treats every method call on a `Dyn` value as a trait method and emits a
+/// vtable indirection for a slot that does not exist. See
+/// issues/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md;
+/// when that is fixed this becomes `err.is(T)`.
+///
+/// ```rust
+/// cond(
+///   error_is(err, NotFound) => recover(),
+///   true => rethrow(err)
+/// );
+/// ```
+///
+/// To use the value and not just test for it, reach for the `downcast(err, T)`
+/// builtin this is written over — it returns `Option(T)`.
+error_is :: (fn(err : AnyError, comptime(T) : Type) -> bool)(
+  match(
+    downcast(err, T),
+    .Some(_) => true,
+    .None => false
+  )
+);
+export(error_is);
+/// An error that adds a message to the one underneath it — Rust's
+/// `anyhow::Context` / `.context(...)`.
+///
+/// This is the type that makes `Error.source` worth having: nothing else in
+/// the tree overrides it, so before this every error chain was one link long.
+/// `to_string` renders the whole chain, innermost last:
+///
+/// ```rust
+/// e := Context.new(`while loading the config`, dyn(io_err));
+/// println(e.to_string());   // while loading the config: no such file
+/// ```
+Context :: struct(
+  /// What was being attempted.
+  message : String,
+  /// The error that caused it.
+  cause : AnyError
+);
+export(Context);
+impl(
+  Context,
+  /// Wrap `cause` with `message`.
+  new : (fn(message : String, cause : AnyError) -> Self)(
+    Self(message : message, cause : cause)
+  )
+);
+impl(
+  Context,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      out := self.message.clone();
+      out.push_str(": ");
+      out.push_string(self.cause.to_string());
+      out
+    })
+  )
+);
+impl(
+  Context,
+  Error(
+    source : (fn(inout(self) : Self) -> Option(AnyError))(
+      Option(AnyError).Some(self.cause)
+    )
+  )
+);
 /// Non-resumable exception handling effect record.
 /// Use `throw` to raise an `AnyError` and abort the current computation.
 /// `throw` is `ctl(...)` — handler body may contain `unwind`, and the
