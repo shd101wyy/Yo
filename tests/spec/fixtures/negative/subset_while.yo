@@ -1,0 +1,18 @@
+// V3 negative fixture (plans/backlog/FORMAL_VERIFICATION.md task 8).
+//
+// A verify-mode function whose body uses a construct OUTSIDE the V3
+// verifiable subset: a `while` loop (loops + invariants land in V4).
+// The verifier must report a precise subset error, not silently skip
+// the function and not crash. This fixture needs NO solver — the
+// symbolic executor rejects the body before any obligation runs.
+pragma(Pragma.Verify);
+
+sum_to :: (fn(n : i32) -> (r : i32))({
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(runtime(i < n), {
+    acc = (acc + i);
+    i = (i + i32(1));
+  });
+  acc
+});

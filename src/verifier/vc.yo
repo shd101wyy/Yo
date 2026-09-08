@@ -114,6 +114,8 @@ VcCtx :: ref(
   struct(
     table : ExprInfoTable,
     fn_name : String,
+    /// The FuncVal's `func_id` — self-recursion detection at call sites.
+    func_id : String,
     /// Source-name → current term (SSA by rebinding).
     vars : HashMap(String, VcTerm),
     /// Path assumptions (requires, branch conditions), conjoined.
@@ -124,10 +126,11 @@ VcCtx :: ref(
     fresh : usize
   )
 );
-_new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String) -> VcCtx)(
+_new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) -> VcCtx)(
   VcCtx(
     table : table,
     fn_name : fn_name,
+    func_id : func_id,
     vars : HashMap(String, VcTerm).new(),
     path : ArrayList(VcTerm).new(),
     obligations : ArrayList(VcObligation).new(),
@@ -165,7 +168,10 @@ _emit :: (
   ) -> unit
 )({
   q := new_vc_query(`${ctx.fn_name}/${label}`);
-  // Declarations: every source variable the obligations may mention.
+  // Declarations: every source variable the obligations may mention — in
+  // the goal, the extra assumptions, AND the path condition (a `requires`
+  // param that never appears in the goal is still ASSUMED, and an
+  // undeclared name in an assumption is an SMT error).
   declared := HashMap(String, VcSort).new();
   _collect_declared(goal, declared);
   (ei : usize) = usize(0);
@@ -179,6 +185,17 @@ _emit :: (
       .None => ()
     );
     ei = (ei + usize(1));
+  });
+  (pi0 : usize) = usize(0);
+  while(pi0 < ctx.path.len(), {
+    match(
+      ctx.path.get(pi0),
+      .Some(t) => {
+        _collect_declared(t, declared);
+      },
+      .None => ()
+    );
+    pi0 = (pi0 + usize(1));
   });
   keys := ArrayList(String).new();
   {
@@ -283,7 +300,7 @@ _sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
     (k : usize) = j;
     while(k > usize(0), {
       prev := unsafe((buf.add(k - usize(1))).*);
-      if((prev <= key), {
+      if(prev <= key, {
         break;
       });
       unsafe((buf.add(k)).* = prev);
@@ -300,7 +317,7 @@ _collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
   match(
     t,
     .Var(name, sort) => {
-      if(!(out.contains_key(name.clone())), {
+      if(!out.contains_key(name.clone()), {
         out.insert(name.clone(), sort);
       });
     },
@@ -459,12 +476,12 @@ _expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
 /// The operator/cast/call dispatch.
 _call_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, head : String, args : ArrayList(AstExpr), info : ExprInfo)
-    -> Option(VcTerm)
+  -> Option(VcTerm)
 )({
   n := args.len();
   // --- integer casts: i32(x), u8(x), i64(x), … ---------------------------
   cast_w := _cast_width(head);
-  if((cast_w.is_some() && (n == usize(1))), {
+  if(cast_w.is_some() && (n == usize(1)), {
     arg := args.get(usize(0)).unwrap();
     arg_info := match(
       expr_info_table_get(ctx.table, ast_expr_id(arg)),
@@ -500,7 +517,7 @@ _call_term :: (
   if(bin.is_some() && (n == usize(2)), {
     a_opt := _expr_term(ctx, args.get(usize(0)).unwrap());
     b_opt := _expr_term(ctx, args.get(usize(1)).unwrap());
-    if((a_opt.is_none() || b_opt.is_none()), {
+    if(a_opt.is_none() || b_opt.is_none(), {
       return(Option(VcTerm).None);
     });
     at := a_opt.unwrap();
@@ -511,8 +528,7 @@ _call_term :: (
       .None => VcOp.BvAdd
     );
     // AoRTE: division/remainder divisor non-zero.
-    if(
-      ((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv)) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
+    if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
       _emit(ctx, "divisor-nonzero", ArrayList(VcTerm).new(), _nonzero_term(bt));
     });
     // AoRTE: shift amount within the shifted operand's width.
@@ -556,6 +572,23 @@ _call_term :: (
   if(head == "cond", {
     return(_cond_ite(ctx, e, args));
   });
+  // --- while / for / match: precise subset rejections ----------------------
+  // These would otherwise fall into the callee-call path and report a
+  // misleading "uncontracted callee" error. Loops need the V4
+  // havoc-invariant rule; `match` needs the enum/datatype encoding
+  // (later in V3); `for` is a macro over while (same V4 rule).
+  if(head == "while", {
+    _fail_subset(ctx, String.from("while loop (requires invariant(...) — Phase V4)"), e);
+    return(Option(VcTerm).None);
+  });
+  if(head == "for", {
+    _fail_subset(ctx, String.from("for loop (requires invariant(...) — Phase V4)"), e);
+    return(Option(VcTerm).None);
+  });
+  if(head == "match", {
+    _fail_subset(ctx, String.from("match (enum/datatype encoding — pending later in V3)"), e);
+    return(Option(VcTerm).None);
+  });
   // --- begin blocks --------------------------------------------------------
   if(head == "begin", {
     return(_begin_term(ctx, args));
@@ -578,6 +611,13 @@ _call_term :: (
   if(head == "panic", {
     // Diverging path — contributes nothing (SPARK's stance).
     return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
+  });
+  // --- old(...): identity ----------------------------------------------------
+  // V3 straight-line bodies cannot rebind a parameter (`:=` creates NEW
+  // bindings; reassignment is outside the subset), so the entry value and
+  // the current value coincide. Real two-state reasoning is V5.
+  if((head == "old") && (n == usize(1)), {
+    return(_expr_term(ctx, args.get(usize(0)).unwrap()));
   });
   // --- calls to contracted callees ----------------------------------------
   return(_callee_call_term(ctx, e, args, info));
@@ -666,7 +706,7 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
       );
       c_opt := _expr_term(ctx, aa.get(usize(0)).unwrap());
       v_opt := _expr_term(ctx, aa.get(usize(1)).unwrap());
-      if((c_opt.is_none() || v_opt.is_none()), {
+      if(c_opt.is_none() || v_opt.is_none(), {
         return(Option(VcTerm).None);
       });
       ct := c_opt.unwrap();
@@ -705,27 +745,70 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
 });
 /// begin block: sequence statements; `name := expr` binds; the LAST expr is
 /// the value.
+/// The first argument's name when it is a plain atom.
+_atom_arg_name :: (fn(args : ArrayList(AstExpr)) -> Option(String))(
+  match(
+    args.get(usize(0)),
+    .Some(first) => cond(
+      ast_expr_is_atom(first) => Option(String).Some(ast_expr_token(first).value),
+      true => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
+/// A `(name : T)` lhs's name: the `:`-call's first argument.
+_typed_binding_lhs_name :: (fn(lhs : AstExpr) -> Option(String))(
+  match(
+    lhs,
+    .FnCall(_, _, la, _, _) => _atom_arg_name(la),
+    .Atom(_, _) => Option(String).None
+  )
+);
+/// The name a binding statement binds: `x := v` / `x = v` (Atom lhs) or
+/// the declared form `(x : T) = v` (`:`-call lhs). `.None` for anything
+/// else (field writes, index writes — outside the V3 subset).
+_binding_name_of :: (fn(lhs : AstExpr) -> Option(String))(
+  cond(
+    ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_token(lhs).value),
+    ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))) => _typed_binding_lhs_name(lhs),
+    true => Option(String).None
+  )
+);
 _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTerm))({
   (i : usize) = usize(0);
   result := Option(VcTerm).None;
   while(i < args.len(), {
     stmt := args.get(i).unwrap();
-    // Binding: FnCall(":=", [name-atom, value]) in infix form.
-    if(ast_expr_is_fn_call_of(stmt, ":=", Option(usize).Some(usize(2))), {
+    // Bindings: `name := value` and `name = value` / `(name : T) = value`.
+    // A reassignment is an SSA REBIND of the same source name — sound for
+    // straight-line code (the old term is simply shadowed); mutation-based
+    // two-state reasoning is V5. Non-name assignments (field/index writes)
+    // are outside the subset.
+    is_bind := ast_expr_is_fn_call_of(stmt, ":=", Option(usize).Some(usize(2)));
+    is_assign := ast_expr_is_fn_call_of(stmt, "=", Option(usize).Some(usize(2)));
+    if(is_bind || is_assign, {
       ba := match(
         stmt,
         .FnCall(_, _, a2, _, _) => a2,
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
-      name := ast_expr_token(ba.get(usize(0)).unwrap()).value;
-      v := _expr_term(ctx, ba.get(usize(1)).unwrap());
       match(
-        v,
-        .Some(vt) => {
-          ctx.vars.insert(name.clone(), vt);
-          result = Option(VcTerm).Some(vt);
+        _binding_name_of(ba.get(usize(0)).unwrap()),
+        .Some(name) => {
+          v := _expr_term(ctx, ba.get(usize(1)).unwrap());
+          match(
+            v,
+            .Some(vt) => {
+              ctx.vars.insert(name.clone(), vt);
+              result = Option(VcTerm).Some(vt);
+            },
+            .None => {
+              return(Option(VcTerm).None);
+            }
+          );
         },
         .None => {
+          _fail_subset(ctx, String.from("assignment to a non-name (field/index writes are outside the V3 subset)"), stmt);
           return(Option(VcTerm).None);
         }
       );
@@ -749,7 +832,7 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
 /// then assume ensures with a fresh result var bound.
 _callee_call_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), info : ExprInfo)
-    -> Option(VcTerm)
+  -> Option(VcTerm)
 )({
   // The callee's FuncVal rides the callee atom's ExprInfo.
   callee_atom := match(
@@ -775,6 +858,12 @@ _callee_call_term :: (
     return(Option(VcTerm).None);
   });
   fid := callee_id.unwrap();
+  // Recursion: a self-call needs `decreases(...)` — termination measures
+  // are Phase V4 (plan §"Loops, mutation, old, and decreases").
+  if(fid == ctx.func_id, {
+    _fail_subset(ctx, String.from("recursion (requires decreases(...) — Phase V4)"), e);
+    return(Option(VcTerm).None);
+  });
   reqs := get_func_requires_exprs(fid.clone());
   enss := get_func_ensures_exprs(fid.clone());
   if((reqs.len() == usize(0)) && (enss.len() == usize(0)), {
@@ -786,7 +875,9 @@ _callee_call_term :: (
   // prove each requires under the caller path. V3 note: requires/ensures
   // predicates are evaluated in the CALLER's scope; substituting callee
   // param names with caller argument terms happens via ctx.vars rebinding
-  // keyed by the callee's param labels (FuncValData.params order).
+  // keyed by the callee's param labels (FuncValData.params order). The
+  // rebindings (plus the callee's return-label binding, below) are SAVED
+  // and restored after the call — the caller's own bindings must survive.
   callee_params := match(
     expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
     .Some(ci2) => match(
@@ -800,7 +891,8 @@ _callee_call_term :: (
     ),
     .None => ArrayList(String).new()
   );
-  saved := ArrayList(String).new();
+  saved_names := ArrayList(String).new();
+  saved_vals := ArrayList(Option(VcTerm)).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
     match(
@@ -813,7 +905,8 @@ _callee_call_term :: (
             match(
               callee_params.get(i),
               .Some(cp) => {
-                saved.push(cp.clone());
+                saved_names.push(cp.clone());
+                saved_vals.push(ctx.vars.get(cp.clone()));
                 ctx.vars.insert(cp.clone(), vt);
               },
               .None => ()
@@ -846,7 +939,9 @@ _callee_call_term :: (
     );
     ri = (ri + usize(1));
   });
-  // Assume ensures with a fresh result bound.
+  // Assume ensures with a fresh result bound. The callee's ensures name
+  // the return value through ITS return label (V1 decision D3) — bind that
+  // label to the fresh result var while the predicates are evaluated.
   ret_sort := match(
     _type_sort(info.ty),
     .Some(s) => s,
@@ -854,13 +949,24 @@ _callee_call_term :: (
   );
   fresh_idx := _next_fresh(ctx);
   ret_name := `__ret_${fresh_idx.to_string()}`;
-  ctx.vars.insert(ret_name.clone(), VcTerm.Var(name : ret_name.clone(), sort : ret_sort));
+  ret_var := VcTerm.Var(name : ret_name.clone(), sort : ret_sort);
+  ctx.vars.insert(ret_name.clone(), ret_var);
+  callee_label := get_func_return_label(fid.clone());
+  match(
+    callee_label,
+    .Some(cl) => {
+      saved_names.push(cl.clone());
+      saved_vals.push(ctx.vars.get(cl.clone()));
+      ctx.vars.insert(cl.clone(), ret_var);
+    },
+    .None => ()
+  );
   (ei : usize) = usize(0);
   while(ei < enss.len(), {
     match(
       enss.get(ei),
       .Some(ens) => {
-        et := _expr_term_in(ctx, ens, ret_name.clone());
+        et := _expr_term(ctx, ens);
         match(
           et,
           .Some(ett) => {
@@ -873,16 +979,34 @@ _callee_call_term :: (
     );
     ei = (ei + usize(1));
   });
-  Option(VcTerm).Some(VcTerm.Var(name : ret_name.clone(), sort : ret_sort))
-});
-/// Evaluate a predicate with the return label pre-bound to `label_term_name`
-/// (a var in ctx.vars) and `old(x)` rewritten to `x`.
-_expr_term_in :: (fn(inout(ctx) : VcCtx, e : AstExpr, ret_binding : String) -> Option(VcTerm))({
-  // V3 callee-side predicates: replace old(inner) by inner during the walk
-  // by pre-rewriting the AST is invasive; instead treat `old` as identity
-  // at the term level via a tiny wrapper.
-  v := _expr_term(ctx, e);
-  v
+  // Restore the caller's bindings (a missing binding goes back to missing).
+  (si : usize) = saved_names.len();
+  while(si > usize(0), {
+    si = (si - usize(1));
+    match(
+      saved_names.get(si),
+      .Some(sn) => {
+        match(
+          saved_vals.get(si),
+          .Some(sv) => {
+            match(
+              sv,
+              .Some(old) => {
+                ctx.vars.insert(sn.clone(), old);
+              },
+              .None => {
+                _ := ctx.vars.remove(sn.clone());
+                ()
+              }
+            );
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+  Option(VcTerm).Some(ret_var)
 });
 // ============================================================================
 // Small term helpers
@@ -923,6 +1047,9 @@ _term_width :: (fn(t : VcTerm) -> usize)(
 VerifyFnInput :: ref(
   struct(
     fn_name : String,
+    /// The FuncVal's `func_id` (recursion detection; the re-keyed
+    /// contract side tables are readable under it).
+    func_id : String,
     body : AstExpr,
     param_names : ArrayList(String),
     param_types : ArrayList(TypeValue),
@@ -936,7 +1063,7 @@ VerifyFnInput :: ref(
 /// Symbolically execute one function definition. Always returns a result —
 /// subset violations land in `.error`, never thrown.
 verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
-  ctx := _new_vc_ctx(input.table, input.fn_name.clone());
+  ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
   // Bind params as declared vars.
   (i : usize) = usize(0);
   while(i < input.param_names.len(), {

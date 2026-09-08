@@ -31,11 +31,12 @@ open(import("std/fmt"));
   clone_expr_fresh_ids,
   make_err_expr
 } :: import("../../expr.yo");
-{ ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set }
+{ ExprInfo, ExprInfoTable, new_expr_info, expr_info_table_get, expr_info_table_set }
 :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
 { EvalContext, note_unlabeled_ensures_atom } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
+{ TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
@@ -462,6 +463,116 @@ _hoist_old_in :: (
     )
   )
 );
+// ============================================================================
+// V3: the pending-verification task registry + mode resolution
+// (plans/backlog/FORMAL_VERIFICATION.md §Architecture — the evaluator
+// RECORDS tasks as it evaluates a verification target; the separate
+// verifier pass CONSUMES them after module evaluation. The registry lives
+// here, next to the other contract side-table plumbing, so no evaluator
+// file needs to import from src/verifier/.)
+// ============================================================================
+/// One function queued for the verifier pass.
+VerifyTask :: ref(
+  struct(
+    /// Display id — `fn@<module>:<row>` of the fn-type expression. The
+    /// defining name binding (`name :: (fn(...))(body)`) is not in scope
+    /// at the registration site, so the source location is the id.
+    fn_id : String,
+    /// The FuncVal's `func_id` — the re-keyed contract side tables are
+    /// readable under it, and self-recursion detection compares it.
+    func_id : String,
+    module_path : String,
+    /// The UNWRAPPED body (pre-splice): the verifier walks the real body,
+    /// never the assert-spliced one.
+    body : AstExpr,
+    param_names : ArrayList(String),
+    param_types : ArrayList(TypeValue),
+    result_type : TypeValue,
+    requires_exprs : ArrayList(AstExpr),
+    ensures_exprs : ArrayList(AstExpr),
+    return_label : Option(String),
+    table : ExprInfoTable,
+    /// `"verify"` | `"verify+"` — only those modes register.
+    mode : String
+  )
+);
+(g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
+/// The file set the current command is verifying (absolute or as-given
+/// paths — matched by equality against `Token.module_path`). Empty = no
+/// verification is recording (plain `yo check`/`compile`), so registry
+/// effects are inert.
+(g_verify_target_paths : ArrayList(String)) = ArrayList(String).new();
+/// The CLI override (`--verify-mode`); the file pragma is source of truth
+/// when present, this decides otherwise.
+(g_verify_mode_override : Option(String)) = Option(String).None;
+set_verify_mode_override :: (fn(m : Option(String)) -> unit)({
+  g_verify_mode_override = m;
+  ()
+});
+/// Declare the verification target file set (and reset any previous one).
+set_verify_target_paths :: (fn(paths : ArrayList(String)) -> unit)({
+  g_verify_target_paths = paths;
+  ()
+});
+_is_verify_target :: (fn(module_path : String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_verify_target_paths.len()) && !found, {
+    match(
+      g_verify_target_paths.get(i),
+      .Some(p) => if(p == module_path, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// The verification mode for a module: `"runtime"` | `"verify"` |
+/// `"verify+"` | `"ignore"`. The FILE's pragma is the source of truth when
+/// present (plans/backlog/FORMAL_VERIFICATION.md §"Verification modes");
+/// otherwise the CLI override decides; the default is today's `runtime`.
+resolve_verify_mode :: (fn(module_path : String) -> String)(
+  cond(
+    file_has_pragma(Option(String).Some(module_path.clone()), Pragma.NoContracts) => String.from("ignore"),
+    file_has_pragma(Option(String).Some(module_path.clone()), Pragma.Verify) => String.from("verify"),
+    file_has_pragma(Option(String).Some(module_path.clone()), Pragma.VerifyOrAssert) => String.from("verify+"),
+    true => match(
+      g_verify_mode_override,
+      .Some(m) => m.clone(),
+      .None => String.from("runtime")
+    )
+  )
+);
+/// Queue one function. First-wins on `fn_id`: the def site fires once per
+/// module evaluation, but a specialization re-entry would re-register the
+/// same source — keep the first (definition-site) view.
+register_verify_task :: (fn(t : VerifyTask) -> unit)({
+  (dup : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_verify_tasks.len()) && !dup, {
+    match(
+      g_verify_tasks.get(i),
+      .Some(prev) => if(prev.fn_id == t.fn_id, {
+        dup = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  if(!dup, {
+    g_verify_tasks.push(t);
+  });
+  ()
+});
+/// Drain the registry (move the tasks out and reset it) for the verifier
+/// pass. `yo verify` drains once after evaluating the target set.
+take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
+  out := g_verify_tasks;
+  g_verify_tasks = ArrayList(VerifyTask).new();
+  out
+});
 /// Splice the contract predicates into `body`.
 ///
 /// `return_label` (Phase V1) is the signature's labeled return
@@ -472,7 +583,9 @@ _hoist_old_in :: (
 /// (mirrors `fnType.return.isCompileTimeOnly`). `returns_unit` suppresses the
 /// return binding (a `void result = ...` would be invalid C).
 /// Returns `body` unchanged when there are no contracts, or when the body's
-/// file declared `pragma(Pragma.NoContracts);`.
+/// verification mode is not `runtime` (`ignore` erases the clauses —
+/// `pragma(Pragma.NoContracts);`, mirrors contracts.ts:406-409 — and `verify`
+/// suppresses the splice because the proof replaces the asserts).
 wrap_function_body_with_contracts :: (
   fn(
     body : AstExpr,
@@ -487,10 +600,28 @@ wrap_function_body_with_contracts :: (
     return(body);
   });
   body_tok := ast_expr_token(body);
-  // Honor `pragma(Pragma.NoContracts);` — erase contract clauses entirely.
-  // Mirrors contracts.ts:406-409.
-  if(file_has_pragma(Option(String).Some(body_tok.module_path.clone()), Pragma.NoContracts), {
-    return(body);
+  // V3 mode dispatch (plans/backlog/FORMAL_VERIFICATION.md §"The
+  // assert-splice interaction"). Effects apply only when this module is a
+  // VERIFICATION TARGET (the `yo verify` file set): a non-target file — the
+  // prelude, an imported dependency — keeps today's runtime behavior even
+  // under a CLI override, so its un-verified contracts never lose their
+  // asserts.
+  if(_is_verify_target(body_tok.module_path.clone()), {
+    mode := resolve_verify_mode(body_tok.module_path.clone());
+    // `ignore` (the `pragma(Pragma.NoContracts);` mode, or the CLI
+    // override) — erase contract clauses entirely. Mirrors contracts.ts:406-409.
+    if(mode == "ignore", {
+      return(body);
+    });
+    // `verify` — suppress the splice entirely: the verifier consumes the
+    // predicates from the fn-type side tables and the emitted code carries
+    // no runtime asserts (the proof replaces them). The predicates were
+    // still type-checked at signature evaluation, so malformed ones error.
+    // `verify+` keeps the splice here; the strip pass for PROVED predicates
+    // is V3 task 6.
+    if(mode == "verify", {
+      return(body);
+    });
   });
   assert_fn_name := cond(
     is_comptime_fn => String.from(BF_COMPTIME_ASSERT),
@@ -655,3 +786,12 @@ wrap_function_body_with_contracts :: (
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_ghost);
 export(evaluate_ghost_fn, evaluate_old);
 export(wrap_function_body_with_contracts);
+export(
+  VerifyTask,
+  set_verify_mode_override,
+  set_verify_target_paths,
+  _is_verify_target,
+  resolve_verify_mode,
+  register_verify_task,
+  take_verify_tasks
+);
