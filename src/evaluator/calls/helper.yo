@@ -1075,7 +1075,13 @@ ${ast_expr_to_string(actual_arg)}`
   // Note: opts is a local variable (not comptime .None) to ensure the
   // un-specialized synthesize_types wrapper is generated in C codegen.
   // See issues/synthesizer-unspecialized-wrapper.md
-  (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+  // The ARGUMENT's token anchors a unification failure ("Cannot unify
+  // incompatible types") at the argument, not at the synthesizer's
+  // synthetic row 0 / column 0
+  // (issues/fixed/unify-errors-carry-a-synthetic-token-so-editors-show-them-at-0-0.md).
+  (synth_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
+    SynthesizeOptions(set_resolved_concrete_type : false, token : Option(Token).Some(ast_expr_token(arg_expr_raw)))
+  );
   synth := synthesize_types(
     resolved_pt,
     callee_env_r,
@@ -6631,7 +6637,11 @@ try_to_call_function_with_arguments :: (
           ctx.expected_type,
           .Some(et) => {
             checked_ret := ArrayList(TypePair).new();
-            (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).None;
+            // The CALL's token anchors a return-type-vs-expected unification
+            // failure at the call expression (see Step 6's note).
+            (synth_ret_opts : Option(SynthesizeOptions)) = Option(SynthesizeOptions).Some(
+              SynthesizeOptions(set_resolved_concrete_type : false, token : Option(Token).Some(ast_expr_token(expr)))
+            );
             synth_ret := synthesize_types(
               return_type,
               callee_env_m,
