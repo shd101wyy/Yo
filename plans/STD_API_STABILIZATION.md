@@ -573,6 +573,40 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    constants are Yo literals rather than libc's, which sidesteps
    issues/c-include-rvalue-macro-constant-cannot-be-addressed.md and is the
    better design anyway (comptime, no header dependency).
+
+   **`Default` coverage: DONE (2026-09-09).** The finding was "Default on only
+   16 types: 13 primitives, `Option`, `String`, `ArrayList`". It is now on 24
+   more: the seven remaining mutable collections (`HashMap`, `HashSet`,
+   `BTreeMap`, `Deque`, `LinkedList`, `PriorityQueue`, `OrderedMap`), all seven
+   `imm` containers, `Duration`, `Path`, `StringBuilder`, `Writer`, `rune`,
+   `SipHasher13`, `Fnv1aHasher`, `JsonValue`, `unit` and `Box(T)`. Each is the
+   Rust value: the empty container, `Duration::default()` = zero,
+   `char::default()` = U+0000, `serde_json::Value::default()` = `Null`,
+   `Box<T: Default>` = `box(T::default())`. Every one carries a RUNTIME test
+   asserting the default is not just constructible but usable (insert into it,
+   push onto it, render it) — `yo check` never evaluates a deferred generic
+   body, so a comptime-only assertion would prove nothing.
+
+   Two deliberate gaps. `TomlValue` gets none, because the `toml` crate's
+   `Value` has none either and TOML has no null — an empty table would be a
+   guess, exactly the reason `derive(Default)` refuses enums. `Array(T, N)`
+   gets none, because the only array constructor is
+   `fill : (fn(comptime(val) : T) -> comptime(Self))` under `T <: Comptime`,
+   and `(T <: Default).default()` is not a comptime value; Rust's array
+   `Default` needs a runtime element-wise initializer Yo has no spelling for
+   yet. `str` also gets none: it has no impls at all today (it is a builtin
+   view with intrinsics only) and no empty-`str` constructor.
+
+   **One compiler bug fell out.** Asserting `unit.default() == ()` did not
+   compile: a `unit` operand renders as the EMPTY C string, and `_binop`'s
+   degraded-render guard reads an empty operand as a failed transpile, so every
+   `unit == unit` became a `// Failed to transpile` comment — fatal in `main`,
+   and inside a DERIVED `==` an abort()-ing stub. So `derive(Eq)` over a struct
+   with a `unit` field shipped a binary that died on its first comparison,
+   which is precisely the case the prelude's `impl(unit, Eq(unit))` comment
+   claims to serve. Fixed by excluding `unit` from the builtin-inline operator
+   routing so it uses the `Eq(unit)`/`Ord(unit)` impls that already existed
+   (issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md).
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

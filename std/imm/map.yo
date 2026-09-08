@@ -1018,4 +1018,15 @@ impl(
     )
   )
 );
+/// `Default` — the empty map.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  Map(K, V),
+  Default(
+    default : (fn() -> Self)(
+      Self.new()
+    )
+  )
+);
 export(Map, MapNode, MapBranch, MapLeaf, MapCollision, MapEntry, InsertResult, RemoveResult);
