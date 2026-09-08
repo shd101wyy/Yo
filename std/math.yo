@@ -1,0 +1,352 @@
+//! Floating-point mathematics — the Yo-level surface over `libc/math`.
+//!
+//! `f64` and `f32` carry these as INHERENT methods and associated constants,
+//! so they read the way Rust's do:
+//!
+//! ```rust
+//! open(import("std/math"));
+//!
+//! h := ((a * a) + (b * b)).sqrt();
+//! deg := angle.to_degrees();
+//! println(f64.PI.to_string());
+//! ```
+//!
+//! ## Why this is not in the prelude
+//!
+//! Every function here is a C call, and the prelude imports NOTHING and
+//! contains no `c_include` — it is the one module that cannot reach `libc`.
+//! `std/string/rune.yo` sets the precedent: it gives the primitive `rune` its
+//! character methods from an ordinary module. Importing this module anywhere in
+//! a program registers the impls for the whole program, exactly as importing
+//! `std/string` does for `rune`.
+//!
+//! The `unsafe(...)` wrappers every C call needs live here once, so callers
+//! never need `pragma(Pragma.AllowUnsafe)` to compute a square root.
+//!
+//! ## Constants are Yo literals, not libc's
+//!
+//! `M_PI` and friends are C MACROS expanding to rvalues, which cannot be an
+//! `inout` receiver (issues/c-include-rvalue-macro-constant-cannot-be-addressed.md)
+//! and are not compile-time values to Yo. Spelling the constants as Yo literals
+//! makes them real comptime constants with no header dependency, and they are
+//! exact: each is the shortest decimal that round-trips to the same double.
+//!
+//! `INFINITY`, `NEG_INFINITY` and `NAN` are NOT here yet. The only comptime
+//! spelling of them is an overflowing literal (`f64(1.0e400)`), which the
+//! v0.2.28 seed still miscompiles to `inf.0`
+//! (issues/fixed/comptime-float-infinity-emits-invalid-c.md) — `std/` has to
+//! build under the seed, so they wait for the next seed bump. `is_nan`,
+//! `is_infinite` and `is_finite` are here and work today.
+//! ## Stability
+//!
+//! stable — the method and constant names follow Rust's `f64`/`f32` inherent
+//! surface, and the two deliberate gaps (`INFINITY`/`NEG_INFINITY`/`NAN`, and
+//! the `f32` transcendentals C has no single-precision entry point for) are
+//! additive when they arrive.
+pragma(Pragma.AllowUnsafe);
+{
+  sqrt : _c_sqrt,
+  cbrt : _c_cbrt,
+  fabs : _c_fabs,
+  floor : _c_floor,
+  ceil : _c_ceil,
+  round : _c_round,
+  trunc : _c_trunc,
+  pow : _c_pow,
+  exp : _c_exp,
+  exp2 : _c_exp2,
+  expm1 : _c_expm1,
+  log : _c_log,
+  log2 : _c_log2,
+  log10 : _c_log10,
+  log1p : _c_log1p,
+  hypot : _c_hypot,
+  sin : _c_sin,
+  cos : _c_cos,
+  tan : _c_tan,
+  asin : _c_asin,
+  acos : _c_acos,
+  atan : _c_atan,
+  atan2 : _c_atan2,
+  sinh : _c_sinh,
+  cosh : _c_cosh,
+  tanh : _c_tanh,
+  asinh : _c_asinh,
+  acosh : _c_acosh,
+  atanh : _c_atanh,
+  fmod : _c_fmod,
+  copysign : _c_copysign,
+  fma : _c_fma,
+  isnan : _c_isnan,
+  isinf : _c_isinf,
+  isfinite : _c_isfinite,
+  signbit : _c_signbit,
+  sqrtf : _c_sqrtf,
+  cbrtf : _c_cbrtf,
+  fabsf : _c_fabsf,
+  floorf : _c_floorf,
+  ceilf : _c_ceilf,
+  roundf : _c_roundf,
+  truncf : _c_truncf,
+  powf : _c_powf,
+  expf : _c_expf,
+  logf : _c_logf,
+  log2f : _c_log2f,
+  log10f : _c_log10f,
+  hypotf : _c_hypotf,
+  sinf : _c_sinf,
+  cosf : _c_cosf,
+  tanf : _c_tanf,
+  atan2f : _c_atan2f,
+  fmodf : _c_fmodf,
+  copysignf : _c_copysignf
+} :: import("./libc/math.yo");
+/// Mathematical constants for `f64`, each the shortest decimal that
+/// round-trips to the intended double.
+impl(
+  f64,
+  /// Archimedes' constant, π.
+  PI : f64(3.141592653589793),
+  /// The full turn, 2π — Rust's `TAU`.
+  TAU : f64(6.283185307179586),
+  /// Euler's number, e.
+  E : f64(2.718281828459045),
+  /// √2.
+  SQRT_2 : f64(1.4142135623730951),
+  /// ln(2).
+  LN_2 : f64(0.6931471805599453),
+  /// ln(10).
+  LN_10 : f64(2.302585092994046),
+  /// log₂(e).
+  LOG2_E : f64(1.4426950408889634),
+  /// log₁₀(e).
+  LOG10_E : f64(0.4342944819032518),
+  /// The difference between 1.0 and the next representable double.
+  EPSILON : f64(2.220446049250313e-16),
+  /// The largest finite double.
+  MAX : f64(1.7976931348623157e308),
+  /// The most negative finite double — `-MAX`, NOT the smallest positive.
+  MIN : f64(-1.7976931348623157e308),
+  /// The smallest positive NORMAL double. Subnormals go lower.
+  MIN_POSITIVE : f64(2.2250738585072014e-308)
+);
+/// The same constants at `f32` precision.
+impl(
+  f32,
+  PI : f32(3.14159265),
+  TAU : f32(6.2831853),
+  E : f32(2.71828183),
+  SQRT_2 : f32(1.41421356),
+  LN_2 : f32(0.69314718),
+  LN_10 : f32(2.30258509),
+  LOG2_E : f32(1.44269504),
+  LOG10_E : f32(0.43429448),
+  EPSILON : f32(1.1920929e-7),
+  MAX : f32(3.4028235e38),
+  MIN : f32(-3.4028235e38),
+  MIN_POSITIVE : f32(1.1754944e-38)
+);
+impl(
+  f64,
+  /// Square root. NaN for a negative receiver.
+  sqrt : (fn(self : Self) -> Self)(unsafe(_c_sqrt(self))),
+  /// Cube root — defined for negative receivers, unlike `sqrt`.
+  cbrt : (fn(self : Self) -> Self)(unsafe(_c_cbrt(self))),
+  /// Absolute value.
+  abs : (fn(self : Self) -> Self)(unsafe(_c_fabs(self))),
+  /// The largest integer not greater than the receiver.
+  floor : (fn(self : Self) -> Self)(unsafe(_c_floor(self))),
+  /// The smallest integer not less than the receiver.
+  ceil : (fn(self : Self) -> Self)(unsafe(_c_ceil(self))),
+  /// Round half AWAY FROM ZERO, as Rust's `round` and C's `round` do — not
+  /// half-to-even.
+  round : (fn(self : Self) -> Self)(unsafe(_c_round(self))),
+  /// Discard the fractional part, rounding toward zero.
+  trunc : (fn(self : Self) -> Self)(unsafe(_c_trunc(self))),
+  /// The fractional part, keeping the receiver's sign — `self - self.trunc()`.
+  fract : (fn(self : Self) -> Self)(self - unsafe(_c_trunc(self))),
+  /// Raise to a FLOAT power.
+  powf : (fn(self : Self, n : Self) -> Self)(unsafe(_c_pow(self, n))),
+  /// Raise to an INTEGER power. Goes through C `pow`, so a negative receiver
+  /// is fine — `(-(2.0)).powi(3)` is `-8`, where `powf` would give NaN.
+  powi : (fn(self : Self, n : i32) -> Self)(unsafe(_c_pow(self, f64(n)))),
+  /// e raised to the receiver.
+  exp : (fn(self : Self) -> Self)(unsafe(_c_exp(self))),
+  /// 2 raised to the receiver.
+  exp2 : (fn(self : Self) -> Self)(unsafe(_c_exp2(self))),
+  /// `exp(self) - 1`, accurate for a receiver near zero — Rust's `exp_m1`.
+  exp_m1 : (fn(self : Self) -> Self)(unsafe(_c_expm1(self))),
+  /// Natural logarithm.
+  ln : (fn(self : Self) -> Self)(unsafe(_c_log(self))),
+  /// `ln(1 + self)`, accurate for a receiver near zero — Rust's `ln_1p`.
+  ln_1p : (fn(self : Self) -> Self)(unsafe(_c_log1p(self))),
+  /// Logarithm to an arbitrary base.
+  log : (fn(self : Self, base : Self) -> Self)(unsafe(_c_log(self)) / unsafe(_c_log(base))),
+  /// Base-2 logarithm.
+  log2 : (fn(self : Self) -> Self)(unsafe(_c_log2(self))),
+  /// Base-10 logarithm.
+  log10 : (fn(self : Self) -> Self)(unsafe(_c_log10(self))),
+  /// `sqrt(self² + other²)`, computed without intermediate overflow.
+  hypot : (fn(self : Self, other : Self) -> Self)(unsafe(_c_hypot(self, other))),
+  /// Sine of an angle in RADIANS.
+  sin : (fn(self : Self) -> Self)(unsafe(_c_sin(self))),
+  /// Cosine of an angle in RADIANS.
+  cos : (fn(self : Self) -> Self)(unsafe(_c_cos(self))),
+  /// Tangent of an angle in RADIANS.
+  tan : (fn(self : Self) -> Self)(unsafe(_c_tan(self))),
+  asin : (fn(self : Self) -> Self)(unsafe(_c_asin(self))),
+  acos : (fn(self : Self) -> Self)(unsafe(_c_acos(self))),
+  atan : (fn(self : Self) -> Self)(unsafe(_c_atan(self))),
+  /// The angle of the point `(other, self)` — note the argument order, which
+  /// is C's and Rust's: `y.atan2(x)`.
+  atan2 : (fn(self : Self, other : Self) -> Self)(unsafe(_c_atan2(self, other))),
+  sinh : (fn(self : Self) -> Self)(unsafe(_c_sinh(self))),
+  cosh : (fn(self : Self) -> Self)(unsafe(_c_cosh(self))),
+  tanh : (fn(self : Self) -> Self)(unsafe(_c_tanh(self))),
+  asinh : (fn(self : Self) -> Self)(unsafe(_c_asinh(self))),
+  acosh : (fn(self : Self) -> Self)(unsafe(_c_acosh(self))),
+  atanh : (fn(self : Self) -> Self)(unsafe(_c_atanh(self))),
+  /// `1 / self`.
+  recip : (fn(self : Self) -> Self)(f64(1.0) / self),
+  /// Radians to degrees.
+  to_degrees : (fn(self : Self) -> Self)(self * f64(57.29577951308232)),
+  /// Degrees to radians.
+  to_radians : (fn(self : Self) -> Self)(self * f64(0.017453292519943295)),
+  /// `self * a + b` in ONE rounding — Rust's `mul_add`, C's `fma`. More
+  /// accurate than writing the expression out, and often faster.
+  mul_add : (fn(self : Self, a : Self, b : Self) -> Self)(unsafe(_c_fma(self, a, b))),
+  /// The magnitude of the receiver with the sign of `sign`.
+  copysign : (fn(self : Self, sign : Self) -> Self)(unsafe(_c_copysign(self, sign))),
+  /// `1.0`, `-1.0`, or the receiver itself when it is NaN. Note `(-0.0).signum()`
+  /// is `-1.0`, as in Rust.
+  signum : (fn(self : Self) -> Self)(
+    cond(
+      self.is_nan() => self,
+      true => unsafe(_c_copysign(f64(1.0), self))
+    )
+  ),
+  /// The floating-point remainder of `self / rhs`, keeping the receiver's sign
+  /// — C's `fmod`, and what Yo's `%` means for floats.
+  rem_euclid : (fn(self : Self, rhs : Self) -> Self)({
+    r := unsafe(_c_fmod(self, rhs));
+    cond(
+      (r < f64(0.0)) => (r + unsafe(_c_fabs(rhs))),
+      true => r
+    )
+  }),
+  /// True when the receiver is NaN. NaN is the one value not equal to itself,
+  /// so this is the only reliable test.
+  is_nan : (fn(self : Self) -> bool)(unsafe(_c_isnan(self)) != int(0)),
+  /// True for either infinity.
+  is_infinite : (fn(self : Self) -> bool)(unsafe(_c_isinf(self)) != int(0)),
+  /// True for anything that is neither infinite nor NaN.
+  is_finite : (fn(self : Self) -> bool)(unsafe(_c_isfinite(self)) != int(0)),
+  /// True when the SIGN BIT is set — including for `-0.0` and negative NaN,
+  /// which is why this is not `self < 0.0`.
+  is_sign_negative : (fn(self : Self) -> bool)(unsafe(_c_signbit(self)) != int(0)),
+  /// True when the sign bit is clear. The complement of `is_sign_negative`.
+  is_sign_positive : (fn(self : Self) -> bool)(unsafe(_c_signbit(self)) == int(0)),
+  /// The larger of the two, ignoring a NaN argument — Rust's `max`.
+  max : (fn(self : Self, other : Self) -> Self)(
+    cond(
+      self.is_nan() => other,
+      other.is_nan() => self,
+      (self < other) => other,
+      true => self
+    )
+  ),
+  /// The smaller of the two, ignoring a NaN argument — Rust's `min`.
+  min : (fn(self : Self, other : Self) -> Self)(
+    cond(
+      self.is_nan() => other,
+      other.is_nan() => self,
+      (other < self) => other,
+      true => self
+    )
+  ),
+  /// Clamp into `[lo, hi]`. PANICS when `lo > hi`, as Rust does.
+  clamp : (fn(self : Self, lo : Self, hi : Self) -> Self)({
+    if(lo > hi, {
+      __yo_panic("f64.clamp: lo must not exceed hi");
+    });
+    cond(
+      (self < lo) => lo,
+      (self > hi) => hi,
+      true => self
+    )
+  })
+);
+/// The `f32` surface. Same contracts as `f64`'s — see there for the details;
+/// each method calls the single-precision C function.
+impl(
+  f32,
+  sqrt : (fn(self : Self) -> Self)(unsafe(_c_sqrtf(self))),
+  cbrt : (fn(self : Self) -> Self)(unsafe(_c_cbrtf(self))),
+  abs : (fn(self : Self) -> Self)(unsafe(_c_fabsf(self))),
+  floor : (fn(self : Self) -> Self)(unsafe(_c_floorf(self))),
+  ceil : (fn(self : Self) -> Self)(unsafe(_c_ceilf(self))),
+  round : (fn(self : Self) -> Self)(unsafe(_c_roundf(self))),
+  trunc : (fn(self : Self) -> Self)(unsafe(_c_truncf(self))),
+  fract : (fn(self : Self) -> Self)(self - unsafe(_c_truncf(self))),
+  powf : (fn(self : Self, n : Self) -> Self)(unsafe(_c_powf(self, n))),
+  powi : (fn(self : Self, n : i32) -> Self)(unsafe(_c_powf(self, f32(n)))),
+  exp : (fn(self : Self) -> Self)(unsafe(_c_expf(self))),
+  ln : (fn(self : Self) -> Self)(unsafe(_c_logf(self))),
+  log : (fn(self : Self, base : Self) -> Self)(unsafe(_c_logf(self)) / unsafe(_c_logf(base))),
+  log2 : (fn(self : Self) -> Self)(unsafe(_c_log2f(self))),
+  log10 : (fn(self : Self) -> Self)(unsafe(_c_log10f(self))),
+  hypot : (fn(self : Self, other : Self) -> Self)(unsafe(_c_hypotf(self, other))),
+  sin : (fn(self : Self) -> Self)(unsafe(_c_sinf(self))),
+  cos : (fn(self : Self) -> Self)(unsafe(_c_cosf(self))),
+  tan : (fn(self : Self) -> Self)(unsafe(_c_tanf(self))),
+  atan2 : (fn(self : Self, other : Self) -> Self)(unsafe(_c_atan2f(self, other))),
+  recip : (fn(self : Self) -> Self)(f32(1.0) / self),
+  to_degrees : (fn(self : Self) -> Self)(self * f32(57.29578)),
+  to_radians : (fn(self : Self) -> Self)(self * f32(0.017453292)),
+  copysign : (fn(self : Self, sign : Self) -> Self)(unsafe(_c_copysignf(self, sign))),
+  signum : (fn(self : Self) -> Self)(
+    cond(
+      self.is_nan() => self,
+      true => unsafe(_c_copysignf(f32(1.0), self))
+    )
+  ),
+  rem_euclid : (fn(self : Self, rhs : Self) -> Self)({
+    r := unsafe(_c_fmodf(self, rhs));
+    cond(
+      (r < f32(0.0)) => (r + unsafe(_c_fabsf(rhs))),
+      true => r
+    )
+  }),
+  /// `isnan` is type-generic in C11, so the same macro serves both widths.
+  is_nan : (fn(self : Self) -> bool)(unsafe(_c_isnan(f64(self))) != int(0)),
+  is_infinite : (fn(self : Self) -> bool)(unsafe(_c_isinf(f64(self))) != int(0)),
+  is_finite : (fn(self : Self) -> bool)(unsafe(_c_isfinite(f64(self))) != int(0)),
+  is_sign_negative : (fn(self : Self) -> bool)(unsafe(_c_signbit(f64(self))) != int(0)),
+  is_sign_positive : (fn(self : Self) -> bool)(unsafe(_c_signbit(f64(self))) == int(0)),
+  max : (fn(self : Self, other : Self) -> Self)(
+    cond(
+      self.is_nan() => other,
+      other.is_nan() => self,
+      (self < other) => other,
+      true => self
+    )
+  ),
+  min : (fn(self : Self, other : Self) -> Self)(
+    cond(
+      self.is_nan() => other,
+      other.is_nan() => self,
+      (other < self) => other,
+      true => self
+    )
+  ),
+  clamp : (fn(self : Self, lo : Self, hi : Self) -> Self)({
+    if(lo > hi, {
+      __yo_panic("f32.clamp: lo must not exceed hi");
+    });
+    cond(
+      (self < lo) => lo,
+      (self > hi) => hi,
+      true => self
+    )
+  })
+);
