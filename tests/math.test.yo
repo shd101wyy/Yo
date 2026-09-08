@@ -1,0 +1,129 @@
+//! `std/math` — the f64/f32 method and constant surface.
+//!
+//! Every assertion compares against a tolerance rather than an exact bit
+//! pattern, except where the result is exactly representable (powers of two,
+//! integral results of floor/ceil/round/trunc).
+{ assert } :: import("std/assert");
+import("std/math");
+_close :: (fn(a : f64, b : f64) -> bool)(((a - b) < f64(1.0e-9)) && ((b - a) < f64(1.0e-9)));
+_close32 :: (fn(a : f32, b : f32) -> bool)(((a - b) < f32(1.0e-4)) && ((b - a) < f32(1.0e-4)));
+test("f64 roots and powers", {
+  (four : f64) = runtime(f64(4.0));
+  assert(four.sqrt() == f64(2.0), "sqrt of a perfect square is exact");
+  assert(_close(f64(27.0).cbrt(), f64(3.0)), "cbrt");
+  assert(_close(f64(-27.0).cbrt(), f64(-3.0)), "cbrt is defined for negatives");
+  assert(f64(2.0).powi(i32(10)) == f64(1024.0), "powi over an exact power of two");
+  assert(f64(-2.0).powi(i32(3)) == f64(-8.0), "powi handles a negative base");
+  assert(_close(f64(2.0).powf(f64(0.5)), f64(2.0).sqrt()), "powf(0.5) agrees with sqrt");
+});
+test("f64 rounding family", {
+  (x : f64) = runtime(f64(2.5));
+  assert(x.floor() == f64(2.0), "floor");
+  assert(x.ceil() == f64(3.0), "ceil");
+  assert(x.round() == f64(3.0), "round is half AWAY FROM ZERO");
+  assert(f64(-2.5).round() == f64(-3.0), "and so for negatives — not half-to-even");
+  assert(x.trunc() == f64(2.0), "trunc goes toward zero");
+  assert(f64(-2.7).trunc() == f64(-2.0), "including for negatives");
+  assert(_close(f64(2.75).fract(), f64(0.75)), "fract keeps the fractional part");
+  assert(_close(f64(-2.75).fract(), f64(-0.75)), "and the receiver's sign");
+});
+test("f64 sign handling", {
+  (neg : f64) = runtime(f64(-3.5));
+  assert(neg.abs() == f64(3.5), "abs");
+  assert(neg.signum() == f64(-1.0), "signum of a negative");
+  assert(f64(3.5).signum() == f64(1.0), "signum of a positive");
+  assert(f64(2.0).copysign(neg) == f64(-2.0), "copysign takes the sign of its argument");
+  assert(neg.is_sign_negative(), "a negative has its sign bit set");
+  assert(f64(3.5).is_sign_positive(), "and a positive does not");
+  // -0.0 via copysign, NOT the literal `-0.0`: the comptime folder negates by
+  // computing `0.0 - v`, and IEEE `0.0 - 0.0` is +0.0, so the literal spelling
+  // silently loses the sign
+  // (issues/comptime-float-negation-loses-the-sign-of-zero.md). copysign is a
+  // C call, so it is not folded.
+  neg_zero := f64(0.0).copysign(f64(-1.0));
+  assert(neg_zero == f64(0.0), "negative zero COMPARES equal to positive zero");
+  assert(neg_zero.is_sign_negative(), "but its sign bit is set — which `< 0.0` would miss");
+  assert(f64(0.0).is_sign_positive(), "and positive zero's is not");
+});
+test("f64 logs and exponentials", {
+  assert(_close(f64.E.ln(), f64(1.0)), "ln(e) is 1");
+  assert(_close(f64(8.0).log2(), f64(3.0)), "log2");
+  assert(_close(f64(1000.0).log10(), f64(3.0)), "log10");
+  assert(_close(f64(81.0).log(f64(3.0)), f64(4.0)), "log to an arbitrary base");
+  assert(_close(f64(0.0).exp(), f64(1.0)), "exp(0) is 1");
+  assert(_close(f64(3.0).exp2(), f64(8.0)), "exp2");
+  assert(_close(f64(0.0).exp_m1(), f64(0.0)), "exp_m1(0) is 0");
+  assert(_close(f64(0.0).ln_1p(), f64(0.0)), "ln_1p(0) is 0");
+});
+test("f64 trigonometry", {
+  assert(_close(f64(0.0).sin(), f64(0.0)), "sin(0)");
+  assert(_close(f64(0.0).cos(), f64(1.0)), "cos(0)");
+  assert(_close((f64.PI / f64(2.0)).sin(), f64(1.0)), "sin(pi/2)");
+  assert(_close(f64(1.0).atan2(f64(1.0)), f64.PI / f64(4.0)), "atan2 of (1, 1) is pi/4");
+  assert(_close(f64(3.0).hypot(f64(4.0)), f64(5.0)), "hypot over a 3-4-5 triangle");
+  assert(_close(f64(0.0).tanh(), f64(0.0)), "tanh(0)");
+  assert(_close(f64.PI.to_degrees(), f64(180.0)), "pi radians is 180 degrees");
+  assert(_close(f64(180.0).to_radians(), f64.PI), "and back again");
+});
+test("f64 non-finite predicates", {
+  (big : f64) = runtime(f64(1.0e308));
+  inf := (big * f64(10.0));
+  nan := (inf - inf);
+  assert(inf.is_infinite(), "an overflowed product is infinite");
+  assert(!inf.is_finite(), "and not finite");
+  assert(!inf.is_nan(), "and not NaN");
+  assert(nan.is_nan(), "inf minus inf is NaN");
+  assert(!nan.is_finite(), "NaN is not finite");
+  assert(big.is_finite(), "a large finite value is finite");
+  assert(!big.is_nan(), "and not NaN");
+});
+test("f64 min/max/clamp propagate a NaN argument the Rust way", {
+  // NaN via 0/0, NOT `x*y - x*y`: the C build allows FP contraction
+  // (`-ffp-contract=on`), which folds that into `fma(x, y, -(x*y))` and yields
+  // -inf rather than NaN.
+  (z : f64) = runtime(f64(0.0));
+  nan := (z / z);
+  assert(nan.is_nan(), "0/0 really is NaN");
+  assert(f64(1.0).max(f64(2.0)) == f64(2.0), "max");
+  assert(f64(1.0).min(f64(2.0)) == f64(1.0), "min");
+  assert(f64(1.0).max(nan) == f64(1.0), "max IGNORES a NaN argument");
+  assert(f64(1.0).min(nan) == f64(1.0), "and so does min");
+  assert(nan.max(f64(2.0)) == f64(2.0), "including when the receiver is the NaN");
+  assert(f64(5.0).clamp(f64(0.0), f64(3.0)) == f64(3.0), "clamp to the ceiling");
+  assert(f64(-5.0).clamp(f64(0.0), f64(3.0)) == f64(0.0), "clamp to the floor");
+  assert(f64(1.0).clamp(f64(0.0), f64(3.0)) == f64(1.0), "a value inside is untouched");
+});
+test("f64 mul_add and rem_euclid", {
+  assert(_close(f64(2.0).mul_add(f64(3.0), f64(4.0)), f64(10.0)), "2*3 + 4");
+  assert(_close(f64(7.0).rem_euclid(f64(3.0)), f64(1.0)), "positive remainder");
+  assert(_close(f64(-7.0).rem_euclid(f64(3.0)), f64(2.0)), "rem_euclid is NON-NEGATIVE for a negative receiver");
+  assert(_close(f64(4.0).recip(), f64(0.25)), "recip");
+});
+test("f64 constants are the right values", {
+  assert(_close(f64.PI, f64(3.141592653589793)), "PI");
+  assert(_close(f64.TAU, f64.PI * f64(2.0)), "TAU is two pi");
+  assert(_close(f64.E, f64(2.718281828459045)), "E");
+  assert(_close(f64.SQRT_2 * f64.SQRT_2, f64(2.0)), "SQRT_2 squares to 2");
+  assert(_close(f64.LN_2, f64(2.0).ln()), "LN_2 agrees with ln(2)");
+  assert(_close(f64.LN_10, f64(10.0).ln()), "LN_10 agrees with ln(10)");
+  assert(f64.EPSILON > f64(0.0), "EPSILON is positive");
+  assert((f64(1.0) + f64.EPSILON) > f64(1.0), "and is big enough to move 1.0");
+  assert(f64.MAX > f64(1.0e307), "MAX is enormous");
+  assert(f64.MIN < f64(-1.0e307), "MIN is the NEGATIVE extreme, not the smallest positive");
+  assert(f64.MIN_POSITIVE > f64(0.0), "MIN_POSITIVE is positive");
+  assert(f64.MIN_POSITIVE < f64(1.0e-307), "and tiny");
+});
+test("f32 surface", {
+  (four : f32) = runtime(f32(4.0));
+  assert(four.sqrt() == f32(2.0), "sqrt");
+  assert(f32(-3.5).abs() == f32(3.5), "abs");
+  assert(f32(2.5).floor() == f32(2.0), "floor");
+  assert(f32(2.5).ceil() == f32(3.0), "ceil");
+  assert(f32(2.0).powi(i32(10)) == f32(1024.0), "powi");
+  assert(_close32(f32(3.0).hypot(f32(4.0)), f32(5.0)), "hypot");
+  assert(f32(1.0).max(f32(2.0)) == f32(2.0), "max");
+  assert(f32(5.0).clamp(f32(0.0), f32(3.0)) == f32(3.0), "clamp");
+  assert(_close32(f32.PI.to_degrees(), f32(180.0)), "PI to degrees");
+  assert(f32(0.0).copysign(f32(-1.0)).is_sign_negative(), "negative zero");
+  assert(f32(1.0).is_finite(), "is_finite");
+});
