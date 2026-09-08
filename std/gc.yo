@@ -1,4 +1,31 @@
 //! Garbage collection interface for cycle collection.
+//!
+//! Yo is reference-counted, so ordinary values are reclaimed the moment their
+//! last reference goes away and nothing here is needed for them. What
+//! reference counting cannot reclaim is a CYCLE, and this module is the manual
+//! handle on the collector that can: `collect()` runs it, `tracked_count()`
+//! reports how many objects it is currently watching.
+//!
+//! Only types that can participate in a cycle are tracked at all — a type
+//! proven `Acyclic` never reaches the collector — so `tracked_count()` is a
+//! count of cycle CANDIDATES, not of live objects.
+//!
+//! ```rust
+//! { collect, tracked_count } :: import "std/gc";
+//!
+//! collect();
+//! println(tracked_count().to_string());
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — `collect` is intended to keep its name and meaning (run the
+//! cycle collector now, synchronously). `tracked_count` exposes the
+//! collector's own bookkeeping and exists because the cycle tests need to
+//! observe it; it is not a memory-accounting API, and a collector redesign may
+//! change what "tracked" counts or drop the function. Nothing here is a
+//! substitute for breaking cycles with a weak reference where the ownership
+//! actually is a cycle.
 pragma(Pragma.AllowUnsafe);
 extern(
   "Yo",

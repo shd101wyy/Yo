@@ -647,6 +647,28 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    (issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md, with a
    minimal reproducer). `Eq` is therefore ONE self-recursive `_json_eq`, which
    is what `Clone` already did.
+   **`## Stability` markers: DONE (2026-09-09).** §1's last row counted eight
+   modules without one. `std/http/server` got its marker when the server was
+   last touched; the remaining six now have one — `std/async/index`,
+   `std/async/channel`, `std/async/mutex`, `std/sync/barrier`,
+   `std/sync/semaphore` and `std/gc` (which also gains the module doc it never
+   had: what the cycle collector is FOR, and that `tracked_count` counts cycle
+   CANDIDATES, since an `Acyclic` type never reaches the collector).
+
+   Writing them settled two rows and surfaced one divergence:
+
+   - `async/mutex.with_lock` **already takes an `io`**, so the §4 row ("either
+     takes an `io` so its doc claim becomes true, or drops the claim") is
+     satisfied as written — the claim is true today. No change needed.
+   - `sync/barrier` and `sync/semaphore` are marked **stable**: both follow a
+     named model exactly (the generation barrier; Java/`tokio` counting
+     semaphore), and the two properties most likely to be read as provisional
+     — unfair acquisition, an uncapped permit count — are deliberate and
+     already documented.
+   - **`async/channel.try_recv` still returns `Option(T)`** where
+     `sync/channel`'s now returns `Result(T, TryRecvError)` (#495). The
+     marker names it as the thing that will move; aligning it is a follow-up,
+     not a doc change.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

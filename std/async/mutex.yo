@@ -19,6 +19,15 @@
 //! m.set(m.get() + i64(1));
 //! m.unlock();
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `new`, `lock`, `with_lock`, `try_lock`, `unlock`, `is_locked`,
+//! `get` and `set` are intended to keep their names and meanings, but the 1 ms
+//! tick that contended acquisition re-checks on is an implementation choice a
+//! waker-based rewrite would remove (`plans/STD_API_STABILIZATION.md` §4
+//! Concurrency). Unfairness is by design, not provisional: build FIFO ordering
+//! on top if you need it.
 { assert } :: import("../assert");
 IO_timer :: import("../sys/timer");
 
