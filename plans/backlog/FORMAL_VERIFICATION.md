@@ -928,6 +928,12 @@ all `tests/spec/` green; cheatsheet updated.
 >    `issues/plain-recursive-enum-segfaults-the-evaluator.md` (a plain
 >    `enum` recursing into itself SIGSEGVs the size walk instead of
 >    erroring — the V2 IR uses `ref(enum)` per the `AstExpr` precedent).
+>
+> **Merged 2026-09-08** as develop `a4627574f` (PR #484, all 27 checks
+> green). The pin was bumped 4.13.3 → **5.1.0** (the current stable;
+> asset stems moved to glibc-2.39/osx-13.3) and the harness gained a
+> portable `_z3_ensure_dir_sync` (system(3)-based — libc `mkdir` is
+> 2-arg POSIX vs 1-arg Windows CRT and broke the Windows cross-emit).
 
 **Scope:** everything needed to talk to Z3, before any real VC.
 
@@ -963,6 +969,32 @@ results; no language behavior changed yet.
 **Estimate:** ~2–3 weeks.
 
 ### Phase V3 — Straight-line verification + auto-obligations (the Dafny core)
+
+> **Status: IN FLIGHT 2026-09-08** (branch `feat/fv3-straight-line-vc`,
+> rebased on the merged V2). LANDED so far — the wiring: mode dispatch in
+> `wrap_function_body_with_contracts` (splice suppressed for verify-mode
+> TARGET files only — non-targets keep their runtime asserts, so an
+> un-verified contract never silently loses its check), the `VerifyTask`
+> registry (`evaluator/builtins/contracts.yo`) + registration at the
+> function-type def site, `resolve_verify_mode` (pragma source of truth;
+> `--verify-mode` override otherwise), the Phase-0 "not implemented"
+> pragma warning removed, `verify_registered_functions` in the driver
+> (drain → symbolic execution → obligations through the V2 pipeline;
+> counter-examples unmangled to source names at report time), the full
+> `yo verify` flow (evaluate targets with the override armed, per-function
+> text/JSON reports, `--explain`, non-zero exit on any non-ok report;
+> the subcommand's default mode is `verify`), the vc.yo fixes (recursion
+> gate, callee return-label binding + param save/restore, `=`/`(x : T) =`
+> rebinding, precise while/for/match subset errors, `old` as identity —
+> sound in V3 because the subset has no mutation, path-condition vars
+> declared in every query), and the test set (the straight-line battery
+> `tests/spec/verify_straight_line.test.yo`, four negative fixtures under
+> `tests/spec/fixtures/negative/`, the in-process harness
+> `tests/internal/verifier_negative.test.yo` — subset assertions run
+> solver-free, refutations gated YO_TEST_Z3=1 — and the CI verify job
+> runs both the harness and the battery end-to-end). REMAINING in V3:
+> task 6 (`verify+` stripping pass), match/datatype encoding, docs
+> en+zh, end-to-end validation on a locally built self-hosted binary.
 
 **Scope:** the flagship loop closes. Pure, loop-free functions verify;
 callers discharge callee `requires`; AoRTE obligations fire on

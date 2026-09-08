@@ -66,7 +66,15 @@ _evaluate_contract_marker :: (
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
+    // Bracket the predicate evaluation with the contract-predicate flag:
+    // parameters and the return label are not bound in this env (they get
+    // their real bindings in the splice lowering and the verifier's
+    // registration env), so unbound identifiers soft-fall-back to unknowns
+    // instead of the hard `Variable not found` error (Phase V3).
+    prev_pred_flag := ctx.is_evaluating_contract_predicate;
+    ctx.is_evaluating_contract_predicate = true;
     evaluated := evaluate_expression_raw(arg, cur_env, ctx, exn);
+    ctx.is_evaluating_contract_predicate = prev_pred_flag;
     match(
       expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
       .Some(info) => {
@@ -566,6 +574,18 @@ register_verify_task :: (fn(t : VerifyTask) -> unit)({
   });
   ()
 });
+/// Diagnostic-evaluate one contract predicate for the verifier task (the
+/// plan's "predicates still get one diagnostic evaluation pass"). The
+/// fn-type side tables store the ORIGINAL signature AST nodes, but
+/// ExprInfo lands on the EVALUATED forms — the verifier's symbolic walk
+/// keys everything by ExprInfo, so the task must carry the evaluated
+/// nodes. Unbound names (params, the return label) soft-fall-back to
+/// VarRef exactly as at signature time.
+evaluated_for_verify :: (
+  fn(p : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr
+)(
+  evaluate_expression_raw(p, env, ctx, exn)
+);
 /// Drain the registry (move the tasks out and reset it) for the verifier
 /// pass. `yo verify` drains once after evaluating the target set.
 take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
@@ -793,5 +813,6 @@ export(
   _is_verify_target,
   resolve_verify_mode,
   register_verify_task,
+  evaluated_for_verify,
   take_verify_tasks
 );

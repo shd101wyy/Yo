@@ -25,7 +25,8 @@ open(import("std/error"));
   mm_load_file,
   mm_preload_prelude,
   mm_resolve_entry_abs,
-  resolve_std_path
+  resolve_std_path,
+  _take_load_error
 } :: import("../../src/module_manager.yo");
 { clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
 {
@@ -60,7 +61,11 @@ _verify_fixture :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))
     )
   );
   std_path := resolve_std_path();
+  // Targets must carry BOTH forms: Token.module_path is the path EXACTLY
+  // as passed to mm_load_file (the relative spelling here), while an
+  // imported module's tokens carry the resolved absolute path.
   targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   // Drop anything a previous test left in the registry, arm the mode and
   // the target set, evaluate, drain.
@@ -70,130 +75,208 @@ _verify_fixture :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
-  assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly`);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly:\n${rendered}`);
+    },
+    .None => {
+      assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly`);
+    }
+  );
   cfg := default_verify_run_config();
   binary := match(
     resolve_solver_sync(cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_registered_functions(cfg, binary));
-  /// The number of reports whose outcome equals `want`.
-  _count_outcome :: (fn(reports : ArrayList(VerifyFnReport), want : String) -> usize)({
-    (n : usize) = usize(0);
-    (i : usize) = usize(0);
-    while(i < reports.len(), {
-      match(
-        reports.get(i),
-        .Some(rp) => if(rp.outcome == want, {
-          n = (n + usize(1));
-        }),
-        .None => ()
-      );
-      i = (i + usize(1));
-    });
-    n
-  });
-  /// The first report whose outcome equals `want` (asserts existence).
-  _first_outcome :: (fn(reports : ArrayList(VerifyFnReport), want : String, what : String) -> VerifyFnReport)({
-    (found : Option(VerifyFnReport)) = Option(VerifyFnReport).None;
-    (i : usize) = usize(0);
-    while(i < reports.len(), {
-      match(
-        reports.get(i),
-        .Some(rp) => if((rp.outcome == want) && found.is_none(), {
-          found = Option(VerifyFnReport).Some(rp);
-        }),
-        .None => ()
-      );
-      i = (i + usize(1));
-    });
+  // NOTE for maintainers: evaluating a module in-process populates the
+  // process-lifetime evaluator registries (the cached prelude env, impl
+  // and side-table registries) — the tracked self-hosted leak-debt class.
+  // This test therefore runs under YO_TEST_LEAK_VERDICT=0 (the same
+  // staging ratchet as the differential shards; ASan crash detection
+  // stays armed).
+  verify_registered_functions(cfg, binary)
+});
+/// The number of reports whose outcome equals `want`.
+_count_outcome :: (fn(reports : ArrayList(VerifyFnReport), want : String) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
     match(
-      found,
-      .Some(rp) => rp,
-      .None => {
-        assert(false, `expected a '${want}' report (${what})`);
-        reports.get(usize(0)).unwrap()
-      }
-    )
+      reports.get(i),
+      .Some(rp) => if(rp.outcome == want, {
+        n = (n + usize(1));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
   });
-  /// Whether any obligation of `rp` has name starting with `prefix` and a
-  /// Refuted verdict whose joined counter-example mentions `needle`.
-  _refuted_with :: (fn(rp : VerifyFnReport, name_prefix : String, needle : String) -> bool)({
-    (hit : bool) = false;
-    (i : usize) = usize(0);
-    while(i < rp.obligations.len(), {
-      match(
-        rp.obligations.get(i),
-        .Some(obl) => {
-          name_ok := obl.name.contains(name_prefix.clone());
+  n
+});
+/// The first report whose outcome equals `want` (asserts existence).
+_first_outcome :: (fn(reports : ArrayList(VerifyFnReport), want : String, what : String) -> VerifyFnReport)({
+  (found : Option(VerifyFnReport)) = Option(VerifyFnReport).None;
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => if((rp.outcome == want) && found.is_none(), {
+        found = Option(VerifyFnReport).Some(rp);
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    found,
+    .Some(rp) => rp,
+    .None => {
+      ids := ArrayList(String).new();
+      (j : usize) = usize(0);
+      while(j < reports.len(), {
+        match(
+          reports.get(j),
+          .Some(dr) => {
+            ids.push(`${dr.fn_id}=${dr.outcome} [${dr.subset_construct}: ${dr.subset_source}]`);
+          },
+          .None => ()
+        );
+        j = (j + usize(1));
+      });
+      assert(false, `expected a '${want}' report (${what}), got: [${_join(ids, String.from(", "))}]`);
+      reports.get(usize(0)).unwrap()
+    }
+  )
+});
+/// Whether any obligation of `rp` has name starting with `prefix` and a
+/// Refuted verdict whose joined counter-example mentions `needle`.
+_refuted_with :: (fn(rp : VerifyFnReport, name_prefix : String, needle : String) -> bool)({
+  (hit : bool) = false;
+  (i : usize) = usize(0);
+  while(i < rp.obligations.len(), {
+    match(
+      rp.obligations.get(i),
+      .Some(obl) => {
+        name_ok := obl.name.contains(name_prefix.clone());
+        match(
+          obl.verdict,
+          .Refuted(ce) => {
+            ce_all := _join(ce, String.from("; "));
+            if(name_ok && ce_all.contains(needle.clone()), {
+              hit = true;
+            });
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  hit
+});
+_join :: (fn(ss : ArrayList(String), sep : String) -> String)({
+  sb := StringBuilder.new();
+  (i : usize) = usize(0);
+  while(i < ss.len(), {
+    match(
+      ss.get(i),
+      .Some(s) => {
+        if(i > usize(0), {
+          sb.write_string(sep.clone());
+        });
+        sb.write_string(s.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb.to_string()
+});
+
+test("subset error: while loop outside the V3 verifiable subset (no solver needed)", {
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/subset_while.yo"), io);
+  ids := ArrayList(String).new();
+  (di : usize) = usize(0);
+  while(di < reports.len(), {
+    match(
+      reports.get(di),
+      .Some(dr) => {
+        ids.push(`${dr.fn_id}=${dr.outcome} [${dr.subset_construct}]`);
+      },
+      .None => ()
+    );
+    di = (di + usize(1));
+  });
+  dump := _join(ids, String.from(", "));
+  assert(reports.len() == usize(1), `expected exactly 1 report, got ${reports.len().to_string()}: [${dump}]`);
+  rp := _first_outcome(reports, String.from("subset-error"), String.from("sum_to uses while"));
+  assert(rp.subset_construct.contains(String.from("while")), `the subset error must name the construct, got '${rp.subset_construct}'`);
+});
+
+test("refuted: wrong ensures on abs (counter-example names x)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/wrong_ensures.yo"), io);
+  rp := _first_outcome(reports, String.from("refuted"), String.from("abs_wrong ensures(r > 0)"));
+  assert(_refuted_with(rp, String.from("ensures#"), String.from("x = ")), "the counter-example must name the input x");
+});
+
+test("refuted: AoRTE divisor-nonzero on unannotated divide", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/bugged_div.yo"), io);
+  rp := _first_outcome(reports, String.from("refuted"), String.from("divide_bugged y=0"));
+  assert(_refuted_with(rp, String.from("divisor-nonzero"), String.from("y = ")), "the divisor obligation must refute naming y");
+});
+
+test("refuted: caller does not discharge callee requires (modular: callee still ok)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/caller_violates_requires.yo"), io);
+  assert(_count_outcome(reports, String.from("ok")) == usize(1), "safe_div itself must verify");
+  rp := _first_outcome(reports, String.from("refuted"), String.from("recip_bugged requires discharge"));
+  assert(_refuted_with(rp, String.from("requires#"), String.from("d = ")), "the counter-example must name the caller's d");
+});
+
+test("positive battery: every function in verify_straight_line proves", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _verify_fixture(String.from("./tests/spec/verify_straight_line.test.yo"), io);
+  ids := ArrayList(String).new();
+  (bi : usize) = usize(0);
+  while(bi < reports.len(), {
+    match(
+      reports.get(bi),
+      .Some(br) => {
+        ids.push(`${br.fn_id}=${br.outcome}`);
+        (oj : usize) = usize(0);
+        while(oj < br.obligations.len(), {
           match(
-            obl.verdict,
-            .Refuted(ce) => {
-              ce_all := _join(ce, String.from("; "));
-              if(name_ok && ce_all.contains(needle.clone()), {
-                hit = true;
-              });
+            br.obligations.get(oj),
+            .Some(obl) => {
+              match(
+                obl.verdict,
+                .Refuted(ce) => {
+                  ids.push(`  ${obl.name}: ${_join(ce, String.from(", "))}`);
+                },
+                _ => ()
+              );
             },
-            _ => ()
+            .None => ()
           );
-        },
-        .None => ()
-      );
-      i = (i + usize(1));
-    });
-    hit
+          oj = (oj + usize(1));
+        });
+      },
+      .None => ()
+    );
+    bi = (bi + usize(1));
   });
-  _join :: (fn(ss : ArrayList(String), sep : String) -> String)({
-    sb := StringBuilder.new();
-    (i : usize) = usize(0);
-    while(i < ss.len(), {
-      match(
-        ss.get(i),
-        .Some(s) => {
-          if(i > usize(0), {
-            sb.write_string(sep.clone());
-          });
-          sb.write_string(s.clone());
-        },
-        .None => ()
-      );
-      i = (i + usize(1));
-    });
-    sb.to_string()
-  });
-
-  test("subset error: while loop outside the V3 verifiable subset (no solver needed)", {
-    reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/subset_while.yo"), io);
-    assert(reports.len() == usize(1), "exactly one function in the fixture");
-    rp := _first_outcome(reports, String.from("subset-error"), "sum_to uses while");
-    assert(rp.subset_construct.contains(String.from("while")), `the subset error must name the construct, got '${rp.subset_construct}'`);
-  });
-
-  test("refuted: wrong ensures on abs (counter-example names x)", {
-    if(!(_have_z3()), {
-      return(());
-    });
-    reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/wrong_ensures.yo"), io);
-    rp := _first_outcome(reports, String.from("refuted"), "abs_wrong ensures(r > 0)");
-    assert(_refuted_with(rp, String.from("ensures#"), String.from("x = ")), "the counter-example must name the input x");
-  });
-
-  test("refuted: AoRTE divisor-nonzero on unannotated divide", {
-    if(!(_have_z3()), {
-      return(());
-    });
-    reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/bugged_div.yo"), io);
-    rp := _first_outcome(reports, String.from("refuted"), "divide_bugged y=0");
-    assert(_refuted_with(rp, String.from("divisor-nonzero"), String.from("y = ")), "the divisor obligation must refute naming y");
-  });
-
-  test("refuted: caller does not discharge callee requires (modular: callee still ok)", {
-    if(!(_have_z3()), {
-      return(());
-    });
-    reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/caller_violates_requires.yo"), io);
-    assert(_count_outcome(reports, String.from("ok")) == usize(1), "safe_div itself must verify");
-    rp := _first_outcome(reports, String.from("refuted"), "recip_bugged requires discharge");
-    assert(_refuted_with(rp, String.from("requires#"), String.from("d = ")), "the counter-example must name the caller's d");
-  });
+  assert(_count_outcome(reports, String.from("ok")) == reports.len(), `all battery functions must prove, got: [${_join(ids, String.from(", "))}]`);
+  assert(reports.len() >= usize(7), `expected at least 7 verified functions, got ${reports.len().to_string()}`);
+});

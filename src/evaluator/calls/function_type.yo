@@ -62,6 +62,7 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
   wrap_function_body_with_contracts,
   VerifyTask,
   register_verify_task,
+  evaluated_for_verify,
   _is_verify_target,
   resolve_verify_mode
 } :: import("../builtins/contracts.yo");
@@ -1184,6 +1185,79 @@ Result type: ${type_to_string(result_box)}`
     if(_is_verify_target(tok.module_path.clone()), {
       vmode := resolve_verify_mode(tok.module_path.clone());
       if(((vmode == "verify") || (vmode == "verify+")) && !(should_defer_ft) && !(result_is_comptime_only), {
+        // The predicates are diagnostic-EVALUATED here (the plan's "one
+        // diagnostic evaluation pass"): the side-table nodes are the
+        // original signature AST, but ExprInfo lands on the evaluated
+        // forms — the verifier's walk keys everything by ExprInfo. The
+        // evaluation env shares the module frames (so predicates may
+        // reference module-level names) and binds the parameters plus
+        // the return label as unknown values — exactly the names a
+        // predicate may mention.
+        pred_env := _share_def_time_frames(caller_env, false);
+        _ := pred_env.push_frame(false);
+        (pv_i : usize) = usize(0);
+        while(pv_i < param_labels.len(), {
+          pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
+          pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
+          if(pv_name.len() > usize(0), {
+            _ := add_variable_to_env(
+              pred_env,
+              pv_name.clone(),
+              pv_ty.clone(),
+              Option(EvalValue).Some(create_unknown_val(pv_ty.clone())),
+              false,
+              false,
+              false,
+              false,
+              tok
+            );
+          });
+          pv_i = (pv_i + usize(1));
+        });
+        raw_label := get_func_return_label(fn_val_id.clone());
+        match(
+          raw_label,
+          .Some(rl) => {
+            _ := add_variable_to_env(
+              pred_env,
+              rl.clone(),
+              result_box.clone(),
+              Option(EvalValue).Some(create_unknown_val(result_box.clone())),
+              false,
+              false,
+              false,
+              false,
+              tok
+            );
+          },
+          .None => ()
+        );
+        evd_reqs := ArrayList(AstExpr).new();
+        raw_reqs := get_func_requires_exprs(fn_val_id.clone());
+        (vr : usize) = usize(0);
+        while(vr < raw_reqs.len(), {
+          match(
+            raw_reqs.get(vr),
+            .Some(rp) => {
+              evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
+            },
+            .None => ()
+          );
+          vr = (vr + usize(1));
+        });
+        evd_enss := ArrayList(AstExpr).new();
+        raw_enss := get_func_ensures_exprs(fn_val_id.clone());
+        (ve : usize) = usize(0);
+        while(ve < raw_enss.len(), {
+          match(
+            raw_enss.get(ve),
+            .Some(ep) => {
+              evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));
+            },
+            .None => ()
+          );
+          ve = (ve + usize(1));
+        });
         register_verify_task(
           VerifyTask(
             fn_id : `fn@${tok.module_path}:${tok.row.to_string()}`,
@@ -1193,8 +1267,8 @@ Result type: ${type_to_string(result_box)}`
             param_names : param_labels.clone(),
             param_types : param_types.clone(),
             result_type : result_box.clone(),
-            requires_exprs : get_func_requires_exprs(fn_val_id.clone()),
-            ensures_exprs : get_func_ensures_exprs(fn_val_id.clone()),
+            requires_exprs : evd_reqs,
+            ensures_exprs : evd_enss,
             return_label : get_func_return_label(fn_val_id.clone()),
             table : ctx.expr_info_table,
             mode : vmode

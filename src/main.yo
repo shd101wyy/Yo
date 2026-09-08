@@ -981,10 +981,11 @@ run_verify_cmd :: (
     }
   );
   // V3: evaluate the target set with the mode override and target paths
-  // armed, so the evaluator records one VerifyTask per verifiable function
-  // (evaluator/builtins/contracts.yo). Targets are normalized the same way
-  // the loader normalizes entry paths (mm_resolve_entry_abs) so
-  // Token.module_path comparisons match.
+  // armed, so the evaluator records one VerifyTask per verifiable
+  // function (evaluator/builtins/contracts.yo). Targets carry BOTH the
+  // collected spelling (Token.module_path is the path EXACTLY as passed
+  // to mm_load_file) and the normalized absolute form (what an imported
+  // module's tokens carry).
   std_path := resolve_std_path();
   abs_targets := ArrayList(String).new();
   (fi : usize) = usize(0);
@@ -992,6 +993,7 @@ run_verify_cmd :: (
     match(
       files.get(fi),
       .Some(fp) => {
+        abs_targets.push(fp.clone());
         abs_targets.push(mm_resolve_entry_abs(fp.clone(), std_path.clone()));
       },
       .None => ()

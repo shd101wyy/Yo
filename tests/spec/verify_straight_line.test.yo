@@ -12,14 +12,26 @@ pragma(Pragma.Verify);
 { assert } :: import("std/assert");
 
 /// Absolute value — the plan's canonical first proof: `ensures` holds on
-/// both cond arms, return label `r` bound.
-abs_i32 :: (fn(x : i32, ensures(r >= i32(0))) -> (r : i32))(
-  if(x < i32(0), i32(0) - x, x)
+/// both cond arms, return label `r` bound. The `requires` is REAL, not
+/// decoration: `0 - INT_MIN` wraps to INT_MIN (two's-complement — the
+/// verifier models exactly the emitted C), so `abs` has no non-negative
+/// result there and the post-condition must exclude it.
+abs_i32 :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
+  cond(
+    (x < i32(0)) => (i32(0) - x),
+    true => x
+  )
 );
 
 /// Minimum of two integers.
-min_i32 :: (fn(a : i32, b : i32, ensures(r <= a)) -> (r : i32))(
-  if(a < b, a, b)
+/// Two predicates, one `ensures` — modular verification needs contracts
+/// strong enough for every caller: `r <= a` alone could not discharge
+/// `clamp`'s obligations.
+min_i32 :: (fn(a : i32, b : i32, ensures(r <= a, r <= b)) -> (r : i32))(
+  cond(
+    (a < b) => a,
+    true => b
+  )
 );
 
 /// Clamp into [lo, hi] — caller-side `requires` discharged by the two
@@ -30,8 +42,11 @@ clamp_i32 :: (fn(x : i32, lo : i32, hi : i32, ensures(r >= lo)) -> (r : i32))(
 
 /// Maximum of two integers (defined before clamp — order-independent
 /// definitions make the file a lazy-binding smoke test too).
-max_i32 :: (fn(a : i32, b : i32, ensures(r >= a)) -> (r : i32))(
-  if(a < b, b, a)
+max_i32 :: (fn(a : i32, b : i32, ensures(r >= a, r >= b)) -> (r : i32))(
+  cond(
+    (a < b) => b,
+    true => a
+  )
 );
 
 /// A caller discharging a callee's `requires`: with `y != 0` assumed, the
@@ -41,11 +56,17 @@ safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) 
   x / y
 );
 
-/// Begin-block bindings + arithmetic: the plan's SSA-bind case. With both
-/// inputs non-negative, `-(x+y)` is non-positive.
-dist_zero :: (fn(x : i32, y : i32, requires(x >= i32(0)), requires(y >= i32(0)), ensures(r <= i32(0))) -> (r : i32))({
-  dx := i32(0) - x;
-  dy := i32(0) - y;
+/// Begin-block bindings + arithmetic: the plan's SSA-bind case. The
+/// bound is a REAL precondition, and it must AVOID the addition it
+/// bounds: `(x + y) <= MAX` as written is vacuous when the sum wraps
+/// negative (the verifier found x = 2^30, y = MAX-2 satisfying it while
+/// the negated wrapped sum went positive). `x <= MAX - y` states the
+/// same no-wrap bound in wrap-free arithmetic.
+dist_zero :: (
+  fn(x : i32, y : i32, requires(x >= i32(0), y >= i32(0), x <= (i32(2147483647) - y)), ensures(r <= i32(0))) -> (r : i32)
+)({
+  dx := (i32(0) - x);
+  dy := (i32(0) - y);
   s := (dx + dy);
   s
 });

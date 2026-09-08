@@ -504,7 +504,7 @@ _call_term :: (
           _int_width(arg_info.ty),
           .Some(src_w) => Option(VcTerm).Some(_widen_or_trunc(st, src_w, target_w, _int_is_signed(arg_info.ty))),
           .None => {
-            _fail_subset(ctx, `cast of non-integer operand`, e);
+            _fail_subset(ctx, String.from("cast of non-integer operand"), e);
             Option(VcTerm).None
           }
         ),
@@ -529,7 +529,7 @@ _call_term :: (
     );
     // AoRTE: division/remainder divisor non-zero.
     if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
-      _emit(ctx, "divisor-nonzero", ArrayList(VcTerm).new(), _nonzero_term(bt));
+      _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt));
     });
     // AoRTE: shift amount within the shifted operand's width.
     if((op == VcOp.BvShl) || (op == VcOp.BvLshr) || (op == VcOp.BvAshr), {
@@ -544,7 +544,7 @@ _call_term :: (
       );
       _emit(
         ctx,
-        "shift-in-width",
+        String.from("shift-in-width"),
         ArrayList(VcTerm).new(),
         _lt_unsigned_term(bt, VcTerm.BvLit(value : u64(shift_w), width : _term_width(bt)))
       );
@@ -600,7 +600,7 @@ _call_term :: (
       match(
         p,
         .Some(pt) => {
-          _emit(ctx, "assert", ArrayList(VcTerm).new(), pt);
+          _emit(ctx, String.from("assert"), ArrayList(VcTerm).new(), pt);
           Option(VcTerm).Some(VcTerm.BoolLit(true))
         },
         .None => Option(VcTerm).None
@@ -1079,7 +1079,7 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
                 ctx.vars.insert(pn.clone(), VcTerm.Var(name : pn.clone(), sort : sort));
               },
               .None => {
-                _fail_subset(ctx, `parameter outside the integer/bool subset`, input.body);
+                _fail_subset(ctx, String.from("parameter outside the integer/bool subset"), input.body);
               }
             );
           },

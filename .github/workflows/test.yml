@@ -399,8 +399,15 @@ jobs:
       # V3: the per-function pass over the negative fixtures (subset
       # errors run solver-free; refutations need the Z3 above). The seed
       # compiles the PR's verifier code — the same model as
-      # verifier.test.yo.
+      # verifier.test.yo. Leak verdicts staged off for the same reason as
+      # the differential shards below: the harness evaluates modules
+      # IN-PROCESS, which populates the process-lifetime evaluator
+      # registries (tracked debt,
+      # issues/self-hosted-emit-leaks-remaining-classes.md); ASan crash
+      # detection stays armed.
       - name: Verifier negative-path tests (subset + refutations)
+        env:
+          YO_TEST_LEAK_VERDICT: "0"
         run: yo test ./tests/internal/verifier_negative.test.yo --bail -v
 
       - name: yo verify harness report (JSON)
