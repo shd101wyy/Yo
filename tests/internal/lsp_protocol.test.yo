@@ -7,6 +7,9 @@
 //!     issues/fixed/lsp-definition-uri-is-built-without-percent-encoding.md);
 //!   - rune ↔ UTF-16 column conversion around an astral-plane rune
 //!     (issues/fixed/lsp-emits-rune-columns-where-the-protocol-says-utf16.md);
+//!   - `is_any_temp_variable_name`, the shape predicate completion uses to
+//!     hide the evaluator's temporaries
+//!     (issues/fixed/lsp-completion-lists-compiler-temporaries.md);
 //!   - `analyze_document` keeps the parsed program and the partial ExprInfo
 //!     when evaluation fails, and reports `parsed == false` when parsing fails
 //!     (issues/fixed/lsp-analysis-state-lost-on-parse-and-eval-errors.md).
@@ -27,6 +30,7 @@ open(import("std/error"));
 { analyze_document, AnalyzeOutcome } :: import("../../src/lsp/diagnostics.yo");
 { handle_hover } :: import("../../src/lsp/hover.yo");
 { resolve_std_path, mm_forget_open_document, mm_invalidate_document } :: import("../../src/module_manager.yo");
+{ is_any_temp_variable_name, generate_new_temp_variable_name } :: import("../../src/utils.yo");
 
 test("uri_to_fs_path: POSIX, Windows drive, legacy drive, percent escapes", {
   assert_eq(uri_to_fs_path(`file:///home/u/a.yo`), `/home/u/a.yo`, "posix absolute");
@@ -62,6 +66,20 @@ test("rune <-> UTF-16 columns around an astral-plane rune", {
   cjk := `中文x`;
   assert_eq(rune_col_to_utf16_col(cjk.clone(), usize(2)), usize(2), "BMP runes are one unit each");
   assert_eq(utf16_col_to_rune_col(cjk, usize(2)), usize(2), "BMP inverse");
+});
+
+test("is_any_temp_variable_name recognises the generator's shape for any module path", {
+  assert(is_any_temp_variable_name(`__private_tmp_temp_39`), "posix-path temporary");
+  assert(is_any_temp_variable_name(`__home_runner_temp_1729`), "another host's path");
+  assert(is_any_temp_variable_name(`_file____priv_temp_2355`), "file:// spelling");
+  assert(is_any_temp_variable_name(`__temp_7`), "empty module path");
+  assert(is_any_temp_variable_name(generate_new_temp_variable_name(`/virtual/doc.yo`)), "a freshly minted name");
+  assert(!is_any_temp_variable_name(`total`), "plain identifier");
+  assert(!is_any_temp_variable_name(`__yo_user_main`), "compiler internal without the marker");
+  assert(!is_any_temp_variable_name(`__private_tmp_temp_`), "no digits");
+  assert(!is_any_temp_variable_name(`__private_tmp_temp_3x`), "non-digit tail");
+  assert(!is_any_temp_variable_name(`x_temp_1`), "no leading underscore");
+  assert(!is_any_temp_variable_name(`__private_tmp_yo_temp_1`), "prefix longer than twelve bytes");
 });
 
 _GOOD :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> unit)({\n  y := add_one(i32(41));\n  _z := y;\n  ()\n});\nexport(main);\n";

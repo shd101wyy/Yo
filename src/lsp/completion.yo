@@ -35,6 +35,7 @@ open(import("std/error"));
 { Path } :: import("std/path");
 { read_dir, FileType } :: import("std/fs/dir");
 { Token, TokenKind } :: import("../token.yo");
+{ is_any_temp_variable_name } :: import("../utils.yo");
 { tokenize } :: import("../lexer.yo");
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
@@ -1077,9 +1078,14 @@ handle_completion :: (
               frame.variables.get(vi2),
               .Some(v) => {
                 vname := v.name.clone();
+                // The evaluator's discarded-binding temporaries
+                // (`_<path>_temp_N`, src/utils.yo) live in this frame too;
+                // they are internal and their spelling embeds the file's
+                // path (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
+                is_temp := is_any_temp_variable_name(vname.clone());
                 fresh := (
                   ((vname.len() > usize(0)) && !(emitted.contains(vname.clone()))) &&
-                    (!(_hidden_name(vname.clone())) && _matches_prefix(vname.clone(), prefix_lower.clone()))
+                    ((!(_hidden_name(vname.clone())) && !is_temp) && _matches_prefix(vname.clone(), prefix_lower.clone()))
                 );
                 if(fresh, {
                   emitted.insert(vname.clone());

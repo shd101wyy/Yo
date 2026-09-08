@@ -78,6 +78,64 @@ is_temp_variable_name :: (fn(module_path : String, var_name : String) -> bool)({
   prefix := generate_temp_variable_name_prefix(module_path);
   var_name.starts_with(prefix)
 });
+/// True iff `b` is a byte `generate_temp_variable_name_prefix` can emit
+/// between its underscores: an alphanumeric it kept, or the `_` it
+/// substituted.
+_is_temp_prefix_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) ||
+    (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
+);
+/// True iff `var_name` has the shape `generate_new_temp_variable_name`
+/// produces for ANY module path: `_`, at most twelve prefix bytes, `_temp_`,
+/// then one or more digits. The module-path-keyed `is_temp_variable_name`
+/// needs the path spelling the generator saw, which a consumer holding only
+/// the binding (the LSP's completion, which must hide these internals) does
+/// not reliably have — the prelude's temporaries are minted against the plain
+/// std path while their tokens carry the `file://` spelling
+/// (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
+is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
+  bytes := var_name.as_bytes();
+  n := bytes.len();
+  // `_` + `_temp_` + one digit is the shortest possible spelling (an empty
+  // module path yields the prefix `__temp_`).
+  if((n < usize(8)) || (match(bytes.get(usize(0)), .Some(b) => b, .None => u8(0)) != u8(95)), {
+    return(false);
+  });
+  marker := String.from("_temp_");
+  // The prefix bytes span from index 1 to the `_temp_` marker; try each
+  // legal length (0..=12) so a sanitized path that itself ends in `_temp_`
+  // cannot confuse the split.
+  (k : usize) = usize(0);
+  while(k <= usize(12), {
+    start := (usize(1) + k);
+    if((start + usize(6)) < n, {
+      (prefix_ok : bool) = true;
+      (i : usize) = usize(1);
+      while(i < start, {
+        if(!_is_temp_prefix_byte(match(bytes.get(i), .Some(b) => b, .None => u8(0))), {
+          prefix_ok = false;
+        });
+        i = (i + usize(1));
+      });
+      if(prefix_ok && (var_name.substring(start, start + usize(6)) == marker), {
+        (digits_ok : bool) = true;
+        (j : usize) = (start + usize(6));
+        while(j < n, {
+          d := match(bytes.get(j), .Some(b) => b, .None => u8(0));
+          if((d < u8(48)) || (d > u8(57)), {
+            digits_ok = false;
+          });
+          j = (j + usize(1));
+        });
+        if(digits_ok, {
+          return(true);
+        });
+      });
+    });
+    k = (k + usize(1));
+  });
+  false
+});
 // ---------------------------------------------------------------------------
 // random_id
 // ---------------------------------------------------------------------------
@@ -124,5 +182,6 @@ export(
   generate_temp_variable_name_prefix,
   generate_new_temp_variable_name,
   is_temp_variable_name,
+  is_any_temp_variable_name,
   random_id
 );
