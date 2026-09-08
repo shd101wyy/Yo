@@ -65,6 +65,52 @@ impl(
 );
 export(BenchResult);
 // ============================================================================
+// black_box
+// ============================================================================
+/// True when the target has no inline assembly, so `black_box` cannot place a
+/// barrier. Comptime, so the `asm` below is eliminated on those targets rather
+/// than reaching a backend that would reject it.
+_NO_INLINE_ASM :: (
+  (__yo_process_platform() == "wasi") || (__yo_process_platform() == "emscripten")
+);
+/// Hide `v` from the optimizer and hand it back — Rust's `black_box`.
+///
+/// Without it a benchmark whose result is discarded measures NOTHING, because
+/// the whole computation is dead code. Measured on this tree, 20 000 calls to
+/// a 2 000-iteration loop at `--optimize 2`:
+///
+/// | body | time |
+/// | --- | --- |
+/// | `_r := work(i);` | 1 000 ns — the loop was deleted outright |
+/// | `black_box(work(i));` | 63 275 000 ns |
+///
+/// The barrier is an empty `asm` taking the value's ADDRESS in a register with
+/// a `"memory"` clobber, which forces the value into memory and stops the
+/// producing computation being folded away. A version that instead stored the
+/// pointer into a module-level global was measured too and does NOT work — both
+/// loops came back at 0 ns, because the store to a never-read global is itself
+/// dead. There is no `volatile` in the language to fall back on
+/// (issues/no-volatile-so-black-box-needs-inline-asm.md), so on the wasm
+/// targets, which have no inline assembly, this is a NO-OP and elision-sensitive
+/// microbenchmarks there cannot be trusted.
+///
+/// The address is taken of a local COPY, not of the parameter: `&param` inside
+/// a GENERIC function emits a placeholder into the C and fails to compile
+/// (issues/address-of-a-parameter-in-a-generic-fn-emits-a-placeholder.md). The
+/// copy is harmless — the value is passed by value anyway.
+black_box :: (fn(generic(T : Type), v : T) -> T)({
+  (local : T) = v;
+  cond(
+    _NO_INLINE_ASM => (),
+    true => {
+      (p : *T) = &local;
+      unsafe(asm("", in(reg, p), clobber("memory")));
+    }
+  );
+  local
+});
+export(black_box);
+// ============================================================================
 // bench
 // ============================================================================
 /// Run `body` for `iterations` times and return timing statistics.
@@ -106,3 +152,51 @@ bench :: (fn(name : String, iterations : u64, body : Impl(Fn() -> unit)) -> Benc
   )
 });
 export(bench);
+/// The iteration count `bench_auto` aims to fill, in nanoseconds (100 ms).
+///
+/// Long enough that a nanosecond-resolution clock's granularity and scheduler
+/// noise are both negligible, short enough that a benchmark suite of a few
+/// dozen cases stays interactive.
+_AUTO_TARGET_NS :: i64(100000000);
+/// `bench`, with the iteration count CHOSEN for you.
+///
+/// Times a short pilot run, then picks the count that should fill about 100 ms
+/// and runs that. Removes the two ways a hand-picked count goes wrong: too few
+/// iterations on a fast body, so the result is clock granularity rather than
+/// the body; and far too many on a slow one, so the suite stalls.
+///
+/// The count is clamped to `[1, 100_000_000]`, so a body that takes longer than
+/// the target still runs exactly once, and an immeasurably fast one does not
+/// overflow into an unbounded run.
+///
+/// ```rust
+/// println(bench_auto(`sort`, () => sort_a_thousand()).to_string());
+/// ```
+bench_auto :: (fn(name : String, body : Impl(Fn() -> unit)) -> BenchResult)({
+  // Pilot: enough iterations to rise above clock granularity on a trivial
+  // body, few enough to stay cheap on an expensive one.
+  pilot_iters := u64(16);
+  t_start := Instant.now();
+  (i : u64) = u64(0);
+  while(i < pilot_iters, i = (i + u64(1)), {
+    body();
+  });
+  pilot_ns := Instant.now().duration_since(t_start).as_nanos();
+  // A pilot that measured as zero means "far below the clock's resolution";
+  // ask for the maximum rather than dividing by zero.
+  per_iter := cond(
+    (pilot_ns <= i64(0)) => i64(0),
+    true => (pilot_ns / i64(pilot_iters))
+  );
+  wanted := cond(
+    (per_iter <= i64(0)) => i64(100000000),
+    true => (_AUTO_TARGET_NS / per_iter)
+  );
+  iterations := cond(
+    (wanted < i64(1)) => u64(1),
+    (wanted > i64(100000000)) => u64(100000000),
+    true => u64(wanted)
+  );
+  bench(name, iterations, body)
+});
+export(bench_auto);

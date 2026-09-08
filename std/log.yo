@@ -22,6 +22,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("./string"));
 { ToString } :: import("./fmt");
 { fwrite, stdout, stderr, FILE } :: import("./libc/stdio");
+{ getenv } :: import("./libc/stdlib");
 { DateTime } :: import("./time/datetime");
 // Reuse the parallelism runtime's mutex type + primitives (the same C
 // __YO_THREAD_SYNC_TYPE std/sync/mutex uses). Declaring our own extern type
@@ -75,12 +76,46 @@ export(Level);
 /// Where log lines are written.
 LogOutput :: enum(Stderr, Stdout);
 export(LogOutput);
+/// A pluggable log destination — implement it to send records somewhere other
+/// than stdout/stderr (a file, a ring buffer, a test recorder, a network
+/// collector).
+///
+/// `write_line` receives the record's PARTS, not a formatted line, so a sink
+/// is free to render its own format — JSON, say — instead of re-parsing ours.
+/// `target` is empty when the caller used the untargeted forms.
+///
+/// It is called with the module's mutex HELD, which is what keeps concurrent
+/// lines from interleaving. A sink must therefore not log, directly or
+/// indirectly: that would deadlock.
+Sink :: trait(
+  write_line : (fn(inout(self) : Self, level : Level, target : String, msg : String) -> unit)
+);
+export(Sink);
+/// Parse a level name, case-insensitively — `trace`, `debug`, `info`, `warn`,
+/// `error`, `off`. `.None` for anything else.
+///
+/// `warning` is accepted for `warn` because it is the spelling people reach
+/// for, and rejecting it silently would be the worst of the three options.
+level_from_str :: (fn(name : String) -> Option(Level))({
+  lowered := name.trim().to_ascii_lowercase();
+  cond(
+    (lowered == "trace") => Option(Level).Some(Level.Trace),
+    (lowered == "debug") => Option(Level).Some(Level.Debug),
+    (lowered == "info") => Option(Level).Some(Level.Info),
+    ((lowered == "warn") || (lowered == "warning")) => Option(Level).Some(Level.Warn),
+    (lowered == "error") => Option(Level).Some(Level.Error),
+    (lowered == "off") => Option(Level).Some(Level.Off),
+    true => Option(Level).None
+  )
+});
+export(level_from_str);
 // ============================================================================
 // Global state (module-level, mutex-guarded)
 // ============================================================================
 _global_level := Level.Info;
 _global_output := LogOutput.Stderr;
 _global_timestamps := false;
+(_global_sink : ?Dyn(Sink)) = Option(Dyn(Sink)).None;
 _log_mutex := __yo_mutex_create();
 // ============================================================================
 // Configuration
@@ -114,6 +149,53 @@ set_timestamps :: (fn(on : bool) -> unit)({
   _global_timestamps = on;
   unsafe(__yo_mutex_unlock(&_log_mutex));
 });
+/// Send every record to `sink` instead of stdout/stderr.
+///
+/// `set_output` and `set_timestamps` stop having any effect while a sink is
+/// installed — rendering is the sink's job. The LEVEL filter still applies, so
+/// a sink never sees a record the configuration suppressed.
+set_sink :: (fn(sink : Dyn(Sink)) -> unit)({
+  unsafe(__yo_mutex_lock(&_log_mutex));
+  _global_sink = Option(Dyn(Sink)).Some(sink);
+  unsafe(__yo_mutex_unlock(&_log_mutex));
+});
+/// Go back to writing to stdout/stderr.
+clear_sink :: (fn() -> unit)({
+  unsafe(__yo_mutex_lock(&_log_mutex));
+  _global_sink = Option(Dyn(Sink)).None;
+  unsafe(__yo_mutex_unlock(&_log_mutex));
+});
+export(set_sink, clear_sink);
+/// Apply `YO_LOG` to the level filter, if it is set to a name
+/// `level_from_str` recognises. Returns the level in force afterwards.
+///
+/// Explicit, not automatic, for the same reason Rust's `env_logger::init()`
+/// is: a library that silently reconfigured logging on first use would be
+/// impossible to reason about. Call it once at startup.
+///
+/// An unset or unrecognised `YO_LOG` leaves the current level alone — a typo
+/// must not silence a program.
+init_from_env :: (fn() -> Level)({
+  name_cstr := String.from("YO_LOG").to_cstr().ptr().unwrap();
+  raw := unsafe(getenv((*char)(name_cstr)));
+  match(
+    raw,
+    .None => get_level(),
+    .Some(ptr) => match(
+      String.from_cstr((*u8)(ptr)),
+      .Err(_) => get_level(),
+      .Ok(text) => match(
+        level_from_str(text),
+        .None => get_level(),
+        .Some(level) => {
+          set_level(level);
+          level
+        }
+      )
+    )
+  )
+});
+export(init_from_env);
 export(set_level, get_level, set_output, set_timestamps);
 // ============================================================================
 // Core
@@ -152,6 +234,17 @@ _emit :: (fn(level : Level, target : String, msg : String) -> unit)({
       return(());
     },
     true => ()
+  );
+  // A sink takes the record whole and renders it itself; the lock stays held
+  // across the call, which is what serialises concurrent records.
+  match(
+    _global_sink,
+    .Some(sink) => {
+      sink.write_line(level, target, msg);
+      unsafe(__yo_mutex_unlock(&_log_mutex));
+      return(());
+    },
+    .None => ()
   );
   dest := match(_global_output, .Stdout => stdout, .Stderr => stderr);
   cond(
