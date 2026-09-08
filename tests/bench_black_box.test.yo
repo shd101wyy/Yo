@@ -61,8 +61,23 @@ test("bench_auto picks a count instead of taking one", {
   r := bench_auto(`auto-noop`, () => ());
   assert(r.name == `auto-noop`, "the name is carried through");
   assert(r.iterations >= u64(1), "at least one iteration");
-  assert(r.iterations <= u64(100000000), "and never past the clamp");
+  assert(r.iterations <= u64(1048576), "and never past the ceiling");
   assert(r.min_ns <= r.max_ns, "min never exceeds max");
+});
+test("bench_auto stays BOUNDED on a body too fast to measure", {
+  // The regression guard for the bug CI caught: the first version timed only
+  // `body`, measured ~0 for an empty one, and so asked for 100 000 000
+  // iterations — 3.4 s here and minutes on a CI runner under sanitizers, which
+  // timed the Linux legs out. Extrapolating from the WALL time of a real
+  // `bench` call (which reads the clock twice per iteration, the entire cost of
+  // a trivial body) cannot do that.
+  t0 := Instant.now();
+  r := bench_auto(`bounded`, () => ());
+  elapsed := Instant.now().duration_since(t0).as_nanos();
+  assert(r.iterations <= u64(1048576), "the count is capped");
+  // 100 ms target; allow a wide margin for a loaded runner but nothing like
+  // the 3.4 s the broken version took.
+  assert(elapsed < i64(2000000000), "and the whole call stays well under two seconds");
 });
 test("bench_auto runs a SLOW body far fewer times than a fast one", {
   fast := bench_auto(`fast`, () => ());
@@ -70,6 +85,8 @@ test("bench_auto runs a SLOW body far fewer times than a fast one", {
     black_box(_work(u64(1)));
   });
   // This is the whole value of calibration: the count adapts to the body.
+  // Measured on this tree: ~750 000 for the empty body, ~35 000 for the
+  // 2000-round one, both landing near the 100 ms target.
   cond(
     ((__yo_process_platform() == "wasi") || (__yo_process_platform() == "emscripten")) => (),
     true => {

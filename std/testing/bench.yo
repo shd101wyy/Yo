@@ -152,50 +152,69 @@ bench :: (fn(name : String, iterations : u64, body : Impl(Fn() -> unit)) -> Benc
   )
 });
 export(bench);
-/// The iteration count `bench_auto` aims to fill, in nanoseconds (100 ms).
+/// The wall time `bench_auto` aims to fill, in nanoseconds (100 ms).
 ///
-/// Long enough that a nanosecond-resolution clock's granularity and scheduler
-/// noise are both negligible, short enough that a benchmark suite of a few
-/// dozen cases stays interactive.
+/// Long enough that clock granularity and scheduler noise are both
+/// negligible, short enough that a suite of a few dozen cases stays
+/// interactive.
 _AUTO_TARGET_NS :: i64(100000000);
+/// A pilot run must last at least this long (1 ms) for its measurement to be
+/// worth extrapolating from — comfortably above any platform's clock
+/// granularity.
+_PILOT_FLOOR_NS :: i64(1000000);
+/// Ceiling on both the pilot and the final count, so neither can run away on a
+/// body too fast to measure.
+_PILOT_MAX_ITERS :: u64(1048576);
 /// `bench`, with the iteration count CHOSEN for you.
 ///
-/// Times a short pilot run, then picks the count that should fill about 100 ms
-/// and runs that. Removes the two ways a hand-picked count goes wrong: too few
-/// iterations on a fast body, so the result is clock granularity rather than
-/// the body; and far too many on a slow one, so the suite stalls.
-///
-/// The count is clamped to `[1, 100_000_000]`, so a body that takes longer than
-/// the target still runs exactly once, and an immeasurably fast one does not
-/// overflow into an unbounded run.
+/// Escalates a pilot run until it lasts at least `_PILOT_FLOOR_NS`, then
+/// extrapolates the count that should fill `_AUTO_TARGET_NS`. Removes the two
+/// ways a hand-picked count goes wrong: too few iterations on a fast body, so
+/// the result is clock granularity rather than the body; far too many on a
+/// slow one, so the suite stalls.
 ///
 /// ```rust
 /// println(bench_auto(`sort`, () => sort_a_thousand()).to_string());
 /// ```
+///
+/// The pilot is a real `bench` call timed by WALL clock, not a bare loop over
+/// `body`. That matters more than it looks: `bench` reads the clock TWICE per
+/// iteration, and for a trivial body those two reads are the entire cost. A
+/// first version timed only `body`, measured ~0 for `() => ()`, and so asked
+/// for the maximum 100 000 000 iterations — a 3.4 s run on a fast machine and
+/// minutes on a CI runner under sanitizers. Extrapolating from the wall time of
+/// the thing actually being repeated cannot make that mistake.
 bench_auto :: (fn(name : String, body : Impl(Fn() -> unit)) -> BenchResult)({
-  // Pilot: enough iterations to rise above clock granularity on a trivial
-  // body, few enough to stay cheap on an expensive one.
-  pilot_iters := u64(16);
-  t_start := Instant.now();
-  (i : u64) = u64(0);
-  while(i < pilot_iters, i = (i + u64(1)), {
-    body();
+  (pilot_iters : u64) = u64(64);
+  (wall_ns : i64) = i64(0);
+  while(runtime(true), {
+    t_start := Instant.now();
+    _pilot := bench(name, pilot_iters, body);
+    wall_ns = Instant.now().duration_since(t_start).as_nanos();
+    cond(
+      (wall_ns >= _PILOT_FLOOR_NS) => {
+        break;
+      },
+      (pilot_iters >= _PILOT_MAX_ITERS) => {
+        break;
+      },
+      true => {
+        pilot_iters = (pilot_iters * u64(4));
+      }
+    );
   });
-  pilot_ns := Instant.now().duration_since(t_start).as_nanos();
-  // A pilot that measured as zero means "far below the clock's resolution";
-  // ask for the maximum rather than dividing by zero.
-  per_iter := cond(
-    (pilot_ns <= i64(0)) => i64(0),
-    true => (pilot_ns / i64(pilot_iters))
-  );
-  wanted := cond(
-    (per_iter <= i64(0)) => i64(100000000),
-    true => (_AUTO_TARGET_NS / per_iter)
-  );
   iterations := cond(
-    (wanted < i64(1)) => u64(1),
-    (wanted > i64(100000000)) => u64(100000000),
-    true => u64(wanted)
+    // Still unmeasurable at the ceiling: run the ceiling rather than divide by
+    // zero, which bounds the work at whatever the pilot already cost.
+    (wall_ns <= i64(0)) => pilot_iters,
+    true => {
+      scaled := ((i64(pilot_iters) * _AUTO_TARGET_NS) / wall_ns);
+      cond(
+        (scaled < i64(1)) => u64(1),
+        (scaled > i64(_PILOT_MAX_ITERS)) => _PILOT_MAX_ITERS,
+        true => u64(scaled)
+      )
+    }
   );
   bench(name, iterations, body)
 });
