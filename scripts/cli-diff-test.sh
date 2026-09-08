@@ -182,7 +182,20 @@ normalize_stream() {
     | sed -E -e 's/[0-9]+(\.[0-9]+)?[[:space:]]*(ms|seconds|s([^A-Za-z0-9_]|$))/<TIME>\3/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{40}([^A-Za-z0-9_]|$)/\1<SHA1>\2/g' \
              -e 's/(^|[^A-Za-z0-9_])[0-9a-f]{64}([^A-Za-z0-9_]|$)/\1<SHA256>\2/g' \
-             -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g'
+             -e 's/(^|[^A-Za-z0-9_])(aarch64|arm64|x86_64|i686)-(apple-|unknown-|pc-)?(macos|darwin|linux-gnu|linux-musl|windows-msvc|windows-gnu|windows)([^A-Za-z0-9_]|$)/\1<TARGET>\5/g' \
+    | refit_lsp_frames
+}
+
+# LSP base-protocol frames (`Content-Length: N\r\n\r\n<body>`) declare the BYTE
+# length of a body that the substitutions above may have shortened or
+# lengthened (a `file://<REPO>/std/...` definition target stands in for a
+# path whose length differs per machine), which made the header — not the
+# body — host-dependent (PR #491's Linux gate). Recompute every header from
+# its normalized body, so a golden still pins that the server frames each
+# reply with the exact byte count of what it sent. Streams without frames
+# pass through untouched.
+refit_lsp_frames() {
+  perl -0777 -Mbytes -pe 's/Content-Length: \d+(\r?\n\r?\n)(.*?)(?=Content-Length: |\z)/"Content-Length: " . length($2) . $1 . $2/gse'
 }
 
 # Emit "<relpath>\t<sha>" for every regular file under $1, skipping ignored
