@@ -233,11 +233,27 @@ generate_comptime_value :: (fn(value : EvalValue, ty : TypeValue, context : Code
       // available today. `HUGE_VAL`/`HUGE_VALF`/`NAN` are the C11 <math.h>
       // spellings (7.12/4, 7.12/5); `(1.0/0.0)` is NOT a substitute, being a
       // division by zero in a context that may require a constant expression.
+      // Matched by PREFIX, not equality, because the spelling is the HOST C
+      // library's and they disagree: glibc and Apple libc print `nan` /
+      // `-nan`, while the MS CRT prints `-nan(ind)` for the indefinite NaN
+      // (and `nan(snan)` for a signalling one). An equality test passed on
+      // macOS and Linux and emitted `-nan(ind).0` on Windows — not C at all,
+      // and clang read the payload as an identifier: "use of undeclared
+      // identifier 'ind'; did you mean 'bind'?"
+      // (issues/fixed/msvc-nan-spelling-escapes-the-non-finite-float-match.md).
+      // No finite raw can collide: `%g` renders one starting with a digit,
+      // `-`, `+` or `.`, never with `i` or `n` after an optional sign.
+      //
+      // A NaN's SIGN and PAYLOAD are dropped on purpose. C offers no portable
+      // constant expression for either, `NAN` is the canonical quiet NaN, and
+      // no operation except `copysign`/`signbit` can observe the difference.
       lowered := raw.clone().to_lowercase();
       non_finite := cond(
-        ((lowered == "inf") || (lowered == "infinity")) => if(_is_f32(ty), String.from("HUGE_VALF"), String.from("HUGE_VAL")),
-        ((lowered == "-inf") || (lowered == "-infinity")) => if(_is_f32(ty), String.from("(-HUGE_VALF)"), String.from("(-HUGE_VAL)")),
-        ((lowered == "nan") || (lowered == "-nan")) => if(_is_f32(ty), String.from("NAN"), String.from("((double)NAN)")),
+        (lowered.starts_with("inf") || lowered.starts_with("+inf")) => if(_is_f32(ty), String.from("HUGE_VALF"), String.from("HUGE_VAL")),
+        lowered.starts_with("-inf") => if(_is_f32(ty), String.from("(-HUGE_VALF)"), String.from("(-HUGE_VAL)")),
+        (
+          (lowered.starts_with("nan") || lowered.starts_with("+nan")) || lowered.starts_with("-nan")
+        ) => if(_is_f32(ty), String.from("NAN"), String.from("((double)NAN)")),
         true => String.from("")
       );
       // No `add_c_include` here: `emit_c_includes` has already run by the time

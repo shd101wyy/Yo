@@ -725,6 +725,20 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
 
    `std/math` is now marked stable with ONE remaining gap: the `f32`
    transcendentals C has no single-precision entry point for.
+
+   **A second compiler bug fell out, Windows-only.** The codegen recognised a
+   non-finite float raw by string EQUALITY against `"nan"` / `"-nan"`, but the
+   raw is the HOST C library's `%g` output and the libraries disagree: the MS
+   CRT spells the indefinite NaN `-nan(ind)`. So `f64.NAN` emitted
+   `-nan(ind).0` on Windows and clang read the payload as an identifier
+   ("use of undeclared identifier 'ind'; did you mean 'bind'?") while macOS and
+   Linux stayed green. Matched by prefix now
+   (issues/fixed/msvc-nan-spelling-escapes-the-non-finite-float-match.md).
+   The same divergence is visible from Yo — `f64.NAN.to_string()` differs by
+   platform — which is filed separately as a std portability defect
+   (issues/float-to-string-is-platform-dependent-for-non-finite-values.md);
+   it also decides what `json_stringify` should do with a NaN, since JSON has
+   no non-finite literal.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 
