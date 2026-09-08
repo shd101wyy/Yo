@@ -4681,6 +4681,72 @@ impl(
       .None => cond((rhs < T(0)) => T.MAX, true => T.MIN)
     )
   ),
+  /// `self + rhs` modulo the type's range — Rust's `wrapping_add`.
+  ///
+  /// The wrapped value is reconstructed from the bounds rather than by letting
+  /// the add overflow: signed overflow is undefined behaviour in C, so the
+  /// out-of-range sum must never be formed. `MAX + k` becomes `MIN + k - 1`
+  /// and `MIN - k` becomes `MAX - k + 1`; every intermediate stays in range.
+  wrapping_add : (fn(self : T, rhs : T) -> T)(
+    cond(
+      ((rhs > T(0)) && (self > (T.MAX - rhs))) => ((T.MIN + (self - (T.MAX - rhs))) - T(1)),
+      ((rhs < T(0)) && (self < (T.MIN - rhs))) => ((T.MAX - ((T.MIN - rhs) - self)) + T(1)),
+      true => (self + rhs)
+    )
+  ),
+  /// `self - rhs` modulo the type's range — Rust's `wrapping_sub`.
+  wrapping_sub : (fn(self : T, rhs : T) -> T)(
+    cond(
+      ((rhs < T(0)) && (self > (T.MAX + rhs))) => ((T.MIN + (self - (T.MAX + rhs))) - T(1)),
+      ((rhs > T(0)) && (self < (T.MIN + rhs))) => ((T.MAX - ((T.MIN + rhs) - self)) + T(1)),
+      true => (self - rhs)
+    )
+  ),
+  /// `(wrapped sum, did it overflow)` — Rust's `overflowing_add`.
+  overflowing_add : (fn(self : T, rhs : T) -> Tuple(T, bool))(
+    match(self.checked_add(rhs), .Some(v) => (v, false), .None => (self.wrapping_add(rhs), true))
+  ),
+  /// `(wrapped difference, did it overflow)` — Rust's `overflowing_sub`.
+  overflowing_sub : (fn(self : T, rhs : T) -> Tuple(T, bool))(
+    match(self.checked_sub(rhs), .Some(v) => (v, false), .None => (self.wrapping_sub(rhs), true))
+  ),
+  /// `|self|`, or `.None` for `MIN` — which has no positive counterpart in a
+  /// two's-complement range. On the unsigned types the `T.MIN < T(0)` guard is
+  /// false, so this is the identity.
+  checked_abs : (fn(self : T) -> Option(T))(
+    cond(
+      ((self == T.MIN) && (T.MIN < T(0))) => Option(T).None,
+      (self < T(0)) => Option(T).Some((T(0) - self)),
+      true => Option(T).Some(self)
+    )
+  ),
+  /// `|self|`, clamped to `MAX` where `checked_abs` would report overflow.
+  saturating_abs : (fn(self : T) -> T)(
+    match(self.checked_abs(), .Some(v) => v, .None => T.MAX)
+  ),
+  /// `self` raised to `exp`, or `.None` if any step would overflow.
+  checked_pow : (fn(self : T, exp : u32) -> Option(T))({
+    (acc : T) = T(1);
+    (i : u32) = u32(0);
+    (overflowed : bool) = false;
+    while(runtime((i < exp) && !(overflowed)), {
+      match(
+        acc.checked_mul(self),
+        .Some(v) => {
+          acc = v;
+        },
+        .None => {
+          overflowed = true;
+        }
+      );
+      i = (i + u32(1));
+    });
+    cond(overflowed => Option(T).None, true => Option(T).Some(acc))
+  }),
+  /// `self` clamped into `[lo, hi]`.
+  clamp : (fn(self : T, lo : T, hi : T) -> T)(
+    cond((self < lo) => lo, (self > hi) => hi, true => self)
+  ),
   /// `self * rhs`, clamped to the type's bounds instead of overflowing.
   saturating_mul : (fn(self : T, rhs : T) -> T)(
     match(
