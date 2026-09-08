@@ -1,32 +1,52 @@
 //! lsp/definition — textDocument/definition (plans/archive/P4_LSP.md slice 3).
 //!
-//! Port of the attic `definition.ts` VARIABLE channel: token at position →
-//! best Atom candidate → its ExprInfo env → the selected variable's
-//! `initialized_at_token` → an LSP Location. The TS file's further channels
-//! (struct-field definitions, enum-variant constructors, import-path
-//! strings) are recorded follow-ups — the variable channel already covers
-//! locals, functions, types, and imported names bound with `::`. A MEMBER or
-//! LABEL atom (`p.x`, `Point(x : 1)`) answers nothing: the variable channel
-//! would otherwise jump to a same-named local (hover.yo "Atom roles").
+//! Two channels:
+//!
+//!   - VARIABLES (the attic's channel): token at position → best Atom
+//!     candidate → its ExprInfo env → the selected variable's
+//!     `initialized_at_token` → an LSP Location. Covers locals, functions,
+//!     types, and imported names bound with `::`.
+//!   - MEMBERS and LABELS (issues/fixed/lsp-member-definition-targets.md):
+//!     `p.x` / `Point(x : …)` → the field's declaration inside `struct(...)`;
+//!     `.Some` / `Color.Red` → the variant inside `enum(...)`; `p.dist()` →
+//!     the method's `label : value` pair in its `impl(...)` block (inherent,
+//!     trait or generic impl, found through the registries); `mod.f` → the
+//!     `f :: …` binding in the imported module. The compiler's types carry no
+//!     declaration tokens, so the target is found by re-reading the declaring
+//!     module's AST: the owner type's written name (or its `Ctor(...)`
+//!     display name's head) resolves through the env to the declaration
+//!     binding, whose value subtree is searched for the field / variant; a
+//!     method's `FuncVal` body token pins the `impl` pair that declares it.
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
 open(import("std/error"));
 { Token, TokenKind } :: import("../token.yo");
 { tokenize } :: import("../lexer.yo");
-{ AstExpr, ast_expr_id } :: import("../expr.yo");
+{ parse } :: import("../parser.yo");
+{ AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_fn_call_of } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
-{ get_variables_from_env } :: import("../env.yo");
+{ Environment, get_variables_from_env } :: import("../env.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{ type_display_name } :: import("../types/string.yo");
+{ EvalValue } :: import("../value.yo");
+{ type_id_or_empty, get_type_trait_methods_for_type } :: import("../evaluator/values/type_trait_methods.yo");
+{ find_generic_impl_method_value } :: import("../evaluator/values/impl.yo");
+{ resolve_module_path, ModuleResolveResult } :: import("../evaluator/exprs/import.yo");
 { mm_module_source } :: import("../module_manager.yo");
+{ str_lit_unquote_bytes } :: import("../utils.yo");
+{ Path } :: import("std/path");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, j_range, j_range_in, module_path_to_uri, uri_to_fs_path } :: import("./protocol.yo");
 {
   classify_atom_roles,
   atom_is_member_or_label,
+  _find_member_access,
   _find_token_at,
   _collect_candidates,
   _best_candidate,
   _select_best_variable
 } :: import("./hover.yo");
+{ _receiver_at } :: import("./completion.yo");
 
 /// The lines of the file a definition token points into: the open document's
 /// own lines when it is this document, else the target module's current
@@ -47,6 +67,701 @@ _target_lines :: (
   )
 });
 
+/// An LSP Location for declaration token `def_tok`.
+_location_of :: (
+  fn(def_tok : Token, doc_abs : String, lines : ArrayList(String)) -> JsonValue
+)({
+  // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
+  // converted to the wire encoding against the TARGET file's lines.
+  end_col := (def_tok.column + def_tok.value.chars().count());
+  range := match(
+    _target_lines(def_tok, doc_abs.clone(), lines),
+    .Some(target_lines) => j_range_in(target_lines, def_tok.row, def_tok.column, def_tok.row, end_col),
+    .None => j_range(def_tok.row, def_tok.column, def_tok.row, end_col)
+  );
+  jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", range).obj()
+});
+
+/// The parsed program of the module at `module_path` (either `file://`
+/// spelling): the open document's own program when it is this document,
+/// else a fresh parse of the module's current source. Empty when the source
+/// is unreadable or does not parse.
+_module_exprs :: (
+  fn(module_path : String, doc_abs : String, doc_exprs : ArrayList(AstExpr)) -> ArrayList(AstExpr)
+)({
+  target_fs := uri_to_fs_path(module_path.clone());
+  if(target_fs == uri_to_fs_path(doc_abs.clone()), {
+    return(doc_exprs);
+  });
+  src := match(
+    mm_module_source(target_fs.clone()),
+    .Some(s) => s,
+    .None => {
+      return(ArrayList(AstExpr).new());
+    }
+  );
+  _parse_quietly(src, module_path)
+});
+/// Parse `src` as `module_path`; an empty program when it does not parse
+/// (own frame so the swallowing handler's `unwind` value matches).
+_parse_quietly :: (fn(src : String, module_path : String) -> ArrayList(AstExpr))({
+  parse_exn := Exception(
+    throw : (
+      _err -> unwind(ArrayList(AstExpr).new())
+    )
+  );
+  parse(src, module_path, parse_exn)
+});
+
+/// True iff `e` is an Atom spelled `name` (a `String`-argument twin of
+/// `ast_expr_is_atom_of`, whose parameter is a `str` literal).
+_atom_is :: (fn(e : AstExpr, name : String) -> bool)(
+  match(e, .Atom(_, t) => (t.value == name), .FnCall(_, _, _, _, _) => false)
+);
+/// The `name :: value` top-level binding named `head` in `exprs`: its VALUE
+/// expression, or `.None`.
+_binding_value :: (fn(exprs : ArrayList(AstExpr), head : String) -> Option(AstExpr))({
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => {
+        if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))), {
+          match(
+            e,
+            .FnCall(_, _, args, _, _) => {
+              lhs_is_head := match(args.get(usize(0)), .Some(l) => _atom_is(l, head.clone()), .None => false);
+              if(lhs_is_head, {
+                return(args.get(usize(1)));
+              });
+            },
+            .Atom(_, _) => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(AstExpr).None
+});
+/// The `name :: value` top-level binding named `head`: the NAME atom's token.
+_binding_name_token :: (fn(exprs : ArrayList(AstExpr), head : String) -> Option(Token))({
+  (i : usize) = usize(0);
+  while(i < exprs.len(), {
+    match(
+      exprs.get(i),
+      .Some(e) => {
+        if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))), {
+          match(
+            e,
+            .FnCall(_, _, args, _, _) => match(
+              args.get(usize(0)),
+              .Some(l) => if(_atom_is(l, head.clone()), {
+                return(Option(Token).Some(ast_expr_token(l)));
+              }),
+              .None => ()
+            ),
+            .Atom(_, _) => ()
+          );
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(Token).None
+});
+
+/// Within `e`, the label atom of the `member : T` pair declared by a
+/// `struct(...)` / `union(...)` / `newtype(...)` call (the first match in
+/// evaluation order).
+_find_field_label :: (fn(e : AstExpr, member : String, out : ArrayList(Token)) -> unit)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      is_decl := (
+        ast_expr_is_fn_call_of(e, "struct", .None) ||
+          (ast_expr_is_fn_call_of(e, "union", .None) || ast_expr_is_fn_call_of(e, "newtype", .None))
+      );
+      if(is_decl, {
+        (i : usize) = usize(0);
+        while(i < args.len(), {
+          match(
+            args.get(i),
+            .Some(a) => {
+              if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
+                match(
+                  a,
+                  .FnCall(_, _, pair, _, _) => match(
+                    pair.get(usize(0)),
+                    .Some(lhs) => if(_atom_is(lhs, member.clone()), {
+                      out.push(ast_expr_token(lhs));
+                    }),
+                    .None => ()
+                  ),
+                  .Atom(_, _) => ()
+                );
+              });
+            },
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      });
+      recur(func_box, member, out);
+      (j : usize) = usize(0);
+      while(j < args.len(), {
+        match(
+          args.get(j),
+          .Some(a2) => recur(a2, member, out),
+          .None => ()
+        );
+        j = (j + usize(1));
+      });
+    }
+  );
+});
+/// Within `e`, the variant named `variant` declared by an `enum(...)` call —
+/// a bare atom (`Red`) or the callee of a payload variant (`Blue(v : i32)`).
+_find_variant_decl :: (fn(e : AstExpr, variant : String, out : ArrayList(Token)) -> unit)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, "enum", .None), {
+        (i : usize) = usize(0);
+        while(i < args.len(), {
+          match(
+            args.get(i),
+            .Some(a) => match(
+              a,
+              .Atom(_, at) => if(at.value == variant, {
+                out.push(at);
+              }),
+              .FnCall(_, vf, _, _, _) => if(_atom_is(vf, variant.clone()), {
+                out.push(ast_expr_token(vf));
+              })
+            ),
+            .None => ()
+          );
+          i = (i + usize(1));
+        });
+      });
+      recur(func_box, variant, out);
+      (j : usize) = usize(0);
+      while(j < args.len(), {
+        match(
+          args.get(j),
+          .Some(a2) => recur(a2, variant, out),
+          .None => ()
+        );
+        j = (j + usize(1));
+      });
+    }
+  );
+});
+/// True iff `e`'s subtree holds a token at (row, column) of `at`.
+_subtree_has_position :: (fn(e : AstExpr, at : Token) -> bool)({
+  t := ast_expr_token(e);
+  if((t.row == at.row) && (t.column == at.column), {
+    return(true);
+  });
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, func_box, args, _, _) => {
+      if(recur(func_box, at), {
+        return(true);
+      });
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(recur(a, at), {
+            return(true);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+});
+/// Within `e`, the label atom of a `member : value` pair whose VALUE subtree
+/// holds `body_at` — the `impl(...)` pair that declares a method whose body
+/// starts there.
+_find_method_label :: (
+  fn(e : AstExpr, member : String, body_at : Token, out : ArrayList(Token)) -> unit
+)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      if(ast_expr_is_fn_call_of(e, ":", .Some(usize(2))), {
+        lhs_ok := match(args.get(usize(0)), .Some(l) => _atom_is(l, member.clone()), .None => false);
+        rhs_ok := match(args.get(usize(1)), .Some(r) => _subtree_has_position(r, body_at), .None => false);
+        if(lhs_ok && rhs_ok, {
+          match(
+            args.get(usize(0)),
+            .Some(l2) => {
+              out.push(ast_expr_token(l2));
+            },
+            .None => ()
+          );
+        });
+      });
+      recur(func_box, member, body_at, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => recur(a, member, body_at, out),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    }
+  );
+});
+
+/// The written head name of a type: its `name`, else the head of its
+/// `Ctor(...)` display name (`ArrayList(i32)` → `ArrayList`); "" when the
+/// type has neither.
+_type_head_name :: (fn(ty : TypeValue) -> String)({
+  (nm : String) = String.new();
+  (id : String) = String.new();
+  match(
+    ty,
+    .Struct({ id : sid, name : snm }) => {
+      nm = snm;
+      id = sid;
+    },
+    .EnumT(eid, enm, _, _, _, _, _, _, _) => {
+      nm = enm;
+      id = eid;
+    },
+    .Union(unm, _, _) => {
+      nm = unm;
+    },
+    _ => ()
+  );
+  if(nm.len() > usize(0), {
+    return(nm);
+  });
+  match(
+    type_display_name(id),
+    .Some(d) => match(
+      d.index_of(String.from("(")),
+      .Some(p) => d.substring(usize(0), p),
+      .None => d
+    ),
+    .None => String.new()
+  )
+});
+/// Where the type named `head` is declared, seen from `env`: the token of the
+/// binding that introduced it (a `Point :: struct(...)` name atom, or the
+/// generic constructor `ArrayList :: (fn(...) -> Type)(...)`).
+_type_decl_token :: (fn(env : Environment, head : String) -> Option(Token))({
+  vars := get_variables_from_env(env, head.clone());
+  (i : usize) = usize(0);
+  while(i < vars.len(), {
+    match(
+      vars.get(i),
+      .Some(v) => match(
+        v.initialized_at_token,
+        .Some(t) => {
+          return(Option(Token).Some(t));
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(Token).None
+});
+/// The declaration of field/variant `member` of `owner`: resolve the owner's
+/// head name to its declaring binding, then search that binding's value.
+_owner_member_decl :: (
+  fn(
+    owner : TypeValue,
+    member : String,
+    env : Environment,
+    doc_abs : String,
+    doc_exprs : ArrayList(AstExpr)
+  ) -> Option(Token)
+)({
+  head := _type_head_name(owner);
+  if(head.len() == usize(0), {
+    return(Option(Token).None);
+  });
+  decl_tok := match(
+    _type_decl_token(env, head.clone()),
+    .Some(t) => t,
+    .None => {
+      return(Option(Token).None);
+    }
+  );
+  module_exprs := _module_exprs(decl_tok.module_path.clone(), doc_abs, doc_exprs);
+  value := match(
+    _binding_value(module_exprs, head),
+    .Some(v) => v,
+    .None => {
+      return(Option(Token).None);
+    }
+  );
+  found := ArrayList(Token).new();
+  match(
+    owner,
+    .EnumT(_, _, _, _, _, _, _, _, _) => _find_variant_decl(value, member, found),
+    _ => _find_field_label(value, member, found)
+  );
+  found.get(usize(0))
+});
+/// The `impl` pair declaring method `member` on `owner` (or its pointer
+/// target): the registry's `FuncVal` body token pins the declaring module and
+/// the pair.
+_method_decl :: (
+  fn(
+    owner : TypeValue,
+    deref : TypeValue,
+    member : String,
+    env : Environment,
+    doc_abs : String,
+    doc_exprs : ArrayList(AstExpr)
+  ) -> Option(Token)
+)({
+  (value : Option(EvalValue)) = Option(EvalValue).None;
+  ids := ArrayList(String).new();
+  ids.push(type_id_or_empty(owner));
+  ids.push(type_id_or_empty(deref));
+  (ii : usize) = usize(0);
+  while((ii < ids.len()) && value.is_none(), {
+    entries := get_type_trait_methods_for_type(ids(ii));
+    (ei : usize) = usize(0);
+    while((ei < entries.len()) && value.is_none(), {
+      match(
+        entries.get(ei),
+        .Some(en) => if(en.label == member, {
+          value = en.value;
+        }),
+        .None => ()
+      );
+      ei = (ei + usize(1));
+    });
+    ii = (ii + usize(1));
+  });
+  if(value.is_none(), {
+    value = find_generic_impl_method_value(deref, env, member.clone());
+  });
+  body_tok := match(
+    value,
+    .Some(v) => match(
+      v,
+      .FuncVal(data, _) => ast_expr_token(data.*.body),
+      _ => {
+        return(Option(Token).None);
+      }
+    ),
+    .None => {
+      return(Option(Token).None);
+    }
+  );
+  module_exprs := _module_exprs(body_tok.module_path.clone(), doc_abs, doc_exprs);
+  found := ArrayList(Token).new();
+  (i : usize) = usize(0);
+  while(i < module_exprs.len(), {
+    match(
+      module_exprs.get(i),
+      .Some(e) => _find_method_label(e, member, body_tok, found),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    found.get(usize(0)),
+    .Some(t) => Option(Token).Some(t),
+    // The pair was not found (a synthesized method): the body itself.
+    .None => Option(Token).Some(body_tok)
+  )
+});
+/// The `import("…")` path of the top-level binding `name :: import("…")`.
+_import_path_of_binding :: (fn(exprs : ArrayList(AstExpr), name : String) -> Option(String))({
+  value := match(
+    _binding_value(exprs, name),
+    .Some(v) => v,
+    .None => {
+      return(Option(String).None);
+    }
+  );
+  if(!ast_expr_is_fn_call_of(value, "import", .Some(usize(1))), {
+    return(Option(String).None);
+  });
+  match(
+    value,
+    .FnCall(_, _, args, _, _) => match(
+      args.get(usize(0)),
+      .Some(a) => match(
+        a,
+        .Atom(_, t) => cond(
+          (t.kind == TokenKind.StringLit) => Option(String).Some(str_lit_unquote_bytes(t.value)),
+          true => Option(String).None
+        ),
+        .FnCall(_, _, _, _, _) => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .Atom(_, _) => Option(String).None
+  )
+});
+/// `mod.member` where `mod` is bound by `mod :: import("…")`: the `member ::`
+/// binding in that module.
+_module_member_decl :: (
+  fn(
+    receiver_name : String,
+    member : String,
+    doc_abs : String,
+    doc_exprs : ArrayList(AstExpr),
+    std_path : String
+  ) -> Option(Token)
+)({
+  import_path := match(
+    _import_path_of_binding(doc_exprs, receiver_name),
+    .Some(p) => p,
+    .None => {
+      return(Option(Token).None);
+    }
+  );
+  doc_dir := match(
+    Path.new(uri_to_fs_path(doc_abs.clone())).parent(),
+    .Some(p) => p.to_string(),
+    .None => String.from(".")
+  );
+  abs := match(
+    resolve_module_path(import_path, doc_dir, std_path),
+    .Found(p) => p,
+    .NotFound(_) => {
+      return(Option(Token).None);
+    },
+    .Ambiguous(_) => {
+      return(Option(Token).None);
+    }
+  );
+  _binding_name_token(_module_exprs(abs, doc_abs, doc_exprs), member)
+});
+
+/// The label call enclosing a LABEL atom (`Point(x : 1)` for the `x`): the
+/// call whose direct argument is the `:` pair with that atom on the left.
+_find_label_call :: (fn(e : AstExpr, target : Token, out : ArrayList(AstExpr)) -> unit)({
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, func_box, args, _, _) => {
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
+              match(
+                a,
+                .FnCall(_, _, pair, _, _) => match(
+                  pair.get(usize(0)),
+                  .Some(lhs) => {
+                    lt := ast_expr_token(lhs);
+                    if((lt.row == target.row) && ((lt.column == target.column) && (lt.value == target.value)), {
+                      out.push(e);
+                    });
+                  },
+                  .None => ()
+                ),
+                .Atom(_, _) => ()
+              );
+            });
+            recur(a, target, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      recur(func_box, target, out);
+    }
+  );
+});
+
+/// Definition of the member or label under `target` (see the module header).
+_member_definition :: (
+  fn(
+    target : Token,
+    exprs : ArrayList(AstExpr),
+    info_table : ExprInfoTable,
+    doc_abs : String,
+    std_path : String
+  ) -> Option(Token)
+)({
+  // 1. Member of a `.` access.
+  accesses := ArrayList(AstExpr).new();
+  (ai : usize) = usize(0);
+  while(ai < exprs.len(), {
+    match(
+      exprs.get(ai),
+      .Some(e) => _find_member_access(e, target, accesses),
+      .None => ()
+    );
+    ai = (ai + usize(1));
+  });
+  match(
+    accesses.get(usize(0)),
+    .Some(acc) => match(
+      acc,
+      .FnCall(_, _, acc_args, acc_infix, _) => {
+        (owner : TypeValue) = TypeValue.Unit;
+        (deref : TypeValue) = TypeValue.Unit;
+        (env_opt : Option(Environment)) = Option(Environment).None;
+        (receiver_name : String) = String.new();
+        if(acc_infix, {
+          match(
+            acc_args.get(usize(0)),
+            .Some(receiver) => match(
+              receiver,
+              .Atom(_, rt) => {
+                receiver_name = rt.value.clone();
+                out_recv := ArrayList(TypeValue).new();
+                out_deref := ArrayList(TypeValue).new();
+                out_env := ArrayList(Environment).new();
+                _receiver_at(rt, exprs, info_table, out_recv, out_deref, out_env);
+                if(out_recv.len() > usize(0), {
+                  owner = out_recv(usize(0));
+                  deref = out_deref(usize(0));
+                  env_opt = Option(Environment).Some(out_env(usize(0)));
+                });
+              },
+              .FnCall(_, _, _, _, _) => match(
+                expr_info_table_get(info_table, ast_expr_id(receiver)),
+                .Some(rinfo) => {
+                  owner = rinfo.ty;
+                  match(
+                    rinfo.value,
+                    .Some(rv) => match(
+                      rv,
+                      .TypeVal(tv) => {
+                        owner = tv;
+                      },
+                      _ => ()
+                    ),
+                    .None => ()
+                  );
+                  deref = owner;
+                  (guard : usize) = usize(0);
+                  while(guard < usize(8), {
+                    match(
+                      deref,
+                      .Pointer(p) => {
+                        deref = p;
+                      },
+                      _ => {
+                        guard = usize(8);
+                      }
+                    );
+                    guard = (guard + usize(1));
+                  });
+                  env_opt = Option(Environment).Some(rinfo.env);
+                },
+                .None => ()
+              )
+            ),
+            .None => ()
+          );
+        }, {
+          // Prefix `.Variant`: the access itself is typed as the enum.
+          match(
+            expr_info_table_get(info_table, ast_expr_id(acc)),
+            .Some(ainfo) => {
+              owner = ainfo.ty;
+              deref = ainfo.ty;
+              env_opt = Option(Environment).Some(ainfo.env);
+            },
+            .None => ()
+          );
+        });
+        env := match(
+          env_opt,
+          .Some(e) => e,
+          .None => {
+            return(Option(Token).None);
+          }
+        );
+        member := target.value.clone();
+        match(
+          deref,
+          .Struct({ field_labels, is_source_namespace }) => {
+            if(is_source_namespace, {
+              return(_module_member_decl(receiver_name, member, doc_abs, exprs, std_path));
+            });
+            (is_field : bool) = false;
+            (fi : usize) = usize(0);
+            while(fi < field_labels.len(), {
+              if(match(field_labels.get(fi), .Some(l) => (l == member), .None => false), {
+                is_field = true;
+              });
+              fi = (fi + usize(1));
+            });
+            if(is_field, {
+              return(_owner_member_decl(deref, member, env, doc_abs, exprs));
+            });
+            return(_method_decl(owner, deref, member, env, doc_abs, exprs));
+          },
+          .EnumT(_, _, variant_names, _, _, _, _, _, _) => {
+            (is_variant : bool) = false;
+            (vi : usize) = usize(0);
+            while(vi < variant_names.len(), {
+              if(match(variant_names.get(vi), .Some(n) => (n == member), .None => false), {
+                is_variant = true;
+              });
+              vi = (vi + usize(1));
+            });
+            if(is_variant, {
+              return(_owner_member_decl(deref, member, env, doc_abs, exprs));
+            });
+            return(_method_decl(owner, deref, member, env, doc_abs, exprs));
+          },
+          .Union(_, _, _) => {
+            return(_owner_member_decl(deref, member, env, doc_abs, exprs));
+          },
+          _ => {
+            return(_method_decl(owner, deref, member, env, doc_abs, exprs));
+          }
+        );
+      },
+      .Atom(_, _) => ()
+    ),
+    .None => ()
+  );
+  // 2. Label of a struct literal / labelled call: the call's type owns it.
+  calls := ArrayList(AstExpr).new();
+  (ci : usize) = usize(0);
+  while(ci < exprs.len(), {
+    match(
+      exprs.get(ci),
+      .Some(e) => _find_label_call(e, target, calls),
+      .None => ()
+    );
+    ci = (ci + usize(1));
+  });
+  match(
+    calls.get(usize(0)),
+    .Some(call) => match(
+      expr_info_table_get(info_table, ast_expr_id(call)),
+      .Some(cinfo) => _owner_member_decl(cinfo.ty, target.value.clone(), cinfo.env, doc_abs, exprs),
+      .None => Option(Token).None
+    ),
+    .None => Option(Token).None
+  )
+});
+
 /// Resolve the definition Location for (line, character), or `.None`.
 /// `line`/`character` are RUNE positions.
 handle_definition :: (
@@ -54,6 +769,7 @@ handle_definition :: (
     text : String,
     doc_abs : String,
     lines : ArrayList(String),
+    std_path : String,
     exprs : ArrayList(AstExpr),
     info_table : ExprInfoTable,
     line : usize,
@@ -92,7 +808,13 @@ handle_definition :: (
   );
   roles := classify_atom_roles(exprs);
   if(atom_is_member_or_label(roles, ast_expr_id(expr)), {
-    return(Option(JsonValue).None);
+    return(
+      match(
+        _member_definition(target, exprs, info_table, doc_abs.clone(), std_path),
+        .Some(def_tok) => Option(JsonValue).Some(_location_of(def_tok, doc_abs, lines)),
+        .None => Option(JsonValue).None
+      )
+    );
   });
   info := match(
     expr_info_table_get(info_table, ast_expr_id(expr)),
@@ -119,16 +841,6 @@ handle_definition :: (
       return(Option(JsonValue).None);
     }
   );
-  // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
-  // converted to the wire encoding against the TARGET file's lines.
-  end_col := (def_tok.column + def_tok.value.chars().count());
-  range := match(
-    _target_lines(def_tok, doc_abs.clone(), lines),
-    .Some(target_lines) => j_range_in(target_lines, def_tok.row, def_tok.column, def_tok.row, end_col),
-    .None => j_range(def_tok.row, def_tok.column, def_tok.row, end_col)
-  );
-  Option(JsonValue).Some(
-    jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", range).obj()
-  )
+  Option(JsonValue).Some(_location_of(def_tok, doc_abs, lines))
 });
 export(handle_definition);

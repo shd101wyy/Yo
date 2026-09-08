@@ -47,6 +47,7 @@ open(import("std/fmt"));
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
 { EvalValue } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
+{ clear_type_display_names } :: import("./types/string.yo");
 { render_any_error, stash_error_diagnostics } :: import("./error.yo");
 { emit_rendered_text, emit_chatter } :: import("./diagnostics.yo");
 // ---------------------------------------------------------------------------
@@ -396,6 +397,7 @@ mm_invalidate_document :: (fn(fs_path : String) -> ArrayList(String))({
 /// load starts from a clean evaluator universe.
 mm_reset :: (fn() -> unit)({
   clear_module_cache();
+  clear_type_display_names();
   g_cached_prelude_env = Option(Environment).None;
   g_shared_expr_info_table = Option(ExprInfoTable).None;
   g_loader_std_path = Option(String).None;

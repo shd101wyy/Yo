@@ -3,15 +3,20 @@
 //! never constructed — no deadline, redirect cap or size limit existed.
 //! `FetchOptions` now carries all three; these tests drive each to its error.
 //!
-//! Network-dependent (real endpoints over HTTPS); guarded off the wasm and
-//! Windows runners (no sockets / no OpenSSL). On CI (which has egress) they
-//! assert the specific error; the handlers unwind so a wrong outcome fails.
+//! The timeout and response-size tests hit real endpoints over HTTPS; the
+//! redirect tests drive a LOOPBACK `HttpServer` serving a `/r/<n>` chain of
+//! 302s, so they need no egress and cannot be failed by a third-party host
+//! (issues/fixed/http-redirect-tests-depended-on-httpbin.md). Guarded off the
+//! wasm and Windows runners (no sockets / no OpenSSL). The handlers unwind, so
+//! a wrong outcome fails.
 pragma(Pragma.SkipWasm32Emscripten); // no network stack in WASM
 pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ fetch, fetch_with, FetchOptions, HttpError } :: import("std/http");
+{ fetch, fetch_with, FetchOptions, HttpError, HttpServer, HttpHeader, HttpRequest, HttpResponse } :: import("std/http");
+{ SocketAddr } :: import("std/net/addr");
+{ ArrayList } :: import("std/collections/array_list");
 { Exception, IoExn } :: import("std/error");
 { Duration } :: import("std/time/duration");
 // println is used by the no-egress fallback handlers below. Without this import
@@ -51,39 +56,94 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
   _r := io.await(fetch_with(`https://example.com`.to_string(), opts, io), IoExn(io : io, exn : exn));
   assert(false, "fetch must throw ResponseTooLarge over a 16-byte cap");
 });
-test("a redirect chain over the cap throws TooManyRedirects", {
-  // httpbin's /redirect/15 emits 15 sequential 302s (all https); the default
-  // cap of 10 is exceeded.
+/// `/r/<n>` answers 302 `Location: /r/<n-1>` while `n > 0`, and 200 `done`
+/// at `/r/0` — a redirect chain of any length on loopback.
+_redirect_hop :: (fn(req : HttpRequest) -> HttpResponse)({
+  n := match(req.path.strip_prefix(`/r/`), .Some(rest) => rest.parse_u64().unwrap_or(u64(0)), .None => u64(0));
+  cond(
+    (n > u64(0)) => {
+      resp := HttpResponse.with_status(i32(302));
+      resp.headers.push(HttpHeader.new(`Location`, `/r/${n - u64(1)}`));
+      resp
+    },
+    true => HttpResponse.with_status(i32(200)).with_body(`done`)
+  )
+});
+/// `fetch(url)` and report whether it threw `TooManyRedirects` — the handler
+/// unwinds THIS frame with `true` (handlers cannot capture the caller's
+/// locals), and a fetch that returns normally yields `false`.
+_fetch_throws_too_many_redirects :: (fn(url : String, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {
-        assert(err.to_string().contains(`Too many redirects`), `expected TooManyRedirects`);
+        assert(err.to_string().contains(`Too many redirects`), `expected TooManyRedirects, got: ${err.to_string()}`);
+        unwind(true)
+      }
+    )
+  );
+  _r := io.await(fetch(url, io), IoExn(io : io, exn : exn));
+  false
+});
+test("a redirect chain over the cap throws TooManyRedirects", {
+  // 15 hops against the default cap of 10: the client follows ten 302s and
+  // throws on the eleventh, so the server sees exactly eleven requests
+  // (/r/15 … /r/5) and stops itself after the last one.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(err.to_string().contains(`Too many redirects`), `expected TooManyRedirects, got: ${err.to_string()}`);
         unwind(());
       }
     )
   );
-  _r := io.await(fetch(`https://httpbin.org/redirect/15`.to_string(), io), IoExn(io : io, exn : exn));
-  assert(false, "a 15-hop redirect must throw TooManyRedirects");
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19985)), io), IoExn(io : io, exn : exn));
+  served := ArrayList(i32).new();
+  task := io.spawn(
+    server.serve(req => {
+      served.push(i32(1));
+      cond(
+        (served.len() >= usize(11)) => {
+          server.stop();
+        },
+        true => ()
+      );
+      _redirect_hop(req)
+    }, io),
+    IoExn(io : io, exn : exn)
+  );
+  threw := _fetch_throws_too_many_redirects(`http://127.0.0.1:19985/r/15`, io);
+  assert(threw, "a 15-hop redirect must throw TooManyRedirects");
+  task.await(io);
+  assert(served.len() == usize(11), `the client must stop after the eleventh 302, served ${served.len()}`);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 test("a redirect chain under the cap is followed to its 200", {
-  reached := Box(bool)(false);
-  ok := Box(bool)(false);
   exn := Exception(
     throw : (
       err -> {
-        println(`  redirect-follow skipped (no egress?): ${err.to_string()}`);
+        assert(false, `unexpected exception: ${err.to_string()}`);
         unwind(());
       }
     )
   );
-  r := io.await(fetch(`https://httpbin.org/redirect/3`.to_string(), io), IoExn(io : io, exn : exn));
-  reached.* = true;
-  good := (r.status_code == i32(200));
-  ok.* = good;
-  cond(
-    reached.* => assert(ok.*, `expected a 200 after following 3 redirects, got ${r.status_code}`),
-    true => assert(true, "skipped: no network")
+  server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19986)), io), IoExn(io : io, exn : exn));
+  task := io.spawn(
+    server.serve(req => {
+      cond(
+        (req.path == `/r/0`) => {
+          server.stop();
+        },
+        true => ()
+      );
+      _redirect_hop(req)
+    }, io),
+    IoExn(io : io, exn : exn)
   );
+  r := io.await(fetch(`http://127.0.0.1:19986/r/3`, io), IoExn(io : io, exn : exn));
+  assert(r.status_code == i32(200), `expected a 200 after following 3 redirects, got ${r.status_code}`);
+  assert(r.body == "done", `expected the final body, got ${r.body}`);
+  task.await(io);
+  io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 test("FetchOptions builders set the new fields", {
   o := FetchOptions.new().with_timeout(Duration.from_secs(i64(5))).with_max_redirects(usize(3)).with_max_response_bytes(usize(1024));

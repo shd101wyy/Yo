@@ -49,13 +49,11 @@ both.
 `tests/cli-cases/lsp-rename-identity`: hover on `p.x` is `x : bool`,
 definition there is `null`, hover on the label is `null`.
 
-## Left open
+## Left open (resolved 2026-09-08)
 
-- A member has no definition TARGET yet: `TypeValue.Struct` carries field
-  labels and types but no declaration tokens, so "go to the field declaration"
-  needs the type to record where each field was declared (the attic's
-  struct-field and enum-variant channels). The behaviour is now "nothing"
-  instead of "wrong".
+- Member DEFINITION targets: fixed by
+  issues/fixed/lsp-member-definition-targets.md (the declaring module's AST is
+  re-read; no declaration tokens were added to the types).
 - Hover on a field DECLARATION (`x` in `struct(x : i32)`) is classified as a
   label and answers nothing; before, it answered `x : i32` by the same
   accident that made `p.x` wrong. Showing the declared field type there needs

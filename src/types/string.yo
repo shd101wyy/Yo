@@ -5,7 +5,37 @@
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./definitions.yo");
+
+// ---------------------------------------------------------------------------
+// Display names for instantiated generics
+//
+// An instantiation such as `ArrayList(i32)` or `Option(String)` carries an
+// EMPTY `name`: the evaluator cannot stamp one, because the compatibility
+// layer treats a struct/enum NAME as nominal identity (compatibility.yo — a
+// stamped name on every instantiation broke unification, corpus 90→55; only
+// `Box(...)` is stamped, see comptime_fn.yo). So the renderer keeps its own
+// side table, keyed by the instantiation's type id and filled by the comptime
+// constructor call that produced it (`Ctor(rendered args)`). Rendering-only:
+// nothing but `type_to_string` reads it, so identity is untouched
+// (issues/fixed/lsp-shows-internal-type-placeholders-to-users.md).
+(g_type_display_names : HashMap(String, String)) = HashMap(String, String).new();
+/// Record `display` (`Ctor(Arg, …)`) for the type with id `type_id`. The
+/// first registration wins — one id is minted by one constructor call.
+register_type_display_name :: (fn(type_id : String, display : String) -> unit)({
+  if(!g_type_display_names.contains_key(type_id.clone()), {
+    _prev := g_type_display_names.insert(type_id, display);
+  });
+});
+/// The registered display name for `type_id`, if any.
+type_display_name :: (fn(type_id : String) -> Option(String))(
+  g_type_display_names.get(type_id)
+);
+/// Drop every registered display name (a reset of the evaluator universe).
+clear_type_display_names :: (fn() -> unit)({
+  g_type_display_names = HashMap(String, String).new();
+});
 /// Is `s` already on the expansion path? (`visited`, see `_tts`.)
 _tts_seen :: (fn(xs : ArrayList(String), s : String) -> bool)({
   n := xs.len();
@@ -212,9 +242,9 @@ _tts :: (fn(t : TypeValue, _d : usize, visited : ArrayList(String)) -> String)(
           });
           `module ${name}(${body})`
         },
-        true => if(name.len() > usize(0), name, `<struct:${id}>`)
+        true => if(name.len() > usize(0), name, match(type_display_name(id.clone()), .Some(d) => d, .None => `<struct:${id}>`))
       ),
-      .EnumT(id, name, _, _, _, _, _, _, _) => if(name.len() > usize(0), name, `<enum:${id}>`),
+      .EnumT(id, name, _, _, _, _, _, _, _) => if(name.len() > usize(0), name, match(type_display_name(id.clone()), .Some(d) => d, .None => `<enum:${id}>`)),
       .Union(name, _, _) => if(name.len() > usize(0), name, `<union>`),
       .TraitT(id : t_id, name : n, field_labels : fls, field_types : fts) => {
         // Prefer the trait's NAME whenever it has one (mirrors TS
@@ -384,3 +414,4 @@ type_to_string_key :: (fn(t : TypeValue) -> String)(
   _tts(t, usize(36), ArrayList(String).new())
 );
 export(type_to_string, type_to_string_key);
+export(register_type_display_name, type_display_name, clear_type_display_names);
