@@ -25,6 +25,42 @@ pragma(Pragma.AllowUnsafe);
 { Cond } :: import("./cond");
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./atomic");
 { assert } :: import("../assert");
+{ ToString } :: import("../fmt/to_string.yo");
+open(import("../string"));
+/// Why a non-blocking receive came back empty-handed — Rust's
+/// `TryRecvError`.
+///
+/// `try_recv` used to answer `Option(T)`, which collapsed these two into one
+/// `.None`: a caller could not tell "nothing yet, try again" from "the sender
+/// is gone, stop trying", so every polling loop over a closed channel spun
+/// forever or exited early by guessing.
+TryRecvError :: enum(
+  /// The channel is open but has nothing buffered right now. Retry later.
+  Empty,
+  /// The channel is closed AND drained. No value will ever arrive; stop
+  /// polling.
+  Disconnected
+);
+export(TryRecvError);
+impl(
+  TryRecvError,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      match(
+        self,
+        .Empty => String.from("channel empty"),
+        .Disconnected => String.from("channel disconnected")
+      )
+    )
+  )
+);
+impl(
+  TryRecvError,
+  Eq(TryRecvError)(
+    (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+    (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
+  )
+);
 /// Thread-safe bounded channel for passing values between threads.
 /// Uses atomic reference counting — implements `Send` and can be
 /// safely shared across threads without `Arc` wrapping.
@@ -157,12 +193,21 @@ impl(
   }),
   /// Try to receive a value without blocking.
   /// Returns .Some(value) if available, .None if empty.
-  try_recv : (fn(self : Self) -> Option(T))({
+  try_recv : (fn(self : Self) -> Result(T, TryRecvError))({
     self._mutex._raw_lock();
     cond(
       (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {
+        // Empty vs Disconnected is the whole reason this returns a Result:
+        // a closed AND drained channel will never produce a value, and a
+        // polling caller has to be able to stop.
+        closed := self._closed.load(MemoryOrder.Relaxed);
         self._mutex._raw_unlock();
-        return(.None);
+        return(
+          cond(
+            closed => Result(T, TryRecvError).Err(TryRecvError.Disconnected),
+            true => Result(T, TryRecvError).Err(TryRecvError.Empty)
+          )
+        );
       },
       true => ()
     );
@@ -173,7 +218,7 @@ impl(
     self._len.store(self._len.load(MemoryOrder.Relaxed) - usize(1), MemoryOrder.Release);
     self._not_full.signal();
     self._mutex._raw_unlock();
-    return(.Some(val));
+    return(Result(T, TryRecvError).Ok(val));
   }),
   /// Close the channel. No more values can be sent.
   /// Pending recv() calls will return .None once the buffer is drained.

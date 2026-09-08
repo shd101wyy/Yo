@@ -49,6 +49,23 @@ Semaphore :: atomic(
     )
   )
 );
+// __SemaphoreReleaser — private object that releases one permit on Dispose.
+// Allocated locally inside with_permit; Yo's drop-on-scope-exit and
+// drop-on-unwind machinery guarantees the release under both a normal return
+// and `unwind(...)`. Mirrors __MutexUnlocker in ./mutex.yo.
+__SemaphoreReleaser :: ref(
+  struct(
+    _sem : Semaphore
+  )
+);
+impl(
+  __SemaphoreReleaser,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      self._sem.release();
+    })
+  )
+);
 impl(
   Semaphore,
   /// Create a semaphore holding `permits` permits.
@@ -99,6 +116,36 @@ impl(
     self._permits = (self._permits + i32(1));
     self._cv.signal();
     self._mutex._raw_unlock();
+  }),
+  /// Hold one permit for the duration of `body`, releasing it on the way out.
+  ///
+  /// The manual `acquire()` / `release()` pair is the one that leaks a permit
+  /// the first time an early exit is added to the block between them, and a
+  /// leaked permit is a deadlock the next time the pool fills. This is the
+  /// same guard shape `Mutex.with_lock` uses, for the same reason.
+  ///
+  /// The release rides a `Dispose` guard, so it happens on any scope exit the
+  /// language can produce here. It does NOT claim unwind safety: `body` is a
+  /// closure, and a closure cannot capture a control-bound value, so `body`
+  /// cannot raise an effect that unwinds past this call at all. Taking the
+  /// effect as a parameter is what would make such a claim testable — the same
+  /// point `plans/STD_API_STABILIZATION.md` §4 makes about
+  /// `async/mutex.with_lock`. See
+  /// issues/with-lock-and-with-permit-cannot-see-an-unwind.md.
+  ///
+  /// ```rust
+  /// pool.with_permit(() => fetch(url));
+  /// ```
+  with_permit : (
+    fn(
+      generic(R : Type),
+      self : Self,
+      body : Impl(Fn() -> R)
+    ) -> R
+  )({
+    self.acquire();
+    _guard := __SemaphoreReleaser(self);
+    body()
   }),
   /// The permits available at the instant of the call. Informational only —
   /// by the time the caller looks at it another thread may have taken one.

@@ -2,7 +2,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { arch, Arch } :: import("std/process");
 open(import("std/libc/stdio"));
-{ Channel } :: import("std/sync/channel");
+{ Channel, TryRecvError } :: import("std/sync/channel");
 { Thread, ThreadPool, spawn } :: import("std/thread");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
@@ -67,13 +67,37 @@ test("Channel try_recv returns value when available", {
   ch := Channel(i32).new(usize(5));
   ch.send(i32(77));
   val := ch.try_recv();
-  assert(val.is_some(), "try_recv should return value");
+  assert(val.is_ok(), "try_recv should return a value");
   assert(val.unwrap() == i32(77), "try_recv should return 77");
 });
-test("Channel try_recv returns None when empty", {
+test("Channel try_recv on an OPEN empty channel is Empty, not Disconnected", {
   ch := Channel(i32).new(usize(5));
-  val := ch.try_recv();
-  assert(val.is_none(), "try_recv should return None on empty channel");
+  assert(
+    match(ch.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Empty)),
+    "an open channel with nothing buffered says Empty — retry later"
+  );
+});
+test("Channel try_recv on a CLOSED drained channel is Disconnected", {
+  ch := Channel(i32).new(usize(5));
+  ch.close();
+  assert(
+    match(ch.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "a closed, drained channel says Disconnected — stop polling"
+  );
+});
+test("TryRecvError distinguishes the two cases a poller must act on", {
+  // The whole reason try_recv is a Result: the old Option collapsed these,
+  // so a polling loop could not tell "not yet" from "never".
+  ch := Channel(i32).new(usize(2));
+  first := ch.try_recv();
+  ch.send(i32(5));
+  second := ch.try_recv();
+  ch.close();
+  third := ch.try_recv();
+  assert(match(first, .Err(e) => (e == TryRecvError.Empty), .Ok(_) => false), "before any send: Empty");
+  assert(match(second, .Ok(v) => (v == i32(5)), .Err(_) => false), "after a send: the value");
+  assert(match(third, .Err(e) => (e == TryRecvError.Disconnected), .Ok(_) => false), "after close: Disconnected");
+  assert(TryRecvError.Empty != TryRecvError.Disconnected, "and the two are distinguishable");
 });
 // ============================================================================
 // Close semantics
@@ -138,10 +162,13 @@ test("Channel try_recv drains remaining values after close", {
   ch.send(i32(100));
   ch.close();
   val := ch.try_recv();
-  assert(val.is_some(), "try_recv should return buffered value after close");
+  assert(val.is_ok(), "try_recv should return buffered value after close");
   assert(val.unwrap() == i32(100), "value should be 100");
   val2 := ch.try_recv();
-  assert(val2.is_none(), "try_recv should return None when closed and empty");
+  assert(
+    match(val2, .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "once drained AND closed it is Disconnected, not merely Empty"
+  );
 });
 // ============================================================================
 // Edge cases
@@ -320,7 +347,7 @@ test("Channel pool task sends multiple values", {
   sum := i32(0);
   count := i32(0);
   val := ch.try_recv();
-  while(runtime(val.is_some()), {
+  while(runtime(val.is_ok()), {
     sum = (sum + val.unwrap());
     count = (count + i32(1));
     val = ch.try_recv();
