@@ -656,10 +656,15 @@ _move_dir_cross_device :: (
       rename(from.clone(), to.clone(), e.io),
       IoExn(io : e.io, exn : rename_exn)
     );
-    if(g_vc_rename_failed, {
-      e.io.await(_copy_dir_recursive(from.clone(), to.clone(), e.io, e.exn), e);
-      e.io.await(remove_dir_all(from.clone(), e), e);
+    // Awaits stay in PLAIN segments (early return, not an if-arm): an
+    // await nested in a branch arm of a capture-mode state machine loses
+    // the `.io` member projection on its io argument
+    // (issues/async-closure-value-struct-param-emits-invalid-c-cast.md).
+    if(g_vc_rename_failed == false, {
+      return(());
     });
+    e.io.await(_copy_dir_recursive(from.clone(), to.clone(), e.io, e.exn), e);
+    e.io.await(remove_dir_all(from.clone(), e), e);
     ()
   })
 );
@@ -908,4 +913,5 @@ export(
   download_version,
   ensure_cached_version,
   fetch_remote_versions
-);
+,
+  _move_dir_cross_device);
