@@ -1542,6 +1542,118 @@ impl(
   last_index_of : (fn(generic(P : Type), self : Self, substr : P, (from_index : usize) ?= usize.MAX, where(P <: Pattern)) -> Option(usize))(
     substr.last_index_in(self, from_index)
   ),
+  /// Split on runs of ASCII whitespace, discarding empty pieces — Rust's
+  /// `split_whitespace`. Leading and trailing whitespace produce no empty
+  /// entries, which is what separates this from `split(" ")`.
+  split_whitespace : (fn(self : Self) -> ArrayList(String))({
+    out := ArrayList(String).new();
+    n := self.len();
+    (i : usize) = usize(0);
+    (start : usize) = usize(0);
+    (in_word : bool) = false;
+    while(i < n, {
+      is_ws := Self._is_whitespace_byte(self.byte_at(i));
+      cond(
+        (is_ws && in_word) => {
+          out.push(self.substring(start, i));
+          in_word = false;
+        },
+        (!is_ws && !in_word) => {
+          start = i;
+          in_word = true;
+        },
+        true => ()
+      );
+      i = (i + usize(1));
+    });
+    if(in_word, {
+      out.push(self.substring(start, n));
+    });
+    out
+  }),
+  /// Split on `separator`, at most `n` pieces — the final piece keeps the rest
+  /// of the string, separators included. Rust's `splitn`. `n == 0` yields
+  /// nothing, as in Rust.
+  splitn : (
+    fn(generic(P : Type), self : Self, n : usize, separator : P, where(P <: Pattern)) -> ArrayList(String)
+  )({
+    out := ArrayList(String).new();
+    cond(
+      (n == usize(0)) => out,
+      true => {
+        (rest : String) = self.clone();
+        (made : usize) = usize(1);
+        (go : bool) = true;
+        while(runtime(go && (made < n)), {
+          match(
+            rest.index_of(separator),
+            .Some(at) => {
+              out.push(rest.substring(usize(0), at));
+              rest = rest.substring(at + separator.length_in(rest, at), rest.len());
+              made = (made + usize(1));
+            },
+            .None => {
+              go = false;
+            }
+          );
+        });
+        out.push(rest);
+        out
+      }
+    )
+  }),
+  /// Whether every byte is ASCII (< 0x80) — Rust's `is_ascii`.
+  is_ascii : (fn(self : Self) -> bool)({
+    n := self.len();
+    (i : usize) = usize(0);
+    (all_ascii : bool) = true;
+    while(runtime((i < n) && all_ascii), {
+      if(self.byte_at(i) >= u8(128), {
+        all_ascii = false;
+      });
+      i = (i + usize(1));
+    });
+    all_ascii
+  }),
+  /// ASCII-case-insensitive equality — Rust's `eq_ignore_ascii_case`. Only
+  /// A-Z/a-z fold; every other byte must match exactly, so this is a byte
+  /// comparison and never allocates.
+  eq_ignore_ascii_case : (fn(self : Self, other : Self) -> bool)({
+    n := self.len();
+    cond(
+      (n != other.len()) => false,
+      true => {
+        (i : usize) = usize(0);
+        (same : bool) = true;
+        while(runtime((i < n) && same), {
+          a := self.byte_at(i);
+          b := other.byte_at(i);
+          fa := cond(((a >= u8(65)) && (a <= u8(90))) => (a + u8(32)), true => a);
+          fb := cond(((b >= u8(65)) && (b <= u8(90))) => (b + u8(32)), true => b);
+          if(fa != fb, {
+            same = false;
+          });
+          i = (i + usize(1));
+        });
+        same
+      }
+    )
+  }),
+  /// Shorten to `new_len` BYTES, panicking if that is not a char boundary —
+  /// Rust's `truncate`. A longer `new_len` is a no-op.
+  truncate : (fn(self : Self, new_len : usize) -> unit)({
+    cond(
+      (new_len >= self.len()) => (),
+      true => {
+        if(!self.is_char_boundary(new_len), {
+          __yo_panic("String.truncate: new_len is not a char boundary");
+        });
+        kept := self.substring(usize(0), new_len);
+        self.clear();
+        self.push_string(kept);
+      }
+    );
+  }),
   split : (fn(generic(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))(
     separator.split_of(self)
   ),

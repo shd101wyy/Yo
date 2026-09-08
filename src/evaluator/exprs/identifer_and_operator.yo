@@ -133,14 +133,45 @@ evaluate_identifier_and_operator :: (
     ),
     true => Option(TypeValue).None
   );
+  // A LOCAL MAY SHADOW A C-INTEROP TYPE NAME.
+  //
+  // The table above resolves builtin type names before any env lookup, so a
+  // binding called `long`, `int`, `char`, `short`, `uint` or `void` used to be
+  // unreachable: every use resolved to the TYPE, and the diagnostic pointed at
+  // the method ("No matching call found ... (long.push)") rather than at the
+  // shadowing, so it read as "ArrayList has no push"
+  // (issues/fixed/local-named-after-a-prelude-c-type-is-not-shadowed.md).
+  //
+  // Only the C interop vocabulary is exempted — those are ordinary English
+  // words that people do name variables. Yo's own spellings (`i32`, `str`,
+  // `bool`, `usize`, `Type`, …) keep resolving as types unconditionally: nobody
+  // names a local `i32`, and `bool` in particular is also re-exported by the
+  // prelude as a NAME (`export(bool : _boolean)`), so consulting the env for it
+  // would change what an existing binding resolves to.
+  c_type_shadowable := cond(
+    (id_len == usize(3)) => (identifier == "int"),
+    (id_len == usize(4)) => ((identifier == "char") || (identifier == "uint") || (identifier == "long") || (identifier == "void")),
+    (id_len == usize(5)) => ((identifier == "short") || (identifier == "ulong")),
+    (id_len == usize(6)) => (identifier == "ushort"),
+    (id_len == usize(8)) => (identifier == "longlong"),
+    (id_len == usize(9)) => (identifier == "ulonglong"),
+    (id_len == usize(10)) => (identifier == "longdouble"),
+    true => false
+  );
+  shadowed_by_binding := cond(
+    c_type_shadowable => (get_variables_from_env(env, identifier.clone()).len() > usize(0)),
+    true => false
+  );
   match(
     type_kw_opt,
     .Some(ty) => {
-      ev := create_type_value(ty);
-      info := new_expr_info(env, t_type());
-      info.value = Option(EvalValue).Some(ev);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-      return(expr);
+      if(!shadowed_by_binding, {
+        ev := create_type_value(ty);
+        info := new_expr_info(env, t_type());
+        info.value = Option(EvalValue).Some(ev);
+        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+        return(expr);
+      });
     },
     .None => ()
   );

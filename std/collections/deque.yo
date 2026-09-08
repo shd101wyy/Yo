@@ -152,6 +152,17 @@ impl(
     )
   ),
   // Get an element by logical index (0 = front).
+  /// First element, or `.None` when empty — Rust's `VecDeque::front`.
+  front : (fn(self : Self) -> Option(T))(
+    self.get(usize(0))
+  ),
+  /// Last element, or `.None` when empty — Rust's `VecDeque::back`.
+  back : (fn(self : Self) -> Option(T))(
+    cond(
+      (self._len == usize(0)) => Option(T).None,
+      true => self.get(self._len - usize(1))
+    )
+  ),
   get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
       (index >= self._len) => .None,

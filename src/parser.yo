@@ -26,6 +26,7 @@ open(import("std/error"));
   ast_expr_to_string,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
   ast_expr_is_atom_and_operator,
   ast_expr_is_infix_op_fn_call,
   ast_expr_token,
@@ -1642,7 +1643,31 @@ parse :: (
   desugar_program_if_calls(p.get_program(exn))
 });
 /// Parse a single Yo expression from a code string and return it.
-/// Expects exactly one expression in `code`.
+///
+/// "One expression" is what the CALLER gets; the parse may legitimately yield
+/// more than one node. A TEMPLATE LITERAL desugars to the value plus an
+/// `import("std/fmt/to_string")` the parser injects so `.to_string()` resolves,
+/// so `` `x` `` parses as TWO expressions and every template literal was
+/// rejected here — which is why `.to_expr()` could not build one, surfacing in
+/// `derive` as the unrelated-looking "derive rule must return(comptime(Expr));
+/// got Comptime" (issues/fixed/comptime-str-to-expr-cannot-parse-a-template-literal.md).
+///
+/// Leading `import(...)` nodes are therefore DROPPED and the tail returned. The
+/// injected import exists to make a whole FILE self-sufficient; a spliced
+/// fragment is evaluated in the splice site's scope instead, and the
+/// `.to_string()` the desugaring emits is a METHOD call that resolves through
+/// the receiver's type — `impl(str, ToString(...))`, registered once by
+/// whichever module loaded `std/fmt/to_string`, which is necessarily loaded
+/// wherever a template literal is being built.
+///
+/// Folding them into a `begin` instead was tried and reverted: the import is
+/// then a runtime statement, and codegen tries to materialise the MODULE as a C
+/// value ("no C type name for ToString").
+///
+/// ONLY leading imports are dropped — any other multi-expression string is
+/// still an error, so the documented "wrap statement blocks in parens" rule is
+/// unchanged.
+///
 /// Mirrors `generateExprFromCode` in `src/parser.ts`.
 generate_expr_from_code :: (
   fn(
@@ -1660,6 +1685,23 @@ generate_expr_from_code :: (
       .None => make_err_expr()
     ),
     true => {
+      // Fold `import(...); …; value` into `begin(import(...), …, value)`.
+      (gefc_leading_all_imports : bool) = (n > usize(1));
+      (gefc_li : usize) = usize(0);
+      while((gefc_li < (n - usize(1))) && gefc_leading_all_imports, {
+        gefc_is_imp := match(
+          exprs.get(gefc_li),
+          .Some(ge) => ast_expr_is_fn_call_of(ge, BK_IMPORT, Option(usize).Some(usize(1))),
+          .None => false
+        );
+        if(!(gefc_is_imp), {
+          gefc_leading_all_imports = false;
+        });
+        gefc_li = (gefc_li + usize(1));
+      });
+      if(gefc_leading_all_imports, {
+        return(match(exprs.get(n - usize(1)), .Some(ge) => ge, .None => make_err_expr()));
+      });
       exn.throw(
         dyn(
           make_parse_error_raw(

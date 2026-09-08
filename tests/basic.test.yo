@@ -2563,3 +2563,22 @@ test("cond: a comptime-true condition after a runtime arm is the final else", {
   assert(_ct_stmt(i32(20)) == i32(1), "statement position: runtime arm");
   assert(_ct_stmt(i32(0)) == i32(2), "statement position: comptime-true arm is the else");
 });
+// A local may shadow a C-INTEROP type name. The builtin type table in
+// evaluator/exprs/identifer_and_operator.yo resolves before any env lookup, so
+// a binding called `long`/`int`/`char`/`short`/`uint`/`void` used to be
+// unreachable — and the diagnostic blamed the METHOD ("No matching call found
+// ... (long.push)"), not the shadowing.
+// issues/fixed/local-named-after-a-prelude-c-type-is-not-shadowed.md
+_ct_takes_long :: (fn(v : long) -> long)(v);
+test("a local shadows a C-interop type name", {
+  long := i32(7);
+  assert(long == i32(7), "the local wins over the type");
+  int := i32(1);
+  char := i32(2);
+  short := i32(3);
+  uint := i32(4);
+  assert((int + char + (short + uint)) == i32(10), "int/char/short/uint all shadow");
+});
+test("the C type still resolves where it is NOT shadowed", {
+  assert(_ct_takes_long(long(3)) == long(3), "long names the type in a signature");
+});

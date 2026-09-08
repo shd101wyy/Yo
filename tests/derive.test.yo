@@ -756,3 +756,37 @@ test("Debug on the primitives matches their display form (D15)", {
   assert(true.debug_string() == `true`, "bool");
   assert(String.from("hi").debug_string() == `hi`, "String");
 });
+// ===== to_expr accepts a TEMPLATE LITERAL =====
+// A template literal desugars to the value PLUS an `import("std/fmt/to_string")`
+// the parser injects, so it parses as TWO expressions and
+// `generate_expr_from_code` rejected every one of them — `.to_expr()` could not
+// build a template literal at all, and `derive` reported it as the
+// unrelated-looking "derive rule must return(comptime(Expr)); got Comptime".
+// issues/fixed/comptime-str-to-expr-cannot-parse-a-template-literal.md
+_TeLbl :: trait(te_lbl : (fn(inout(self) : Self) -> String));
+__te_plain :: (
+  fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
+)({
+  src :: "`TE_PLAIN`";
+  ctx.make_impl(quote(_TeLbl(te_lbl : ((self) -> #(src.to_expr())))))
+});
+derive_rule(_TeLbl, __te_plain);
+_TePoint :: struct(x : i32);
+derive(_TePoint, _TeLbl);
+_TeIntLbl :: trait(te_int : (fn(inout(self) : Self) -> String));
+__te_interp :: (
+  fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime(tp) : ComptimeList(Expr)) -> comptime(Expr)
+)({
+  src :: "`P(${self.x.to_string()})`";
+  ctx.make_impl(quote(_TeIntLbl(te_int : ((self) -> #(src.to_expr())))))
+});
+derive_rule(_TeIntLbl, __te_interp);
+derive(_TePoint, _TeIntLbl);
+test("to_expr builds a plain template literal", {
+  p := _TePoint(x : i32(1));
+  assert(p.te_lbl() == `TE_PLAIN`, "template literal spliced through to_expr");
+});
+test("to_expr builds an INTERPOLATING template literal", {
+  p := _TePoint(x : i32(7));
+  assert(p.te_int() == `P(7)`, "interpolation survives the splice");
+});

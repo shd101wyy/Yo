@@ -440,7 +440,18 @@ returns presence/value (`(Self, Option(V))`); `imm/Vec` doc says persistent but
 is flat COW — fix the doc or the structure; public `ctrl/data/size/…` fields
 made private.
 
-**Text.** `next_back` on all four string iterators (D4 promised
+**Text.** **`find`/`rfind` REJECTED (2026-09-08, maintainer)** — `String` keeps
+`index_of`/`last_index_of`. The reason is internal to Yo, not stylistic: the
+prelude already defines `Iterator::find(pred) -> Option(A)` returning the
+ELEMENT, beside `Iterator::position(pred) -> Option(usize)` returning the index.
+Making `String.find` return an index would leave `.find(` meaning two different
+things depending on the receiver — the same wart Rust carries because `str::find`
+predates its `Iterator` conventions, and there is no reason to import it
+deliberately. It would also make the std LESS uniform, since the collections
+cannot follow: `ArrayList`/`imm::Vec` `index_of` take a VALUE, Rust's
+index-returning `position` takes a PREDICATE, and `find` is spoken for. So
+`index_of` stays the one spelling across `String`, `imm::String`, `ArrayList` and
+`imm::Vec`. `next_back` on all four string iterators (D4 promised
 `chars().rev()`; it does not exist); `lines()` strips `\r`; `rune`'s six
 ASCII-only methods renamed `is_ascii_*`/`to_ascii_*` with Unicode versions from
 `unicode.yo`; `String`: `splitn/rsplit/split_whitespace/trim_*_matches/replacen/

@@ -654,3 +654,23 @@ test("HashMap insert/remove churn keeps live + tombstones under the load thresho
     assert(map.get(r).is_none(), "every retired key is gone");
   });
 });
+test("get_key_value returns the STORED key beside the value", {
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  m.insert(i32(2), i32(20));
+  assert(match(m.get_key_value(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "present key");
+  assert(match(m.get_key_value(i32(2)), .Some(e) => (e.value == i32(20)), .None => false), "other key");
+  assert(match(m.get_key_value(i32(99)), .Some(_) => false, .None => true), "absent key is None");
+  assert(m.len() == usize(2), "lookup does not mutate");
+});
+test("remove_entry hands back the entry it removed", {
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  m.insert(i32(2), i32(20));
+  assert(match(m.remove_entry(i32(1)), .Some(e) => ((e.key == i32(1)) && (e.value == i32(10))), .None => false), "returns the entry");
+  assert(m.len() == usize(1), "length shrank");
+  assert(m.contains_key(i32(1)) == false, "the key is gone");
+  assert(match(m.remove_entry(i32(1)), .Some(_) => false, .None => true), "removing twice is None");
+  assert(match(m.remove_entry(i32(2)), .Some(e) => (e.value == i32(20)), .None => false), "the survivor removes");
+  assert(m.is_empty() == true, "map is empty");
+});

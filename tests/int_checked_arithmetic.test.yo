@@ -61,3 +61,46 @@ test("saturating_* clamp to the bound instead of overflowing", {
   assert(i32.MIN.saturating_mul(_M1) == i32.MAX, "MIN*(-1) clamps to MAX");
   assert(i32.MAX.saturating_mul(_M1) == (i32(0) - i32.MAX), "MAX*(-1) fits");
 });
+test("wrapping_add/sub reconstruct the value from the bounds", {
+  assert(i32.MAX.wrapping_add(i32(1)) == i32.MIN, "MAX+1 wraps to MIN");
+  assert(i32.MIN.wrapping_add(_M1) == i32.MAX, "MIN+(-1) wraps to MAX");
+  assert(i32(1).wrapping_add(i32(2)) == i32(3), "ordinary add is unchanged");
+  assert(u8(255).wrapping_add(u8(1)) == u8(0), "u8 255+1 wraps to 0");
+  assert(u8(200).wrapping_add(u8(100)) == u8(44), "u8 200+100 = 300 mod 256 = 44");
+  assert(i32.MIN.wrapping_sub(i32(1)) == i32.MAX, "MIN-1 wraps to MAX");
+  assert(i32.MAX.wrapping_sub(_M1) == i32.MIN, "MAX-(-1) wraps to MIN");
+  assert(u8(5).wrapping_sub(u8(7)) == u8(254), "u8 5-7 = -2 mod 256 = 254");
+  assert(i32(5).wrapping_sub(i32(2)) == i32(3), "ordinary sub is unchanged");
+});
+test("overflowing_* pair the wrapped value with the flag", {
+  a := i32.MAX.overflowing_add(i32(1));
+  assert((a.0 == i32.MIN) && (a.1 == true), "MAX+1 = (MIN, true)");
+  b := i32(1).overflowing_add(i32(2));
+  assert((b.0 == i32(3)) && (b.1 == false), "1+2 = (3, false)");
+  c := u8(5).overflowing_sub(u8(7));
+  assert((c.0 == u8(254)) && (c.1 == true), "u8 5-7 = (254, true)");
+  d := i32(5).overflowing_sub(i32(2));
+  assert((d.0 == i32(3)) && (d.1 == false), "5-2 = (3, false)");
+});
+test("checked_abs reports the MIN case; unsigned abs is the identity", {
+  assert(_some_eq(i32(5).checked_abs(), i32(5)), "abs 5 = 5");
+  assert(_some_eq((i32(0) - i32(5)).checked_abs(), i32(5)), "abs -5 = 5");
+  assert(_none_i32(i32.MIN.checked_abs()), "abs MIN has no positive counterpart");
+  assert(_some_eq_u8(u8(200).checked_abs(), u8(200)), "unsigned abs is identity");
+  assert(_some_eq_u8(u8(0).checked_abs(), u8(0)), "unsigned abs of MIN(0) is 0");
+  assert(i32.MIN.saturating_abs() == i32.MAX, "saturating_abs clamps MIN to MAX");
+});
+test("checked_pow multiplies stepwise and reports overflow", {
+  assert(_some_eq(i32(2).checked_pow(u32(10)), i32(1024)), "2^10 = 1024");
+  assert(_some_eq(i32(7).checked_pow(u32(0)), i32(1)), "anything^0 = 1");
+  assert(_some_eq(i32(0).checked_pow(u32(5)), i32(0)), "0^5 = 0");
+  assert(_none_i32(i32(2).checked_pow(u32(31))), "2^31 overflows i32");
+  assert(_some_eq(i32(2).checked_pow(u32(30)), i32(1073741824)), "2^30 fits");
+  assert(_none_u8(u8(16).checked_pow(u32(2))), "u8 16^2 = 256 overflows");
+});
+test("clamp bounds a value into a range", {
+  assert(i32(5).clamp(i32(1), i32(10)) == i32(5), "inside the range is unchanged");
+  assert(i32(0).clamp(i32(1), i32(10)) == i32(1), "below clamps to lo");
+  assert(i32(99).clamp(i32(1), i32(10)) == i32(10), "above clamps to hi");
+  assert(u8(0).clamp(u8(3), u8(9)) == u8(3), "unsigned clamps to lo");
+});
