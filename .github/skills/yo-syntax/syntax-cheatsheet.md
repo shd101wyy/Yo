@@ -579,19 +579,25 @@ test("Async test", {
 
 ## Design-by-contract clauses
 
-`plans/backlog/FORMAL_VERIFICATION.md` Phase 0. No SMT verifier yet — these
-lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
+`plans/backlog/FORMAL_VERIFICATION.md` Phase 0 + V1. No SMT verifier yet —
+these lower to runtime `assert(...)` (runtime fns) or `comptime_assert(...)`
 (comptime fns, returning `comptime(T)`).
 
 ```rust
 // requires/ensures are SIGNATURE clauses, after params and where(...).
 // ENFORCED order: generic, params, where, requires, ensures — a clause
 // out of order is a syntax error ("X appears after Y").
-divide :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> i32)(
+divide :: (
+  fn(x : i32, y : i32, requires(y != i32(0)), ensures(result == (x / y))) -> (result : i32)
+)(
   x / y
 );
 
-// Inside ensures: `result` = return value, old(expr) = entry-time value.
+// Inside ensures: the LABELED RETURN `-> (result : i32)` names the return
+// value (V1: there is NO magic `result` keyword — any label works), and
+// old(expr) = entry-time value. Unlabeled returns cannot be named in
+// ensures; referencing an unbound name there appends a "label the return"
+// hint to the error.
 increment :: (fn(inout(n) : i32, ensures(n == (old(n) + i32(1)))) -> unit)({ n = (n + i32(1)); });
 
 // invariant(...) must be the FIRST statement of a while body.
@@ -612,14 +618,15 @@ is_pos :: ghost_fn((fn(x : i32) -> bool)(x > i32(0)));
   `requires(...)` clauses, or a zero-arg `requires()`, is a syntax error.
 - **`short`, `long`, `int`, `char` cannot be used as variable names.** They are
   builtin type names, so `short := ...` fails with `Failed to define variable
-"short"` — a message that points at the binding and says nothing about
+  "short"` — a message that points at the binding and says nothing about
   keywords, so it reads like a type-inference failure in the RHS and sends you
   debugging the wrong expression. Measured 2026-08-12: `short`/`long`/`int`/`char`
   are rejected; `float`, `double`, `signed`, `unsigned`, `register`, `volatile`
   are all fine. Rename the local (`truncated`, `count`, `ch`, …).
 
-- `result` is a wrapper-bound local (NOT a reserved word) — it coexists
-  with `result` used as an ordinary variable name elsewhere.
+- `result` in an `ensures(...)` is the LABELED RETURN, an ordinary binding
+  declared by the signature (`-> (result : i32)`) — not a keyword. Without
+  the label, the return value is not nameable in `ensures(...)`.
 - `pragma(Pragma.NoContracts);` erases contracts; `pragma(Pragma.Verify);`
   parses but warns "verify mode not implemented".
 - `std/spec/` exposes refinement aliases (`NonZero`, `Bounded`,

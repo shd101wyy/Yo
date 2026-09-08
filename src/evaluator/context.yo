@@ -28,6 +28,7 @@ _(env : ctx_dbg_env) :: import("std/env");
 { Environment, Variable, Frame, _frame_positions, snapshot_env, add_variable_to_env, get_variables_from_frame } :: import("../env.yo");
 {
   AstExpr,
+  ExprId,
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_fn_call,
@@ -50,6 +51,27 @@ _(env : ctx_dbg_env) :: import("std/env");
 // ---------------------------------------------------------------------------
 // PathCollection now imported from ../expr_info.yo (Phase 2k)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Phase V1 contract diagnostics (plans/backlog/FORMAL_VERIFICATION.md)
+// ---------------------------------------------------------------------------
+/// Node ids of identifier atoms inside `ensures(...)` predicates spliced into
+/// bodies of UNLABELED non-unit-return functions. Populated by
+/// `wrap_function_body_with_contracts` (builtins/contracts.yo) at splice time;
+/// read by the identifier resolver (exprs/identifer_and_operator.yo) so the
+/// ordinary `Variable "x" not found.` error can append the label-the-return
+/// hint (decision D3: no magic `result` identifier). With a LABELED return an
+/// unbound name is an ordinary typo and nothing registers here.
+(g_unlabeled_ensures_atom_ids : HashSet(ExprId)) = HashSet(ExprId).new();
+/// Record one identifier-atom node id for the label-the-return hint.
+note_unlabeled_ensures_atom :: (fn(id : ExprId) -> unit)({
+  g_unlabeled_ensures_atom_ids.insert(id);
+  ()
+});
+/// Whether `id` belongs to an `ensures(...)` predicate of an unlabeled-return
+/// function (the label-the-return hint applies).
+is_unlabeled_ensures_atom :: (fn(id : ExprId) -> bool)(
+  g_unlabeled_ensures_atom_ids.contains(id)
+);
 // ---------------------------------------------------------------------------
 // LoadModuleFn result
 // ---------------------------------------------------------------------------
@@ -2193,5 +2215,7 @@ export(
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   force_pending_impls_for_type_name,
-  type_head_name_for_impl_forcing
+  type_head_name_for_impl_forcing,
+  note_unlabeled_ensures_atom,
+  is_unlabeled_ensures_atom
 );
