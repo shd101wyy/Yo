@@ -609,7 +609,7 @@ _node_remove :: (
   )
 );
 // -- Collection helpers --
-{ List } :: import("./list.yo");
+{ List, ListIter } :: import("./list.yo");
 // -- Eq trait --
 _merge_from_node :: (
   fn(
@@ -998,6 +998,24 @@ impl(
         .None => true
       )
     })
+  )
+);
+/// Iterate the map's entries, in the tree's own order.
+///
+/// Delegates to `entries()`, so the whole snapshot is materialised into a
+/// `List` first — the same cost `entries()` already had. A stack-based cursor
+/// over the trie would avoid it; this closes the §4 row without pretending to
+/// be lazier than it is.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic)),
+  Map(K, V),
+  IntoIterator(
+    Item : MapEntry(K, V),
+    IntoIter : ListIter(MapEntry(K, V)),
+    into_iter : (fn(self : Self) -> ListIter(MapEntry(K, V)))(
+      self.entries().into_iter()
+    )
   )
 );
 export(Map, MapNode, MapBranch, MapLeaf, MapCollision, MapEntry, InsertResult, RemoveResult);

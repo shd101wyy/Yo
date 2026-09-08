@@ -1,0 +1,134 @@
+//! `Iterator` / `IntoIterator` on all six `imm` collections.
+//!
+//! Before this, `std/imm/string.yo` was the only file in the directory with an
+//! iterator, so none of the containers worked with `for`, `collect` or any
+//! combinator. `List` and `Vec` walk their own storage; the four hash/tree
+//! containers delegate to the `List` their existing `entries()`/`to_list()`
+//! already returns.
+{ assert } :: import("std/assert");
+open(import("std/collections/array_list"));
+{ List } :: import("std/imm/list");
+{ Vec } :: import("std/imm/vec");
+{ Map, MapEntry } :: import("std/imm/map");
+{ Set } :: import("std/imm/set");
+{ SortedMap } :: import("std/imm/sorted_map");
+{ SortedSet } :: import("std/imm/sorted_set");
+_drain :: (fn(generic(I : Type), it : I, where(I <: Iterator(Item := i32))) -> ArrayList(i32))({
+  out := ArrayList(i32).new();
+  iter := it;
+  while(runtime(true), {
+    match(
+      iter.next(),
+      .None => {
+        break;
+      },
+      .Some(v) => {
+        out.push(v);
+      }
+    );
+  });
+  out
+});
+_drain_keys :: (
+  fn(generic(I : Type), it : I, where(I <: Iterator(Item := MapEntry(i32, i32)))) -> ArrayList(i32)
+)({
+  out := ArrayList(i32).new();
+  iter := it;
+  while(runtime(true), {
+    match(
+      iter.next(),
+      .None => {
+        break;
+      },
+      .Some(e) => {
+        out.push(e.key);
+      }
+    );
+  });
+  out
+});
+test("List iterates head to tail", {
+  xs := List(i32).new().prepend(i32(3)).prepend(i32(2)).prepend(i32(1));
+  got := _drain(xs.into_iter());
+  assert(got.len() == usize(3), "three elements");
+  assert(got(usize(0)) == i32(1), "head first");
+  assert(got(usize(1)) == i32(2), "then the middle");
+  assert(got(usize(2)) == i32(3), "then the tail");
+});
+test("an empty List yields nothing", {
+  assert(_drain(List(i32).new().into_iter()).len() == usize(0), "no elements");
+});
+test("iterating a List does not consume it", {
+  xs := List(i32).new().prepend(i32(1));
+  _first := _drain(xs.into_iter());
+  assert(_drain(xs.into_iter()).len() == usize(1), "still iterable a second time");
+  assert(xs.len() == usize(1), "and its length is unchanged");
+});
+test("Vec iterates front to back", {
+  v := Vec(i32).new().push(i32(10)).push(i32(20)).push(i32(30));
+  got := _drain(v.into_iter());
+  assert(got.len() == usize(3), "three elements");
+  assert(got(usize(0)) == i32(10), "first");
+  assert(got(usize(2)) == i32(30), "last");
+});
+test("an empty Vec yields nothing", {
+  assert(_drain(Vec(i32).new().into_iter()).len() == usize(0), "no elements");
+});
+test("a retained Vec version iterates independently of one derived from it", {
+  v := Vec(i32).new().push(i32(1));
+  // `push` takes `own(self)`, so `v` is MOVED into it; the extra binding is
+  // what keeps the earlier version alive (and what pushes the refcount above
+  // one, sending `push` down its copying path).
+  kept := v;
+  bigger := v.push(i32(2));
+  assert(_drain(kept.into_iter()).len() == usize(1), "the retained version is unchanged");
+  assert(_drain(bigger.into_iter()).len() == usize(2), "and the derived one has both");
+});
+test("Map iterates its entries", {
+  m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  keys := _drain_keys(m.into_iter());
+  assert(keys.len() == usize(2), "both entries");
+  assert(keys.contains(i32(1)), "key 1 appeared");
+  assert(keys.contains(i32(2)), "key 2 appeared");
+});
+test("an empty Map yields nothing", {
+  assert(_drain_keys(Map(i32, i32).new().into_iter()).len() == usize(0), "no entries");
+});
+test("Set iterates its elements", {
+  s := Set(i32).new().insert(i32(5)).insert(i32(7)).insert(i32(5));
+  got := _drain(s.into_iter());
+  assert(got.len() == usize(2), "the duplicate insert did not add an element");
+  assert(got.contains(i32(5)), "5 is present");
+  assert(got.contains(i32(7)), "7 is present");
+});
+test("SortedMap iterates in ASCENDING key order", {
+  m := SortedMap(i32, i32).new().insert(i32(3), i32(30)).insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  keys := _drain_keys(m.into_iter());
+  assert(keys.len() == usize(3), "three entries");
+  assert(keys(usize(0)) == i32(1), "smallest key first");
+  assert(keys(usize(1)) == i32(2), "then the middle");
+  assert(keys(usize(2)) == i32(3), "then the largest");
+});
+test("SortedMap.entries matches its iteration order", {
+  m := SortedMap(i32, i32).new().insert(i32(2), i32(20)).insert(i32(1), i32(10));
+  es := m.entries();
+  assert(es.len() == usize(2), "two entries");
+  assert(match(es.head(), .Some(e) => (e.key == i32(1)), .None => false), "head is the smallest key");
+  assert(match(es.head(), .Some(e) => (e.value == i32(10)), .None => false), "carrying its value");
+});
+test("SortedSet iterates in ASCENDING order", {
+  s := SortedSet(i32).new().insert(i32(9)).insert(i32(2)).insert(i32(5));
+  got := _drain(s.into_iter());
+  assert(got.len() == usize(3), "three elements");
+  assert(got(usize(0)) == i32(2), "smallest first");
+  assert(got(usize(1)) == i32(5), "then the middle");
+  assert(got(usize(2)) == i32(9), "then the largest");
+});
+test("an imm collection works with a for loop", {
+  v := Vec(i32).new().push(i32(1)).push(i32(2)).push(i32(3));
+  (total : i32) = i32(0);
+  for(v, x => {
+    total = (total + x);
+  });
+  assert(total == i32(6), "the whole point of IntoIterator: `for` works");
+});

@@ -501,4 +501,44 @@ impl(
     })
   )
 );
-export(Vec, PopResult);
+/// Iterator over a `Vec`'s elements, front to back.
+///
+/// The backing store is a flat array, so this is an index walk: O(1) per step
+/// and no allocation.
+VecIter :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  struct(
+    _vec : Vec(T),
+    _index : usize
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  VecIter(T),
+  Iterator(
+    Item : T,
+    next : (fn(inout(self) : Self) -> Option(T))(
+      cond(
+        (self._index >= self._vec.len()) => Option(T).None,
+        true => {
+          v := self._vec.get(self._index);
+          self._index = (self._index + usize(1));
+          v
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  Vec(T),
+  IntoIterator(
+    Item : T,
+    IntoIter : VecIter(T),
+    into_iter : (fn(self : Self) -> VecIter(T))(
+      VecIter(T)(_vec : self, _index : usize(0))
+    )
+  )
+);
+export(Vec, PopResult, VecIter);
