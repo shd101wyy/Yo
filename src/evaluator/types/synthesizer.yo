@@ -651,6 +651,14 @@ _occurs_check :: (fn(some_type_id : String, some_type_name : String, ty : TypeVa
 opts_token :: (fn(opts : Option(SynthesizeOptions), env : Environment) -> Option(Token))(
   match(opts, .Some(o) => o.token, .None => Option(Token).None)
 );
+/// The token a synthesis ERROR is anchored at: the caller's option token
+/// (the argument or call expression being checked) when it supplied one,
+/// else a synthetic token — row 0, column 0 of the module — which is all
+/// the synthesizer itself knows. Callers whose errors reach the user pass
+/// the token (issues/fixed/unify-errors-carry-a-synthetic-token-so-editors-show-them-at-0-0.md).
+_anchor :: (fn(tok : Option(Token), fallback_name : String, module_path : String) -> Token)(
+  match(tok, .Some(t) => t, .None => synthetic_token(fallback_name, module_path))
+);
 /// Build an ArrayList(ImplicitEntry) from parallel arrays (with expansion
 /// of resolved EffectsRowT spreads).
 _expand_effects :: (
@@ -790,7 +798,7 @@ _synthesize_implicit_params :: (
     exn.throw(
       dyn(
         format_error_message(
-          synthetic_token(String.from("E"), expected_env.module_path),
+          _anchor(opts_token(opts, expected_env), String.from("E"), expected_env.module_path),
           String.from("Ambiguous effect row unification: multiple unsolved effect row variables. At most one effect row spread can be unsolved during type unification.")
         )
       )
@@ -960,7 +968,7 @@ _synthesize_implicit_params :: (
       exn.throw(
         dyn(
           format_error_message(
-            synthetic_token(String.from("E"), expected_env.module_path),
+            _anchor(opts_token(opts, expected_env), String.from("E"), expected_env.module_path),
             String.from("Effect row unification failed: some expected effects not found in given implicit parameters.")
           )
         )
@@ -1312,7 +1320,7 @@ _synthesize_types_impl :: (
           exn.throw(
             dyn(
               format_error_message(
-                synthetic_token(exp_name, ee.module_path),
+                _anchor(tok, exp_name, ee.module_path),
                 `Cannot unify type variable "${exp_name}" with type "${type_to_string(given_ty)}" because it would create an infinite type.`
               )
             )
@@ -1401,7 +1409,7 @@ _synthesize_types_impl :: (
           exn.throw(
             dyn(
               format_error_message(
-                synthetic_token(giv_name, ge.module_path),
+                _anchor(tok, giv_name, ge.module_path),
                 `Cannot unify type variable "${giv_name}" with type "${type_to_string(expected_ty)}" because it would create an infinite type.`
               )
             )
@@ -1440,7 +1448,7 @@ _synthesize_types_impl :: (
       exn.throw(
         dyn(
           format_error_message(
-            synthetic_token(String.from("tuple"), ee.module_path),
+            _anchor(tok, String.from("tuple"), ee.module_path),
             `Cannot unify incompatible tuple types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
           )
         )
@@ -1559,7 +1567,7 @@ _synthesize_types_impl :: (
       exn.throw(
         dyn(
           format_error_message(
-            synthetic_token(String.from("struct"), ee.module_path),
+            _anchor(tok, String.from("struct"), ee.module_path),
             `Cannot unify incompatible struct types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
           )
         )
@@ -1650,7 +1658,7 @@ _synthesize_types_impl :: (
       exn.throw(
         dyn(
           format_error_message(
-            synthetic_token(String.from("enum"), ee.module_path),
+            _anchor(tok, String.from("enum"), ee.module_path),
             `Cannot unify incompatible enum types: "${type_to_string(exp_en_ty)}" and "${type_to_string(giv_en_ty)}"`
           )
         )
@@ -2150,7 +2158,7 @@ _synthesize_types_impl :: (
       exn.throw(
         dyn(
           format_error_message(
-            synthetic_token(String.from("type"), ee.module_path),
+            _anchor(tok, String.from("type"), ee.module_path),
             `Cannot unify incompatible types: "${type_to_string(expected_ty)}" and "${type_to_string(given_ty)}"`
           )
         )
