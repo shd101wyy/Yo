@@ -20,7 +20,7 @@
 pragma(Pragma.AllowUnsafe);
 { SortedMap } :: import("./sorted_map.yo");
 { ArrayList } :: import("../collections/array_list.yo");
-{ List } :: import("./list.yo");
+{ List, ListIter } :: import("./list.yo");
 /// Persistent immutable sorted set backed by a left-leaning red-black tree.
 SortedSet :: (fn(comptime(T) : Type, where(T <: (Eq(T), Ord(T), Send, Acyclic))) -> comptime(Type))(
   struct(_inner : SortedMap(T, bool))
@@ -194,6 +194,20 @@ impl(
   Eq(SortedSet(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)(
       lhs._inner == rhs._inner
+    )
+  )
+);
+/// Iterate the set's elements in ASCENDING order. Delegates to `to_list()` —
+/// see `Map`'s `IntoIterator` for the cost note.
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Ord(T), Send, Acyclic)),
+  SortedSet(T),
+  IntoIterator(
+    Item : T,
+    IntoIter : ListIter(T),
+    into_iter : (fn(self : Self) -> ListIter(T))(
+      self.to_list().into_iter()
     )
   )
 );

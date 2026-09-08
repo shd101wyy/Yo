@@ -18,7 +18,7 @@
 //! // keys are always sorted: 1, 2, 3
 //! ```
 pragma(Pragma.AllowUnsafe);
-{ List } :: import("./list.yo");
+{ List, ListIter } :: import("./list.yo");
 { ArrayList } :: import("../collections/array_list.yo");
 { MapEntry } :: import("./map.yo");
 /// Color of a red-black tree node.
@@ -486,6 +486,27 @@ _node_remove :: (
 // ---------------------------------------------------------------------------
 // In-order traversal helpers
 // ---------------------------------------------------------------------------
+/// Collect entries in-order into a List. Builds by PREPENDING from the right,
+/// which is why the recursion visits right-then-left.
+_collect_entries :: (
+  fn(
+    comptime(K) : Type,
+    comptime(V) : Type,
+    node : Option(RBNode(K, V)),
+    acc : List(MapEntry(K, V)),
+    where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic))
+  ) -> List(MapEntry(K, V))
+)(
+  match(
+    node,
+    .None => acc,
+    .Some(h) => {
+      right_acc := recur(K, V, h._right, acc);
+      with_entry := right_acc.prepend(MapEntry(K, V)(key : h._key, value : h._value));
+      recur(K, V, h._left, with_entry)
+    }
+  )
+);
 /// Collect keys in-order into a List.
 _collect_keys :: (
   fn(
@@ -623,6 +644,11 @@ impl(
   values : (fn(self : Self) -> List(V))(
     _collect_values(K, V, self._root, List(V).new())
   ),
+  /// Return in-order list of entries — the counterpart of `imm.Map.entries`,
+  /// and what `into_iter` walks.
+  entries : (fn(self : Self) -> List(MapEntry(K, V)))(
+    _collect_entries(K, V, self._root, List(MapEntry(K, V)).new())
+  ),
   /// Create a sorted map from a slice of key-value pairs.
   from_entries : (fn(pairs : ArrayList(MapEntry(K, V))) -> Self)({
     (result : Self) = Self.new();
@@ -653,6 +679,20 @@ impl(
       rhs_vals := rhs.values();
       (lhs_keys == rhs_keys) && (lhs_vals == rhs_vals)
     })
+  )
+);
+/// Iterate the map's entries in ASCENDING key order. Delegates to
+/// `entries()` — see `imm.Map`'s `IntoIterator` for the cost note.
+impl(
+  generic(K : Type, V : Type),
+  where(K <: (Eq(K), Ord(K), Send, Acyclic), V <: (Send, Acyclic)),
+  SortedMap(K, V),
+  IntoIterator(
+    Item : MapEntry(K, V),
+    IntoIter : ListIter(MapEntry(K, V)),
+    into_iter : (fn(self : Self) -> ListIter(MapEntry(K, V)))(
+      self.entries().into_iter()
+    )
   )
 );
 export(SortedMap);

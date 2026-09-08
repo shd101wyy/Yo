@@ -539,9 +539,25 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    documented at the definition: `chunks`/`windows` yield COPIES because Yo has
    no slice type, and `extend` is bounded by `IntoIterator`, which an iterator
    does NOT satisfy (issues/blanket-into-iter-is-not-an-intoiterator-impl.md).
-   Still open in this group: `imm/*` iterators and `remove` shape,
+   `imm/*` now has `IntoIterator` on all six containers (2026-09-08):
+   `List` walks its cons chain and `Vec` its flat array, both O(1) per step;
+   `Map`/`Set`/`SortedMap`/`SortedSet` delegate to the `List` their existing
+   `entries()`/`to_list()` already returns, and say so rather than pretending
+   to be lazy — a stack-based cursor over the trie/RB-tree is the future
+   optimization. `SortedMap` gained the `entries()` it was missing beside
+   `imm.Map`'s.
+
+   Still open in this group: `imm` `remove` shape,
    `OrderedMap.swap_remove`, private `ctrl/data/size` fields, the `imm/Vec`
    RRB-vs-flat-COW doc (§5).
+
+   **Evidence for that §5 decision, found while writing the iterator tests:**
+   `imm.Vec.push` takes `own(self)`, so the receiver is MOVED and keeping the
+   earlier version requires an extra binding (`kept := v; bigger := v.push(x)`)
+   — which is also what pushes the refcount above one and sends `push` down its
+   copying path. That is a coherent flat-COW design, but it is not what a reader
+   of the word "persistent" expects, and the ergonomics are the argument for
+   fixing the DOC rather than the structure.
 
    **Core numerics: integers DONE, floats UNBLOCKED.** Every
    `checked_/wrapping_/saturating_/overflowing_` plus `abs/pow/clamp` landed as

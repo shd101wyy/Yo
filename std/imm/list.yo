@@ -284,7 +284,50 @@ impl(
     })
   )
 );
+/// Iterator over a `List`'s elements, head to tail.
+///
+/// Walks the cons chain, so it is O(1) per step and allocates nothing — the
+/// nodes already exist. This is also the iterator the four hash/tree
+/// containers reach for: `Map.entries()`, `Set.to_list()` and friends already
+/// return a `List`, so their `into_iter` is this one over that list.
+ListIter :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  struct(
+    _node : Option(ListNode(T))
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  ListIter(T),
+  Iterator(
+    Item : T,
+    next : (fn(inout(self) : Self) -> Option(T))(
+      match(
+        self._node,
+        .None => Option(T).None,
+        .Some(node) => {
+          v := node._value;
+          self._node = node._next;
+          Option(T).Some(v)
+        }
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: (Send, Acyclic)),
+  List(T),
+  IntoIterator(
+    Item : T,
+    IntoIter : ListIter(T),
+    into_iter : (fn(self : Self) -> ListIter(T))(
+      ListIter(T)(_node : self._head)
+    )
+  )
+);
 export(
   List,
-  ListNode
+  ListNode,
+  ListIter
 );

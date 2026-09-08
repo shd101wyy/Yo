@@ -20,7 +20,7 @@
 pragma(Pragma.AllowUnsafe);
 { Map } :: import("./map.yo");
 { ArrayList } :: import("../collections/array_list.yo");
-{ List } :: import("./list.yo");
+{ List, ListIter } :: import("./list.yo");
 /// Persistent immutable hash set backed by a HAMT.
 ///
 /// Wraps `Map(T, bool)` internally. The bool values are always `true`.
@@ -172,6 +172,20 @@ impl(
   Eq(Set(T))(
     (==) : (fn(lhs : Self, rhs : Self) -> bool)(
       lhs._inner == rhs._inner
+    )
+  )
+);
+/// Iterate the set's elements. Delegates to `to_list()` — see `Map`'s
+/// `IntoIterator` for the cost note.
+impl(
+  generic(T : Type),
+  where(T <: (Eq(T), Hash, Send, Acyclic)),
+  Set(T),
+  IntoIterator(
+    Item : T,
+    IntoIter : ListIter(T),
+    into_iter : (fn(self : Self) -> ListIter(T))(
+      self.to_list().into_iter()
     )
   )
 );
