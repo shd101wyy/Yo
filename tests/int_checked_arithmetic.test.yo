@@ -1,0 +1,63 @@
+// Overflow-aware integer arithmetic (std/prelude.yo `Integer`):
+// `checked_*` reports overflow as `.None`, `saturating_*` clamps.
+//
+// Assertions use an inline `match` rather than a generic `_is_none(o)` helper:
+// passing a generic-impl method's result DIRECTLY into a generic fn fails to
+// transpile
+// (issues/generic-impl-method-result-passed-directly-to-a-generic-fn-fails-to-transpile.md).
+{ assert } :: import("std/assert");
+_some_eq :: (fn(o : Option(i32), want : i32) -> bool)(match(o, .Some(v) => (v == want), .None => false));
+_some_eq_u8 :: (fn(o : Option(u8), want : u8) -> bool)(match(o, .Some(v) => (v == want), .None => false));
+_none_i32 :: (fn(o : Option(i32)) -> bool)(match(o, .Some(_) => false, .None => true));
+_none_u8 :: (fn(o : Option(u8)) -> bool)(match(o, .Some(_) => false, .None => true));
+_M1 :: (i32(0) - i32(1));
+test("checked_add reports signed and unsigned overflow", {
+  assert(_some_eq(i32(1).checked_add(i32(2)), i32(3)), "1+2=3");
+  assert(_none_i32(i32.MAX.checked_add(i32(1))), "MAX+1 overflows");
+  assert(_none_i32(i32.MIN.checked_add(_M1)), "MIN+(-1) underflows");
+  assert(_some_eq(i32.MAX.checked_add(_M1), i32.MAX - i32(1)), "MAX+(-1) fits");
+  assert(_none_u8(u8(200).checked_add(u8(100))), "u8 200+100 overflows");
+  assert(_some_eq_u8(u8(200).checked_add(u8(55)), u8(255)), "u8 200+55 = 255 exactly at MAX");
+});
+test("checked_sub reports underflow, and unsigned never goes below zero", {
+  assert(_some_eq(i32(1).checked_sub(i32(2)), _M1), "1-2=-1");
+  assert(_none_u8(u8(5).checked_sub(u8(7))), "u8 5-7 underflows");
+  assert(_some_eq_u8(u8(5).checked_sub(u8(5)), u8(0)), "u8 5-5=0");
+  assert(_none_i32(i32.MIN.checked_sub(i32(1))), "MIN-1 underflows");
+  assert(_none_i32(i32.MAX.checked_sub(_M1)), "MAX-(-1) overflows");
+});
+test("checked_mul checks by division, never by forming the product", {
+  assert(_some_eq(i32(3).checked_mul(i32(4)), i32(12)), "3*4=12");
+  assert(_some_eq((i32(0) - i32(3)).checked_mul(i32(0) - i32(4)), i32(12)), "(-3)*(-4)=12");
+  assert(_some_eq(i32(5).checked_mul(_M1), i32(0) - i32(5)), "5*(-1)=-5");
+  assert(_some_eq(_M1.checked_mul(i32(5)), i32(0) - i32(5)), "(-1)*5=-5");
+  assert(_some_eq(i32(0).checked_mul(i32.MAX), i32(0)), "0*MAX=0 without overflowing");
+  assert(_some_eq(i32.MAX.checked_mul(i32(0)), i32(0)), "MAX*0=0");
+  assert(_none_i32(i32.MAX.checked_mul(i32(2))), "MAX*2 overflows");
+  assert(_none_i32(i32.MIN.checked_mul(_M1)), "MIN*(-1) overflows (no positive MIN)");
+  assert(_none_i32(i32.MIN.checked_mul(i32(2))), "MIN*2 underflows");
+  assert(_none_u8(u8(16).checked_mul(u8(16))), "u8 16*16=256 overflows");
+  assert(_some_eq_u8(u8(15).checked_mul(u8(17)), u8(255)), "u8 15*17=255 exactly at MAX");
+});
+test("checked_div and checked_rem reject zero and MIN/-1", {
+  assert(_some_eq(i32(7).checked_div(i32(2)), i32(3)), "7/2=3");
+  assert(_none_i32(i32(1).checked_div(i32(0))), "divide by zero");
+  assert(_none_i32(i32.MIN.checked_div(_M1)), "MIN/-1 overflows");
+  assert(_some_eq(i32.MAX.checked_div(_M1), i32(0) - i32.MAX), "MAX/-1 fits");
+  assert(_some_eq_u8(u8(200).checked_div(u8(2)), u8(100)), "u8 200/2=100");
+  assert(_some_eq(i32(7).checked_rem(i32(2)), i32(1)), "7%2=1");
+  assert(_none_i32(i32(1).checked_rem(i32(0))), "rem by zero");
+  assert(_none_i32(i32.MIN.checked_rem(_M1)), "MIN%-1 overflows");
+});
+test("saturating_* clamp to the bound instead of overflowing", {
+  assert(i32.MAX.saturating_add(i32(1)) == i32.MAX, "add clamps high");
+  assert(i32.MIN.saturating_add(_M1) == i32.MIN, "add clamps low");
+  assert(i32(1).saturating_add(i32(2)) == i32(3), "add is ordinary when it fits");
+  assert(i32.MIN.saturating_sub(i32(1)) == i32.MIN, "sub clamps low");
+  assert(i32.MAX.saturating_sub(_M1) == i32.MAX, "sub clamps high");
+  assert(u8(5).saturating_sub(u8(7)) == u8(0), "unsigned sub floors at 0");
+  assert(i32.MAX.saturating_mul(i32(2)) == i32.MAX, "mul clamps high");
+  assert(i32.MIN.saturating_mul(i32(2)) == i32.MIN, "mul clamps low");
+  assert(i32.MIN.saturating_mul(_M1) == i32.MAX, "MIN*(-1) clamps to MAX");
+  assert(i32.MAX.saturating_mul(_M1) == (i32(0) - i32.MAX), "MAX*(-1) fits");
+});
