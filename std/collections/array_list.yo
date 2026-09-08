@@ -451,6 +451,32 @@ impl(
   * Removes and returns the element at `idx`, shifting the tail left.
   * Panics if `idx` is out of bounds (the `Index` impl's contract).
   */
+  /// Insert `value` at `idx`, shifting the tail right — O(n). `idx == len`
+  /// appends, as in Rust.
+  insert : (fn(self : Self, idx : usize, value : T) -> unit)({
+    if(idx > self._length, {
+      __yo_panic("ArrayList.insert: index out of bounds");
+    });
+    self.push(value);
+    // Rotate the freshly appended element down into place. Uses `swap`, which
+    // moves raw slots, so no element is dup'd or dropped on the way.
+    (k : usize) = (self._length - usize(1));
+    while(k > idx, {
+      self.swap(k, k - usize(1));
+      k = (k - usize(1));
+    });
+  }),
+  /// Move every element of `other` onto the end of `self`, leaving `other`
+  /// EMPTY — Rust's `append`. `extend` copies instead.
+  append : (fn(self : Self, other : Self) -> unit)({
+    (i : usize) = usize(0);
+    n := other.len();
+    while(i < n, {
+      match(other.get(i), .Some(v) => self.push(v), .None => ());
+      i = (i + usize(1));
+    });
+    other.clear();
+  }),
   /// First element, or `.None` when empty.
   first : (fn(self : Self) -> Option(T))(
     self.get(usize(0))
@@ -913,6 +939,81 @@ impl(
   generic(T : Type),
   where(T <: Eq(T)),
   ArrayList(T),
+  /// Remove CONSECUTIVE duplicates, keeping the first of each run — Rust's
+  /// `dedup`. Only adjacent equals collapse, so `[1,2,1]` is unchanged; sort
+  /// first if you want set semantics.
+  dedup : (fn(self : Self) -> unit)({
+    cond(
+      (self._length <= usize(1)) => (),
+      true => {
+        kept := ArrayList(T).new();
+        (i : usize) = usize(0);
+        while(i < self._length, {
+          cur := match(self.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.dedup: get failed"));
+          is_dup := cond(
+            (kept.len() == usize(0)) => false,
+            true =>
+              match(
+                kept.get(kept.len() - usize(1)),
+                .Some(prev) => (prev == cur),
+                .None => false
+              )
+          );
+          if(!(is_dup), {
+            kept.push(cur);
+          });
+          i = (i + usize(1));
+        });
+        self.clear();
+        (j : usize) = usize(0);
+        while(j < kept.len(), {
+          match(kept.get(j), .Some(v) => self.push(v), .None => ());
+          j = (j + usize(1));
+        });
+      }
+    );
+  }),
+  /// Whether `self` begins with `prefix` — Rust's `starts_with`.
+  starts_with : (fn(self : Self, prefix : Self) -> bool)({
+    n := prefix.len();
+    cond(
+      (n > self._length) => false,
+      true => {
+        (i : usize) = usize(0);
+        (same : bool) = true;
+        while(runtime((i < n) && same), {
+          a := match(self.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
+          b := match(prefix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.starts_with: get failed"));
+          if(!((a == b)), {
+            same = false;
+          });
+          i = (i + usize(1));
+        });
+        same
+      }
+    )
+  }),
+  /// Whether `self` ends with `suffix` — Rust's `ends_with`.
+  ends_with : (fn(self : Self, suffix : Self) -> bool)({
+    n := suffix.len();
+    cond(
+      (n > self._length) => false,
+      true => {
+        off := (self._length - n);
+        (i : usize) = usize(0);
+        (same : bool) = true;
+        while(runtime((i < n) && same), {
+          a := match(self.get(off + i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
+          b := match(suffix.get(i), .Some(v) => v, .None => __yo_panic("ArrayList.ends_with: get failed"));
+          if(!((a == b)), {
+            same = false;
+          });
+          i = (i + usize(1));
+        });
+        same
+      }
+    )
+  }),
   /**
   * Check if the list contains a value
   */
