@@ -1,0 +1,60 @@
+//! Tests for the pattern-binding declaration emitter
+//! (`_emit_pattern_binding_decl`, src/codegen/exprs/match.yo).
+//!
+//! A C declaration's initializer is evaluated with the NEW binding already
+//! in scope (C11 6.2.1p4 — the declarator completes before the initializer),
+//! so the naive `T t = t->data.Node.t;` — what a Yo arm `.Node(_, t)`
+//! against scrutinee `t` used to emit — reads the UNINITIALIZED new `t`
+//! instead of the scrutinee: undefined behavior that surfaced as
+//! nondeterministic garbage pointers and rc=139 walks in the V3 verifier
+//! (issues/match-binding-shadows-scrutinee-self-referential-initializer.md).
+//! The emitter must hoist the initializer into a fresh temp whenever the
+//! binding's name appears in it, and leave the plain form alone otherwise.
+open(import("std/string"));
+{ Emitter } :: import("../../src/emitter.yo");
+{ expr_info_table_new } :: import("../../src/expr_info.yo");
+{ host_target } :: import("../../src/target.yo");
+{ TypeValue } :: import("../../src/types/definitions.yo");
+{ CodeGenContext } :: import("../../src/codegen/utils/index.yo");
+{ FunctionGenerationContext } :: import("../../src/codegen/functions/context.yo");
+{ _emit_pattern_binding_decl } :: import("../../src/codegen/exprs/match.yo");
+{ assert } :: import("std/assert");
+
+mk_context :: (fn() -> FunctionGenerationContext)({
+  base := CodeGenContext.new(
+    Emitter.new(),
+    expr_info_table_new(),
+    host_target(),
+    String.from("system"),
+    false,
+    false,
+    false,
+    false
+  );
+  FunctionGenerationContext.new(base)
+});
+
+emit_decl :: (fn(bind : String, init : String) -> String)({
+  ctx := mk_context();
+  _emit_pattern_binding_decl(ctx, String.from("  "), bind, TypeValue.Int(u8(32), true), init);
+  ctx.base.emitter.print()
+});
+
+test("binding shadowing the scrutinee hoists through a fresh temp", {
+  c := emit_decl(String.from("t"), String.from("t->data.Node.t"));
+  assert(c.contains("__yo_pat_t = t->data.Node.t;"), "the temp carries the real initializer");
+  assert(c.contains(" t = __yo_pat_t;"), "the binding copies the temp");
+  assert(!c.contains(" t = t->"), "no self-referential initializer remains");
+});
+
+test("binding with a fresh name emits the plain single declaration", {
+  c := emit_decl(String.from("v"), String.from("t->data.Node.t"));
+  assert(c.contains(" v = t->data.Node.t;"), "plain binding initializes directly");
+  assert(!c.contains("__yo_pat_"), "no hoist temp for a non-shadowing binding");
+});
+
+test("whole-value rename of the scrutinee hoists through a fresh temp", {
+  c := emit_decl(String.from("t"), String.from("t"));
+  assert(c.contains("__yo_pat_"), "T t = t; is self-referential too and must hoist");
+  assert(!c.contains(" t = t;"), "no self-copy declaration remains");
+});

@@ -39,6 +39,59 @@
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || (((b >= u8(65)) && (b <= u8(90))) || (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))))
 );
+/// Emit `<T> bind = init;` — through a fresh temp when `bind`'s own name
+/// appears in `init`. A C declaration's initializer is evaluated with the
+/// NEW binding ALREADY in scope (C11 6.2.1p4: the declarator completes
+/// before the initializer), so `T t = t->data.Node.t;` — what a Yo arm
+/// `.Node(_, t) => ...` against scrutinee `t` used to emit — reads the
+/// UNINITIALIZED new `t`, not the scrutinee: undefined behavior that
+/// surfaced as nondeterministic garbage pointers, freed-tree walks and
+/// rc=139 in the V3 verifier
+/// (issues/match-binding-shadows-scrutinee-self-referential-initializer.md).
+/// Hoisting the initializer into a fresh temp first makes the binding's
+/// own initializer reference only that temp; the copy is then harmless.
+/// The substring test is deliberately conservative: `init`'s only variable
+/// references are the matched-value code and type tags, and a false
+/// positive costs one extra temp that -O2 folds away. The temp name is
+/// derived from the binding name — two same-named bindings can never share
+/// a C scope (arms are separate case blocks; nesting goes deeper), and
+/// `__yo_`-prefixed user identifiers are excluded by the same convention
+/// every other minted name relies on.
+_emit_pattern_binding_decl :: (
+  fn(context : FunctionGenerationContext, indent : String, bind : String, ty : TypeValue, init_code : String) -> unit
+)({
+  em := context.base.emitter;
+  tstr := get_type_string(ty, context.base);
+  if(init_code.contains(bind.clone()), {
+    tmp := String.from("__yo_pat_");
+    tmp.push_string(bind.clone());
+    l1 := indent.clone();
+    l1.push_string(tstr.clone());
+    l1.push_str(" ");
+    l1.push_string(tmp.clone());
+    l1.push_str(" = ");
+    l1.push_string(init_code.clone());
+    l1.push_str(";");
+    em.emit_string_line(l1);
+    l2 := indent.clone();
+    l2.push_string(tstr);
+    l2.push_str(" ");
+    l2.push_string(bind.clone());
+    l2.push_str(" = ");
+    l2.push_string(tmp);
+    l2.push_str(";");
+    em.emit_string_line(l2);
+  }, {
+    l := indent.clone();
+    l.push_string(tstr);
+    l.push_str(" ");
+    l.push_string(bind.clone());
+    l.push_str(" = ");
+    l.push_string(init_code.clone());
+    l.push_str(";");
+    em.emit_string_line(l);
+  })
+});
 /// True when position `idx` lies INSIDE a double-quoted C string literal in
 /// `s` (parity walk with `\\`-escape skipping). Mirrors the TS fix
 /// (codeContainsReturnStatement, src/codegen/utils/index.ts): the word
@@ -655,14 +708,7 @@ _gen_nullable_ptr_match :: (fn(expr : AstExpr, indent : String, context : Functi
           pargs.get(usize(0)),
           .Some(dvar) => if(ast_expr_is_atom(dvar), {
             dvn := sanitize_for_c_identifier(ast_expr_token(dvar).value, false);
-            decl := body_indent.clone();
-            decl.push_string(get_type_string(nullable_inner, context.base));
-            decl.push_str(" ");
-            decl.push_string(dvn);
-            decl.push_str(" = ");
-            decl.push_string(matched_value_code.clone());
-            decl.push_str(";");
-            em.emit_string_line(decl);
+            _emit_pattern_binding_decl(context, body_indent.clone(), dvn.clone(), nullable_inner, matched_value_code.clone());
             // Shadow-register the binding like _emit_destructure_binds does
             // for tagged-union arms: the arm body must resolve `q` to THIS
             // local C declaration. Without it, a GENERIC-IMPL materialized
@@ -1048,19 +1094,19 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                     if(fi < labels.len(), {
                       ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                       if(!is_unit_type(ftype), {
-                        decl := body_indent.clone();
-                        decl.push_string(get_type_string(ftype, context.base));
-                        decl.push_str(" ");
-                        decl.push_string(sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
-                        decl.push_str(" = ");
-                        decl.push_string(matched_value_code.clone());
-                        decl.push_str(access);
-                        decl.push_str("data.");
-                        decl.push_string(cvariant.clone());
-                        decl.push_str(".");
-                        decl.push_string(sanitize_for_c_identifier(label.clone(), false));
-                        decl.push_str(";");
-                        em.emit_string_line(decl);
+                        init := matched_value_code.clone();
+                        init.push_str(access);
+                        init.push_str("data.");
+                        init.push_string(cvariant.clone());
+                        init.push_str(".");
+                        init.push_string(sanitize_for_c_identifier(label.clone(), false));
+                        _emit_pattern_binding_decl(
+                          context,
+                          body_indent.clone(),
+                          sanitize_for_c_identifier(ast_expr_token(var_expr).value, false),
+                          ftype,
+                          init
+                        );
                         _shadow_add(context, sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
                       });
                     });
@@ -1083,19 +1129,19 @@ _emit_destructure_binds :: (fn(enum_type : TypeValue, variant_name : String, par
                 field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
                 ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                 if(!is_unit_type(ftype), {
-                  decl := body_indent.clone();
-                  decl.push_string(get_type_string(ftype, context.base));
-                  decl.push_str(" ");
-                  decl.push_string(sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
-                  decl.push_str(" = ");
-                  decl.push_string(matched_value_code.clone());
-                  decl.push_str(access);
-                  decl.push_str("data.");
-                  decl.push_string(cvariant.clone());
-                  decl.push_str(".");
-                  decl.push_string(sanitize_for_c_identifier(field_label, false));
-                  decl.push_str(";");
-                  em.emit_string_line(decl);
+                  init := matched_value_code.clone();
+                  init.push_str(access);
+                  init.push_str("data.");
+                  init.push_string(cvariant.clone());
+                  init.push_str(".");
+                  init.push_string(sanitize_for_c_identifier(field_label, false));
+                  _emit_pattern_binding_decl(
+                    context,
+                    body_indent.clone(),
+                    sanitize_for_c_identifier(ast_expr_token(var_expr).value, false),
+                    ftype,
+                    init
+                  );
                   _shadow_add(context, sanitize_for_c_identifier(ast_expr_token(var_expr).value, false));
                 });
               }),
@@ -1207,14 +1253,13 @@ _gen_tagged_union_match :: (fn(expr : AstExpr, indent : String, context : Functi
                     match(
                       rargs.get(usize(0)),
                       .Some(rename_expr) => {
-                        rdecl := body_indent.clone();
-                        rdecl.push_string(get_type_string(match_value_type, context.base));
-                        rdecl.push_str(" ");
-                        rdecl.push_string(sanitize_for_c_identifier(ast_expr_token(rename_expr).value, false));
-                        rdecl.push_str(" = ");
-                        rdecl.push_string(matched_value_code.clone());
-                        rdecl.push_str(";");
-                        em.emit_string_line(rdecl);
+                        _emit_pattern_binding_decl(
+                          context,
+                          body_indent.clone(),
+                          sanitize_for_c_identifier(ast_expr_token(rename_expr).value, false),
+                          match_value_type,
+                          matched_value_code.clone()
+                        );
                       },
                       .None => ()
                     );
@@ -1290,14 +1335,13 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
         )
       }, false);
       if(!is_inout_atom && !(matched_value_code == subject_var_name), {
-        decl := indent.clone();
-        decl.push_string(get_type_string(match_value_type, context.base));
-        decl.push_str(" ");
-        decl.push_string(subject_var_name.clone());
-        decl.push_str(" = ");
-        decl.push_string(matched_value_code.clone());
-        decl.push_str(";");
-        em.emit_string_line(decl);
+        _emit_pattern_binding_decl(
+          context,
+          indent.clone(),
+          subject_var_name.clone(),
+          match_value_type,
+          matched_value_code.clone()
+        );
         context.base.declared_c_var_names.insert(subject_var_name.clone());
         matched_value_code = subject_var_name;
       });
@@ -1353,4 +1397,4 @@ generate_match_expression :: (fn(expr : AstExpr, indent : String, context : Func
   // Tagged-union destructuring.
   _gen_tagged_union_match(expr, indent.clone(), context, matched_value_code, match_value_type, enum_type, is_ptr || is_ref_sem, temp_var_opt, is_unit)
 });
-export(generate_case_body, generate_primitive_match_expression, generate_match_expression);
+export(generate_case_body, generate_primitive_match_expression, generate_match_expression, _emit_pattern_binding_decl);
