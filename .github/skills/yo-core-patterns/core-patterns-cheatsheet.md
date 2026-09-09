@@ -412,8 +412,10 @@ if((type_value_tag(my_type) != TypeTag.TUnit), { ... });
 open(import("std/error"));
 
 DivError :: enum(DivByZero);
-impl(DivError, ToString(to_string : ((self) -> `division by zero`)));
-impl(DivError, Error());
+// `derive(Error)` emits ToString AND Error from one message per variant, in
+// DECLARATION ORDER. Payload fields interpolate by name: for
+// `NotFound(path : String)` the message is `not found: ${path}`.
+derive(DivError, Error(.DivByZero => `division by zero`));
 
 safe_div :: (fn(a : i32, b : i32) -> Result(i32, DivError))(
   cond(

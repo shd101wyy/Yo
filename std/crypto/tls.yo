@@ -77,24 +77,19 @@ TlsError :: enum(
   /// operation that needed data.
   Closed
 );
-impl(
-  TlsError,
-  ToString(
-    to_string : (fn(inout(self) : Self) -> String)(
-      match(
-        self,
-        .Connect(host) => `tls: could not connect to ${host}`,
-        .Handshake(detail) => `tls handshake failed: ${detail}`,
-        .Io(detail) => `tls i/o failed: ${detail}`,
-        .Closed => `tls session closed by peer`.to_string()
-      )
-    )
-  )
-);
 /// `_throw_tls` boxes a `TlsError` into an `AnyError` (`Dyn(Error)`), which
 /// requires the `Error` marker — D1's "an error type is a real enum
-/// implementing `Error()`".
-impl(TlsError, Error());
+/// implementing `Error()`" — so this derive supplies it alongside the
+/// messages.
+derive(
+  TlsError,
+  Error(
+    .Connect => `tls: could not connect to ${host}`,
+    .Handshake => `tls handshake failed: ${detail}`,
+    .Io => `tls i/o failed: ${detail}`,
+    .Closed => `tls session closed by peer`.to_string()
+  )
+);
 export(TlsError);
 /// Last backend error as text (empty queue → a fixed note).
 _ssl_err_string :: (fn() -> String)({

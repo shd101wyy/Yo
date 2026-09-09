@@ -55,31 +55,22 @@ impl(
     )
   )
 );
-impl(
+derive(
   NetError,
-  ToString(
-    to_string : (
-      self -> {
-        s := match(
-          self,
-          .ConnectionRefused => String.from("connection refused"),
-          .ConnectionReset => String.from("connection reset by peer"),
-          .ConnectionAborted => String.from("connection aborted"),
-          .AddrInUse => String.from("address already in use"),
-          .AddrNotAvailable => String.from("address not available"),
-          .TimedOut => String.from("operation timed out"),
-          .HostUnreachable => String.from("host unreachable"),
-          .NetworkUnreachable => String.from("network unreachable"),
-          .DNSFailed(msg) => `DNS lookup failed: ${msg}`,
-          .Io(err) => err.to_string(),
-          .Other(msg) => msg
-        );
-        return(s);
-      }
-    )
+  Error(
+    .ConnectionRefused => String.from("connection refused"),
+    .ConnectionReset => String.from("connection reset by peer"),
+    .ConnectionAborted => String.from("connection aborted"),
+    .AddrInUse => String.from("address already in use"),
+    .AddrNotAvailable => String.from("address not available"),
+    .TimedOut => String.from("operation timed out"),
+    .HostUnreachable => String.from("host unreachable"),
+    .NetworkUnreachable => String.from("network unreachable"),
+    .DNSFailed => `DNS lookup failed: ${msg}`,
+    .Io => err.to_string(),
+    .Other => msg
   )
 );
-impl(NetError, Error());
 impl(
   NetError,
   /// Check a raw syscall result and throw on error.

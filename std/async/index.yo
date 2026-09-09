@@ -144,20 +144,13 @@ TimeoutError :: enum(
   /// unexpired, so it never produced a value.
   Aborted
 );
-impl(
+derive(
   TimeoutError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .Elapsed => `timeout: the deadline elapsed before the task finished`,
-          .Aborted => `timeout: the task was aborted before it produced a value`
-        )
-    )
+  Error(
+    .Elapsed => `timeout: the deadline elapsed before the task finished`,
+    .Aborted => `timeout: the task was aborted before it produced a value`
   )
 );
-impl(TimeoutError, Error());
 /// Await `handle` with a deadline: `.Ok(v)` if it finishes within `limit`,
 /// `.Err(TimeoutError.Elapsed)` if the deadline fires first (the handle is
 /// `abort()`ed), `.Err(TimeoutError.Aborted)` if the task was cancelled on

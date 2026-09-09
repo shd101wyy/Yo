@@ -29,20 +29,13 @@ EncodingError :: enum(
   /// symbol whose low two bits are zero); Rust's `InvalidLastSymbol`.
   InvalidLastSymbol(ch : u8)
 );
-impl(
+derive(
   EncodingError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .InvalidChar(ch) => `encoding error: invalid character ${ch}`,
-          .OddLength => `encoding error: odd length`,
-          .InvalidLength => `encoding error: base64 length is 1 mod 4`,
-          .InvalidLastSymbol(ch) => `encoding error: non-canonical trailing bits in base64 symbol ${ch}`
-        )
-    )
+  Error(
+    .InvalidChar => `encoding error: invalid character ${ch}`,
+    .OddLength => `encoding error: odd length`,
+    .InvalidLength => `encoding error: base64 length is 1 mod 4`,
+    .InvalidLastSymbol => `encoding error: non-canonical trailing bits in base64 symbol ${ch}`
   )
 );
-impl(EncodingError, Error());
 export(EncodingError);

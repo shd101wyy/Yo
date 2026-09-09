@@ -165,6 +165,12 @@ the work in §4 does not re-open them.
   `compile` both exit 0). That is a diagnostics bug, not a language limit —
   when it is fixed, the ordering constraint can be lifted without changing a
   single call site, since declaration order is a valid keyed list.
+  **All thirteen std error enums are migrated** — `JsonError` with the rule
+  itself, then `TimeoutError`, `CryptoError`, `TlsError`, `CsvError`,
+  `EncodingError`, `RegexError`, `IoError`, `NetError`, `UrlError`,
+  `DateTimeError`, `HttpParseError` and `HttpError` in the follow-up. Every
+  rendered message is unchanged and all thirteen now-redundant
+  `impl(T, Error());` lines are gone.
 - **D16 — `HashSet(T)` IS `HashMap(T, unit)`.** 498 of 929 lines of
   `hash_set.yo` are byte-identical to `hash_map.yo`, and the tombstone bug
   (§3) is present in both. `unit` is a true ZST as of v0.2.26, so the map's

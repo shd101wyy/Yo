@@ -27,20 +27,13 @@ CryptoError :: enum(
   /// Other platform-specific error.
   Other(msg : String)
 );
-impl(
+derive(
   CryptoError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .Unavailable => `crypto: platform random unavailable`,
-          .Other(msg) => `crypto error: ${msg}`
-        )
-    )
+  Error(
+    .Unavailable => `crypto: platform random unavailable`,
+    .Other => `crypto error: ${msg}`
   )
 );
-impl(CryptoError, Error());
 export(CryptoError);
 // ============================================================================
 // Platform externs
