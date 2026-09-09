@@ -1978,6 +1978,10 @@ run_compile :: (
   // the test runner on its batch-compile children (see `set_evaluator_deadline`
   // in evaluator/exprs/_expr.yo for why this travels as a flag).
   (compile_timeout_ms : String) = String.new();
+  // V3: opt OUT of the post-eval contract verification (the test runner's
+  // batch compiles — a runtime harness; legs without Z3 could not compile
+  // verify-pragma fixtures otherwise).
+  (no_verify : bool) = false;
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
   (debug_gc : bool) = false;
@@ -2034,6 +2038,10 @@ run_compile :: (
       (a_name == "--emcc-environment") => {
         emcc_environment = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--no-verify") => {
+        no_verify = true;
+        ai = (ai + usize(1));
       },
       (a_name == "--compile-timeout-ms") => {
         compile_timeout_ms = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -2396,11 +2404,14 @@ run_compile :: (
     // module's. `mm_eval_entry_exprs` applies it from the published slot.
     entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
     // V3: arm the entry file as the verification target (both path
-    // spellings) so verify/verify+ functions register during evaluation.
-    v_targets := ArrayList(String).new();
-    v_targets.push(input_path.clone());
-    v_targets.push(entry_abs.clone());
-    set_verify_target_paths(v_targets);
+    // spellings) so verify/verify+ functions register during evaluation —
+    // unless the caller opted out (--no-verify: the test runner's batches).
+    if(!(no_verify), {
+      v_targets := ArrayList(String).new();
+      v_targets.push(input_path.clone());
+      v_targets.push(entry_abs.clone());
+      set_verify_target_paths(v_targets);
+    });
     outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, exn);
     if(!(outcome.ok), {
       // The eval failure's rendered diagnostic is in the loader's stash (its
@@ -3433,6 +3444,12 @@ run_test :: (
         // indication of which file was responsible.
         ccmd.arg(String.from("--compile-timeout-ms"));
         ccmd.arg(String.from("600000"));
+        // The test runner is a RUNTIME harness: verification is a static
+        // gate (yo check / yo compile / yo verify), and legs without Z3
+        // could not run verify-pragma fixtures at all if the batch compile
+        // armed their targets (the splice suppression would leave the
+        // binary unasserted AND unsolvable). Opt the batch out.
+        ccmd.arg(String.from("--no-verify"));
         // WASI batch binaries embed the whole evaluator, whose `evaluate()`
         // has 693+ locals; emcc's defaults (64 KB stack, 16 MB initial
         // memory) cannot hold a frame that size. TS applies these in the TEST
