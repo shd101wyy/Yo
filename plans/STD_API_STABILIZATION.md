@@ -543,9 +543,21 @@ is_infinite/signum/min/max/hypot/exp/ln/sin/EPSILON/INFINITY/NAN`) are all
 LANDED in `std/math.yo` — the "today only raw `libc/math`" note above is a
 snapshot from before that work. Verified against the code 2026-09-09 — also LANDED: `Error` `is(T)`
 (the free `error_is`), `Context(msg, source)`, `Default` across the type set
-(#500), `bench` `black_box`, and `log`'s `Sink` trait + `YO_LOG`. STILL OPEN:
-a documented `downcast`. **`ErrorChain` and `root_cause` are BLOCKED on a
-compiler defect, not on design** —
+(#500), `bench` `black_box`, and `log`'s `Sink` trait + `YO_LOG`. The integer arithmetic
+batteries **LANDED 2026-09-09**: `pow`/`saturating_pow`, `checked_neg`,
+`wrapping_mul`/`overflowing_mul`, `div_euclid`/`rem_euclid`, `midpoint`,
+`isqrt` in the `where(T <: Integer)` blanket; `abs`, `signum`, `wrapping_neg`,
+`wrapping_abs` behind a new `SignedInteger` marker (Rust omits `abs`/`signum`
+on unsigned types and so do we); `abs_diff` and
+`to_be_bytes`/`to_le_bytes`/`from_be_bytes`/`from_le_bytes` per-type, because
+`abs_diff` returns the receiver's UNSIGNED partner and the conversions return
+an `Array(u8, N)` sized by its width — neither is nameable from a blanket.
+`usize`/`isize` get `abs_diff` but deliberately NO byte conversions: N would
+be the target pointer width and a type-level size cannot be derived the way
+`_USIZE_BITS` derives a value, so hard-coding 8 would be silently wrong on
+wasm32. STILL OPEN: a documented `downcast`.
+**`ErrorChain` and `root_cause` are BLOCKED on a compiler defect, not on
+design** —
 `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
 Both must store the result of `source()` as an `AnyError`, and on a
 `Dyn(Error)` receiver that result's static type has lost the `Error` trait:
@@ -554,11 +566,7 @@ Both must store the result of `source()` as an `AnyError`, and on a
 `.to_string()` on it renders the cause — so a caller can follow one link and
 print it, but never store, re-erase, `downcast` or re-throw it. Spelling
 `Dyn(Error)` instead of `Dyn(SelfTrait)` is not available either: `Error` is
-unbound inside its own definition. Also still open: the unchecked integer forms
-(`abs`/`signum`/`pow`) plus `abs_diff`, `div_euclid`/`rem_euclid`, `midpoint`,
-`isqrt` and the `to_be_bytes`/`from_le_bytes` family — the byte conversions
-want either a `SignedInteger` marker or per-type `Array(u8, N)` returns, which
-is its own change. `rand`
+unbound inside its own definition. `rand`
 batteries — **LANDED 2026-09-09**: every range-taking API in std is now
 `Range`-typed (`rng.range(i64(1) .. i64(7))`, `random_range(a .. b, exn)`,
 `m.range(k1 .. k2)`), so the half-open bound is visible at the call site
