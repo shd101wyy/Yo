@@ -26,19 +26,18 @@
 //!
 //! ## Stability
 //!
-//! unstable, in two specific ways:
+//! unstable — `recv` answers `Option(T)`, where `.None` means the channel
+//! closed, and whether that should be a `Result` the way `try_recv`'s answer
+//! now is remains open. The 1 ms timer tick above is an implementation choice
+//! a waker-based rewrite would remove, which changes handoff latency but no
+//! signature.
 //!
-//! - `try_recv` still returns `Option(T)`, where `std/sync/channel`'s now
-//!   returns `Result(T, TryRecvError)` so a polling caller can tell "nothing
-//!   buffered yet" from "closed and drained". This one will be aligned with
-//!   the blocking channel's shape; `recv`'s `Option(T)` (where `.None` means
-//!   closed) is under the same question.
-//! - the 1 ms timer tick above is an implementation choice a waker-based
-//!   rewrite would remove, which changes handoff latency but no signature.
-//!
-//! `new`, `send`, `try_send`, `close`, `is_closed` and `len` are intended to
-//! keep their names and meanings.
+//! `new`, `send`, `try_send`, `try_recv`, `close`, `is_closed` and `len` are
+//! intended to keep their names and meanings.
 { ArrayList } :: import("../collections/array_list");
+// The SAME `TryRecvError` the blocking channel reports, so a caller that
+// polls both does not need two vocabularies for one distinction.
+{ TryRecvError } :: import("../sync/channel");
 { assert } :: import("../assert");
 IO_timer :: import("../sys/timer");
 
@@ -131,15 +130,26 @@ impl(
       }
     )
   ),
-  /// Try to receive without suspending: `.None` when the buffer is empty
-  /// (closed or not).
-  try_recv : (fn(self : Self) -> Option(T))(
+  /// Try to receive without suspending — `.Ok(value)`, or the reason there is
+  /// none.
+  ///
+  /// This used to answer `Option(T)`, which collapsed the two answers a
+  /// polling caller must act on differently: `.None` meant both "nothing
+  /// buffered yet, retry" and "closed and drained, no value will ever
+  /// arrive". `TryRecvError` is the SAME type `std/sync/channel.try_recv`
+  /// returns, so the two channels now report the same distinction with the
+  /// same vocabulary.
+  ///
+  /// A closed channel with buffered values still yields them: `Disconnected`
+  /// means closed AND drained.
+  try_recv : (fn(self : Self) -> Result(T, TryRecvError))(
     cond(
       (self._buf.len() > usize(0)) => {
         v := self._buf.remove(usize(0));
-        Option(T).Some(v)
+        Result(T, TryRecvError).Ok(v)
       },
-      true => Option(T).None
+      self._closed => Result(T, TryRecvError).Err(TryRecvError.Disconnected),
+      true => Result(T, TryRecvError).Err(TryRecvError.Empty)
     )
   ),
   /// Close the channel: pending and future `send`s fail with `.Err`;
@@ -156,4 +166,4 @@ impl(
     self._buf.len()
   )
 );
-export(Channel);
+export(Channel, TryRecvError);

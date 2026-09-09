@@ -813,6 +813,13 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    `Result` — a D12 violation independent of the name, and an error-type design
    question rather than a rename
    (issues/httpmethod-from-string-returns-option-not-result.md).
+   - **`async/channel.try_recv` returned `Option(T)`** where `sync/channel`'s
+     returns `Result(T, TryRecvError)` (#495). ALIGNED in the follow-up: the
+     async channel now returns the SAME `TryRecvError`, imported from
+     `std/sync/channel` rather than redeclared, so the two channels report one
+     distinction with one vocabulary. A closed channel with buffered values
+     still yields them — `Disconnected` means closed AND drained, which is the
+     case the old `.None` could not express and which the new test pins.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 
