@@ -6,7 +6,7 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 pragma(Pragma.SkipWindows); // std/http pulls in TlsStream → openssl/ssl.h, absent on the Windows runners (same gate as http.test.yo)
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ HttpServer, HttpRequest, HttpResponse, HttpMethod, fetch, fetch_with, FetchOptions, parse_request } :: import("std/http");
+{ HttpServer, HttpRequest, HttpResponse, HttpMethod, fetch, fetch_with, FetchOptions, parse_request, HeaderMap, StatusCode } :: import("std/http");
 { TcpStream } :: import("std/net/tcp");
 { SocketAddr } :: import("std/net/addr");
 { Exception, IoExn } :: import("std/error");
@@ -24,7 +24,7 @@ open(import("std/fmt"));
 // Echo handler: method, path, a request header and the body, as text.
 _echo :: (fn(req : HttpRequest) -> HttpResponse)({
   tag := match(req.get_header(`X-Tag`), .Some(v) => v, .None => `-`);
-  HttpResponse.with_status(i32(200)).header(`X-Echo`, `yes`).with_body(`${req.method.to_string()} ${req.path} tag=${tag} body=[${req.body}]`)
+  HttpResponse.with_status(StatusCode.OK()).header(`X-Echo`, `yes`).with_body(`${req.method.to_string()} ${req.path} tag=${tag} body=[${req.body}]`)
 });
 // Read one full response off a raw stream (until the server closes).
 _read_all :: (fn(stream : TcpStream, io : Io) -> Impl(Future(String, IoExn)))(
@@ -118,9 +118,9 @@ test("bytes pipelined after a body-less request are not its body", {
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
 test("HttpResponse.to_string adds Content-Length and keeps explicit headers", {
-  s := HttpResponse.with_status(i32(404)).header(`X-A`, `1`).with_body(`nope`).to_string();
+  s := HttpResponse.with_status(StatusCode.NOT_FOUND()).header(`X-A`, `1`).with_body(`nope`).to_string();
   assert(s == "HTTP/1.1 404 Not Found\r\nX-A: 1\r\nContent-Length: 4\r\n\r\nnope", `wire form: ${s}`);
-  t := HttpResponse.with_status(i32(200)).header(`Content-Length`, `0`).to_string();
+  t := HttpResponse.with_status(StatusCode.OK()).header(`Content-Length`, `0`).to_string();
   assert(t == "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n", "an explicit Content-Length is not duplicated");
 });
 test("serve_once answers a GET from fetch (method, path, header, empty body)", {
@@ -135,7 +135,7 @@ test("serve_once answers a GET from fetch (method, path, header, empty body)", {
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19970)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   resp := io.await(fetch(`http://127.0.0.1:19970/hello?q=1`, io), IoExn(io : io, exn : exn));
-  assert(resp.status_code == i32(200), `status ${resp.status_code}`);
+  assert(resp.status == StatusCode.OK(), `status ${resp.status}`);
   assert(resp.body == "GET /hello?q=1 tag=- body=[]", `echo body: ${resp.body}`);
   assert(resp.get_header(`X-Echo`).unwrap() == "yes", "handler header survives");
   assert(resp.get_header(`Content-Length`).unwrap() == resp.body.len().to_string(), "Content-Length matches the body");
@@ -194,7 +194,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   task := io.spawn(
     server.serve_once(req => {
       called.push(i32(1));
-      HttpResponse.with_status(i32(200))
+      HttpResponse.with_status(StatusCode.OK())
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -229,7 +229,7 @@ test("serve loops until stop(); local_addr reports the bound port", {
         },
         true => ()
       );
-      HttpResponse.with_status(i32(200)).with_body(`n=${hits.len()}`)
+      HttpResponse.with_status(StatusCode.OK()).with_body(`n=${hits.len()}`)
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -256,7 +256,7 @@ test("the server round-trips a binary request body byte-for-byte", {
   srv := io.await(HttpServer.bind(SocketAddr.loopback(u16(19979)), io), IoExn(io : io, exn : exn));
   task := io.spawn(
     srv.serve_once(req => {
-      resp := HttpResponse.with_status(i32(200)).with_body(req.body);
+      resp := HttpResponse.with_status(StatusCode.OK()).with_body(req.body);
       resp
     }, io),
     IoExn(io : io, exn : exn)
@@ -271,7 +271,7 @@ test("the server round-trips a binary request body byte-for-byte", {
   r := io.await(fetch_with(`http://127.0.0.1:19979/echo`, opts, io), IoExn(io : io, exn : exn));
   task.await(io);
   io.await(srv.close(io), IoExn(io : io, exn : exn));
-  assert(r.status_code == i32(200), "200");
+  assert(r.status == StatusCode.OK(), "200");
   got := r.body.as_bytes();
   assert(got.len() == usize(4), `echoed 4 bytes (got ${got.len()})`);
   assert(got(usize(0)) == u8(0x80), "continuation byte");
@@ -312,7 +312,7 @@ test("Content-Length framing: OWS after the colon is optional, and only a real f
         (n >= usize(8)) => req.body.substring(n - usize(8), n),
         true => req.body
       );
-      HttpResponse.with_status(i32(200)).with_body(`${n}|${tail}`)
+      HttpResponse.with_status(StatusCode.OK()).with_body(`${n}|${tail}`)
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -363,7 +363,7 @@ test("only a real Transfer-Encoding field line turns on chunked decoding", {
         },
         true => ()
       );
-      HttpResponse.with_status(i32(200)).with_body(`${req.path} body=[${req.body}]`)
+      HttpResponse.with_status(StatusCode.OK()).with_body(`${req.path} body=[${req.body}]`)
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -403,7 +403,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
         },
         true => ()
       );
-      HttpResponse.with_status(i32(200)).with_body(`ok`)
+      HttpResponse.with_status(StatusCode.OK()).with_body(`ok`)
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -416,7 +416,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   assert(hits.len() == usize(0), "handler must not run for a malformed frame");
   // The server is still there for the next client.
   r := io.await(fetch(`http://127.0.0.1:19976/last`, io), IoExn(io : io, exn : exn));
-  assert(r.status_code == i32(200), `next request served: ${r.status_code}`);
+  assert(r.status == StatusCode.OK(), `next request served: ${r.status}`);
   task.await(io);
   assert(hits.len() == usize(1), "exactly the good request reached the handler");
   io.await(server.close(io), IoExn(io : io, exn : exn));
@@ -439,7 +439,7 @@ test("a request over max_request_bytes gets 413 and serve keeps serving", {
         },
         true => ()
       );
-      HttpResponse.with_status(i32(200)).with_body(`ok`)
+      HttpResponse.with_status(StatusCode.OK()).with_body(`ok`)
     }, io),
     IoExn(io : io, exn : exn)
   );
@@ -450,7 +450,7 @@ test("a request over max_request_bytes gets 413 and serve keeps serving", {
   assert(raw.starts_with(`HTTP/1.1 413 `), `status line: ${raw}`);
   io.await(s.close(io), IoExn(io : io, exn : exn));
   r := io.await(fetch(`http://127.0.0.1:19977/last`, io), IoExn(io : io, exn : exn));
-  assert(r.status_code == i32(200), `next request served: ${r.status_code}`);
+  assert(r.status == StatusCode.OK(), `next request served: ${r.status}`);
   task.await(io);
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });

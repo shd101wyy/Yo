@@ -32,8 +32,13 @@ SockInfo :: import("../sys/sockinfo");
 // ============================================================================
 // Internal helpers
 // ============================================================================
-// Convert a SocketAddr to a low-level SockAddr buffer.
-_make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
+/// Convert a `SocketAddr` to a low-level `SockAddr` buffer.
+///
+/// Shared with `std/net/udp`, which used to carry a byte-for-byte COPY of this
+/// — which is how the hardcoded-"::1" bug below had to be fixed twice. One
+/// encoder and one decoder (`sockaddr_to_socket_addr`) for the whole `net`
+/// layer.
+make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
   match(
     addr.ip,
     .V4(a, b, c, d) => {
@@ -147,7 +152,7 @@ _shutdown_to_how :: (fn(how : Shutdown) -> i32)(
     .Both => SHUT_RDWR
   )
 );
-export(Shutdown, sockaddr_to_socket_addr);
+export(Shutdown, make_sockaddr, sockaddr_to_socket_addr);
 /// A TCP socket that listens for incoming connections.
 TcpListener :: ref(
   struct(
@@ -173,7 +178,7 @@ impl(
       reuse_ptr := &reuse_val;
       e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*u8)(reuse_ptr), u32(4)), e.io);
       // Bind
-      saddr := _make_sockaddr(addr);
+      saddr := make_sockaddr(addr);
       bind_result := e.io.await(IO_tcp.bind(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
@@ -289,7 +294,7 @@ impl(
       );
       raw_fd := e.io.await(IO_tcp.socket(domain, SOCK_STREAM, i32(0)), e.io);
       fd := NetError.check(raw_fd, e.exn);
-      saddr := _make_sockaddr(addr);
+      saddr := make_sockaddr(addr);
       conn_result := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(

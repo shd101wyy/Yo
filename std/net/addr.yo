@@ -11,6 +11,7 @@ pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ToString } :: import("../fmt");
 { StringBuilder } :: import("../string/string_builder");
+{ ArrayList } :: import("../collections/array_list");
 { NetError } :: import("./errors");
 { snprintf } :: import("../libc/stdio");
 { GlobalAllocator } :: import("../allocator");
@@ -23,6 +24,18 @@ open(import("../string"));
 _ASCII_DOT :: u8(46); // '.'
 _ASCII_ZERO :: u8(48); // '0'
 _ASCII_NINE :: u8(57); // '9'
+_ASCII_COLON :: u8(58); // ':'
+// One hex digit's value, or `.None` if `b` is not a hex digit. Both cases are
+// accepted (RFC 4291 §2.2 writes them lower-case; RFC 5952 §4.3 REQUIRES
+// lower-case on OUTPUT but input is case-insensitive).
+_hex_digit :: (fn(b : u8) -> Option(u16))(
+  cond(
+    ((b >= _ASCII_ZERO) && (b <= _ASCII_NINE)) => .Some(u16(b - _ASCII_ZERO)),
+    ((b >= u8(97)) && (b <= u8(102))) => .Some(u16((b - u8(97)) + u8(10))),
+    ((b >= u8(65)) && (b <= u8(70))) => .Some(u16((b - u8(65)) + u8(10))),
+    true => .None
+  )
+);
 /// An IP address, either IPv4 or IPv6.
 IpAddr :: enum(
   /// An IPv4 address represented as four octets.
@@ -101,6 +114,290 @@ impl(
     parts(usize(3)) = u8(val);
     .V4(parts(usize(0)), parts(usize(1)), parts(usize(2)), parts(usize(3)))
   }),
+  /// Parse an IPv6 address from its text form (RFC 4291 §2.2), throwing on
+  /// invalid input.
+  ///
+  /// Accepts all three RFC forms:
+  ///
+  /// - the full eight groups — `2001:db8:0:0:0:0:2:1`;
+  /// - `::` compressing ONE run of zero groups — `2001:db8::2:1`, `::1`, `::`;
+  /// - a trailing dotted-quad for the last 32 bits — `::ffff:192.0.2.1`,
+  ///   which is how an IPv4-mapped address is written.
+  ///
+  /// Hex digits are case-insensitive on input. Rejected, each with its own
+  /// message: more than one `::`, more than eight groups, a group of more than
+  /// four hex digits, an empty group that is not part of a `::`, a single
+  /// leading or trailing `:`, a non-hex byte, and a dotted-quad anywhere but
+  /// at the end. A zone id (`%eth0`) is NOT accepted — it identifies an
+  /// interface, not an address, and `IpAddr` has nowhere to put it.
+  parse_v6 : (fn(s : String, exn : Exception) -> IpAddr)({
+    bytes := s.as_bytes();
+    n := bytes.len();
+    cond(
+      (n == usize(0)) => {
+        exn.throw(dyn(NetError.Other(String.from("empty IPv6 address"))));
+      },
+      true => ()
+    );
+    segs := Array(u16, usize(8)).fill(u16(0));
+    // Groups written BEFORE the `::` fill from the front; groups written after
+    // it are collected separately and moved to the back once the total is
+    // known, which is the only way to place them without a second pass.
+    tail := Array(u16, usize(8)).fill(u16(0));
+    (head_len : usize) = usize(0);
+    (tail_len : usize) = usize(0);
+    (seen_double : bool) = false;
+    // Accumulator for the group being read.
+    (acc : u16) = u16(0);
+    (acc_digits : usize) = usize(0);
+    (i : usize) = usize(0);
+    // Commit the accumulated group into head or tail depending on whether the
+    // `::` has been passed. Written inline at each commit point because a
+    // closure would have to capture six mutable locals.
+    while(runtime(i < n), {
+      b := bytes(i);
+      cond(
+        (b == _ASCII_COLON) => {
+          // Decide FIRST whether this colon opens a `::`, then commit at most
+          // one group and consume exactly the colons that belong to it. An
+          // earlier shape looked backwards at the previous byte instead, and a
+          // third colon (`1:2:::3`) was silently swallowed as part of the
+          // `::`.
+          is_double := (((i + usize(1)) < n) && (bytes(i + usize(1)) == _ASCII_COLON));
+          cond(
+            is_double => {
+              // Flush the group written immediately before the `::`, if any —
+              // `1::2` has one, `::1` has none.
+              cond(
+                (acc_digits > usize(0)) => {
+                  cond(
+                    seen_double => {
+                      cond(
+                        (tail_len >= usize(8)) => {
+                          exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                        },
+                        true => ()
+                      );
+                      tail(tail_len) = acc;
+                      tail_len = (tail_len + usize(1));
+                    },
+                    true => {
+                      cond(
+                        (head_len >= usize(8)) => {
+                          exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                        },
+                        true => ()
+                      );
+                      segs(head_len) = acc;
+                      head_len = (head_len + usize(1));
+                    }
+                  );
+                  acc = u16(0);
+                  acc_digits = usize(0);
+                },
+                true => ()
+              );
+              cond(
+                seen_double => {
+                  exn.throw(dyn(NetError.Other(String.from("IPv6 address may contain only one '::'"))));
+                },
+                true => ()
+              );
+              seen_double = true;
+              i = (i + usize(2));
+              // A THIRD colon is not part of the compression run.
+              cond(
+                ((i < n) && (bytes(i) == _ASCII_COLON)) => {
+                  exn.throw(dyn(NetError.Other(String.from("empty group in IPv6 address"))));
+                },
+                true => ()
+              );
+            },
+            // A lone colon separates two groups, so there must be a group
+            // before it: a leading `:` and an empty group both land here.
+            (acc_digits == usize(0)) => {
+              cond(
+                (i == usize(0)) => {
+                  exn.throw(dyn(NetError.Other(String.from("IPv6 address may not start with a single ':'"))));
+                },
+                true => {
+                  exn.throw(dyn(NetError.Other(String.from("empty group in IPv6 address"))));
+                }
+              );
+            },
+            true => {
+              cond(
+                seen_double => {
+                  cond(
+                    (tail_len >= usize(8)) => {
+                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                    },
+                    true => ()
+                  );
+                  tail(tail_len) = acc;
+                  tail_len = (tail_len + usize(1));
+                },
+                true => {
+                  cond(
+                    (head_len >= usize(8)) => {
+                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                    },
+                    true => ()
+                  );
+                  segs(head_len) = acc;
+                  head_len = (head_len + usize(1));
+                }
+              );
+              acc = u16(0);
+              acc_digits = usize(0);
+              i = (i + usize(1));
+            }
+          );
+        },
+        (b == _ASCII_DOT) => {
+          // A dot means the rest of the text is a dotted-quad occupying the
+          // last two groups. Everything from the start of the CURRENT group
+          // to the end of the string is the IPv4 part.
+          cond(
+            (acc_digits == usize(0)) => {
+              exn.throw(dyn(NetError.Other(String.from("malformed embedded IPv4 in IPv6 address"))));
+            },
+            true => ()
+          );
+          v4_start := (i - acc_digits);
+          v4 := Self.parse_v4(s.substring(v4_start, n), exn);
+          match(
+            v4,
+            .V4(a, bb, c, d) => {
+              cond(
+                seen_double => {
+                  cond(
+                    (tail_len > usize(6)) => {
+                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                    },
+                    true => ()
+                  );
+                  tail(tail_len) = ((u16(a) << u16(8)) | u16(bb));
+                  tail(tail_len + usize(1)) = ((u16(c) << u16(8)) | u16(d));
+                  tail_len = (tail_len + usize(2));
+                },
+                true => {
+                  cond(
+                    (head_len > usize(6)) => {
+                      exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+                    },
+                    true => ()
+                  );
+                  segs(head_len) = ((u16(a) << u16(8)) | u16(bb));
+                  segs(head_len + usize(1)) = ((u16(c) << u16(8)) | u16(d));
+                  head_len = (head_len + usize(2));
+                }
+              );
+            },
+            .V6(_) => ()
+          );
+          acc = u16(0);
+          acc_digits = usize(0);
+          // The dotted-quad is always LAST, so stop here.
+          i = n;
+        },
+        true =>
+          match(
+            _hex_digit(b),
+            .Some(d) => {
+              cond(
+                (acc_digits >= usize(4)) => {
+                  exn.throw(dyn(NetError.Other(String.from("IPv6 group has more than 4 hex digits"))));
+                },
+                true => ()
+              );
+              acc = ((acc << u16(4)) | d);
+              acc_digits = (acc_digits + usize(1));
+              i = (i + usize(1));
+            },
+            .None => {
+              exn.throw(dyn(NetError.Other(String.from("invalid character in IPv6 address"))));
+            }
+          )
+      );
+    });
+    // A trailing group (no separator after it).
+    cond(
+      (acc_digits > usize(0)) => {
+        cond(
+          seen_double => {
+            cond(
+              (tail_len >= usize(8)) => {
+                exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+              },
+              true => ()
+            );
+            tail(tail_len) = acc;
+            tail_len = (tail_len + usize(1));
+          },
+          true => {
+            cond(
+              (head_len >= usize(8)) => {
+                exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+              },
+              true => ()
+            );
+            segs(head_len) = acc;
+            head_len = (head_len + usize(1));
+          }
+        );
+      },
+      // Nothing after the last separator. Legal only when that separator was
+      // the `::` itself — `1::` is fine, `1:` is not.
+      ((n > usize(0)) && (bytes(n - usize(1)) == _ASCII_COLON)) => {
+        cond(
+          !seen_double => {
+            exn.throw(dyn(NetError.Other(String.from("IPv6 address may not end with a single ':'"))));
+          },
+          ((n >= usize(2)) && (bytes(n - usize(2)) != _ASCII_COLON)) => {
+            exn.throw(dyn(NetError.Other(String.from("IPv6 address may not end with a single ':'"))));
+          },
+          true => ()
+        );
+      },
+      true => ()
+    );
+    total := (head_len + tail_len);
+    cond(
+      // Without a `::` every one of the eight groups must be written out.
+      (!seen_double && (total != usize(8))) => {
+        exn.throw(dyn(NetError.Other(String.from("IPv6 address needs 8 groups or a '::'"))));
+      },
+      (total > usize(8)) => {
+        exn.throw(dyn(NetError.Other(String.from("too many groups in IPv6 address"))));
+      },
+      // `::` must stand for at least one zero group, so a compressed form
+      // that already spells all eight is wrong (RFC 5952 §4.2.2).
+      (seen_double && (total == usize(8))) => {
+        exn.throw(dyn(NetError.Other(String.from("'::' in an IPv6 address that already has 8 groups"))));
+      },
+      true => ()
+    );
+    // Move the post-`::` groups to the back; the gap between is already zero.
+    (t : usize) = usize(0);
+    while(runtime(t < tail_len), {
+      segs((usize(8) - tail_len) + t) = tail(t);
+      t = (t + usize(1));
+    });
+    .V6(segs)
+  }),
+  /// Parse either family, choosing by whether the text contains a `:`.
+  ///
+  /// A `:` cannot appear in an IPv4 address and must appear in an IPv6 one, so
+  /// the discriminator is exact — no try-one-then-the-other, and a malformed
+  /// address reports the error for the family it was clearly meant to be
+  /// rather than the second parser's confusing complaint.
+  parse : (fn(s : String, exn : Exception) -> IpAddr)(
+    cond(
+      s.contains(`:`) => Self.parse_v6(s, exn),
+      true => Self.parse_v4(s, exn)
+    )
+  ),
   /// Return the IPv4 loopback address (127.0.0.1).
   loopback_v4 : (fn() -> IpAddr)(
     .V4(u8(127), u8(0), u8(0), u8(1))
@@ -151,6 +448,114 @@ impl(
       self,
       .V4(_, _, _, _) => false,
       .V6(_) => true
+    )
+  ),
+  /// The IPv6 unspecified address (`::`) — the counterpart of `any_v4`, and
+  /// what a dual-stack listener binds to.
+  any_v6 : (fn() -> IpAddr)(
+    .V6(Array(u16, usize(8)).fill(u16(0)))
+  ),
+  /// The four octets of a V4 address, or the V6 address's sixteen bytes packed
+  /// big-endian. One accessor for either family, because a caller serializing
+  /// an address wants the bytes whatever it is.
+  octets : (fn(self : Self) -> ArrayList(u8))({
+    out := ArrayList(u8).new();
+    match(
+      self,
+      .V4(a, b, c, d) => {
+        out.push(a);
+        out.push(b);
+        out.push(c);
+        out.push(d);
+      },
+      .V6(segs) => {
+        (i : usize) = usize(0);
+        while(runtime(i < usize(8)), {
+          // Network byte order: high octet of each group first.
+          out.push(u8((segs(i) >> u16(8)) & u16(255)));
+          out.push(u8(segs(i) & u16(255)));
+          i = (i + usize(1));
+        });
+      }
+    );
+    out
+  }),
+  /// The eight 16-bit groups of a V6 address. `.None` for a V4 address: a V4
+  /// address has no groups, and returning the IPv4-mapped ones would silently
+  /// answer a different question.
+  segments : (fn(self : Self) -> Option(Array(u16, usize(8))))(
+    match(
+      self,
+      .V4(_, _, _, _) => .None,
+      .V6(segs) => .Some(segs)
+    )
+  ),
+  /// `0.0.0.0` or `::` — the "any address" of either family.
+  is_unspecified : (fn(self : Self) -> bool)(
+    match(
+      self,
+      .V4(a, b, c, d) => ((a == u8(0)) && (b == u8(0)) && ((c == u8(0)) && (d == u8(0)))),
+      .V6(segs) => {
+        (all_zero : bool) = true;
+        (i : usize) = usize(0);
+        while(runtime(i < usize(8)), {
+          cond(
+            (segs(i) != u16(0)) => {
+              all_zero = false;
+            },
+            true => ()
+          );
+          i = (i + usize(1));
+        });
+        all_zero
+      }
+    )
+  ),
+  /// A multicast address — `224.0.0.0/4` (RFC 5771) or `ff00::/8`
+  /// (RFC 4291 §2.7).
+  is_multicast : (fn(self : Self) -> bool)(
+    match(
+      self,
+      .V4(a, _, _, _) => ((a >= u8(224)) && (a <= u8(239))),
+      .V6(segs) => ((segs(usize(0)) >> u16(8)) == u16(0xff))
+    )
+  ),
+  /// An address in one of the RFC 1918 private ranges — `10/8`,
+  /// `172.16/12`, `192.168/16`.
+  ///
+  /// V6 has no RFC 1918; its nearest equivalent is the `fc00::/7` unique-local
+  /// range, which `is_unique_local` reports separately rather than being folded
+  /// in here — the two have different routing rules and conflating them is how
+  /// an access check ends up wrong.
+  is_private : (fn(self : Self) -> bool)(
+    match(
+      self,
+      .V4(a, b, _, _) =>
+        cond(
+          (a == u8(10)) => true,
+          (a == u8(172)) => ((b >= u8(16)) && (b <= u8(31))),
+          (a == u8(192)) => (b == u8(168)),
+          true => false
+        ),
+      .V6(_) => false
+    )
+  ),
+  /// A V6 unique-local address (`fc00::/7`, RFC 4193) — the V6 analogue of
+  /// RFC 1918, kept separate from `is_private` on purpose. Always false for V4.
+  is_unique_local : (fn(self : Self) -> bool)(
+    match(
+      self,
+      .V4(_, _, _, _) => false,
+      .V6(segs) => (((segs(usize(0)) >> u16(9)) & u16(0x7f)) == u16(0x7e))
+    )
+  ),
+  /// A link-local address — `169.254/16` (RFC 3927) or `fe80::/10`
+  /// (RFC 4291 §2.5.6).
+  is_link_local : (fn(self : Self) -> bool)(
+    match(
+      self,
+      .V4(a, b, _, _) => ((a == u8(169)) && (b == u8(254))),
+      .V6(segs) => ((segs(usize(0)) & u16(0xffc0)) == u16(0xfe80))
     )
   )
 );
@@ -321,6 +726,38 @@ export(IpAddr);
 // SocketAddr
 // ============================================================================
 /// An IP address paired with a port number.
+// A port is `0..=65535`. Parsed here rather than with `parse_i32` so the range
+// is enforced: `parse_i32("70000")` succeeds and `u16` would truncate it to
+// 4464 — a silently WRONG port rather than a rejected one.
+_parse_port :: (fn(s : String, exn : Exception) -> u16)({
+  cond(
+    s.is_empty() => {
+      exn.throw(dyn(NetError.Other(String.from("empty port in socket address"))));
+    },
+    true => ()
+  );
+  bytes := s.as_bytes();
+  (v : u32) = u32(0);
+  (i : usize) = usize(0);
+  while(runtime(i < bytes.len()), {
+    b := bytes(i);
+    cond(
+      ((b < _ASCII_ZERO) || (b > _ASCII_NINE)) => {
+        exn.throw(dyn(NetError.Other(String.from("port is not a number"))));
+      },
+      true => ()
+    );
+    v = ((v * u32(10)) + u32(b - _ASCII_ZERO));
+    cond(
+      (v > u32(65535)) => {
+        exn.throw(dyn(NetError.Other(String.from("port is above 65535"))));
+      },
+      true => ()
+    );
+    i = (i + usize(1));
+  });
+  u16(v)
+});
 SocketAddr :: struct(
   /// The IP address.
   ip : IpAddr,
@@ -340,6 +777,54 @@ impl(
   /// Create an IPv4 unspecified socket address (0.0.0.0) with the given port.
   any : (fn(port : u16) -> Self)(
     Self(ip : IpAddr.any_v4(), port : port)
+  ),
+  /// Parse `host:port`, throwing on invalid input.
+  ///
+  /// A V6 host MUST be bracketed — `[::1]:80` — because a bare `::1:80` is
+  /// ambiguous: `80` could be the port or the last group. That is exactly why
+  /// RFC 3986 §3.2.2 introduced the brackets, and why this rejects the
+  /// unbracketed form rather than guessing.
+  parse : (fn(s : String, exn : Exception) -> Self)(
+    cond(
+      s.starts_with(`[`) =>
+        match(
+          s.index_of(`]`),
+          .Some(close) => {
+            host := s.substring(usize(1), close);
+            rest := s.substring(close + usize(1), s.len());
+            cond(
+              !rest.starts_with(`:`) => {
+                exn.throw(dyn(NetError.Other(String.from("expected ':port' after the bracketed host"))));
+              },
+              true => ()
+            );
+            Self(
+              ip : IpAddr.parse_v6(host, exn),
+              port : _parse_port(rest.substring(usize(1), rest.len()), exn)
+            )
+          },
+          .None => exn.throw(dyn(NetError.Other(String.from("unclosed '[' in socket address"))))
+        ),
+      true =>
+        match(
+          s.last_index_of(`:`),
+          .Some(colon) => {
+            host := s.substring(usize(0), colon);
+            // A second colon means a bare V6 host, which must be bracketed.
+            cond(
+              host.contains(`:`) => {
+                exn.throw(dyn(NetError.Other(String.from("an IPv6 host must be bracketed, as in [::1]:80"))));
+              },
+              true => ()
+            );
+            Self(
+              ip : IpAddr.parse_v4(host, exn),
+              port : _parse_port(s.substring(colon + usize(1), s.len()), exn)
+            )
+          },
+          .None => exn.throw(dyn(NetError.Other(String.from("socket address needs a ':port'"))))
+        )
+    )
   )
 );
 impl(

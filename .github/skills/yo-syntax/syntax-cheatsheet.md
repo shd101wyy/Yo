@@ -1656,6 +1656,14 @@ tests/internal/parser.test.yo "Parse tuple value (a, b)" / "Parse Tuple type
 `.Some(p) => p.0`, never `.Some((k, v))`. The first std API returning one is
 `String.split_once -> Option((String; String))`.
 
+**`Tuple(A, B)` is a TYPE spelling only — it is not a value constructor.**
+`Tuple(A, B)` works in a type position (and is the form to use in a generic
+context, where `(A; B)` does not resolve), but `Tuple(A, B)(a, b)` does NOT
+build a tuple: write the comma literal `(a, b)`. The failure is silent at
+`yo check` and only surfaces at codegen — inside an `io.async` body it comes
+back as the ICE "this `io.async` closure's body was never fully evaluated",
+because the definition-time deferred trial swallowed the error.
+
 ## `__yo_panic` comptime-evaluates its message argument
 
 The builtin evaluates its argument and requires an ExprInfo: pass a plain
@@ -1687,6 +1695,11 @@ match(xs.get(i),
 Same class: a `return(...)` inside one arm types that arm as the RETURN type,
 mismatching a `()` sibling — restructure with a found-flag + trailing value,
 or use `__yo_panic("literal")` for diverging value-position arms (str only).
+
+Also the same class: an arm that only THROWS must have the throw as its TAIL
+expression. `.None => { exn.throw(dyn(err)); }` types the arm `unit` (the
+trailing `;` discards the diverging value) and mismatches a sibling arm's real
+type; write `.None => exn.throw(dyn(err))` with no braces and no semicolon.
 
 ## A real newline inside `"…"` is a parse error — reported misleadingly
 

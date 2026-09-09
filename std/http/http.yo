@@ -50,12 +50,139 @@ impl(
     Self(name : name, value : value)
   )
 );
+/// A header section — Rust's `http::HeaderMap`.
+///
+/// Two properties HTTP requires and a `HashMap(String, String)` cannot give:
+///
+/// - **field names are case-insensitive** (RFC 9110 §5.1), so `Content-Type`
+///   and `content-type` are the same field. Comparison folds ASCII case;
+///   the name is STORED as written, because that is what goes on the wire.
+/// - **a field may appear more than once** (`Set-Cookie` always does), and the
+///   order of the repeated values is significant. So this is a multimap that
+///   preserves insertion order, backed by a list rather than a hash table.
+///
+/// `insert` replaces every existing value for a name, `append` adds one — the
+/// same split Rust draws, and the reason `set_header` on a request used to
+/// silently accumulate duplicates.
+HeaderMap :: ref(struct(_entries : ArrayList(HttpHeader)));
+impl(
+  HeaderMap,
+  /// An empty header section.
+  new : (fn() -> Self)(
+    Self(_entries : ArrayList(HttpHeader).new())
+  ),
+  /// Number of field LINES, counting each repeat of a name separately.
+  len : (fn(self : Self) -> usize)(
+    self._entries.len()
+  ),
+  /// True when there are no field lines.
+  is_empty : (fn(self : Self) -> bool)(
+    self._entries.is_empty()
+  ),
+  /// The first value for `name`, or `.None`. Case-insensitive.
+  get : (fn(self : Self, name : String) -> Option(String))({
+    lower := name.to_lowercase();
+    (i : usize) = usize(0);
+    while(i < self._entries.len(), i = (i + usize(1)), {
+      h := self._entries(i);
+      cond(
+        (h.name.to_lowercase() == lower) => {
+          return(.Some(h.value));
+        },
+        true => ()
+      );
+    });
+    .None
+  }),
+  /// Every value for `name`, in the order the field lines appeared. Empty when
+  /// the field is absent — which is what makes `Set-Cookie` usable.
+  get_all : (fn(self : Self, name : String) -> ArrayList(String))({
+    lower := name.to_lowercase();
+    out := ArrayList(String).new();
+    (i : usize) = usize(0);
+    while(i < self._entries.len(), i = (i + usize(1)), {
+      h := self._entries(i);
+      cond(
+        (h.name.to_lowercase() == lower) => {
+          out.push(h.value);
+        },
+        true => ()
+      );
+    });
+    out
+  }),
+  /// True when `name` has at least one value. Case-insensitive.
+  contains_key : (fn(self : Self, name : String) -> bool)(
+    self.get(name).is_some()
+  ),
+  /// Add a value for `name`, KEEPING any existing values. Rust's
+  /// `HeaderMap::append`.
+  append : (fn(self : Self, name : String, value : String) -> unit)({
+    self._entries.push(HttpHeader.new(name, value));
+  }),
+  /// Set `name` to exactly `value`, dropping every value it had. Rust's
+  /// `HeaderMap::insert`. Returns the first previous value, if any — a caller
+  /// overwriting a header usually wants to know it was there.
+  insert : (fn(self : Self, name : String, value : String) -> Option(String))({
+    prev := self.get(name);
+    self.remove(name);
+    self._entries.push(HttpHeader.new(name, value));
+    prev
+  }),
+  /// Remove every value for `name`, returning how many field lines went.
+  remove : (fn(self : Self, name : String) -> usize)({
+    lower := name.to_lowercase();
+    kept := ArrayList(HttpHeader).new();
+    (removed : usize) = usize(0);
+    (i : usize) = usize(0);
+    while(i < self._entries.len(), i = (i + usize(1)), {
+      h := self._entries(i);
+      cond(
+        (h.name.to_lowercase() == lower) => {
+          removed = (removed + usize(1));
+        },
+        true => {
+          kept.push(h);
+        }
+      );
+    });
+    self._entries = kept;
+    removed
+  }),
+  /// The field lines in order — for serialization and iteration. The list is a
+  /// snapshot: pushing to it does not change the map.
+  entries : (fn(self : Self) -> ArrayList(HttpHeader))({
+    out := ArrayList(HttpHeader).new();
+    (i : usize) = usize(0);
+    while(i < self._entries.len(), i = (i + usize(1)), {
+      out.push(self._entries(i));
+    });
+    out
+  })
+);
+impl(
+  HeaderMap,
+  ToString(
+    /// The header section in wire format — each line `Name: value\r\n`,
+    /// WITHOUT the blank line that terminates the section (the message
+    /// serializers add that, since they also append `Content-Length`).
+    to_string : (fn(self : Self) -> String)({
+      out := String.new();
+      (i : usize) = usize(0);
+      while(i < self._entries.len(), i = (i + usize(1)), {
+        h := self._entries(i);
+        out = `${out}${h.name}: ${h.value}\r\n`;
+      });
+      out
+    })
+  )
+);
 /// An HTTP request with method, path, headers, and optional body.
 HttpRequest :: ref(
   struct(
     method : HttpMethod,
     path : String,
-    headers : ArrayList(HttpHeader),
+    headers : HeaderMap,
     body : String
   )
 );
@@ -63,11 +190,12 @@ impl(
   HttpRequest,
   /// Create a new request with the given method and path.
   new : (fn(method : HttpMethod, path : String) -> Self)(
-    Self(method : method, path : path, headers : ArrayList(HttpHeader).new(), body : ``)
+    Self(method : method, path : path, headers : HeaderMap.new(), body : ``)
   ),
-  /// Add a header and return the request (builder pattern).
+  /// Add a header and return the request (builder pattern). APPENDS, so a
+  /// repeatable field can be built up by chaining.
   header : (fn(self : Self, name : String, value : String) -> Self)({
-    self.headers.push(HttpHeader.new(name, value));
+    self.headers.append(name, value);
     self
   }),
   /// Set the request body and return the request (builder pattern).
@@ -75,33 +203,26 @@ impl(
     self.body = body;
     self
   }),
-  /// Set the Host header.
+  /// Set the Host header, REPLACING any existing one — there is exactly one
+  /// Host per request (RFC 9112 SS3.2), and appending a second used to put both
+  /// on the wire.
   set_host : (fn(self : Self, host : String) -> unit)({
-    self.headers.push(HttpHeader.new(`Host`, host));
+    self.headers.insert(`Host`, host);
   }),
-  /// Append a header to the request.
+  /// Set a header, REPLACING every existing value for that name. Use
+  /// `self.headers.append(...)` for a field that may legitimately repeat.
   set_header : (fn(self : Self, name : String, value : String) -> unit)({
-    self.headers.push(HttpHeader.new(name, value));
+    self.headers.insert(name, value);
   }),
   /// Set the request body.
   set_body : (fn(self : Self, body : String) -> unit)({
     self.body = body;
   }),
-  /// Look up a header value by name (case-insensitive).
-  get_header : (fn(self : Self, name : String) -> Option(String))({
-    lower_name := name.to_lowercase();
-    i := usize(0);
-    while(i < self.headers.len(), i = (i + usize(1)), {
-      h := self.headers(i);
-      cond(
-        (h.name.to_lowercase() == lower_name) => {
-          return(.Some(h.value));
-        },
-        true => ()
-      );
-    });
-    .None
-  })
+  /// Look up a header value by name (case-insensitive). The first value, when
+  /// the field repeats — `self.headers.get_all(name)` for all of them.
+  get_header : (fn(self : Self, name : String) -> Option(String))(
+    self.headers.get(name)
+  )
 );
 /// Wire-format serialization lives on the `ToString` trait (D1/D2: one
 /// spelling for "render to text", also reachable through `${req}`
@@ -112,12 +233,7 @@ impl(
   ToString(
     /// Serialize the request to an HTTP/1.1 wire-format string.
     to_string : (fn(self : Self) -> String)({
-      result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
-      i := usize(0);
-      while(i < self.headers.len(), i = (i + usize(1)), {
-        h := self.headers(i);
-        result = `${result}${h.name}: ${h.value}\r\n`;
-      });
+      result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n${self.headers.to_string()}`;
       result = `${result}\r\n`;
       cond(
         !self.body.is_empty() => {
@@ -129,74 +245,214 @@ impl(
     })
   )
 );
-/// Return the standard status text for an HTTP status code.
-http_status_text :: (fn(code : i32) -> String)(
-  cond(
-    (code == i32(200)) => `OK`,
-    (code == i32(201)) => `Created`,
-    (code == i32(204)) => `No Content`,
-    (code == i32(301)) => `Moved Permanently`,
-    (code == i32(302)) => `Found`,
-    (code == i32(304)) => `Not Modified`,
-    (code == i32(400)) => `Bad Request`,
-    (code == i32(404)) => `Not Found`,
-    (code == i32(413)) => `Payload Too Large`,
-    (code == i32(405)) => `Method Not Allowed`,
-    (code == i32(500)) => `Internal Server Error`,
-    (code == i32(502)) => `Bad Gateway`,
-    (code == i32(503)) => `Service Unavailable`,
-    true => `Unknown`
+/// An HTTP status code — Rust's `http::StatusCode`.
+///
+/// A `u16` newtype rather than a bare integer, so the CLASS predicates
+/// (`is_success`, `is_client_error`, ...) live with the value instead of being
+/// re-derived at every call site, and so a status cannot be confused with a
+/// port, a length or a byte count. `u16` because RFC 9110 SS15 fixes the range
+/// at three digits: a status is never negative, which an `i32` allowed.
+StatusCode :: struct(code : u16);
+impl(
+  StatusCode,
+  /// Wrap a raw code, or `.None` when it is outside the 100-599 range RFC 9110
+  /// SS15 defines. An unrecognized code INSIDE the range is accepted — a client
+  /// must treat an unknown `4xx` as `400`, so refusing it would break the very
+  /// forward-compatibility the classes exist for.
+  from_u16 : (fn(code : u16) -> Option(Self))(
+    cond(
+      ((code >= u16(100)) && (code <= u16(599))) => .Some(Self(code : code)),
+      true => .None
+    )
+  ),
+  /// The raw code.
+  as_u16 : (fn(self : Self) -> u16)(
+    self.code
+  ),
+  /// 1xx — the request was received and the process continues.
+  is_informational : (fn(self : Self) -> bool)(
+    (self.code >= u16(100)) && (self.code < u16(200))
+  ),
+  /// 2xx — the request succeeded.
+  is_success : (fn(self : Self) -> bool)(
+    (self.code >= u16(200)) && (self.code < u16(300))
+  ),
+  /// 3xx — further action is needed to complete the request.
+  is_redirection : (fn(self : Self) -> bool)(
+    (self.code >= u16(300)) && (self.code < u16(400))
+  ),
+  /// 4xx — the request was malformed or cannot be fulfilled.
+  is_client_error : (fn(self : Self) -> bool)(
+    (self.code >= u16(400)) && (self.code < u16(500))
+  ),
+  /// 5xx — the server failed to fulfil an apparently valid request.
+  is_server_error : (fn(self : Self) -> bool)(
+    self.code >= u16(500)
+  ),
+  /// 4xx or 5xx — either side's fault, but a failure either way.
+  is_error : (fn(self : Self) -> bool)(
+    self.code >= u16(400)
+  ),
+  /// The reason phrase RFC 9110 registers for this code, or `Unknown`.
+  ///
+  /// The phrase is ADVISORY: a server may send any text and a client must not
+  /// act on it — which is why this is a lookup here rather than a field, and
+  /// why `HttpResponse` keeps whatever phrase the peer actually sent.
+  reason : (fn(self : Self) -> String)(
+    cond(
+      (self.code == u16(100)) => `Continue`,
+      (self.code == u16(101)) => `Switching Protocols`,
+      (self.code == u16(200)) => `OK`,
+      (self.code == u16(201)) => `Created`,
+      (self.code == u16(202)) => `Accepted`,
+      (self.code == u16(204)) => `No Content`,
+      (self.code == u16(206)) => `Partial Content`,
+      (self.code == u16(301)) => `Moved Permanently`,
+      (self.code == u16(302)) => `Found`,
+      (self.code == u16(303)) => `See Other`,
+      (self.code == u16(304)) => `Not Modified`,
+      (self.code == u16(307)) => `Temporary Redirect`,
+      (self.code == u16(308)) => `Permanent Redirect`,
+      (self.code == u16(400)) => `Bad Request`,
+      (self.code == u16(401)) => `Unauthorized`,
+      (self.code == u16(403)) => `Forbidden`,
+      (self.code == u16(404)) => `Not Found`,
+      (self.code == u16(405)) => `Method Not Allowed`,
+      (self.code == u16(408)) => `Request Timeout`,
+      (self.code == u16(409)) => `Conflict`,
+      (self.code == u16(410)) => `Gone`,
+      (self.code == u16(411)) => `Length Required`,
+      (self.code == u16(413)) => `Content Too Large`,
+      (self.code == u16(414)) => `URI Too Long`,
+      (self.code == u16(415)) => `Unsupported Media Type`,
+      (self.code == u16(422)) => `Unprocessable Content`,
+      (self.code == u16(429)) => `Too Many Requests`,
+      (self.code == u16(431)) => `Request Header Fields Too Large`,
+      (self.code == u16(500)) => `Internal Server Error`,
+      (self.code == u16(501)) => `Not Implemented`,
+      (self.code == u16(502)) => `Bad Gateway`,
+      (self.code == u16(503)) => `Service Unavailable`,
+      (self.code == u16(504)) => `Gateway Timeout`,
+      (self.code == u16(505)) => `HTTP Version Not Supported`,
+      true => `Unknown`
+    )
   )
 );
-/// An HTTP response with status code, headers, and body.
+impl(
+  StatusCode,
+  ToString(
+    /// The digits alone — what goes in a status line.
+    to_string : (fn(self : Self) -> String)(
+      self.code.to_string()
+    )
+  )
+);
+impl(
+  StatusCode,
+  Eq(StatusCode)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.code == rhs.code
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.code != rhs.code
+    )
+  )
+);
+impl(
+  StatusCode,
+  Ord(StatusCode)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.code < rhs.code
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.code <= rhs.code
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.code > rhs.code
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.code >= rhs.code
+    )
+  )
+);
+/// The registered codes, as nullary constructors. Not enum variants, because
+/// the set is OPEN — a server may send a registered code this list does not
+/// carry, and an enum would have to reject or box it.
+impl(
+  StatusCode,
+  OK : (fn() -> Self)(Self(code : u16(200))),
+  CREATED : (fn() -> Self)(Self(code : u16(201))),
+  ACCEPTED : (fn() -> Self)(Self(code : u16(202))),
+  NO_CONTENT : (fn() -> Self)(Self(code : u16(204))),
+  MOVED_PERMANENTLY : (fn() -> Self)(Self(code : u16(301))),
+  FOUND : (fn() -> Self)(Self(code : u16(302))),
+  NOT_MODIFIED : (fn() -> Self)(Self(code : u16(304))),
+  TEMPORARY_REDIRECT : (fn() -> Self)(Self(code : u16(307))),
+  PERMANENT_REDIRECT : (fn() -> Self)(Self(code : u16(308))),
+  BAD_REQUEST : (fn() -> Self)(Self(code : u16(400))),
+  UNAUTHORIZED : (fn() -> Self)(Self(code : u16(401))),
+  FORBIDDEN : (fn() -> Self)(Self(code : u16(403))),
+  NOT_FOUND : (fn() -> Self)(Self(code : u16(404))),
+  METHOD_NOT_ALLOWED : (fn() -> Self)(Self(code : u16(405))),
+  CONFLICT : (fn() -> Self)(Self(code : u16(409))),
+  CONTENT_TOO_LARGE : (fn() -> Self)(Self(code : u16(413))),
+  TOO_MANY_REQUESTS : (fn() -> Self)(Self(code : u16(429))),
+  INTERNAL_SERVER_ERROR : (fn() -> Self)(Self(code : u16(500))),
+  NOT_IMPLEMENTED : (fn() -> Self)(Self(code : u16(501))),
+  BAD_GATEWAY : (fn() -> Self)(Self(code : u16(502))),
+  SERVICE_UNAVAILABLE : (fn() -> Self)(Self(code : u16(503))),
+  GATEWAY_TIMEOUT : (fn() -> Self)(Self(code : u16(504)))
+);
+/// An HTTP response with status, headers, and body.
 HttpResponse :: ref(
   struct(
-    status_code : i32,
+    /// The status. A `StatusCode`, not a bare `i32` — the class predicates
+    /// belong with the value, and a status is never negative.
+    status : StatusCode,
+    /// The reason phrase as the peer sent it, which may be anything (RFC 9110
+    /// SS15 makes it advisory). `status.reason()` gives the registered phrase
+    /// instead; keeping both means a proxy can pass the original through.
     status_text : String,
-    headers : ArrayList(HttpHeader),
+    headers : HeaderMap,
     body : String
   )
 );
 impl(
   HttpResponse,
-  /// Create a new response with the given status code and text.
-  new : (fn(status_code : i32, status_text : String) -> Self)(
-    Self(status_code : status_code, status_text : status_text, headers : ArrayList(HttpHeader).new(), body : ``)
+  /// Create a response with the given status and reason phrase.
+  new : (fn(status : StatusCode, status_text : String) -> Self)(
+    Self(status : status, status_text : status_text, headers : HeaderMap.new(), body : ``)
   ),
-  /// Look up a header value by name (case-insensitive).
-  get_header : (fn(self : Self, name : String) -> Option(String))({
-    lower_name := name.to_lowercase();
-    i := usize(0);
-    while(i < self.headers.len(), i = (i + usize(1)), {
-      h := self.headers(i);
-      cond(
-        (h.name.to_lowercase() == lower_name) => {
-          return(.Some(h.value));
-        },
-        true => ()
-      );
-    });
-    .None
+  /// Look up a header value by name (case-insensitive). The first value, when
+  /// the field repeats — `self.headers.get_all(name)` for all of them, which
+  /// is what `Set-Cookie` needs.
+  get_header : (fn(self : Self, name : String) -> Option(String))(
+    self.headers.get(name)
+  ),
+  /// Set a header, REPLACING every existing value for that name.
+  set_header : (fn(self : Self, name : String, value : String) -> unit)({
+    self.headers.insert(name, value);
   }),
-  /// Return `true` if the status code is in the 2xx range.
+  /// True if the status is 2xx.
   is_ok : (fn(self : Self) -> bool)(
-    (self.status_code >= i32(200)) && (self.status_code < i32(300))
+    self.status.is_success()
   ),
-  /// Return `true` if the status code is in the 3xx range.
+  /// True if the status is 3xx.
   is_redirect : (fn(self : Self) -> bool)(
-    (self.status_code >= i32(300)) && (self.status_code < i32(400))
+    self.status.is_redirection()
   ),
-  /// Return `true` if the status code is 4xx or higher.
+  /// True if the status is 4xx or 5xx.
   is_error : (fn(self : Self) -> bool)(
-    self.status_code >= i32(400)
+    self.status.is_error()
   ),
-  /// A response with `code` and its standard reason phrase.
-  with_status : (fn(code : i32) -> Self)(
-    Self.new(code, http_status_text(code))
+  /// A response with `status` and its registered reason phrase.
+  with_status : (fn(status : StatusCode) -> Self)(
+    Self.new(status, status.reason())
   ),
-  /// Add a header and return the response (builder pattern).
+  /// Add a header and return the response (builder pattern). APPENDS, so a
+  /// repeatable field can be built up by chaining.
   header : (fn(self : Self, name : String, value : String) -> Self)({
-    self.headers.push(HttpHeader.new(name, value));
+    self.headers.append(name, value);
     self
   }),
   /// Set the body and return the response (builder pattern).
@@ -212,12 +468,7 @@ impl(
     /// when none is present (the byte length of `body`), so the peer can
     /// delimit the message without waiting for close.
     to_string : (fn(self : Self) -> String)({
-      result := `HTTP/1.1 ${self.status_code.to_string()} ${self.status_text}\r\n`;
-      i := usize(0);
-      while(i < self.headers.len(), i = (i + usize(1)), {
-        h := self.headers(i);
-        result = `${result}${h.name}: ${h.value}\r\n`;
-      });
+      result := `HTTP/1.1 ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
       cond(
         self.get_header(`Content-Length`).is_none() => {
           result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
@@ -263,9 +514,30 @@ derive(
     .InvalidHeaderLine => `Invalid header line: ${line}`
   )
 );
-/// Parse a raw HTTP response string into an `HttpResponse`.
+/// Parse a raw HTTP response into an `HttpResponse`.
+///
+/// The head is split from the body on the `\r\n\r\n` boundary and the body is
+/// sliced as BYTES — it may be binary, and it used to be reassembled by
+/// splitting the WHOLE message on `\r\n` and re-joining the tail lines one
+/// concatenation at a time: quadratic in the body size, and a `substring` over
+/// a UTF-8 continuation byte panics.
 parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
-  lines := raw.split(`\r\n`);
+  header_end := match(raw.index_of(`\r\n\r\n`), .Some(p) => p, .None => raw.len());
+  head := raw.substring(usize(0), header_end);
+  body := cond(
+    ((header_end + usize(4)) <= raw.len()) => {
+      raw_b := raw.as_bytes();
+      body_b := ArrayList(u8).new();
+      bi := (header_end + usize(4));
+      while(runtime(bi < raw_b.len()), {
+        body_b.push(raw_b(bi));
+        bi = (bi + usize(1));
+      });
+      String.from_bytes(body_b)
+    },
+    true => String.new()
+  );
+  lines := head.split(`\r\n`);
   cond(
     (lines.len() == usize(0)) => {
       return(.Err(HttpParseError.Empty));
@@ -288,16 +560,15 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
   );
   sp1 := sp1_opt.unwrap();
   rest := status_line.substring(sp1 + usize(1), status_line.len());
-  sp2_opt := rest.index_of(` `);
-  cond(
-    sp2_opt.is_none() => {
-      return(.Err(HttpParseError.InvalidStatusLine(status_line)));
-    },
-    true => ()
-  );
-  sp2 := sp2_opt.unwrap();
+  // The reason phrase is OPTIONAL (RFC 9112 SS4): `HTTP/1.1 204` with no
+  // trailing space is well-formed, and rejecting it made this parser stricter
+  // than the protocol.
+  sp2 := match(rest.index_of(` `), .Some(p) => p, .None => rest.len());
   code_str := rest.substring(usize(0), sp2);
-  status_text := rest.substring(sp2 + usize(1), rest.len());
+  status_text := cond(
+    (sp2 < rest.len()) => rest.substring(sp2 + usize(1), rest.len()),
+    true => String.new()
+  );
   code_opt := code_str.parse_i32();
   cond(
     code_opt.is_none() => {
@@ -305,17 +576,23 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
     },
     true => ()
   );
-  code := code_opt.unwrap();
-  resp := HttpResponse.new(code, status_text);
+  raw_code := code_opt.unwrap();
+  // A code outside 100-599 is not a status. It used to be accepted, so a
+  // garbled `HTTP/1.1 -1 x` produced a response whose every class predicate
+  // answered false.
+  status := cond(
+    ((raw_code >= i32(100)) && (raw_code <= i32(599))) =>
+      match(StatusCode.from_u16(u16(raw_code)), .Some(sc) => sc, .None => StatusCode.OK()),
+    true => {
+      return(.Err(HttpParseError.InvalidStatusCode(code_str)));
+    }
+  );
+  resp := HttpResponse.new(status, status_text);
   j := usize(1);
-  body_start := lines.len();
   while(j < lines.len(), j = (j + usize(1)), {
     hline := lines(j);
     cond(
-      hline.is_empty() => {
-        body_start = (j + usize(1));
-        break;
-      },
+      hline.is_empty() => (),
       true => {
         colon_opt := hline.index_of(`:`);
         cond(
@@ -323,23 +600,15 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
             colon := colon_opt.unwrap();
             hname := hline.substring(usize(0), colon).trim();
             hval := hline.substring(colon + usize(1), hline.len()).trim();
-            resp.headers.push(HttpHeader.new(hname, hval));
+            // APPEND: a repeated field (Set-Cookie) must keep every value.
+            resp.headers.append(hname, hval);
           },
           true => ()
         );
       }
     );
   });
-  cond(
-    (body_start < lines.len()) => {
-      resp.body = lines(body_start);
-      m := (body_start + usize(1));
-      while(m < lines.len(), m = (m + usize(1)), {
-        resp.body = `${resp.body}\r\n${lines(m)}`;
-      });
-    },
-    true => ()
-  );
+  resp.body = body;
   .Ok(resp)
 });
 /// Parse a raw HTTP/1.1 request (request line, headers, body) into an
@@ -404,7 +673,7 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, HttpParseError))({
       .Some(colon) => {
         hname := hline.substring(usize(0), colon).trim();
         hval := hline.substring(colon + usize(1), hline.len()).trim();
-        req.headers.push(HttpHeader.new(hname, hval));
+        req.headers.append(hname, hval);
       },
       .None => {
         return(.Err(HttpParseError.InvalidHeaderLine(hline)));
@@ -463,5 +732,5 @@ derive(
   )
 );
 export(HttpError);
-export(HttpMethod, HttpHeader, HttpRequest, HttpResponse);
-export(HttpParseError, parse_response, parse_request, http_status_text);
+export(HttpMethod, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse);
+export(HttpParseError, parse_response, parse_request);
