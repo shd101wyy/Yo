@@ -1,8 +1,10 @@
 # Remove the `open(...)` builtin
 
-**Status: ACTIVE — decided 2026-09-09 (user), nothing landed yet.**
-Branch `remove-open-builtin` (worktree `/private/tmp/yo-remove-open`, based on
-`develop` @ `3d924b5fb`).
+**Status: LANDED 2026-09-10** — one PR off `develop` @ `3d924b5fb`
+(branch `remove-open-builtin`), with the companion commit
+shd101wyy/markdown_yo@a46f700 in the vendored library. This is now a closed
+record: the migration rules in §3 and the findings in §6 are the reference for
+anyone reading a historical `open(...)` in an archived doc.
 
 `open(...)` is removed from the language. Every module glob import becomes a
 named import (`{ String } :: import("std/string")`), every struct open becomes
@@ -269,9 +271,29 @@ text; no new mechanism.
   are left alone: they are dated prose records, and their code blocks are
   quotations of how the bug looked at the time.
 
-## 7. Closing
+## 7. What actually ran
 
-When PR 2 lands: banner this doc `LANDED <date>`, move it to
-`plans/reference/`, update `plans/README.md`, and add the removal to the
-syntax cheatsheet's "removed forms" note so a future session does not
-reintroduce `open`.
+| gate | result |
+| --- | --- |
+| `yo build` (migration only, then again after the deletion) | green both times |
+| `yo check ./std` | 173/173 |
+| `yo check ./src` | 269/269 (two files fewer — the deleted handlers) |
+| `gates_fast.sh` T1 GATE 0–8 | green after the repro fix; corpus 156/156, fmt clean and idempotent |
+| `fixpoint_only.sh` | `STAGE2_RC=0`, stage2 hollow=0, `STAGE3_RC=0`, **FIXPOINT_HOLDS** |
+| `cli-diff-test.sh` (full) | PASS 90, GOLDEN-DIFF 0, NO-GOLDEN 0, 1 network SKIP |
+| language suite (`tests`, minus `internal`/`cli-cases`) | green |
+| `tests/internal` | green, one file at a time |
+
+36 cli goldens were re-recorded: 35 `expected_tree` manifests (they hash the
+fixture and bundled-skill files this change edited, and the `init` scaffold that
+`src/init.yo` now emits with named imports) and one `expected_stdout` — the LSP
+case, whose only semantic change is `"open"` leaving the completion keyword
+list. An audit of the 1188 names the migration introduced found exactly one
+that the file never uses again, and that one is the pre-existing
+circular-import probe in `tests/circular_deps/circular_use_b.yo`.
+
+Still true after the removal, and worth saying out loud: **`{ ... } :: import(...)`
+is still a glob** with the same silent-shadowing property. Nothing in this
+change constrains it; if that spelling should also go, it is a separate
+decision with a separate migration (and `tests/module.test.yo` documents the
+form today).
