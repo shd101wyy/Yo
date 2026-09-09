@@ -724,7 +724,11 @@ an `Array(u8, N)` sized by its width — neither is nameable from a blanket.
 `usize`/`isize` get `abs_diff` but deliberately NO byte conversions: N would
 be the target pointer width and a type-level size cannot be derived the way
 `_USIZE_BITS` derives a value, so hard-coding 8 would be silently wrong on
-wasm32. STILL OPEN: a documented `downcast`.
+wasm32. `downcast` is now DOCUMENTED (2026-09-09) in
+`docs/{en-US,zh-CN}/DYN_DESIGN.md` — the `Option(T)` result, the single
+pointer-compare against the vtable's `__yo_type_id`, the owned/RC'd result, the
+box-unwrapping for value targets, and the statically-`.None` case for a target
+no `dyn()` in the program ever wraps.
 **`ErrorChain` and `root_cause` are BLOCKED on a compiler defect, not on
 design** —
 `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.

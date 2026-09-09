@@ -223,6 +223,61 @@ int32_t result = value.vtable->return_i32(value.data);
 value.vtable->print(value.data);
 ```
 
+## Runtime Type Checks: `downcast(value, T)`
+
+A `Dyn` erases the concrete type, and `downcast` is how you get it back:
+
+```rust
+downcast(dyn_value, T) -> Option(T)
+```
+
+It is the only safe way to recover the concrete type from a `Dyn`, and it is
+what `std/error.yo`'s `error_is(err, T)` is built out of. Both arguments are
+fixed: the first must have a `Dyn` type, the second must be a TYPE (evaluated at
+compile time, so `T` is never a runtime value).
+
+```rust
+Animal :: trait(speak : (fn(self : Self) -> unit));
+// ... impl(Cat, Animal(...)); impl(Dog, Animal(...));
+
+animal := dyn(Cat.new());
+
+match(downcast(animal, Cat),
+  .Some(cat) => cat.purr(),      // the concrete Cat, RC'd and owned
+  .None => println(`not a cat`)
+);
+
+// Testing only, without using the value:
+if(downcast(animal, Dog).is_some(), { println(`a dog`); });
+```
+
+**How the check works.** Every `Dyn` vtable carries a `__yo_type_id` field, and
+each concrete type gets one static whose ADDRESS is its canonical type id. The
+check is a single pointer comparison — `value.vtable->__yo_type_id ==
+(uintptr_t)&__yo_typeid_Cat` — so it costs one load and one compare, with no
+string comparison and no RTTI table.
+
+**The result is owned.** `Dyn` only ever holds reference-counted data, so a
+successful downcast increments the refcount and hands back an owned reference:
+the `Dyn` keeps its own, and the two are dropped independently.
+
+**Value types come out of their box.** `dyn(42)` auto-boxes (see
+[Reference-Semantics Type Requirement](#reference-semantics-type-requirement-for-dyn)),
+so `dyn.data` points at a `Box` struct rather than at the value. A downcast to a
+value or newtype target reads the value out of that box and dups it — casting
+`data` straight to the value struct would not even be valid C.
+
+**A downcast that can never succeed is a compile-time `.None`.** The compiler
+knows every `dyn(...)` creation site in the program. If nothing ever wraps `T`
+into this `Dyn`, no vtable in the binary carries `T`'s type id, the comparison
+can never hold, and the whole expression is lowered to a constant `.None` rather
+than to a check that is always false.
+
+**There is no unchecked cast.** `downcast` always returns `Option(T)`; if you
+want a panic on mismatch, that is `downcast(v, T).unwrap()`, spelled at the call
+site so it is visible. `typeid` is a separate builtin and takes a TYPE, not a
+value — it cannot be used to test a `Dyn` at runtime.
+
 ## Reference Counting for Dyn
 
 Since `Dyn` is a value type, we need dup/drop functions that operate on the `data` pointer.
