@@ -155,7 +155,7 @@ linker, and it does NOT work through the C backend.** From the design
 | Stable identity across updates (InternPool) | **Yes, and it is the prerequisite for everything on the C side** — replaces the `yo_id_N` counter | Phase 2 |
 | Keep the process alive (`--watch -fincremental`) | **Yes** — `check --watch` already does; `build`/`test` do not | Phase 4 |
 | In-place binary patching | **No** — needs a linker we do not own; a C backend cannot do it. The nearest achievable is per-module TUs + a 0.1 s `-O0` link | Phase 5 |
-| A self-hosted machine-code backend | **Not proposed** — Zig's x86_64 backend was a multi-year effort and still trails LLVM's code quality; it would also end the single-file portable-C distribution | §7 |
+| A self-hosted machine-code backend | **Out of scope — user decision 2026-09-09** ("too hard to achieve for now"). Zig's x86_64 backend was a multi-year effort and still trails LLVM's code quality; it would also end the single-file portable-C distribution | §10 |
 | Lazy analysis that skips unreferenced code | **Open decision** — conflicts with `LAZY_TOPLEVEL_BINDINGS.md` rule 5 (full coverage). Measure first | §6 |
 
 ## 2. Goals and non-goals
@@ -172,9 +172,11 @@ Goals, each with a number to hit (baseline → target, M4):
 
 Non-goals, stated so they are not re-litigated:
 
-- No native backend, no LLVM. The C backend stays the only backend and the
+- No native backend, no LLVM — **decided by the user 2026-09-09: too hard
+  to achieve for now.** The C backend stays the only backend and the
   single-file `yo.c` stays the distribution format
-  (`plans/reference/PORTABLE_C_DISTRIBUTION.md`).
+  (`plans/reference/PORTABLE_C_DISTRIBUTION.md`). Every phase below is
+  scoped to what a C backend can do.
 - No in-place binary patching.
 - No change to the language. In particular no change to rule 5 (full
   diagnostic coverage) without the §6 decision.
@@ -499,7 +501,7 @@ until the number exists.
 
 ## 10. What is explicitly rejected, with the reason
 
-- **A self-hosted native backend.** Zig's x86_64 backend took years, still
+- **A self-hosted native backend (user decision, 2026-09-09).** Zig's x86_64 backend took years, still
   emits slower code than LLVM, and Zig kept LLVM for release builds. Yo
   would lose the portable-C distribution that lets a C compiler alone
   bootstrap it (`scripts/make-portable-c.sh`). The 5× Zig reports for
