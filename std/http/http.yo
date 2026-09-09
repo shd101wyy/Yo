@@ -251,25 +251,18 @@ HttpParseError :: enum(
   /// A header line without a `:`.
   InvalidHeaderLine(line : String)
 );
-impl(
+derive(
   HttpParseError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .Empty => `Empty message`,
-          .InvalidStatusLine(line) => `Invalid status line: ${line}`,
-          .InvalidStatusCode(text) => `Invalid status code: ${text}`,
-          .InvalidRequestLine(line) => `Invalid request line: ${line}`,
-          .UnknownMethod(name) => `Unknown method: ${name}`,
-          .UnsupportedVersion(version) => `Unsupported HTTP version: ${version}`,
-          .InvalidHeaderLine(line) => `Invalid header line: ${line}`
-        )
-    )
+  Error(
+    .Empty => `Empty message`,
+    .InvalidStatusLine => `Invalid status line: ${line}`,
+    .InvalidStatusCode => `Invalid status code: ${text}`,
+    .InvalidRequestLine => `Invalid request line: ${line}`,
+    .UnknownMethod => `Unknown method: ${name}`,
+    .UnsupportedVersion => `Unsupported HTTP version: ${version}`,
+    .InvalidHeaderLine => `Invalid header line: ${line}`
   )
 );
-impl(HttpParseError, Error());
 /// Parse a raw HTTP response string into an `HttpResponse`.
 parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
   lines := raw.split(`\r\n`);
@@ -455,27 +448,20 @@ HttpError :: enum(
   /// An unclassified HTTP error.
   Other(msg : String)
 );
-impl(
+derive(
   HttpError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .ConnectionFailed(msg) => `HTTP connection failed: ${msg}`,
-          .InvalidUrl(msg) => `Invalid URL: ${msg}`,
-          .Timeout => `HTTP request timed out`,
-          .TooManyRedirects => `Too many redirects`,
-          .UnsupportedScheme(scheme) => `Unsupported scheme: ${scheme}`,
-          .ResponseTooLarge => `Response too large`,
-          .MalformedChunkedBody(msg) => `Malformed chunked body: ${msg}`,
-          .MalformedContentLength(msg) => `Malformed Content-Length: ${msg}`,
-          .Other(msg) => `HTTP error: ${msg}`
-        )
-    )
+  Error(
+    .ConnectionFailed => `HTTP connection failed: ${msg}`,
+    .InvalidUrl => `Invalid URL: ${msg}`,
+    .Timeout => `HTTP request timed out`,
+    .TooManyRedirects => `Too many redirects`,
+    .UnsupportedScheme => `Unsupported scheme: ${scheme}`,
+    .ResponseTooLarge => `Response too large`,
+    .MalformedChunkedBody => `Malformed chunked body: ${msg}`,
+    .MalformedContentLength => `Malformed Content-Length: ${msg}`,
+    .Other => `HTTP error: ${msg}`
   )
 );
-impl(HttpError, Error());
 export(HttpError);
 export(HttpMethod, HttpHeader, HttpRequest, HttpResponse);
 export(HttpParseError, parse_response, parse_request, http_status_text);

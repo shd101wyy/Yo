@@ -24,23 +24,16 @@ UrlError :: enum(
   InvalidCharacter(pos : usize),
   Other(msg : String)
 );
-impl(
+derive(
   UrlError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .EmptyInput => `URL error: empty input`,
-          .MissingScheme => `URL error: missing scheme`,
-          .InvalidPort => `URL error: invalid port`,
-          .InvalidCharacter(pos) => `URL error: invalid character at position ${pos}`,
-          .Other(msg) => `URL error: ${msg}`
-        )
-    )
+  Error(
+    .EmptyInput => `URL error: empty input`,
+    .MissingScheme => `URL error: missing scheme`,
+    .InvalidPort => `URL error: invalid port`,
+    .InvalidCharacter => `URL error: invalid character at position ${pos}`,
+    .Other => `URL error: ${msg}`
   )
 );
-impl(UrlError, Error());
 // ============================================================================
 // Url
 // ============================================================================

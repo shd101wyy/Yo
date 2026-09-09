@@ -181,55 +181,46 @@ impl(
     )
   )
 );
-impl(
+derive(
   IoError,
-  ToString(
-    to_string : (
-      self -> {
-        s := match(
-          self,
-          .NotFound => String.from("file or directory not found"),
-          .PermissionDenied => String.from("permission denied"),
-          .AlreadyExists => String.from("file or directory already exists"),
-          .NotADirectory => String.from("not a directory"),
-          .IsADirectory => String.from("is a directory"),
-          .DirectoryNotEmpty => String.from("directory not empty"),
-          .BrokenPipe => String.from("broken pipe"),
-          .WouldBlock => String.from("operation would block"),
-          .InvalidInput => String.from("invalid input"),
-          .Interrupted => String.from("operation interrupted"),
-          .TooManyOpenFiles => String.from("too many open files"),
-          .FileTooLarge => String.from("file too large"),
-          .NoSpace => String.from("no space left on device"),
-          .ReadOnlyFilesystem => String.from("read-only filesystem"),
-          .CrossDeviceLink => String.from("cross-device link"),
-          .TooManyLinks => String.from("too many links"),
-          .NameTooLong => String.from("name too long"),
-          .NotSupported => String.from("operation not supported"),
-          .TimedOut => String.from("operation timed out"),
-          .Busy => String.from("resource busy"),
-          .BadFileDescriptor => String.from("bad file descriptor"),
-          .IoError => String.from("I/O error"),
-          .ConnectionRefused => String.from("connection refused"),
-          .ConnectionReset => String.from("connection reset by peer"),
-          .ConnectionAborted => String.from("connection aborted"),
-          .NotConnected => String.from("socket not connected"),
-          .AddressInUse => String.from("address already in use"),
-          .AddressNotAvailable => String.from("address not available"),
-          .NetworkUnreachable => String.from("network unreachable"),
-          .HostUnreachable => String.from("host unreachable"),
-          .NetworkDown => String.from("network is down"),
-          .AlreadyConnected => String.from("socket already connected"),
-          .InvalidData => String.from("stream contained malformed data"),
-          .WriteZero => String.from("write returned zero bytes"),
-          .Other(code) => `unknown I/O error (os error ${code})`.to_string()
-        );
-        return(s);
-      }
-    )
+  Error(
+    .NotFound => String.from("file or directory not found"),
+    .PermissionDenied => String.from("permission denied"),
+    .AlreadyExists => String.from("file or directory already exists"),
+    .NotADirectory => String.from("not a directory"),
+    .IsADirectory => String.from("is a directory"),
+    .DirectoryNotEmpty => String.from("directory not empty"),
+    .BrokenPipe => String.from("broken pipe"),
+    .WouldBlock => String.from("operation would block"),
+    .InvalidInput => String.from("invalid input"),
+    .Interrupted => String.from("operation interrupted"),
+    .TooManyOpenFiles => String.from("too many open files"),
+    .FileTooLarge => String.from("file too large"),
+    .NoSpace => String.from("no space left on device"),
+    .ReadOnlyFilesystem => String.from("read-only filesystem"),
+    .CrossDeviceLink => String.from("cross-device link"),
+    .TooManyLinks => String.from("too many links"),
+    .NameTooLong => String.from("name too long"),
+    .NotSupported => String.from("operation not supported"),
+    .TimedOut => String.from("operation timed out"),
+    .Busy => String.from("resource busy"),
+    .BadFileDescriptor => String.from("bad file descriptor"),
+    .IoError => String.from("I/O error"),
+    .ConnectionRefused => String.from("connection refused"),
+    .ConnectionReset => String.from("connection reset by peer"),
+    .ConnectionAborted => String.from("connection aborted"),
+    .NotConnected => String.from("socket not connected"),
+    .AddressInUse => String.from("address already in use"),
+    .AddressNotAvailable => String.from("address not available"),
+    .NetworkUnreachable => String.from("network unreachable"),
+    .HostUnreachable => String.from("host unreachable"),
+    .NetworkDown => String.from("network is down"),
+    .AlreadyConnected => String.from("socket already connected"),
+    .InvalidData => String.from("stream contained malformed data"),
+    .WriteZero => String.from("write returned zero bytes"),
+    .Other => `unknown I/O error (os error ${code})`.to_string()
   )
 );
-impl(IoError, Error());
 impl(
   IoError,
   // Check a raw result code, throwing on error via Exception effect.
