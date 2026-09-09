@@ -127,3 +127,36 @@ test("f32 surface", {
   assert(f32(0.0).copysign(f32(-1.0)).is_sign_negative(), "negative zero");
   assert(f32(1.0).is_finite(), "is_finite");
 });
+test("f64 non-finite constants", {
+  assert(f64.INFINITY.is_infinite(), "INFINITY is infinite");
+  assert(!f64.INFINITY.is_finite(), "INFINITY is not finite");
+  assert(!f64.INFINITY.is_nan(), "INFINITY is not NaN");
+  assert(f64.INFINITY > f64.MAX, "INFINITY is above the largest finite double");
+  assert(f64.NEG_INFINITY.is_infinite(), "NEG_INFINITY is infinite");
+  assert(f64.NEG_INFINITY < f64.MIN, "NEG_INFINITY is below the most negative finite double");
+  assert(f64.NEG_INFINITY == -f64.INFINITY, "NEG_INFINITY is -INFINITY");
+  assert(f64.NAN.is_nan(), "NAN is NaN");
+  assert(!f64.NAN.is_finite(), "NAN is not finite");
+  assert(!f64.NAN.is_infinite(), "NAN is not infinite");
+  // NaN compares unequal to everything, itself included — this is the reason
+  // `is_nan()` exists and the reason the doc says never to write `== f64.NAN`.
+  assert(!(f64.NAN == f64.NAN), "NAN is not equal to itself");
+  assert(f64.NAN != f64.NAN, "NAN is unequal to itself");
+  // The constants reach the C compiler as HUGE_VAL / NAN, so arithmetic on
+  // them has to behave: this is what `inf.0` used to break.
+  assert((f64.INFINITY + f64(1.0)).is_infinite(), "inf + 1 is inf");
+  assert((f64.INFINITY * f64(-1.0)) == f64.NEG_INFINITY, "inf * -1 is -inf");
+  assert((f64(1.0) / f64.INFINITY) == f64(0.0), "1 / inf is 0");
+  assert((f64.NAN + f64(1.0)).is_nan(), "NaN propagates through addition");
+  assert(f64.INFINITY.is_sign_positive(), "INFINITY is positive");
+  assert(f64.NEG_INFINITY.is_sign_negative(), "NEG_INFINITY is negative");
+});
+test("f32 non-finite constants", {
+  assert(f32.INFINITY.is_infinite(), "f32 INFINITY is infinite");
+  assert(f32.INFINITY > f32.MAX, "f32 INFINITY is above the largest finite float");
+  assert(f32.NEG_INFINITY.is_infinite(), "f32 NEG_INFINITY is infinite");
+  assert(f32.NEG_INFINITY < f32.MIN, "f32 NEG_INFINITY is below the most negative float");
+  assert(f32.NAN.is_nan(), "f32 NAN is NaN");
+  assert(!(f32.NAN == f32.NAN), "f32 NAN is not equal to itself");
+  assert((f32.INFINITY + f32(1.0)).is_infinite(), "f32 inf + 1 is inf");
+});
