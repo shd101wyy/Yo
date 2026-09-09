@@ -1,0 +1,39 @@
+// Repro — `Error.source()` on a `Dyn(Error)` receiver returns a type that has
+// LOST the `Error` trait, so it cannot be stored back as an `AnyError`.
+//
+//   YO_STD=<worktree>/std yo check issues/repros/error-source-does-not-unify-with-anyerror.yo
+//
+// Expected: it type-checks; `source()` is declared to return
+//           `Option(Dyn(SelfTrait))` and SelfTrait IS `Error` here.
+// Actual:   error[E0601]: Incompatible types:
+//           - Expected: Option(dyn(Error + ToString))
+//           - Given   : Option(dyn( + ToString))
+//
+// Note the Given kept the trait's WHERE-BOUND and lost the trait itself.
+// Calling `.to_string()` on the payload works, so the value and the vtable are
+// right — only the static type is wrong, and in the one way that blocks
+// `ErrorChain` / `root_cause`.
+//
+// See issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md
+{ Error, AnyError, Context } :: import("std/error");
+open(import("std/string"));
+open(import("std/fmt"));
+Inner :: enum(Boom);
+derive(Inner, Error(.Boom => `boom`));
+walk :: (fn(err : AnyError) -> unit)({
+  (cur : AnyError) = err;
+  match(
+    cur.source(),
+    .Some(next) => {
+      cur = next;
+    },
+    .None => ()
+  );
+  println(cur.to_string());
+});
+main :: (fn() -> unit)({
+  (base : AnyError) = dyn(Inner.Boom);
+  (top : AnyError) = dyn(Context.new(`while loading`, base));
+  walk(top);
+});
+export(main);

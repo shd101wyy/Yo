@@ -555,7 +555,18 @@ an `Array(u8, N)` sized by its width — neither is nameable from a blanket.
 `usize`/`isize` get `abs_diff` but deliberately NO byte conversions: N would
 be the target pointer width and a type-level size cannot be derived the way
 `_USIZE_BITS` derives a value, so hard-coding 8 would be silently wrong on
-wasm32. STILL OPEN: a documented `downcast` and `ErrorChain`. `rand`
+wasm32. STILL OPEN: a documented `downcast`.
+**`ErrorChain` and `root_cause` are BLOCKED on a compiler defect, not on
+design** —
+`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
+Both must store the result of `source()` as an `AnyError`, and on a
+`Dyn(Error)` receiver that result's static type has lost the `Error` trait:
+`Given: dyn((source : fn(...) -> Option(dyn( + ToString))) + ToString)` against
+`Expected: dyn(Error + ToString)`. The VALUE and the vtable are correct —
+`.to_string()` on it renders the cause — so a caller can follow one link and
+print it, but never store, re-erase, `downcast` or re-throw it. Spelling
+`Dyn(Error)` instead of `Dyn(SelfTrait)` is not available either: `Error` is
+unbound inside its own definition. `rand`
 batteries — **LANDED 2026-09-09**: every range-taking API in std is now
 `Range`-typed (`rng.range(i64(1) .. i64(7))`, `random_range(a .. b, exn)`,
 `m.range(k1 .. k2)`), so the half-open bound is visible at the call site
