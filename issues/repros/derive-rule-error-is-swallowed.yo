@@ -1,0 +1,28 @@
+// Repro — `derive` discards a rule's own diagnosis.
+//
+//   YO_STD=<worktree>/std yo check issues/repros/derive-rule-error-is-swallowed.yo
+//
+// Expected: the rule's message, "the rule's OWN diagnosis, naming the exact
+// variant", pointing at the failing `comptime_assert`.
+// Actual:   error: derive: derive rule function failed
+//
+// See issues/derive-swallows-the-rule-error.md
+open(import("std/string"));
+MyRule :: trait();
+_rule :: (
+  fn(
+    comptime(T) : Type,
+    comptime(ctx) : DeriveContext,
+    comptime(trait_params) : ComptimeList(Expr)
+  ) -> comptime(Expr)
+)({
+  __why :: comptime_assert(false, "the rule's OWN diagnosis, naming the exact variant");
+  quote(())
+});
+derive_rule(MyRule, _rule);
+P :: struct(a : u8);
+derive(P, MyRule());
+main :: (fn() -> unit)({
+  ();
+});
+export(main);

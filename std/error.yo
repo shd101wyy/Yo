@@ -22,6 +22,107 @@ impl(String, Error());
 impl(ParseIntError, Error());
 impl(ParseFloatError, Error());
 impl(ParseBoolError, Error());
+// ============================================================================
+// derive(Error) — D15's second half
+// ============================================================================
+/// `.Name(f1, f2)` / `.Name` — the head of one generated match arm, binding
+/// each payload field under its OWN name so the message can interpolate it.
+__derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))({
+  n :: v.fields.len();
+  binds :: __yo_comptime_fold_range(
+    n,
+    "",
+    (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
+      f :: v.fields.get(fi);
+      cond((a == "") => f.name, true => __s3(a, ", ", f.name))
+    })
+  );
+  cond(
+    (n == usize(0)) => __s2(".", v.name),
+    true => __s4(".", v.name, "(", __s2(binds, ")"))
+  )
+});
+/// Generate `ToString` + `Error` for an enum from one message per variant —
+/// `thiserror`'s `#[error("…")]`, in the syntax Yo already has.
+///
+/// ```rust
+/// derive(JsonError, Error(
+///   .UnexpectedChar => `unexpected character at position ${pos}`,
+///   .UnexpectedEnd  => `unexpected end of input`,
+///   .Other          => `JSON error: ${msg}`
+/// ));
+/// ```
+///
+/// The message is ORDINARY YO, spliced into the arm that binds the payload, so
+/// `${pos}` is the variant's own field — not a positional `{0}` the way
+/// `thiserror` has to spell it. Nothing new to learn, and a typo in a field
+/// name is an ordinary unresolved-name error.
+///
+/// **Messages go in DECLARATION ORDER, and each is checked against the variant
+/// it lands on.** Keyed lookup (find the pair whose `.Name` matches) is what
+/// this wanted to be: the pieces work in isolation but composing them inside
+/// the rule fails with an error `derive` swallows, so it is not diagnosable
+/// today (issues/derive-swallows-the-rule-error.md).
+/// Order-plus-verification gets the same safety — adding, removing, renaming
+/// or reordering a variant is a compile error — at the cost of listing the
+/// messages the way the enum is written, which is how you would read them
+/// anyway.
+__derive_error :: (
+  fn(
+    comptime(T) : Type,
+    comptime(ctx) : DeriveContext,
+    comptime(trait_params) : ComptimeList(Expr)
+  ) -> comptime(Expr)
+)({
+  info :: Type.get_info(T);
+  __is_enum :: comptime_assert(
+    info.is_enum(),
+    "derive(Error) supports enums only — a struct error has one message, so write the ToString impl"
+  );
+  variants :: Type.get_enum_variants(T);
+  __count :: comptime_assert(
+    trait_params.len() == variants.len(),
+    "derive(Error) needs exactly one `.Variant => message` per variant, in declaration order"
+  );
+  arms :: __yo_comptime_fold_range(
+    variants.len(),
+    "",
+    (fn(comptime(acc) : comptime_str, comptime(vi) : usize) -> comptime(comptime_str))({
+      v :: variants.get(vi);
+      pair :: trait_params.get(vi);
+      __keyed :: comptime_assert(
+        pair.get_args().car() == __s2(".", v.name).to_expr(),
+        __s3(
+          "derive(Error): message ",
+          vi.to_comptime_string(),
+          __s3(" is not for variant .", v.name, " — list them in declaration order")
+        )
+      );
+      arm :: __s3(
+        __derive_error_head(v),
+        " => ",
+        pair.get_args().cdr().car().to_comptime_string()
+      );
+      cond((acc == "") => arm, true => __s3(acc, ",\n    ", arm))
+    })
+  );
+  body :: __s3("match(self,\n    ", arms, "\n  )");
+  // Built directly rather than through `ctx.make_impl`, which wraps exactly
+  // ONE trait body: this needs TWO, because `Error` requires `Self <: ToString`
+  // and the whole point is to supply both from one declaration. Generic error
+  // enums are not supported for the same reason — `make_impl` is where the
+  // forall/where plumbing lives, and no error type in `std` is generic.
+  quote(
+    impl(
+      #(ctx.target),
+      ToString(
+        to_string : ((self) -> #(body.to_expr()))
+      ),
+      Error()
+    )
+  )
+});
+derive_rule(Error, __derive_error);
 /// True when the type-erased `err` is really a `T` — Rust's `dyn Error::is`.
 ///
 /// A FREE function rather than a method because a blanket inherent method over

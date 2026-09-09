@@ -4,6 +4,7 @@ open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
 { hash_one } :: import("std/hash");
+{ Error } :: import("std/error");
 // === Basic struct for testing ===
 Point :: struct(x : i32, y : i32);
 derive(Point, Eq(Point));
@@ -789,4 +790,53 @@ test("to_expr builds a plain template literal", {
 test("to_expr builds an INTERPOLATING template literal", {
   p := _TePoint(x : i32(7));
   assert(p.te_int() == `P(7)`, "interpolation survives the splice");
+});
+// === derive(Error) — D15's second half ===
+//
+// One message per variant, in DECLARATION ORDER, each checked against the
+// variant it lands on. The message is ordinary Yo spliced into the arm that
+// binds the payload, so `${path}` is the variant's own field rather than a
+// positional `{0}` the way thiserror has to spell it.
+_DeriveErr :: enum(NotFound(path : String), Denied, Code(n : i32));
+derive(
+  _DeriveErr,
+  Error(
+    .NotFound => `not found: ${path}`,
+    .Denied => `permission denied`,
+    .Code => `failed with code ${n}`
+  )
+);
+test("derive(Error) renders each variant from its own message", {
+  assert(_DeriveErr.NotFound(`/tmp/x`).to_string() == `not found: /tmp/x`, "payload interpolated by NAME");
+  assert(_DeriveErr.Denied.to_string() == `permission denied`, "a payload-free variant needs no bindings");
+  assert(_DeriveErr.Code(i32(7)).to_string() == `failed with code 7`, "a non-String payload interpolates too");
+});
+test("derive(Error) supplies Error, not just ToString", {
+  // The whole point of deriving `Error` rather than `ToString`: the type is
+  // propagable as an `AnyError` from ONE declaration, with no separate
+  // `impl(T, Error())` line.
+  comptime_assert(Type.impls(_DeriveErr, Error), "derive(Error) emits the Error impl too");
+  // Not a vacuous comptime check: `JsonError` is derived this way as of this
+  // change, and `tests/encoding/json.test.yo` propagates it through `AnyError`
+  // and asserts on its rendered message — that is the runtime witness.
+  assert(_DeriveErr.Denied.to_string() == `permission denied`, "and ToString still works");
+});
+// A message list that does not match the variants is a COMPILE error, so a
+// renamed, added, removed or reordered variant cannot silently take another
+// variant's message.
+_ErrReordered :: enum(A(x : u8), B);
+comptime_expect_error({
+  // `.B` first, `.A` second — the messages would be swapped.
+  derive(_ErrReordered, Error(.B => `b`, .A => `a ${x}`));
+});
+_ErrShort :: enum(A(x : u8), B);
+comptime_expect_error({
+  // One message for two variants.
+  derive(_ErrShort, Error(.A => `a ${x}`));
+});
+_ErrStruct :: struct(a : u8);
+comptime_expect_error({
+  // Enums only: a struct error has exactly one message, so it writes its own
+  // `ToString` impl.
+  derive(_ErrStruct, Error(.a => `a`));
 });

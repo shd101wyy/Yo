@@ -146,8 +146,25 @@ the work in §4 does not re-open them.
   compiles, and an explicit impl silently shadows it, but it would give any
   type with a hand-written message a `debug_string` returning that MESSAGE
   rather than a structural render — exactly the conflation D15 removes.
-  `derive(Error)` with per-variant format strings is NOT done; `derive_rule`
-  does receive `trait_params`, so it looks expressible.
+  `derive(Error)` with per-variant format strings **LANDED 2026-09-09** —
+  `derive(JsonError, Error(.UnexpectedEnd => `unexpected end of input`, …))`
+  emits `ToString` AND `Error` from one declaration, so an error enum no longer
+  needs two hand-written blocks. The message is ORDINARY YO spliced into the
+  arm that binds the payload, so `${pos}` is the variant's own field rather
+  than thiserror's positional `{0}`. The rule builds the two-trait
+  `impl(T, ToString(…), Error())` directly instead of via `ctx.make_impl`,
+  which wraps exactly one trait body; generic error enums are out of scope for
+  the same reason (no std error type is generic).
+  **Messages go in DECLARATION ORDER**, each verified against the variant it
+  lands on, so a renamed/added/removed/reordered variant is a compile error.
+  Keyed lookup — match each message to its variant by name, any order — is what
+  this wanted to be, and `Expr` equality (`ComptimeEq` / `__yo_expr_eq`) makes
+  it expressible; composing it inside a rule hits
+  `issues/derive-swallows-the-rule-error.md`, where the rule's real error is
+  replaced by `derive rule function failed` or discarded entirely (`check` and
+  `compile` both exit 0). That is a diagnostics bug, not a language limit —
+  when it is fixed, the ordering constraint can be lifted without changing a
+  single call site, since declaration order is a valid keyed list.
 - **D16 — `HashSet(T)` IS `HashMap(T, unit)`.** 498 of 929 lines of
   `hash_set.yo` are byte-identical to `hash_map.yo`, and the tombstone bug
   (§3) is present in both. `unit` is a true ZST as of v0.2.26, so the map's
@@ -481,7 +498,7 @@ today), `abs/pow/clamp/min/max/count_ones/leading_zeros/…`; `f64`/`f32`
 methods and consts (`sqrt/abs/floor/ceil/round/is_nan/EPSILON/INFINITY/NAN` —
 today only raw `libc/math`); `Error` ergonomics: `is(T)`, documented
 `downcast`, `ErrorChain`, `Context(msg, source)` (nothing in the tree overrides
-`source`); `derive(Error)` (D15); `Default` on ~15 more types; `bench`
+`source`); `Default` on ~15 more types; `bench`
 `black_box` + auto-calibration; `log` `Sink` trait + `YO_LOG`; `rand`
 `thread_rng`/`random()`/`Range`-typed `range`.
 
