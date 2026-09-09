@@ -444,8 +444,11 @@ saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `thread_rng`. Concurrency — `Thread` is NOT generic and `join -> unit`
 (`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split,
 `Condvar.wait_timeout`, `RwLock.try_*` (the runtime primitives landed
-2026-09-10; the std half waits one release),
-`Semaphore.with_permit`, `interval`, `spawn_blocking`, `TryRecvError` all absent;
+2026-09-10; the std half waits one release), `spawn_blocking` absent
+(`Semaphore.with_permit` and `TryRecvError` were LISTED HERE IN ERROR — both
+landed, in `std/sync/semaphore.yo:148` with a test at
+`tests/sync/semaphore.test.yo:318`, and in `std/sync/channel.yo` /
+`std/async/channel.yo`; re-verified 2026-09-10. `interval` landed 2026-09-10);
 `_raw_lock` is still public (`std/sync/once.yo:70`) — that row asks for REMOVAL,
 so "present" means the work remains.
 
@@ -705,8 +708,56 @@ say to take an own `Rng.from_entropy()` in a hot loop instead.
 `async/mutex.with_lock` either taking an `io` (so its doc claim becomes true)
 or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface;
-`JoinHandle` `Dispose`; `interval`; `spawn_blocking`; a concurrent test for
-`Mutex` (it has none).
+`JoinHandle` `Dispose`; `spawn_blocking`. (`interval` and the concurrent
+`Mutex` tests landed 2026-09-10 — below.)
+
+**`interval` — LANDED 2026-09-10.** `std/time/sleep.yo` gains `Interval` and
+`interval(period, io)`. The reason it exists rather than a `sleep` in a loop is
+DRIFT: `while(true, { work(); sleep(period); })` takes `period + work` per
+iteration, so 100 ticks of 10 ms work on a 1 s period ends 1 s behind. An
+interval anchors each tick to a SCHEDULE — tick `n` is due at
+`start + n * period` — so the work comes out of the wait instead of being added
+to it. The first `tick()` is immediate, as Tokio's is.
+
+Missed ticks **burst**: after an overrun the owed ticks are already due and
+come back to back until the schedule is caught up (Tokio's
+`MissedTickBehavior::Burst`). That is right for anything counting ticks, since
+the total over a window is what the period promises, and WRONG for a rate
+limiter, which wants a stall to swallow ticks rather than repay them. Tokio's
+`Delay`/`Skip` are deliberately NOT implemented: the choice belongs to the call
+site and guessing it here would be worse than leaving it out.
+
+Measured, not asserted loosely: five 30 ms ticks with 15 ms of work each took
+138 ms against the 135 ms the schedule predicts, where a sleep-per-iteration
+loop takes ~180 ms; four owed ticks after a 55 ms overrun came back in 0 ms
+(`tests/time/sleep.test.yo`, 7/7).
+
+**`Once.call` now runs its slow path under `Mutex.with_lock`** (2026-09-10),
+and the long-standing NOTE claiming the old manual `_raw_lock`/`_raw_unlock`
+pair could **leave the mutex held forever on an unwind is WRONG** — corrected
+in place. `f` is an `Impl(Fn() -> unit)` and a closure cannot capture an
+`Exception` ("Closures cannot capture a value of control-bound type"), so `f`
+has no way to throw past that frame; the leak was never reachable. The rewrite
+still stands: the guarantee is now structural rather than resting on `f`'s
+signature staying un-throwable, and it removes three `_raw_*` call sites that
+the privatization row needs gone. It was blocked until now on the `R = unit`
+callback codegen bug, fixed 2026-08-26 and shipped in the v0.2.29 seed.
+
+**`Mutex` has concurrent tests now** (`tests/sync/mutex.test.yo`, 8/8). Every
+previous test in that file was single-threaded, so none of them could tell a
+working `Mutex` from a no-op. The new three run 8 threads x 2000 contended
+read-modify-writes and assert the exact total (a lost update is an off-by-any),
+check that `with_lock` hands back the closure's value while the mutation
+persists, and hammer 8,000 lock/unlock/lock cycles to catch an unlock that
+fires at the wrong moment — which shows up as a deadlock rather than a wrong
+number, so that one asserts progress.
+
+**`spawn_blocking` is deliberately still open**, and this is why: it has to
+bridge an OS thread's completion back into the single-threaded event loop, and
+there is no waker. The shapes available today are a `yield` spin or a
+1 ms-backoff poll (which is what `std/async/channel` already does), and both
+are stopgaps that the waker work in this same group would immediately replace.
+It belongs with that work, not ahead of it.
 
 **`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*` — the COMPILER HALF
 LANDED 2026-09-10; the std half waits for one release.**

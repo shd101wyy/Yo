@@ -2,8 +2,8 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { printf } :: import("std/libc/stdio");
 import("std/string");
-import("std/fmt");
-{ sleep, sleep_blocking } :: import("std/time/sleep");
+{ eprintln } :: import("std/fmt");
+{ sleep, sleep_blocking, interval, Interval } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
 // ============================================================================
@@ -77,4 +77,72 @@ test("sleep suspends the task instead of blocking the loop", {
   // shared runner can dilate a 200ms timer several-fold without the async
   // scheduler being wrong about anything.
   assert(elapsed.as_millis() < i64(2000), "overlapped sleeps should not hang");
+});
+// ============================================================================
+// interval — a repeating tick that does NOT drift
+// ============================================================================
+test("interval's first tick is immediate and later ticks are spaced", {
+  start := Instant.now();
+  t := interval(Duration.from_millis(i64(40)), io);
+  io.await(t.tick(io), io);
+  first := start.elapsed();
+  // Tokio's first tick completes immediately, and so does this one: an
+  // interval almost always drives a loop whose first pass should not wait.
+  assert(first.as_millis() < i64(30), `first tick was immediate, took ${first.as_millis()}ms`);
+  io.await(t.tick(io), io);
+  second := start.elapsed();
+  assert(second.as_millis() >= i64(30), `second tick waited, at ${second.as_millis()}ms`);
+  assert(t.period().as_millis() == i64(40), "period() reports the configured period");
+});
+test("interval does not drift when the body takes time", {
+  // This is the whole reason `interval` exists rather than `sleep` in a loop.
+  // Five 30ms ticks with 15ms of work each: anchored to a schedule that is
+  // ~120ms after the first tick (4 gaps), and NOT 4*(30+15) = 180ms, which is
+  // what a `sleep(30)` per iteration would give.
+  period_ms := i64(30);
+  work_ms := i64(15);
+  ticks := i64(5);
+  start := Instant.now();
+  t := interval(Duration.from_millis(period_ms), io);
+  (n : i64) = i64(0);
+  while(runtime(n < ticks), {
+    io.await(t.tick(io), io);
+    io.await(sleep(Duration.from_millis(work_ms), io), io);
+    n = (n + i64(1));
+  });
+  total := start.elapsed();
+  // The last iteration's own work is outside the tick schedule, so the
+  // expected total is (ticks-1)*period + work == 4*30 + 15 == 135ms.
+  drifting := ((ticks - i64(1)) * (period_ms + work_ms));
+  eprintln(`  ${ticks} ticks of ${period_ms}ms with ${work_ms}ms work took ${total.as_millis()}ms`);
+  eprintln(`  a sleep-per-iteration loop would take about ${drifting}ms`);
+  // Generous headroom for timer granularity and a loaded CI box, but still
+  // well below the drifting figure — that gap is the assertion.
+  assert(
+    total.as_millis() < drifting,
+    `took ${total.as_millis()}ms, a drifting loop would take about ${drifting}ms`
+  );
+  // And it did not fire everything at once either.
+  assert(total.as_millis() >= i64(100), `the ticks were still spaced, total ${total.as_millis()}ms`);
+});
+test("interval bursts to catch up after an overrun", {
+  // When the body overruns the period, the missed ticks are due immediately
+  // and come back to back until the schedule is caught up
+  // (MissedTickBehavior::Burst). The count over a window is what the period
+  // promises, which is what anything counting ticks needs.
+  t := interval(Duration.from_millis(i64(10)), io);
+  io.await(t.tick(io), io);
+  // Overrun by ~5 periods in one go.
+  io.await(sleep(Duration.from_millis(i64(55)), io), io);
+  start := Instant.now();
+  (n : i64) = i64(0);
+  while(runtime(n < i64(4)), {
+    io.await(t.tick(io), io);
+    n = (n + i64(1));
+  });
+  caught_up := start.elapsed();
+  eprintln(`  4 owed ticks took ${caught_up.as_millis()}ms`);
+  // All four were already due, so they must not have waited a period each
+  // (which would be ~40ms).
+  assert(caught_up.as_millis() < i64(30), `owed ticks burst, took ${caught_up.as_millis()}ms`);
 });
