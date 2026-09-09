@@ -739,6 +739,49 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    (issues/float-to-string-is-platform-dependent-for-non-finite-values.md);
    it also decides what `json_stringify` should do with a NaN, since JSON has
    no non-finite literal.
+   **Encoding — `Url.join` / `query_pairs` / `path_segments`: DONE
+   (2026-09-09).** §4's first Encoding row, including the parenthetical that
+   explains why it mattered: "http hand-rolls redirect resolution because
+   `join` is missing".
+
+   `join` is RFC 3986 §5.3 in full — a `_split_ref` that decomposes any URI
+   reference into the Appendix-B five components, `_remove_dot_segments`
+   (§5.2.4), `_merge_paths` (§5.2.3), and recomposition handed back to the ONE
+   parser rather than a second copy of the authority rules. All 20 §5.4.1
+   normal examples and all 12 §5.4.2 abnormal ones are tests, plus the three
+   cases the RFC's table does not cover but a reader will ask about: an empty
+   interior segment survives, a colon after the first slash is not a scheme,
+   and a colon before any slash is.
+
+   `http/client._resolve_location` now calls it, which fixed three real
+   redirect bugs the paste-the-origin version had (each verified against the
+   old code before the claim was written down): `../x` was pasted VERBATIM
+   instead of climbing, a protocol-relative `//host/p` was treated as an
+   absolute path on the current host, and a `Location` of `?q=1` replaced the
+   path with the base's directory instead of keeping it. The `../` case has an
+   end-to-end loopback test; the other two are pinned directly on `join`.
+
+   `query_pairs` follows the `application/x-www-form-urlencoded` rules a
+   `?a=b&c=d` query actually obeys — `+` is a space DECODED BEFORE the percent
+   escapes (the other order turns an encoded plus into a space), only the first
+   `=` splits, a bare key has an empty value, and order and duplicates survive.
+   `path_segments` is `.None` for a URL that cannot be a base, as Rust's is.
+   Both decode LOSSILY: `percent_decode` returns a `Result`, which is right for
+   a caller decoding one value on purpose and wrong for an accessor over a URL
+   that already parsed, so a malformed escape yields the raw text.
+
+   **One compiler bug fell out**, and it is the reason `query_pairs` could not
+   be written at first: `ArrayList(Tuple(String, String))` did not compile at
+   all. Tuples were emitted as ANONYMOUS C structs, which cannot be
+   forward-declared, so a container holding a POINTER to a tuple named a type C
+   had not seen — `unknown type name '__yo_t2'`. Fixed by giving tuples a named
+   struct tag like every other struct type
+   (issues/fixed/tuple-type-has-no-forward-declaration.md).
+
+   Still open in Encoding: TOML floats/arrays/dates/inline tables/escapes/
+   comments/serializer, `EncodingError` offsets, regex Rust-shaped names,
+   `GlobPattern.new -> Result` + filesystem `glob()`, the module-prefix stutter,
+   and `Url.set_*`.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

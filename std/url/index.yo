@@ -12,6 +12,8 @@
 //! split one HTTP request into two.
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
+{ Writer } :: import("../fmt/writer");
+{ percent_decode } :: import("../encoding/percent");
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
 /// Errors that can occur during URL parsing.
@@ -521,6 +523,372 @@ impl(
         )
     )
   )
+);
+// ============================================================================
+// Percent-decoding for the component accessors
+// ============================================================================
+/// Percent-decode, or hand back the input UNCHANGED when it does not decode.
+///
+/// `percent_decode` reports a malformed escape or non-UTF-8 result as an
+/// error, which is the right shape for a caller decoding one value on purpose.
+/// It is the wrong shape for `path_segments` / `query_pairs`, which decode
+/// every component of a URL that already parsed: one bad escape in one query
+/// value must not turn the whole accessor into an error, and Rust's
+/// equivalents are lossy for the same reason. The raw text is the honest
+/// fallback — it is what the URL actually contains.
+_decode_lossy :: (fn(s : String) -> String)(
+  match(percent_decode(s), .Ok(v) => v, .Err(_) => s)
+);
+/// `application/x-www-form-urlencoded` decoding: `+` is a SPACE, then the
+/// percent escapes. The order matters — decoding `%2B` first would turn an
+/// encoded plus into a space.
+_form_decode :: (fn(s : String) -> String)(
+  _decode_lossy(s.replace(`+`, ` `))
+);
+// ============================================================================
+// Reference resolution (RFC 3986 §5) — `join`
+// ============================================================================
+/// The five components RFC 3986 §5.3 works over. `authority` and `query` are
+/// OPTIONAL in the RFC's sense — "not present" is a different thing from
+/// "present and empty", and `//` with an empty authority and `?` with an empty
+/// query are both legal and both distinguishable from their absence.
+_UrlRef :: struct(
+  scheme : Option(String),
+  authority : Option(String),
+  path : String,
+  query : Option(String),
+  fragment : Option(String)
+);
+/// Is `s` a valid RFC 3986 scheme — `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`?
+/// Needed because `foo:bar` is an absolute URI while `foo bar:baz` and
+/// `1a:b` are not, and a relative path may legally contain a colon after the
+/// first segment (`a/b:c`), which is why the split below stops at `/`.
+_is_scheme :: (fn(s : String) -> bool)({
+  b := s.as_bytes();
+  if(b.len() == usize(0), {
+    return(false);
+  });
+  c0 := b(usize(0));
+  is_alpha0 := (((c0 >= u8(65)) && (c0 <= u8(90))) || ((c0 >= u8(97)) && (c0 <= u8(122))));
+  if(!is_alpha0, {
+    return(false);
+  });
+  i := usize(1);
+  while(i < b.len(), i = (i + usize(1)), {
+    c := b(i);
+    ok := (
+      ((((c >= u8(65)) && (c <= u8(90))) || ((c >= u8(97)) && (c <= u8(122)))) || ((c >= u8(48)) && (c <= u8(57)))) ||
+        (((c == u8(43)) || (c == u8(45))) || (c == u8(46)))
+    );
+    if(!ok, {
+      return(false);
+    });
+  });
+  true
+});
+/// Split a URI reference into its five components — RFC 3986 Appendix B's
+/// regex, hand-rolled. Never fails: every string is SOME reference, and it is
+/// §5.3 plus the final `parse` that decide whether the result is a usable URL.
+_split_ref :: (fn(s : String) -> _UrlRef)({
+  rest := s;
+  // 4. fragment — everything after the FIRST '#'.
+  frag := match(
+    rest.index_of(`#`),
+    .Some(i) => {
+      f := rest.substring(i + usize(1), rest.len());
+      rest = rest.substring(usize(0), i);
+      Option(String).Some(f)
+    },
+    .None => Option(String).None
+  );
+  // 3. query — everything after the first '?' in what remains.
+  qry := match(
+    rest.index_of(`?`),
+    .Some(i) => {
+      q := rest.substring(i + usize(1), rest.len());
+      rest = rest.substring(usize(0), i);
+      Option(String).Some(q)
+    },
+    .None => Option(String).None
+  );
+  // 1. scheme — a colon BEFORE any '/', and only if what precedes it is a
+  // valid scheme. `a/b:c` is a relative path, not scheme `a/b`.
+  sch := match(
+    rest.index_of(`:`),
+    .Some(i) => {
+      candidate := rest.substring(usize(0), i);
+      slash_first := match(rest.index_of(`/`), .Some(j) => (j < i), .None => false);
+      cond(
+        (!slash_first && _is_scheme(candidate)) => {
+          rest = rest.substring(i + usize(1), rest.len());
+          Option(String).Some(candidate)
+        },
+        true => Option(String).None
+      )
+    },
+    .None => Option(String).None
+  );
+  // 2. authority — present exactly when what remains starts with "//".
+  auth := cond(
+    rest.starts_with(`//`) => {
+      after := rest.substring(usize(2), rest.len());
+      end := match(after.index_of(`/`), .Some(i) => i, .None => after.len());
+      a := after.substring(usize(0), end);
+      rest = after.substring(end, after.len());
+      Option(String).Some(a)
+    },
+    true => Option(String).None
+  );
+  _UrlRef(scheme : sch, authority : auth, path : rest, query : qry, fragment : frag)
+});
+/// RFC 3986 §5.2.4 `remove_dot_segments`. Resolves `.` and `..` LEXICALLY —
+/// the same rule `Path.normalize` follows and for the same reason: a URL path
+/// has no symlinks, so a purely textual resolution is exactly right here,
+/// unlike on a filesystem.
+///
+/// Empty INTERIOR segments survive (`/a//b` stays `/a//b`, as the RFC
+/// requires — an empty segment is a segment). A trailing `.` or `..` leaves a
+/// trailing `/`, which is what makes `join("..")` against `/a/b/c` produce
+/// `/a/` rather than `/a`.
+_remove_dot_segments :: (fn(path : String) -> String)({
+  absolute := path.starts_with(`/`);
+  segs := path.split(`/`);
+  out := ArrayList(String).new();
+  trailing := false;
+  // For an absolute path `split` yields a leading empty segment that IS the
+  // leading separator, not a segment; the separator is re-added at the end.
+  i := cond(
+    absolute => usize(1),
+    true => usize(0)
+  );
+  while(i < segs.len(), i = (i + usize(1)), {
+    seg := segs(i);
+    last := (i == (segs.len() - usize(1)));
+    cond(
+      (seg == `.`) => {
+        trailing = true;
+      },
+      (seg == `..`) => {
+        if(out.len() > usize(0), {
+          out.remove(out.len() - usize(1));
+        });
+        trailing = true;
+      },
+      (last && (seg.len() == usize(0))) => {
+        trailing = true;
+      },
+      true => {
+        out.push(seg);
+        trailing = false;
+      }
+    );
+  });
+  result := cond(
+    absolute => `/`,
+    true => String.new()
+  );
+  j := usize(0);
+  while(j < out.len(), j = (j + usize(1)), {
+    if(j > usize(0), {
+      result = result.concat(`/`);
+    });
+    result = result.concat(out(j));
+  });
+  if(trailing && (out.len() > usize(0)), {
+    result = result.concat(`/`);
+  });
+  result
+});
+/// RFC 3986 §5.2.3 `merge` — the reference path relative to the base's
+/// DIRECTORY. `/a/b` + `c` is `/a/c`, not `/a/b/c`: the last segment of the
+/// base is a document, not a directory. A base with an authority and an empty
+/// path counts as `/`.
+_merge_paths :: (fn(base : Url, ref_path : String) -> String)(
+  cond(
+    (base._host.is_some() && (base._path.len() == usize(0))) => `/${ref_path}`,
+    true => match(
+      base._path.last_index_of(`/`),
+      .Some(i) => base._path.substring(usize(0), i + usize(1)).concat(ref_path),
+      .None => ref_path
+    )
+  )
+);
+/// The base's authority as RFC 3986 spells it — `[userinfo@]host[:port]`.
+_authority_of :: (fn(u : Url) -> Option(String))(
+  match(
+    u._host,
+    .None => Option(String).None,
+    .Some(h) => {
+      a := match(u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h);
+      Option(String).Some(match(u._port, .Some(p) => `${a}:${p}`, .None => a))
+    }
+  )
+);
+impl(
+  Url,
+  /// Resolve `reference` against this URL — RFC 3986 §5.3 reference
+  /// resolution, and `url::Url::join` in Rust.
+  ///
+  /// An absolute reference replaces everything. A network-path reference
+  /// (`//host/p`) keeps only the scheme. An absolute-path reference (`/p`)
+  /// keeps the authority. A relative reference (`p`, `../p`) resolves against
+  /// the base's DIRECTORY — `https://h/a/b` joined with `c` is
+  /// `https://h/a/c`, because `b` is a document, not a directory. An empty
+  /// reference keeps the base's path and query but drops its fragment; a bare
+  /// `#f` changes only the fragment.
+  ///
+  /// ```rust
+  /// base := Url.parse("https://example.com/a/b").unwrap();
+  /// base.join(`c`).unwrap().to_string();       // https://example.com/a/c
+  /// base.join(`/c`).unwrap().to_string();      // https://example.com/c
+  /// base.join(`../c`).unwrap().to_string();    // https://example.com/c
+  /// base.join(`https://x/y`).unwrap().to_string(); // https://x/y
+  /// ```
+  join : (fn(self : Self, reference : String) -> Result(Url, UrlError))({
+    r := _split_ref(reference);
+    // §5.3 recomposition, built as a string and handed to `parse` so the
+    // authority is validated by the one parser rather than a second copy.
+    out := Writer.new();
+    match(
+      r.scheme,
+      .Some(sch) => {
+        out.write_string(`${sch}:`);
+        match(
+          r.authority,
+          .Some(a) => {
+            out.write_string(`//${a}`);
+          },
+          .None => ()
+        );
+        out.write_string(_remove_dot_segments(r.path));
+      },
+      .None => {
+        out.write_string(`${self._scheme}:`);
+        match(
+          r.authority,
+          .Some(a) => {
+            out.write_string(`//${a}`);
+            out.write_string(_remove_dot_segments(r.path));
+          },
+          .None => {
+            match(
+              _authority_of(self),
+              .Some(a) => {
+                out.write_string(`//${a}`);
+              },
+              .None => ()
+            );
+            cond(
+              (r.path.len() == usize(0)) => {
+                out.write_string(self._path);
+              },
+              r.path.starts_with(`/`) => {
+                out.write_string(_remove_dot_segments(r.path));
+              },
+              true => {
+                out.write_string(_remove_dot_segments(_merge_paths(self, r.path)));
+              }
+            );
+          }
+        );
+      }
+    );
+    // The query comes from the reference whenever the reference HAS one, and
+    // from the base only for the one case §5.3 singles out: an empty
+    // reference with no query of its own.
+    eff_query := match(
+      r.query,
+      .Some(q) => Option(String).Some(q),
+      .None => cond(
+        (r.scheme.is_none() && (r.authority.is_none() && (r.path.len() == usize(0)))) => self._query,
+        true => Option(String).None
+      )
+    );
+    match(
+      eff_query,
+      .Some(q) => {
+        out.write_string(`?${q}`);
+      },
+      .None => ()
+    );
+    // The fragment is ALWAYS the reference's — a base fragment never carries
+    // over, which is why `join("")` drops it.
+    match(
+      r.fragment,
+      .Some(f) => {
+        out.write_string(`#${f}`);
+      },
+      .None => ()
+    );
+    Url.parse(out.to_string())
+  }),
+  /// The path split on `/`, percent-DECODED, or `.None` for a URL that cannot
+  /// be a base — Rust's `Url::path_segments`.
+  ///
+  /// "Cannot be a base" means no authority: `mailto:a@b` has an opaque path
+  /// that is not a `/`-separated hierarchy, and splitting it would invent
+  /// structure that is not there.
+  ///
+  /// A trailing `/` yields a final EMPTY segment, as Rust's does — that is how
+  /// `/a/` is distinguishable from `/a`.
+  path_segments : (fn(self : Self) -> Option(ArrayList(String)))(
+    cond(
+      self._host.is_none() => Option(ArrayList(String)).None,
+      true => {
+        out := ArrayList(String).new();
+        body := cond(
+          self._path.starts_with(`/`) => self._path.substring(usize(1), self._path.len()),
+          true => self._path
+        );
+        cond(
+          (body.len() == usize(0)) => Option(ArrayList(String)).Some(out),
+          true => {
+            parts := body.split(`/`);
+            i := usize(0);
+            while(i < parts.len(), i = (i + usize(1)), {
+              out.push(_decode_lossy(parts(i)));
+            });
+            Option(ArrayList(String)).Some(out)
+          }
+        )
+      }
+    )
+  ),
+  /// The query string parsed as `key=value` pairs, percent-decoded, with `+`
+  /// read as a space — Rust's `Url::query_pairs`, and the
+  /// `application/x-www-form-urlencoded` rules a `?a=b&c=d` query actually
+  /// follows.
+  ///
+  /// A key with no `=` yields an empty value (`?flag` is `("flag", "")`), an
+  /// empty pair between two `&`s is skipped, and a value containing `=` keeps
+  /// everything after the FIRST one (`?a=b=c` is `("a", "b=c")`).
+  /// Order and duplicates are preserved: `?a=1&a=2` is two pairs.
+  query_pairs : (fn(self : Self) -> ArrayList(Tuple(String, String)))({
+    out := ArrayList(Tuple(String, String)).new();
+    q := match(self._query, .Some(v) => v, .None => String.new());
+    if(q.len() == usize(0), {
+      return(out);
+    });
+    parts := q.split(`&`);
+    i := usize(0);
+    while(i < parts.len(), i = (i + usize(1)), {
+      part := parts(i);
+      if(part.len() > usize(0), {
+        match(
+          part.index_of(`=`),
+          .Some(j) => {
+            k := _form_decode(part.substring(usize(0), j));
+            v := _form_decode(part.substring(j + usize(1), part.len()));
+            out.push((k, v));
+          },
+          .None => {
+            out.push((_form_decode(part), String.new()));
+          }
+        );
+      });
+    });
+    out
+  })
 );
 // Reconstruct the URL as a String
 impl(

@@ -233,32 +233,29 @@ _fetch_once :: (
 // ============================================================================
 // Internal: redirects
 // ============================================================================
-/// Resolve a `Location` header against the URL the response came from.
-/// Absolute URLs pass through (a cross-scheme hop then fails in
-/// `_fetch_once`'s scheme check as `UnsupportedScheme` — C1's rule — rather
-/// than being downgraded); `/abs` and `rel` paths resolve against the origin
-/// and the base path's directory.
-_resolve_location :: (fn(base_str : String, location : String, exn : Exception) -> String)(
-  cond(
-    location.contains(`://`) => location,
-    true => {
-      base := Url.parse_exn(base_str, exn);
-      origin := base.origin();
-      cond(
-        location.starts_with(`/`) => `${origin}${location}`,
-        true => {
-          base_path := base.path();
-          dir := match(
-            base_path.last_index_of(`/`),
-            .Some(i) => base_path.substring(usize(0), i + usize(1)),
-            .None => `/`
-          );
-          `${origin}${dir}${location}`
-        }
-      )
-    }
+/// Resolve a `Location` header against the URL the response came from —
+/// RFC 3986 §5.3 reference resolution, which is `Url.join`.
+///
+/// This used to be hand-rolled here (absolute-if-it-contains-`://`, otherwise
+/// origin + the base path's directory) because `join` did not exist. It got
+/// three cases wrong that a redirect can actually produce: a `Location` of
+/// `../x` was pasted verbatim instead of climbing, a protocol-relative
+/// `//host/p` was treated as an absolute PATH on the current host, and a
+/// `Location` of `?q=1` replaced the path instead of only the query.
+///
+/// A cross-scheme hop still passes through and then fails in `_fetch_once`'s
+/// scheme check as `UnsupportedScheme` (C1's rule) rather than being
+/// downgraded.
+_resolve_location :: (fn(base_str : String, location : String, exn : Exception) -> String)({
+  base := Url.parse_exn(base_str, exn);
+  match(
+    base.join(location),
+    .Ok(u) => u.to_string(),
+    // An unresolvable `Location` is the server's problem, not ours; pass it
+    // on so the next hop's own parse reports it with its own error.
+    .Err(_) => location
   )
-);
+});
 /// The options for the next hop. 303 always becomes a GET, and so do 301/302
 /// for a POST (what browsers and `fetch` do); 307/308 replay the request as
 /// is. Headers are shared — they are read-only from here on.
