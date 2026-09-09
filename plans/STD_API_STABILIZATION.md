@@ -782,6 +782,37 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    comments/serializer, `EncodingError` offsets, regex Rust-shaped names,
    `GlobPattern.new -> Result` + filesystem `glob()`, the module-prefix stutter,
    and `Url.set_*`.
+
+   **`FromStr` renamed to `FromString` (2026-09-09).** The trait's parameter is
+   a `String`, and its own doc comment said so one line above the signature —
+   the name was a mis-transliteration of Rust's. Rust's name is ACCURATE
+   (`fn from_str(s: &str)` takes a `&str`) and the pattern behind it is "name
+   the trait after the type it converts FROM"; applying that pattern in Yo
+   gives `FromString`.
+
+   The alternative — make it take a `str` so the name becomes true — is not
+   available. `as_str()` was deleted in the slice rework, no method in
+   `std/string/string.yo` returns `str`, and `String.parse(T)`'s receiver IS a
+   `String`, so `String` is the only parameter the trait can take.
+
+   Two other sites made the same mistake and are swept with it:
+   `log.level_from_str(name : String)` → `level_from_string`, and
+   `HttpMethod.from_str(s : String)` → `from_string`. `std/imm/string.yo`
+   already had `from_string(s : String)`, so the tree was inconsistent with
+   ITSELF, not only with Rust. Rust CITATIONS in doc comments
+   (`core::str::FromStr`, `i64::from_str`, `from_str_radix`) keep Rust's
+   spelling — they name Rust's API, not Yo's.
+
+   Breaking, and deliberately without a compatibility alias: a
+   `FromStr :: FromString` alias keeps `where(T <: FromStr)` working but NOT
+   `from_str : …` inside an impl, because a field name is part of the trait.
+   A half-bridge covering one of the two ways a trait is used is worse than a
+   clean rename announced in the release notes.
+
+   Surfaced one row for later: `HttpMethod.from_string` returns `Option`, not
+   `Result` — a D12 violation independent of the name, and an error-type design
+   question rather than a rename
+   (issues/httpmethod-from-string-returns-option-not-result.md).
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

@@ -2882,10 +2882,18 @@ ParseBoolError :: enum(
   Invalid
 );
 /**
-* `FromStr` — parse a value of this type out of a `String` (Rust's
-* `core::str::FromStr`).
+* `FromString` — parse a value of this type out of a `String`. Yo's
+* counterpart to Rust's `core::str::FromStr`.
 *
-* Call it as `s.parse(T)`, which forwards to `T.from_str(s)`:
+* NAMED FOR THE TYPE IT CONVERTS FROM, which is what Rust's name does too —
+* `FromStr` there takes a `&str`. In Yo `str` and `String` are different
+* types: `str` is the static view a literal has, `String` owns heap bytes,
+* and there is no conversion from the second to the first (`as_str()` was
+* deleted in plans/archive/SLICE_REWORK.md). `String` is therefore the only
+* parameter this trait could take — `s.parse(T)`'s receiver IS a `String` —
+* so calling it `FromStr` would have named a type it cannot accept.
+*
+* Call it as `s.parse(T)`, which forwards to `T.from_string(s)`:
 *
 * ```rust
 * match(`42`.parse(i32), .Ok(v) => v, .Err(e) => i32(0));
@@ -2895,10 +2903,10 @@ ParseBoolError :: enum(
 * garbage from an out-of-range value — the distinction the older
 * `parse_*() -> Option(T)` methods threw away (D12).
 */
-FromStr :: trait(
+FromString :: trait(
   /// What this type reports when the string is not a valid value.
   Err : Type,
-  from_str : (fn(s : String) -> Result(Self, Self.Err))
+  from_string : (fn(s : String) -> Result(Self, Self.Err))
 );
 /// Magnitude scanner shared by every integer parser. Distinguishes an empty
 /// digit run, a non-digit and an overflow — the whole point of D12.
@@ -3108,31 +3116,31 @@ impl(
   parse_u64 : (fn(self : Self) -> Option(u64))(self.parse_u64_radix(u32(10)))
 );
 // ============================================================================
-// FromStr impls + `s.parse(T)` (D12)
+// FromString impls + `s.parse(T)` (D12)
 // ============================================================================
 impl(
   i64,
-  FromStr(
+  FromString(
     Err : ParseIntError,
-    from_str : (fn(s : String) -> Result(i64, ParseIntError))(
+    from_string : (fn(s : String) -> Result(i64, ParseIntError))(
       _parse_i64_radix_res(s, u32(10))
     )
   )
 );
 impl(
   u64,
-  FromStr(
+  FromString(
     Err : ParseIntError,
-    from_str : (fn(s : String) -> Result(u64, ParseIntError))(
+    from_string : (fn(s : String) -> Result(u64, ParseIntError))(
       _parse_u64_radix_res(s, u32(10))
     )
   )
 );
 impl(
   i32,
-  FromStr(
+  FromString(
     Err : ParseIntError,
-    from_str : (fn(s : String) -> Result(i32, ParseIntError))(
+    from_string : (fn(s : String) -> Result(i32, ParseIntError))(
       match(
         _parse_i64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3147,9 +3155,9 @@ impl(
 );
 impl(
   u32,
-  FromStr(
+  FromString(
     Err : ParseIntError,
-    from_str : (fn(s : String) -> Result(u32, ParseIntError))(
+    from_string : (fn(s : String) -> Result(u32, ParseIntError))(
       match(
         _parse_u64_radix_res(s, u32(10)),
         .Ok(v) => cond(
@@ -3161,11 +3169,135 @@ impl(
     )
   )
 );
+/// `usize` and `isize` are POINTER-WIDTH, so their bounds come from the
+/// width-aware `MIN`/`MAX` associated constants rather than a hard-coded
+/// literal — a 32-bit target rejects `4294967296` here and a 64-bit one
+/// accepts it.
+impl(
+  usize,
+  FromString(
+    Err : ParseIntError,
+    from_string : (fn(s : String) -> Result(usize, ParseIntError))(
+      match(
+        _parse_u64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > u64(usize.MAX)) => .Err(ParseIntError.PosOverflow),
+          true => .Ok(usize(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  isize,
+  FromString(
+    Err : ParseIntError,
+    from_string : (fn(s : String) -> Result(isize, ParseIntError))(
+      match(
+        _parse_i64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > i64(isize.MAX)) => .Err(ParseIntError.PosOverflow),
+          (v < i64(isize.MIN)) => .Err(ParseIntError.NegOverflow),
+          true => .Ok(isize(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  i16,
+  FromString(
+    Err : ParseIntError,
+    from_string : (fn(s : String) -> Result(i16, ParseIntError))(
+      match(
+        _parse_i64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > i64(i16.MAX)) => .Err(ParseIntError.PosOverflow),
+          (v < i64(i16.MIN)) => .Err(ParseIntError.NegOverflow),
+          true => .Ok(i16(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  u16,
+  FromString(
+    Err : ParseIntError,
+    from_string : (fn(s : String) -> Result(u16, ParseIntError))(
+      match(
+        _parse_u64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > u64(u16.MAX)) => .Err(ParseIntError.PosOverflow),
+          true => .Ok(u16(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  i8,
+  FromString(
+    Err : ParseIntError,
+    from_string : (fn(s : String) -> Result(i8, ParseIntError))(
+      match(
+        _parse_i64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > i64(i8.MAX)) => .Err(ParseIntError.PosOverflow),
+          (v < i64(i8.MIN)) => .Err(ParseIntError.NegOverflow),
+          true => .Ok(i8(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+impl(
+  u8,
+  FromString(
+    Err : ParseIntError,
+    from_string : (fn(s : String) -> Result(u8, ParseIntError))(
+      match(
+        _parse_u64_radix_res(s, u32(10)),
+        .Ok(v) => cond(
+          (v > u64(u8.MAX)) => .Err(ParseIntError.PosOverflow),
+          true => .Ok(u8(v))
+        ),
+        .Err(e) => .Err(e)
+      )
+    )
+  )
+);
+/// `f32` shares `f64`'s grammar and then narrows. A literal too large for
+/// `f32` becomes an INFINITY rather than an error, matching Rust
+/// (`"1e39".parse::<f32>()` is `Ok(inf)`, not `Err`) — the narrowing is C's
+/// double-to-float conversion, which every target here implements per IEC
+/// 60559 (C Annex F), so it saturates to ±infinity instead of trapping.
+impl(
+  f32,
+  FromString(
+    Err : ParseFloatError,
+    from_string : (fn(s : String) -> Result(f32, ParseFloatError))(
+      cond(
+        (s.len() == usize(0)) => .Err(ParseFloatError.Empty),
+        true => match(
+          s.parse_f64(),
+          .Some(v) => .Ok(f32(v)),
+          .None => .Err(ParseFloatError.Invalid)
+        )
+      )
+    )
+  )
+);
 impl(
   f64,
-  FromStr(
+  FromString(
     Err : ParseFloatError,
-    from_str : (fn(s : String) -> Result(f64, ParseFloatError))(
+    from_string : (fn(s : String) -> Result(f64, ParseFloatError))(
       cond(
         (s.len() == usize(0)) => .Err(ParseFloatError.Empty),
         true => match(s.parse_f64(), .Some(v) => .Ok(v), .None => .Err(ParseFloatError.Invalid))
@@ -3175,9 +3307,9 @@ impl(
 );
 impl(
   bool,
-  FromStr(
+  FromString(
     Err : ParseBoolError,
-    from_str : (fn(s : String) -> Result(bool, ParseBoolError))(
+    from_string : (fn(s : String) -> Result(bool, ParseBoolError))(
       match(s.parse_bool(), .Some(v) => .Ok(v), .None => .Err(ParseBoolError.Invalid))
     )
   )
@@ -3195,8 +3327,8 @@ impl(
   * from an out-of-range value. `T` is written out because it cannot be
   * inferred from the arguments — only from the result, which Yo does not do.
   */
-  parse : (fn(self : Self, comptime(T) : Type, where(T <: FromStr)) -> Result(T, T.Err))(
-    T.from_str(self)
+  parse : (fn(self : Self, comptime(T) : Type, where(T <: FromString)) -> Result(T, T.Err))(
+    T.from_string(self)
   ),
   /**
   * Parse a signed integer in `radix` (2..=36) — Rust's `i64::from_str_radix`,
@@ -3285,7 +3417,7 @@ export(
   StringBytes,
   StringLines,
   Pattern,
-  FromStr,
+  FromString,
   ParseIntError,
   ParseFloatError,
   ParseBoolError

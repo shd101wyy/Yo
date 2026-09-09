@@ -96,7 +96,7 @@ export(Sink);
 ///
 /// `warning` is accepted for `warn` because it is the spelling people reach
 /// for, and rejecting it silently would be the worst of the three options.
-level_from_str :: (fn(name : String) -> Option(Level))({
+level_from_string :: (fn(name : String) -> Option(Level))({
   lowered := name.trim().to_ascii_lowercase();
   cond(
     (lowered == "trace") => Option(Level).Some(Level.Trace),
@@ -108,7 +108,7 @@ level_from_str :: (fn(name : String) -> Option(Level))({
     true => Option(Level).None
   )
 });
-export(level_from_str);
+export(level_from_string);
 // ============================================================================
 // Global state (module-level, mutex-guarded)
 // ============================================================================
@@ -167,7 +167,7 @@ clear_sink :: (fn() -> unit)({
 });
 export(set_sink, clear_sink);
 /// Apply `YO_LOG` to the level filter, if it is set to a name
-/// `level_from_str` recognises. Returns the level in force afterwards.
+/// `level_from_string` recognises. Returns the level in force afterwards.
 ///
 /// Explicit, not automatic, for the same reason Rust's `env_logger::init()`
 /// is: a library that silently reconfigured logging on first use would be
@@ -185,7 +185,7 @@ init_from_env :: (fn() -> Level)({
       String.from_cstr((*u8)(ptr)),
       .Err(_) => get_level(),
       .Ok(text) => match(
-        level_from_str(text),
+        level_from_string(text),
         .None => get_level(),
         .Some(level) => {
           set_level(level);

@@ -28,7 +28,7 @@ impl(
   HttpMethod,
   /// Parse a request-line method token (case-sensitive, as RFC 9110 §9.1
   /// requires). `.None` for anything not in the enum.
-  from_str : (fn(s : String) -> Option(HttpMethod))(
+  from_string : (fn(s : String) -> Option(HttpMethod))(
     cond(
       (s == `GET`) => .Some(HttpMethod.GET),
       (s == `POST`) => .Some(HttpMethod.POST),
@@ -389,7 +389,7 @@ parse_request :: (fn(raw : String) -> Result(HttpRequest, HttpParseError))({
     true => ()
   );
   method := match(
-    HttpMethod.from_str(parts(usize(0))),
+    HttpMethod.from_string(parts(usize(0))),
     .Some(m) => m,
     .None => {
       return(.Err(HttpParseError.UnknownMethod(parts(usize(0)))));
