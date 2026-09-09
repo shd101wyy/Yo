@@ -1,0 +1,30 @@
+// Regression fixture: a `derive_rule`'s OWN diagnosis must reach the user.
+//
+// `derive` used to read the rule's outcome out of the expr-info table instead
+// of catching its exception, because it called the 3-argument
+// `evaluate_expression` — which is `_evaluate_expression_wrapper`, whose
+// handler swallows EVERY throw and returns an err-expr. So this
+// `comptime_assert` message was replaced by the generic
+// "derive: derive rule function failed", and a rule that failed inside a `::`
+// binding produced NO diagnostic at all, with `check` and `compile` both
+// exiting 0 on a derive that emitted nothing.
+// issues/fixed/derive-swallows-the-rule-error.md
+open(import("std/string"));
+MyRule :: trait();
+_rule :: (
+  fn(
+    comptime(T) : Type,
+    comptime(ctx) : DeriveContext,
+    comptime(trait_params) : ComptimeList(Expr)
+  ) -> comptime(Expr)
+)({
+  __why :: comptime_assert(false, "the rule's OWN diagnosis, naming the exact variant");
+  quote(())
+});
+derive_rule(MyRule, _rule);
+P :: struct(a : u8);
+derive(P, MyRule());
+main :: (fn() -> unit)({
+  ();
+});
+export(main);

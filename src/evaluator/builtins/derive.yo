@@ -71,11 +71,22 @@ _derive_impl_err_message :: (fn() -> String)(
     .None => String.from("the generated impl failed to evaluate")
   )
 );
-/// Evaluate the derive-generated `impl(...)` under a swallowing exception, so a
-/// throw leaves `out` EMPTY (the `_trial_eval_anon_body` pattern) with the
-/// message parked in the box above. Never a silent success: the caller re-raises.
-_derive_eval_impl :: (
-  fn(impl_expr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
+/// Evaluate ONE derive-internal expression — a setup binding, the rule call,
+/// or the generated `impl(...)` — under a swallowing exception, so a throw
+/// leaves `out` EMPTY (the `_trial_eval_anon_body` pattern) with the message
+/// parked in the box above. Never a silent success: the caller re-raises.
+///
+/// **Every derive-internal evaluation must go through this, never through the
+/// 3-argument `evaluate_expression`.** That one is
+/// `_evaluate_expression_wrapper` (`evaluator/exprs/_expr.yo`), whose handler
+/// swallows EVERY throw and returns an err-expr — so a rule's own
+/// `comptime_assert` never reached the user. `derive` saw only a missing
+/// expr-info value and reported the generic "derive rule function failed", or
+/// "derive rule must return(comptime(Expr)); got …", pointing away from the
+/// fault; writing a `derive_rule` was writing blind
+/// (issues/fixed/derive-swallows-the-rule-error.md).
+_derive_eval_guarded :: (
+  fn(step_expr : AstExpr, env : Environment, ctx : EvalContext, out : ArrayList(AstExpr)) -> unit
 )({
   inner_exn := Exception(
     throw : (
@@ -85,8 +96,26 @@ _derive_eval_impl :: (
       }
     )
   );
-  evaluated := evaluate_expression_raw(impl_expr, env, ctx, inner_exn);
+  evaluated := evaluate_expression_raw(step_expr, env, ctx, inner_exn);
   out.push(evaluated);
+});
+/// Strip one leading error prefix so a re-raise does not read
+/// "error: … failed: error: …". The dyn message carries its own prefix and
+/// `format_error_message` adds another — same rule as
+/// `hard_swallow_diagnostic`.
+///
+/// BOTH spellings have to be handled: `format_error_message` emits the
+/// lowercase `error: ` that the diagnostic renderer uses, while some throws
+/// carry the capitalized `Error: `. Stripping only one of them left the other
+/// doubled in the message.
+_derive_strip_error_prefix :: (fn(raw_msg : String) -> String)({
+  lower_prefix := String.from("error: ");
+  upper_prefix := String.from("Error: ");
+  cond(
+    raw_msg.starts_with(lower_prefix) => raw_msg.substring(lower_prefix.len(), raw_msg.len()),
+    raw_msg.starts_with(upper_prefix) => raw_msg.substring(upper_prefix.len(), raw_msg.len()),
+    true => raw_msg
+  )
 });
 // ---------------------------------------------------------------------------
 // call_registered_derive_rule
@@ -270,9 +299,28 @@ call_registered_derive_rule :: (
   }, {
     add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
   });
-  // 7. Call the rule via a generated call expression.
+  // 7. Call the rule via a generated call expression, under the guarded
+  //    evaluator so the RULE'S OWN error reaches the user. See
+  //    `_derive_eval_guarded` — the plain `evaluate_expression` swallowed it
+  //    and left only the generic messages below, which is why a rule could
+  //    fail with `check` and `compile` both reporting success.
   call_code := `${rule_fn_name}(${type_var}, ${ctx_var}, ${tps_var})`;
-  call_result := evaluate_expression(generate_expr_from_code(call_code, exn), caller_env, ctx);
+  _clear_derive_impl_err();
+  call_out := ArrayList(AstExpr).new();
+  _derive_eval_guarded(generate_expr_from_code(call_code, exn), caller_env, ctx, call_out);
+  if(call_out.len() == usize(0), {
+    rule_raw_msg := _derive_impl_err_message();
+    _clear_derive_impl_err();
+    exn.throw(
+      dyn(
+        format_error_message(
+          tok,
+          `derive on "${type_to_string(target_type)}": the derive rule failed: ${_derive_strip_error_prefix(rule_raw_msg)}`
+        )
+      )
+    );
+  });
+  call_result := match(call_out.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   call_info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
     .Some(i) => i,
@@ -281,8 +329,17 @@ call_registered_derive_rule :: (
   call_val := match(
     call_info.value,
     .Some(v) => v,
+    // Reached only when the rule returned WITHOUT throwing and still left no
+    // comptime value — a rule error now re-raises above with its own message.
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: derive rule function failed"))));
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            String.from("derive: the derive rule returned no comptime value (and raised no error)")
+          )
+        )
+      );
       EvalValue.UnitVal
     }
   );
@@ -314,18 +371,11 @@ call_registered_derive_rule :: (
   // issues/fixed/bare-derive-form-kills-module-eval.md
   _clear_derive_impl_err();
   impl_out := ArrayList(AstExpr).new();
-  _derive_eval_impl(desugar_if_calls(result_expr), caller_env, ctx, impl_out);
+  _derive_eval_guarded(desugar_if_calls(result_expr), caller_env, ctx, impl_out);
   if(impl_out.len() == usize(0), {
     raw_msg := _derive_impl_err_message();
     _clear_derive_impl_err();
-    // The dyn message often already carries an "Error: " prefix and
-    // format_error_message adds its own — strip one so it does not read
-    // "Error: Error:" (same rule as hard_swallow_diagnostic).
-    err_prefix := String.from("Error: ");
-    msg := cond(
-      raw_msg.starts_with(err_prefix) => raw_msg.substring(err_prefix.len(), raw_msg.len()),
-      true => raw_msg
-    );
+    msg := _derive_strip_error_prefix(raw_msg);
     exn.throw(
       dyn(
         format_error_message(
