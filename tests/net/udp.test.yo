@@ -101,26 +101,69 @@ test("UdpSocket recv_from gets source address", {
   data.push(u8(65)); // A
   data.push(u8(66)); // B
   io.await(client.send_to(data, server_addr, io), IoExn(io : io, exn : exn));
-  // Server receives with source address
+  // Server receives, and gets the sender back as a DECODED SocketAddr — the
+  // sockaddr buffer and its length used to be raw out-params the caller had to
+  // malloc, pre-set to 128, pass in, decode with IO_tcp.get_* and free.
   recv_buf := (*u8)(malloc(usize(256)).unwrap());
-  src_addr_buf := (*u8)(malloc(usize(128)).unwrap());
-  src_addr_len := (*u32)(malloc(usize(4)).unwrap());
-  src_addr_len.* = u32(128);
-  nr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len, io), IoExn(io : io, exn : exn));
-  unsafe(printf("  received = %zu\n", nr));
-  assert(nr == usize(2), "should receive 2 bytes");
+  got := io.await(server.recv_from(recv_buf, usize(256), io), IoExn(io : io, exn : exn));
+  unsafe(printf("  received = %zu\n", got.0));
+  assert(got.0 == usize(2), "should receive 2 bytes");
   assert((recv_buf.add(usize(0))).* == u8(65), "A");
   assert((recv_buf.add(usize(1))).* == u8(66), "B");
-  // Verify source address family
-  src_family := IO_tcp.get_family(src_addr_buf);
-  unsafe(printf("  src family = %u\n", src_family));
-  // Verify source port
-  src_port := IO_tcp.get_port_in(src_addr_buf);
-  unsafe(printf("  src port = %u\n", src_port));
-  assert(src_port == u16(19913), "src port should be 19913");
+  assert(got.1.port == u16(19913), "src port should be 19913");
+  assert(got.1.ip == IpAddr.loopback_v4(), "src ip is the loopback the client bound");
   free(.Some((*void)(recv_buf)));
-  free(.Some((*void)(src_addr_buf)));
-  free(.Some((*void)(src_addr_len)));
+  io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});
+test("UdpSocket recv_from_bytes needs no raw pointers at all", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  server_addr := SocketAddr.loopback(u16(19916));
+  server := io.await(UdpSocket.bind(server_addr, io), IoExn(io : io, exn : exn));
+  client_addr := SocketAddr.loopback(u16(19917));
+  client := io.await(UdpSocket.bind(client_addr, io), IoExn(io : io, exn : exn));
+  data := ArrayList(u8).new();
+  data.push(u8(120)); // x
+  data.push(u8(121)); // y
+  data.push(u8(122)); // z
+  io.await(client.send_to(data, server_addr, io), IoExn(io : io, exn : exn));
+  // `send_to` has always taken an ArrayList; every RECEIVE took a *(u8), so a
+  // program without Pragma.AllowUnsafe could send a datagram and not read one.
+  got := io.await(server.recv_from_bytes(usize(256), io), IoExn(io : io, exn : exn));
+  assert(got.0.len() == usize(3), "truncated to the 3 bytes actually received");
+  assert(got.0(usize(0)) == u8(120), "x");
+  assert(got.0(usize(2)) == u8(122), "z");
+  assert(got.1.port == u16(19917), "and the sender's port came back decoded");
+  io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(server.close(io), IoExn(io : io, exn : exn));
+});
+test("UdpSocket recv_bytes over a connected socket", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  server_addr := SocketAddr.loopback(u16(19918));
+  server := io.await(UdpSocket.bind(server_addr, io), IoExn(io : io, exn : exn));
+  client_addr := SocketAddr.loopback(u16(19919));
+  client := io.await(UdpSocket.bind(client_addr, io), IoExn(io : io, exn : exn));
+  io.await(client.connect(server_addr, io), IoExn(io : io, exn : exn));
+  data := ArrayList(u8).new();
+  data.push(u8(7));
+  io.await(client.send(data, io), IoExn(io : io, exn : exn));
+  got := io.await(server.recv_bytes(usize(64), io), IoExn(io : io, exn : exn));
+  assert(got.len() == usize(1), "one byte, and the list is truncated to it");
+  assert(got(usize(0)) == u8(7), "the byte that was sent");
   io.await(client.close(io), IoExn(io : io, exn : exn));
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });

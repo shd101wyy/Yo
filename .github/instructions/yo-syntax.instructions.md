@@ -486,7 +486,7 @@ node_module :: import("./node.yo");
 { String } :: import("std/string");
 
 // CORRECT — glob destructure when you really want every export in scope
-// (there is no `open(...)` builtin: it was removed 2026-09-09):
+// (there is no `open(...)` builtin: it was removed 2026-09-10):
 { ... } :: import("std/string");
 
 // WRONG — `import "path" as name` does NOT work for .yo files:

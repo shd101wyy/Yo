@@ -8,7 +8,7 @@
 //! ```rust
 //! { HttpServer, HttpResponse } :: import "std/http";
 //! server := io.await(HttpServer.bind(SocketAddr.loopback(u16(8080)), io), e);
-//! io.await(server.serve((req) -> HttpResponse.with_status(i32(200)).with_body(`hi ${req.path}`), io), e);
+//! io.await(server.serve((req) -> HttpResponse.with_status(StatusCode.OK()).with_body(`hi ${req.path}`), io), e);
 //! ```
 //!
 //! `serve` runs until `stop()` is called (checked after each connection) —
@@ -32,7 +32,7 @@ import("../string");
 { IoExn } :: import("../error");
 { TcpListener, TcpStream } :: import("../net/tcp");
 { SocketAddr } :: import("../net/addr");
-{ HttpError, HttpHeader, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
+{ HttpError, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, parse_request } :: import("./http.yo");
 { read_http_message } :: import("./wire.yo");
 /// Default ceiling on a request (headers + body): 16 MiB.
 DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
@@ -84,17 +84,17 @@ impl(
         .Ok(raw) => match(
           parse_request(raw),
           .Ok(req) => handler(req),
-          .Err(perr) => HttpResponse.with_status(i32(400)).with_body(perr.to_string())
+          .Err(perr) => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(perr.to_string())
         ),
         .Err(ferr) => match(
           ferr,
-          .ResponseTooLarge => HttpResponse.with_status(i32(413)).with_body(`request larger than ${self.max_request_bytes} bytes`),
-          _ => HttpResponse.with_status(i32(400)).with_body(ferr.to_string())
+          .ResponseTooLarge => HttpResponse.with_status(StatusCode.CONTENT_TOO_LARGE()).with_body(`request larger than ${self.max_request_bytes} bytes`),
+          _ => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(ferr.to_string())
         )
       );
       cond(
         resp.get_header(`Connection`).is_none() => {
-          resp.headers.push(HttpHeader.new(`Connection`, `close`));
+          resp.headers.insert(`Connection`, `close`);
         },
         true => ()
       );

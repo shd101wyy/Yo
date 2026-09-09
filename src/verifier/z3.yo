@@ -263,8 +263,8 @@ _install_z3 :: (
     opts = opts.with_max_redirects(usize(5));
     opts = opts.with_max_response_bytes(usize(268435456));
     resp := e.io.await(fetch_with(url.clone(), opts, e.io), e);
-    if(resp.status_code >= i32(400), {
-      e.exn.throw(dyn(`verify: failed to download Z3 (HTTP ${resp.status_code.to_string()}) from ${url}`));
+    if(resp.status.is_error(), {
+      e.exn.throw(dyn(`verify: failed to download Z3 (HTTP ${resp.status.to_string()}) from ${url}`));
     });
     if(!_z3_write_file_sync(zip_path.clone(), resp.body), {
       e.exn.throw(dyn(`verify: failed to write ${zip_path}`));

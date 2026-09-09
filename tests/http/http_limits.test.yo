@@ -14,7 +14,7 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 pragma(Pragma.SkipWindows); // OpenSSL absent on the Windows runners
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ fetch, fetch_with, FetchOptions, HttpError, HttpServer, HttpHeader, HttpRequest, HttpResponse } :: import("std/http");
+{ fetch, fetch_with, FetchOptions, HttpError, HttpServer, HttpHeader, HttpRequest, HttpResponse, HeaderMap, StatusCode } :: import("std/http");
 { SocketAddr } :: import("std/net/addr");
 { ArrayList } :: import("std/collections/array_list");
 { Exception, IoExn } :: import("std/error");
@@ -62,11 +62,11 @@ _redirect_hop :: (fn(req : HttpRequest) -> HttpResponse)({
   n := match(req.path.strip_prefix(`/r/`), .Some(rest) => rest.parse_u64().unwrap_or(u64(0)), .None => u64(0));
   cond(
     (n > u64(0)) => {
-      resp := HttpResponse.with_status(i32(302));
-      resp.headers.push(HttpHeader.new(`Location`, `/r/${n - u64(1)}`));
+      resp := HttpResponse.with_status(StatusCode.FOUND());
+      resp.headers.append(`Location`, `/r/${n - u64(1)}`);
       resp
     },
-    true => HttpResponse.with_status(i32(200)).with_body(`done`)
+    true => HttpResponse.with_status(StatusCode.OK()).with_body(`done`)
   )
 });
 /// `fetch(url)` and report whether it threw `TooManyRedirects` — the handler
@@ -140,7 +140,7 @@ test("a redirect chain under the cap is followed to its 200", {
     IoExn(io : io, exn : exn)
   );
   r := io.await(fetch(`http://127.0.0.1:19986/r/3`, io), IoExn(io : io, exn : exn));
-  assert(r.status_code == i32(200), `expected a 200 after following 3 redirects, got ${r.status_code}`);
+  assert(r.status == StatusCode.OK(), `expected a 200 after following 3 redirects, got ${r.status}`);
   assert(r.body == "done", `expected the final body, got ${r.body}`);
   task.await(io);
   io.await(server.close(io), IoExn(io : io, exn : exn));
@@ -171,12 +171,12 @@ test("FetchOptions builders set the new fields", {
 _dotdot_redirect :: (fn(req : HttpRequest) -> HttpResponse)(
   cond(
     (req.path == `/a/b/c`) => {
-      resp := HttpResponse.with_status(i32(302));
-      resp.headers.push(HttpHeader.new(`Location`, `../x`));
+      resp := HttpResponse.with_status(StatusCode.FOUND());
+      resp.headers.append(`Location`, `../x`);
       resp
     },
-    (req.path == `/a/x`) => HttpResponse.with_status(i32(200)).with_body(`landed`),
-    true => HttpResponse.with_status(i32(404)).with_body(`no such path: ${req.path}`)
+    (req.path == `/a/x`) => HttpResponse.with_status(StatusCode.OK()).with_body(`landed`),
+    true => HttpResponse.with_status(StatusCode.NOT_FOUND()).with_body(`no such path: ${req.path}`)
   )
 );
 test("a `../` Location climbs a directory instead of being pasted verbatim", {
@@ -202,7 +202,7 @@ test("a `../` Location climbs a directory instead of being pasted verbatim", {
     IoExn(io : io, exn : exn)
   );
   r := io.await(fetch(`http://127.0.0.1:19987/a/b/c`, io), IoExn(io : io, exn : exn));
-  assert(r.status_code == i32(200), `expected a 200 at /a/x, got ${r.status_code}`);
+  assert(r.status == StatusCode.OK(), `expected a 200 at /a/x, got ${r.status}`);
   assert(r.body == "landed", `expected the /a/x body, got ${r.body}`);
   task.await(io);
   io.await(server.close(io), IoExn(io : io, exn : exn));

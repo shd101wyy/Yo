@@ -249,3 +249,276 @@ test("SocketAddr Eq, Ord, Clone and use as a HashMap key", {
   assert(conns.len() == usize(2), "re-inserting an equal key replaces");
   assert(conns.get(a).unwrap() == i32(3), "with the new value");
 });
+// ============================================================================
+// IpAddr.parse_v6 / IpAddr.parse
+// ============================================================================
+_must_reject_v6 :: (fn(s : String) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  IpAddr.parse_v6(s, exn);
+  assert(false, `parse_v6 accepted ${s}`);
+});
+_ok_v6 :: (fn(s : String) -> IpAddr)({
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  parse_v6 rejected a valid address: ${err}`);
+        assert(false, "parse_v6 must accept this");
+        unwind(());
+      }
+    )
+  );
+  IpAddr.parse_v6(s, exn)
+});
+test("IpAddr.parse_v6 accepts the full eight-group form", {
+  a := _ok_v6(`2001:0db8:0000:0000:0000:0000:0002:0001`);
+  assert(a.is_v6(), "is v6");
+  match(
+    a,
+    .V6(segs) => {
+      assert(segs(usize(0)) == u16(0x2001), "first group");
+      assert(segs(usize(1)) == u16(0x0db8), "second group");
+      assert(segs(usize(6)) == u16(2), "seventh group");
+      assert(segs(usize(7)) == u16(1), "eighth group");
+    },
+    .V4(_, _, _, _) => assert(false, "must be v6")
+  );
+  // Hex is case-insensitive on input.
+  assert(_ok_v6(`2001:DB8:0:0:0:0:2:1`) == a, "upper-case hex parses the same");
+  // Groups may be written with fewer than four digits.
+  assert(_ok_v6(`2001:db8:0:0:0:0:2:1`) == a, "short groups parse the same");
+});
+test("IpAddr.parse_v6 accepts :: compression in every position", {
+  assert(_ok_v6(`::1`) == IpAddr.loopback_v6(), "leading :: is the loopback");
+  // `::` alone is the unspecified address — all eight groups zero.
+  unspec := _ok_v6(`::`);
+  match(
+    unspec,
+    .V6(segs) => {
+      i := usize(0);
+      while(runtime(i < usize(8)), {
+        assert(segs(i) == u16(0), "every group of :: is zero");
+        i = (i + usize(1));
+      });
+    },
+    .V4(_, _, _, _) => assert(false, "must be v6")
+  );
+  // Middle and trailing compression.
+  assert(
+    _ok_v6(`2001:db8::2:1`) == _ok_v6(`2001:db8:0:0:0:0:2:1`),
+    "middle :: expands to the zero run"
+  );
+  assert(
+    _ok_v6(`2001:db8::`) == _ok_v6(`2001:db8:0:0:0:0:0:0`),
+    "trailing :: expands to the zero run"
+  );
+  assert(_ok_v6(`fe80::1`) == _ok_v6(`fe80:0:0:0:0:0:0:1`), "link-local");
+});
+test("IpAddr.parse_v6 accepts a trailing dotted-quad", {
+  // The IPv4-mapped form. The last two groups carry the four octets.
+  mapped := _ok_v6(`::ffff:192.0.2.1`);
+  match(
+    mapped,
+    .V6(segs) => {
+      assert(segs(usize(5)) == u16(0xffff), "the mapping prefix");
+      assert(segs(usize(6)) == u16(0xc000), "192.0 packs into one group");
+      assert(segs(usize(7)) == u16(0x0201), "2.1 packs into the next");
+    },
+    .V4(_, _, _, _) => assert(false, "must be v6")
+  );
+  // Also legal without compression, spelling all six leading groups.
+  assert(
+    _ok_v6(`0:0:0:0:0:ffff:192.0.2.1`) == mapped,
+    "the uncompressed spelling is the same address"
+  );
+  // And the IPv4-compatible (deprecated but well-formed) form.
+  assert(_ok_v6(`::192.0.2.1`) == _ok_v6(`::c000:201`), "dotted-quad == its hex spelling");
+});
+test("IpAddr.parse_v6 rejects malformed input", {
+  _must_reject_v6(``);
+  // More than one compression run is ambiguous.
+  _must_reject_v6(`1::2::3`);
+  // A group longer than four hex digits cannot fit in 16 bits.
+  _must_reject_v6(`12345::1`);
+  // Too many groups, with and without compression.
+  _must_reject_v6(`1:2:3:4:5:6:7:8:9`);
+  _must_reject_v6(`1:2:3:4:5:6:7:8::9`);
+  // Without a `::` all eight groups must be written.
+  _must_reject_v6(`1:2:3`);
+  _must_reject_v6(`1:2:3:4:5:6:7`);
+  // A `::` standing for nothing is wrong per RFC 5952 4.2.2.
+  _must_reject_v6(`1:2:3:4::5:6:7:8`);
+  // A single leading or trailing colon is not a compression run.
+  _must_reject_v6(`:1:2:3:4:5:6:7:8`);
+  _must_reject_v6(`1:2:3:4:5:6:7:8:`);
+  _must_reject_v6(`1:`);
+  // An empty group that is not part of a `::`.
+  _must_reject_v6(`1:2:::3`);
+  // Non-hex bytes, and an IPv4 part that is not itself valid.
+  _must_reject_v6(`2001:zz::1`);
+  _must_reject_v6(`::ffff:192.0.2.256`);
+  _must_reject_v6(`::ffff:192.0.2`);
+  // A zone id identifies an interface, not an address.
+  _must_reject_v6(`fe80::1%eth0`);
+});
+test("IpAddr.parse_v6 round-trips through to_string", {
+  // to_string writes the full uncompressed form, which parse_v6 must accept
+  // back — this is what makes an address survive a serialize/parse cycle.
+  a := _ok_v6(`2001:db8::dead:beef`);
+  assert(_ok_v6(a.to_string()) == a, "to_string output re-parses to the same address");
+  assert(_ok_v6(IpAddr.loopback_v6().to_string()) == IpAddr.loopback_v6(), "loopback round-trips");
+});
+_must_reject_parse :: (fn(s : String) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  IpAddr.parse(s, exn);
+  assert(false, `parse accepted ${s}`);
+});
+test("IpAddr.parse dispatches on the presence of a colon", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  parse rejected a valid address: ${err}`);
+        assert(false, "must accept");
+        unwind(());
+      }
+    )
+  );
+  assert(IpAddr.parse(`127.0.0.1`, exn) == IpAddr.loopback_v4(), "no colon means v4");
+  assert(IpAddr.parse(`::1`, exn) == IpAddr.loopback_v6(), "a colon means v6");
+  // A malformed address reports the error for the family it was meant to be.
+  _must_reject_parse(`1.2.3`);
+  _must_reject_parse(`1:2:3`);
+});
+// ============================================================================
+// IpAddr batteries + SocketAddr.parse
+// ============================================================================
+test("IpAddr.octets serializes either family big-endian", {
+  v4 := IpAddr.V4(u8(10), u8(20), u8(30), u8(40)).octets();
+  assert(v4.len() == usize(4), "a V4 address is four octets");
+  assert(v4(usize(0)) == u8(10), "first octet");
+  assert(v4(usize(3)) == u8(40), "last octet");
+  v6 := _ok_v6(`2001:db8::1`).octets();
+  assert(v6.len() == usize(16), "a V6 address is sixteen bytes");
+  assert(v6(usize(0)) == u8(0x20), "high octet of the first group comes first");
+  assert(v6(usize(1)) == u8(0x01), "then the low octet");
+  assert(v6(usize(15)) == u8(0x01), "and the last group's low octet is last");
+});
+test("IpAddr.segments answers only for V6", {
+  match(
+    _ok_v6(`fe80::1`).segments(),
+    .Some(segs) => {
+      assert(segs(usize(0)) == u16(0xfe80), "first group");
+      assert(segs(usize(7)) == u16(1), "last group");
+    },
+    .None => assert(false, "a V6 address has segments")
+  );
+  // Not the IPv4-mapped groups: a V4 address has no groups, and answering with
+  // them would silently answer a different question.
+  assert(IpAddr.loopback_v4().segments().is_none(), "a V4 address has none");
+});
+test("IpAddr.is_unspecified, any_v6", {
+  assert(IpAddr.any_v4().is_unspecified(), "0.0.0.0");
+  assert(IpAddr.any_v6().is_unspecified(), "::");
+  assert(_ok_v6(`::`) == IpAddr.any_v6(), "any_v6 is what :: parses to");
+  assert(!IpAddr.loopback_v4().is_unspecified(), "127.0.0.1 is specified");
+  assert(!IpAddr.loopback_v6().is_unspecified(), "::1 is specified");
+});
+test("IpAddr.is_multicast covers 224/4 and ff00::/8", {
+  assert(IpAddr.V4(u8(224), u8(0), u8(0), u8(1)).is_multicast(), "the bottom of 224/4");
+  assert(IpAddr.V4(u8(239), u8(255), u8(255), u8(255)).is_multicast(), "the top of 224/4");
+  assert(!IpAddr.V4(u8(223), u8(0), u8(0), u8(1)).is_multicast(), "223 is below the range");
+  assert(!IpAddr.V4(u8(240), u8(0), u8(0), u8(1)).is_multicast(), "240 is above it");
+  assert(_ok_v6(`ff02::1`).is_multicast(), "ff00::/8");
+  assert(!_ok_v6(`fe80::1`).is_multicast(), "link-local is not multicast");
+});
+test("IpAddr.is_private is RFC 1918 only, with unique-local kept separate", {
+  assert(IpAddr.V4(u8(10), u8(0), u8(0), u8(1)).is_private(), "10/8");
+  assert(IpAddr.V4(u8(172), u8(16), u8(0), u8(1)).is_private(), "the bottom of 172.16/12");
+  assert(IpAddr.V4(u8(172), u8(31), u8(255), u8(255)).is_private(), "the top of 172.16/12");
+  assert(!IpAddr.V4(u8(172), u8(15), u8(0), u8(1)).is_private(), "172.15 is outside");
+  assert(!IpAddr.V4(u8(172), u8(32), u8(0), u8(1)).is_private(), "172.32 is outside");
+  assert(IpAddr.V4(u8(192), u8(168), u8(1), u8(1)).is_private(), "192.168/16");
+  assert(!IpAddr.V4(u8(192), u8(169), u8(1), u8(1)).is_private(), "192.169 is public");
+  assert(!IpAddr.V4(u8(8), u8(8), u8(8), u8(8)).is_private(), "8.8.8.8 is public");
+  // fc00::/7 is the V6 analogue but has different routing rules, so it is a
+  // SEPARATE predicate rather than folded into is_private.
+  assert(!_ok_v6(`fd00::1`).is_private(), "a V6 address is never RFC 1918");
+  assert(_ok_v6(`fd00::1`).is_unique_local(), "but it is unique-local");
+  assert(_ok_v6(`fc00::1`).is_unique_local(), "and so is the bottom of fc00::/7");
+  assert(!_ok_v6(`fe00::1`).is_unique_local(), "fe00 is outside fc00::/7");
+  assert(!IpAddr.loopback_v4().is_unique_local(), "a V4 address is never unique-local");
+});
+test("IpAddr.is_link_local covers 169.254/16 and fe80::/10", {
+  assert(IpAddr.V4(u8(169), u8(254), u8(0), u8(1)).is_link_local(), "169.254/16");
+  assert(!IpAddr.V4(u8(169), u8(253), u8(0), u8(1)).is_link_local(), "169.253 is not");
+  assert(_ok_v6(`fe80::1`).is_link_local(), "fe80::/10");
+  assert(_ok_v6(`febf::1`).is_link_local(), "the top of fe80::/10");
+  assert(!_ok_v6(`fec0::1`).is_link_local(), "fec0 is outside fe80::/10");
+});
+_must_reject_sockaddr :: (fn(s : String) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  SocketAddr.parse(s, exn);
+  assert(false, `SocketAddr.parse accepted ${s}`);
+});
+test("SocketAddr.parse takes host:port and requires brackets for V6", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  rejected a valid socket address: ${err}`);
+        assert(false, "must accept");
+        unwind(());
+      }
+    )
+  );
+  a := SocketAddr.parse(`127.0.0.1:8080`, exn);
+  assert(a.ip == IpAddr.loopback_v4(), "host parsed");
+  assert(a.port == u16(8080), "port parsed");
+  b := SocketAddr.parse(`[::1]:443`, exn);
+  assert(b.ip == IpAddr.loopback_v6(), "bracketed V6 host parsed");
+  assert(b.port == u16(443), "and its port");
+  assert(SocketAddr.parse(`0.0.0.0:0`, exn).port == u16(0), "port 0 is legal — it means 'any'");
+  assert(SocketAddr.parse(`[2001:db8::1]:65535`, exn).port == u16(65535), "the top port");
+  // to_string already brackets a V6 host, so a socket address round-trips.
+  assert(SocketAddr.parse(b.to_string(), exn) == b, "to_string round-trips through parse");
+  assert(SocketAddr.parse(a.to_string(), exn) == a, "and so does a V4 one");
+});
+test("SocketAddr.parse rejects the ambiguous and the out-of-range", {
+  // A bare V6 host is ambiguous — is the trailing group a port? That is why
+  // RFC 3986 3.2.2 introduced the brackets, so guessing is not an option.
+  _must_reject_sockaddr(`::1:80`);
+  _must_reject_sockaddr(`2001:db8::1:8080`);
+  // Malformed brackets.
+  _must_reject_sockaddr(`[::1:80`);
+  _must_reject_sockaddr(`[::1]80`);
+  _must_reject_sockaddr(`[::1]`);
+  // A port above 65535 must be REJECTED, not truncated: parse_i32 accepts
+  // 70000 and a u16 cast would silently make it 4464.
+  _must_reject_sockaddr(`127.0.0.1:70000`);
+  _must_reject_sockaddr(`127.0.0.1:65536`);
+  _must_reject_sockaddr(`127.0.0.1:99999999999`);
+  // No port, an empty port, a non-numeric port.
+  _must_reject_sockaddr(`127.0.0.1`);
+  _must_reject_sockaddr(`127.0.0.1:`);
+  _must_reject_sockaddr(`127.0.0.1:http`);
+  _must_reject_sockaddr(`127.0.0.1:-1`);
+  // And a host that is not an address.
+  _must_reject_sockaddr(`example.com:80`);
+  _must_reject_sockaddr(`1.2.3:80`);
+});

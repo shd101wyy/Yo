@@ -25,6 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { Path } :: import("std/path");
 { exists, write_string } :: import("std/fs/file");
 { FetchOptions, fetch_with } :: import("std/http/client");
+{ StatusCode } :: import("std/http/http");
 { tls_available } :: import("std/crypto/tls");
 {
   FileType,
@@ -471,7 +472,7 @@ _http_get :: (
     opts = opts.with_header(`Accept`, `application/vnd.github+json`);
     opts = opts.with_max_redirects(usize(5));
     resp := e.io.await(fetch_with(url, opts, e.io), e);
-    if(resp.status_code == i32(403), {
+    if(resp.status == StatusCode.FORBIDDEN(), {
       // Unauthenticated GitHub API rate limit (60 requests/hour/IP).
       e.exn.throw(
         dyn(
@@ -479,8 +480,8 @@ _http_get :: (
         )
       );
     });
-    if(resp.status_code >= i32(400), {
-      e.exn.throw(dyn(`HTTP ${resp.status_code} fetching ${url}`));
+    if(resp.status.is_error(), {
+      e.exn.throw(dyn(`HTTP ${resp.status} fetching ${url}`));
     });
     resp.body
   })
@@ -506,7 +507,7 @@ _download_file :: (
     opts = opts.with_max_response_bytes(usize(536870912));
     resp := e.io.await(fetch_with(url, opts, e.io), e);
     e.io.await(write_string(Path.new(dest_path), resp.body, e.io), e);
-    `${resp.status_code}`
+    `${resp.status}`
   })
 );
 /// One page of the GitHub Releases API scan: the non-draft, non-prerelease
