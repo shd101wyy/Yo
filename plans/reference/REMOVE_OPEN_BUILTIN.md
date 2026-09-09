@@ -281,8 +281,19 @@ text; no new mechanism.
 | `gates_fast.sh` T1 GATE 0–8 | green after the repro fix; corpus 156/156, fmt clean and idempotent |
 | `fixpoint_only.sh` | `STAGE2_RC=0`, stage2 hollow=0, `STAGE3_RC=0`, **FIXPOINT_HOLDS** |
 | `cli-diff-test.sh` (full) | PASS 90, GOLDEN-DIFF 0, NO-GOLDEN 0, 1 network SKIP |
-| language suite (`tests`, minus `internal`/`cli-cases`) | green |
-| `tests/internal` | green, one file at a time |
+| language suite (`tests`, minus `internal`/`cli-cases`) | 3927 passed, rc 0 |
+| `tests/internal` | 71 files one at a time, 1010 passed, rc 0 |
+
+Everything above ran twice: once on the migration+deletion, and again after
+`origin/develop` moved under the branch (#524, std/net + std/http). The merge
+conflicted only in the six generated skill/init tree goldens, which were
+re-recorded; the second run is the one whose numbers are in the table.
+
+CI's first attempt is not evidence either way: `apt-get update` failed on the
+runners (exit 100), which killed every Linux job and, through the missing
+`suite-c-*` artifacts, every macOS and Windows leg that consumes them. The one
+leg that got a working runner — `test (ubuntu-24.04-arm)` — passed the whole
+suite, and the failed jobs were re-run.
 
 36 cli goldens were re-recorded: 35 `expected_tree` manifests (they hash the
 fixture and bundled-skill files this change edited, and the `init` scaffold that
