@@ -142,18 +142,31 @@ random_u64 :: (fn(exn : Exception) -> u64)({
 random_f64 :: (fn(exn : Exception) -> f64)(
   f64(random_u64(exn) >> u64(11)) / f64(9007199254740992.0)
 );
-// Return a random integer in the half-open range [min, max).
+// Return a random integer in the half-open range `r` — write it with `..`:
+// `random_range(i64(10) .. i64(20), exn)`. The bound is a `Range(i64)` rather
+// than two `i64` parameters so the half-open end is visible AT THE CALL SITE,
+// and so this reads the same as `Rng.range` in `std/rand`.
+//
+// PANICS on an empty range (`r.end <= r.start`), like `Rng.range`: a sampler
+// must return a value FROM the range, and an empty range has none. (It used to
+// return `r.start`, which invented a value that was never in the range —
+// `BTreeMap.range` may yield an empty ITERATOR for an inverted window because
+// "no elements" is a real answer there; "no number" is not.)
+//
 // Uniform via rejection sampling: `r % span` alone over-weights the low
 // residues whenever span does not divide 2^64 — a bias defect in a module
 // advertising cryptographic security (plans/archive/STD_API_AUDIT.md C5). Draws
 // above the largest span-multiple are rejected and redrawn; the retry
 // probability is < 2^-1 per draw even in the worst case.
-random_range :: (fn(min : i64, max : i64, exn : Exception) -> i64)({
-  span := (max - min);
+random_range :: (fn(r : Range(i64), exn : Exception) -> i64)(
   cond(
-    (span <= i64(0)) => min,
+    (r.end <= r.start) => __yo_panic("random_range: empty range (end <= start)"),
     true => {
-      uspan := u64(span);
+      // Unsigned span: `r.end - r.start` OVERFLOWS i64 for a wide range
+      // (`i64.MIN .. 0` is `0 - i64.MIN`), and signed overflow is undefined
+      // behaviour in C. Yo's conversions are two's-complement bit-preserving,
+      // so `u64(end) - u64(start)` is the exact distance for `end > start`.
+      uspan := (u64(r.end) - u64(r.start));
       // Largest multiple of `uspan` representable in u64, as a rejection
       // threshold: accept r only below it. (u64::MAX = 2^64 - 1, so the
       // count of full spans is ((MAX - (uspan - 1)) / uspan) + 1 — computed
@@ -165,14 +178,14 @@ random_range :: (fn(min : i64, max : i64, exn : Exception) -> i64)({
         // uspan divides 2^64: no bias, accept everything
         true => (max_u64 - rem)
       );
-      r := random_u64(exn);
-      while(runtime(r > limit), {
-        r = random_u64(exn);
+      draw := random_u64(exn);
+      while(runtime(draw > limit), {
+        draw = random_u64(exn);
       });
-      min + i64(r % uspan)
+      r.start + i64(draw % uspan)
     }
   )
-});
+);
 export(random_u32, random_u64, random_f64, random_range);
 // ============================================================================
 // UUID v4

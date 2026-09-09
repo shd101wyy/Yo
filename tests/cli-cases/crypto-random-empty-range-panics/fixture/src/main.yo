@@ -1,0 +1,18 @@
+{ random_range } :: import("std/crypto/random");
+{ Exception } :: import("std/error");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        println(`entropy failed`);
+        unwind(());
+      }
+    )
+  );
+  println(`in range: ${random_range(i64(1) .. i64(2), exn)}`);
+  // Empty range: end == start. Used to return `start` — a value that was
+  // never in the range — where `Rng.range` panicked for the same input.
+  println(`empty range: ${random_range(i64(3) .. i64(3), exn)}`);
+});
+export(main);

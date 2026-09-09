@@ -540,7 +540,20 @@ snapshot from before that work. Also still open: `Error` ergonomics: `is(T)`, do
 `downcast`, `ErrorChain`, `Context(msg, source)` (nothing in the tree overrides
 `source`); `Default` on ~15 more types; `bench`
 `black_box` + auto-calibration; `log` `Sink` trait + `YO_LOG`; `rand`
-`thread_rng`/`random()`/`Range`-typed `range`.
+batteries — **LANDED 2026-09-09**: every range-taking API in std is now
+`Range`-typed (`rng.range(i64(1) .. i64(7))`, `random_range(a .. b, exn)`,
+`m.range(k1 .. k2)`), so the half-open bound is visible at the call site
+instead of remembered; `Rng` gained `range_inclusive`, `next_bool` and
+`from_entropy`; `crypto/random.random_range` now PANICS on an empty range
+like `Rng.range` did, instead of returning `start` — a value that was never
+in the range (`BTreeMap.range` keeps yielding an empty iterator, because "no
+elements" IS an answer where "no number" is not). `random()`/`thread_rng`
+became `rand_u32`/`rand_u64`/`rand_f64`/`rand_bool`/`rand_below`/`rand_range`/
+`rand_range_inclusive` over a process-global generator, lazily seeded from OS
+entropy and serialized behind a `Mutex`. It is deliberately NOT called
+`thread_rng`: Yo has no thread-local storage, so per-thread generators are
+not expressible and the name would promise state it cannot deliver — the docs
+say to take an own `Rng.from_entropy()` in a hot loop instead.
 
 **Concurrency.** `Thread(T).spawn` + `join() -> T` (D18); `Sender`/`Receiver`
 split with auto-close on last sender; waker-based `yield`/`async channel`/
