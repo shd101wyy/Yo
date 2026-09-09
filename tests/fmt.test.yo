@@ -1,6 +1,6 @@
 { assert } :: import("std/assert");
 open(import("std/fmt"));
-{ Writer } :: import("std/fmt/writer");
+{ rune } :: import("std/string/rune");
 // Side-effect witness for the unit-receiver test at the bottom of this file.
 (_unit_side_effects : i32) = i32(0);
 _unit_mark :: (fn(n : i32) -> unit)({
@@ -159,26 +159,66 @@ test("numeric to_string through the shared snprintf helper", {
   assert(f64(0.5).to_string() == `0.5`, "f64 %g drops trailing zeros");
   assert(f32(2.5).to_string() == `2.5`, "f32 widened");
 });
-test("Writer.to_string detaches the buffer: later writes never mutate a returned String", {
+test("StringBuilder.to_string detaches the buffer: later writes never mutate a returned String", {
   // issues/fixed/fmt-writer-to-string-aliases-the-live-buffer.md — the
-  // returned String used to SHARE the writer's ArrayList, so `w.write_str`
-  // after `to_string` rewrote a value the caller already held (and both
-  // dropped the same bytes).
-  w := Writer.new();
+  // returned String used to SHARE the buffer's ArrayList, so a write after
+  // `to_string` rewrote a value the caller already held (and both dropped the
+  // same bytes). `StringBuilder` inherits the fixed hand-over from the
+  // retired `Writer`, including its O(1) move: it used to COPY every byte out
+  // and then reset, which made an N-byte build O(N) again to read.
+  w := StringBuilder.new();
   w.write_str("abc");
   first := w.to_string();
   w.write_str("def");
   assert(first == `abc`, "the first String must not see bytes written after it was taken");
   assert(first.len() == usize(3), "and its length is fixed at 3");
-  assert(w.to_string() == `def`, "to_string hands over the buffer, so the writer starts empty");
-  assert(w.len() == usize(0), "the writer is empty after to_string");
+  assert(w.to_string() == `def`, "to_string hands over the buffer, so the builder starts empty");
+  assert(w.len() == usize(0), "the builder is empty after to_string");
   w.write_str("x");
   assert(w.to_string() == `x`, "and is reusable afterwards");
-  empty := Writer.new().to_string();
-  assert(empty.len() == usize(0), "an empty writer yields an empty String");
+  empty := StringBuilder.new().to_string();
+  assert(empty.len() == usize(0), "an empty builder yields an empty String");
 });
-test("Writer Default is an empty writer", {
-  w := Writer.default();
-  assert(w.to_string() == ``, "default writer renders empty");
-  assert(w.write_str("hi").to_string() == `hi`, "the default writer is a usable writer");
+test("StringBuilder Default is an empty builder", {
+  w := StringBuilder.default();
+  assert(w.to_string() == ``, "default builder renders empty");
+  w.write_str("hi");
+  assert(w.to_string() == `hi`, "the default builder is a usable builder");
+});
+test("StringBuilder.write_padded pads to a RUNE width, not a byte width", {
+  // The bug this replaces: width was `s.len()`, which for a `str` is BYTES.
+  // "héllo" is 6 bytes and 5 runes, so padding it to 8 emitted two spaces
+  // where a column needs three — and `FormatSpec` next door has always
+  // counted runes.
+  w := StringBuilder.new();
+  w.write_padded("héllo", usize(8), rune.from_u32(u32(32)).unwrap(), Alignment.Left);
+  assert(w.to_string() == `héllo   `, "three trailing spaces, not two");
+  w2 := StringBuilder.new();
+  w2.write_padded("héllo", usize(8), rune.from_u32(u32(32)).unwrap(), Alignment.Right);
+  assert(w2.to_string() == `   héllo`, "and three leading ones");
+  // ASCII is unchanged — the byte and rune counts agree there, which is why
+  // the defect stayed invisible.
+  w3 := StringBuilder.new();
+  w3.write_padded("ab", usize(5), rune.from_u32(u32(46)).unwrap(), Alignment.Left);
+  assert(w3.to_string() == `ab...`, "ASCII left-pads as before");
+  w4 := StringBuilder.new();
+  w4.write_padded("ab", usize(5), rune.from_u32(u32(46)).unwrap(), Alignment.Center);
+  assert(w4.to_string() == `.ab..`, "centre puts the odd pad on the right");
+  // A multi-byte PAD rune must count as one column too.
+  w5 := StringBuilder.new();
+  w5.write_padded("x", usize(3), rune.from_u32(u32(0x00E9)).unwrap(), Alignment.Right);
+  assert(w5.to_string() == `ééx`, "two pad RUNES (4 bytes), not two pad bytes");
+  // Already at or over the width: written through untouched.
+  w6 := StringBuilder.new();
+  w6.write_padded("héllo", usize(3), rune.from_u32(u32(32)).unwrap(), Alignment.Left);
+  assert(w6.to_string() == `héllo`, "no truncation, no padding");
+});
+test("StringBuilder.write_hex renders lowercase hexadecimal", {
+  w := StringBuilder.new();
+  w.write_hex(u64(255));
+  assert(w.to_string() == `ff`, "255 is ff");
+  w.write_hex(u64(0));
+  assert(w.to_string() == `0`, "zero is 0");
+  w.write_hex(u64(3735928559));
+  assert(w.to_string() == `deadbeef`, "and the classic one");
 });
