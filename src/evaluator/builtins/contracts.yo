@@ -19,6 +19,7 @@ open(import("std/fmt"));
   ast_expr_id,
   ast_expr_to_string,
   ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
   BF_REQUIRES,
   BF_ENSURES,
   BF_INVARIANT,
@@ -501,7 +502,10 @@ VerifyTask :: ref(
     return_label : Option(String),
     table : ExprInfoTable,
     /// `"verify"` | `"verify+"` — only those modes register.
-    mode : String
+    mode : String,
+    /// The FuncVal itself — the `verify+` strip pass rewrites its boxed
+    /// body data in place (dropping asserts whose predicates proved).
+    func_val : EvalValue
   )
 );
 (g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
@@ -593,6 +597,148 @@ take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
   g_verify_tasks = ArrayList(VerifyTask).new();
   out
 });
+/// The `verify+` strip pass (plan task 6): rewrite a wrapped function
+/// body IN PLACE, dropping the spliced `ensures failed` asserts whose
+/// corresponding obligation PROVED (the runtime check is dead weight —
+/// the proof replaces it). `proved[i]` is the verdict of `ensures#i`
+/// (index-aligned with the task's ensures order = the wrapper's splice
+/// order). The `requires failed` entry guards are KEPT: their proof
+/// obligation lives at CALL SITES (one per caller), and stripping a
+/// callee's guard because one caller proved it would be unsound.
+/// Returns the number of asserts stripped.
+strip_proved_ensures_asserts :: (
+  fn(func_val : EvalValue, proved : ArrayList(bool)) -> usize
+)(
+  match(
+    func_val,
+    .FuncVal(fvd, _) => {
+      body := fvd.*.body;
+      match(
+        body,
+        .FnCall(begin_id, begin_func, args, begin_infix, begin_tok) => {
+          kept := ArrayList(AstExpr).new();
+          (ens_idx : usize) = usize(0);
+          (stripped : usize) = usize(0);
+          (i : usize) = usize(0);
+          while(i < args.len(), {
+            drop := match(
+              args.get(i),
+              .Some(arg) => {
+                is_ens_assert := _is_contract_assert_call(arg, String.from("ensures failed:"));
+                if(is_ens_assert, {
+                  proved_here := match(
+                    proved.get(ens_idx),
+                    .Some(p) => p,
+                    .None => false
+                  );
+                  ens_idx = (ens_idx + usize(1));
+                  proved_here
+                }, false)
+              },
+              .None => false
+            );
+            if(!drop, {
+              match(
+                args.get(i),
+                .Some(arg) => {
+                  kept.push(arg);
+                },
+                .None => ()
+              );
+            }, {
+              stripped = (stripped + usize(1));
+            });
+            i = (i + usize(1));
+          });
+          if(stripped > usize(0), {
+            fvd.*.body = AstExpr.FnCall(begin_id, begin_func, kept, begin_infix, begin_tok);
+          });
+          stripped
+        },
+        .Atom(_, _) => usize(0)
+      )
+    },
+    _ => usize(0)
+  )
+);
+/// Whether `e` is a spliced contract assert call whose message atom starts
+/// with `prefix` — the wrapper's `_build_assert_call` shape: an
+/// `assert`/`comptime_assert` call of two args whose second is a string
+/// atom carrying the `<label>: <predicate>` message.
+_is_contract_assert_call :: (fn(e : AstExpr, prefix : String) -> bool)(
+  // The spliced message atom's token value is QUOTED
+  // (`_synth_string_token_value`), so the prefix includes the opening
+  // quote: `"ensures failed:`.
+  cond(
+    _assert_head_is(e, String.from("assert")) => _assert_msg_of(e).starts_with(`"${prefix}`),
+    _assert_head_is(e, String.from("comptime_assert")) => _assert_msg_of(e).starts_with(`"${prefix}`),
+    true => false
+  )
+);
+/// The member-callee cond (arm-body extraction — no braced single
+/// expressions).
+_callee_member_cond :: (
+  fn(dot_h : AstExpr, dot_args : ArrayList(AstExpr), name : String) -> bool
+)(
+  cond(
+    (ast_expr_token(dot_h).value == ".") => _dot_arg1_is(dot_args, name.clone()),
+    true => false
+  )
+);
+/// Whether a `.`-call's SECOND argument is a plain atom named `name`.
+_dot_arg1_is :: (fn(dot_args : ArrayList(AstExpr), name : String) -> bool)(
+  match(
+    dot_args.get(usize(1)),
+    .Some(second) => match(
+      second,
+      .Atom(_, st) => (st.value == name),
+      .FnCall(_, _, _, _, _) => false
+    ),
+    .None => false
+  )
+);
+/// Whether `e` is a call of `name` — either a bare callee atom
+/// (`comptime_assert`) or the wrapper's self-contained member callee
+/// `.(import("std/assert"), assert)` for the runtime `assert`
+/// (`_build_assert_callee`; the self-contained import survives the splice
+/// into any body scope).
+_assert_head_is :: (fn(e : AstExpr, name : String) -> bool)(
+  match(
+    e,
+    .FnCall(_, f, _, _, _) => _callee_named(f, name.clone()),
+    .Atom(_, _) => false
+  )
+);
+/// Whether a callee expression names `name` — bare atom or the
+/// `.(import("std/assert"), name)` member form.
+_callee_named :: (fn(f : AstExpr, name : String) -> bool)(
+  match(
+    f,
+    .Atom(_, ht) => (ht.value == name),
+    .FnCall(_, dot_h, dot_args, _, _) => _callee_member_cond(dot_h, dot_args, name.clone())
+  )
+);
+/// The message argument (arg 1) of an assert-shaped call when it is a
+/// plain string atom ("" otherwise).
+_assert_msg_of :: (fn(e : AstExpr) -> String)(
+  match(
+    e,
+    .FnCall(_, _, a, _, _) => _arg1_string_atom(a),
+    .Atom(_, _) => String.new()
+  )
+);
+/// Arg 1 of a call rendered as a string when it is a plain string atom
+/// ("" otherwise).
+_arg1_string_atom :: (fn(a : ArrayList(AstExpr)) -> String)(
+  match(
+    a.get(usize(1)),
+    .Some(m_arg) => cond(
+      ast_expr_is_atom(m_arg) => ast_expr_token(m_arg).value,
+      true => String.new()
+    ),
+    .None => String.new()
+  )
+);
 /// Splice the contract predicates into `body`.
 ///
 /// `return_label` (Phase V1) is the signature's labeled return
@@ -814,5 +960,6 @@ export(
   resolve_verify_mode,
   register_verify_task,
   evaluated_for_verify,
-  take_verify_tasks
+  take_verify_tasks,
+  strip_proved_ensures_asserts
 );

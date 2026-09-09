@@ -146,8 +146,25 @@ the work in §4 does not re-open them.
   compiles, and an explicit impl silently shadows it, but it would give any
   type with a hand-written message a `debug_string` returning that MESSAGE
   rather than a structural render — exactly the conflation D15 removes.
-  `derive(Error)` with per-variant format strings is NOT done; `derive_rule`
-  does receive `trait_params`, so it looks expressible.
+  `derive(Error)` with per-variant format strings **LANDED 2026-09-09** —
+  `derive(JsonError, Error(.UnexpectedEnd => `unexpected end of input`, …))`
+  emits `ToString` AND `Error` from one declaration, so an error enum no longer
+  needs two hand-written blocks. The message is ORDINARY YO spliced into the
+  arm that binds the payload, so `${pos}` is the variant's own field rather
+  than thiserror's positional `{0}`. The rule builds the two-trait
+  `impl(T, ToString(…), Error())` directly instead of via `ctx.make_impl`,
+  which wraps exactly one trait body; generic error enums are out of scope for
+  the same reason (no std error type is generic).
+  **Messages go in DECLARATION ORDER**, each verified against the variant it
+  lands on, so a renamed/added/removed/reordered variant is a compile error.
+  Keyed lookup — match each message to its variant by name, any order — is what
+  this wanted to be, and `Expr` equality (`ComptimeEq` / `__yo_expr_eq`) makes
+  it expressible; composing it inside a rule hits
+  `issues/derive-swallows-the-rule-error.md`, where the rule's real error is
+  replaced by `derive rule function failed` or discarded entirely (`check` and
+  `compile` both exit 0). That is a diagnostics bug, not a language limit —
+  when it is fixed, the ordering constraint can be lifted without changing a
+  single call site, since declaration order is a valid keyed list.
 - **D16 — `HashSet(T)` IS `HashMap(T, unit)`.** 498 of 929 lines of
   `hash_set.yo` are byte-identical to `hash_map.yo`, and the tombstone bug
   (§3) is present in both. `unit` is a true ZST as of v0.2.26, so the map's
@@ -493,7 +510,7 @@ today), `abs/pow/clamp/min/max/count_ones/leading_zeros/…`; `f64`/`f32`
 methods and consts (`sqrt/abs/floor/ceil/round/is_nan/EPSILON/INFINITY/NAN` —
 today only raw `libc/math`); `Error` ergonomics: `is(T)`, documented
 `downcast`, `ErrorChain`, `Context(msg, source)` (nothing in the tree overrides
-`source`); `derive(Error)` (D15); `Default` on ~15 more types; `bench`
+`source`); `Default` on ~15 more types; `bench`
 `black_box` + auto-calibration; `log` `Sink` trait + `YO_LOG`; `rand`
 `thread_rng`/`random()`/`Range`-typed `range`.
 
@@ -832,6 +849,47 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
      distinction with one vocabulary. A closed channel with buffered values
      still yields them — `Disconnected` means closed AND drained, which is the
      case the old `.None` could not express and which the new test pins.
+
+   **Text — `write_padded` pads by RUNES, and `Writer` is retired (2026-09-09).**
+   Two §4 Text rows, and they turned out to be the same row.
+
+   `fmt.Writer.write_padded` measured width with `s.len()`, which for a `str`
+   is BYTES, while `FormatSpec._apply_width` next door has always used
+   `text.chars().count()`. So `{:8}` and `write_padded(s, 8, …)` disagreed on
+   any non-ASCII text — `"héllo"` is 6 bytes and 5 runes, so it got two pad
+   characters where a column needs three. It now counts runes, by scanning for
+   UTF-8 lead bytes (`str` has no rune iterator: it exposes `len`, `ptr` and
+   `bytes(i)`).
+
+   The "one string builder" row resolved by MEASURING the two candidates
+   instead of picking one. `StringBuilder` has 87 references across 14 files,
+   most of them in the compiler itself; `Writer` had three importers in all of
+   `std`, and of its 18 methods exactly FIVE had a caller anywhere — `new`,
+   `to_string`, `write_str`, `write_string`, `write_hex`, plus `write_f64` from
+   `fmt/format`. So `Writer` is retired into `StringBuilder` rather than the
+   other way round, and only the methods with a caller (plus the audit's
+   `write_padded`) came across. `write_bool`, `write_octal`, `write_binary`,
+   `write_bytes`, `write_i64` and `write_u64` had none and were not carried:
+   `sb.push_string(n.to_string())` covers them, and interpolation covers most
+   of the rest.
+
+   `StringBuilder.to_string` inherits `Writer`'s O(1) hand-over. It used to
+   copy the buffer out byte-by-byte through `get(i)` and then reset, so
+   building an N-byte string cost O(N) again to read it back.
+
+   `Alignment` moves to `std/string/string_builder` (where `write_padded` is)
+   and both it and `StringBuilder` are re-exported from `std/fmt` — that is the
+   audit's "`Alignment` exported" row: it WAS exported, from its own module and
+   from nowhere a `std/fmt` user would look. The dependency only goes one way;
+   `std/fmt` already imports `std/string`.
+
+   **Still one vocabulary too many, and the end state is decided:** `String`
+   itself is already an amortized builder (`push_str`/`push_string`/
+   `push_rune`/`push_byte` append in place over an `ArrayList(u8)`, with
+   `with_capacity` and `reserve`), which is exactly Rust's answer — you build
+   into a `String`. `StringBuilder` should collapse into it. That is 87 call
+   sites, most of them in the compiler, so it is its own PR with its own gates,
+   not a rider on this one.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

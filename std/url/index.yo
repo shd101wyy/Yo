@@ -12,7 +12,7 @@
 //! split one HTTP request into two.
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
-{ Writer } :: import("../fmt/writer");
+{ StringBuilder } :: import("../string/string_builder");
 { percent_decode } :: import("../encoding/percent");
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
@@ -748,7 +748,7 @@ impl(
     r := _split_ref(reference);
     // §5.3 recomposition, built as a string and handed to `parse` so the
     // authority is validated by the one parser rather than a second copy.
-    out := Writer.new();
+    out := StringBuilder.new();
     match(
       r.scheme,
       .Some(sch) => {

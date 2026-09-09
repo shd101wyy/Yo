@@ -40,24 +40,17 @@ JsonError :: enum(
   /// Other error with a descriptive message.
   Other(msg : String)
 );
-impl(
+derive(
   JsonError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .UnexpectedChar(ch, pos) => `unexpected character at position ${pos}`,
-          .UnexpectedEnd => `unexpected end of input`,
-          .InvalidNumber => `invalid number`,
-          .InvalidEscape => `invalid escape sequence`,
-          .InvalidUnicode => `invalid unicode`,
-          .Other(msg) => `JSON error: ${msg}`
-        )
-    )
+  Error(
+    .UnexpectedChar => `unexpected character at position ${pos}`,
+    .UnexpectedEnd => `unexpected end of input`,
+    .InvalidNumber => `invalid number`,
+    .InvalidEscape => `invalid escape sequence`,
+    .InvalidUnicode => `invalid unicode`,
+    .Other => `JSON error: ${msg}`
   )
 );
-impl(JsonError, Error());
 export(JsonError);
 // ============================================================================
 // JsonValue

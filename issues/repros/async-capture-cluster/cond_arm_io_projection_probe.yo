@@ -1,0 +1,40 @@
+// Probe for cluster finding 2 (issues/async-capture-mode-argument-rendering-cluster.md):
+// an await in a LATER cond arm of a closure that ALSO holds a ref-typed
+// local across the suspension (capture mode) — the recorded
+// `.io`-projection-loss shape. The non-capture variant is the PASSING
+// tests/cli-cases/await-in-later-cond-branch fixture.
+open(import("std/string"));
+open(import("std/fmt"));
+{ IoExn, Exception } :: import("std/error");
+{ yield } :: import("std/async");
+
+BOX :: ref(struct(v : i32));
+
+ready :: (fn(io : Io) -> Impl(Future(bool, Io)))(io.async((io2 : Io) => {
+  io2.await(yield(io2), io2);
+  return(true);
+}));
+
+arm_capture :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    b := BOX(v : i32(7));
+    cond(
+      runtime(false) => {
+        println(String.from("unreachable"));
+        i32(0)
+      },
+      e.io.await(ready(e.io), e.io) => {
+        v0 := b.v;
+        println(`v=${v0.to_string()}`);
+        v0
+      },
+      true => i32(0)
+    )
+  })
+);
+
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  r := io.await(arm_capture(io), IoExn(io : io, exn : exn));
+  println(r.to_string());
+});
+export(main);

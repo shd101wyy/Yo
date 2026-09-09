@@ -10,7 +10,7 @@
 pragma(Pragma.AllowUnsafe);
 open(import("../string"));
 { ToString } :: import("../fmt");
-{ Writer } :: import("../fmt/writer");
+{ StringBuilder } :: import("../string/string_builder");
 { NetError } :: import("./errors");
 { snprintf } :: import("../libc/stdio");
 { GlobalAllocator } :: import("../allocator");
@@ -168,7 +168,7 @@ impl(
               String.from_cstr(&buf(usize(0))).unwrap()
             },
             .V6(segs) => {
-              w := Writer.new();
+              w := StringBuilder.new();
               i := usize(0);
               while(runtime(i < usize(8)), {
                 cond(

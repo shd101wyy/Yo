@@ -1,8 +1,33 @@
 //! Mutable UTF-8 string builder for efficient incremental construction.
+pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
+{ snprintf } :: import("../libc/stdio.yo");
 { rune } :: import("./rune.yo");
 { String } :: import("./string.yo");
 utf8 :: import("../encoding/utf8.yo");
+/// Where the text sits inside a padded field — the argument to
+/// `write_padded`, and the same three cases `FormatSpec` parses from
+/// `<` / `>` / `^`.
+///
+/// It lives here rather than in `std/fmt` because `write_padded` does, and
+/// `std/fmt` already depends on `std/string`; the other direction would be a
+/// cycle. `std/fmt` re-exports it, so `open(import("std/fmt"))` still sees it.
+Alignment :: enum(Left, Right, Center);
+export(Alignment);
+/// Count the RUNES in a `str`: every byte that is not a UTF-8 CONTINUATION
+/// byte (`0b10xxxxxx`) starts one. `str` has no rune iterator — it exposes
+/// `len` (bytes), `ptr` and `bytes(i)` — so this is the scan, and it needs no
+/// allocation and no validation pass.
+_str_rune_count :: (fn(s : str) -> usize)({
+  n := usize(0);
+  i := usize(0);
+  while(i < s.len(), i = (i + usize(1)), {
+    if((s.bytes(i) & u8(192)) != u8(128), {
+      n = (n + usize(1));
+    });
+  });
+  n
+});
 /**
 * Mutable buffer for building a `String` incrementally.
 *
@@ -117,26 +142,82 @@ impl(
   * The builder is left empty after this call.
   */
   to_string : (fn(self : Self) -> String)({
-    n := self._buf.len();
+    // HANDS THE BUFFER OVER, it does not copy it: the returned `String` takes
+    // the `ArrayList` and the builder starts again from a fresh one. This used
+    // to copy byte-by-byte through `get(i)`, which made building an N-byte
+    // string O(N) to build and O(N) again to read out. Detaching is also what
+    // keeps the returned `String` independent — a later `write_str` must never
+    // mutate a `String` already handed to a caller
+    // (issues/fixed/writer-to-string-shares-its-buffer.md).
+    bytes := self._buf;
+    self._buf = ArrayList(u8).new();
+    String.from_bytes(bytes)
+  }),
+  /**
+  * Append an unsigned 64-bit integer in lowercase hexadecimal.
+  */
+  write_hex : (fn(self : Self, n : u64) -> unit)({
+    buf := Array(u8, usize(20)).fill(u8(0));
+    buf_ptr := &buf(usize(0));
+    unsafe(snprintf((*char)(buf_ptr), usize(20), "%llx", n));
+    self.write_string(String.from_cstr(buf_ptr).unwrap());
+  }),
+  /**
+  * Append `n` with exactly `precision` decimal places.
+  */
+  write_f64 : (fn(self : Self, n : f64, precision : i32) -> unit)({
+    buf := Array(u8, usize(64)).fill(u8(0));
+    buf_ptr := &buf(usize(0));
+    unsafe(snprintf((*char)(buf_ptr), usize(64), "%.*f", precision, n));
+    self.write_string(String.from_cstr(buf_ptr).unwrap());
+  }),
+  /**
+  * Append `s` padded to `width` RUNES with `pad`, aligned per `align`.
+  * A `s` already at or over the width is written unpadded.
+  *
+  * Width is a RUNE count, matching `FormatSpec`'s `{:width$}` and Rust's.
+  * It used to be a BYTE count here, so `write_padded("héllo", 8, ' ', .Left)`
+  * emitted two spaces instead of three and the column did not line up — the
+  * two width bases in one module disagreed
+  * (issues/fixed/write-padded-counted-bytes-where-formatspec-counts-runes.md).
+  */
+  write_padded : (fn(self : Self, s : str, width : usize, pad : rune, align : Alignment) -> unit)({
+    n_runes := _str_rune_count(s);
     cond(
-      (n == usize(0)) => String(_bytes : .None),
+      (n_runes >= width) => self.write_str(s),
       true => {
-        buf := ArrayList(u8).with_capacity(n);
-        i := usize(0);
-        while(i < n, i = (i + usize(1)), {
-          byte_opt := self._buf.get(i);
-          match(
-            byte_opt,
-            .Some(b) => {
-              buf.push(b);
-            },
-            .None => ()
-          );
-        });
-        self._buf = ArrayList(u8).new();
-        String(_bytes : .Some(buf))
+        padding := (width - n_runes);
+        match(
+          align,
+          .Left => {
+            self.write_str(s);
+            i := usize(0);
+            while(i < padding, i = (i + usize(1)), {
+              self.write_rune(pad);
+            });
+          },
+          .Right => {
+            i := usize(0);
+            while(i < padding, i = (i + usize(1)), {
+              self.write_rune(pad);
+            });
+            self.write_str(s);
+          },
+          .Center => {
+            left_pad := (padding / usize(2));
+            i := usize(0);
+            while(i < left_pad, i = (i + usize(1)), {
+              self.write_rune(pad);
+            });
+            self.write_str(s);
+            j := left_pad;
+            while(j < padding, j = (j + usize(1)), {
+              self.write_rune(pad);
+            });
+          }
+        );
       }
-    )
+    );
   }),
   /**
   * Clear the buffer without freeing memory.

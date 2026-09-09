@@ -693,6 +693,27 @@ _ctor_args_from_labeled :: (fn(wrapped : TypeValue, fncall_args : ArrayList(AstE
 /// Per-argument cast to the callee's declared parameter C types (a no-op when
 /// types match; needed for specialized generic callees). Mirrors the
 /// namedCastedArgsList logic.
+/// True when a by-value parameter of this type must NOT be wrapped in a C
+/// cast: aggregate/struct-like types (value structs, value enums, tuples,
+/// unions, `str`) cannot legally be cast targets in C (a cast to the SAME
+/// type happens to be accepted by clang/gcc as an extension, but a
+/// slot-vs-recorded type-identity disagreement — the shell/final split —
+/// then emits a CROSS-type struct cast, "used type ... where arithmetic or
+/// pointer type is required", the
+/// issues/async-closure-value-struct-param-emits-invalid-c-cast.md crash).
+/// The argument expression already carries the parameter's type (the
+/// evaluator type-checked the call), so no conversion is needed.
+_no_cast_by_value_param :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ is_reference_semantics : s_ref }) => !(s_ref),
+    .EnumT({ is_reference_semantics : e_ref }) => !(e_ref),
+    .Tuple(_, _) => true,
+    .Union(_, _, _) => true,
+    .Str => true,
+    _ => false
+  )
+);
 _per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), param_is_ref : ArrayList(bool), context : FunctionGenerationContext) -> String)(
   if(args_list.len() == usize(0), args_list, {
     parts := _split_top_level_args_list(args_list);
@@ -705,21 +726,33 @@ _per_arg_cast :: (fn(args_list : String, param_types : ArrayList(TypeValue), par
           out.push_str(", ");
         });
         pref := match(param_is_ref.get(i), .Some(r) => r, .None => false);
-        // A BY-VALUE `unit` parameter is spelled as the one-byte placeholder in
-        // the prototype, so its cast must agree; a REF one stays `void` + `*`.
-        base_str := match(
-          param_types.get(i),
-          .Some(t) => if(pref, get_type_string(t, context.base), get_storage_type_string(t, context.base)),
-          .None => String.from("void*")
-        );
-        out.push_str("(");
-        out.push_string(base_str);
-        if(pref, {
-          out.push_str("*");
+        pty := param_types.get(i);
+        if((
+          (!(pref) && pty.is_some()) && match(
+            pty,
+            .Some(pt) => _no_cast_by_value_param(pt),
+            .None => false
+          )
+        ), {
+          // By-value aggregate: pass through bare (see _no_cast_by_value_param).
+          out.push_string(match(parts.get(i), .Some(p) => p, .None => String.from("")));
+        }, {
+          // A BY-VALUE `unit` parameter is spelled as the one-byte placeholder in
+          // the prototype, so its cast must agree; a REF one stays `void` + `*`.
+          base_str := match(
+            pty,
+            .Some(t) => if(pref, get_type_string(t, context.base), get_storage_type_string(t, context.base)),
+            .None => String.from("void*")
+          );
+          out.push_str("(");
+          out.push_string(base_str);
+          if(pref, {
+            out.push_str("*");
+          });
+          out.push_str(")(");
+          out.push_string(match(parts.get(i), .Some(p) => p, .None => String.from("")));
+          out.push_str(")");
         });
-        out.push_str(")(");
-        out.push_string(match(parts.get(i), .Some(p) => p, .None => String.from("")));
-        out.push_str(")");
         i = (i + usize(1));
       });
       out
