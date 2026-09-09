@@ -246,7 +246,14 @@ generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, conte
   match(
     tuple_type,
     .Tuple({ field_types }) => {
-      context.emitter.emit_declaration_string_line(`typedef struct { // ${type_to_string(tuple_type)}`);
+      // A NAMED struct tag, not an anonymous `typedef struct {...} T;`, so the
+      // forward-declaration pass in `generate_type_declarations` can declare
+      // the name ahead of any struct that holds a POINTER to this tuple. It
+      // could not before, and an `ArrayList(Tuple(String, String))` emitted
+      // `__yo_t2* _ptr;` above the `typedef ... __yo_t2;` that named it —
+      // "unknown type name '__yo_t2'"
+      // (issues/fixed/tuple-type-has-no-forward-declaration.md).
+      context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${type_to_string(tuple_type)}`);
       n := field_types.len();
       (i : usize) = usize(0);
       (emitted : bool) = false;
@@ -269,7 +276,7 @@ generate_tuple_declaration :: (fn(tuple_type : TypeValue, c_name : String, conte
       if(!emitted, {
         _emit_zst_dummy(context);
       });
-      context.emitter.emit_declaration_string_line(`} ${c_name};`);
+      context.emitter.emit_declaration_line("};");
       context.emitter.emit_declaration_line("");
     },
     _ => ()
@@ -1610,6 +1617,18 @@ generate_type_declarations :: (fn(context : CodeGenContext) -> unit)({
                   l.push_str("; // Forward declaration");
                   em.emit_declaration_string_line(l);
                 });
+              },
+              // A tuple is a plain value struct, but it can still be reached
+              // THROUGH A POINTER from a struct emitted earlier — an
+              // `ArrayList(Tuple(..))`'s `_ptr` is exactly that — so it needs
+              // its name declared up here like any other struct.
+              is_tuple_type(ty) => {
+                l := String.from("typedef struct ");
+                l.push_string(cn.clone());
+                l.push_str("_struct ");
+                l.push_string(cn.clone());
+                l.push_str("; // Forward declaration");
+                em.emit_declaration_string_line(l);
               },
               true => ()
             )
