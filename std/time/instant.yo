@@ -1,19 +1,38 @@
-//! Monotonic clock instant for measuring elapsed time.
+//! The two clocks: `Instant` (monotonic, for measuring elapsed time) and
+//! `SystemTime` (wall clock, for timestamps that outlive the process).
+//!
+//! They are deliberately DIFFERENT TYPES and not interconvertible. A monotonic
+//! reading has no meaning outside this process — it cannot be persisted,
+//! compared across machines, or turned into a date — while a wall-clock
+//! reading can jump backwards when the system clock is adjusted and so must
+//! never be used to measure a duration. Rust draws the same line, and mixing
+//! them is the bug the split prevents.
 //!
 //! ## Example
 //!
 //! ```rust
-//! { Instant } :: import "std/time/instant";
+//! { Instant, SystemTime, UNIX_EPOCH } :: import "std/time/instant";
 //!
 //! start := Instant.now();
 //! // ... do work ...
-//! elapsed := start.elapsed();
-//! println(elapsed.as_millis());
+//! println(start.elapsed().as_millis());       // elapsed: monotonic
+//!
+//! t := SystemTime.now();
+//! match(t.duration_since(UNIX_EPOCH),         // timestamp: wall clock
+//!   .Ok(d) => println(d.as_secs()),
+//!   .Err(e) => println(e)
+//! );
 //! ```
 pragma(Pragma.AllowUnsafe);
 { Duration } :: import("./duration");
-{ CLOCK_MONOTONIC, clock_gettime } :: import("../sys/clock");
+{ CLOCK_MONOTONIC, CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
 { panic } :: import("../assert");
+{ Error } :: import("../error");
+open(import("../string"));
+// `derive(Error)` splices a `ToString` impl into THIS file's scope, so
+// `ToString` has to be importable here — the derived body is unhygienic
+// (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md).
+{ ToString } :: import("../fmt/to_string");
 /// Snapshot from the monotonic clock. Use `elapsed` to measure durations.
 Instant :: struct(
   secs : i64,
@@ -115,3 +134,156 @@ impl(
   )
 );
 export(Instant);
+// ============================================================================
+// SystemTime — the wall clock
+// ============================================================================
+/// Raised when a `SystemTime` comparison runs backwards.
+///
+/// Not a theoretical case: the system clock can be stepped by NTP or by hand,
+/// so a timestamp taken later can precede one taken earlier. Rust returns a
+/// `Result` from `duration_since`/`elapsed` for exactly this, and returning a
+/// silent `Duration.zero()` instead — the way `Instant.duration_since` may,
+/// since a monotonic clock cannot go backwards — would hide a real clock jump.
+SystemTimeError :: enum(
+  /// `earlier` was actually LATER than the receiver, by this much.
+  EarlierThan(by : Duration)
+);
+derive(
+  SystemTimeError,
+  Error(
+    .EarlierThan => `system time ran backwards by ${by.as_nanos()}ns (the clock was adjusted)`
+  )
+);
+export(SystemTimeError);
+/// A wall-clock timestamp, measured from `UNIX_EPOCH`.
+///
+/// Use this for anything that leaves the process — a file's mtime, a log line,
+/// a serialized record. Use `Instant` to MEASURE, never this: the wall clock
+/// can jump.
+SystemTime :: struct(
+  /// Whole seconds since the Unix epoch. Negative before 1970.
+  secs : i64,
+  /// Sub-second part, always in `[0, 1e9)`.
+  nanos : i64
+);
+export(SystemTime);
+/// 1970-01-01T00:00:00Z — the anchor `SystemTime` is measured from.
+UNIX_EPOCH :: SystemTime(secs : i64(0), nanos : i64(0));
+export(UNIX_EPOCH);
+/// Rebuild a `SystemTime` from a possibly-unnormalized `(secs, nanos)` pair,
+/// so `nanos` always lands in `[0, 1e9)` and `secs` is the FLOOR second.
+///
+/// The invariant matters for more than tidiness: `Eq`/`Ord` compare the two
+/// fields, so `(-1, -500000000)` and `(-2, 500000000)` — the same instant —
+/// would compare unequal without it, and `as_unix_secs` would round toward the
+/// epoch instead of down.
+_st_normalize :: (fn(secs : i64, nanos : i64) -> SystemTime)({
+  carry := (nanos / i64(1000000000));
+  rem := (nanos % i64(1000000000));
+  cond(
+    (rem < i64(0)) => SystemTime(secs : ((secs + carry) - i64(1)), nanos : (rem + i64(1000000000))),
+    true => SystemTime(secs : (secs + carry), nanos : rem)
+  )
+});
+/// `a - b` as a `Duration`, requiring `a >= b`.
+///
+/// Subtracts the two fields separately with a borrow rather than converting
+/// each side to a nanosecond count: `secs * 1e9` overflows `i64` past year
+/// 2262, and signed overflow is UB in C, so a timestamp far in the future
+/// must not be multiplied out.
+_st_diff_ge :: (fn(a : SystemTime, b : SystemTime) -> Duration)({
+  ds := (a.secs - b.secs);
+  dn := (a.nanos - b.nanos);
+  cond(
+    (dn < i64(0)) => Duration(secs : (ds - i64(1)), nanos : (dn + i64(1000000000))),
+    true => Duration(secs : ds, nanos : dn)
+  )
+});
+/// True when `a` is at or after `b`. Spelled out rather than using `Ord`
+/// because these helpers run before the `Ord(SystemTime)` impl is registered.
+_st_at_or_after :: (fn(a : SystemTime, b : SystemTime) -> bool)(
+  cond(
+    (a.secs != b.secs) => (a.secs > b.secs),
+    true => (a.nanos >= b.nanos)
+  )
+);
+impl(
+  SystemTime,
+  /// Read the wall clock. Panics if `CLOCK_REALTIME` fails, for the same
+  /// reason `Instant.now` does: a broken clock must not silently read as the
+  /// epoch.
+  now : (fn() -> Self)({
+    out_s := i64(0);
+    out_ns := i64(0);
+    rc := clock_gettime(CLOCK_REALTIME, &out_s, &out_ns);
+    cond(
+      (rc == i32(0)) => (),
+      true => panic(`SystemTime.now: clock_gettime(CLOCK_REALTIME) failed (rc=${rc})`)
+    );
+    Self(secs : out_s, nanos : out_ns)
+  }),
+  /// A timestamp from whole seconds since the epoch — what a `stat` field or
+  /// a serialized record carries.
+  from_unix_secs : (fn(secs : i64) -> Self)(
+    Self(secs : secs, nanos : i64(0))
+  ),
+  /// A timestamp from seconds plus a nanosecond part. `nanos` outside
+  /// `[0, 1e9)` is carried into `secs`, so a caller need not pre-normalize;
+  /// OS timestamp fields already supply a value in range.
+  from_unix_parts : (fn(secs : i64, nanos : i64) -> Self)(
+    _st_normalize(secs, nanos)
+  ),
+  /// Whole seconds since the epoch, truncating the sub-second part.
+  as_unix_secs : (fn(inout(self) : Self) -> i64)(
+    self.secs
+  ),
+  /// How much later `self` is than `earlier`, or `.Err` when it is EARLIER —
+  /// which means the clock was adjusted between the two readings.
+  duration_since : (fn(inout(self) : Self, earlier : SystemTime) -> Result(Duration, SystemTimeError))(
+    cond(
+      _st_at_or_after(self, earlier) =>
+        Result(Duration, SystemTimeError).Ok(_st_diff_ge(self, earlier)),
+      true =>
+        Result(Duration, SystemTimeError).Err(
+          SystemTimeError.EarlierThan(by : _st_diff_ge(earlier, self))
+        )
+    )
+  ),
+  /// How long ago `self` was, or `.Err` if it is in the future.
+  elapsed : (fn(inout(self) : Self) -> Result(Duration, SystemTimeError))(
+    SystemTime.now().duration_since(self)
+  ),
+  /// `self` moved forward by `d`.
+  add : (fn(inout(self) : Self, d : Duration) -> Self)(
+    _st_normalize(self.secs + d.secs, self.nanos + d.nanos)
+  ),
+  /// `self` moved backward by `d`.
+  sub : (fn(inout(self) : Self, d : Duration) -> Self)(
+    _st_normalize(self.secs - d.secs, self.nanos - d.nanos)
+  )
+);
+impl(
+  SystemTime,
+  Eq(SystemTime)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !((lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos))
+    )
+  )
+);
+impl(
+  SystemTime,
+  Ord(SystemTime)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      cond(
+        (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
+        true => (lhs.nanos < rhs.nanos)
+      )
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(!(rhs < lhs)),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(rhs < lhs),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(!(lhs < rhs))
+  )
+);
