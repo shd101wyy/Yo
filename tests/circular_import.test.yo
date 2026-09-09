@@ -32,10 +32,10 @@ test("Non-circular import regression", {
   (x : i32) = i32(123);
   assert(x == i32(123), "Non-circular import should still work");
 });
-// Test 5: open import with circular modules
-test("Open import with circular modules", {
-  { ColoredShape, Color } :: import("./circular_deps/circular_open_a.yo");
-  { Shape } :: import("./circular_deps/circular_open_b.yo");
+// Test 5: using a circular module's type in a definition
+test("Using a circular module's type in a definition", {
+  { ColoredShape, Color } :: import("./circular_deps/circular_use_a.yo");
+  { Shape } :: import("./circular_deps/circular_use_b.yo");
   (cs : ColoredShape) = ColoredShape(color : .Red, shape : .Circle);
 });
 // Test 6: Spread export with circular modules

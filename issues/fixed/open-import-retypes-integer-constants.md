@@ -54,6 +54,7 @@ no-loader path). Functions keep the registered Func type as before.
 
 ## Regression test
 
-`tests/open_import_constants.test.yo` over the fixture
-`tests/open_import/constants.yo` — every integer width through `open`,
+`tests/import_constants.test.yo` (renamed from `open_import_constants.test.yo`
+when `open` was removed) over the fixture
+`tests/import_constants/constants.yo` — every integer width,
 non-integer exports unchanged, and `open` vs named import agreeing.

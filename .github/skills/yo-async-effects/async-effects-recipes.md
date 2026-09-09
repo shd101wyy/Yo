@@ -81,8 +81,8 @@ body may `unwind`. Use the local binding form `(name : EffectType) = ((args) -> 
 to install a handler; lambdas on the RHS of `=` need outer parens.
 
 ```rust
-open(import("std/fmt"));
-open(import("std/string"));
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
 
 Raise :: (ctl(msg : String) -> i32);
 
@@ -233,8 +233,8 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
 `Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `unwind`, the continuation is discarded:
 
 ```rust
-open(import("std/error"));
-open(import("std/fmt"));
+{ Exception } :: import("std/error");
+{ println } :: import("std/fmt");
 
 DivError :: enum(DivByZero);
 derive(DivError, Error(.DivByZero => `division by zero`));
@@ -296,8 +296,8 @@ Key: the `return` inside the handler resumes the _effect invocation site_ with t
 `ResumableException(ResumeType)` is a struct-record effect for resumable error handling. The handler uses `return` to resume with a recovery value:
 
 ```rust
-open(import("std/error"));
-open(import("std/fmt"));
+{ Exception } :: import("std/error");
+{ println } :: import("std/fmt");
 
 safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(

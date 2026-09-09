@@ -65,6 +65,12 @@ Zero non-import opens in `std/` or `src/`.
 - **Struct open is a redundant spelling.** `{ x, y } := point` exists
   (`src/evaluator/exprs/destructuring_assignment.yo`) and shares the same
   `runtime_destructurings` channel. Zero production users.
+- **Nothing is lost: `open` is pure sugar.** Spread destructuring already
+  covers both halves — `{ ... } :: import("std/string")` is a glob import
+  (verified 2026-09-09 by compiling and running it), `{ ... } :: SomeModule`
+  destructures a module value and `{ ... } :: p` / `{ x, y } := p` a struct.
+  So the removal deletes a second spelling, not a capability, and the
+  migration has an exact target for every form.
 
 The compiler itself needs ONE name from the module it opens most (`String`).
 Unqualified uses of the other `std/string` exports across `src/`: `rune` 109,
@@ -93,20 +99,34 @@ name is an unbound-identifier error, never a silent behaviour change.
    `{ a, b } :: struct_const` spelling turns out not to exist, the test
    documents `anony.x` field access instead — do NOT add a new feature to
    replace `open`.
-4. **Export sets are the source of truth for what a glob brought in.**
-   `std/string` → `String, StringError, StringChars, StringCharIndices,
-   StringBytes, StringLines, Pattern, StringBuilder, rune,
-   to_lowercase_bytes, to_uppercase_bytes, to_upper_code_point,
-   to_lower_code_point`; `std/fmt` → `ToString, Format, FormatSpec, println,
-   print, eprintln, eprint`; `std/error` → `Error, AnyError, error_is,
-   Context, Exception, ResumableException, IoExn`;
-   `std/collections/array_list` → its export list. For any other module read
-   its `export(...)`.
-5. **Name collisions surface, do not vanish.** If a file used a name that two
-   opens both exported (currently last-wins), the named import will make the
-   ambiguity explicit; resolve it by importing from the module the code
-   actually meant, and note it in §6 — that is a latent bug found, not
-   migration noise.
+4. **Export sets are the source of truth for what a glob brought in**, and a
+   directory module's set is what its `index.yo` re-exports — NOT every file
+   in the directory. `std/string` → `rune, String, StringError, StringChars,
+   StringCharIndices, StringBytes, StringLines, Pattern, FromString,
+   ParseIntError, ParseFloatError, ParseBoolError, Alignment, StringBuilder`
+   (the `unicode.yo` helpers are NOT in it — `index.yo` spreads only
+   `rune`/`string`/`string_builder`); `std/fmt` → `ToString, Debug, Format,
+   FormatSpec, StringBuilder, Alignment, println, print, eprintln, eprint`;
+   `std/error` → `Error, AnyError, error_is, Context, Exception,
+   ResumableException, IoExn`. For any other module read its `export(...)`,
+   following `...(m)` spreads.
+4b. **A module can export nothing.** `std/math` has no `export(...)` at all —
+   it only registers inherent methods — so its open bound zero names and the
+   faithful replacement is a bare `import("std/math");` (a form that already
+   appears in `tests/math.test.yo`). Same for any open whose export set and
+   the file's identifiers do not intersect: replace with a bare import, never
+   delete the line, or the module's impls stop being registered.
+5. **Name collisions surface, do not vanish.** Three cases, in the order the
+   script applies them:
+   - **Same module opened twice at file scope** — identical bindings, so the
+     names stay on the FIRST open (a use between the two must still resolve)
+     and the repeat degrades to a bare re-import.
+   - **Two different modules exporting one name, both at file scope** — keep
+     it on the LATER open, which is what today's last-wins lookup resolves to.
+   - **An INDENTED open** binds inside its own block: never move names between
+     it and a file-scope open, in either direction. (Getting this wrong is
+     silent: the block keeps compiling because the outer binding is in scope,
+     or the outer code breaks while the block still works.)
 6. **Formatting.** `yo fmt` twice on every touched `.yo` file, then
    `yo fmt --check` (one path per call). fmt is not a syntax gate; the check
    gates below are.
@@ -122,30 +142,41 @@ scan is a word-boundary token scan minus string/comment contents; over-approx
 is fine (an unused named import is legal), under-approx is caught by `check`.
 Keep the script in the scratchpad, not the repo.
 
-## 4. Sequencing — two PRs, no seed gate
+## 4. Sequencing — ONE PR, no seed gate
 
 Named imports are old syntax, so the seed compiler (v0.2.29) compiles the
 migrated tree unchanged. There is no two-release dance.
 
-### PR 1 — migrate every consumer off `open` (compiler still accepts it)
+**Deviation from the original two-PR plan (2026-09-09).** The migration and the
+deletion shipped as ONE pull request. The split's only benefit was keeping the
+first PR's cli-case diff fixture-only; against that, each PR needs the whole
+local battery — two self-builds, two `gates_fast`/`fixpoint` runs and two
+30-minute suites — on a machine that can only run one at a time, plus a second
+CI cycle. Validated as one change instead: the migration was built and proven
+green on its own first (`yo build` at f2c99ecf5 + the migration), then the
+builtin was deleted on top and the full battery ran once over the result. The
+step tables below are the record of what was done, in order.
+
+### Step 1 — migrate every consumer off `open` (compiler still accepts it)
 
 Touches, in this order (each step: `yo check` the tree it touched):
 
 | # | scope | notes |
 | --- | --- | --- |
-| 1a | `std/` (66 files) | `yo check ./std` with `YO_STD=<worktree>/std` |
-| 1b | `src/` (266 files) | `yo check ./src`; then `yo build` — note `yo build` resolves std from the SEED bundle unless `YO_STD` is set (memory: build-resolves-std-from-seed) — set it |
-| 1c | `tests/` language files (~393) | run the migrated files via `yo test` with the TREE-BUILT compiler, never the seed |
-| 1d | `tests/cli-cases/*/fixture` (35 files) | same-line replacement; rerun the FULL cli-diff scorecard, not just the touched cases |
-| 1e | `tests/internal/*.yo` | they are compiler-internal tests that themselves `open(import(...))` at the top; migrate, run the touched files one at a time |
-| 1f | `vendor/markdown_yo` (30 files) | COMPANION commit upstream, fetch over https, bump the submodule pointer (memory: vendor companion commits) |
-| 1g | docs: `docs/{en-US,zh-CN}/{DESIGN,STRINGS,DEFINITION_ORDER,STD_SYS_MODULE}.md` | DESIGN.md "Module importing and exporting" drops the `open(import(...))` row; DEFINITION_ORDER drops "opens" from the ordered-statement list; both languages |
-| 1h | `.github/instructions/{yo-syntax,yo-design,debugging}.instructions.md`, `.github/skills/{yo-syntax,yo-core-patterns,yo-async-effects,yo-wasm-integration}/*.md` | editing `.github/skills/*` flips SIX cli-case tree goldens (init*, skills-install*) — re-record with the IN-REPO binary |
-| 1i | `.github/workflows/{install-scripts,release}.yml`, `scripts/{install.sh,install.ps1,bootstrap/probe-stack-sizing.sh,build_site.yo}` | smoke programs `open(import("std/fmt"))` → `{ println } :: import("std/fmt")` — works on the seed AND the candidate, so the release smoke stays green across the removal |
-| 1j | `plans/README.md` | add this doc to the active list |
+| a | `std/` (66 files) | `yo check ./std` with `YO_STD=<worktree>/std` |
+| b | `src/` (266 files) | `yo check ./src`; then `yo build` — note `yo build` resolves std from the SEED bundle unless `YO_STD` is set (memory: build-resolves-std-from-seed) — set it |
+| c | `tests/` language files (~393) | run the migrated files via `yo test` with the TREE-BUILT compiler, never the seed |
+| d | `tests/cli-cases/*/fixture` (35 files) | same-line replacement; rerun the FULL cli-diff scorecard, not just the touched cases |
+| e | `tests/internal/*.yo` | they are compiler-internal tests that themselves `open(import(...))` at the top; migrate, run the touched files one at a time |
+| f | `vendor/markdown_yo` (30 files) | COMPANION commit upstream, fetch over https, bump the submodule pointer (memory: vendor companion commits) |
+| g | docs: `docs/{en-US,zh-CN}/{DESIGN,STRINGS,DEFINITION_ORDER,STD_SYS_MODULE}.md` | DESIGN.md "Module importing and exporting" drops the `open(import(...))` row; DEFINITION_ORDER drops "opens" from the ordered-statement list; both languages |
+| h | `.github/instructions/{yo-syntax,yo-design,debugging}.instructions.md`, `.github/skills/{yo-syntax,yo-core-patterns,yo-async-effects,yo-wasm-integration}/*.md` | editing `.github/skills/*` flips SIX cli-case tree goldens (init*, skills-install*) — re-record with the IN-REPO binary |
+| i | `.github/workflows/{install-scripts,release}.yml`, `scripts/{install.sh,install.ps1,bootstrap/probe-stack-sizing.sh,build_site.yo}` | smoke programs `open(import("std/fmt"))` → `{ println } :: import("std/fmt")` — works on the seed AND the candidate, so the release smoke stays green across the removal |
+| j | `plans/README.md` | add this doc to the active list |
 
-PR 1 exit gates (all with a tree-built `--optimize 2` binary, one heavy job at
-a time):
+Step-1 gate actually run: a full `yo build` from the migrated tree (green —
+it type-checks and compiles the whole closure, `vendor/markdown_yo` included).
+The remaining gates below ran once, after step 2:
 
 - `yo check ./std`, `yo check ./src` green.
 - `yo build` green; `S1=/tmp/yo-s1 P=local bash scripts/bootstrap/gates_fast.sh`
@@ -160,7 +191,7 @@ a time):
   libc `open(` calls inside `src/codegen/async/runtime_io_*.yo` C strings and
   method calls (`File.open`, `fcntl.open`).
 
-### PR 2 — delete the builtin
+### Step 2 — delete the builtin
 
 Deletion inventory (every site that names the builtin; `grep -rn BK_OPEN`):
 
@@ -179,7 +210,7 @@ Deletion inventory (every site that names the builtin; `grep -rn BK_OPEN`):
 | `tests/basic.test.yo`, `tests/module.test.yo`, `tests/module_struct_unification.test.yo`, `tests/ptr.test.yo` | already migrated in PR 1; in PR 2 add ONE `comptime_expect_error` test asserting `open(x)` is now an ordinary unknown-function error (prefer `comptime_expect_error` over gate tests) |
 | `src/expr_info.yo` `runtime_destructurings` | **KEEP** — still fed by `destructuring_assignment.yo` and read by `codegen/types/collection.yo` and `codegen/exprs/init_assignment.yo` |
 
-PR 2 exit gates: `yo check ./src`, `yo build`, `gates_fast.sh` +
+Combined exit gates: `yo check ./src`, `yo build`, `gates_fast.sh` +
 `fixpoint_only.sh`, the four edited language test files, `tests/internal` files
 that import `_expr.yo`/`generation.yo` closures, the full cli-diff scorecard,
 `grep -rn BK_OPEN src` empty. The diff must be pure deletion plus the message
@@ -198,8 +229,9 @@ text; no new mechanism.
   across lines when long; inside fixtures that would move line numbers — keep
   fixture imports short (only names actually used) so they stay on one line,
   and re-record the golden if fmt still wraps.
-- **The forward-ref message change lands in PR 2, not PR 1**, so PR 1's
-  cli-case diff is fixture-only.
+- **The forward-ref message change flips the `check-forward-ref-*` cli-case
+  goldens**, and the `.github/skills/*` edits flip the six init/skills-install
+  tree goldens; everything else in the cli corpus must be untouched.
 - **Two `yo test` runs in one worktree collide** on `tests/.yo_selftest_batch_*`;
   canaries go in a different worktree while the suite runs.
 - **Never edit std/src/tests while a gate runs there.**
@@ -207,9 +239,35 @@ text; no new mechanism.
 
 ## 6. Findings en route
 
-(Append here: every name collision §3.5 surfaced, every file whose open
-turned out to bring in nothing, any test that only passed because of
-last-wins shadowing.)
+- **Every `StringBuilder`/`Alignment` collision is benign**: `std/fmt`
+  re-exports `std/string`'s, so the two paths name one type. Eight files in
+  `src/` and two in `tests/internal/` hit it; the name now comes from
+  `std/fmt` in those, exactly as last-wins resolved it before.
+- **`tests/dyn.test.yo` opened `std/string` twice** at file scope (lines 4 and
+  140). Names stay on line 4; line 140 is a bare re-import.
+- **Opens that brought in nothing used**: 14 in `std/`, 20 in `src/`, ~40 in
+  `tests/`, 12 of 32 in `vendor/markdown_yo`. The vendor ones are real: those
+  files work in `str`, never `String`. All became bare imports, so
+  impl registration is unchanged.
+- **`std/math` exports nothing at all** — an impl-registration-only module.
+- **`open` was pure sugar for spread destructuring** (§2), so every site had an
+  exact replacement and no feature was added to cover the removal.
+- **Fixture and test names that said "open"** were renamed with their
+  subjects: `tests/open_import_constants.test.yo` →
+  `tests/import_constants.test.yo` (fixture dir `tests/open_import/` →
+  `tests/import_constants/`), `tests/codegen-bootstrap/open_import_println.yo`
+  → `named_import_println.yo` (+ its golden),
+  `tests/circular_deps/circular_open_{a,b}.yo` → `circular_use_{a,b}.yo`
+  (the case is "A uses B's type in a definition", which is what survives the
+  glob's removal). The two `issues/fixed/*.md` records that cite the old
+  paths were updated in place.
+- **`issues/repros/*.yo` ARE gate inputs, not just records** — the first
+  assumption here was that they could stay frozen. `gates_fast.sh` GATE 0
+  compiles two of them by name, and `arc-spawn-capture-split` failed with
+  `Variable "open" not found` the moment the builtin went. All 96 repro files
+  were migrated (94 carried an open header). The `.md` files under `issues/`
+  are left alone: they are dated prose records, and their code blocks are
+  quotations of how the bug looked at the time.
 
 ## 7. Closing
 

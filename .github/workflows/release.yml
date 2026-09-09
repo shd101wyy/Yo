@@ -834,7 +834,7 @@ jobs:
         run: |
           BUNDLE_DIR="$PWD/$BUNDLE"
           mkdir -p "$RUNNER_TEMP/seed-smoke" && cd "$RUNNER_TEMP/seed-smoke"
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
+          printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
           if [ -f "$BUNDLE_DIR/bin/yo.exe" ]; then YO="$BUNDLE_DIR/bin/yo.exe"; else YO="$BUNDLE_DIR/bin/yo"; fi
           YO_STD="$BUNDLE_DIR/std" "$YO" compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
           cat compile.err
@@ -1130,7 +1130,7 @@ jobs:
       - name: Smoke-test the bundle on Alpine
         run: |
           mkdir -p smoke
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > smoke/hello.yo
+          printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > smoke/hello.yo
           docker run --rm --security-opt seccomp=unconfined \
             -v "$PWD:/w" -w /w/smoke -e BUNDLE="$BUNDLE" alpine:3.20 sh -euc '
               apk add --no-cache build-base liburing-dev
@@ -1168,7 +1168,7 @@ jobs:
         run: |
           BUNDLE_DIR="$PWD/$BUNDLE"
           mkdir -p "$RUNNER_TEMP/musl-smoke" && cd "$RUNNER_TEMP/musl-smoke"
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
+          printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
           YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
           cat compile.err
           if grep -q "mimalloc: error" compile.err; then

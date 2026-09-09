@@ -70,7 +70,7 @@ blocks. Errors that today are swallowed into hollow stubs become real
 diagnostics at the definition site.
 
 **Non-goals.**
-- Reordering *statements*: `pragma(...)`, `open(import(...))`, `import`
+- Reordering *statements*: `pragma(...)`, `import`
   bindings, module-level mutable globals `(g : T) = v`, `comptime_assert`,
   `export(...)`, and bare expression statements keep strict source order.
   Their EFFECTS are the module's observable evaluation; hoisting them would
@@ -118,9 +118,9 @@ diagnostics at the definition site.
    ORDER, never coverage: an unreferenced broken definition still errors, `yo
    check` and the LSP still see every diagnostic, and `export(...)` forces
    the names it exports.
-6. **Statements see only what precedes them** (unchanged): an `open(import(...))`
+6. **Statements see only what precedes them** (unchanged): an `import`
    at line 50 does not bring names into a definition forced from line 30. The
-   documented rule becomes "imports, opens, pragmas and module globals are
+   documented rule becomes "imports, pragmas and module globals are
    ordered; definitions are not".
 7. A deferred binding's RHS must not READ a module-level mutable global's
    value at comptime (already true today — module globals are runtime values).
@@ -258,7 +258,7 @@ Then the NEW behaviour is pinned by tests that are red today:
 - two `impl(P, ...)` blocks referencing each other's methods;
 - `export(...)` naming a definition that appears after it;
 - negatives: a cyclic constant pair, a comptime call into a body being
-  evaluated, a definition reading a module global, an `open(import)` after
+  evaluated, a definition reading a module global, an `import` after
   a use — each with the exact diagnostic text pinned (`comptime_expect_error`).
 
 ## 7. Phasing and gates
@@ -365,7 +365,7 @@ time as before the campaign; no latency issue observed, none pinned.
   not from inside another block of the same type (§6's "two impl blocks
   reference each other" is narrowed accordingly).
 - **Ordered-statement forward references** keep the P0 diagnostic, reworded
-  (`forward reference to "X" (bound at line N) — imports, opens, pragmas and
+  (`forward reference to "X" (bound at line N) — imports, pragmas and
   runtime bindings are evaluated in order …`), now also raised from the
   concrete-fn trial site and covering the typed-global `(g : T) = v` spelling.
 - **Surfaced along the way:** concrete function bodies were never checked
