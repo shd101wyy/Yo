@@ -1244,7 +1244,7 @@ verifier design choices (kept from the 2026-05 draft, now normative):
    Recommendation: flat heaps keyed by abstract reference, forbid
    cycles in verified code initially — decide when V6 shapes it.
    Design input for this decision:
-   [`backlog/MATCHING_LOGIC_RESEARCH.md`](backlog/MATCHING_LOGIC_RESEARCH.md) §7
+   [`reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md) §7
    (matching logic's definable separation-logic capture is the
    theoretical ceiling; flat heaps + Z3 axioms remain the recommended
    floor).
@@ -1365,7 +1365,7 @@ What the verifier does:
   subset, AoRTE obligations, gradual adoption), Boogie (separate-pass
   VC architecture), Why3 (SMT-LIB over stdio, solver budgets), Z3
   (`rlimit` deterministic budgets, unsat cores, `get-model`).
-- [`backlog/MATCHING_LOGIC_RESEARCH.md`](backlog/MATCHING_LOGIC_RESEARCH.md) —
+- [`reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md) —
   the assessed-and-declined alternative foundation (2026-09-09): why Yo
   does not build on Matching Logic / K, and the specific borrowings
   (heap-model design input for Open Question 1, the "pattern" naming

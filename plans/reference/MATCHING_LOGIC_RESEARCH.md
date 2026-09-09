@@ -1,14 +1,15 @@
 # Matching Logic — research assessment for Yo's formal verification campaign
 
-> **Status: RESEARCH NOTE (2026-09-09).** Investigation into whether Yo's
-> FORMAL_VERIFICATION campaign ([`FORMAL_VERIFICATION.md`](FORMAL_VERIFICATION.md),
-> V1–V2 merged, V3 core merged at the time of writing) should utilize
+> **Status: DECISION RECORD (2026-09-09) — assessed and declined.**
+> Investigation into whether Yo's FORMAL_VERIFICATION campaign
+> ([`backlog/FORMAL_VERIFICATION.md`](../backlog/FORMAL_VERIFICATION.md),
+> V1–V3 merged at the time of writing) should utilize
 > Matching Logic — the logic underlying the K Framework — as foundation,
 > substrate, or tooling.
 >
 > **Conclusion up front: do NOT adopt matching logic as the verifier's
 > foundation. The Dafny/Boogie-shape, Z3-direct architecture (decisions
-> D1/D2/D4/D5) stands.** Matching logic earns three specific borrowings
+> D1/D2/D4/D5) stands.** Matching logic earns five specific borrowings
 > (§7) and two explicitly parked ideas (§8). Everything below supports
 > that verdict.
 
@@ -69,19 +70,26 @@ equational and rewriting logic, λ-calculus and pure type systems. The
 internalization results show matching logic can define its own semantics
 inside itself.
 
-**Proof system.** A sound and complete (recursively enumerable) Hilbert-style
-system — 2017 version for theories with equality, 2019 matching μ-logic
-version for all theories. The Knaster–Tarski fixpoint rule is not
-syntax-driven; the OOPSLA 2020 "Matching Logic: A Logic of Static
-Structures" line and Fiedler's System H (2022) work toward
-automation-friendlier variants. Completeness for all theories remains open
-in parts.
+**Proof system.** Hilbert-style. LMCS 2017 gives system **P**, sound and
+complete for theories that provide definedness symbols (from which equality
+and membership are derived). LICS 2019 gives system **H**, sound and
+(locally) complete for *fixpoint-free* matching logic over **all**
+theories, and extends it to matching μ-logic with the Knaster–Tarski
+rule — that μ-extension is proved **sound only**; no complete proof system
+for the μ-fragment is claimed (none can exist: the logic defines the
+standard model of the naturals). The fixpoint rule is not syntax-driven,
+which is why Chen et al.'s OOPSLA 2020 *Towards a Unified Proof Framework
+for Automated Fixpoint Reasoning Using Matching Logic* proposes an
+automation-friendlier alternative system. Theory work continues (Fiedler's
+2022 thesis on completeness conditions for system H; Leuștean & Trufaș's
+2025 Tarski-style axiomatization; Coq mechanizations, ICTAC 2023) but
+none of it changes the tooling picture in §3–§4.
 
 **One disambiguation that will bite Yo docs:** matching-logic *patterns*
 (formulas denoting sets) are **completely unrelated** to SMT-LIB
 `:pattern` annotations (E-matching instantiation triggers). The two share
 the word "pattern" and nothing else. Yo's V5 quantifier encoding
-(FORMAL_VERIFICATION.md task V5-2) uses the SMT sense; anyone reading both
+(FORMAL_VERIFICATION.md Phase V5, task 2) uses the SMT sense; anyone reading both
 literatures will collide on the term.
 
 ## 2. How the K Framework uses it
@@ -103,8 +111,10 @@ The execution pipeline in current K (v6/v7 era):
   variables), producing **matching-logic patterns** — disjunctions of
   constrained configurations using `#And`/`#Or`/`#Equals`, distinct from
   the language's own booleans.
-- **Booster** (Rust) — concrete-execution acceleration in front of the
-  Haskell backend.
+- **Booster** (Haskell — `hs-backend-booster`, since folded into
+  `haskell-backend` and archived 2025-10) — a simplified, faster rewrite
+  engine that runs in front of the full Haskell backend and falls back to
+  it for the hard steps.
 - **Z3** — periodically checks accumulated path conditions for
   *feasibility* and trims infeasible branches. Stock pinned Z3; see §3.
 - **kprove** — deductive verification: user states **reachability claims**
@@ -119,9 +129,10 @@ The execution pipeline in current K (v6/v7 era):
 
 **There is no solver that decides matching logic, and no custom
 Z3-with-matching-logic fork.** We verified: the K project pins **stock
-upstream Z3** (K 7.0 requires Z3 4.12.1 and warns other versions "may lead
-to incorrect behaviour or performance issues"; the archived proof-generation
-work pinned 4.8.10). What bridges ML to Z3:
+upstream Z3** (the K README — latest release v7.1.337, 2026-06-18 — requires
+Z3 4.12.1 and warns that other versions "are known to have bugs and
+performance regressions likely to cause issues in the K test suite"; the
+archived proof-generation work pinned 4.8.10). What bridges ML to Z3:
 
 1. **Fragment translation.** The **fixpoint-free fragment** of matching
    logic converts to FOL with equality (patterns become unary predicates
@@ -135,9 +146,12 @@ work pinned 4.8.10). What bridges ML to Z3:
    *constraint* part of path conditions (integer/boolean side conditions) —
    decidable theories, where it excels.
 3. **Implication checks are the incomplete part.** Full ML pattern
-   implication is undecidable; K's approximations via quantified SMT
-   encodings are where kprove proofs die with opaque failures (Z3
-   `unknown` on quantified goals). This is the classic K pain point.
+   implication is undecidable; in practice kprove proofs die on **stuck
+   symbolic execution** — unsimplified function symbols, unresolved
+   `#Ceil`/definedness side conditions, an implication the backend cannot
+   close structurally — with opaque failures. Z3 mostly sees
+   quantifier-free constraints and is rarely the bottleneck. This is the
+   classic K pain point.
 
 **The consequence for Yo:** a verifier that reasons over general matching
 logic must implement unification-modulo-theory and still translate to
@@ -155,16 +169,20 @@ GitHub state, checked 2026-09-09:
 
 | Artifact | What it is | State |
 | --- | --- | --- |
-| [runtimeverification/k](https://github.com/runtimeverification/k) | The K Framework tools (LLVM + Haskell backends, kprove) | **Alive** — "K Framework Tools 7.0", pushed 2026-06; 586 stars |
+| [runtimeverification/k](https://github.com/runtimeverification/k) | The K Framework tools (LLVM + Haskell backends, kprove) | **Alive** — latest release v7.1.337 (2026-06-18); 586 stars |
 | [kframework/matching-logic-prover](https://github.com/kframework/matching-logic-prover) | Standalone ML prover/checker written in K; `ml2fol` ML→SMT-LIB prototype | **Dormant** — last push 2021-04; 15 stars; README minimal |
-| [runtimeverification/proof-generation](https://github.com/runtimeverification/proof-generation) | Metamath formalization of ML + proof-certificate generation (CAV 2021 line) | **Archived** 2024-02; automated generation covered *concrete* rewriting only; example proofs ~77 MB for small programs |
-| matching-logic.org / FSL Illinois papers | Theory (LMCS 2017, LICS 2019 μ-logic, OOPSLA 2020/2023, CAV 2021) | Maintained literature; the unification results are solid math |
+| [runtimeverification/proof-generation](https://github.com/runtimeverification/proof-generation) | Metamath formalization of ML + proof-certificate generation (CAV 2021 line) | **Archived** 2024-02-15; automated generation covered *concrete* rewriting only; proof objects were large for small programs |
+| [Pi Squared — Proof of Proof](https://docs.pi2.network/math-proof-checker) | The certificate line's successor: matching-logic (Metamath) proofs checked by a few-hundred-line checker running inside zkVMs, for verifiable computing / settlement | **Alive**, commercial (RV spin-off); a blockchain product, not a compiler-facing prover |
+| matching-logic.org / FSL Illinois papers | Theory (LMCS 2017, LICS 2019 μ-logic, OOPSLA 2020/2023, CAV 2021, Coq mechanization ICTAC 2023, new axiomatization arXiv 2025) | Active literature; the unification results are solid math |
 | Kontrol / verified-smart-contracts | RV's productized K-based verification (Foundry-integrated) | Commercial use, Ethereum ecosystem focus |
 
-Reading: the **theory** is mature and respected; the **standalone tooling
-around ML-as-a-logic** (prover, certificates) is research-grade or retired.
-Everything production-grade in the K world works by translating down to
-Z3 — exactly the architecture decision Yo already made.
+Reading: the **theory** is mature, respected and still active; the
+**tooling around ML-as-a-logic** is research-grade (the prover), retired
+(the Metamath certificate generator), or moved into a commercial product
+with a different target (Pi Squared's zkVM proof checking). **None of it
+is a reusable off-the-shelf prover a compiler can call.** Everything
+production-grade in the K world discharges constraints by translating down
+to Z3 — exactly the architecture decision Yo already made.
 
 ## 5. Production-scale evidence
 
@@ -263,12 +281,12 @@ Mapped to the campaign phases:
    "instantiation trigger" (or "E-matching trigger"), never bare
    "pattern", to avoid conflating the literatures for ourselves and for
    LLM authors who have read K material.
-5. **D2/D7 reinforcement — solver pinning.** K 7.0 pins stock Z3 4.12.1
-   and warns that other versions "may lead to incorrect behaviour" —
-   the flagship ML project treats solver-version drift as a correctness
-   hazard, not an inconvenience. Validates Yo's pinned-solver +
-   cache-keyed-on-pin + deliberate-bump policy (currently mid-bump to
-   Z3 5.1.0, per campaign state).
+5. **D2/D7 reinforcement — solver pinning.** K pins stock Z3 4.12.1
+   and warns that other versions "are known to have bugs and performance
+   regressions" — the flagship ML project treats solver-version drift as
+   a bug source and pins hard rather than tracking upstream. Validates
+   Yo's pinned-solver + cache-keyed-on-pin + deliberate-bump policy (the
+   pin moved 4.13.3 → 5.1.0 on 2026-09-08 with PR #484).
 
 ## 8. Explicitly parked ideas
 
@@ -283,10 +301,11 @@ Mapped to the campaign phases:
   Yo ever needs certified assurance of a frozen language subset (e.g., a
   safety-critical embedded profile).
 - **Proof certificates.** Matching logic's Metamath formalization enabled
-  small-trusted-checker certificates; the tooling was archived in 2024,
-  generated multi-ten-MB proofs for small programs, and covered concrete
-  rewriting only. Yo's plan already rules out interactive/certificate
-   proving (non-goals). If certificates ever matter, the cheaper path is
+  small-trusted-checker certificates; the open-source generator was
+  archived in 2024 having covered concrete rewriting only, and its
+  successor (Pi Squared's Proof of Proof) targets zkVM settlement, not
+  compiler tooling. Yo's plan already rules out interactive/certificate
+  proving (non-goals). If certificates ever matter, the cheaper path is
   Z3 proof logs + an independent checker over the SMT-LIB encoding — a
   V8+ idea at the earliest.
 
@@ -295,12 +314,22 @@ Mapped to the campaign phases:
 - Matching Logic — official site: <https://www.matching-logic.org/>
 - Roșu, *Matching Logic* — LMCS 2017 (foundational survey; the SL/FOL
   capture results).
-- Chen & Roșu, *Matching μ-Logic* — LICS 2019 (μ-binder; proof system for
-  all theories); CALCO 2019 abstract ("Foundation of K Framework").
-- Chen et al., OOPSLA 2020 (*A Logic of Static Structures* — automation-
-  friendly proof system); Lin et al., OOPSLA 2023 (language-agnostic
-  verifier + small trusted checker); Chen et al., CAV 2021 (trustworthy
-  proof generation).
+- Chen & Roșu, *Matching μ-Logic* — LICS 2019 (system H, complete for
+  fixpoint-free ML over all theories; the μ-binder and its sound
+  extension); CALCO 2019 abstract ("Foundation of K Framework").
+- Chen, Trinh, Rodrigues, Peña, Roșu, *Towards a Unified Proof Framework
+  for Automated Fixpoint Reasoning Using Matching Logic* — OOPSLA 2020
+  (automation-friendly proof system):
+  <https://dl.acm.org/doi/10.1145/3428229>; Lin et al., OOPSLA 2023
+  (language-agnostic verifier + small trusted checker); Chen et al.,
+  CAV 2021 (trustworthy proof generation).
+- Fiedler, *Deduction in Matching Logic* — diploma thesis 2022
+  (completeness conditions for system H); Leuștean & Trufaș, *Matching
+  logic — a new axiomatization* — arXiv 2506.13801 (2025); Bereczky et
+  al., *Interactive Matching Logic Proofs in Coq* — ICTAC 2023.
+- Pi Squared, *Math Proof Checker* (matching-logic proofs checked inside
+  zkVMs — the certificate line's commercial successor):
+  <https://docs.pi2.network/math-proof-checker>
 - Matching logic — Wikipedia (syntax/semantics précis used in §1):
   <https://en.wikipedia.org/wiki/Matching_logic>
 - K Framework tutorial, Lesson 1.21 (symbolic execution, unification,
@@ -311,7 +340,7 @@ Mapped to the campaign phases:
 - runtimeverification/proof-generation (archived 2024-02; Metamath ML
   formalization + certificate generation):
   <https://github.com/runtimeverification/proof-generation>
-- runtimeverification/k (K Framework Tools 7.0; Z3 4.12.1 pin):
+- runtimeverification/k (latest release v7.1.337, 2026-06-18; Z3 4.12.1 pin):
   <https://github.com/runtimeverification/k> ·
   releases: <https://github.com/runtimeverification/k/releases/>
 - Runtime Verification, *Modernizing K* (Haskell backend on matching

@@ -72,6 +72,8 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 (order-independent definitions, LANDED 2026-09-05),
 [`reference/OPERATOR_SET_AND_PRECEDENCE.md`](reference/OPERATOR_SET_AND_PRECEDENCE.md),
 [`reference/WINDOWS_ALLOCATOR_DECISION.md`](reference/WINDOWS_ALLOCATOR_DECISION.md),
+[`reference/MATCHING_LOGIC_RESEARCH.md`](reference/MATCHING_LOGIC_RESEARCH.md)
+(matching logic / K assessed and declined as the verifier foundation, 2026-09-09),
 ….
 
 Backlog (`backlog/`) — written, not started. Recent additions:
