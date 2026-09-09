@@ -1,7 +1,7 @@
-# `FromStr` is implemented for 6 of the 13 numeric primitives
+# `FromString` is implemented for 6 of the 13 numeric primitives
 
 **Status: FIXED** (2026-09-09) — all thirteen numeric primitives now
-implement `FromStr`. Found while writing `JsonValue.pointer`.
+implement `FromString` (renamed from `FromStr` in the same PR — see below). Found while writing `JsonValue.pointer`.
 
 ## Symptom
 
@@ -17,7 +17,7 @@ error[E0602]: Type usize does not implement required trait FromStr.
 
 ## Measurement
 
-`std/string/string.yo` has exactly six `FromStr` impls (lines 3115, 3124,
+`std/string/string.yo` had exactly six `FromStr` impls (lines 3115, 3124,
 3133, 3150, 3166, 3178):
 
 | implemented | missing |
@@ -78,3 +78,39 @@ the constant), `MAX + 1` → `PosOverflow`, and for the signed ones the exact
 
 Related: D12 (`FromStr` parsing returns `Result`) is LANDED — this is a
 coverage gap in that decision, not a shape disagreement.
+
+## The name was wrong too
+
+`FromStr`/`from_str` was a mis-transliteration of Rust's name. Rust's is
+ACCURATE — `fn from_str(s: &str)` takes a `&str` — and the pattern behind it is
+"name the trait after the type it converts FROM". Yo's took a `String`, and its
+own doc comment said so one line above the signature.
+
+The alternative reading (make it take a `str` so the name becomes true) is not
+available: `as_str()` was deleted in the slice rework, no method in
+`std/string/string.yo` returns `str`, and `String.parse(T)` — the primary
+caller — has a `String` receiver. `String` is the only parameter this trait can
+take, so the name had to move.
+
+Renamed in the same PR, along with two other sites that made the same mistake:
+
+| before | after |
+| --- | --- |
+| `FromStr` / `from_str` | `FromString` / `from_string` |
+| `log.level_from_str(name : String)` | `level_from_string` |
+| `HttpMethod.from_str(s : String)` | `HttpMethod.from_string` |
+
+`std/imm/string.yo` already had `from_string(s : String)` — the tree was
+inconsistent with itself, not just with the types. Rust CITATIONS in doc
+comments (`core::str::FromStr`, `i64::from_str`, `from_str_radix`) keep Rust's
+spelling, because they name Rust's API and not Yo's.
+
+Breaking: an `impl(T, FromStr(...))` in user code must be renamed. A
+`FromStr :: FromString` alias would only half-bridge it — `where(T <: FromStr)`
+would keep working, but the field name inside an impl is part of the trait, so
+`from_str : …` would still fail. A half-bridge that covers one of the two ways
+people use a trait is worse than a clean rename in the release notes.
+
+`HttpMethod.from_string` returns `Option`, not `Result`, which is a D12
+violation independent of its name — filed as
+`issues/httpmethod-from-string-returns-option-not-result.md`.

@@ -267,15 +267,15 @@ test("String parse_i64 agrees with parse_i64_radix(10) everywhere", {
   assert(_agree(""), "empty");
   assert(_agree("abc"), "letters");
 });
-// === FromStr on every numeric primitive (D12 coverage) ===
+// === FromString on every numeric primitive (D12 coverage) ===
 //
-// `FromStr` was implemented for i64/u64/i32/u32/f64/bool only, so
+// `FromString` was implemented for i64/u64/i32/u32/f64/bool only, so
 // `s.parse(usize)` — the width that indexes every collection — did not
 // compile. All thirteen numeric primitives now have it, each rejecting
 // out-of-range input with the side-specific overflow variant rather than a
 // truncated value. `usize`/`isize` bounds come from the width-aware
 // `MIN`/`MAX` constants, so these assertions hold on a 32-bit target too.
-test("FromStr on usize and isize", {
+test("FromString on usize and isize", {
   assert(`42`.parse(usize).unwrap() == usize(42), "usize 42");
   assert(`0`.parse(usize).unwrap() == usize(0), "usize 0");
   assert(usize.MAX.to_string().parse(usize).unwrap() == usize.MAX, "usize.MAX round-trips");
@@ -285,7 +285,7 @@ test("FromStr on usize and isize", {
   assert(isize.MAX.to_string().parse(isize).unwrap() == isize.MAX, "isize.MAX round-trips");
   assert(isize.MIN.to_string().parse(isize).unwrap() == isize.MIN, "isize.MIN round-trips");
 });
-test("FromStr on the narrow integers reports which side overflowed", {
+test("FromString on the narrow integers reports which side overflowed", {
   assert(`127`.parse(i8).unwrap() == i8(127), "i8.MAX");
   assert(`-128`.parse(i8).unwrap() == i8(-128), "i8.MIN");
   assert(
@@ -317,7 +317,7 @@ test("FromStr on the narrow integers reports which side overflowed", {
     "u16.MAX + 1 is PosOverflow"
   );
 });
-test("FromStr on f32 shares f64's grammar and saturates on overflow", {
+test("FromString on f32 shares f64's grammar and saturates on overflow", {
   assert(`1.5`.parse(f32).unwrap() == f32(1.5), "f32 1.5");
   assert(`-0.25`.parse(f32).unwrap() == f32(-0.25), "f32 -0.25");
   assert(

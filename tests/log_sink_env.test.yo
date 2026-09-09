@@ -1,4 +1,4 @@
-//! `std/log`'s `Sink` trait, `level_from_str` and `init_from_env`.
+//! `std/log`'s `Sink` trait, `level_from_string` and `init_from_env`.
 //!
 //! The existing tests/log.test.yo notes that it can only assert on FILTER
 //! behaviour because output goes to a real fd. A `Sink` is what makes the
@@ -48,20 +48,20 @@ impl(
     })
   )
 );
-test("level_from_str accepts every level name, case-insensitively", {
-  assert(match(log.level_from_str(`trace`), .Some(l) => (l == log.Level.Trace), .None => false), "trace");
-  assert(match(log.level_from_str(`DEBUG`), .Some(l) => (l == log.Level.Debug), .None => false), "upper case");
-  assert(match(log.level_from_str(`Info`), .Some(l) => (l == log.Level.Info), .None => false), "mixed case");
-  assert(match(log.level_from_str(`warn`), .Some(l) => (l == log.Level.Warn), .None => false), "warn");
-  assert(match(log.level_from_str(`warning`), .Some(l) => (l == log.Level.Warn), .None => false), "warning is accepted for warn");
-  assert(match(log.level_from_str(`error`), .Some(l) => (l == log.Level.Error), .None => false), "error");
-  assert(match(log.level_from_str(`off`), .Some(l) => (l == log.Level.Off), .None => false), "off");
-  assert(match(log.level_from_str(`  info  `), .Some(l) => (l == log.Level.Info), .None => false), "surrounding space is trimmed");
+test("level_from_string accepts every level name, case-insensitively", {
+  assert(match(log.level_from_string(`trace`), .Some(l) => (l == log.Level.Trace), .None => false), "trace");
+  assert(match(log.level_from_string(`DEBUG`), .Some(l) => (l == log.Level.Debug), .None => false), "upper case");
+  assert(match(log.level_from_string(`Info`), .Some(l) => (l == log.Level.Info), .None => false), "mixed case");
+  assert(match(log.level_from_string(`warn`), .Some(l) => (l == log.Level.Warn), .None => false), "warn");
+  assert(match(log.level_from_string(`warning`), .Some(l) => (l == log.Level.Warn), .None => false), "warning is accepted for warn");
+  assert(match(log.level_from_string(`error`), .Some(l) => (l == log.Level.Error), .None => false), "error");
+  assert(match(log.level_from_string(`off`), .Some(l) => (l == log.Level.Off), .None => false), "off");
+  assert(match(log.level_from_string(`  info  `), .Some(l) => (l == log.Level.Info), .None => false), "surrounding space is trimmed");
 });
-test("level_from_str rejects anything else", {
-  assert(match(log.level_from_str(`verbose`), .Some(_) => false, .None => true), "not a level name");
-  assert(match(log.level_from_str(``), .Some(_) => false, .None => true), "the empty string");
-  assert(match(log.level_from_str(`inf`), .Some(_) => false, .None => true), "a prefix is not a match");
+test("level_from_string rejects anything else", {
+  assert(match(log.level_from_string(`verbose`), .Some(_) => false, .None => true), "not a level name");
+  assert(match(log.level_from_string(``), .Some(_) => false, .None => true), "the empty string");
+  assert(match(log.level_from_string(`inf`), .Some(_) => false, .None => true), "a prefix is not a match");
 });
 test("a Sink receives the record's parts", {
   log.set_level(log.Level.Trace);
