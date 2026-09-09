@@ -1,0 +1,238 @@
+//! The `verify+` strip-pass tests (FORMAL_VERIFICATION.md V3 task 6):
+//! obligations that PROVED have their spliced `ensures failed` asserts
+//! removed from the function body before codegen; the `requires failed`
+//! entry guards STAY (their proof obligation lives at call sites).
+//!
+//! In-process model (verifier_negative's shape): the test imports the
+//! evaluator + verifier, arms the fixture as a verification target, loads
+//! it, and inspects the FuncVal's wrapped body directly. The first test
+//! exercises the strip MECHANISM without a solver; the second runs the
+//! full verify-and-strip pipeline under YO_TEST_Z3=1.
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks,
+  strip_proved_ensures_asserts
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks
+} :: import("../../src/verifier/driver.yo");
+{ EvalValue } :: import("../../src/value.yo");
+{ AstExpr, ast_expr_to_string, ast_expr_token } :: import("../../src/expr.yo");
+{ VerifyTask } :: import("../../src/evaluator/builtins/contracts.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+/// Load the verify+ fixture with targets armed; returns the drained task
+/// list (the VerifyTask refs are shared — the strip mutates through them).
+_load_strip_tasks :: (fn(io : Io) -> ArrayList(VerifyTask))({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_strip: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  rel := String.from("./tests/spec/fixtures/valid/verifyplus_abs.yo");
+  targets := ArrayList(String).new();
+  targets.push(rel.clone());
+  targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `fixture failed to evaluate: ${rendered}`);
+    },
+    .None => {
+      assert(outcome.ok, "fixture must evaluate cleanly");
+    }
+  );
+  tasks := take_verify_tasks();
+  assert(tasks.len() == usize(1), `expected exactly 1 task, got ${tasks.len().to_string()}`);
+  tasks
+});
+/// The task list's single FuncVal.
+_task_func_val :: (fn(tasks : ArrayList(VerifyTask)) -> EvalValue)(
+  match(
+    tasks.get(usize(0)),
+    .Some(t) => t.func_val,
+    .None => EvalValue.UnitVal
+  )
+);
+/// Count the spliced contract asserts of one label in a wrapped body.
+_count_contract_asserts :: (fn(func_val : EvalValue, label : String) -> usize)(
+  match(
+    func_val,
+    .FuncVal(fvd, _) => _count_labeled_asserts_in_body(fvd.*.body, label.clone()),
+    _ => usize(0)
+  )
+);
+_count_labeled_asserts_in_body :: (fn(body : AstExpr, label : String) -> usize)(
+  match(
+    body,
+    .FnCall(_, _, args, _, _) => _count_labeled_asserts(args, label.clone()),
+    .Atom(_, _) => usize(0)
+  )
+);
+_count_labeled_asserts :: (fn(args : ArrayList(AstExpr), label : String) -> usize)({
+  (n : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    match(
+      args.get(i),
+      .Some(arg) => {
+        if(_is_assert_with_label(arg, label.clone()), {
+          n = (n + usize(1));
+        });
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  n
+});
+/// Arg 1 of a call as a string when it is a plain atom ("" otherwise).
+_arg1_atom_value :: (fn(a : ArrayList(AstExpr)) -> String)(
+  match(
+    a.get(usize(1)),
+    .Some(m_arg) => match(
+      m_arg,
+      .Atom(_, mt) => mt.value,
+      .FnCall(_, _, _, _, _) => String.new()
+    ),
+    .None => String.new()
+  )
+);
+/// The recognizer (test-side mirror of the wrapper's `_build_assert_call`
+/// shape): an `assert`/`comptime_assert` call of two args whose message
+/// atom starts with `<label>:`.
+_is_assert_with_label :: (fn(e : AstExpr, label : String) -> bool)(
+  match(
+    e,
+    .FnCall(_, f, a, _, _) => {
+      is_assert := cond(
+        _callee_is_bare(f, String.from("assert")) => true,
+        _callee_is_bare(f, String.from("comptime_assert")) => true,
+        _callee_is_member(f, String.from("assert")) => true,
+        true => false
+      );
+      msg := _arg1_atom_value(a);
+      is_assert && msg.starts_with(`"${label}:`)
+    },
+    .Atom(_, _) => false
+  )
+);
+_callee_is_bare :: (fn(f : AstExpr, name : String) -> bool)(
+  match(
+    f,
+    .Atom(_, ht) => (ht.value == name),
+    .FnCall(_, _, _, _, _) => false
+  )
+);
+_callee_is_member :: (fn(f : AstExpr, name : String) -> bool)(
+  match(
+    f,
+    .Atom(_, _) => false,
+    .FnCall(_, dot_h, dot_args, _, _) => _callee_member_cond(dot_h, dot_args, name.clone())
+  )
+);
+_callee_member_cond :: (
+  fn(dot_h : AstExpr, dot_args : ArrayList(AstExpr), name : String) -> bool
+)(
+  cond(
+    (ast_expr_token(dot_h).value == ".") => _dot_arg1_is(dot_args, name.clone()),
+    true => false
+  )
+);
+_dot_arg1_is :: (fn(dot_args : ArrayList(AstExpr), name : String) -> bool)(
+  match(
+    dot_args.get(usize(1)),
+    .Some(second) => match(
+      second,
+      .Atom(_, st) => (st.value == name),
+      .FnCall(_, _, _, _, _) => false
+    ),
+    .None => false
+  )
+);
+
+test("strip drops proved ensures asserts and keeps the requires guard (mechanism, no solver)", {
+  // ONE load per test body: a second load would re-evaluate the std
+  // modules after the cache clear and trip the duplicate-registration
+  // corruption (the mm prelude-guard class). Both strip sub-cases run
+  // sequentially on the same FuncVal — the unproved pass first (it keeps
+  // the body intact), then the proved pass.
+  tasks := _load_strip_tasks(io);
+  fv := _task_func_val(tasks);
+  ne := _count_contract_asserts(fv, String.from("ensures failed"));
+  nr := _count_contract_asserts(fv, String.from("requires failed"));
+  assert(ne == usize(1), `pre-strip: one ensures assert (got ${ne.to_string()})`);
+  assert(nr == usize(1), `pre-strip: one requires guard (got ${nr.to_string()})`);
+  unproved := ArrayList(bool).new();
+  unproved.push(false);
+  stripped_u := strip_proved_ensures_asserts(fv, unproved);
+  assert(stripped_u == usize(0), "an unproved ensures keeps its assert");
+  assert(_count_contract_asserts(fv, String.from("ensures failed")) == usize(1), "post-strip (unproved): the ensures assert stays");
+  proved := ArrayList(bool).new();
+  proved.push(true);
+  stripped := strip_proved_ensures_asserts(fv, proved);
+  assert(stripped == usize(1), `exactly the ensures assert is stripped, got ${stripped.to_string()}`);
+  assert(_count_contract_asserts(fv, String.from("ensures failed")) == usize(0), "post-strip: no ensures assert");
+  assert(_count_contract_asserts(fv, String.from("requires failed")) == usize(1), "post-strip: the requires guard stays");
+});
+
+test("verify+ end-to-end: proved obligations strip the assert (real solver)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  tasks := _load_strip_tasks(io);
+  fv := _task_func_val(tasks);
+  assert(_count_contract_asserts(fv, String.from("ensures failed")) == usize(1), "pre-strip: one ensures assert");
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => {
+      assert(false, "expected a resolved solver under YO_TEST_Z3=1");
+      String.new()
+    }
+  );
+  reports := verify_and_strip_tasks(cfg, binary, tasks);
+  match(
+    reports.get(usize(0)),
+    .Some(rp) => {
+      assert(rp.outcome == "ok", `the verify+ fixture proves, got ${rp.outcome}`);
+    },
+    .None => {
+      assert(false, "one report expected");
+    }
+  );
+  assert(_count_contract_asserts(fv, String.from("ensures failed")) == usize(0), "post-verify: the proved ensures assert is gone");
+  assert(_count_contract_asserts(fv, String.from("requires failed")) == usize(1), "post-verify: the requires guard stays");
+});

@@ -1,0 +1,12 @@
+// verify+ fixture for the strip-pass tests
+// (tests/internal/verifier_strip.test.yo): GOOD contracts — every ensures
+// proves — so the strip pass removes the spliced `ensures failed` assert
+// while the `requires failed` entry guard must stay.
+pragma(Pragma.VerifyOrAssert);
+
+abs_vp :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
+  cond(
+    (x < i32(0)) => (i32(0) - x),
+    true => x
+  )
+);
