@@ -23,6 +23,8 @@ derive(Bad, Error(.Surrogate => `unit ${unit}`));
 
 Renaming the field to anything that is not a type name (`cu`, `code_unit`)
 makes it compile. The field TYPE is irrelevant; the field NAME is the trigger.
+It is not an `open(...)` artifact either — the reproducer uses named imports
+only and still fails.
 
 ## Root cause
 
