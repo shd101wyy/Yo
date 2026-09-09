@@ -35,13 +35,6 @@ pragma(Pragma.AllowUnsafe);
 BITS :: usize(5);
 /// Mask for extracting BITS-wide chunks from hash.
 MASK :: u64(31);
-/// Count the number of set bits in a u32 (popcount).
-popcount :: (fn(x : u32) -> u32)({
-  (v : u32) = x;
-  v = (v - ((v >> u32(1)) & u32(1431655765)));
-  v = ((v & u32(858993459)) + ((v >> u32(2)) & u32(858993459)));
-  (((v + (v >> u32(4))) & u32(252645135)) * u32(16843009)) >> u32(24)
-});
 /// HAMT leaf node -- single key-value entry.
 MapLeaf :: (
   fn(
@@ -173,7 +166,7 @@ _alloc_map_children :: (fn(comptime(K) : Type, comptime(V) : Type, count : u8, w
   )
 });
 _branch_index_for :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> u8)(
-  u8(popcount(branch.bitmap & (bit - u32(1))))
+  u8((branch.bitmap & (bit - u32(1))).count_ones())
 );
 _branch_has_child :: (fn(comptime(K) : Type, comptime(V) : Type, branch : MapBranch(K, V), bit : u32, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> bool)(
   (branch.bitmap & bit) != u32(0)

@@ -4761,6 +4761,536 @@ impl(
     )
   )
 );
+/**
+* Bit-level integer batteries, Rust's shapes.
+*
+* Every one of them is a WIDTH-dependent operation, and Yo has no `T.BITS`
+* associated constant, so a single blanket `impl(generic(T), where(T <:
+* Integer), T, ...)` cannot express them. They are therefore written ONCE over
+* `u64` here and delegated to per-type, with the width as a literal — which is
+* also how Rust implements them (its macro pastes the width in).
+*
+* The SIGNED types bit-cast to their same-width unsigned partner and back.
+* Yo's integer conversions are two's-complement bit-preserving, exactly like
+* Rust's `as`: `u8(i8(-1))` is `255` and `i8(u8(255))` is `-1`. So
+* `(-1i8).count_ones()` is 8, not 64 — the cast to `u64` must go THROUGH `u8`,
+* never straight from `i8`, or sign extension fills the upper 56 bits with
+* ones. Every signed delegation below is written that way.
+*/
+/// Population count over all 64 bits — SWAR, no per-word loop.
+_popcount_u64 :: (fn(x : u64) -> u32)({
+  (v : u64) = x;
+  v = (v - ((v >> u64(1)) & u64(6148914691236517205)));
+  v = ((v & u64(3689348814741910323)) + ((v >> u64(2)) & u64(3689348814741910323)));
+  v = ((v + (v >> u64(4))) & u64(1085102592571150095));
+  u32(((v * u64(72340172838076673)) >> u64(56)))
+});
+/// Number of leading zero bits in a 64-bit word (`64` for zero).
+_leading_zeros_u64 :: (fn(x : u64) -> u32)({
+  // Smear the highest set bit down, then count the ones: 64 - popcount gives
+  // the leading-zero count without a branchy binary search.
+  (v : u64) = x;
+  v = (v | (v >> u64(1)));
+  v = (v | (v >> u64(2)));
+  v = (v | (v >> u64(4)));
+  v = (v | (v >> u64(8)));
+  v = (v | (v >> u64(16)));
+  v = (v | (v >> u64(32)));
+  (u32(64) - _popcount_u64(v))
+});
+/// Number of trailing zero bits in a 64-bit word (`64` for zero).
+_trailing_zeros_u64 :: (fn(x : u64) -> u32)(
+  cond(
+    (x == u64(0)) => u32(64),
+    // `x & -x` isolates the lowest set bit; `x-1` then has exactly that many
+    // ones below it.
+    true => _popcount_u64(((x & (u64(0) - x)) - u64(1)))
+  )
+);
+/// Reverse all 64 bits.
+_reverse_bits_u64 :: (fn(x : u64) -> u64)({
+  (v : u64) = x;
+  v = (((v >> u64(1)) & u64(6148914691236517205)) | ((v & u64(6148914691236517205)) << u64(1)));
+  v = (((v >> u64(2)) & u64(3689348814741910323)) | ((v & u64(3689348814741910323)) << u64(2)));
+  v = (((v >> u64(4)) & u64(1085102592571150095)) | ((v & u64(1085102592571150095)) << u64(4)));
+  v = (((v >> u64(8)) & u64(71777214294589695)) | ((v & u64(71777214294589695)) << u64(8)));
+  v = (((v >> u64(16)) & u64(281470681808895)) | ((v & u64(281470681808895)) << u64(16)));
+  ((v >> u64(32)) | (v << u64(32)))
+});
+/// Reverse the byte order of a 64-bit word.
+_swap_bytes_u64 :: (fn(x : u64) -> u64)({
+  (v : u64) = x;
+  v = (((v >> u64(8)) & u64(71777214294589695)) | ((v & u64(71777214294589695)) << u64(8)));
+  v = (((v >> u64(16)) & u64(281470681808895)) | ((v & u64(281470681808895)) << u64(16)));
+  ((v >> u64(32)) | (v << u64(32)))
+});
+/// Mask of the low `bits` bits. `bits == 64` would make `1 << 64` undefined,
+/// so the full width is spelled out instead of computed.
+_low_mask :: (fn(bits : u32) -> u64)(
+  cond(
+    (bits >= u32(64)) => u64(18446744073709551615),
+    true => ((u64(1) << u64(bits)) - u64(1))
+  )
+);
+/// `x` rotated left by `n` within a `bits`-wide field.
+_rotate_left_u64 :: (fn(x : u64, n : u32, bits : u32) -> u64)({
+  m := _low_mask(bits);
+  k := (n % bits);
+  cond(
+    (k == u32(0)) => (x & m),
+    true => (((x << u64(k)) | ((x & m) >> u64((bits - k)))) & m)
+  )
+});
+/// `x` rotated right by `n` within a `bits`-wide field.
+_rotate_right_u64 :: (fn(x : u64, n : u32, bits : u32) -> u64)(
+  _rotate_left_u64(x, ((bits - (n % bits)) % bits), bits)
+);
+// ---------------------------------------------------------------------------
+// The fixed-width integers. `usize`/`isize` follow, and cannot share these:
+// their width is TARGET-dependent (32 on wasm32), so it is derived from
+// `usize.MAX` rather than written as a literal.
+// ---------------------------------------------------------------------------
+impl(
+  u8,
+  /// The number of one bits — Rust's `count_ones`.
+  count_ones : (fn(self : Self) -> u32)(_popcount_u64(u64(self))),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)((u32(8) - _popcount_u64(u64(self)))),
+  /// The number of leading zero bits, `8` for zero.
+  leading_zeros : (fn(self : Self) -> u32)(
+    (_leading_zeros_u64(u64(self)) - (u32(64) - u32(8)))
+  ),
+  /// The number of trailing zero bits, `8` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(
+    cond((self == Self(0)) => u32(8), true => _trailing_zeros_u64(u64(self)))
+  ),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)((~self).leading_zeros()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)((~self).trailing_zeros()),
+  /// `self` rotated left by `n` bits, wrapping the bits that fall off the top
+  /// back in at the bottom. NOT a shift: no bit is lost.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_left_u64(u64(self), n, u32(8)))
+  ),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_right_u64(u64(self), n, u32(8)))
+  ),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(
+    Self((_reverse_bits_u64(u64(self)) >> (u64(64) - u64(8))))
+  ),
+  /// `self` with its byte order reversed — the host-endianness swap.
+  swap_bytes : (fn(self : Self) -> Self)(
+    Self((_swap_bytes_u64(u64(self)) >> (u64(64) - u64(8))))
+  ),
+  /// True when exactly one bit is set. `0` is NOT a power of two.
+  is_power_of_two : (fn(self : Self) -> bool)(
+    ((self != Self(0)) && ((self & (self - Self(1))) == Self(0)))
+  ),
+  /// The smallest power of two at or above `self`, or `.None` when that does
+  /// not fit. `0` and `1` both give `1`.
+  checked_next_power_of_two : (fn(self : Self) -> Option(Self))(
+    cond(
+      (self <= Self(1)) => Option(Self).Some(Self(1)),
+      (self > ((Self.MAX >> Self(1)) + Self(1))) => Option(Self).None,
+      true =>
+        Option(Self).Some(Self((u64(1) << u64((u32(8) - (self - Self(1)).leading_zeros())))))
+    )
+  ),
+  /// The smallest power of two at or above `self`. PANICS when that does not
+  /// fit, rather than wrapping to `0` the way Rust's release build does — a
+  /// silent `0` here is a buffer of size zero somewhere downstream.
+  next_power_of_two : (fn(self : Self) -> Self)(
+    match(
+      self.checked_next_power_of_two(),
+      .Some(v) => v,
+      .None => __yo_panic("next_power_of_two: the result does not fit")
+    )
+  )
+);
+impl(
+  u16,
+  /// The number of one bits — Rust's `count_ones`.
+  count_ones : (fn(self : Self) -> u32)(_popcount_u64(u64(self))),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)((u32(16) - _popcount_u64(u64(self)))),
+  /// The number of leading zero bits, `16` for zero.
+  leading_zeros : (fn(self : Self) -> u32)(
+    (_leading_zeros_u64(u64(self)) - (u32(64) - u32(16)))
+  ),
+  /// The number of trailing zero bits, `16` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(
+    cond((self == Self(0)) => u32(16), true => _trailing_zeros_u64(u64(self)))
+  ),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)((~self).leading_zeros()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)((~self).trailing_zeros()),
+  /// `self` rotated left by `n` bits, wrapping the bits that fall off the top
+  /// back in at the bottom. NOT a shift: no bit is lost.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_left_u64(u64(self), n, u32(16)))
+  ),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_right_u64(u64(self), n, u32(16)))
+  ),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(
+    Self((_reverse_bits_u64(u64(self)) >> (u64(64) - u64(16))))
+  ),
+  /// `self` with its byte order reversed — the host-endianness swap.
+  swap_bytes : (fn(self : Self) -> Self)(
+    Self((_swap_bytes_u64(u64(self)) >> (u64(64) - u64(16))))
+  ),
+  /// True when exactly one bit is set. `0` is NOT a power of two.
+  is_power_of_two : (fn(self : Self) -> bool)(
+    ((self != Self(0)) && ((self & (self - Self(1))) == Self(0)))
+  ),
+  /// The smallest power of two at or above `self`, or `.None` when that does
+  /// not fit. `0` and `1` both give `1`.
+  checked_next_power_of_two : (fn(self : Self) -> Option(Self))(
+    cond(
+      (self <= Self(1)) => Option(Self).Some(Self(1)),
+      (self > ((Self.MAX >> Self(1)) + Self(1))) => Option(Self).None,
+      true =>
+        Option(Self).Some(Self((u64(1) << u64((u32(16) - (self - Self(1)).leading_zeros())))))
+    )
+  ),
+  /// The smallest power of two at or above `self`. PANICS when that does not
+  /// fit, rather than wrapping to `0` the way Rust's release build does — a
+  /// silent `0` here is a buffer of size zero somewhere downstream.
+  next_power_of_two : (fn(self : Self) -> Self)(
+    match(
+      self.checked_next_power_of_two(),
+      .Some(v) => v,
+      .None => __yo_panic("next_power_of_two: the result does not fit")
+    )
+  )
+);
+impl(
+  u32,
+  /// The number of one bits — Rust's `count_ones`.
+  count_ones : (fn(self : Self) -> u32)(_popcount_u64(u64(self))),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)((u32(32) - _popcount_u64(u64(self)))),
+  /// The number of leading zero bits, `32` for zero.
+  leading_zeros : (fn(self : Self) -> u32)(
+    (_leading_zeros_u64(u64(self)) - (u32(64) - u32(32)))
+  ),
+  /// The number of trailing zero bits, `32` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(
+    cond((self == Self(0)) => u32(32), true => _trailing_zeros_u64(u64(self)))
+  ),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)((~self).leading_zeros()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)((~self).trailing_zeros()),
+  /// `self` rotated left by `n` bits, wrapping the bits that fall off the top
+  /// back in at the bottom. NOT a shift: no bit is lost.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_left_u64(u64(self), n, u32(32)))
+  ),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_right_u64(u64(self), n, u32(32)))
+  ),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(
+    Self((_reverse_bits_u64(u64(self)) >> (u64(64) - u64(32))))
+  ),
+  /// `self` with its byte order reversed — the host-endianness swap.
+  swap_bytes : (fn(self : Self) -> Self)(
+    Self((_swap_bytes_u64(u64(self)) >> (u64(64) - u64(32))))
+  ),
+  /// True when exactly one bit is set. `0` is NOT a power of two.
+  is_power_of_two : (fn(self : Self) -> bool)(
+    ((self != Self(0)) && ((self & (self - Self(1))) == Self(0)))
+  ),
+  /// The smallest power of two at or above `self`, or `.None` when that does
+  /// not fit. `0` and `1` both give `1`.
+  checked_next_power_of_two : (fn(self : Self) -> Option(Self))(
+    cond(
+      (self <= Self(1)) => Option(Self).Some(Self(1)),
+      (self > ((Self.MAX >> Self(1)) + Self(1))) => Option(Self).None,
+      true =>
+        Option(Self).Some(Self((u64(1) << u64((u32(32) - (self - Self(1)).leading_zeros())))))
+    )
+  ),
+  /// The smallest power of two at or above `self`. PANICS when that does not
+  /// fit, rather than wrapping to `0` the way Rust's release build does — a
+  /// silent `0` here is a buffer of size zero somewhere downstream.
+  next_power_of_two : (fn(self : Self) -> Self)(
+    match(
+      self.checked_next_power_of_two(),
+      .Some(v) => v,
+      .None => __yo_panic("next_power_of_two: the result does not fit")
+    )
+  )
+);
+impl(
+  u64,
+  /// The number of one bits — Rust's `count_ones`.
+  count_ones : (fn(self : Self) -> u32)(_popcount_u64(u64(self))),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)((u32(64) - _popcount_u64(u64(self)))),
+  /// The number of leading zero bits, `64` for zero.
+  leading_zeros : (fn(self : Self) -> u32)(
+    (_leading_zeros_u64(u64(self)) - (u32(64) - u32(64)))
+  ),
+  /// The number of trailing zero bits, `64` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(
+    cond((self == Self(0)) => u32(64), true => _trailing_zeros_u64(u64(self)))
+  ),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)((~self).leading_zeros()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)((~self).trailing_zeros()),
+  /// `self` rotated left by `n` bits, wrapping the bits that fall off the top
+  /// back in at the bottom. NOT a shift: no bit is lost.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_left_u64(u64(self), n, u32(64)))
+  ),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_right_u64(u64(self), n, u32(64)))
+  ),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(
+    Self((_reverse_bits_u64(u64(self)) >> (u64(64) - u64(64))))
+  ),
+  /// `self` with its byte order reversed — the host-endianness swap.
+  swap_bytes : (fn(self : Self) -> Self)(
+    Self((_swap_bytes_u64(u64(self)) >> (u64(64) - u64(64))))
+  ),
+  /// True when exactly one bit is set. `0` is NOT a power of two.
+  is_power_of_two : (fn(self : Self) -> bool)(
+    ((self != Self(0)) && ((self & (self - Self(1))) == Self(0)))
+  ),
+  /// The smallest power of two at or above `self`, or `.None` when that does
+  /// not fit. `0` and `1` both give `1`.
+  checked_next_power_of_two : (fn(self : Self) -> Option(Self))(
+    cond(
+      (self <= Self(1)) => Option(Self).Some(Self(1)),
+      (self > ((Self.MAX >> Self(1)) + Self(1))) => Option(Self).None,
+      true =>
+        Option(Self).Some(Self((u64(1) << u64((u32(64) - (self - Self(1)).leading_zeros())))))
+    )
+  ),
+  /// The smallest power of two at or above `self`. PANICS when that does not
+  /// fit, rather than wrapping to `0` the way Rust's release build does — a
+  /// silent `0` here is a buffer of size zero somewhere downstream.
+  next_power_of_two : (fn(self : Self) -> Self)(
+    match(
+      self.checked_next_power_of_two(),
+      .Some(v) => v,
+      .None => __yo_panic("next_power_of_two: the result does not fit")
+    )
+  )
+);
+impl(
+  i8,
+  /// The number of one bits. Counted over the 8-bit two's-complement
+  /// pattern, so `i8(-1).count_ones()` is `8` — the cast to `u64` goes
+  /// THROUGH `u8` so sign extension cannot add ones above bit 7.
+  count_ones : (fn(self : Self) -> u32)(u8(self).count_ones()),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)(u8(self).count_zeros()),
+  /// The number of leading zero bits — always `0` for a negative receiver,
+  /// whose sign bit is set.
+  leading_zeros : (fn(self : Self) -> u32)(u8(self).leading_zeros()),
+  /// The number of trailing zero bits, `8` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(u8(self).trailing_zeros()),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)(u8(self).leading_ones()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)(u8(self).trailing_ones()),
+  /// `self` rotated left by `n` bits.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(Self(u8(self).rotate_left(n))),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(Self(u8(self).rotate_right(n))),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(Self(u8(self).reverse_bits())),
+  /// `self` with its byte order reversed.
+  swap_bytes : (fn(self : Self) -> Self)(Self(u8(self).swap_bytes()))
+);
+impl(
+  i16,
+  /// The number of one bits. Counted over the 16-bit two's-complement
+  /// pattern, so `i16(-1).count_ones()` is `16` — the cast to `u64` goes
+  /// THROUGH `u16` so sign extension cannot add ones above bit 15.
+  count_ones : (fn(self : Self) -> u32)(u16(self).count_ones()),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)(u16(self).count_zeros()),
+  /// The number of leading zero bits — always `0` for a negative receiver,
+  /// whose sign bit is set.
+  leading_zeros : (fn(self : Self) -> u32)(u16(self).leading_zeros()),
+  /// The number of trailing zero bits, `16` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(u16(self).trailing_zeros()),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)(u16(self).leading_ones()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)(u16(self).trailing_ones()),
+  /// `self` rotated left by `n` bits.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(Self(u16(self).rotate_left(n))),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(Self(u16(self).rotate_right(n))),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(Self(u16(self).reverse_bits())),
+  /// `self` with its byte order reversed.
+  swap_bytes : (fn(self : Self) -> Self)(Self(u16(self).swap_bytes()))
+);
+impl(
+  i32,
+  /// The number of one bits. Counted over the 32-bit two's-complement
+  /// pattern, so `i32(-1).count_ones()` is `32` — the cast to `u64` goes
+  /// THROUGH `u32` so sign extension cannot add ones above bit 31.
+  count_ones : (fn(self : Self) -> u32)(u32(self).count_ones()),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)(u32(self).count_zeros()),
+  /// The number of leading zero bits — always `0` for a negative receiver,
+  /// whose sign bit is set.
+  leading_zeros : (fn(self : Self) -> u32)(u32(self).leading_zeros()),
+  /// The number of trailing zero bits, `32` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(u32(self).trailing_zeros()),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)(u32(self).leading_ones()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)(u32(self).trailing_ones()),
+  /// `self` rotated left by `n` bits.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(Self(u32(self).rotate_left(n))),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(Self(u32(self).rotate_right(n))),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(Self(u32(self).reverse_bits())),
+  /// `self` with its byte order reversed.
+  swap_bytes : (fn(self : Self) -> Self)(Self(u32(self).swap_bytes()))
+);
+impl(
+  i64,
+  /// The number of one bits. Counted over the 64-bit two's-complement
+  /// pattern, so `i64(-1).count_ones()` is `64` — the cast to `u64` goes
+  /// THROUGH `u64` so sign extension cannot add ones above bit 63.
+  count_ones : (fn(self : Self) -> u32)(u64(self).count_ones()),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)(u64(self).count_zeros()),
+  /// The number of leading zero bits — always `0` for a negative receiver,
+  /// whose sign bit is set.
+  leading_zeros : (fn(self : Self) -> u32)(u64(self).leading_zeros()),
+  /// The number of trailing zero bits, `64` for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(u64(self).trailing_zeros()),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)(u64(self).leading_ones()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)(u64(self).trailing_ones()),
+  /// `self` rotated left by `n` bits.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(Self(u64(self).rotate_left(n))),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(Self(u64(self).rotate_right(n))),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(Self(u64(self).reverse_bits())),
+  /// `self` with its byte order reversed.
+  swap_bytes : (fn(self : Self) -> Self)(Self(u64(self).swap_bytes()))
+);
+
+// ---------------------------------------------------------------------------
+// `usize` / `isize`. Their width is TARGET-dependent — 32 on wasm32, 64 on
+// every other supported target — so it is DERIVED instead of written as a
+// literal: `usize.MAX` is all ones, so its population count IS the width. A
+// hardcoded 64 here would make `rotate_left` and `reverse_bits` silently
+// wrong on the wasm legs, which nothing else in the suite would catch.
+// ---------------------------------------------------------------------------
+// `usize.MAX` is all ones, so the width is decided by which all-ones value it
+// is. The 32-bit case is tested FIRST and 64 is the fallback, deliberately:
+// writing `usize(18446744073709551615)` to test for the 64-bit case would be
+// an out-of-range literal — a hard comptime error — on the 32-bit targets this
+// is meant to detect.
+_USIZE_BITS :: cond((usize.MAX == usize(4294967295)) => u32(32), true => u32(64));
+impl(
+  usize,
+  /// The number of one bits.
+  count_ones : (fn(self : Self) -> u32)(_popcount_u64(u64(self))),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)((_USIZE_BITS - _popcount_u64(u64(self)))),
+  /// The number of leading zero bits, the full width for zero.
+  leading_zeros : (fn(self : Self) -> u32)(
+    (_leading_zeros_u64(u64(self)) - (u32(64) - _USIZE_BITS))
+  ),
+  /// The number of trailing zero bits, the full width for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(
+    cond((self == Self(0)) => _USIZE_BITS, true => _trailing_zeros_u64(u64(self)))
+  ),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)((~self).leading_zeros()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)((~self).trailing_zeros()),
+  /// `self` rotated left by `n` bits.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_left_u64(u64(self), n, _USIZE_BITS))
+  ),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(
+    Self(_rotate_right_u64(u64(self), n, _USIZE_BITS))
+  ),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(
+    Self((_reverse_bits_u64(u64(self)) >> (u64(64) - u64(_USIZE_BITS))))
+  ),
+  /// `self` with its byte order reversed.
+  swap_bytes : (fn(self : Self) -> Self)(
+    Self((_swap_bytes_u64(u64(self)) >> (u64(64) - u64(_USIZE_BITS))))
+  ),
+  /// True when exactly one bit is set. `0` is NOT a power of two.
+  is_power_of_two : (fn(self : Self) -> bool)(
+    ((self != Self(0)) && ((self & (self - Self(1))) == Self(0)))
+  ),
+  /// The smallest power of two at or above `self`, or `.None` when that does
+  /// not fit. `0` and `1` both give `1`.
+  checked_next_power_of_two : (fn(self : Self) -> Option(Self))(
+    cond(
+      (self <= Self(1)) => Option(Self).Some(Self(1)),
+      (self > ((Self.MAX >> Self(1)) + Self(1))) => Option(Self).None,
+      true =>
+        Option(Self).Some(
+          Self((u64(1) << u64((_USIZE_BITS - (self - Self(1)).leading_zeros()))))
+        )
+    )
+  ),
+  /// The smallest power of two at or above `self`. PANICS when that does not
+  /// fit, rather than wrapping to `0`.
+  next_power_of_two : (fn(self : Self) -> Self)(
+    match(
+      self.checked_next_power_of_two(),
+      .Some(v) => v,
+      .None => __yo_panic("next_power_of_two: the result does not fit")
+    )
+  )
+);
+impl(
+  isize,
+  /// The number of one bits, over the two's-complement pattern.
+  count_ones : (fn(self : Self) -> u32)(usize(self).count_ones()),
+  /// The number of zero bits.
+  count_zeros : (fn(self : Self) -> u32)(usize(self).count_zeros()),
+  /// The number of leading zero bits — always `0` for a negative receiver.
+  leading_zeros : (fn(self : Self) -> u32)(usize(self).leading_zeros()),
+  /// The number of trailing zero bits, the full width for zero.
+  trailing_zeros : (fn(self : Self) -> u32)(usize(self).trailing_zeros()),
+  /// The number of leading one bits.
+  leading_ones : (fn(self : Self) -> u32)(usize(self).leading_ones()),
+  /// The number of trailing one bits.
+  trailing_ones : (fn(self : Self) -> u32)(usize(self).trailing_ones()),
+  /// `self` rotated left by `n` bits.
+  rotate_left : (fn(self : Self, n : u32) -> Self)(Self(usize(self).rotate_left(n))),
+  /// `self` rotated right by `n` bits.
+  rotate_right : (fn(self : Self, n : u32) -> Self)(Self(usize(self).rotate_right(n))),
+  /// `self` with its bit order reversed.
+  reverse_bits : (fn(self : Self) -> Self)(Self(usize(self).reverse_bits())),
+  /// `self` with its byte order reversed.
+  swap_bytes : (fn(self : Self) -> Self)(Self(usize(self).swap_bytes()))
+);
 /// char
 impl(char, Send());
 impl(char, Acyclic());

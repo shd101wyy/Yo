@@ -511,10 +511,32 @@ with a real `SystemTime`/`UNIX_EPOCH` in `std/time`; `SocketAddr`/`IpAddr`
 + byte bodies (`parse_response` string-concats the body — binary responses are
 broken client-side) + keep-alive.
 
-**Core.** `checked_/wrapping_/saturating_/overflowing_` on every integer (zero
-today), `abs/pow/clamp/min/max/count_ones/leading_zeros/…`; `f64`/`f32`
-methods and consts (`sqrt/abs/floor/ceil/round/is_nan/EPSILON/INFINITY/NAN` —
-today only raw `libc/math`); `Error` ergonomics: `is(T)`, documented
+**Core.** `checked_/wrapping_/saturating_/overflowing_` on every integer
+(LANDED), `clamp/min/max` (LANDED), `checked_abs`/`checked_pow` (LANDED);
+the BIT batteries **LANDED 2026-09-09** — `count_ones`, `count_zeros`,
+`leading_zeros`, `trailing_zeros`, `leading_ones`, `trailing_ones`,
+`rotate_left`, `rotate_right`, `reverse_bits`, `swap_bytes` on all ten integer
+types, plus `is_power_of_two` / `next_power_of_two` /
+`checked_next_power_of_two` on the unsigned five. Written once over `u64` and
+delegated per-type with the width as a literal, because Yo has no `T.BITS`
+associated constant and a single `where(T <: Integer)` blanket therefore
+cannot express a width-dependent operation (this is also how Rust does it —
+its macro pastes the width in). The signed types bit-cast to their same-width
+unsigned partner: Yo's integer conversions are two's-complement
+bit-preserving, so the cast to `u64` must go THROUGH `u8`/`u16`/`u32` or sign
+extension adds ones above the receiver's width — `i8(-1).count_ones()` is 8,
+not 64, and a test pins that at every width. `usize`/`isize` derive their
+width from `usize.MAX` instead of hardcoding 64, because it is 32 on wasm32.
+The private SWAR `popcount` in `std/imm/map.yo` is deleted in favour of
+`u32.count_ones()`. Still open: `abs`/`signum`/`pow` (unchecked forms),
+`abs_diff`, `div_euclid`/`rem_euclid`, `midpoint`, `isqrt`,
+`to_be_bytes`/`from_le_bytes` — the byte conversions want a `SignedInteger`
+marker or per-type `Array(u8, N)` returns, which is a separate change.
+The `f64`/`f32`
+methods and consts (`sqrt/abs/floor/ceil/round/trunc/is_nan/is_finite/
+is_infinite/signum/min/max/hypot/exp/ln/sin/EPSILON/INFINITY/NAN`) are all
+LANDED in `std/math.yo` — the "today only raw `libc/math`" note above is a
+snapshot from before that work. Also still open: `Error` ergonomics: `is(T)`, documented
 `downcast`, `ErrorChain`, `Context(msg, source)` (nothing in the tree overrides
 `source`); `Default` on ~15 more types; `bench`
 `black_box` + auto-calibration; `log` `Sink` trait + `YO_LOG`; `rand`
