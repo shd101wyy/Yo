@@ -1,0 +1,58 @@
+//! The plain-recursive-value-enum regression tests
+//! (issues/plain-recursive-enum-segfaults-the-evaluator.md): a plain
+//! `enum(...)` reaching itself by VALUE (no reference indirection on the
+//! path) has infinite C size and used to crash the evaluator with a bare
+//! SIGSEGV in the size walks. The definition-time cycle check must reject
+//! it with a clean diagnostic — and must NOT reject the legal
+//! ArrayList-only recursion (JsonValue's shape).
+//!
+//! In-process on purpose (the verifier_negative model): importing the
+//! evaluator puts THIS branch's enum.yo in the binary, so the fixture
+//! evaluation runs the fixed code.
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+
+/// One fixture load outcome: ok plus the loader's stashed rendered
+/// diagnostic (empty string when none).
+LoadOutcomePair :: struct(ok : bool, rendered : String);
+_load_fixture :: (fn(rel_path : String, io : Io) -> LoadOutcomePair)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `recursive_enum: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  rendered := match(
+    _take_load_error(),
+    .Some(r) => r,
+    .None => String.new()
+  );
+  LoadOutcomePair(ok : outcome.ok, rendered : rendered)
+});
+
+test("plain enum recursive by VALUE is rejected with the ref(enum) hint", {
+  r := _load_fixture(String.from("./tests/spec/fixtures/invalid/plain_recursive_value_enum.yo"), io);
+  assert(!r.ok, "the invalid fixture must fail to load");
+  assert(r.rendered.contains(String.from("recursive value enum")), `the diagnostic must name the problem, got: ${r.rendered}`);
+  assert(r.rendered.contains(String.from("ref(enum")), "the diagnostic must carry the fix hint");
+  assert(r.rendered.contains(String.from("Quant")), `the diagnostic must name the offending variant, got: ${r.rendered}`);
+});
+
+test("ArrayList-only recursion (JsonValue's shape) still evaluates cleanly", {
+  r := _load_fixture(String.from("./tests/spec/fixtures/valid/arraylist_self_enum.yo"), io);
+  assert(r.ok, `the legal control fixture must evaluate cleanly, got: ${r.rendered}`);
+});
