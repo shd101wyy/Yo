@@ -249,6 +249,18 @@ evaluate_identifier_and_operator :: (
           expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
           return(expr);
         });
+        // Phase V3: a `requires(...)`/`ensures(...)` predicate references
+        // the signature's parameters and the return label — names with NO
+        // binding in the env the marker evaluates in (the splice lowering
+        // and the verifier's task-registration env are where they really
+        // resolve). Soft-fall-back instead of throwing; the V1
+        // label-the-return hint still applies to unlabeled ensures below.
+        if(ctx.is_evaluating_contract_predicate, {
+          pred_info := new_expr_info(env, t_unit());
+          pred_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
+          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), pred_info);
+          return(expr);
+        });
         // Ordinary identifiers throw.
         if(ident_dbg_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[var-miss] name=${identifier_string} env_module=${env.module_path} frames=${env.frames.len().to_string()}`);

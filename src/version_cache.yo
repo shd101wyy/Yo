@@ -35,6 +35,7 @@ open(import("std/fmt"));
   rename
 } :: import("std/fs/dir");
 { remove_dir_all } :: import("std/fs/walker");
+{ copy } :: import("std/fs/file");
 { TempDir } :: import("std/fs/temp");
 { env } :: import("std/env");
 {
@@ -586,7 +587,7 @@ _scan_release_page :: (fn(json : String) -> _ReleasePage)({
   _ReleasePage(tags : tags, object_count : object_count)
 });
 /// Failure cleanup for `download_version`: remove the (possibly partial)
-/// version directory and the temp directory. Ports the TS catch+finally.
+/// version dir and the staging dir. Mirrors the TS helper.
 _cleanup_failed_download :: (
   fn(
     version_dir : String,
@@ -639,8 +640,18 @@ download_version :: (
     // (plans/reference/RELEASE_ASSET_TRIPLES.md).
     (bundle_name : String) = host_bundle_triple_name(version, e.exn);
     version_dir := get_version_cache_dir(version);
-    // 1. Download the tarball to a temp directory.
-    tmp_dir := e.io.await(TempDir.new(e.io), e);
+    // 1. Download the tarball to a temp directory. The EXTRACTION STAGING
+    // dir lives INSIDE the versions cache (~/.cache/yo/versions/), not the
+    // system temp root: the final move into the version directory is a
+    // rename(2), which fails with EXDEV across filesystems — tmpfs `/tmp` +
+    // disk `$HOME` is the common Linux desktop layout, and it aborted every
+    // `yo version install` after a completed download+extraction
+    // (issues/version-install-cross-device-link.md). Same-filesystem staging
+    // makes the rename structural, with no cross-device fallback needed
+    // (catch-and-continue inside io.async closures is not expressible:
+    // `unwind` from a handler aborts the closure rather than resuming it).
+    e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
+    tmp_dir := e.io.await(TempDir.new_in(Path.new(get_global_versions_cache_dir()), e.io), e);
     tmp_path_str := tmp_dir.path().to_string();
     (url : String) = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
     (tarball_path : String) = `${tmp_path_str}/${bundle_name}.tar.gz`;
@@ -731,7 +742,6 @@ download_version :: (
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
-    e.io.await(create_dir_all(Path.new(get_global_versions_cache_dir()), e.io), e);
     e.io.await(rename(Path.new(extracted_dir), Path.new(version_dir), e.io), e);
     println(`Installed Yo v${version} to ${version_dir}`);
     // 4. Clean up the temp directory (the tarball stays behind in it).

@@ -15,6 +15,8 @@ open(import("std/fmt"));
 { sha256_hex } :: import("std/crypto/sha256");
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
+{ VerifyFnInput, verify_function_body } :: import("./vc.yo");
+{ take_verify_tasks } :: import("../evaluator/builtins/contracts.yo");
 {
   Z3_VERSION,
   ensure_z3,
@@ -411,6 +413,200 @@ verifier_harness_self_test :: (fn(cfg : VerifyRunConfig, binary : String) -> Arr
   results.push(run_vc_query(q2, cfg, binary.clone()));
   results
 });
+// ============================================================================
+// The per-function verification pass (V3)
+// ============================================================================
+/// One obligation's outcome inside a function report.
+VerifyFnObligation :: ref(
+  struct(
+    name : String,
+    verdict : VerifyVerdict,
+    cached : bool
+  )
+);
+/// The verification report for one function.
+VerifyFnReport :: ref(
+  struct(
+    fn_id : String,
+    /// "verify" | "verify+" (the mode the file resolved to).
+    mode : String,
+    /// "ok" | "refuted" | "unproven" | "solver-error" | "subset-error".
+    outcome : String,
+    obligations : ArrayList(VerifyFnObligation),
+    /// Populated only for `outcome == "subset-error"`.
+    subset_construct : String,
+    subset_source : String
+  )
+);
+/// Verify every task the evaluator recorded (drains the registry). Each
+/// task symbolically executes once (`verify_function_body`), then every
+/// obligation runs through the same cache → encode → spawn → parse
+/// pipeline as the self-test. Subset errors abort that function's
+/// obligations list (there is nothing sound to check).
+verify_registered_functions :: (fn(cfg : VerifyRunConfig, binary : String) -> ArrayList(VerifyFnReport))({
+  tasks := take_verify_tasks();
+  reports := ArrayList(VerifyFnReport).new();
+  (ti : usize) = usize(0);
+  while(ti < tasks.len(), {
+    match(
+      tasks.get(ti),
+      .Some(t) => {
+        input := VerifyFnInput(
+          fn_name : t.fn_id.clone(),
+          func_id : t.func_id.clone(),
+          body : t.body.clone(),
+          param_names : t.param_names.clone(),
+          param_types : t.param_types.clone(),
+          result_type : t.result_type.clone(),
+          requires_exprs : t.requires_exprs.clone(),
+          ensures_exprs : t.ensures_exprs.clone(),
+          return_label : t.return_label.clone(),
+          table : t.table
+        );
+        body_res := verify_function_body(input);
+        match(
+          body_res.error,
+          .Some(err) => {
+            reports.push(
+              VerifyFnReport(
+                fn_id : t.fn_id.clone(),
+                mode : t.mode.clone(),
+                outcome : String.from("subset-error"),
+                obligations : ArrayList(VerifyFnObligation).new(),
+                subset_construct : err.construct.clone(),
+                subset_source : err.source.clone()
+              )
+            );
+          },
+          .None => {
+            obligations := ArrayList(VerifyFnObligation).new();
+            (worst : usize) = usize(0);
+            (oi : usize) = usize(0);
+            while(oi < body_res.obligations.len(), {
+              match(
+                body_res.obligations.get(oi),
+                .Some(obl) => {
+                  r := run_vc_query(obl.query, cfg, binary.clone());
+                  // Counter-examples carry source names: unmangle the
+                  // model's `__yo_v<fn>_<name> = value` pairs against
+                  // this function's id at report-construction time, so
+                  /// every consumer (text, JSON, tests) sees `x = ...`.
+                  clean_verdict := match(
+                    r.verdict,
+                    .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), ce)),
+                    .Proved(core) => VerifyVerdict.Proved(core),
+                    .Unproven(reason) => VerifyVerdict.Unproven(reason),
+                    .SolverError(msg) => VerifyVerdict.SolverError(msg)
+                  );
+                  obligations.push(
+                    VerifyFnObligation(
+                      name : r.query_name.clone(),
+                      verdict : clean_verdict,
+                      cached : r.cached
+                    )
+                  );
+                  // 0 ok < 1 unproven < 2 solver-error < 3 refuted
+                  rank := match(
+                    r.verdict,
+                    .Proved(_) => usize(0),
+                    .Unproven(_) => usize(1),
+                    .SolverError(_) => usize(2),
+                    .Refuted(_) => usize(3)
+                  );
+                  if(rank > worst, {
+                    worst = rank;
+                  });
+                },
+                .None => ()
+              );
+              oi = (oi + usize(1));
+            });
+            outcome := cond(
+              (worst == usize(3)) => String.from("refuted"),
+              (worst == usize(2)) => String.from("solver-error"),
+              (worst == usize(1)) => String.from("unproven"),
+              true => String.from("ok")
+            );
+            reports.push(
+              VerifyFnReport(
+                fn_id : t.fn_id.clone(),
+                mode : t.mode.clone(),
+                outcome : outcome,
+                obligations : obligations,
+                subset_construct : String.new(),
+                subset_source : String.new()
+              )
+            );
+          }
+        );
+      },
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
+  reports
+});
+/// Render a mangled SMT variable name back toward its source spelling for
+/// display: `__yo_v<fn>_<name>` → `<name>` when the prefix matches this
+/// function, else the raw mangled form (a cross-function name is still
+/// informative).
+unmangle_for_display :: (fn(fn_id : String, mangled : String) -> String)({
+  prefix := `__yo_v${_sanitize_for_display(fn_id.clone())}_`;
+  if(mangled.starts_with(prefix.clone()), {
+    return(mangled.substring(prefix.len(), mangled.len()));
+  });
+  mangled
+});
+/// The fn_id → SMT-name sanitizer mirror (encode.yo's `_sanitize_smt_name`
+/// is private to the encoder; this reproduces its exact rules —
+/// [A-Za-z0-9_] kept, every other RUNE one underscore — for the
+/// display-side prefix strip).
+_sanitize_for_display :: (fn(s : String) -> String)({
+  sb := StringBuilder.new();
+  {
+    it := s.chars();
+    while(true, {
+      r := match(it.next(), .Some(x) => x, .None => break);
+      c := r.char;
+      if(((c >= u32(0x41)) && (c <= u32(0x5A))) ||
+        ((c >= u32(0x61)) && (c <= u32(0x7A))) ||
+          ((c >= u32(0x30)) && (c <= u32(0x39))) || (c == u32(0x5F)), {
+        sb.write_rune(r);
+      }, {
+        sb.write_byte(u8(0x5F));
+      });
+    });
+  };
+  sb.to_string()
+});
+/// Un-mangle counter-example pair strings (`mangled = value`) toward the
+/// source spelling; unmatched shapes pass through untouched.
+_unmangle_pairs :: (fn(fn_id : String, ce : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < ce.len(), {
+    match(
+      ce.get(i),
+      .Some(pair) => {
+        sep := pair.index_of(String.from(" = "));
+        match(
+          sep,
+          .Some(at) => {
+            mangled := pair.substring(usize(0), at);
+            value := pair.substring(at + usize(3), pair.len());
+            out.push(`${unmangle_for_display(fn_id.clone(), mangled)} = ${value}`);
+          },
+          .None => {
+            out.push(pair.clone());
+          }
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  out
+});
 export(
   VerifyMode,
   verify_mode_of_string,
@@ -424,5 +620,9 @@ export(
   run_vc_query,
   resolve_solver_sync,
   SolverResolution,
-  verifier_harness_self_test
+  verifier_harness_self_test,
+  VerifyFnObligation,
+  VerifyFnReport,
+  verify_registered_functions,
+  unmangle_for_display
 );

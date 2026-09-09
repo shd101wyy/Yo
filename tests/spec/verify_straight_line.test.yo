@@ -1,0 +1,108 @@
+// V3 of plans/backlog/FORMAL_VERIFICATION.md (task 8).
+//
+// Straight-line verification positives: loop-free integer functions whose
+// contracts PROVE under `yo verify` (the CI verify job runs this file
+// through the per-function pass; every function here must come back
+// `ok`). The test bodies themselves also run in the ordinary language
+// suite — under `yo test` the file is not a verification target, so the
+// contracts lower to runtime asserts and check the same properties
+// dynamically.
+pragma(Pragma.Verify);
+
+{ assert } :: import("std/assert");
+
+/// Absolute value — the plan's canonical first proof: `ensures` holds on
+/// both cond arms, return label `r` bound. The `requires` is REAL, not
+/// decoration: `0 - INT_MIN` wraps to INT_MIN (two's-complement — the
+/// verifier models exactly the emitted C), so `abs` has no non-negative
+/// result there and the post-condition must exclude it.
+abs_i32 :: (fn(x : i32, requires(x >= i32(-2147483647)), ensures(r >= i32(0))) -> (r : i32))(
+  cond(
+    (x < i32(0)) => (i32(0) - x),
+    true => x
+  )
+);
+
+/// Minimum of two integers.
+/// Two predicates, one `ensures` — modular verification needs contracts
+/// strong enough for every caller: `r <= a` alone could not discharge
+/// `clamp`'s obligations.
+min_i32 :: (fn(a : i32, b : i32, ensures(r <= a, r <= b)) -> (r : i32))(
+  cond(
+    (a < b) => a,
+    true => b
+  )
+);
+
+/// Clamp into [lo, hi] — caller-side `requires` discharged by the two
+/// contracted callees; `ensures` proves under their assumed post-conditions.
+clamp_i32 :: (fn(x : i32, lo : i32, hi : i32, ensures(r >= lo)) -> (r : i32))(
+  max_i32(min_i32(x, hi), lo)
+);
+
+/// Maximum of two integers (defined before clamp — order-independent
+/// definitions make the file a lazy-binding smoke test too).
+max_i32 :: (fn(a : i32, b : i32, ensures(r >= a, r >= b)) -> (r : i32))(
+  cond(
+    (a < b) => b,
+    true => a
+  )
+);
+
+/// A caller discharging a callee's `requires`: with `y != 0` assumed, the
+/// division's AoRTE divisor-non-zero obligation is provable, and the
+/// post-condition follows by definition.
+safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) -> (r : i32))(
+  x / y
+);
+
+/// Begin-block bindings + arithmetic: the plan's SSA-bind case. The
+/// bound is a REAL precondition, and it must AVOID the addition it
+/// bounds: `(x + y) <= MAX` as written is vacuous when the sum wraps
+/// negative (the verifier found x = 2^30, y = MAX-2 satisfying it while
+/// the negated wrapped sum went positive). `x <= MAX - y` states the
+/// same no-wrap bound in wrap-free arithmetic.
+dist_zero :: (
+  fn(x : i32, y : i32, requires(x >= i32(0), y >= i32(0), x <= (i32(2147483647) - y)), ensures(r <= i32(0))) -> (r : i32)
+)({
+  dx := (i32(0) - x);
+  dy := (i32(0) - y);
+  s := (dx + dy);
+  s
+});
+
+/// The caller-side discharge: `safe_div`'s `requires(y != 0)` must be
+/// PROVED here (from `d > 0`), and its `ensures(r == x/y)` ASSUMED — the
+/// post-condition then follows from truncated division rounding toward
+/// zero (1/d is 0 or 1 for d > 0).
+recip_ok :: (fn(d : i32, requires(d > i32(0)), ensures(r >= i32(0))) -> (r : i32))(
+  safe_div(i32(1), d)
+);
+
+test("abs proves non-negative", {
+  assert(abs_i32(i32(5)) == i32(5), "abs(5) == 5");
+  assert(abs_i32(i32(0)) == i32(0), "abs(0) == 0");
+  assert(abs_i32(i32(-7)) == i32(7), "abs(-7) == 7");
+});
+
+test("min/max/clamp behave", {
+  assert(min_i32(i32(3), i32(9)) == i32(3), "min(3,9) == 3");
+  assert(max_i32(i32(3), i32(9)) == i32(9), "max(3,9) == 9");
+  assert(clamp_i32(i32(-5), i32(0), i32(10)) == i32(0), "clamp(-5,0,10) == 0");
+  assert(clamp_i32(i32(50), i32(0), i32(10)) == i32(10), "clamp(50,0,10) == 10");
+});
+
+test("safe_div requires a non-zero divisor", {
+  assert(safe_div(i32(10), i32(2)) == i32(5), "safe_div(10,2) == 5");
+  assert(safe_div(i32(-9), i32(3)) == i32(-3), "safe_div(-9,3) == -3");
+});
+
+test("dist_zero of non-negative inputs", {
+  assert(dist_zero(i32(0), i32(0)) == i32(0), "dist_zero(0,0) == 0");
+  assert(dist_zero(i32(4), i32(0)) == i32(-4), "dist_zero(4,0) == -4");
+});
+
+test("recip of a positive divisor is non-negative", {
+  assert(recip_ok(i32(1)) == i32(1), "recip(1) == 1");
+  assert(recip_ok(i32(2)) == i32(0), "recip(2) == 0 (truncated)");
+});

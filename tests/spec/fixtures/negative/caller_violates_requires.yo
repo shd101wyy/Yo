@@ -1,0 +1,18 @@
+// V3 negative fixture (plans/backlog/FORMAL_VERIFICATION.md task 8).
+//
+// The CALLER-side obligation: `recip_bugged` calls the contracted
+// `safe_div` without establishing `y != 0` — the callee's `requires`
+// must be PROVED at the call site under the caller's path condition,
+// and nothing constrains d, so it REFUTES with d = 0. Note the file is
+// deliberately MIXED: `safe_div` itself verifies fine (its own ensures
+// proves under its own requires); only the caller fails — modular
+// verification means one bad caller does not poison the callee. The
+// correct twin is `recip_ok` in tests/spec/verify_straight_line.test.yo
+// (requires(d > 0), discharges the callee requires, proves).
+pragma(Pragma.Verify);
+
+safe_div :: (fn(x : i32, y : i32, requires(y != i32(0)), ensures(r == (x / y))) -> (r : i32))(
+  x / y
+);
+
+recip_bugged :: (fn(d : i32) -> (r : i32))(safe_div(i32(1), d));

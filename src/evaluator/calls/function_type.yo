@@ -58,7 +58,14 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type } :: import("../../types/guards.yo");
-{ wrap_function_body_with_contracts } :: import("../builtins/contracts.yo");
+{
+  wrap_function_body_with_contracts,
+  VerifyTask,
+  register_verify_task,
+  evaluated_for_verify,
+  _is_verify_target,
+  resolve_verify_mode
+} :: import("../builtins/contracts.yo");
 { EvalValue, FuncValData, create_unknown_val, create_type_value, is_unknown_val } :: import("../../value.yo");
 { type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 {
@@ -850,416 +857,821 @@ try_to_implement_function_by_function_type :: (
     ctx : EvalContext,
     exn : Exception
   ) -> AstExpr
-)(
-  match(
-    function_type,
-    .Func({ param_types, result : result_box, meta : __fm2 }) => {
-      forall_labels := __fm2.*.forall_labels;
-      param_labels := __fm2.*.param_labels;
-      implicit_labels := __fm2.*.implicit_labels;
-      param_is_ref := __fm2.*.param_is_ref;
-      param_is_owning := __fm2.*.param_is_owning;
-      result_is_ref := __fm2.*.result_is_ref;
-      result_is_comptime_only := __fm2.*.result_is_comptime_only;
-      tok := ast_expr_token(expr);
-      // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
-      // control-bound. `unwind` exits the frame the handler record is
-      // installed in at the THROW site; a handler that leaves its defining fn
-      // as (part of) the return value outlives that frame, and invoking it
-      // later would unwind to a dead frame. Passing handler records DOWNWARD
-      // (parameters — every `{ io, exn }` bundle) stays legal; only the
-      // upward direction dangles. Checked on the DECLARED result type,
-      // OUTSIDE the def-eval trial swallow: the trial's own failure on these
-      // shapes was swallowed, which shipped handlers whose emitted bodies
-      // were silently missing their `unwind`
-      // (issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md).
-      // A ctl handler itself is exempt: its result is the resume type,
-      // delivered DOWN into the still-live throw frame. SomeT results are
-      // conservatively not control-bound, so generic and async
-      // (`Impl(Future(...))`) results pass. The `->`/`=>` literal path has
-      // the same check (values/anonymous_function.yo).
-      if(!(__fm2.*.is_control) && type_is_control_bound(result_box), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              tok,
-              `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
+)(match(
+  function_type,
+  .Func({ param_types, result : result_box, meta : __fm2 }) => {
+    forall_labels := __fm2.*.forall_labels;
+    param_labels := __fm2.*.param_labels;
+    implicit_labels := __fm2.*.implicit_labels;
+    param_is_ref := __fm2.*.param_is_ref;
+    param_is_owning := __fm2.*.param_is_owning;
+    result_is_ref := __fm2.*.result_is_ref;
+    result_is_comptime_only := __fm2.*.result_is_comptime_only;
+    tok := ast_expr_token(expr);
+    // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
+    // control-bound. `unwind` exits the frame the handler record is
+    // installed in at the THROW site; a handler that leaves its defining fn
+    // as (part of) the return value outlives that frame, and invoking it
+    // later would unwind to a dead frame. Passing handler records DOWNWARD
+    // (parameters — every `{ io, exn }` bundle) stays legal; only the
+    // upward direction dangles. Checked on the DECLARED result type,
+    // OUTSIDE the def-eval trial swallow: the trial's own failure on these
+    // shapes was swallowed, which shipped handlers whose emitted bodies
+    // were silently missing their `unwind`
+    // (issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md).
+    // A ctl handler itself is exempt: its result is the resume type,
+    // delivered DOWN into the still-live throw frame. SomeT results are
+    // conservatively not control-bound, so generic and async
+    // (`Impl(Future(...))`) results pass. The `->`/`=>` literal path has
+    // the same check (values/anonymous_function.yo).
+    if(!(__fm2.*.is_control) && type_is_control_bound(result_box), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
 
 Result type: ${type_to_string(result_box)}`
-            )
           )
-        );
-      });
-      // Extract the function body from args[0] of the outer call expression.
-      args := match(
-        expr,
-        .FnCall(_, _, a, _, _) => a,
-        .Atom(_, _) => ArrayList(AstExpr).new()
+        )
       );
-      if(args.len() != usize(1), {
-        exn.throw(
-          dyn(
-            format_error_message(
-              tok,
-              `Expected 1 argument for function body, got ${args.len()}`
-            )
+    });
+    // Extract the function body from args[0] of the outer call expression.
+    args := match(
+      expr,
+      .FnCall(_, _, a, _, _) => a,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    if(args.len() != usize(1), {
+      exn.throw(
+        dyn(
+          format_error_message(
+            tok,
+            `Expected 1 argument for function body, got ${args.len()}`
           )
-        );
-      });
-      body_expr_raw := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-      // Phase 0 task #6 of plans/backlog/FORMAL_VERIFICATION.md: splice
-      // `assert(P, msg)` / `comptime_assert(P, msg)` calls into the body for
-      // each `requires(...)` / `ensures(...)` predicate declared in the
-      // signature. Must happen BEFORE the body is moved into the FuncVal (and
-      // before the def-time-eval clone below) so every downstream consumer —
-      // def-time eval, specialization, codegen — sees the wrapped body.
-      // The predicates ride the fn-type-expr-id side-table registered by
-      // `evaluate_function_type`; the callee slot of `(fn(...))(body)` IS that
-      // expr, the same key the `copy_*` re-keying below uses.
-      // Mirrors the wrap call at src/evaluator/calls/function-type.ts:402.
-      contract_key := match(
-        expr,
-        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(ck_ft_box).to_string(),
-        .Atom(_, _) => String.from("")
+        )
       );
-      body_expr := wrap_function_body_with_contracts(
-        body_expr_raw,
-        get_func_requires_exprs(contract_key.clone()),
-        get_func_ensures_exprs(contract_key.clone()),
-        get_func_return_label(contract_key.clone()),
-        result_is_comptime_only,
-        is_unit_type(result_box)
+    });
+    body_expr_raw := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+    // Phase 0 task #6 of plans/backlog/FORMAL_VERIFICATION.md: splice
+    // `assert(P, msg)` / `comptime_assert(P, msg)` calls into the body for
+    // each `requires(...)` / `ensures(...)` predicate declared in the
+    // signature. Must happen BEFORE the body is moved into the FuncVal (and
+    // before the def-time-eval clone below) so every downstream consumer —
+    // def-time eval, specialization, codegen — sees the wrapped body.
+    // The predicates ride the fn-type-expr-id side-table registered by
+    // `evaluate_function_type`; the callee slot of `(fn(...))(body)` IS that
+    // expr, the same key the `copy_*` re-keying below uses.
+    // Mirrors the wrap call at src/evaluator/calls/function-type.ts:402.
+    contract_key := match(
+      expr,
+      .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(ck_ft_box).to_string(),
+      .Atom(_, _) => String.from("")
+    );
+    body_expr := wrap_function_body_with_contracts(
+      body_expr_raw,
+      get_func_requires_exprs(contract_key.clone()),
+      get_func_ensures_exprs(contract_key.clone()),
+      get_func_return_label(contract_key.clone()),
+      result_is_comptime_only,
+      is_unit_type(result_box)
+    );
+    // Build param_type_names: for each param type, use the SomeT name (for generic
+    // binding at call time) if the param type is a generic type variable, else "".
+    param_type_names := ArrayList(String).new();
+    (pti : usize) = usize(0);
+    n_pt := param_types.len();
+    while(pti < n_pt, {
+      pt_name := match(
+        param_types.get(pti),
+        .Some(pt) => match(
+          pt,
+          .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
+          _ => String.from("")
+        ),
+        .None => String.from("")
       );
-      // Build param_type_names: for each param type, use the SomeT name (for generic
-      // binding at call time) if the param type is a generic type variable, else "".
-      param_type_names := ArrayList(String).new();
-      (pti : usize) = usize(0);
-      n_pt := param_types.len();
-      while(pti < n_pt, {
-        pt_name := match(
-          param_types.get(pti),
-          .Some(pt) => match(
-            pt,
-            .SomeT(_, name, _, _, _, _, _, _, _, _, _) => name,
-            _ => String.from("")
-          ),
-          .None => String.from("")
-        );
-        param_type_names.push(pt_name);
-        pti = (pti + usize(1));
-      });
-      // Build cap_names/cap_tys/cap_vals from `caller_env` so the FuncVal's body
-      // can resolve other top-level identifiers (other functions, types,
-      // constants) at call time. The body is evaluated in a `fresh_env`
-      // that only contains captures + params; without these, references
-      // like `inner` inside `outer :: (fn(…))(inner(T))` fall through to
-      // the "Variable not found" soft fallback and the call result becomes
-      // `UnknownVal`. Mirrors the capture loop in
-      // `evaluator/values/anonymous_function.yo`.
-      cap_names := ArrayList(String).new();
-      cap_tys := ArrayList(TypeValue).new();
-      cap_vals := ArrayList(EvalValue).new();
-      // Campaign 2: parallel snapshot of the ORIGINAL Variable handles (see
-      // the twin comment in evaluator/values/anonymous_function.yo).
-      cap_vars := ArrayList(Variable).new();
-      (has_fwd_comptime_fn_cap : bool) = false;
-      n_cap_fr := caller_env.frames.len();
-      (cap_fi : usize) = usize(0);
-      while(cap_fi < n_cap_fr, {
-        match(
-          caller_env.frames.get(cap_fi),
-          .Some(cap_frame) => {
-            n_cap_v := cap_frame.variables.len();
-            (cap_vi : usize) = usize(0);
-            while(cap_vi < n_cap_v, {
-              match(
-                cap_frame.variables.get(cap_vi),
-                .Some(cv) => {
-                  if(!(cv.name == "__recur_fn"), {
-                    cap_names.push(cv.name);
-                    cap_tys.push(cv.ty);
-                    cap_val := match(
-                      cv.value.get(usize(0)),
-                      .Some(actual) => actual,
-                      .None => EvalValue.VarRef(cv.name)
-                    );
-                    // A VALUELESS comptime fn-typed capture is a FORWARD
-                    // DECLARATION (`comptime(is_odd) : (fn ...)` before its
-                    // fill) — this fn's def-time body eval will record its
-                    // call sites without a FuncVal. Flag it so the def-eval
-                    // below registers a pending RE-RUN (executed by
-                    // assignment.yo once the declaration is filled).
-                    cv_unfilled := match(
-                      cv.value.get(usize(0)),
-                      .Some(cv_v) => is_unknown_val(cv_v),
-                      .None => true
-                    );
-                    // Compiler-internal synthetic binders (`__yo_return_self`
-                    // et al.) are PERMANENTLY valueless fn-typed comptime
-                    // vars — they are not user forward declarations, and
-                    // counting them made this flag TRUE for every fn in
-                    // scope (which both registered a useless bounded re-run
-                    // for every definition and suppressed the fatal
-                    // re-raise below unconditionally).
-                    // `c_include`d extern fns (`exit`, `memcpy`, …) are the
-                    // same shape — permanently valueless fn-typed comptime
-                    // vars, identifiable by the FFI marker on their Func
-                    // meta. Counting them made ONE `{ exit } ::
-                    // import("std/libc/stdlib")` suppress the fatal re-raise
-                    // for EVERY definition in the importing module: `check`
-                    // then returned 0 on bodies with undefined variables —
-                    // the GATE-4 hole
-                    // (issues/fixed/yo-self-check-misses-undefined-variable.md).
-                    cv_is_extern_fn := match(
-                      cv.ty,
-                      .Func({ meta : __fcxm }) => __fcxm.*.is_extern.is_some(),
-                      _ => false
-                    );
-                    if((((cv.is_compile_time_only && cv_unfilled) && is_function_type(cv.ty)) && !(cv.name.starts_with("__yo_"))) && !(cv_is_extern_fn), {
-                      if((!(has_fwd_comptime_fn_cap)) && fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
-                        eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
-                      });
-                      has_fwd_comptime_fn_cap = true;
+      param_type_names.push(pt_name);
+      pti = (pti + usize(1));
+    });
+    // Build cap_names/cap_tys/cap_vals from `caller_env` so the FuncVal's body
+    // can resolve other top-level identifiers (other functions, types,
+    // constants) at call time. The body is evaluated in a `fresh_env`
+    // that only contains captures + params; without these, references
+    // like `inner` inside `outer :: (fn(…))(inner(T))` fall through to
+    // the "Variable not found" soft fallback and the call result becomes
+    // `UnknownVal`. Mirrors the capture loop in
+    // `evaluator/values/anonymous_function.yo`.
+    cap_names := ArrayList(String).new();
+    cap_tys := ArrayList(TypeValue).new();
+    cap_vals := ArrayList(EvalValue).new();
+    // Campaign 2: parallel snapshot of the ORIGINAL Variable handles (see
+    // the twin comment in evaluator/values/anonymous_function.yo).
+    cap_vars := ArrayList(Variable).new();
+    (has_fwd_comptime_fn_cap : bool) = false;
+    n_cap_fr := caller_env.frames.len();
+    (cap_fi : usize) = usize(0);
+    while(cap_fi < n_cap_fr, {
+      match(
+        caller_env.frames.get(cap_fi),
+        .Some(cap_frame) => {
+          n_cap_v := cap_frame.variables.len();
+          (cap_vi : usize) = usize(0);
+          while(cap_vi < n_cap_v, {
+            match(
+              cap_frame.variables.get(cap_vi),
+              .Some(cv) => {
+                if(!(cv.name == "__recur_fn"), {
+                  cap_names.push(cv.name);
+                  cap_tys.push(cv.ty);
+                  cap_val := match(
+                    cv.value.get(usize(0)),
+                    .Some(actual) => actual,
+                    .None => EvalValue.VarRef(cv.name)
+                  );
+                  // A VALUELESS comptime fn-typed capture is a FORWARD
+                  // DECLARATION (`comptime(is_odd) : (fn ...)` before its
+                  // fill) — this fn's def-time body eval will record its
+                  // call sites without a FuncVal. Flag it so the def-eval
+                  // below registers a pending RE-RUN (executed by
+                  // assignment.yo once the declaration is filled).
+                  cv_unfilled := match(
+                    cv.value.get(usize(0)),
+                    .Some(cv_v) => is_unknown_val(cv_v),
+                    .None => true
+                  );
+                  // Compiler-internal synthetic binders (`__yo_return_self`
+                  // et al.) are PERMANENTLY valueless fn-typed comptime
+                  // vars — they are not user forward declarations, and
+                  // counting them made this flag TRUE for every fn in
+                  // scope (which both registered a useless bounded re-run
+                  // for every definition and suppressed the fatal
+                  // re-raise below unconditionally).
+                  // `c_include`d extern fns (`exit`, `memcpy`, …) are the
+                  // same shape — permanently valueless fn-typed comptime
+                  // vars, identifiable by the FFI marker on their Func
+                  // meta. Counting them made ONE `{ exit } ::
+                  // import("std/libc/stdlib")` suppress the fatal re-raise
+                  // for EVERY definition in the importing module: `check`
+                  // then returned 0 on bodies with undefined variables —
+                  // the GATE-4 hole
+                  // (issues/fixed/yo-self-check-misses-undefined-variable.md).
+                  cv_is_extern_fn := match(
+                    cv.ty,
+                    .Func({ meta : __fcxm }) => __fcxm.*.is_extern.is_some(),
+                    _ => false
+                  );
+                  if((((cv.is_compile_time_only && cv_unfilled) && is_function_type(cv.ty)) && !(cv.name.starts_with("__yo_"))) && !(cv_is_extern_fn), {
+                    if((!(has_fwd_comptime_fn_cap)) && fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+                      eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
                     });
-                    cap_vals.push(cap_val);
-                    cap_vars.push(cv);
+                    has_fwd_comptime_fn_cap = true;
+                  });
+                  cap_vals.push(cap_val);
+                  cap_vars.push(cv);
+                });
+              },
+              .None => ()
+            );
+            cap_vi = (cap_vi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      cap_fi = (cap_fi + usize(1));
+    });
+    ft_env_key := mint_funcval_env_key();
+    register_funcval_cap_vars(ft_env_key, cap_vars);
+    fn_val_id := random_id(caller_env.module_path);
+    // Faithful port of `shouldDeferBodyEvaluation` (function-type.ts:445-451):
+    // defer body evaluation ONLY for functions that depend on generic type
+    // variables — `generic` parameters, any parameter whose type contains a
+    // some-type in codegen-relevant position, or a generic `Self`. Every other
+    // (concrete) function has its body evaluated UNCONDITIONALLY at definition
+    // time, exactly as TS does at function-type.ts:499. This is the def-time
+    // body eval; the flowability *check* (is_flowable_expr) below applies to
+    // returns whose representation carries a raw pointer.
+    //
+    // We still need a copy of the body for the trial eval because the evaluator
+    // consumes its `expr` argument and the original `body_expr` must be moved
+    // into the FuncVal. The original is boxed into the FuncVal (retained once);
+    // the clone is transient (consumed by the eval, freed at scope end) — so
+    // peak retention is 1x, matching TS's shared-reference model.
+    (any_some_param_ft : bool) = false;
+    (spi : usize) = usize(0);
+    while((spi < param_types.len()) && (!(any_some_param_ft)), {
+      match(
+        param_types.get(spi),
+        .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
+          any_some_param_ft = true;
+        }),
+        .None => ()
+      );
+      spi = (spi + usize(1));
+    });
+    // DEEP some-type check on Self (mirrors TS `typeContainsSomeType`, which
+    // recurses into struct/enum/tuple/ptr/slice args). yo-self's plain
+    // `type_contains_some_type` is SHALLOW (top-level SomeT/TypeAppT only), so
+    // a generic-impl method's `Self = ArrayList(T)` (a Struct CONTAINING a
+    // SomeT) was NOT detected → the method was wrongly NOT deferred → its body
+    // was def-time-evaluated with `T` unbound → "expected type for element,
+    // got T" (field.yo:293). Use the deep predicate so such methods defer.
+    self_has_some_ft := match(ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(st, ArrayList(String).new()), .None => false);
+    // COMPTIME VALUE-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
+    // make the fn GENERIC (TS isFunctionTypeGeneric counts
+    // p.isCompileTimeOnly, guards.ts:466) — its body must DEFER like a
+    // forall/SomeT one: def-time eval with `n` unresolved threw "Return
+    // type mismatch. Expected Array(i32, n), got unit" and emptied the
+    // array batch main (the single-batch shape).
+    //
+    // TYPE-position comptime params (`comptime(Idx) : Type`, a TypeUni) do
+    // NOT defer: TS's shouldDeferBodyEvaluation (function-type.ts:445-451)
+    // has NO comptime-param clause at all — it trial-evaluates such bodies
+    // at definition, which is what lets `comptime_expect_error` observe a
+    // deliberate rejection inside them (the arm-26 batch residue:
+    // `MyBad :: (fn(comptime(Idx) : Type, ...) -> comptime(Trait))(trait(...))`
+    // under a runtime cond arm never evaluated its trait body, the cee saw
+    // no error, threw its own, and the swallow FTT'd the whole dispatch —
+    // issues/repros/cee-in-runtime-cond-arm.yo). The value-position defer is
+    // kept as a recorded DEVIATION from TS (the unresolved-`n` return
+    // mismatch throws in yo-self where TS tolerates it).
+    (ft_has_ct_param : bool) = false;
+    match(
+      expr,
+      .FnCall(_, ct_ft_box, _, _, _) => {
+        ct_flags_ft := get_func_param_comptime(ast_expr_id(ct_ft_box).to_string());
+        (ct_fi : usize) = usize(0);
+        while((ct_fi < ct_flags_ft.len()) && !(ft_has_ct_param), {
+          ct_is_typeuni := match(
+            param_types.get(ct_fi),
+            .Some(ct_pt) => match(ct_pt, .TypeUni(_) => true, _ => false),
+            .None => false
+          );
+          match(
+            ct_flags_ft.get(ct_fi),
+            .Some(cf) => if(cf && !(ct_is_typeuni), {
+              ft_has_ct_param = true;
+            }),
+            .None => ()
+          );
+          ct_fi = (ct_fi + usize(1));
+        });
+      },
+      .Atom(_, _) => ()
+    );
+    should_defer_ft := ((((forall_labels.len() > usize(0)) || any_some_param_ft) || self_has_some_ft) || ft_has_ct_param);
+    (flow_body : Option(AstExpr)) = if(
+      !(should_defer_ft),
+      Option(AstExpr).Some(body_expr.clone()),
+      Option(AstExpr).None
+    );
+    func_val := EvalValue.FuncVal(
+      box(
+        FuncValData(
+          forall_names : forall_labels.clone(),
+          params : param_labels.clone(),
+          param_type_names : param_type_names,
+          evidence_params : implicit_labels,
+          body : body_expr,
+          cap_names : cap_names,
+          cap_tys : cap_tys,
+          func_id : fn_val_id.clone(),
+          env_key : ft_env_key
+        )
+      ),
+      cap_vals
+    );
+    // Phase A of a lazy top-level binding (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
+    // §4.3): when this application IS the RHS of the definition being
+    // forced, publish the head FuncVal before the body trial below, so a
+    // reference to the definition's own name from inside its body (or from
+    // a sibling the body forces) binds this value instead of erroring.
+    publish_pending_phase_a(ast_expr_id(expr), func_val, function_type);
+    // Record this function's own resolved Func type by its FuncVal id so
+    // codegen can emit its C prototype (Gap 10). This path (a `fn(...)` type
+    // applied to a body, e.g. `f :: (fn(x:i32)->i32)(x+x)`) uses a bare
+    // random_id func_id and previously skipped registration — leaving
+    // get_func_type → t_unit → a wrong `void f(void)` prototype.
+    register_func_type(fn_val_id.clone(), function_type.clone());
+    // Re-key the per-parameter optional-flags side-table (registered by
+    // `evaluate_function_type` under the `fn(...)` type-expression id)
+    // under this FuncVal's id, which is what the call site sees. The
+    // callee here is `expr`'s func slot — the same `fn(...)` expr that
+    // was evaluated to produce `function_type`, so their ids match.
+    match(
+      expr,
+      .FnCall(_, fn_type_box, _, _, _) => {
+        copy_func_param_defaults(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_param_default_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_param_type_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_param_comptime(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_param_assigned_values(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_return_type_expr(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_variadic_param(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_macro_registration(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_where_constraints(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+        copy_func_contract_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+      },
+      .Atom(_, _) => ()
+    );
+    // V3 (plans/backlog/FORMAL_VERIFICATION.md §Architecture): RECORD a
+    // pending verification task when this module is a verification target
+    // and the file's mode says proofs replace asserts. Registration is
+    // inert otherwise (plain check/compile/test never set targets). The
+    // task carries the UNWRAPPED body — the verifier walks the real body,
+    // not the spliced one. Deferred (generic) bodies have no ExprInfo to
+    // walk and are V6; comptime functions need no VCs (plan §"comptime
+    // functions need no VCs").
+    if(_is_verify_target(tok.module_path.clone()), {
+      vmode := resolve_verify_mode(tok.module_path.clone());
+      if(((vmode == "verify") || (vmode == "verify+")) && !(should_defer_ft) && !(result_is_comptime_only), {
+        // The predicates are diagnostic-EVALUATED here (the plan's "one
+        // diagnostic evaluation pass"): the side-table nodes are the
+        // original signature AST, but ExprInfo lands on the evaluated
+        // forms — the verifier's walk keys everything by ExprInfo. The
+        // evaluation env shares the module frames (so predicates may
+        // reference module-level names) and binds the parameters plus
+        // the return label as unknown values — exactly the names a
+        // predicate may mention.
+        pred_env := _share_def_time_frames(caller_env, false);
+        _ := pred_env.push_frame(false);
+        (pv_i : usize) = usize(0);
+        while(pv_i < param_labels.len(), {
+          pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
+          pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
+          if(pv_name.len() > usize(0), {
+            _ := add_variable_to_env(
+              pred_env,
+              pv_name.clone(),
+              pv_ty.clone(),
+              Option(EvalValue).Some(create_unknown_val(pv_ty.clone())),
+              false,
+              false,
+              false,
+              false,
+              tok
+            );
+          });
+          pv_i = (pv_i + usize(1));
+        });
+        raw_label := get_func_return_label(fn_val_id.clone());
+        match(
+          raw_label,
+          .Some(rl) => {
+            _ := add_variable_to_env(
+              pred_env,
+              rl.clone(),
+              result_box.clone(),
+              Option(EvalValue).Some(create_unknown_val(result_box.clone())),
+              false,
+              false,
+              false,
+              false,
+              tok
+            );
+          },
+          .None => ()
+        );
+        evd_reqs := ArrayList(AstExpr).new();
+        raw_reqs := get_func_requires_exprs(fn_val_id.clone());
+        (vr : usize) = usize(0);
+        while(vr < raw_reqs.len(), {
+          match(
+            raw_reqs.get(vr),
+            .Some(rp) => {
+              evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
+            },
+            .None => ()
+          );
+          vr = (vr + usize(1));
+        });
+        evd_enss := ArrayList(AstExpr).new();
+        raw_enss := get_func_ensures_exprs(fn_val_id.clone());
+        (ve : usize) = usize(0);
+        while(ve < raw_enss.len(), {
+          match(
+            raw_enss.get(ve),
+            .Some(ep) => {
+              evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));
+            },
+            .None => ()
+          );
+          ve = (ve + usize(1));
+        });
+        register_verify_task(
+          VerifyTask(
+            fn_id : `fn@${tok.module_path}:${tok.row.to_string()}`,
+            func_id : fn_val_id.clone(),
+            module_path : tok.module_path.clone(),
+            body : body_expr_raw.clone(),
+            param_names : param_labels.clone(),
+            param_types : param_types.clone(),
+            result_type : result_box.clone(),
+            requires_exprs : evd_reqs,
+            ensures_exprs : evd_enss,
+            return_label : get_func_return_label(fn_val_id.clone()),
+            table : ctx.expr_info_table,
+            mode : vmode
+          )
+        );
+      }
+    });
+    result_box;
+    // If we are in CTFE analysis mode OR actually EXECUTING a CTFE function
+    // (`force_compile_time_bindings`), analyse this NESTED function for CTFE
+    // capability too, and prefer the comptime version — TS
+    // function-type.ts:665-679, "This allows nested functions to be called at
+    // compile-time."
+    //
+    // Without it a nested helper stays runtime-only, so the `helper(x)` call in
+    // the enclosing comptime body cannot fold, the enclosing CTFE result is not
+    // a compile-time value, and the `::` binding it feeds ends up with none —
+    // which codegen emits as a BARE UNDECLARED C IDENTIFIER. See
+    // `issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
+    //
+    // `analyze_ctfe_capability` swallows its own failures (TS's try/catch), which
+    // is essential here: an ordinary runtime helper defined inside a
+    // comptime-executing body is EXPECTED to fail this analysis and must be left
+    // exactly as it is.
+    (final_func_val : EvalValue) = func_val;
+    (final_func_ty : TypeValue) = function_type;
+    if(ctx.is_analyzing_ctfe_capability || ctx.force_compile_time_bindings, {
+      match(
+        analyze_ctfe_capability(func_val, function_type, caller_env, ctx),
+        .Some(ctfe_ok) => {
+          final_func_val = ctfe_ok.value;
+          final_func_ty = ctfe_ok.ty;
+        },
+        .None => ()
+      );
+    });
+    // Build and store ExprInfo for the function definition expression.
+    // The type of a function definition is the function type itself.
+    info := new_expr_info(caller_env, final_func_ty);
+    info.value = Option(EvalValue).Some(final_func_val);
+    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    // Def-time body evaluation (function-type.ts:499) for every non-deferred
+    // (concrete) function. The flowability *check* on the evaluated final
+    // expression runs only for returns whose representation carries a raw
+    // pointer — ordinary functions are merely evaluated, not rejected.
+    match(
+      flow_body,
+      .Some(fb) => {
+        def_where_entries := match(
+          expr,
+          .FnCall(_, dwe_ft_box, _, _, _) =>
+            get_func_where_constraints(ast_expr_id(dwe_ft_box).to_string()),
+          .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
+        );
+        def_ct_flags := match(
+          expr,
+          .FnCall(_, ctf_ft_box, _, _, _) =>
+            get_func_param_comptime(ast_expr_id(ctf_ft_box).to_string()),
+          .Atom(_, _) => ArrayList(bool).new()
+        );
+        flow_env := _build_def_time_body_env(
+          caller_env,
+          param_labels,
+          param_types,
+          param_is_ref,
+          param_is_owning,
+          def_ct_flags,
+          result_box,
+          def_where_entries,
+          function_type,
+          ctx.is_evaluating_function_body_or_async_block.is_some()
+        );
+        // Bind the variadic parameter (`...(quote(elems))` → `elems` as
+        // an unknown ComptimeList) into the body env — its name/type
+        // are not on TypeValue.Func, so they ride the side table (see
+        // types/function.yo). TS body eval reuses the fn-type eval env
+        // where the variadic param is already bound.
+        match(
+          expr,
+          .FnCall(_, vp_ft_box, _, _, _) => match(
+            get_func_variadic_param(ast_expr_id(vp_ft_box).to_string()),
+            .Some(vp_entry) => {
+              ___vp := add_variable_to_env(
+                flow_env,
+                vp_entry.label.clone(),
+                vp_entry.ty,
+                Option(EvalValue).Some(create_unknown_val(vp_entry.ty)),
+                true,
+                false,
+                false,
+                false,
+                synthetic_token(vp_entry.label, caller_env.module_path)
+              );
+            },
+            .None => ()
+          ),
+          .Atom(_, _) => ()
+        );
+        flow_fv := EvalValue.FuncVal(
+          box(
+            FuncValData(
+              forall_names : ArrayList(String).new(),
+              params : ArrayList(String).new(),
+              param_type_names : ArrayList(String).new(),
+              evidence_params : ArrayList(String).new(),
+              body : make_err_expr(),
+              cap_names : ArrayList(String).new(),
+              cap_tys : ArrayList(TypeValue).new(),
+              func_id : random_id(caller_env.module_path)
+            )
+          ),
+          ArrayList(EvalValue).new()
+        );
+        if(cap_dbg_env_fnty_flow.get(`YO_DEBUG_CAPTURE`).is_some(), {
+          eprintln(`[fbctx-fnty-flow]`);
+        });
+        flow_ctx := create_function_body_evaluation_context(function_type, flow_fv, flow_env, ctx);
+        flow_out := ArrayList(AstExpr).new();
+        // Thread the fn's where-constraint trait ids to the overload
+        // selector during the DEF-time body eval (same channel as the
+        // spec-time push in helper.yo — the def-time stamps are what
+        // codegen reuses, so the where filter must apply HERE too;
+        // impl.test.yo use_trait_a/use_trait_b).
+        flow_where_ids := ArrayList(String).new();
+        {
+          (fwi : usize) = usize(0);
+          while(fwi < def_where_entries.len(), {
+            match(
+              def_where_entries.get(fwi),
+              .Some(fwe) => {
+                fwe_id := match(fwe.trait_ty, .TraitT(_, _, _, _, fwe_tid, _, _, _, _, _) => fwe_tid, _ => String.from(""));
+                if(fwe_id != "", {
+                  flow_where_ids.push(fwe_id);
+                });
+              },
+              .None => ()
+            );
+            fwi = (fwi + usize(1));
+          });
+        };
+        push_active_where_trait_ids(flow_where_ids);
+        // NOT flagged as a def-time trial: this is the CONCRETE-fn path
+        // (flow_body is Some only when should_defer_ft is false), and for
+        // a concrete fn this evaluation's stamps ARE what codegen emits —
+        // main's body included — with no specialization re-eval ever
+        // superseding them. The in_def_time_trial loosenings are only
+        // safe where stamps are discardable: the DEFERRED-generic trial
+        // (dg below) and the pending re-run. Flagging this site made the
+        // batch main's own trial resolve abstractly
+        // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
+        // closure-arg ExprInfo under the wip synthesis loosenings).
+        flow_depths := forcing_depths();
+        _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
+        truncate_forcing_depths(flow_depths);
+        pop_active_where_trait_ids();
+        if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
+          eprintln(`[flow-post] out=${flow_out.len().to_string()} pending=${_trial_swallow_pending().to_string()} fwd=${has_fwd_comptime_fn_cap.to_string()}`);
+        });
+        // This body captured a VALUELESS forward-declared comptime fn
+        // variable — its call-site infos are incomplete until that
+        // declaration fills. Register a bounded re-run (assignment.yo
+        // triggers it through context.yo's hook once a comptime fn var is
+        // assigned). The stored body is an id-preserving clone, so the
+        // re-run refreshes the ORIGINAL nodes codegen reads (fn arm 14's
+        // mutual recursion).
+        if(has_fwd_comptime_fn_cap, {
+          g_pending_def_evals.push(
+            PendingDefEval(
+              body : body_expr.clone(),
+              param_labels : param_labels,
+              param_types : param_types,
+              param_is_ref : param_is_ref,
+              param_is_owning : param_is_owning,
+              param_is_comptime : def_ct_flags,
+              result_ty : result_box,
+              where_entries : def_where_entries,
+              function_type : function_type,
+              strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
+              attempts : usize(3)
+            )
+          );
+        });
+        // Re-raise a flow-soundness rejection that the trial-eval swallowed
+        // (a `inout(name) := <non-flowable>` binding anywhere in the body). The
+        // handler is capture-free so it could not propagate it directly; the
+        // binding-site flagged it instead, and we re-throw it here via the
+        // real `exn`. Unconditional (NOT under `result_is_ref`) because the
+        // enclosing function may return any type — e.g. `fn() -> unit`.
+        if(flow_violation_pending(), {
+          viol_msg := flow_violation_message();
+          clear_flow_violation();
+          exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg)));
+        });
+        // FATAL (TS parity, function-type.ts:499): this is the CONCRETE-fn
+        // path — TS's evaluateBeginExpression here has NO catch, so a
+        // definition-time body-eval error is a compile error, not a silent
+        // "Failed to transpile" hollow. Re-raise the swallowed error via the
+        // real exn (the trial handler is capture-free and flagged it into
+        // the cell instead). EXCEPTION: a body that captured a VALUELESS
+        // forward-declared comptime fn (has_fwd_comptime_fn_cap) is an
+        // EXPECTED intermediate failure — the bounded re-run above fills it
+        // once the declaration is assigned (fn arm 14's mutual recursion;
+        // TS never faces this, its module-level bindings hoist).
+        // Gated on an EMPTY flow_out: `_trial_eval_fn_body` pushes only on
+        // success, so a non-empty out means THIS body succeeded and any
+        // pending flag is a NESTED trial's leftover (a dg trial inside this
+        // body eval — its handler flags after the nested entry-clear; TS
+        // discards those, ts:112). When the outer body itself threw, its
+        // own handler flagged LAST, so the message is the outer error.
+        if((_trial_swallow_pending() && (flow_out.len() == usize(0))) && !(has_fwd_comptime_fn_cap), {
+          ts_fatal_msg := _trial_swallow_message();
+          _clear_trial_swallow();
+          // An unbound name that an ORDERED later statement binds (a
+          // runtime global, an import, an open) gets the enriched
+          // forward-reference diagnostic here too — the same text the
+          // dg / anon sites raise (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6).
+          match(
+            forward_ref_diagnostic(ts_fatal_msg.clone()),
+            .Some(ts_fwd_msg) => {
+              exn.throw(dyn(format_error_message(ast_expr_token(fb), ts_fwd_msg)));
+            },
+            .None => ()
+          );
+          exn.throw(dyn(ts_fatal_msg));
+        });
+        _clear_trial_swallow();
+        // Result-type check for a CONCRETE body (the deferred-generic path
+        // has its own, checkDeferredGenericReturnType below). Nothing else
+        // compared the evaluated body type against the declared result:
+        // `(fn() -> i32)(String.from("x"))` and `(fn() -> i32)(true)` passed
+        // `check` and were caught — or not — by clang. Only a body whose
+        // evaluation unified with the expected type (an operator call, a
+        // literal) was ever rejected. Guards: a control-flow tail
+        // (`return`/`unwind`) never falls through; a SomeT on either side
+        // resolves at specialization; `void` results are FFI declarations;
+        // a `Type`-kinded result (type constructors) is judged by its own
+        // machinery. issues/fixed/concrete-fn-body-result-type-not-checked.md
+        match(
+          flow_out.get(usize(0)),
+          .Some(ub_body) => match(
+            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ub_body)),
+            .Some(ub_info) => {
+              ub_ty := ub_info.ty;
+              ub_skip := ((((has_any_control_flow(ub_info.control_flow) || is_void_type(result_box)) || is_type_hierarchy_type(result_box)) || (type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new()))) || result_is_ref);
+              if(!(ub_skip) && !(are_types_compatible(ub_ty, result_box)), {
+                // The registration above already happened; a definition
+                // rejected here must not be emitted (its callers were
+                // discarded with the throw — a `comptime_expect_error`
+                // wrapper is the common case).
+                mark_fn_unemittable(fn_val_id.clone());
+                ub_hint := cond(
+                  is_unit_type(ub_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
+                  true => String.new()
+                );
+                exn.throw(
+                  dyn(
+                    format_error_message(
+                      ast_expr_token(fb),
+                      `Function body has type \`${type_to_string(ub_ty)}\`, but the declared result type is \`${type_to_string(result_box)}\`.${ub_hint}`
+                    )
+                  )
+                );
+              });
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        // comptime_expect_error propagation: when "propagate all def-time
+        // body-eval errors" mode is active (set only around a
+        // `comptime_expect_error` argument eval), a body whose trial-eval THREW
+        // — detected by an empty `flow_out`, since `_trial_eval_fn_body` pushes
+        // the evaluated body only on success — must NOT be silently swallowed.
+        // Re-raise via the real `exn` so the error reaches the
+        // `comptime_expect_error` catch (mirrors TS, whose def-time body eval
+        // propagates). The message is generic: `comptime_expect_error` discards
+        // it (TS catches `error` without inspecting it, comptime-expect-error.ts:33).
+        if(propagate_def_time_errors() && (flow_out.len() == usize(0)), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(fb),
+                String.from("Function body raised a compile-time error during definition-time evaluation.")
+              )
+            )
+          );
+        });
+        // (Ref-returning functions are banned at signature evaluation —
+        // see types/function.yo — so only the raw-pointer-representation
+        // rooting check remains. Mirrors function-type.ts.)
+        if((type_representation_contains_raw_ptr(result_box) && !(result_is_comptime_only))
+        && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
+          seb := match(
+            flow_out.get(usize(0)),
+            .Some(e) => e,
+            .None => fb
+          );
+          slice_flow_opts := FlowOptions(
+            allow_same_frame_local : false,
+            allow_parameter_source : true,
+            allow_comptime_source : true,
+            max_local_frame_level : Option(usize).None
+          );
+          if(!(is_flowable_expr(seb, flow_ctx, slice_flow_opts)), {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  ast_expr_token(seb),
+                  `Function returning '${type_to_string(result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`
+                )
+              )
+            );
+          });
+        });
+        // Port of function-type.ts:613-631: when the declared return type
+        // is a SomeType (Impl(...)) without a resolved concrete type and
+        // the def-time-evaluated body has a concrete type, stamp the
+        // return SomeT's resolution — the lineage cell (TS mutates the
+        // declaration's type object here; the cell is that object's
+        // value-semantics surrogate) plus the id-keyed eval→codegen
+        // bridge. For a body that is itself a resolved SomeT (delegation
+        // wrappers, e.g. write_string_cstr → write_string, both returning
+        // Impl(Future(...))), propagate its resolution instead.
+        match(
+          result_box,
+          .SomeT({ id : dts_rid, resolved_concrete : dts_rcell }) => if(
+            (dts_rcell.len() == usize(0)) && lookup_some_resolved_concrete(dts_rid).is_none(),
+            match(
+              flow_out.get(usize(0)),
+              .Some(dts_body) => match(
+                expr_info_table_get(ctx.expr_info_table, ast_expr_id(dts_body)),
+                .Some(dts_binfo) => {
+                  dts_bty := dts_binfo.ty;
+                  if(!(is_some_type(dts_bty)), {
+                    dts_rcell.push(dts_bty.clone());
+                    register_some_resolved_concrete(dts_rid.clone(), dts_bty);
+                  }, {
+                    match(
+                      dts_bty,
+                      .SomeT({ id : dts_bid, resolved_concrete : dts_bcell }) => {
+                        dts_prop := match(
+                          dts_bcell.get(usize(0)),
+                          .Some(x) => Option(TypeValue).Some(x),
+                          .None => lookup_some_resolved_concrete(dts_bid)
+                        );
+                        match(
+                          dts_prop,
+                          .Some(dts_p) => {
+                            dts_rcell.push(dts_p.clone());
+                            register_some_resolved_concrete(dts_rid.clone(), dts_p);
+                          },
+                          .None => ()
+                        );
+                      },
+                      _ => ()
+                    );
                   });
                 },
                 .None => ()
-              );
-              cap_vi = (cap_vi + usize(1));
-            });
-          },
-          .None => ()
-        );
-        cap_fi = (cap_fi + usize(1));
-      });
-      ft_env_key := mint_funcval_env_key();
-      register_funcval_cap_vars(ft_env_key, cap_vars);
-      fn_val_id := random_id(caller_env.module_path);
-      // Faithful port of `shouldDeferBodyEvaluation` (function-type.ts:445-451):
-      // defer body evaluation ONLY for functions that depend on generic type
-      // variables — `generic` parameters, any parameter whose type contains a
-      // some-type in codegen-relevant position, or a generic `Self`. Every other
-      // (concrete) function has its body evaluated UNCONDITIONALLY at definition
-      // time, exactly as TS does at function-type.ts:499. This is the def-time
-      // body eval; the flowability *check* (is_flowable_expr) below applies to
-      // returns whose representation carries a raw pointer.
-      //
-      // We still need a copy of the body for the trial eval because the evaluator
-      // consumes its `expr` argument and the original `body_expr` must be moved
-      // into the FuncVal. The original is boxed into the FuncVal (retained once);
-      // the clone is transient (consumed by the eval, freed at scope end) — so
-      // peak retention is 1x, matching TS's shared-reference model.
-      (any_some_param_ft : bool) = false;
-      (spi : usize) = usize(0);
-      while((spi < param_types.len()) && (!(any_some_param_ft)), {
-        match(
-          param_types.get(spi),
-          .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
-            any_some_param_ft = true;
-          }),
-          .None => ()
-        );
-        spi = (spi + usize(1));
-      });
-      // DEEP some-type check on Self (mirrors TS `typeContainsSomeType`, which
-      // recurses into struct/enum/tuple/ptr/slice args). yo-self's plain
-      // `type_contains_some_type` is SHALLOW (top-level SomeT/TypeAppT only), so
-      // a generic-impl method's `Self = ArrayList(T)` (a Struct CONTAINING a
-      // SomeT) was NOT detected → the method was wrongly NOT deferred → its body
-      // was def-time-evaluated with `T` unbound → "expected type for element,
-      // got T" (field.yo:293). Use the deep predicate so such methods defer.
-      self_has_some_ft := match(ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(st, ArrayList(String).new()), .None => false);
-      // COMPTIME VALUE-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
-      // make the fn GENERIC (TS isFunctionTypeGeneric counts
-      // p.isCompileTimeOnly, guards.ts:466) — its body must DEFER like a
-      // forall/SomeT one: def-time eval with `n` unresolved threw "Return
-      // type mismatch. Expected Array(i32, n), got unit" and emptied the
-      // array batch main (the single-batch shape).
-      //
-      // TYPE-position comptime params (`comptime(Idx) : Type`, a TypeUni) do
-      // NOT defer: TS's shouldDeferBodyEvaluation (function-type.ts:445-451)
-      // has NO comptime-param clause at all — it trial-evaluates such bodies
-      // at definition, which is what lets `comptime_expect_error` observe a
-      // deliberate rejection inside them (the arm-26 batch residue:
-      // `MyBad :: (fn(comptime(Idx) : Type, ...) -> comptime(Trait))(trait(...))`
-      // under a runtime cond arm never evaluated its trait body, the cee saw
-      // no error, threw its own, and the swallow FTT'd the whole dispatch —
-      // issues/repros/cee-in-runtime-cond-arm.yo). The value-position defer is
-      // kept as a recorded DEVIATION from TS (the unresolved-`n` return
-      // mismatch throws in yo-self where TS tolerates it).
-      (ft_has_ct_param : bool) = false;
-      match(
-        expr,
-        .FnCall(_, ct_ft_box, _, _, _) => {
-          ct_flags_ft := get_func_param_comptime(ast_expr_id(ct_ft_box).to_string());
-          (ct_fi : usize) = usize(0);
-          while((ct_fi < ct_flags_ft.len()) && !(ft_has_ct_param), {
-            ct_is_typeuni := match(
-              param_types.get(ct_fi),
-              .Some(ct_pt) => match(ct_pt, .TypeUni(_) => true, _ => false),
-              .None => false
-            );
-            match(
-              ct_flags_ft.get(ct_fi),
-              .Some(cf) => if(cf && !(ct_is_typeuni), {
-                ft_has_ct_param = true;
-              }),
+              ),
               .None => ()
-            );
-            ct_fi = (ct_fi + usize(1));
-          });
-        },
-        .Atom(_, _) => ()
-      );
-      should_defer_ft := ((((forall_labels.len() > usize(0)) || any_some_param_ft) || self_has_some_ft) || ft_has_ct_param);
-      (flow_body : Option(AstExpr)) = if(
-        !(should_defer_ft),
-        Option(AstExpr).Some(body_expr.clone()),
-        Option(AstExpr).None
-      );
-      func_val := EvalValue.FuncVal(
-        box(
-          FuncValData(
-            forall_names : forall_labels.clone(),
-            params : param_labels.clone(),
-            param_type_names : param_type_names,
-            evidence_params : implicit_labels,
-            body : body_expr,
-            cap_names : cap_names,
-            cap_tys : cap_tys,
-            func_id : fn_val_id.clone(),
-            env_key : ft_env_key
-          )
-        ),
-        cap_vals
-      );
-      // Phase A of a lazy top-level binding (plans/reference/LAZY_TOPLEVEL_BINDINGS.md
-      // §4.3): when this application IS the RHS of the definition being
-      // forced, publish the head FuncVal before the body trial below, so a
-      // reference to the definition's own name from inside its body (or from
-      // a sibling the body forces) binds this value instead of erroring.
-      publish_pending_phase_a(ast_expr_id(expr), func_val, function_type);
-      // Record this function's own resolved Func type by its FuncVal id so
-      // codegen can emit its C prototype (Gap 10). This path (a `fn(...)` type
-      // applied to a body, e.g. `f :: (fn(x:i32)->i32)(x+x)`) uses a bare
-      // random_id func_id and previously skipped registration — leaving
-      // get_func_type → t_unit → a wrong `void f(void)` prototype.
-      register_func_type(fn_val_id.clone(), function_type.clone());
-      // Re-key the per-parameter optional-flags side-table (registered by
-      // `evaluate_function_type` under the `fn(...)` type-expression id)
-      // under this FuncVal's id, which is what the call site sees. The
-      // callee here is `expr`'s func slot — the same `fn(...)` expr that
-      // was evaluated to produce `function_type`, so their ids match.
-      match(
-        expr,
-        .FnCall(_, fn_type_box, _, _, _) => {
-          copy_func_param_defaults(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_default_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_type_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_comptime(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_assigned_values(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_return_type_expr(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_variadic_param(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_where_constraints(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_contract_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-        },
-        .Atom(_, _) => ()
-      );
-      result_box;
-      // If we are in CTFE analysis mode OR actually EXECUTING a CTFE function
-      // (`force_compile_time_bindings`), analyse this NESTED function for CTFE
-      // capability too, and prefer the comptime version — TS
-      // function-type.ts:665-679, "This allows nested functions to be called at
-      // compile-time."
-      //
-      // Without it a nested helper stays runtime-only, so the `helper(x)` call in
-      // the enclosing comptime body cannot fold, the enclosing CTFE result is not
-      // a compile-time value, and the `::` binding it feeds ends up with none —
-      // which codegen emits as a BARE UNDECLARED C IDENTIFIER. See
-      // `issues/yo-self-ctfe-nested-fn-analysis-gap.md`.
-      //
-      // `analyze_ctfe_capability` swallows its own failures (TS's try/catch), which
-      // is essential here: an ordinary runtime helper defined inside a
-      // comptime-executing body is EXPECTED to fail this analysis and must be left
-      // exactly as it is.
-      (final_func_val : EvalValue) = func_val;
-      (final_func_ty : TypeValue) = function_type;
-      if(ctx.is_analyzing_ctfe_capability || ctx.force_compile_time_bindings, {
-        match(
-          analyze_ctfe_capability(func_val, function_type, caller_env, ctx),
-          .Some(ctfe_ok) => {
-            final_func_val = ctfe_ok.value;
-            final_func_ty = ctfe_ok.ty;
-          },
-          .None => ()
+            ),
+            ()
+          ),
+          _ => ()
         );
-      });
-      // Build and store ExprInfo for the function definition expression.
-      // The type of a function definition is the function type itself.
-      info := new_expr_info(caller_env, final_func_ty);
-      info.value = Option(EvalValue).Some(final_func_val);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
-      // Def-time body evaluation (function-type.ts:499) for every non-deferred
-      // (concrete) function. The flowability *check* on the evaluated final
-      // expression runs only for returns whose representation carries a raw
-      // pointer — ordinary functions are merely evaluated, not rejected.
-      match(
-        flow_body,
-        .Some(fb) => {
-          def_where_entries := match(
+      },
+      .None => {
+        // Deferred (generic) definition — port of
+        // checkDeferredGenericReturnType (function-type.ts:50-169):
+        // trial-evaluate a CLONE of the body to catch
+        // `fn(generic(T), value : T) -> T` returning a concrete type.
+        // A trial that itself throws is silently skipped (the body is
+        // validated at specialization time), so the swallow is correct
+        // here; only the final compare throws. Uses the DEEP some-type
+        // scan — `-> Tuple(T)` must qualify, not just a bare `T`.
+        if(type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()), {
+          dg_where := match(
             expr,
-            .FnCall(_, dwe_ft_box, _, _, _) =>
-              get_func_where_constraints(ast_expr_id(dwe_ft_box).to_string()),
+            .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(dg_ft_box).to_string()),
             .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
           );
-          def_ct_flags := match(
+          dg_ct_flags := match(
             expr,
-            .FnCall(_, ctf_ft_box, _, _, _) =>
-              get_func_param_comptime(ast_expr_id(ctf_ft_box).to_string()),
+            .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(dgc_ft_box).to_string()),
             .Atom(_, _) => ArrayList(bool).new()
           );
-          flow_env := _build_def_time_body_env(
+          dg_env := _build_def_time_body_env(
             caller_env,
             param_labels,
             param_types,
             param_is_ref,
             param_is_owning,
-            def_ct_flags,
+            dg_ct_flags,
             result_box,
-            def_where_entries,
+            dg_where,
             function_type,
             ctx.is_evaluating_function_body_or_async_block.is_some()
           );
-          // Bind the variadic parameter (`...(quote(elems))` → `elems` as
-          // an unknown ComptimeList) into the body env — its name/type
-          // are not on TypeValue.Func, so they ride the side table (see
-          // types/function.yo). TS body eval reuses the fn-type eval env
-          // where the variadic param is already bound.
-          match(
-            expr,
-            .FnCall(_, vp_ft_box, _, _, _) => match(
-              get_func_variadic_param(ast_expr_id(vp_ft_box).to_string()),
-              .Some(vp_entry) => {
-                ___vp := add_variable_to_env(
-                  flow_env,
-                  vp_entry.label.clone(),
-                  vp_entry.ty,
-                  Option(EvalValue).Some(create_unknown_val(vp_entry.ty)),
-                  true,
-                  false,
-                  false,
-                  false,
-                  synthetic_token(vp_entry.label, caller_env.module_path)
-                );
-              },
-              .None => ()
-            ),
-            .Atom(_, _) => ()
-          );
-          flow_fv := EvalValue.FuncVal(
+          // A THROWAWAY FuncVal with a fresh id (same pattern as flow_fv
+          // above): reusing the real one lets trial registrations shadow
+          // the real definition's and codegen emits the trial body clone.
+          dg_fv := EvalValue.FuncVal(
             box(
               FuncValData(
                 forall_names : ArrayList(String).new(),
@@ -1274,152 +1686,127 @@ Result type: ${type_to_string(result_box)}`
             ),
             ArrayList(EvalValue).new()
           );
-          if(cap_dbg_env_fnty_flow.get(`YO_DEBUG_CAPTURE`).is_some(), {
-            eprintln(`[fbctx-fnty-flow]`);
-          });
-          flow_ctx := create_function_body_evaluation_context(function_type, flow_fv, flow_env, ctx);
-          flow_out := ArrayList(AstExpr).new();
-          // Thread the fn's where-constraint trait ids to the overload
-          // selector during the DEF-time body eval (same channel as the
-          // spec-time push in helper.yo — the def-time stamps are what
-          // codegen reuses, so the where filter must apply HERE too;
-          // impl.test.yo use_trait_a/use_trait_b).
-          flow_where_ids := ArrayList(String).new();
+          dg_ctx := create_function_body_evaluation_context(function_type, dg_fv, dg_env, ctx);
+          dg_out := ArrayList(AstExpr).new();
+          dg_fv_was := flow_violation_pending();
+          // Same where-trait channel as the flow path: the DEFERRED trial
+          // is where a generic fn's body resolution stamps happen, and a
+          // where(T <: Trait) constraint is the only discriminator for
+          // same-signature methods from different traits
+          // (use_trait_a/use_trait_b).
+          dg_where_ids := ArrayList(String).new();
           {
-            (fwi : usize) = usize(0);
-            while(fwi < def_where_entries.len(), {
+            (dgw_i : usize) = usize(0);
+            while(dgw_i < dg_where.len(), {
               match(
-                def_where_entries.get(fwi),
-                .Some(fwe) => {
-                  fwe_id := match(fwe.trait_ty, .TraitT(_, _, _, _, fwe_tid, _, _, _, _, _) => fwe_tid, _ => String.from(""));
-                  if(fwe_id != "", {
-                    flow_where_ids.push(fwe_id);
+                dg_where.get(dgw_i),
+                .Some(dgw_e) => {
+                  dgw_id := match(dgw_e.trait_ty, .TraitT(_, _, _, _, dgw_tid, _, _, _, _, _) => dgw_tid, _ => String.from(""));
+                  if(dgw_id != "", {
+                    dg_where_ids.push(dgw_id);
                   });
                 },
                 .None => ()
               );
-              fwi = (fwi + usize(1));
+              dgw_i = (dgw_i + usize(1));
             });
           };
-          push_active_where_trait_ids(flow_where_ids);
-          // NOT flagged as a def-time trial: this is the CONCRETE-fn path
-          // (flow_body is Some only when should_defer_ft is false), and for
-          // a concrete fn this evaluation's stamps ARE what codegen emits —
-          // main's body included — with no specialization re-eval ever
-          // superseding them. The in_def_time_trial loosenings are only
-          // safe where stamps are discardable: the DEFERRED-generic trial
-          // (dg below) and the pending re-run. Flagging this site made the
-          // batch main's own trial resolve abstractly
-          // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
-          // closure-arg ExprInfo under the wip synthesis loosenings).
-          flow_depths := forcing_depths();
-          _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
-          truncate_forcing_depths(flow_depths);
+          push_active_where_trait_ids(dg_where_ids);
+          dg_prev_trial := set_in_def_time_trial(true);
+          // A swallowed throw strands whatever the body pushed on the forcing
+          // stacks (an impl abandoned inside the body) — truncate back.
+          dg_depths := forcing_depths();
+          _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out);
+          truncate_forcing_depths(dg_depths);
+          ___dg_tr := set_in_def_time_trial(dg_prev_trial);
           pop_active_where_trait_ids();
-          if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
-            eprintln(`[flow-post] out=${flow_out.len().to_string()} pending=${_trial_swallow_pending().to_string()} fwd=${has_fwd_comptime_fn_cap.to_string()}`);
-          });
-          // This body captured a VALUELESS forward-declared comptime fn
-          // variable — its call-site infos are incomplete until that
-          // declaration fills. Register a bounded re-run (assignment.yo
-          // triggers it through context.yo's hook once a comptime fn var is
-          // assigned). The stored body is an id-preserving clone, so the
-          // re-run refreshes the ORIGINAL nodes codegen reads (fn arm 14's
-          // mutual recursion).
-          if(has_fwd_comptime_fn_cap, {
-            g_pending_def_evals.push(
-              PendingDefEval(
-                body : body_expr.clone(),
-                param_labels : param_labels,
-                param_types : param_types,
-                param_is_ref : param_is_ref,
-                param_is_owning : param_is_owning,
-                param_is_comptime : def_ct_flags,
-                result_ty : result_box,
-                where_entries : def_where_entries,
-                function_type : function_type,
-                strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
-                attempts : usize(3)
-              )
-            );
-          });
-          // Re-raise a flow-soundness rejection that the trial-eval swallowed
-          // (a `inout(name) := <non-flowable>` binding anywhere in the body). The
-          // handler is capture-free so it could not propagate it directly; the
-          // binding-site flagged it instead, and we re-throw it here via the
-          // real `exn`. Unconditional (NOT under `result_is_ref`) because the
-          // enclosing function may return any type — e.g. `fn() -> unit`.
-          if(flow_violation_pending(), {
-            viol_msg := flow_violation_message();
-            clear_flow_violation();
-            exn.throw(dyn(format_error_message(ast_expr_token(fb), viol_msg)));
-          });
-          // FATAL (TS parity, function-type.ts:499): this is the CONCRETE-fn
-          // path — TS's evaluateBeginExpression here has NO catch, so a
-          // definition-time body-eval error is a compile error, not a silent
-          // "Failed to transpile" hollow. Re-raise the swallowed error via the
-          // real exn (the trial handler is capture-free and flagged it into
-          // the cell instead). EXCEPTION: a body that captured a VALUELESS
-          // forward-declared comptime fn (has_fwd_comptime_fn_cap) is an
-          // EXPECTED intermediate failure — the bounded re-run above fills it
-          // once the declaration is assigned (fn arm 14's mutual recursion;
-          // TS never faces this, its module-level bindings hoist).
-          // Gated on an EMPTY flow_out: `_trial_eval_fn_body` pushes only on
-          // success, so a non-empty out means THIS body succeeded and any
-          // pending flag is a NESTED trial's leftover (a dg trial inside this
-          // body eval — its handler flags after the nested entry-clear; TS
-          // discards those, ts:112). When the outer body itself threw, its
-          // own handler flagged LAST, so the message is the outer error.
-          if((_trial_swallow_pending() && (flow_out.len() == usize(0))) && !(has_fwd_comptime_fn_cap), {
-            ts_fatal_msg := _trial_swallow_message();
-            _clear_trial_swallow();
-            // An unbound name that an ORDERED later statement binds (a
-            // runtime global, an import, an open) gets the enriched
-            // forward-reference diagnostic here too — the same text the
-            // dg / anon sites raise (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6).
+          // P0 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
+          // swallow (TS ts:112 catch{} parity) — but an unbound name that
+          // is bound LATER in this module is a forward reference, and
+          // swallowing it hollows the whole body while check stays green
+          // (the io.async shape that shipped broken version_cache code in
+          // every release). Error now.
+          if(_trial_swallow_pending(), {
             match(
-              forward_ref_diagnostic(ts_fatal_msg.clone()),
-              .Some(ts_fwd_msg) => {
-                exn.throw(dyn(format_error_message(ast_expr_token(fb), ts_fwd_msg)));
+              hard_swallow_diagnostic(_trial_swallow_message()),
+              .Some(fwd_msg) => {
+                _clear_trial_swallow();
+                exn.throw(dyn(format_error_message(ast_expr_token(body_expr), fwd_msg)));
               },
               .None => ()
             );
-            exn.throw(dyn(ts_fatal_msg));
           });
-          _clear_trial_swallow();
-          // Result-type check for a CONCRETE body (the deferred-generic path
-          // has its own, checkDeferredGenericReturnType below). Nothing else
-          // compared the evaluated body type against the declared result:
-          // `(fn() -> i32)(String.from("x"))` and `(fn() -> i32)(true)` passed
-          // `check` and were caught — or not — by clang. Only a body whose
-          // evaluation unified with the expected type (an operator call, a
-          // literal) was ever rejected. Guards: a control-flow tail
-          // (`return`/`unwind`) never falls through; a SomeT on either side
-          // resolves at specialization; `void` results are FFI declarations;
-          // a `Type`-kinded result (type constructors) is judged by its own
-          // machinery. issues/fixed/concrete-fn-body-result-type-not-checked.md
+          // A violation flagged by THIS trial must not leak into a later
+          // definition's re-raise (TS's catch{} discards everything).
+          if(!(dg_fv_was) && flow_violation_pending(), {
+            clear_flow_violation();
+          });
           match(
-            flow_out.get(usize(0)),
-            .Some(ub_body) => match(
-              expr_info_table_get(ctx.expr_info_table, ast_expr_id(ub_body)),
-              .Some(ub_info) => {
-                ub_ty := ub_info.ty;
-                ub_skip := ((((has_any_control_flow(ub_info.control_flow) || is_void_type(result_box)) || is_type_hierarchy_type(result_box)) || (type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new()))) || result_is_ref);
-                if(!(ub_skip) && !(are_types_compatible(ub_ty, result_box)), {
-                  // The registration above already happened; a definition
-                  // rejected here must not be emitted (its callers were
-                  // discarded with the throw — a `comptime_expect_error`
-                  // wrapper is the common case).
-                  mark_fn_unemittable(fn_val_id.clone());
-                  ub_hint := cond(
-                    is_unit_type(ub_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
-                    true => String.new()
-                  );
+            dg_out.get(usize(0)),
+            .Some(dg_body) => match(
+              expr_info_table_get(ctx.expr_info_table, ast_expr_id(dg_body)),
+              .Some(dg_info) => {
+                // Pure-unwind bodies are control functions discarding the
+                // continuation — no return type to check.
+                dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !(has_control_flow(dg_info.control_flow, .Return)));
+                dg_expected := cond(
+                  result_is_ref => t_ptr(result_box),
+                  true => result_box
+                );
+                // Expected bare SomeT that is NOT this fn's own forall: the
+                // generic var is bound by the CALL SITE (e.g. effect-handler
+                // `-> T`), so a concrete body is the correct shape.
+                dg_own_forall_skip := match(
+                  dg_expected,
+                  .SomeT({ name : dg_sname }) => {
+                    (dg_found : bool) = false;
+                    (dg_fi : usize) = usize(0);
+                    while(dg_fi < forall_labels.len(), {
+                      if(match(forall_labels.get(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
+                        dg_found = true;
+                      });
+                      dg_fi = (dg_fi + usize(1));
+                    });
+                    !(dg_found)
+                  },
+                  _ => false
+                );
+                dg_trial_ty := dg_info.ty;
+                // Only a FULLY CONCRETE trial result can convict — a trial
+                // type still carrying SomeTs unifies at specialization time
+                // (the prelude Box-Clone impl false-fired on an
+                // abstract-vs-abstract exact compare and abandoned the whole
+                // module load). A `unit` trial type is likewise no
+                // conviction: yo-self's per-node swallows can degrade a
+                // failing generic-body eval into a unit-typed "success"
+                // (TS's try/catch skips those trials outright — measured
+                // false-fires: std ordered_map.get / imm set.to_list /
+                // imm vec Index, corpus deque_self_cycle).
+                dg_trial_abstract := type_contains_some_type_for_codegen_param(dg_trial_ty, ArrayList(String).new());
+                dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !(is_unit_type(dg_expected)));
+                // Parametricity twin of the anon-path fix (see
+                // values/anonymous_function.yo): an own-forall SomeT return
+                // can never be satisfied by a CONCRETE trial type; the exact
+                // check alone cannot convict (unresolved SomeT unifies with
+                // anything).
+                dg_expected_is_some := is_some_type(dg_expected);
+                if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_exact(dg_trial_ty, dg_expected))), {
+                  dg_exp_str := type_to_string(dg_expected);
+                  dg_got_str := type_to_string(dg_trial_ty);
+                  // Deliberate user-facing rejection — flag for the def-time re-raise
+                  // (see the anon twin in values/anonymous_function.yo).
+                  if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
+                    flag_flow_violation(
+                      `Incompatible function return type for:
+- Expected: ${dg_exp_str}
+- Given  : ${dg_got_str}`
+                    );
+                  });
                   exn.throw(
                     dyn(
                       format_error_message(
-                        ast_expr_token(fb),
-                        `Function body has type \`${type_to_string(ub_ty)}\`, but the declared result type is \`${type_to_string(result_box)}\`.${ub_hint}`
+                        tok,
+                        `Incompatible function return type for:\n- Expected: ${dg_exp_str}\n- Given  : ${dg_got_str}`
                       )
                     )
                   );
@@ -1429,302 +1816,21 @@ Result type: ${type_to_string(result_box)}`
             ),
             .None => ()
           );
-          // comptime_expect_error propagation: when "propagate all def-time
-          // body-eval errors" mode is active (set only around a
-          // `comptime_expect_error` argument eval), a body whose trial-eval THREW
-          // — detected by an empty `flow_out`, since `_trial_eval_fn_body` pushes
-          // the evaluated body only on success — must NOT be silently swallowed.
-          // Re-raise via the real `exn` so the error reaches the
-          // `comptime_expect_error` catch (mirrors TS, whose def-time body eval
-          // propagates). The message is generic: `comptime_expect_error` discards
-          // it (TS catches `error` without inspecting it, comptime-expect-error.ts:33).
-          if(propagate_def_time_errors() && (flow_out.len() == usize(0)), {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(fb),
-                  String.from("Function body raised a compile-time error during definition-time evaluation.")
-                )
-              )
-            );
-          });
-          // (Ref-returning functions are banned at signature evaluation —
-          // see types/function.yo — so only the raw-pointer-representation
-          // rooting check remains. Mirrors function-type.ts.)
-          if((type_representation_contains_raw_ptr(result_box) && !(result_is_comptime_only))
-          && !(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone()))), {
-            seb := match(
-              flow_out.get(usize(0)),
-              .Some(e) => e,
-              .None => fb
-            );
-            slice_flow_opts := FlowOptions(
-              allow_same_frame_local : false,
-              allow_parameter_source : true,
-              allow_comptime_source : true,
-              max_local_frame_level : Option(usize).None
-            );
-            if(!(is_flowable_expr(seb, flow_ctx, slice_flow_opts)), {
-              exn.throw(
-                dyn(
-                  format_error_message(
-                    ast_expr_token(seb),
-                    `Function returning '${type_to_string(result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`
-                  )
-                )
-              );
-            });
-          });
-          // Port of function-type.ts:613-631: when the declared return type
-          // is a SomeType (Impl(...)) without a resolved concrete type and
-          // the def-time-evaluated body has a concrete type, stamp the
-          // return SomeT's resolution — the lineage cell (TS mutates the
-          // declaration's type object here; the cell is that object's
-          // value-semantics surrogate) plus the id-keyed eval→codegen
-          // bridge. For a body that is itself a resolved SomeT (delegation
-          // wrappers, e.g. write_string_cstr → write_string, both returning
-          // Impl(Future(...))), propagate its resolution instead.
-          match(
-            result_box,
-            .SomeT({ id : dts_rid, resolved_concrete : dts_rcell }) => if(
-              (dts_rcell.len() == usize(0)) && lookup_some_resolved_concrete(dts_rid).is_none(),
-              match(
-                flow_out.get(usize(0)),
-                .Some(dts_body) => match(
-                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(dts_body)),
-                  .Some(dts_binfo) => {
-                    dts_bty := dts_binfo.ty;
-                    if(!(is_some_type(dts_bty)), {
-                      dts_rcell.push(dts_bty.clone());
-                      register_some_resolved_concrete(dts_rid.clone(), dts_bty);
-                    }, {
-                      match(
-                        dts_bty,
-                        .SomeT({ id : dts_bid, resolved_concrete : dts_bcell }) => {
-                          dts_prop := match(
-                            dts_bcell.get(usize(0)),
-                            .Some(x) => Option(TypeValue).Some(x),
-                            .None => lookup_some_resolved_concrete(dts_bid)
-                          );
-                          match(
-                            dts_prop,
-                            .Some(dts_p) => {
-                              dts_rcell.push(dts_p.clone());
-                              register_some_resolved_concrete(dts_rid.clone(), dts_p);
-                            },
-                            .None => ()
-                          );
-                        },
-                        _ => ()
-                      );
-                    });
-                  },
-                  .None => ()
-                ),
-                .None => ()
-              ),
-              ()
-            ),
-            _ => ()
-          );
-        },
-        .None => {
-          // Deferred (generic) definition — port of
-          // checkDeferredGenericReturnType (function-type.ts:50-169):
-          // trial-evaluate a CLONE of the body to catch
-          // `fn(generic(T), value : T) -> T` returning a concrete type.
-          // A trial that itself throws is silently skipped (the body is
-          // validated at specialization time), so the swallow is correct
-          // here; only the final compare throws. Uses the DEEP some-type
-          // scan — `-> Tuple(T)` must qualify, not just a bare `T`.
-          if(type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()), {
-            dg_where := match(
-              expr,
-              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(dg_ft_box).to_string()),
-              .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
-            );
-            dg_ct_flags := match(
-              expr,
-              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(dgc_ft_box).to_string()),
-              .Atom(_, _) => ArrayList(bool).new()
-            );
-            dg_env := _build_def_time_body_env(
-              caller_env,
-              param_labels,
-              param_types,
-              param_is_ref,
-              param_is_owning,
-              dg_ct_flags,
-              result_box,
-              dg_where,
-              function_type,
-              ctx.is_evaluating_function_body_or_async_block.is_some()
-            );
-            // A THROWAWAY FuncVal with a fresh id (same pattern as flow_fv
-            // above): reusing the real one lets trial registrations shadow
-            // the real definition's and codegen emits the trial body clone.
-            dg_fv := EvalValue.FuncVal(
-              box(
-                FuncValData(
-                  forall_names : ArrayList(String).new(),
-                  params : ArrayList(String).new(),
-                  param_type_names : ArrayList(String).new(),
-                  evidence_params : ArrayList(String).new(),
-                  body : make_err_expr(),
-                  cap_names : ArrayList(String).new(),
-                  cap_tys : ArrayList(TypeValue).new(),
-                  func_id : random_id(caller_env.module_path)
-                )
-              ),
-              ArrayList(EvalValue).new()
-            );
-            dg_ctx := create_function_body_evaluation_context(function_type, dg_fv, dg_env, ctx);
-            dg_out := ArrayList(AstExpr).new();
-            dg_fv_was := flow_violation_pending();
-            // Same where-trait channel as the flow path: the DEFERRED trial
-            // is where a generic fn's body resolution stamps happen, and a
-            // where(T <: Trait) constraint is the only discriminator for
-            // same-signature methods from different traits
-            // (use_trait_a/use_trait_b).
-            dg_where_ids := ArrayList(String).new();
-            {
-              (dgw_i : usize) = usize(0);
-              while(dgw_i < dg_where.len(), {
-                match(
-                  dg_where.get(dgw_i),
-                  .Some(dgw_e) => {
-                    dgw_id := match(dgw_e.trait_ty, .TraitT(_, _, _, _, dgw_tid, _, _, _, _, _) => dgw_tid, _ => String.from(""));
-                    if(dgw_id != "", {
-                      dg_where_ids.push(dgw_id);
-                    });
-                  },
-                  .None => ()
-                );
-                dgw_i = (dgw_i + usize(1));
-              });
-            };
-            push_active_where_trait_ids(dg_where_ids);
-            dg_prev_trial := set_in_def_time_trial(true);
-            // A swallowed throw strands whatever the body pushed on the forcing
-            // stacks (an impl abandoned inside the body) — truncate back.
-            dg_depths := forcing_depths();
-            _trial_eval_fn_body(body_expr.clone(), dg_env, dg_ctx, dg_out);
-            truncate_forcing_depths(dg_depths);
-            ___dg_tr := set_in_def_time_trial(dg_prev_trial);
-            pop_active_where_trait_ids();
-            // P0 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
-            // swallow (TS ts:112 catch{} parity) — but an unbound name that
-            // is bound LATER in this module is a forward reference, and
-            // swallowing it hollows the whole body while check stays green
-            // (the io.async shape that shipped broken version_cache code in
-            // every release). Error now.
-            if(_trial_swallow_pending(), {
-              match(
-                hard_swallow_diagnostic(_trial_swallow_message()),
-                .Some(fwd_msg) => {
-                  _clear_trial_swallow();
-                  exn.throw(dyn(format_error_message(ast_expr_token(body_expr), fwd_msg)));
-                },
-                .None => ()
-              );
-            });
-            // A violation flagged by THIS trial must not leak into a later
-            // definition's re-raise (TS's catch{} discards everything).
-            if(!(dg_fv_was) && flow_violation_pending(), {
-              clear_flow_violation();
-            });
-            match(
-              dg_out.get(usize(0)),
-              .Some(dg_body) => match(
-                expr_info_table_get(ctx.expr_info_table, ast_expr_id(dg_body)),
-                .Some(dg_info) => {
-                  // Pure-unwind bodies are control functions discarding the
-                  // continuation — no return type to check.
-                  dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !(has_control_flow(dg_info.control_flow, .Return)));
-                  dg_expected := cond(
-                    result_is_ref => t_ptr(result_box),
-                    true => result_box
-                  );
-                  // Expected bare SomeT that is NOT this fn's own forall: the
-                  // generic var is bound by the CALL SITE (e.g. effect-handler
-                  // `-> T`), so a concrete body is the correct shape.
-                  dg_own_forall_skip := match(
-                    dg_expected,
-                    .SomeT({ name : dg_sname }) => {
-                      (dg_found : bool) = false;
-                      (dg_fi : usize) = usize(0);
-                      while(dg_fi < forall_labels.len(), {
-                        if(match(forall_labels.get(dg_fi), .Some(l) => (l == dg_sname), .None => false), {
-                          dg_found = true;
-                        });
-                        dg_fi = (dg_fi + usize(1));
-                      });
-                      !(dg_found)
-                    },
-                    _ => false
-                  );
-                  dg_trial_ty := dg_info.ty;
-                  // Only a FULLY CONCRETE trial result can convict — a trial
-                  // type still carrying SomeTs unifies at specialization time
-                  // (the prelude Box-Clone impl false-fired on an
-                  // abstract-vs-abstract exact compare and abandoned the whole
-                  // module load). A `unit` trial type is likewise no
-                  // conviction: yo-self's per-node swallows can degrade a
-                  // failing generic-body eval into a unit-typed "success"
-                  // (TS's try/catch skips those trials outright — measured
-                  // false-fires: std ordered_map.get / imm set.to_list /
-                  // imm vec Index, corpus deque_self_cycle).
-                  dg_trial_abstract := type_contains_some_type_for_codegen_param(dg_trial_ty, ArrayList(String).new());
-                  dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !(is_unit_type(dg_expected)));
-                  // Parametricity twin of the anon-path fix (see
-                  // values/anonymous_function.yo): an own-forall SomeT return
-                  // can never be satisfied by a CONCRETE trial type; the exact
-                  // check alone cannot convict (unresolved SomeT unifies with
-                  // anything).
-                  dg_expected_is_some := is_some_type(dg_expected);
-                  if((((!(dg_skip_cf) && !(dg_own_forall_skip)) && !(dg_trial_abstract)) && !(dg_trial_degenerate)) && (dg_expected_is_some || !(are_types_compatible_exact(dg_trial_ty, dg_expected))), {
-                    dg_exp_str := type_to_string(dg_expected);
-                    dg_got_str := type_to_string(dg_trial_ty);
-                    // Deliberate user-facing rejection — flag for the def-time re-raise
-                    // (see the anon twin in values/anonymous_function.yo).
-                    if(!(ctx.is_in_function_call_checking_phase) && (!(propagate_def_time_errors()) && !(flow_violation_pending())), {
-                      flag_flow_violation(
-                        `Incompatible function return type for:
-- Expected: ${dg_exp_str}
-- Given  : ${dg_got_str}`
-                      );
-                    });
-                    exn.throw(
-                      dyn(
-                        format_error_message(
-                          tok,
-                          `Incompatible function return type for:\n- Expected: ${dg_exp_str}\n- Given  : ${dg_got_str}`
-                        )
-                      )
-                    );
-                  });
-                },
-                .None => ()
-              ),
-              .None => ()
-            );
-          });
-        }
-      );
-      expr
-    },
-    _ => {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(expr),
-            String.from("try_to_implement_function_by_function_type: expected Func type")
-          )
+        });
+      }
+    );
+    expr
+  }, _ => {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(expr),
+          String.from("try_to_implement_function_by_function_type: expected Func type")
         )
-      );
-      make_err_expr()
-    }
-  )
+      )
+    );
+    make_err_expr()
+  })
 );
 export(check_deferred_generic_return_type);
 export(try_to_implement_function_by_function_type, register_rerun_pending_def_evals);

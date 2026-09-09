@@ -59,8 +59,12 @@ _(env : proc_env) :: import("std/env");
   default_verify_run_config,
   resolve_solver_sync,
   SolverResolution,
-  verifier_harness_self_test
+  verifier_harness_self_test,
+  verify_registered_functions,
+  VerifyResult,
+  VerifyFnReport
 } :: import("./verifier/driver.yo");
+{ set_verify_mode_override, set_verify_target_paths } :: import("./evaluator/builtins/contracts.yo");
 { ensure_z3 } :: import("./verifier/z3.yo");
 { Z3_VERSION } :: import("./verifier/z3.yo");
 { json_stringify, JsonValue } :: import("std/encoding/json");
@@ -787,14 +791,16 @@ run_check :: (
     exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
   });
 });
-/// Run the `verify` subcommand — the compile-time verifier driver (V2 of
-/// plans/backlog/FORMAL_VERIFICATION.md).
+/// Run the `verify` subcommand — the compile-time verifier driver
+/// (V2+V3 of plans/backlog/FORMAL_VERIFICATION.md).
 ///
-/// V2 scope: resolve the pinned Z3 (YO_Z3_PATH → `~/.cache/yo/solvers/…`,
+/// Resolve the pinned Z3 (YO_Z3_PATH → `~/.cache/yo/solvers/…`,
 /// auto-install on miss), run the harness SELF-TEST obligations through
-/// the full encode → spawn → parse → cache pipeline, and report harness
-/// health. The path argument is accepted and scanned (so bad paths fail
-/// fast); real per-function verification obligations land in V3.
+/// the full encode → spawn → parse → cache pipeline, then evaluate the
+/// target file set with the mode override armed — the evaluator records
+/// one VerifyTask per verifiable function — and discharge every task's
+/// obligations (callee-side ensures, caller-side requires, assert sites,
+/// AoRTE). Non-zero exit on any refuted/unproven/subset-error report.
 run_verify_cmd :: (
   fn(
     argv : ArrayList(String),
@@ -888,29 +894,30 @@ run_verify_cmd :: (
       }
     );
   });
-  if(mode_str.len() > usize(0), {
-    match(
-      verify_mode_of_string(mode_str.clone()),
-      .Some(_) => (),
-      .None => {
-        exn.throw(
-          dyn(`verify: --verify-mode expects 'runtime', 'verify', or 'verify+', got '${mode_str}'`)
-        );
-      }
-    );
+  // V3: the mode. The flag wins over the per-file pragmas (which are the
+  // source of truth inside a file); with neither, `yo verify` defaults to
+  // `verify` — this IS the verification command, and the plan's AoRTE
+  // promise is that zero-contract files still get bounds/div-by-zero
+  // obligations.
+  if(mode_str.len() == usize(0), {
+    mode_str = String.from("verify");
   });
-  if(explain_fn.is_some(), {
-    exn.throw(dyn(`verify: --explain arrives with the per-function verification pass (Phase V3)`));
+  match(
+    verify_mode_of_string(mode_str.clone()),
+    .Some(_) => (),
+    .None => {
+      exn.throw(
+        dyn(`verify: --verify-mode expects 'runtime', 'verify', or 'verify+', got '${mode_str}'`)
+      );
+    }
+  );
+  // Validate the target path up front (fail fast on a typo).
+  if(target_path.len() == usize(0), {
+    exn.throw(dyn(`verify: missing input file. Usage: yo verify <input.yo | dir> [options]`));
   });
-  // Validate the target path up front (fail fast on a typo) and report the
-  // file count; the verification pass itself is V3.
-  (file_count : usize) = usize(0);
-  if(target_path.len() > usize(0), {
-    files := collect_check_files(target_path.clone(), ArrayList(String).new(), io, exn);
-    file_count = files.len();
-    if(file_count == usize(0), {
-      exn.throw(dyn(`verify: no .yo files found at ${target_path}`));
-    });
+  files := collect_check_files(target_path.clone(), ArrayList(String).new(), io, exn);
+  if(files.len() == usize(0), {
+    exn.throw(dyn(`verify: no .yo files found at ${target_path}`));
   });
   cfg := default_verify_run_config();
   cfg.solver_path = solver_path;
@@ -973,68 +980,150 @@ run_verify_cmd :: (
       harness_ok = false;
     }
   );
-  if(format_json, {
-    entries := ArrayList(JsonValue).new();
-    (ri : usize) = usize(0);
-    while(ri < results.len(), {
-      match(
-        results.get(ri),
-        .Some(r) => {
-          verdict_json := match(
-            r.verdict,
-            .Proved(_) => JsonValue.Str(String.from("proved")),
-            .Refuted(ce) => _verify_json_strs(ce),
-            .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
-            .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
+  // V3: evaluate the target set with the mode override and target paths
+  // armed, so the evaluator records one VerifyTask per verifiable
+  // function (evaluator/builtins/contracts.yo). Targets carry BOTH the
+  // collected spelling (Token.module_path is the path EXACTLY as passed
+  // to mm_load_file) and the normalized absolute form (what an imported
+  // module's tokens carry).
+  std_path := resolve_std_path();
+  abs_targets := ArrayList(String).new();
+  (fi : usize) = usize(0);
+  while(fi < files.len(), {
+    match(
+      files.get(fi),
+      .Some(fp) => {
+        abs_targets.push(fp.clone());
+        abs_targets.push(mm_resolve_entry_abs(fp.clone(), std_path.clone()));
+      },
+      .None => ()
+    );
+    fi = (fi + usize(1));
+  });
+  set_verify_mode_override(Option(String).Some(mode_str.clone()));
+  set_verify_target_paths(abs_targets.clone());
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  (eval_failed : usize) = usize(0);
+  (fi2 : usize) = usize(0);
+  while(fi2 < files.len(), {
+    match(
+      files.get(fi2),
+      .Some(fp) => {
+        outcome := mm_load_file(fp.clone(), std_path.clone(), true, io, exn);
+        if(!(outcome.ok), {
+          eval_failed = (eval_failed + usize(1));
+          match(
+            _take_load_error(),
+            .Some(rendered) => emit_rendered_text(rendered),
+            .None => eprintln(`verify: error in: ${fp} (no diagnostic recorded)`)
           );
-          ks := ArrayList(String).new();
-          ks.push(String.from("query"));
-          ks.push(String.from("verdict"));
-          ks.push(String.from("cached"));
-          vs := ArrayList(JsonValue).new();
-          vs.push(JsonValue.Str(r.query_name.clone()));
-          vs.push(verdict_json);
-          vs.push(JsonValue.Bool(r.cached));
-          entries.push(JsonValue.Object(keys : ks, values : vs));
+        });
+      },
+      .None => ()
+    );
+    fi2 = (fi2 + usize(1));
+  });
+  if(eval_failed > usize(0), {
+    exn.throw(dyn(`verify: ${eval_failed.to_string()} file(s) failed evaluation`));
+  });
+  all_reports := verify_registered_functions(cfg, binary.clone());
+  // `--explain FN` narrows the report to functions whose id matches
+  // (substring, so a bare name or a `file:line` both work) and forces the
+  // detailed rendering.
+  reports := ArrayList(VerifyFnReport).new();
+  match(
+    explain_fn,
+    .Some(pat) => {
+      (xi : usize) = usize(0);
+      while(xi < all_reports.len(), {
+        match(
+          all_reports.get(xi),
+          .Some(rp) => if(rp.fn_id.contains(pat.clone()), {
+            reports.push(rp);
+          }),
+          .None => ()
+        );
+        xi = (xi + usize(1));
+      });
+      if(reports.len() == usize(0), {
+        exn.throw(dyn(`verify: --explain '${pat}' matched no verified function (of ${all_reports.len().to_string()})`));
+      });
+    },
+    .None => {
+      reports = all_reports;
+    }
+  );
+  // Aggregate the exit status: every report must be `ok`.
+  (bad : usize) = usize(0);
+  (refuted_n : usize) = usize(0);
+  (ri3 : usize) = usize(0);
+  while(ri3 < reports.len(), {
+    match(
+      reports.get(ri3),
+      .Some(rp) => {
+        if(!(rp.outcome == "ok"), {
+          bad = (bad + usize(1));
+          if(rp.outcome == "refuted", {
+            refuted_n = (refuted_n + usize(1));
+          });
+        });
+      },
+      .None => ()
+    );
+    ri3 = (ri3 + usize(1));
+  });
+  if(format_json, {
+    fn_entries := ArrayList(JsonValue).new();
+    (rj : usize) = usize(0);
+    while(rj < reports.len(), {
+      match(
+        reports.get(rj),
+        .Some(rp) => {
+          fn_entries.push(_verify_fn_report_json(rp));
         },
         .None => ()
       );
-      ri = (ri + usize(1));
+      rj = (rj + usize(1));
     });
     ks2 := ArrayList(String).new();
     ks2.push(String.from("solver"));
     ks2.push(String.from("z3_pin"));
+    ks2.push(String.from("mode"));
     ks2.push(String.from("harness_ok"));
     ks2.push(String.from("self_test"));
+    ks2.push(String.from("functions"));
     vs2 := ArrayList(JsonValue).new();
     vs2.push(JsonValue.Str(binary.clone()));
     vs2.push(JsonValue.Str(String.from(Z3_VERSION)));
+    vs2.push(JsonValue.Str(mode_str.clone()));
     vs2.push(JsonValue.Bool(harness_ok));
-    vs2.push(JsonValue.Array(entries));
+    vs2.push(JsonValue.Array(_verify_self_test_json(results)));
+    vs2.push(JsonValue.Array(fn_entries));
     println(json_stringify(JsonValue.Object(keys : ks2, values : vs2)));
   }, {
     println(`verify: solver: ${binary} (z3 ${Z3_VERSION})`);
-    if(target_path.len() > usize(0), {
-      println(`verify: target: ${target_path} (${file_count.to_string()} .yo file(s)) — per-function verification arrives in V3`);
-    });
-    (ri2 : usize) = usize(0);
-    while(ri2 < results.len(), {
+    println(
+      `verify: target: ${target_path} (${files.len().to_string()} .yo file(s), mode ${mode_str})`
+    );
+    (rk : usize) = usize(0);
+    while(rk < reports.len(), {
       match(
-        results.get(ri2),
-        .Some(r) => {
-          cached_mark := if(r.cached, String.from(" (cached)"), String.from(""));
-          detail := match(
-            r.verdict,
-            .Proved(_) => String.from("PROVED"),
-            .Refuted(ce) => `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`,
-            .Unproven(reason) => `UNPROVEN  ${reason}`,
-            .SolverError(msg) => `SOLVER-ERROR  ${msg}`
-          );
-          println(`verify: ${r.query_name}: ${detail}${cached_mark}`);
+        reports.get(rk),
+        .Some(rp) => {
+          _print_verify_fn_report(rp, explain_fn.is_some());
         },
         .None => ()
       );
-      ri2 = (ri2 + usize(1));
+      rk = (rk + usize(1));
+    });
+    if(reports.len() == usize(0), {
+      println(
+        tr(
+          String.from("verify: no functions to verify (no verify/verify+ functions in the target set)"),
+          String.from("verify：没有可验证的函数（目标集合中没有 verify/verify+ 函数）")
+        )
+      );
     });
     println(
       cond(
@@ -1046,7 +1135,147 @@ run_verify_cmd :: (
   if(!(harness_ok), {
     exn.throw(dyn(String.from("verify: solver harness self-test failed")));
   });
+  if(bad > usize(0), {
+    exn.throw(
+      dyn(
+        `verify: ${bad.to_string()} function(s) not verified (${refuted_n.to_string()} refuted) — see the report above`
+      )
+    );
+  });
 });
+/// One function report as JSON (the verify subcommand's V3 shape).
+_verify_fn_report_json :: (fn(rp : VerifyFnReport) -> JsonValue)({
+  obl_entries := ArrayList(JsonValue).new();
+  (i : usize) = usize(0);
+  while(i < rp.obligations.len(), {
+    match(
+      rp.obligations.get(i),
+      .Some(obl) => {
+        model := match(
+          obl.verdict,
+          .Refuted(ce) => _verify_json_strs(ce),
+          _ => JsonValue.Array(ArrayList(JsonValue).new())
+        );
+        verdict_str := match(
+          obl.verdict,
+          .Proved(_) => String.from("proved"),
+          .Refuted(_) => String.from("refuted"),
+          .Unproven(_) => String.from("unproven"),
+          .SolverError(_) => String.from("solver-error")
+        );
+        ks := ArrayList(String).new();
+        ks.push(String.from("name"));
+        ks.push(String.from("verdict"));
+        ks.push(String.from("cached"));
+        ks.push(String.from("model"));
+        vs := ArrayList(JsonValue).new();
+        vs.push(JsonValue.Str(obl.name.clone()));
+        vs.push(JsonValue.Str(verdict_str));
+        vs.push(JsonValue.Bool(obl.cached));
+        vs.push(model);
+        obl_entries.push(JsonValue.Object(keys : ks, values : vs));
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  ks2 := ArrayList(String).new();
+  ks2.push(String.from("fn_id"));
+  ks2.push(String.from("mode"));
+  ks2.push(String.from("outcome"));
+  ks2.push(String.from("obligations"));
+  ks2.push(String.from("subset_construct"));
+  ks2.push(String.from("subset_source"));
+  vs2 := ArrayList(JsonValue).new();
+  vs2.push(JsonValue.Str(rp.fn_id.clone()));
+  vs2.push(JsonValue.Str(rp.mode.clone()));
+  vs2.push(JsonValue.Str(rp.outcome.clone()));
+  vs2.push(JsonValue.Array(obl_entries));
+  vs2.push(JsonValue.Str(rp.subset_construct.clone()));
+  vs2.push(JsonValue.Str(rp.subset_source.clone()));
+  JsonValue.Object(keys : ks2, values : vs2)
+});
+/// The self-test results as JSON (the V2 shape, kept verbatim).
+_verify_self_test_json :: (fn(results : ArrayList(VerifyResult)) -> ArrayList(JsonValue))({
+  entries := ArrayList(JsonValue).new();
+  (ri : usize) = usize(0);
+  while(ri < results.len(), {
+    match(
+      results.get(ri),
+      .Some(r) => {
+        verdict_json := match(
+          r.verdict,
+          .Proved(_) => JsonValue.Str(String.from("proved")),
+          .Refuted(ce) => _verify_json_strs(ce),
+          .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
+          .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
+        );
+        ks := ArrayList(String).new();
+        ks.push(String.from("query"));
+        ks.push(String.from("verdict"));
+        ks.push(String.from("cached"));
+        vs := ArrayList(JsonValue).new();
+        vs.push(JsonValue.Str(r.query_name.clone()));
+        vs.push(verdict_json);
+        vs.push(JsonValue.Bool(r.cached));
+        entries.push(JsonValue.Object(keys : ks, values : vs));
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  entries
+});
+/// Text rendering of one function report. `detailed` (from `--explain`)
+/// prints every obligation; the default prints per-function lines plus the
+/// failing obligations' counter-examples.
+_print_verify_fn_report :: (fn(rp : VerifyFnReport, detailed : bool) -> unit)(
+  cond(
+    (rp.outcome == "subset-error") => {
+      println(
+        `  subset   ${rp.fn_id} [${rp.mode}] — cannot verify: ${rp.subset_construct}`
+      );
+      println(`           ${rp.subset_source}`);
+      ()
+    },
+    (rp.outcome == "ok") => {
+      println(
+        `  ok       ${rp.fn_id} [${rp.mode}] — ${rp.obligations.len().to_string()} obligation(s) proved`
+      );
+      ()
+    },
+    true => {
+      println(`  ${rp.outcome}  ${rp.fn_id} [${rp.mode}]`);
+      (i : usize) = usize(0);
+      while(i < rp.obligations.len(), {
+        match(
+          rp.obligations.get(i),
+          .Some(obl) => {
+            bad := match(
+              obl.verdict,
+              .Proved(_) => false,
+              _ => true
+            );
+            if(bad || detailed, {
+              detail := match(
+                obl.verdict,
+                .Proved(_) => String.from("PROVED"),
+                .Refuted(ce) => `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`,
+                .Unproven(reason) => `UNPROVEN  ${reason}`,
+                .SolverError(msg) => `SOLVER-ERROR  ${msg}`
+              );
+              cached_mark := if(obl.cached, String.from(" (cached)"), String.new());
+              println(`    ${obl.name}: ${detail}${cached_mark}`);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      ()
+    }
+  )
+);
 /// JSON array of strings (the verify subcommand's counter-example shape).
 _verify_json_strs :: (fn(ss : ArrayList(String)) -> JsonValue)({
   items := ArrayList(JsonValue).new();
@@ -4685,44 +4914,54 @@ Examples:
         `Usage: yo verify [path] [options]
 
 Compile-time verification with the pinned Z3 solver (Dafny/SPARK model;
-Phase V2 of plans/backlog/FORMAL_VERIFICATION.md — currently the solver
-harness self-test; per-function proof obligations arrive in V3).
+V2+V3 of plans/backlog/FORMAL_VERIFICATION.md). Every function in the
+target set is symbolically executed and its proof obligations — callee
+ensures, caller-side requires discharge, assert sites, and the automatic
+bounds/div-by-zero/shift-width checks (AoRTE) — are proved or refuted
+with concrete counter-examples. Non-zero exit on any failure.
 
 The solver is resolved from YO_Z3_PATH, then the pinned install in
 ~/.cache/yo/solvers/, and is auto-downloaded from GitHub Releases when
 neither exists.
 
 Options:
-  --verify-mode <mode>      runtime | verify | verify+ (default runtime)
+  --verify-mode <mode>      runtime | verify | verify+ (default verify;
+                            the file pragma is source of truth when present)
   --solver-path <path>      Use this z3 binary (overrides discovery)
   --rlimit <n>              Solver resource budget (default 5000000)
   --format <text|json>      Output format (default text)
-  --explain <fn>            Show the VC set for one function (V3)
+  --explain <fn>            Print the full obligation detail for functions
+                            whose id matches <fn> (substring)
   --no-cache                Skip the verification cache
 
 Examples:
   $ yo verify ./src
-  $ yo verify --solver-path /usr/bin/z3 --format json`,
+  $ yo verify --solver-path /usr/bin/z3 --format json
+  $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`,
         `用法：yo verify [路径] [选项]
 
 使用固定版本的 Z3 求解器做编译期验证（Dafny/SPARK 模型；
-plans/backlog/FORMAL_VERIFICATION.md 的 V2 阶段——目前为求解器管线
-自检；逐函数证明义务在 V3 落地）。
+plans/backlog/FORMAL_VERIFICATION.md 的 V2+V3 阶段）。目标集合中的每个
+函数都会被符号执行，其证明义务——被调方 ensures、调用方 requires 的
+履行、assert 位点，以及自动的越界/除零/移位宽度检查（AoRTE）——都会
+被证明，或带具体反例被驳倒。任何失败都以非零退出码结束。
 
 求解器依次从 YO_Z3_PATH、~/.cache/yo/solvers/ 中的固定安装解析，
 都不存在时自动从 GitHub Releases 下载。
 
 选项：
-  --verify-mode <模式>     runtime | verify | verify+（默认 runtime）
+  --verify-mode <模式>     runtime | verify | verify+（默认 verify；
+                           文件内 pragma 存在时以 pragma 为准）
   --solver-path <路径>     使用指定的 z3 二进制（覆盖自动发现）
   --rlimit <n>             求解器资源预算（默认 5000000）
   --format <text|json>     输出格式（默认 text）
-  --explain <函数名>       展示单个函数的验证条件集（V3）
+  --explain <函数名>       打印 id 匹配（子串）的函数的完整义务明细
   --no-cache               跳过验证缓存
 
 示例：
   $ yo verify ./src
-  $ yo verify --solver-path /usr/bin/z3 --format json`
+  $ yo verify --solver-path /usr/bin/z3 --format json
+  $ yo verify ./tests/spec/verify_straight_line.test.yo --explain abs`
       )
     ),
     (subcmd == "fmt") => Option(String).Some(

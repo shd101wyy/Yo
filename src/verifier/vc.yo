@@ -1,0 +1,1157 @@
+//! verifier/vc — symbolic execution of a function body into verification
+//! conditions (V3: the straight-line Dafny core).
+//!
+//! Input is the DEFINITION-SITE view: the body AST, the param labels/types
+//! and result type, the contract predicates from the Phase-0 side tables,
+//! and the shared ExprInfoTable (types, comptime-folded values, callee
+//! FuncVals). Output: a list of obligations for the driver —
+//!
+//!   callee-side  — assume requires ⊢ prove ensures (label bound)
+//!   caller-side  — at each call to a contracted callee: prove requires,
+//!                  then assume ensures with the result bound
+//!   assert sites — prove Φ ⇒ P
+//!   AoRTE        — `/`/`%` divisor non-zero, shift amount < width
+//!
+//! V3 subset (violations are precise errors, never silent gaps): integer
+//! and bool arithmetic, comparisons, logical ops, `cond` (as ite VALUES),
+//! begin blocks with `:=` bindings, calls to contracted or comptime-
+//! foldable callees, `panic` (diverging). Loops, match, recursion, slices,
+//! effects, unsafe → V4+ or out of subset.
+pragma(Pragma.AllowUnsafe);
+open(import("std/string"));
+open(import("std/fmt"));
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{
+  AstExpr,
+  ExprId,
+  ast_expr_id,
+  ast_expr_token,
+  ast_expr_is_fn_call,
+  ast_expr_is_fn_call_of,
+  ast_expr_is_atom,
+  ast_expr_to_string
+} :: import("../expr.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
+{ TypeValue } :: import("../types/definitions.yo");
+{ EvalValue, is_func_val } :: import("../value.yo");
+{ VcSort, VcOp, VcTerm, VcQuery, new_vc_query, vc_eq, vc_and, vc_or, vc_not, vc_distinct } :: import("./terms.yo");
+{ mangle_vc_name } :: import("./encode.yo");
+{
+  get_func_requires_exprs,
+  get_func_ensures_exprs,
+  get_func_return_label
+} :: import("../evaluator/types/function.yo");
+// ============================================================================
+// Small type probes (local, to keep this module's import fan-in minimal)
+// ============================================================================
+_is_bool_type :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .BoolT => true,
+    _ => false
+  )
+);
+/// Width in bits of an integer-ish type; `.None` for non-integers.
+_int_width :: (fn(t : TypeValue) -> Option(usize))(
+  match(
+    t,
+    .Int({ bits : b }) => Option(usize).Some(usize(b)),
+    .Usize => Option(usize).Some(usize(64)),
+    .Isize => Option(usize).Some(usize(64)),
+    _ => Option(usize).None
+  )
+);
+_int_is_signed :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Int({ signed : s }) => s,
+    .Isize => true,
+    _ => false
+  )
+);
+_type_sort :: (fn(t : TypeValue) -> Option(VcSort))(
+  match(
+    _int_width(t),
+    .Some(w) => Option(VcSort).Some(VcSort.BvS(width : w)),
+    .None => cond(
+      _is_bool_type(t) => Option(VcSort).Some(VcSort.BoolS),
+      true => Option(VcSort).None
+    )
+  )
+);
+// ============================================================================
+// Results
+// ============================================================================
+/// One obligation discovered in a body.
+VcObligation :: ref(
+  struct(
+    name : String,
+    query : VcQuery
+  )
+);
+/// Why a function could not be verified (subset gate).
+VcSubsetError :: ref(
+  struct(
+    construct : String,
+    source : String
+  )
+);
+/// Symbolic execution result for one function.
+VcBodyResult :: ref(
+  struct(
+    obligations : ArrayList(VcObligation),
+    /// The body's value as a term (for ensures binding); `.None` when a
+    /// subset error aborted the walk.
+    value : Option(VcTerm),
+    error : Option(VcSubsetError)
+  )
+);
+// ============================================================================
+// The executor context
+// ============================================================================
+VcCtx :: ref(
+  struct(
+    table : ExprInfoTable,
+    fn_name : String,
+    /// The FuncVal's `func_id` — self-recursion detection at call sites.
+    func_id : String,
+    /// Source-name → current term (SSA by rebinding).
+    vars : HashMap(String, VcTerm),
+    /// Path assumptions (requires, branch conditions), conjoined.
+    path : ArrayList(VcTerm),
+    obligations : ArrayList(VcObligation),
+    subset_error : Option(VcSubsetError),
+    /// Counter for query names and synthetic vars.
+    fresh : usize
+  )
+);
+_new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) -> VcCtx)(
+  VcCtx(
+    table : table,
+    fn_name : fn_name,
+    func_id : func_id,
+    vars : HashMap(String, VcTerm).new(),
+    path : ArrayList(VcTerm).new(),
+    obligations : ArrayList(VcObligation).new(),
+    subset_error : Option(VcSubsetError).None,
+    fresh : usize(0)
+  )
+);
+_next_fresh :: (fn(inout(ctx) : VcCtx) -> usize)({
+  n := ctx.fresh;
+  ctx.fresh = (ctx.fresh + usize(1));
+  n
+});
+_fail_subset :: (fn(inout(ctx) : VcCtx, construct : String, at : AstExpr) -> unit)({
+  match(
+    ctx.subset_error,
+    .Some(_) => (),
+    .None => {
+      ctx.subset_error = Option(VcSubsetError).Some(
+        VcSubsetError(
+          construct : construct,
+          source : ast_expr_to_string(at)
+        )
+      );
+    }
+  );
+  ()
+});
+/// Emit one obligation: prove `Φ ∧ assumptions ⇒ goal`.
+_emit :: (
+  fn(
+    inout(ctx) : VcCtx,
+    label : String,
+    extra_assumptions : ArrayList(VcTerm),
+    goal : VcTerm
+  ) -> unit
+)({
+  q := new_vc_query(`${ctx.fn_name}/${label}`);
+  // Declarations: every source variable the obligations may mention — in
+  // the goal, the extra assumptions, AND the path condition (a `requires`
+  // param that never appears in the goal is still ASSUMED, and an
+  // undeclared name in an assumption is an SMT error).
+  declared := HashMap(String, VcSort).new();
+  _collect_declared(goal, declared);
+  (ei : usize) = usize(0);
+  extra := extra_assumptions;
+  while(ei < extra.len(), {
+    match(
+      extra.get(ei),
+      .Some(t) => {
+        _collect_declared(t, declared);
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  (pi0 : usize) = usize(0);
+  while(pi0 < ctx.path.len(), {
+    match(
+      ctx.path.get(pi0),
+      .Some(t) => {
+        _collect_declared(t, declared);
+      },
+      .None => ()
+    );
+    pi0 = (pi0 + usize(1));
+  });
+  keys := ArrayList(String).new();
+  {
+    it := declared.keys();
+    (go : bool) = true;
+    while(go, {
+      match(
+        it.next(),
+        .Some(k) => {
+          keys.push(k.clone());
+        },
+        .None => {
+          go = false;
+        }
+      );
+    });
+  };
+  sorted_keys := _sorted_strings(keys);
+  (ki : usize) = usize(0);
+  while(ki < sorted_keys.len(), {
+    match(
+      sorted_keys.get(ki),
+      .Some(k) => {
+        match(
+          declared.get(k.clone()),
+          .Some(srt) => {
+            _ := q.declare(mangle_vc_name(ctx.fn_name.clone(), k.clone()), srt);
+            ();
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    ki = (ki + usize(1));
+  });
+  // Rename every Var into the mangled form via a term rewrite.
+  rename_map := HashMap(String, String).new();
+  (ri : usize) = usize(0);
+  while(ri < sorted_keys.len(), {
+    match(
+      sorted_keys.get(ri),
+      .Some(k) => {
+        rename_map.insert(k.clone(), mangle_vc_name(ctx.fn_name.clone(), k.clone()));
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  all := ArrayList(VcTerm).new();
+  (pi : usize) = usize(0);
+  while(pi < ctx.path.len(), {
+    match(
+      ctx.path.get(pi),
+      .Some(t) => {
+        all.push(_rename_vars(t, rename_map));
+      },
+      .None => ()
+    );
+    pi = (pi + usize(1));
+  });
+  (xi : usize) = usize(0);
+  while(xi < extra.len(), {
+    match(
+      extra.get(xi),
+      .Some(t) => {
+        all.push(_rename_vars(t, rename_map));
+      },
+      .None => ()
+    );
+    xi = (xi + usize(1));
+  });
+  (ai : usize) = usize(0);
+  while(ai < all.len(), {
+    _ := q.assume(all.get(ai).unwrap());
+    ai = (ai + usize(1));
+  });
+  q.goal = _rename_vars(goal, rename_map);
+  ctx.obligations.push(VcObligation(name : `${ctx.fn_name}/${label}`, query : q));
+  ()
+});
+/// Sort a small string list into a FRESH list (deterministic declaration
+/// order; the std sort API is a comptime trait dance not worth it here).
+_sorted_strings :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(x) => {
+        out.push(x.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // Insertion sort over the COPY via ptr writes (ArrayList has no set()).
+  buf := out.ptr().unwrap();
+  (j : usize) = usize(1);
+  while(j < out.len(), {
+    key := unsafe((buf.add(j)).*).clone();
+    (k : usize) = j;
+    while(k > usize(0), {
+      prev := unsafe((buf.add(k - usize(1))).*);
+      if(prev <= key, {
+        break;
+      });
+      unsafe((buf.add(k)).* = prev);
+      k = (k - usize(1));
+    });
+    unsafe((buf.add(k)).* = key);
+    j = (j + usize(1));
+  });
+  out
+});
+/// A term-level variable declaration collector: every `Var` in `t` needs a
+/// matching `declare-fun` in the query.
+_collect_declared :: (fn(t : VcTerm, out : HashMap(String, VcSort)) -> unit)(
+  match(
+    t,
+    .Var(name, sort) => {
+      if(!out.contains_key(name.clone()), {
+        out.insert(name.clone(), sort);
+      });
+    },
+    .BvLit(_, _) => (),
+    .BoolLit(_) => (),
+    .App(_, args) => {
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            _collect_declared(a, out);
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .Quant(_, _, _, body) => _collect_declared(body, out)
+  )
+);
+/// Rewrite Var names per `map` (leaves unmapped names alone).
+_rename_vars :: (fn(t : VcTerm, map : HashMap(String, String)) -> VcTerm)(
+  match(
+    t,
+    .Var(name, sort) => match(
+      map.get(name.clone()),
+      .Some(m) => VcTerm.Var(name : m.clone(), sort : sort),
+      .None => t
+    ),
+    .BvLit(_, _) => t,
+    .BoolLit(_) => t,
+    .App(op, args) => {
+      out := ArrayList(VcTerm).new();
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => {
+            out.push(_rename_vars(a, map));
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      VcTerm.App(op, out)
+    },
+    .Quant(kind, names, sorts, body) => VcTerm.Quant(kind, names, sorts, _rename_vars(body, map))
+  )
+);
+// ============================================================================
+// Literal folding
+// ============================================================================
+/// IntLit raw text ("-5", "42", "0xFF") → two's-complement bit pattern.
+_int_lit_bits :: (fn(raw : String) -> Option(u64))(
+  match(
+    raw.parse_i64_radix(u32(10)),
+    .Some(n) => Option(u64).Some(u64(n)),
+    .None => Option(u64).None
+  )
+);
+/// A comptime-known EvalValue as a literal term of sort `sort`.
+_lit_term :: (fn(v : EvalValue, sort : VcSort) -> Option(VcTerm))(
+  match(
+    v,
+    .BoolVal(b) => Option(VcTerm).Some(VcTerm.BoolLit(b)),
+    .IntLit(raw) => match(
+      sort,
+      .BvS(w) => match(
+        _int_lit_bits(raw.clone()),
+        .Some(bits) => Option(VcTerm).Some(VcTerm.BvLit(value : bits, width : w)),
+        .None => Option(VcTerm).None
+      ),
+      _ => Option(VcTerm).None
+    ),
+    _ => Option(VcTerm).None
+  )
+);
+// ============================================================================
+// The term builder
+// ============================================================================
+_app1 :: (fn(op : VcOp, a : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  VcTerm.App(op, args)
+});
+_app2 :: (fn(op : VcOp, a : VcTerm, b : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  args.push(a);
+  args.push(b);
+  VcTerm.App(op, args)
+});
+_zero_of :: (fn(w : usize) -> VcTerm)(VcTerm.BvLit(value : u64(0), width : w));
+/// Build the term for `e`. `.None` = outside the subset (already recorded).
+_expr_term :: (fn(inout(ctx) : VcCtx, e : AstExpr) -> Option(VcTerm))({
+  info := match(
+    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    .Some(i) => i,
+    .None => {
+      _fail_subset(ctx, String.from("untyped expression"), e);
+      return(Option(VcTerm).None);
+    }
+  );
+  // Comptime-folded value ⇒ literal of the expression's own type.
+  match(
+    info.value,
+    .Some(v) => {
+      match(
+        _type_sort(info.ty),
+        .Some(sort) => {
+          match(
+            _lit_term(v, sort),
+            .Some(t) => {
+              return(Option(VcTerm).Some(t));
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
+  // Runtime paths — statement-form ifs with early returns (arm-value
+  // unification between a match-tail and a return-tail block is a unit
+  // trap; see the V2 notes in issues/async-closure-*).
+  if(ast_expr_is_atom(e), {
+    name := ast_expr_token(e).value;
+    return(
+      match(
+        ctx.vars.get(name.clone()),
+        .Some(t) => Option(VcTerm).Some(t),
+        .None => {
+          _fail_subset(ctx, `unbound runtime name '${name}'`, e);
+          Option(VcTerm).None
+        }
+      )
+    );
+  });
+  if(ast_expr_is_fn_call(e), {
+    args := match(
+      e,
+      .FnCall(_, _, a, _, _) => a,
+      .Atom(_, _) => ArrayList(AstExpr).new()
+    );
+    head := match(
+      e,
+      .FnCall(_, f, _, _, _) => ast_expr_token(f).value,
+      .Atom(_, _) => String.new()
+    );
+    return(_call_term(ctx, e, head, args, info));
+  });
+  _fail_subset(ctx, String.from("non-call expression"), e);
+  Option(VcTerm).None
+});
+/// The operator/cast/call dispatch.
+_call_term :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, head : String, args : ArrayList(AstExpr), info : ExprInfo)
+  -> Option(VcTerm)
+)({
+  n := args.len();
+  // --- integer casts: i32(x), u8(x), i64(x), … ---------------------------
+  cast_w := _cast_width(head);
+  if(cast_w.is_some() && (n == usize(1)), {
+    arg := args.get(usize(0)).unwrap();
+    arg_info := match(
+      expr_info_table_get(ctx.table, ast_expr_id(arg)),
+      .Some(ai) => ai,
+      .None => {
+        _fail_subset(ctx, String.from("untyped cast operand"), e);
+        return(Option(VcTerm).None);
+      }
+    );
+    target_w := match(
+      cast_w,
+      .Some(w) => w,
+      .None => usize(0)
+    );
+    src_t := _expr_term(ctx, arg);
+    return(
+      match(
+        src_t,
+        .Some(st) => match(
+          _int_width(arg_info.ty),
+          .Some(src_w) => Option(VcTerm).Some(_widen_or_trunc(st, src_w, target_w, _int_is_signed(arg_info.ty))),
+          .None => {
+            _fail_subset(ctx, String.from("cast of non-integer operand"), e);
+            Option(VcTerm).None
+          }
+        ),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  // --- binary arithmetic / comparisons -----------------------------------
+  bin := _binop_of_ctx(ctx, head, args);
+  if(bin.is_some() && (n == usize(2)), {
+    a_opt := _expr_term(ctx, args.get(usize(0)).unwrap());
+    b_opt := _expr_term(ctx, args.get(usize(1)).unwrap());
+    if(a_opt.is_none() || b_opt.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    at := a_opt.unwrap();
+    bt := b_opt.unwrap();
+    op := match(
+      bin,
+      .Some(o) => o,
+      .None => VcOp.BvAdd
+    );
+    // AoRTE: division/remainder divisor non-zero.
+    if((op == VcOp.BvSdiv) || (op == VcOp.BvUdiv) || ((op == VcOp.BvSrem) || (op == VcOp.BvUrem)), {
+      _emit(ctx, String.from("divisor-nonzero"), ArrayList(VcTerm).new(), _nonzero_term(bt));
+    });
+    // AoRTE: shift amount within the shifted operand's width.
+    if((op == VcOp.BvShl) || (op == VcOp.BvLshr) || (op == VcOp.BvAshr), {
+      shift_w := match(
+        expr_info_table_get(ctx.table, ast_expr_id(args.get(usize(0)).unwrap())),
+        .Some(ai) => match(
+          _int_width(ai.ty),
+          .Some(w) => w,
+          .None => usize(64)
+        ),
+        .None => usize(64)
+      );
+      _emit(
+        ctx,
+        String.from("shift-in-width"),
+        ArrayList(VcTerm).new(),
+        _lt_unsigned_term(bt, VcTerm.BvLit(value : u64(shift_w), width : _term_width(bt)))
+      );
+    });
+    return(Option(VcTerm).Some(_app2(op, at, bt)));
+  });
+  // --- unary --------------------------------------------------------------
+  if((n == usize(1)) && ((head == "-") || (head == "~") || (head == "!")), {
+    a := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        a,
+        .Some(at) => Option(VcTerm).Some(
+          cond(
+            (head == "-") => _app1(VcOp.BvNeg, at),
+            (head == "~") => _app1(VcOp.BvNotOp, at),
+            true => _app1(VcOp.NotOp, at)
+          )
+        ),
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  // --- cond(...) as an ite VALUE tree -------------------------------------
+  if(head == "cond", {
+    return(_cond_ite(ctx, e, args));
+  });
+  // --- while / for / match: precise subset rejections ----------------------
+  // These would otherwise fall into the callee-call path and report a
+  // misleading "uncontracted callee" error. Loops need the V4
+  // havoc-invariant rule; `match` needs the enum/datatype encoding
+  // (later in V3); `for` is a macro over while (same V4 rule).
+  if(head == "while", {
+    _fail_subset(ctx, String.from("while loop (requires invariant(...) — Phase V4)"), e);
+    return(Option(VcTerm).None);
+  });
+  if(head == "for", {
+    _fail_subset(ctx, String.from("for loop (requires invariant(...) — Phase V4)"), e);
+    return(Option(VcTerm).None);
+  });
+  if(head == "match", {
+    _fail_subset(ctx, String.from("match (enum/datatype encoding — pending later in V3)"), e);
+    return(Option(VcTerm).None);
+  });
+  // --- begin blocks --------------------------------------------------------
+  if(head == "begin", {
+    return(_begin_term(ctx, args));
+  });
+  // --- assert sites --------------------------------------------------------
+  if((head == "assert") && (n >= usize(1)), {
+    p := _expr_term(ctx, args.get(usize(0)).unwrap());
+    return(
+      match(
+        p,
+        .Some(pt) => {
+          _emit(ctx, String.from("assert"), ArrayList(VcTerm).new(), pt);
+          Option(VcTerm).Some(VcTerm.BoolLit(true))
+        },
+        .None => Option(VcTerm).None
+      )
+    );
+  });
+  // --- panic: diverging ----------------------------------------------------
+  if(head == "panic", {
+    // Diverging path — contributes nothing (SPARK's stance).
+    return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
+  });
+  // --- old(...): identity ----------------------------------------------------
+  // V3 straight-line bodies cannot rebind a parameter (`:=` creates NEW
+  // bindings; reassignment is outside the subset), so the entry value and
+  // the current value coincide. Real two-state reasoning is V5.
+  if((head == "old") && (n == usize(1)), {
+    return(_expr_term(ctx, args.get(usize(0)).unwrap()));
+  });
+  // --- calls to contracted callees ----------------------------------------
+  return(_callee_call_term(ctx, e, args, info));
+});
+/// Cast head → target width (i8..i64/u8..u64/isize/usize).
+_cast_width :: (fn(head : String) -> Option(usize))(
+  cond(
+    (head == "i8") => Option(usize).Some(usize(8)),
+    (head == "u8") => Option(usize).Some(usize(8)),
+    (head == "i16") => Option(usize).Some(usize(16)),
+    (head == "u16") => Option(usize).Some(usize(16)),
+    (head == "i32") => Option(usize).Some(usize(32)),
+    (head == "u32") => Option(usize).Some(usize(32)),
+    (head == "i64") => Option(usize).Some(usize(64)),
+    (head == "u64") => Option(usize).Some(usize(64)),
+    (head == "usize") => Option(usize).Some(usize(64)),
+    (head == "isize") => Option(usize).Some(usize(64)),
+    true => Option(usize).None
+  )
+);
+/// Operator head → VcOp with signedness resolved by `signed`.
+_binop_of_with_sign :: (fn(head : String, signed : bool) -> Option(VcOp))(
+  cond(
+    (head == "+") => Option(VcOp).Some(VcOp.BvAdd),
+    (head == "-") => Option(VcOp).Some(VcOp.BvSub),
+    (head == "*") => Option(VcOp).Some(VcOp.BvMul),
+    (head == "/") => Option(VcOp).Some(cond(signed => VcOp.BvSdiv, true => VcOp.BvUdiv)),
+    (head == "%") => Option(VcOp).Some(cond(signed => VcOp.BvSrem, true => VcOp.BvUrem)),
+    (head == "<") => Option(VcOp).Some(cond(signed => VcOp.BvSlt, true => VcOp.BvUlt)),
+    (head == "<=") => Option(VcOp).Some(cond(signed => VcOp.BvSle, true => VcOp.BvUle)),
+    (head == ">") => Option(VcOp).Some(cond(signed => VcOp.BvSgt, true => VcOp.BvUgt)),
+    (head == ">=") => Option(VcOp).Some(cond(signed => VcOp.BvSge, true => VcOp.BvUge)),
+    (head == "==") => Option(VcOp).Some(VcOp.EqOp),
+    (head == "!=") => Option(VcOp).Some(VcOp.DistinctOp),
+    (head == "&&") => Option(VcOp).Some(VcOp.AndOp),
+    (head == "||") => Option(VcOp).Some(VcOp.OrOp),
+    (head == "<<") => Option(VcOp).Some(VcOp.BvShl),
+    (head == ">>") => Option(VcOp).Some(cond(signed => VcOp.BvAshr, true => VcOp.BvLshr)),
+    (head == "&") => Option(VcOp).Some(VcOp.BvAndOp),
+    (head == "|") => Option(VcOp).Some(VcOp.BvOrOp),
+    (head == "^") => Option(VcOp).Some(VcOp.BvXorOp),
+    true => Option(VcOp).None
+  )
+);
+/// Signedness comes from the FIRST argument's type.
+_binop_of_ctx :: (fn(inout(ctx) : VcCtx, head : String, args : ArrayList(AstExpr)) -> Option(VcOp))({
+  signed := match(
+    args.get(usize(0)),
+    .Some(a) => match(
+      expr_info_table_get(ctx.table, ast_expr_id(a)),
+      .Some(ai) => _int_is_signed(ai.ty),
+      .None => true
+    ),
+    .None => true
+  );
+  _binop_of_with_sign(head, signed)
+});
+_widen_or_trunc :: (fn(t : VcTerm, src_w : usize, dst_w : usize, src_signed : bool) -> VcTerm)({
+  if(dst_w == src_w, {
+    return(t);
+  });
+  if(dst_w > src_w, {
+    if(src_signed, {
+      return(_app1(VcOp.SignExtendOp(extra : (dst_w - src_w)), t));
+    }, {
+      return(_app1(VcOp.ZeroExtendOp(extra : (dst_w - src_w)), t));
+    });
+  });
+  _app1(VcOp.ExtractOp(hi : (dst_w - usize(1)), lo : usize(0)), t)
+});
+/// `cond(c1 => v1, …, true => vN)` as nested ite VALUES (V3: no branch-local
+/// obligations — the whole cond is one value).
+_cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+  // Pair up (condition, value); the trailing `true => v` arm is the else.
+  conds := ArrayList(VcTerm).new();
+  vals := ArrayList(VcTerm).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    arm := args.get(i).unwrap();
+    // Each arm is FnCall("=>", [cond, value]).
+    if(ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
+      aa := match(
+        arm,
+        .FnCall(_, _, a2, _, _) => a2,
+        .Atom(_, _) => ArrayList(AstExpr).new()
+      );
+      c_opt := _expr_term(ctx, aa.get(usize(0)).unwrap());
+      v_opt := _expr_term(ctx, aa.get(usize(1)).unwrap());
+      if(c_opt.is_none() || v_opt.is_none(), {
+        return(Option(VcTerm).None);
+      });
+      ct := c_opt.unwrap();
+      vt := v_opt.unwrap();
+      conds.push(ct);
+      vals.push(vt);
+    }, {
+      _fail_subset(ctx, String.from("cond arm outside ite shape"), arm);
+      return(Option(VcTerm).None);
+    });
+    i = (i + usize(1));
+  });
+  if(vals.len() == usize(0), {
+    _fail_subset(ctx, String.from("empty cond"), at);
+    return(Option(VcTerm).None);
+  });
+  // Fold right: else = last value; each earlier arm ites on its condition.
+  // VcTerm is a ref enum, so the folded cell is written through a pointer.
+  acc := vals.get(vals.len() - usize(1)).unwrap();
+  acc_cell := box(acc);
+  (j : usize) = (conds.len() - usize(1));
+  while(true, {
+    if(j == usize(0), {
+      break;
+    });
+    j = (j - usize(1));
+    c := conds.get(j).unwrap();
+    v := vals.get(j).unwrap();
+    ite_args := ArrayList(VcTerm).new();
+    ite_args.push(c);
+    ite_args.push(v);
+    ite_args.push(acc_cell.*);
+    acc_cell.* = VcTerm.App(VcOp.IteOp, ite_args);
+  });
+  Option(VcTerm).Some(acc_cell.*)
+});
+/// begin block: sequence statements; `name := expr` binds; the LAST expr is
+/// the value.
+/// The first argument's name when it is a plain atom.
+_atom_arg_name :: (fn(args : ArrayList(AstExpr)) -> Option(String))(
+  match(
+    args.get(usize(0)),
+    .Some(first) => cond(
+      ast_expr_is_atom(first) => Option(String).Some(ast_expr_token(first).value),
+      true => Option(String).None
+    ),
+    .None => Option(String).None
+  )
+);
+/// A `(name : T)` lhs's name: the `:`-call's first argument.
+_typed_binding_lhs_name :: (fn(lhs : AstExpr) -> Option(String))(
+  match(
+    lhs,
+    .FnCall(_, _, la, _, _) => _atom_arg_name(la),
+    .Atom(_, _) => Option(String).None
+  )
+);
+/// The name a binding statement binds: `x := v` / `x = v` (Atom lhs) or
+/// the declared form `(x : T) = v` (`:`-call lhs). `.None` for anything
+/// else (field writes, index writes — outside the V3 subset).
+_binding_name_of :: (fn(lhs : AstExpr) -> Option(String))(
+  cond(
+    ast_expr_is_atom(lhs) => Option(String).Some(ast_expr_token(lhs).value),
+    ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))) => _typed_binding_lhs_name(lhs),
+    true => Option(String).None
+  )
+);
+_begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+  (i : usize) = usize(0);
+  result := Option(VcTerm).None;
+  while(i < args.len(), {
+    stmt := args.get(i).unwrap();
+    // Bindings: `name := value` and `name = value` / `(name : T) = value`.
+    // A reassignment is an SSA REBIND of the same source name — sound for
+    // straight-line code (the old term is simply shadowed); mutation-based
+    // two-state reasoning is V5. Non-name assignments (field/index writes)
+    // are outside the subset.
+    is_bind := ast_expr_is_fn_call_of(stmt, ":=", Option(usize).Some(usize(2)));
+    is_assign := ast_expr_is_fn_call_of(stmt, "=", Option(usize).Some(usize(2)));
+    if(is_bind || is_assign, {
+      ba := match(
+        stmt,
+        .FnCall(_, _, a2, _, _) => a2,
+        .Atom(_, _) => ArrayList(AstExpr).new()
+      );
+      match(
+        _binding_name_of(ba.get(usize(0)).unwrap()),
+        .Some(name) => {
+          v := _expr_term(ctx, ba.get(usize(1)).unwrap());
+          match(
+            v,
+            .Some(vt) => {
+              ctx.vars.insert(name.clone(), vt);
+              result = Option(VcTerm).Some(vt);
+            },
+            .None => {
+              return(Option(VcTerm).None);
+            }
+          );
+        },
+        .None => {
+          _fail_subset(ctx, String.from("assignment to a non-name (field/index writes are outside the V3 subset)"), stmt);
+          return(Option(VcTerm).None);
+        }
+      );
+    }, {
+      v := _expr_term(ctx, stmt);
+      match(
+        v,
+        .Some(vt) => {
+          result = Option(VcTerm).Some(vt);
+        },
+        .None => {
+          return(Option(VcTerm).None);
+        }
+      );
+    });
+    i = (i + usize(1));
+  });
+  result
+});
+/// Calls to a contracted callee: prove requires under the caller path,
+/// then assume ensures with a fresh result var bound.
+_callee_call_term :: (
+  fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr), info : ExprInfo)
+  -> Option(VcTerm)
+)({
+  // The callee's FuncVal rides the callee atom's ExprInfo.
+  callee_atom := match(
+    e,
+    .FnCall(_, f, _, _, _) => f,
+    .Atom(_, _) => e
+  );
+  callee_id := match(
+    expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
+    .Some(ci) => match(
+      ci.value,
+      .Some(v) => match(
+        v,
+        .FuncVal(fvd, _) => Option(String).Some(fvd.*.func_id.clone()),
+        _ => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .None => Option(String).None
+  );
+  if(callee_id.is_none(), {
+    _fail_subset(ctx, String.from("call to an uncontracted, untyped callee"), e);
+    return(Option(VcTerm).None);
+  });
+  fid := callee_id.unwrap();
+  // Recursion: a self-call needs `decreases(...)` — termination measures
+  // are Phase V4 (plan §"Loops, mutation, old, and decreases").
+  if(fid == ctx.func_id, {
+    _fail_subset(ctx, String.from("recursion (requires decreases(...) — Phase V4)"), e);
+    return(Option(VcTerm).None);
+  });
+  reqs := get_func_requires_exprs(fid.clone());
+  enss := get_func_ensures_exprs(fid.clone());
+  if((reqs.len() == usize(0)) && (enss.len() == usize(0)), {
+    // No contracts: the plan's case 3 — result unconstrained beyond type.
+    _fail_subset(ctx, String.from("call to a callee without contracts"), e);
+    return(Option(VcTerm).None);
+  });
+  // Evaluate the argument terms FIRST (a failure aborts the call), then
+  // prove each requires under the caller path. V3 note: requires/ensures
+  // predicates are evaluated in the CALLER's scope; substituting callee
+  // param names with caller argument terms happens via ctx.vars rebinding
+  // keyed by the callee's param labels (FuncValData.params order). The
+  // rebindings (plus the callee's return-label binding, below) are SAVED
+  // and restored after the call — the caller's own bindings must survive.
+  callee_params := match(
+    expr_info_table_get(ctx.table, ast_expr_id(callee_atom)),
+    .Some(ci2) => match(
+      ci2.value,
+      .Some(v2) => match(
+        v2,
+        .FuncVal(fvd2, _) => fvd2.*.params,
+        _ => ArrayList(String).new()
+      ),
+      .None => ArrayList(String).new()
+    ),
+    .None => ArrayList(String).new()
+  );
+  saved_names := ArrayList(String).new();
+  saved_vals := ArrayList(Option(VcTerm)).new();
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    match(
+      args.get(i),
+      .Some(a) => {
+        v := _expr_term(ctx, a);
+        match(
+          v,
+          .Some(vt) => {
+            match(
+              callee_params.get(i),
+              .Some(cp) => {
+                saved_names.push(cp.clone());
+                saved_vals.push(ctx.vars.get(cp.clone()));
+                ctx.vars.insert(cp.clone(), vt);
+              },
+              .None => ()
+            );
+          },
+          .None => {
+            return(Option(VcTerm).None);
+          }
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  (ri : usize) = usize(0);
+  while(ri < reqs.len(), {
+    match(
+      reqs.get(ri),
+      .Some(req) => {
+        rt := _expr_term(ctx, req);
+        match(
+          rt,
+          .Some(rtt) => {
+            _emit(ctx, `requires#${ri.to_string()}`, ArrayList(VcTerm).new(), rtt);
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  // Assume ensures with a fresh result bound. The callee's ensures name
+  // the return value through ITS return label (V1 decision D3) — bind that
+  // label to the fresh result var while the predicates are evaluated.
+  ret_sort := match(
+    _type_sort(info.ty),
+    .Some(s) => s,
+    .None => VcSort.BoolS
+  );
+  fresh_idx := _next_fresh(ctx);
+  ret_name := `__ret_${fresh_idx.to_string()}`;
+  ret_var := VcTerm.Var(name : ret_name.clone(), sort : ret_sort);
+  ctx.vars.insert(ret_name.clone(), ret_var);
+  callee_label := get_func_return_label(fid.clone());
+  match(
+    callee_label,
+    .Some(cl) => {
+      saved_names.push(cl.clone());
+      saved_vals.push(ctx.vars.get(cl.clone()));
+      ctx.vars.insert(cl.clone(), ret_var);
+    },
+    .None => ()
+  );
+  (ei : usize) = usize(0);
+  while(ei < enss.len(), {
+    match(
+      enss.get(ei),
+      .Some(ens) => {
+        et := _expr_term(ctx, ens);
+        match(
+          et,
+          .Some(ett) => {
+            ctx.path.push(ett);
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    ei = (ei + usize(1));
+  });
+  // Restore the caller's bindings (a missing binding goes back to missing).
+  (si : usize) = saved_names.len();
+  while(si > usize(0), {
+    si = (si - usize(1));
+    match(
+      saved_names.get(si),
+      .Some(sn) => {
+        match(
+          saved_vals.get(si),
+          .Some(sv) => {
+            match(
+              sv,
+              .Some(old) => {
+                ctx.vars.insert(sn.clone(), old);
+              },
+              .None => {
+                _ := ctx.vars.remove(sn.clone());
+                ()
+              }
+            );
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+  });
+  Option(VcTerm).Some(ret_var)
+});
+// ============================================================================
+// Small term helpers
+// ============================================================================
+_nonzero_term :: (fn(t : VcTerm) -> VcTerm)(
+  match(
+    t,
+    .BoolLit(_) => t,
+    _ => {
+      w := _term_width(t);
+      vc_distinct(t, VcTerm.BvLit(value : u64(0), width : w))
+    }
+  )
+);
+_lt_unsigned_term :: (fn(a : VcTerm, b : VcTerm) -> VcTerm)(_app2(VcOp.BvUlt, a, b));
+_term_width :: (fn(t : VcTerm) -> usize)(
+  match(
+    t,
+    .Var(_, sort) => match(
+      sort,
+      .BvS(w) => w,
+      _ => usize(1)
+    ),
+    .BvLit(_, w) => w,
+    .BoolLit(_) => usize(1),
+    .App(op, args) => match(
+      args.get(usize(0)),
+      .Some(a) => _term_width(a),
+      .None => usize(1)
+    ),
+    .Quant(_, _, _, _) => usize(1)
+  )
+);
+// ============================================================================
+// The per-function entry point
+// ============================================================================
+/// VerifyInput: everything the definition site knows.
+VerifyFnInput :: ref(
+  struct(
+    fn_name : String,
+    /// The FuncVal's `func_id` (recursion detection; the re-keyed
+    /// contract side tables are readable under it).
+    func_id : String,
+    body : AstExpr,
+    param_names : ArrayList(String),
+    param_types : ArrayList(TypeValue),
+    result_type : TypeValue,
+    requires_exprs : ArrayList(AstExpr),
+    ensures_exprs : ArrayList(AstExpr),
+    return_label : Option(String),
+    table : ExprInfoTable
+  )
+);
+/// Symbolically execute one function definition. Always returns a result —
+/// subset violations land in `.error`, never thrown.
+verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
+  ctx := _new_vc_ctx(input.table, input.fn_name.clone(), input.func_id.clone());
+  // Bind params as declared vars.
+  (i : usize) = usize(0);
+  while(i < input.param_names.len(), {
+    match(
+      input.param_names.get(i),
+      .Some(pn) => {
+        match(
+          input.param_types.get(i),
+          .Some(pt) => {
+            match(
+              _type_sort(pt),
+              .Some(sort) => {
+                ctx.vars.insert(pn.clone(), VcTerm.Var(name : pn.clone(), sort : sort));
+              },
+              .None => {
+                _fail_subset(ctx, String.from("parameter outside the integer/bool subset"), input.body);
+              }
+            );
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // Callee-side: ASSUME the requires.
+  (ri : usize) = usize(0);
+  while(ri < input.requires_exprs.len(), {
+    match(
+      input.requires_exprs.get(ri),
+      .Some(r) => {
+        rt := _expr_term(ctx, r);
+        match(
+          rt,
+          .Some(rtt) => {
+            ctx.path.push(rtt);
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  // Bind the return label to the body value; then prove each ensures.
+  body_val := _expr_term(ctx, input.body);
+  match(
+    body_val,
+    .Some(bv) => {
+      match(
+        input.return_label,
+        .Some(lbl) => {
+          ctx.vars.insert(lbl.clone(), bv);
+        },
+        .None => ()
+      );
+      (ei : usize) = usize(0);
+      while(ei < input.ensures_exprs.len(), {
+        match(
+          input.ensures_exprs.get(ei),
+          .Some(ens) => {
+            et := _expr_term(ctx, ens);
+            match(
+              et,
+              .Some(ett) => {
+                _emit(ctx, `ensures#${ei.to_string()}`, ArrayList(VcTerm).new(), ett);
+              },
+              .None => ()
+            );
+          },
+          .None => ()
+        );
+        ei = (ei + usize(1));
+      });
+    },
+    .None => ()
+  );
+  VcBodyResult(
+    obligations : ctx.obligations,
+    value : body_val,
+    error : ctx.subset_error
+  )
+});
+export(
+  VcObligation,
+  VcSubsetError,
+  VcBodyResult,
+  VerifyFnInput,
+  verify_function_body
+);

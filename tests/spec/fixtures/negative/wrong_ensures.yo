@@ -1,0 +1,14 @@
+// V3 negative fixture (plans/backlog/FORMAL_VERIFICATION.md task 8).
+//
+// A deliberately WRONG post-condition: abs(0) == 0, so `r > 0` fails at
+// x = 0. `yo verify` must REFUTE this at compile time with a concrete
+// counter-example naming x. The correct twin is `abs_i32` in
+// tests/spec/verify_straight_line.test.yo (ensures(r >= 0), proves).
+pragma(Pragma.Verify);
+
+abs_wrong :: (fn(x : i32, ensures(r > i32(0))) -> (r : i32))(
+  cond(
+    (x < i32(0)) => (i32(0) - x),
+    true => x
+  )
+);

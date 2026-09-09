@@ -15,8 +15,6 @@
 pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 { ArrayList } :: import("std/collections/array_list");
-{ HashSet } :: import("std/collections/hash_set");
-{ eprintln } :: import("std/fmt");
 { AstExpr, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_id, ast_expr_to_string, BF_PRAGMA } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { new_expr_info, expr_info_table_set, expr_info_table_get } :: import("../../expr_info.yo");
@@ -146,21 +144,10 @@ pre_scan_for_skip_prelude :: (fn(program : ArrayList(AstExpr)) -> bool)({
   });
   found
 });
-/// Files already warned about a not-yet-implemented verify-mode pragma,
-/// keyed `<module_path>|<kind>`. Mirrors `warnedVerifyFiles` in
-/// `src/evaluator/builtins/pragma.ts`.
-(g_warned_verify_files : HashSet(String)) = HashSet(String).new();
-/// One-time per-file warning for verify-mode pragmas that the verifier
-/// doesn't yet honor. Phase 0 only — these warnings disappear when the
-/// verifier lands in Phase 1. Mirrors `warnVerifyModeNotImplemented`.
-warn_verify_mode_not_implemented :: (fn(module_path : String, kind_name : String) -> unit)({
-  key := `${module_path}|${kind_name}`;
-  if(g_warned_verify_files.contains(key.clone()), return(()));
-  g_warned_verify_files.insert(key);
-  eprintln(
-    `[warning] pragma(Pragma.${kind_name}) in ${module_path}: verify mode is not implemented yet (Phase 0 of plans/backlog/FORMAL_VERIFICATION.md). Contracts in this file will behave as if no pragma were set — they parse and (in later phases) lower to runtime asserts, but no proof obligations are generated.`
-  );
-});
+/// The Phase-0 "verify mode is not implemented yet" per-file warning is
+/// RETIRED with V3: the verifier pass honors `Pragma.Verify` /
+/// `Pragma.VerifyOrAssert` (mode dispatch + task registration in
+/// evaluator/builtins/contracts.yo).
 /// Eval-time `pragma(...)` handler. Mirrors `evaluatePragma`
 /// (`src/evaluator/builtins/pragma.ts`): the `SkipPrelude` AST shape
 /// short-circuits (the file may not have `Pragma` in scope — that is exactly
@@ -271,12 +258,10 @@ evaluate_pragma :: (
       .Some(kind) => {
         tok := ast_expr_token(expr);
         register_file_pragma(tok.module_path.clone(), kind);
-        match(
-          kind,
-          .Verify => warn_verify_mode_not_implemented(tok.module_path.clone(), String.from("Verify")),
-          .VerifyOrAssert => warn_verify_mode_not_implemented(tok.module_path.clone(), String.from("VerifyOrAssert")),
-          _ => ()
-        );
+        // `Verify`/`VerifyOrAssert` are honored by the V3 verifier pass
+        // (mode dispatch + task registration, evaluator/builtins/contracts.yo);
+        // the Phase-0 "not implemented" warning is gone.
+        ()
       }
     )
   );
