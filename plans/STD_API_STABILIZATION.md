@@ -482,11 +482,12 @@ find/rfind/eq_ignore_ascii_case/is_ascii/insert/remove/truncate/pop`; one
 string builder (three vocabularies today); `fmt.Writer.write_padded` pads by
 bytes while `FormatSpec` pads by runes; `Alignment` exported.
 
-**Encoding.** `Url.join/query_pairs/path_segments/set_*` (http hand-rolls
-redirect resolution because `join` is missing); `JsonValue` mutation (`insert/
-remove/object()`), `is_*`/`as_i64`/`as_u64`, `pointer`, integer arms; TOML
-floats/arrays/dates/inline tables/escapes/comments/serializer (today ~⅓ of the
-format); `EncodingError` with offsets; regex Rust-shaped names **LANDED 2026-09-09** —
+**Encoding.** Verified against the code 2026-09-09 — LANDED:
+`Url.join`/`query_pairs`/`path_segments`; `JsonValue` mutation
+(`insert`/`remove`/`object()`), `is_*`/`as_i64`/`as_u64`, `pointer`, integer
+arms; TOML values; `GlobPattern` + filesystem `glob()`. STILL OPEN:
+`Url.set_*`; `EncodingError` with offsets; module-prefix stutter
+(`json_parse` → `json.parse` …). regex Rust-shaped names **LANDED 2026-09-09** —
 `test` → `is_match`, `exec` → `find`, `match_all` → `find_all`, and the
 two-argument `new(pattern, flags)` split into a one-argument `new(pattern)`
 (what `compile` used to be, now deleted) plus `new_with_flags(pattern, flags)`,
@@ -499,17 +500,19 @@ its groups, so a second method would add nothing — `find`'s doc says so.
 first match's byte offset, which is `find(input)`'s `RegexMatch.index()`, so it
 was a strictly-less-informative duplicate carrying a JavaScript name. Only one
 non-test caller existed in the whole tree (`src/main.yo`'s
-`--test-name-pattern`); `GlobPattern.new -> Result` +
-filesystem `glob()`; module-prefix stutter (`json_parse` → `json.parse` …).
+`--test-name-pattern`).
 
-**I/O.** `Seek` trait; `Stdout.write_string`; `Reader.read_exact` as a
-default; `Child` stdin/stdout/stderr as `Reader`/`Writer` handles; `Watcher`
-`Dispose`; `OpenOptions`; lazy `read_dir`; `Metadata.modified() -> SystemTime`
-with a real `SystemTime`/`UNIX_EPOCH` in `std/time`; `SocketAddr`/`IpAddr`
-`Eq/Hash/Ord/Clone` + `parse`/`parse_v6`; `UdpSocket.recv_from -> (n, from)`;
-`TcpStream.local_addr`, `TcpListener.incoming`; HTTP `StatusCode` + `HeaderMap`
-+ byte bodies (`parse_response` string-concats the body — binary responses are
-broken client-side) + keep-alive.
+**I/O.** Verified against the code 2026-09-09 — LANDED:
+`Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
+`Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
+`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: a `Seek` trait
+(only a bare `lseek` in `std/sys/seek.yo`); `OpenOptions`; a real
+`SystemTime`/`UNIX_EPOCH` in `std/time` for `Metadata.modified` to return;
+`IpAddr.parse_v6`; `Child` stdin/stdout/stderr as `Reader`/`Writer` handles;
+`Watcher` `Dispose`; `UdpSocket.recv_from -> (n, from)` (it still takes raw
+`*u8` / `*u32` out-params — a C-shaped signature in std); HTTP `StatusCode` +
+`HeaderMap` + byte bodies (`parse_response` string-concats the body, so binary
+responses are broken client-side) + keep-alive.
 
 **Core.** `checked_/wrapping_/saturating_/overflowing_` on every integer
 (LANDED), `clamp/min/max` (LANDED), `checked_abs`/`checked_pow` (LANDED);
@@ -536,10 +539,14 @@ The `f64`/`f32`
 methods and consts (`sqrt/abs/floor/ceil/round/trunc/is_nan/is_finite/
 is_infinite/signum/min/max/hypot/exp/ln/sin/EPSILON/INFINITY/NAN`) are all
 LANDED in `std/math.yo` — the "today only raw `libc/math`" note above is a
-snapshot from before that work. Also still open: `Error` ergonomics: `is(T)`, documented
-`downcast`, `ErrorChain`, `Context(msg, source)` (nothing in the tree overrides
-`source`); `Default` on ~15 more types; `bench`
-`black_box` + auto-calibration; `log` `Sink` trait + `YO_LOG`; `rand`
+snapshot from before that work. Verified against the code 2026-09-09 — also LANDED: `Error` `is(T)`
+(the free `error_is`), `Context(msg, source)`, `Default` across the type set
+(#500), `bench` `black_box`, and `log`'s `Sink` trait + `YO_LOG`. STILL OPEN:
+a documented `downcast` and `ErrorChain`; the unchecked integer forms
+(`abs`/`signum`/`pow`) plus `abs_diff`, `div_euclid`/`rem_euclid`, `midpoint`,
+`isqrt` and the `to_be_bytes`/`from_le_bytes` family — the byte conversions
+want either a `SignedInteger` marker or per-type `Array(u8, N)` returns, which
+is its own change. `rand`
 batteries — **LANDED 2026-09-09**: every range-taking API in std is now
 `Range`-typed (`rng.range(i64(1) .. i64(7))`, `random_range(a .. b, exn)`,
 `m.range(k1 .. k2)`), so the half-open bound is visible at the call site
@@ -555,16 +562,34 @@ entropy and serialized behind a `Mutex`. It is deliberately NOT called
 not expressible and the name would promise state it cannot deliver — the docs
 say to take an own `Rng.from_entropy()` in a hot loop instead.
 
-**Concurrency.** `Thread(T).spawn` + `join() -> T` (D18); `Sender`/`Receiver`
-split with auto-close on last sender; waker-based `yield`/`async channel`/
-`async mutex` instead of 1 ms timer polls; `async/mutex.with_lock` either takes
-an `io` (so its doc claim becomes true) or drops the claim; `Once.call`
-rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
+**Concurrency.** Verified against the code 2026-09-09 — LANDED:
+`Thread(T).spawn` + `join() -> T` (D18); `Semaphore.with_permit`;
+`try_recv -> TryRecvError{Empty, Disconnected}` (#506). STILL OPEN:
+`Sender`/`Receiver` split with auto-close on last sender; waker-based
+`yield`/`async channel`/`async mutex` instead of 1 ms timer polls;
+`async/mutex.with_lock` either taking an `io` (so its doc claim becomes true)
+or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface;
-`JoinHandle` `Dispose`; `Mutex.try_lock`, `Condvar.wait_timeout`,
-`RwLock.try_*`, `Semaphore.with_permit`, `interval`, `spawn_blocking`;
-`try_recv -> TryRecvError{Empty, Disconnected}`; a concurrent test for `Mutex`
-(it has none).
+`JoinHandle` `Dispose`; `interval`; `spawn_blocking`; a concurrent test for
+`Mutex` (it has none).
+
+**BLOCKED on the seed, not on design:** `Mutex.try_lock`,
+`Condvar.wait_timeout` and `RwLock.try_*` all need `__yo_mutex_trylock` /
+`__yo_cond_timedwait` in the runtime, and `std/` cannot use a new `__yo_*`
+macro until the SEED ships it. The compiler half also has to give Linux's
+condvar a monotonic-clock init, which changes `__yo_cond_init` — shared with
+the GC's stop-the-world condvar — so it is a compiler PR first, then a std PR
+one release later.
+
+**A live runtime bug sits under this group:**
+`issues/yield-resumption-order-diverges-on-macos-ci.md` — two tasks that
+`yield` in submission order have twice resumed in reverse order on macOS CI
+legs, from PRs touching nothing async. The ready queue was read and IS strict
+FIFO, so the issue's original "make it FIFO" fix is refuted; the open
+candidates are the `io.spawn` codegen path, how an await of an
+already-completed future suspends, and corruption via the LIFO continuation
+free list. Do not weaken the assertion — it encodes the documented
+cooperative-scheduling contract.
 
 ---
 
