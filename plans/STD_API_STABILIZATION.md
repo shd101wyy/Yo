@@ -443,7 +443,8 @@ saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
 `thread_rng`. Concurrency — `Thread` is NOT generic and `join -> unit`
 (`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split,
-`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*`,
+`Condvar.wait_timeout`, `RwLock.try_*` (the runtime primitives landed
+2026-09-10; the std half waits one release),
 `Semaphore.with_permit`, `interval`, `spawn_blocking`, `TryRecvError` all absent;
 `_raw_lock` is still public (`std/sync/once.yo:70`) — that row asks for REMOVAL,
 so "present" means the work remains.
@@ -658,13 +659,55 @@ or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `JoinHandle` `Dispose`; `interval`; `spawn_blocking`; a concurrent test for
 `Mutex` (it has none).
 
-**BLOCKED on the seed, not on design:** `Mutex.try_lock`,
-`Condvar.wait_timeout` and `RwLock.try_*` all need `__yo_mutex_trylock` /
-`__yo_cond_timedwait` in the runtime, and `std/` cannot use a new `__yo_*`
-macro until the SEED ships it. The compiler half also has to give Linux's
-condvar a monotonic-clock init, which changes `__yo_cond_init` — shared with
-the GC's stop-the-world condvar — so it is a compiler PR first, then a std PR
-one release later.
+**`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*` — the COMPILER HALF
+LANDED 2026-09-10; the std half waits for one release.**
+
+`__yo_mutex_trylock` and `__yo_cond_timedwait` are now in the emitted runtime
+(`src/codegen/types/generation.yo`). `std/` still cannot call them until the
+SEED ships them, so the sequence is: this compiler PR → release → SEED_VERSION
+bump → the std PR.
+
+Three platform shapes, and the reason for each:
+
+- **Windows** rounds the timeout UP to the next millisecond.
+  `SleepConditionVariableCS` takes milliseconds, so truncating a
+  sub-millisecond timeout to 0 makes it return IMMEDIATELY — a "wait 100 us"
+  would never wait at all. Only `ERROR_TIMEOUT` counts as a timeout; any other
+  failure is reported as a wake so the caller re-checks its predicate rather
+  than concluding the wait expired.
+- **macOS** uses `pthread_cond_timedwait_relative_np`. It has no
+  `pthread_condattr_setclock`, and the relative form needs no deadline
+  arithmetic and no clock agreement at all.
+- **Linux** binds the condvar to `CLOCK_MONOTONIC` at init and reads the
+  deadline from the same clock. The clock is a property of the CONDVAR, not of
+  the wait — `pthread_cond_timedwait` interprets its absolute deadline with
+  whatever clock the condvar was created with — so the two MUST agree, and one
+  macro names it for both. Everything else POSIX (wasm) falls back to the wall
+  clock for both halves.
+
+`__yo_cond_init` therefore changed from a macro to a `static inline` on POSIX,
+which is shared with the GC's stop-the-world condvar and the parallelism
+workers. **The blast radius is nil in practice:** an UNTIMED
+`pthread_cond_wait` never consults a clock, so binding the condvar to
+`CLOCK_MONOTONIC` changes nothing for any existing waiter — only a timed wait
+can observe it, and until the std half lands the only timed wait in the tree is
+the test below.
+
+Coverage: `tests/sync/timedwait.test.yo` (6 tests) declares both primitives
+`extern` and exercises them — `tests/` is not seed-gated, so this is what
+proves they WORK a release before `std/` can call them, which a `static inline`
+with no caller would otherwise never demonstrate. It covers an uncontended
+trylock, a trylock contended from ANOTHER thread (a same-thread re-lock is not
+portable: a Windows `CRITICAL_SECTION` is recursive and answers true where a
+POSIX `NORMAL` mutex answers false), a timeout WITH an elapsed-time assertion,
+an early return on signal, a sub-millisecond timeout, and zero/negative
+timeouts. The elapsed assertion is the load-bearing one: a deadline whose
+`tv_nsec` escapes `[0, 1e9)` makes `pthread_cond_timedwait` return `EINVAL`
+immediately, which is indistinguishable from a timeout by return value alone.
+Verified locally on macOS (60 ms measured for a 50 ms request) and under
+`--c-compiler emcc`, which takes the same absolute-deadline path Linux does;
+the `CLOCK_MONOTONIC` init itself is Linux-only and is covered by CI's Linux
+legs.
 
 **A live runtime bug sits under this group:**
 `issues/yield-resumption-order-diverges-on-macos-ci.md` — two tasks that
