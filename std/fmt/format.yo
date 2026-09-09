@@ -16,7 +16,7 @@
 //! `ada`.format("<8");        // "ada     "
 //! ```
 { FormatSpec } :: import("./spec");
-{ Alignment, Writer } :: import("./writer");
+{ Alignment, StringBuilder } :: import("../string/string_builder");
 { StringBuilder } :: import("../string/string_builder");
 { ArrayList } :: import("../collections/array_list");
 open(import("../string"));
@@ -75,10 +75,12 @@ _prefix_of :: (fn(radix : u64, alt : bool) -> String)(
     true => String.new()
   )
 );
-/// Render `v` with exactly `p` decimal places, via the Writer primitive.
-_f64_fixed :: (fn(v : f64, p : usize) -> String)(
-  Writer.new().write_f64(v, i32(p)).to_string()
-);
+/// Render `v` with exactly `p` decimal places, via the builder primitive.
+_f64_fixed :: (fn(v : f64, p : usize) -> String)({
+  sb := StringBuilder.new();
+  sb.write_f64(v, i32(p));
+  sb.to_string()
+});
 /// Shared body for every integer impl: `neg` and `mag` are the sign-magnitude
 /// split the caller computed in its own width.
 _format_int :: (fn(neg : bool, mag : u64, decimal : String, spec : str) -> String)({

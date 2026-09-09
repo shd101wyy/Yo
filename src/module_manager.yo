@@ -812,20 +812,36 @@ mm_load_file :: (
 /// Ensure the prelude env is cached AND its O(1) variable cache is built. Call
 /// once per run before checking a corpus, so the cached env is free of the first
 /// file's own bindings.
+/// Load the prelude into the cached env, printing its diagnostic if it fails.
+///
+/// **Returns whether the prelude is usable**, and the caller must act on it. A
+/// prelude that fails to evaluate is the ROOT cause of everything that follows,
+/// so continuing produces a SECOND diagnostic for the same fault: the compile
+/// path used to print the prelude error here and then walk straight into
+/// `mm_eval_entry_exprs`, which failed for the same reason and printed the
+/// rendered error again. Two identical lines, no context — visible whenever the
+/// prelude is what breaks, e.g. `--compile-timeout-ms 1`, where the cooperative
+/// deadline is LATCHED and every later dispatch rethrows
+/// (`issues/fixed/failed-prelude-load-prints-twice-and-continues.md`).
+///
+/// The decision cannot live in here: `src/lsp/diagnostics.yo` calls this on
+/// every analysis and must DEGRADE rather than die, so an `exit` at this edge
+/// would take the language server down with it.
 mm_preload_prelude :: (
   fn(
     std_path : String,
     verbose : bool,
     io : Io,
     exn : Exception
-  ) -> unit
+  ) -> bool
 )({
+  (ok : bool) = true;
   if(g_cached_prelude_env.is_none(), {
     pre_outcome := mm_load_file(`${std_path}/prelude.yo`, std_path.clone(), verbose, io, exn);
-    // A prelude that fails to evaluate is the ROOT cause of everything that
-    // follows — print its diagnostic here, once, at this edge (the P1
-    // single-print rule; the loader's handlers only stash).
+    // Print its diagnostic here, once, at this edge (the P1 single-print rule;
+    // the loader's handlers only stash).
     if(!pre_outcome.ok, {
+      ok = false;
       match(
         _take_load_error(),
         .Some(rendered) => eprintln(rendered),
@@ -836,6 +852,7 @@ mm_preload_prelude :: (
     // `mm_load_file`, to avoid interference with the compile path.
     match(g_cached_prelude_env, .Some(pe) => build_prelude_var_cache(pe), .None => ());
   });
+  ok
 });
 /// The front door for a subcommand that just needs a `.yo` file evaluated for
 /// its exports / registry side effects — TS's three-line

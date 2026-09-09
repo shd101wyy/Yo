@@ -237,8 +237,7 @@ open(import("std/error"));
 open(import("std/fmt"));
 
 DivError :: enum(DivByZero);
-impl(DivError, ToString(to_string : ((self) -> `division by zero`)));
-impl(DivError, Error());
+derive(DivError, Error(.DivByZero => `division by zero`));
 
 safe_divide :: (fn(x : i32, y : i32, exn : Exception) -> i32)(
   cond(

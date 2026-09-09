@@ -8,6 +8,14 @@ export(ToString, Debug);
 export(Format);
 { FormatSpec } :: import("./spec.yo");
 export(FormatSpec);
+// Re-exported so `open(import("std/fmt"))` sees the builder and its alignment
+// enum. They LIVE in `std/string/string_builder` — `std/fmt` already depends on
+// `std/string`, and the other direction would be a cycle — but a caller
+// formatting text should not have to know which package the builder is filed
+// under. (This is the audit's "Alignment exported" row: it was exported from
+// its own module and from nowhere a `std/fmt` user would look.)
+{ StringBuilder, Alignment } :: import("../string/string_builder");
+export(StringBuilder, Alignment);
 /// Write `s`'s bytes to `stream` — the one shared body behind
 /// `print`/`println`/`eprint`/`eprintln` (audit fmt row: collapse the four
 /// duplicated print bodies).

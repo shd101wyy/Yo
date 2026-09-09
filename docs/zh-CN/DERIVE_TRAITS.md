@@ -2,7 +2,7 @@
 
 `derive` 是一个编译期内建函数，可以自动为结构体和枚举类型生成特征实现。它的功能类似于 Rust 的 `#[derive(...)]` 属性，但使用函数调用语法。
 
-所有六个标准可派生特征（Eq、Hash、Clone、Ord、ToString、Default）都是**自宿主的**——它们的派生规则使用 `derive_rule` 机制直接在 Yo 中编写，而非在编译器中硬编码。
+`std` 中所有可派生特征都是**自宿主的**——派生规则使用 `derive_rule` 机制直接在 Yo 中编写，而非在编译器中硬编码。共有十个：`Eq`、`Hash`、`Clone`、`Ord`、`Default`、`ToString` 与 `Debug`（`std/prelude`、`std/fmt`），`Error`（`std/error`），以及 `ToJson` / `FromJson`（`std/encoding/json`）。
 
 ## 基本用法
 
@@ -109,6 +109,47 @@ d := (Config <: Default).default();
 每个字段类型都必须实现 `Default`。字段类型为泛型实例化（如 `ArrayList(i32)`、`Option(T)`）同样可用：派生规则通过结构体自身的字段列表取得字段类型，而非按名称引用，因此实现处无需任何额外的作用域引入。
 
 与 `Option.unwrap_or_default`、`Result.unwrap_or_default` 配合使用。
+
+### Debug
+
+生成与 `ToString` 相同的结构化渲染——结构体为 `TypeName(field1, field2, …)`，枚举为 `TypeName.Variant(…)`——但挂在 `Debug` 特征的 `debug_string` 上，于是一个类型可以同时拥有面向**开发者**的渲染和面向**用户**的 `to_string`。
+
+```rust
+derive(Point, Debug);
+
+p := Point(i32(1), i32(2));
+// p.debug_string() 返回 "Point(1, 2)"
+```
+
+这个拆分正是要点：`derive(ToString)` 产生的是结构化渲染，**不是**面向用户的消息，所以派生了 `ToString` 的错误类型只能得到 `JsonError.UnexpectedEnd`，而它想要的是 `unexpected end of input`。需要结构时用 `Debug`，需要文字消息时用下面的 `Error` 或手写 `ToString`。
+
+### Error
+
+从每个变体一条消息，同时生成 `ToString` **和** `Error`——相当于 `thiserror` 的 `#[error("…")]`，只是用 Yo 已有的语法写。**仅支持枚举**：结构体错误只有一条消息，直接手写那个 `ToString` impl 即可。
+
+```rust
+JsonError :: enum(
+  UnexpectedChar(ch : u8, pos : usize),
+  UnexpectedEnd,
+  Other(msg : String)
+);
+derive(JsonError, Error(
+  .UnexpectedChar => `unexpected character at position ${pos}`,
+  .UnexpectedEnd  => `unexpected end of input`,
+  .Other          => `JSON error: ${msg}`
+));
+```
+
+消息就是**普通的 Yo 代码**，会被拼接进绑定负载的那条 match 分支，因此 `${pos}` 是该变体自己的字段，而不是位置参数 `{0}`。字段名写错就是一个普通的「变量未找到」错误。
+
+两点需要知道：
+
+- **消息必须按声明顺序排列**，并且每条都会与它落在的变体逐一核对——因此新增、删除、重命名或重排变体都是编译错误，不会静默地把消息串位。
+- 它同时生成两个特征，是因为 `Error` 要求 `Self <: ToString`。这就是一次 `derive` 能替代原先「一个 `ToString` impl 加一行单独的 `impl(T, Error());`」的原因。
+
+### ToJson / FromJson
+
+由 `std/encoding/json` 注册。`derive(T, ToJson)` 依据类型的字段生成 `JsonValue` 编码器，`derive(T, FromJson)` 生成解码器。字段名与 `Option` 的约定见 `docs/zh-CN/JSON.md`。
 
 ## 多个特征
 
@@ -259,10 +300,12 @@ derive(generic(T1, T2), Pair(T1, T2), where((T1 <: MyEq(T1)), (T2 <: MyEq(T2))),
 
 ### 自宿主标准派生
 
-所有六个标准特征都使用相同的 `derive_rule` 机制：
+`std` 中每个可派生特征都使用相同的 `derive_rule` 机制，并且规则都与它所派生的特征放在一起：
 
-- **Eq、Clone、Hash、Ord、Default** — 派生规则定义在 `std/prelude.yo` 中
-- **ToString** — 派生规则定义在 `std/fmt/to_string.yo` 中（ToString 特征定义所在）
+- **Eq、Clone、Hash、Ord、Default** — `std/prelude.yo`
+- **ToString、Debug** — `std/fmt/to_string.yo`。两者共用一个 `__derive_structural_body(T, method)` 辅助函数，结构化渲染只存在一份，各自的特征只是把它包起来。
+- **Error** — `std/error.yo`。唯一一个一次调用生成**两个**特征体的规则，因为 `Error` 要求 `Self <: ToString`；也正因此它自己构造 `impl(T, ToString(…), Error())` 表达式，而不走只包一个特征体的 `DeriveContext.make_impl`。
+- **ToJson、FromJson** — `std/encoding/json.yo`
 
 这些实现使用基于字符串的代码生成，通过 `comptime_str` 和 `.to_expr()` 在编译期构建 impl 代码块。
 

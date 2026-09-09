@@ -35,22 +35,15 @@ CsvError :: enum(
   /// raised by `csv_parse_strict`). `record` is the 0-based record index.
   UnevenRecord(record : usize, expected : usize, found : usize)
 );
-impl(
+derive(
   CsvError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .UnexpectedAfterQuote(pos, byte) => `unexpected byte ${byte} after closing quote at byte ${pos}`,
-          .UnterminatedQuote(start) => `unterminated quoted field starting at byte ${start}`,
-          .BareCarriageReturn(pos) => `bare carriage return at byte ${pos}`,
-          .UnevenRecord(record, expected, found) => `record ${record} has ${found} fields, expected ${expected}`
-        )
-    )
+  Error(
+    .UnexpectedAfterQuote => `unexpected byte ${byte} after closing quote at byte ${pos}`,
+    .UnterminatedQuote => `unterminated quoted field starting at byte ${start}`,
+    .BareCarriageReturn => `bare carriage return at byte ${pos}`,
+    .UnevenRecord => `record ${record} has ${found} fields, expected ${expected}`
   )
 );
-impl(CsvError, Error());
 /// The record separator the writer emits.
 LineEnding :: enum(
   /// `\n`

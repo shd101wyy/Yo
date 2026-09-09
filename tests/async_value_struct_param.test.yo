@@ -1,0 +1,40 @@
+// Regression: a by-value struct parameter captured across an await
+// (issues/async-closure-value-struct-param-emits-invalid-c-cast.md).
+// The call-argument coercion used to wrap the state-machine slot read in
+// `(T)(sm->__yo_param_0)`; for by-value aggregates that cast is at best a
+// redundant identity and at worst an illegal CROSS-type struct cast when
+// the slot's C type and the recorded param type disagree (the
+// shell/final identity split) — the verbatim clang failure in the issue.
+// The fix passes by-value aggregate args bare; this test pins the
+// BEHAVIOR (the value survives the suspension intact, both reads agree).
+open(import("std/string"));
+open(import("std/fmt"));
+{ IoExn, Exception } :: import("std/error");
+{ yield } :: import("std/async");
+{ assert } :: import("std/assert");
+
+CFG :: struct(n : i32, tag : bool);
+
+use_cfg :: (fn(c : CFG) -> i32)(c.n);
+
+echo_cfg :: (fn(c : CFG, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    before := use_cfg(c);
+    _ := e.io.await(yield(e.io), e);
+    after := use_cfg(c);
+    after - before
+  })
+);
+
+test("by-value struct param survives an await and both calls see it", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected throw: ${err}`);
+      }
+    )
+  );
+  ioexn := IoExn(io : io, exn : exn);
+  r := io.await(echo_cfg(CFG(n : i32(21), tag : true), io), ioexn);
+  assert(r == i32(0), `after - before == 0, got ${r.to_string()}`);
+});

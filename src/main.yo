@@ -61,10 +61,11 @@ _(env : proc_env) :: import("std/env");
   SolverResolution,
   verifier_harness_self_test,
   verify_registered_functions,
+  verify_and_strip_tasks,
   VerifyResult,
   VerifyFnReport
 } :: import("./verifier/driver.yo");
-{ set_verify_mode_override, set_verify_target_paths } :: import("./evaluator/builtins/contracts.yo");
+{ set_verify_mode_override, set_verify_target_paths, take_verify_tasks } :: import("./evaluator/builtins/contracts.yo");
 { ensure_z3 } :: import("./verifier/z3.yo");
 { Z3_VERSION } :: import("./verifier/z3.yo");
 { json_stringify, JsonValue } :: import("std/encoding/json");
@@ -643,6 +644,58 @@ collect_check_files :: (
 ///
 /// The loading itself lives in `module_manager.yo` — `check` is one caller of
 /// that service, not its owner.
+/// V3 (plan task 6, the check/compile integration): drain the VerifyTask
+/// registry after an evaluation whose entry file was armed as a
+/// verification target, discharge the obligations, and apply the
+/// `verify+` strip pass. Prints one line per function report; the
+/// failure policy per the plan's verdict table: REFUTED is always a
+/// failure; unproven/solver-error/subset fail in `verify` mode and
+/// degrade to warnings in `verify+` (the runtime asserts stay). A
+/// missing solver is a FAILURE, not a skip: verify-mode codegen carries
+/// NO runtime asserts (the splice was suppressed), so shipping without
+/// the proofs would be unsound.
+_run_contract_verification :: (fn(io : Io, exn : Exception) -> bool)({
+  tasks := take_verify_tasks();
+  if((tasks.len() == usize(0)), {
+    return(true);
+  });
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    .InvalidPath(p) => {
+      eprintln(`verify: solver path '${p}' does not exist`);
+      return(false);
+    },
+    .Installable => {
+      eprintln(
+        `verify: no Z3 solver found — this file's verify-mode contracts need proofs (their runtime asserts are suppressed). Run 'yo verify <file>' once to auto-install the pinned Z3, or point YO_Z3_PATH at one.`
+      );
+      return(false);
+    }
+  );
+  reports := verify_and_strip_tasks(cfg, binary, tasks);
+  (all_ok : bool) = true;
+  (ri : usize) = usize(0);
+  while(ri < reports.len(), {
+    match(
+      reports.get(ri),
+      .Some(rp) => {
+        _print_verify_fn_report(rp, false);
+        if(!(rp.outcome == "ok"), {
+          if((rp.outcome == "refuted") || (rp.mode == "verify"), {
+            all_ok = false;
+          }, {
+            eprintln(`           (verify+ fallback: the runtime assert stays)`);
+          });
+        });
+      },
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  all_ok
+});
 check_single_file :: (
   fn(
     input_path : String,
@@ -651,6 +704,15 @@ check_single_file :: (
     exn : Exception
   ) -> bool
 )({
+  // V3: arm this file as THE verification target (both path spellings —
+  // Token.module_path is the path exactly as passed in, imported modules'
+  // tokens carry the resolved absolute form). Registration (and the
+  // assert-splice suppression) only fire for files whose own pragma — or
+  // the absence of one — resolves to verify/verify+.
+  targets := ArrayList(String).new();
+  targets.push(input_path.clone());
+  targets.push(mm_resolve_entry_abs(input_path.clone(), std_path.clone()));
+  set_verify_target_paths(targets);
   outcome := mm_load_file(input_path, std_path, true, io, exn);
   if(!(outcome.ok), {
     // The loader's handlers only stash the rendered diagnostic (the P1
@@ -661,8 +723,9 @@ check_single_file :: (
       .Some(rendered) => emit_rendered_text(rendered),
       .None => eprintln(`check: error in: ${input_path} (no diagnostic recorded)`)
     );
+    return(false);
   });
-  outcome.ok
+  _run_contract_verification(io, exn)
 });
 /// The argv entry following index `i` (the value of a `--flag value` pair), or
 /// "" if `i` is the last argument. Used by the `compile` flag parser.
@@ -759,7 +822,12 @@ run_check :: (
   // environment before any file is checked. (mm_load_file also self-bootstraps
   // the prelude, but doing it once here keeps the cached env free of the first
   // file's own bindings.)
-  mm_preload_prelude(std_path.clone(), true, io, exn);
+  // Same rule as the compile path: a broken prelude makes every per-file
+  // result below a restatement of one fault, so stop at the root cause
+  // (issues/fixed/failed-prelude-load-prints-twice-and-continues.md).
+  if(!mm_preload_prelude(std_path.clone(), true, io, exn), {
+    unsafe(exit(int(1)));
+  });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   total := files.len();
@@ -1003,7 +1071,9 @@ run_verify_cmd :: (
   set_verify_mode_override(Option(String).Some(mode_str.clone()));
   set_verify_target_paths(abs_targets.clone());
   clear_module_cache();
-  mm_preload_prelude(std_path.clone(), true, io, exn);
+  if(!mm_preload_prelude(std_path.clone(), true, io, exn), {
+    unsafe(exit(int(1)));
+  });
   (eval_failed : usize) = usize(0);
   (fi2 : usize) = usize(0);
   while(fi2 < files.len(), {
@@ -1915,6 +1985,10 @@ run_compile :: (
   // the test runner on its batch-compile children (see `set_evaluator_deadline`
   // in evaluator/exprs/_expr.yo for why this travels as a flag).
   (compile_timeout_ms : String) = String.new();
+  // V3: opt OUT of the post-eval contract verification (the test runner's
+  // batch compiles — a runtime harness; legs without Z3 could not compile
+  // verify-pragma fixtures otherwise).
+  (no_verify : bool) = false;
   (skip_cc : bool) = false;
   (skip_codegen : bool) = false;
   (debug_gc : bool) = false;
@@ -1971,6 +2045,10 @@ run_compile :: (
       (a_name == "--emcc-environment") => {
         emcc_environment = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--no-verify") => {
+        no_verify = true;
+        ai = (ai + usize(1));
       },
       (a_name == "--compile-timeout-ms") => {
         compile_timeout_ms = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -2321,7 +2399,14 @@ run_compile :: (
     mm_set_shared_expr_info_table(shared_info_table);
     // Ensure the prelude env is cached (provides std types to the evaluator).
     // Quiet: `compile` has no `check:` chatter.
-    mm_preload_prelude(std_path.clone(), false, io, exn);
+    // A prelude that fails to evaluate is the root cause of everything that
+    // follows; continuing printed the SAME diagnostic a second time from
+    // `mm_eval_entry_exprs` below
+    // (issues/fixed/failed-prelude-load-prints-twice-and-continues.md).
+    // `mm_preload_prelude` already emitted it, so exit without adding a word.
+    if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
+      unsafe(exit(int(1)));
+    });
     // Read + parse the input module.
     src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
@@ -2332,6 +2417,15 @@ run_compile :: (
     // collected functions — the prelude's, every imported module's, and the entry
     // module's. `mm_eval_entry_exprs` applies it from the published slot.
     entry_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
+    // V3: arm the entry file as the verification target (both path
+    // spellings) so verify/verify+ functions register during evaluation —
+    // unless the caller opted out (--no-verify: the test runner's batches).
+    if(!(no_verify), {
+      v_targets := ArrayList(String).new();
+      v_targets.push(input_path.clone());
+      v_targets.push(entry_abs.clone());
+      set_verify_target_paths(v_targets);
+    });
     outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, exn);
     if(!(outcome.ok), {
       // The eval failure's rendered diagnostic is in the loader's stash (its
@@ -2352,6 +2446,12 @@ run_compile :: (
     module_value := outcome.module_value;
     env := outcome.env;
     ctx := outcome.ctx;
+    // V3: contract verification runs BEFORE codegen (the verify+ strip
+    // rewrites function bodies in place); a failure exits 1 — the
+    // per-function lines are already printed by the helper.
+    if(!(_run_contract_verification(io, exn)), {
+      unsafe(exit(int(1)));
+    });
     // --skip-codegen: evaluate only (type-check), emit no C.
     if(skip_codegen, {
       return(());
@@ -3037,7 +3137,7 @@ run_test :: (
   (name_regex : Option(Regex)) = Option(Regex).None;
   if(name_pattern.len() > usize(0), {
     match(
-      Regex.new(name_pattern.clone(), String.from("")),
+      Regex.new(name_pattern.clone()),
       .Ok(re) => {
         name_regex = Option(Regex).Some(re);
       },
@@ -3200,7 +3300,7 @@ run_test :: (
           // --test-name-pattern match against the quote characters.
           tname := match(extract_test_name(e), .Some(n) => n, .None => String.from("unnamed_test"));
           tbody := match(extract_test_body(e), .Some(b) => b, .None => make_err_expr());
-          keep := match(name_regex, .Some(nre) => nre.test(tname.clone()), .None => true);
+          keep := match(name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
           if(keep, {
             tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(tbody)));
           });
@@ -3358,6 +3458,12 @@ run_test :: (
         // indication of which file was responsible.
         ccmd.arg(String.from("--compile-timeout-ms"));
         ccmd.arg(String.from("600000"));
+        // The test runner is a RUNTIME harness: verification is a static
+        // gate (yo check / yo compile / yo verify), and legs without Z3
+        // could not run verify-pragma fixtures at all if the batch compile
+        // armed their targets (the splice suppression would leave the
+        // binary unasserted AND unsolvable). Opt the batch out.
+        ccmd.arg(String.from("--no-verify"));
         // WASI batch binaries embed the whole evaluator, whose `evaluate()`
         // has 693+ locals; emcc's defaults (64 KB stack, 16 MB initial
         // memory) cannot hold a frame that size. TS applies these in the TEST

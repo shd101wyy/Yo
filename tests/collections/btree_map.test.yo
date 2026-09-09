@@ -278,7 +278,7 @@ test("range yields the half-open key window in order", {
     m.insert(i, i * i32(10));
   });
   seen := ArrayList(i32).new();
-  it := m.range(i32(3), i32(6));
+  it := m.range(i32(3) .. i32(6));
   while(runtime(true), {
     match(
       it.next(),
@@ -303,7 +303,7 @@ test("range bounds need not be present in the map", {
   m.insert(i32(30), i32(3));
   // A `fn` literal is not a closure — the map is passed in explicitly.
   count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
-    it := mm.range(lo, hi);
+    it := mm.range(lo .. hi);
     (n : usize) = usize(0);
     while(runtime(true), {
       match(
@@ -333,7 +333,7 @@ test("adjacent ranges partition without overlap", {
   });
   drain := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> ArrayList(i32))({
     out := ArrayList(i32).new();
-    it := mm.range(lo, hi);
+    it := mm.range(lo .. hi);
     while(runtime(true), {
       match(
         it.next(),

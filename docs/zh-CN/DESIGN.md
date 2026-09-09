@@ -2589,18 +2589,21 @@ match(result,
 ```rust
 open(import("std/error"));
 
-// Error trait 要求实现 ToString。自定义错误类型需同时实现两者：
+// Error trait 要求实现 ToString。`derive(Error)` 只需按声明顺序为每个变体
+// 写一条消息，即可同时生成两者：
 MathError :: enum(
   DivisionByZero,
   NegativeSqrt
 );
-impl(MathError, ToString(
-  to_string : ((self) -> match(self,
-    .DivisionByZero => `Division by zero`,
-    .NegativeSqrt => `Square root of a negative number`
-  ))
+derive(MathError, Error(
+  .DivisionByZero => `Division by zero`,
+  .NegativeSqrt => `Square root of a negative number`
 ));
-impl(MathError, Error());
+
+// 消息就是普通的 Yo 代码，会被拼接进绑定负载的那条 match 分支，因此变体自己的
+// 字段可以按名字插值：
+//   .NotFound(path : String)  =>  `not found: ${path}`
+// 手写这两个 impl 依然可用；当消息不是简单的「每个变体一条字符串」时，就该那么写。
 
 // AnyError 是 Dyn(Error) — 任何实现了 Error 的类型都可以被包装：
 (err : AnyError) = dyn(MathError.DivisionByZero);

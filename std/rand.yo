@@ -1,5 +1,5 @@
 //! Non-cryptographic pseudo-random numbers — seedable, reproducible, fast
-//! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 7). CLEARLY SEPARATE from
+//! (`plans/STD_API_AUDIT.md` §7 P0 item 7). CLEARLY SEPARATE from
 //! `std/crypto/random`, which is the OS entropy source: use THAT for keys,
 //! tokens and anything an adversary must not predict; use THIS for
 //! simulations, property tests, shuffles and games, where reproducibility
@@ -9,62 +9,50 @@
 //! state, 32-bit output, period 2^64 per stream.
 //!
 //! ```rust
-//! { Rng } :: import "std/rand";
+//! { Rng, rand_range } :: import "std/rand";
 //! rng := Rng.new(u64(42));
-//! d6 := rng.range(i64(1), i64(7)); // uniform in [1, 7)
+//! d6 := rng.range(i64(1) .. i64(7));   // uniform in [1, 7), reproducible
+//! d20 := rand_range(i64(1) .. i64(21)); // the process-global generator
 //! ```
+//!
+//! ## Stability
+//!
+//! Stable. The sequence a given seed produces is part of the contract — a
+//! test that pins `Rng.new(42)`'s first draws must keep passing, so the
+//! algorithm and its constants will not change under a patch release.
 { ArrayList } :: import("./collections/array_list");
+{ Mutex } :: import("./sync/mutex");
+{ Exception } :: import("./error");
+{ random_u64 } :: import("./crypto/random");
 
 _PCG_MULT :: u64(6364136223846793005);
-/// Seedable PCG32 generator state.
-Rng :: ref(
-  struct(
-    _state : u64,
-    _inc : u64
-  )
-);
+/// The raw PCG32 words — a plain VALUE struct, so it can live inside a
+/// `Mutex` (`Rng` itself cannot: it is a `ref` type whose refcount is not
+/// atomic, so it does not implement `Send`).
+_RngState :: struct(state : u64, inc : u64);
 impl(
-  Rng,
-  /// A generator on an explicit stream: distinct `stream` values give
-  /// statistically independent sequences for the same seed (the PCG
-  /// `initseq` parameter).
-  with_stream : (fn(seed : u64, stream : u64) -> Self)({
-    r := Self(_state : u64(0), _inc : ((stream << u64(1)) | u64(1)));
-    _d1 := r.next_u32();
-    r._state = (r._state + seed);
-    _d2 := r.next_u32();
-    r
-  }),
-  /// A generator on the default stream, seeded with `seed`. The same seed
-  /// always produces the same sequence.
-  new : (fn(seed : u64) -> Self)(
-    Self.with_stream(seed, u64(54))
-  ),
-  /// The next 32 uniformly random bits.
-  next_u32 : (fn(self : Self) -> u32)({
-    old := self._state;
-    self._state = ((old * _PCG_MULT) + self._inc);
+  _RngState,
+  /// The next 32 uniformly random bits. THE algorithm — `Rng` and the
+  /// process-global generator both go through this one copy.
+  next_u32 : (fn(inout(self) : Self) -> u32)({
+    old := self.state;
+    self.state = ((old * _PCG_MULT) + self.inc);
     xorshifted := u32(((old >> u64(18)) ^ old) >> u64(27));
     rot := u32(old >> u64(59));
     (xorshifted >> rot) | (xorshifted << ((u32(0) - rot) & u32(31)))
   }),
   /// The next 64 uniformly random bits (two 32-bit draws).
-  next_u64 : (fn(self : Self) -> u64)({
+  next_u64 : (fn(inout(self) : Self) -> u64)({
     hi := u64(self.next_u32());
     lo := u64(self.next_u32());
     (hi << u64(32)) | lo
   }),
-  /// A uniform float in `[0, 1)` (53 bits of precision — an exact division
-  /// by 2^53, not a hand-typed epsilon literal, which parsed LOW).
-  next_f64 : (fn(self : Self) -> f64)(
-    f64(self.next_u64() >> u64(11)) / f64(9007199254740992)
-  ),
   /// A uniform value below `bound` — REJECTION-sampled, so it is exactly
   /// uniform (no modulo bias; that bias is the C5 defect crypto/random had
   /// to fix). Panics for `bound == 0`: there is no value below zero, and the
   /// `% bound` below was a SIGFPE on x86 / a silent 0 on arm64
   /// (issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md).
-  next_below : (fn(self : Self, bound : u64) -> u64)(
+  next_below : (fn(inout(self) : Self, bound : u64) -> u64)(
     cond(
       (bound == u64(0)) => __yo_panic("Rng.next_below: bound must be non-zero"),
       true => {
@@ -78,16 +66,105 @@ impl(
         r % bound
       }
     )
+  )
+);
+/// The state PCG's `initseq` derivation produces for `stream`. Always ODD,
+/// which the algorithm requires.
+_inc_for_stream :: (fn(stream : u64) -> u64)(
+  (stream << u64(1)) | u64(1)
+);
+/// PCG's default stream.
+_DEFAULT_STREAM :: u64(54);
+/// Seedable PCG32 generator state.
+Rng :: ref(struct(_st : _RngState));
+impl(
+  Rng,
+  /// A generator on an explicit stream: distinct `stream` values give
+  /// statistically independent sequences for the same seed (the PCG
+  /// `initseq` parameter).
+  with_stream : (fn(seed : u64, stream : u64) -> Self)({
+    r := Self(_st : _RngState(state : u64(0), inc : _inc_for_stream(stream)));
+    _d1 := r.next_u32();
+    r._st.state = (r._st.state + seed);
+    _d2 := r.next_u32();
+    r
+  }),
+  /// A generator on the default stream, seeded with `seed`. The same seed
+  /// always produces the same sequence.
+  new : (fn(seed : u64) -> Self)(
+    Self.with_stream(seed, _DEFAULT_STREAM)
   ),
-  /// A uniform integer in the half-open range `[low, high)`. Panics if the
-  /// range is empty (`high <= low`), like Rust's `gen_range` — an empty range
-  /// has no value to return.
-  range : (fn(self : Self, low : i64, high : i64) -> i64)(
+  /// A generator seeded from OS entropy — unpredictable, and therefore NOT
+  /// reproducible. Use `new(seed)` when a test needs to replay a sequence.
+  /// Falls back to a fixed seed only if the platform entropy source fails,
+  /// which on every supported target means the process is already doomed.
+  from_entropy : (fn() -> Self)(
+    Self.new(_entropy_u64())
+  ),
+  /// The next 32 uniformly random bits.
+  next_u32 : (fn(self : Self) -> u32)(self._st.next_u32()),
+  /// The next 64 uniformly random bits (two 32-bit draws).
+  next_u64 : (fn(self : Self) -> u64)(self._st.next_u64()),
+  /// A uniform float in `[0, 1)` (53 bits of precision — an exact division
+  /// by 2^53, not a hand-typed epsilon literal, which parsed LOW).
+  next_f64 : (fn(self : Self) -> f64)(
+    f64(self.next_u64() >> u64(11)) / f64(9007199254740992)
+  ),
+  /// A fair coin. Reads the TOP bit, which is the best-mixed one in a PCG
+  /// output word — `x % 2` on the low bit is a classic weak-bit mistake.
+  next_bool : (fn(self : Self) -> bool)(
+    (self.next_u32() >> u32(31)) == u32(1)
+  ),
+  /// A uniform value below `bound`, rejection-sampled. Panics for
+  /// `bound == 0`.
+  next_below : (fn(self : Self, bound : u64) -> u64)(self._st.next_below(bound)),
+  /// A uniform integer in the half-open range `r` — write it with `..`:
+  /// `rng.range(i64(1) .. i64(7))` for a d6. Panics if the range is empty
+  /// (`r.end <= r.start`), like Rust's `gen_range` — an empty range has no
+  /// value to return.
+  ///
+  /// The range is a `Range(i64)` rather than two `i64` parameters so the
+  /// half-open bound is visible AT THE CALL SITE: `range(1, 7)` reads as
+  /// either `[1, 7)` or `[1, 7]` and the caller has to remember which.
+  range : (fn(self : Self, r : Range(i64)) -> i64)(
     cond(
-      (high <= low) => __yo_panic("Rng.range: empty range (high <= low)"),
+      (r.end <= r.start) => __yo_panic("Rng.range: empty range (end <= start)"),
       true => {
-        span := u64(high - low);
-        low + i64(self.next_below(span))
+        // The span is computed in UNSIGNED, not as `u64(r.end - r.start)`:
+        // the signed subtraction OVERFLOWS for a wide range (`i64.MIN .. 0`
+        // is `0 - i64.MIN`), and signed overflow is undefined behaviour in C,
+        // so the two architectures need not even agree. Yo's integer
+        // conversions are two's-complement bit-preserving, so
+        // `u64(end) - u64(start)` is the exact distance for any `end >= start`
+        // — the wrap is the arithmetic, not an accident. Same trick as Rust's
+        // `gen_range`.
+        span := (u64(r.end) - u64(r.start));
+        r.start + i64(self.next_below(span))
+      }
+    )
+  ),
+  /// A uniform integer in the INCLUSIVE range `r` — `rng.range_inclusive(i64(1) ..= i64(6))`.
+  /// Panics if the range is empty (`r.end < r.start`).
+  ///
+  /// A separate method rather than an overload of `range`: Yo has no
+  /// function overloading (plans/reference/FUNCTION_OVERLOADING_POLICY.md),
+  /// and the alternative — one `range` over a `SampleRange`-style trait —
+  /// would put a trait on the public surface to save one word at the call
+  /// site.
+  range_inclusive : (fn(self : Self, r : RangeInclusive(i64)) -> i64)(
+    cond(
+      (r.end < r.start) => __yo_panic("Rng.range_inclusive: empty range (end < start)"),
+      // `end == i64.MAX` would overflow `end + 1`, so the full-width case
+      // draws all 64 bits instead of going through `next_below`.
+      ((r.end == i64(9223372036854775807)) && (r.start == i64(-9223372036854775808))) =>
+        i64(self.next_u64()),
+      true => {
+        // Unsigned span, as in `range` above — the signed form overflows for a
+        // wide range. The `+ 1` cannot overflow here because the only pair
+        // whose unsigned distance is `u64.MAX` is `i64.MIN ..= i64.MAX`, which
+        // the arm above already took.
+        span := ((u64(r.end) - u64(r.start)) + u64(1));
+        r.start + i64(self.next_below(span))
       }
     )
   ),
@@ -111,3 +188,103 @@ impl(
   )
 );
 export(Rng);
+// ============================================================================
+// The process-global generator
+// ============================================================================
+/// 64 bits from the OS entropy source, or a fixed fallback if it fails.
+///
+/// The fallback exists because seeding must not be able to throw — a
+/// `rand_u32()` that propagates an `Exception` would be unusable as the
+/// convenience it is meant to be. On every supported platform the entropy
+/// source is `getrandom`/`arc4random`/`BCryptGenRandom`, which do not fail
+/// for a process that is otherwise healthy.
+_entropy_u64 :: (fn() -> u64)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(_PCG_MULT);
+      }
+    )
+  );
+  random_u64(exn)
+});
+/// The process-global generator, and the `seeded` flag that makes its
+/// seeding lazy — an OS entropy read at module-init time would be paid by
+/// every program that merely LINKS `std/rand`.
+_GlobalRng :: struct(st : _RngState, seeded : bool);
+(_g_rng : Mutex(_GlobalRng)) = Mutex(_GlobalRng).new(
+  _GlobalRng(
+    st : _RngState(state : u64(0), inc : _inc_for_stream(_DEFAULT_STREAM)),
+    seeded : false
+  )
+);
+/// The only locked primitive: one 64-bit draw from the process-global
+/// generator, seeding it from OS entropy on the first call. Everything else
+/// in this section is arithmetic on top of it.
+///
+/// **This is NOT Rust's `thread_rng`, and is deliberately not named that.**
+/// Yo has no thread-local storage, so there is no way to give each thread its
+/// own generator; this is ONE generator serialized behind a mutex. That is
+/// correct under threads but it is a shared lock, so a hot loop should take
+/// its own `Rng.from_entropy()` and draw from that instead.
+_next_u64_global :: (fn() -> u64)(
+  _g_rng.with_lock(g => {
+    cond(
+      g.seeded => (),
+      true => {
+        g.st.state = u64(0);
+        g.st.inc = _inc_for_stream(_DEFAULT_STREAM);
+        _d1 := g.st.next_u32();
+        g.st.state = (g.st.state + _entropy_u64());
+        _d2 := g.st.next_u32();
+        g.seeded = true;
+      }
+    );
+    g.st.next_u64()
+  })
+);
+/// 32 uniformly random bits from the process-global generator.
+rand_u32 :: (fn() -> u32)(u32(_next_u64_global() & u64(4294967295)));
+/// 64 uniformly random bits from the process-global generator.
+rand_u64 :: (fn() -> u64)(_next_u64_global());
+/// A uniform float in `[0, 1)` from the process-global generator.
+rand_f64 :: (fn() -> f64)(
+  f64(_next_u64_global() >> u64(11)) / f64(9007199254740992)
+);
+/// A fair coin from the process-global generator.
+rand_bool :: (fn() -> bool)((_next_u64_global() >> u64(63)) == u64(1));
+/// A uniform value below `bound` from the process-global generator,
+/// rejection-sampled. Panics for `bound == 0`.
+rand_below :: (fn(bound : u64) -> u64)(
+  cond(
+    (bound == u64(0)) => __yo_panic("rand_below: bound must be non-zero"),
+    true => {
+      threshold := ((u64(0) - bound) % bound);
+      (r : u64) = _next_u64_global();
+      while(r < threshold, {
+        r = _next_u64_global();
+      });
+      r % bound
+    }
+  )
+);
+/// A uniform integer in the half-open range `r`, from the process-global
+/// generator — `rand_range(i64(1) .. i64(7))`. Panics on an empty range.
+rand_range :: (fn(r : Range(i64)) -> i64)(
+  cond(
+    (r.end <= r.start) => __yo_panic("rand_range: empty range (end <= start)"),
+    true => (r.start + i64(rand_below(u64(r.end) - u64(r.start))))
+  )
+);
+/// A uniform integer in the INCLUSIVE range `r`, from the process-global
+/// generator — `rand_range_inclusive(i64(1) ..= i64(6))`. Panics on an empty
+/// range.
+rand_range_inclusive :: (fn(r : RangeInclusive(i64)) -> i64)(
+  cond(
+    (r.end < r.start) => __yo_panic("rand_range_inclusive: empty range (end < start)"),
+    ((r.end == i64(9223372036854775807)) && (r.start == i64(-9223372036854775808))) =>
+      i64(rand_u64()),
+    true => (r.start + i64(rand_below((u64(r.end) - u64(r.start)) + u64(1))))
+  )
+);
+export(rand_u32, rand_u64, rand_f64, rand_bool, rand_below, rand_range, rand_range_inclusive);

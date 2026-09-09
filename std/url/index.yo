@@ -12,7 +12,7 @@
 //! split one HTTP request into two.
 open(import("../string"));
 { ArrayList } :: import("../collections/array_list");
-{ Writer } :: import("../fmt/writer");
+{ StringBuilder } :: import("../string/string_builder");
 { percent_decode } :: import("../encoding/percent");
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
@@ -24,23 +24,16 @@ UrlError :: enum(
   InvalidCharacter(pos : usize),
   Other(msg : String)
 );
-impl(
+derive(
   UrlError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .EmptyInput => `URL error: empty input`,
-          .MissingScheme => `URL error: missing scheme`,
-          .InvalidPort => `URL error: invalid port`,
-          .InvalidCharacter(pos) => `URL error: invalid character at position ${pos}`,
-          .Other(msg) => `URL error: ${msg}`
-        )
-    )
+  Error(
+    .EmptyInput => `URL error: empty input`,
+    .MissingScheme => `URL error: missing scheme`,
+    .InvalidPort => `URL error: invalid port`,
+    .InvalidCharacter => `URL error: invalid character at position ${pos}`,
+    .Other => `URL error: ${msg}`
   )
 );
-impl(UrlError, Error());
 // ============================================================================
 // Url
 // ============================================================================
@@ -748,7 +741,7 @@ impl(
     r := _split_ref(reference);
     // §5.3 recomposition, built as a string and handed to `parse` so the
     // authority is validated by the one parser rather than a second copy.
-    out := Writer.new();
+    out := StringBuilder.new();
     match(
       r.scheme,
       .Some(sch) => {

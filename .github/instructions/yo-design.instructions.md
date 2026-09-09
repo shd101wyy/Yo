@@ -508,6 +508,23 @@ Rules that follow from it:
   error at the `dyn(...)` token (it used to fail inside the C compiler, naming a
   generated `__yo_wrap_…` symbol — see
   `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`).
+- **Spell an error enum with `derive(Error)`, not two hand-written impls.**
+  One message per variant, in DECLARATION ORDER, emits `ToString` and `Error`
+  together; each message is checked against the variant it lands on, so a
+  renamed/added/removed/reordered variant is a compile error.
+
+  ```rust
+  derive(JsonError, Error(
+    .UnexpectedChar => `unexpected character at position ${pos}`,
+    .UnexpectedEnd  => `unexpected end of input`,
+    .Other          => `JSON error: ${msg}`
+  ));
+  ```
+
+  The message is ordinary Yo spliced into the arm that binds the payload, so
+  `${pos}` is the variant's own field — not a positional `{0}`. Write the two
+  impls by hand only when the render is not one message per variant (a struct
+  error, or a body that needs a local).
   `Error` carries `where(Self <: ToString)`, so `ToString` is required too.
 - **Never drop the payload on failure.** `Channel.send` returning
   `Result(unit, unit)` discarded the value the caller still owned; return it.

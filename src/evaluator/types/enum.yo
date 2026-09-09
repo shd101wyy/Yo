@@ -83,6 +83,124 @@ _has_variant :: (fn(variant_names : ArrayList(String), name : String) -> bool)({
   });
   found
 });
+/// Whether `xs` contains `s` (the cycle walker's visited set probe).
+_visited_has :: (fn(xs : ArrayList(String), s : String) -> bool)({
+  i := usize(0);
+  (found : bool) = false;
+  while((i < xs.len()) && !found, {
+    match(
+      xs.get(i),
+      .Some(x) => if(x == s, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// Reference indirection CUTS a value cycle: the pointee is reached through
+/// a pointer, so the containing type's size stays finite. This is the
+/// legality rule behind `JsonValue` (plain enum recursive only via
+/// `ArrayList(Self)`) and `ref(enum(...))` (`AstExpr`'s shape).
+_type_is_ref_indirection :: (fn(t : TypeValue) -> bool)(
+  match(
+    t,
+    .Struct({ is_reference_semantics : s_ref }) => s_ref,
+    .EnumT({ is_reference_semantics : e_ref }) => e_ref,
+    .Pointer(_) => true,
+    .DynT(_, _, _, _) => true,
+    _ => false
+  )
+);
+/// Whether walking `t`'s VALUE composition reaches the enum identified by
+/// `root` (or its pre-patch `Self` shell) without passing through reference
+/// indirection — the definition-time check for
+/// issues/plain-recursive-enum-segfaults-the-evaluator.md. Such a cycle has
+/// infinite C size; the size walks stack-overflowed (SIGSEGV, no diagnostic)
+/// before this check existed. `visited` cuts re-entered named types (finite
+/// DAGs, and cycles that DO have indirection somewhere on the path).
+_type_reaches_root_by_value :: (
+  fn(t : TypeValue, root : String, shell : String, visited : ArrayList(String)) -> bool
+)(
+  cond(
+    _type_is_ref_indirection(t) => false,
+    true => _type_value_cycle_step(t, root, shell, visited)
+  )
+);
+/// The per-type dispatch of `_type_reaches_root_by_value` (separate fn so
+/// no cond arm is a braced single expression — E0007).
+_type_value_cycle_step :: (
+  fn(t : TypeValue, root : String, shell : String, visited : ArrayList(String)) -> bool
+)(
+  match(
+    t,
+    .EnumT(e_id, _, _, e_vfs, _, _, _, _, _) => cond(
+      ((e_id == root) || (e_id == shell)) => true,
+      _visited_has(visited, e_id.clone()) => false,
+      true => {
+        visited.push(e_id.clone());
+        (hit : bool) = false;
+        (i : usize) = usize(0);
+        while((i < e_vfs.len()) && !hit, {
+          vfs := match(e_vfs.get(i), .Some(l) => l, .None => ArrayList(TypeValue).new());
+          (j : usize) = usize(0);
+          while((j < vfs.len()) && !hit, {
+            ft := match(vfs.get(j), .Some(x) => x, .None => TypeValue.Unit);
+            if(recur(ft, root.clone(), shell.clone(), visited), {
+              hit = true;
+            });
+            j = (j + usize(1));
+          });
+          i = (i + usize(1));
+        });
+        hit
+      }
+    ),
+    .Struct(s_id, _, _, s_fts, _, _, _, _, _, _) => cond(
+      _visited_has(visited, s_id.clone()) => false,
+      true => {
+        visited.push(s_id.clone());
+        (hit : bool) = false;
+        (i : usize) = usize(0);
+        while((i < s_fts.len()) && !hit, {
+          ft := match(s_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+          if(recur(ft, root.clone(), shell.clone(), visited), {
+            hit = true;
+          });
+          i = (i + usize(1));
+        });
+        hit
+      }
+    ),
+    .Tuple(_, t_fts) => {
+      (hit : bool) = false;
+      (i : usize) = usize(0);
+      while((i < t_fts.len()) && !hit, {
+        ft := match(t_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        if(recur(ft, root.clone(), shell.clone(), visited), {
+          hit = true;
+        });
+        i = (i + usize(1));
+      });
+      hit
+    },
+    .Union(_, _, u_fts) => {
+      (hit : bool) = false;
+      (i : usize) = usize(0);
+      while((i < u_fts.len()) && !hit, {
+        ft := match(u_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        if(recur(ft, root.clone(), shell.clone(), visited), {
+          hit = true;
+        });
+        i = (i + usize(1));
+      });
+      hit
+    },
+    .Array(element, _, _) => recur(element, root.clone(), shell.clone(), visited),
+    _ => false
+  )
+);
 /// Evaluate a discriminant expression and return its integer value (or throw).
 _evaluate_discriminant :: (
   fn(
@@ -611,6 +729,39 @@ evaluate_enum_type :: (
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
   // Mirrors `autoDeriveTraitsAndAddRcFunctionsForEnumType` in TypeScript.
   auto_derive_traits_for_enum_type(enum_id.clone(), variant_fields, env);
+  // Definition-time value-cycle rejection
+  // (issues/plain-recursive-enum-segfaults-the-evaluator.md): a plain
+  // `enum(...)` whose variant fields reach itself by VALUE — no reference
+  // indirection anywhere on the path — would have infinite C size; the
+  // size walks used to stack-overflow (SIGSEGV, no diagnostic) at the next
+  // construction. Checked BEFORE the shell patch: a direct `Self` field is
+  // still the shell (`enum_id__self_shell`), which the walker treats as
+  // the root. `ref(enum(...))` is exempt (pointer-sized); cycles through
+  // ArrayList/Box/ref fields are cut by `_type_is_ref_indirection`.
+  if(!force_reference_semantics, {
+    (vi2 : usize) = usize(0);
+    while(vi2 < variant_fields.len(), {
+      vname := match(variant_names.get(vi2), .Some(n) => n, .None => String.new());
+      vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => ArrayList(TypeValue).new());
+      (fi2 : usize) = usize(0);
+      while(fi2 < vfs.len(), {
+        ft := match(vfs.get(fi2), .Some(x) => x, .None => TypeValue.Unit);
+        visited := ArrayList(String).new();
+        if(_type_reaches_root_by_value(ft, enum_id.clone(), shell_id.clone(), visited), {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(expr),
+                `recursive value enum: variant '${vname}' contains the enum itself by value (a path with no reference indirection) — a plain 'enum(...)' would have infinite size. Make it 'ref(enum(...))', or route the recursion through a reference type (ArrayList, Box, ref(struct)).`
+              )
+            )
+          );
+        });
+        fi2 = (fi2 + usize(1));
+      });
+      vi2 = (vi2 + usize(1));
+    });
+  });
   // Restore SelfType.
   ctx.self_type = old_self_type;
   // Build the final EnumT in two steps: an UNPATCHED pre-final used as the

@@ -402,6 +402,10 @@ _ensure_prelude :: (fn(std_path : String, io : Io) -> unit)({
       }
     )
   );
+  // The return value is deliberately ignored HERE and only here: a language
+  // server must degrade, not die, when the prelude is broken — the stashed
+  // parse error is surfaced as a diagnostic instead. Every other caller exits
+  // (issues/fixed/failed-prelude-load-prints-twice-and-continues.md).
   mm_preload_prelude(std_path.clone(), false, io, pre_exn);
 });
 

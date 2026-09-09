@@ -2617,18 +2617,22 @@ The standard library defines an `Error` trait and `AnyError` type for dynamic er
 ```rust
 open(import("std/error"));
 
-// Error trait requires ToString. Custom error types implement both:
+// Error trait requires ToString. `derive(Error)` supplies both from one
+// message per variant, listed in declaration order:
 MathError :: enum(
   DivisionByZero,
   NegativeSqrt
 );
-impl(MathError, ToString(
-  to_string : ((self) -> match(self,
-    .DivisionByZero => `Division by zero`,
-    .NegativeSqrt => `Square root of a negative number`
-  ))
+derive(MathError, Error(
+  .DivisionByZero => `Division by zero`,
+  .NegativeSqrt => `Square root of a negative number`
 ));
-impl(MathError, Error());
+
+// The message is ordinary Yo, spliced into the arm that binds the payload, so
+// a variant's own fields interpolate by name:
+//   .NotFound(path : String)  =>  `not found: ${path}`
+// Writing the two impls by hand still works, and is the way to go when the
+// message is not a simple per-variant string.
 
 // AnyError is Dyn(Error) — any type implementing Error can be wrapped:
 (err : AnyError) = dyn(MathError.DivisionByZero);

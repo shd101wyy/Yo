@@ -2,7 +2,7 @@
 
 `derive` is a compile-time builtin that automatically generates trait implementations for struct and enum types. It works similarly to Rust's `#[derive(...)]` attribute but uses function call syntax.
 
-All six standard derivable traits (Eq, Hash, Clone, Ord, ToString, Default) are **self-hosted** — their derive rules are written in Yo using the `derive_rule` mechanism, not hardcoded in the compiler.
+Every derivable trait in `std` is **self-hosted** — the derive rules are written in Yo using the `derive_rule` mechanism, not hardcoded in the compiler. There are ten: `Eq`, `Hash`, `Clone`, `Ord`, `Default`, `ToString` and `Debug` (`std/prelude`, `std/fmt`), `Error` (`std/error`), and `ToJson` / `FromJson` (`std/encoding/json`).
 
 ## Basic Usage
 
@@ -109,6 +109,47 @@ d := (Config <: Default).default();
 Each field type must implement `Default`. Field types that are generic instantiations work too — `ArrayList(i32)`, `Option(T)` and so on — because the rule reaches each field's type through the struct's own field list rather than by naming it, so nothing needs to be in scope at the impl site.
 
 Pairs with `Option.unwrap_or_default` and `Result.unwrap_or_default`.
+
+### Debug
+
+Generates the same structural render as `ToString` — `TypeName(field1, field2, …)` for structs, `TypeName.Variant(…)` for enums — but under the `Debug` trait's `debug_string`, so a type can have a *developer* render and a *user-facing* `to_string` at the same time.
+
+```rust
+derive(Point, Debug);
+
+p := Point(i32(1), i32(2));
+// p.debug_string() returns "Point(1, 2)"
+```
+
+That split is the point: `derive(ToString)` produces a structural render, which is **not** a user-facing message, so an error type that derived `ToString` got `JsonError.UnexpectedEnd` where it wanted `unexpected end of input`. Reach for `Debug` when you want the structure, and for `Error` (below) or a hand-written `ToString` when you want prose.
+
+### Error
+
+Generates `ToString` **and** `Error` from one message per variant — `thiserror`'s `#[error("…")]`, in the syntax Yo already has. **Enums only**: a struct error has exactly one message, so write that `ToString` impl by hand.
+
+```rust
+JsonError :: enum(
+  UnexpectedChar(ch : u8, pos : usize),
+  UnexpectedEnd,
+  Other(msg : String)
+);
+derive(JsonError, Error(
+  .UnexpectedChar => `unexpected character at position ${pos}`,
+  .UnexpectedEnd  => `unexpected end of input`,
+  .Other          => `JSON error: ${msg}`
+));
+```
+
+The message is **ordinary Yo**, spliced into the match arm that binds the payload, so `${pos}` is the variant's own field rather than a positional `{0}`. A typo in a field name is an ordinary unresolved-name error.
+
+Two things to know:
+
+- **Messages go in declaration order**, and each is checked against the variant it lands on — so adding, removing, renaming or reordering a variant is a compile error, not a silently swapped message.
+- It emits both traits because `Error` requires `Self <: ToString`. That is why one `derive` replaces what used to be a `ToString` impl plus a separate `impl(T, Error());` line.
+
+### ToJson / FromJson
+
+Registered by `std/encoding/json`. `derive(T, ToJson)` generates a `JsonValue` encoder from the type's fields; `derive(T, FromJson)` generates the decoder. See `docs/en-US/JSON.md` for the field-name and `Option` conventions.
 
 ## Multiple Traits
 
@@ -259,10 +300,12 @@ When `derive(Type, Trait)` is called:
 
 ### Self-Hosted Standard Derives
 
-All six standard traits use the same `derive_rule` mechanism:
+Every derivable trait in `std` uses the same `derive_rule` mechanism, and each rule lives beside the trait it derives:
 
-- **Eq, Clone, Hash, Ord, Default** — derive rules defined in `std/prelude.yo`
-- **ToString** — derive rule defined in `std/fmt/to_string.yo` (where the ToString trait is defined)
+- **Eq, Clone, Hash, Ord, Default** — `std/prelude.yo`
+- **ToString, Debug** — `std/fmt/to_string.yo`. They share one `__derive_structural_body(T, method)` helper, so the structural render exists once and each trait wraps it.
+- **Error** — `std/error.yo`. The only rule that emits TWO trait bodies from one call, because `Error` requires `Self <: ToString`; it therefore builds the `impl(T, ToString(…), Error())` expression itself rather than going through `DeriveContext.make_impl`, which wraps exactly one.
+- **ToJson, FromJson** — `std/encoding/json.yo`
 
 These implementations use string-based code generation with `comptime_str` and `.to_expr()` to build impl blocks at compile time.
 

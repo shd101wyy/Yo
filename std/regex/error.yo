@@ -15,7 +15,7 @@
 //! { Regex, RegexError } :: import("std/regex");
 //!
 //! match(
-//!   Regex.new(`a{3,1}`, ``),
+//!   Regex.new(`a{3,1}`),
 //!   .Ok(re) => (),
 //!   .Err(e) => match(
 //!     e,
@@ -67,36 +67,23 @@ RegexError :: enum(
   /// The same flag character given more than once.
   DuplicateFlag(flag : u8)
 );
-impl(
+derive(
   RegexError,
-  ToString(
-    to_string : (
-      self ->
-        match(
-          self,
-          .UnexpectedEnd(pos) => `regex error: unexpected end of pattern at byte ${pos}`,
-          .TrailingBackslash(pos) => `regex error: pattern ends with a trailing backslash at byte ${pos}`,
-          .UnterminatedCharClass(pos) => `regex error: unterminated character class, expected ']' at byte ${pos}`,
-          .UnterminatedGroup(pos) => `regex error: unterminated group, expected ')' at byte ${pos}`,
-          .UnmatchedCloseParen(pos) => `regex error: unmatched ')' at byte ${pos}`,
-          .InvalidQuantifier(pos) => `regex error: invalid '{m,n}' quantifier at byte ${pos}`,
-          .QuantifierOutOfOrder(min, max, pos) =>
-            `regex error: quantifier '{${min},${max}}' has max below min at byte ${pos}`,
-          .InvalidBackreference(group, pos) =>
-            `regex error: backreference to group ${group} exceeds the number of groups at byte ${pos}`,
-          .InvalidNamedBackreference(pos) =>
-            `regex error: malformed named backreference, expected '\\k<name>' at byte ${pos}`,
-          .UnknownGroupName(name, pos) =>
-            `regex error: unknown named group '${name}' in backreference at byte ${pos}`,
-          .InvalidUnicodeProperty(pos) =>
-            `regex error: malformed unicode property, expected '\\p{name}' at byte ${pos}`,
-          .UnknownUnicodeProperty(name, pos) =>
-            `regex error: unknown unicode property '${name}' at byte ${pos}`,
-          .InvalidFlag(flag) => `regex error: invalid flag '${_flag_char(flag)}'`,
-          .DuplicateFlag(flag) => `regex error: duplicate flag '${_flag_char(flag)}'`
-        )
-    )
+  Error(
+    .UnexpectedEnd => `regex error: unexpected end of pattern at byte ${pos}`,
+    .TrailingBackslash => `regex error: pattern ends with a trailing backslash at byte ${pos}`,
+    .UnterminatedCharClass => `regex error: unterminated character class, expected ']' at byte ${pos}`,
+    .UnterminatedGroup => `regex error: unterminated group, expected ')' at byte ${pos}`,
+    .UnmatchedCloseParen => `regex error: unmatched ')' at byte ${pos}`,
+    .InvalidQuantifier => `regex error: invalid '{m,n}' quantifier at byte ${pos}`,
+    .QuantifierOutOfOrder => `regex error: quantifier '{${min},${max}}' has max below min at byte ${pos}`,
+    .InvalidBackreference => `regex error: backreference to group ${group} exceeds the number of groups at byte ${pos}`,
+    .InvalidNamedBackreference => `regex error: malformed named backreference, expected '\\k<name>' at byte ${pos}`,
+    .UnknownGroupName => `regex error: unknown named group '${name}' in backreference at byte ${pos}`,
+    .InvalidUnicodeProperty => `regex error: malformed unicode property, expected '\\p{name}' at byte ${pos}`,
+    .UnknownUnicodeProperty => `regex error: unknown unicode property '${name}' at byte ${pos}`,
+    .InvalidFlag => `regex error: invalid flag '${_flag_char(flag)}'`,
+    .DuplicateFlag => `regex error: duplicate flag '${_flag_char(flag)}'`
   )
 );
-impl(RegexError, Error());
 export(RegexError);
