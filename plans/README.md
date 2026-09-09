@@ -19,9 +19,13 @@ writing dates — the banner is the authoritative summary.
 
 ## Current entry points
 
-Active work (root) — **7 docs, and nothing else lives here**:
+Active work (root) — **8 docs, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
+- [`REMOVE_OPEN_BUILTIN.md`](REMOVE_OPEN_BUILTIN.md) — remove the `open(...)`
+  builtin (decided 2026-09-09): every glob import becomes a named import,
+  struct open becomes `{ x, y } := s`, then the builtin is deleted. Two PRs,
+  no seed gate; inventory and migration rules inside.
 - [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — the live std
   campaign. **All eleven §2 decisions (D9–D19) are LANDED**; §4 (P1 batteries
   per module group) and §5 (maintainer decisions: `imm`/`Vec` structure,
