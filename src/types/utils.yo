@@ -1575,6 +1575,74 @@ get_alignment_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
 });
 /// Return the size of `ty` in bits, or `.None` if not statically known.
 /// Mirrors `getSizeOfType` in `src/types/utils.ts`.
+// The cycle backstop's walk stack: named types currently being sized. A
+// re-entry means an infinite-size VALUE cycle — the definition-time check in
+// evaluator/types/enum.yo rejects those, so seeing one here means that check
+// was bypassed (yield unknown, never overflow the stack).
+// issues/plain-recursive-enum-segfaults-the-evaluator.md.
+(g_size_walk_stack : ArrayList(String)) = ArrayList(String).new();
+_size_walk_stack_has :: (fn(id : String) -> bool)({
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while((i < g_size_walk_stack.len()) && !found, {
+    match(
+      g_size_walk_stack.get(i),
+      .Some(x) => if(x == id, {
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  found
+});
+/// The value-enum size computation (tag + largest variant payload), factored
+/// out of `get_size_of_type`'s `.EnumT` arm so the arm can bracket it with the
+/// cycle stack push/pop.
+_enum_value_size :: (fn(evf : ArrayList(ArrayList(TypeValue))) -> Option(usize))({
+  (max_data : usize) = usize(0);
+  (max_align_bits : usize) = usize(0);
+  (unknown : bool) = false;
+  (vi : usize) = usize(0);
+  n_v := evf.len();
+  while((vi < n_v) && !unknown, {
+    // Only the fields the data-union emitter keeps — see
+    // `_variant_storage_field_types`.
+    vf := _variant_storage_field_types(
+      match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new())
+    );
+    match(
+      _aggregate_size(vf),
+      .Some(vbits) => match(
+        _max_field_alignment(vf),
+        .Some(va_bytes) => {
+          max_data = _max_usize(max_data, vbits);
+          max_align_bits = _max_usize(max_align_bits, va_bytes * usize(8));
+        },
+        .None => {
+          unknown = true;
+        }
+      ),
+      .None => {
+        unknown = true;
+      }
+    );
+    vi = (vi + usize(1));
+  });
+  cond(
+    unknown => Option(usize).None,
+    true => {
+      tag_bits := _round_up(_ceil_log2(n_v), usize(8));
+      data_align_bits := _max_usize(max_align_bits, usize(8));
+      struct_align_bits := _max_usize(usize(32), data_align_bits);
+      // Pad tag end up to data alignment, add data, then pad total to
+      // struct alignment (all in bits; alignments are byte multiples ×8).
+      after_tag := _round_up(tag_bits, data_align_bits);
+      total_before := (after_tag + max_data);
+      Option(usize).Some(usize(_round_up(total_before, struct_align_bits)))
+    }
+  )
+});
 get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
   // A recursive struct/enum reference inside a type graph is a value-copied
   // SHELL (empty fields/variant names) under yo-self's value semantics — TS
@@ -1657,12 +1725,21 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     // str: fat pointer (pointer + length) = 2 × pointer size
     .Str => .Some(usize(u32(2) * get_target_pointer_size_bits())),
     // Struct: reference-semantics (object) → pointer-sized; newtype → inner
-    // field's size; otherwise the C-laid-out aggregate size.
-    .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
+    // field's size; otherwise the C-laid-out aggregate size. Value structs get
+    // the same cycle backstop as value enums (see `g_size_walk_stack`).
+    .Struct({ id : s_sz_id, field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
       cond(
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
-        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(f0), .None => Option(usize).None),
-        true => _c_aggregate_size(sfts)
+        _size_walk_stack_has(s_sz_id.clone()) => Option(usize).None,
+        true => {
+          g_size_walk_stack.push(s_sz_id.clone());
+          out := cond(
+            (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(f0), .None => Option(usize).None),
+            true => _c_aggregate_size(sfts)
+          );
+          _ := g_size_walk_stack.pop();
+          out
+        }
       ),
     // Tuple: C-laid-out aggregate size (a member-less tuple carries the dummy
     // byte, see `_c_aggregate_size`).
@@ -1694,51 +1771,18 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
     // branch and the TS `getSizeOfType` fix — without it the variant-field walk
     // recurses forever on a recursive ref-enum (variant field typed `Self`).
     // Mirrors TS `getSizeOfType`/`getEnumTypeSize`.
-    .EnumT({ variant_fields : evf, is_reference_semantics : e_ref }) => cond(
+    .EnumT({ id : e_sz_id, variant_fields : evf, is_reference_semantics : e_ref }) => cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      // Cycle backstop (issues/plain-recursive-enum-segfaults-the-evaluator.md):
+      // a VALUE enum re-entered on the walk stack is an infinite-size type the
+      // definition-time check should have rejected — yield unknown rather than
+      // overflow the stack.
+      _size_walk_stack_has(e_sz_id.clone()) => Option(usize).None,
       true => {
-        (max_data : usize) = usize(0);
-        (max_align_bits : usize) = usize(0);
-        (unknown : bool) = false;
-        (vi : usize) = usize(0);
-        n_v := evf.len();
-        while((vi < n_v) && !unknown, {
-          // Only the fields the data-union emitter keeps — see
-          // `_variant_storage_field_types`.
-          vf := _variant_storage_field_types(
-            match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new())
-          );
-          match(
-            _aggregate_size(vf),
-            .Some(vbits) => match(
-              _max_field_alignment(vf),
-              .Some(va_bytes) => {
-                max_data = _max_usize(max_data, vbits);
-                max_align_bits = _max_usize(max_align_bits, va_bytes * usize(8));
-              },
-              .None => {
-                unknown = true;
-              }
-            ),
-            .None => {
-              unknown = true;
-            }
-          );
-          vi = (vi + usize(1));
-        });
-        cond(
-          unknown => Option(usize).None,
-          true => {
-            tag_bits := _round_up(_ceil_log2(n_v), usize(8));
-            data_align_bits := _max_usize(max_align_bits, usize(8));
-            struct_align_bits := _max_usize(usize(32), data_align_bits);
-            // Pad tag end up to data alignment, add data, then pad total to
-            // struct alignment (all in bits; alignments are byte multiples ×8).
-            after_tag := _round_up(tag_bits, data_align_bits);
-            total_before := (after_tag + max_data);
-            Option(usize).Some(usize(_round_up(total_before, struct_align_bits)))
-          }
-        )
+        g_size_walk_stack.push(e_sz_id.clone());
+        out := _enum_value_size(evf);
+        _ := g_size_walk_stack.pop();
+        out
       }
     ),
     _ => .None

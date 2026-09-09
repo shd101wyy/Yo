@@ -1,0 +1,11 @@
+// LEGAL control for the same issue: recursion ONLY through ArrayList
+// (reference indirection) — JsonValue's shape. Must evaluate cleanly;
+// a false positive from the value-cycle check would reject this.
+{ ArrayList } :: import("std/collections/array_list");
+
+Jsonish :: enum(Num(n : i32), Arr(items : ArrayList(Self)), Str(s : i32));
+wrap :: (fn(n : i32) -> Jsonish)({
+  items := ArrayList(Jsonish).new();
+  items.push(Jsonish.Num(n : n));
+  Jsonish.Arr(items : items)
+});
