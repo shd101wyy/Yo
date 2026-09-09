@@ -1,4 +1,4 @@
-# `yield` resumption order is not FIFO on macOS CI legs — "Test basic spawn of two futures" fails intermittently
+# `yield` resumption order diverges on macOS CI legs (and the queue is NOT the cause) — "Test basic spawn of two futures" fails intermittently
 
 **Status: OPEN — observed TWICE on CI, on two DIFFERENT macOS legs, from two
 unrelated PRs. Never reproduced locally on `aarch64-apple-darwin`.**
@@ -57,29 +57,53 @@ Three things follow from the pair of sightings:
    scheduler-order nondeterminism, so the remaining work is the FIX, not more
    observation.
 
-## The fix
+## The stated fix is REFUTED — there is already a FIFO ready-queue
 
-`__yo_async_yield` (`src/codegen/async/runtime_core.yo`) returns a future that
-is ALREADY `state = -1` (Completed), so `io.await(yield(io), io)` does not park
-on a kevent — the ordering is decided by where the awaiting state machine's
-continuation is queued and in what order those deferrals are drained. Making
-that a genuine FIFO ready-queue is the fix the 2026-09-06 report already
-identified:
+The 2026-09-06 report proposed:
 
 > either make it FIFO (a ready-queue, not a kevent completion) or rewrite the
 > test not to assume interleaving order
 
-**Take the first option.** Do NOT delete or weaken the assertion to get green:
-it encodes the documented cooperative-scheduling contract
-(`docs/en-US/ASYNC_AWAIT.md`), and two tasks that yield in submission order
-must resume in submission order for that contract to mean anything. A test
-rewritten to accept either order would make the contract untestable and would
-hide a real ordering bug in every future change to the runtime.
+**The first option is already implemented, so it cannot be the fix.** Read of
+`src/codegen/async/runtime_core.yo` on 2026-09-09 (code read, NOT executed —
+see "Why it does not reproduce locally"):
 
-The residual hypothesis from the first report — that a std change altering
-allocation patterns exposes a use-after-free — is NOT excluded by the second
-sighting and should be checked while fixing: run the test under GuardMalloc
-(`yo-macos-guardmalloc-debug-recipe`) on a leg that reproduces it.
+1. `yield` never touches kqueue. `__yo_async_yield` returns a future already in
+   `state = -1` (Completed), so there is no kevent whose completion order could
+   vary.
+2. `__yo_async_enqueue_continuation` appends at `tail`;
+   `__yo_async_run_ready_tasks` takes from `head`. That is strict FIFO.
+3. The per-step budget (`budget = count` at entry) keeps a continuation
+   enqueued DURING a step from running in that same step, so a yielding task
+   cannot jump ahead of a sibling queued before it.
+
+Hand-tracing the test's queue confirms the intended order falls out by
+construction: `[t1, t2]` → t1 runs and enqueues t1', t2 runs and enqueues t2'
+→ `[t1', t2']`, so t1 resumes first and sees 11.
+
+So the divergence is NOT queue ordering. The remaining candidates, in the order
+worth checking:
+
+1. **The `io.spawn` codegen path** — whether both spawns are really enqueued
+   before anything starts draining, or whether the first `handle.await` can
+   drive a step between them.
+2. **How an await of an ALREADY-COMPLETED future suspends.** This is the
+   unusual shape here: a normal await parks on I/O, but `yield`'s future is
+   born Completed, so the state-machine step transition is what defers it. A
+   path that completes inline on one target and defers on another would produce
+   exactly this.
+3. **Memory corruption** — the first report's alternative hypothesis, NOT
+   excluded. The continuation free list is LIFO
+   (`cont->next = __yo_cont_free_list`) and blocks are recycled immediately
+   after `resume_fn` returns; a stale `cont` or state-machine pointer would
+   surface as a wrong-looking resume order. Run the test under GuardMalloc
+   (`yo-macos-guardmalloc-debug-recipe`) on a leg that reproduces.
+
+**Do NOT delete or weaken the assertion to get green.** It encodes the
+documented cooperative-scheduling contract (`docs/en-US/ASYNC_AWAIT.md`): two
+tasks that yield in submission order must resume in submission order, or the
+contract means nothing. A test rewritten to accept either order would make the
+contract untestable and hide every future ordering regression in the runtime.
 
 ## Why it does not reproduce locally
 
