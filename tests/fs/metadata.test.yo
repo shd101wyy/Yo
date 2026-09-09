@@ -288,17 +288,24 @@ test("Metadata.modified reports a wall-clock timestamp near now", {
   io.await(fs_file.write_string(fpath, String.from("mtime"), io), IoExn(io : io, exn : exn));
   md := io.await(fs_metadata.metadata(fpath, io), IoExn(io : io, exn : exn));
   m := md.modified();
-  // A file written a moment ago is stamped between `before` and now, give or
-  // take filesystem timestamp granularity (HFS+ is whole seconds), so allow a
-  // 2 s window on each side rather than asserting a strict ordering.
-  match(
-    SystemTime.now().duration_since(m),
-    .Ok(d) => assert(d.as_secs() < i64(60), "mtime is within the last minute"),
-    .Err(e) => {
-      eprintln(`  mtime is in the future: ${e.to_string()}`);
-      assert(false, "mtime must not be in the future");
-    }
+  // The mtime is CLOSE to now, in EITHER direction.
+  //
+  // Not "not in the future": a filesystem timestamp and `CLOCK_REALTIME` are
+  // different clock domains, so the stamp can sit a hair AHEAD of a later
+  // `now()` — emscripten's MEMFS put it 64 ns ahead and the strict-ordering
+  // version of this assertion failed on that leg alone. No OS promises the
+  // ordering; what it promises is that the two are close.
+  //
+  // Filesystem granularity is coarse in the other direction (HFS+ stamps whole
+  // seconds), so the window is a minute, not a millisecond.
+  now := SystemTime.now();
+  skew := match(
+    now.duration_since(m),
+    .Ok(d) => d,
+    // `.Err` carries how far backwards it went, which is the skew itself.
+    .Err(e) => match(e, .EarlierThan({ by }) => by)
   );
+  assert(skew.as_secs() < i64(60), `mtime is within a minute of now, ${skew.as_secs()}s away`);
   assert(m.as_unix_secs() >= (before.as_unix_secs() - i64(2)), "mtime is not before the write");
   assert((m.nanos >= i64(0)) && (m.nanos < i64(1000000000)), "nanos normalized into [0, 1e9)");
   // The seconds-only accessor must agree with the SystemTime one, which is

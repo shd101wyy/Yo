@@ -582,6 +582,15 @@ from `statx`'s seconds AND nanoseconds. The seconds-only `*_time` accessors are
 kept (a caller that wants the raw field should not have to go through a struct)
 and pinned by a test asserting `modified_time() == modified().as_unix_secs()`.
 
+**A filesystem timestamp and `CLOCK_REALTIME` are different clock domains**, so
+an mtime can sit a hair AHEAD of a later `SystemTime.now()`. Emscripten's MEMFS
+put it 64 ns ahead, which failed a first version of the test that asserted the
+ordering ("mtime must not be in the future") — no OS promises that ordering,
+only that the two readings are close. The test now bounds the skew in either
+direction. It is also a live demonstration of why `duration_since` returns a
+`Result`: the 64 ns showed up as `SystemTimeError.EarlierThan`, exactly the
+outcome a silent `Duration.zero()` would have hidden.
+
 The `Seek` trait is SYNCHRONOUS while `Reader`/`Writer` are async, because
 moving a position is arithmetic on a handle's own state: `File`'s reads and
 writes are positional (`pread`/`pwrite`), so its descriptor sits at offset 0
