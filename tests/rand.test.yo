@@ -3,7 +3,16 @@
 //! (plans/archive/STD_API_AUDIT.md §7 P0 item 7).
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ Rng } :: import("std/rand");
+{
+  Rng,
+  rand_u32,
+  rand_u64,
+  rand_f64,
+  rand_bool,
+  rand_below,
+  rand_range,
+  rand_range_inclusive
+} :: import("std/rand");
 
 test("PCG32 reference sequence for seed 42, stream 54", {
   r := Rng.with_stream(u64(42), u64(54));
@@ -38,7 +47,7 @@ test("next_below and range stay in bounds and hit every residue", {
   });
   (i : usize) = usize(0);
   while(i < usize(200), i = (i + usize(1)), {
-    v := r.range(i64(1), i64(7));
+    v := r.range(i64(1) .. i64(7));
     assert((v >= i64(1)) && (v < i64(7)), "die roll in [1,7)");
     seen(usize(v - i64(1))) = true;
   });
@@ -86,16 +95,132 @@ test("shuffle permutes in place; choice picks a member", {
   empty := ArrayList(i32).new();
   assert(r.choice(empty).is_none(), "empty choice is None");
 });
-test("one-element ranges are the safe edge: range(x, x+1) is x and next_below(1) is 0", {
+test("one-element ranges are the safe edge: range(x..x+1) is x and next_below(1) is 0", {
   // issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md
-  // documents the unsafe edge — `range(x, x)` and `next_below(0)` — which is
+  // documents the unsafe edge — `range(x..x)` and `next_below(0)` — which is
   // now a panic (tests/cli-cases/rand-empty-range-panics). The legal boundary
   // right next to it must keep working without rejection-sampling forever.
   r := Rng.new(u64(7));
   (i : usize) = usize(0);
   while(i < usize(50), i = (i + usize(1)), {
-    assert(r.range(i64(5), i64(6)) == i64(5), "range(5, 6) is always 5");
+    assert(r.range(i64(5) .. i64(6)) == i64(5), "range(5..6) is always 5");
     assert(r.next_below(u64(1)) == u64(0), "next_below(1) is always 0");
-    assert(r.range(i64(-3), i64(-2)) == i64(-3), "negative one-element range");
+    assert(r.range(i64(-3) .. i64(-2)) == i64(-3), "negative one-element range");
   });
+});
+
+test("range_inclusive covers both endpoints", {
+  // `1..=6` must be able to produce 6; the half-open `1..6` never can. The
+  // whole point of the second method is that the call site says which.
+  r := Rng.new(u64(31));
+  seen := ArrayList(bool).new();
+  (si : usize) = usize(0);
+  while(si < usize(6), si = (si + usize(1)), {
+    seen.push(false);
+  });
+  (i : usize) = usize(0);
+  while(i < usize(300), i = (i + usize(1)), {
+    v := r.range_inclusive(i64(1) ..= i64(6));
+    assert((v >= i64(1)) && (v <= i64(6)), "inclusive die roll in [1,6]");
+    seen(usize(v - i64(1))) = true;
+  });
+  (all_hit : bool) = true;
+  (ci : usize) = usize(0);
+  while(ci < usize(6), ci = (ci + usize(1)), {
+    cond(
+      seen(ci) => (),
+      true => {
+        all_hit = false;
+      }
+    );
+  });
+  assert(all_hit, "300 inclusive rolls hit all six faces, 6 included");
+  // A one-element inclusive range is legal and is NOT a panic — `x..=x` has
+  // exactly one member, unlike the half-open `x..x` which has none.
+  (j : usize) = usize(0);
+  while(j < usize(20), j = (j + usize(1)), {
+    assert(r.range_inclusive(i64(4) ..= i64(4)) == i64(4), "x..=x is always x");
+  });
+});
+test("range_inclusive spanning the full i64 width does not overflow", {
+  // `end + 1` would wrap for `end == i64.MAX`, so that case draws all 64 bits
+  // directly instead of going through next_below.
+  r := Rng.new(u64(5));
+  (i : usize) = usize(0);
+  (saw_neg : bool) = false;
+  (saw_pos : bool) = false;
+  while(i < usize(40), i = (i + usize(1)), {
+    v := r.range_inclusive(i64(-9223372036854775808) ..= i64(9223372036854775807));
+    cond(
+      (v < i64(0)) => {
+        saw_neg = true;
+      },
+      true => {
+        saw_pos = true;
+      }
+    );
+  });
+  assert(saw_neg && saw_pos, "full-width draws land on both signs");
+});
+test("next_bool is a fair coin off the top bit", {
+  r := Rng.new(u64(77));
+  (heads : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < usize(1000), i = (i + usize(1)), {
+    cond(
+      r.next_bool() => {
+        heads = (heads + usize(1));
+      },
+      true => ()
+    );
+  });
+  // 1000 fair flips land in [400, 600] with probability ~1 - 1e-10; the seed
+  // is fixed, so this is deterministic, not flaky.
+  assert((heads > usize(400)) && (heads < usize(600)), "roughly balanced");
+});
+test("from_entropy is unpredictable where new(seed) is reproducible", {
+  a := Rng.new(u64(1)).next_u64();
+  b := Rng.new(u64(1)).next_u64();
+  assert(a == b, "the same seed replays the same sequence");
+  // Two entropy-seeded generators agreeing on a 64-bit draw is a 2^-64 event.
+  c := Rng.from_entropy().next_u64();
+  d := Rng.from_entropy().next_u64();
+  assert(c != d, "entropy seeding differs run to run");
+});
+test("the process-global generator draws in range and is lazily seeded", {
+  // `rand_*` is NOT `thread_rng`: Yo has no thread-local storage, so this is
+  // one generator behind a mutex. The observable contract is only the ranges.
+  (i : usize) = usize(0);
+  while(i < usize(200), i = (i + usize(1)), {
+    f := rand_f64();
+    assert((f >= f64(0.0)) && (f < f64(1.0)), "rand_f64 in [0,1)");
+    v := rand_range(i64(10) .. i64(20));
+    assert((v >= i64(10)) && (v < i64(20)), "rand_range in [10,20)");
+    w := rand_range_inclusive(i64(0) ..= i64(3));
+    assert((w >= i64(0)) && (w <= i64(3)), "rand_range_inclusive in [0,3]");
+    assert(rand_below(u64(7)) < u64(7), "rand_below under its bound");
+    assert(rand_below(u64(1)) == u64(0), "rand_below(1) is 0");
+  });
+  // Both bit widths reach the same global state, and the flag makes seeding
+  // happen once: a second call must not reset the sequence.
+  x := rand_u64();
+  y := rand_u64();
+  assert(x != y, "consecutive rand_u64 draws differ");
+  // rand_u32 takes the low 32 bits of the same 64-bit draw, so it must move
+  // too — two equal consecutive draws is a 2^-32 event under a fixed sequence.
+  assert(rand_u32() != rand_u32(), "consecutive rand_u32 draws differ");
+  (any_true : bool) = false;
+  (any_false : bool) = false;
+  (j : usize) = usize(0);
+  while(j < usize(100), j = (j + usize(1)), {
+    cond(
+      rand_bool() => {
+        any_true = true;
+      },
+      true => {
+        any_false = true;
+      }
+    );
+  });
+  assert(any_true && any_false, "rand_bool produces both outcomes");
 });

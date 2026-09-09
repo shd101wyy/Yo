@@ -1,0 +1,13 @@
+# `random_range(x .. x)` used to return `x`, inventing a value that is not in
+# the (empty) range, while `Rng.range(x .. x)` panicked for the same input —
+# two functions named `*range` disagreeing about the same edge. Both now panic:
+# a sampler must return a value FROM the range, and an empty range has none.
+# (`BTreeMap.range` still yields an empty ITERATOR for an inverted window,
+# because "no elements" IS a real answer there.)
+#
+# The program compiles cleanly and PANICS at run time; `build run` propagates
+# that as a non-zero rc. The panic message rides stderr with build chatter and
+# ends in a machine-specific `(at file:///…/std/crypto/random.yo:L:C)`, so
+# stdout keeps only the diagnostic substring.
+stdout_keep_match=random_range: empty range \(end <= start\)
+timeout=300

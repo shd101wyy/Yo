@@ -115,9 +115,9 @@ test("random_range within bounds", {
   );
   i := usize(0);
   while(i < usize(100), i = (i + usize(1)), {
-    v := random_range(i64(10), i64(20), exn);
-    assert(v >= i64(10), "random_range should be >= min");
-    assert(v < i64(20), "random_range should be < max");
+    v := random_range(i64(10) .. i64(20), exn);
+    assert(v >= i64(10), "random_range should be >= start");
+    assert(v < i64(20), "random_range should be < end");
   });
 });
 test("random_range single value", {
@@ -129,21 +129,14 @@ test("random_range single value", {
       }
     )
   );
-  v := random_range(i64(42), i64(43), exn);
-  assert(v == i64(42), "range of 1 should always return min");
+  v := random_range(i64(42) .. i64(43), exn);
+  assert(v == i64(42), "range of 1 should always return start");
 });
-test("random_range zero span returns min", {
-  exn := Exception(
-    throw : (
-      err -> {
-        assert(false, "unexpected exception");
-        unwind(());
-      }
-    )
-  );
-  v := random_range(i64(7), i64(7), exn);
-  assert(v == i64(7), "zero span should return min");
-});
+// An EMPTY range now PANICS instead of returning `start`, matching
+// `Rng.range` — a sampler must return a value from the range, and an empty
+// range has none. Pinned as a run-time panic in
+// tests/cli-cases/crypto-random-empty-range-panics, since a panic cannot be
+// observed from inside a test process.
 // ===== uuid_v4 tests =====
 test("uuid_v4 format", {
   exn := Exception(
@@ -194,7 +187,7 @@ test("random_range stays in-bounds across many draws (rejection sampling)", {
   );
   i := usize(0);
   while(i < usize(2000), i = (i + usize(1)), {
-    v := random_range(i64(-7), i64(6), exn);
+    v := random_range(i64(-7) .. i64(6), exn);
     assert(v >= i64(-7), "random_range lower bound");
     assert(v < i64(6), "random_range upper bound (exclusive)");
   });

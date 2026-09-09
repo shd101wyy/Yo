@@ -1234,7 +1234,7 @@ test("...", {
   m := BTreeMap(i32, i32).new();
   // WRONG — `m` is not in scope inside a `fn` literal.
   count := (fn(lo : i32, hi : i32) -> usize)({
-    it := m.range(lo, hi);   // error[E0401]: Variable "m" not found.
+    it := m.range(lo .. hi);   // error[E0401]: Variable "m" not found.
     ...
   });
 });
@@ -1245,7 +1245,7 @@ Two ways out, in order of preference:
 ```rust
 // 1. Pass it in. Explicit, and it works for every value type.
 count := (fn(mm : BTreeMap(i32, i32), lo : i32, hi : i32) -> usize)({
-  it := mm.range(lo, hi);
+  it := mm.range(lo .. hi);
   ...
 });
 count(m, i32(3), i32(6));
