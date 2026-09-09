@@ -1,6 +1,22 @@
 # A plain (non-`ref`) enum whose variant fields recurse into itself SEGFAULTS the evaluator instead of erroring
 
-**Status: OPEN** (surfaced 2026-09-07 by Phase V2 of
+**Status: FIXED 2026-09-09** (branch `fix/two-filed-issues`): the
+definition-time value-cycle check in `evaluate_enum_type`
+(`_type_reaches_root_by_value` / `_type_is_ref_indirection`) rejects the
+shape with a clean `recursive value enum: variant '<V>' contains the enum
+itself by value ... Make it 'ref(enum(...))'` diagnostic naming the
+offending variant, plus a `visited`-stack backstop in `get_size_of_type`
+(value enums AND value structs) that yields unknown size instead of a
+stack overflow. Regression tests: `tests/internal/recursive_enum.test.yo`
+(in-process model — the fixture evaluation runs this branch's evaluator)
+over `tests/spec/fixtures/invalid/plain_recursive_value_enum.yo` (the
+crasher, reconstructed: the pre-fix `terms.yo` shape) and
+`tests/spec/fixtures/valid/arraylist_self_enum.yo` (the JsonValue-shaped
+legal control). NOTE: the crash itself is seed-build-dependent (the
+v0.2.28 build SIGSEGVs; the v0.2.29 build happens to complete the walk on
+the same input) — the infinite-size type was illegal regardless.
+
+Originally surfaced 2026-09-07 by Phase V2 of
 `plans/backlog/FORMAL_VERIFICATION.md` — the `src/verifier/terms.yo` VC term
 IR was originally written as a plain `enum` and crashed the compiler).
 
