@@ -4759,6 +4759,171 @@ impl(
           true => T.MIN
         )
     )
+  ),
+  /// `-self`, or `.None` when it does not fit — `-T.MIN` for a signed type,
+  /// and any non-zero value for an unsigned one.
+  checked_neg : (fn(self : T) -> Option(T))(
+    cond(
+      (self == T(0)) => Option(T).Some(T(0)),
+      (T.MIN == T(0)) => Option(T).None,
+      (self == T.MIN) => Option(T).None,
+      true => Option(T).Some((T(0) - self))
+    )
+  ),
+  /// `self * rhs` modulo the type's range — Rust's `wrapping_mul`.
+  ///
+  /// Accumulated with `wrapping_add` rather than by forming the product:
+  /// signed overflow is undefined behaviour in C, so the overflowing multiply
+  /// must never exist. Same reason `checked_mul` above tests by DIVISION.
+  /// Only reached on a path that already overflowed, so the loop is not on
+  /// the fast path.
+  wrapping_mul : (fn(self : T, rhs : T) -> T)(
+    match(
+      self.checked_mul(rhs),
+      .Some(v) => v,
+      .None => {
+        (acc : T) = T(0);
+        (i : T) = T(0);
+        (n : T) = cond((rhs < T(0)) => (T(0) - rhs), true => rhs);
+        (step : T) = cond((rhs < T(0)) => (T(0) - self), true => self);
+        while(i < n, i = (i + T(1)), {
+          acc = acc.wrapping_add(step);
+        });
+        acc
+      }
+    )
+  ),
+  /// `(wrapped product, did it overflow)` — Rust's `overflowing_mul`.
+  overflowing_mul : (fn(self : T, rhs : T) -> Tuple(T, bool))(
+    match(self.checked_mul(rhs), .Some(v) => (v, false), .None => (self.wrapping_mul(rhs), true))
+  ),
+  /// `self` raised to `exp`. PANICS on overflow rather than wrapping — a
+  /// silently wrapped power is a wrong answer that propagates, and
+  /// `checked_pow` is right there for a caller who wants to handle it.
+  pow : (fn(self : T, exp : u32) -> T)(
+    match(
+      self.checked_pow(exp),
+      .Some(v) => v,
+      .None => __yo_panic("pow: the result does not fit")
+    )
+  ),
+  /// `self` raised to `exp`, clamped to the type's bounds instead of
+  /// overflowing.
+  saturating_pow : (fn(self : T, exp : u32) -> T)(
+    match(
+      self.checked_pow(exp),
+      .Some(v) => v,
+      .None =>
+        cond(
+          // A negative base to an ODD power saturates low; every other
+          // overflowing case saturates high.
+          ((self < T(0)) && ((exp % u32(2)) == u32(1))) => T.MIN,
+          true => T.MAX
+        )
+    )
+  ),
+  /// Euclidean division — the quotient rounded toward NEGATIVE infinity, so
+  /// the paired remainder is never negative. C's `/` truncates toward zero,
+  /// which makes `(-7) / 2` equal `-3` and leaves `rem_euclid` no way to stay
+  /// non-negative; Rust separates the two for exactly this reason.
+  div_euclid : (fn(self : T, rhs : T) -> T)({
+    q := (self / rhs);
+    cond(
+      ((self % rhs) < T(0)) => cond((rhs > T(0)) => (q - T(1)), true => (q + T(1))),
+      true => q
+    )
+  }),
+  /// `self` modulo `rhs`, ALWAYS non-negative — Rust's `rem_euclid`. C's `%`
+  /// keeps the sign of the dividend, so `(-7) % 2` is `-1`; this is `1`.
+  rem_euclid : (fn(self : T, rhs : T) -> T)({
+    r := (self % rhs);
+    cond(
+      (r < T(0)) => cond((rhs < T(0)) => (r - rhs), true => (r + rhs)),
+      true => r
+    )
+  }),
+  /// `floor((self + rhs) / 2)`, computed WITHOUT overflowing — `(a + b) / 2`
+  /// overflows for two large values, which is the classic binary-search bug.
+  ///
+  /// `(a & b) + ((a ^ b) >> 1)`, not `lo + (hi - lo) / 2`: the subtraction
+  /// form overflows too, just for a different pair — `i64.MAX - i64.MIN` does
+  /// not fit, and signed overflow is undefined behaviour in C. The bit form
+  /// has no intermediate that can leave the type: the AND carries the common
+  /// bits and the XOR the differing ones, whose half is exactly the rest of
+  /// the average. `>>` on a signed type is arithmetic in Yo, so the rounding
+  /// is toward NEGATIVE infinity — `i64.MIN.midpoint(i64.MAX)` is `-1`.
+  midpoint : (fn(self : T, rhs : T) -> T)(
+    ((self & rhs) + ((self ^ rhs) >> T(1)))
+  ),
+  /// The integer square root — the greatest `r` with `r * r <= self`. PANICS
+  /// for a negative receiver, which has no real square root.
+  ///
+  /// Newton's method, seeded at `self / 2`. The seed matters: the textbook
+  /// `(self + 1) / 2` OVERFLOWS at `T.MAX`, and signed overflow is undefined
+  /// behaviour in C. `self / 2` cannot leave the type and still dominates the
+  /// root for every `self >= 4`, which is why 2 and 3 are peeled off first —
+  /// their `self / 2` is not above the root, so the descent would stop early
+  /// and answer 2 instead of 1.
+  ///
+  /// Every step divides rather than multiplying (`self / r`, never `r * r`),
+  /// so no intermediate product can overflow either.
+  isqrt : (fn(self : T) -> T)(
+    cond(
+      (self < T(0)) => __yo_panic("isqrt: the receiver is negative"),
+      (self < T(2)) => self,
+      (self < T(4)) => T(1),
+      true => {
+        (r : T) = self;
+        (next : T) = (self / T(2));
+        while(next < r, {
+          r = next;
+          next = ((r + (self / r)) / T(2));
+        });
+        r
+      }
+    )
+  )
+);
+/// Marks the SIGNED integers. `abs` and `signum` exist only for them — Rust
+/// omits both on unsigned types, where `abs` would be the identity and
+/// `signum` could only ever answer 0 or 1. A marker trait is how a blanket
+/// impl gets restricted to half the integers, since `where(T <: Integer)`
+/// covers all ten.
+SignedInteger :: trait(
+  id := "SignedInteger"
+);
+export(SignedInteger);
+impl(i8, SignedInteger());
+impl(i16, SignedInteger());
+impl(i32, SignedInteger());
+impl(i64, SignedInteger());
+impl(isize, SignedInteger());
+impl(
+  generic(T : Type),
+  where(T <: (Integer, SignedInteger)),
+  T,
+  /// The absolute value. PANICS for `T.MIN`, whose magnitude does not fit —
+  /// Rust's debug build does the same, and `checked_abs` is the form that
+  /// reports it. Wrapping to `T.MIN` silently, as Rust's release build does,
+  /// would return a NEGATIVE absolute value.
+  abs : (fn(self : T) -> T)(
+    cond(
+      (self == T.MIN) => __yo_panic("abs: the absolute value of MIN does not fit"),
+      (self < T(0)) => (T(0) - self),
+      true => self
+    )
+  ),
+  /// `-1`, `0` or `1` according to the sign.
+  signum : (fn(self : T) -> T)(
+    cond((self > T(0)) => T(1), (self < T(0)) => (T(0) - T(1)), true => T(0))
+  ),
+  /// `-self` modulo the type's range: `T.MIN` negates to itself.
+  wrapping_neg : (fn(self : T) -> T)(
+    cond((self == T.MIN) => T.MIN, true => (T(0) - self))
+  ),
+  /// The absolute value modulo the type's range: `T.MIN` maps to itself.
+  wrapping_abs : (fn(self : T) -> T)(
+    cond((self == T.MIN) => T.MIN, (self < T(0)) => (T(0) - self), true => self)
   )
 );
 /**
@@ -5290,6 +5455,445 @@ impl(
   reverse_bits : (fn(self : Self) -> Self)(Self(usize(self).reverse_bits())),
   /// `self` with its byte order reversed.
   swap_bytes : (fn(self : Self) -> Self)(Self(usize(self).swap_bytes()))
+);
+/**
+* `abs_diff` and the byte conversions, per-type.
+*
+* Neither fits the `where(T <: Integer)` blanket: `abs_diff` returns the
+* UNSIGNED partner of its receiver (Rust's `i32::abs_diff -> u32`), and the
+* byte conversions return an `Array(u8, N)` whose N is the receiver's width.
+* A blanket has no way to name either, which is the same reason the bit
+* batteries above are per-type.
+*
+* `abs_diff` subtracts the UNSIGNED bit patterns, never `a - b`: the signed
+* difference overflows for a wide pair (`i64.MAX - i64.MIN`), and signed
+* overflow is undefined behaviour in C. Yo's conversions are two's-complement
+* bit-preserving, so the larger pattern minus the smaller is the exact
+* distance.
+*
+* The arrays are built with the `Array(u8, N)(...)` constructor rather than
+* `fill` + indexed assignment: `Array.fill` is not resolvable this early in
+* the prelude, and a direct construction needs no mutation anyway.
+*/
+impl(
+  u8,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u8`, so the result is representable even for
+  /// `u8.MAX.abs_diff(u8.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u8)(
+    cond(
+      (self >= other) => (u8(self) - u8(other)),
+      true => (u8(other) - u8(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
+    v := u8(self);
+    Array(u8, usize(1))(
+      u8(u8(self))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
+    v := u8(self);
+    Array(u8, usize(1))(
+      u8(u8(self))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
+    Self(
+      u8(bs(usize(0)))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
+    Self(
+      u8(bs(usize(0)))
+    )
+  )
+);
+impl(
+  u16,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u16`, so the result is representable even for
+  /// `u16.MAX.abs_diff(u16.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u16)(
+    cond(
+      (self >= other) => (u16(self) - u16(other)),
+      true => (u16(other) - u16(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
+    v := u16(self);
+    Array(u8, usize(2))(
+      u8((v >> u16(8)) & u16(255)),
+      u8((v >> u16(0)) & u16(255))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
+    v := u16(self);
+    Array(u8, usize(2))(
+      u8((v >> u16(0)) & u16(255)),
+      u8((v >> u16(8)) & u16(255))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
+    Self(
+      (u16(bs(usize(0))) << u16(8)) |
+        (u16(bs(usize(1))) << u16(0))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
+    Self(
+      (u16(bs(usize(0))) << u16(0)) |
+        (u16(bs(usize(1))) << u16(8))
+    )
+  )
+);
+impl(
+  u32,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u32`, so the result is representable even for
+  /// `u32.MAX.abs_diff(u32.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u32)(
+    cond(
+      (self >= other) => (u32(self) - u32(other)),
+      true => (u32(other) - u32(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
+    v := u32(self);
+    Array(u8, usize(4))(
+      u8((v >> u32(24)) & u32(255)),
+      u8((v >> u32(16)) & u32(255)),
+      u8((v >> u32(8)) & u32(255)),
+      u8((v >> u32(0)) & u32(255))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
+    v := u32(self);
+    Array(u8, usize(4))(
+      u8((v >> u32(0)) & u32(255)),
+      u8((v >> u32(8)) & u32(255)),
+      u8((v >> u32(16)) & u32(255)),
+      u8((v >> u32(24)) & u32(255))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
+    Self(
+      (u32(bs(usize(0))) << u32(24)) |
+        (u32(bs(usize(1))) << u32(16)) |
+          (u32(bs(usize(2))) << u32(8)) |
+            (u32(bs(usize(3))) << u32(0))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
+    Self(
+      (u32(bs(usize(0))) << u32(0)) |
+        (u32(bs(usize(1))) << u32(8)) |
+          (u32(bs(usize(2))) << u32(16)) |
+            (u32(bs(usize(3))) << u32(24))
+    )
+  )
+);
+impl(
+  u64,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u64`, so the result is representable even for
+  /// `u64.MAX.abs_diff(u64.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u64)(
+    cond(
+      (self >= other) => (u64(self) - u64(other)),
+      true => (u64(other) - u64(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
+    v := u64(self);
+    Array(u8, usize(8))(
+      u8((v >> u64(56)) & u64(255)),
+      u8((v >> u64(48)) & u64(255)),
+      u8((v >> u64(40)) & u64(255)),
+      u8((v >> u64(32)) & u64(255)),
+      u8((v >> u64(24)) & u64(255)),
+      u8((v >> u64(16)) & u64(255)),
+      u8((v >> u64(8)) & u64(255)),
+      u8((v >> u64(0)) & u64(255))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
+    v := u64(self);
+    Array(u8, usize(8))(
+      u8((v >> u64(0)) & u64(255)),
+      u8((v >> u64(8)) & u64(255)),
+      u8((v >> u64(16)) & u64(255)),
+      u8((v >> u64(24)) & u64(255)),
+      u8((v >> u64(32)) & u64(255)),
+      u8((v >> u64(40)) & u64(255)),
+      u8((v >> u64(48)) & u64(255)),
+      u8((v >> u64(56)) & u64(255))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
+    Self(
+      (u64(bs(usize(0))) << u64(56)) |
+        (u64(bs(usize(1))) << u64(48)) |
+          (u64(bs(usize(2))) << u64(40)) |
+            (u64(bs(usize(3))) << u64(32)) |
+              (u64(bs(usize(4))) << u64(24)) |
+                (u64(bs(usize(5))) << u64(16)) |
+                  (u64(bs(usize(6))) << u64(8)) |
+                    (u64(bs(usize(7))) << u64(0))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
+    Self(
+      (u64(bs(usize(0))) << u64(0)) |
+        (u64(bs(usize(1))) << u64(8)) |
+          (u64(bs(usize(2))) << u64(16)) |
+            (u64(bs(usize(3))) << u64(24)) |
+              (u64(bs(usize(4))) << u64(32)) |
+                (u64(bs(usize(5))) << u64(40)) |
+                  (u64(bs(usize(6))) << u64(48)) |
+                    (u64(bs(usize(7))) << u64(56))
+    )
+  )
+);
+impl(
+  i8,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u8`, so the result is representable even for
+  /// `i8.MAX.abs_diff(i8.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u8)(
+    cond(
+      (self >= other) => (u8(self) - u8(other)),
+      true => (u8(other) - u8(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
+    v := u8(self);
+    Array(u8, usize(1))(
+      u8(u8(self))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(1)))({
+    v := u8(self);
+    Array(u8, usize(1))(
+      u8(u8(self))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
+    Self(
+      u8(bs(usize(0)))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(1))) -> Self)(
+    Self(
+      u8(bs(usize(0)))
+    )
+  )
+);
+impl(
+  i16,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u16`, so the result is representable even for
+  /// `i16.MAX.abs_diff(i16.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u16)(
+    cond(
+      (self >= other) => (u16(self) - u16(other)),
+      true => (u16(other) - u16(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
+    v := u16(self);
+    Array(u8, usize(2))(
+      u8((v >> u16(8)) & u16(255)),
+      u8((v >> u16(0)) & u16(255))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(2)))({
+    v := u16(self);
+    Array(u8, usize(2))(
+      u8((v >> u16(0)) & u16(255)),
+      u8((v >> u16(8)) & u16(255))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
+    Self(
+      (u16(bs(usize(0))) << u16(8)) |
+        (u16(bs(usize(1))) << u16(0))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(2))) -> Self)(
+    Self(
+      (u16(bs(usize(0))) << u16(0)) |
+        (u16(bs(usize(1))) << u16(8))
+    )
+  )
+);
+impl(
+  i32,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u32`, so the result is representable even for
+  /// `i32.MAX.abs_diff(i32.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u32)(
+    cond(
+      (self >= other) => (u32(self) - u32(other)),
+      true => (u32(other) - u32(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
+    v := u32(self);
+    Array(u8, usize(4))(
+      u8((v >> u32(24)) & u32(255)),
+      u8((v >> u32(16)) & u32(255)),
+      u8((v >> u32(8)) & u32(255)),
+      u8((v >> u32(0)) & u32(255))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(4)))({
+    v := u32(self);
+    Array(u8, usize(4))(
+      u8((v >> u32(0)) & u32(255)),
+      u8((v >> u32(8)) & u32(255)),
+      u8((v >> u32(16)) & u32(255)),
+      u8((v >> u32(24)) & u32(255))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
+    Self(
+      (u32(bs(usize(0))) << u32(24)) |
+        (u32(bs(usize(1))) << u32(16)) |
+          (u32(bs(usize(2))) << u32(8)) |
+            (u32(bs(usize(3))) << u32(0))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(4))) -> Self)(
+    Self(
+      (u32(bs(usize(0))) << u32(0)) |
+        (u32(bs(usize(1))) << u32(8)) |
+          (u32(bs(usize(2))) << u32(16)) |
+            (u32(bs(usize(3))) << u32(24))
+    )
+  )
+);
+impl(
+  i64,
+  /// The absolute difference — `|self - other|`, as the unsigned partner
+  /// `u64`, so the result is representable even for
+  /// `i64.MAX.abs_diff(i64.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> u64)(
+    cond(
+      (self >= other) => (u64(self) - u64(other)),
+      true => (u64(other) - u64(self))
+    )
+  ),
+  /// The big-endian byte representation — most significant byte first.
+  to_be_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
+    v := u64(self);
+    Array(u8, usize(8))(
+      u8((v >> u64(56)) & u64(255)),
+      u8((v >> u64(48)) & u64(255)),
+      u8((v >> u64(40)) & u64(255)),
+      u8((v >> u64(32)) & u64(255)),
+      u8((v >> u64(24)) & u64(255)),
+      u8((v >> u64(16)) & u64(255)),
+      u8((v >> u64(8)) & u64(255)),
+      u8((v >> u64(0)) & u64(255))
+    )
+  }),
+  /// The little-endian byte representation — least significant byte first.
+  to_le_bytes : (fn(self : Self) -> Array(u8, usize(8)))({
+    v := u64(self);
+    Array(u8, usize(8))(
+      u8((v >> u64(0)) & u64(255)),
+      u8((v >> u64(8)) & u64(255)),
+      u8((v >> u64(16)) & u64(255)),
+      u8((v >> u64(24)) & u64(255)),
+      u8((v >> u64(32)) & u64(255)),
+      u8((v >> u64(40)) & u64(255)),
+      u8((v >> u64(48)) & u64(255)),
+      u8((v >> u64(56)) & u64(255))
+    )
+  }),
+  /// Rebuild from a big-endian byte array — the inverse of `to_be_bytes`.
+  from_be_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
+    Self(
+      (u64(bs(usize(0))) << u64(56)) |
+        (u64(bs(usize(1))) << u64(48)) |
+          (u64(bs(usize(2))) << u64(40)) |
+            (u64(bs(usize(3))) << u64(32)) |
+              (u64(bs(usize(4))) << u64(24)) |
+                (u64(bs(usize(5))) << u64(16)) |
+                  (u64(bs(usize(6))) << u64(8)) |
+                    (u64(bs(usize(7))) << u64(0))
+    )
+  ),
+  /// Rebuild from a little-endian byte array — the inverse of `to_le_bytes`.
+  from_le_bytes : (fn(bs : Array(u8, usize(8))) -> Self)(
+    Self(
+      (u64(bs(usize(0))) << u64(0)) |
+        (u64(bs(usize(1))) << u64(8)) |
+          (u64(bs(usize(2))) << u64(16)) |
+            (u64(bs(usize(3))) << u64(24)) |
+              (u64(bs(usize(4))) << u64(32)) |
+                (u64(bs(usize(5))) << u64(40)) |
+                  (u64(bs(usize(6))) << u64(48)) |
+                    (u64(bs(usize(7))) << u64(56))
+    )
+  )
+);
+// `usize` / `isize`: `abs_diff` only.
+//
+// Their byte conversions are deliberately ABSENT. The return type would be
+// `Array(u8, N)` with N = the target's pointer width in bytes — 4 on wasm32,
+// 8 elsewhere — and a type-level size cannot be derived the way `_USIZE_BITS`
+// derives a value. Rust has the same target dependence but can spell it
+// behind a cfg; Yo cannot, so rather than hard-code 8 and be silently wrong on
+// the wasm legs, the conversion is not offered. Go through a fixed-width type
+// instead: `u64(n).to_be_bytes()`.
+impl(
+  usize,
+  /// The absolute difference. Already unsigned, so this is the larger minus
+  /// the smaller and cannot overflow.
+  abs_diff : (fn(self : Self, other : Self) -> usize)(
+    cond((self >= other) => (self - other), true => (other - self))
+  )
+);
+impl(
+  isize,
+  /// The absolute difference, as the unsigned partner `usize`, so the result
+  /// is representable even for `isize.MAX.abs_diff(isize.MIN)`.
+  abs_diff : (fn(self : Self, other : Self) -> usize)(
+    cond(
+      (self >= other) => (usize(self) - usize(other)),
+      true => (usize(other) - usize(self))
+    )
+  )
 );
 /// char
 impl(char, Send());

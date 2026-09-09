@@ -98,7 +98,7 @@ _(env : proc_env) :: import("std/env");
   emit_chatter
 } :: import("./diagnostics.yo");
 { eval_context_new } :: import("./evaluator/context.yo");
-{ register_evaluate_expression, set_evaluator_deadline } :: import("./evaluator/exprs/_expr.yo");
+{ register_evaluate_expression, set_evaluator_deadline, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { clear_module_cache } :: import("./evaluator/module_loader.yo");
 { run_check_watch, run_watch_once, watch_snapshot, wait_for_change } :: import("./check_watch.yo");
@@ -2433,13 +2433,22 @@ run_compile :: (
       // format-aware stream and exit 1 — the throw only ever existed to
       // reach the top-level handler, and a rethrown string would regain the
       // yo: error: wrapper under --error-format json (D2).
-      match(
-        _take_load_error(),
-        .Some(rendered) => {
-          emit_rendered_text(rendered);
+      // Same rule as the prelude edge: a tripped deadline outranks the
+      // diagnostic that surfaced after it
+      // (issues/fixed/a-tripped-deadline-is-masked-by-the-next-type-error.md).
+      cond(
+        evaluator_deadline_tripped() => {
+          emit_rendered_text(evaluator_deadline_message());
           unsafe(exit(int(1)));
         },
-        .None => exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`))
+        true => match(
+          _take_load_error(),
+          .Some(rendered) => {
+            emit_rendered_text(rendered);
+            unsafe(exit(int(1)));
+          },
+          .None => exn.throw(dyn(`compile: failed to evaluate module "${input_path}"`))
+        )
       );
       return(());
     });

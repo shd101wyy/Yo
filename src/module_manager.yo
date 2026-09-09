@@ -39,7 +39,7 @@ open(import("std/fmt"));
 { parse } :: import("./parser.yo");
 { Environment, clone_env, build_prelude_var_cache } :: import("./env.yo");
 { EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
-{ register_evaluate_expression } :: import("./evaluator/exprs/_expr.yo");
+{ register_evaluate_expression, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
 { resolve_module_path, ModuleResolveResult, _build_module_val_from_env } :: import("./evaluator/exprs/import.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module } :: import("./evaluator/module_loader.yo");
@@ -842,10 +842,18 @@ mm_preload_prelude :: (
     // the loader's handlers only stash).
     if(!pre_outcome.ok, {
       ok = false;
-      match(
-        _take_load_error(),
-        .Some(rendered) => eprintln(rendered),
-        .None => eprintln(`check: error in: ${std_path}/prelude.yo`)
+      // A TRIPPED DEADLINE outranks whatever error surfaced: once it trips the
+      // evaluator's state is unreliable, so the next diagnostic is a
+      // half-evaluated expression's own complaint, not the fault. Reporting
+      // that instead would point at innocent code and hide the timeout
+      // (issues/fixed/a-tripped-deadline-is-masked-by-the-next-type-error.md).
+      cond(
+        evaluator_deadline_tripped() => eprintln(evaluator_deadline_message()),
+        true => match(
+          _take_load_error(),
+          .Some(rendered) => eprintln(rendered),
+          .None => eprintln(`check: error in: ${std_path}/prelude.yo`)
+        )
       );
     });
     // Build the O(1) prelude variable cache here rather than inside

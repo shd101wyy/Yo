@@ -438,10 +438,35 @@ set_evaluator_deadline :: (fn(budget_ms : usize) -> unit)({
   _g_eval_deadline_counter = u64(0);
   _g_eval_deadline_tripped = false;
 });
+/// The deadline message, and the fact that it has tripped, readable from the
+/// REPORTING edges.
+///
+/// Once the deadline trips the evaluator's state is unreliable, so whatever
+/// error surfaces next is not the real fault: a half-evaluated expression
+/// reports its own type mismatch and WINS the race against the latch, because
+/// a diagnostic can be formatted without going through another dispatch. That
+/// is how a 1 ms budget produced
+///
+///     error: Array element at index 1 has incompatible type:
+///     - Expected: u8
+///     - Given   : Type(1)
+///          --> std/prelude.yo:5584:7
+///
+/// on a prelude that compiles cleanly with no deadline at all — a nonsense
+/// error pointing at innocent code, and the timeout message never printed
+/// (issues/fixed/a-tripped-deadline-is-masked-by-the-next-type-error.md; the
+/// same family as issues/fixed/evaluator-deadline-error-swallowed-by-trial-eval.md).
+///
+/// The reporting edges therefore PREFER this message over whatever they were
+/// about to print.
+evaluator_deadline_tripped :: (fn() -> bool)(_g_eval_deadline_tripped);
+evaluator_deadline_message :: (fn() -> String)(
+  `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
+);
 _throw_deadline_error :: (fn(exn : Exception) -> unit)(
   exn.throw(
     dyn(
-      `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
+      evaluator_deadline_message()
     )
   )
 );
@@ -1273,3 +1298,4 @@ register_evaluate_expression :: (fn() -> unit)({
   ()
 });
 export(_evaluate_expression, _evaluate_expression_wrapper, _evaluate_expression_raw_wrapper, register_evaluate_expression, set_evaluator_deadline);
+export(evaluator_deadline_tripped, evaluator_deadline_message);
