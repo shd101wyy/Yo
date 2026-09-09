@@ -1,5 +1,5 @@
 { assert } :: import("std/assert");
-// Tests for module features: impl modules, open, export, spread, module-level variables.
+// Tests for module features: impl modules, destructuring, export, spread, module-level variables.
 { printf } :: import("std/libc/stdio");
 // ── Module basics ──
 test("Test extending modules by ... spread operator", {
@@ -17,20 +17,20 @@ test("Test extending modules by ... spread operator", {
     export(...(ModuleB), d);
   });
   {
-    open(ModuleC);
+    { a, b, c, d } :: ModuleC;
     assert(a == 1);
     assert(b == 2);
     assert(c == 3);
     assert(d == 4);
   };
 });
-test("Test 'open' on modules", {
+test("Test destructuring a module's exports by name", {
   my_module :: impl({
     x :: 6;
     y :: 2;
     export(x, y);
   });
-  open(my_module);
+  { x, y } :: my_module;
   comptime_assert(x == 6);
   comptime_assert(y == 2);
   assert(x == 6);
@@ -54,7 +54,7 @@ test("Test destructuring by ... spread operator", {
     x2 := id(a);
   };
   {
-    open(SomeModule);
+    { id, implicit_id } :: SomeModule;
     implicit_id(3);
     id(3);
   };
@@ -176,4 +176,23 @@ test("module-level globals are isolated per module", {
   a_put();
   assert(a_len() == usize(1), "module A sees its own write");
   assert(b_len() == usize(0), "module B's same-named global is a distinct variable");
+});
+
+// The `open(...)` builtin was removed on 2026-09-09
+// (plans/REMOVE_OPEN_BUILTIN.md). A glob import is `{ ... } :: import("m")`
+// and a whole-struct destructure is `{ x, y } := s`; `open` itself is now an
+// ordinary identifier, so calling it unbound is an error …
+test("open is not a builtin any more", {
+  comptime_expect_error({
+    anony :: { x : 12, y : 13 };
+    open(anony);
+    anony.x
+  });
+});
+// … and a user definition of that name is finally reachable. Builtin-first
+// dispatch (issues/builtin-name-shadows-user-definition.md) used to make one
+// dead code: the builtin answered the call.
+test("a user-defined open is callable", {
+  open :: (fn(fd : i32) -> i32)(fd + i32(1));
+  assert(open(i32(6)) == i32(7), "the user's open runs");
 });

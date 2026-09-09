@@ -1,7 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-open(import("std/libc/stdio.yo"));
-open(import("std/string"));
+{ printf } :: import("std/libc/stdio.yo");
+{ String } :: import("std/string");
 { AnyError, Error, Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
   print : (fn(self : *Self) -> unit),
@@ -137,8 +137,8 @@ test("Test Dyn with multiple traits", {
   assert(result == 3, "Expected result to be 3");
   assert(dog.speak() == 1, "Expected dog.speak() to return 1");
 });
-open(import("std/string"));
-open(import("std/fmt"));
+import("std/string");
+{ ToString, print } :: import("std/fmt");
 test("Test downcast success", {
   Cat :: ref(struct(name : String));
   impl(Cat, ToString(to_string : (self -> self.name)));

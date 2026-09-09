@@ -2615,7 +2615,7 @@ match(result,
 The standard library defines an `Error` trait and `AnyError` type for dynamic error handling:
 
 ```rust
-open(import("std/error"));
+{ Error, AnyError } :: import("std/error");
 
 // Error trait requires ToString. `derive(Error)` supplies both from one
 // message per variant, listed in declaration order:
@@ -2652,7 +2652,7 @@ Its `throw` field is a `ctl(...) -> ret` handler — calling
 from the enclosing function:
 
 ```rust
-open(import("std/error"));
+{ Exception } :: import("std/error");
 
 safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
   cond(
@@ -2683,7 +2683,7 @@ When the handler calls `return`, it resumes the continuation with a
 recovery value:
 
 ```rust
-open(import("std/error"));
+{ ResumableException } :: import("std/error");
 
 safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
   cond(
@@ -2800,7 +2800,7 @@ export(Option);
 ```
 
 ```rust
-open(import("./test.yo")); // Import everything from test.yo
+{ ... } :: import("./test.yo"); // Import everything from test.yo
 test_module :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
 { test } :: import("./test.yo"); // Import test function from test.yo
 { test : test2 } :: import("./test.yo"); // Import test function from test.yo and rename it to test2

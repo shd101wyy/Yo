@@ -6,8 +6,8 @@
 // Expected today: fails with
 //   Error: No matching call found with arguments: (a.to_string)()
 // Expected after the fix: prints "0" then "5" then "0".
-open(import("std/string"));
-open(import("std/fmt"));
+import("std/string");
+{ println } :: import("std/fmt");
 // ❌ THE BUG — C is pinned only by the explicit comptime type argument.
 dflt :: (fn(comptime(C) : Type, where(C <: Default)) -> C)((C <: Default).default());
 // ✅ works — C is also pinned by the value parameter `v`.

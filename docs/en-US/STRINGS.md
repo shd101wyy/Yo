@@ -23,7 +23,7 @@ accepts or returns must sit on a **UTF-8 character boundary** (the first byte
 of a rune, or `len()`). ASCII text is unaffected — every byte is a boundary.
 
 ```rust
-open(import("std/string"));
+{ String } :: import("std/string");
 
 //        a=1B @0   é=2B @1   中=3B @3   𝄞=4B @6   — 10 bytes, 4 runes
 s := String.from("aé中𝄞");

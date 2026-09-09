@@ -5,7 +5,7 @@
 //! references carry the bound type from the environment but have no computed
 //! value at compile time — they mirror `UnknownValue` from the TS evaluator.
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("./types/definitions.yo");
 { t_unit, t_bool, t_comptime_int, t_comptime_float, t_comptime_string, t_type, t_some_t } :: import("./types/creators.yo");
@@ -938,8 +938,8 @@ create_type_value :: (fn(ty : TypeValue) -> EvalValue)(
 /// Best-effort recovery of a `TypeValue` from a comptime `EvalValue`.
 ///
 /// Mirrors the contract of "StructValue.type" in `src/value.ts`: yo-self
-/// values do not carry a parallel type reference, so handlers like
-/// `evaluate_open` recover per-field types by
+/// values do not carry a parallel type reference, so a handler that
+/// destructures a module or struct value recovers per-field types by
 /// inspecting each exported value. The mapping is deliberately conservative:
 /// for value variants whose type is not directly recoverable we fall back to
 /// `t_unit()`, which matches the production behavior of treating such fields

@@ -862,7 +862,7 @@ verify_install() {
   fi
   make_temp_dir
   cat > "$YO_TEMP_DIR/hello.yo" <<'YOEOF'
-open(import("std/fmt"));
+{ println } :: import("std/fmt");
 main :: (fn() -> unit)({
   println(`Yo is installed`);
 });

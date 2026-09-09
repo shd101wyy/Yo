@@ -5,8 +5,8 @@ These patterns are aimed at everyday Yo application and library code.
 ## Strings and output
 
 ```rust
-open(import("std/fmt"));
-open(import("std/string"));
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
 
 (name : str) = "yo";
 greeting := `Hello ${name}`;
@@ -39,7 +39,7 @@ Key rules:
 
 ```rust
 { LocalType } :: import("./local_type.yo");
-open(import("std/string"));
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Url } :: import("std/url");
@@ -60,7 +60,7 @@ Do not import `std/prelude`; it is already available.
 ## Option and Result
 
 ```rust
-open(import("std/string"));
+{ String } :: import("std/string");
 
 (value : Option(i32)) = .Some(i32(21));
 doubled := value.map((x) => (x * i32(2)));
@@ -107,7 +107,7 @@ destructuring forms.)
 ```rust
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-open(import("std/string"));
+{ String } :: import("std/string");
 
 numbers := ArrayList(i32).new();
 numbers.push(i32(1));
@@ -409,7 +409,7 @@ if((type_value_tag(my_type) != TypeTag.TUnit), { ... });
 ## Error handling
 
 ```rust
-open(import("std/error"));
+{ Exception } :: import("std/error");
 
 DivError :: enum(DivByZero);
 // `derive(Error)` emits ToString AND Error from one message per variant, in

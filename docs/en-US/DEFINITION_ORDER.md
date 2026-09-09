@@ -43,7 +43,7 @@ source order — they are not definitions:
 
 | statement | why it is ordered |
 | --- | --- |
-| `{ a, b } :: import("...")`, `x :: import("...")`, `open(import("..."))` | loading a module registers its impls and brings names into scope |
+| `{ a, b } :: import("...")`, `x :: import("...")`, `{ ... } :: import("...")` | loading a module registers its impls and brings names into scope |
 | `pragma(...)` | applies to what follows |
 | module-level runtime globals — `x := v`, `(g : T) = v` | runtime values initialized in order |
 | `comptime(x) : T;` … `x = v;` (declare, then assign) | the declaration is a statement; the assignment fills it |
@@ -52,16 +52,16 @@ source order — they are not definitions:
 | `impl({ ... })` blocks and the bindings inside them | a module *value*; its fields are block-scoped and ordered |
 
 A definition forced early sees only the statements that precede the **reference
-that forced it**. If `helper` (line 60) uses a name brought in by
-`open(import(...))` at line 50, and `caller` at line 30 forces `helper`, the
-open has not happened yet and the check fails. Keep imports and opens at the
-top of the file, as every module in the standard library does.
+that forced it**. If `helper` (line 60) uses a name brought in by an import at
+line 50, and `caller` at line 30 forces `helper`, the import has not happened
+yet and the check fails. Keep imports at the top of the file, as every module
+in the standard library does.
 
 The diagnostic for referencing an ordered statement that appears later names
 it:
 
 ```
-forward reference to "counter" (bound at line 3) — imports, opens, pragmas and
+forward reference to "counter" (bound at line 3) — imports, pragmas and
 runtime bindings are evaluated in order (only `::` definitions and `impl`
 registrations are order-independent); move that statement above this use
 ```

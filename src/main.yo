@@ -12,9 +12,9 @@
 //!   compiles each test body to a standalone C program, and reports pass/fail.
 //!   Only supports pure tests (no Io effects, no struct methods) in Phase 5b.
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
-open(import("std/error"));
-open(import("std/fmt"));
+{ String } :: import("std/string");
+{ Error, Exception, IoExn } :: import("std/error");
+{ Format, StringBuilder, println, print, eprintln } :: import("std/fmt");
 { args, cwd } :: import("std/env");
 _(env : proc_env) :: import("std/env");
 { CURRENT_YO_VERSION, read_yo_version } :: import("./version.yo");
@@ -38,7 +38,7 @@ _(env : proc_env) :: import("std/env");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, BK_OPEN, BK_IMPORT, BK_TEST, ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, BK_IMPORT, BK_TEST, ast_expr_is_fn_call_of, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new } :: import("./expr_info.yo");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
@@ -153,7 +153,6 @@ extract_bare_import_path :: (fn(e : AstExpr) -> Option(String))(
 );
 /// Extract the import path from any import form:
 ///   - `{ Names } :: import("path")` (infix `::`, RHS is import call)
-///   - `open(import("path"))` (`open` wrapping import call)
 ///   - `import("path")` (bare import call)
 /// Returns the path without surrounding quotes, or .None if not an import expression.
 extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
@@ -167,13 +166,6 @@ extract_import_path :: (fn(expr : AstExpr) -> Option(String))(
         .FnCall(_, _, _, _, _) => String.new()
       );
       cond(
-        // Pattern: open import "path"
-        ((fval == BK_OPEN) && (fn_imp_args.len() >= usize(1))) =>
-          match(
-            fn_imp_args.get(usize(0)),
-            .None => Option(String).None,
-            .Some(inner) => extract_bare_import_path(inner)
-          ),
         // Pattern: { Names } :: import "path" (infix ::)
         (((fval == "::") && is_infix) && (fn_imp_args.len() >= usize(2))) =>
           match(

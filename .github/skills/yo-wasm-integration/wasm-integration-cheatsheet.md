@@ -16,7 +16,7 @@ Export C-compatible functions that operate on linear memory:
 
 ```rust
 // src/wasm_api.yo
-open(import("std/string"));
+{ String } :: import("std/string");
 
 // Allocate WASM memory for the caller
 wasm_alloc :: (fn(size : usize) -> *(u8))(
