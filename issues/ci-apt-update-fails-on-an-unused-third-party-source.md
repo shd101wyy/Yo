@@ -70,14 +70,23 @@ Drop the third-party lists this repo does not install from, before `update`:
 Both `.list` and `.sources` (deb822) forms, because newer images use the
 latter.
 
-Applied at all **19** `sudo apt-get $APT_OPTS update` sites:
+Applied at all **20** `apt-get ... update` call sites:
 
-| workflow | sites |
+| file | sites |
 | --- | --- |
 | `.github/workflows/test.yml` | 13 |
 | `.github/workflows/release.yml` | 4 |
 | `.github/workflows/fixpoint-arm64.yml` | 1 |
 | `.github/workflows/deploy-site.yml` | 1 |
+| `.github/actions/build-stage1/action.yml` | 1 |
+
+**The composite action was the one that mattered and the one nearly missed.**
+A first pass patched only the 19 `sudo apt-get $APT_OPTS update` lines in the
+workflows, and the wasm legs still fell over — `.github/actions/build-stage1`
+spells its flags out inline rather than reading the caller's `$APT_OPTS` (on
+purpose: a composite action must not depend on an env var the caller happens to
+define), so a grep for `$APT_OPTS` does not find it. Audit by matching
+`apt-get` + `update` across `.github/**`, not by matching the env var.
 
 The rationale lives with the existing `APT_OPTS` comment block (which already
 documents the dpkg-lock hang, `issues/ci-apt-hangs-on-dpkg-lock.md`), so the
