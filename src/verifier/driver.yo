@@ -6,6 +6,7 @@
 //! miss spawn the solver. Cache hits are reported (`cached: proved`) so CI
 //! logs stay honest. Any input change — predicate text, callee contract
 //! set, solver pin, mode, options — invalidates the key.
+pragma(Pragma.AllowUnsafe);
 open(import("std/string"));
 open(import("std/fmt"));
 { ArrayList } :: import("std/collections/array_list");
@@ -16,7 +17,7 @@ open(import("std/fmt"));
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
 { VerifyFnInput, verify_function_body } :: import("./vc.yo");
-{ take_verify_tasks } :: import("../evaluator/builtins/contracts.yo");
+{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts } :: import("../evaluator/builtins/contracts.yo");
 {
   Z3_VERSION,
   ensure_z3,
@@ -443,8 +444,70 @@ VerifyFnReport :: ref(
 /// obligation runs through the same cache → encode → spawn → parse
 /// pipeline as the self-test. Subset errors abort that function's
 /// obligations list (there is nothing sound to check).
-verify_registered_functions :: (fn(cfg : VerifyRunConfig, binary : String) -> ArrayList(VerifyFnReport))({
-  tasks := take_verify_tasks();
+verify_registered_functions :: (fn(cfg : VerifyRunConfig, binary : String) -> ArrayList(VerifyFnReport))(
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+);
+/// The per-ensures-index PROVED table for the strip pass, parsed from the
+/// obligation names (`<fn_id>/ensures#N`). Indices beyond the parsed max
+/// default to NOT proved (conservative: keep the assert).
+_proved_ensures :: (fn(obligations : ArrayList(VerifyFnObligation)) -> ArrayList(bool))({
+  marks := ArrayList(bool).new();
+  (i : usize) = usize(0);
+  while(i < obligations.len(), {
+    match(
+      obligations.get(i),
+      .Some(obl) => {
+        match(
+          obl.verdict,
+          .Proved(_) => {
+            idx_opt := _ens_obligation_index(obl.name.clone());
+            match(
+              idx_opt,
+              .Some(n) => {
+                while(marks.len() <= n, {
+                  marks.push(false);
+                });
+                // ArrayList has no set(): write through the raw pointer
+                // (the bounds were just established above).
+                unsafe(((marks.ptr().unwrap()).add(n)).* = true);
+              },
+              .None => ()
+            );
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  marks
+});
+/// Parse the `N` of an obligation name ending in `/ensures#N` (`.None` for
+/// every other obligation kind — caller-side requires, AoRTE, asserts).
+_ens_obligation_index :: (fn(name : String) -> Option(usize))({
+  marker := String.from("/ensures#");
+  match(
+    name.index_of(marker.clone()),
+    .Some(at) => {
+      digits := name.substring(at + marker.len(), name.len());
+      match(
+        digits.parse_u64(),
+        .Some(n) => Option(usize).Some(usize(n)),
+        .None => Option(usize).None
+      )
+    },
+    .None => Option(usize).None
+  )
+});
+/// Verify an explicit task list (the check/compile integration drains
+/// first to decide whether a solver is needed at all). `verify+` tasks
+/// additionally get their PROVED `ensures` asserts stripped from the
+/// function body (plan task 6): the report's verdicts index-map onto the
+/// wrapper's splice order.
+verify_and_strip_tasks :: (
+  fn(cfg : VerifyRunConfig, binary : String, tasks : ArrayList(VerifyTask)) -> ArrayList(VerifyFnReport)
+)({
   reports := ArrayList(VerifyFnReport).new();
   (ti : usize) = usize(0);
   while(ti < tasks.len(), {
@@ -527,6 +590,14 @@ verify_registered_functions :: (fn(cfg : VerifyRunConfig, binary : String) -> Ar
               (worst == usize(1)) => String.from("unproven"),
               true => String.from("ok")
             );
+            // verify+ strip pass: `ensures#N` obligations that PROVED have
+            // their spliced asserts removed from the function body. A
+            // REFUTED function never reaches here (it is a compile error at
+            // the caller); unproven ones keep their asserts (the fallback).
+            if(t.mode == "verify+", {
+              _ := strip_proved_ensures_asserts(t.func_val, _proved_ensures(obligations));
+              ()
+            });
             reports.push(
               VerifyFnReport(
                 fn_id : t.fn_id.clone(),
@@ -624,5 +695,6 @@ export(
   VerifyFnObligation,
   VerifyFnReport,
   verify_registered_functions,
+  verify_and_strip_tasks,
   unmangle_for_display
 );
