@@ -1,0 +1,193 @@
+//! The match/datatype-encoding tests — V3's last subset row
+//! (FORMAL_VERIFICATION.md): value enums verify as SMT datatypes
+//! (`declare-datatypes`), `.Variant(args...)` constructions are Ctor
+//! terms, and `match` lowers to a nested ite over `is-` testers with
+//! pattern bindings as field projections.
+//!
+//! In-process model (verifier_negative's shape); refutations need the
+//! real solver (YO_TEST_Z3=1), the encode-shape test runs solver-free.
+open(import("std/string"));
+open(import("std/error"));
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+{ VerifyFnInput, verify_function_body } :: import("../../src/verifier/vc.yo");
+{ encode_script, default_encode_options } :: import("../../src/verifier/encode.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+/// Load one fixture with targets armed; returns its reports (the task
+/// list is drained into the run inside `_run_reports`).
+_load_reports :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_match: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `fixture ${rel_path} failed: ${rendered}`);
+    },
+    .None => {
+      assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+/// The reports' ids/outcomes rendered for assert messages.
+_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}: ${rp.subset_source}]`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < ids.len(), {
+    if(j > usize(0), {
+      sb.write_string(String.from(", "));
+    });
+    sb.write_string(ids.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
+
+test("match + enum datatypes verify (binding, bare-variant, construction)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/match_enum.yo"), io);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    rp := match(
+      reports.get(i),
+      .Some(r) => r,
+      .None => {
+        assert(false, "report missing");
+        return(());
+      }
+    );
+    assert(rp.outcome == "ok", `every match fixture fn proves, got: [${_reports_dump(reports)}]`);
+    i = (i + usize(1));
+  });
+});
+
+test("the SMT encoding of a match query declares the datatype (solver-free)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_match: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  rel := String.from("./tests/spec/fixtures/valid/match_enum.yo");
+  targets := ArrayList(String).new();
+  targets.push(rel.clone());
+  targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);
+  assert(outcome.ok, "fixture must evaluate cleanly");
+  tasks := take_verify_tasks();
+  assert(tasks.len() == usize(2), `two tasks, got ${tasks.len().to_string()}`);
+  t := match(
+    tasks.get(usize(0)),
+    .Some(x) => x,
+    .None => {
+      assert(false, "task missing");
+      return(());
+    }
+  );
+  res := verify_function_body(
+    VerifyFnInput(
+      fn_name : t.fn_id.clone(),
+      func_id : t.func_id.clone(),
+      body : t.body.clone(),
+      param_names : t.param_names.clone(),
+      param_types : t.param_types.clone(),
+      result_type : t.result_type.clone(),
+      requires_exprs : t.requires_exprs.clone(),
+      ensures_exprs : t.ensures_exprs.clone(),
+      return_label : t.return_label.clone(),
+      table : t.table
+    )
+  );
+  assert(res.error.is_none(), `no subset error expected for the match fixture`);
+  assert(res.obligations.len() > usize(0), "the ensures obligation exists");
+  (dt_count : usize) = usize(0);
+  (oi : usize) = usize(0);
+  while(oi < res.obligations.len(), {
+    match(
+      res.obligations.get(oi),
+      .Some(obl) => {
+        (di : usize) = usize(0);
+        while(di < obl.query.datatypes.len(), {
+          dt_count = (dt_count + usize(1));
+          di = (di + usize(1));
+        });
+      },
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  assert(dt_count > usize(0), "the query carries the enum's datatype declaration");
+  script := encode_script(res.obligations.get(usize(0)).unwrap().query, default_encode_options());
+  assert(script.contains(String.from("declare-datatypes")), "the emitted SMT declares the datatype");
+  assert(script.contains(String.from("is-")), "the emitted SMT carries the match testers");
+});

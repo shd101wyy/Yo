@@ -93,7 +93,8 @@ runtime assert).
 | Integer/bool arithmetic, comparisons, logical ops, `cond`/`if` | ✅ verified |
 | Let bindings (`:=`, `=`), begin blocks, calls to contracted/comptime-foldable callees | ✅ verified |
 | `assert(P)` sites, `panic` paths, `old(...)` (identity — no mutation in subset) | ✅ verified |
-| `match` / enums / structs / tuples | 🚧 in progress (V3) |
+| `match` over value enums (testers, projections, constructions) | ✅ verified (V3) |
+| structs / tuples / ref enums | 🚧 in progress |
 | `while`/`for` loops, recursion (`decreases`) | V4 |
 | Ghost code, quantifiers, two-state reasoning | V5 |
 | Traits/generics across boundaries, `Refine` | V6 |
@@ -102,6 +103,14 @@ runtime assert).
 Integers are modeled as **exact-width bitvectors matching the emitted
 C11** (`-fwrapv` two's-complement) — a proof is a proof about the
 program that runs. Overflow is defined semantics, not an obligation.
+
+Value enums are modeled as **SMT datatypes**: one
+`declare-datatypes` block per query declares every enum the obligations
+touch, with constructors and accessors mangled to module-qualified names
+(they share the datatype's whole SMT namespace). A `match` lowers to a
+nested `ite` over `(is-<Ctor> ...)` testers; pattern bindings become
+accessor projections; `.Variant(args...)` constructions become
+constructor applications.
 
 ## The solver
 
