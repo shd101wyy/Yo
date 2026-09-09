@@ -224,7 +224,10 @@ batteries module by module (`## Stability` marker on every module). §5 lists
 the maintainer decisions still pending (Box name, `imm/Vec` structure,
 `MemoryOrder.Consume`, HashMap random keys) — ask, don't guess.
 
-Also filed today: `issues/yield-resumption-order-differs-on-macos-latest-ci.md`
+Also filed today: `issues/yield-resumption-order-is-not-fifo-on-macos.md`
+(renamed 2026-09-09 after a second sighting on the OTHER macOS leg established
+it is not leg-specific; originally
+`issues/yield-resumption-order-differs-on-macos-latest-ci.md`)
 (the "Test basic spawn of two futures" failure on #449's first run — CI-only so
 far, 3/3 green locally; correlate with #449's rerun).
 
