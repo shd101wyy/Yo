@@ -1,0 +1,31 @@
+// Repro — a rule error raised inside a `::` binding vanishes COMPLETELY.
+//
+//   YO_STD=<worktree>/std yo check   issues/repros/derive-rule-error-vanishes-entirely.yo   # rc=0
+//   YO_STD=<worktree>/std yo compile issues/repros/derive-rule-error-vanishes-entirely.yo   # rc=0
+//   YO_DEBUG_SWALLOW=1 … check … 2>&1 | grep expr_to_string
+//     [anon-swallow] error: Expected expression value for "__yo_expr_to_string" argument
+//
+// The rule DID fail and the derive produced nothing, yet both commands report
+// success. See issues/anonymous-module-trial-swallows-a-top-level-derive.md
+// (split out of issues/fixed/derive-swallows-the-rule-error.md).
+open(import("std/string"));
+MyRule2 :: trait();
+_rule2 :: (
+  fn(
+    comptime(T) : Type,
+    comptime(ctx) : DeriveContext,
+    comptime(trait_params) : ComptimeList(Expr)
+  ) -> comptime(Expr)
+)({
+  // `a => b` is a CLOSURE literal, so its LHS is not always a renderable Expr.
+  pair :: trait_params.car();
+  s :: pair.get_args().car().to_comptime_string();
+  quote(())
+});
+derive_rule(MyRule2, _rule2);
+P2 :: struct(a : u8);
+derive(P2, MyRule2(.a => `x`));
+main :: (fn() -> unit)({
+  ();
+});
+export(main);
