@@ -759,7 +759,12 @@ run_check :: (
   // environment before any file is checked. (mm_load_file also self-bootstraps
   // the prelude, but doing it once here keeps the cached env free of the first
   // file's own bindings.)
-  mm_preload_prelude(std_path.clone(), true, io, exn);
+  // Same rule as the compile path: a broken prelude makes every per-file
+  // result below a restatement of one fault, so stop at the root cause
+  // (issues/fixed/failed-prelude-load-prints-twice-and-continues.md).
+  if(!mm_preload_prelude(std_path.clone(), true, io, exn), {
+    unsafe(exit(int(1)));
+  });
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   total := files.len();
@@ -1003,7 +1008,9 @@ run_verify_cmd :: (
   set_verify_mode_override(Option(String).Some(mode_str.clone()));
   set_verify_target_paths(abs_targets.clone());
   clear_module_cache();
-  mm_preload_prelude(std_path.clone(), true, io, exn);
+  if(!mm_preload_prelude(std_path.clone(), true, io, exn), {
+    unsafe(exit(int(1)));
+  });
   (eval_failed : usize) = usize(0);
   (fi2 : usize) = usize(0);
   while(fi2 < files.len(), {
@@ -2321,7 +2328,14 @@ run_compile :: (
     mm_set_shared_expr_info_table(shared_info_table);
     // Ensure the prelude env is cached (provides std types to the evaluator).
     // Quiet: `compile` has no `check:` chatter.
-    mm_preload_prelude(std_path.clone(), false, io, exn);
+    // A prelude that fails to evaluate is the root cause of everything that
+    // follows; continuing printed the SAME diagnostic a second time from
+    // `mm_eval_entry_exprs` below
+    // (issues/fixed/failed-prelude-load-prints-twice-and-continues.md).
+    // `mm_preload_prelude` already emitted it, so exit without adding a word.
+    if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
+      unsafe(exit(int(1)));
+    });
     // Read + parse the input module.
     src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
