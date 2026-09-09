@@ -1,0 +1,14 @@
+# issues/fixed/derive-swallows-the-rule-error.md: the rule raises a
+# `comptime_assert` whose message names the fault. `derive` reported
+# "derive: derive rule function failed" instead, because it read the rule's
+# outcome out of the expr-info table rather than catching its exception — the
+# 3-argument `evaluate_expression` swallows every throw. The keep-match pins
+# the rule's own text, which is the whole point: a derive_rule author gets a
+# real diagnostic instead of a generic one.
+#
+# The pattern anchors on the WRAPPER prefix, not on the message alone: the
+# diagnostic echoes the offending source line, and that line is the
+# `comptime_assert(false, "…")` call, so the message text appears twice.
+# Matching `the derive rule failed: <message>` keeps only the error line.
+stdout_keep_match=the derive rule failed: the rule's OWN diagnosis, naming the exact variant
+timeout=180

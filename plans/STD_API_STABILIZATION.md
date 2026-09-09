@@ -159,12 +159,14 @@ the work in §4 does not re-open them.
   lands on, so a renamed/added/removed/reordered variant is a compile error.
   Keyed lookup — match each message to its variant by name, any order — is what
   this wanted to be, and `Expr` equality (`ComptimeEq` / `__yo_expr_eq`) makes
-  it expressible; composing it inside a rule hits
-  `issues/derive-swallows-the-rule-error.md`, where the rule's real error is
-  replaced by `derive rule function failed` or discarded entirely (`check` and
-  `compile` both exit 0). That is a diagnostics bug, not a language limit —
-  when it is fixed, the ordering constraint can be lifted without changing a
-  single call site, since declaration order is a valid keyed list.
+  it expressible; composing it inside a rule hit a diagnostics bug where the
+  rule's real error was replaced by `derive rule function failed` or discarded
+  entirely (`check` and `compile` both exiting 0). **That bug is now FIXED**
+  (`issues/fixed/derive-swallows-the-rule-error.md`), so the only thing still
+  holding the declaration-order constraint is the SEED GATE — `std/` cannot
+  rely on the fixed compiler until the seed ships it. Lift it one release
+  later; no call site changes, because declaration order IS a valid keyed
+  list.
   **All thirteen std error enums are migrated** — `JsonError` with the rule
   itself, then `TimeoutError`, `CryptoError`, `TlsError`, `CsvError`,
   `EncodingError`, `RegexError`, `IoError`, `NetError`, `UrlError`,

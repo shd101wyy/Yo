@@ -1,7 +1,23 @@
 # `derive` discards a rule's own error — and sometimes discards the whole failure
 
-**Status: OPEN.** Found 2026-09-09 while writing `derive(Error)` (D15) in
-`std/error.yo`.
+**Status: FIXED 2026-09-09** (`src/evaluator/builtins/derive.yo`). Found the
+same day while writing `derive(Error)` (D15) in `std/error.yo`.
+
+**The fix.** The rule call now goes through `_derive_eval_guarded` — the
+guarded evaluator that already existed in this file for the generated
+`impl(...)` — so the rule's exception is caught, its message parked in the
+module-level box, and re-raised through `derive`'s real `exn` anchored at the
+`derive(...)` statement. `_derive_eval_impl` was renamed to
+`_derive_eval_guarded` (its body was already generic) and its doc now states
+the rule: **no derive-internal evaluation may use the 3-argument
+`evaluate_expression`.** The two generic messages survive only for a rule that
+returns without throwing and still leaves no comptime value, and now say
+exactly that.
+
+Pinned by `tests/cli-cases/check-derive-rule-error-reaches-the-user`, which
+runs `yo check` on a rule that asserts and matches the rule's OWN text.
+`comptime_expect_error` cannot cover it: it only checks that *something* threw,
+never which message.
 
 A `derive_rule` function is ordinary comptime Yo. It can validate its
 `trait_params` and raise a precise `comptime_assert` naming the offending
@@ -87,13 +103,18 @@ call_val := match(call_info.value, .Some(v) => v, .None => {
 });
 ```
 
-So `derive` never observes the rule's exception. It observes a MISSING VALUE
-and manufactures a generic message from it — the original `exn` was already
-consumed by one of the evaluator's deliberate swallowing handlers (the same
-family that hides the deadline throw, `src/evaluator/exprs/_expr.yo:412`, and
-the def-time trial in the impl field loop). When the swallow happens further
-out — at the anonymous-module begin-expr level, `[anon-swallow]` — the
-`derive` statement itself is abandoned and nothing is reported at all.
+So `derive` never observes the rule's exception. **The swallow is not one of
+the trial handlers** — `YO_DEBUG_SWALLOW=1` prints no `[swallow]` line for it,
+which is what made this hard to find. It is the 3-argument
+`evaluate_expression` itself: that name resolves to
+`_evaluate_expression_wrapper` (`src/evaluator/exprs/_expr.yo:1132`), whose
+handler swallows EVERY throw and returns `make_err_expr()`. Any caller in the
+evaluator that reaches for the 3-argument form silently loses errors. `derive`
+then sees a MISSING VALUE and manufactures a generic message from it.
+
+When the swallow happens further out instead — at the anonymous-module
+begin-expr level, `[anon-swallow]` — the `derive` statement itself is abandoned
+and nothing is reported at all.
 
 The sibling message at `derive.yo:293`
 (`derive rule must return(comptime(Expr)); got ${…}`) is the same defect in a
@@ -114,27 +135,26 @@ The shipped rule therefore requires DECLARATION ORDER and verifies each message
 against the variant it lands on — same safety, less freedom. It is a design
 constraint imposed by a diagnostics bug, not by the language.
 
-## Fix sketch
+## What was fixed, and what is left
 
-Two independent changes, in order of value:
+**Fixed — reproducer 1.** The step-7 rule call now runs under
+`_derive_eval_guarded`, so the rule's own error is re-raised through `derive`'s
+real `exn`:
 
-1. **Let the rule's exception propagate.** Wrap the step-7 evaluation in a
-   handler that RETHROWS the rule's error with a `derive on "<T>" via rule
-   <name>` note prepended, instead of inferring failure from a missing
-   expr-info value. The two generic messages then become unreachable for a rule
-   that raised, and remain only for a rule that genuinely returned a non-`Expr`.
-2. **Never let a top-level `derive` fail silently.** The anonymous-module
-   swallow that eats reproducer 2 must not apply to `derive` — a construct
-   whose whole purpose is to REGISTER an impl has no meaningful "trial"
-   interpretation. Either evaluate `derive` outside the trial, or re-raise on
-   the real pass when the trial swallowed.
+```
+error: derive on "P": the derive rule failed: the rule's OWN diagnosis, naming the exact variant
+```
 
-A test belongs in `tests/internal/` (a rule that asserts, checked for its own
-message) plus a `comptime_expect_error` in `tests/derive.test.yo`.
+**Still open — reproducer 2's outer swallow.** A top-level `derive` whose
+evaluation throws can still be eaten by the anonymous-module begin-expr trial
+(`[anon-swallow]`), which is a broader defect than `derive`: a construct whose
+whole purpose is to REGISTER an impl has no meaningful "trial" interpretation.
+The right fix is to evaluate a top-level `derive` outside that trial, or to
+re-raise on the real pass when the trial swallowed. Tracked separately in
+`issues/anonymous-module-trial-swallows-a-top-level-derive.md`.
 
-## Workaround for rule authors, until this is fixed
+## Note for rule authors
 
-Run `YO_DEBUG_SWALLOW=1 yo check <file>` and grep the output — the real error
-is in there, prefixed `[anon-swallow]` or `[swallow]`. Keep validation in the
-RESULT position where possible, so at least `derive rule function failed`
-appears and points at the right line.
+`YO_DEBUG_SWALLOW=1 yo check <file>` is still the tool for the residual case:
+the real error appears prefixed `[anon-swallow]` or `[swallow]`. It is no
+longer needed for an error the rule raises itself.

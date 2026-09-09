@@ -60,13 +60,19 @@ __derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))
 ///
 /// **Messages go in DECLARATION ORDER, and each is checked against the variant
 /// it lands on.** Keyed lookup (find the pair whose `.Name` matches) is what
-/// this wanted to be: the pieces work in isolation but composing them inside
-/// the rule fails with an error `derive` swallows, so it is not diagnosable
-/// today (issues/derive-swallows-the-rule-error.md).
-/// Order-plus-verification gets the same safety — adding, removing, renaming
-/// or reordering a variant is a compile error — at the cost of listing the
-/// messages the way the enum is written, which is how you would read them
-/// anyway.
+/// this wanted to be, and it is expressible — `Expr` equality via
+/// `ComptimeEq` / `__yo_expr_eq`. It was blocked by a diagnostics bug that
+/// made composing it inside a rule undebuggable; that bug is FIXED
+/// (issues/fixed/derive-swallows-the-rule-error.md), so what holds the
+/// constraint in place now is only the SEED GATE: `std/` cannot rely on the
+/// fixed compiler until the seed ships it. Lift this one release later —
+/// no call site has to change, because declaration order IS a valid keyed
+/// list.
+///
+/// Order-plus-verification gets the same safety meanwhile — adding, removing,
+/// renaming or reordering a variant is a compile error — at the cost of
+/// listing the messages the way the enum is written, which is how you would
+/// read them anyway.
 __derive_error :: (
   fn(
     comptime(T) : Type,
