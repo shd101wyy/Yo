@@ -435,7 +435,7 @@ remove_entry/get_key_value` (all 5). `Deque.front`/`back`. `BTreeMap` —
 no `Iterator` on any of the six collection types (`imm/string.yo:627` has one).
 Text — every listed `String` method, `next_back`, `is_ascii_*` renames. Encoding
 — `Url.join/query_pairs/path_segments`, `JsonValue` mutation/`as_i64`/`pointer`,
-`EncodingError` offsets, regex naming, `glob()`. I/O — `OpenOptions`, `Watcher`
+regex naming, `glob()`. I/O — `OpenOptions`, `Watcher`
 `Dispose`, `SystemTime`/`UNIX_EPOCH`, `SocketAddr` `Eq`/`Hash`,
 `TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`. Core — **all of it**: every `checked_/wrapping_/
 saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
@@ -487,9 +487,58 @@ bytes while `FormatSpec` pads by runes; `Alignment` exported.
 **Encoding.** Verified against the code 2026-09-09 — LANDED:
 `Url.join`/`query_pairs`/`path_segments`; `JsonValue` mutation
 (`insert`/`remove`/`object()`), `is_*`/`as_i64`/`as_u64`, `pointer`, integer
-arms; TOML values; `GlobPattern` + filesystem `glob()`. STILL OPEN:
-`Url.set_*`; `EncodingError` with offsets; module-prefix stutter
-(`json_parse` → `json.parse` …). regex Rust-shaped names **LANDED 2026-09-09** —
+arms; TOML values; `GlobPattern` + filesystem `glob()`. STILL OPEN: module-prefix
+stutter (`json_parse` → `json.parse` …). `Url.set_*` and `EncodingError`
+offsets **LANDED 2026-09-09** — described below.
+
+**`Url.set_*` — LANDED 2026-09-09, and every setter is FALLIBLE.**
+
+`set_scheme`, `set_host`, `set_port`, `set_path`, `set_query`, `set_fragment`,
+`set_userinfo`. All but `set_port` return `Result(unit, UrlError)`, and that is
+not ceremony: `Url.parse` rejects any byte outside RFC 3986 §2 as a SECURITY
+boundary — a raw CRLF in a path flows through `Url.path()` into
+`HttpRequest`'s request line and splits one HTTP request into two — so a setter
+that skipped the check would be a hole straight past the parser. The offset of
+the first offending byte comes back in `UrlError.InvalidCharacter(pos)`, the
+same shape and the same convention `parse` already uses, so a caller handles
+one error whether the URL came from text or from a setter.
+
+Each setter also rejects the delimiters that would RELOCATE its component,
+and the sets differ per component because the grammar does: a `/` is legal in
+a path and a query but ends a host; a `?` is legal in a query but starts one
+inside a path; the fragment is last, so nothing can follow it and every URI
+byte is legal there. A forbidden byte does not corrupt the value — it silently
+changes what the next parse reads — which is why these reject rather than
+percent-escape: escaping would change what the caller asked for without saying
+so.
+
+Three shapes get their own guard because `to_string` would otherwise render
+something that re-parses differently: a bare IPv6 host (its colons read as a
+port, which is why RFC 3986 §3.2.2 has the brackets), a relative path while a
+host is set (`http://host` + `x` renders `http://hostx`), and a path beginning
+`//` with no host (renders `scheme://…` and re-parses as an authority).
+`set_port` is infallible because every `u16` is a legal port, including 0.
+
+**`EncodingError` offsets — LANDED 2026-09-09.** Every variant that can name a
+position now carries `pos`, plus a `pos() -> Option(usize)` accessor.
+`InvalidChar(ch, pos)`, `InvalidLastSymbol(ch, pos)`, `OddLength(len)`,
+`InvalidLength(len)`. Without the offset a caller decoding a 4 KiB blob learned
+only that one byte somewhere was wrong — not enough to report, highlight or
+skip past, and the character alone does not say WHICH occurrence of it.
+(Rust's `base64::DecodeError` carries the same offset for the same reason.)
+
+The new `UnpairedSurrogate(code_unit, pos)` replaces a wrong value, not just a
+thin one: all three surrogate faults in `utf16_to_utf8` reported
+`InvalidChar(u8(0))` — an offending character of NUL — because a UTF-16 code
+unit is 16 bits and `InvalidChar`'s `ch` is a `u8`, so the variant could not
+carry it at all. Its `pos` is an index in CODE UNITS, not bytes, because that
+is what the input is.
+
+The field is spelled `code_unit` rather than `unit` because a field named after
+a builtin type breaks the unhygienic derived body with a confusing
+`Argument count mismatch: expected 1, got 0` — filed as
+`issues/derive-body-field-name-collides-with-a-builtin-type.md` with a
+reproducer. regex Rust-shaped names **LANDED 2026-09-09** —
 `test` → `is_match`, `exec` → `find`, `match_all` → `find_all`, and the
 two-argument `new(pattern, flags)` split into a one-argument `new(pattern)`
 (what `compile` used to be, now deleted) plus `new_with_flags(pattern, flags)`,
@@ -1003,9 +1052,9 @@ cooperative-scheduling contract.
    (issues/fixed/tuple-type-has-no-forward-declaration.md).
 
    Still open in Encoding: TOML floats/arrays/dates/inline tables/escapes/
-   comments/serializer, `EncodingError` offsets, regex Rust-shaped names,
-   `GlobPattern.new -> Result` + filesystem `glob()`, the module-prefix stutter,
-   and `Url.set_*`.
+   comments/serializer, and the module-prefix stutter. (regex Rust-shaped
+   names, `GlobPattern.new -> Result` + filesystem `glob()`, `Url.set_*` and
+   `EncodingError` offsets all landed 2026-09-09.)
 
    **`FromStr` renamed to `FromString` (2026-09-09).** The trait's parameter is
    a `String`, and its own doc comment said so one line above the signature —
