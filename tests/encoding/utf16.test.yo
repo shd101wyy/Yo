@@ -3,6 +3,8 @@
 { utf8_to_utf16, utf16_to_utf8, utf16_to_utf8_exn } :: import("std/encoding/utf16");
 { ArrayList } :: import("std/collections/array_list");
 { Error, AnyError, Exception } :: import("std/error");
+{ EncodingError } :: import("std/encoding/error");
+open(import("std/fmt"));
 // Helper: build a str from raw bytes via ArrayList(u8) -> String -> as_str()
 // Since Yo doesn't support \x escapes in string literals, we construct
 // multi-byte UTF-8 strings from bytes.
@@ -156,4 +158,78 @@ test("utf16_to_utf8_exn still throws for callers inside an effect scope", {
 });
 test("utf16_to_utf8 rejects an unpaired low surrogate", {
   assert(_lone_low_surrogate_rejected(), "an unpaired low surrogate should throw");
+});
+// ============================================================================
+// UnpairedSurrogate carries the code unit and its index
+// ============================================================================
+test("utf16_to_utf8 names the unpaired surrogate and where it was", {
+  // Every one of these used to report `InvalidChar(u8(0))` — an offending
+  // character of NUL, which is not what was wrong and told the caller
+  // nothing. A UTF-16 code unit is 16 bits and InvalidChar's `ch` is a u8, so
+  // the variant could not carry it at all.
+  //
+  // A high surrogate at the END of the input: it promised a partner.
+  data := ArrayList(u16).new();
+  data.push(u16(65)); // 'A'
+  data.push(u16(0xD83D));
+  assert(
+    match(
+      utf16_to_utf8(data),
+      .Ok(_) => false,
+      .Err(e) =>
+        match(
+          e,
+          .UnpairedSurrogate({ code_unit, pos }) => ((code_unit == u16(0xD83D)) && (pos == usize(1))),
+          _ => false
+        )
+    ),
+    "a trailing high surrogate is named, at index 1"
+  );
+  // A high surrogate followed by something that is not a low surrogate. The
+  // HIGH one is at fault, so it is the one reported.
+  d2 := ArrayList(u16).new();
+  d2.push(u16(0xD83D));
+  d2.push(u16(65)); // 'A', not a low surrogate
+  assert(
+    match(
+      utf16_to_utf8(d2),
+      .Ok(_) => false,
+      .Err(e) =>
+        match(
+          e,
+          .UnpairedSurrogate({ code_unit, pos }) => ((code_unit == u16(0xD83D)) && (pos == usize(0))),
+          _ => false
+        )
+    ),
+    "a high surrogate with the wrong partner is named, at index 0"
+  );
+  // A bare LOW surrogate.
+  d3 := ArrayList(u16).new();
+  d3.push(u16(65));
+  d3.push(u16(66));
+  d3.push(u16(0xDE00));
+  assert(
+    match(
+      utf16_to_utf8(d3),
+      .Ok(_) => false,
+      .Err(e) =>
+        match(
+          e,
+          .UnpairedSurrogate({ code_unit, pos }) => ((code_unit == u16(0xDE00)) && (pos == usize(2))),
+          _ => false
+        )
+    ),
+    "a bare low surrogate is named, at index 2"
+  );
+  // `pos()` reads it without matching. The index is in CODE UNITS, not bytes,
+  // because that is what the input is.
+  assert(
+    match(utf16_to_utf8(d3), .Ok(_) => false, .Err(e) => (e.pos().unwrap() == usize(2))),
+    "pos() gives the code-unit index"
+  );
+  // And a valid pair still decodes, so the guard has not become too eager.
+  ok := ArrayList(u16).new();
+  ok.push(u16(0xD83D));
+  ok.push(u16(0xDE00));
+  assert(utf16_to_utf8(ok).is_ok(), "a real surrogate pair still decodes");
 });

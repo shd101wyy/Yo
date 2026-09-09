@@ -68,7 +68,7 @@ Companion to `plans/STD_API_STABILIZATION.md` (the decisions and the ranked list
 20. Two builders, three vocabularies: StringBuilder(write_*), fmt.Writer(write_* chainable + numerics), String(push_*) → one builder + trait.
 21. fmt.Writer byte-at-a-time appends (writer.yo:41,48,64); write_padded pads by BYTES (:145) vs FormatSpec by runes (spec.yo:71).
 22. StringBuilder.to_string copies byte-at-a-time (119-141) and CONSUMES (non-consuming name) → into_string + non-consuming ToString; clear:144 reallocates.
-23. EncodingError thin: utf16 throws InvalidChar(u8(0)) for unpaired surrogate (utf16.yo ~72,80,92), no offset → InvalidChar(byte, index), UnpairedSurrogate(index, unit), InvalidLength(len).
+23. ~~EncodingError thin: utf16 throws InvalidChar(u8(0)) for unpaired surrogate (utf16.yo ~72,80,92), no offset~~ **FIXED 2026-09-09**: `InvalidChar(ch, pos)`, `InvalidLastSymbol(ch, pos)`, `OddLength(len)`, `InvalidLength(len)`, new `UnpairedSurrogate(code_unit, pos)` (code-unit index, not bytes), plus a `pos() -> Option(usize)` accessor. The `u8(0)` was unrepresentable, not merely thin — a 16-bit code unit does not fit `InvalidChar.ch`.
 24. GlobPattern.new doesn't compile/validate (glob.yo:191); `[a-z]` ranges NOT implemented (133-150: literal compare); no filesystem globbing, MatchOptions, matches_path.
 
 ## P2
