@@ -544,7 +544,17 @@ LANDED in `std/math.yo` — the "today only raw `libc/math`" note above is a
 snapshot from before that work. Verified against the code 2026-09-09 — also LANDED: `Error` `is(T)`
 (the free `error_is`), `Context(msg, source)`, `Default` across the type set
 (#500), `bench` `black_box`, and `log`'s `Sink` trait + `YO_LOG`. STILL OPEN:
-a documented `downcast` and `ErrorChain`; the unchecked integer forms
+a documented `downcast`. **`ErrorChain` and `root_cause` are BLOCKED on a
+compiler defect, not on design** —
+`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
+Both must store the result of `source()` as an `AnyError`, and on a
+`Dyn(Error)` receiver that result's static type has lost the `Error` trait:
+`Given: dyn((source : fn(...) -> Option(dyn( + ToString))) + ToString)` against
+`Expected: dyn(Error + ToString)`. The VALUE and the vtable are correct —
+`.to_string()` on it renders the cause — so a caller can follow one link and
+print it, but never store, re-erase, `downcast` or re-throw it. Spelling
+`Dyn(Error)` instead of `Dyn(SelfTrait)` is not available either: `Error` is
+unbound inside its own definition. Also still open: the unchecked integer forms
 (`abs`/`signum`/`pow`) plus `abs_diff`, `div_euclid`/`rem_euclid`, `midpoint`,
 `isqrt` and the `to_be_bytes`/`from_le_bytes` family — the byte conversions
 want either a `SignedInteger` marker or per-type `Array(u8, N)` returns, which
