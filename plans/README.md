@@ -33,6 +33,11 @@ Active work (root) — **7 docs, and nothing else lives here**:
 - [`THREAD_SAFETY.md`](THREAD_SAFETY.md) — 13 of 14 phases landed; Phase P
   (field visibility) never landed — `_`-prefixed fields are private by
   CONVENTION only.
+- [`INCREMENTAL_COMPILATION_ZIG_LESSONS.md`](INCREMENTAL_COMPILATION_ZIG_LESSONS.md) —
+  edit-compile-run latency: what Yo takes from Zig's incremental design
+  (per-definition hashing + dependency edges, stable symbol identity, a
+  resident evaluator, per-module TUs) and what it does not (native
+  backend, in-place patching). Phase 0 = instrumentation; nothing started.
 - [`PERF_BORROW_ELISION.md`](PERF_BORROW_ELISION.md) — cutting RC traffic in
   the self-compile; in progress.
 
