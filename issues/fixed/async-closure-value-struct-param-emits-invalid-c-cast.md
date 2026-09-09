@@ -1,6 +1,21 @@
 # An async closure capturing a by-value struct parameter emits an invalid C cast
 
-**Status: OPEN** (surfaced 2026-09-07 by Phase V2 of
+**Status: FIXED 2026-09-09** (branch `fix/two-filed-issues`): `_per_arg_cast`
+(`src/codegen/exprs/other_fn_call.yo`) no longer wraps by-value AGGREGATE
+arguments (value structs, value enums, tuples, unions, `str`) in a C cast —
+they pass through bare (`_no_cast_by_value_param`). CALIBRATION from the
+fix session: clang ACCEPTS a same-type struct cast; the recorded crash was
+the CROSS-type case, reached when the SM slot's C type and the
+evaluator-recorded param type disagree (the shell/final identity split).
+Removing the aggregate cast class makes emission independent of that
+agreement. Behavioral regression:
+`tests/async_value_struct_param.test.yo` (a by-value struct param captured
+across an await; the value survives the suspension, both reads agree).
+The follow-up cluster (import-cascade swallows, `.io` projection
+position-dependence, resume UAF) is split out and remains OPEN as
+`issues/async-capture-mode-argument-rendering-cluster.md`.
+
+Originally surfaced 2026-09-07 by Phase V2 of
 `plans/backlog/FORMAL_VERIFICATION.md` — `src/verifier/driver.yo`'s async
 functions took a `VerifyRunConfig` value-struct parameter).
 
