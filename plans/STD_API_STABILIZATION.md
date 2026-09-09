@@ -463,8 +463,20 @@ bytes while `FormatSpec` pads by runes; `Alignment` exported.
 redirect resolution because `join` is missing); `JsonValue` mutation (`insert/
 remove/object()`), `is_*`/`as_i64`/`as_u64`, `pointer`, integer arms; TOML
 floats/arrays/dates/inline tables/escapes/comments/serializer (today ~⅓ of the
-format); `EncodingError` with offsets; regex Rust-shaped names (`is_match/find/
-captures/find_iter`, `new(pattern)` one-arg); `GlobPattern.new -> Result` +
+format); `EncodingError` with offsets; regex Rust-shaped names **LANDED 2026-09-09** —
+`test` → `is_match`, `exec` → `find`, `match_all` → `find_all`, and the
+two-argument `new(pattern, flags)` split into a one-argument `new(pattern)`
+(what `compile` used to be, now deleted) plus `new_with_flags(pattern, flags)`,
+so the common flagless call no longer spells an empty string and there is one
+name per shape. `find_iter` already had its Rust name. There is deliberately
+NO separate `captures`: Rust splits `find` (span) from `captures` (span +
+groups) because the first is cheaper, while Yo's `RegexMatch` always carries
+its groups, so a second method would add nothing — `find`'s doc says so.
+`search() -> Option(usize)` is REMOVED rather than renamed: it returned the
+first match's byte offset, which is `find(input)`'s `RegexMatch.index()`, so it
+was a strictly-less-informative duplicate carrying a JavaScript name. Only one
+non-test caller existed in the whole tree (`src/main.yo`'s
+`--test-name-pattern`); `GlobPattern.new -> Result` +
 filesystem `glob()`; module-prefix stutter (`json_parse` → `json.parse` …).
 
 **I/O.** `Seek` trait; `Stdout.write_string`; `Reader.read_exact` as a
