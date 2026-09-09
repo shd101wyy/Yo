@@ -1,0 +1,16 @@
+// INVALID program (issues/plain-recursive-enum-segfaults-the-evaluator.md):
+// a plain `enum(...)` whose variant fields reach the enum itself BY VALUE
+// (no reference indirection on the path). The type has infinite C size;
+// before the definition-time check this crashed the evaluator with a bare
+// SIGSEGV (stack overflow in the size walks) instead of a diagnostic.
+// Consumed by tests/internal/recursive_enum.test.yo — NOT a .test.yo, so
+// the ordinary suite never runs it.
+{ ArrayList } :: import("std/collections/array_list");
+
+VcOp :: enum(Add, Mul);
+VcTerm :: enum(App(op : VcOp, args : ArrayList(Self)), Quant(body : Self));
+VcQuery :: ref(struct(assumptions : ArrayList(VcTerm), goal : VcTerm));
+vc_and :: (fn(a : VcTerm, b : VcTerm) -> VcTerm)({
+  args := ArrayList(VcTerm).new();
+  VcTerm.App(op : VcOp.Add, args : args)
+});

@@ -1,0 +1,29 @@
+// Probe for cluster finding 3 (issues/async-capture-mode-argument-rendering-cluster.md):
+// a capture-mode state machine holding a REF-STRUCT local across an await —
+// the recorded ASan heap-use-after-free shape (capture dropped at
+// suspension, re-incremented on resume, __yo_incr_rc inside <sm>_resume).
+//
+// Run: yo compile uaf_ref_capture_probe.yo --sanitize address --allocator system -o /tmp/uaf_probe && /tmp/uaf_probe
+open(import("std/string"));
+open(import("std/fmt"));
+{ IoExn, Exception } :: import("std/error");
+{ yield } :: import("std/async");
+
+BOX :: ref(struct(v : i32));
+
+hold_and_bump :: (fn(start : i32, io : Io) -> Impl(Future(i32, IoExn)))(
+  io.async((e : IoExn) => {
+    b := BOX(v : start);
+    _ := e.io.await(yield(e.io), e);
+    w1 := b.v;
+    _ := e.io.await(yield(e.io), e);
+    w2 := b.v;
+    w1 + w2
+  })
+);
+
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  r := io.await(hold_and_bump(i32(40), io), IoExn(io : io, exn : exn));
+  println(r.to_string());
+});
+export(main);
