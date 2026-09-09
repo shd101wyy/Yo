@@ -130,7 +130,15 @@ impl(
     cond(
       (r.end <= r.start) => __yo_panic("Rng.range: empty range (end <= start)"),
       true => {
-        span := u64(r.end - r.start);
+        // The span is computed in UNSIGNED, not as `u64(r.end - r.start)`:
+        // the signed subtraction OVERFLOWS for a wide range (`i64.MIN .. 0`
+        // is `0 - i64.MIN`), and signed overflow is undefined behaviour in C,
+        // so the two architectures need not even agree. Yo's integer
+        // conversions are two's-complement bit-preserving, so
+        // `u64(end) - u64(start)` is the exact distance for any `end >= start`
+        // — the wrap is the arithmetic, not an accident. Same trick as Rust's
+        // `gen_range`.
+        span := (u64(r.end) - u64(r.start));
         r.start + i64(self.next_below(span))
       }
     )
@@ -151,7 +159,11 @@ impl(
       ((r.end == i64(9223372036854775807)) && (r.start == i64(-9223372036854775808))) =>
         i64(self.next_u64()),
       true => {
-        span := (u64(r.end - r.start) + u64(1));
+        // Unsigned span, as in `range` above — the signed form overflows for a
+        // wide range. The `+ 1` cannot overflow here because the only pair
+        // whose unsigned distance is `u64.MAX` is `i64.MIN ..= i64.MAX`, which
+        // the arm above already took.
+        span := ((u64(r.end) - u64(r.start)) + u64(1));
         r.start + i64(self.next_below(span))
       }
     )
@@ -261,7 +273,7 @@ rand_below :: (fn(bound : u64) -> u64)(
 rand_range :: (fn(r : Range(i64)) -> i64)(
   cond(
     (r.end <= r.start) => __yo_panic("rand_range: empty range (end <= start)"),
-    true => (r.start + i64(rand_below(u64(r.end - r.start))))
+    true => (r.start + i64(rand_below(u64(r.end) - u64(r.start))))
   )
 );
 /// A uniform integer in the INCLUSIVE range `r`, from the process-global
@@ -272,7 +284,7 @@ rand_range_inclusive :: (fn(r : RangeInclusive(i64)) -> i64)(
     (r.end < r.start) => __yo_panic("rand_range_inclusive: empty range (end < start)"),
     ((r.end == i64(9223372036854775807)) && (r.start == i64(-9223372036854775808))) =>
       i64(rand_u64()),
-    true => (r.start + i64(rand_below(u64(r.end - r.start) + u64(1))))
+    true => (r.start + i64(rand_below((u64(r.end) - u64(r.start)) + u64(1))))
   )
 );
 export(rand_u32, rand_u64, rand_f64, rand_bool, rand_below, rand_range, rand_range_inclusive);

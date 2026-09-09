@@ -165,12 +165,15 @@ random_f64 :: (fn(exn : Exception) -> f64)(
 // advertising cryptographic security (plans/archive/STD_API_AUDIT.md C5). Draws
 // above the largest span-multiple are rejected and redrawn; the retry
 // probability is < 2^-1 per draw even in the worst case.
-random_range :: (fn(r : Range(i64), exn : Exception) -> i64)({
-  span := (r.end - r.start);
+random_range :: (fn(r : Range(i64), exn : Exception) -> i64)(
   cond(
-    (span <= i64(0)) => __yo_panic("random_range: empty range (end <= start)"),
+    (r.end <= r.start) => __yo_panic("random_range: empty range (end <= start)"),
     true => {
-      uspan := u64(span);
+      // Unsigned span: `r.end - r.start` OVERFLOWS i64 for a wide range
+      // (`i64.MIN .. 0` is `0 - i64.MIN`), and signed overflow is undefined
+      // behaviour in C. Yo's conversions are two's-complement bit-preserving,
+      // so `u64(end) - u64(start)` is the exact distance for `end > start`.
+      uspan := (u64(r.end) - u64(r.start));
       // Largest multiple of `uspan` representable in u64, as a rejection
       // threshold: accept r only below it. (u64::MAX = 2^64 - 1, so the
       // count of full spans is ((MAX - (uspan - 1)) / uspan) + 1 — computed
@@ -189,7 +192,7 @@ random_range :: (fn(r : Range(i64), exn : Exception) -> i64)({
       r.start + i64(draw % uspan)
     }
   )
-});
+);
 export(random_u32, random_u64, random_f64, random_range);
 // ============================================================================
 // UUID v4

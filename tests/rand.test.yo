@@ -224,3 +224,46 @@ test("the process-global generator draws in range and is lazily seeded", {
   });
   assert(any_true && any_false, "rand_bool produces both outcomes");
 });
+
+test("a wide range does not overflow the span computation", {
+  // `u64(r.end - r.start)` OVERFLOWS i64 whenever the distance exceeds
+  // i64.MAX — `i64.MIN .. 0` is `0 - i64.MIN`. Signed overflow is undefined
+  // behaviour in C, so the two architectures need not agree, and the span is
+  // computed in unsigned instead. These are the pairs that would have caught
+  // it; every draw must still land inside the requested range.
+  r := Rng.new(u64(2026));
+  (i : usize) = usize(0);
+  while(i < usize(60), i = (i + usize(1)), {
+    a := r.range(i64(-9223372036854775808) .. i64(0));
+    assert((a >= i64(-9223372036854775808)) && (a < i64(0)), "MIN..0 stays in range");
+    b := r.range(i64(0) .. i64(9223372036854775807));
+    assert((b >= i64(0)) && (b < i64(9223372036854775807)), "0..MAX stays in range");
+    c := r.range(i64(-9223372036854775808) .. i64(9223372036854775807));
+    assert(c >= i64(-9223372036854775808), "MIN..MAX stays in range (lower)");
+    assert(c < i64(9223372036854775807), "MIN..MAX stays in range (upper)");
+    d := r.range_inclusive(i64(-9223372036854775808) ..= i64(0));
+    assert((d >= i64(-9223372036854775808)) && (d <= i64(0)), "MIN..=0 stays in range");
+    e := rand_range(i64(-9223372036854775808) .. i64(0));
+    assert((e >= i64(-9223372036854775808)) && (e < i64(0)), "global MIN..0 stays in range");
+    f := rand_range_inclusive(i64(-4611686018427387904) ..= i64(4611686018427387904));
+    assert(f >= i64(-4611686018427387904), "global wide inclusive (lower)");
+    assert(f <= i64(4611686018427387904), "global wide inclusive (upper)");
+  });
+  // Both signs must actually be reachable across a symmetric wide range —
+  // a span that silently collapsed would still "stay in range" vacuously.
+  (saw_neg : bool) = false;
+  (saw_pos : bool) = false;
+  (j : usize) = usize(0);
+  while(j < usize(60), j = (j + usize(1)), {
+    v := r.range(i64(-9223372036854775808) .. i64(9223372036854775807));
+    cond(
+      (v < i64(0)) => {
+        saw_neg = true;
+      },
+      true => {
+        saw_pos = true;
+      }
+    );
+  });
+  assert(saw_neg && saw_pos, "a full-width half-open range reaches both signs");
+});
