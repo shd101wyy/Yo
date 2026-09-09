@@ -19,6 +19,15 @@
 //! t1.join();
 //! t2.join();
 //! ```
+//!
+//! ## Stability
+//!
+//! stable — `new`, `wait`, `parties`, `generation` and `waiting` follow the
+//! generation model `std::sync::Barrier` and `pthread_barrier_t` both carry,
+//! and `wait`'s single `true` is Rust's `BarrierWaitResult::is_leader` without
+//! the wrapper struct. `generation` and `waiting` are observability, so they
+//! are honest about being a SNAPSHOT: by the time you read either, another
+//! party may have arrived.
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");

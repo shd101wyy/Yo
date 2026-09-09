@@ -23,6 +23,21 @@
 //! }), io);
 //! v := io.await(ch.recv(io), io); // .Some(42)
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable, in two specific ways:
+//!
+//! - `try_recv` still returns `Option(T)`, where `std/sync/channel`'s now
+//!   returns `Result(T, TryRecvError)` so a polling caller can tell "nothing
+//!   buffered yet" from "closed and drained". This one will be aligned with
+//!   the blocking channel's shape; `recv`'s `Option(T)` (where `.None` means
+//!   closed) is under the same question.
+//! - the 1 ms timer tick above is an implementation choice a waker-based
+//!   rewrite would remove, which changes handoff latency but no signature.
+//!
+//! `new`, `send`, `try_send`, `close`, `is_closed` and `len` are intended to
+//! keep their names and meanings.
 { ArrayList } :: import("../collections/array_list");
 { assert } :: import("../assert");
 IO_timer :: import("../sys/timer");

@@ -21,6 +21,18 @@
 //! For the async-safe `Channel` and `Mutex` (usable INSIDE tasks without
 //! parking the event loop the way `std/sync`'s blocking primitives do), see
 //! `std/async/channel` and `std/async/mutex`.
+//!
+//! ## Stability
+//!
+//! unstable — the NAMES and signatures (`yield`, `join_all`, `race`, `any`,
+//! `timeout`, `TimeoutError`) are intended to keep their meanings, but the
+//! MECHANISM under them is expected to change: every combinator drives the
+//! loop by polling, re-checking on a 1 ms timer tick, so a handle that
+//! completes just after a check waits out the rest of the tick. A waker-based
+//! rewrite is planned (`plans/STD_API_STABILIZATION.md` §4 Concurrency) and
+//! would change the latency and the CPU cost of waiting, not the API. The
+//! `JoinHandle`-not-`Future` argument type is a consequence of that design and
+//! may relax with it.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { assert } :: import("../assert");
