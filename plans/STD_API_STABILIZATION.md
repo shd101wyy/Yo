@@ -607,6 +607,46 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
    claims to serve. Fixed by excluding `unit` from the builtin-inline operator
    routing so it uses the `Eq(unit)`/`Ord(unit)` impls that already existed
    (issues/fixed/unit-operand-renders-empty-so-binop-reports-ftt.md).
+
+   **Encoding — `JsonValue` batteries: DONE (2026-09-09).** The audit asked for
+   "`JsonValue` mutation (`insert`/`remove`/`object()`), `is_*`/`as_i64`/
+   `as_u64`, `pointer`, integer arms". All but the integer arms are in:
+   the six `is_*` predicates, `as_f64`/`as_i64`/`as_u64`, the `object()` /
+   `array()` empty constructors, `insert` (returning the REPLACED value, so it
+   is `serde_json`'s `Map::insert` and not a silent overwrite) / `remove` /
+   `push`, and RFC 6901 `pointer`. `JsonValue` also gains the three traits
+   finding 14 says it had none of: `ToString` (the compact text, = `Display`),
+   `Clone` (a deep tree — the payloads are `ArrayList`s, i.e. RC handles, so a
+   plain copy ALIASES the children) and `Eq`.
+   `insert`/`remove`/`push` PANIC on the wrong variant, matching the two
+   `Index` impls the file already had; in `serde_json` the variant check is
+   `as_object_mut()`, here it is the `is_object()` this PR adds.
+
+   Three things the tests pinned that are easy to get wrong: `Eq` compares
+   objects as MAPS (key order is not significant — `serde_json` behaves that
+   way under both its map backends), `as_i64` decides "integral" by an exact
+   round trip so NaN and ±infinity land in `.None` (2^63 is exactly
+   representable as a double, which makes `[-2^63, 2^63)` an exact bound), and
+   `pointer` must decode `~1` BEFORE `~0` or `~01` comes out as `/` instead of
+   the literal key `~1`.
+
+   **The integer arms are NOT done and are deliberately deferred**: a
+   `Number(i64)` variant beside `Number(f64)` changes the parser, both
+   stringifiers, `ToJson`/`FromJson` and every match over the enum — a breaking
+   change that belongs in a breaking window, not in an additive batch.
+   `as_i64`/`as_u64` give callers the integer they actually wanted meanwhile.
+
+   **Two bugs fell out.** `FromStr` turns out to be implemented for only 6 of
+   the 13 numeric primitives — `usize` has none, so `token.parse(usize)` does
+   not compile (issues/fromstr-missing-on-seven-numeric-primitives.md). And
+   writing `Eq` the obvious way — a `_kids_eq` helper comparing children with
+   `==`, called from the `Eq` body — produces an abort()-ing stub behind a
+   green `yo check`: the helper and the impl body are mutually recursive
+   through the impl, and impl fields get no signature-first binding phase the
+   way two plain `fn`s do
+   (issues/mutual-recursion-between-a-fn-and-a-trait-impl-body.md, with a
+   minimal reproducer). `Eq` is therefore ONE self-recursive `_json_eq`, which
+   is what `Clone` already did.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

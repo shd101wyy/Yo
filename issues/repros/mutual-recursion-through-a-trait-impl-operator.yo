@@ -1,0 +1,39 @@
+{ ArrayList } :: import("std/collections/array_list");
+E :: enum(Leaf(v : i32), Node(kids : ArrayList(Self)));
+_kids_eq :: (fn(a : ArrayList(E), b : ArrayList(E)) -> bool)({
+  if(a.len() != b.len(), {
+    return(false);
+  });
+  i := usize(0);
+  while(i < a.len(), i = (i + usize(1)), {
+    if(a(i) != b(i), {
+      return(false);
+    });
+  });
+  true
+});
+impl(
+  E,
+  Eq(E)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(
+        lhs,
+        .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false),
+        .Node(a) => match(rhs, .Node(b) => _kids_eq(a, b), _ => false)
+      )
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !(lhs == rhs)
+    )
+  )
+);
+main :: (fn() -> unit)({
+  a := ArrayList(E).new();
+  a.push(E.Leaf(i32(1)));
+  x := E.Node(a);
+  b := ArrayList(E).new();
+  b.push(E.Leaf(i32(1)));
+  y := E.Node(b);
+  cond((x == y) => (), true => ());
+});
+export(main);
