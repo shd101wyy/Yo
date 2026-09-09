@@ -27,30 +27,16 @@ open(import("../fmt"));
 IO_udp :: import("../sys/udp");
 IO_tcp :: import("../sys/tcp");
 SockInfo :: import("../sys/sockinfo");
-{ sockaddr_to_socket_addr } :: import("./tcp");
+{ make_sockaddr, sockaddr_to_socket_addr } :: import("./tcp");
 { AF_INET, AF_INET6, SOCK_DGRAM, SOL_SOCKET, SO_BROADCAST } :: import("../sys/socket");
 { snprintf } :: import("../libc/stdio");
 // ============================================================================
 // Internal helpers
 // ============================================================================
-_make_sockaddr :: (fn(addr : SocketAddr) -> IO_tcp.SockAddr)(
-  match(
-    addr.ip,
-    .V4(a, b, c, d) => {
-      buf := Array(u8, usize(16)).fill(u8(0));
-      unsafe(snprintf((*char)(&buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d)));
-      IO_tcp.make_sockaddr_in(&buf(usize(0)), addr.port)
-    },
-    .V6(_) => {
-      // Render the real address text (full uncompressed hex form — valid
-      // inet_pton input). This used to hardcode "::1" for EVERY V6 address
-      // (plans/archive/STD_API_AUDIT.md C2).
-      ip_txt := addr.ip.to_string();
-      ip_c := ip_txt.to_cstr();
-      IO_tcp.make_sockaddr_in6(ip_c.ptr().unwrap(), addr.port)
-    }
-  )
-);
+// `make_sockaddr` and `sockaddr_to_socket_addr` both live in `./tcp` — ONE
+// encoder and ONE decoder for the whole `net` layer. This file used to carry a
+// byte-for-byte copy of the encoder, which is how the hardcoded-"::1" bug
+// (plans/archive/STD_API_AUDIT.md C2) had to be fixed twice.
 _throw_net_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
   exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
 );
@@ -76,7 +62,7 @@ impl(
       );
       raw_fd := e.io.await(IO_udp.socket(domain, i32(0)), e.io);
       fd := NetError.check(raw_fd, e.exn);
-      saddr := _make_sockaddr(addr);
+      saddr := make_sockaddr(addr);
       bind_r := e.io.await(IO_udp.bind(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
@@ -110,7 +96,7 @@ impl(
   connect : (fn(self : Self, addr : SocketAddr, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      saddr := _make_sockaddr(addr);
+      saddr := make_sockaddr(addr);
       r := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
@@ -127,7 +113,7 @@ impl(
   send_to : (fn(self : Self, data : ArrayList(u8), addr : SocketAddr, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      saddr := _make_sockaddr(addr);
+      saddr := make_sockaddr(addr);
       r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), e.io);
       IO_tcp.free_sockaddr(saddr);
       usize(NetError.check(r, e.exn))
@@ -142,15 +128,79 @@ impl(
       usize(NetError.check(r, e.exn))
     })
   }),
-  /// Receive a datagram and retrieve the sender's address.
-  /// Returns the number of bytes received.
-  recv_from : (fn(self : Self, buf : *u8, size : usize, src_addr : *u8, src_addr_len : *u32, io : Io) -> Impl(Future(usize, IoExn)))({
+  /// Receive a datagram into `buf`, resolving to the byte count AND the
+  /// sender's address — Rust's `UdpSocket::recv_from`.
+  ///
+  /// The sockaddr buffer is allocated and decoded here. It used to be two RAW
+  /// OUT-PARAMS (`src_addr : *u8, src_addr_len : *u32`) that every caller had
+  /// to `malloc`, pre-set to 128, pass in, decode and free — a C signature in
+  /// a Yo API, and the address was handed back undecoded.
+  recv_from : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(Tuple(usize, SocketAddr), IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), src_addr, src_addr_len), e.io);
-      usize(NetError.check(r, e.exn))
+      // `sockaddr_storage` is 128 bytes on both POSIX platforms this targets,
+      // which is what `accept` and the `bind` read-back also use.
+      sa_buf := (*u8)(malloc(usize(128)).unwrap());
+      sa_len := (*u32)(malloc(usize(4)).unwrap());
+      sa_len.* = u32(128);
+      r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), sa_buf, sa_len), e.io);
+      // Decode BEFORE the throw check would abandon the buffers: on an error
+      // there is nothing to decode, so free and let `check` throw.
+      cond(
+        (r < i32(0)) => {
+          free(.Some((*void)(sa_buf)));
+          free(.Some((*void)(sa_len)));
+          NetError.check(r, e.exn);
+        },
+        true => ()
+      );
+      from := sockaddr_to_socket_addr(sa_buf);
+      free(.Some((*void)(sa_buf)));
+      free(.Some((*void)(sa_len)));
+      (usize(r), from)
     })
   }),
+  /// Receive a datagram as bytes, resolving to at most `max` of them.
+  ///
+  /// The pointer-free counterpart of `recv`. `send_to`/`send` already take an
+  /// `ArrayList(u8)`, but every receive took a `*(u8)` — and raw pointers are
+  /// not available in safe code, so a program without
+  /// `pragma(Pragma.AllowUnsafe)` could SEND a datagram and not receive one.
+  ///
+  /// A datagram longer than `max` is TRUNCATED, and the excess is discarded by
+  /// the kernel — that is `recvfrom`'s behaviour, not a choice made here, so
+  /// size `max` for the largest message the protocol allows.
+  recv_bytes : (fn(self : Self, max : usize, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))({
+    fd := self._fd;
+    io.async(e => {
+      out := ArrayList(u8).with_capacity(max);
+      (i : usize) = usize(0);
+      while(i < max, i = (i + usize(1)), {
+        out.push(u8(0));
+      });
+      p := match(out.ptr(), .Some(q) => q, .None => (*u8)(""));
+      r := e.io.await(IO_udp.recv(fd, p, max, i32(0)), e.io);
+      n := usize(NetError.check(r, e.exn));
+      out.truncate(n);
+      out
+    })
+  }),
+  /// Receive a datagram as bytes together with the sender's address — the
+  /// pointer-free counterpart of `recv_from`. Truncates at `max`, as
+  /// `recv_bytes` does.
+  recv_from_bytes : (fn(self : Self, max : usize, io : Io) -> Impl(Future(Tuple(ArrayList(u8), SocketAddr), IoExn)))(
+    io.async(e => {
+      out := ArrayList(u8).with_capacity(max);
+      (i : usize) = usize(0);
+      while(i < max, i = (i + usize(1)), {
+        out.push(u8(0));
+      });
+      p := match(out.ptr(), .Some(q) => q, .None => (*u8)(""));
+      got := e.io.await(self.recv_from(p, max, io), e);
+      out.truncate(got.0);
+      (out, got.1)
+    })
+  ),
   /// Send data to the peer set by `connect`. Returns the number of bytes sent.
   send : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;

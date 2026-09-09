@@ -437,8 +437,7 @@ Text — every listed `String` method, `next_back`, `is_ascii_*` renames. Encodi
 — `Url.join/query_pairs/path_segments`, `JsonValue` mutation/`as_i64`/`pointer`,
 `EncodingError` offsets, regex naming, `glob()`. I/O — `OpenOptions`, `Watcher`
 `Dispose`, `SystemTime`/`UNIX_EPOCH`, `SocketAddr` `Eq`/`Hash`,
-`TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`,
-`StatusCode`, `HeaderMap`. Core — **all of it**: every `checked_/wrapping_/
+`TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`. Core — **all of it**: every `checked_/wrapping_/
 saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
@@ -510,11 +509,77 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 `TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: a `Seek` trait
 (only a bare `lseek` in `std/sys/seek.yo`); `OpenOptions`; a real
 `SystemTime`/`UNIX_EPOCH` in `std/time` for `Metadata.modified` to return;
-`IpAddr.parse_v6`; `Child` stdin/stdout/stderr as `Reader`/`Writer` handles;
-`Watcher` `Dispose`; `UdpSocket.recv_from -> (n, from)` (it still takes raw
-`*u8` / `*u32` out-params — a C-shaped signature in std); HTTP `StatusCode` +
-`HeaderMap` + byte bodies (`parse_response` string-concats the body, so binary
-responses are broken client-side) + keep-alive.
+`Child` stdin/stdout/stderr as `Reader`/`Writer` handles; `Watcher` `Dispose`;
+HTTP keep-alive. (`IpAddr.parse_v6`, `UdpSocket.recv_from -> (n, from)`,
+`StatusCode` and `HeaderMap` landed 2026-09-09 — described just below.)
+
+**`IpAddr.parse_v6` + `UdpSocket.recv_from` + HTTP `StatusCode`/`HeaderMap` —
+LANDED 2026-09-09.**
+
+`IpAddr.parse_v6` takes all three RFC 4291 §2.2 forms — the full eight groups,
+one `::` compression run, and a trailing dotted-quad for the last 32 bits
+(which is how an IPv4-mapped address is written). Hex is case-insensitive on
+input. It REJECTS, each with its own message: two `::` runs, more than eight
+groups, a group over four hex digits, an empty group that is not part of a
+`::`, a single leading or trailing `:`, a non-hex byte, a dotted-quad that is
+not itself a valid IPv4 address, a `::` in an address that already spells eight
+groups (RFC 5952 §4.2.2), and a zone id (`%eth0` names an interface, not an
+address, and `IpAddr` has nowhere to put it). `IpAddr.parse` dispatches on
+whether the text contains a `:` — exact, because a `:` cannot appear in an
+IPv4 address and must appear in an IPv6 one, so a malformed address reports the
+error for the family it was clearly meant to be rather than the second parser's
+confusing complaint.
+
+`UdpSocket.recv_from` now resolves to `(usize, SocketAddr)`. It used to take
+`src_addr : *u8, src_addr_len : *u32` out-params that every caller had to
+`malloc`, pre-set to 128, pass in, decode with `IO_tcp.get_*` and free — a C
+signature in a Yo API, handing the address back undecoded. Two pointer-free
+conveniences came with it, `recv_bytes` and `recv_from_bytes`: `send_to`/`send`
+have always taken an `ArrayList(u8)` while every RECEIVE took a `*(u8)`, and
+raw pointers are unavailable in safe code, so a program without
+`pragma(Pragma.AllowUnsafe)` could SEND a datagram and not read one. The
+duplicated `_make_sockaddr` in `std/net/udp.yo` is gone — `tcp.yo`'s is
+exported and shared now, which is what the byte-for-byte copy had cost: the
+hardcoded-`::1` bug (C2) had to be fixed twice.
+
+HTTP `StatusCode` is a `u16` newtype with the class predicates
+(`is_informational` … `is_server_error`, plus `is_error` spanning 4xx+5xx), the
+registered reason phrases, and 22 named codes as nullary constructors — not
+enum variants, because the set is OPEN: a server may send a registered code the
+list does not carry, and an enum would have to reject or box it. `u16` because
+RFC 9110 §15 fixes the range at three digits, so a status is never negative,
+which the old `i32` allowed. `HttpResponse.status_code : i32` became
+`HttpResponse.status : StatusCode`; `status_text` stays, because the reason
+phrase is advisory and a proxy must be able to pass the peer's through while
+`status.reason()` gives the registered one.
+
+`HeaderMap` replaces `ArrayList(HttpHeader)` on both messages. It gives the two
+things HTTP requires and a `HashMap(String, String)` cannot: names compare
+case-insensitively (RFC 9110 §5.1) while being STORED as written, since that is
+what goes on the wire; and a field may repeat with the order significant
+(`Set-Cookie` always does), so it is an insertion-ordered multimap backed by a
+list. `insert` replaces every value for a name, `append` adds one — the split
+Rust draws, and the reason `set_host` used to put two `Host` lines on the wire.
+
+Three bugs fell out of the rework, all pinned by tests: `parse_response`
+accepted a status outside 100–599, producing a response whose every class
+predicate answered false; it REJECTED a status line with no reason phrase,
+which RFC 9112 §4.1 makes optional; and it rebuilt the body by splitting the
+whole message on CRLF and re-joining the tail one concatenation at a time —
+quadratic in the body size, and a `substring` over a UTF-8 continuation byte
+panics. The body is now sliced as BYTES on the CRLFCRLF boundary, the same way
+`parse_request` already was. (The "byte bodies broken client-side" row was
+therefore only half stale: `parse_request` had been fixed, `parse_response` had
+not.)
+
+Coverage: 6 new `parse_v6`/`parse` tests (`tests/net/addr.test.yo`, 26/26,
+including 16 malformed inputs and a `to_string` round-trip), 3 new UDP receive
+tests (`tests/net/udp.test.yo`, 10/10), and 10 new tests in
+`tests/http/http.test.yo` (35/35) over the range check, the class boundaries
+(199/299/399/499), the reason phrases, case-insensitive lookup, verbatim
+storage, `append` vs `insert`, `remove`'s count, the `entries` snapshot, the
+`set_host` duplicate, a repeated `Set-Cookie` through the parser, a missing
+reason phrase, an out-of-range code, and a binary body with an embedded CRLF.
 
 **Core.** `checked_/wrapping_/saturating_/overflowing_` on every integer
 (LANDED), `clamp/min/max` (LANDED), `checked_abs`/`checked_pow` (LANDED);
@@ -804,9 +869,10 @@ cooperative-scheduling contract.
    read-back that `TcpListener.bind` and `UdpSocket.bind` each open-coded is
    now one `_read_local_addr` helper.
 
-   Still open in this group: `TcpListener.incoming`, `UdpSocket.recv_from ->
-   (n, from)`, `Seek`, `OpenOptions`, `SystemTime`, `StatusCode`, `HeaderMap`,
-   `Watcher` `Dispose`, lazy `read_dir`, byte bodies in HTTP.
+   Still open in this group: `TcpListener.incoming`, `Seek`, `OpenOptions`,
+   `SystemTime`, `Watcher` `Dispose`, lazy `read_dir`.
+   (`UdpSocket.recv_from -> (n, from)`, `IpAddr.parse_v6`, `StatusCode`,
+   `HeaderMap` and the byte-sliced response body all landed 2026-09-09.)
 
    **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`
    is a BLOCKING iterator of `io::Result<TcpStream>`. Yo's `accept` is

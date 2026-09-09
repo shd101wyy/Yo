@@ -8,7 +8,7 @@ pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
 // runs on Windows again.
 { assert, panic } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
-{ HttpHeader, http_status_text } :: import("std/http/http");
+{ HttpHeader, HeaderMap, StatusCode } :: import("std/http/http");
 { fetch, fetch_with, FetchOptions } :: import("std/http/client");
 { Exception, IoExn } :: import("std/error");
 { println, eprintln } :: import("std/fmt");
@@ -66,7 +66,7 @@ test("Parse simple HTTP response", {
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
-  assert(resp.status_code == i32(200), "status code should be 200");
+  assert(resp.status == StatusCode.OK(), "status code should be 200");
   assert(resp.status_text == `OK`, "status text should be OK");
 });
 test("Parse response with headers", {
@@ -74,7 +74,7 @@ test("Parse response with headers", {
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
-  assert(resp.status_code == i32(404), "status code should be 404");
+  assert(resp.status == StatusCode.NOT_FOUND(), "status code should be 404");
   assert(resp.status_text == `Not Found`, "status text should be Not Found");
   assert(resp.headers.len() == usize(2), "should have 2 headers");
 });
@@ -83,7 +83,7 @@ test("Parse response with body", {
   result := parse_response(raw);
   assert(result.is_ok(), "should parse successfully");
   resp := result.unwrap();
-  assert(resp.status_code == i32(200), "status code should be 200");
+  assert(resp.status == StatusCode.OK(), "status code should be 200");
   assert(resp.body == `Hello World`, "body should match");
 });
 test("HttpResponse get_header case-insensitive", {
@@ -163,12 +163,12 @@ test("fetch over https returns a real response (mandatory under CI)", {
   );
   resp := io.await(fetch(`https://example.com`.to_string(), io), IoExn(io : io, exn : exn));
   reached.* = true;
-  status_ok := (resp.status_code == i32(200));
+  status_ok := (resp.status == StatusCode.OK());
   body_ok := (resp.body.len() > usize(0));
   good := (status_ok && body_ok);
   ok.* = good;
   cond(
-    reached.* => assert(ok.*, `expected a 200 with a body over https, got ${resp.status_code}`),
+    reached.* => assert(ok.*, `expected a 200 with a body over https, got ${resp.status}`),
     true => assert(true, "skipped: no network")
   );
 });
@@ -271,7 +271,7 @@ test("fetch follows redirects, resolving relative and absolute-path Locations", 
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   resp := io.await(fetch_with(`http://127.0.0.1:19960/dir/start`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
-  assert(resp.status_code == i32(200), `final status should be 200, got ${resp.status_code}`);
+  assert(resp.status == StatusCode.OK(), `final status should be 200, got ${resp.status}`);
   assert(resp.body == "done", `final body should be the last hop's, got "${resp.body}"`);
   assert(seen.len() == usize(3), `three requests should have been made, saw ${seen.len()}`);
   assert(seen(usize(0)).starts_with(`GET /dir/start HTTP/1.1`), `hop 0: ${seen(usize(0))}`);
@@ -320,7 +320,7 @@ test("fetch with max_redirects 0 returns the 3xx verbatim", {
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_max_redirects(usize(0));
   resp := io.await(fetch_with(`http://127.0.0.1:19962/start`, opts, io), IoExn(io : io, exn : exn));
-  assert(resp.status_code == i32(302), `the 3xx itself should come back, got ${resp.status_code}`);
+  assert(resp.status == StatusCode.FOUND(), `the 3xx itself should come back, got ${resp.status}`);
   assert(match(resp.get_header(`Location`), .Some(l) => (l == "/elsewhere"), .None => false), "Location header should be preserved");
   assert(seen.len() == usize(1), "exactly one request");
   server.await(io);
@@ -440,7 +440,7 @@ test("fetch decodes a chunked body (sizes, extensions and trailers stripped)", {
   seen := ArrayList(String).new();
   server := io.spawn(_serve_scripted(listener, responses, seen, io), IoExn(io : io, exn : exn));
   r1 := io.await(fetch_with(`http://127.0.0.1:19965/one`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
-  assert(r1.status_code == i32(200), `status ${r1.status_code}`);
+  assert(r1.status == StatusCode.OK(), `status ${r1.status}`);
   assert(r1.body == "hello, chunked world — 16+ bytes so a size needs two hex digits", `decoded body, got "${r1.body}"`);
   assert(r1.get_header(`Transfer-Encoding`).is_some(), `the header itself is kept`);
   r2 := io.await(fetch_with(`http://127.0.0.1:19965/two`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
@@ -558,7 +558,7 @@ test("fetch round-trips a binary body byte-for-byte", {
   r := io.await(fetch_with(`http://127.0.0.1:19968/bin`, FetchOptions.new(), io), IoExn(io : io, exn : exn));
   server.await(io);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
-  assert(r.status_code == i32(200), "200");
+  assert(r.status == StatusCode.OK(), "200");
   got := r.body.as_bytes();
   assert(got.len() == usize(8), `body is 8 bytes (got ${got.len()})`);
   assert(got(usize(0)) == u8(0x80), "leading continuation byte survives");
@@ -776,4 +776,178 @@ test("an unreadable Content-Length is a typed HttpError, not a silent absence", 
   assert(match(o2, .None => true, .Some(r) => false), `a negative Content-Length must throw`);
   assert(match(o3, .None => true, .Some(r) => false), `two Content-Length lines that disagree must throw`);
   assert(seen.len() == usize(3), `the server saw three requests, not ${seen.len()}`);
+});
+// ============================================================================
+// StatusCode
+// ============================================================================
+test("StatusCode.from_u16 accepts only 100..=599", {
+  assert(StatusCode.from_u16(u16(200)).is_some(), "200 is a status");
+  assert(StatusCode.from_u16(u16(100)).is_some(), "100 is the lower bound");
+  assert(StatusCode.from_u16(u16(599)).is_some(), "599 is the upper bound");
+  assert(StatusCode.from_u16(u16(99)).is_none(), "99 is below the range");
+  assert(StatusCode.from_u16(u16(600)).is_none(), "600 is above the range");
+  assert(StatusCode.from_u16(u16(0)).is_none(), "0 is not a status");
+  // An unregistered code INSIDE the range is accepted: a client must treat an
+  // unknown 4xx as 400, so refusing it would break forward compatibility.
+  unknown := StatusCode.from_u16(u16(499)).unwrap();
+  assert(unknown.is_client_error(), "an unregistered 4xx still classifies");
+  assert(unknown.reason() == `Unknown`, "but it has no registered phrase");
+});
+test("StatusCode class predicates partition the range", {
+  assert(StatusCode.from_u16(u16(100)).unwrap().is_informational(), "1xx");
+  assert(StatusCode.OK().is_success(), "2xx");
+  assert(StatusCode.FOUND().is_redirection(), "3xx");
+  assert(StatusCode.NOT_FOUND().is_client_error(), "4xx");
+  assert(StatusCode.BAD_GATEWAY().is_server_error(), "5xx");
+  // Exactly one class per code.
+  ok := StatusCode.OK();
+  assert(!ok.is_informational() && (!ok.is_redirection() && !ok.is_error()), "2xx is only 2xx");
+  // is_error spans 4xx and 5xx, which is the distinction a caller usually wants.
+  assert(StatusCode.NOT_FOUND().is_error() && StatusCode.BAD_GATEWAY().is_error(), "4xx and 5xx are both errors");
+  assert(!StatusCode.NO_CONTENT().is_error() && !StatusCode.NOT_MODIFIED().is_error(), "2xx and 3xx are not");
+  // The boundary codes, where an off-by-one would hide.
+  assert(StatusCode.from_u16(u16(199)).unwrap().is_informational(), "199 is still 1xx");
+  assert(StatusCode.from_u16(u16(299)).unwrap().is_success(), "299 is still 2xx");
+  assert(StatusCode.from_u16(u16(399)).unwrap().is_redirection(), "399 is still 3xx");
+  assert(StatusCode.from_u16(u16(499)).unwrap().is_client_error(), "499 is still 4xx");
+});
+test("StatusCode reason, to_string, Eq and Ord", {
+  assert(StatusCode.NOT_FOUND().reason() == `Not Found`, "the registered phrase");
+  assert(StatusCode.CONTENT_TOO_LARGE().reason() == `Content Too Large`, "the RFC 9110 name, not the old Payload Too Large");
+  assert(StatusCode.OK().to_string() == `200`, "to_string is the digits alone");
+  assert(StatusCode.OK().as_u16() == u16(200), "as_u16 unwraps");
+  assert(StatusCode.OK() == StatusCode.from_u16(u16(200)).unwrap(), "Eq compares the code");
+  assert(StatusCode.OK() != StatusCode.NOT_FOUND(), "distinct codes are unequal");
+  assert(StatusCode.OK() < StatusCode.NOT_FOUND(), "Ord is the numeric order");
+  assert(StatusCode.BAD_GATEWAY() >= StatusCode.INTERNAL_SERVER_ERROR(), ">= agrees");
+});
+// ============================================================================
+// HeaderMap
+// ============================================================================
+test("HeaderMap lookup is case-insensitive but storage is verbatim", {
+  h := HeaderMap.new();
+  h.append(`Content-Type`, `text/plain`);
+  assert(h.get(`content-type`).unwrap() == `text/plain`, "lower-case lookup finds it");
+  assert(h.get(`CONTENT-TYPE`).unwrap() == `text/plain`, "upper-case too");
+  assert(h.contains_key(`Content-TYPE`), "contains_key folds case as well");
+  assert(h.get(`Content-Length`).is_none(), "an absent field is .None");
+  // The name goes on the wire exactly as it was written.
+  assert(h.to_string() == `Content-Type: text/plain\r\n`, "the stored spelling is preserved");
+});
+test("HeaderMap append keeps repeats, insert replaces them", {
+  h := HeaderMap.new();
+  h.append(`Set-Cookie`, `a=1`);
+  h.append(`Set-Cookie`, `b=2`);
+  h.append(`set-cookie`, `c=3`);
+  assert(h.len() == usize(3), "three field lines");
+  all := h.get_all(`Set-Cookie`);
+  assert(all.len() == usize(3), "get_all sees every value, whatever the case");
+  assert(all(usize(0)) == `a=1`, "in insertion order");
+  assert(all(usize(2)) == `c=3`, "including the differently-cased one");
+  assert(h.get(`Set-Cookie`).unwrap() == `a=1`, "get is the FIRST value");
+  // insert replaces the whole field and reports what was there.
+  prev := h.insert(`Set-Cookie`, `only=1`);
+  assert(prev.unwrap() == `a=1`, "insert returns the first previous value");
+  assert(h.len() == usize(1), "and drops every other value");
+  assert(h.get_all(`Set-Cookie`).len() == usize(1), "one value remains");
+  assert(h.insert(`X-New`, `v`).is_none(), "inserting a fresh name reports nothing previous");
+});
+test("HeaderMap remove reports how many lines went", {
+  h := HeaderMap.new();
+  h.append(`Accept`, `a`);
+  h.append(`X-Keep`, `k`);
+  h.append(`accept`, `b`);
+  assert(h.remove(`ACCEPT`) == usize(2), "both Accept lines removed");
+  assert(h.len() == usize(1), "the unrelated field stayed");
+  assert(h.get(`X-Keep`).unwrap() == `k`, "and kept its value");
+  assert(h.remove(`Accept`) == usize(0), "removing an absent field removes nothing");
+  assert(h.is_empty() == false, "is_empty tracks the remaining line");
+  h.remove(`X-Keep`);
+  assert(h.is_empty(), "and reports empty once drained");
+});
+test("HeaderMap entries is a snapshot, not the map itself", {
+  h := HeaderMap.new();
+  h.append(`A`, `1`);
+  e := h.entries();
+  assert(e.len() == usize(1), "one entry");
+  e.push(HttpHeader.new(`B`, `2`));
+  assert(h.len() == usize(1), "pushing to the snapshot does not change the map");
+  assert(h.get(`B`).is_none(), "B never entered the map");
+});
+test("set_header replaces while header() appends", {
+  // The distinction is why Host stopped appearing twice: set_host used to push.
+  req := HttpRequest.new(HttpMethod.GET, `/`);
+  req.set_host(`a.example`);
+  req.set_host(`b.example`);
+  assert(req.headers.get_all(`Host`).len() == usize(1), "exactly one Host survives");
+  assert(req.get_header(`Host`).unwrap() == `b.example`, "the last one wins");
+  req.set_header(`Accept`, `x`);
+  req.set_header(`accept`, `y`);
+  assert(req.headers.get_all(`Accept`).len() == usize(1), "set_header replaces, folding case");
+  chained := HttpRequest.new(HttpMethod.GET, `/`).header(`X-Tag`, `1`).header(`X-Tag`, `2`);
+  assert(chained.headers.get_all(`X-Tag`).len() == usize(2), "the builder appends");
+});
+test("parse_response keeps a repeated header and an absent reason phrase", {
+  raw := `HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n\r\nbody`;
+  match(
+    parse_response(raw),
+    .Ok(r) => {
+      assert(r.status == StatusCode.OK(), "status parsed");
+      assert(r.headers.get_all(`Set-Cookie`).len() == usize(2), "both cookies survived the parse");
+      assert(r.body == `body`, "body intact");
+    },
+    .Err(e) => {
+      eprintln(`  unexpected: ${e.to_string()}`);
+      assert(false, "must parse");
+    }
+  );
+  // RFC 9112 4.1 makes the reason phrase optional; this used to be rejected
+  // for want of a second space on the status line.
+  match(
+    parse_response(`HTTP/1.1 204\r\n\r\n`),
+    .Ok(r) => {
+      assert(r.status == StatusCode.NO_CONTENT(), "204 with no phrase");
+      assert(r.status_text.is_empty(), "and an empty phrase");
+      assert(r.status.reason() == `No Content`, "the registered phrase is still available");
+    },
+    .Err(e) => {
+      eprintln(`  unexpected: ${e.to_string()}`);
+      assert(false, "a missing reason phrase is legal");
+    }
+  );
+  // A code outside the range is not a status. It used to be accepted, giving a
+  // response whose every class predicate answered false.
+  match(
+    parse_response(`HTTP/1.1 999 Nope\r\n\r\n`),
+    .Ok(_) => assert(false, "999 must be rejected"),
+    .Err(e) =>
+      match(e, .InvalidStatusCode(text) => assert(text == `999`, "the error names the code"), _ => assert(false, "wrong variant"))
+  );
+});
+test("parse_response slices a binary body as bytes", {
+  // The body used to be rebuilt by splitting the WHOLE message on \r\n and
+  // re-joining the tail one concatenation at a time — quadratic, and a
+  // substring over a UTF-8 continuation byte panics.
+  bytes := ArrayList(u8).new();
+  bytes.push(u8(0x80)); // a bare continuation byte: not valid UTF-8 on its own
+  bytes.push(u8(0x00));
+  bytes.push(u8(0x0d)); // and a CR LF inside the body, which the old split ate
+  bytes.push(u8(0x0a));
+  bytes.push(u8(0xff));
+  body := String.from_bytes(bytes);
+  raw := `HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n${body}`;
+  match(
+    parse_response(raw),
+    .Ok(r) => {
+      got := r.body.as_bytes();
+      assert(got.len() == usize(5), `body kept all 5 bytes, got ${got.len()}`);
+      assert(got(usize(0)) == u8(0x80), "first byte");
+      assert(got(usize(2)) == u8(0x0d), "the CR inside the body survived");
+      assert(got(usize(4)) == u8(0xff), "last byte");
+    },
+    .Err(e) => {
+      eprintln(`  unexpected: ${e.to_string()}`);
+      assert(false, "must parse");
+    }
+  );
 });

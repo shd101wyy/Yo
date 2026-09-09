@@ -25,7 +25,7 @@ open(import("../fmt"));
 { Duration } :: import("../time/duration");
 { yield } :: import("../async");
 { sleep } :: import("../time/sleep");
-{ HttpMethod, HttpHeader, HttpRequest, HttpResponse, HttpError, parse_response, http_status_text } :: import("./http.yo");
+{ HttpMethod, HttpHeader, HeaderMap, StatusCode, HttpRequest, HttpResponse, HttpError, parse_response } :: import("./http.yo");
 { read_http_message } :: import("./wire.yo");
 // ============================================================================
 // FetchOptions
@@ -34,7 +34,7 @@ open(import("../fmt"));
 FetchOptions :: ref(
   struct(
     method : HttpMethod,
-    headers : ArrayList(HttpHeader),
+    headers : HeaderMap,
     body : String,
     /// Deadline for the WHOLE request, redirects included — `.None` waits
     /// forever. On expiry the in-flight connection is aborted and `fetch`
@@ -61,7 +61,7 @@ impl(
   new : (fn() -> Self)(
     Self(
       method : .GET,
-      headers : ArrayList(HttpHeader).new(),
+      headers : HeaderMap.new(),
       body : ``,
       timeout : Option(Duration).None,
       max_redirects : DEFAULT_MAX_REDIRECTS,
@@ -75,7 +75,7 @@ impl(
   }),
   /// Add a request header.
   with_header : (fn(self : Self, name : String, value : String) -> Self)({
-    self.headers.push(HttpHeader.new(name, value));
+    self.headers.append(name, value);
     self
   }),
   /// Set the request body.
@@ -154,11 +154,14 @@ _fetch_once :: (
     // Build HTTP request
     req := HttpRequest.new(opts.method, req_path);
     req.set_host(host);
-    // Add user-provided headers
+    // Add user-provided headers. APPEND, not set: a caller who added the same
+    // name twice (two Accept-Encoding values, say) meant both, and `set_header`
+    // now replaces rather than accumulates.
+    user_headers := opts.headers.entries();
     hi := usize(0);
-    while(runtime(hi < opts.headers.len()), {
-      h := opts.headers(hi);
-      req.set_header(h.name, h.value);
+    while(runtime(hi < user_headers.len()), {
+      h := user_headers(hi);
+      req.headers.append(h.name, h.value);
       hi = (hi + usize(1));
     });
     // Set Content-Length if body is provided
@@ -225,7 +228,7 @@ _fetch_once :: (
       .Ok(resp) => resp,
       .Err(err) => {
         e.exn.throw(dyn(HttpError.Other(err.to_string())));
-        HttpResponse.new(i32(0), ``) // unreachable
+        HttpResponse.new(StatusCode.OK(), ``) // unreachable
       }
     )
   })
@@ -259,9 +262,10 @@ _resolve_location :: (fn(base_str : String, location : String, exn : Exception) 
 /// The options for the next hop. 303 always becomes a GET, and so do 301/302
 /// for a POST (what browsers and `fetch` do); 307/308 replay the request as
 /// is. Headers are shared — they are read-only from here on.
-_redirect_options :: (fn(opts : FetchOptions, status : i32) -> FetchOptions)({
+_redirect_options :: (fn(opts : FetchOptions, status : StatusCode) -> FetchOptions)({
   is_post := match(opts.method, .POST => true, _ => false);
-  to_get := ((status == i32(303)) || (((status == i32(301)) || (status == i32(302))) && is_post));
+  code := status.as_u16();
+  to_get := ((code == u16(303)) || (((code == u16(301)) || (code == u16(302))) && is_post));
   FetchOptions(
     method : cond(to_get => HttpMethod.GET, true => opts.method),
     headers : opts.headers,
@@ -302,7 +306,7 @@ _fetch_follow :: (
           );
           hops = (hops + usize(1));
           current = _resolve_location(current, location, e.exn);
-          hop_opts = _redirect_options(hop_opts, resp.status_code);
+          hop_opts = _redirect_options(hop_opts, resp.status);
         },
         true => {
           result = Option(HttpResponse).Some(resp);
@@ -310,7 +314,7 @@ _fetch_follow :: (
         }
       );
     });
-    match(result, .Some(r) => r, .None => HttpResponse.new(i32(0), ``))
+    match(result, .Some(r) => r, .None => HttpResponse.new(StatusCode.OK(), ``))
   })
 );
 // ============================================================================
@@ -335,7 +339,7 @@ fetch_with :: (
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
-    (result : HttpResponse) = HttpResponse.new(i32(0), ``);
+    (result : HttpResponse) = HttpResponse.new(StatusCode.OK(), ``);
     match(
       opts.timeout,
       .None => {
