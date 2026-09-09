@@ -669,6 +669,38 @@ rewritten over `Mutex.with_lock` (its blocker is in `issues/fixed/`);
      `sync/channel`'s now returns `Result(T, TryRecvError)` (#495). The
      marker names it as the thing that will move; aligning it is a follow-up,
      not a doc change.
+   **I/O — the two net address types get their traits, and `TcpStream` gets
+   `local_addr` (2026-09-09).** §1's trait-coverage row read "`Eq`/`Hash` on
+   0/2 net address types". `IpAddr` and `SocketAddr` now have `Eq`, `Ord`,
+   `Hash` and `Clone`, which is what makes a connection table keyed by peer or
+   a sorted peer list possible at all; the test asserts exactly that use.
+
+   All four are hand-written rather than derived, for a reason worth recording:
+   the order Rust gives these types is NOT the structural one. `Ipv4Addr`
+   compares as its 32-bit value and `Ipv6Addr` as its 128-bit one, and every V4
+   address sorts before every V6 one (Rust gets that from deriving `Ord` over
+   `V4 < V6` in declaration order). `Hash` feeds a one-byte family tag first,
+   so a V4 and a V6 address cannot collide by sharing a byte pattern.
+
+   `TcpStream.local_addr` reads the kernel's answer ONCE, at connect / accept
+   time, and stores it beside `_peer_addr` — the ephemeral source port and the
+   source interface are not in the `connect` argument, and a stored value keeps
+   the accessor infallible and symmetric with `peer_addr`. The `getsockname`
+   read-back that `TcpListener.bind` and `UdpSocket.bind` each open-coded is
+   now one `_read_local_addr` helper.
+
+   Still open in this group: `TcpListener.incoming`, `UdpSocket.recv_from ->
+   (n, from)`, `Seek`, `OpenOptions`, `SystemTime`, `StatusCode`, `HeaderMap`,
+   `Watcher` `Dispose`, lazy `read_dir`, byte bodies in HTTP.
+
+   **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`
+   is a BLOCKING iterator of `io::Result<TcpStream>`. Yo's `accept` is
+   `Impl(Future(TcpStream, IoExn))`, and there is no `Stream` trait — no async
+   analogue of `Iterator` — for an iterator of futures to implement. Giving
+   `incoming` an `Iterator` that blocks the event loop per element would be
+   worse than not having it (a blocking await inside a task nests the loop and
+   deadlocks). The row wants an async-iteration abstraction first; it is a
+   language/std design question, not a missing method.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
 

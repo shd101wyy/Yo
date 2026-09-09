@@ -97,9 +97,34 @@ TcpStream :: ref(
   struct(
     _fd : i32,
     _peer_addr : SocketAddr,
+    _local_addr : SocketAddr,
     _is_closed : bool
   )
 );
+/// Ask the kernel which address `fd` is bound to. Used to fill in a socket's
+/// local address once, at connect / accept / bind time, so the accessors are
+/// plain field reads: `getsockname` is the only way to learn the ephemeral
+/// port and the source interface the kernel picked, and neither is knowable
+/// from the connect argument.
+///
+/// `fallback` is returned when `getsockname` fails. For a connected or
+/// accepted socket that does not happen on any supported platform — the call
+/// only fails for a bad descriptor or a truncated buffer, and 128 bytes holds
+/// every `sockaddr` here — so a caller that has no meaningful fallback passes
+/// the unspecified address.
+_read_local_addr :: (fn(fd : i32, fallback : SocketAddr) -> SocketAddr)({
+  buf := (*u8)(malloc(usize(128)).unwrap());
+  len := (*u32)(malloc(usize(4)).unwrap());
+  len.* = u32(128);
+  rc := SockInfo.getsockname(fd, buf, len);
+  out := cond(
+    (rc == i32(0)) => sockaddr_to_socket_addr(buf),
+    true => fallback
+  );
+  free(.Some((*void)(buf)));
+  free(.Some((*void)(len)));
+  out
+});
 // ============================================================================
 // TcpListener
 // ============================================================================
@@ -169,18 +194,9 @@ impl(
       );
       // Read back the ACTUAL bound address — a port-0 bind gets its port
       // from the kernel; echoing the bind argument reported port 0
-      // (plans/archive/STD_API_AUDIT.md C2).
-      la_buf := (*u8)(malloc(usize(128)).unwrap());
-      la_len := (*u32)(malloc(usize(4)).unwrap());
-      la_len.* = u32(128);
-      gsn := SockInfo.getsockname(fd, la_buf, la_len);
-      local := cond(
-        (gsn == i32(0)) => sockaddr_to_socket_addr(la_buf),
-        true => addr
-      );
-      free(.Some((*void)(la_buf)));
-      free(.Some((*void)(la_len)));
-      return(TcpListener(_fd : fd, _local_addr : local, _is_closed : false));
+      // (plans/archive/STD_API_AUDIT.md C2). The bind argument IS a meaningful
+      // fallback here, unlike on a connected socket.
+      return(TcpListener(_fd : fd, _local_addr : _read_local_addr(fd, addr), _is_closed : false));
     })
   ),
   /// Accept an incoming connection, returning a new `TcpStream`.
@@ -209,6 +225,7 @@ impl(
         TcpStream(
           _fd : client_fd,
           _peer_addr : peer_addr,
+          _local_addr : _read_local_addr(client_fd, SocketAddr.any(u16(0))),
           _is_closed : false
         )
       );
@@ -286,6 +303,7 @@ impl(
         TcpStream(
           _fd : fd,
           _peer_addr : addr,
+          _local_addr : _read_local_addr(fd, SocketAddr.any(u16(0))),
           _is_closed : false
         )
       );
@@ -375,6 +393,13 @@ impl(
   /// Get the remote peer's socket address.
   peer_addr : (fn(self : Self) -> SocketAddr)(
     self._peer_addr
+  ),
+  /// Get this end's socket address — Rust's `TcpStream::local_addr`. Read
+  /// from the kernel once, when the stream was connected or accepted, because
+  /// that is the only way to learn the ephemeral port and the source
+  /// interface the kernel chose; neither is in the `connect` argument.
+  local_addr : (fn(self : Self) -> SocketAddr)(
+    self._local_addr
   ),
   /// Get the underlying file descriptor.
   fd : (fn(self : Self) -> i32)(

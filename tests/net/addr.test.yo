@@ -4,6 +4,8 @@ open(import("std/libc/stdio"));
 open(import("std/string"));
 open(import("std/fmt"));
 { IpAddr, SocketAddr } :: import("std/net/addr");
+{ hash_one } :: import("std/hash");
+{ HashMap } :: import("std/collections/hash_map");
 { NetError } :: import("std/net/errors");
 { Error, AnyError, Exception } :: import("std/error");
 // ============================================================================
@@ -189,4 +191,61 @@ test("IpAddr.parse_v4 rejects leading zeros like Rust", {
   );
   z := IpAddr.parse_v4(`0.0.0.0`, exn);
   assert(z.to_string() == "0.0.0.0", "a lone 0 octet is not a leading zero");
+});
+// ============================================================================
+// Eq / Ord / Hash / Clone on the two address types
+// ============================================================================
+test("IpAddr Eq and Clone", {
+  a := IpAddr.V4(u8(10), u8(0), u8(0), u8(1));
+  b := IpAddr.V4(u8(10), u8(0), u8(0), u8(1));
+  c := IpAddr.V4(u8(10), u8(0), u8(0), u8(2));
+  assert(a == b, "identical V4 addresses are equal");
+  assert(a != c, "a differing last octet is unequal");
+  assert(IpAddr.loopback_v6() == IpAddr.loopback_v6(), "identical V6 addresses are equal");
+  assert(IpAddr.loopback_v4() != IpAddr.loopback_v6(), "V4 and V6 loopback are different addresses");
+  d := a.clone();
+  assert(d == a, "a clone equals its source");
+});
+test("IpAddr Ord is the numeric order, with every V4 before every V6", {
+  lo := IpAddr.V4(u8(1), u8(2), u8(3), u8(4));
+  hi := IpAddr.V4(u8(1), u8(2), u8(3), u8(5));
+  assert(lo < hi, "the last octet decides");
+  assert(IpAddr.V4(u8(1), u8(255), u8(255), u8(255)) < IpAddr.V4(u8(2), u8(0), u8(0), u8(0)), "the FIRST octet outranks the rest");
+  assert(!(hi < lo), "and it is not symmetric");
+  assert(lo <= lo, "<= is reflexive");
+  assert(hi > lo, "> agrees with <");
+  assert(match(lo.cmp(lo), .Equal => true, _ => false), "cmp says Equal for identical addresses");
+  // Rust's `IpAddr` derives Ord over `V4 < V6` in declaration order, so the
+  // highest possible V4 still sorts below any V6.
+  assert(IpAddr.V4(u8(255), u8(255), u8(255), u8(255)) < IpAddr.loopback_v6(), "every V4 sorts before every V6");
+  assert(IpAddr.loopback_v6() > IpAddr.any_v4(), "and every V6 after every V4");
+});
+test("IpAddr Hash agrees with Eq and separates the families", {
+  a := IpAddr.V4(u8(127), u8(0), u8(0), u8(1));
+  b := IpAddr.V4(u8(127), u8(0), u8(0), u8(1));
+  assert(hash_one(a) == hash_one(b), "equal addresses hash equal");
+  assert(hash_one(a) != hash_one(IpAddr.V4(u8(127), u8(0), u8(0), u8(2))), "different addresses hash differently");
+  assert(hash_one(IpAddr.loopback_v4()) != hash_one(IpAddr.loopback_v6()), "the family tag separates V4 from V6");
+});
+test("SocketAddr Eq, Ord, Clone and use as a HashMap key", {
+  a := SocketAddr.loopback(u16(8080));
+  b := SocketAddr.loopback(u16(8080));
+  c := SocketAddr.loopback(u16(8081));
+  assert(a == b, "same ip and port are equal");
+  assert(a != c, "a differing port is unequal");
+  assert(a < c, "the port breaks an ip tie");
+  assert(SocketAddr.any(u16(9999)) < SocketAddr.loopback(u16(1)), "the IP outranks the port");
+  d := a.clone();
+  assert(d == a, "a clone equals its source");
+  assert(hash_one(a) == hash_one(b), "equal socket addresses hash equal");
+  assert(hash_one(a) != hash_one(c), "a differing port changes the hash");
+  // The point of all four: a connection table keyed by peer.
+  conns := HashMap(SocketAddr, i32).new();
+  conns.insert(a, i32(1));
+  conns.insert(c, i32(2));
+  assert(conns.len() == usize(2), "two distinct keys");
+  assert(conns.get(b).unwrap() == i32(1), "an equal-but-distinct value finds the entry");
+  conns.insert(b, i32(3));
+  assert(conns.len() == usize(2), "re-inserting an equal key replaces");
+  assert(conns.get(a).unwrap() == i32(3), "with the new value");
 });

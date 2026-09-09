@@ -188,6 +188,134 @@ impl(
     )
   )
 );
+/// `Eq` / `Ord` / `Hash` / `Clone` for `IpAddr`. All four are hand-written
+/// rather than derived: `derive` over the `V6` variant's `Array(u16, 8)` field
+/// is a separate matter, and the ORDER Rust gives these types is not the
+/// structural one anyway — `Ipv4Addr` compares as its 32-bit big-endian value
+/// and `Ipv6Addr` as its 128-bit one, with every V4 address sorting before
+/// every V6 one (Rust's `IpAddr` derives `Ord` over `V4 < V6` in exactly that
+/// declaration order).
+///
+/// Two `V6` addresses compare segment by segment from the most significant,
+/// which IS the numeric order of the 128-bit value.
+_v6_cmp :: (fn(a : Array(u16, usize(8)), b : Array(u16, usize(8))) -> Ordering)({
+  i := usize(0);
+  while(i < usize(8), i = (i + usize(1)), {
+    x := a(i);
+    y := b(i);
+    if(x < y, {
+      return(Ordering.Less);
+    });
+    if(x > y, {
+      return(Ordering.Greater);
+    });
+  });
+  Ordering.Equal
+});
+_ip_cmp :: (fn(lhs : IpAddr, rhs : IpAddr) -> Ordering)(
+  match(
+    lhs,
+    .V4(a1, b1, c1, d1) => match(
+      rhs,
+      .V4(a2, b2, c2, d2) => {
+        l := ((u32(a1) << u32(24)) | (u32(b1) << u32(16)) | ((u32(c1) << u32(8)) | u32(d1)));
+        r := ((u32(a2) << u32(24)) | (u32(b2) << u32(16)) | ((u32(c2) << u32(8)) | u32(d2)));
+        cond(
+          (l < r) => Ordering.Less,
+          (l > r) => Ordering.Greater,
+          true => Ordering.Equal
+        )
+      },
+      // Every V4 address sorts before every V6 one.
+      .V6(_) => Ordering.Less
+    ),
+    .V6(s1) => match(
+      rhs,
+      .V4(_, _, _, _) => Ordering.Greater,
+      .V6(s2) => _v6_cmp(s1, s2)
+    )
+  )
+);
+impl(
+  IpAddr,
+  /// Compare two addresses — `.Less` / `.Equal` / `.Greater`.
+  cmp : (fn(self : Self, other : Self) -> Ordering)(
+    _ip_cmp(self, other)
+  )
+);
+impl(
+  IpAddr,
+  Eq(IpAddr)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_ip_cmp(lhs, rhs), .Equal => true, _ => false)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_ip_cmp(lhs, rhs), .Equal => false, _ => true)
+    )
+  )
+);
+impl(
+  IpAddr,
+  Ord(IpAddr)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_ip_cmp(lhs, rhs), .Less => true, _ => false)
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_ip_cmp(lhs, rhs), .Greater => false, _ => true)
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_ip_cmp(lhs, rhs), .Greater => true, _ => false)
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_ip_cmp(lhs, rhs), .Less => false, _ => true)
+    ),
+    cmp : (fn(lhs : Self, rhs : Self) -> Ordering)(
+      _ip_cmp(lhs, rhs)
+    )
+  )
+);
+impl(
+  IpAddr,
+  Hash(
+    /// Feeds a one-byte family tag and then the address bytes, so a V4
+    /// address and a V6 address that happen to share a byte pattern do not
+    /// collide by construction.
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)(
+      match(
+        self,
+        .V4(a, b, c, d) => {
+          u8(4).hash(hasher);
+          a.hash(hasher);
+          b.hash(hasher);
+          c.hash(hasher);
+          d.hash(hasher);
+        },
+        .V6(segs) => {
+          u8(6).hash(hasher);
+          i := usize(0);
+          while(i < usize(8), i = (i + usize(1)), {
+            seg := segs(i);
+            seg.hash(hasher);
+          });
+        }
+      )
+    )
+  )
+);
+impl(
+  IpAddr,
+  Clone(
+    /// An `IpAddr` is a plain value — four octets or eight segments, no heap
+    /// — so cloning is a copy.
+    clone : (fn(inout(self) : Self) -> Self)(
+      match(
+        self,
+        .V4(a, b, c, d) => IpAddr.V4(a, b, c, d),
+        .V6(segs) => IpAddr.V6(segs)
+      )
+    )
+  )
+);
 export(IpAddr);
 // ============================================================================
 // SocketAddr
@@ -231,6 +359,70 @@ impl(
           )
         );
       }
+    )
+  )
+);
+/// `Eq` / `Ord` / `Hash` / `Clone` for `SocketAddr`, so a socket address can
+/// be a `HashMap` key (a connection table) or sort (a peer list). Ordering is
+/// Rust's structural one for a derived tuple: IP first, port second.
+_sa_cmp :: (fn(lhs : SocketAddr, rhs : SocketAddr) -> Ordering)({
+  ip_ord := lhs.ip.cmp(rhs.ip);
+  match(
+    ip_ord,
+    .Less => Ordering.Less,
+    .Greater => Ordering.Greater,
+    .Equal => cond(
+      (lhs.port < rhs.port) => Ordering.Less,
+      (lhs.port > rhs.port) => Ordering.Greater,
+      true => Ordering.Equal
+    )
+  )
+});
+impl(
+  SocketAddr,
+  Eq(SocketAddr)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_sa_cmp(lhs, rhs), .Equal => true, _ => false)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_sa_cmp(lhs, rhs), .Equal => false, _ => true)
+    )
+  )
+);
+impl(
+  SocketAddr,
+  Ord(SocketAddr)(
+    (<) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_sa_cmp(lhs, rhs), .Less => true, _ => false)
+    ),
+    (<=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_sa_cmp(lhs, rhs), .Greater => false, _ => true)
+    ),
+    (>) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_sa_cmp(lhs, rhs), .Greater => true, _ => false)
+    ),
+    (>=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      match(_sa_cmp(lhs, rhs), .Less => false, _ => true)
+    ),
+    cmp : (fn(lhs : Self, rhs : Self) -> Ordering)(
+      _sa_cmp(lhs, rhs)
+    )
+  )
+);
+impl(
+  SocketAddr,
+  Hash(
+    hash : (fn(generic(H : Type), inout(self) : Self, inout(hasher) : H, where(H <: Hasher)) -> unit)({
+      self.ip.hash(hasher);
+      self.port.hash(hasher);
+    })
+  )
+);
+impl(
+  SocketAddr,
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)(
+      Self(ip : self.ip.clone(), port : self.port)
     )
   )
 );
