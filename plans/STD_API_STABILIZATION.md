@@ -727,10 +727,17 @@ limiter, which wants a stall to swallow ticks rather than repay them. Tokio's
 `Delay`/`Skip` are deliberately NOT implemented: the choice belongs to the call
 site and guessing it here would be worse than leaving it out.
 
-Measured, not asserted loosely: five 30 ms ticks with 15 ms of work each took
-138 ms against the 135 ms the schedule predicts, where a sleep-per-iteration
-loop takes ~180 ms; four owed ticks after a 55 ms overrun came back in 0 ms
-(`tests/time/sleep.test.yo`, 7/7).
+Tested on the SCHEDULE, not the wall clock (`tests/time/sleep.test.yo`, 7/7):
+`_next` advances by exactly one period per tick however long the body took —
+which IS the no-drift property — the first tick is due at construction, and
+three ticks owed after an overrun advance the schedule by exactly three
+periods. A first version compared measured elapsed time against a computed
+"a drifting loop would take ~180 ms" and failed on a macOS CI runner that took
+492 ms: that runner needs 163 ms for a 60 ms sleep, so every 30 ms tick costs
+~90 ms and BOTH loops blow past any absolute figure. Timer granularity is not
+something a test can assume away. One wall-clock assertion survives, in the
+only direction that is safe anywhere: a tick that is not yet due must WAIT, and
+a slow machine makes that longer, never shorter.
 
 **`Once.call` now runs its slow path under `Mutex.with_lock`** (2026-09-10),
 and the long-standing NOTE claiming the old manual `_raw_lock`/`_raw_unlock`
