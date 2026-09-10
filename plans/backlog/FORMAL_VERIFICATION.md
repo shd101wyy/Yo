@@ -1006,7 +1006,9 @@ results; no language behavior changed yet.
 > harness, the static gate lives in check/compile/verify.
 > tests/internal/verifier_strip.test.yo covers the mechanism (solver-free)
 > and the full verify+ pipeline (YO_TEST_Z3=1). The last V3 row —
-> match/datatype encoding — LANDED via #533 (PR in flight 2026-09-10):
+> match/datatype encoding — LANDED via #535 (develop af84f69b5,
+> 2026-09-10; the PR chain #528→#533→#534 fell to GitHub's Actions
+> run-creation stall before it):
 > value enums as SMT datatypes (mangled ctor/accessor spellings,
 > declare-datatypes rendered per SMT-LIB 2.6), match lowered to nested
 > ite over is-testers with accessor projections, constructions as Ctor
