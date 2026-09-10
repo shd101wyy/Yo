@@ -11,8 +11,6 @@ pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
 { HttpHeader, HeaderMap, StatusCode } :: import("std/http/http");
 { fetch, fetch_with, FetchOptions, HttpClient } :: import("std/http/client");
 _wire :: import("std/http/wire.yo");
-{ dup } :: import("std/sys/pipe");
-{ close_sync } :: import("std/sys/file");
 { Exception, IoExn } :: import("std/error");
 { println, eprintln } :: import("std/fmt");
 { String } :: import("std/string");
@@ -1125,45 +1123,6 @@ _ka_serve :: (
     ()
   })
 );
-_FD_BATCH :: i32(8);
-// The exact number of open descriptors, measured SYNCHRONOUSLY.
-//
-// `dup(0)` hands back the LOWEST free number, so N repeats occupy the N
-// lowest free slots and every number in `0..=highest` is then taken:
-// `highest + 1 == open_count + N`. Solving for the open count is exact, and
-// unlike a plain "lowest free descriptor" probe it is not fooled by a hole
-// an earlier close left further down — this test file closes a listener
-// before the measurement, and that hole made the naive probe read the same
-// number whether the client leaked its socket or not.
-//
-// Synchronous matters as much as exact: an async probe would turn the event
-// loop and let the server react to the very close being measured.
-_open_fd_count :: (fn() -> i32)({
-  taken := ArrayList(i32).new();
-  i := i32(0);
-  while(runtime(i < _FD_BATCH), {
-    taken.push(dup(i32(0)));
-    i = (i + i32(1));
-  });
-  highest := i32(0);
-  j := usize(0);
-  while(runtime(j < taken.len()), {
-    f := taken(j);
-    cond(
-      (f > highest) => {
-        highest = f;
-      },
-      true => ()
-    );
-    j = (j + usize(1));
-  });
-  j = usize(0);
-  while(runtime(j < taken.len()), {
-    close_sync(taken(j));
-    j = (j + usize(1));
-  });
-  (highest + i32(1)) - _FD_BATCH
-});
 test("HttpClient: a second request runs on the pooled connection, with no reconnect", {
   exn := Exception(
     throw : (
@@ -1383,6 +1342,25 @@ test("HttpClient: the idle age limit closes a connection instead of reusing it",
   client.close_idle();
   task.await(io);
 });
+// The oracle here is what the PEERS observe, not what the descriptor table
+// looks like.
+//
+// A closed connection is one the server at the other end reads EOF from: its
+// connection loop then ends, `_ka_serve` returns, and the spawned task
+// finishes. A connection that is still open leaves that server parked on a
+// read forever, so the task never finishes and the deadline reports it. Two
+// servers on two ports make it a test of "EVERY idle connection" rather than
+// "an idle connection".
+//
+// This replaces a descriptor-count probe (`dup(0)` N times, solving
+// `highest + 1 == open_count + N`) that worked on macOS/arm64 and nowhere
+// else: Windows sockets are not in the CRT descriptor table at all, so the
+// count never moved there, and it did not move on the intel macOS runner
+// either — a leak test that cannot fail is worse than no test. The
+// peer-observation oracle needs no platform knowledge, and every other test
+// in this group already depends on it implicitly, because each one ends in a
+// `task.await(io)` that only returns once the client's socket is really
+// closed.
 test("HttpClient: dispose closes every idle connection", {
   exn := Exception(
     throw : (
@@ -1394,17 +1372,16 @@ test("HttpClient: dispose closes every idle connection", {
   );
   e := IoExn(io : io, exn : exn);
   stats := _ka_stats();
-  listener := io.await(_ka_bind(u16(19849), io), e);
-  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
+  l1 := io.await(_ka_bind(u16(19849), io), e);
+  l2 := io.await(_ka_bind(u16(19855), io), e);
+  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, stats, io), e);
+  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, stats, io), e);
   client := HttpClient.new();
   a := io.await(client.fetch(`http://127.0.0.1:19849/one`, io), e);
-  assert(a.body == `n=1`, `response: ${a.body}`);
-  assert(client.idle_count() == usize(1), "one connection is idle");
-  // `during` counts the descriptors open while the pooled connection still
-  // is; `after` counts them once `dispose` has run. Exactly one must have
-  // gone — the pooled socket. Nothing else runs between the two
-  // measurements, because both are synchronous.
-  during := _open_fd_count();
+  b := io.await(client.fetch(`http://127.0.0.1:19855/two`, io), e);
+  assert(a.body == `n=1`, `first response: ${a.body}`);
+  assert(b.body == `n=2`, `second response: ${b.body}`);
+  assert(client.idle_count() == usize(2), `two connections are idle, got ${client.idle_count()}`);
   // `dispose` is what a DROPPED client runs, and calling it by hand is the
   // only way to observe it today: a `ref` value passed as a parameter to an
   // `io.async` future is never released
@@ -1413,18 +1390,19 @@ test("HttpClient: dispose closes every idle connection", {
   // the scope-exit path cannot fire. The body being tested is the same one
   // either way — `dispose` delegates to `close_idle`.
   (HttpClient <: Dispose).dispose(client);
-  after := _open_fd_count();
-  assert(
-    after == (during - i32(1)),
-    `dispose closed exactly the pooled descriptor (open ${during} -> ${after})`
-  );
-  assert(client.idle_count() == usize(0), "and the idle set is empty");
-  // And the server saw the EOF: its connection loop ends and the task
-  // finishes, which would otherwise park on a read forever.
+  assert(client.idle_count() == usize(0), "the idle set is empty");
+  // …and, the part `idle_count` cannot tell you, both sockets are shut: each
+  // server read its EOF and returned. Without the `dispose` above, both of
+  // these report `Elapsed`.
   match(
-    timeout(task, Duration.from_secs(i64(10)), io),
+    timeout(t1, Duration.from_secs(i64(10)), io),
     .Ok(_) => (),
-    .Err(err) => assert(false, `the server never saw the connection close: ${err.to_string()}`)
+    .Err(err) => assert(false, `the first server never saw its connection close: ${err.to_string()}`)
+  );
+  match(
+    timeout(t2, Duration.from_secs(i64(10)), io),
+    .Ok(_) => (),
+    .Err(err) => assert(false, `the second server never saw its connection close: ${err.to_string()}`)
   );
 });
 test("HttpClient: the pool never crosses ports", {

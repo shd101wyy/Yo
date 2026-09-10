@@ -899,12 +899,22 @@ the accept counters live in a `ref(struct(...))` passed to the server, because
 a module-level mutable written across a suspension point in an `io.async` body
 operates on a copy and reads back zero
 (`issues/a-module-global-is-lost-across-an-async-suspension.md`) — which looks
-exactly like "the server never ran". And the descriptor oracle counts OPEN
-descriptors rather than probing the lowest free one: `dup(0)` returns the
-lowest free number, so N repeats give `highest + 1 == open_count + N`, which is
-exact. The naive lowest-free probe read the same number whether the client
-leaked its socket or not, because a listener closed earlier in the test left a
-hole below it.
+exactly like "the server never ran". And "did `dispose` close every idle
+connection?" is answered by what the PEERS observe, not by the descriptor
+table: a closed connection is one the server at the other end reads EOF from,
+so its connection loop ends and its task finishes, and a connection still open
+leaves that server parked on a read until the deadline reports it. Two servers
+on two ports make it a test of EVERY idle connection. Two descriptor-table
+oracles were tried and both are dead ends — a lowest-free-descriptor probe
+(`dup(0)`, close it, look at the number) reads the same value whether the
+socket leaked or not, because a listener closed earlier in the test leaves a
+hole below it; and the exact open-count that fixes that (`dup(0)` N times, so
+`highest + 1 == open_count + N`) is not portable — Windows sockets are not in
+the CRT descriptor table at all, so the count never moves there, and it did not
+move on the intel macOS runner either. Peer observation needs no platform
+knowledge, and every other test in the group already depends on it implicitly:
+each ends in a `task.await(io)` that only returns once the client's socket is
+really closed.
 
 **The server half: NOT in reach through `std/async`, and written up rather
 than hand-rolled.** `timeout` cannot be used inside `serve_once`: it is a

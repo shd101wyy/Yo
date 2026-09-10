@@ -10,7 +10,10 @@
 // descriptors of its own on first use, so the baseline is taken AFTER a
 // warm-up await.
 //
-// NEEDS NETWORK EGRESS (it connects to example.com:443).
+// NEEDS NETWORK EGRESS (it connects to example.com:443), and the descriptor
+// count only means anything on a platform where sockets ARE descriptors —
+// macOS and Linux. On Windows a socket is not in the CRT descriptor table, so
+// the count never moves; run this one on a Unix box.
 //
 //   yo compile issues/repros/dropped-tlsstream-leaks-its-socket.yo \
 //     --std-path ./std --optimize 2 -o /tmp/repro.out && /tmp/repro.out
