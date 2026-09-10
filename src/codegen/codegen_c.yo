@@ -296,7 +296,16 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// preRegisterAsyncBlockTypes / preRegisterEffectfulFunctions /
 /// generateDeferredAsyncBlocks (Phase 5), generateClosureDisposeFunctions
 /// (Phase 5), generateSpecialized* (Gap 2), generateLibraryInitFunction.
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0)) -> String)({
+/// The smallest emission for which splitting into chunks pays — the floor of
+/// `--emit-chunks auto`'s `N = clamp(1, cap, emitted_bytes / MIN_CHUNK_BYTES)`
+/// (Phase 1, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §4). Measured
+/// 2026-09-10 (clang 21 -O0): a 410-line program emits 168 KB with a 33 KB
+/// (~20%) shared header, so N=4 there costs ~155% of the single-file C work
+/// for a build that is subsecond either way; the self-build emits 163 MB.
+/// 4 MB keeps every such small program at N=1 while large programs still
+/// saturate the core count.
+MIN_CHUNK_BYTES :: usize(4194304);
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0)) -> String)({
   // Route fatal emitter errors (codegen_fatal) through this compile's exn so
   // they exit rc=1 like a TS compile error instead of __yo_panic's SIGABRT.
   set_codegen_fatal_exn(exn);
@@ -318,8 +327,11 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md): record function byte
   // ranges and split cross-chunk statics. MUST stay false by default — the
-  // single-file emission is gated byte-identical.
-  base.chunk_mode = (emit_chunks >= usize(1));
+  // single-file emission is gated byte-identical. `chunk_auto_cap >= 1` is the
+  // Phase 1 `--emit-chunks auto` mode: the actual N is resolved from the REAL
+  // emitted size at assembly time (below), so the range recording runs during
+  // emission and the split decision happens with exact bytes.
+  base.chunk_mode = ((emit_chunks >= usize(1)) || (chunk_auto_cap >= usize(1)));
   // Seed the always-needed standard C headers (mirrors the cIncludes set the TS
   // CodeGeneratorC.compileModule constructs). <unistd.h>/<sys/stat.h> are
   // platform-specific and added by emit_c_includes.
@@ -460,6 +472,19 @@ static Slice_uint8_t_u42_ __yo_args;
   // hand them to the driver as parts[0] = header, parts[1..] = chunk bodies
   // (without the #include line — the driver knows the header's file name).
   if(base.chunk_mode, {
+    (n_chunks : usize) = emit_chunks;
+    if(chunk_auto_cap >= usize(1), {
+      emitted_bytes := (
+        base.emitter.headers.len() + base.emitter.declarations.len()
+        + base.emitter.code.len()
+      );
+      by_size := (emitted_bytes / MIN_CHUNK_BYTES);
+      n_chunks = cond(
+        (by_size < usize(1)) => usize(1),
+        (by_size > chunk_auto_cap) => chunk_auto_cap,
+        true => by_size
+      );
+    });
     asm2 := assemble_chunks(
       base.emitter.headers,
       base.emitter.declarations,
@@ -467,7 +492,7 @@ static Slice_uint8_t_u42_ __yo_args;
       base.chunk_fn_ranges,
       base.chunk_header_ranges,
       base.chunk_globals,
-      emit_chunks
+      n_chunks
     );
     chunk_parts_out.push(asm2.header_text);
     (ci2 : usize) = usize(0);

@@ -2,8 +2,9 @@
 
 _Status: ACTIVE (2026-09-09) — Phase 0 (instrumentation) LANDED 2026-09-10
 (`--profile` / `--profile-json` real, `tests/cli-cases/compile-profile` gate,
-answers recorded in §3.1); Phases 1–5 not started. Every later phase is gated
-on the numbers Phase 0 produced.
+answers recorded in §3.1); Phase 1 (dev profile) LANDED 2026-09-10
+(`--emit-chunks auto` + the DEBUG `yo build` default + the `chunked-gate`
+CI job, numbers in §4); Phases 2–5 not started.
 
 This is the successor to two landed designs and should be read after them:
 
@@ -280,6 +281,41 @@ batch; if it is 10 s, Phase 3 matters more than Phase 4. The order of the
 later phases may change on these numbers; the phases themselves do not.
 
 ## 4. Phase 1 — a dev profile that skips the optimizer (Zig lesson 1a)
+
+**LANDED 2026-09-10.** `--emit-chunks auto` resolves
+`N = clamp(1, cap, emitted_bytes / MIN_CHUNK_BYTES)` from the REAL emitted
+size at chunk-assembly time (`compile_module`, `src/codegen/codegen_c.yo`);
+`cap` is `YO_JOBS` when usable, else `std/thread.get_hardware_threads()`
+(the cross-platform runtime shim that already existed — the plan's
+"missing primitive" was `available_parallelism`; the existing API serves).
+`MIN_CHUNK_BYTES = 4 MiB`, measured: a 410-line program emits 168 KB whose
+shared header is ~20%, so N=4 there costs ~155% of the single-file C work —
+every such program stays N=1. `--jobs` now defaults to the auto cap when
+`--emit-chunks auto` is given (0-sentinel until parsed), else 8 as before.
+`yo build` compiles DEBUG executables (no `optimize` field) with
+`--emit-chunks auto` (`compile_artifact`, `src/build_runner.yo`), gated off
+for optimized builds, libraries, `emit_c_to` and wasm; `YO_JOBS=1` is the
+opt-out. `Executable.emit_chunks` already threaded to the child argv —
+CHUNKED_C_EMISSION step 5 had landed it.
+
+Measured on the dev machine (Ryzen AI MAX+ 395, 32c, clang 21):
+
+| self-build C leg, `-O0` | wall |
+| --- | --- |
+| single file (`--profile`'s `cc compile+link` phase) | 23.9 s |
+| `--emit-chunks auto` (N=32, jobs=32, header 12.1 MB; chunk-write→linked) | **7 s** |
+
+Cheap `-O0` flags, measured individually on a 168 KB emission and NOT
+adopted: `-fno-asynchronous-unwind-tables` and `-fno-color-diagnostics`
+were both inside the ±10% run-to-run noise (309–338 ms baselines), the
+latter because cc never colorizes a piped child anyway, and dropping unwind
+tables risks the runtime's `backtrace()` diagnostics; `-g` was already
+conditional on `--debug-symbols`.
+
+Gates: `chunked-gate` CI job (test.yml) runs
+`scripts/bootstrap/chunked_gate.sh` against the shared suite-candidate —
+chunking is now a default for something; `tests/cli-cases/compile-emit-chunks`
+grew an `auto` line pinning `chunks: 1 unit(s), … (jobs=4)`.
 
 Zig's biggest single win was refusing to run an optimizer on debug builds.
 Yo's equivalent is already measured: at `-O0`, chunked parallel compile is

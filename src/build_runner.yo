@@ -785,6 +785,19 @@ compile_artifact :: (
     if(artifact.emit_chunks > usize(0), {
       cmd.arg(String.from("--emit-chunks"));
       cmd.arg(artifact.emit_chunks.to_string());
+    }, {
+      // Phase 1 dev-profile default (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
+      // §4.4): a DEBUG (−O0) executable build chunks automatically — the
+      // measured 3.3× C-leg win with identical runtime, no ThinLTO needed.
+      // Gated OFF for optimized builds (the ThinLTO link is the floor there),
+      // libraries (run_compile rejects the combination), `emit_c_to` (one C
+      // file is the contract), and wasm (chunked wasm is out of scope).
+      // YO_JOBS=1 is the opt-out: it caps auto at one chunk.
+      if(((!(is_lib) && (optimize_num.len() == usize(0))) && (artifact.emit_c_to.len() == usize(0)))
+      && !(effective_target.starts_with(String.from("wasm"))), {
+        cmd.arg(String.from("--emit-chunks"));
+        cmd.arg(String.from("auto"));
+      });
     });
     if(artifact.sanitize != "none", {
       cmd.arg(String.from("--sanitize"));
