@@ -582,7 +582,11 @@ impl(
     );
     Self(_root : .Some(black_root), _len : new_len)
   }),
-  /// Return a new map with the key removed.
+  /// Return a new map with the key removed — `im`'s `without`. A key that is
+  /// not present gives back `self` itself, not a copy.
+  ///
+  /// This deliberately does NOT report what it removed; `extract` is the form
+  /// that does.
   remove : (fn(self : Self, key : K) -> Self)(
     match(
       self._root,
@@ -602,6 +606,21 @@ impl(
       }
     )
   ),
+  /// The value at `key` together with the map WITHOUT it, or `.None` when
+  /// the key is absent — `im`'s `extract`, and the form `remove` is not:
+  /// `remove` answers only "the map afterwards".
+  ///
+  /// Two walks of the tree, as `remove` itself already does (it asks
+  /// `_node_contains` before rebuilding), so this costs one lookup more than
+  /// `remove` and nothing more than `get` + `remove` written by hand.
+  extract : (fn(self : Self, key : K) -> Option(Tuple(V, Self)))({
+    hit := self.get(key);
+    match(
+      hit,
+      .Some(v) => Option(Tuple(V, Self)).Some((v, self.remove(key))),
+      .None => Option(Tuple(V, Self)).None
+    )
+  }),
   /// Get the minimum key in the map.
   min_key : (fn(self : Self) -> Option(K))(
     match(

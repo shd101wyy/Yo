@@ -189,3 +189,20 @@ test("Set Default is the empty set", {
   assert(s.is_empty(), "default set is empty");
   assert(s.insert(i32(1)).len() == usize(1), "the default set is a usable set");
 });
+// A set has no value to report, so `extract`'s Option carries the whole
+// answer: `.Some` means "it was a member, here is the set without it".
+// `remove` cannot say that — its result is indistinguishable from a no-op.
+test("Set extract reports membership as well as removing", {
+  s := Set(i32).new().insert(i32(1)).insert(i32(2));
+  got := s.extract(i32(1));
+  assert(got.is_some(), "1 was a member");
+  t := got.unwrap();
+  assert(t.len() == usize(1), "the returned set is one smaller");
+  assert(!t.contains(i32(1)), "1 is gone from it");
+  assert(t.contains(i32(2)), "and 2 survives");
+  assert(s.len() == usize(2), "the original set is untouched");
+  assert(s.extract(i32(99)).is_none(), "a non-member extracts nothing");
+  // The contrast that motivates it: `remove` of a non-member looks identical
+  // to `remove` of a member, from the result alone.
+  assert(s.remove(i32(99)).len() == s.len(), "remove of a non-member changes no size");
+});

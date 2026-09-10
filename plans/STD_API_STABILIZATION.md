@@ -1040,9 +1040,47 @@ cooperative-scheduling contract.
    optimization. `SortedMap` gained the `entries()` it was missing beside
    `imm.Map`'s.
 
-   Still open in this group: `imm` `remove` shape,
-   `OrderedMap.swap_remove`, private `ctrl/data/size` fields, the `imm/Vec`
-   RRB-vs-flat-COW doc (§5).
+   Still open in this group: `OrderedMap.swap_remove`, private
+   `ctrl/data/size` fields, the `imm/Vec` RRB-vs-flat-COW doc (§5).
+
+   **The `imm` `remove` shape — ANSWERED 2026-09-10 by adding `extract`, not
+   by changing `remove`.** The finding was that `Map`/`SortedMap`/`Set`/
+   `SortedSet` `remove -> Self` throws away what it removed, so a caller
+   cannot tell "removed a value" from "the key was never there" — both answer
+   with a map of the same size — and cannot get the value without a separate
+   `get`.
+
+   The prescription in the raw findings was `remove -> (Self, Option(V))`.
+   That is not what `im` does, and `im` is right: the persistent remove is
+   `without(&self, k) -> Self`, and the value-reporting form is a SECOND
+   method, `extract(&self, k) -> Option<(V, Self)>`. Keeping them apart is
+   what lets the common case stay allocation-free on a miss — `remove` of an
+   absent key returns `self` ITSELF — while `extract`'s `.None` arm carries no
+   map at all, because on a miss the caller's own value already is the answer.
+   Changing `remove`'s return would also have made every call site destructure
+   a pair it does not want.
+
+   So `extract` is added to all four types, `im`'s shape and `im`'s name, and
+   `remove`'s doc now says it is `im`'s `without` and points at `extract`. On
+   the two SETS it is `extract(elem) -> Option(Self)`: a set has no value to
+   hand back, so the `Option` carries the entire answer.
+
+   Two decisions inside it:
+
+   - **`extract` walks the structure twice** (`get` then `remove`), and says
+     so. `im` manages one walk because Rust moves the value out of the node it
+     visits; threading the value out of `_node_remove` here would put an
+     `Option(V)` in `RemoveResult` and make every `remove` — the common path —
+     carry and then drop a value it never wanted. A HAMT walk is ⌈log₃₂ n⌉
+     levels (2 for a million entries), which is cheaper than the refcount
+     traffic that would buy. `SortedMap.remove` already walks twice (it asks
+     `_node_contains` before rebuilding), so there it costs nothing new.
+   - **`insert` is deliberately left alone.** The same finding asked for the
+     displaced value, and `im` does not offer that persistently either — its
+     `insert -> Option<V>` is the MUTATING form. A caller who needs it writes
+     `get` then `insert`, which is the same two walks a combined form would
+     pay, and `insert`'s signature stays the one every existing call site
+     wants.
 
    **Evidence for that §5 decision, found while writing the iterator tests:**
    `imm.Vec.push` takes `own(self)`, so the receiver is MOVED and keeping the

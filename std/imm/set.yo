@@ -49,9 +49,25 @@ impl(
   insert : (fn(self : Self, elem : T) -> Self)(
     Self(_inner : self._inner.insert(elem, true))
   ),
-  /// Return a new set with `elem` removed.
+  /// Return a new set with `elem` removed — `im`'s `without`. An element that
+  /// is not present gives back an equal set, and says nothing about whether
+  /// anything was there; `extract` is the form that does.
   remove : (fn(self : Self, elem : T) -> Self)(
     Self(_inner : self._inner.remove(elem))
+  ),
+  /// The set WITHOUT `elem`, or `.None` when `elem` was not a member — `im`'s
+  /// `extract`.
+  ///
+  /// A set has no value to hand back, so the `Option` carries the whole
+  /// answer: `.Some` means "it was there, and here is the set without it",
+  /// `.None` means "nothing to remove, and your own set is already correct".
+  /// That is what `remove` alone cannot say — its result is
+  /// indistinguishable from a no-op.
+  extract : (fn(self : Self, elem : T) -> Option(Self))(
+    cond(
+      self.contains(elem) => Option(Self).Some(self.remove(elem)),
+      true => Option(Self).None
+    )
   ),
   /// Return the union of two sets (`self ∪ other`).
   union : (fn(self : Self, other : Self) -> Self)(
