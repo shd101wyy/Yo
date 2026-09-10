@@ -188,6 +188,10 @@ VcCtx :: ref(
     path_dead : bool,
     /// Loop nesting depth during a body walk (0 outside any loop body).
     loop_depth : usize,
+    /// The FUNCTION-ENTRY binding snapshot (params + module bindings at
+    /// body start, taken before the walk): `old(e)` walks e against it
+    /// (V5 two-state). Body-locals have no entry binding.
+    entry_vars : HashMap(String, VcTerm),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -213,6 +217,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     head_measure : Option(VcTerm).None,
     path_dead : false,
     loop_depth : usize(0),
+    entry_vars : HashMap(String, VcTerm).new(),
     datatypes : ArrayList(String).new()
   )
 );
@@ -1808,12 +1813,50 @@ _call_term :: (
     // Diverging path — contributes nothing (SPARK's stance).
     return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
   });
-  // --- old(...): identity ----------------------------------------------------
-  // V3 straight-line bodies cannot rebind a parameter (`:=` creates NEW
-  // bindings; reassignment is outside the subset), so the entry value and
-  // the current value coincide. Real two-state reasoning is V5.
+  // --- old(...): the two-state ENTRY snapshot (V5) ---------------------------
+  // `old(e)` evaluates e in the FUNCTION-ENTRY state: the walk runs against
+  // a copy of ctx.entry_vars. The V3 identity was sound only while bodies
+  // could not rebind — V4 legalized `=` on locals, and identity then read
+  // the CURRENT binding, a false PROOF (`y := x; y = (y + 1);
+  // assert(y == old(y))` "proved" though it is false for every x).
   if((head == "old") && (n == usize(1)), {
-    return(_expr_term(ctx, args.get(usize(0)).unwrap()));
+    oa := args.get(usize(0)).unwrap();
+    // A bare name must be bound AT ENTRY — a body-local name has no entry
+    // value (the Dafny rule); a complex arg's own unbound names error
+    // precisely during the snapshot walk below.
+    if(ast_expr_is_atom(oa) && !ctx.entry_vars.contains_key(ast_expr_token(oa).value), {
+      _fail_subset(
+        ctx,
+        `old(...) of '${ast_expr_token(oa).value}' — the name is not bound at function entry (old is the entry state; a body-local has no entry value)`,
+        e
+      );
+      return(Option(VcTerm).None);
+    });
+    saved_vars := ctx.vars;
+    entry_copy := HashMap(String, VcTerm).new();
+    eit := ctx.entry_vars.keys();
+    (ego : bool) = true;
+    while(ego, {
+      match(
+        eit.next(),
+        .Some(ek) => {
+          match(
+            ctx.entry_vars.get(ek.clone()),
+            .Some(ev) => {
+              entry_copy.insert(ek.clone(), ev);
+            },
+            .None => ()
+          );
+        },
+        .None => {
+          ego = false;
+        }
+      );
+    });
+    ctx.vars = entry_copy;
+    t := _expr_term(ctx, oa);
+    ctx.vars = saved_vars;
+    return(t);
   });
   // --- runtime(...): identity ------------------------------------------------
   // The comptime/runtime barrier marker: `runtime(e)` IS `e` at runtime.
@@ -2589,6 +2632,42 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     i = (i + usize(1));
   });
   ctx.decreases = input.decreases_expr;
+  // V5 two-state: snapshot the ENTRY state (params; module constants fold
+  // into literals) — `old(e)` walks against this, never the live bindings.
+  eit0 := ctx.vars.keys();
+  (ego0 : bool) = true;
+  while(ego0, {
+    match(
+      eit0.next(),
+      .Some(ek0) => {
+        match(
+          ctx.vars.get(ek0.clone()),
+          .Some(ev0) => {
+            ctx.entry_vars.insert(ek0.clone(), ev0);
+          },
+          .None => ()
+        );
+      },
+      .None => {
+        ego0 = false;
+      }
+    );
+  });
+  // A body whose ROOT has no ExprInfo never completed its definition-time
+  // evaluation (the trial swallowed the real error at load — E0902/E0401
+  // class). Say THAT instead of the misleading "untyped expression".
+  root_typed := match(
+    expr_info_table_get(ctx.table, ast_expr_id(input.body)),
+    .Some(_) => true,
+    .None => false
+  );
+  if(!root_typed, {
+    _fail_subset(
+      ctx,
+      String.from("the body's definition-time evaluation did not complete (its error was swallowed at load — run yo check on the file for the underlying cause)"),
+      input.body
+    );
+  });
   // Callee-side: ASSUME the requires.
   (ri : usize) = usize(0);
   while(ri < input.requires_exprs.len(), {
@@ -2627,7 +2706,11 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     .None => ()
   );
   // Bind the return label to the body value; then prove each ensures.
-  body_val := _expr_term(ctx, input.body);
+  body_val := if(
+    !root_typed,
+    Option(VcTerm).None,
+    _expr_term(ctx, input.body)
+  );
   match(
     body_val,
     .Some(bv) => {

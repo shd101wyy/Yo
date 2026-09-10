@@ -1138,6 +1138,22 @@ a broken invariant is a compile error naming the failing iteration.
 
 ### Phase V5 — Ghost code, quantifiers, two-state reasoning
 
+> **Status: FIRST ROW LANDED on feat/fv5-twostate (2026-09-11, task 4's
+> `old` half + the honest-diagnostics ground):** `old(e)` now walks e
+> against the FUNCTION-ENTRY snapshot (task 4) — the V3 identity was a
+> false PROOF once V4 legalized `=` on locals (`y := x; y = (y + 1);
+> assert(y == old(y))` "proved"; confirmed end-to-end against z3), and
+> `old(name)` of a body-local is a loud subset gate (no entry value —
+> the Dafny rule). Along the way the "untyped expression @ begin(...)"
+> hollow-body report was root-caused (issues/fixed/
+> verifier-param-reassignment-untyped-walk.md, rewritten): a
+> verify-target body whose def-time trial throws (E0902 param
+> reassignment — illegal Yo; E0401 unimported `assert`) reaches the
+> verifier hollow — the pipeline now records and reports the swallowed
+> CAUSE. Remaining V5: the `inout` half of task 4, quantifier builtins
+> (tasks 1–2), ghost erasure (task 3), std/spec collections (task 5),
+> the insertion-sort exit (task 6).
+
 **Scope:** specification-only computation — the vocabulary real
 functional correctness specs need.
 

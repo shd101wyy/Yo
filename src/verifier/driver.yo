@@ -17,7 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
 { VerifyFnInput, verify_function_body } :: import("./vc.yo");
-{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts } :: import("../evaluator/builtins/contracts.yo");
+{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure } :: import("../evaluator/builtins/contracts.yo");
 {
   Z3_VERSION,
   ensure_z3,
@@ -514,6 +514,27 @@ verify_and_strip_tasks :: (
     match(
       tasks.get(ti),
       .Some(t) => {
+        // V5 honest diagnostics: a body whose definition-time trial
+        // SWALLOWED (E0902/E0401 class) reaches here hollow — report the
+        // recorded CAUSE instead of walking into "untyped expression".
+        match(
+          verify_task_def_eval_failure(t.fn_id.clone()),
+          .Some(msg) => {
+            reports.push(
+              VerifyFnReport(
+                fn_id : t.fn_id.clone(),
+                mode : t.mode.clone(),
+                outcome : String.from("subset-error"),
+                obligations : ArrayList(VerifyFnObligation).new(),
+                subset_construct : `body's definition-time evaluation failed (swallowed at load): ${msg}`,
+                subset_source : String.new()
+              )
+            );
+            ti = (ti + usize(1));
+            continue;
+          },
+          .None => ()
+        );
         input := VerifyFnInput(
           fn_name : t.fn_id.clone(),
           func_id : t.func_id.clone(),

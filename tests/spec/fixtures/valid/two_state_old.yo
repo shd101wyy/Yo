@@ -1,0 +1,19 @@
+// Two-state old(...) over the FUNCTION-ENTRY snapshot (V5): old(x) is
+// x's entry value even after locals derived from it are rebound. Both
+// the assert and the ensures read old(x).
+pragma(Pragma.Verify);
+{ assert } :: import("std/assert");
+
+old_step :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0), x <= i32(1000)),
+    ensures(result == (old(x) + i32(2)))
+  ) -> (result : i32)
+)({
+  y := x;
+  y = (y + i32(1));
+  y = (y + i32(1));
+  assert(y == (old(x) + i32(2)));
+  y
+});
