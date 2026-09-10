@@ -89,7 +89,9 @@ refuted  fn@/abs/path.yo:8 [verify]
 | `assert(P)` 位点、`panic` 路径、`old(...)`（子集内无修改，按恒等处理） | ✅ 已支持 |
 | 值枚举上的 `match`（测试器、投影、构造） | ✅ 已支持（V3） |
 | 结构体 / 元组 / 引用枚举 | 🚧 进行中 |
-| `while`/`for` 循环、递归（`decreases`） | V4 |
+| 带 `invariant(...)` 的 `while`（havoc 规则） | ✅ 已支持（V4） |
+| `decreases(M)` —— 循环语句变体 + 递归度量 | ✅ 已支持（V4） |
+| `break`/`continue`、`cond` 分支内赋值（phi 合并）、`for` 循环 | 🚧 V4.1 |
 | Ghost 代码、量词、双态推理 | V5 |
 | 跨抽象边界的 trait/泛型、`Refine` | V6 |
 | `object`/堆、字符串内容、浮点、效应、`unsafe`、FFI | 子集之外 |

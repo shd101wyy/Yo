@@ -1062,6 +1062,30 @@ function. `verify+` erases proved asserts (verified by inspecting
 
 ### Phase V4 — Loops, invariants, termination
 
+> **Status: CORE LANDED 2026-09-10** (branch `feat/fv4-loops`,
+> ad8070f5e + 96dcddce3 + ba68f59de, stacked on the V3 branch —
+> locally z3-proven, PR follows #535). LANDED: the havoc-invariant
+> rule (task 1's assigned-variable scan with the macro_expansion
+> discipline; task 2's entry/iterate/exit obligations) and `decreases`
+> BOTH forms (task 3: zone-5 signature clause with registration +
+> arity checks, and the loop statement position). Locally proven on
+> four fixtures: sum_to 7/7 unsat, count_down (loop measure) 5/5,
+> sum_down (recursion measure) 8/8, and the wrong-invariant twin
+> REFUTES at iterate. Surfaced and fixed along the way: cond arms
+> walked without their path guards (obligations inside arms were
+> reachable unconditionally); a naive pop-count unwind ate callee
+> ensures-assumptions pushed during the arm walk (selective
+> `_unwind_path_guards`); a callee ensures outside the subset
+> silently dropped its assumption (now a loud subset error).
+> ADJUSTMENT — deferred to a V4.1 increment (2026-09-10): task 2's
+> break/continue obligations (exit-path disjunction + continue-site
+> invariants) AND assignments inside cond arms (needs a phi-merge of
+> per-arm states — the sequential rebind is unsound for it, precise
+> subset errors stand in) AND `for` (the macro expansion cannot carry
+> an invariant). binary_search lands with V4.1 (its body assigns in
+> cond arms). Tasks 5's negative twins: wrong-invariant landed; the
+> non-decreasing-measure twin lands with V4.1.
+
 **Scope:** `while` verification, `decreases(...)`, recursion, `break`/
 `continue` semantics.
 

@@ -1530,6 +1530,14 @@ _call_term :: (
     _fail_subset(ctx, String.from("for loop (write it as a while with an invariant — the macro form cannot carry one)"), e);
     return(Option(VcTerm).None);
   });
+  if((head == "break") || (head == "continue"), {
+    _fail_subset(
+      ctx,
+      String.from("break/continue in verified loops (needs the exit-path disjunction increment)"),
+      e
+    );
+    return(Option(VcTerm).None);
+  });
   // --- begin blocks --------------------------------------------------------
   if(head == "begin", {
     return(_begin_term(ctx, args));
@@ -1676,6 +1684,19 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
         .FnCall(_, _, a2, _, _) => a2,
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
+      // An arm that ASSIGNS would need a phi-merge of the per-arm states
+      // — the sequential rebind this walk does is unsound for it. Precise
+      // error until that increment lands.
+      arm_assigned := ArrayList(String).new();
+      _scan_assigned(ctx.table, aa.get(usize(1)).unwrap(), arm_assigned);
+      if(arm_assigned.len() > usize(0), {
+        _fail_subset(
+          ctx,
+          String.from("assignment inside a cond arm (needs the phi-merge increment — keep arm values pure)"),
+          arm
+        );
+        return(Option(VcTerm).None);
+      });
       c_opt := _expr_term(ctx, aa.get(usize(0)).unwrap());
       // The arm's value walks under its GUARD (this condition ∧ the
       // negation of every earlier condition): obligations inside the arm
