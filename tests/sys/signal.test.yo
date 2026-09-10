@@ -2,7 +2,7 @@ pragma(Pragma.AllowUnsafe);
 pragma(Pragma.SkipWasm32Emscripten); // POSIX signals are limited/stubbed in Emscripten WASM
 pragma(Pragma.SkipWasm32Wasi); // POSIX signals not available in WASI
 { assert } :: import("std/assert");
-open(import("std/libc/stdio"));
+{ printf } :: import("std/libc/stdio");
 { platform, Platform } :: import("std/process");
 { SIGUSR1 } :: import("std/sys/signals");
 Sig :: import("std/sys/signal");
@@ -23,7 +23,7 @@ test("signal handler installs and handles SIGUSR1", {
       assert(r3 == i32(0));
     },
     true => {
-      open(import("std/libc/unistd"));
+      { getpid, usleep } :: import("std/libc/unistd");
       r1 := Sig.on_signal(SIGUSR1, signal_handler);
       unsafe(printf("  on_signal = %d\n", r1));
       assert(r1 == i32(0));

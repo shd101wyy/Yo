@@ -5,9 +5,9 @@
 //! Dispatches every AstExpr node kind to the appropriate sub-evaluator.
 //! The profiler instrumentation from the TypeScript version is omitted (Node.js-specific).
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
+{ String } :: import("std/string");
 { note_def_time_swallow } :: import("../../types/flowability.yo");
-open(import("std/fmt"));
+import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { Exception } :: import("std/error");
 { CLOCK_MONOTONIC, clock_gettime } :: import("std/sys/clock");
@@ -52,7 +52,6 @@ open(import("std/fmt"));
   BK_ANON_STRUCT,
   BK_BEGIN,
   BK_IMPORT,
-  BK_OPEN,
   BK_COND,
   BK_MATCH,
   BK_WHILE,
@@ -224,7 +223,6 @@ open(import("std/fmt"));
 { evaluate_begin_expression } :: import("./begin.yo");
 { evaluate_unwind } :: import("./unwind.yo");
 { evaluate_import } :: import("./import.yo");
-{ evaluate_open } :: import("./open.yo");
 { evaluate_subtype_of } :: import("./subtype_of.yo");
 { evaluate_typeof } :: import("./typeof.yo");
 { evaluate_while } :: import("./while.yo");
@@ -862,8 +860,6 @@ _evaluate_expression :: (
           evaluate_the(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BK_IMPORT, .None)) =>
           evaluate_import(expr, env, ctx, exn),
-        ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_OPEN, .None)) =>
-          evaluate_open(expr, env, ctx, exn),
         ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BK_PTR, .Some(usize(1)))) =>
           evaluate_raw_pointer_call(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BK_ISO, .Some(usize(1)))) =>

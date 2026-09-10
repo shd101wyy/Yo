@@ -52,6 +52,14 @@ runs:
         # define, or it silently loses the protection when reused elsewhere.
         # See test.yml's APT_OPTS comment — a bare apt-get can hang forever on
         # the dpkg lock held by the runner's unattended-upgrades timer.
+        #
+        # And drop the image's third-party apt sources: `update` exits 100 if
+        # ANY source fails, and this action installs only from Ubuntu's own
+        # archives. Acquire::Retries above does not cover it — a Hash Sum
+        # mismatch is deterministic. This step is how the wasm legs still fell
+        # over after the 19 sites in the workflows were fixed.
+        # See issues/ci-apt-update-fails-on-an-unused-third-party-source.md.
+        sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
         sudo apt-get -o DPkg::Lock::Timeout=600 -o Acquire::Retries=3 update
         # + OpenSSL dev: std/http in the compiler closure (D6 PR-3) puts OpenSSL
         # headers into stage1.c, compiled by phase 2 below.

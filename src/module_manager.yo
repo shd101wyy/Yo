@@ -27,9 +27,9 @@
 // `resolve_std_path` reads `YO_STD` through libc `getenv`, which needs a raw
 // `*(char)` — same reason `main.yo` carries this pragma.
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
-open(import("std/error"));
-open(import("std/fmt"));
+{ String } :: import("std/string");
+{ Exception } :: import("std/error");
+{ eprintln } :: import("std/fmt");
 { Path } :: import("std/path");
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
@@ -159,9 +159,8 @@ extern(
 /// not touch the event loop at all. Errors mirror std/fs exactly: an
 /// `IoError.from_errno(errno)` thrown through `exn`.
 _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
-  // Module-qualified: a bare `open(...)` would resolve to the module-open
-  // builtin, not libc's open (builtin-first dispatch,
-  // issues/builtin-name-shadows-user-definition.md).
+  // Module-qualified so the name says which `open` this is: libc's, not
+  // `std/fs`'s `File.open`.
   fcntl :: import("std/libc/fcntl");
   unistd :: import("std/libc/unistd");
   { IoError } :: import("std/sys/errors");

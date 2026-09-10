@@ -5,7 +5,7 @@
 //! `typeid(T)` — returns the unique runtime usize identifier for type T.
 //! In the evaluator: validates that the argument is a type value and returns
 //! an unknown usize (the actual ID is resolved in C codegen).
-open(import("std/string"));
+import("std/string");
 {
   AstExpr,
   ast_expr_token,
@@ -81,7 +81,7 @@ evaluate_type_id :: (
       dyn(
         format_error_message(
           ast_expr_token(type_expr),
-          `typeid expects a type argument. Use is() or downcast() for runtime type checks on Dyn values.`
+          `typeid expects a type argument. For a runtime type check on a Dyn value use downcast(value, T), which returns Option(T) — or error_is(err, T) for an AnyError.`
         )
       )
     );

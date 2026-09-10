@@ -40,7 +40,7 @@ exported_later :: (fn() -> i32)(i32(99));
 
 | 语句 | 为什么有序 |
 | --- | --- |
-| `{ a, b } :: import("...")`、`x :: import("...")`、`open(import("..."))` | 加载模块会注册其 impl，并把名字引入作用域 |
+| `{ a, b } :: import("...")`、`x :: import("...")`、`{ ... } :: import("...")` | 加载模块会注册其 impl，并把名字引入作用域 |
 | `pragma(...)` | 作用于其后的代码 |
 | 模块级运行期全局变量——`x := v`、`(g : T) = v` | 运行期值按顺序初始化 |
 | `comptime(x) : T;` … `x = v;`（先声明、后赋值） | 声明是一条语句；赋值填充它 |
@@ -49,14 +49,14 @@ exported_later :: (fn() -> i32)(i32(99));
 | `impl({ ... })` 块及其内部的绑定 | 这是一个模块*值*；其字段是块作用域的、有序的 |
 
 被提前强制求值的定义只能看到**触发它的那个引用**之前的语句。若 `helper`（第 60 行）
-用到了第 50 行 `open(import(...))` 引入的名字，而第 30 行的 `caller` 强制求值了
-`helper`，那么此时 open 尚未发生，检查会失败。像标准库的每个模块那样，把 import
-与 open 放在文件顶部。
+用到了第 50 行 import 引入的名字，而第 30 行的 `caller` 强制求值了 `helper`，
+那么此时该 import 尚未发生，检查会失败。像标准库的每个模块那样，把 import
+放在文件顶部。
 
 引用一条出现在后面的有序语句时，诊断信息会指明它：
 
 ```
-forward reference to "counter" (bound at line 3) — imports, opens, pragmas and
+forward reference to "counter" (bound at line 3) — imports, pragmas and
 runtime bindings are evaluated in order (only `::` definitions and `impl`
 registrations are order-independent); move that statement above this use
 ```

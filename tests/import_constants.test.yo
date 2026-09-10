@@ -1,12 +1,12 @@
-// `open(import(m))` must bind every export at its DECLARED type — the same
-// type the named form `{ K } :: import(m)` binds
-// (issues/fixed/open-import-retypes-integer-constants.md). Before the fix an
-// exported `K :: u64(7)` arrived through `open` as `i32` (typed from the
-// literal value), so `K + u64(1)` failed to unify.
+// An import must bind every export at its DECLARED type, and the named form
+// `{ K } :: import(m)` must agree with the module-qualified form `m.K`.
+// History: the retired `open(import(m))` glob typed each export from its VALUE
+// instead, so an exported `K :: u64(7)` arrived as `i32` and `K + u64(1)`
+// failed to unify (issues/fixed/open-import-retypes-integer-constants.md).
 { assert } :: import("std/assert");
-open(import("./open_import/constants.yo"));
-named :: import("./open_import/constants.yo");
-test("open(import): integer constants keep their declared width", {
+{ K_U8, K_U16, K_U32, K_U64, K_U64_ZERO, K_USIZE, K_I8, K_I64, K_ISIZE, K_BOOL, K_F64, K_PT, twice } :: import("./import_constants/constants.yo");
+named :: import("./import_constants/constants.yo");
+test("import: integer constants keep their declared width", {
   a := (K_U8 + u8(1));
   assert(a == u8(201), "u8");
   b := (K_U16 + u16(1));
@@ -26,13 +26,13 @@ test("open(import): integer constants keep their declared width", {
   h := (K_ISIZE + isize(1));
   assert(h == isize(0), "isize");
 });
-test("open(import): non-integer constants and functions are unchanged", {
+test("import: non-integer constants and functions are unchanged", {
   assert(K_BOOL, "bool");
   assert((K_F64 * f64(2.0)) == f64(3.0), "f64");
   assert(K_PT.x == i32(1), "struct constant field");
   assert(twice(K_U64) == u64(14), "function export with a u64 argument");
 });
-test("open and named import agree", {
+test("named and module-qualified import agree", {
   assert(K_U64 == named.K_U64, "u64 via both forms");
   assert(K_USIZE == named.K_USIZE, "usize via both forms");
   assert((named.K_U64_ZERO + K_U64) == u64(7), "mixed arithmetic across the two forms");

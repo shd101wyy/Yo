@@ -2587,7 +2587,7 @@ match(result,
 标准库定义了用于动态错误处理的 `Error` trait 和 `AnyError` 类型：
 
 ```rust
-open(import("std/error"));
+{ Error, AnyError } :: import("std/error");
 
 // Error trait 要求实现 ToString。`derive(Error)` 只需按声明顺序为每个变体
 // 写一条消息，即可同时生成两者：
@@ -2622,7 +2622,7 @@ match(downcast(err, MathError),
 从外围函数返回：
 
 ```rust
-open(import("std/error"));
+{ Exception } :: import("std/error");
 
 safe_divide :: (fn(x: i32, y: i32, exn : Exception) -> i32)(
   cond(
@@ -2651,7 +2651,7 @@ safe_divide(10, 0, exn);         // 处理器触发，unwind — 之后的代码
 `return` 时，它会以恢复值恢复续延：
 
 ```rust
-open(import("std/error"));
+{ ResumableException } :: import("std/error");
 
 safe_divide :: (fn(x: i32, y: i32, exn : ResumableException(i32)) -> i32)(
   cond(
@@ -2768,7 +2768,7 @@ export(Option);
 ```
 
 ```rust
-open(import("./test.yo")); // 从 test.yo 导入所有内容
+{ ... } :: import("./test.yo"); // 从 test.yo 导入所有内容
 test_module :: import("./test.yo"); // 从 test.yo 导入所有内容并放入 Test 命名空间
 { test } :: import("./test.yo"); // 从 test.yo 导入 test 函数
 { test : test2 } :: import("./test.yo"); // 从 test.yo 导入 test 函数并重命名为 test2

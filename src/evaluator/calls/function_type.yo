@@ -22,8 +22,8 @@
 //! `?=` default without the import cycle
 //! impl.yo → function_type.yo → trait_checking.yo → impl.yo.
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
-open(import("std/fmt"));
+{ String } :: import("std/string");
+{ eprintln } :: import("std/fmt");
 _(env : fnty_env) :: import("std/env");
 { ArrayList } :: import("std/collections/array_list");
 _(env : cap_dbg_env_fnty_flow) :: import("std/env");
@@ -1488,7 +1488,7 @@ Result type: ${type_to_string(result_box)}`
           ts_fatal_msg := _trial_swallow_message();
           _clear_trial_swallow();
           // An unbound name that an ORDERED later statement binds (a
-          // runtime global, an import, an open) gets the enriched
+          // runtime global, an import) gets the enriched
           // forward-reference diagnostic here too — the same text the
           // dg / anon sites raise (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6).
           match(

@@ -481,9 +481,13 @@ Use destructured imports for files in the same directory:
 // CORRECT - Named module
 node_module :: import("./node.yo");
 
-// CORRECT — open import for std library modules:
-open(import("std/collections/array_list"));
-open(import("std/string"));
+// CORRECT — named import for std library modules:
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+
+// CORRECT — glob destructure when you really want every export in scope
+// (there is no `open(...)` builtin: it was removed 2026-09-10):
+{ ... } :: import("std/string");
 
 // WRONG — `import "path" as name` does NOT work for .yo files:
 // import "./node.yo" as node;  // causes "Invalid function call on type: comptime_str"
@@ -1059,7 +1063,7 @@ evaluate :: (fn(e : AstExpr, env : Env) -> Option(Result))(
 eval_atom :: (fn(tok : Token, env : Env) -> Option(Result))(...);
 ```
 
-What stays **ordered**: imports (`{ a } :: import(...)`, `x :: import(...)`, `open(import(...))`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, bare expression statements, and the bindings inside an `impl({ ... })` block. Referencing one of those before it is bound is still an error (`forward reference to "X" (bound at line N) — imports, opens, pragmas and runtime bindings are evaluated in order …`). A definition forced early sees only the statements before the reference that forced it — keep imports and opens at the top of the file. Cycles between constants or types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while being forced reports its own error plus a `note: … was evaluated here because it is referenced before its definition`.
+What stays **ordered**: imports (`{ a } :: import(...)`, `x :: import(...)`, `{ ... } :: import(...)`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, bare expression statements, and the bindings inside an `impl({ ... })` block. Referencing one of those before it is bound is still an error (`forward reference to "X" (bound at line N) — imports, pragmas and runtime bindings are evaluated in order …`). A definition forced early sees only the statements before the reference that forced it — keep imports at the top of the file. Cycles between constants or types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while being forced reports its own error plus a `note: … was evaluated here because it is referenced before its definition`.
 
 **Seed gate LIFTED (2026-09-05, `plans/reference/LAZY_TOPLEVEL_BINDINGS.md` P5):** `std/` and `src/` may use forward references — `SEED_VERSION` carries the feature (the first release after v0.2.24). The first uses in `src/` are `module_manager.yo`'s `_load_module_at_abs` referencing `demand_load_module` below it and `evaluator/types/synthesizer.yo`'s helpers calling `_synthesize_types_impl` directly; there is no need for global function-pointer slots, IIFE wiring or holder variables to express mutual recursion any more. The general seed rule still holds for any NEWER compiler feature: `yo build` compiles `std/` and `src/` with the seed, so a feature is usable there only once a release carrying it is `SEED_VERSION` (`plans/backlog/SEED_VERSION_AUTOMATION.md`); `tests/` are compiled by the tree's stage-1.
 

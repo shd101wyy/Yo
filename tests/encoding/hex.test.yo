@@ -1,5 +1,5 @@
 { assert } :: import("std/assert");
-open(import("std/string"));
+{ String } :: import("std/string");
 { hex_encode, hex_decode, hex_decode_exn } :: import("std/encoding/hex");
 { EncodingError } :: import("std/encoding/error");
 { ArrayList } :: import("std/collections/array_list");
@@ -65,15 +65,15 @@ test("hex_decode reports WHICH error (D13)", {
     match(
       hex_decode(`abc`),
       .Ok(_) => false,
-      .Err(e) => match(e, .OddLength => true, _ => false)
+      .Err(e) => match(e, .OddLength({ len }) => (len == usize(3)), _ => false)
     ),
-    "odd length is OddLength"
+    "odd length is OddLength carrying the length seen"
   );
   assert(
     match(
       hex_decode(`xxyz`),
       .Ok(_) => false,
-      .Err(e) => match(e, .InvalidChar(c) => (c == u8(120)), _ => false)
+      .Err(e) => match(e, .InvalidChar({ ch }) => (ch == u8(120)), _ => false)
     ),
     "a bad digit is InvalidChar carrying the offending byte 'x'"
   );
@@ -105,4 +105,37 @@ test("hex roundtrip", {
   assert(decoded(usize(2)) == u8(0x6C), "roundtrip byte 2");
   assert(decoded(usize(3)) == u8(0x6C), "roundtrip byte 3");
   assert(decoded(usize(4)) == u8(0x6F), "roundtrip byte 4");
+});
+test("hex_decode reports WHERE the bad digit was", {
+  // The offset is the point of the change: without it a caller decoding a
+  // 4 KiB blob learns only that one byte somewhere was wrong, which is not
+  // enough to report, highlight, or skip past.
+  assert(
+    match(
+      hex_decode(`00ff2g11`),
+      .Ok(_) => false,
+      // The 'g' is the 6th byte of the input, index 5.
+      .Err(e) => match(e, .InvalidChar({ ch, pos }) => ((ch == u8(103)) && (pos == usize(5))), _ => false)
+    ),
+    "the offending byte and its offset"
+  );
+  // A bad digit in the HIGH nibble of a pair reports its own index, not the
+  // pair's — the two nibbles are read separately and each passes its position.
+  assert(
+    match(
+      hex_decode(`00zf`),
+      .Ok(_) => false,
+      .Err(e) => match(e, .InvalidChar({ pos }) => (pos == usize(2)), _ => false)
+    ),
+    "a high-nibble fault reports its own index"
+  );
+  // And `pos()` gives it without matching, for the variants that have one.
+  assert(
+    match(hex_decode(`0z`), .Ok(_) => false, .Err(e) => (e.pos().unwrap() == usize(1))),
+    "EncodingError.pos() reads the offset"
+  );
+  assert(
+    match(hex_decode(`abc`), .Ok(_) => false, .Err(e) => e.pos().is_none()),
+    "a whole-input length complaint has no single position"
+  );
 });

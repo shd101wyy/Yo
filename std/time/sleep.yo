@@ -8,6 +8,9 @@
 //! The underlying timers take whole milliseconds, so sub-millisecond
 //! precision in the `Duration` is truncated.
 //!
+//! `interval` is the third form: a repeating tick that does NOT drift, which a
+//! `sleep` in a loop does. See its own doc.
+//!
 //! ## Example
 //!
 //! ```rust
@@ -24,6 +27,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { Duration } :: import("./duration");
+{ Instant } :: import("./instant");
 IO_timer :: import("../sys/timer");
 extern(
   "Yo",
@@ -44,7 +48,73 @@ sleep :: (fn(duration : Duration, io : Io) -> Impl(Future(unit)))({
 sleep_blocking :: (fn(duration : Duration) -> unit)(
   __yo_ms_sleep(usize(duration.as_millis()))
 );
+/// A repeating tick — Tokio's `interval`.
+///
+/// **Why this exists rather than `sleep` in a loop.** `while(true, { work();
+/// sleep(period); })` DRIFTS: each iteration takes `period + work`, so after
+/// 100 ticks of 10 ms work on a 1 s period the clock is 1 s behind. An
+/// interval anchors every tick to a SCHEDULE — tick `n` is due at
+/// `start + n * period` — so the work duration comes out of the wait instead
+/// of being added to it.
+///
+/// ```rust
+/// t := interval(Duration.from_millis(i64(100)), io);
+/// io.await(t.tick(io), io);   // completes immediately
+/// io.await(t.tick(io), io);   // completes 100ms after the FIRST tick
+/// ```
+///
+/// The first `tick()` completes immediately, as Tokio's does: an interval is
+/// almost always driving a loop whose first pass should not be delayed.
+Interval :: ref(
+  struct(
+    _period : Duration,
+    /// When the next tick is DUE. Advanced by exactly one period per tick, so
+    /// the schedule is never re-anchored to "now".
+    _next : Instant
+  )
+);
+impl(
+  Interval,
+  /// Wait until the next tick is due.
+  ///
+  /// **Missed ticks BURST.** If the caller's work overran the period, `_next`
+  /// is already in the past and this returns immediately, then advances by one
+  /// period — so the ticks the stall swallowed are delivered back to back
+  /// until the schedule is caught up. That is Tokio's default
+  /// (`MissedTickBehavior::Burst`) and it is right for anything that counts
+  /// ticks (sampling, accounting): the total number of ticks over an interval
+  /// is what the period promises.
+  ///
+  /// It is WRONG for a rate limiter, which wants the stall to swallow the
+  /// ticks rather than repay them. That is Tokio's `Delay`/`Skip`, and it is
+  /// deliberately not implemented until something needs it — the choice has
+  /// to be made per call site and guessing it here would be worse than
+  /// leaving it out.
+  tick : (fn(self : Self, io : Io) -> Impl(Future(unit)))({
+    due := self._next;
+    // Advance BEFORE waiting, so the schedule does not depend on when the
+    // sleep actually returns.
+    self._next = due.add(self._period);
+    // `Instant.duration_since` clamps at zero for an already-past instant, so
+    // an overrun sleeps 0 rather than computing a negative wait.
+    wait := due.duration_since(Instant.now());
+    io.async((io : Io) => {
+      io.await(sleep(wait, io), io);
+      return(());
+    })
+  }),
+  /// The configured period.
+  period : (fn(self : Self) -> Duration)(
+    self._period
+  )
+);
+/// Start a repeating tick of `period`. The first `tick()` is immediate.
+interval :: (fn(period : Duration, io : Io) -> Interval)(
+  Interval(_period : period, _next : Instant.now())
+);
 export(
   sleep,
-  sleep_blocking
+  sleep_blocking,
+  Interval,
+  interval
 );

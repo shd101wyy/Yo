@@ -1,0 +1,15 @@
+// An enum field named after a BUILTIN TYPE breaks derive(Error)/derive(ToString):
+// the derived body is unhygienic, so `${unit}` resolves to the `unit` TYPE
+// rather than to the bound field, and `unit.to_string()` reports
+//   Argument count mismatch: expected 1, got 0
+{ String } :: import("std/string");
+{ Error } :: import("std/error");
+{ ToString } :: import("std/fmt");
+Bad :: enum(Surrogate(unit : u16));
+derive(Bad, Error(.Surrogate => `unit ${unit}`));
+main :: (fn() -> unit)({
+  b := Bad.Surrogate(unit : u16(7));
+  s := b.to_string();
+  ()
+});
+export(main);

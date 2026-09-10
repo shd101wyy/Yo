@@ -1157,7 +1157,7 @@ test("Test raw pointer", {
   // allocate and free
   {
     { GlobalAllocator } :: import("std/allocator");
-    open(GlobalAllocator);
+    { malloc, free } :: GlobalAllocator;
     {
       ptr := (*i32)(malloc(sizeof(i32) * 2).unwrap());
       ptr.* = 42;
@@ -2043,33 +2043,33 @@ test("Test control flows", {
     })
   );
 });
-test("Test 'open' statements", {
-  // Open a comptime struct
+test("Test whole-struct destructuring statements", {
+  // Destructure a comptime struct
   {
     anony :: { x : 12, y : 13 };
-    open(anony);
+    { x, y } :: anony;
     comptime_assert(x == 12);
     comptime_assert(y == 13);
   };
-  // Open a runtime struct
+  // Destructure a runtime struct
   {
     anony := { x : i32(12), y : i32(13) };
-    open(anony);
+    { x, y } := anony;
     assert(x == 12);
     assert(y == 13);
   };
-  // Open a runtime anonymous struct with more fields
+  // Destructure a runtime anonymous struct with more fields
   {
     point := { x : i32(5), y : i32(10), z : i32(15) };
-    open(point);
+    { x, y, z } := point;
     sum := (x + y + z);
     assert(sum == i32(30));
   };
-  // Open inside a function
+  // Destructure a parameter inside a function
   {
     Point :: struct(x : i32, y : i32);
     calculate :: (fn(p : Point) -> i32)({
-      open(p);
+      { x, y } := p;
       x + y
     });
     result := calculate(Point(7, 3));
@@ -2382,7 +2382,7 @@ test("Test comptime match branch elimination", {
 });
 // Test: return in match branch should be treated as never type
 test("return in match branch type compatibility", {
-  open(import("std/collections/array_list"));
+  { ArrayList, array_list } :: import("std/collections/array_list");
   test_fn :: (fn() -> unit)({
     (list : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(42));
@@ -2417,7 +2417,7 @@ test("single-expression function body without braces", {
 });
 // Test: indexing a function call result directly (temporary)
 test("index function call result", {
-  open(import("std/collections/array_list"));
+  { ArrayList, array_list } :: import("std/collections/array_list");
   get_list :: (fn() -> ArrayList(u8))({
     (list : ArrayList(u8)) = ArrayList(u8).new();
     list.push(u8(10));
@@ -2594,8 +2594,8 @@ test("the C type still resolves where it is NOT shadowed", {
 //
 // See issues/fixed/tuple-type-has-no-forward-declaration.md.
 test("a tuple element type inside a generic container declares its C name in time", {
-  open(import("std/collections/array_list"));
-  open(import("std/string"));
+  { ArrayList, array_list } :: import("std/collections/array_list");
+  { String } :: import("std/string");
   xs := ArrayList(Tuple(String, String)).new();
   xs.push((`k`, `v`));
   xs.push((`a`, `b`));

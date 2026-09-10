@@ -11,7 +11,7 @@
 //! * The `safeRelativePath` Windows cross-drive helper is omitted; absolute
 //!   paths returned by `Path.join` are used directly.
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -411,8 +411,8 @@ evaluate_import :: (
   // `collect_module_deps` flattens all dep exprs into one big list evaluated
   // in a shared env, every name declared in the imported module is already
   // in `env` at the time `import("…")` is evaluated. Building a ModuleVal
-  // from `env` lets downstream destructuring (`{ X, Y } :: import("…")`)
-  // and `open(import("…"))` find the names without a real ModuleManager.
+  // from `env` lets downstream destructuring (`{ X, Y } :: import("…")`,
+  // `{ ... } :: import("…")`) find the names without a real ModuleManager.
   load_result := match(
     ctx.load_module,
     .Some(load_fn) => load_fn(module_abs_path.clone()),
