@@ -526,7 +526,14 @@ impl(
         self.eof() => {
           going = false;
         },
-        ((b == _SPACE) || (b == _TAB) || ((b == _LF) || (b == _CR))) => self.advance(),
+        ((b == _SPACE) || (b == _TAB)) => self.advance(),
+        (b == _LF) => self.advance(),
+        // CRLF is a newline; a LONE CR is not, so stop here and let the
+        // caller's parse reject it rather than skipping over it.
+        ((b == _CR) && (self.at(usize(1)) == _LF)) => {
+          self.advance();
+          self.advance();
+        },
         (b == _HASH) => {
           _skipped := match(
             self.skip_spaces_comment(),

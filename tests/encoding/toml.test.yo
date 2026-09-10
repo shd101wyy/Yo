@@ -611,6 +611,12 @@ y = 2`
     ),
     "but CRLF is"
   );
+  lone_cr :=
+    `x = 1
+`;
+  lone_cr.push_byte(u8(13));
+  lone_cr.push_str("y = 2");
+  assert(_rejected(lone_cr), "a bare CR between lines is not whitespace either");
 });
 // ============================================================================
 // Serialization
