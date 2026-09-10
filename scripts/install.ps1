@@ -425,6 +425,12 @@ export(main);
   $ErrorActionPreference = 'Stop'
   if ($LASTEXITCODE -ne 0) {
     Warn ($log | Out-String)
+    # This script installs the LATEST release, not the one it shipped with, so
+    # an old local copy can hand a hello world to a newer compiler that no
+    # longer accepts it. Say so: the compiler output alone reads like a broken
+    # release.
+    Warn "If this copy of install.ps1 is older than $Version, it may be compiling a hello world that $Version no longer accepts. Re-fetch the installer and retry:"
+    Warn '  irm https://shd101wyy.github.io/Yo/install.ps1 | iex'
     Fail 'The install is present but cannot compile. See the output above.'
   }
   $ErrorActionPreference = 'Continue'
