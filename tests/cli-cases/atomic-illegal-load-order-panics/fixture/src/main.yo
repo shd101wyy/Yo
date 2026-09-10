@@ -1,0 +1,14 @@
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  a := AtomicI32.new(i32(7));
+  // A legal load first, so the panic below cannot be mistaken for the type
+  // being unusable.
+  println(`load: ${a.load(MemoryOrder.Acquire)}`);
+  // C11 forbids a release ordering on a load. The order arrives as a RUNTIME
+  // value, so the C compiler cannot diagnose it — this used to compile clean
+  // at -O2 and run, silently taking whatever ordering the runtime switch fell
+  // into. Rust panics; so does this now.
+  println(`illegal: ${a.load(MemoryOrder.Release)}`);
+});
+export(main);
