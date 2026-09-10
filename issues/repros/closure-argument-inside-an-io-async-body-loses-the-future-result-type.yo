@@ -1,0 +1,27 @@
+// A `=>` closure passed to a generic callback parameter INSIDE an `io.async`
+// body leaves the enclosing future's result type unresolved: the async body
+// itself is fine, but `h.await(io)` on the spawned handle fails with
+// "No matching call found with arguments: (h.await)(io)".
+//
+//   yo compile issues/repros/closure-argument-inside-an-io-async-body-loses-the-future-result-type.yo \
+//     --std-path ./std --optimize 2 -o /tmp/repro.bin
+//
+// Replacing the closure with the `(fn(x : i32) -> i32)(...)` literal form —
+// see the commented line — makes the same program compile and print 6.
+{ println } :: import("std/fmt");
+apply :: (
+  fn(generic(A : Type, B : Type, F : Type), v : A, f : F, where(F <: (Fn(item : A) -> B))) -> B
+)(
+  (f)(v)
+);
+main :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io) => {
+    r := apply(i32(5), x => (x + i32(1)));
+    // r := apply(i32(5), (fn(x : i32) -> i32)(x + i32(1)));   // this works
+    r
+  });
+  h := io.spawn(task, io);
+  got := h.await(io);
+  println(`got=${match(got, .Some(v) => v, .None => i32(-1))}`);
+});
+export(main);

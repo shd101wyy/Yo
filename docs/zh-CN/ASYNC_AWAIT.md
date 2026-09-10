@@ -787,6 +787,124 @@ __yo_decr_rc(future);  // 释放运行中任务的引用
 - 无同步开销
 - 缓存友好（小型状态机）
 
+## 异步迭代：`Stream` trait
+
+`Iterator` 现在就产出值，`Future` 稍后产出一个值。**`Stream`** 兼具两者 ——
+“稍后产出一个值，而且反复产出”：
+
+```rust
+Stream :: trait(
+  Item : Type,
+  next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
+);
+```
+
+它位于 `std/async/stream`，`.None` 表示流已结束 —— 这是终止状态，并且会一直保持
+终止。
+
+```rust
+{ Stream } :: import("std/async/stream");
+{ TcpListener } :: import("std/net/tcp");
+
+conns := listener.incoming().take(usize(3));       // 惰性的 Stream
+accepted := io.await(conns.collect(io), io);       // ArrayList(Result(TcpStream, NetError))
+```
+
+### 谁实现了它
+
+| 类型 | 它的流 |
+| --- | --- |
+| `TcpListener.incoming()`（`std/net/tcp`） | `Item = Result(TcpStream, NetError)` —— 每一项是一条连接 |
+| `Watcher`（`std/fs/watch`） | `Item = FsEvent` —— watcher 关闭且队列排空后为 `.None` |
+| `Channel(T)`（`std/async/channel`） | `Item = T` —— `next` 就是 `recv`；关闭且排空后为 `.None` |
+
+### 组合器与消费者
+
+它们只写一次，定义在 `where(S <: Stream)` 上，与 `Iterator` 的组合器一一对应：
+
+| 惰性组合器 | 作用 |
+| --- | --- |
+| `map(f)` | 变换每一项 |
+| `filter(pred)` | 只保留满足 `pred` 的项（按值传入，与 `map` 对称） |
+| `filter_map(f)` | `f` 返回 `Option(B)`，只产出其中的 `.Some` |
+| `take(n)` | 最多产出 `n` 项后结束，之后不再触碰上游 |
+| `skip(n)` | 丢弃前 `n` 项 |
+
+| 消费者 | 作用 |
+| --- | --- |
+| `for_each(f, io)` | 驱动流直到结束，对每一项调用 `f` |
+| `collect(io)` | 驱动流直到结束，把所有项收集进 `ArrayList` |
+
+```rust
+// 最多取五个“内容变更”事件的名字。
+names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
+io.await(names.for_each(n => println(n), io), io);
+```
+
+### 如何实现一个流
+
+`next` 的接收者是 `self : Self`，而不是 `Iterator` 用的 `inout(self)`：它返回的
+future 的生命周期超出这次调用，而 `inout` 借用无法跨越挂起点。因此流的源头都是
+引用语义类型（`ref(struct(...))`），字段写入通过句柄传播：
+
+```rust
+Countdown :: ref(struct(_n : i32));
+impl(
+  Countdown,
+  Stream(
+    Item : i32,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async((io : Io) =>
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        )
+      )
+    )
+  )
+);
+```
+
+如果流的项**可能失败**，就把失败装进项里 —— `Item = Result(T, E)`，正如
+`incoming` 产出 `Result(TcpStream, NetError)`。这也是 `next` 的 future 是
+`Future(_, Io)` 而不是 `Future(_, IoExn)` 的原因：**流从不抛异常**，所以单项失败
+不会结束整个序列，消费者也不需要 `Exception` 处理器。
+
+### 动手前需要知道的四件事
+
+1. **组合链要在 `io.async` 体的外面构造。** 在 async 体内部把闭包传给泛型回调
+   参数，会让外层 future 的结果类型无法确定，而错误会报在调用方的 `await` 上。
+   先构造链，再在任意位置 await 它 —— 包括在 spawn 出去的任务里：
+
+   ```rust
+   chain := source.map(x => f(x));            // 在外面构造
+   task := io.async((io : Io) => io.await(chain.collect(io), io));   // 在里面 await
+   ```
+
+2. **没有 `for_await`。** 用宏写的异步循环，其 `io.await` 会被编译成**阻塞**形式
+   （宏展开体不会被扫描挂起点），在 spawn 出去的任务里会死锁。请用 `for_each`，
+   或者用到处都能工作的手写循环：
+
+   ```rust
+   (done : bool) = false;
+   while(done == false, {
+     nx := io.await(stream.next(io), io);
+     match(nx, .Some(x) => { … }, .None => { done = true; });
+   });
+   ```
+
+3. **泛型消费者要用裸约束或具体约束。** `where(S <: Stream)` 与
+   `where(S <: Stream(Item := i32))` 都能接受流的源头和组合链；而带泛型 `A` 的
+   `where(S <: Stream(Item := A))` 什么也绑不上，两者都会被拒绝。需要对项类型泛型
+   的消费者应写成 blanket impl 方法 —— `collect` 和 `for_each` 本身就是这样写的。
+
+4. **`.None` 是终止状态。** 消费者据此停止，所以实现者结束之后必须继续回答
+   `.None`，绝不能“结束后又恢复”。
+
 ## API
 
 ### 核心操作
@@ -1094,4 +1212,5 @@ r2 := handle2.await(io);  // Option(T)
 | CPU 密集型并行计算 | `Task.spawn`（参见 PARALLELISM.md） |
 | 后台处理           | `Task.spawn`（参见 PARALLELISM.md） |
 | 等待多个 Io        | `io.spawn` + `handle.await`         |
+| 消费异步序列       | `Stream` + `for_each`/`collect`（参见[异步迭代](#异步迭代stream-trait)） |
 | 利用多个 CPU 核心  | `Task.spawn`（参见 PARALLELISM.md） |

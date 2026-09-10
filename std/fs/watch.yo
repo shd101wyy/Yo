@@ -5,7 +5,9 @@
 //! backend (inotify on Linux, kqueue on macOS, ReadDirectoryChangesW on
 //! Windows; the `std/sys/events` layer). Events are delivered on the event
 //! loop and queued inside the watcher; read them with the non-blocking
-//! `poll()` or the awaitable `next(io)`.
+//! `poll()` or the awaitable `next(io)`. `next` is the `Stream` trait's
+//! method (`std/async/stream.yo`), so a watcher composes:
+//! `w.filter(…).map(…).take(n)`.
 //!
 //! ```rust
 //! { watch, WatchOptions, FsEventKind } :: import("std/fs/watch");
@@ -47,6 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("../fmt");
 events :: import("../sys/events");
 { yield } :: import("../async");
+{ Stream } :: import("../async/stream");
 /// What happened to the entry.
 FsEventKind :: enum(
   /// Created, removed or moved (the backend's "rename" class).
@@ -166,17 +169,6 @@ impl(
       true => Option(FsEvent).None
     )
   ),
-  /// Wait for the next event. Resolves `.None` once the watcher is closed
-  /// and its queue drained. Suspends through `yield`, so it is safe inside
-  /// tasks (no nested event loop).
-  next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
-    io.async((io : Io) => {
-      while(runtime((self._head >= self._queue.len()) && self._active), {
-        io.await(yield(io), io);
-      });
-      self.poll()
-    })
-  ),
   /// Stop the native watch. Queued events stay readable through `poll`;
   /// `next` no longer waits. Idempotent, and called for you when the last
   /// reference to the watcher goes away (`Dispose` below).
@@ -187,6 +179,29 @@ impl(
       events.fs_event_close(self._handle);
     });
   })
+);
+/// A `Watcher` IS an async stream of events, and was the shape the `Stream`
+/// trait was generalised from: `next` already answered `Option(FsEvent)`
+/// through a future, with `.None` for "closed and drained". Registering it
+/// as the trait impl (rather than an inherent method) is what lets the
+/// combinators apply — `w.filter(...)`, `w.map(...)`, `w.take(n)` — and what
+/// lets a function be generic over "something that yields events".
+impl(
+  Watcher,
+  Stream(
+    Item : FsEvent,
+    /// Wait for the next event. Resolves `.None` once the watcher is closed
+    /// and its queue drained. Suspends through `yield`, so it is safe inside
+    /// tasks (no nested event loop).
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
+      io.async((io : Io) => {
+        while(runtime((self._head >= self._queue.len()) && self._active), {
+          io.await(yield(io), io);
+        });
+        self.poll()
+      })
+    )
+  )
 );
 impl(
   Watcher,

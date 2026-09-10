@@ -222,6 +222,43 @@ my_fn :: (fn(io : Io) -> Impl(Future(Result(i32, IoError), Io)))(
 );
 ```
 
+## Async iteration — the `Stream` trait (`std/async/stream.yo`)
+
+The async analogue of `Iterator`, landed 2026-09-11
+(`plans/reference/ASYNC_ITERATION_STREAM.md`):
+
+```rust
+Stream :: trait(
+  Item : Type,
+  next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
+);
+```
+
+Four rules to keep when extending it or implementing it on a new type:
+
+- **The future's bundle is `Io`, never `IoExn` — a stream does not throw.** A
+  fallible stream puts the failure IN the item (`Item = Result(T, E)`, e.g.
+  `TcpListener.incoming`'s `Result(TcpStream, NetError)`), so one bad item
+  does not end the sequence and no consumer installs a handler. The knock-on:
+  an API that THROWS (`Reader.read`, `BufReader.read_line`) cannot become a
+  stream until it can return its failure —
+  `plans/backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`.
+- **`next` takes `self : Self`, not `inout(self)`** (`Iterator` uses `inout`):
+  the future outlives the call and an `inout` borrow cannot cross a
+  suspension. So every source is a `ref(struct(...))`.
+- **`.None` is terminal and stays terminal.** Every combinator preserves it.
+- **The associated type is named `Item`**, with the same uncheckable coherence
+  rule `DoubleEndedIterator` documents: the assoc-type registry is keyed by
+  (type id, label) with no trait discrimination, so a type implementing both
+  `Stream` and `Iterator` must give them the SAME `Item`. (`FromIterator` chose
+  `Elem` to dodge this; here no std type implements both.)
+
+There is deliberately **no `for_await` macro**: an `io.await` reached only
+through a macro expansion is compiled as a BLOCKING await and deadlocks inside
+a task (`plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`). The
+loop is `for_each`, or a hand-written `while` + `io.await(s.next(io), io)` +
+`match`.
+
 ## JoinHandle(T) — spawned task handle
 
 `JoinHandle(T)` is a builtin generic type returned by `io.spawn`. It wraps a pointer to the spawned future and allows awaiting its result.
