@@ -2,7 +2,9 @@
 //! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 6 / D7).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
-{ Channel } :: import("std/async/channel");
+{ Channel, Sender, Receiver, TryRecvError } :: import("std/async/channel");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 
 // ---------------------------------------------------------------------------
@@ -108,4 +110,172 @@ test("Test channel recv waits for sender", {
   r := io.await(ch.recv(io), io);
   assert(match(r, .Some(v) => (v == i32(99)), .None => false), "recv should wake for the late send");
   _done := h.await(io);
+});
+// ---------------------------------------------------------------------------
+// 5. Sender / Receiver split — auto-close when the last Sender is dropped
+// ---------------------------------------------------------------------------
+// The suspending cases below are BOUNDED with `timeout`: a regression in the
+// auto-close leaves the consumer task suspended forever, and an unbounded
+// `await` here would burn a whole CI job's timeout instead of reporting a
+// failure.
+test("async Sender/Receiver deliver values in order", {
+  rx := Channel(i32).receiver(usize(4));
+  tx := rx.sender();
+  s1 := io.await(tx.send(i32(1), io), io);
+  s2 := io.await(tx.send(i32(2), io), io);
+  assert(match(s1, .Ok(_) => true, .Err(_) => false), "first send");
+  assert(match(s2, .Ok(_) => true, .Err(_) => false), "second send");
+  r1 := io.await(rx.recv(io), io);
+  r2 := io.await(rx.recv(io), io);
+  assert(match(r1, .Ok(v) => (v == i32(1)), .Err(_) => false), "FIFO: 1 first");
+  assert(match(r2, .Ok(v) => (v == i32(2)), .Err(_) => false), "FIFO: then 2");
+  assert(!rx.is_closed(), "a live sender keeps the channel open");
+});
+test("async Channel.pair hands back both halves over one channel", {
+  pair := Channel(i32).pair(usize(2));
+  tx := pair.0;
+  rx := pair.1;
+  s := io.await(tx.send(i32(11), io), io);
+  assert(match(s, .Ok(_) => true, .Err(_) => false), "the pair's sender sends");
+  r := io.await(rx.recv(io), io);
+  assert(match(r, .Ok(v) => (v == i32(11)), .Err(_) => false), "the pair's receiver receives it");
+});
+test("async: dropping the LAST Sender closes the channel", {
+  rx := Channel(i32).receiver(usize(4));
+  {
+    tx := rx.sender();
+    assert(!rx.is_closed(), "open while a sender lives");
+    _s := io.await(tx.send(i32(5), io), io);
+  };
+  assert(rx.is_closed(), "the last sender's drop closed the channel");
+});
+test("async: dropping ONE of several Senders does NOT close the channel", {
+  rx := Channel(i32).receiver(usize(4));
+  tx := rx.sender();
+  {
+    tx2 := tx.clone();
+    _s := io.await(tx2.send(i32(1), io), io);
+  };
+  assert(!rx.is_closed(), "one of two senders going away is not the end of the stream");
+  s := io.await(tx.send(i32(2), io), io);
+  assert(match(s, .Ok(_) => true, .Err(_) => false), "the surviving sender still sends");
+});
+test("async: buffered values arrive before the disconnect", {
+  rx := Channel(i32).receiver(usize(4));
+  {
+    tx := rx.sender();
+    _a := io.await(tx.send(i32(7), io), io);
+    _b := io.await(tx.send(i32(8), io), io);
+  };
+  assert(rx.is_closed(), "closed by the drop");
+  r1 := io.await(rx.recv(io), io);
+  r2 := io.await(rx.recv(io), io);
+  r3 := io.await(rx.recv(io), io);
+  assert(match(r1, .Ok(v) => (v == i32(7)), .Err(_) => false), "buffered 7 survives the close");
+  assert(match(r2, .Ok(v) => (v == i32(8)), .Err(_) => false), "buffered 8 survives the close");
+  assert(
+    match(r3, .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "only THEN is it Disconnected"
+  );
+});
+test("async: try_recv is Empty while open and Disconnected once senders are gone", {
+  rx := Channel(i32).receiver(usize(4));
+  {
+    tx := rx.sender();
+    assert(
+      match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Empty)),
+      "open and empty says Empty — the producer may still send"
+    );
+    _s := io.await(tx.send(i32(3), io), io);
+  };
+  assert(match(rx.try_recv(), .Ok(v) => (v == i32(3)), .Err(_) => false), "the buffered value first");
+  assert(
+    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "closed AND drained says Disconnected"
+  );
+});
+test("async: send fails once the Receiver has been dropped", {
+  ch := Channel(i32).new(usize(1));
+  tx := Sender(i32)._attach(ch);
+  {
+    rx := Receiver(i32)._attach(ch);
+    _v := rx.try_recv();
+  };
+  s := io.await(tx.send(i32(9), io), io);
+  assert(
+    match(s, .Ok(_) => false, .Err(v) => (v == i32(9))),
+    "a send with no receiver fails and hands the value back, rather than suspending"
+  );
+  assert(
+    match(tx.try_send(i32(10)), .Ok(_) => false, .Err(v) => (v == i32(10))),
+    "try_send fails the same way"
+  );
+});
+test("async: dropping the last Sender resolves a SUSPENDED recv as Disconnected", {
+  rx := Channel(i32).receiver(usize(4));
+  consumer := io.async((io : Io) => {
+    // Suspends here: the channel is empty and open. Only the auto-close can
+    // resolve it, and it must resolve to Disconnected rather than a value.
+    r := io.await(rx.recv(io), io);
+    (code : i32) = match(
+      r,
+      .Ok(_v) => i32(1),
+      .Err(e) => cond((e == TryRecvError.Disconnected) => i32(-1), true => i32(-2))
+    );
+    return(code);
+  });
+  h := io.spawn(consumer, io);
+  {
+    tx := rx.sender();
+    // Let the consumer reach its suspension point before the sender goes.
+    io.await(sleep(u64(5)), io);
+  };
+  verdict := match(
+    timeout(h, Duration.from_millis(i64(2000)), io),
+    .Ok(v) => v,
+    .Err(_te) => i32(-9)
+  );
+  assert(verdict == i32(-1), "the suspended recv resolved Disconnected when the last sender dropped");
+});
+test("async: producer tasks with cloned Senders fan in, and the last one closes", {
+  rx := Channel(i32).receiver(usize(8));
+  {
+    tx1 := rx.sender();
+    tx2 := tx1.clone();
+    p1 := io.async((io : Io) => {
+      _a := io.await(tx1.send(i32(1), io), io);
+      _b := io.await(tx1.send(i32(2), io), io);
+      return(());
+    });
+    p2 := io.async((io : Io) => {
+      _a := io.await(tx2.send(i32(10), io), io);
+      _b := io.await(tx2.send(i32(20), io), io);
+      return(());
+    });
+    h1 := io.spawn(p1, io);
+    h2 := io.spawn(p2, io);
+    _d1 := h1.await(io);
+    _d2 := h2.await(io);
+  };
+  // Both senders and both tasks' captures are gone: the channel closed itself.
+  assert(rx.is_closed(), "the last of the cloned senders closed the channel");
+  (total : i32) = i32(0);
+  (count : i32) = i32(0);
+  v := rx.try_recv();
+  while(runtime(match(v, .Ok(_) => true, .Err(_) => false)), {
+    total = (total + match(v, .Ok(x) => x, .Err(_) => i32(0)));
+    count = (count + i32(1));
+    v = rx.try_recv();
+  });
+  assert(count == i32(4), "all four values from two cloned senders arrived");
+  assert(total == i32(33), "and none was corrupted (1+2+10+20)");
+  assert(
+    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "the drained channel reports Disconnected"
+  );
+});
+test("async Sender implements Clone", {
+  assert_clone :: (fn(comptime(T) : Type, where(T <: Clone)) -> comptime(unit))(());
+  assert_clone(Sender(i32));
+  assert(true, "checked at comptime");
 });
