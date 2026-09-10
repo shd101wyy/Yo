@@ -1,12 +1,31 @@
 # Fixed-Region Allocator — `--allocator fixed`
 
-> **Status: BACKLOG (proposed 2026-09-09)** — design written, nothing started.
+> **Status: LANDED 2026-09-10 (P0–P3, as one PR)** — the OOM hardening, the
+> TLSF allocator arm, the build API, and the `--debug-heap` leak oracle are
+> implemented and gated; the leak baseline is §7. **P4 (library mode:
+> `--heap-extern`, weak `__yo_alloc_fail`) is DEFERRED** — reopen it as its
+> own plan when an embedded consumer exists. Line anchors below are against
+> `develop` at `c664226ac` (2026-09-09) and are historical.
+>
 > A third choice for `--allocator` / `build.Allocator`: a general-purpose
 > allocator that serves every Yo allocation out of ONE statically-sized region
 > chosen at compile time, with no call into the libc heap. It is the first
 > building block of an embedded/freestanding story (§6) and is useful on the
-> desktop targets on day one (§1.3). Line anchors are against `develop` at
-> `c664226ac` (2026-09-09).
+> desktop targets on day one (§1.3).
+>
+> **Implementation deltas from the design** (decisions taken while landing):
+> the minimum block is `roundup(max(sizeof(free_block), 32), granule)` — 32
+> bytes on 64-bit, not the design's flat "16", because a free block stores two
+> list pointers and `mapping_insert` requires `size ≥ 2^SL_BITS`; the
+> `aligned_alloc` front-split EXTENDS a free physical predecessor instead of
+> inserting a second adjacent free block, and `realloc`-shrink merges its new
+> tail with an already-free successor — both maintain the "no two adjacent
+> free blocks" maximality invariant (found by the invariant-walking stress
+> harness, which now lives next to the emitter's development notes); the
+> OOM/double-free/foreign-pointer diagnostics abort (as designed) and the
+> cli-case pins the panic line via a self re-exec child, because abort exit
+> codes differ per OS.
+
 
 ## 0. Verdict
 
@@ -396,7 +415,49 @@ are known to be compatible with it.
 7. **Binary size.** `Optimize.ReleaseSmall` already exists (`std/build.yo`);
    what it lacks is a size budget test.
 
-## 7. References
+## 7. P3 leak baseline (measured 2026-09-10, landing PR)
+
+The whole fast language suite (`yo test ./tests --exclude tests/internal
+--exclude tests/cli-cases`, 3925 tests) ran under
+`--allocator fixed --heap-size 512M --debug-heap` on a Windows x64 host with
+the PR's own stage-1 binary: **3925/3925 passed, zero OOM events** — every
+suite program fits and works inside a 512 MiB TLSF region.
+
+Per-test-run live-at-exit from the reporter:
+
+| bucket | runs | classification |
+| --- | ---: | --- |
+| `0 blocks / 0 bytes` | 2852 (73%) | fully clean |
+| `<= 4 KiB` | 1007 | module globals, interned strings and small caches still referenced at `main` return — the normal baseline of a batch test binary |
+| `> 4 KiB` | 55 | see the file table below |
+
+The `> 4 KiB` runs live in 9 files, all explainable without a new leak signal:
+
+| file | runs | max live | what it is |
+| --- | ---: | ---: | --- |
+| `tests/encoding/html.test.yo` | 15 | 1.26 MB | entity/string tables of the html module held by module globals |
+| `tests/std_export_coverage.test.yo` | 13 | 523 KB | touches EVERY std module; every module's globals stay alive |
+| `tests/http/http.test.yo` | 12 | 192 KB | http module caches |
+| `tests/fs/dir.test.yo` | 2 | 259 KB | directory-entry caches |
+| `tests/crypto/tls.test.yo` | 1 | 152 KB | TLS module state |
+| `tests/fs/walker.test.yo` | 5 | 79 KB | walker caches |
+| `tests/process/command.test.yo` | 1 | 525 KB | process module buffers |
+| `tests/net/tcp.test.yo` | 1 | 10 KB | net module state |
+| `tests/imm_threading.test.yo` | 5 | 5 KB | imm module state |
+
+Median live-at-exit is 0 bytes. This profile mirrors the leak debt LSan
+already tracks and stages off (`YO_TEST_LEAK_VERDICT=0`,
+`issues/self-hosted-emit-leaks-remaining-classes.md`) — the fixed allocator
+sees the same retained blocks, portable and without a sanitizer.
+
+**Decision: the oracle does NOT become a CI gate yet.** A `live == 0` gate
+would fail 27% of runs on the module-global baseline, and a byte-budget gate
+would encode today's numbers as law. Revisit after the leak campaign closes
+the LSan debt (then the interesting gate is "no NEW live-at-exit vs a
+recorded per-file budget", the same ratchet shape as
+`scripts/bootstrap/known-failing.tsv`).
+
+## 8. References
 
 - `std/allocator.yo` — `GlobalAllocator`, the two-family contract.
 - `src/codegen/c/collection.yo:118–176` — today's compat block.

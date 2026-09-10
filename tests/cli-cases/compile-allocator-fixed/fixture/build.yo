@@ -1,0 +1,16 @@
+build :: import("std/build");
+
+// plans/reference/FIXED_REGION_ALLOCATOR.md P1: `build run` under the
+// fixed-region allocator with a real 1 MiB constraint — small enough that a
+// leaking program would OOM, large enough for the mixed-op probe below.
+exe :: build.executable({
+  name : "alloc-probe",
+  root : "./src/main.yo",
+  allocator : build.Allocator.Fixed,
+  heap_size : usize(1048576)
+});
+install :: build.step("install", "Build the probe");
+install.depend_on(exe);
+run_exe :: build.run(exe);
+run :: build.step("run", "Run the probe");
+run.depend_on(run_exe);

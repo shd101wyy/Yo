@@ -770,6 +770,13 @@ compile_artifact :: (
     });
     cmd.arg(String.from("--allocator"));
     cmd.arg(artifact.allocator.clone());
+    // Fixed-region heap: only under `fixed` (the child compile rejects the
+    // pairing otherwise), mirroring plans/reference/FIXED_REGION_ALLOCATOR.md
+    // §2.6. Non-fixed builds add nothing, so their child argv is unchanged.
+    if(artifact.allocator == "fixed", {
+      cmd.arg(String.from("--heap-size"));
+      cmd.arg(artifact.heap_size.to_string());
+    });
     // `emit_c_to` redirects the generated C file. "" means unset (comptime_str
     // has no None). Resolved against the project dir, matching how `root` is
     // resolved: a path in build.yo means "relative to the project", not to

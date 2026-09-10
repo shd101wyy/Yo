@@ -37,7 +37,13 @@ Allocator :: enum(
   Mimalloc,
   /// The platform's system allocator (macOS malloc zones, Windows CRT heap,
   /// glibc/musl malloc on Linux).
-  System
+  System,
+  /// A general-purpose TLSF allocator over ONE statically-sized region in
+  /// `.bss` (`heap_size`, default 16 MiB). No libc heap; running out of that
+  /// region is a panic with a diagnostic. The first building block of the
+  /// embedded/freestanding story, and on desktop a deterministic OOM oracle
+  /// (plans/reference/FIXED_REGION_ALLOCATOR.md).
+  Fixed
 );
 export(Allocator);
 // ── Sanitizers ───────────────────────────────────────────────────────
@@ -90,6 +96,10 @@ Executable :: struct(
   (optimize : Optimize) ?= Optimize.Debug,
   /// Memory allocator.
   (allocator : Allocator) ?= Allocator.System,
+  /// Fixed-region heap size in bytes (`allocator : Allocator.Fixed` only;
+  /// 64 KiB..4 GiB, rounded down to a 16-byte granule). Ignored by the other
+  /// allocators.
+  (heap_size : usize) ?= usize(16777216),
   /// Runtime sanitizer.
   (sanitize : Sanitize) ?= Sanitize.None,
   /// Write the single generated C file to this path instead of the default
@@ -304,7 +314,8 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
   alloc_str :: match(
     config.allocator,
     .Mimalloc => "mimalloc",
-    .System => "system"
+    .System => "system",
+    .Fixed => "fixed"
   );
   san_str :: match(
     config.sanitize,
@@ -313,7 +324,7 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .Leak => "leak",
     .Thread => "thread"
   );
-  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks);
+  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks, config.heap_size);
   Step(name : config.name, kind : StepKind.Executable)
 });
 export(executable);

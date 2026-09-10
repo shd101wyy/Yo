@@ -82,7 +82,7 @@ static void __yo_async_enqueue_continuation(void (*resume_fn)(void*), void* stat
     cont = __yo_cont_free_list;
     __yo_cont_free_list = cont->next;
   } else {
-    cont = (__yo_continuation_t*)__yo_malloc(sizeof(__yo_continuation_t));
+    cont = (__yo_continuation_t*)__yo_rc_alloc(sizeof(__yo_continuation_t));
   }
   cont->resume_fn = resume_fn;
   cont->state_machine = state_machine;

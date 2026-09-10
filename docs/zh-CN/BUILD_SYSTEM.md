@@ -116,6 +116,7 @@ test_step.depend_on(tests);
 | `target`    | `comptime_str` | `target_host`      | 目标三元组（如 `"wasm32-unknown-emscripten"`） |
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | 优化级别                               |
 | `allocator` | `Allocator`    | `Allocator.System` | 内存分配器                             |
+| `heap_size` | `usize`        | `16777216`（16 MiB） | 固定区域堆大小（仅 `Allocator.Fixed`） |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | 检测器                                 |
 
 ### `StaticLibrary`
@@ -161,6 +162,16 @@ test_step.depend_on(tests);
 | -------------------- | ----------------------------- |
 | `Allocator.Mimalloc` | 高性能分配器（mimalloc）      |
 | `Allocator.System`   | 平台系统分配器（默认）        |
+| `Allocator.Fixed`    | 作用于单个静态区域的通用 TLSF 分配器（见下文） |
+
+`Allocator.Fixed` 让所有分配都来自 `.bss` 中一个静态定长的区域 —— 不依赖
+libc 堆（嵌入式/裸机方向的第一块基石）。区域大小由可执行产物的 `heap_size`
+字段设置（字节数；64 KiB 到 4 GiB，向下取整到 16 字节粒度；默认 16 MiB）。
+有了有界的区域，内存耗尽是一次**带诊断信息的 panic**
+（`out of memory: requested N bytes (fixed heap ...)`），OOM 因此成为可复现的
+测试输入，而不是永远触发不了的 overcommit。该分配器是线程安全的（并行运行
+时会从工作线程分配），`yo compile --debug-heap` 会在进程退出时报告存活块数，
+构成一个可移植的泄漏检查工具。
 
 ### 检测器
 

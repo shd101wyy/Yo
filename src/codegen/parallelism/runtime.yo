@@ -144,7 +144,7 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
   __yo_thread_t thread;
 
   // Allocate entry args
-  __yo_thread_entry_args_t* args = (__yo_thread_entry_args_t*)__yo_malloc(sizeof(__yo_thread_entry_args_t));
+  __yo_thread_entry_args_t* args = (__yo_thread_entry_args_t*)__yo_rc_alloc(sizeof(__yo_thread_entry_args_t));
   args->fn = fn;
   args->closure = closure;
 
@@ -311,7 +311,7 @@ static void __yo_worker_pool_init(size_t num_threads) {
 
   PARALLELISM_DEBUG("[WORKER] Initializing worker pool with %zu threads\\n", num_threads);
 
-  __yo_worker_threads = (__yo_worker_thread_t*)__yo_malloc(sizeof(__yo_worker_thread_t) * num_threads);
+  __yo_worker_threads = (__yo_worker_thread_t*)__yo_rc_alloc(sizeof(__yo_worker_thread_t) * num_threads);
   __yo_worker_num_threads = num_threads;
   __yo_worker_next_thread = 0;
 
@@ -480,7 +480,7 @@ static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {`
   }
 
   // Create task node
-  __yo_worker_task_t* task = (__yo_worker_task_t*)__yo_malloc(sizeof(__yo_worker_task_t));
+  __yo_worker_task_t* task = (__yo_worker_task_t*)__yo_rc_alloc(sizeof(__yo_worker_task_t));
   task->fn = fn;
   task->closure = closure;
   task->next = NULL;

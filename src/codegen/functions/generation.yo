@@ -1297,6 +1297,16 @@ int main(int argc, char** argv) {
 `;
       em.emit_string(block);
     }, {
+      // --debug-heap leak oracle (plans/reference/FIXED_REGION_ALLOCATOR.md
+      // §2.4): the hosted arms register the reporter with atexit at
+      // allocator init; wasm has no atexit under -sSTANDALONE_WASM, so the
+      // direct-call main reports in person before returning.
+      heap_report_call :=
+        if(
+          context.base.debug_heap && (context.base.allocator == "fixed"),
+          String.from("  __yo_fixed_heap_report();\n"),
+          String.new()
+        );
       block :=
         `
 // Main wrapper - calls __yo_user_main directly
@@ -1306,7 +1316,7 @@ int main(int argc, char** argv) {
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
 ${init_call}  // Call sync main
   __yo_user_main${main_call_args};
-  return 0;
+${heap_report_call}  return 0;
 }
 `;
       em.emit_string(block);

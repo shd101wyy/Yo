@@ -79,6 +79,8 @@ BuildArtifact :: ref(
     target : String,
     optimize : String,
     allocator : String,
+    /// Fixed-region heap bytes for allocator == "fixed" (default 16 MiB).
+    heap_size : usize,
     sanitize : String,
     /// Redirect the single generated C file here ("" = default sidecar).
     /// REQUIRED, not defaulted: `?=` needs a compile-time-known value and
@@ -247,6 +249,7 @@ impl(
         target : artifact.target,
         optimize : artifact.optimize,
         allocator : artifact.allocator,
+        heap_size : artifact.heap_size,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
         emit_chunks : artifact.emit_chunks,
@@ -275,6 +278,7 @@ impl(
         target : artifact.target,
         optimize : artifact.optimize,
         allocator : artifact.allocator,
+        heap_size : artifact.heap_size,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
         emit_chunks : artifact.emit_chunks,
@@ -303,6 +307,7 @@ impl(
         target : artifact.target,
         optimize : artifact.optimize,
         allocator : artifact.allocator,
+        heap_size : artifact.heap_size,
         sanitize : artifact.sanitize,
         emit_c_to : artifact.emit_c_to,
         emit_chunks : artifact.emit_chunks,
@@ -943,6 +948,7 @@ _build_new_artifact :: (
     target : String,
     optimize : String,
     allocator : String,
+    heap_size : usize,
     sanitize : String,
     emit_c_to : String,
     emit_chunks : usize
@@ -955,6 +961,7 @@ _build_new_artifact :: (
     target : target,
     optimize : optimize,
     allocator : allocator,
+    heap_size : heap_size,
     sanitize : sanitize,
     emit_c_to : emit_c_to,
     emit_chunks : emit_chunks,
@@ -1110,6 +1117,7 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         _build_extract_string_or(args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
+        _build_extract_usize_or(args, usize(8), usize(16777216), ctx),
         _build_extract_string_or(args, usize(5), "sanitize", String.from("none"), expr, ctx, exn),
         _build_extract_string_or(args, usize(6), "emit_c_to", String.new(), expr, ctx, exn),
         _build_extract_usize_or(args, usize(7), usize(0), ctx)
@@ -1127,6 +1135,7 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
+        usize(16777216),
         String.from("none"),
         String.new(),
         usize(0)
@@ -1144,6 +1153,7 @@ evaluate_yo_build_functions :: (
         _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
+        usize(16777216),
         String.from("none"),
         String.new(),
         usize(0)
