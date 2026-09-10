@@ -2402,3 +2402,53 @@ test("insert/remove/pop round-trip", {
   assert(match(s.pop(), .Some(r) => (r == rune(100)), .None => false), "popped the tail");
   assert(s == `ab`, "back to the two survivors");
 });
+// ---------------------------------------------------------------------------
+// Unicode escapes: both spellings, both literal forms, and the same answer
+// from each.
+//
+// `\uXXXX` folded a NON-hex rune as if it were 0, so `"\uZZZZ"` was U+0000 and
+// `"\u{41}"` — whose four runes are `{`, `4`, `1`, `}` — was U+0410 rather than
+// U+0041, both with no diagnostic anywhere. And the escape was not recognised
+// in a BACKTICK template at all, so a template kept eight literal bytes where
+// the double-quoted form gave three: one spelling, two meanings.
+//
+// The malformed forms are lexer errors now (cli-case
+// `check-bad-unicode-escape` pins the diagnostic); these tests pin the
+// well-formed ones, in both literal forms, in both spellings.
+// issues/fixed/unicode-escape-accepts-non-hex-digits.md
+// ---------------------------------------------------------------------------
+test("Unicode escapes decode identically in a literal and in a template", {
+  dq := String.from("x\u0041y");
+  assert(dq.len() == usize(3), "four hex digits decode to one byte");
+  assert(dq == String.from("xAy"), "and that byte is A");
+  // The new capability: a template used to keep this as source text.
+  tmpl := `x\u0041y`;
+  assert(tmpl.len() == usize(3), "a template decodes it too");
+  assert(tmpl == dq, "and to exactly the same bytes");
+  // Rust's braced spelling, accepted because it is what a reader coming from
+  // Rust writes — and because the alternative was decoding it WRONG.
+  braced := String.from("x\u{41}y");
+  assert(braced == dq, "the braced spelling means the same");
+  assert(`x\u{41}y` == dq, "in a template as well");
+});
+test("Unicode escapes carry multi-byte and astral code points", {
+  eacute := String.from("\u00e9");
+  assert(eacute.len() == usize(2), "U+00E9 is two UTF-8 bytes");
+  assert(eacute == String.from("é"), "and equals the literal character");
+  assert(String.from("\u{e9}") == eacute, "the braced spelling needs no leading zeros");
+  assert(`\u00e9` == eacute, "and a template agrees");
+  // An astral code point, three ways: braced, a surrogate PAIR (JSON's way of
+  // spelling one with four-digit escapes), and the character itself.
+  grin := String.from("\u{1F600}");
+  assert(grin.len() == usize(4), "U+1F600 is four UTF-8 bytes");
+  assert(String.from("\uD83D\uDE00") == grin, "a surrogate pair combines into the same code point");
+  assert(`\u{1F600}` == grin, "a template decodes the braced form");
+  assert(`\uD83D\uDE00` == grin, "and combines a surrogate pair");
+});
+test("Unicode escapes reach control bytes", {
+  bell := String.from("\u0007");
+  assert(bell.len() == usize(1), "U+0007 is one byte");
+  assert(bell.byte_at(usize(0)) == u8(7), "and it is the BEL byte");
+  assert(String.from("\u{7}") == bell, "one braced digit is enough");
+  assert(`\u{7}` == bell, "and a template agrees");
+});

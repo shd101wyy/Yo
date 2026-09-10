@@ -1,6 +1,6 @@
 # `Thread.spawn` / pool-task closures leak their RC'd captures
 
-**Status:** OPEN. **Pre-existing** — reproduced identically on `develop` with
+**Status:** FIXED 2026-09-11. **Was pre-existing** — reproduced identically on `develop` with
 `std/worker.spawn` and on `s2/d7-threadpool` with `std/thread`'s
 `spawn(pool, cb)`. Found while reviewing STD_API_AUDIT D7.
 
@@ -20,7 +20,7 @@ for a sender dropped in a plain scope and `false` for the same sender captured
 by `Thread.spawn`. So this is no longer only about memory: it is the reason
 that feature ships with a documented "mint the sender inside the thread"
 pattern instead of the Rust one
-(`plans/backlog/SPAWN_CAPTURE_AUTOCLOSE.md`). An `io.async` capture releases
+(`plans/archive/SPAWN_CAPTURE_AUTOCLOSE.md`). An `io.async` capture releases
 correctly; this is specific to `__yo_thread_spawn` / `__yo_worker_spawn`.
 
 ## Symptom
@@ -117,3 +117,35 @@ runtime fields, which already knows how to emit per-field RC decrements)
 **and** drop the capture value at the call site once ownership has moved to the
 heap copy. Fixing the doubled capture-struct construction for the
 literal-argument shape is a separate, smaller change in the same emitter.
+
+## Fix
+
+`src/codegen/exprs/parallelism.yo` — `_emit_capture_drop_lines` is the `.None`
+arm the wrapper used to take as a no-op. It walks the capture struct's runtime
+fields with `generate_drop_code_for_value` (which already handles nested
+arrays, tuples and enums), snapshotting `em.code`, unhooking the
+`declared_ref`/`scope_ref` trackers so the moved lines are not recorded as
+declarations of the enclosing function, and re-emitting the produced lines into
+the DECLARATION buffer where a spawn wrapper lives — the same
+snapshot-and-rewrite `codegen/functions/generation.yo` uses for its FTT stub.
+
+No dup is added at the call site to match: the heap copy is a shallow copy of
+the call-site struct, so it INHERITS that struct's references — the spawn is a
+move and exactly one release balances it.
+
+`src/codegen/functions/declarations.yo` gains the two forward declarations that
+made this legal C. `__yo_decr_rc_atomic` and `__yo_incr_rc_atomic` are defined
+in the CODE buffer, which lands after the whole declaration buffer, so the
+wrapper's call to the first was an implicit declaration followed by a `static`
+definition — a hard error, not a warning.
+
+Verified red-first with a module-level Dispose counter (CI runs
+`detect_leaks=0` on every platform, so a leak sanitizer reports nothing):
+0 disposes under the v0.2.30 seed, 1 with the fix. `tests/thread.test.yo`
+carries that as two tests — exactly once, and sixteen times across sixteen
+iterations. `issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo`
+now reports `true` on both lines, which closes
+`plans/archive/SPAWN_CAPTURE_AUTOCLOSE.md`.
+
+The doubled capture-struct construction for the literal-argument shape, noted
+below, is a separate defect in the same emitter and is untouched.

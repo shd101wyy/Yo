@@ -44,10 +44,11 @@
 //! io.await(rx.recv(io), io);               // .Err(Disconnected)
 //! ```
 //!
-//! A `Sender` captured by an `io.async` body IS released when the task and
+//! A `Sender` captured by an `io.async` body is released when the task and
 //! its future are done, so a producer task's sender closes the channel like
-//! any other — unlike a `Thread.spawn` capture on the blocking channel
-//! (`issues/spawn-closure-captures-never-dropped-leak.md`).
+//! any other. The same is now true of a `Thread.spawn` capture on the
+//! blocking channel; it was not until 2026-09-11
+//! (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
 //!
 //! ## Stability
 //!

@@ -1,11 +1,20 @@
 # Auto-close across `Thread.spawn`: a `Sender` in a spawn closure never drops
 
-**Status:** BACKLOG (written, not started) — 2026-09-11. Written while landing
-the `Sender`/`Receiver` split in `std/sync/channel.yo`
-(`plans/STD_API_STABILIZATION.md`, Concurrency).
+**Status: CLOSED — LANDED 2026-09-11 via option 1, the codegen fix.** The
+spawn wrapper now walks the capture struct's runtime fields
+(`_emit_capture_drop_lines`, `src/codegen/exprs/parallelism.yo`), so a `Sender`
+moved into a `Thread.spawn` closure disposes when the thread finishes and the
+channel auto-closes without anyone calling `close()`. Measured with the
+reproducer below: `spawn capture: closed after join = true`. The
+`## Producers on other threads` caveat is gone from `std/sync/channel.yo`, and
+the matching notes in `std/async/channel.yo` and `std/thread.yo`'s
+`Pool.join_all` are corrected. Option 4 (mint inside the thread) still works
+and is still documented, as a pattern rather than as the only way.
 
-**Underlying defect:** `issues/spawn-closure-captures-never-dropped-leak.md`
-(OPEN, pre-existing, filed as a memory leak).
+**Underlying defect:** `issues/fixed/spawn-closure-captures-never-dropped-leak.md`
+(FIXED 2026-09-11).
+
+The rest of this document is the record as written before the fix.
 
 ## The gap
 

@@ -1231,21 +1231,20 @@ The shape, and why each part is shaped that way:
   two facts apart is what lets a `Sender` that outlives its receiver report the
   honest failure instead of looking like a normal close.
 
-**One thing the row asked for does not work across `Thread.spawn`, and it is
-not the channel's fault.** A `Sender` MOVED INTO a spawn closure never runs its
-`dispose`, because a spawn closure's captures are never released
-(`issues/spawn-closure-captures-never-dropped-leak.md`, OPEN, pre-existing,
-filed as a memory leak) — so the count never reaches zero. Measured side by
-side in `issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo`: a
-sender dropped in a plain scope closes the channel, the same sender captured by
-`Thread.spawn` does not. The interim answer is a pattern rather than a trick —
-the parent holds one `keeper` sender while the workers start, and each worker
-mints its own inside its body, where the local's scope-end drop is real — and
-`plans/backlog/SPAWN_CAPTURE_AUTOCLOSE.md` records the codegen fix, the
-rejected std-side alternatives, and why the fix was not bundled here (it needs
-the dup/drop emit-diff gate and a compiler rebuild). `io.async` captures
-release correctly, so the async channel has the full behaviour, producer tasks
-included.
+**One thing the row asked for did not work across `Thread.spawn` — and it was
+not the channel's fault. FIXED 2026-09-11.** A `Sender` MOVED INTO a spawn
+closure never ran its `dispose`, because a spawn closure's captures were never
+released at all
+(`issues/fixed/spawn-closure-captures-never-dropped-leak.md`), so the count
+never reached zero. Measured side by side in
+`issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo`, which now
+reports `true` on both lines: a sender dropped in a plain scope and the same
+sender captured by `Thread.spawn` both close the channel.
+`plans/archive/SPAWN_CAPTURE_AUTOCLOSE.md` is the closed record — the codegen
+fix that landed, the std-side alternatives it rejected, and the
+mint-inside-the-thread pattern, which is still a good pattern when the senders
+outnumber the threads. `io.async` captures always released correctly, so the
+async channel had the full behaviour throughout.
 
 Coverage: `tests/sync/channel.test.yo` 41/41 (+13), `tests/async/channel.test.yo`
 15/15 (+10). Verified RED-FIRST: with the auto-close disabled, six sync and five
@@ -1695,6 +1694,76 @@ first.
    not a rider on this one.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
+
+**Four COMPILER defects the std audit surfaced — FIXED 2026-09-11.** Each was
+found while writing or measuring std, and each was silent.
+
+1. **A unicode escape accepted non-hex digits, and a template ignored `\u`
+   entirely** (`issues/fixed/unicode-escape-accepts-non-hex-digits.md`).
+   `\uZZZZ` decoded to U+0000 and `\u{41}` to U+0410. The digits now go
+   through one shared scanner (`src/utils.yo`: `hex_digit_value`,
+   `scan_unicode_escape`) used by the lexer's double-quoted VALIDATION, the
+   lexer's template DECODE (which had no `\u` arm at all) and the evaluator's
+   literal decoder, so the two literal forms cannot disagree. Rust's
+   `\u{X..XXXXXX}` is accepted alongside JSON's `\uXXXX`, and a malformed
+   escape is a positioned LEXER error. Eight tests in
+   `tests/internal/lexer.test.yo` — a cli-case cannot host this, because CI's
+   `fmt --check` scans the fixture trees and a fixture that does not lex fails
+   that gate.
+
+2. **A spawn closure's captures were never released, and the dup/drop pair
+   optimizer made releasing them unsafe**
+   (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`). The spawn
+   wrapper emitted its drop only when a `___drop` C function resolved, and none
+   is synthesized for an anonymous capture struct — so ~344 B leaked per
+   `spawn` with a captured `Channel(bool)`, unbounded in a loop, and a captured
+   handle's `Dispose` never ran. `_emit_capture_drop_lines` now walks the
+   struct's runtime fields into the declaration buffer, with the two forward
+   declarations (`__yo_decr_rc_atomic`, `__yo_incr_rc_atomic`) that made that
+   legal C. **This closes
+   `plans/archive/SPAWN_CAPTURE_AUTOCLOSE.md`**: a `Sender` moved into a
+   `Thread.spawn` closure closes its channel, so the caveats in
+   `std/sync/channel.yo`, `std/async/channel.yo` and `std/thread.yo`'s
+   `Pool.join_all` are corrected rather than restated. Gated by a Dispose
+   counter (CI runs `detect_leaks=0` everywhere), once and sixteen-times.
+
+   Releasing the captures turned out to be only half the accounting. The
+   dup/drop pair optimizer (`_search_dup_calls`, `src/evaluator/exprs/begin.yo`)
+   skipped `io.async` captures with the right reason on it — "the SM path needs
+   BOTH the dup and the scope-exit drop; cancelling them would leak" — but as a
+   SPECIAL CASE, so every other closure fell through. A closure definition's
+   deferred dups are its capture-STRUCT field initializers, and that struct is
+   moved into the closure value and released by whatever owns it, possibly
+   before the capturing scope ends; cancelling the pair left the capture
+   holding a borrowed alias. `tests/arc.test.yo`'s "Test Arc shared across
+   thread" read 0 instead of 42 the moment the wrapper started releasing, while
+   its three-thread sibling passed for the wrong reason (two capture dups is
+   more than one, and only a single dup was ever cancelled). Which is why the
+   guard is now general.
+
+3. **A module-level global was lost across an async suspension**
+   (`issues/fixed/a-module-global-is-lost-across-an-async-suspension.md`). The
+   suspension analysis hoisted globals into the state-machine struct, where the
+   field started at zero and the state entry declared a local SHADOWING the
+   real global: a suspending body read and wrote a copy. This is why the
+   keep-alive server's accept counter read zero, and it makes the
+   module-counter oracle that `.github/instructions/testing.instructions.md`
+   recommends unsound for async code. `_capture_env_variable` now returns early
+   for a module-level global, mirroring the guard the closure-capture path
+   already had.
+
+4. **An unsubstitutable array length silently became zero** — item 9 of the
+   handover's ranked list, and step 1 of
+   `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`.
+   `-> Array(u8, T.BYTES)` in a blanket impl emitted `Array_uint8_t_0` while
+   the specialized bodies emitted lengths 1 and 4; C caught it only because
+   those are different types. It is now a diagnostic naming the limitation.
+   The feature itself — a value channel in `substitute()` — stays open
+   (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`), and
+   with it the collapse of `std/prelude.yo`'s ten byte-conversion blocks and
+   byte conversions for `usize`/`isize`. `tests/array.test.yo` carries the
+   rejection plus an over-rejection canary for every length form that must keep
+   working.
 
 Per-group raw findings — every file:line, the Rust counterpart for each item,
 and the doc-coverage tables — are in `plans/STD_API_STABILIZATION_FINDINGS.md`.
