@@ -14,7 +14,8 @@
 { String } :: import("std/string");
 import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ JsonValue, json_stringify } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
 {
   E_UNEXPECTED_TOKEN,
   E_EXPECTED_TOKEN,
@@ -549,7 +550,7 @@ explain_to_json :: (fn(e : Explain) -> String)({
   vals.push(JsonValue.Str(value : e.why));
   keys.push(String.from("why_zh"));
   vals.push(JsonValue.Str(value : e.why_zh));
-  json_stringify(JsonValue.Object(keys : keys, values : vals))
+  json.stringify(JsonValue.Object(keys : keys, values : vals))
 });
 export(Explain, registry_entries, lookup_explain, all_registry_codes);
 export(suggest_code, explain_to_json);

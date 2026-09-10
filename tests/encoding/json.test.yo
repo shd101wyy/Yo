@@ -1,50 +1,51 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
-{ json_parse, json_stringify, JsonValue, JsonError, ToJson, FromJson, json_encode, json_decode, json_parse_result } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue, JsonError, ToJson, FromJson, json_parse_result } :: import("std/encoding/json");
 { HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
 { Error, AnyError, Exception } :: import("std/error");
 // ===== Parse Primitives =====
-test("json_parse null", {
-  v := json_parse("null").unwrap();
+test("json.parse null", {
+  v := json.parse("null").unwrap();
   is_null := match(v, .Null => true, _ => false);
   assert(is_null, "should be Null");
 });
-test("json_parse true", {
-  v := json_parse("true").unwrap();
+test("json.parse true", {
+  v := json.parse("true").unwrap();
   assert(v.as_bool().unwrap() == true, "should be true");
 });
-test("json_parse false", {
-  v := json_parse("false").unwrap();
+test("json.parse false", {
+  v := json.parse("false").unwrap();
   assert(v.as_bool().unwrap() == false, "should be false");
 });
-test("json_parse integer", {
-  v := json_parse("42").unwrap();
+test("json.parse integer", {
+  v := json.parse("42").unwrap();
   assert(v.as_number().unwrap() == f64(42), "should be 42");
 });
-test("json_parse negative number", {
-  v := json_parse("-17").unwrap();
+test("json.parse negative number", {
+  v := json.parse("-17").unwrap();
   assert(v.as_number().unwrap() == f64(-17), "should be -17");
 });
-test("json_parse float", {
-  v := json_parse("3.14").unwrap();
+test("json.parse float", {
+  v := json.parse("3.14").unwrap();
   n := v.as_number().unwrap();
   assert((n > f64(3.139)) && (n < f64(3.141)), "should be approximately 3.14");
 });
-test("json_parse string", {
-  v := json_parse("\"hello\"").unwrap();
+test("json.parse string", {
+  v := json.parse("\"hello\"").unwrap();
   assert(v.as_string().unwrap() == "hello", "should be hello");
 });
-test("json_parse string with escapes", {
-  v := json_parse("\"line1\\nline2\"").unwrap();
+test("json.parse string with escapes", {
+  v := json.parse("\"line1\\nline2\"").unwrap();
   s := v.as_string().unwrap();
   bytes := s.as_bytes();
   assert(bytes.len() == usize(11), "escaped string should have 11 bytes");
   assert(bytes(usize(5)) == u8(10), "byte 5 should be newline");
 });
-test("json_parse unicode escape BMP", {
+test("json.parse unicode escape BMP", {
   // \u0041 = 'A' (1-byte UTF-8), \u00e9 = 'é' (2-byte), \u4e2d = '中' (3-byte).
-  v := json_parse("\"\\u0041 \\u00e9 \\u4e2d\"").unwrap();
+  v := json.parse("\"\\u0041 \\u00e9 \\u4e2d\"").unwrap();
   s := v.as_string().unwrap();
   bytes := s.as_bytes();
   assert(bytes.len() == usize(8), "A + sp + 2-byte + sp + 3-byte = 8 bytes");
@@ -55,9 +56,9 @@ test("json_parse unicode escape BMP", {
   assert(bytes(usize(6)) == u8(0xB8), "中 continuation byte 1");
   assert(bytes(usize(7)) == u8(0xAD), "中 continuation byte 2");
 });
-test("json_parse unicode escape surrogate pair", {
+test("json.parse unicode escape surrogate pair", {
   // \ud83d\ude00 = U+1F600 (😀), 4-byte UTF-8 F0 9F 98 80.
-  v := json_parse("\"\\ud83d\\ude00\"").unwrap();
+  v := json.parse("\"\\ud83d\\ude00\"").unwrap();
   bytes := v.as_string().unwrap().as_bytes();
   assert(bytes.len() == usize(4), "one astral code point = 4 bytes");
   assert(bytes(usize(0)) == u8(0xF0), "byte 0");
@@ -65,44 +66,44 @@ test("json_parse unicode escape surrogate pair", {
   assert(bytes(usize(2)) == u8(0x98), "byte 2");
   assert(bytes(usize(3)) == u8(0x80), "byte 3");
 });
-test("json_parse lone high surrogate error", {
+test("json.parse lone high surrogate error", {
   assert(
-    match(json_parse("\"\\ud83d\""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"\\ud83d\""), .Ok(_) => false, .Err(_) => true),
     "lone high surrogate should throw"
   );
 });
-test("json_parse lone low surrogate error", {
+test("json.parse lone low surrogate error", {
   assert(
-    match(json_parse("\"\\udc00 tail\""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"\\udc00 tail\""), .Ok(_) => false, .Err(_) => true),
     "lone low surrogate should throw"
   );
 });
-test("json_parse invalid unicode escape hex error", {
+test("json.parse invalid unicode escape hex error", {
   assert(
-    match(json_parse("\"\\uZZZZ\""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"\\uZZZZ\""), .Ok(_) => false, .Err(_) => true),
     "non-hex \\u escape should throw"
   );
 });
-test("json_parse empty string", {
-  v := json_parse("\"\"").unwrap();
+test("json.parse empty string", {
+  v := json.parse("\"\"").unwrap();
   assert(v.as_string().unwrap() == "", "should be empty string");
 });
 // ===== Parse Arrays =====
-test("json_parse empty array", {
-  v := json_parse("[]").unwrap();
+test("json.parse empty array", {
+  v := json.parse("[]").unwrap();
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(0), "empty array should have 0 elements");
 });
-test("json_parse array of numbers", {
-  v := json_parse("[1, 2, 3]").unwrap();
+test("json.parse array of numbers", {
+  v := json.parse("[1, 2, 3]").unwrap();
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(3), "should have 3 elements");
   assert(arr(usize(0)).as_number().unwrap() == f64(1), "element 0");
   assert(arr(usize(1)).as_number().unwrap() == f64(2), "element 1");
   assert(arr(usize(2)).as_number().unwrap() == f64(3), "element 2");
 });
-test("json_parse mixed array", {
-  v := json_parse("[1, \"two\", true, null]").unwrap();
+test("json.parse mixed array", {
+  v := json.parse("[1, \"two\", true, null]").unwrap();
   arr := v.as_array().unwrap();
   assert(arr.len() == usize(4), "should have 4 elements");
   assert(arr(usize(0)).as_number().unwrap() == f64(1), "element 0 is 1");
@@ -112,13 +113,13 @@ test("json_parse mixed array", {
   assert(is_null, "element 3 is null");
 });
 // ===== Parse Objects =====
-test("json_parse empty object", {
-  v := json_parse("{}").unwrap();
+test("json.parse empty object", {
+  v := json.parse("{}").unwrap();
   entries := v.as_object().unwrap();
   assert(entries.len() == usize(0), "empty object should have 0 entries");
 });
-test("json_parse simple object", {
-  v := json_parse("{\"name\": \"test\", \"value\": 42}").unwrap();
+test("json.parse simple object", {
+  v := json.parse("{\"name\": \"test\", \"value\": 42}").unwrap();
   name := v.get(String.from("name"));
   assert(name.is_some(), "should have name key");
   assert(name.unwrap().as_string().unwrap() == "test", "name should be test");
@@ -126,33 +127,33 @@ test("json_parse simple object", {
   assert(value.is_some(), "should have value key");
   assert(value.unwrap().as_number().unwrap() == f64(42), "value should be 42");
 });
-test("json_parse nested object", {
-  v := json_parse("{\"outer\": {\"inner\": 99}}").unwrap();
+test("json.parse nested object", {
+  v := json.parse("{\"outer\": {\"inner\": 99}}").unwrap();
   outer := v(String.from("outer"));
   inner := outer(String.from("inner"));
   assert(inner.as_number().unwrap() == f64(99), "inner value should be 99");
 });
-test("json_parse nested array in object", {
-  v := json_parse("{\"items\": [10, 20, 30]}").unwrap();
+test("json.parse nested array in object", {
+  v := json.parse("{\"items\": [10, 20, 30]}").unwrap();
   items := v(String.from("items")).as_array().unwrap();
   assert(items.len() == usize(3), "items array should have 3 elements");
   assert(items(usize(1)).as_number().unwrap() == f64(20), "second item should be 20");
 });
 // ===== Parse Whitespace =====
-test("json_parse with whitespace", {
-  v := json_parse("  {  \"key\"  :  \"value\"  }  ").unwrap();
+test("json.parse with whitespace", {
+  v := json.parse("  {  \"key\"  :  \"value\"  }  ").unwrap();
   assert(v(String.from("key")).as_string().unwrap() == "value", "should parse correctly with whitespace");
 });
 // ===== Parse Errors =====
-test("json_parse empty input", {
+test("json.parse empty input", {
   assert(
-    match(json_parse(""), .Ok(_) => false, .Err(_) => true),
+    match(json.parse(""), .Ok(_) => false, .Err(_) => true),
     "empty input should throw"
   );
 });
-test("json_parse unclosed string error", {
+test("json.parse unclosed string error", {
   assert(
-    match(json_parse("\"hello"), .Ok(_) => false, .Err(_) => true),
+    match(json.parse("\"hello"), .Ok(_) => false, .Err(_) => true),
     "unclosed string should throw"
   );
 });
@@ -170,7 +171,7 @@ test("json_parse unclosed string error", {
 _rejects :: (fn(src : str) -> bool)(
   match(json_parse_result(String.from(src)), .Err(_) => true, .Ok(_) => false)
 );
-test("json_parse rejects malformed numbers", {
+test("json.parse rejects malformed numbers", {
   assert(_rejects("-"), "bare minus is not a number");
   assert(_rejects("1."), "trailing decimal point needs a digit");
   assert(_rejects("1e"), "exponent marker needs digits");
@@ -182,13 +183,13 @@ test("json_parse rejects malformed numbers", {
   assert(_rejects(".5"), "a fraction needs an integer part");
   assert(_rejects("-.5"), "a fraction needs an integer part after minus");
 });
-test("json_parse rejects garbage instead of reading it as 0", {
+test("json.parse rejects garbage instead of reading it as 0", {
   assert(_rejects("@"), "an unrecognized byte is not the number 0");
   assert(_rejects("hello"), "a bare word is not the number 0");
   assert(_rejects("<html>"), "an HTML error page is not the number 0");
   assert(_rejects("--1"), "a doubled minus is not a number");
 });
-test("json_parse still accepts every valid number form", {
+test("json.parse still accepts every valid number form", {
   _num :: (fn(src : str) -> f64)(
     match(
       json_parse_result(String.from(src)),
@@ -211,89 +212,91 @@ test("json_parse still accepts every valid number form", {
   assert(_num("123456789") == f64(123456789), "123456789");
 });
 // ===== Stringify =====
-test("json_stringify null", {
-  result := json_stringify(.Null);
+test("json.stringify null", {
+  result := json.stringify(.Null);
   assert(result == "null", "null should stringify to null");
+  // The deprecated `json_stringify` alias (removed in v0.2.32) still delegates.
+  assert(json.json_stringify(JsonValue.Null) == result, "json_stringify alias delegates to json.stringify");
 });
-test("json_stringify true", {
-  result := json_stringify(.Bool(true));
+test("json.stringify true", {
+  result := json.stringify(.Bool(true));
   assert(result == "true", "true should stringify to true");
 });
-test("json_stringify false", {
-  result := json_stringify(.Bool(false));
+test("json.stringify false", {
+  result := json.stringify(.Bool(false));
   assert(result == "false", "false should stringify to false");
 });
-test("json_stringify number", {
-  result := json_stringify(.Number(f64(42)));
+test("json.stringify number", {
+  result := json.stringify(.Number(f64(42)));
   assert(result == "42", "42 should stringify to 42");
 });
-test("json_stringify string", {
-  result := json_stringify(.Str(String.from("hello")));
+test("json.stringify string", {
+  result := json.stringify(.Str(String.from("hello")));
   assert(result == "\"hello\"", "hello should be quoted");
 });
-test("json_stringify empty array", {
+test("json.stringify empty array", {
   items := ArrayList(JsonValue).new();
-  result := json_stringify(.Array(items));
+  result := json.stringify(.Array(items));
   assert(result == "[]", "empty array should stringify to []");
 });
-test("json_stringify array", {
+test("json.stringify array", {
   items := ArrayList(JsonValue).new();
   items.push(.Number(f64(1)));
   items.push(.Number(f64(2)));
   items.push(.Number(f64(3)));
-  result := json_stringify(.Array(items));
+  result := json.stringify(.Array(items));
   assert(result == "[1,2,3]", "should stringify array");
 });
-test("json_stringify empty object", {
+test("json.stringify empty object", {
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
-  result := json_stringify(.Object(keys, vals));
+  result := json.stringify(.Object(keys, vals));
   assert(result == "{}", "empty object should stringify to {}");
 });
-test("json_stringify object", {
+test("json.stringify object", {
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
   keys.push(String.from("a"));
   vals.push(.Number(f64(1)));
   keys.push(String.from("b"));
   vals.push(.Bool(true));
-  result := json_stringify(.Object(keys, vals));
+  result := json.stringify(.Object(keys, vals));
   assert(result == "{\"a\":1,\"b\":true}", "should stringify object");
 });
 // ===== Roundtrip =====
 test("json roundtrip simple object", {
   input := "{\"name\":\"test\",\"value\":42}";
-  parsed := json_parse(input).unwrap();
-  output := json_stringify(parsed);
+  parsed := json.parse(input).unwrap();
+  output := json.stringify(parsed);
   assert(output == input, "roundtrip should preserve simple object");
 });
 test("json roundtrip nested", {
   input := "{\"a\":[1,2,3],\"b\":{\"c\":true}}";
-  parsed := json_parse(input).unwrap();
-  output := json_stringify(parsed);
+  parsed := json.parse(input).unwrap();
+  output := json.stringify(parsed);
   assert(output == input, "roundtrip should preserve nested structure");
 });
 test("json roundtrip booleans and null", {
   input := "[true,false,null]";
-  parsed := json_parse(input).unwrap();
-  output := json_stringify(parsed);
+  parsed := json.parse(input).unwrap();
+  output := json.stringify(parsed);
   assert(output == input, "roundtrip should preserve booleans and null");
 });
 // ===== JsonValue Methods =====
 test("JsonValue.get missing key", {
-  result := json_parse("{\"a\": 1}").unwrap();
+  result := json.parse("{\"a\": 1}").unwrap();
   assert(result.get(String.from("b")).is_none(), "missing key should return None");
 });
 test("JsonValue.get on non-object", {
-  result := json_parse("42").unwrap();
+  result := json.parse("42").unwrap();
   assert(result.get(String.from("a")).is_none(), "get on number should return None");
 });
 test("JsonValue.at valid index", {
-  result := json_parse("[10, 20, 30]").unwrap();
+  result := json.parse("[10, 20, 30]").unwrap();
   assert(result.at(usize(1)).unwrap().as_number().unwrap() == f64(20), "at(1) should be 20");
 });
 test("JsonValue.at on non-array", {
-  result := json_parse("42").unwrap();
+  result := json.parse("42").unwrap();
   assert(result.at(usize(0)).is_none(), "at on number should return None");
 });
 // ===== ToJson / FromJson =====
@@ -343,47 +346,47 @@ impl(
     })
   )
 );
-test("json_encode primitives", {
-  assert(json_encode(i32(42)) == "42", "i32 encode");
-  assert(json_encode(true) == "true", "bool encode");
-  assert(json_encode(`hi`) == "\"hi\"", "String encode");
-  assert(json_encode(f64(1.5)) == "1.5", "f64 encode");
+test("json.encode primitives", {
+  assert(json.encode(i32(42)) == "42", "i32 encode");
+  assert(json.encode(true) == "true", "bool encode");
+  assert(json.encode(`hi`) == "\"hi\"", "String encode");
+  assert(json.encode(f64(1.5)) == "1.5", "f64 encode");
 });
-test("json_decode primitives", {
+test("json.decode primitives", {
   match(
-    json_decode(i32, `42`),
+    json.decode(i32, `42`),
     .Ok(n) => assert(n == i32(42), "i32 decode value"),
     .Err(_) => assert(false, "i32 decode should succeed")
   );
   match(
-    json_decode(bool, `true`),
+    json.decode(bool, `true`),
     .Ok(b) => assert(b, "bool decode value"),
     .Err(_) => assert(false, "bool decode should succeed")
   );
   match(
-    json_decode(String, `"hello"`),
+    json.decode(String, `"hello"`),
     .Ok(s) => assert(s == "hello", "String decode value"),
     .Err(_) => assert(false, "String decode should succeed")
   );
 });
-test("json_decode integer errors", {
-  assert(json_decode(i8, `300`).is_err(), "i8 out of range must Err");
-  assert(json_decode(i32, `1.5`).is_err(), "non-integral must Err");
-  assert(json_decode(u8, `-1`).is_err(), "negative into u8 must Err");
-  assert(json_decode(i32, `"nope"`).is_err(), "string into i32 must Err");
+test("json.decode integer errors", {
+  assert(json.decode(i8, `300`).is_err(), "i8 out of range must Err");
+  assert(json.decode(i32, `1.5`).is_err(), "non-integral must Err");
+  assert(json.decode(u8, `-1`).is_err(), "negative into u8 must Err");
+  assert(json.decode(i32, `"nope"`).is_err(), "string into i32 must Err");
 });
 test("json Option roundtrip", {
   (some_v : Option(i32)) = Option(i32).Some(i32(7));
   (none_v : Option(i32)) = Option(i32).None;
-  assert(json_encode(some_v) == "7", "Some encodes as payload");
-  assert(json_encode(none_v) == "null", "None encodes as null");
+  assert(json.encode(some_v) == "7", "Some encodes as payload");
+  assert(json.encode(none_v) == "null", "None encodes as null");
   match(
-    json_decode(Option(i32), `null`),
+    json.decode(Option(i32), `null`),
     .Ok(o) => assert(o.is_none(), "null decodes to None"),
     .Err(_) => assert(false, "null decode should succeed")
   );
   match(
-    json_decode(Option(i32), `7`),
+    json.decode(Option(i32), `7`),
     .Ok(o2) => match(
       o2,
       .Some(n) => assert(n == i32(7), "Some payload value"),
@@ -397,9 +400,9 @@ test("json ArrayList roundtrip", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  assert(json_encode(list) == "[1,2,3]", "list encode");
+  assert(json.encode(list) == "[1,2,3]", "list encode");
   match(
-    json_decode(ArrayList(i32), `[1,2,3]`),
+    json.decode(ArrayList(i32), `[1,2,3]`),
     .Ok(back) => {
       assert(back.len() == usize(3), "decoded length");
       assert(back(usize(0)) == i32(1), "elem 0");
@@ -407,38 +410,38 @@ test("json ArrayList roundtrip", {
     },
     .Err(_) => assert(false, "list decode should succeed")
   );
-  assert(json_decode(ArrayList(i32), `[1,"x"]`).is_err(), "bad element must Err");
+  assert(json.decode(ArrayList(i32), `[1,"x"]`).is_err(), "bad element must Err");
 });
 test("json HashMap roundtrip", {
   m := HashMap(String, i32).new();
   m.insert(`a`, i32(1));
-  assert(json_encode(m) == "{\"a\":1}", "single-key map encode");
+  assert(json.encode(m) == "{\"a\":1}", "single-key map encode");
   match(
-    json_decode(HashMap(String, i32), `{"a":1,"b":2}`),
+    json.decode(HashMap(String, i32), `{"a":1,"b":2}`),
     .Ok(back) => {
       assert(back.get(`a`).unwrap() == i32(1), "key a");
       assert(back.get(`b`).unwrap() == i32(2), "key b");
     },
     .Err(_) => assert(false, "map decode should succeed")
   );
-  assert(json_decode(HashMap(String, i32), `{"a":"x"}`).is_err(), "bad value must Err");
+  assert(json.decode(HashMap(String, i32), `{"a":"x"}`).is_err(), "bad value must Err");
 });
 test("json custom struct roundtrip", {
   p := _TPoint(x : i32(3), y : i32(-4));
-  encoded := json_encode(p);
+  encoded := json.encode(p);
   assert(encoded == "{\"x\":3,\"y\":-4}", "struct encode shape");
   match(
-    json_decode(_TPoint, encoded),
+    json.decode(_TPoint, encoded),
     .Ok(back) => {
       assert(back.x == i32(3), "x roundtrip");
       assert(back.y == i32(-4), "y roundtrip");
     },
     .Err(_) => assert(false, "struct decode should succeed")
   );
-  assert(json_decode(_TPoint, `{"x":1}`).is_err(), "missing field must Err");
+  assert(json.decode(_TPoint, `{"x":1}`).is_err(), "missing field must Err");
 });
-test("json_decode parse error is Err", {
-  assert(json_decode(i32, `{oops`).is_err(), "invalid JSON must Err not throw");
+test("json.decode parse error is Err", {
+  assert(json.decode(i32, `{oops`).is_err(), "invalid JSON must Err not throw");
   assert(json_parse_result(`[1,2`).is_err(), "json_parse_result surfaces Err");
   match(
     json_parse_result(`[1,2]`),
@@ -455,10 +458,10 @@ derive(_DOuter, ToJson(_DOuter));
 derive(_DOuter, FromJson(_DOuter));
 test("derived struct roundtrip", {
   v := _DInner(a : i32(7), b : `seven`);
-  s := json_encode(v);
+  s := json.encode(v);
   assert(s == "{\"a\":7,\"b\":\"seven\"}", "derived encode shape");
   match(
-    json_decode(_DInner, s),
+    json.decode(_DInner, s),
     .Ok(back) => {
       assert(back.a == i32(7), "a roundtrip");
       assert(back.b == "seven", "b roundtrip");
@@ -468,10 +471,10 @@ test("derived struct roundtrip", {
 });
 test("derived nested struct roundtrip", {
   o := _DOuter(name : `outer`, inner : _DInner(a : i32(1), b : `one`), flag : true);
-  s := json_encode(o);
+  s := json.encode(o);
   assert(s == "{\"name\":\"outer\",\"inner\":{\"a\":1,\"b\":\"one\"},\"flag\":true}", "nested encode shape");
   match(
-    json_decode(_DOuter, s),
+    json.decode(_DOuter, s),
     .Ok(back) => {
       assert(back.name == "outer", "name roundtrip");
       assert(back.inner.a == i32(1), "nested a roundtrip");
@@ -482,9 +485,9 @@ test("derived nested struct roundtrip", {
   );
 });
 test("derived decode missing field errors", {
-  assert(json_decode(_DOuter, `{"name":"x","flag":true}`).is_err(), "missing inner must Err");
+  assert(json.decode(_DOuter, `{"name":"x","flag":true}`).is_err(), "missing inner must Err");
   match(
-    json_decode(_DInner, `{"a":1}`),
+    json.decode(_DInner, `{"a":1}`),
     .Ok(_) => assert(false, "missing b must Err"),
     .Err(e) => match(
       e,
@@ -509,9 +512,9 @@ test("derived roundtrip with Option and ArrayList fields", {
   xs.push(i32(1));
   xs.push(i32(2));
   v := _DGeneric(tag : Option(i32).Some(i32(5)), items : xs, name : `g`);
-  s := json_encode(v);
+  s := json.encode(v);
   match(
-    json_decode(_DGeneric, s),
+    json.decode(_DGeneric, s),
     .Ok(back) => {
       assert(back.tag.is_some(), "Option field roundtrips as Some");
       assert(back.tag.unwrap_or(i32(0)) == i32(5), "Option payload roundtrips");
@@ -525,7 +528,7 @@ test("derived roundtrip with a None Option field", {
   ys := ArrayList(i32).new();
   v := _DGeneric(tag : Option(i32).None, items : ys, name : `n`);
   match(
-    json_decode(_DGeneric, json_encode(v)),
+    json.decode(_DGeneric, json.encode(v)),
     .Ok(back) => assert(back.tag.is_none(), "None roundtrips as None"),
     .Err(_) => assert(false, "decode should succeed for a None field")
   );
@@ -556,16 +559,16 @@ test("json_parse_result still accepts a lone value with surrounding whitespace",
   assert(match(json_parse_result(`null`.to_string()), .Ok(_) => true, .Err(_) => false), "a bare null is one value");
   assert(match(json_parse_result(`{"a":1}`.to_string()), .Ok(_) => true, .Err(_) => false), "a lone object is one value");
 });
-test("json_parse throws on content after the value, and names the position", {
+test("json.parse throws on content after the value, and names the position", {
   assert(
-    match(json_parse("[1,2][3,4]"), .Ok(_) => false, .Err(_) => true),
-    "json_parse must throw on trailing content"
+    match(json.parse("[1,2][3,4]"), .Ok(_) => false, .Err(_) => true),
+    "json.parse must throw on trailing content"
   );
 });
 test("JsonValue Default is null", {
   v := JsonValue.default();
   assert(match(v, .Null => true, _ => false), "default JsonValue is .Null");
-  assert(json_stringify(v) == `null`, "the default value stringifies as null");
+  assert(json.stringify(v) == `null`, "the default value stringifies as null");
 });
 test("JsonValue variant predicates", {
   n := JsonValue.Null;
@@ -597,21 +600,21 @@ test("JsonValue object mutation: insert replaces in place, remove keeps order", 
   assert(o.insert(`b`, JsonValue.Number(f64(2.0))).is_none(), "b is new");
   prev := o.insert(`a`, JsonValue.Number(f64(3.0)));
   assert(prev.unwrap().as_f64().unwrap() == f64(1.0), "insert returns the replaced value");
-  assert(json_stringify(o) == `{"a":3,"b":2}`, "a keeps its original position");
+  assert(json.stringify(o) == `{"a":3,"b":2}`, "a keeps its original position");
   gone := o.remove(`a`);
   assert(gone.unwrap().as_f64().unwrap() == f64(3.0), "remove returns the value");
   assert(o.remove(`a`).is_none(), "removing twice is None");
-  assert(json_stringify(o) == `{"b":2}`, "the survivor keeps its order");
+  assert(json.stringify(o) == `{"b":2}`, "the survivor keeps its order");
 });
 test("JsonValue array mutation", {
   a := JsonValue.array();
   a.push(JsonValue.Number(f64(1.0)));
   a.push(JsonValue.Str(`two`));
-  assert(json_stringify(a) == `[1,"two"]`, "push appends");
+  assert(json.stringify(a) == `[1,"two"]`, "push appends");
   assert(a.at(usize(1)).unwrap().as_string().unwrap() == `two`, "at reads back");
 });
 test("JsonValue.pointer resolves RFC 6901 paths", {
-  v := json_parse("{\"a\":{\"b\":[10,20]},\"x~y\":1,\"p/q\":2,\"\":3,\"~1\":4}").unwrap();
+  v := json.parse("{\"a\":{\"b\":[10,20]},\"x~y\":1,\"p/q\":2,\"\":3,\"~1\":4}").unwrap();
   assert(v.pointer(``).unwrap() == v, "the empty pointer is the whole document");
   assert(v.pointer(`/a/b/1`).unwrap().as_i64().unwrap() == i64(20), "object then array");
   assert(v.pointer(`/x~0y`).unwrap().as_i64().unwrap() == i64(1), "~0 decodes to ~");
@@ -627,25 +630,25 @@ test("JsonValue.pointer resolves RFC 6901 paths", {
   assert(v.pointer(`/~01`).unwrap().as_i64().unwrap() == i64(4), "~01 decodes to the literal ~1");
 });
 test("JsonValue Eq compares objects as maps, not positionally", {
-  a := json_parse("{\"x\":1,\"y\":[2,{\"z\":null}]}").unwrap();
-  b := json_parse("{\"y\":[2,{\"z\":null}],\"x\":1}").unwrap();
+  a := json.parse("{\"x\":1,\"y\":[2,{\"z\":null}]}").unwrap();
+  b := json.parse("{\"y\":[2,{\"z\":null}],\"x\":1}").unwrap();
   assert(a == b, "key order is not significant");
-  c := json_parse("{\"x\":1,\"y\":[2,{\"z\":true}]}").unwrap();
+  c := json.parse("{\"x\":1,\"y\":[2,{\"z\":true}]}").unwrap();
   assert(a != c, "a nested difference is caught");
-  d := json_parse("{\"x\":1}").unwrap();
+  d := json.parse("{\"x\":1}").unwrap();
   assert(a != d, "a missing key is caught");
   assert(JsonValue.Null == JsonValue.Null, "Null == Null");
   assert(JsonValue.Null != JsonValue.Bool(false), "Null != false");
 });
 test("JsonValue Clone makes an independent tree", {
-  a := json_parse("{\"xs\":[1]}").unwrap();
+  a := json.parse("{\"xs\":[1]}").unwrap();
   b := a.clone();
   assert(a == b, "the clone starts equal");
   b.pointer(`/xs`).unwrap().push(JsonValue.Number(f64(2.0)));
-  assert(json_stringify(a) == `{"xs":[1]}`, "the original is untouched");
-  assert(json_stringify(b) == `{"xs":[1,2]}`, "the clone grew");
+  assert(json.stringify(a) == `{"xs":[1]}`, "the original is untouched");
+  assert(json.stringify(b) == `{"xs":[1,2]}`, "the clone grew");
 });
 test("JsonValue ToString is the compact JSON text", {
-  v := json_parse("{\"a\": [1, 2]}").unwrap();
-  assert(v.to_string() == `{"a":[1,2]}`, "ToString == json_stringify");
+  v := json.parse("{\"a\": [1, 2]}").unwrap();
+  assert(v.to_string() == `{"a":[1,2]}`, "ToString == json.stringify");
 });

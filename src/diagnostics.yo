@@ -13,7 +13,8 @@
 { String } :: import("std/string");
 { println, eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ JsonValue, json_stringify } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
 /// The error-rendering format for this process: "human" (default), "short",
 /// or "json" (JSON Lines — one object per diagnostic, on stdout). Set once
 /// at CLI startup from `--error-format`/`YO_ERROR_FORMAT`; every edge that
@@ -398,7 +399,7 @@ render_diagnostics_json :: (fn(diagnostics : ArrayList(Diagnostic)) -> String)({
         );
         keys.push(String.from("rendered"));
         vals.push(JsonValue.Str(value : render_diagnostics_human(single)));
-        out.push(json_stringify(JsonValue.Object(keys : keys, values : vals)));
+        out.push(json.stringify(JsonValue.Object(keys : keys, values : vals)));
       },
       .None => ()
     );

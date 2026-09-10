@@ -86,7 +86,8 @@ _(env : proc_env) :: import("std/env");
 { set_verify_mode_override, set_verify_target_paths, take_verify_tasks } :: import("./evaluator/builtins/contracts.yo");
 { ensure_z3 } :: import("./verifier/z3.yo");
 { Z3_VERSION } :: import("./verifier/z3.yo");
-{ json_stringify, JsonValue } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
 { Environment } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
 // ExprInfoTable and std-path resolution all live in `module_manager.yo` — the
@@ -1180,7 +1181,7 @@ run_verify_cmd :: (
     vs2.push(JsonValue.Bool(harness_ok));
     vs2.push(JsonValue.Array(_verify_self_test_json(results)));
     vs2.push(JsonValue.Array(fn_entries));
-    println(json_stringify(JsonValue.Object(keys : ks2, values : vs2)));
+    println(json.stringify(JsonValue.Object(keys : ks2, values : vs2)));
   }, {
     println(`verify: solver: ${binary} (z3 ${Z3_VERSION})`);
     println(

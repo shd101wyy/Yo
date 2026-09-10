@@ -7,7 +7,7 @@
 //! high 64 bits of the bit length as `total >> 61`.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
-{ hex_encode } :: import("../encoding/hex");
+hex :: import("../encoding/hex");
 { Digest } :: import("./digest");
 { String } :: import("../string");
 _K512 :: Array(u64, usize(80))(
@@ -274,6 +274,6 @@ sha512_hex :: (fn(data : ArrayList(u8)) -> String)({
   while(i < usize(64), i = (i + usize(1)), {
     bytes.push(digest(i));
   });
-  hex_encode(bytes)
+  hex.encode(bytes)
 });
 export(sha512, sha512_hex);

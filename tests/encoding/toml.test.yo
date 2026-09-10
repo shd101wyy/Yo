@@ -8,12 +8,13 @@
 { String } :: import("std/string");
 { ToString } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ toml_parse, toml_stringify, TomlValue, TomlDateTimeKind } :: import("std/encoding/toml");
+toml :: import("std/encoding/toml");
+{ TomlValue, TomlDateTimeKind } :: import("std/encoding/toml");
 import("std/math");
 /// Parse, failing the test on an error.
 _doc :: (fn(text : String) -> TomlValue)(
   match(
-    toml_parse(text),
+    toml.parse(text),
     .Ok(v) => v,
     .Err(e) => {
       assert(false, `unexpected toml error: ${e}`);
@@ -23,10 +24,10 @@ _doc :: (fn(text : String) -> TomlValue)(
 );
 /// The byte offset an input fails at — `usize.MAX` when it wrongly parsed.
 _epos :: (fn(text : String) -> usize)(
-  match(toml_parse(text), .Err(e) => e.pos(), .Ok(_) => usize.MAX)
+  match(toml.parse(text), .Err(e) => e.pos(), .Ok(_) => usize.MAX)
 );
 _rejected :: (fn(text : String) -> bool)(
-  toml_parse(text).is_err()
+  toml.parse(text).is_err()
 );
 /// The string at a top-level key.
 _str_at :: (fn(text : String, key : String) -> String)({
@@ -40,15 +41,15 @@ _str_at :: (fn(text : String, key : String) -> String)({
 /// parse → stringify → parse → equal.
 _round_trips :: (fn(text : String) -> bool)({
   a := match(
-    toml_parse(text),
+    toml.parse(text),
     .Ok(v) => v,
     .Err(_) => {
       return(false);
     }
   );
-  s := toml_stringify(a);
+  s := toml.stringify(a);
   b := match(
-    toml_parse(s),
+    toml.parse(s),
     .Ok(v) => v,
     .Err(_) => {
       return(false);
@@ -629,7 +630,7 @@ name = "x"
 [server.inner]
 deep = true`
   );
-  s := toml_stringify(d);
+  s := toml.stringify(d);
   assert(s.contains(`[server]`), "a header for the sub-table");
   assert(s.contains(`[server.inner]`), "a dotted header for the nested table");
   assert(s.contains(`port = 8080`), "an integer");
@@ -644,7 +645,7 @@ test("Serializer: keys, floats, arrays of tables, empty tables", {
   t := TomlValue.new_table();
   _a := t.insert(`bare_key-1`, TomlValue.Int(i64(1)));
   _b := t.insert(`needs quoting`, TomlValue.Int(i64(2)));
-  s := toml_stringify(t);
+  s := toml.stringify(t);
   assert(s.contains(`bare_key-1 = 1`), "a bare key is written bare");
   assert(s.contains(`"needs quoting" = 2`), "a key that cannot be bare is quoted");
   f := TomlValue.new_table();
@@ -652,7 +653,7 @@ test("Serializer: keys, floats, arrays of tables, empty tables", {
   _d := f.insert(`pi`, TomlValue.Float(f64(3.141592653589793)));
   _e := f.insert(`inf`, TomlValue.Float(f64.INFINITY));
   _f2 := f.insert(`nan`, TomlValue.Float(f64.NAN));
-  fs := toml_stringify(f);
+  fs := toml.stringify(f);
   assert(fs.contains(`whole = 3.0`), "an integral float keeps a `.0` so it stays a float");
   assert(fs.contains(`pi = 3.141592653589793`), "a float renders in full precision, shortest form");
   assert(fs.contains(`inf = inf`), "infinity");
@@ -663,12 +664,12 @@ a = 1
 [[x]]
 a = 2`
   );
-  as_text := toml_stringify(aot);
+  as_text := toml.stringify(aot);
   assert(as_text.contains(`[[x]]`), "an array of tables gets [[…]] headers");
   mixed := _doc(`x = [1, "two"]`);
-  assert(toml_stringify(mixed).contains(`x = [1, "two"]`), "a mixed array stays inline");
+  assert(toml.stringify(mixed).contains(`x = [1, "two"]`), "a mixed array stays inline");
   empty := _doc(`[a]`);
-  assert(toml_stringify(empty).contains(`[a]`), "an empty table still gets its header");
+  assert(toml.stringify(empty).contains(`[a]`), "an empty table still gets its header");
 });
 test("Round trip: one per value kind", {
   assert(_round_trips(`s = "hi"`), "string");
@@ -770,8 +771,8 @@ name = "banana"`;
   assert(d.get(`fruits`).unwrap().array_len() == usize(2), "two fruits");
   assert(_round_trips(input), "the whole document round-trips");
   // And the serialized text is stable: stringify twice, same bytes.
-  once := toml_stringify(d);
-  twice := toml_stringify(_doc(once));
+  once := toml.stringify(d);
+  twice := toml.stringify(_doc(once));
   assert(once == twice, "serialization is deterministic");
 });
 test("ToString renders TOML text; the kind enum compares", {

@@ -5,10 +5,10 @@
 //! ## Example
 //!
 //! ```rust
-//! { hex_encode, hex_decode } :: import "std/encoding/hex";
+//! hex :: import("std/encoding/hex");
 //!
-//! s := hex_encode(data);         // "deadbeef"
-//! b := hex_decode(`deadbeef`).unwrap();
+//! s := hex.encode(data);         // "deadbeef"
+//! b := hex.decode(`deadbeef`).unwrap();
 //! ```
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
@@ -32,10 +32,10 @@ _hex_encode_impl :: (fn(data : ArrayList(u8), hex_chars : str) -> String)({
   String.from_bytes(out)
 });
 /// Encode bytes as a lowercase hexadecimal string.
-hex_encode :: (fn(data : ArrayList(u8)) -> String)(
+encode :: (fn(data : ArrayList(u8)) -> String)(
   _hex_encode_impl(data, _HEX_CHARS)
 );
-export(hex_encode);
+export(encode);
 // ============================================================================
 // Decoding
 // ============================================================================
@@ -54,8 +54,8 @@ _hex_nibble_res :: (fn(c : u8, pos : usize) -> Result(u8, EncodingError))(
   )
 );
 /// Decode a hexadecimal string to bytes (D13 — a pure transform returns a
-/// `Result`; `hex_decode_exn` is the effect-carrying wrapper).
-hex_decode :: (fn(s : String) -> Result(ArrayList(u8), EncodingError))({
+/// `Result`; `decode_exn` is the effect-carrying wrapper).
+decode :: (fn(s : String) -> Result(ArrayList(u8), EncodingError))({
   cond(
     ((s.len() % usize(2)) != usize(0)) => {
       return(.Err(EncodingError.OddLength(len : s.len())));
@@ -83,9 +83,23 @@ hex_decode :: (fn(s : String) -> Result(ArrayList(u8), EncodingError))({
   });
   .Ok(out)
 });
-/// `hex_decode` as an effect: throws the `EncodingError` through `exn`
+/// `decode` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
-hex_decode_exn :: (fn(s : String, exn : Exception) -> ArrayList(u8))(
-  match(hex_decode(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+decode_exn :: (fn(s : String, exn : Exception) -> ArrayList(u8))(
+  match(decode(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
-export(hex_decode, hex_decode_exn);
+export(decode, decode_exn);
+// ============================================================================
+// DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32
+// ============================================================================
+// `hex :: import("std/encoding/hex")` already qualifies the call, so the `hex_`
+// prefix stuttered (`hex.hex_encode`). These thin aliases keep the pre-rename
+// spellings compiling for one release, the way `json_parse_result` and
+// `derive(ToString)` were kept in v0.2.28.
+/// DEPRECATED, removed in v0.2.32: call `hex.encode`.
+hex_encode :: (fn(data : ArrayList(u8)) -> String)(encode(data));
+/// DEPRECATED, removed in v0.2.32: call `hex.decode`.
+hex_decode :: (fn(s : String) -> Result(ArrayList(u8), EncodingError))(decode(s));
+/// DEPRECATED, removed in v0.2.32: call `hex.decode_exn`.
+hex_decode_exn :: (fn(s : String, exn : Exception) -> ArrayList(u8))(decode_exn(s, exn));
+export(hex_encode, hex_decode, hex_decode_exn);

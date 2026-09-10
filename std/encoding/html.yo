@@ -6,9 +6,9 @@
 //! ## Example
 //!
 //! ```rust
-//! { html_decode } :: import "std/encoding/html";
+//! html :: import("std/encoding/html");
 //!
-//! result := html_decode(`&amp; &lt; &#38; &#x26;`);
+//! result := html.decode(`&amp; &lt; &#38; &#x26;`);
 //! assert((result == `& < & &`), "decoded entities");
 //! ```
 { rune, String } :: import("../string");
@@ -17,7 +17,7 @@
 { _build_entity_map, _build_legacy_set } :: import("./html_entities");
 // Module-level state: the entity map and legacy set, built ONCE when the
 // module is initialised (before `main`, single-threaded). They used to be
-// lazily initialised by the first `html_decode` through an unsynchronised
+// lazily initialised by the first `decode` through an unsynchronised
 // flag, so two threads' first decodes raced to build and publish them
 // (issues/fixed/html-and-log-globals-raced.md).
 _entity_map := _build_entity_map();
@@ -70,7 +70,7 @@ _is_alpha_numeric :: (fn(c : rune) -> bool)(
 // ---------------------------------------------------------------------------
 // A rune-indexed view of the input.
 //
-// `html_decode` is a BACKTRACKING scanner: it seeks forward over digits and
+// `decode` is a BACKTRACKING scanner: it seeks forward over digits and
 // entity names, then walks `try_end` back down one rune at a time looking for
 // a legacy prefix. That needs random access by rune, which `chars()` alone
 // cannot give — so the input is materialized once as a table of
@@ -136,7 +136,7 @@ _slice_runes :: (
 ///
 /// Supports named (`&amp;`), decimal (`&#38;`), and hexadecimal (`&#x26;`) character
 /// references. Legacy mode — entities without trailing semicolons are also decoded.
-html_decode :: (fn(input : String) -> String)({
+decode :: (fn(input : String) -> String)({
   if(input.chars().count() == usize(0), {
     return(input);
   });
@@ -313,9 +313,9 @@ html_decode :: (fn(input : String) -> String)({
 /// the five XSS-critical characters become entities (`&` `<` `>` `"` `'` →
 /// `&amp;` `&lt;` `&gt;` `&quot;` `&#39;`). Everything else — including all
 /// multibyte UTF-8 — passes through byte-identically, so
-/// `html_decode(html_encode(s)) == s` for any `s`
+/// `decode(encode(s)) == s` for any `s`
 /// (plans/archive/STD_API_AUDIT.md D2 + §7 P0).
-html_encode :: (fn(input : String) -> String)({
+encode :: (fn(input : String) -> String)({
   out := String.with_capacity(input.len());
   bytes := input.as_bytes();
   n := bytes.len();
@@ -333,4 +333,16 @@ html_encode :: (fn(input : String) -> String)({
   });
   out
 });
-export(html_decode, html_encode, is_valid_entity_code, from_code_point);
+export(decode, encode, is_valid_entity_code, from_code_point);
+// ============================================================================
+// DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32
+// ============================================================================
+// `html :: import("std/encoding/html")` already qualifies the call, so the
+// `html_` prefix stuttered (`html.html_decode`). These thin aliases keep the
+// pre-rename spellings compiling for one release, the way `json_parse_result`
+// and `derive(ToString)` were kept in v0.2.28.
+/// DEPRECATED, removed in v0.2.32: call `html.decode`.
+html_decode :: (fn(input : String) -> String)(decode(input));
+/// DEPRECATED, removed in v0.2.32: call `html.encode`.
+html_encode :: (fn(input : String) -> String)(encode(input));
+export(html_decode, html_encode);
