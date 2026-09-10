@@ -7,6 +7,7 @@
 { String } :: import("std/string");
 { CodeGenContext } :: import("../utils/index.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
+{ emit_fixed_allocator_defines, emit_fixed_allocator_impl } :: import("./allocator_fixed.yo");
 /// Collect C include headers from the collected types and extern functions.
 /// Mirrors `collectCIncludes`.
 collect_c_includes :: (fn(context : CodeGenContext) -> unit)({
@@ -118,6 +119,13 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
   // Add allocator compatibility layer based on the allocator option.
   context.emitter.emit_header_line("");
   cond(
+    (context.allocator == "fixed") => {
+      // The TLSF fixed-region arm: defines + external prototypes in the
+      // header, the implementation defined once in the code section (see
+      // allocator_fixed.yo for the chunked-emission reasoning).
+      emit_fixed_allocator_defines(context.emitter);
+      emit_fixed_allocator_impl(context);
+    },
     (context.allocator == "mimalloc") => {
       context.emitter.emit_header_line("// Mimalloc compatibility layer - try mimalloc first, fallback to stdlib");
       context.emitter.emit_header_line("#ifdef __has_include");
@@ -171,6 +179,31 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
         context.emitter.emit_header_line("#define __yo_aligned_free free");
       });
     }
+  );
+  // OOM hardening (plans/reference/FIXED_REGION_ALLOCATOR.md §2.5): allocation
+  // failure is a PANIC with a diagnostic, never a NULL that reaches a
+  // dereference. The RC constructors and runtime helpers allocate through
+  // __yo_rc_alloc; programs that must survive OOM use the fallible surface
+  // (GlobalAllocator.malloc and the try_* APIs). The fixed arm defines
+  // __yo_alloc_fail itself (with heap stats) in the code section; the other
+  // arms get the plain definition below.
+  if(context.allocator != "fixed", {
+    context.emitter.emit_string_line(
+      `
+void __yo_alloc_fail(size_t size) {
+  fprintf(stderr, "out of memory: requested %zu bytes\\n", size);
+  abort();
+}`
+    );
+  });
+  context.emitter.emit_header_line("void __yo_alloc_fail(size_t size);");
+  context.emitter.emit_header_string_line(
+    `
+static inline void* __yo_rc_alloc(size_t size) {
+  void* p = __yo_malloc(size);
+  if (p == NULL) __yo_alloc_fail(size);
+  return p;
+}`
   );
   context.emitter.emit_header_line("");
 });

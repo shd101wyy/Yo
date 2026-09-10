@@ -117,6 +117,7 @@ Build artifacts use struct types with default field values (like Zig's options p
 | `target`    | `comptime_str` | `target_host`      | Target triple (e.g. `"wasm32-unknown-emscripten"`) |
 | `optimize`  | `Optimize`     | `Optimize.Debug`   | Optimization level                         |
 | `allocator` | `Allocator`    | `Allocator.System` | Memory allocator                           |
+| `heap_size` | `usize`        | `16777216` (16 MiB) | Fixed-region heap size (`Allocator.Fixed` only) |
 | `sanitize`  | `Sanitize`     | `Sanitize.None`    | Sanitizer                                  |
 
 ### `StaticLibrary`
@@ -162,6 +163,18 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 | -------------------- | ----------------------------------------- |
 | `Allocator.Mimalloc` | High-performance allocator (mimalloc)     |
 | `Allocator.System`   | The platform's system allocator (default) |
+| `Allocator.Fixed`    | General-purpose TLSF allocator over ONE statically-sized region (see below) |
+
+`Allocator.Fixed` serves every allocation out of a single statically-sized
+region in `.bss` — no libc heap (the first building block of the
+embedded/freestanding story). Set its size with the executable's `heap_size`
+field (bytes; 64 KiB to 4 GiB, rounded down to a 16-byte granule; default
+16 MiB). With a bounded region, running out of memory is a **panic with a
+diagnostic** (`out of memory: requested N bytes (fixed heap ...)`), which
+makes OOM a reproducible test input instead of unreachable overcommit. The
+allocator is thread-safe (the parallelism runtime allocates from worker
+threads), and `yo compile --debug-heap` turns it into a portable leak oracle
+by reporting live blocks at process exit.
 
 ### Sanitizers
 

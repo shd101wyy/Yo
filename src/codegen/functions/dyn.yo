@@ -141,7 +141,7 @@ generate_dyn_box_functions :: (fn(context : FunctionGenerationContext) -> unit)(
             em.emit_declaration_line("");
           });
           em.emit_string_line(`static ${box_name}* __yo_new_${box_name}(${value_str} value) {`);
-          em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_malloc(sizeof(${box_name}));`);
+          em.emit_string_line(`  ${box_name}* box = (${box_name}*)__yo_rc_alloc(sizeof(${box_name}));`);
           em.emit_line("  box->header.ref_count = 1;");
           em.emit_line("  box->header.borrow_count = 0;");
           if(context.base.needs_cycle_gc, {

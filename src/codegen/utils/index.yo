@@ -188,8 +188,15 @@ CodeGenContext :: ref(
     info_table : ExprInfoTable,
     /// Compilation target info (arch, os, abi).
     target_info : TargetInfo,
-    /// Memory allocator, already resolved: "mimalloc" or "system".
+    /// Memory allocator, already resolved: "mimalloc", "system" or "fixed".
     allocator : String,
+    /// Fixed-region allocator heap size in bytes (the `--allocator fixed` /
+    /// `--heap-size` pair). Validated upstream: granule-aligned,
+    /// 64 KiB..4 GiB. Ignored by the other allocators.
+    heap_size : usize,
+    /// `--debug-heap`: emit the fixed allocator's at-exit leak-oracle
+    /// reporter (requires `allocator == "fixed"`).
+    debug_heap : bool,
     /// The current function being generated (for `recur`).
     current_function_name : String,
     /// Debug logging flags.
@@ -309,6 +316,8 @@ impl(
       info_table : ExprInfoTable,
       target_info : TargetInfo,
       allocator : String,
+      heap_size : usize,
+      debug_heap : bool,
       debug_gc : bool,
       debug_parallelism : bool,
       debug_async_await : bool,
@@ -327,6 +336,8 @@ impl(
       info_table : info_table,
       target_info : target_info,
       allocator : allocator,
+      heap_size : heap_size,
+      debug_heap : debug_heap,
       current_function_name : String.from(""),
       debug_gc : debug_gc,
       debug_parallelism : debug_parallelism,

@@ -85,7 +85,7 @@ _generate_one_constructor :: (fn(type : TypeValue, c_name : String, context : Fu
   alloc.push_string(c_name.clone());
   alloc.push_str("* obj = (");
   alloc.push_string(c_name.clone());
-  alloc.push_str("*)__yo_malloc(sizeof(");
+  alloc.push_str("*)__yo_rc_alloc(sizeof(");
   alloc.push_string(c_name.clone());
   alloc.push_str("));");
   em.emit_string_line(alloc);
@@ -577,7 +577,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : TypeValue, c_name : String,
         });
         // Signature + malloc.
         em.emit_string_line(`static ${c_name}* __yo_new_${c_name}_${vname}(${params}) {`);
-        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_malloc(sizeof(${c_name}));`);
+        em.emit_string_line(`  ${c_name}* obj = (${c_name}*)__yo_rc_alloc(sizeof(${c_name}));`);
         em.emit_string_line(`  obj->header.ref_count = 1;  // Start with one reference`);
         em.emit_string_line(`  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet`);
         if(context.base.needs_cycle_gc && !is_atomic, {

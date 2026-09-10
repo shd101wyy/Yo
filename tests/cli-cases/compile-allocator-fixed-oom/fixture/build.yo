@@ -1,0 +1,16 @@
+build :: import("std/build");
+
+// plans/reference/FIXED_REGION_ALLOCATOR.md P1: the OOM oracle. A 64 KiB
+// region — the minimum legal heap — makes out-of-memory an ordinary,
+// reproducible input instead of an unreachable overcommit case.
+exe :: build.executable({
+  name : "oom-probe",
+  root : "./src/main.yo",
+  allocator : build.Allocator.Fixed,
+  heap_size : usize(65536)
+});
+install :: build.step("install", "Build the probe");
+install.depend_on(exe);
+run_exe :: build.run(exe);
+run :: build.step("run", "Run the probe");
+run.depend_on(run_exe);

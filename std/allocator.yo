@@ -58,6 +58,11 @@ extern(
 ///
 /// Crossing the two corrupts the heap on Windows, where the aligned family is
 /// the CRT's separate `_aligned_malloc` / `_aligned_free` pair.
+///
+/// Under `--allocator fixed` there is ONE family: `aligned_free` and `free`
+/// are the same function, so the split above cannot bite (the region's
+/// `aligned_alloc` splits a misaligned front piece back into the pool and
+/// every release path coalesces through the same TLSF `free`).
 GlobalAllocator :: impl({
   /// Allocate `size` uninitialized bytes. `.None` on failure.
   /// Release with `free`.

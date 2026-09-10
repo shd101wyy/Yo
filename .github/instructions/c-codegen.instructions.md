@@ -103,6 +103,26 @@ versions in the job logs first.
 
 - `--allocator mimalloc` (default) — high-performance allocation
 - `--allocator system` — the platform system allocator (default; `libc` is a deprecated alias)
+- `--allocator fixed` — hand-written TLSF over ONE static `.bss` region
+  (`plans/reference/FIXED_REGION_ALLOCATOR.md`). The implementation is emitted
+  by `src/codegen/c/allocator_fixed.yo`: defines + external prototypes in the
+  header section, the region/control block/functions ONCE in the code section
+  (chunked emission keeps a single copy in chunk 0 — never move the state into
+  the header, or every TU gets its own region). One family only:
+  `__yo_aligned_free` IS `__yo_free`. It was developed against a standalone C
+  stress harness (randomized integrity hammer, physical-block invariant
+  walker, multi-threaded hammer); keep that harness in sync when touching the
+  algorithm. `--heap-size <n>[K|M|G]` (fixed only, 64K..4G) sizes the region;
+  `--debug-heap` (fixed only) prints peak/live-at-exit at process exit.
+
+### Out-of-memory policy (all allocators)
+
+Runtime sites that cannot propagate failure (RC constructors, async/parallelism
+runtimes) allocate through `__yo_rc_alloc`, which panics via `__yo_alloc_fail`
+(printed diagnostic + `abort()`) instead of letting a NULL reach a dereference.
+New runtime C must use `__yo_rc_alloc` for unchecked allocations — never a bare
+`__yo_malloc` whose result is used without a NULL check (an explicit
+`if (!p) return -ENOMEM;` path is still preferred where one exists).
 
 ## Memory leak detection
 
