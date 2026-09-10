@@ -480,7 +480,7 @@ get_value :: (fn(opt : Option(i32)) -> i32)(
 );
 ```
 
-- `return expr` is invalid; write `return(expr)` or `return()` for unit
+- `return expr` is invalid; write `return(expr)` or `return()` for unit. Do NOT write `return(unit)` — `unit` in expression position is the TYPE VALUE (types are first-class), so a `-> unit` function returning it fails with `Return type mismatch. Expected type "unit", but got "Type"`.
 - In `cond` or `match` branches, **always use begin blocks** when you need `return`
 - `return(...)` must be the **last expression** in a begin block — dead code after `return(...)` is rejected. Do NOT write `{ return(x); fallback_val }`. Write `{ return(x); }` only.
 - If the whole function is one expression, prefer expression-bodied style and skip `return` entirely

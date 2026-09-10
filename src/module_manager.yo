@@ -34,6 +34,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
 { current_exe } :: import("std/env");
+{ Instant } :: import("std/time/instant");
+{ profile_record_module } :: import("./utils.yo");
 { AstExpr } :: import("./expr.yo");
 { ExprInfoTable } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
@@ -447,6 +449,13 @@ _eval_module_exprs_capturing_error :: (
   true
 });
 export(_eval_module_exprs_capturing_error, _take_load_error);
+/// Profiling nesting accumulator (Phase 0): total wall nanos of demand loads
+/// completed inside the CURRENTLY OPEN module-evaluation window. Each window
+/// zeroes it on entry, subtracts it from its own wall (→ exclusive row) and
+/// hands its parent (saved + own total) on the way out. Unconditionally
+/// maintained — the arithmetic is free — while `profile_record_module` itself
+/// no-ops unless profiling is armed.
+(g_prof_child_load_ns : i64) = i64(0);
 /// Read + parse + evaluate the module at resolved abs `file://` path `abs` and
 /// register its exports. Registers it as "loading" (with its live env) BEFORE
 /// evaluating, so a circular import resolves to its partial exports. Uses the
@@ -465,6 +474,9 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
   exn := match(g_loader_exn, .Some(e) => e, .None => return(Option(String).None));
   fs_path := abs.replace(String.from("file://"), String.new());
+  // Phase 0: this load's read+parse / evaluation walls. `prof_t0` spans the
+  // WHOLE load so the parent window subtracts the load's true total.
+  prof_t0 := Instant.now();
   // COMPTIME read — synchronous on purpose (see _read_file_sync): the demand
   // loader runs inside the evaluator's comptime import resolution, where the
   // async read's blocking poll loop would nest the event loop (C37/C42).
@@ -482,6 +494,10 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
     .None => ()
   );
   mod_exprs := parse(src, abs.clone(), exn);
+  (prof_parse_ns : i64) = prof_t0.elapsed().as_nanos();
+  prof_eval_t0 := Instant.now();
+  (prof_saved_child : i64) = g_prof_child_load_ns;
+  g_prof_child_load_ns = i64(0);
   env := mm_fresh_module_env(abs.clone());
   ctx := eval_context_new(std_path.clone(), abs.clone());
   ctx.is_executing = true;
@@ -505,6 +521,11 @@ _load_module_at_abs :: (fn(abs : String) -> Option(String))({
   // returns partial exports from the dead env (hangs/crashes; see
   // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md).
   unregister_loading(abs.clone());
+  // Phase 0: exclusive evaluation wall (this module's own work, minus the
+  // demand loads it triggered), then hand the parent this load's total.
+  (prof_eval_ns : i64) = (prof_eval_t0.elapsed().as_nanos() - g_prof_child_load_ns);
+  g_prof_child_load_ns = (prof_saved_child + prof_t0.elapsed().as_nanos());
+  profile_record_module(fs_path.clone(), prof_parse_ns, prof_eval_ns);
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
@@ -612,6 +633,10 @@ mm_load_prelude_file :: (
     .None => ()
   );
   register_evaluate_expression();
+  // Phase 0: the prelude's evaluation window (its read+parse belongs to the
+  // caller that owns the parse step). Exclusive like every other module row.
+  prof_t0 := Instant.now();
+  g_prof_child_load_ns = i64(0);
   // keep_frame_at_end=true so the prelude's bindings survive into the cached
   // env (see issues/yo-self-multi-file-prelude-bindings.md).
   _rp := evaluate_anonymous_module_begin_exprs(
@@ -622,6 +647,14 @@ mm_load_prelude_file :: (
     true,
     true,
     local_exn
+  );
+  profile_record_module(
+    mm_resolve_entry_abs(input_path.clone(), std_path.clone()).replace(
+      String.from("file://"),
+      String.new()
+    ),
+    i64(0),
+    prof_t0.elapsed().as_nanos() - g_prof_child_load_ns
   );
   if(g_cached_prelude_env.is_none(), {
     g_cached_prelude_env = Option(Environment).Some(prelude_env);
@@ -652,10 +685,20 @@ mm_eval_entry_exprs :: (
     .None => ()
   );
   register_evaluate_expression();
+  // Phase 0: the entry module's own evaluation window. Its read+parse is the
+  // DRIVER's phase (it owns the parse step); this row carries evaluation only,
+  // exclusive of the demand loads it triggers (which record their own rows).
+  prof_t0 := Instant.now();
+  g_prof_child_load_ns = i64(0);
   register_loading(entry_abs.clone(), env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
   _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals, out_tys);
+  profile_record_module(
+    entry_abs.clone().replace(String.from("file://"), String.new()),
+    i64(0),
+    prof_t0.elapsed().as_nanos() - g_prof_child_load_ns
+  );
   // ALWAYS unregister, error or not — a leaked currently-loading entry poisons
   // every LATER file in a directory check (see
   // issues/fixed/yo-self-dir-check-state-corruption-after-failure.md).

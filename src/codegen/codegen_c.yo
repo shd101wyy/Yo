@@ -17,6 +17,9 @@
 //! Phase-3/5 and stubbed there.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ Instant } :: import("std/time/instant");
+{ ast_expr_token } :: import("../expr.yo");
+{ profile_record_phase, profile_record_function_census } :: import("../utils.yo");
 { set_codegen_fatal_exn } :: import("./constants.yo");
 { TypeValue } :: import("../types/definitions.yo");
 { type_key } :: import("../types/type_key.yo");
@@ -339,6 +342,15 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   base.add_c_include(String.from("<math.h>"));
   ctx := FunctionGenerationContext.new(base);
   base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
+  // Phase 0 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): the
+  // collection/emission split. The boundary is `generate_type_declarations` —
+  // everything before it walks and collects (functions, types, includes,
+  // trace/dispose synthesis, which can still mint specializations); everything
+  // after it generates C. `prof_fn_at_collect` snapshots the function count at
+  // that boundary: the delta against the final count is the specializations
+  // minted DURING emission (no single home module — they constrain Phase 2's
+  // naming and Phase 5's TU grouping).
+  prof_collect_t0 := Instant.now();
   // First pass: collect functions and types reachable from the module exports.
   collect_required_functions(module_value, base, info, true);
   collect_required_types(module_value, base, info);
@@ -376,6 +388,9 @@ typedef enum {
   // defers the RC-function synthesis; this runs it with the threaded ctx/exn. Must precede
   // function declarations + constructor emission (which read get_dispose_function_for_type).
   collect_dispose_methods(base, eval_ctx, module_env, info, exn);
+  (prof_collect_ns : i64) = prof_collect_t0.elapsed().as_nanos();
+  (prof_fn_at_collect : usize) = base.function_order.len();
+  prof_emit_t0 := Instant.now();
   // Second pass: type declarations (runtime preamble + topo-sorted types).
   generate_type_declarations(base);
   // Re-key dyn impls to C names (now available), then emit dyn box types.
@@ -467,6 +482,39 @@ static Slice_uint8_t_u42_ __yo_args;
       ci2 = (ci2 + usize(1));
     });
   });
+  // Phase 0: close the emission wall and take the function census. The std
+  // classification matches the defining module's token path against the
+  // std root; a RELATIVE std root ("./std", the cwd fallback) is loosened to
+  // a "/std/" segment test because token paths are absolute `file://` URLs.
+  profile_record_phase(String.from("codegen: collect"), prof_collect_ns);
+  profile_record_phase(String.from("codegen: emit"), prof_emit_t0.elapsed().as_nanos());
+  (prof_std_key : String) = eval_ctx.std_path.clone();
+  if(prof_std_key.starts_with(String.from("./")), {
+    prof_std_key = String.from("/std/");
+  });
+  (prof_fn_total : usize) = base.function_order.len();
+  (prof_fn_std : usize) = usize(0);
+  (prof_i : usize) = usize(0);
+  while(prof_i < base.function_order.len(), {
+    fid := match(base.function_order.get(prof_i), .Some(f) => f, .None => String.new());
+    match(
+      base.get_function_entry(fid),
+      .Some(fe) => {
+        match(
+          fe.value,
+          .FuncVal(__fvd, _) => {
+            if(ast_expr_token(__fvd.*.body).module_path.contains(prof_std_key), {
+              prof_fn_std = (prof_fn_std + usize(1));
+            });
+          },
+          _ => ()
+        );
+      },
+      .None => ()
+    );
+    prof_i = (prof_i + usize(1));
+  });
+  profile_record_function_census(prof_fn_total, prof_fn_at_collect, prof_fn_std);
   base.emitter.print()
 });
 export(compute_needs_cycle_gc, emit_dispose_dispatch, compile_module);
