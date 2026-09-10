@@ -151,6 +151,55 @@ impl(
     _guard := __RwLockWriteUnlocker(T)(self);
     body(self._value)
   }),
+  /// Run `body` under a SHARED acquisition IF one can be taken without
+  /// waiting, and return `.Some(result)`; `.None` when a writer holds the
+  /// lock. Rust's `try_read`, in this type's closure-scoped shape.
+  ///
+  /// Note this did NOT need the runtime's `__yo_mutex_trylock`, which the plan
+  /// assumed it would. `try_read` has to test `_writer`, and that test happens
+  /// under the SHORT internal mutex, which is held only for the length of a
+  /// few field reads and never across a wait. Blocking on it is bounded and
+  /// unrelated to how long a reader or writer holds the RwLock itself — so the
+  /// non-blocking part is skipping the condvar wait, not skipping the mutex.
+  try_with_read : (
+    fn(
+      generic(R : Type),
+      self : Self,
+      body : Impl(Fn(v : T) -> R)
+    ) -> Option(R)
+  )(
+    cond(
+      !self._raw_try_read_lock() => Option(R).None,
+      true => {
+        _guard := __RwLockReadUnlocker(T)(self);
+        Option(R).Some(body(self._value))
+      }
+    )
+  ),
+  /// Run `body` under an EXCLUSIVE acquisition IF one can be taken without
+  /// waiting, and return `.Some(result)`; `.None` when any reader or a writer
+  /// holds the lock. Rust's `try_write`.
+  ///
+  /// **A single concurrent reader is enough to make this `.None`** — an
+  /// exclusive acquisition excludes readers too, so this fails far more often
+  /// than `try_with_read` under a read-heavy load. Do not spin on it: a writer
+  /// polling against a stream of readers can be starved indefinitely, which is
+  /// exactly what the blocking `with_write` avoids by parking in the queue.
+  try_with_write : (
+    fn(
+      generic(R : Type),
+      self : Self,
+      body : Impl(Fn(inout(v) : T) -> R)
+    ) -> Option(R)
+  )(
+    cond(
+      !self._raw_try_write_lock() => Option(R).None,
+      true => {
+        _guard := __RwLockWriteUnlocker(T)(self);
+        Option(R).Some(body(self._value))
+      }
+    )
+  ),
   // Internal methods — pragma-only. These are public to the module system but
   // the _-prefixed naming convention signals "internal API". They exist for
   // the two unlocker objects above; user code goes through with_read /
@@ -164,6 +213,36 @@ impl(
     });
     self._readers = (self._readers + i32(1));
     self._mutex._raw_unlock();
+  }),
+  // Take a read lock only if no writer holds one. True when taken.
+  //
+  // The `_writer` test and the `_readers` increment happen under the same
+  // internal-mutex acquisition, so a writer cannot slip in between them.
+  _raw_try_read_lock : (fn(self : Self) -> bool)({
+    self._mutex._raw_lock();
+    took := cond(
+      self._writer => false,
+      true => {
+        self._readers = (self._readers + i32(1));
+        true
+      }
+    );
+    self._mutex._raw_unlock();
+    took
+  }),
+  // Take a write lock only if no reader and no writer holds one. True when
+  // taken.
+  _raw_try_write_lock : (fn(self : Self) -> bool)({
+    self._mutex._raw_lock();
+    took := cond(
+      (self._writer || (self._readers > i32(0))) => false,
+      true => {
+        self._writer = true;
+        true
+      }
+    );
+    self._mutex._raw_unlock();
+    took
   }),
   // Release a read lock.
   _raw_read_unlock : (fn(self : Self) -> unit)({

@@ -1,11 +1,13 @@
 //! Condition variable for thread synchronization.
 pragma(Pragma.AllowUnsafe);
 { __YO_THREAD_SYNC_TYPE } :: import("./mutex");
+{ Duration } :: import("../time/duration");
 extern(
   "Yo",
   __YO_COND_TYPE : Type,
   __yo_cond_create : (fn() -> __YO_COND_TYPE),
   __yo_cond_wait : (fn(cv : *__YO_COND_TYPE, mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_cond_timedwait : (fn(cv : *__YO_COND_TYPE, mutex : *__YO_THREAD_SYNC_TYPE, timeout_ns : i64) -> bool),
   __yo_cond_signal : (fn(cv : *__YO_COND_TYPE) -> unit),
   __yo_cond_broadcast : (fn(cv : *__YO_COND_TYPE) -> unit),
   __yo_cond_destroy : (fn(cv : *__YO_COND_TYPE) -> unit)
@@ -33,6 +35,39 @@ impl(
   wait : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
     return(__yo_cond_wait(&self.cv, handle));
   }),
+  /// Wait until signalled or until `timeout` elapses. Rust's
+  /// `Condvar::wait_timeout`.
+  ///
+  /// Returns **true** when the wait ended in a wake and **false** only on a
+  /// genuine timeout. A `true` may be a SPURIOUS wake — that is the condvar
+  /// contract, not a defect — so the caller must re-check its predicate
+  /// either way:
+  ///
+  /// ```rust
+  /// deadline := Duration.from_millis(i64(500));
+  /// while(runtime(!ready()), {
+  ///   cond(
+  ///     !cv.wait_timeout(m._raw_handle_ptr(), deadline) => {
+  ///       // timed out — give up, or re-arm with the remaining budget
+  ///       break;
+  ///     },
+  ///     true => ()
+  ///   );
+  /// });
+  /// ```
+  ///
+  /// **The timeout is per WAIT, not per loop.** A spurious wake restarts the
+  /// full `timeout`, so a loop like the one above can outlast its nominal
+  /// budget. Track an `Instant` deadline and pass the REMAINING time if the
+  /// total matters — the same caveat Rust states, and the reason
+  /// `wait_timeout_while` exists there.
+  ///
+  /// The clock is monotonic wherever the platform allows it, so a wall-clock
+  /// step cannot lengthen or cut short the wait. A negative or zero `timeout`
+  /// does not block.
+  wait_timeout : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE, timeout : Duration) -> bool)(
+    __yo_cond_timedwait(&self.cv, handle, timeout.as_nanos())
+  ),
   signal : (fn(self : Self) -> unit)({
     return(__yo_cond_signal(&self.cv));
   }),

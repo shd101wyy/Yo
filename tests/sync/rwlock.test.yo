@@ -17,6 +17,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Duration } :: import("std/time/duration");
 { WaitGroup } :: import("std/sync/waitgroup");
 { AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ Channel } :: import("std/sync/channel");
 
 // ============================================================================
 // Compile-time checks
@@ -374,4 +375,95 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
   comptime_assert(Type.impls(CyclicNode, Send), "the pin payload must be Send so the error is Acyclic's");
   comptime_expect_error(RwLock(CyclicNode));
   assert(true, "rejected at comptime");
+});
+// ============================================================================
+// try_with_read / try_with_write — the non-blocking acquisitions
+// ============================================================================
+test("try_with_read and try_with_write both succeed on an idle lock", {
+  lock := RwLock(i64).new(i64(5));
+  r := lock.try_with_read(v => v);
+  assert(r.is_some(), "an idle lock grants a shared acquisition");
+  assert(r.unwrap() == i64(5), "and the body sees the value");
+  w := lock.try_with_write(v => {
+    v = (v + i64(1));
+    v
+  });
+  assert(w.is_some(), "an idle lock grants an exclusive acquisition");
+  assert(w.unwrap() == i64(6), "the write happened");
+  assert(lock.try_with_read(v => v).unwrap() == i64(6), "and both released on the way out");
+});
+test("several try_with_read acquisitions coexist", {
+  // The whole point of a read lock: shared acquisitions do not exclude each
+  // other. A nested try_with_read must succeed.
+  lock := RwLock(i64).new(i64(3));
+  outer := lock.try_with_read(a => {
+    inner := lock.try_with_read(b => b);
+    assert(inner.is_some(), "a second reader gets in while the first holds");
+    a + inner.unwrap()
+  });
+  assert(outer.is_some(), "the outer reader succeeded");
+  assert(outer.unwrap() == i64(6), "both readers saw the value");
+});
+test("try_with_write fails while a reader holds the lock", {
+  // A SINGLE concurrent reader is enough — an exclusive acquisition excludes
+  // readers too, which is the trap the doc calls out.
+  lock := RwLock(i64).new(i64(0));
+  reading := Channel(i32).new(usize(1));
+  release := Channel(i32).new(usize(1));
+  reader := Thread.spawn(io => {
+    lock.with_read(v => {
+      reading.send(i32(1));
+      release.recv();
+    });
+  });
+  reading.recv();
+  assert(lock.try_with_write(v => v).is_none(), "one reader blocks the writer");
+  // But another reader still gets in.
+  assert(lock.try_with_read(v => v).is_some(), "a reader does not block a reader");
+  release.send(i32(1));
+  reader.join();
+  assert(lock.try_with_write(v => v).is_some(), "and the writer gets in once the reader left");
+});
+test("try_with_read fails while a writer holds the lock", {
+  lock := RwLock(i64).new(i64(0));
+  writing := Channel(i32).new(usize(1));
+  release := Channel(i32).new(usize(1));
+  writer := Thread.spawn(io => {
+    lock.with_write(v => {
+      writing.send(i32(1));
+      release.recv();
+      v = i64(42);
+    });
+  });
+  writing.recv();
+  assert(lock.try_with_read(v => v).is_none(), "a writer excludes readers");
+  assert(lock.try_with_write(v => v).is_none(), "and excludes other writers");
+  release.send(i32(1));
+  writer.join();
+  assert(lock.try_with_read(v => v).unwrap() == i64(42), "the writer's value is visible after");
+});
+test("a failed try_with_read leaves the reader count untouched", {
+  // A try that bails after incrementing _readers would leave the lock
+  // permanently unwritable. This is the test that catches that.
+  lock := RwLock(i64).new(i64(0));
+  writing := Channel(i32).new(usize(1));
+  release := Channel(i32).new(usize(1));
+  writer := Thread.spawn(io => {
+    lock.with_write(v => {
+      writing.send(i32(1));
+      release.recv();
+    });
+  });
+  writing.recv();
+  // Fail a few times while the writer holds it.
+  (i : i64) = i64(0);
+  while(runtime(i < i64(5)), {
+    assert(lock.try_with_read(v => v).is_none(), "each attempt fails");
+    i = (i + i64(1));
+  });
+  release.send(i32(1));
+  writer.join();
+  // If any of those had leaked a reader, this exclusive acquisition would
+  // fail forever.
+  assert(lock.try_with_write(v => v).is_some(), "no failed attempt leaked a reader");
 });
