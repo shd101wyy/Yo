@@ -2,6 +2,29 @@
 //! delimiting, `Content-Length`, `Transfer-Encoding: chunked` decoding
 //! (RFC 9112 §7.1) and the generic "read one message" loop. std-internal:
 //! `std/http/index.yo` does not re-export it.
+//!
+//! Framing is the security boundary in this file, not an implementation
+//! detail. One `read` can deliver bytes belonging to TWO messages, so a
+//! message is framed by what its own header section declares and the excess
+//! is handed back to the caller rather than appended to the body — treating
+//! it as body is request/response smuggling (RFC 9112 §11.2), and a
+//! heisenbug, because it only appears when the peer's writes coalesce.
+//! `read_http_message_buffered` is the form that keeps those leftover bytes;
+//! `read_http_message` discards them, which is correct only for a connection
+//! that is about to be closed.
+//!
+//! ## Stability
+//!
+//! unstable — std-internal, and the reuse story it was rebuilt for is only
+//! half delivered. The leftover-carrying framing (`read_http_message_buffered`,
+//! `Dechunk.Done`'s `end`) landed 2026-09-10 so that connection reuse would
+//! be safe, but nothing yet reuses a connection: `std/http/client.yo` is
+//! one-shot `fetch`/`fetch_with` and `HttpServer.serve` handles one
+//! connection at a time, so the only caller that drives `carry` across two
+//! messages today is `tests/http/wire.test.yo`'s scripted reader. The open
+//! question is whether `carry` stays a caller-owned `ArrayList(u8)` or
+//! becomes state inside the connection object a pooling client would own.
+//! Freezing follows that pool.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
@@ -13,7 +36,12 @@ pragma(Pragma.AllowUnsafe);
 // ============================================================================
 // Internal helpers
 // ============================================================================
-// Find the position of \r\n\r\n (end of HTTP headers)
+/// The index of the CR that opens the `CRLFCRLF` terminating the header
+/// section, or `0` when that terminator is not in `data` yet — so the body
+/// starts at `find_header_end(data) + 4`, and a `0` return means "keep
+/// reading" rather than "empty headers" (a real message spells a start line
+/// first, so the terminator can never sit at offset 0). O(n) over `data`;
+/// pure, so it neither reads from the stream nor blocks.
 find_header_end :: (fn(data : ArrayList(u8)) -> usize)({
   len := data.len();
   cond(
@@ -221,11 +249,13 @@ find_content_length :: (fn(data : ArrayList(u8), header_end : usize) -> ContentL
   });
   ContentLength.Length(first)
 });
-// True when the header section (bytes [0, header_end)) declares
-// `Transfer-Encoding: chunked` (case-insensitive; the LAST listed coding
-// must be `chunked` per RFC 9112 §6.1, which is also the only shape servers
-// send in practice). Repeated field lines concatenate in order, so the last
-// one carries the final coding.
+/// True when the header section (bytes `[0, header_end)`) declares
+/// `Transfer-Encoding: chunked`. Case-insensitive, and the question it asks
+/// is whether the LAST listed coding is `chunked`: RFC 9112 §6.1 requires
+/// chunked to be final, and repeated field lines concatenate in order, so the
+/// last field line carries the final coding. A caller reaches for this before
+/// `find_content_length`, because chunked framing wins over a
+/// `Content-Length` that arrives with it.
 is_chunked :: (fn(data : ArrayList(u8), header_end : usize) -> bool)({
   values := _header_values(data, header_end, `transfer-encoding`);
   cond(
@@ -233,16 +263,24 @@ is_chunked :: (fn(data : ArrayList(u8), header_end : usize) -> bool)({
     true => values(values.len() - usize(1)).to_lowercase().ends_with(`chunked`)
   )
 });
-// Outcome of decoding a chunked body prefix.
+/// Outcome of decoding a chunked body prefix. Three arms rather than a
+/// `Result`, because "not all here yet" is not an error on a stream: the
+/// caller answers `.Incomplete` by reading more, and only `.Malformed` ends
+/// the message.
 Dechunk :: enum(
-  // Every chunk up to and including the terminating zero chunk was present;
-  // `data` is the concatenated chunk data (trailers dropped) and `end` is the
-  // index just past the body's final CRLF — where the NEXT message on a
-  // keep-alive connection begins.
+  /// Every chunk up to and including the terminating zero chunk was present.
+  /// `data` is the concatenated chunk data with extensions and trailers
+  /// dropped, and `end` is the index just past the body's final CRLF — the
+  /// offset where the NEXT message on a keep-alive connection begins, which
+  /// is the one thing a decoder that only returned the bytes could not tell
+  /// its caller.
   Done(data : ArrayList(u8), end : usize),
-  // Well-formed so far, but the terminating zero chunk has not arrived.
+  /// Well-formed so far, but the terminating zero chunk (or its final CRLF)
+  /// has not arrived. Read more and decode again from the same
+  /// `body_start` — decoding is not incremental.
   Incomplete,
-  // The framing is broken; `msg` names the defect.
+  /// The framing is broken and the message is unrecoverable; `msg` names the
+  /// defect and its offset relative to `body_start`.
   Malformed(msg : String)
 );
 _hex_digit :: (fn(b : u8) -> i32)(
@@ -253,10 +291,17 @@ _hex_digit :: (fn(b : u8) -> i32)(
     true => i32(-1)
   )
 );
-// Decode a `Transfer-Encoding: chunked` body (RFC 9112 §7.1): repeated
-// `hex-size[;extensions]CRLF data CRLF`, ended by a zero-size chunk followed
-// by optional trailer fields and a final CRLF. Chunk extensions and trailers
-// are skipped. `body` is bytes [body_start, len) of the raw response.
+/// Decode a `Transfer-Encoding: chunked` body (RFC 9112 §7.1): repeated
+/// `hex-size[;extensions]CRLF data CRLF`, ended by a zero-size chunk followed
+/// by optional trailer fields and a final CRLF. `body` is the whole raw
+/// message and `body_start` its first body byte (`find_header_end(...) + 4`);
+/// chunk extensions and trailer fields are parsed only far enough to skip
+/// them, so a caller never sees them.
+///
+/// Pure and non-blocking — it decodes only the bytes already in hand, which
+/// is why a body that is merely still arriving comes back as
+/// `Dechunk.Incomplete` instead of an error. A chunk size past 0x0FFFFFFF is
+/// rejected as `.Malformed` rather than wrapped.
 dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
   out := ArrayList(u8).new();
   n := body.len();
@@ -382,15 +427,15 @@ _split_message :: (fn(data : ArrayList(u8), limit : usize, carry : ArrayList(u8)
 // stopping decision, and the same decision a keep-alive read makes BEFORE its
 // first read.
 _FrameStatus :: enum(
-  // Stop reading. Either the message is complete, or its chunk framing is
-  // broken — the assembly below re-runs `dechunk` and turns that into the
-  // `MalformedChunkedBody` error, so both cases stop the same way.
+  /// Stop reading. Either the message is complete, or its chunk framing is
+  /// broken — the assembly below re-runs `dechunk` and turns that into the
+  /// `MalformedChunkedBody` error, so both cases stop the same way.
   Complete,
-  // Keep reading: the header section or the body is still short.
+  /// Keep reading: the header section or the body is still short.
   NeedMore,
-  // RFC 9112 §6.3: a `Content-Length` that is present but unreadable is an
-  // unrecoverable framing error, NOT a body-less message — reading on would
-  // frame the body by whatever the peer does next.
+  /// RFC 9112 §6.3: a `Content-Length` that is present but unreadable is an
+  /// unrecoverable framing error, NOT a body-less message — reading on would
+  /// frame the body by whatever the peer does next.
   BadContentLength(msg : String)
 );
 _frame_status :: (fn(data : ArrayList(u8), is_request : bool) -> _FrameStatus)(
@@ -444,11 +489,9 @@ _frame_status :: (fn(data : ArrayList(u8), is_request : bool) -> _FrameStatus)(
 /// RESPONSE only — until the peer closes (a response with neither framing
 /// header is delimited by close, RFC 9112 §6.3 rule 8). A REQUEST with
 /// neither is complete at the end of its headers (the client will not close
-/// first). Throws `HttpError.ResponseTooLarge` past `max_bytes` (0 = no
-/// ceiling), `HttpError.MalformedChunkedBody` on broken chunk framing and
-/// `HttpError.MalformedContentLength` on a `Content-Length` that is not a
-/// single non-negative integer.
-/// A chunked body is handed on DECODED (`headers CRLFCRLF data`).
+/// first). A chunked body is handed on DECODED (`headers CRLFCRLF data`), so
+/// `parse_response` sees the payload while the `Transfer-Encoding` field line
+/// stays visible on the message.
 ///
 /// The three framing defects — `HttpError.ResponseTooLarge` past `max_bytes`
 /// (0 = no ceiling), `MalformedChunkedBody` on broken chunk framing and

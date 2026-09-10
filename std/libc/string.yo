@@ -1,4 +1,16 @@
 //! C11 `<string.h>` — string and memory functions.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. It is the byte-move layer
+//! under the containers: `memcpy` / `memmove` / `memset` for
+//! `std/collections/array_list`, `memcpy` / `memcmp` for `std/string` and
+//! the `std/imm` persistent structures, `strlen` where a `*char` crosses
+//! the FFI boundary. Those modules are the supported surface — a caller
+//! here is doing untyped pointer work and owns the aliasing and bounds
+//! rules C states (`memcpy` on overlapping ranges is undefined; use
+//! `memmove`). The `strcpy` / `strcat` family is bound for completeness and
+//! should not be used in new code. Additive-by-demand, follows C.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<string.h>",

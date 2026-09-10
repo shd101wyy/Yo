@@ -16,6 +16,24 @@
 //! verbose := parsed.get_flag(`--verbose`);
 //! output := parsed.get_option(`--output`);
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `parse` returns `Result(ParsedArgs, String)`, and a
+//! stringly-typed error is a D1 violation (`plans/STD_API_STABILIZATION.md`
+//! §1 counts five of them; this one is not on that list, so it has not been
+//! scheduled). Freezing the module would freeze the error channel, and with
+//! it the thing that makes the channel wrong: `--help` is delivered as an
+//! `.Err` whose payload is the help screen, so "the user asked for help" and
+//! "the user made a mistake" are the same value and the same exit path. A
+//! typed `ArgError` with a `HelpRequested` arm is what a caller needs, and it
+//! cannot be added without changing `parse`'s signature.
+//!
+//! Two gaps sit behind that one: `add_positional` records a `_required` flag
+//! nothing enforces, and the lexer has no `--` end-of-options separator, so
+//! no negative number or bare `-` can reach a positional slot. Both are
+//! fixable additively; the error type is not. Freezing follows the typed
+//! error, not a release count.
 { ArrayList } :: import("../collections/array_list");
 { String } :: import("../string");
 /// Kind of command-line argument.
@@ -30,17 +48,25 @@ ArgKind :: enum(
 /// Definition of a single command-line argument.
 ArgDef :: ref(
   struct(
-    /// Long name (e.g. `"verbose"` for `--verbose`).
+    /// Primary name, stored exactly as it was registered — WITH its
+    /// dashes for a flag or option (`"--verbose"`), bare for a
+    /// positional (`"input"`). It is both the argv token matched during
+    /// parsing and the key `get_flag`/`get_option`/`get_positional` look
+    /// up, so the two spellings cannot diverge.
     _long_name : String,
-    /// Short name (e.g. `"v"` for `-v`).
+    /// Alias, also stored with its dash (`"-v"`), or empty for none. It
+    /// matches on the command line but is never recorded as a key.
     _short_name : String,
     /// Human-readable description for help text.
     _description : String,
     /// Kind of argument (flag, option, or positional).
     _kind : ArgKind,
-    /// Default value for options.
+    /// Default value for options. Empty means "no default", and is
+    /// therefore not distinguishable from a default of the empty string.
     _default_value : String,
-    /// Whether this argument is required.
+    /// Set by `add_positional`, read by nothing — `parse` does not
+    /// reject a missing positional. Kept for the required-argument check
+    /// that has not been written.
     _required : bool
   )
 );
@@ -77,6 +103,15 @@ ArgParser :: ref(
 );
 impl(
   ParsedArgs,
+  /// An empty result — no flags set, no options, no positionals, no
+  /// subcommand.
+  ///
+  /// `parse` builds its answer starting from this, and it is the value to
+  /// reach for when a program needs a `ParsedArgs` before it has any
+  /// arguments (a default, a test fixture). It is NOT a way to construct
+  /// a populated result by hand: every field is private and there are no
+  /// setters, so anything built this way answers `false`/`.None` to
+  /// every question forever.
   new : (fn() -> Self)(
     Self(
       _set_flags : ArrayList(String).new(),
@@ -92,6 +127,19 @@ impl(
   get_subcommand : (fn(self : Self) -> Option(String))(self._subcommand),
   /// Returns the parsed arguments of the chosen subcommand, if any.
   get_subcommand_args : (fn(self : Self) -> Option(Self))(self._subcommand_args),
+  /// Whether the flag registered under `name` appeared on the command
+  /// line.
+  ///
+  /// `name` is the LONG name as registered, dashes included —
+  /// `get_flag(`--verbose`)`, not `` `verbose` ``. Passing the short
+  /// alias answers `false` even when `-v` is what the user typed,
+  /// because `parse` records `_long_name` whichever spelling it matched.
+  ///
+  /// There is no third answer: a flag that was never registered and a
+  /// registered flag the user omitted both give `false`. Rust's `clap`
+  /// separates those with `ArgMatches::try_get_one`, which errors on an
+  /// unknown id; this returns a bare `bool`, so a typo'd name reads as
+  /// "the user did not pass it".
   get_flag : (fn(self : Self, name : String) -> bool)(
     self._set_flags.contains(name)
   ),
@@ -116,18 +164,52 @@ impl(
     });
     return(result);
   }),
+  /// The value given for the option registered under `name`, or its
+  /// registered default.
+  ///
+  /// Keyed on the long name with its dashes (`get_option(`--output`)`),
+  /// same as `get_flag`. `parse` writes non-empty defaults into the
+  /// result after the scan, so a `.Some` here does not mean the user
+  /// typed it — and `.None` covers three cases a caller may want to tell
+  /// apart: the option was never registered, it was registered with an
+  /// EMPTY default and not passed, or the name is misspelled. O(n) in
+  /// the number of options seen; this is a linear scan of two parallel
+  /// lists, not a map.
   get_option : (fn(self : Self, name : String) -> Option(String))(
     self._lookup(self._option_names, self._option_values, name)
   ),
+  /// The positional argument registered under `name` (bare, no dashes —
+  /// `get_positional(`input`)`).
+  ///
+  /// Positionals are matched to their registrations by ARRIVAL ORDER,
+  /// not by content: the first non-flag token that is not a subcommand
+  /// takes the name of the first `add_positional`, the second takes the
+  /// second, and so on. Tokens beyond the number registered are still
+  /// collected but get no name, so they are reachable only through
+  /// `get_positional_at`. O(n) in the positionals seen.
   get_positional : (fn(self : Self, name : String) -> Option(String))(
     self._lookup(self._positional_names, self._positionals, name)
   ),
+  /// The `index`-th positional argument in command-line order, 0-based,
+  /// `.None` past the end.
+  ///
+  /// This sees every positional, including the unregistered trailing
+  /// ones `get_positional` cannot name — it is the way to read a
+  /// variadic tail. Subcommand names are NOT in this list; they and
+  /// everything after them belong to `get_subcommand_args`.
   get_positional_at : (fn(self : Self, index : usize) -> Option(String))(
     self._positionals.get(index)
   )
 );
 impl(
   ArgParser,
+  /// A parser with nothing registered — the starting point for the
+  /// `add_*` calls.
+  ///
+  /// `name` and `description` are used only by `help_text`, where they
+  /// become the `Usage:` line and the paragraph under it. Neither is
+  /// matched against anything, so `name` need not be argv[0]; it is only
+  /// the name shown to the user.
   new : (fn(name : String, description : String) -> Self)(
     Self(
       _name : name,
@@ -169,6 +251,19 @@ impl(
     });
     return(result);
   }),
+  /// Registers a boolean flag: present on the command line or not, and
+  /// consuming no following argument.
+  ///
+  /// Both names are matched VERBATIM, so they must be written with their
+  /// dashes — `add_flag(`--verbose`, `-v`, …)`. `short_name` may be
+  /// empty to declare no alias, in which case `help_text` shows the long
+  /// name alone. `--verbose=1` is not a spelling this parser knows; only
+  /// the exact token matches.
+  ///
+  /// Returns `unit` and mutates the parser in place (`ArgParser` is a
+  /// `ref` struct), so the `add_*` calls are statements rather than a
+  /// chain — deliberately unlike `clap`'s `Command::arg`, which returns
+  /// `Self`.
   add_flag : (fn(self : Self, long_name : String, short_name : String, description : String) -> unit)({
     self._args.push(
       ArgDef(
@@ -181,6 +276,21 @@ impl(
       )
     );
   }),
+  /// Registers an option that takes its value from the NEXT argv token
+  /// (`--output out.txt`), matched verbatim on either name with its
+  /// dashes.
+  ///
+  /// The value is taken positionally, not parsed out of the token, so
+  /// `--output=out.txt` is read as an unknown argument and
+  /// `--output --verbose` quietly takes `--verbose` as the value. If
+  /// there is no next token, `parse` fails with
+  /// `Missing value for option: <long_name>`.
+  ///
+  /// A non-empty `default_value` is written into the result for any run
+  /// that did not pass the option, so `get_option` answers `.Some`
+  /// either way. An EMPTY `default_value` means "no default" — it is
+  /// never recorded, so an option defaulted to the empty string is
+  /// indistinguishable from one with no default at all.
   add_option : (fn(self : Self, long_name : String, short_name : String, description : String, default_value : String) -> unit)({
     self._args.push(
       ArgDef(
@@ -193,6 +303,17 @@ impl(
       )
     );
   }),
+  /// Names the next positional slot, so that the value arriving in it
+  /// can be read back as `get_positional(name)`.
+  ///
+  /// `name` is bare — no dashes — because it is a label for help text
+  /// and lookup, never a token matched on the command line. Slots are
+  /// filled in registration order from the non-flag tokens.
+  ///
+  /// It does NOT make the argument mandatory, despite setting the
+  /// internal `_required` flag: nothing reads that flag, and `parse`
+  /// succeeds with the slot empty. Check for the `.None` from
+  /// `get_positional` yourself.
   add_positional : (fn(self : Self, name : String, description : String) -> unit)({
     self._args.push(
       ArgDef(
@@ -226,6 +347,19 @@ impl(
     });
     return(result);
   }),
+  /// Renders the `--help` screen: a `Usage:` line, the description,
+  /// then `Arguments:`, `Options:` and `Subcommands:` sections, each
+  /// emitted only if it has entries.
+  ///
+  /// Columns are separated by a literal TAB, not padded — alignment is
+  /// left to whatever displays the text, which is why two descriptions
+  /// of different name lengths will not line up in a pager that treats
+  /// tabs as one space.
+  ///
+  /// `--help, -h` is always listed even though it is not a registered
+  /// argument, because `parse` handles it itself. The `Usage:` line
+  /// carries the program name only — it does not synthesize a synopsis
+  /// of the positionals the way `clap` does.
   help_text : (fn(self : Self) -> String)({
     text := `Usage: ${self._name}\n${self._description}\n\n`;
     has_positionals := false;
@@ -355,6 +489,51 @@ impl(
 );
 impl(
   ArgParser,
+  /// Scans `args` against the registered arguments and returns the
+  /// result. Synchronous and pure — it does no I/O, prints nothing and
+  /// never exits the process.
+  ///
+  /// `args` is the WHOLE command line including the program name;
+  /// scanning starts at index 1, so passing a pre-stripped list silently
+  /// loses the first real argument.
+  ///
+  /// ## `--help` comes back as an `.Err`
+  ///
+  /// `--help` or `-h` anywhere on the line stops the scan and returns
+  /// `.Err(help_text())`. The help screen IS the error payload, so a
+  /// caller that prints the `.Err` and exits non-zero prints the right
+  /// text with the wrong exit status, and cannot tell a help request
+  /// from a usage mistake. Compare the `.Err` against `help_text()` if
+  /// that distinction matters. This is deliberate today only in the
+  /// sense that nothing better was written — see the module's Stability
+  /// note.
+  ///
+  /// ## What else fails
+  ///
+  /// - a token starting with `-` that matches no registered name →
+  ///   `Unknown argument: <token>`. That includes tokens a caller may
+  ///   have meant as values: there is no `--` end-of-options separator,
+  ///   so a negative number or a bare `-` for stdin cannot be passed as
+  ///   a positional.
+  /// - a registered option with nothing after it →
+  ///   `Missing value for option: <long_name>`.
+  ///
+  /// A missing positional is NOT a failure — see `add_positional`.
+  ///
+  /// ## Subcommands consume the remainder
+  ///
+  /// A non-flag token equal to a registered subcommand name hands
+  /// everything after it to that sub-parser (re-prepending the program
+  /// name, so the sub-parser's own index-1 skip lines up) and ends the
+  /// parent scan. Flags written after the subcommand name therefore
+  /// belong to the SUBCOMMAND, not the parent, and an `.Err` from the
+  /// sub-parser is returned unchanged — including its help text. The
+  /// match is tried on every non-flag token until one hits, not only the
+  /// first, so a positional value that happens to equal a subcommand
+  /// name is taken as the subcommand.
+  ///
+  /// Option defaults are applied last, after the scan succeeds, and the
+  /// parent's defaults are applied even when a subcommand ran.
   parse : (fn(self : Self, args : ArrayList(String)) -> Result(ParsedArgs, String))({
     parsed := ParsedArgs.new();
     arg_defs_len := self._args.len();

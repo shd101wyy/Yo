@@ -1,6 +1,21 @@
 //! CRC-32 (IEEE 802.3, reflected, polynomial 0xEDB88320) — the checksum
 //! zip/png/gzip use (`plans/archive/STD_API_AUDIT.md` §7 P0 item 7). NOT a
 //! cryptographic hash — it detects accidental corruption only.
+//!
+//! ## Stability
+//!
+//! unstable for one reason that has nothing to do with the algorithm: the
+//! CRC-32 answer is pinned by IEEE 802.3 and checked against the catalogue
+//! value (`tests/crypto/digest.test.yo`), but the module lives under
+//! `std/crypto` while being explicitly NOT cryptographic, and it is the
+//! only thing here that is a checksum. Whether it moves (a `std/hash` or
+//! `std/encoding` neighbourhood, next to the archive formats that need it)
+//! is unsettled, and moving it changes every import path. The
+//! implementation is also deliberately the slow one — a bitwise byte step
+//! rather than a 256-entry table, as the `_crc32_byte` comment says — so a
+//! table-driven rewrite is expected; that one is invisible to callers.
+//! There is no incremental form (no `Crc32` state type), so a stream has
+//! to be hashed as one `ArrayList(u8)`; adding one would be additive.
 { ArrayList } :: import("../collections/array_list");
 
 /// One byte-step of the reflected CRC-32 (bitwise; the compiler folds the

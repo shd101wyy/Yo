@@ -1,14 +1,41 @@
-//! File position control.
+//! File position control (`lseek`) — the raw syscall boundary.
 //!
-//! Synchronous wrapper for `lseek`.
-//! Returns resulting absolute file offset on success, -errno on failure.
+//! One wrapper over POSIX `lseek(2)`. No public `std` module seeks through it
+//! — `std/fs/file` carries its own offset and passes it to the positioned
+//! `read`/`write` in `std/sys/file` instead, which is why nothing above this
+//! layer needs a shared file pointer. `tests/sys/seek.test.yo` is its only
+//! caller in this tree.
+//!
+//! ## Stability
+//!
+//! unstable — and the reason is that the error channel is fused to the value
+//! channel. `lseek` legitimately returns large offsets and reports failure as
+//! a negative errno in the same `i64`, so the two are only separable because
+//! offsets are never negative. That works, but it is not a convention a
+//! frozen API should hand to callers; a stable version returns
+//! `Result(u64, IoError)`. Freezing also waits on `std/io`'s `Seek` trait
+//! question — whether Yo grows Rust's `Seek`/`SeekFrom` pair, which is what
+//! would make these three raw whence values internal.
 { __yo_sync_lseek } :: import("./externs.yo");
-// Whence constants
-SEEK_SET :: i32(0); // Set offset to absolute position
-SEEK_CUR :: i32(1); // Set offset relative to current position
-SEEK_END :: i32(2); // Set offset relative to end of file
-// Reposition read/write file offset.
-// Returns resulting offset from file start, or -errno on failure.
+/// `SEEK_SET` from `<unistd.h>` — interpret the offset as an absolute
+/// position from the start of the file. 0 on every platform, including the
+/// Windows CRT.
+SEEK_SET :: i32(0);
+/// `SEEK_CUR` — interpret the offset as relative to the current position; a
+/// negative offset seeks backwards. Passing 0 is how you READ the current
+/// position without moving it.
+SEEK_CUR :: i32(1);
+/// `SEEK_END` — relative to end-of-file. A positive offset seeks PAST the
+/// end, which is legal and creates a sparse hole once written to.
+SEEK_END :: i32(2);
+/// Move `fd`'s file pointer and return the resulting absolute offset from the
+/// start of the file, or a negative errno — POSIX `lseek(2)`. Test the result
+/// with `< 0`, not `== -1`: the errno is negated into the return value, so a
+/// failure is `-ESPIPE`, `-EBADF`, … rather than the C API's `-1`.
+///
+/// On Windows the wrapper screens the descriptor first and answers `-ESPIPE`
+/// for a socket, a pipe or a character device before calling `_lseeki64`, so
+/// an unseekable handle fails the same way it would on POSIX.
 lseek :: (fn(fd : i32, offset : i64, whence : i32) -> i64)(
   __yo_sync_lseek(fd, offset, whence)
 );

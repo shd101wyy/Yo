@@ -16,6 +16,33 @@
 //!   io.await(dir.remove(io), { io, exn });  // or let Dispose clean up on drop
 //! });
 //! ```
+//!
+//! ## Platform caveat — Windows naming is not atomic
+//!
+//! `mkdtemp`/`mkstemp` are POSIX primitives that PICK the name and CREATE
+//! the entry in one uninterruptible step, retrying until they win. The
+//! Windows runtime cannot: it calls `_wmktemp_s` to invent a name and then
+//! `_wmkdir`/`_wopen(_O_CREAT | _O_EXCL)` to create it
+//! (`src/codegen/async/runtime_io_windows.yo`). That leaves a window between
+//! the two, and `_wmktemp_s` offers only 26 candidate names per template per
+//! process with no retry here, so both constructors can throw `EEXIST` on
+//! Windows where POSIX would simply pick another name
+//! (`issues/stddoc-io-windows-temp-naming-is-not-atomic.md`). Treat a
+//! `TempDir`/`TempFile` construction as fallible on that platform even when
+//! the parent directory is perfectly writable.
+//!
+//! ## Stability
+//!
+//! unstable — the naming half of `tempfile`'s API is missing and adding it
+//! changes what these types are. Both spellings here are NAMED temporaries
+//! (Rust's `NamedTempFile`, `TempDir`): the name is fixed at
+//! `<parent>/yo_tmp_XXXXXX` with no way to set the prefix, the suffix, or a
+//! number of random characters — `tempfile`'s `Builder` — and there is no
+//! unnamed `tempfile()`, the form that unlinks immediately so the file
+//! cannot leak if the process dies. `keep()`/`into_path()` (disarm the
+//! cleanup and hand the caller the path) are also absent, so a temporary
+//! that should be promoted to a real file has to be copied. Freezing follows
+//! a `Builder` and a decision on the unnamed form, not a release count.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -40,7 +67,15 @@ TempDir :: ref(
 );
 impl(
   TempDir,
-  // Create a temporary directory in the given parent directory.
+  /// Create a uniquely named directory inside `parent` and return a handle
+  /// that removes it on drop — Rust's `tempfile::TempDir::new_in`.
+  ///
+  /// The name is `parent/yo_tmp_XXXXXX` resolved by `mkdtemp(3)`, which
+  /// creates the directory itself with mode `0700` — a temporary directory
+  /// is never briefly world-readable — and retries until the name is unused.
+  /// Windows takes the non-atomic path described in the module header. Async:
+  /// awaited on the event loop, and it throws `IoExn` carrying the errno if
+  /// `parent` does not exist, is not writable, or a name cannot be won.
   new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempDir, IoExn)))(
     io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
@@ -71,15 +106,26 @@ impl(
       TempDir(_path : Path.new(path_str), _removed : false)
     })
   ),
-  // Create a temporary directory in the system temp dir.
+  /// `new_in` against the system temporary directory (`env.temp_dir()` —
+  /// `TMPDIR` on POSIX, `TEMP`/`TMP` on Windows) — Rust's
+  /// `tempfile::TempDir::new`.
   new : (fn(io : Io) -> Impl(Future(TempDir, IoExn)))(
     TempDir.new_in(Path.new(temp_dir()), io)
   ),
-  // Get the path of the temporary directory.
+  /// The directory's real path, as `mkdtemp` resolved it. Stable for the
+  /// life of the handle, and still returned after `remove` — the handle
+  /// remembers the name it removed rather than emptying itself.
   path : (fn(self : Self) -> Path)(
     self._path
   ),
-  // Remove the temporary directory.
+  /// Remove the directory now and observe the outcome, instead of leaving it
+  /// to `Dispose`.
+  ///
+  /// NON-RECURSIVE (`rmdir`), so it throws `IoExn` (`ENOTEMPTY`) if anything
+  /// is still inside — use `walker.remove_dir_all` for a populated tree.
+  /// Idempotent: a second call is a no-op, and so is the `Dispose` that
+  /// follows, because both consult the same `_removed` flag. Async, awaited
+  /// on the event loop.
   remove : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     self_path := self._path;
     io.async(
@@ -136,7 +182,15 @@ TempFile :: ref(
 );
 impl(
   TempFile,
-  // Create a temporary file in the given parent directory.
+  /// Create a uniquely named file inside `parent`, open it, and return a
+  /// handle that closes and unlinks it on drop — Rust's
+  /// `tempfile::NamedTempFile::new_in`.
+  ///
+  /// `mkstemp(3)` does the naming, so on POSIX the create-and-open is atomic
+  /// (`O_EXCL`) and the file is mode `0600` from the instant it exists — a
+  /// temporary is never briefly world-readable. Windows takes the non-atomic
+  /// path described in the module header. Async: awaited on the event loop,
+  /// and throws `IoExn` with the errno on failure.
   new_in : (fn(parent : Path, io : Io) -> Impl(Future(TempFile, IoExn)))(
     io.async(e => {
       // Build template: parent/yo_tmp_XXXXXX
@@ -166,19 +220,31 @@ impl(
       TempFile(_file : file, _path : path, _removed : false)
     })
   ),
-  // Create a temporary file in the system temp dir.
+  /// `new_in` against the system temporary directory (`env.temp_dir()`) —
+  /// Rust's `tempfile::NamedTempFile::new`.
   new : (fn(io : Io) -> Impl(Future(TempFile, IoExn)))(
     TempFile.new_in(Path.new(temp_dir()), io)
   ),
-  // Get the underlying File object.
+  /// The open `File` behind this temporary, for reading and writing it. The
+  /// `TempFile` keeps its own reference, so this does NOT hand over
+  /// ownership: closing the returned handle leaves the `TempFile`'s cleanup
+  /// to unlink a file it no longer has open, which is harmless. The handle
+  /// starts at position 0 — write, then `seek` back before reading.
   file : (fn(self : Self) -> _file_mod.File)(
     self._file
   ),
-  // Get the path of the temporary file.
+  /// The file's real path, as `mkstemp` resolved it. Handing this to another
+  /// process is the reason a NAMED temporary exists; note the file is
+  /// unlinked when this handle drops, so the path outlives nothing.
   path : (fn(self : Self) -> Path)(
     self._path
   ),
-  // Remove the temporary file.
+  /// Close the descriptor and unlink the file now, observing the outcome,
+  /// instead of leaving it to `Dispose`. The close comes FIRST so that
+  /// Windows can delete the file at all (POSIX allows unlinking an open
+  /// file; Windows does not). Idempotent, and the following `Dispose`
+  /// becomes a no-op. Async, awaited on the event loop; throws `IoExn` if
+  /// either step fails.
   remove : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     self_file := self._file;
     self_path := self._path;

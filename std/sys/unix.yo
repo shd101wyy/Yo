@@ -1,8 +1,29 @@
-//! Unix domain socket operations.
+//! Async Unix-domain sockets — the raw syscall boundary.
 //!
-//! Provides Unix domain socket wrappers around the low-level C runtime externs.
-//! Reuses the socket ops (bind/listen/accept/connect/send/recv/close) from the
-//! generic socket externs. Uses `sockaddr_un` helpers to build address buffers.
+//! The `AF_UNIX` socket calls plus a `sockaddr_un` builder. The transfer
+//! calls are the SAME externs `std/sys/tcp` uses — a connected socket is a
+//! connected socket at the syscall layer — so this module exists for the
+//! address family and the address construction, not for a different set of
+//! operations. `std/net/unix.yo` is the public surface
+//! (`UnixStream`, `UnixListener`).
+//!
+//! Every operation returns an `IoFuture` resolving to a non-negative value
+//! (an fd for `socket_*` and `accept`, a byte count for `send`/`recv`, 0 for
+//! the rest) or a negative errno.
+//!
+//! ## Stability
+//!
+//! unstable — and Windows is a real capability question here, not a naming
+//! one. Windows has had `AF_UNIX` since 2017 but implements neither
+//! `AcceptEx` nor `GetAcceptExSockaddrs` for it, so the accept path in the
+//! generated runtime has to take a separate route, and `SOCK_DGRAM` over
+//! `AF_UNIX` does not exist there at all. `UnixAddr` also carries
+//! `std/sys/tcp`'s ownership problem in a slightly worse form — its `buf` is
+//! an `?*u8` whose `.None` case means "the platform reported a zero-size
+//! `sockaddr_un`", which is indistinguishable from "allocation refused" —
+//! and abstract (Linux `\0`-prefixed) socket names cannot be expressed
+//! through a NUL-terminated `*u8` path at all. Freezing needs the Windows
+//! matrix settled and an owning address type with a fallible constructor.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
@@ -12,65 +33,102 @@ pragma(Pragma.AllowUnsafe);
 // ============================================================================
 // UnixAddr - sockaddr_un buffer with pointer and length
 // ============================================================================
+/// A heap-allocated `sockaddr_un` buffer and its length.
+///
+/// Like `std/sys/tcp`'s `SockAddr` it owns its allocation with no `Dispose`,
+/// so every `make_sockaddr_un` needs a matching `free_addr`. `buf` is
+/// optional because the constructor answers `.None` when the platform
+/// reports a zero-size `sockaddr_un`, which is how a target without
+/// Unix-domain sockets shows up.
 UnixAddr :: struct(
+  /// The `sockaddr_un` bytes, or `.None` if the platform has no
+  /// `sockaddr_un`.
   buf : ?*u8,
+  /// Size of the buffer in bytes — the `addrlen` the socket calls want. 0
+  /// when `buf` is `.None`.
   len : u32
 );
 export(UnixAddr);
 // ============================================================================
 // Core Unix Socket Operations (return IoFuture, use with await)
 // ============================================================================
-// Create a Unix domain socket (SOCK_STREAM).
-// Returns fd on success, -errno on failure.
+/// Create a stream-oriented Unix-domain socket — `socket(AF_UNIX,
+/// SOCK_STREAM, 0)`. Resolves to the new fd, or a negative errno. This is the
+/// one to use: it is reliable, ordered and connection-based, like TCP but
+/// without the network.
 socket_stream :: (fn() -> IoFuture)(
   __yo_async_socket_start(AF_UNIX, SOCK_STREAM, i32(0))
 );
-// Create a Unix domain socket (SOCK_DGRAM).
-// Returns fd on success, -errno on failure.
+/// Create a datagram Unix-domain socket — `socket(AF_UNIX, SOCK_DGRAM, 0)`.
+/// Resolves to the new fd, or a negative errno.
+///
+/// Unlike UDP, `AF_UNIX` datagrams ARE reliable and ordered — the kernel
+/// never drops them — so this is a message-boundary-preserving channel rather
+/// than a lossy one. It does not exist on Windows.
 socket_dgram :: (fn() -> IoFuture)(
   __yo_async_socket_start(AF_UNIX, SOCK_DGRAM, i32(0))
 );
-// Bind a socket to a local Unix address.
-// Returns 0 on success, -errno on failure.
+/// Bind the socket to a filesystem path — POSIX `bind(2)`. Resolves to 0, or
+/// a negative errno.
+///
+/// This CREATES a socket file at the path, and `-EADDRINUSE` means the file
+/// already exists — a stale one from a crashed process counts, so a server
+/// normally unlinks the path (`std/sys/dir`'s `unlink`) before binding.
+/// Closing the socket does not remove the file; that is the owner's job too.
+/// Access is governed by the directory's write permission, which is what
+/// makes a socket in a mode-0700 directory a private channel.
 bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_bind_start(sockfd, addr, addrlen)
 );
-// Listen for incoming connections on a Unix socket.
-// Returns 0 on success, -errno on failure.
+/// Mark the socket as accepting connections — POSIX `listen(2)`. Resolves to
+/// 0, or a negative errno. `backlog` bounds the pending-connection queue.
 listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
   __yo_async_listen_start(sockfd, backlog)
 );
-// Accept an incoming connection.
-// Returns fd on success, -errno on failure.
+/// Accept the next connection — POSIX `accept(2)`. Resolves to the new
+/// connection's fd, or a negative errno. `addr`/`addrlen` receive the peer's
+/// address, which for a Unix socket is usually EMPTY (an unbound client has
+/// no path), so do not rely on it to identify the caller — read the peer
+/// credentials with `SO_PEERCRED`/`LOCAL_PEERCRED` through
+/// `std/sys/sockinfo` if you need that.
 accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture)(
   __yo_async_accept_start(sockfd, addr, addrlen)
 );
-// Connect to a Unix socket address.
-// Returns 0 on success, -errno on failure.
+/// Connect to a bound Unix-domain path — POSIX `connect(2)`. Resolves to 0,
+/// or a negative errno; `-ENOENT` when nothing has bound the path and
+/// `-ECONNREFUSED` when the file exists but no process is listening, which is
+/// exactly the stale-socket-file case.
 connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_connect_start(sockfd, addr, addrlen)
 );
-// Send data on a connected Unix socket.
-// Returns number of bytes sent on success, -errno on failure.
+/// Send on a connected socket — POSIX `send(2)`. Resolves to the number of
+/// bytes accepted (which may be short on a `SOCK_STREAM` socket), or a
+/// negative errno. The `SIGPIPE` caveat from `std/sys/tcp`'s `send` applies
+/// here too: the runtime does not ignore it.
 send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
-// Receive data from a connected Unix socket.
-// Returns number of bytes received on success, -errno on failure.
+/// Receive on a connected socket — POSIX `recv(2)`. Resolves to the number of
+/// bytes read, or a negative errno. On a `SOCK_STREAM` socket **0 means the
+/// peer closed**; on a `SOCK_DGRAM` one it is a zero-length message.
 recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
-// Close a Unix socket file descriptor.
-// Returns 0 on success, -errno on failure.
+/// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
+/// errno. It does NOT unlink the socket file a `bind` created.
 close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );
 // ============================================================================
 // Unix Socket Address Helpers
 // ============================================================================
-// Create a sockaddr_un from a filesystem path.
-// The path must be a null-terminated C string.
-// Returns a UnixAddr with allocated buffer. Caller must free the buffer.
+/// Build a `sockaddr_un` for the filesystem path `path` (a NUL-terminated C
+/// string). The caller must `free_addr` the result.
+///
+/// The path is copied into a fixed `sun_path` array — 104 bytes on macOS, 108
+/// on Linux — and TRUNCATED to fit rather than reported as too long, so a
+/// deep path silently binds somewhere else. `.None` comes back when the
+/// platform reports a zero-size `sockaddr_un`.
 make_sockaddr_un :: (fn(path : *u8) -> UnixAddr)({
   size := sockaddr_un_size();
   cond(
@@ -88,11 +146,15 @@ make_sockaddr_un :: (fn(path : *u8) -> UnixAddr)({
     }
   )
 });
-// Extract the path from a sockaddr_un buffer.
+/// Read the path out of a `sockaddr_un` buffer as a NUL-terminated C string.
+/// The pointer BORROWS the buffer — it is `sun_path`'s address inside it, not
+/// a copy — so it dangles once the buffer is freed. An unbound peer's address
+/// reads as an empty string.
 get_path :: (fn(addr_buf : *u8) -> *u8)(
   __yo_sockaddr_un_get_path(addr_buf)
 );
-// Free a UnixAddr buffer.
+/// Release a `UnixAddr`'s buffer. A `.None` buffer is a no-op, so this is
+/// safe to call on any `make_sockaddr_un` result.
 free_addr :: (fn(addr : UnixAddr) -> unit)(
   match(
     addr.buf,

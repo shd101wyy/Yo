@@ -1,0 +1,46 @@
+// Reproducer: `ArgParser.parse` cannot distinguish "the user asked for help"
+// from "the user made a mistake" — both come back as `.Err(String)`.
+//
+//   yo compile issues/repros/stddoc-io-arg-parser-help-and-string-errors.yo \
+//     --std-path ./std --optimize 2 -o /tmp/argrepro && /tmp/argrepro
+{ ArgParser } :: import("../../std/cli/arg_parser");
+{ ArrayList } :: import("../../std/collections/array_list");
+{ String } :: import("../../std/string");
+{ println } :: import("../../std/fmt");
+_argv :: (fn(rest : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  out.push(`myapp`);
+  i := usize(0);
+  while(runtime(i < rest.len()), {
+    match(rest.get(i), .Some(a) => out.push(a), .None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+_one :: (fn(tok : String) -> ArrayList(String))({
+  l := ArrayList(String).new();
+  l.push(tok);
+  _argv(l)
+});
+main :: (fn() -> unit)({
+  parser := ArgParser.new(`myapp`, `demo`);
+  parser.add_flag(`--verbose`, `-v`, `Verbose output`);
+  // 1. A help request.
+  match(
+    parser.parse(_one(`--help`)),
+    .Ok(_p) => println(`--help  -> Ok  (never happens)`),
+    .Err(m) => println(`--help  -> Err, ${m.len()} bytes (the help screen)`)
+  );
+  // 2. A genuine usage mistake.
+  match(
+    parser.parse(_one(`--nope`)),
+    .Ok(_p) => println(`--nope  -> Ok  (never happens)`),
+    .Err(m) => println(`--nope  -> Err, ${m.len()} bytes: ${m}`)
+  );
+  // Both are `.Err(String)`. Telling them apart requires comparing the
+  // payload against `parser.help_text()` — there is no variant to match on,
+  // so a caller cannot pick exit status 0 for the first and 2 for the second
+  // without string-comparing a whole help screen.
+  println(`both arms are .Err(String) — no variant distinguishes them`);
+});
+export(main);

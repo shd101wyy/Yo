@@ -1,12 +1,34 @@
-//! Path resolution.
+//! Path canonicalization (`realpath`) — the raw syscall boundary.
 //!
-//! Synchronous wrapper for `realpath`.
-//! Returns 0 on success, -errno on failure.
+//! One wrapper over POSIX `realpath(3)`. `std/fs/file.yo` owns the public
+//! surface (`File`'s path canonicalization); this module exists so that call
+//! has one platform-shaped place to reach.
+//!
+//! ## Stability
+//!
+//! unstable — the buffer contract is what has to move before this can freeze.
+//! The out-parameter is an unsized `*u8` that the callee fills up to the
+//! platform's path limit (`PATH_MAX` on POSIX, `MAX_PATH` on Windows), so the
+//! only way to call it correctly is to know that limit out of band. A frozen
+//! version would take a length, or return an owned `Path`/`String` the way
+//! `std/fs` already does. It also inherits a platform difference this layer
+//! does not paper over: POSIX resolves every symlink, while the Windows
+//! implementation resolves through an opened handle and normalizes the result
+//! to a DOS-volume path.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_realpath } :: import("./externs.yo");
-// Resolve a path to its canonical absolute form (resolves symlinks, . and ..).
-// Writes result to `resolved` buffer (must be at least PATH_MAX bytes).
-// Returns 0 on success, -errno on failure.
+/// Resolve `path` to its canonical absolute form — symlinks, `.` and `..` all
+/// expanded — and write the NUL-terminated result into `resolved`, which must
+/// hold at least `PATH_MAX` bytes (`MAX_PATH`, 260, on Windows). Returns 0 on
+/// success, a negative errno on failure. This is POSIX `realpath(3)`, so the
+/// path must EXIST: a missing component is `-ENOENT`, not a lexically cleaned
+/// path. Use `Path.normalize()` for the purely textual cleanup.
+///
+/// On Windows there is no `realpath`: the runtime runs `GetFullPathNameW`,
+/// opens the result with `FILE_FLAG_BACKUP_SEMANTICS` and reads back
+/// `GetFinalPathNameByHandleW`, then strips the `\\?\` (or `\\?\UNC\`)
+/// prefix. So the path must exist there too, and the answer is a normalized
+/// DOS-volume path rather than the shortest spelling.
 realpath :: (fn(path : *u8, resolved : *u8) -> i32)(
   __yo_sync_realpath(path, resolved)
 );

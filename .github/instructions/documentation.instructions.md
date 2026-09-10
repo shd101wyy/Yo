@@ -60,7 +60,44 @@ yo doc --title "My Project"      # Set doc site title
 yo doc --format html|markdown|json  # Output format (default: html)
 yo doc --version v1.0.0          # Release version (auto-detects from git if omitted)
 yo doc --document-private        # Include non-exported items
+yo doc ./std --std-path ./std    # Document THIS TREE's std (see below)
 ```
+
+**Pass `--std-path ./std` when documenting this tree's `std/`.** The installed
+`yo` otherwise evaluates against its own BUNDLED std, and any module the tree's
+version cannot evaluate against it silently degrades: `yo doc` prints
+`Warning: <module> evaluation failed, using token-only docs` and emits that
+module with every member as an untyped `(unknown)` constant and **no doc text at
+all** — `///` comments included. It still exits 0. Measured 2026-09-11 on
+`develop`: `yo doc ./std` degraded 90 of 173 modules that way (and inflated the
+"items documented" count doing it), while `yo doc ./std --std-path ./std`
+produced zero warnings. So a `///` coverage question must be answered from the
+SOURCE, never from a `doc.json` produced without the flag. Same reason as
+`yo check`/`yo build` — see the `--std-path` note in AGENTS.md's std section.
+
+### Both doc-comment forms are extracted
+
+`///` and `/** ... */` are BOTH doc comments (`TokenKind.DocComment` and
+`TokenKind.DocBlockComment`, handled in `src/doc/extractor.yo`), as are `//!`
+and `/*! ... */` for modules. A member documented with a block comment is not
+undocumented, so a coverage script that greps only for a `///` on the preceding
+line over-counts — measured 2026-09-11, by 134 members across `std/`. Prefer
+`///` in new code for one house style, but do not treat a block comment as a
+gap.
+
+Two things to know when reading `yo doc`'s output for coverage:
+
+- **Trait-impl methods are shown but never inherit the trait's doc.** A method
+  inside `impl(T, SomeTrait(...))` appears in the type's `methods` list with an
+  empty `doc` unless it carries its own comment, so `FsEventKind.to_string`,
+  `FsEventKind.format` and `Watcher.dispose` all render blank even though
+  `ToString`, `Format` and `Dispose` document those methods at the trait.
+  Rustdoc falls back to the trait's text here; `yo doc` does not
+  (`issues/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`).
+- **A doc comment does not follow a re-export.** A barrel module
+  (`std/string/index.yo`, `std/http/index.yo`, `std/fmt/index.yo`, …) lists
+  every re-exported name as an item of its own with no doc, because the comment
+  lives at the original definition.
 
 ### `build.doc()` build step
 

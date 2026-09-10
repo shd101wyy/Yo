@@ -1,75 +1,183 @@
-//! TTY, Poll, and FS Event constants.
+//! Event-loop handles — TTY modes, fd polling and filesystem watches.
+//!
+//! The libuv-shaped part of the runtime: long-lived HANDLES that register a
+//! callback with the event loop, rather than one-shot operations that return
+//! an `IoFuture`. Both families here (`poll_*` and `fs_event_*`) follow the
+//! same four-call lifecycle — `init`, `start`, `stop`, `close` — and both
+//! keep the loop alive while started.
+//!
+//! `std/fs/watch.yo` (`Watcher`) is the public surface over the fs-event
+//! half, and `std/sys/tty.yo` re-exports the `TTY_MODE_*` constants for
+//! `std/term`. The poll half has no public wrapper yet.
+//!
+//! ## Stability
+//!
+//! unstable — three of the flag constants below currently promise more than
+//! any backend delivers: `FS_EVENT_WATCH_ENTRY` and `FS_EVENT_STAT` are read
+//! by no platform at all, and `FS_EVENT_RECURSIVE` is honoured only on
+//! Windows. The handles are also raw C pointers wrapped in one-field structs
+//! with no ownership: using one after `close` is undefined and nothing
+//! prevents it, and `poll_init`/`fs_event_init` have no error return so an
+//! allocation failure is not observable. Freezing needs two things: recursion
+//! delivered on every backend rather than only on Windows — the mirror image
+//! of the Windows-shaped question `std/fs/watch.yo`'s own Stability note
+//! names — and handles that own their C allocation.
 pragma(Pragma.AllowUnsafe);
 { __yo_fs_event_init, __yo_fs_event_start, __yo_fs_event_stop, __yo_fs_event_close, __yo_poll_init, __yo_poll_start, __yo_poll_stop, __yo_poll_close } :: import("./externs.yo");
 // ============================================================================
 // TTY Mode Constants (libuv uv_tty_mode_t equivalent)
 // ============================================================================
+/// `UV_TTY_MODE_NORMAL` — restore the mode that `std/sys/tty`'s `tty_init`
+/// saved: echo on, line-buffered, Ctrl-C generates a signal.
 TTY_MODE_NORMAL :: i32(0);
+/// `UV_TTY_MODE_RAW` — no echo, no line buffering, no signal generation, so
+/// each keystroke is readable immediately and Ctrl-C arrives as a byte. What
+/// a full-screen or key-at-a-time UI wants.
 TTY_MODE_RAW :: i32(1);
+/// `UV_TTY_MODE_IO` — binary mode: output post-processing and input
+/// translation off, but echo and canonical input left as they are. The
+/// setting for moving bytes through a terminal without newline mangling.
 TTY_MODE_IO :: i32(2);
 // ============================================================================
 // Poll Event Constants (libuv uv_poll_event equivalent)
 // ============================================================================
+/// `UV_READABLE` — ask to be told when the descriptor has data (`POLLIN`).
 POLL_READABLE :: i32(1);
+/// `UV_WRITABLE` — ask to be told when the descriptor can accept data
+/// (`POLLOUT`).
 POLL_WRITABLE :: i32(2);
+/// `UV_DISCONNECT` — the peer hung up (`POLLHUP`). **Report-only**: it is
+/// delivered to the callback but cannot be REQUESTED, because `poll(2)`
+/// reports `POLLHUP` in `revents` regardless of what was asked for. Passing
+/// it to `poll_start` has no effect.
 POLL_DISCONNECT :: i32(4);
+/// `UV_PRIORITIZED` — out-of-band / priority data is available
+/// (`POLLPRI`); on a TCP socket, urgent data.
 POLL_PRIORITIZED :: i32(8);
 // ============================================================================
 // FS Event Flags (libuv uv_fs_event_flags equivalent)
 // ============================================================================
+/// `UV_FS_EVENT_WATCH_ENTRY` — accepted for libuv parity and read by NO
+/// backend in this tree. Passing it changes nothing.
 FS_EVENT_WATCH_ENTRY :: u32(1);
+/// `UV_FS_EVENT_STAT` — accepted for libuv parity and read by NO backend in
+/// this tree. Passing it changes nothing.
 FS_EVENT_STAT :: u32(2);
+/// `UV_FS_EVENT_RECURSIVE` — watch the whole subtree, not just the directory
+/// itself. Honoured on Windows ONLY, where it becomes
+/// `ReadDirectoryChangesW`'s `bWatchSubtree`. Linux adds `IN_ISDIR` to the
+/// inotify mask, which does not make inotify recurse, and macOS ignores it —
+/// so on both, a recursive watch has to be built by watching each directory.
 FS_EVENT_RECURSIVE :: u32(4);
 // FS Event Types (callback event types)
+/// The `events` bit meaning an entry was created, removed or moved — libuv's
+/// "rename" class. Backends cannot always tell the three apart, which is why
+/// they share one bit.
 FS_EVENT_RENAME :: i32(1);
+/// The `events` bit meaning an entry's contents or metadata changed. A single
+/// write may surface as one or several of these depending on how the platform
+/// coalesces.
 FS_EVENT_CHANGE :: i32(2);
 // ============================================================================
 // Poll Operations (sync wrappers around runtime callbacks)
 // ============================================================================
+/// Signature of a poll callback: `(events, status, user_data)`, where
+/// `events` is the OR of the `POLL_*` bits that fired and `status` is 0 or a
+/// negative errno.
+///
+/// It runs on the EVENT-LOOP thread, from the loop's tick, so it must not
+/// block. Polling is level-triggered: a readable descriptor fires on every
+/// tick until it is drained.
 PollCallback :: (fn(events : i32, status : i32, user_data : *u8) -> unit);
+/// A poll registration. `handle` is the runtime's own C allocation, not a
+/// Yo-owned one — copying the struct copies the pointer, and `poll_close`
+/// invalidates every copy.
 PollHandle :: struct(
+  /// The opaque runtime handle. Treat it as private: pass the `PollHandle`
+  /// around, not this field.
   handle : *u8
 );
-// Allocate a new poll handle bound to a fd.
+/// Allocate a poll handle bound to `fd`. Nothing is watched until
+/// `poll_start`, and the descriptor is not validated here.
+///
+/// There is no error return, so an allocation failure is not observable at
+/// this layer — see the module's Stability note.
 poll_init :: (fn(fd : i32) -> PollHandle)(
   PollHandle(__yo_poll_init(fd))
 );
-// Start polling for events.
-// Returns 0 on success, -errno on failure.
+/// Start watching for `events` (an OR of `POLL_READABLE`, `POLL_WRITABLE`
+/// and `POLL_PRIORITIZED` — `POLL_DISCONNECT` is report-only). Returns 0 on
+/// success, `-EINVAL` for a null callback.
+///
+/// `user_data` is handed back to the callback unchanged, which is how a
+/// callback finds its owning object. While started, the handle keeps the
+/// event loop ALIVE: a program whose only remaining work is a started poll
+/// will not exit.
 poll_start :: (fn(handle : PollHandle, events : i32, callback : PollCallback, user_data : *u8) -> i32)(
   __yo_poll_start(handle.handle, events, unsafe.cast(callback, *u8), user_data)
 );
-// Stop polling.
-// Returns 0 on success, -errno on failure.
+/// Stop watching and release the loop reference. Returns 0 on success,
+/// `-EINVAL` for a null handle. Idempotent: stopping a handle that is
+/// already stopped returns 0 without doing anything.
 poll_stop :: (fn(handle : PollHandle) -> i32)(
   __yo_poll_stop(handle.handle)
 );
-// Close and free the handle.
+/// Stop (if needed) and FREE the handle. The `PollHandle` and every copy of
+/// it dangle afterwards. It does not close the descriptor — that is the
+/// caller's.
 poll_close :: (fn(handle : PollHandle) -> unit)({
   __yo_poll_close(handle.handle);
 });
 // ============================================================================
 // FS Event Operations (sync wrappers around runtime callbacks)
 // ============================================================================
+/// Signature of a filesystem-watch callback: `(path, events, user_data)`.
+///
+/// `path` is the ENTRY NAME relative to the watched directory (the file's own
+/// name when a file is watched), not a full path, and it is a borrowed C
+/// string valid only for the duration of the call — copy it if you keep it.
+/// `events` is `FS_EVENT_RENAME` and/or `FS_EVENT_CHANGE`. Like
+/// `PollCallback` it runs on the event-loop thread.
 FsEventCallback :: (fn(path : *u8, events : i32, user_data : *u8) -> unit);
+/// A filesystem-watch registration, with the same "the pointer is the
+/// runtime's" caveat as `PollHandle`.
 FsEventHandle :: struct(
+  /// The opaque runtime handle. Treat it as private.
   handle : *u8
 );
-// Allocate a new fs event handle.
+/// Allocate a filesystem-watch handle. No path is attached until
+/// `fs_event_start`, and as with `poll_init` there is no error return.
 fs_event_init :: (fn() -> FsEventHandle)(
   FsEventHandle(__yo_fs_event_init())
 );
-// Start watching a path.
-// Returns 0 on success, -errno on failure.
+/// Start watching `path` — a directory or a single file. Returns 0 on
+/// success, a negative errno on failure (`-EINVAL` for a null path or
+/// callback, `-ENOENT` for a missing path, `-ENOTSUP` on wasm, which has no
+/// filesystem events).
+///
+/// `flags` is `FS_EVENT_RECURSIVE` or 0; see that constant for which
+/// platforms honour it. `user_data` is passed back to the callback. While
+/// started, the handle keeps the event loop alive.
+///
+/// The backends are genuinely different mechanisms, which is why event
+/// delivery is coarse: `inotify` on Linux (mask `IN_MODIFY | IN_CREATE |
+/// IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB`), a `kqueue`
+/// `EVFILT_VNODE` watch on macOS backed by a directory SNAPSHOT that the
+/// loop diffs to work out which entry changed, and `ReadDirectoryChangesW`
+/// on Windows.
 fs_event_start :: (fn(handle : FsEventHandle, path : *u8, flags : u32, callback : FsEventCallback, user_data : *u8) -> i32)(
   __yo_fs_event_start(handle.handle, path, flags, unsafe.cast(callback, *u8), user_data)
 );
-// Stop watching.
-// Returns 0 on success, -errno on failure.
+/// Stop watching and release the loop reference, tearing down the platform
+/// watch (the inotify watch, the kqueue and its snapshot, the directory
+/// handle). Returns 0 on success, `-EINVAL` for a null handle; idempotent.
 fs_event_stop :: (fn(handle : FsEventHandle) -> i32)(
   __yo_fs_event_stop(handle.handle)
 );
-// Close and free the handle.
+/// Stop (if needed) and FREE the handle. Every copy dangles afterwards.
+/// Calling this is what stops the loop calling back into memory the owner has
+/// dropped — `std/fs/watch`'s `Watcher` does it from `Dispose` for exactly
+/// that reason.
 fs_event_close :: (fn(handle : FsEventHandle) -> unit)({
   __yo_fs_event_close(handle.handle);
 });

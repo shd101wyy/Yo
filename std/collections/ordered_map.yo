@@ -35,6 +35,16 @@
 //!   );
 //! };
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `plans/STD_API_STABILIZATION.md` §4 still lists one shape open
+//! here: `remove` is O(n) because it rebuilds the key-order list, and the O(1)
+//! `swap_remove` that `indexmap` offers beside it (removing by swapping the
+//! last key into the hole, at the cost of the order) has not been decided.
+//! Adding it would change what `remove`'s cost is worth accepting. Everything
+//! else is settled — D14's pointer `iter()` and the `IntoIterator` that makes
+//! `for(map, ...)` work both landed 2026-09-08.
 // `iter()` yields `*(MapEntry(K, V))` into the backing HashMap's buckets (D14),
 // so this module names a raw pointer type. The pointers are produced by
 // `HashMap.get_entry_ptr` and never dereferenced here.
@@ -230,6 +240,12 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapKeys(K, V),
+  /// Next key in INSERTION order, or `.None` at the end — O(1), straight off
+  /// the key-order list.
+  ///
+  /// The keys are yielded by value (dup'd for a refcounted `K`). Inserting a
+  /// new key during the walk appends to that list and so extends the walk;
+  /// removing one rebuilds it and shifts everything after the removed key.
   next : (fn(inout(self) : Self) -> Option(K))({
     cond(
       (self._index >= self._map._order.len()) => {
@@ -261,6 +277,12 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   OrderedMapValues(K, V),
+  /// Next value in the KEYS' insertion order, or `.None` at the end.
+  ///
+  /// Costs a hash lookup per step — it reads the key off the order list and
+  /// then asks the backing map for its value — where `keys()` is a plain
+  /// array read. `iter()` yields entry pointers and pays the lookup once per
+  /// entry too, but hands back the key alongside the value.
   next : (fn(inout(self) : Self) -> Option(V))({
     cond(
       (self._index >= self._map._order.len()) => {

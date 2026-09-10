@@ -1,4 +1,28 @@
-//! Hash map using SwissTable algorithm with SIMD-accelerated lookup.
+//! Hash map with a SwissTable-style control-byte layout.
+//!
+//! Each bucket has a one-byte control value — `CTRL_EMPTY`, `CTRL_DELETED`,
+//! or the low 7 bits of the key's hash — held in an array beside the entries,
+//! so a probe rejects a bucket after one byte compare and only touches the
+//! entry when those 7 bits match. The probe sequence itself is LINEAR
+//! (`(h1 + i) % capacity`) and the control bytes are compared ONE AT A TIME:
+//! this is hashbrown's memory layout, not its SIMD group scan.
+//!
+//! `get`/`insert`/`remove` are O(1) average; the table doubles at a 7/8 load
+//! factor, and a table over that threshold because of tombstones rather than
+//! live entries is rehashed in place instead of doubled.
+//!
+//! ## Stability
+//!
+//! unstable — the shape is settled (D9's infallible `insert` + `try_insert`,
+//! D14's pointer `iter()`, the single-probe `entry` API), but four fields of
+//! the backing struct — `ctrl`, `data`, `capacity`, `size` — are still PUBLIC,
+//! and `plans/STD_API_STABILIZATION.md` §4 lists making them private as open
+//! work in this group: `HashSet` already took that change (`capacity()` and
+//! friends became accessors) and this map has not. §5 also has one undecided
+//! question here: `new()` stays deterministically keyed because the bootstrap
+//! fixpoint gate needs byte-identical emitted C, so a `with_random_keys()`
+//! convenience over `with_keys` may still be added. Freezing follows the field
+//! privatization; everything else about this module is additive already.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { MapEntry } :: import("./entry.yo");
@@ -19,6 +43,8 @@ CTRL_DELETED :: u8(254);
 DEFAULT_CAPACITY :: usize(16);
 /// Maximum load factor numerator (7/8 = 0.875). Resize when `size > capacity * 7 / 8`.
 MAX_LOAD_FACTOR_NUMERATOR :: usize(7);
+/// Maximum load factor denominator. `size + tombstones >= capacity * 7 / 8`
+/// is the resize trigger — hashbrown's threshold.
 MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 /// Extract H2 hash (lower 7 bits) from full hash for control byte comparison.
 h2_hash :: (fn(hash : u64) -> u8)(u8(hash & u64(127)));
@@ -63,9 +89,20 @@ HashMap :: (
 )(
   ref(
     struct(
+      /// Control bytes, one per bucket: `CTRL_EMPTY`, `CTRL_DELETED`, or the
+      /// key's 7-bit `h2`. `.None` only before the first allocation.
+      ///
+      /// An implementation detail that is public by accident — see the
+      /// module's `## Stability` note.
       ctrl : ?(*(u8)),
+      /// The bucket array itself, parallel to `ctrl`. An implementation
+      /// detail that is public by accident.
       data : ?(*(MapEntry(K, V))),
+      /// Number of buckets — always a power of two, because bucket selection
+      /// masks the hash. An implementation detail that is public by accident.
       capacity : usize,
+      /// Live entries. `len()` reads this. An implementation detail that is
+      /// public by accident.
       size : usize,
       /// Slots holding `CTRL_DELETED`. A tombstone keeps probe chains intact
       /// but is never `EMPTY`, so it costs exactly what a live entry costs on
@@ -85,10 +122,8 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /**
-  * Allocate memory for HashMap with given capacity
-  * Initializes all control bytes to EMPTY
-  */
+  /// Allocate memory for HashMap with given capacity
+  /// Initializes all control bytes to EMPTY
   _alloc_with_capacity : (fn(capacity : usize) -> Result(Self, HashMapError))({
     bucket_size :: sizeof(MapEntry(K, V));
     // `capacity * bucket_size` is computed in usize and WRAPS, which would hand
@@ -141,9 +176,14 @@ impl(
     key.hash(h);
     h.finish()
   }),
-  /**
-  * Create a new empty HashMap with default capacity
-  */
+  /// Empty map with room for `DEFAULT_CAPACITY` (16) buckets, hashed with
+  /// the FIXED SipHash keys.
+  ///
+  /// Fixed keys mean iteration order is reproducible run to run — the
+  /// compiler's own fixpoint gate depends on it — and therefore that a map
+  /// fed untrusted keys is open to collision flooding; `with_keys` is the
+  /// answer there. Unlike Rust's `HashMap::new`, this ALLOCATES eagerly, and
+  /// PANICS if that allocation fails.
   new : (fn() -> Self)({
     result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
     match(
@@ -152,23 +192,26 @@ impl(
       .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
   }),
-  /**
-  * Create a new empty HashMap whose hashes are keyed by `k0`, `k1`
-  * (SipHash-1-3 keys). Two maps with different keys place the same key in
-  * different buckets, so a map fed by untrusted input can be given
-  * per-process random keys (`std/crypto/random`) to defeat collision
-  * flooding; `new()` uses fixed keys so iteration order is reproducible.
-  */
+  /// Empty map whose hashes are keyed by `k0`, `k1` (SipHash-1-3 keys).
+  ///
+  /// Two maps with different keys place the same key in different buckets, so
+  /// a map fed by untrusted input can be given per-process random keys
+  /// (`std/crypto/random`) to defeat collision flooding. `new()` uses fixed
+  /// keys so iteration order is reproducible.
   with_keys : (fn(k0 : u64, k1 : u64) -> Self)({
     map := Self.new();
     map.k0 = k0;
     map.k1 = k1;
     map
   }),
-  /**
-  * Create a HashMap with a specific initial capacity
-  * Capacity will be rounded up to next power of 2
-  */
+  /// Empty map sized for `requested_capacity` buckets, rounded UP to a power
+  /// of two (never below the 16-bucket default) because bucket selection
+  /// masks the hash.
+  ///
+  /// Note this is a BUCKET count, not the entry count Rust's
+  /// `with_capacity` promises: the 7/8 load factor means the map still
+  /// resizes after about `capacity * 7 / 8` insertions. PANICS on allocation
+  /// failure.
   with_capacity : (fn(requested_capacity : usize) -> Self)({
     capacity := cond(
       (requested_capacity < DEFAULT_CAPACITY) => DEFAULT_CAPACITY,
@@ -198,9 +241,7 @@ impl(
       .Err(_) => __yo_panic("Failed to allocate HashMap")
     )
   }),
-  /**
-  * Get ctrl pointer (unwrapped for internal use)
-  */
+  /// Get ctrl pointer (unwrapped for internal use)
   _ctrl_ptr : (fn(self : Self) -> *(u8))(
     match(
       self.ctrl,
@@ -208,9 +249,7 @@ impl(
       .None => __yo_panic("HashMap ctrl pointer is null")
     )
   ),
-  /**
-  * Get data pointer (unwrapped for internal use)
-  */
+  /// Get data pointer (unwrapped for internal use)
   _data_ptr : (fn(self : Self) -> *(MapEntry(K, V)))(
     match(
       self.data,
@@ -218,10 +257,9 @@ impl(
       .None => __yo_panic("HashMap data pointer is null")
     )
   ),
-  /**
-  * Find bucket index for a given key using quadratic probing
-  * Returns Some(index) if key is found, None otherwise
-  */
+  /// Bucket holding `key`, or `.None`. Walks the LINEAR probe sequence and
+  /// stops at the first `CTRL_EMPTY`, which is what makes `remove` able to
+  /// turn a slot back into `EMPTY` only when its successor already is.
   _find_bucket : (fn(self : Self, key : K, hash : u64) -> Option(usize))({
     h2 := h2_hash(hash);
     index := h1_hash(hash, self.capacity);
@@ -305,10 +343,8 @@ impl(
       .None => __yo_panic("HashMap is full - should have resized")
     )
   }),
-  /**
-  * Find first available bucket (EMPTY or DELETED) for insertion
-  * Returns bucket index using quadratic probing
-  */
+  /// First reusable bucket (`EMPTY` or `DELETED`) on `hash`'s LINEAR probe
+  /// sequence. Panics on a full table — the caller resizes first.
   _find_insert_bucket : (fn(self : Self, hash : u64) -> usize)({
     index := h1_hash(hash, self.capacity);
     probe := usize(0);
@@ -325,16 +361,12 @@ impl(
     });
     __yo_panic("HashMap is full - should have resized")
   }),
-  /**
-  * Check if HashMap needs resizing based on load factor
-  */
+  /// Check if HashMap needs resizing based on load factor
   _needs_resize : (fn(self : Self) -> bool)({
     threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
     (self.size + self.tombstones) >= threshold
   }),
-  /**
-  * Resize and rehash the HashMap to a new capacity
-  */
+  /// Resize and rehash the HashMap to a new capacity
   _resize : (fn(self : Self, new_capacity : usize) -> Result(unit, HashMapError))({
     result := Self._alloc_with_capacity(new_capacity);
     match(
@@ -408,10 +440,12 @@ impl(
       }
     )
   }),
-  /**
-  * Insert or update a key-value pair
-  * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
-  */
+  /// Insert or overwrite, reporting allocation failure instead of panicking:
+  /// `.Ok(.Some(old))` when the key was present, `.Ok(.None)` when it is new.
+  ///
+  /// The allocator-aware form (D9); `insert` is the one to reach for. An
+  /// insertion that crosses the load factor rehashes the table first, which
+  /// INVALIDATES every entry pointer previously handed out.
   try_insert : (fn(self : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
@@ -512,10 +546,11 @@ impl(
     self.size = (self.size + usize(1));
     value
   }),
-  /**
-  * Get a value by key
-  * Returns Some(value) if found, None otherwise
-  */
+  /// Copy of the value stored under `key`, or `.None` — O(1) average.
+  ///
+  /// The value is dup'd for a refcounted `V`; `get_entry_ptr` borrows the
+  /// entry instead, and `self(key)` (the `Index` impl) panics on a missing
+  /// key rather than answering `.None`.
   get : (fn(self : Self, key : K) -> Option(V))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
@@ -529,14 +564,12 @@ impl(
       .None => .None
     )
   }),
-  /**
-  * Pointer to the LIVE entry for `key`, or `.None` when the key is absent.
-  *
-  * The pointer aliases the map's own bucket array — the same storage
-  * `iter()` hands out (D14) — so writing `p.*.value` updates the map in
-  * place, and any operation that REHASHES the table (an `insert` that grows
-  * it, `remove`, `clear`) invalidates it.
-  */
+  /// Pointer to the LIVE entry for `key`, or `.None` when the key is absent.
+  ///
+  /// The pointer aliases the map's own bucket array — the same storage
+  /// `iter()` hands out (D14) — so writing `p.*.value` updates the map in
+  /// place, and any operation that REHASHES the table (an `insert` that grows
+  /// it, `remove`, `clear`) invalidates it.
   get_entry_ptr : (fn(self : Self, key : K) -> Option(*(MapEntry(K, V))))({
     cond(
       (self.capacity == usize(0)) => return(.None),
@@ -549,15 +582,17 @@ impl(
       .None => .None
     )
   }),
-  /**
-  * Insert a key/value pair, returning the PREVIOUS value for that key.
-  *
-  * PANICS on allocation failure (D9) — `HashMap.new` already does, and so
-  * does `ArrayList.push`. Before D9 this returned a `Result` that essentially
-  * every caller discarded through a throwaway `_x :=` binding.
-  *
-  * Use `try_insert` when the caller genuinely handles OOM.
-  */
+  /// Insert a key/value pair, returning the PREVIOUS value for that key —
+  /// Rust's `insert`.
+  ///
+  /// PANICS on allocation failure (D9): `HashMap.new` already does, and so
+  /// does `ArrayList.push`. Before D9 this returned a `Result` that
+  /// essentially every caller discarded through a throwaway `_x :=` binding.
+  /// Use `try_insert` when the caller genuinely handles OOM.
+  ///
+  /// The `.Some(old)` result is a trap worth knowing: `map.insert(k, v)
+  /// .unwrap()` used to unwrap a `Result` and now unwraps the OPTION, so it
+  /// panics on a FRESH key.
   insert : (fn(self : Self, key : K, value : V) -> Option(V))(
     match(
       Self.try_insert(self, key, value),
@@ -565,9 +600,6 @@ impl(
       .Err(_) => __yo_panic("HashMap.insert: allocation failed")
     )
   ),
-  /**
-  * Check if a key exists in the map
-  */
   /// The stored KEY alongside its value — Rust's `get_key_value`.
   ///
   /// Distinct from `get` whenever the key type has equal-but-distinguishable
@@ -591,6 +623,8 @@ impl(
       .None => Option(MapEntry(K, V)).None
     )
   ),
+  /// Whether `key` is in the map — O(1) average, and it does not touch the
+  /// value, so nothing is dup'd for a refcounted `V`.
   contains_key : (fn(self : Self, key : K) -> bool)({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
@@ -600,10 +634,14 @@ impl(
       .None => false
     )
   }),
-  /**
-  * Remove a key-value pair by key
-  * Returns Some(value) if the key was found and removed, None otherwise
-  */
+  /// Remove `key`, returning the value it held, or `.None` — O(1) average.
+  ///
+  /// The freed bucket goes back to `EMPTY` when the next bucket is already
+  /// `EMPTY`, and becomes a TOMBSTONE otherwise, because a key inserted later
+  /// may have probed past it. Tombstones cost a full bucket compare on every
+  /// miss, which is why they are counted and why a table that is mostly
+  /// tombstones is rehashed in place (`_needs_resize`). Entry pointers into
+  /// the removed bucket are invalid afterwards.
   remove : (fn(self : Self, key : K) -> Option(V))({
     hash := self._hash(key);
     bucket_opt := Self._find_bucket(self, key, hash);
@@ -638,22 +676,16 @@ impl(
       .None => .None
     )
   }),
-  /**
-  * Get the number of key-value pairs in the map
-  */
+  /// Number of live entries — O(1). Not the bucket count; that is
+  /// `capacity`.
   len : (fn(self : Self) -> usize)(
     self.size
   ),
-  /**
-  * Check if the map is empty
-  */
+  /// True when the map holds no entries. A map with only tombstones left is
+  /// empty by this test.
   is_empty : (fn(self : Self) -> bool)(
     self.size == usize(0)
   ),
-  /**
-  * Clear all key-value pairs
-  * Resets all control bytes to EMPTY
-  */
   /// Drop every entry for which `keep(key, value)` is false — Rust's `retain`.
   ///
   /// Scans the bucket array directly rather than probing per key. Removal only
@@ -720,6 +752,9 @@ impl(
       );
     });
   }),
+  /// Drop every entry and reset every control byte to `EMPTY`, KEEPING the
+  /// bucket array — Rust's `clear`. O(capacity), and it clears the tombstone
+  /// count too.
   clear : (fn(self : Self) -> unit)({
     // Drop all occupied buckets before clearing
     cond(
@@ -795,9 +830,8 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   Dispose(
-    /**
-    * RAII destructor - automatically called when HashMap goes out of scope
-    */
+    /// Drops every live entry and frees the control and bucket arrays. Runs
+    /// when the last reference to the map goes away.
     dispose : (fn(self : Self) -> unit)({
       // Drop all occupied buckets before freeing memory
       cond(
@@ -926,10 +960,13 @@ impl(
   /// that logic lives in `remove`.
   remove : (fn(self : Self) -> Option(V))(self._map.remove(self._key))
 );
-/**
-* Value iterator for HashMap - yields MapEntry(K, V) by value
-* Scans ctrl bytes to find occupied slots.
-*/
+/// Value iterator over a HashMap — yields each `MapEntry(K, V)` BY VALUE
+/// (both key and value dup'd for refcounted types). This is what
+/// `into_iter()`, and therefore `for(map, ...)`, returns; `iter()` yields
+/// pointers.
+///
+/// It walks the control-byte array from bucket 0, so the order is arbitrary
+/// but reproducible for a map keyed by `new()`'s fixed keys.
 HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -976,10 +1013,12 @@ impl(
     )
   )
 );
-/**
-* Pointer iterator for HashMap - yields pointers to MapEntry(K, V)
-* Pointers are valid as long as the map is not modified during iteration.
-*/
+/// Pointer iterator over a HashMap — yields `*(MapEntry(K, V))` into the
+/// map's own bucket array. This is what `iter()` returns (D14).
+///
+/// A yielded pointer stays valid only while the table is not rehashed: an
+/// `insert` that grows the map, a `remove` or a `clear` during the walk
+/// leaves it dangling.
 HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1018,22 +1057,25 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  /// Pointer iterator — yields `*(MapEntry(K, V))` for each occupied bucket.
-  /// For privileged/unsafe internal use; value iteration goes through
-  /// `into_iter()`.
+  /// Borrowing walk over the occupied buckets: yields a
+  /// `*(MapEntry(K, V))` into the map's own bucket array (D14), so nothing is
+  /// dup'd and `p.*.value` can be written in place. `into_iter()` — what
+  /// `for(map, ...)` uses — yields entries by value instead.
+  ///
+  /// Order follows the bucket array, so it is arbitrary but reproducible for
+  /// a map built with `new()`'s fixed keys. Do not insert or remove during
+  /// the walk: a rehash invalidates every pointer already yielded.
   iter : (fn(self : Self) -> HashMapIterPtr(K, V))(
     HashMapIterPtr(K, V)(_map : self, _index : usize(0))
   )
 );
-/**
-* Keys iterator - scans ctrl bytes directly and yields only the keys.
-*
-* NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
-* `self._inner.next()` — but a method call on a struct FIELD of `inout(self)`
-* advances a COPY of the field, so `_index` never moved and manual
-* `it.next()` loops yielded the first key forever (`for(...)` masked it).
-* Scan directly instead, mirroring `HashMapIterPtr`.
-*/
+// NOTE: This held a wrapped `_inner : HashMapIter(K, V)` and delegated
+// `self._inner.next()` — but a method call on a struct FIELD of `inout(self)`
+// advances a COPY of the field, so `_index` never moved and manual
+// `it.next()` loops yielded the first key forever (`for(...)` masked it).
+// Scan directly instead, mirroring `HashMapIterPtr`.
+/// Iterator over a map's keys, in bucket order — what `keys()` returns. The
+/// keys are yielded by value, so a refcounted `K` is dup'd.
 HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1072,16 +1114,16 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
+  /// Walk the keys, in bucket order — Rust's `keys`. Yields them by value;
+  /// `iter()` is the way to see keys without dup'ing them.
   keys : (fn(self : Self) -> HashMapKeys(K, V))(
     HashMapKeys(K, V)(_map : self, _index : usize(0))
   )
 );
-/**
-* Values iterator - scans ctrl bytes directly and yields only the values.
-*
-* NOTE: Same direct-scan structure as `HashMapKeys` — see the note there for
-* why the wrapped-`_inner` delegation form was replaced.
-*/
+// NOTE: Same direct-scan structure as `HashMapKeys` — see the note there for
+// why the wrapped-`_inner` delegation form was replaced.
+/// Iterator over a map's values, in bucket order — what `values()` returns.
+/// The values are yielded by value, so a refcounted `V` is dup'd.
 HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _map : HashMap(K, V),
@@ -1120,6 +1162,9 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
+  /// Walk the values, in bucket order — Rust's `values`. Yields them by
+  /// value; `iter()` hands out entry pointers instead, which is the cheaper
+  /// way to read a refcounted `V`.
   values : (fn(self : Self) -> HashMapValues(K, V))(
     HashMapValues(K, V)(_map : self, _index : usize(0))
   )
@@ -1181,16 +1226,14 @@ impl(
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
   Trace(
-    /**
-    * Cycle-GC tracing. Buckets live in a malloc'd open-addressing buffer the
-    * compiler's auto-derived field walk cannot reach, so trace each FULL slot
-    * (its control byte is neither EMPTY nor DELETED). `tracer.visit` takes the
-    * `MapEntry(K, V)` slot POINTER; the per-value traversal descends inline through
-    * the value struct, tracing BOTH the key and the value, WITHOUT touching any
-    * reference count (a by-value managed handle would be dup'd then dropped,
-    * freeing a live element mid-collection). Mirrors the ArrayList `Trace` impl +
-    * the SwissTable slot scan.
-    */
+    /// Cycle-GC tracing. Buckets live in a malloc'd open-addressing buffer the
+    /// compiler's auto-derived field walk cannot reach, so trace each FULL slot
+    /// (its control byte is neither EMPTY nor DELETED). `tracer.visit` takes the
+    /// `MapEntry(K, V)` slot POINTER; the per-value traversal descends inline through
+    /// the value struct, tracing BOTH the key and the value, WITHOUT touching any
+    /// reference count (a by-value managed handle would be dup'd then dropped,
+    /// freeing a live element mid-collection). Mirrors the ArrayList `Trace` impl +
+    /// the SwissTable slot scan.
     trace : (fn(self : Self, tracer : GcTracer) -> unit)({
       match(
         self.ctrl,

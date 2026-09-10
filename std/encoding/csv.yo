@@ -16,6 +16,30 @@
 //! rows := csv.parse(String.from("a,b\n1,\"x,y\"\n"));   // Result(ArrayList(ArrayList(String)), CsvError)
 //! text := csv.write(rows.unwrap());                      // `a,b\n1,"x,y"\n`
 //! ```
+//!
+//! ## Stability
+//!
+//! stable — frozen in #421, which reviewed the four expired unstable windows
+//! and decided this one. The whole module is eight names (`csv_parse`,
+//! `csv_parse_with`, `csv_parse_strict`, `csv_write`, `csv_write_with`,
+//! `CsvOptions`, `LineEnding`, `CsvError`), each covered by
+//! `tests/encoding/csv.test.yo`, and the shape questions a CSV reader has —
+//! whether a lenient parse or a strict one is the default, whether errors are
+//! values or effects, what a quote fault reports — are all answered and
+//! answered the way Rust's `csv` crate answers them.
+//!
+//! There is deliberately NO header-record API: `Reader::headers()`,
+//! `StringRecord` and serde derive are the parts of Rust's `csv` this does
+//! not have, and adding them is ADDITIVE — a record here is an
+//! `ArrayList(String)` whether or not the first one names columns, so a
+//! future header layer sits on top of `csv_parse` without changing it. The
+//! one place to be careful is `CsvOptions`: it is a plain value `struct` with
+//! public fields, so a new option is a new field and every positional
+//! `CsvOptions(...)` literal names its fields — use `default()` or
+//! `with_delimiter()` and let new options default.
+//!
+//! `LineEnding.Lf` as the writer default is the module's one divergence from
+//! RFC 4180 (which says CRLF) and is documented at `default()`.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { Error } :: import("../error");
@@ -62,6 +86,14 @@ CsvOptions :: struct(
 );
 impl(
   CsvOptions,
+  /// RFC 4180 with LF output: `,` delimiter, `\n` line ending.
+  ///
+  /// The line ending is the one deliberate divergence from the RFC, which
+  /// specifies CRLF. LF is what every Unix tool and every `csv` crate default
+  /// writes, and the reader accepts both either way, so a CRLF default would
+  /// only add carriage returns nobody asked for. Pass
+  /// `CsvOptions(delimiter : u8(44), line_ending : LineEnding.CrLf)` when the
+  /// consumer really wants RFC-literal output.
   default : (fn() -> Self)(Self(delimiter : u8(44), line_ending : LineEnding.Lf)),
   /// `default()` with another delimiter.
   with_delimiter : (fn(delimiter : u8) -> Self)(Self(delimiter : delimiter, line_ending : LineEnding.Lf))

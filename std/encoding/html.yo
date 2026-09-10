@@ -11,6 +11,36 @@
 //! result := html.decode(`&amp; &lt; &#38; &#x26;`);
 //! assert((result == `& < & &`), "decoded entities");
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `html_decode` takes one argument, and the WHATWG spec needs
+//! two. Its §13.2.5.72 named-reference rule is CONTEXT-dependent: the
+//! semicolon-less legacy form (`&amp` for `&`) is decoded in TEXT but must
+//! stay literal in an ATTRIBUTE VALUE when the next character is `=` or
+//! alphanumeric, so `?a=1&lang=x` keeps its `&lang` instead of becoming
+//! `&lang` the entity. This module decodes legacy references
+//! unconditionally, because `fn(input : String) -> String` has nowhere to say
+//! which position the text came from. Fixing it means a second parameter or a
+//! second entry point, so it is not additive, and it is mildly
+//! security-relevant in the direction of mangling URLs rather than of
+//! injecting markup.
+//!
+//! `html_encode`'s set is settled — the five XSS-critical characters, chosen
+//! so `html_decode(html_encode(s)) == s` holds for any `s` — and that
+//! round-trip is what a fix to the above must not break.
+//!
+//! One smaller thing to tidy before freezing: this module RE-EXPORTS
+//! `is_valid_entity_code` and `from_code_point`, which `html_char_utils`
+//! also exports, so two module paths publish the same two names. Whichever
+//! becomes canonical, the other's export goes — a removal, not an addition.
+//!
+//! The entity tables are no longer a hazard: they are built once at module
+//! init (`_entity_map`, `_legacy_set`), where they used to be lazily built
+//! through an unsynchronised flag that two threads' first decodes raced on
+//! (`issues/fixed/html-and-log-globals-raced.md`), and `html_decode` appends
+//! in place instead of rebuilding the result through a template string per
+//! character, which was O(n²).
 { rune, String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { is_valid_entity_code, from_code_point } :: import("./html_char_utils");

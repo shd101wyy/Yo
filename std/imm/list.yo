@@ -15,6 +15,22 @@
 //! assert((xs.head().unwrap() == i32(1)), "head is 1");
 //! assert((xs.len() == usize(3)), "length is 3");
 //! ```
+//!
+//! `head`/`tail`/`prepend` are O(1) and share the tail, so keeping an older
+//! version of a list costs nothing. Everything positional — `get`, `len`,
+//! `contains`, `reverse`, `concat` — walks the chain and is O(n); `imm.Vec`
+//! is the one to reach for when indexing is the access pattern.
+//!
+//! ## Stability
+//!
+//! stable — this is the one `imm` container with nothing open against it in
+//! `plans/STD_API_STABILIZATION.md` §4: the cons-list surface is complete
+//! (`prepend`/`head`/`tail` plus the functional combinators), `IntoIterator`
+//! landed 2026-09-08 walking the chain at O(1) per step, and the `remove`
+//! shape question that holds up `imm.Map` / `imm.Set` does not arise —
+//! removal from a cons list is `filter`. `tests/imm_list.test.yo` and
+//! `tests/imm_iterators.test.yo` cover it. Additions such as `append` or
+//! `zip` would be additive.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");

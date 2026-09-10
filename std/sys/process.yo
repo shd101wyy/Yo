@@ -1,20 +1,48 @@
-//! Child process management.
+//! Child process spawning and reaping — the raw syscall boundary.
 //!
-//! Provides cross-platform child process spawning, waiting, and signal delivery.
-//! All async operations return `IoFuture` which resolves to:
-//! - Positive value: success (pid for spawn, status for waitpid)
-//! - Negative value: -errno on failure
+//! `posix_spawn`, `waitpid`, `kill` and the two status decoders.
+//! `std/process/command.yo` is the public surface: `Command` builds the
+//! `argv`/`envp` arrays, wires the pipes with `std/sys/pipe`, and turns the
+//! encoded status these functions traffic in into an `ExitStatus`.
 //!
-//! `argv`/`envp` are NULL-terminated arrays of C strings.
-// Use `?(*(u8))` for entries so .None can be used as the terminator.
+//! `spawn`, `spawn_cwd` and `waitpid` return an `IoFuture` resolving to a
+//! non-negative value (a pid for spawn, an ENCODED status for waitpid) or a
+//! negative errno; `kill`, `exit_status` and `term_signal` are synchronous.
+//!
+//! `argv` and `envp` are NULL-terminated arrays of C strings — hence
+//! `?(*(u8))` for the entries, so `.None` can BE the terminator.
+//!
+//! ## Stability
+//!
+//! unstable — the status encoding is the open question. `waitpid` hands back
+//! the kernel's opaque wait status, which is not a number this layer defines:
+//! the POSIX runtimes pass `waitpid(2)`'s straight through, while the Windows
+//! runtime SYNTHESIZES a POSIX-shaped one from `GetExitCodeProcess` (mapping
+//! NTSTATUS crash codes onto signal numbers, a mapping that already caused
+//! one shipped bug — `issues/fixed/yo-test-failing-child-windows-unknown-io-error.md`).
+//! It also collides with the error channel: a normal exit with code 0 and
+//! "still running under `WNOHANG`" are both 0. Freezing needs an
+//! `ExitStatus`-shaped result rather than an `i32`, which is exactly what
+//! `std/process` already builds on top — so that is the stable surface.
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
 { __yo_async_spawn_start, __yo_async_spawn_start_cwd, __yo_async_waitpid_start, __yo_process_exit_status, __yo_process_term_signal, __yo_kill } :: import("./externs.yo");
-// Spawn a child process.
-// Returns the child pid on success, -errno on failure.
-// `argv` is a NULL-terminated array of argument strings.
-// `envp` is a NULL-terminated array of "KEY=VALUE" strings (or .None for inherit).
-// stdin_fd/stdout_fd/stderr_fd: fd redirections (-1 = inherit)
+/// Spawn a child process, inheriting the parent's working directory.
+/// Resolves to the child's pid, or a negative errno.
+///
+/// `file` is looked up on `PATH` when it has no slash — this is
+/// `posix_spawnp(3)`, not `posix_spawn(3)`. `argv` is the NULL-terminated
+/// argument array (including `argv[0]`); `envp` is a NULL-terminated array of
+/// `"KEY=VALUE"` strings, or `.None` to inherit the parent's `environ`. Each
+/// of `stdin_fd`/`stdout_fd`/`stderr_fd` that is non-negative is `dup2`ed
+/// onto 0/1/2 in the child and the original closed there; `-1` inherits the
+/// parent's.
+///
+/// A failed `exec` is reported HERE, synchronously, as a negative errno
+/// (`-ENOENT` for a missing program) rather than as a child that exits with
+/// 127 — which is the main reason to prefer this over a fork/exec pair. On
+/// Windows the runtime builds a command line and calls `CreateProcessW`, so
+/// argument quoting is the Windows rule rather than an `argv` array.
 spawn :: (
   fn(
     file : *u8,
@@ -27,7 +55,15 @@ spawn :: (
 )(
   __yo_async_spawn_start(file, argv, envp, stdin_fd, stdout_fd, stderr_fd)
 );
-// Spawn with a working directory (`.None` = inherit the parent's).
+/// `spawn` plus a working directory for the child (`.None` inherits the
+/// parent's) — what backs `Command.current_dir`.
+///
+/// The directory change happens inside the child, as a spawn file action
+/// (`posix_spawn_file_actions_addchdir_np`), so the parent's cwd is never
+/// touched and there is no race with a concurrent spawn. That function is a
+/// non-standard extension: on non-Apple platforms it is resolved as a WEAK
+/// symbol, so an older glibc resolves it to null and a non-`.None` `cwd`
+/// resolves to `-ENOSYS`. A `.None` `cwd` works everywhere.
 spawn_cwd :: (
   fn(
     file : *u8,
@@ -41,21 +77,47 @@ spawn_cwd :: (
 )(
   __yo_async_spawn_start_cwd(file, argv, envp, stdin_fd, stdout_fd, stderr_fd, cwd)
 );
-// Wait for a child process to exit.
-// Returns the exit status (encoded; use exit_status/term_signal helpers).
+/// Wait for a child to change state — `waitpid(2)`. Resolves to the RAW
+/// ENCODED status, which is not an exit code: decode it with `exit_status`
+/// and `term_signal` below. A negative value is `-errno`.
+///
+/// With `options` 0 this BLOCKS the calling thread — the event-loop thread —
+/// until the child exits, because there is no asynchronous form of `waitpid`
+/// in any of the backends. A non-zero `options` (POSIX `WNOHANG`) polls
+/// instead and resolves to 0 when the child is still running; note that 0 is
+/// also the encoded status of a normal exit with code 0, so the two are
+/// indistinguishable from the return value alone. The Windows implementation
+/// treats ANY non-zero `options` as "do not block" rather than testing the
+/// `WNOHANG` bit.
 waitpid :: (fn(pid : i32, options : i32) -> IoFuture)(
   __yo_async_waitpid_start(pid, options)
 );
-// Send a signal to a process.
-// Returns 0 on success, -errno on failure.
+/// Send `signum` to `pid` — the same `kill(2)` wrapper `std/sys/signal`
+/// exports, re-exported here because process control and signalling are one
+/// job. Returns 0 on success, a negative errno on failure; `signum` 0 is an
+/// existence probe. See `std/sys/signal`'s `kill` for the narrow Windows
+/// emulation (only signals 0 and 9 cross a process boundary there).
 kill :: (fn(pid : i32, signum : i32) -> i32)(
   __yo_kill(pid, signum)
 );
-// Helper: extract exit code from waitpid status.
+/// Decode a `waitpid` status into an exit CODE — `WEXITSTATUS` when
+/// `WIFEXITED`, and `-1` when the child did not exit normally (it was killed
+/// by a signal, so ask `term_signal` instead).
+///
+/// The code is the low 8 bits, on Windows as well as POSIX: a child that
+/// exits with 256 reports 0. wasm has no process model and always answers
+/// `-1`.
 exit_status :: (fn(status : i32) -> i32)(
   __yo_process_exit_status(status)
 );
-// Helper: check if process was terminated by signal.
+/// Decode a `waitpid` status into the signal that KILLED the child —
+/// `WTERMSIG` when `WIFSIGNALED`, and `0` when the child exited normally
+/// (so 0 means "not signalled", not "signal 0").
+///
+/// Windows has no signals: the runtime maps the NTSTATUS crash codes
+/// (`0xC0000005` access violation, `0xC0000409` fastfail) onto POSIX signal
+/// numbers when it encodes the status, so this reports a plausible signal for
+/// a crashed child there. wasm always answers `-1`.
 term_signal :: (fn(status : i32) -> i32)(
   __yo_process_term_signal(status)
 );

@@ -1,24 +1,50 @@
-//! Pipe and file descriptor duplication operations.
+//! Pipes and descriptor duplication — the raw syscall boundary.
 //!
-//! Synchronous wrappers for `pipe`/`dup`/`dup2`.
-//! These are inherently synchronous kernel operations on all platforms.
+//! `pipe`, `dup` and `dup2`, which are synchronous kernel operations on every
+//! platform and so return `i32` directly rather than an `IoFuture`.
+//! `std/process/command.yo` owns the public surface: these three are how
+//! `Command`'s stdio redirection is built.
 //!
-//! ## Return values
+//! ## Stability
 //!
-//! - `pipe`: 0 on success, -errno on failure
-//! - `dup`/`dup2`: new fd on success, -errno on failure
+//! unstable — the out-parameter and the `dup2` race are what have to change.
+//! `pipe` writes two descriptors through a bare `*i32` the caller must have
+//! sized correctly, where a stable version returns a pair; and `dup2` is the
+//! POSIX call with the POSIX hazard (it closes `newfd` first, so two threads
+//! racing on the same target silently lose a descriptor) with no `dup3`/
+//! `O_CLOEXEC` form offered. Neither is a Yo design decision — they are the
+//! syscalls — which is exactly why this layer stays unstable and
+//! `std/process` is the surface to build on.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_pipe, __yo_sync_dup, __yo_sync_dup2 } :: import("./externs.yo");
-// Create a pipe pair (pipefd[0] = read, pipefd[1] = write).
-// Returns 0 on success, -errno on failure.
+/// Create a unidirectional pipe and write its two descriptors into `pipefd`,
+/// which must hold two `i32`s: `pipefd[0]` is the READ end and `pipefd[1]`
+/// the write end. Returns 0 on success, a negative errno on failure. POSIX
+/// `pipe(2)`.
+///
+/// The descriptors come back blocking and inheritable — set `O_NONBLOCK` with
+/// `std/sys/fcntl`'s `setfl` and `FD_CLOEXEC` with `setfd` if you need
+/// otherwise. On Windows this is `_pipe` with a 64 KiB buffer (chosen to
+/// match the usual POSIX capacity) and `_O_BINARY`, and pipe WRITES there run
+/// as a blocking `_write` on the event-loop thread, so that buffer is the
+/// slack a writer has before it stalls the loop.
 pipe :: (fn(pipefd : *i32) -> i32)(
   __yo_sync_pipe(pipefd)
 );
-// Duplicate a file descriptor. Returns new fd on success, -errno on failure.
+/// Duplicate `fd` onto the lowest unused descriptor and return the new one,
+/// or a negative errno — POSIX `dup(2)`. The two descriptors share one open
+/// file description, so they share the file offset and any `flock`; only
+/// `FD_CLOEXEC` is per-descriptor.
 dup :: (fn(fd : i32) -> i32)(
   __yo_sync_dup(fd)
 );
-// Duplicate a file descriptor to a specific fd. Returns new fd on success, -errno on failure.
+/// Duplicate `oldfd` onto the specific descriptor `newfd`, silently CLOSING
+/// whatever `newfd` was, and return `newfd` (or a negative errno) — POSIX
+/// `dup2(2)`. This is the call that wires a pipe onto 0/1/2 for a child.
+///
+/// Returning `newfd` rather than 0 is worth noting because `_dup2` on Windows
+/// returns 0 on success; the wrapper substitutes `newfd` so both platforms
+/// answer the same thing. `oldfd == newfd` is a no-op that still succeeds.
 dup2 :: (fn(oldfd : i32, newfd : i32) -> i32)(
   __yo_sync_dup2(oldfd, newfd)
 );

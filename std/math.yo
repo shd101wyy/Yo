@@ -45,8 +45,12 @@
 //! ## Stability
 //!
 //! stable — the method and constant names follow Rust's `f64`/`f32` inherent
-//! surface, and the one remaining gap (the `f32` transcendentals C has no
-//! single-precision entry point for) is additive when it arrives.
+//! surface. The one remaining gap is that `f32` carries a SUBSET of `f64`'s
+//! methods: the inverse and hyperbolic trigonometry, `exp2`/`exp_m1`/`ln_1p`
+//! and `mul_add` are `f64`-only here. That is not a C limitation — `asinf`,
+//! `coshf`, `exp2f`, `expm1f`, `log1pf` and `fmaf` all exist in C99 and are
+//! already bound in `std/libc/math.yo`; this module simply has not wrapped
+//! them yet, and doing so is additive.
 pragma(Pragma.AllowUnsafe);
 {
   sqrt : _c_sqrt,
@@ -213,17 +217,32 @@ impl(
   cos : (fn(self : Self) -> Self)(unsafe(_c_cos(self))),
   /// Tangent of an angle in RADIANS.
   tan : (fn(self : Self) -> Self)(unsafe(_c_tan(self))),
+  /// Arcsine, in radians over `[-π/2, π/2]`. NaN outside the domain
+  /// `[-1, 1]` — C's `asin`.
   asin : (fn(self : Self) -> Self)(unsafe(_c_asin(self))),
+  /// Arccosine, in radians over `[0, π]`. NaN outside `[-1, 1]` — C's
+  /// `acos`.
   acos : (fn(self : Self) -> Self)(unsafe(_c_acos(self))),
+  /// Arctangent, in radians over `(-π/2, π/2)` — C's `atan`. Use `atan2`
+  /// when the quadrant matters.
   atan : (fn(self : Self) -> Self)(unsafe(_c_atan(self))),
   /// The angle of the point `(other, self)` — note the argument order, which
   /// is C's and Rust's: `y.atan2(x)`.
   atan2 : (fn(self : Self, other : Self) -> Self)(unsafe(_c_atan2(self, other))),
+  /// Hyperbolic sine — C's `sinh`. Overflows to an infinity for a large
+  /// magnitude receiver.
   sinh : (fn(self : Self) -> Self)(unsafe(_c_sinh(self))),
+  /// Hyperbolic cosine — C's `cosh`. Never below 1.
   cosh : (fn(self : Self) -> Self)(unsafe(_c_cosh(self))),
+  /// Hyperbolic tangent — C's `tanh`. Saturates to ±1.
   tanh : (fn(self : Self) -> Self)(unsafe(_c_tanh(self))),
+  /// Inverse hyperbolic sine — C's `asinh`. Defined for every finite
+  /// receiver.
   asinh : (fn(self : Self) -> Self)(unsafe(_c_asinh(self))),
+  /// Inverse hyperbolic cosine — C's `acosh`. NaN for a receiver below 1.
   acosh : (fn(self : Self) -> Self)(unsafe(_c_acosh(self))),
+  /// Inverse hyperbolic tangent — C's `atanh`. ±∞ at exactly ±1 and NaN
+  /// outside `[-1, 1]`.
   atanh : (fn(self : Self) -> Self)(unsafe(_c_atanh(self))),
   /// `1 / self`.
   recip : (fn(self : Self) -> Self)(f64(1.0) / self),
@@ -244,8 +263,15 @@ impl(
       true => unsafe(_c_copysign(f64(1.0), self))
     )
   ),
-  /// The floating-point remainder of `self / rhs`, keeping the receiver's sign
-  /// — C's `fmod`, and what Yo's `%` means for floats.
+  /// The NON-NEGATIVE remainder of `self / rhs` — Rust's `rem_euclid`, i.e.
+  /// C's `fmod` with `|rhs|` added back when the result came out negative.
+  ///
+  /// `(-7.0).rem_euclid(3.0)` is `2`, where the truncated remainder `fmod`
+  /// gives is `-1`; the result lies in `[0, |rhs|)` for a finite receiver,
+  /// which is what makes this the right choice for wrapping an index or an
+  /// angle. This is the only remainder available on floats: `%` type-checks
+  /// on `f64` but emits invalid C
+  /// (issues/stddoc-coll-float-modulo-emits-invalid-c.md).
   rem_euclid : (fn(self : Self, rhs : Self) -> Self)({
     r := unsafe(_c_fmod(self, rhs));
     cond(
@@ -283,7 +309,10 @@ impl(
       true => self
     )
   ),
-  /// Clamp into `[lo, hi]`. PANICS when `lo > hi`, as Rust does.
+  /// Clamp into `[lo, hi]`. PANICS when `lo > hi`, as Rust does — the
+  /// interval is nonsense, and silently returning either bound would hide
+  /// the caller's bug. A NaN receiver fails both comparisons and comes back
+  /// unchanged.
   clamp : (fn(self : Self, lo : Self, hi : Self) -> Self)({
     if(lo > hi, {
       __yo_panic("f64.clamp: lo must not exceed hi");
@@ -299,36 +328,76 @@ impl(
 /// each method calls the single-precision C function.
 impl(
   f32,
+  /// Square root — C's `sqrtf`. NaN for a negative receiver.
   sqrt : (fn(self : Self) -> Self)(unsafe(_c_sqrtf(self))),
+  /// Cube root — C's `cbrtf`; defined for negative receivers, unlike
+  /// `sqrt`.
   cbrt : (fn(self : Self) -> Self)(unsafe(_c_cbrtf(self))),
+  /// Absolute value — C's `fabsf`. Clears the sign bit, so `(-0.0).abs()`
+  /// is `+0.0` and a NaN stays NaN.
   abs : (fn(self : Self) -> Self)(unsafe(_c_fabsf(self))),
+  /// The largest integer not greater than the receiver — C's `floorf`.
   floor : (fn(self : Self) -> Self)(unsafe(_c_floorf(self))),
+  /// The smallest integer not less than the receiver — C's `ceilf`.
   ceil : (fn(self : Self) -> Self)(unsafe(_c_ceilf(self))),
+  /// Round half AWAY FROM ZERO — C's `roundf`, as Rust's `round` does; not
+  /// half-to-even.
   round : (fn(self : Self) -> Self)(unsafe(_c_roundf(self))),
+  /// Discard the fractional part, rounding toward zero — C's `truncf`.
   trunc : (fn(self : Self) -> Self)(unsafe(_c_truncf(self))),
+  /// The fractional part, keeping the receiver's sign —
+  /// `self - self.trunc()`.
   fract : (fn(self : Self) -> Self)(self - unsafe(_c_truncf(self))),
+  /// Raise to a FLOAT power — C's `powf`. NaN for a negative receiver with a
+  /// non-integral exponent.
   powf : (fn(self : Self, n : Self) -> Self)(unsafe(_c_powf(self, n))),
+  /// Raise to an INTEGER power. Goes through C `powf` with the exponent
+  /// converted, so a negative receiver is fine.
   powi : (fn(self : Self, n : i32) -> Self)(unsafe(_c_powf(self, f32(n)))),
+  /// e raised to the receiver — C's `expf`.
   exp : (fn(self : Self) -> Self)(unsafe(_c_expf(self))),
+  /// Natural logarithm — C's `logf`. NaN for a negative receiver, `-∞` at
+  /// zero.
   ln : (fn(self : Self) -> Self)(unsafe(_c_logf(self))),
+  /// Logarithm to an arbitrary base, as the quotient of two natural logs —
+  /// so it carries two roundings. Prefer `log2`/`log10` where they apply.
   log : (fn(self : Self, base : Self) -> Self)(unsafe(_c_logf(self)) / unsafe(_c_logf(base))),
+  /// Base-2 logarithm — C's `log2f`.
   log2 : (fn(self : Self) -> Self)(unsafe(_c_log2f(self))),
+  /// Base-10 logarithm — C's `log10f`.
   log10 : (fn(self : Self) -> Self)(unsafe(_c_log10f(self))),
+  /// `sqrt(self² + other²)` without intermediate overflow — C's `hypotf`.
   hypot : (fn(self : Self, other : Self) -> Self)(unsafe(_c_hypotf(self, other))),
+  /// Sine of an angle in RADIANS — C's `sinf`.
   sin : (fn(self : Self) -> Self)(unsafe(_c_sinf(self))),
+  /// Cosine of an angle in RADIANS — C's `cosf`.
   cos : (fn(self : Self) -> Self)(unsafe(_c_cosf(self))),
+  /// Tangent of an angle in RADIANS — C's `tanf`.
   tan : (fn(self : Self) -> Self)(unsafe(_c_tanf(self))),
+  /// The angle of the point `(other, self)` — C's and Rust's argument order,
+  /// `y.atan2(x)`.
   atan2 : (fn(self : Self, other : Self) -> Self)(unsafe(_c_atan2f(self, other))),
+  /// `1 / self`.
   recip : (fn(self : Self) -> Self)(f32(1.0) / self),
+  /// Radians to degrees, through the `f32` literal for `180/π`.
   to_degrees : (fn(self : Self) -> Self)(self * f32(57.29578)),
+  /// Degrees to radians, through the `f32` literal for `π/180`.
   to_radians : (fn(self : Self) -> Self)(self * f32(0.017453292)),
+  /// The magnitude of the receiver with the sign of `sign` — C's
+  /// `copysignf`, so it copies the SIGN BIT and works for zeros and NaNs.
   copysign : (fn(self : Self, sign : Self) -> Self)(unsafe(_c_copysignf(self, sign))),
+  /// `1.0`, `-1.0`, or the receiver itself when it is NaN. `(-0.0).signum()`
+  /// is `-1.0`, as in Rust, because the sign bit is what decides.
   signum : (fn(self : Self) -> Self)(
     cond(
       self.is_nan() => self,
       true => unsafe(_c_copysignf(f32(1.0), self))
     )
   ),
+  /// The NON-NEGATIVE remainder of `self / rhs` — Rust's `rem_euclid`, i.e.
+  /// C's `fmodf` with `|rhs|` added back when the result came out negative.
+  /// The result lies in `[0, |rhs|)`; see `f64.rem_euclid` for why `%` is
+  /// not an alternative.
   rem_euclid : (fn(self : Self, rhs : Self) -> Self)({
     r := unsafe(_c_fmodf(self, rhs));
     cond(
@@ -336,12 +405,25 @@ impl(
       true => r
     )
   }),
-  /// `isnan` is type-generic in C11, so the same macro serves both widths.
+  /// True when the receiver is NaN — the one value not equal to itself, so
+  /// this is the only reliable test.
+  ///
+  /// `isnan` is type-generic in C11, so the same macro serves both widths;
+  /// the widening to `f64` here is exact and cannot change the answer, and
+  /// the four classification methods below do the same.
   is_nan : (fn(self : Self) -> bool)(unsafe(_c_isnan(f64(self))) != int(0)),
+  /// True for either infinity.
   is_infinite : (fn(self : Self) -> bool)(unsafe(_c_isinf(f64(self))) != int(0)),
+  /// True for anything that is neither infinite nor NaN.
   is_finite : (fn(self : Self) -> bool)(unsafe(_c_isfinite(f64(self))) != int(0)),
+  /// True when the SIGN BIT is set — including for `-0.0` and a negative
+  /// NaN, which is why this is not `self < 0.0`.
   is_sign_negative : (fn(self : Self) -> bool)(unsafe(_c_signbit(f64(self))) != int(0)),
+  /// True when the sign bit is clear. The complement of
+  /// `is_sign_negative`.
   is_sign_positive : (fn(self : Self) -> bool)(unsafe(_c_signbit(f64(self))) == int(0)),
+  /// The larger of the two, IGNORING a NaN argument — Rust's `max`, so
+  /// `x.max(NAN)` is `x`. Only both-NaN gives NaN.
   max : (fn(self : Self, other : Self) -> Self)(
     cond(
       self.is_nan() => other,
@@ -350,6 +432,7 @@ impl(
       true => self
     )
   ),
+  /// The smaller of the two, IGNORING a NaN argument — Rust's `min`.
   min : (fn(self : Self, other : Self) -> Self)(
     cond(
       self.is_nan() => other,
@@ -358,6 +441,10 @@ impl(
       true => self
     )
   ),
+  /// Clamp into `[lo, hi]`. PANICS when `lo > hi`, as Rust does — the
+  /// interval is nonsense, and silently returning either bound would hide
+  /// the caller's bug. A NaN receiver falls through both comparisons and
+  /// comes back unchanged.
   clamp : (fn(self : Self, lo : Self, hi : Self) -> Self)({
     if(lo > hi, {
       __yo_panic("f32.clamp: lo must not exceed hi");

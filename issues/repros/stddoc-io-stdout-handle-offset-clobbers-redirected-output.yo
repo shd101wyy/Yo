@@ -1,0 +1,35 @@
+// Repro: two `stdout()` handles each start at offset 0, and the runtime writes
+// REDIRECTED stdout positionally (pwrite), so the second handle overwrites the
+// first handle's bytes.
+//
+//   yo compile issues/repros/stddoc-io-stdout-handle-offset-clobbers-redirected-output.yo \
+//     --optimize 2 --std-path ./std -o /tmp/p && /tmp/p | cat && /tmp/p > /tmp/p.txt
+//
+// To a PIPE:  AAAABBBB      (correct — pwrite gets ESPIPE and falls back to write)
+// To a FILE:  BBBB          (WRONG — AAAA is overwritten at offset 0)
+//
+// The second half of the same defect is in
+// issues/repros/stddoc-io-stdout-handle-and-println-lose-output.yo: mixing
+// `std/fmt.println` with a handle reorders on a pipe and loses on a file.
+{ Exception, IoExn } :: import("std/error");
+{ Stdout, stdout } :: import("std/io/stdio");
+{ BufWriter } :: import("std/io/bufio");
+{ Writer } :: import("std/io");
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  w1 := BufWriter(Stdout).new(stdout());
+  io.await(w1.write_string(`AAAA`, io), e);
+  io.await(w1.flush(io), e);
+  w2 := BufWriter(Stdout).new(stdout());
+  io.await(w2.write_string(`BBBB`, io), e);
+  io.await(w2.flush(io), e);
+});
+export(main);

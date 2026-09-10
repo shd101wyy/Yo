@@ -2,9 +2,26 @@
 //! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 7: "blocks JWT/SigV4/webhooks").
 //!
 //! ```rust
-//! { hmac_sha256_hex } :: import "std/crypto/hmac";
+//! { hmac_sha256_hex } :: import("std/crypto/hmac");
 //! sig := hmac_sha256_hex(key_bytes, message_bytes);
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the values are right and tested against the RFC 2202 and
+//! RFC 4231 vectors, including the key-longer-than-the-block case
+//! (`tests/crypto/digest.test.yo`), and the naming follows the
+//! `hmac_<hash>` / `hmac_<hash>_hex` pattern the rest of `std/crypto`
+//! uses. What is not settled is everything around the one-shot: HMAC here
+//! is one call over a whole message, so there is no way to authenticate a
+//! stream too large to hold (the `Digest` trait it is written over has no
+//! `reset`, which is the same open row). Key material is an ordinary
+//! `ArrayList(u8)` and is never zeroized — the `K'`, `ikey` and `okey`
+//! buffers are left to the allocator — so this is not the module to build
+//! a long-lived key store on. `constant_time_eq` also lives here for want
+//! of a `subtle`-style home; it is a byte comparison with no timing
+//! dependence on the CONTENTS, and it is what verification must use
+//! instead of `==` on a hex `String`.
 { ArrayList } :: import("../collections/array_list");
 hex :: import("../encoding/hex");
 { String } :: import("../string");

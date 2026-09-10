@@ -1,12 +1,32 @@
-//! Network address types — IP addresses and socket addresses.
-// std/net/addr.yo - Network address types
-//
-// High-level IP address and socket address types.
-//
-// Example:
-//   { IpAddr, SocketAddr } :: import "std/net/addr";
-//
-//   addr := SocketAddr.new(IpAddr.loopback_v4(), u16(8080));
+//! Network address types — `IpAddr` (v4 / v6) and `SocketAddr` (an address
+//! plus a port), the values every call in `std/net` speaks.
+//!
+//! Both are VALUE types with `Eq` / `Ord` / `Hash` / `Clone`, so an address
+//! is usable as a `HashMap` key (a connection table) and sortable (a peer
+//! list); ordering is the structural one Rust derives — for `SocketAddr`, IP
+//! first and port second. Nothing here does I/O: parsing and rendering are
+//! pure, and name resolution lives in `std/net/dns`.
+//!
+//! ```rust
+//! { IpAddr, SocketAddr } :: import("std/net/addr");
+//!
+//! addr := SocketAddr.new(IpAddr.loopback_v4(), u16(8080));
+//! peer := SocketAddr.parse(`[::1]:80`, exn);   // throws on bad input
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — the PARSE half violates a decided convention and is expected
+//! to change shape. `IpAddr.parse` / `parse_v4` / `parse_v6` and
+//! `SocketAddr.parse` are pure text decoders that report failure by THROWING
+//! through `Exception`, with the reason in a `NetError.Other(String)`
+//! message; D13 makes `Result` the primary spelling for a pure decoder (that
+//! is what `Url.parse` was flipped to) and D1 rules out stringly-typed
+//! errors, so the expected end state is `Result(_, AddrParseError)` — Rust's
+//! `AddrParseError` — with the `*_exn` wrapper on the side. The address
+//! TYPES themselves (variants, constructors, `to_string`, the four trait
+//! impls) match Rust and are not expected to move; freezing waits on the
+//! parse-error decision.
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("../string");
 { ToString } :: import("../fmt");
@@ -725,7 +745,6 @@ export(IpAddr);
 // ============================================================================
 // SocketAddr
 // ============================================================================
-/// An IP address paired with a port number.
 // A port is `0..=65535`. Parsed here rather than with `parse_i32` so the range
 // is enforced: `parse_i32("70000")` succeeds and `u16` would truncate it to
 // 4464 — a silently WRONG port rather than a rejected one.
@@ -758,6 +777,11 @@ _parse_port :: (fn(s : String, exn : Exception) -> u16)({
   });
   u16(v)
 });
+/// An IP address paired with a port number — Rust's `SocketAddr`, except
+/// that it is ONE type rather than Rust's `SocketAddrV4`/`SocketAddrV6` pair,
+/// because the family already lives in the `IpAddr` it holds. A value type:
+/// copying it copies the address, and `to_string` brackets a v6 host
+/// (`[::1]:80`) so the result re-parses.
 SocketAddr :: struct(
   /// The IP address.
   ip : IpAddr,

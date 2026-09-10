@@ -6,6 +6,28 @@
 //! Provides character ranges for common Unicode general categories.
 //! Uses compact range representation covering the most commonly used
 //! Unicode blocks. Not exhaustive but covers practical use cases.
+//!
+//! The ranges are HAND-WRITTEN, block by block, in the `_add_*_ranges`
+//! helpers — not generated from a Unicode data file, and the source file names
+//! no Unicode version. So a category here is a curated approximation of the
+//! real property: `\p{L}` covers Latin, Greek, Cyrillic, Armenian, Hebrew,
+//! Arabic, the CJK and Hangul blocks and a few dozen more, and a code point in
+//! a block nobody listed simply does not match. Treat a `\p{...}` miss as "not
+//! in the table" rather than "not in the category".
+//!
+//! ## Stability
+//!
+//! unstable — this is an internal table with one exported function, and the
+//! table is the problem: it is hand-curated rather than derived, so it cannot
+//! be checked against a Unicode release, has no regeneration step, and
+//! silently under-matches for scripts nobody has added yet. `std/string/
+//! unicode.yo` next door solves the same class of problem with generated
+//! tables (Unicode 15.1.0, from `unicodedata`); this one should be derived the
+//! same way, at which point the ranges change and some `\p{...}` patterns
+//! start matching what they always claimed to. That is a behaviour change, so
+//! it has to happen before anything here freezes. The signature
+//! (`String -> Option(ArrayList(CharRange))`, `.None` for an unknown property
+//! name so `Regex.new` can report `UnknownUnicodeProperty`) is settled.
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { CharRange } :: import("./node.yo");
@@ -231,10 +253,21 @@ _add_whitespace_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
   rs.push(CharRange(low : u32(0x205F), high : u32(0x205F)));
   rs.push(CharRange(low : u32(0x3000), high : u32(0x3000)));
 });
-// Unicode property range lookup.
-// Returns Some(ranges) for known property names, None for unknown.
-// Supports both short (L, N, P, S, Z, M, C) and long names (Letter, Number, etc.)
-// as well as subcategories (Lu, Ll, Nd, etc.)
+/// The code-point ranges a `\p{name}` / `\P{name}` class expands to, or
+/// `.None` when the name is not one this table knows — which is what lets
+/// `Regex.new` reject an unknown property with `UnknownUnicodeProperty`
+/// instead of compiling a class that can never match.
+///
+/// Accepts the one- or two-letter general-category abbreviations and their
+/// long names: `L`/`Letter`, `Lu`/`Uppercase_Letter`, `Ll`/`Lowercase_Letter`,
+/// `N`/`Number`, `Nd`/`Digit`, `P`/`Punctuation`, `S`/`Symbol`,
+/// `Z`/`Separator`, plus the `M` and `C` groups. Names are matched exactly and
+/// are case-sensitive.
+///
+/// The ranges come back freshly built into a new `ArrayList` on every call —
+/// the caller (`compiler.yo`, once per `\p` in the pattern) owns and may sort
+/// or extend them. Ranges are inclusive on both ends and are NOT guaranteed
+/// sorted or disjoint, so a consumer must not binary-search them.
 unicode_property_ranges :: (fn(name : String) -> Option(ArrayList(CharRange)))({
   rs := ArrayList(CharRange).new();
   (found : bool) = true;

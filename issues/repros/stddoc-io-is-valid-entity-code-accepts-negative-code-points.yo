@@ -1,0 +1,23 @@
+// Reproducer for
+// issues/stddoc-io-is-valid-entity-code-accepts-negative-code-points.md
+//
+//   yo compile issues/repros/stddoc-io-is-valid-entity-code-accepts-negative-code-points.yo \
+//     --std-path ./std --optimize 2 -o /tmp/t && /tmp/t
+//
+// Observed:
+//   is_valid_entity_code(-65536)  = true    <- expected false
+//   is_valid_entity_code(-1)      = false   <- correct, but only because the
+//                                              noncharacter arm masks with
+//                                              0xFFFF
+//   html_decode("[&#xFFFF0000;]") -> 5 bytes ("[" + U+FFFD + "]"), because
+//   _parse_hex overflows i32 to -65536 and from_code_point is lossy.
+{ println } :: import("std/fmt");
+{ html_decode, is_valid_entity_code } :: import("std/encoding/html");
+main :: (fn() -> i32)({
+  println(`is_valid_entity_code(-65536)  = ${is_valid_entity_code(i32(-65536))}`);
+  println(`is_valid_entity_code(-1)      = ${is_valid_entity_code(i32(-1))}`);
+  r := html_decode(`[&#xFFFF0000;]`);
+  println(`html_decode("[&#xFFFF0000;]") -> ${r.len()} bytes`);
+  i32(0)
+});
+export(main);

@@ -17,6 +17,22 @@
 //! m = m.insert(i32(2), i32(20));
 //! // keys are always sorted: 1, 2, 3
 //! ```
+//!
+//! A left-leaning red-black tree keeps the depth in O(log n), so `get`,
+//! `insert` and `remove` are all O(log n) and a mutation copies only the
+//! nodes on its path — the rest is shared with the map it came from. This is
+//! the ordered counterpart of `imm.Map`'s HAMT: reach for it when iteration
+//! must come out in key order. `keys`/`values`/`entries`, and the
+//! `IntoIterator` behind `for(map, ...)`, MATERIALIZE an `imm.List` in key
+//! order first — O(n) time and allocation, not a lazy in-order cursor.
+//!
+//! ## Stability
+//!
+//! unstable — the same open shape as `imm.Map`
+//! (`plans/STD_API_STABILIZATION.md` §4): `remove(key) -> Self` cannot report
+//! whether the key was there, and deciding that changes this signature. The
+//! eager `imm.List` iteration above is the other known gap, and a stack-based
+//! in-order cursor is the intended fix; that one is additive.
 pragma(Pragma.AllowUnsafe);
 { List, ListIter } :: import("./list.yo");
 { ArrayList } :: import("../collections/array_list.yo");

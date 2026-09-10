@@ -49,6 +49,34 @@
 //! it and the handle's own `close` (or its drop) does. Read a piped stdout
 //! before `wait()` when the child may produce more than a pipe buffer holds,
 //! or the child blocks writing while you block waiting.
+//!
+//! ## Stability
+//!
+//! unstable — there are two ways into a child's pipes and one of them has to
+//! go. The typed handles (`take_stdin`/`take_stdout`/`take_stderr`) landed
+//! 2026-09-10 and are the ones that put a child's streams inside `std/io`'s
+//! surface; the three bespoke methods they replace (`write_stdin`,
+//! `read_stdout_to_end`, `read_stderr_to_end`) are still exported beside
+//! them, so the same fd is reachable through two vocabularies with different
+//! ownership rules. Removing the older pair is breaking, so it has not
+//! happened yet, and freezing now would freeze both.
+//!
+//! The manual path is also missing the piece that makes it safe. Draining
+//! stdout to EOF and then stderr deadlocks on any child that fills the 64 KiB
+//! stderr pipe first, which is why `output()` spawns a task per pipe
+//! (`issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md`).
+//! A caller who took the handles has to rebuild that concurrency by hand —
+//! Rust offers `Child::wait_with_output` for exactly this, and Yo's
+//! equivalent is only reachable if you did NOT take the handles. That helper
+//! is additive; the duplicate stream API is not. Freezing follows the removal
+//! of the bespoke trio, not a release count.
+//!
+//! Settled and not blocking: `kill` throws through `Exception` rather than
+//! returning an errno (D1, changed 2026-09-06), and `ExitStatus`/`Stdio`/the
+//! `Command` builder have been stable across the campaign. `kill` does take a
+//! raw signal NUMBER where Rust's takes none — deliberate, since the whole
+//! POSIX signal set is reachable and Windows has no equivalent to narrow it
+//! to.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { String } :: import("../string");
@@ -193,7 +221,6 @@ impl(
     self._env_overrides.push(entry);
     self
   }),
-  /// Start the child from an EMPTY environment (only `env()` entries).
   /// Run the child with `dir` as its working directory. POSIX uses
   /// posix_spawn_file_actions_addchdir_np (spawn reports ENOSYS on a libc
   /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
@@ -202,6 +229,19 @@ impl(
     self._cwd = Option(String).Some(dir);
     self
   }),
+  /// Stop the child inheriting this process's environment, so it starts
+  /// from an EMPTY one plus whatever `env()` supplied — Rust's
+  /// `Command::env_clear`.
+  ///
+  /// **It does not clear the `env()` entries already recorded, and Rust's
+  /// does.** This sets a flag that is consulted at spawn time and only
+  /// suppresses the walk over `environ`; the overrides are collected
+  /// separately and always survive. So `cmd.env(`A`, `1`).env_clear()`
+  /// runs the child with `A=1` here, and with nothing at all in Rust —
+  /// call order makes no difference in either direction.
+  ///
+  /// With neither this nor any `env()` call, no `envp` is constructed at
+  /// all and the child inherits by the platform's own mechanism.
   env_clear : (fn(self : Self) -> Self)({
     self._env_clear = true;
     self
@@ -669,7 +709,10 @@ impl(
     write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.write(buf, size, io)
     ),
-    // A pipe write goes straight to the kernel — nothing is buffered here.
+    /// A no-op that always succeeds: a pipe write goes straight to the
+    /// kernel, so there is nothing held here to push. Everything `write`
+    /// reported as written is already visible to the child, and flushing
+    /// is NOT what delivers EOF — `close` (or dropping the handle) is.
     flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())
     )

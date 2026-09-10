@@ -10,6 +10,27 @@
 //! s := hex.encode(data);         // "deadbeef"
 //! b := hex.decode(`deadbeef`).unwrap();
 //! ```
+//!
+//! Encoding is lowercase only; decoding accepts either case, and mixed case
+//! within one string.
+//!
+//! ## Stability
+//!
+//! unstable — two names short of complete, and the missing one is visible in
+//! the code. `_hex_encode_impl` already takes its alphabet as a parameter and
+//! `_HEX_CHARS` is the only value ever passed, so Rust's `hex::encode_upper`
+//! is one export away; that is additive and safe. The name is the part that
+//! is not settled: `hex_encode` / `hex_encode_upper` repeats the module (D2's
+//! module-prefix stutter, listed STILL OPEN for the whole encoding group in
+//! `plans/STD_API_STABILIZATION.md` §4), and the decided direction is
+//! `hex.encode` on the imported module value. Adding a second stuttering name
+//! first would mean renaming two instead of one.
+//!
+//! `hex_decode` became `Result`-returning in #467 (D13) and has not been
+//! through a release; its errors are the shared `EncodingError`, whose own
+//! open question — one enum for three codecs, where Rust has
+//! `hex::FromHexError` — is the other thing holding this module unstable,
+//! since `hex_decode` can only ever produce two of that enum's five variants.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { EncodingError } :: import("./error");

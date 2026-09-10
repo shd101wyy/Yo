@@ -24,6 +24,19 @@
 //!   )
 //! );
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the enum is EXHAUSTIVE by construction (`derive(Error)` matches
+//! the messages against the variants in declaration order, so a variant added,
+//! removed or reordered is a compile error), which is exactly what makes it
+//! unsafe to freeze while the engine is still growing. Every new syntax the
+//! parser learns to reject adds a variant, and a caller who matched all
+//! fourteen arms without a `_` then fails to compile — so additions here are
+//! not additive in practice. Freezing waits on the parser's grammar settling,
+//! or on a documented "non-exhaustive, always write a `_` arm" promise. The
+//! shape (one variant per fixable fault, byte offsets into the pattern, `Error`
+//! so it can travel as an `AnyError`) is settled and matches D1.
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { Error } :: import("std/error");

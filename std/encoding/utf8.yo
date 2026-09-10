@@ -30,6 +30,36 @@
 //!   match(decode(bytes, i), .Ok(d) => { i = (i + d.width); }, .Err(_) => { i = (i + usize(1)); });
 //! });
 //! ```
+//!
+//! ## Stability
+//!
+//! stable. Three things make that a real commitment rather than a default.
+//!
+//! It has not moved since the D8 consolidation (#286) folded four scattered
+//! decoders into this one; every change since has been documentation. It has
+//! the tree's widest internal consumer set — `std/string/string.yo`,
+//! `rune.yo`, `string_builder.yo`, `unicode.yo`, `std/imm/string.yo`,
+//! `std/fmt/to_string.yo`, `std/regex/{index,parser,vm}.yo` and
+//! `std/encoding/{json,utf16}.yo` all sit on it — so a signature change here
+//! is a signature change to `String` itself, and the 35 tests in
+//! `tests/encoding/utf8.test.yo` pin the RFC 3629 rejections (overlong
+//! forms, surrogates, above U+10FFFF) that everything above depends on.
+//!
+//! And the names already have the shape D2 wants for the rest of this
+//! directory: `utf8.decode` / `utf8.encode` / `utf8.validate` on the imported
+//! module value, with no `utf8_` prefix repeating the module. The
+//! module-prefix rename that keeps `json`, `base64`, `hex`, `percent` and
+//! `toml` unstable does not apply here, because this module is already the
+//! target shape.
+//!
+//! Growth is additive by construction: a new query over bytes is a new
+//! function, and the `Layering` note above is what keeps it that way — this
+//! module cannot grow a dependency on `std/error` or `std/fmt` without
+//! breaking the cycle that `std/string` sits in. The one thing a freeze does
+//! NOT promise is `Utf8Error`'s inherent `message() -> str` staying the only
+//! rendering channel; adding `ToString` / `Error()` impls if the layering
+//! ever permits it is additive, and a caller matching the variants is
+//! unaffected either way.
 { rune } :: import("../string/rune.yo");
 { ArrayList } :: import("../collections/array_list.yo");
 // ============================================================================

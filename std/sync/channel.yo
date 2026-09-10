@@ -85,6 +85,19 @@
 //!   w.join();
 //! };                                       // keeper drops -> closed
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the shapes are settled and the ownership model just changed.
+//! `try_recv -> Result(T, TryRecvError)` landed in #506 and the blocking core
+//! (`send` / `recv` / `close` / `len`) has not moved since; the
+//! `Sender`/`Receiver` split landed 2026-09-11 and is what this release is
+//! asking for use on before freezing. Still missing, all additive: Rust's
+//! `recv_timeout`, an iterator over received values, and an unbounded variant
+//! (`plans/STD_API_STABILIZATION_FINDINGS.md` item 10).
+//!
+//! This is the BLOCKING channel — it parks OS threads and needs no `Io`. The
+//! async one is `std/async/channel`.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;

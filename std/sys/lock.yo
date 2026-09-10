@@ -1,18 +1,49 @@
-//! Advisory file locking.
+//! Advisory file locking (`flock`) — the raw syscall boundary.
 //!
-//! Synchronous wrapper for POSIX `flock()`.
-//! Returns 0 on success, -errno on failure.
+//! One wrapper over POSIX `flock(2)`. No public `std` module locks files yet;
+//! `tests/sys/lock.test.yo` is its only caller in this tree.
 //!
-//! Operations can be OR'd with `LOCK_NB` for non-blocking.
-//! `LOCK_NB` returns -EWOULDBLOCK (-11) if the lock cannot be acquired immediately.
+//! Operations are OR-ed: `LOCK_SH | LOCK_NB` asks for a shared lock and gives
+//! up rather than waiting.
+//!
+//! ## Stability
+//!
+//! unstable — because "advisory" is not true everywhere. POSIX `flock` is
+//! cooperative: a process that never calls it is unaffected. The Windows
+//! implementation is `LockFileEx`, which the OS ENFORCES, so an unrelated
+//! reader is blocked there and not here. The blocking form also has no place
+//! to go in an async program: it parks the event-loop thread, and there is no
+//! awaitable variant. Freezing needs both settled — one documented
+//! enforcement model, and either an `IoFuture`-returning lock or an explicit
+//! statement that the blocking call is only for synchronous contexts.
 { __yo_sync_flock } :: import("./externs.yo");
-// Lock operation constants
-LOCK_SH :: i32(1); // Shared (read) lock
-LOCK_EX :: i32(2); // Exclusive (write) lock
-LOCK_NB :: i32(4); // Non-blocking (OR with LOCK_SH or LOCK_EX)
-LOCK_UN :: i32(8); // Unlock
-// Acquire or release an advisory lock on a file descriptor.
-// Returns 0 on success, -errno on failure.
+/// `LOCK_SH` from `<sys/file.h>` — a shared (read) lock: many holders, no
+/// exclusive holder. On Windows the runtime maps this to `LockFileEx` WITHOUT
+/// `LOCKFILE_EXCLUSIVE_LOCK`.
+LOCK_SH :: i32(1);
+/// `LOCK_EX` — an exclusive (write) lock: one holder, no shared holders.
+LOCK_EX :: i32(2);
+/// `LOCK_NB` — OR into `LOCK_SH` or `LOCK_EX` to fail instead of waiting when
+/// the lock is held. The failure is `-EWOULDBLOCK`, whose numeric value is
+/// PLATFORM-DEPENDENT (11 on Linux, 35 on macOS), so compare against the
+/// `EWOULDBLOCK` constant from `std/libc/errno`, never against a literal.
+LOCK_NB :: i32(4);
+/// `LOCK_UN` — release whatever lock this open file description holds.
+LOCK_UN :: i32(8);
+/// Take or release an advisory lock on `fd`. Returns 0 on success, a negative
+/// errno on failure; with `LOCK_NB` set, a lock that is already held gives
+/// `-EWOULDBLOCK`. Without `LOCK_NB` the call BLOCKS the calling thread —
+/// which in an async program is the event-loop thread.
+///
+/// POSIX locks the open file description, so the lock is shared by `dup`ed
+/// descriptors and released when the last of them closes. Windows differs in
+/// two ways worth knowing: the lock is taken over the whole 2^64-1 byte range
+/// with `LockFileEx` and is MANDATORY rather than advisory, and because
+/// `LockFileEx` cannot convert a lock in place the runtime issues an
+/// `UnlockFileEx` first — so upgrading `LOCK_SH` to `LOCK_EX` is not atomic
+/// there and another process can win the gap.
+///
+/// wasm returns `-ENOSYS`: Emscripten does not implement `flock`.
 flock :: (fn(fd : i32, operation : i32) -> i32)(
   __yo_sync_flock(fd, operation)
 );

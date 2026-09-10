@@ -9,6 +9,28 @@
 //!
 //! exn.throw(dyn(EncodingError.OddLength(len : usize(5))));
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — this type is ONE enum doing three codecs' jobs, and whether it
+//! stays that way is the open question. `OddLength` can only come from hex,
+//! `InvalidLength` and `InvalidLastSymbol` only from base64,
+//! `UnpairedSurrogate` only from UTF-16 — so every exhaustive `match` on a
+//! `hex_decode` failure has to spell out three arms hex can never produce.
+//! Rust splits them (`hex::FromHexError`, `base64::DecodeError`,
+//! `char::DecodeUtf16Error`) for exactly that reason, and splitting here is
+//! breaking for every caller that names the type.
+//!
+//! The mixed unit is the other half of the same problem: `pos` is a byte
+//! offset in four variants and a CODE-UNIT index in `UnpairedSurrogate`,
+//! because that is what each input is measured in. `pos()` therefore returns
+//! a number whose unit depends on which codec produced it — survivable while
+//! the caller knows what it called, wrong the moment an error is passed
+//! along. Per-codec types would give each one an unambiguous offset.
+//!
+//! Nothing here has shipped: the `pos` fields on every position-bearing
+//! variant, and `UnpairedSurrogate` replacing three `InvalidChar(0)` reports,
+//! both landed 2026-09-09 (#526).
 import("../string");
 { Error } :: import("../error");
 { ToString } :: import("../fmt");
@@ -17,8 +39,10 @@ import("../string");
 // ============================================================================
 /// Encoding/decoding error type.
 ///
-/// Every variant that can name a position carries `pos`, the BYTE OFFSET into
-/// the input where the fault is. Without it a caller decoding a 4 KiB blob
+/// Every variant that can name a position carries `pos`, the OFFSET into the
+/// input where the fault is — in bytes for hex and base64, and in CODE UNITS
+/// for `UnpairedSurrogate`, because that is what each input is measured in.
+/// Without it a caller decoding a 4 KiB blob
 /// learns only that one byte somewhere was wrong, which is not enough to
 /// report, highlight, or skip past — the character alone does not say WHICH
 /// occurrence of it (Rust's `base64::DecodeError` carries the same offset for
@@ -62,8 +86,12 @@ derive(
 );
 impl(
   EncodingError,
-  /// The byte offset the fault was found at, for the variants that have one.
+  /// The offset the fault was found at, for the variants that have one.
   /// `.None` for a whole-input length complaint, which has no single position.
+  ///
+  /// The UNIT depends on which codec produced the error — bytes from `hex` and
+  /// `base64`, code units from `utf16` — so read it against the input you
+  /// handed in, not as a byte offset unconditionally.
   pos : (fn(self : Self) -> Option(usize))(
     match(
       self,

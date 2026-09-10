@@ -1,7 +1,26 @@
 //! Immutable, thread-safe UTF-8 string type.
 //!
 //! Uses atomic reference counting for safe sharing across threads.
-//! All "modification" operations return a new string; the original is unchanged.
+//! All "modification" operations return a new string; the original is
+//! unchanged — and each one allocates, since there is no shared structure
+//! between two `ImmString`s: this is a flat byte buffer, cheap to CLONE
+//! (a refcount bump) and O(n) to derive from.
+//!
+//! Offsets are BYTES, as everywhere in Yo after D4: `len`, `byte_at`,
+//! `slice`, `index_of` and the `Pattern`-shaped predicates all count bytes,
+//! while `chars`/`char_indices`/`at` are the rune-aware vocabulary and
+//! `is_char_boundary`/`floor_char_boundary`/`ceil_char_boundary` snap an
+//! arbitrary offset to one. `docs/en-US/STRINGS.md` is the full contract.
+//!
+//! ## Stability
+//!
+//! unstable — for one release only, and for one reason: D10 flipped
+//! `replace` to replace EVERY occurrence, and the two aliases it displaced
+//! (`replace_first`, `replace_all`) are still here, marked deprecated at
+//! their definitions and due to be removed. Nothing else on this surface is
+//! moving — the byte-offset vocabulary is D4's and matches `String`'s
+//! method for method, which is what makes the two interchangeable at a call
+//! site. Freezing follows the alias removal.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
@@ -605,18 +624,18 @@ impl(
     self._decode_rune_at(index)
   )
 );
-/// === Rune-aware indexing (D4 vocabulary) ===
-///
-/// The same six additions `std/string/string.yo` grew, plus the rune iterator
-/// this type never had. Offsets are **BYTES** throughout — the rune count
-/// is `chars().count()` — and since D4 PR 4 flipped `len()` and `at()`, that
-/// is the basis the WHOLE type speaks: this block is the rune vocabulary on
-/// top of it. See `plans/archive/STD_API_AUDIT_D4_PLAN.md`.
-///
-/// `char_indices` is built on `std/encoding/utf8` and inherits its
-/// malformed-input behaviour: `char_indices` and `chars` stop at
-/// the first sequence that will not decode. The boundary functions and
-/// `try_substring` are pure byte classification and cannot fail.
+// === Rune-aware indexing (D4 vocabulary) ===
+//
+// The same six additions `std/string/string.yo` grew, plus the rune iterator
+// this type never had. Offsets are **BYTES** throughout — the rune count
+// is `chars().count()` — and since D4 PR 4 flipped `len()` and `at()`, that
+// is the basis the WHOLE type speaks: this block is the rune vocabulary on
+// top of it. See `plans/archive/STD_API_AUDIT_D4_PLAN.md`.
+//
+// `char_indices` is built on `std/encoding/utf8` and inherits its
+// malformed-input behaviour: `char_indices` and `chars` stop at
+// the first sequence that will not decode. The boundary functions and
+// `try_substring` are pure byte classification and cannot fail.
 /// Rune iterator for `ImmString` — created by `chars()`.
 ImmStringChars :: struct(
   _string : ImmString,

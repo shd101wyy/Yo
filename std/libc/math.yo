@@ -1,4 +1,18 @@
 //! C11 `<math.h>` — mathematical functions and constants.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. `std/math` is the public
+//! surface: it imports this module, wraps every call in the `unsafe(...)`
+//! these bindings require so callers need no pragma to take a square root,
+//! and re-exposes them as inherent methods on `f64` / `f32` under Rust's
+//! names. Do not import this module directly — the one place that does,
+//! `tests/c_include_global_header.test.yo`, is a regression test for
+//! `c_include` header emission, not an example. The `M_*` macro constants
+//! bound here are unusable as comptime values, which is why `std/math`
+//! spells its constants as Yo literals, and `<math.h>` is exactly as
+//! complete as the platform's. This file follows C; freezing happens at
+//! `std/math`.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<math.h>",

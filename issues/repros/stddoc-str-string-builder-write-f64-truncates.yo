@@ -1,0 +1,17 @@
+// StringBuilder.write_f64 renders through a fixed 64-byte stack buffer, so a
+// value whose fixed-point form is longer is SILENTLY truncated to 63 bytes.
+// Expected: the full 302-digit rendering of 1e300 with two decimals.
+// Actual:   63 digits — a number ~1e62, off by 238 orders of magnitude.
+{ StringBuilder } :: import("std/string/string_builder");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  sb := StringBuilder.new();
+  sb.write_f64(f64(1.0e300), i32(2));
+  out := sb.to_string();
+  println(`len=${out.len()}`);
+  println(out);
+  // For comparison, the same value through ToString (a 32-byte buffer with
+  // the %g family, which never needs more):
+  println(f64(1.0e300).to_string());
+});
+export(main);

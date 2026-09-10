@@ -75,6 +75,9 @@ FsEvent :: struct(
   /// Entry name relative to the watched directory (or the watched file's
   /// own name); empty when the backend reports no name.
   name : String,
+  /// Which of the backend's two classes this was. Platforms coalesce
+  /// differently, so a `Rename` says "created, removed or moved" rather than
+  /// which of the three.
   kind : FsEventKind
 );
 /// Watch settings.
@@ -85,6 +88,10 @@ WatchOptions :: struct(
 );
 impl(
   WatchOptions,
+  /// Watch only the named directory itself — `recursive : false`. That is
+  /// the conservative default because `recursive` is best-effort on Linux
+  /// (inotify is per directory), so a program written against the default
+  /// behaves the same on every platform.
   defaults : (fn() -> Self)(Self(recursive : false))
 );
 /// A live watch. Create with `watch`, drain with `poll`/`next`, and `close`
