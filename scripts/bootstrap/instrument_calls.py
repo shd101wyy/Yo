@@ -26,8 +26,24 @@ their name in the emitted C; anonymous closures do not).
 """
 
 import argparse
+import os
 import re
 import sys
+from pathlib import Path
+
+_ALLOWED_WRITE_ROOTS = (os.path.abspath("."), os.path.abspath("/tmp"))
+
+
+def _no_traversal(p):
+    """Dev-tool write guard: normalize the path, refuse any `..` component,
+    and confine the result to an allowed root (repo cwd or /tmp), so a
+    mistyped argument cannot write outside the intended tree."""
+    if ".." in p.replace("\\", "/").split("/"):
+        sys.exit("refusing path with '..' component: %s" % p)
+    abs_p = os.path.abspath(os.path.normpath(p))
+    if not any(abs_p == r or abs_p.startswith(r + os.sep) for r in _ALLOWED_WRITE_ROOTS):
+        sys.exit("refusing path outside allowed roots (cwd, /tmp): %s" % p)
+    return abs_p
 
 
 def resolve_ctor(src, yo_type):
@@ -166,10 +182,10 @@ def main():
     if ins < 0:
         ins = src.rfind("\n", 0, first)
     src = src[:ins] + prelude + src[ins:]
-    open(args.out, "w").write(src)
-    with open(args.map, "w") as f:
-        for i, lab in enumerate(labels):
-            f.write("%d\t%s\n" % (i, lab))
+    Path(_no_traversal(args.out)).write_text(src)
+    Path(_no_traversal(args.map)).write_text(
+        "".join("%d\t%s\n" % (i, lab) for i, lab in enumerate(labels))
+    )
     print("functions: %d  call sites: %d  counters: %d" % (nfn, nsite, n))
     return 0
 

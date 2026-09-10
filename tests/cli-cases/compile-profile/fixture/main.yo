@@ -1,0 +1,12 @@
+//! compile-profile fixture: imports enough of std that the per-module table
+//! has real rows, without making the case slow.
+{ println } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> i32)({
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  println(`count = ${xs.len().to_string()}`);
+  i32(0)
+});
+export(main);

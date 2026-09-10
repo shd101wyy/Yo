@@ -9,6 +9,22 @@ be blamed by rebuilding subsets of the real file.
 """
 import re
 import sys
+import os
+from pathlib import Path
+
+_ALLOWED_WRITE_ROOTS = (os.path.abspath("."), os.path.abspath("/tmp"))
+
+
+def _no_traversal(p):
+    """Dev-tool write guard: normalize the path, refuse any `..` component,
+    and confine the result to an allowed root (repo cwd or /tmp), so a
+    mistyped argument cannot write outside the intended tree."""
+    if ".." in p.replace("\\", "/").split("/"):
+        sys.exit("refusing path with '..' component: %s" % p)
+    abs_p = os.path.abspath(os.path.normpath(p))
+    if not any(abs_p == r or abs_p.startswith(r + os.sep) for r in _ALLOWED_WRITE_ROOTS):
+        sys.exit("refusing path outside allowed roots (cwd, /tmp): %s" % p)
+    return abs_p
 
 
 def arm_spans(src: str):
@@ -47,12 +63,12 @@ def main():
     spans = arm_spans(src)
     keep = [int(x) for x in idx_spec.split(',') if x != '']
     preamble = src[:spans[0][0]] if spans else src
-    with open(out_path, 'w') as f:
-        f.write(preamble)
-        for i in keep:
-            s, e = spans[i]
-            f.write(src[s:e])
-            f.write('\n\n')
+    parts = [preamble]
+    for i in keep:
+        s, e = spans[i]
+        parts.append(src[s:e])
+        parts.append('\n\n')
+    Path(_no_traversal(out_path)).write_text(''.join(parts))
     print(f'{out_path}: {len(keep)} arms {keep}')
 
 
