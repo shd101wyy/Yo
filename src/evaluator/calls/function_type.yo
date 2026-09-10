@@ -62,6 +62,7 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
   wrap_function_body_with_contracts,
   VerifyTask,
   register_verify_task,
+  record_verify_task_def_eval_failure,
   evaluated_for_verify,
   _is_verify_target,
   resolve_verify_mode
@@ -1430,6 +1431,18 @@ Result type: ${type_to_string(result_box)}`
         _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
         truncate_forcing_depths(flow_depths);
         pop_active_where_trait_ids();
+        // V5 honest diagnostics: a verify-target body whose def-time trial
+        // SWALLOWED reaches the verifier hollow (no ExprInfo on the body) —
+        // its walk would mis-report "untyped expression". Record the real
+        // message keyed by the task's fn_id BEFORE the fatal re-raise below,
+        // so the verifier can name the cause when the load path surfaces the
+        // task anyway.
+        if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && _is_verify_target(tok.module_path.clone()), {
+          record_verify_task_def_eval_failure(
+            `fn@${tok.module_path}:${tok.row.to_string()}`,
+            _trial_swallow_message()
+          );
+        });
         if(fnty_env.get(`YO_DEBUG_SWALLOW`).is_some(), {
           eprintln(`[flow-post] out=${flow_out.len().to_string()} pending=${_trial_swallow_pending().to_string()} fwd=${has_fwd_comptime_fn_cap.to_string()}`);
         });

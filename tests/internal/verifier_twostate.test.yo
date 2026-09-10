@@ -1,0 +1,137 @@
+//! The two-state tests — V5's first row (FORMAL_VERIFICATION.md):
+//! `old(e)` walks e against the FUNCTION-ENTRY snapshot (params + module
+//! bindings at body start), and a verify-target body whose definition-time
+//! evaluation was swallowed reaches the report with its recorded CAUSE
+//! instead of a hollow "untyped expression".
+//!
+//! In-process model (verifier_loops's shape); the PROOF needs the real
+//! solver (YO_TEST_Z3=1), the gate/diagnostic tests run solver-free.
+{ String, StringBuilder } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+{ env } :: import("std/env");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+/// Load one fixture with targets armed; returns its reports (the task
+/// list is drained into the run inside `_run_reports`).
+_load_reports :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_twostate: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(outcome.ok, `fixture ${rel_path} failed: ${rendered}`);
+    },
+    .None => {
+      assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+/// The reports' ids/outcomes rendered for assert messages.
+_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}: ${rp.subset_source}]`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < ids.len(), {
+    if(j > usize(0), {
+      sb.write_string(String.from(", "));
+    });
+    sb.write_string(ids.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
+_first :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifyFnReport)(
+  reports.get(usize(0)).unwrap()
+);
+
+test("old(...) reads the ENTRY state (old_step proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/two_state_old.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `old_step proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("old(...) of a body-local is a LOUD gate (solver-free)", {
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/two_state_old_gate.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "subset-error", `old_local is gated, got: [${_reports_dump(reports)}]`);
+  assert(
+    rp.subset_construct.contains(String.from("not bound at function entry")),
+    `the gate names the entry rule, got: ${rp.subset_construct}`
+  );
+});
+
+test("a swallowed def-time body failure reports its CAUSE (solver-free)", {
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/def_eval_swallowed.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "subset-error", `reassign_param reports the cause, got: [${_reports_dump(reports)}]`);
+  assert(
+    rp.subset_construct.contains(String.from("definition-time evaluation failed")),
+    `the report names the def-eval failure, got: ${rp.subset_construct}`
+  );
+});

@@ -1,0 +1,11 @@
+// A body whose definition-time evaluation fails (E0902: params cannot
+// be reassigned) must reach the verifier report as the recorded CAUSE —
+// not as a hollow body mis-reported as "untyped expression".
+pragma(Pragma.Verify);
+
+reassign_param :: (
+  fn(x : i32, requires(x >= i32(0)), ensures(result >= i32(0))) -> (result : i32)
+)({
+  x = i32(5);
+  x
+});
