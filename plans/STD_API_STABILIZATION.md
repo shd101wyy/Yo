@@ -413,7 +413,7 @@ window as D9–D18):
 | row as written | actual state |
 | --- | --- |
 | `Alignment` exported | done — `std/fmt/writer.yo:22` |
-| `JoinHandle` `Dispose` | done — Yo's `Thread` IS Rust's `JoinHandle` and has `Dispose` (`std/thread.yo:88`, detach-on-drop) |
+| `JoinHandle` `Dispose` | **that row conflated two types, and the ask is answered differently — see the `race_first`/`any_first` note below.** Yo's `Thread` is Rust's *thread* `JoinHandle` and does have `Dispose` (`std/thread.yo:88`, detach-on-drop); Yo's async `JoinHandle(T)` is TOKIO's, and cannot carry `Dispose` at all |
 | HTTP byte bodies (*"`parse_response` string-concats the body — binary responses are broken client-side"*) | **done, and the claim is stale**: the body is copied byte-wise and wrapped with unchecked `String.from_bytes` (`std/http/http.yo:363-374`), byte-transparent end to end, pinned by `tests/http/server.test.yo` |
 | `OrderedMap` `IntoIterator` | done via D14 — `std/collections/ordered_map.yo:319` |
 
@@ -1003,7 +1003,8 @@ or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface;
 `spawn_blocking`. (`interval` and the concurrent `Mutex` tests landed
 2026-09-10 — below; `JoinHandle` `Dispose` was ANSWERED rather than
-implemented, see `race_first`/`any_first`.)
+implemented, see `race_first`/`any_first`; and `async/channel.try_recv` was
+already aligned — both below.)
 
 **`Waker`/`Park` and a timer-free `yield` — LANDED 2026-09-11. This is the
 missing primitive the whole concurrency group was waiting on.**
@@ -1092,6 +1093,40 @@ than the feature — and would flake on a slower runner. That discrepancy is
 filed on its own
 (`issues/yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`)
 because it will otherwise mask the next piece of async performance work.
+
+**`JoinHandle` `Dispose` — ANSWERED 2026-09-10, and the answer is `race_first`
+/ `any_first`, not a `Dispose`.**
+
+The row asked for "a `Dispose` on `JoinHandle` that aborts a non-terminal
+task", motivated by the finding that `race`/`any` leave a manual contract
+("every handle must still be awaited exactly once; abort the losers first if
+their results are unwanted") whose losers leak when a caller forgets it.
+
+The prescription is wrong twice over:
+
+- **Structurally.** `JoinHandle(T)` is a bare copyable `struct` over a raw
+  pointer (`struct(__future : *(T))`), not an `Rc`, and `Dispose` is
+  `where(Self <: Rc)`. Making it an `Rc` would change what `io.spawn` returns
+  and how every handle copies.
+- **Semantically.** Dropping Yo's async `JoinHandle` DETACHES the task,
+  exactly as dropping Tokio's does — that is what makes fire-and-forget
+  `io.spawn` work at all. Abort-on-drop is Tokio's opt-in
+  `AbortOnDropHandle`, not its default, and adopting it as the default would
+  silently kill every detached task.
+
+The leak is a combinator-contract problem, so it is fixed in the combinators:
+`race_first(handles, io) -> Option(T)` and
+`any_first(handles, io) -> Option(T)` do the cleanup themselves — they abort
+**and await** every loser (aborting alone marks the task and leaves its await
+outstanding, which is the same leak one step later) and return the winner's
+result. `race`/`any` keep their index-returning shapes for callers who want
+them.
+
+**`async/channel.try_recv` was already aligned.** The concurrency list's row
+("`async/channel.try_recv` still returns `Option(T)` where `sync/channel`'s
+returns `Result(T, TryRecvError)`") is stale: `std/async/channel.yo:145` reads
+`try_recv : (fn(self : Self) -> Result(T, TryRecvError))`, over the SAME
+`TryRecvError` type, and says so in its doc comment.
 
 **`interval` — LANDED 2026-09-10.** `std/time/sleep.yo` gains `Interval` and
 `interval(period, io)`. The reason it exists rather than a `sleep` in a loop is
@@ -1471,6 +1506,33 @@ first.
      `get` then `insert`, which is the same two walks a combined form would
      pay, and `insert`'s signature stays the one every existing call site
      wants.
+
+   Still open in this group: `imm` `remove` shape, private `ctrl/data/size`
+   fields (which needs a visibility feature Yo does not have), the `imm/Vec`
+   RRB-vs-flat-COW doc (§5).
+
+   **`OrderedMap.swap_remove` — LANDED 2026-09-10, and it needed a side
+   table.** `IndexMap::swap_remove` is O(1) because `IndexMap` keeps a
+   key→position map. Yo's `OrderedMap` kept only `HashMap(K, V)` plus an
+   `ArrayList(K)` order list, so finding the slot to swap into meant scanning
+   the order list — which would have made `swap_remove` O(n) and pointless,
+   since avoiding the walk is the entire reason it exists beside `remove`. It
+   therefore gains `_index : HashMap(K, usize)`, maintained at the four sites
+   that write `_order` (`new`, `insert`, `remove`, `clear`).
+
+   The side table pays for itself three more times. `remove` used to rebuild
+   the whole order list into a fresh `ArrayList` to skip one key; now it asks
+   the index where the key is, calls `ArrayList.remove` on that slot, and
+   re-records only the TAIL — same O(n) worst case, but no allocation, one
+   pass instead of two, and O(1) when the removed key is near the end. And
+   `index_of` / `get_index` (Rust's `get_index_of` / `get_index`) fall out of
+   it for free, which is the positional half of `IndexMap`'s surface that
+   `OrderedMap` had no way to offer before.
+
+   Both removals now PANIC if the key is in `_map` but not in `_index`
+   instead of defaulting the position to 0. A default would corrupt the order
+   list silently on the next operation; the invariant is internal, so a
+   violation is a bug in this file and not something a caller can cause.
 
    **Evidence for that §5 decision, found while writing the iterator tests:**
    `imm.Vec.push` takes `own(self)`, so the receiver is MOVED and keeping the

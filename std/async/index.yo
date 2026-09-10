@@ -1,7 +1,8 @@
 //! Async task utilities — cooperative `yield` and `JoinHandle` combinators
 //! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 6).
 //!
-//! The combinators (`join_all`, `race`, `any`, `timeout`) are BLOCKING-POLL
+//! The combinators (`join_all`, `race`, `race_first`, `any`, `any_first`,
+//! `timeout`) are BLOCKING-POLL
 //! functions in the same sense as `JoinHandle.await`: they drive the event
 //! loop while they wait, so every spawned task keeps making progress. They
 //! take spawned handles, not futures — spawn at the call site:
@@ -24,7 +25,8 @@
 //!
 //! ## Stability
 //!
-//! unstable — the NAMES and signatures (`yield`, `join_all`, `race`, `any`,
+//! unstable — the NAMES and signatures (`yield`, `join_all`, `race`,
+//! `race_first`, `any`, `any_first`,
 //! `timeout`, `TimeoutError`) are intended to keep their meanings, but the
 //! MECHANISM under them is expected to change: every combinator drives the
 //! loop by polling, re-checking on a 1 ms timer tick, so a handle that
@@ -131,6 +133,63 @@ any :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Op
   });
   result
 });
+/// Await the FIRST handle to finish and abort the rest — `race` with the
+/// cleanup done for you. Returns the winner's result (`.None` if the winner
+/// was aborted rather than completed). Panics on an empty list.
+///
+/// This exists because `race`/`any` hand back an index and leave a manual
+/// contract behind ("every handle must still be awaited exactly once; abort
+/// the losers first if their results are unwanted"), and a caller who forgets
+/// it leaks every loser's state machine. The plan's original prescription for
+/// that leak was a `Dispose` on `JoinHandle` that aborts a non-terminal task,
+/// and that is the wrong fix twice over: `JoinHandle(T)` is a bare copyable
+/// `struct` over a raw pointer, not an `Rc`, so it cannot carry `Dispose` at
+/// all; and abort-on-drop is not the semantics Yo's async `JoinHandle`
+/// follows — dropping it DETACHES, exactly as Tokio's does, which is what
+/// makes fire-and-forget `io.spawn` work. The leak is a combinator contract
+/// problem, so it is fixed in the combinator.
+///
+/// Every loser is aborted AND awaited: aborting alone marks the task and
+/// leaves its await outstanding, which is the same leak one step later.
+race_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(T))({
+  assert(handles.len() > usize(0), "race_first: empty handle list");
+  w := race(handles, io);
+  (i : usize) = usize(0);
+  while(i < handles.len(), i = (i + usize(1)), {
+    cond(
+      (i == w) => (),
+      true => {
+        l := handles(i);
+        l.abort();
+        l.await(io);
+      }
+    );
+  });
+  win := handles(w);
+  win.await(io)
+});
+/// Await the first handle to COMPLETE and abort the rest — `any` with the
+/// cleanup done for you. `.None` when every handle ended without completing.
+/// Panics on an empty list. See `race_first` for why this exists.
+any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io) -> Option(T))({
+  assert(handles.len() > usize(0), "any_first: empty handle list");
+  decided := any(handles, io);
+  (out : Option(T)) = Option(T).None;
+  (i : usize) = usize(0);
+  while(i < handles.len(), i = (i + usize(1)), {
+    h := handles(i);
+    cond(
+      match(decided, .Some(w) => (i == w), .None => false) => {
+        out = h.await(io);
+      },
+      true => {
+        h.abort();
+        h.await(io);
+      }
+    );
+  });
+  out
+});
 /// Why `timeout(...)` produced no value (D18).
 ///
 /// The old `Option(T)` return collapsed these two outcomes into each other —
@@ -207,4 +266,4 @@ timeout :: (
     )
   )
 });
-export(yield, join_all, race, any, timeout, TimeoutError);
+export(yield, join_all, race, race_first, any, any_first, timeout, TimeoutError);
