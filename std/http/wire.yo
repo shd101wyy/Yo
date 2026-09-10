@@ -423,6 +423,70 @@ _split_message :: (fn(data : ArrayList(u8), limit : usize, carry : ArrayList(u8)
     }
   )
 });
+/// Which message is being read, which is what decides where its body ends
+/// (RFC 9112 §6.3).
+MessageKind :: enum(
+  /// A request. One with no framing header at all ends with its headers —
+  /// the client will not close first.
+  Request,
+  /// A response other than to a HEAD. Its body is framed by
+  /// `Transfer-Encoding: chunked` or `Content-Length`, is absent by STATUS
+  /// (1xx, 204, 304 — §6.3 rule 1), or is delimited by the close.
+  Response,
+  /// The response to a HEAD request: it carries no body no matter what its
+  /// framing headers say (§6.3 rule 1). Only the sender of the request knows
+  /// this, so it cannot be inferred from the bytes — reading a HEAD response
+  /// as a plain `Response` waits for a `Content-Length` worth of body that
+  /// the server will never send, which on a reused connection is a hang
+  /// rather than a close-delimited answer.
+  HeadResponse
+);
+// The status code on a response's status line (`HTTP-version SP 3DIGIT ...`),
+// or `.None` when the line is not that shape — a defect `parse_response`
+// reports; the framing decision just falls back to the header rules.
+_status_code :: (fn(data : ArrayList(u8), header_end : usize) -> Option(u16))({
+  sp := usize(0);
+  while(runtime((sp < header_end) && (data(sp) != u8(0x20))), {
+    sp = (sp + usize(1));
+  });
+  start := (sp + usize(1));
+  cond(
+    ((start + usize(3)) > header_end) => {
+      return(Option(u16).None);
+    },
+    true => ()
+  );
+  code := u16(0);
+  i := usize(0);
+  while(runtime(i < usize(3)), {
+    d := data(start + i);
+    cond(
+      ((d < u8(48)) || (d > u8(57))) => {
+        return(Option(u16).None);
+      },
+      true => ()
+    );
+    code = ((code * u16(10)) + u16(d - u8(48)));
+    i = (i + usize(1));
+  });
+  .Some(code)
+});
+// RFC 9112 §6.3 rules 1–2: a message that carries NO body, whatever its
+// framing headers say. Any `Content-Length` or `Transfer-Encoding` on such a
+// message describes the body the request WOULD have had, so honouring it
+// would frame the next message's bytes as this one's body.
+_is_bodyless :: (fn(kind : MessageKind, data : ArrayList(u8), header_end : usize) -> bool)(
+  match(
+    kind,
+    .Request => false,
+    .HeadResponse => true,
+    .Response => match(
+      _status_code(data, header_end),
+      .Some(code) => ((code < u16(200)) || ((code == u16(204)) || (code == u16(304)))),
+      .None => false
+    )
+  )
+);
 // Whether the bytes in hand already frame a whole message — the read loop's
 // stopping decision, and the same decision a keep-alive read makes BEFORE its
 // first read.
@@ -438,7 +502,7 @@ _FrameStatus :: enum(
   /// frame the body by whatever the peer does next.
   BadContentLength(msg : String)
 );
-_frame_status :: (fn(data : ArrayList(u8), is_request : bool) -> _FrameStatus)(
+_frame_status :: (fn(data : ArrayList(u8), kind : MessageKind) -> _FrameStatus)(
   cond(
     (data.len() <= usize(4)) => _FrameStatus.NeedMore,
     true => {
@@ -448,6 +512,8 @@ _frame_status :: (fn(data : ArrayList(u8), is_request : bool) -> _FrameStatus)(
         true => {
           body_start := (header_end + usize(4));
           cond(
+            // No body at all: the message ends with its header section.
+            _is_bodyless(kind, data, header_end) => _FrameStatus.Complete,
             // Chunked: complete once the terminating zero chunk and its final
             // CRLF are in.
             is_chunked(data, header_end) => match(
@@ -465,9 +531,10 @@ _frame_status :: (fn(data : ArrayList(u8), is_request : bool) -> _FrameStatus)(
               .Invalid(msg) => _FrameStatus.BadContentLength(msg),
               // A request with no body framing ends with its headers; a
               // response with none is delimited by close.
-              .Absent => cond(
-                is_request => _FrameStatus.Complete,
-                true => _FrameStatus.NeedMore
+              .Absent => match(
+                kind,
+                .Request => _FrameStatus.Complete,
+                _ => _FrameStatus.NeedMore
               )
             )
           )
@@ -516,7 +583,7 @@ read_http_message_buffered :: (
     generic(R : Type),
     stream : R,
     max_bytes : usize,
-    is_request : bool,
+    kind : MessageKind,
     carry : ArrayList(u8),
     io : Io,
     where(R <: Reader)
@@ -547,7 +614,7 @@ read_http_message_buffered :: (
     // block until the peer sent something it has no reason to send.
     done := false;
     match(
-      _frame_status(result, is_request),
+      _frame_status(result, kind),
       .Complete => {
         done = true;
       },
@@ -587,7 +654,7 @@ read_http_message_buffered :: (
           // question before its first read: a message already complete in the
           // carried-over bytes must not cost a read that would block.
           match(
-            _frame_status(result, is_request),
+            _frame_status(result, kind),
             .Complete => {
               done = true;
             },
@@ -609,6 +676,13 @@ read_http_message_buffered :: (
     cond(
       (failed == i32(1)) => Result(String, HttpError).Err(HttpError.ResponseTooLarge),
       (failed == i32(2)) => Result(String, HttpError).Err(HttpError.MalformedContentLength(failed_msg)),
+      // A message with no body ends at its header section, and its framing
+      // headers must NOT be honoured: a HEAD response's `Content-Length`
+      // describes the body the GET would have had, and a 204's is a lie. The
+      // read loop already stopped here, so anything past the headers belongs
+      // to the next message and is carried, not appended.
+      ((header_end > usize(0)) && _is_bodyless(kind, result, header_end)) =>
+        Result(String, HttpError).Ok(_split_message(result, header_end + usize(4), carry)),
       ((header_end > usize(0)) && is_chunked(result, header_end)) => {
         body_start := (header_end + usize(4));
         match(
@@ -654,9 +728,10 @@ read_http_message_buffered :: (
             ),
             // A REQUEST with no framing header ends with its headers; a RESPONSE
             // with none is delimited by close, so every byte read is body.
-            .Absent => cond(
-              is_request => _split_message(result, body_start, carry),
-              true => String.from_bytes(result)
+            .Absent => match(
+              kind,
+              .Request => _split_message(result, body_start, carry),
+              _ => String.from_bytes(result)
             ),
             // Unreachable: the read loop records `.Invalid` as soon as the header
             // section is complete.
@@ -673,12 +748,13 @@ read_http_message_buffered :: (
 /// answer when the connection is about to be closed and the wrong one when it
 /// is about to be reused — use `read_http_message_buffered` there.
 read_http_message :: (
-  fn(generic(R : Type), stream : R, max_bytes : usize, is_request : bool, io : Io, where(R <: Reader)) ->
+  fn(generic(R : Type), stream : R, max_bytes : usize, kind : MessageKind, io : Io, where(R <: Reader)) ->
     Impl(Future(Result(String, HttpError), IoExn))
 )(
-  read_http_message_buffered(stream, max_bytes, is_request, ArrayList(u8).new(), io)
+  read_http_message_buffered(stream, max_bytes, kind, ArrayList(u8).new(), io)
 );
 export(
+  MessageKind,
   find_header_end,
   ContentLength,
   find_content_length,

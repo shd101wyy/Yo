@@ -75,7 +75,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
   // A chunk larger than both responses together, so ONE read delivers both.
   r := _scripted(`${_R1}${_R2}`, usize(4096));
   carry := ArrayList(u8).new();
-  first := io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e);
+  first := io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e);
   raw1 := match(
     first,
     .Ok(x) => x,
@@ -88,7 +88,7 @@ test("two pipelined responses in one read: the first is framed exactly, the seco
   assert(carry.len() == String.from(_R2).len(), `the second response's bytes are carried, not swallowed (carry=${carry.len()})`);
   // The second message is already in hand: reading it must cost no read at all.
   reads_before := r.reads;
-  second := io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e);
+  second := io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e);
   raw2 := match(
     second,
     .Ok(x) => x,
@@ -125,7 +125,7 @@ test("one-byte reads frame the same two messages", {
   r := _scripted(`${_R1}${_R2}`, usize(1));
   carry := ArrayList(u8).new();
   raw1 := match(
-    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
     .Err(_) => {
       assert(false, "first message");
@@ -134,7 +134,7 @@ test("one-byte reads frame the same two messages", {
   );
   assert(raw1 == String.from(_R1), "byte-at-a-time framing matches");
   raw2 := match(
-    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
     .Err(_) => {
       assert(false, "second message");
@@ -161,7 +161,7 @@ test("a chunked response followed by another response carries the tail", {
   r := _scripted(`${chunked}${_R2}`, usize(4096));
   carry := ArrayList(u8).new();
   raw1 := match(
-    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
     .Err(err) => {
       assert(false, `chunked message: ${err}`);
@@ -172,7 +172,7 @@ test("a chunked response followed by another response carries the tail", {
   assert(p1.body == `hello`, `the chunked body is decoded: ${p1.body}`);
   assert(carry.len() == String.from(_R2).len(), `the following response is carried (carry=${carry.len()})`);
   raw2 := match(
-    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
     .Err(_) => {
       assert(false, "second message after chunked");
@@ -198,7 +198,7 @@ test("read_http_message frames the first message and discards the rest", {
   e := IoExn(io : io, exn : exn);
   r := _scripted(`${_R1}${_R2}`, usize(4096));
   raw := match(
-    io.await(wire.read_http_message(r, usize(0), false, io), e),
+    io.await(wire.read_http_message(r, usize(0), wire.MessageKind.Response, io), e),
     .Ok(x) => x,
     .Err(_) => {
       assert(false, "message");
@@ -225,7 +225,7 @@ test("a close-delimited response consumes everything", {
   r := _scripted(String.from(body), usize(4096));
   carry := ArrayList(u8).new();
   raw := match(
-    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    io.await(wire.read_http_message_buffered(r, usize(0), wire.MessageKind.Response, carry, io), e),
     .Ok(x) => x,
     .Err(_) => {
       assert(false, "message");

@@ -118,10 +118,13 @@ with the blocker measured:
 awaiting macro deadlocks in a task),
 [`backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`](backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md)
 (an async `BufReader.lines` needs a `Reader` that returns its failure instead
-of throwing it) and
+of throwing it),
 [`backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`](backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md)
 (`where(T <: Trait(Assoc := A))` binds nothing when `A` is a generic — true of
-`Iterator` too).
+`Iterator` too), and
+[`backlog/ASYNC_DEADLINE_COMBINATOR.md`](backlog/ASYNC_DEADLINE_COMBINATOR.md)
+(why `std/async`'s `timeout` cannot be used from inside a task, and the HTTP
+server keep-alive that blocks on it).
 
 **Language features the std campaign is blocked on** (added 2026-09-10, each
 written from the std row that needs it, with the blocked call sites named):

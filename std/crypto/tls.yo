@@ -387,6 +387,32 @@ impl(
     })
   )
 );
+impl(
+  TlsStream,
+  Dispose(
+    /// A `TlsStream` dropped without `close` used to leak everything it owned
+    /// — the socket descriptor AND the OpenSSL `SSL`/`SSL_CTX` pair, which
+    /// `TcpStream`'s own `Dispose` cannot reach. `dispose` releases both.
+    ///
+    /// It does NOT send a `close_notify`: flushing the write BIO needs the
+    /// event loop, and `dispose` runs in plain code (on a scope exit, an
+    /// unwind, or the last RC release). `close(io)` is the graceful form and
+    /// makes `dispose` a no-op afterwards; a peer that only sees the TCP FIN
+    /// is what every language's TLS drop does.
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        !self._closed => {
+          self._closed = true;
+          // __yo_tls_free releases both BIOs (owned by the SSL object) and
+          // the context.
+          unsafe(__yo_tls_free(self._ssl, self._ctx));
+          (TcpStream <: Dispose).dispose(self._tcp);
+        },
+        true => ()
+      );
+    })
+  )
+);
 export(TlsStream);
 // === std/io async trait impls (D5) ===
 impl(

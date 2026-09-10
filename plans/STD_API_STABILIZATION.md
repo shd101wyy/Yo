@@ -670,10 +670,13 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 **I/O.** Verified against the code 2026-09-09 — LANDED:
 `Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
 `Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
-`TcpStream.local_addr`; `TcpListener.incoming` (this one 2026-09-11, on the
-new `Stream` trait — described below). STILL OPEN: HTTP keep-alive — its
-FRAMING half landed 2026-09-10 (described just below), the pooling client is
-the remaining piece. (`Child` stdin/stdout/stderr as `Reader`/`Writer`
+   `TcpStream.local_addr`; `TcpListener.incoming` (this one 2026-09-11, on the
+   new `Stream` trait — described below); HTTP keep-alive on the CLIENT — its
+   framing half 2026-09-10 and the pooling `HttpClient` 2026-09-11, both
+   described just below. STILL OPEN: keep-alive on the SERVER, which needs an
+   idle timeout and therefore a deadline combinator `std/async` does not have —
+   `plans/backlog/ASYNC_DEADLINE_COMBINATOR.md` has the evidence and the
+   recommendation. (`Child` stdin/stdout/stderr as `Reader`/`Writer`
 handles and `Watcher` `Dispose` also landed 2026-09-10, described below.)
 (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
 `UdpSocket.recv_from -> (n, from)`, `StatusCode` and `HeaderMap` all landed
@@ -768,6 +771,165 @@ prerequisite of its own that the client does not: an IDLE TIMEOUT. `serve` is
 one-connection-at-a-time, so a client that holds a keep-alive connection open
 and sends nothing would wedge the server — which is why the server half is not
 simply "loop until the client closes".
+
+**HTTP keep-alive, the pooling client — LANDED 2026-09-11.**
+
+`HttpClient` is that object. It owns its idle connections, is keyed by
+connection target, retries a connection the server closed under it, and closes
+the set it owns. The free `fetch`/`fetch_with` are unchanged in behaviour:
+every hop opens its own connection and announces `Connection: close`. There is
+deliberately no hidden pool behind them — nothing in a free function could say
+when those sockets close, which is the whole reason the pool is an object.
+
+The shape decisions, and why each one is what it is:
+
+- **One code path, parameterized by `pool : Option(HttpClient)`.** The pooled
+  and one-shot exchanges differ in three places: whether a connection is taken
+  from a pool, whether `Connection: close` is sent, and whether the connection
+  is returned or closed. Everything else — URL parsing, request building,
+  framing, redirects, the deadline race — is identical, so `_fetch_once`,
+  `_fetch_follow` and `_fetch_deadline` each take the option and there is
+  exactly one copy of each. A second copy is where the redirect handling and
+  the framing would have drifted apart.
+
+- **The pool key is `scheme://host:port`, from the URL's own host TEXT.**
+  Not the resolved address: two host names that resolve to one address are
+  still two peers as far as TLS, `Host` and virtual hosting are concerned, and
+  handing an `https://a` connection to a request for `https://b` speaks to the
+  wrong peer under the first peer's certificate. The key is compared, never
+  inferred, and the scheme is in it so `http` and `https` can never share.
+
+- **The cap is TOTAL, not per host, and defaults to 16.** The resource being
+  protected is the process's descriptor table, and a per-host cap does not
+  bound it: a client fanning out over a thousand hosts would hold a thousand
+  sockets with a per-host cap of 1. Go's `DefaultMaxIdleConnsPerHost` is 2 with
+  a separate total of 100; reqwest's per-host cap is unbounded. 16 is enough
+  for several concurrent tasks against a handful of targets, which is what a
+  single-threaded event loop can keep busy. When the pool is full the
+  connection in hand is closed rather than evicting one already in it (Go's
+  answer too), so a burst of parallel requests cannot churn the whole pool.
+  `max_idle == 0` is the degenerate setting and means "never reuse".
+
+- **The idle age limit defaults to 30 s** and is expressible because
+  `Instant`/`Duration` already are: each entry records `Instant.now()` and
+  `_take` purges over-age entries as it scans. Purging on a request rather than
+  on a timer is what keeps the pool free of a background task — the only
+  moment a `std` client is guaranteed to be running is a request. 30 s is a
+  compromise nobody can get right from this side: the ceiling is the SERVER's
+  idle timeout, and that is 75 s on nginx and 5 s on Apache. It throws away
+  connections a short-timeout server has probably already dropped; the retry
+  below covers the rest.
+
+- **Reuse is decided per response, to RFC 9112 §9.3 in the RFC's own order**
+  (`_response_keeps_alive`): a `Connection: close` from the server ends it
+  whatever the version; `HTTP/1.1` is persistent by default and `HTTP/1.0`
+  (or any version this client does not know) is not, so only an explicit
+  `Connection: keep-alive` opts in; a `Connection: close` the request itself
+  sent ends it too. `Connection` is a `#token` list, so the check is token-wise
+  over every field line, not a substring test. And on top of the version rules,
+  a response whose body length is not determinable — no `Content-Length`, not
+  chunked, not body-less by status — is delimited BY THE CLOSE, so the close is
+  the end of the body and there is no next message on that connection no matter
+  what `Connection` says. Each of those five rules is its own test.
+
+- **A connection the server closed while idle is retried once, on a fresh
+  connection.** This is the behaviour a keep-alive client lives or dies by:
+  a server may close an idle connection at any moment, the close usually
+  reaches us only when we try to use it (the write lands in the kernel buffer,
+  and the read that follows returns EOF without a single response byte), and a
+  client that reports that as a failure has turned its pool into intermittent
+  request failures. The trigger is exactly "the connection came from the pool
+  AND zero response bytes arrived"; a freshly-opened connection is never
+  retried, because there the EOF is a real failure.
+
+  The retry is limited to the methods RFC 9110 §9.2.2 calls idempotent. "The
+  request was never processed" is not provable from this side — only "no
+  response arrived" is — so a `POST` or `PATCH` that the server read and acted
+  on before closing would be executed twice by a silent replay. Go replays
+  those too (its bodies are rewindable, as ours always are, being a `String`
+  in memory); this client reports `ConnectionFailed` instead and leaves the
+  decision with the caller. The FIN case — a clean close, which is what an
+  idle timeout produces — is the deterministic one; a peer that answers with
+  RST fails the write instead, and that propagates.
+
+- **TLS pools the same way.** `TcpStream` and `TlsStream` are different types,
+  so the pool holds a `_Transport` enum over the two and implements `Reader`
+  on it by dispatching in a `match`; the exchange, the pool and the retry are
+  written once against that. Two things had to be true for it: the framing read
+  is generic over `R <: Reader` (it already was), and a TLS connection has to
+  be closable from plain, non-async code — which it was not. `TlsStream` had no
+  `Dispose` at all, so its socket and its OpenSSL `SSL`/`SSL_CTX` could not be
+  released except through the async `close(io)`. It has one now
+  (`issues/fixed/a-dropped-tlsstream-leaks-its-socket-and-openssl-objects.md`);
+  it frees the OpenSSL objects and delegates to `TcpStream`'s `Dispose` for the
+  socket, and deliberately sends no `close_notify`, because flushing the write
+  BIO needs the event loop and `dispose` runs in plain code.
+
+- **`Dispose` closes every idle connection, and `close_idle()` is the same
+  body under a name a caller can invoke** (Go's `CloseIdleConnections`). It
+  needs the explicit name for a reason that is worth recording: a client that
+  has made a single request never reaches reference count zero today, because
+  a `ref` value passed as a parameter to an `io.async` future is never
+  released — a general RC leak in the async lowering, filed with a reproducer
+  as `issues/a-ref-value-passed-to-an-async-future-is-never-released.md`. The
+  same defect is why `TcpStream`'s and `TlsStream`'s own `Dispose`s cannot fire
+  on a drop for any stream that has been read from. `dispose` here is correct
+  and will start firing on scope exit when that is fixed; until then
+  `close_idle()` is the working path, and the test calls `dispose` by hand so
+  the body under test is still the one being measured.
+
+Two supporting pieces went in with it. **The framing layer learned RFC 9112
+§6.3 rules 1–2**: `read_http_message*` now takes a `MessageKind`
+(`Request` / `Response` / `HeadResponse`) instead of an `is_request` bool, and
+treats a 1xx, 204 or 304 response — and any response to a HEAD — as ending at
+its header section whatever its framing headers say. That is not a nicety for
+a pooling client, it is a hang: those responses routinely carry no
+`Content-Length`, the old code read them as close-delimited, and a keep-alive
+server never closes. The status code is read off the status line; HEAD cannot
+be, which is why the kind is a parameter and not a bool. **Tests drive a raw
+`TcpListener`** rather than `HttpServer`, because `HttpServer` adds
+`Connection: close` to every response and so cannot demonstrate reuse, and
+because a hand-written server is the only way to produce the four response
+shapes §9.3 distinguishes. Each of those servers accepts exactly N connections
+and closes its listener on the last accept, so a pool that fails to reuse gets
+a REFUSED connect and the test fails in a second instead of hanging.
+
+Two measurement notes, both learned the hard way and both now in the tests:
+the accept counters live in a `ref(struct(...))` passed to the server, because
+a module-level mutable written across a suspension point in an `io.async` body
+operates on a copy and reads back zero
+(`issues/a-module-global-is-lost-across-an-async-suspension.md`) — which looks
+exactly like "the server never ran". And the descriptor oracle counts OPEN
+descriptors rather than probing the lowest free one: `dup(0)` returns the
+lowest free number, so N repeats give `highest + 1 == open_count + N`, which is
+exact. The naive lowest-free probe read the same number whether the client
+leaked its socket or not, because a listener closed earlier in the test left a
+hole below it.
+
+**The server half: NOT in reach through `std/async`, and written up rather
+than hand-rolled.** `timeout` cannot be used inside `serve_once`: it is a
+blocking-poll plain `fn` that drives the event loop itself, and calling one of
+those from inside a task nests the loop
+(`issues/fixed/sync-await-in-plain-fn-nests-the-event-loop.md`). `serve_once`
+is an `io.async` body, and every other `std/async` combinator (`join_all`,
+`race`, `any`) has the same shape and takes `JoinHandle`s rather than futures,
+so there is nothing there to compose with the framing read. The pattern that
+DOES work inside a task — spawn the operation, spawn a `sleep`, poll with
+`io.await(yield(...))` — exists exactly once in this tree, hand-rolled in
+`std/http/client.yo`'s `_fetch_deadline`, and carries two costs that belong in
+a design decision rather than in this PR: aborting a read parked in the I/O
+backend leaks its 8 KiB buffer and its state machine per timed-out connection
+(the mirror of `issues/timeout-deadline-timer-future-leak.md`), and server
+keep-alive additionally changes what `serve_once` MEANS in ways that invalidate
+existing tests (pipelining becomes correct rather than smuggling, and
+`_read_all`-shaped tests start waiting out the deadline).
+`plans/backlog/ASYNC_DEADLINE_COMBINATOR.md` names the blocked call site,
+those costs, three options and the recommendation: add a `Future`-returning
+`with_deadline` to `std/async` first, re-express `_fetch_deadline` in terms of
+it, and then land server keep-alive on top as an OPT-IN
+(`with_keep_alive(idle)`) — opt-in because keep-alive on a strictly serial
+server lets one client monopolize it, so "off" is the honest default for
+`HttpServer` as it stands.
 
 **`BITS` as an associated constant — LANDED 2026-09-10, and it retires a
 documented blocker.**

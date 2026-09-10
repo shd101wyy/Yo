@@ -1,0 +1,89 @@
+// A `TlsStream` had no `Dispose` at all, so there was NO way — explicit or
+// implicit — to release its socket descriptor and its OpenSSL `SSL`/`SSL_CTX`
+// pair other than the async `close(io)`. `TcpStream`'s own `Dispose` is not
+// reachable through it, because the socket is a private field of the TLS
+// stream.
+//
+// The oracle is the number of OPEN descriptors, measured synchronously:
+// `dup(0)` returns the LOWEST free number, so N repeats occupy the N lowest
+// free slots and `highest + 1 == open_count + N`. The event loop allocates
+// descriptors of its own on first use, so the baseline is taken AFTER a
+// warm-up await.
+//
+// NEEDS NETWORK EGRESS (it connects to example.com:443).
+//
+//   yo compile issues/repros/dropped-tlsstream-leaks-its-socket.yo \
+//     --std-path ./std --optimize 2 -o /tmp/repro.out && /tmp/repro.out
+//
+// The measurement that matters is `after == connected - 1`: the stream's own
+// socket goes. Measured 2026-09-11 on macOS:
+//
+//   open before=4 connected=8 wrote=8 after=7
+//
+// The other three descriptors the connect allocates are libcrypto's own
+// (trust store / RNG), opened on first use and not per stream.
+//
+// Before the fix: `dispose` did not exist, so this file did not compile.
+//
+// The IMPLICIT path (letting the value go out of scope) is still blocked by a
+// separate defect: a `ref` value passed as a parameter to an `io.async`
+// future is never released, and `TlsStream` is passed to the `_flush_wbio` /
+// `_feed_rbio` futures on every read and write, so its reference count never
+// reaches zero — issues/a-ref-value-passed-to-an-async-future-is-never-released.md.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ TlsStream, tls_available } :: import("std/crypto/tls");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+{ dup } :: import("std/sys/pipe");
+{ close_sync } :: import("std/sys/file");
+_open_fd_count :: (fn() -> i32)({
+  taken := ArrayList(i32).new();
+  i := i32(0);
+  while(runtime(i < i32(8)), {
+    taken.push(dup(i32(0)));
+    i = (i + i32(1));
+  });
+  highest := i32(0);
+  j := usize(0);
+  while(runtime(j < taken.len()), {
+    f := taken(j);
+    cond(
+      (f > highest) => {
+        highest = f;
+      },
+      true => ()
+    );
+    j = (j + usize(1));
+  });
+  j = usize(0);
+  while(runtime(j < taken.len()), {
+    close_sync(taken(j));
+    j = (j + usize(1));
+  });
+  (highest + i32(1)) - i32(8)
+});
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  cond(
+    !tls_available() => {
+      println(`skipped: no TLS backend`);
+      return();
+    },
+    true => ()
+  );
+  // Warm up: the first await is what creates the event loop's own
+  // descriptors, and they must not be counted as the stream's.
+  io.await(sleep(Duration.from_millis(i64(1)), io), e);
+  before := _open_fd_count();
+  s := io.await(TlsStream.connect(`example.com`, u16(443), io), e);
+  connected := _open_fd_count();
+  _w := io.await(s.write_string(`GET / HTTP/1.0\r\nHost: example.com\r\n\r\n`, io), e);
+  wrote := _open_fd_count();
+  (TlsStream <: Dispose).dispose(s);
+  after := _open_fd_count();
+  println(`open before=${before} connected=${connected} wrote=${wrote} after=${after}`);
+});
+export(main);

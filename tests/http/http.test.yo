@@ -9,17 +9,22 @@ pragma(Pragma.SkipWasm32Wasi); // https needs a network stack + TLS
 { assert, panic } :: import("std/assert");
 { HttpMethod, HttpRequest, HttpResponse, parse_response } :: import("std/http/http");
 { HttpHeader, HeaderMap, StatusCode } :: import("std/http/http");
-{ fetch, fetch_with, FetchOptions } :: import("std/http/client");
+{ fetch, fetch_with, FetchOptions, HttpClient } :: import("std/http/client");
+_wire :: import("std/http/wire.yo");
+{ dup } :: import("std/sys/pipe");
+{ close_sync } :: import("std/sys/file");
 { Exception, IoExn } :: import("std/error");
 { println, eprintln } :: import("std/fmt");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
-{ TcpListener, TcpStream } :: import("std/net/tcp");
+{ TcpListener, TcpStream, Shutdown } :: import("std/net/tcp");
+{ Reader } :: import("std/io");
 { SocketAddr } :: import("std/net/addr");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/time/sleep");
+{ timeout } :: import("std/async");
 { env } :: import("std/env");
 /// True where a network failure is a REAL failure rather than "this box has
 /// no egress": GitHub Actions and essentially every other CI sets `CI`.
@@ -949,5 +954,734 @@ test("parse_response slices a binary body as bytes", {
       eprintln(`  unexpected: ${e.to_string()}`);
       assert(false, "must parse");
     }
+  );
+});
+// ============================================================================
+// HttpClient — the connection pool
+// ============================================================================
+// The pool's whole point is that a second request costs no reconnect, so the
+// oracle has to be the SERVER's accept count, not the response body. These
+// tests therefore drive a raw `TcpListener` that frames requests with
+// `std/http/wire` and answers them itself: `HttpServer` adds
+// `Connection: close` to every response, so it cannot demonstrate reuse, and
+// a hand-written server is also the only way to produce the four response
+// shapes RFC 9112 §9.3 distinguishes.
+//
+// Every one of these servers accepts EXACTLY `max_conns` connections and
+// closes its listener as soon as the last one is accepted. That is
+// deliberate: if the pool fails to reuse a connection, the extra connect is
+// REFUSED and the test fails in a second, instead of hanging on a socket
+// nobody will ever answer.
+//
+// The counters live in a `ref(struct(...))` handed to the server rather than
+// in module-level mutable bindings, and that is not a style choice: a
+// module-level mutable written across a SUSPENSION POINT in an `io.async`
+// body operates on a copy, so the writes are lost
+// (issues/a-module-global-is-lost-across-an-async-suspension.md) — and this
+// server's loop suspends on every read. A reference-semantics value is
+// shared by construction.
+_KaStats :: ref(struct(accepts : usize, requests : usize, saw_close : bool));
+_ka_stats :: (fn() -> _KaStats)(
+  _KaStats(accepts : usize(0), requests : usize(0), saw_close : false)
+);
+// HTTP/1.1 + Content-Length; the connection stays open (reusable).
+_KA_KEEP :: i32(0);
+// ... plus `Connection: close` (RFC 9112 §9.3: not reusable).
+_KA_CLOSE :: i32(1);
+// HTTP/1.0 with no `Connection` field: close by default, so not reusable.
+_KA_HTTP10 :: i32(2);
+// No `Content-Length` and not chunked: the body is delimited by the close
+// itself, so there can be no next message on this connection.
+_KA_UNSIZED :: i32(3);
+// Reusable-looking, then HALF-CLOSED — the server's idle timeout, modelled
+// with `shutdown(Write)` rather than a full close so the client sees a clean
+// EOF instead of racing an RST. A full close is what a real server does and
+// produces either outcome depending on timing; the EOF is the half this test
+// is about.
+_KA_HALF_CLOSE :: i32(4);
+// HTTP/1.0 that opts in explicitly: reusable.
+_KA_HTTP10_KEEP :: i32(5);
+// `204 No Content` with a NON-ZERO `Content-Length`. RFC 9112 §6.3 rule 1
+// says a 204 carries no body whatever its framing headers claim, so the
+// length must be ignored; a client that honours it waits forever for seven
+// bytes the server will never send. The connection stays open.
+_KA_204 :: i32(6);
+_ka_response :: (fn(mode : i32, n : usize, is_head : bool) -> String)({
+  body := `n=${n.to_string()}`;
+  len := body.len().to_string();
+  cond(
+    // A response to HEAD carries the headers it would have carried for a GET
+    // — `Content-Length` included — and NO body. Only the client knows the
+    // request was a HEAD, which is why the framing takes it as a parameter
+    // rather than reading it off the bytes.
+    is_head => `HTTP/1.1 200 OK\r\nContent-Length: ${len}\r\n\r\n`,
+    (mode == _KA_204) => `HTTP/1.1 204 No Content\r\nContent-Length: 7\r\n\r\n`,
+    (mode == _KA_CLOSE) => `HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: ${len}\r\n\r\n${body}`,
+    (mode == _KA_HTTP10) => `HTTP/1.0 200 OK\r\nContent-Length: ${len}\r\n\r\n${body}`,
+    (mode == _KA_HTTP10_KEEP) => `HTTP/1.0 200 OK\r\nConnection: keep-alive\r\nContent-Length: ${len}\r\n\r\n${body}`,
+    (mode == _KA_UNSIZED) => `HTTP/1.1 200 OK\r\nX-Unsized: yes\r\n\r\n${body}`,
+    true => `HTTP/1.1 200 OK\r\nContent-Length: ${len}\r\n\r\n${body}`
+  )
+});
+// Whether this mode's response ends the connection after one exchange.
+_ka_one_shot :: (fn(mode : i32) -> bool)(
+  (mode == _KA_CLOSE) || ((mode == _KA_HTTP10) || ((mode == _KA_UNSIZED) || (mode == _KA_HALF_CLOSE)))
+);
+// One connection: read framed requests off it and answer each one, until the
+// peer closes (an empty framed message is EOF) or the mode says to stop.
+_ka_conn :: (fn(stream : TcpStream, mode : i32, stats : _KaStats, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    // ONE carry list for the whole connection: a single `read` can deliver
+    // the end of this request and the start of the next.
+    carry := ArrayList(u8).new();
+    open := true;
+    while(runtime(open), {
+      framed := e.io.await(
+        _wire.read_http_message_buffered(stream, usize(0), _wire.MessageKind.Request, carry, e.io),
+        e
+      );
+      raw := match(framed, .Ok(x) => x, .Err(_) => String.new());
+      (answer : String) = String.new();
+      cond(
+        raw.is_empty() => {
+          open = false;
+        },
+        true => {
+          stats.requests = (stats.requests + usize(1));
+          cond(
+            raw.to_lowercase().contains(`connection: close`) => {
+              stats.saw_close = true;
+            },
+            true => ()
+          );
+          answer = _ka_response(mode, stats.requests, raw.starts_with(`HEAD `));
+        }
+      );
+      cond(
+        !answer.is_empty() => {
+          _w := e.io.await(stream.write_string(answer, e.io), e);
+        },
+        true => ()
+      );
+      cond(
+        (!answer.is_empty() && _ka_one_shot(mode)) => {
+          open = false;
+        },
+        true => ()
+      );
+    });
+    // A half-close leaves the socket readable from the client's side, which
+    // is what makes the EOF deterministic; the descriptor is closed by
+    // `_ka_serve` at the end. Every other mode closes here.
+    cond(
+      (mode == _KA_HALF_CLOSE) => {
+        e.io.await(stream.shutdown(.Write, e.io), e);
+      },
+      true => ()
+    );
+    cond(
+      (mode != _KA_HALF_CLOSE) => {
+        e.io.await(stream.close(e.io), e);
+      },
+      true => ()
+    );
+    ()
+  })
+);
+_ka_bind :: (fn(port : u16, io : Io) -> Impl(Future(TcpListener, IoExn)))(
+  io.async(e => {
+    listener := e.io.await(TcpListener.bind(SocketAddr.loopback(port), e.io), e);
+    return(listener);
+  })
+);
+_ka_serve :: (
+  fn(listener : TcpListener, max_conns : usize, mode : i32, stats : _KaStats, io : Io) ->
+    Impl(Future(unit, IoExn))
+)(
+  io.async(e => {
+    held := ArrayList(TcpStream).new();
+    n := usize(0);
+    while(runtime(n < max_conns), {
+      stream := e.io.await(listener.accept(e.io), e);
+      stats.accepts = (stats.accepts + usize(1));
+      n = (n + usize(1));
+      held.push(stream);
+      // Stop listening the moment the budget is spent, so an unexpected
+      // reconnect is REFUSED rather than left hanging.
+      cond(
+        (n == max_conns) => {
+          e.io.await(listener.close(e.io), e);
+        },
+        true => ()
+      );
+      e.io.await(_ka_conn(stream, mode, stats, e.io), e);
+    });
+    i := usize(0);
+    while(runtime(i < held.len()), {
+      s := held(i);
+      e.io.await(s.close(e.io), e);
+      i = (i + usize(1));
+    });
+    ()
+  })
+);
+_FD_BATCH :: i32(8);
+// The exact number of open descriptors, measured SYNCHRONOUSLY.
+//
+// `dup(0)` hands back the LOWEST free number, so N repeats occupy the N
+// lowest free slots and every number in `0..=highest` is then taken:
+// `highest + 1 == open_count + N`. Solving for the open count is exact, and
+// unlike a plain "lowest free descriptor" probe it is not fooled by a hole
+// an earlier close left further down — this test file closes a listener
+// before the measurement, and that hole made the naive probe read the same
+// number whether the client leaked its socket or not.
+//
+// Synchronous matters as much as exact: an async probe would turn the event
+// loop and let the server react to the very close being measured.
+_open_fd_count :: (fn() -> i32)({
+  taken := ArrayList(i32).new();
+  i := i32(0);
+  while(runtime(i < _FD_BATCH), {
+    taken.push(dup(i32(0)));
+    i = (i + i32(1));
+  });
+  highest := i32(0);
+  j := usize(0);
+  while(runtime(j < taken.len()), {
+    f := taken(j);
+    cond(
+      (f > highest) => {
+        highest = f;
+      },
+      true => ()
+    );
+    j = (j + usize(1));
+  });
+  j = usize(0);
+  while(runtime(j < taken.len()), {
+    close_sync(taken(j));
+    j = (j + usize(1));
+  });
+  (highest + i32(1)) - _FD_BATCH
+});
+test("HttpClient: a second request runs on the pooled connection, with no reconnect", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19840), io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19840/one`, io), e);
+  assert(a.body == `n=1`, `first response: ${a.body}`);
+  assert(client.idle_count() == usize(1), `the connection went back to the pool, idle=${client.idle_count()}`);
+  // The server accepted its ONE connection and closed the listener, so a
+  // second connect would be refused. Reaching a second response at all is
+  // the proof of reuse; the accept count states it directly.
+  b := io.await(client.fetch(`http://127.0.0.1:19840/two`, io), e);
+  assert(b.body == `n=2`, `second response: ${b.body}`);
+  assert(stats.accepts == usize(1), `one accept for two requests, got ${stats.accepts}`);
+  assert(stats.requests == usize(2), `the server framed two requests, got ${stats.requests}`);
+  assert(!stats.saw_close, "a pooled request does not announce Connection: close");
+  assert(client.idle_count() == usize(1), "and it is pooled again");
+  client.close_idle();
+  assert(client.idle_count() == usize(0), "close_idle empties the pool");
+  task.await(io);
+});
+test("HttpClient: the free fetch stays one-shot — it announces Connection: close", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19841), io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
+  a := io.await(fetch(`http://127.0.0.1:19841/one`, io), e);
+  assert(a.body == `n=1`, `first response: ${a.body}`);
+  assert(stats.saw_close, "the one-shot fetch sent Connection: close");
+  // A second one-shot fetch opens its own connection — there is no hidden
+  // global pool behind `fetch`.
+  b := io.await(fetch_with(`http://127.0.0.1:19841/two`, FetchOptions.new(), io), e);
+  assert(b.body == `n=2`, `second response: ${b.body}`);
+  assert(stats.accepts == usize(2), `two one-shot fetches, two accepts, got ${stats.accepts}`);
+  task.await(io);
+});
+test("HttpClient: Connection: close retires the connection", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19842), io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_CLOSE, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19842/one`, io), e);
+  assert(a.body == `n=1`, `response: ${a.body}`);
+  assert(client.idle_count() == usize(0), `Connection: close is not pooled, idle=${client.idle_count()}`);
+  b := io.await(client.fetch(`http://127.0.0.1:19842/two`, io), e);
+  assert(b.body == `n=2`, `second response: ${b.body}`);
+  assert(stats.accepts == usize(2), `each request got its own connection, accepts=${stats.accepts}`);
+  client.close_idle();
+  task.await(io);
+});
+test("HttpClient: an HTTP/1.0 response without Connection: keep-alive retires the connection", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19843), io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19843/one`, io), e);
+  assert(a.version == `HTTP/1.0`, `the version is kept as received: ${a.version}`);
+  assert(a.body == `n=1`, `response: ${a.body}`);
+  assert(client.idle_count() == usize(0), `HTTP/1.0 is close-by-default, idle=${client.idle_count()}`);
+  task.await(io);
+});
+test("HttpClient: an HTTP/1.0 response WITH Connection: keep-alive is reused", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19844), io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HTTP10_KEEP, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19844/one`, io), e);
+  assert(a.version == `HTTP/1.0`, `version: ${a.version}`);
+  assert(client.idle_count() == usize(1), `an explicit keep-alive opts in, idle=${client.idle_count()}`);
+  b := io.await(client.fetch(`http://127.0.0.1:19844/two`, io), e);
+  assert(b.body == `n=2`, `second response: ${b.body}`);
+  assert(stats.accepts == usize(1), `one accept, got ${stats.accepts}`);
+  client.close_idle();
+  task.await(io);
+});
+test("HttpClient: a response of unknown length is close-delimited and retires the connection", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19845), io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_UNSIZED, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19845/one`, io), e);
+  assert(a.body == `n=1`, `the body arrived with the close: ${a.body}`);
+  assert(a.get_header(`Content-Length`).is_none(), "there was no Content-Length");
+  // The close IS the end of the body, so there is no next message here no
+  // matter what `Connection` says.
+  assert(client.idle_count() == usize(0), `a close-delimited response is not pooled, idle=${client.idle_count()}`);
+  task.await(io);
+});
+test("HttpClient: a connection the server closed while idle is retried once on a fresh one", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19846), io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_HALF_CLOSE, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19846/one`, io), e);
+  assert(a.body == `n=1`, `first response: ${a.body}`);
+  // The response looked reusable, so it IS pooled — and the server has
+  // already stopped listening on it. This is the single most important
+  // behaviour of a keep-alive client: the next request must not fail.
+  assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
+  b := io.await(client.fetch(`http://127.0.0.1:19846/two`, io), e);
+  assert(b.body == `n=2`, `the retried request succeeded: ${b.body}`);
+  assert(stats.accepts == usize(2), `the retry opened a fresh connection, accepts=${stats.accepts}`);
+  client.close_idle();
+  task.await(io);
+});
+test("HttpClient: the idle cap is respected", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19847), io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
+  // `max_idle == 0` is the degenerate cap: nothing is ever pooled, so the
+  // client behaves like the one-shot `fetch` while still speaking keep-alive
+  // on the wire.
+  client := HttpClient.new().with_max_idle(usize(0));
+  a := io.await(client.fetch(`http://127.0.0.1:19847/one`, io), e);
+  assert(a.body == `n=1`, `first response: ${a.body}`);
+  assert(client.idle_count() == usize(0), `nothing pooled at cap 0, idle=${client.idle_count()}`);
+  b := io.await(client.fetch(`http://127.0.0.1:19847/two`, io), e);
+  assert(b.body == `n=2`, `second response: ${b.body}`);
+  assert(stats.accepts == usize(2), `each request connected, accepts=${stats.accepts}`);
+  assert(client.idle_count() == usize(0), "still nothing pooled");
+  task.await(io);
+});
+test("HttpClient: the idle age limit closes a connection instead of reusing it", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19848), io), e);
+  task := io.spawn(_ka_serve(listener, usize(2), _KA_KEEP, stats, io), e);
+  // A 1 ms age limit expires between two requests without a sleep long
+  // enough to slow the suite down.
+  client := HttpClient.new().with_idle_timeout(Duration.from_millis(i64(1)));
+  a := io.await(client.fetch(`http://127.0.0.1:19848/one`, io), e);
+  assert(a.body == `n=1`, `first response: ${a.body}`);
+  assert(client.idle_count() == usize(1), "pooled");
+  io.await(sleep(Duration.from_millis(i64(20)), io), e);
+  b := io.await(client.fetch(`http://127.0.0.1:19848/two`, io), e);
+  assert(b.body == `n=2`, `second response: ${b.body}`);
+  assert(stats.accepts == usize(2), `the expired connection was not reused, accepts=${stats.accepts}`);
+  client.close_idle();
+  task.await(io);
+});
+test("HttpClient: dispose closes every idle connection", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19849), io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19849/one`, io), e);
+  assert(a.body == `n=1`, `response: ${a.body}`);
+  assert(client.idle_count() == usize(1), "one connection is idle");
+  // `during` counts the descriptors open while the pooled connection still
+  // is; `after` counts them once `dispose` has run. Exactly one must have
+  // gone — the pooled socket. Nothing else runs between the two
+  // measurements, because both are synchronous.
+  during := _open_fd_count();
+  // `dispose` is what a DROPPED client runs, and calling it by hand is the
+  // only way to observe it today: a `ref` value passed as a parameter to an
+  // `io.async` future is never released
+  // (issues/a-ref-value-passed-to-an-async-future-is-never-released.md), so
+  // a client that has made a request never reaches reference count zero and
+  // the scope-exit path cannot fire. The body being tested is the same one
+  // either way — `dispose` delegates to `close_idle`.
+  (HttpClient <: Dispose).dispose(client);
+  after := _open_fd_count();
+  assert(
+    after == (during - i32(1)),
+    `dispose closed exactly the pooled descriptor (open ${during} -> ${after})`
+  );
+  assert(client.idle_count() == usize(0), "and the idle set is empty");
+  // And the server saw the EOF: its connection loop ends and the task
+  // finishes, which would otherwise park on a read forever.
+  match(
+    timeout(task, Duration.from_secs(i64(10)), io),
+    .Ok(_) => (),
+    .Err(err) => assert(false, `the server never saw the connection close: ${err.to_string()}`)
+  );
+});
+test("HttpClient: the pool never crosses ports", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  l1 := io.await(_ka_bind(u16(19850), io), e);
+  l2 := io.await(_ka_bind(u16(19851), io), e);
+  t1 := io.spawn(_ka_serve(l1, usize(1), _KA_KEEP, stats, io), e);
+  t2 := io.spawn(_ka_serve(l2, usize(1), _KA_KEEP, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19850/a`, io), e);
+  assert(a.body == `n=1`, `first server: ${a.body}`);
+  // Same scheme, same host, different port: the pooled connection must not
+  // be handed over — it is wired to another peer.
+  b := io.await(client.fetch(`http://127.0.0.1:19851/b`, io), e);
+  assert(b.body == `n=2`, `second server: ${b.body}`);
+  assert(stats.accepts == usize(2), `each port got its own connection, accepts=${stats.accepts}`);
+  assert(client.idle_count() == usize(2), `both are pooled, idle=${client.idle_count()}`);
+  // And the first target's connection is still the one reused for it.
+  c := io.await(client.fetch(`http://127.0.0.1:19850/c`, io), e);
+  assert(c.body == `n=3`, `back to the first server: ${c.body}`);
+  assert(stats.accepts == usize(2), `still two accepts, got ${stats.accepts}`);
+  client.close_idle();
+  t1.await(io);
+  t2.await(io);
+});
+// Phase of the host-isolation test below, written from the test's own stack —
+// which is synchronous code, so the write lands where the handler can see it
+// (unlike a write from inside a suspending async body; see `_KaStats`) — and
+// read by that handler through a module-level fn.
+(g_iso_phase : i32) = i32(0);
+_iso_phase :: (fn() -> i32)(g_iso_phase);
+test("HttpClient: the pool never crosses hosts", {
+  // The handler is where this test's assertions live: a request for another
+  // host must FAIL rather than be answered over the pooled connection, and
+  // failing means the exception arrives here.
+  exn := Exception(
+    throw : (
+      err -> {
+        // Reaching this handler during phase 1 IS the proof: the request for
+        // the other host was not answered over the pooled connection. What
+        // the failure IS depends on the box — a DNS miss where `.invalid`
+        // does not resolve, a refused or immediately-closed connection where
+        // a resolver hijacks NXDOMAIN — so the error text is not asserted,
+        // only the phase (a capture-free handler cannot read the test's
+        // locals, but it can call a module-level binding, #396).
+        assert(
+          _iso_phase() == i32(1),
+          `unexpected exception before the isolation request: ${err.to_string()}`
+        );
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19852), io), e);
+  // HALF_CLOSE so the server task FINISHES after one exchange: the throw
+  // below unwinds the test body, and a server left parked on a read would
+  // keep the event loop alive and stop the process from exiting.
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_HALF_CLOSE, stats, io), e);
+  client := HttpClient.new();
+  a := io.await(client.fetch(`http://127.0.0.1:19852/a`, io), e);
+  assert(a.body == `n=1`, `first response: ${a.body}`);
+  assert(client.idle_count() == usize(1), "pooled");
+  task.await(io);
+  // `.invalid` is reserved by RFC 2606 for exactly this. Our server is the
+  // only thing that answers `n=K`, and it is no longer listening, so this
+  // request can only be ANSWERED by being sent over the pooled 127.0.0.1
+  // connection — a request delivered to the wrong peer.
+  g_iso_phase = i32(1);
+  resp := io.await(client.fetch(`http://pool-isolation.invalid:19852/b`, io), e);
+  assert(false, `a request for another host was answered: ${resp.body}`);
+});
+// RFC 9112 §6.3 rule 1 on a keep-alive connection is not a nicety, it is the
+// difference between an answer and a hang: a 204 and a 304 routinely carry no
+// `Content-Length` at all (or, as here, one that describes the body a 200
+// would have had), the old framing read a response with neither header as
+// close-delimited, and a keep-alive server never closes. Both tests give the
+// request a deadline so a regression fails as a `Timeout` rather than hanging
+// a whole CI job.
+test("HttpClient: a 204 ends at its headers, whatever its Content-Length says", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19853), io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_204, stats, io), e);
+  client := HttpClient.new();
+  opts := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
+  a := io.await(client.fetch_with(`http://127.0.0.1:19853/one`, opts, io), e);
+  assert(a.status.as_u16() == u16(204), `status ${a.status.as_u16()}`);
+  assert(a.body.is_empty(), `a 204 has no body, got [${a.body}]`);
+  assert(a.get_header(`Content-Length`).unwrap() == `7`, "the header is kept as received");
+  // Framed at the headers means the connection is at a message boundary, so
+  // it is reusable — and the next response proves the boundary was right.
+  assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
+  b := io.await(client.fetch_with(`http://127.0.0.1:19853/two`, opts, io), e);
+  assert(b.status.as_u16() == u16(204), `second status ${b.status.as_u16()}`);
+  assert(stats.accepts == usize(1), `one accept, got ${stats.accepts}`);
+  assert(stats.requests == usize(2), `two requests framed, got ${stats.requests}`);
+  client.close_idle();
+  task.await(io);
+});
+test("HttpClient: a HEAD response ends at its headers and the connection is reused", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  stats := _ka_stats();
+  listener := io.await(_ka_bind(u16(19854), io), e);
+  task := io.spawn(_ka_serve(listener, usize(1), _KA_KEEP, stats, io), e);
+  client := HttpClient.new();
+  head := FetchOptions.new().with_method(.HEAD).with_timeout(Duration.from_secs(i64(10)));
+  a := io.await(client.fetch_with(`http://127.0.0.1:19854/one`, head, io), e);
+  assert(a.status.as_u16() == u16(200), `status ${a.status.as_u16()}`);
+  assert(a.body.is_empty(), `a HEAD response has no body, got [${a.body}]`);
+  assert(a.get_header(`Content-Length`).unwrap() == `3`, "the length of the body a GET would have returned");
+  assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
+  // And the connection really is at a boundary: a GET follows on it.
+  get := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
+  b := io.await(client.fetch_with(`http://127.0.0.1:19854/two`, get, io), e);
+  assert(b.body == `n=2`, `the GET after a HEAD is framed correctly: ${b.body}`);
+  assert(stats.accepts == usize(1), `one accept, got ${stats.accepts}`);
+  client.close_idle();
+  task.await(io);
+});
+// A body-less message followed by another one in a SINGLE read is the case the
+// framing has to get right for a pooled connection: the second message's
+// bytes must be CARRIED, not appended to the first as a body its
+// `Content-Length` invited. A socket cannot be made to deliver two messages
+// in one read on demand, so this drives the framing through a scripted reader
+// — the same technique as `tests/http/wire.test.yo`, and the reason it is
+// repeated here is that these two cases are the ones the pool introduced.
+_PipeReader :: ref(struct(data : ArrayList(u8), pos : usize, reads : usize));
+_pipe :: (fn(text : String) -> _PipeReader)(
+  _PipeReader(data : text.as_bytes(), pos : usize(0), reads : usize(0))
+);
+impl(
+  _PipeReader,
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async(e => {
+      self.reads = (self.reads + usize(1));
+      // `size` is copied to a body-local before it is used in a branch: a
+      // captured parameter read in a `cond`'s SECOND arm was emitted
+      // unrewritten before the "one capture predicate" codegen fix, and this
+      // file has to build under an older seed as well.
+      room := size;
+      n := usize(0);
+      while(runtime((n < room) && (self.pos < self.data.len())), {
+        consume((buf.add(n)).* = self.data(self.pos));
+        self.pos = (self.pos + usize(1));
+        n = (n + usize(1));
+      });
+      n
+    })
+  )
+);
+impl(
+  _PipeReader,
+  Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+_P204 :: "HTTP/1.1 204 No Content\r\nContent-Length: 7\r\n\r\n";
+_PHEAD :: "HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\n";
+_PNEXT :: "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+test("wire: a 204 followed by another response in one read carries the tail", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  r := _pipe(`${_P204}${_PNEXT}`);
+  carry := ArrayList(u8).new();
+  raw1 := match(
+    io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.Response, carry, io), e),
+    .Ok(x) => x,
+    .Err(err) => {
+      assert(false, `first message: ${err.to_string()}`);
+      String.new()
+    }
+  );
+  assert(raw1 == String.from(_P204), `the 204 is framed at its header section, got ${raw1.len()} bytes`);
+  assert(carry.len() == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.len()})`);
+  reads_before := r.reads;
+  raw2 := match(
+    io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.Response, carry, io), e),
+    .Ok(x) => x,
+    .Err(err) => {
+      assert(false, `second message: ${err.to_string()}`);
+      String.new()
+    }
+  );
+  assert(raw2 == String.from(_PNEXT), `the second message is framed from the carry, got ${raw2.len()} bytes`);
+  assert(r.reads == reads_before, "a message already carried costs no read");
+  assert(parse_response(raw2).unwrap().body == `ok`, "and it parses");
+});
+test("wire: a HEAD response ignores its Content-Length and carries the tail", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected exception: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  r := _pipe(`${_PHEAD}${_PNEXT}`);
+  carry := ArrayList(u8).new();
+  raw1 := match(
+    io.await(_wire.read_http_message_buffered(r, usize(0), _wire.MessageKind.HeadResponse, carry, io), e),
+    .Ok(x) => x,
+    .Err(err) => {
+      assert(false, `head message: ${err.to_string()}`);
+      String.new()
+    }
+  );
+  assert(raw1 == String.from(_PHEAD), `the HEAD response is framed at its headers, got ${raw1.len()} bytes`);
+  assert(carry.len() == String.from(_PNEXT).len(), `the next response is carried (carry=${carry.len()})`);
+  // The same bytes read as a plain Response would swallow the next response's
+  // first three bytes as this one's body — which is exactly the smuggling the
+  // kind parameter exists to prevent.
+  r2 := _pipe(`${_PHEAD}${_PNEXT}`);
+  carry2 := ArrayList(u8).new();
+  as_get := match(
+    io.await(_wire.read_http_message_buffered(r2, usize(0), _wire.MessageKind.Response, carry2, io), e),
+    .Ok(x) => x,
+    .Err(_) => String.new()
+  );
+  assert(
+    as_get.len() == (String.from(_PHEAD).len() + usize(3)),
+    `read as a GET response the same bytes frame a 3-byte body, got ${as_get.len()}`
   );
 });
