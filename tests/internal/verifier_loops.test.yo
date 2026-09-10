@@ -283,5 +283,7 @@ test("the SMT encoding of a loop query havocs the assigned names (solver-free)",
   });
   all := scripts.to_string();
   assert(all.contains(String.from("__yo_hv")), "the havoc constants appear in the encoding");
-  assert(all.contains(String.from("ite")), "the iterate/goal structure is present");
+  // The iterate obligation's goal is the invariant conjunction over the
+  // havoc constants — sum_to itself contains no cond, so no `ite` is
+  // expected here (the phi-merge fixtures carry those).
 });
