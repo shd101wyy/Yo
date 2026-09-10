@@ -10,7 +10,10 @@
 //! - `set` (new key): O(1) amortized
 //! - `set` (existing key): O(1) — value updated in place, order unchanged
 //! - `get` / `contains_key`: O(1) average
-//! - `remove`: O(n) — must rebuild the key order list to skip the removed key
+//! - `remove`: O(n) — the keys after the removed one shift down a slot
+//! - `swap_remove`: O(1) — moves the last key into the removed slot, so the
+//!   iteration order changes (Rust's `IndexMap::swap_remove`)
+//! - `index_of` / `get_index`: O(1) — positional lookup, both directions
 //! - `iter` / `keys` / `values`: O(n), in insertion order
 //!
 //! ## Example
@@ -51,7 +54,15 @@ OrderedMap :: (
   ref(
     struct(
       _map : HashMap(K, V),
-      _order : ArrayList(K)
+      _order : ArrayList(K),
+      /// Each live key's position in `_order`. This is what makes
+      /// `swap_remove` O(1) — without it, finding the slot to swap into means
+      /// scanning `_order`, and the whole point of `swap_remove` over `remove`
+      /// is that it does not walk the map. `IndexMap` keeps the same side
+      /// table for the same reason. Every write to `_order` must keep it in
+      /// step; the four sites are `new`, `insert`, `remove` and `clear`.
+      /// It also answers `index_of` and, with `_order`, `get_index`.
+      _index : HashMap(K, usize)
     )
   )
 );
@@ -63,7 +74,8 @@ impl(
   new : (fn() -> Self)(
     Self(
       _map : HashMap(K, V).new(),
-      _order : ArrayList(K).new()
+      _order : ArrayList(K).new(),
+      _index : HashMap(K, usize).new()
     )
   ),
   /// Number of entries.
@@ -90,6 +102,7 @@ impl(
       is_new => match(
         result,
         .Ok(_) => {
+          self._index.insert(key, self._order.len());
           self._order.push(key);
         },
         .Err(_) => ()
@@ -110,40 +123,92 @@ impl(
       .Err(_) => __yo_panic("OrderedMap.insert: allocation failed")
     )
   ),
-  /// Remove `key`. Returns the removed value or `.None`.
-  /// O(n) — rebuilds the key order list to drop the removed key.
+  /// Remove `key`, keeping the insertion order of everything else — Rust's
+  /// `IndexMap::shift_remove`. Returns the removed value or `.None`.
+  ///
+  /// O(n) in the number of keys AFTER the removed one: they each shift down a
+  /// slot, and the position index has to learn where they went. Use
+  /// `swap_remove` when the order does not matter.
   remove : (fn(self : Self, key : K) -> Option(V))({
     removed := self._map.remove(key);
     match(
       removed,
       .Some(_) => {
-        new_order := ArrayList(K).new();
-        i := usize(0);
+        idx := match(
+          self._index.remove(key),
+          .Some(i) => i,
+          .None => __yo_panic("OrderedMap.remove: key in the map but not in the position index")
+        );
+        _dropped := self._order.remove(idx);
+        // Only the keys AFTER the hole moved; the ones before it kept their
+        // positions, so the index is patched over the tail rather than rebuilt.
+        j := idx;
         n := self._order.len();
-        while(i < n, i = (i + usize(1)), {
-          match(
-            self._order.get(i),
-            .Some(k) => {
-              cond(
-                (k == key) => (),
-                true => {
-                  new_order.push(k);
-                }
-              );
-            },
-            .None => ()
-          );
+        while(j < n, j = (j + usize(1)), {
+          match(self._order.get(j), .Some(k) => self._index.insert(k, j), .None => Option(usize).None);
         });
-        self._order = new_order;
       },
       .None => ()
     );
     return(removed);
   }),
+  /// Remove `key` in O(1), moving the LAST key into its position — Rust's
+  /// `IndexMap::swap_remove`. Returns the removed value or `.None`.
+  ///
+  /// This CHANGES the iteration order, which is the whole trade: `remove`
+  /// preserves insertion order and pays O(n) to rebuild the key list, while
+  /// this touches three slots and is done. Reach for it when you are draining
+  /// a map, or when order stops mattering once a key is gone.
+  swap_remove : (fn(self : Self, key : K) -> Option(V))({
+    removed := self._map.remove(key);
+    match(
+      removed,
+      .Some(_) => {
+        idx := match(
+          self._index.remove(key),
+          .Some(i) => i,
+          .None => __yo_panic("OrderedMap.swap_remove: key in the map but not in the position index")
+        );
+        last := (self._order.len() - usize(1));
+        cond(
+          (idx == last) => {
+            self._order.pop();
+          },
+          true => {
+            // Read the key that is about to move BEFORE the swap, so its
+            // new position can be recorded.
+            moved := match(self._order.get(last), .Some(k) => Option(K).Some(k), .None => Option(K).None);
+            self._order.swap_remove(idx);
+            match(moved, .Some(mk) => self._index.insert(mk, idx), .None => Option(usize).None);
+          }
+        );
+      },
+      .None => ()
+    );
+    return(removed);
+  }),
+  /// The position of `key` in the iteration order, or `.None` if it is
+  /// absent — Rust's `IndexMap::get_index_of`. O(1): the position index that
+  /// `swap_remove` needs already answers this.
+  index_of : (fn(self : Self, key : K) -> Option(usize))(self._index.get(key)),
+  /// The `(key, value)` pair at position `i` in the iteration order, or
+  /// `.None` when `i` is out of range — Rust's `IndexMap::get_index`.
+  get_index : (fn(self : Self, i : usize) -> Option(MapEntry(K, V)))(
+    match(
+      self._order.get(i),
+      .Some(k) => match(
+        self._map.get(k),
+        .Some(v) => Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : k, value : v)),
+        .None => Option(MapEntry(K, V)).None
+      ),
+      .None => Option(MapEntry(K, V)).None
+    )
+  ),
   /// Remove all entries.
   clear : (fn(self : Self) -> unit)({
     self._map.clear();
     self._order = ArrayList(K).new();
+    self._index = HashMap(K, usize).new();
   })
 );
 /// Iterator over the keys of an `OrderedMap` in insertion order.
