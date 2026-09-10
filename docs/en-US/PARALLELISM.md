@@ -220,6 +220,59 @@ threads. No extra `arc()` wrapper is needed.
 
 Channel uses a `Mutex` + `CondVar` internally for synchronization. Send blocks when the channel is full; recv blocks when the channel is empty.
 
+### Sender / Receiver - end of stream without a manual `close()`
+
+A `Channel` is one fused handle that both ends share, and it stays open until somebody
+calls `close()`. When a consumer needs to know that the producers are *finished*, use the
+`Sender`/`Receiver` split instead: the queue counts its live senders, and dropping the last
+one closes the channel by itself.
+
+```rust
+{ Channel } :: import "std/sync/channel";
+
+rx := Channel(i32).receiver(usize(4)); // the queue and its one consumer
+{
+  tx := rx.sender();                   // a counted producer
+  tx.send(i32(1));
+  tx.send(i32(2));
+};                                     // last sender dropped -> channel closed
+
+rx.recv().unwrap();                    // 1  - buffered values come out first
+rx.recv().unwrap();                    // 2
+rx.recv();                             // .Err(TryRecvError.Disconnected)
+```
+
+- `Sender` is cloneable (`tx.clone()`); every clone is another counted producer, and only
+  the LAST one to be dropped closes the queue.
+- Dropping the `Receiver` makes every further `send` fail with the unsent value, instead of
+  blocking on a queue nobody will drain.
+- `Receiver.recv()` returns `Result(T, TryRecvError)`; the error is always `Disconnected`,
+  and it is reported only once the buffer is drained, so no accepted value is lost.
+- `Channel(T).pair(capacity)` returns both halves as a tuple for a Rust-like one-liner, but
+  the tuple keeps both handles alive for its whole scope - so dropping the sender early does
+  *not* close the channel. Prefer `receiver()` + `sender()` whenever the end of the stream
+  matters.
+
+For producers on other threads, mint each thread's `Sender` inside the thread and keep one
+in the parent until the workers are running:
+
+```rust
+rx := Channel(i32).receiver(usize(16));
+{
+  keeper := rx.sender();               // holds the count above zero
+  w := Thread.spawn((io) => {
+    tx := rx.sender();                 // this thread's producer
+    tx.send(i32(7));
+  });                                  // tx drops when the body ends
+  w.join();
+};                                     // keeper drops -> channel closed
+```
+
+A `Sender` *moved into* a `Thread.spawn` closure does not close the channel today: a spawn
+closure's captures are never released, so that sender's drop never runs. Values still flow;
+only the auto-close is lost. Async tasks (`std/async/channel`, which has the same
+`receiver()`/`sender()`/`pair()` API for one event loop) release their captures correctly.
+
 ## Sendable Types
 
 Only types that implement `Send` can cross thread boundaries:

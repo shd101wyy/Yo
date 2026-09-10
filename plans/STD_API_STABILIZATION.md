@@ -442,7 +442,8 @@ saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
 `thread_rng`. Concurrency — `Thread` is NOT generic and `join -> unit`
-(`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split,
+(`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split
+absent then, LANDED 2026-09-11 (the Concurrency record below);
 `spawn_blocking` absent (`Mutex.try_with_lock`,
 `Cond.wait_timeout` and `RwLock.try_with_read`/`try_with_write` all LANDED
 2026-09-10, once v0.2.30 shipped the runtime primitives as the seed)
@@ -813,8 +814,9 @@ say to take an own `Rng.from_entropy()` in a hot loop instead.
 
 **Concurrency.** Verified against the code 2026-09-09 — LANDED:
 `Thread(T).spawn` + `join() -> T` (D18); `Semaphore.with_permit`;
-`try_recv -> TryRecvError{Empty, Disconnected}` (#506). STILL OPEN:
-`Sender`/`Receiver` split with auto-close on last sender; waker-based
+`try_recv -> TryRecvError{Empty, Disconnected}` (#506);
+`Sender`/`Receiver` with auto-close on the last sender (2026-09-11, below).
+STILL OPEN: waker-based
 `yield`/`async channel`/`async mutex` instead of 1 ms timer polls;
 `async/mutex.with_lock` either taking an `io` (so its doc claim becomes true)
 or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
@@ -988,6 +990,93 @@ candidates are the `io.spawn` codegen path, how an await of an
 already-completed future suspends, and corruption via the LIFO continuation
 free list. Do not weaken the assertion — it encodes the documented
 cooperative-scheduling contract.
+
+**`Sender`/`Receiver` with auto-close on the last sender — LANDED
+2026-09-11**, in `std/sync/channel.yo` (blocking, cross-thread) and
+`std/async/channel.yo` (one event loop). The row was accurate: nothing of it
+existed, though `TryRecvError` and `SendError`-style value-returning `send`
+already did and are REUSED rather than re-invented.
+
+The shape, and why each part is shaped that way:
+
+- **`Channel(T)` survives, and the split layers on top of it.** `Channel` is
+  genuinely multi-CONSUMER and 40-odd call sites use it that way —
+  `std/thread`'s pool internals, `tests/imm_threading`, the `RwLock` and
+  `Cond` handshakes — so replacing it was never on the table. What the split
+  adds is a LIFETIME the fused handle cannot express: the queue counts its
+  live senders, and the `1 -> 0` transition closes it. Both APIs share one
+  buffer, mutex and pair of condvars; `Sender`/`Receiver` hold a `Channel(T)`
+  and forward.
+- **Exactly one `Receiver` per queue, minted by `Channel(T).receiver(cap)`;
+  `Receiver` is not cloneable.** That single-owner lifetime is the whole point:
+  it makes "the receiver is gone" a fact a sender can act on
+  (`send` then fails with the value rather than blocking on a queue nobody
+  will drain), and a cloneable receiver would take it away. Multi-consumer
+  work keeps using `Channel` directly.
+- **`Receiver.recv() -> Result(T, TryRecvError)`**, `Err` always
+  `Disconnected`. Rust's `RecvError` is a separate unit type; a second error
+  type here would buy nothing, and `Empty` is unreachable for a blocking
+  receive by construction. Buffered values are still handed out one per call
+  BEFORE the disconnect — closing must not lose what the queue already
+  accepted.
+- **The entry point is a static method, not a free `channel(T, cap)`
+  function**, because a free function's `T` has to be a `comptime(T) : Type`
+  PARAMETER, and a function with comptime-but-not-`generic` parameters has its
+  body evaluated at DEFINITION time, where `Channel(T).new(capacity)` cannot
+  resolve ("No matching call found"). Inside `impl(generic(T : Type), ...)` the
+  body is deferred to the call, where `T` is concrete. Measured 2026-09-10 and
+  recorded at the definition.
+- **`Channel(T).pair(cap) -> Tuple(Sender, Receiver)` exists for Rust parity
+  but is NOT the recommended form, and the reason is a measurement**: Yo has no
+  destructuring binding, so `pair` stays in scope beside `tx`/`rx` and holds
+  its own reference to each half — `tx := pair.0` copies a handle rather than
+  moving it out. Dropping `tx` early therefore does not drop the last sender,
+  and the auto-close cannot fire before the whole scope (the `Receiver`
+  included) goes away. The tuple-free `receiver()` + `sender()` pair gives each
+  handle its own lifetime, which is what the feature needs. (The tuple temp is
+  NOT dropped at statement end either, so `Channel(i32).pair(c).0` does not
+  silently poison the channel — measured.)
+- **Memory ordering: `Relaxed` to count up, `AcqRel` to count down.** The
+  increment publishes no data and the handle cannot be used by another thread
+  until it has been transferred there, which is itself synchronizing —
+  `Arc::clone`'s argument. The decrement needs BOTH halves: RELEASE so the
+  values this producer pushed are visible to whoever observes zero, ACQUIRE so
+  the thread that DOES observe zero sees the other producers' pushes before it
+  closes. Only the thread reading `1` closes, so exactly one close happens
+  however many senders drop at once, and `close` itself takes the channel mutex
+  and broadcasts under it — which is what stops a receiver between its
+  predicate check and its park from missing the wake. `std/async/channel`
+  counts with a plain `usize` on purpose: its runtime is single-threaded and
+  cooperative, both mutations run on the loop thread with no suspension point
+  between them, and atomics there would contradict the runtime's own rule.
+- **A dropped `Receiver` sets its own flag, not `_closed`.** `_closed` means
+  "no more values may be sent", the senders' end of the lifetime; keeping the
+  two facts apart is what lets a `Sender` that outlives its receiver report the
+  honest failure instead of looking like a normal close.
+
+**One thing the row asked for does not work across `Thread.spawn`, and it is
+not the channel's fault.** A `Sender` MOVED INTO a spawn closure never runs its
+`dispose`, because a spawn closure's captures are never released
+(`issues/spawn-closure-captures-never-dropped-leak.md`, OPEN, pre-existing,
+filed as a memory leak) — so the count never reaches zero. Measured side by
+side in `issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo`: a
+sender dropped in a plain scope closes the channel, the same sender captured by
+`Thread.spawn` does not. The interim answer is a pattern rather than a trick —
+the parent holds one `keeper` sender while the workers start, and each worker
+mints its own inside its body, where the local's scope-end drop is real — and
+`plans/backlog/SPAWN_CAPTURE_AUTOCLOSE.md` records the codegen fix, the
+rejected std-side alternatives, and why the fix was not bundled here (it needs
+the dup/drop emit-diff gate and a compiler rebuild). `io.async` captures
+release correctly, so the async channel has the full behaviour, producer tasks
+included.
+
+Coverage: `tests/sync/channel.test.yo` 41/41 (+13), `tests/async/channel.test.yo`
+15/15 (+10). Verified RED-FIRST: with the auto-close disabled, six sync and five
+async cases fail. Every blocking wait in them is BOUNDED — the sync tests poll a
+verdict channel against an `Instant` deadline, the async ones wrap the handle in
+`timeout` — because a regression here parks a consumer forever, and an unbounded
+wait would burn a whole CI job's timeout instead of reporting a failure. With the
+feature broken the sync file finishes in 13 s and the async file in 8 s.
 
 ---
 

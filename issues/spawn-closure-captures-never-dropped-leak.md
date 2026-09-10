@@ -9,6 +9,20 @@ matters now because `ThreadPool.join_all` allocates a `Channel(bool)`
 internally on **every call**, so a program that drains a pool in a loop leaks
 steadily even if its own task closures capture nothing.
 
+**It also blocks a feature (2026-09-11).** The never-released capture means a
+captured handle's `Dispose` never runs, so any std API whose contract is "the
+last handle to go does X" is silently inert across a `Thread.spawn` boundary.
+The first case is `std/sync/channel`'s `Sender`/`Receiver` split: a `Sender`
+moved into a spawn closure never decrements the sender count, so the channel
+never auto-closes. Measured side by side —
+`issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo` prints `true`
+for a sender dropped in a plain scope and `false` for the same sender captured
+by `Thread.spawn`. So this is no longer only about memory: it is the reason
+that feature ships with a documented "mint the sender inside the thread"
+pattern instead of the Rust one
+(`plans/backlog/SPAWN_CAPTURE_AUTOCLOSE.md`). An `io.async` capture releases
+correctly; this is specific to `__yo_thread_spawn` / `__yo_worker_spawn`.
+
 ## Symptom
 
 Every closure handed to a spawn primitive leaks **one reference per RC'd

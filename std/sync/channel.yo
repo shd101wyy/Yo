@@ -18,6 +18,62 @@
 //! assert((val.unwrap() == i32(42)), "received value");
 //! t.join();
 //! ```
+//!
+//! ## Two APIs over one queue, and why both exist
+//!
+//! `Channel(T)` is the FUSED handle: one object that both ends hold, closed
+//! by hand. It is genuinely multi-consumer — several threads may `recv` from
+//! it — and that is what `std/thread`'s pool internals and the cross-thread
+//! tests use it for, so it stays.
+//!
+//! `Sender(T)`/`Receiver(T)` add the piece a fused handle cannot express: a
+//! LIFETIME. The queue counts its live senders, so dropping the last one
+//! closes the channel and a `Receiver` finds out that no more values are
+//! coming — no `close()` call to remember, and no consumer parked forever on
+//! a queue whose producers have all finished. Dropping the `Receiver`
+//! symmetrically makes every further `send` fail instead of blocking on a
+//! queue nobody will drain. The price is the single consumer: exactly one
+//! `Receiver` exists per queue, which is what makes "the receiver is gone" a
+//! fact worth acting on. The split is a layer ON TOP of `Channel`, sharing
+//! the same buffer, mutex and condvars.
+//!
+//! ```rust
+//! { Channel } :: import "std/sync/channel";
+//!
+//! rx := Channel(i32).receiver(usize(4));   // queue + its one consumer
+//! {
+//!   tx := rx.sender();                     // a counted producer
+//!   tx.send(i32(1));
+//! };                                       // last sender dropped -> closed
+//! rx.recv().unwrap();                      // 1
+//! rx.recv();                               // .Err(Disconnected)
+//! ```
+//!
+//! ## Producers on other threads
+//!
+//! Mint each producer's `Sender` INSIDE its thread and keep one in the parent
+//! until the workers are running:
+//!
+//! ```rust
+//! rx := Channel(i32).receiver(usize(16));
+//! {
+//!   keeper := rx.sender();                 // holds the count above zero
+//!   w := Thread.spawn((io) => {
+//!     tx := rx.sender();                   // this thread's producer
+//!     tx.send(i32(7));
+//!   });                                    // tx drops when the body ends
+//!   w.join();
+//! };                                       // keeper drops -> closed
+//! ```
+//!
+//! A `Sender` MOVED INTO a `Thread.spawn` closure instead does not work
+//! today: a spawn closure's captures are never released
+//! (`issues/spawn-closure-captures-never-dropped-leak.md`), so such a
+//! sender's `dispose` never runs and the count never reaches zero. Values
+//! still flow — only the auto-close is lost.
+//! `plans/backlog/SPAWN_CAPTURE_AUTOCLOSE.md` tracks the fix; async tasks
+//! (`std/async/channel`) release their captures correctly and need no such
+//! care.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -77,7 +133,16 @@ Channel :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type
         _mutex : Mutex(bool),
         _not_empty : Cond,
         _not_full : Cond,
-        _closed : AtomicBool
+        _closed : AtomicBool,
+        /// How many live `Sender(T)` handles share this queue. Zero for a
+        /// `Channel` created with `new` and used directly: nothing counts
+        /// down, so nothing auto-closes. `receiver()` and `pair()` start it
+        /// at one, and every `Sender.clone()` adds another.
+        _senders : AtomicUsize,
+        /// Set once the `Receiver(T)` handle has been dropped, which makes
+        /// every further `send` fail instead of blocking on a queue nobody
+        /// will drain. False forever for a directly-used `Channel`.
+        _recv_dropped : AtomicBool
       )
     )
   )
@@ -104,26 +169,36 @@ impl(
         _mutex : Mutex(bool).new(false),
         _not_empty : Cond.new(),
         _not_full : Cond.new(),
-        _closed : AtomicBool(false)
+        _closed : AtomicBool(false),
+        _senders : AtomicUsize(usize(0)),
+        _recv_dropped : AtomicBool(false)
       )
     );
   }),
   /// Send a value into the channel.
   /// Blocks if the channel is full until space becomes available.
-  /// Returns .Ok(()) on success, .Err(value) if the channel is closed —
-  /// the failed value is handed BACK to the caller instead of being
-  /// silently dropped (Rust's `SendError(T)`; plans/archive/STD_API_AUDIT.md C8).
+  /// Returns .Ok(()) on success, .Err(value) if the channel is closed or its
+  /// `Receiver` has been dropped — the failed value is handed BACK to the
+  /// caller instead of being silently dropped (Rust's `SendError(T)`;
+  /// plans/archive/STD_API_AUDIT.md C8).
   send : (fn(self : Self, value : T) -> Result(unit, T))({
     self._mutex._raw_lock();
-    // Wait while buffer is full and channel is not closed
+    // Wait while the buffer is full and there is still a point in waiting:
+    // a closed channel takes no more values, and a channel whose `Receiver`
+    // has been dropped will never be drained, so blocking on either would
+    // block forever.
     while(runtime(
       (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
       && !self._closed.load(MemoryOrder.Relaxed)
+      && !self._recv_dropped.load(MemoryOrder.Relaxed)
     ), {
       self._not_full.wait(self._mutex._raw_handle_ptr());
     });
     cond(
-      self._closed.load(MemoryOrder.Relaxed) => {
+      (
+        self._closed.load(MemoryOrder.Relaxed)
+        || self._recv_dropped.load(MemoryOrder.Relaxed)
+      ) => {
         self._mutex._raw_unlock();
         return(.Err(value));
       },
@@ -176,6 +251,7 @@ impl(
     cond(
       (
         self._closed.load(MemoryOrder.Relaxed)
+        || self._recv_dropped.load(MemoryOrder.Relaxed)
         || (self._len.load(MemoryOrder.Relaxed) >= self._capacity)
       ) => {
         self._mutex._raw_unlock();
@@ -230,6 +306,20 @@ impl(
     self._not_full.broadcast();
     self._mutex._raw_unlock();
   }),
+  /// Record that this queue's `Receiver` handle is gone: every further
+  /// `send` fails, and senders parked on a full buffer wake up to find out.
+  ///
+  /// Internal — `Receiver`'s `dispose` is the only caller. The flag is set
+  /// and the waiters are woken with the mutex HELD, for the same reason
+  /// `close` does it: a sender that has evaluated its wait predicate but not
+  /// yet parked still holds the mutex, so a broadcast issued outside it could
+  /// land before the park and be lost.
+  _mark_receiver_dropped : (fn(self : Self) -> unit)({
+    self._mutex._raw_lock();
+    self._recv_dropped.store(true, MemoryOrder.Release);
+    self._not_full.broadcast();
+    self._mutex._raw_unlock();
+  }),
   /// Check if the channel is closed (lock-free atomic load).
   is_closed : (fn(self : Self) -> bool)(
     self._closed.load(MemoryOrder.Acquire)
@@ -262,5 +352,260 @@ impl(
       free(.Some((*void)(self._data)));
     })
   )
+);
+/// The sending half of a `Channel(T).receiver`/`pair` split — Rust's
+/// `mpsc::Sender<T>`.
+///
+/// Cloneable: every clone is another producer over the SAME queue, and the
+/// queue counts them. When the LAST `Sender` is dropped the channel closes
+/// itself, which is the whole point of the split — a `Receiver` learns that
+/// no more values are coming without anyone remembering to call `close()`,
+/// and a blocked `recv` wakes up rather than parking forever.
+///
+/// `atomic(ref(...))` for the same reason `Channel` is: the handle is meant
+/// to be moved into another thread, and its reference count has to be atomic
+/// for that to be sound.
+Sender :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  atomic(ref(struct(_ch : Channel(T))))
+);
+export(Sender);
+/// The receiving half of a `Channel(T).receiver`/`pair` split — Rust's
+/// `mpsc::Receiver<T>`.
+///
+/// Deliberately NOT cloneable, so that "the receiver is gone" is a fact a
+/// sender can act on. (The underlying `Channel` is MPMC and a second consumer
+/// is expressible by sharing the `Channel` itself; what a `Receiver` adds is
+/// the single-owner lifetime, and cloning it would take that away.)
+Receiver :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
+  atomic(ref(struct(_ch : Channel(T))))
+);
+export(Receiver);
+// Both handles hold one `Channel(T)` and nothing else, so neither can be part
+// of a cycle as long as the element type cannot — the same residual argument
+// `Channel(T)` itself carries.
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Sender(T), Acyclic());
+impl(generic(T : Type), where(T <: (Send, Acyclic)), Receiver(T), Acyclic());
+impl(
+  generic(T : Type),
+  Sender(T),
+  where(T <: (Send, Acyclic)),
+  /// Attach a new producer to `ch` and count it. Internal: `Channel.receiver`,
+  /// `Channel.pair`, `Receiver.sender` and `clone` are the callers.
+  ///
+  /// The increment is `Relaxed`, exactly as `Arc::clone`'s is: it publishes
+  /// no data, and the handle it produces cannot be used by another thread
+  /// until it has been moved there, which is itself a synchronizing transfer.
+  _attach : (fn(ch : Channel(T)) -> Self)({
+    _prev := ch._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
+    Self(_ch : ch)
+  }),
+  /// Send a value, blocking while the buffer is full.
+  ///
+  /// `.Err(value)` — Rust's `SendError(T)` — once the channel is closed or
+  /// the `Receiver` has been dropped; the value that could not be sent comes
+  /// back rather than being dropped on the floor.
+  send : (fn(self : Self, value : T) -> Result(unit, T))(
+    self._ch.send(value)
+  ),
+  /// Send without blocking: `.Err(value)` if the buffer is full, the channel
+  /// is closed, or the `Receiver` is gone.
+  try_send : (fn(self : Self, value : T) -> Result(unit, T))(
+    self._ch.try_send(value)
+  ),
+  /// True once the channel is closed — by an explicit `close()`, or by the
+  /// last `Sender` being dropped.
+  is_closed : (fn(self : Self) -> bool)(
+    self._ch.is_closed()
+  ),
+  /// Number of values currently buffered (a snapshot, like `Channel.len`).
+  len : (fn(self : Self) -> usize)(
+    self._ch.len()
+  ),
+  /// Close the channel now, without waiting for the other senders to go.
+  /// Every `Sender`'s subsequent `send` fails and the `Receiver` drains what
+  /// is buffered and then reports `Disconnected`.
+  close : (fn(self : Self) -> unit)(
+    self._ch.close()
+  )
+);
+impl(
+  generic(T : Type),
+  Sender(T),
+  where(T <: (Send, Acyclic)),
+  /// Another producer over the same queue, counted.
+  Clone(
+    clone : (fn(inout(self) : Self) -> Self)({
+      _prev := self._ch._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
+      Self(_ch : self._ch)
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  Sender(T),
+  where(T <: (Send, Acyclic)),
+  /// Dropping a `Sender` gives up its stake in the queue; dropping the LAST
+  /// one closes the channel.
+  ///
+  /// The decrement is `AcqRel`, and both halves are load-bearing. RELEASE:
+  /// everything this producer did — every value it pushed — precedes the
+  /// decrement in program order, so the release makes that work visible to
+  /// whoever observes the count reaching zero. ACQUIRE: the thread that DOES
+  /// observe zero is about to close the channel and so must see the other
+  /// producers' pushes, which their own releases published. A `Relaxed`
+  /// decrement would let the closing thread run `close` with a stale view of
+  /// the queue.
+  ///
+  /// Only the thread that reads `1` closes, so exactly one close happens no
+  /// matter how many senders drop at once. `close` itself takes the channel
+  /// mutex and broadcasts under it, which is what makes a receiver that is
+  /// between its predicate check and its park wake up instead of blocking
+  /// forever.
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      (prev : usize) = self._ch._senders.fetch_sub(usize(1), MemoryOrder.AcqRel);
+      if(prev == usize(1), {
+        self._ch.close();
+      });
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  Receiver(T),
+  where(T <: (Send, Acyclic)),
+  /// Attach the consumer to `ch`. Internal: `Channel.receiver` and
+  /// `Channel.pair` are the only callers.
+  _attach : (fn(ch : Channel(T)) -> Self)(
+    Self(_ch : ch)
+  ),
+  /// Mint a producer for this queue, counted like every other `Sender`.
+  ///
+  /// This is how the first sender is created after `Channel(T).receiver(...)`,
+  /// and how a fan-in is set up: one `sender()` per producer, or one plus
+  /// `clone()`s. Each of them keeps the channel open until it is dropped.
+  ///
+  /// A sender minted after the channel has already closed does NOT reopen it
+  /// — `_closed` is one-way — so its sends fail; mint the producers while the
+  /// previous ones are still alive.
+  sender : (fn(self : Self) -> Sender(T))(
+    Sender(T)._attach(self._ch)
+  ),
+  /// Receive the oldest value, blocking while the channel is empty.
+  ///
+  /// `.Err(TryRecvError.Disconnected)` once the channel is closed AND
+  /// drained — which happens on its own when the last `Sender` is dropped.
+  /// It is the same `TryRecvError` `try_recv` reports rather than a second
+  /// error type, and `Empty` is impossible here: a blocking receive that
+  /// found the channel empty and open would have kept waiting.
+  ///
+  /// Values already queued when the last sender went away are still handed
+  /// out, one per call, BEFORE the disconnect is reported — closing a channel
+  /// must not lose what it already accepted (Rust guarantees the same).
+  recv : (fn(self : Self) -> Result(T, TryRecvError))(
+    match(
+      self._ch.recv(),
+      .Some(v) => Result(T, TryRecvError).Ok(v),
+      .None => Result(T, TryRecvError).Err(TryRecvError.Disconnected)
+    )
+  ),
+  /// Receive without blocking: `.Ok(value)`, `Empty` while the channel is
+  /// open but has nothing buffered, `Disconnected` once it is closed and
+  /// drained.
+  try_recv : (fn(self : Self) -> Result(T, TryRecvError))(
+    self._ch.try_recv()
+  ),
+  /// True once the channel is closed — including by the last `Sender` being
+  /// dropped. Buffered values may still be waiting; `try_recv` answering
+  /// `Disconnected` is the closed-AND-drained test.
+  is_closed : (fn(self : Self) -> bool)(
+    self._ch.is_closed()
+  ),
+  /// Number of values currently buffered (a snapshot, like `Channel.len`).
+  len : (fn(self : Self) -> usize)(
+    self._ch.len()
+  ),
+  /// True while nothing is buffered (a snapshot).
+  is_empty : (fn(self : Self) -> bool)(
+    self._ch.is_empty()
+  ),
+  /// Stop accepting values now. Buffered values still come out of `recv`,
+  /// then it reports `Disconnected`.
+  close : (fn(self : Self) -> unit)(
+    self._ch.close()
+  )
+);
+impl(
+  generic(T : Type),
+  Receiver(T),
+  where(T <: (Send, Acyclic)),
+  /// Dropping the consumer disconnects the queue from the sending side:
+  /// there is nobody left to drain it, so a `send` that would block on a full
+  /// buffer fails instead, and senders already parked are woken to find out.
+  ///
+  /// It does NOT mark the channel closed: `_closed` means "no more values may
+  /// be sent", which is the SENDERS' end of the lifetime, and keeping the two
+  /// facts apart is what lets a `Sender` that outlives the receiver report
+  /// the honest failure. The buffered values are released when the last
+  /// handle drops the `Channel` itself (its `dispose`).
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(
+      self._ch._mark_receiver_dropped()
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  Channel(T),
+  where(T <: (Send, Acyclic)),
+  /// Create a bounded queue and its single consumer — the tuple-free half of
+  /// the `Sender`/`Receiver` split. Mint producers with `Receiver.sender()`
+  /// and `Sender.clone()`.
+  ///
+  /// ```rust
+  /// { Channel } :: import "std/sync/channel";
+  /// rx := Channel(i32).receiver(usize(4));
+  /// tx := rx.sender();
+  /// tx.send(i32(1));
+  /// v := rx.recv().unwrap();
+  /// ```
+  ///
+  /// This is the form to use when the end of the stream matters, because each
+  /// handle is its own binding and therefore has its own lifetime: dropping
+  /// the last `Sender` closes the channel while the `Receiver` is still
+  /// alive to notice. `pair` below cannot do that — see its note.
+  ///
+  /// Exactly one `Receiver` exists per queue by construction, which is what
+  /// makes "the receiver is gone" a fact a sender can act on.
+  ///
+  /// A `Receiver` that has no `Sender` yet is not closed — nothing has been
+  /// dropped — so `recv` on it blocks, exactly as `Channel.recv` on a queue
+  /// nobody sends to does. Mint the senders before receiving.
+  receiver : (fn(capacity : usize) -> Receiver(T))(
+    Receiver(T)._attach(Self.new(capacity))
+  ),
+  /// Create a bounded queue and hand back both halves at once — the shape of
+  /// Rust's `mpsc::sync_channel(capacity)`.
+  ///
+  /// ```rust
+  /// pair := Channel(i32).pair(usize(4));
+  /// tx := pair.0;
+  /// rx := pair.1;
+  /// ```
+  ///
+  /// **The tuple keeps both handles alive for as long as the tuple binding
+  /// lives** (measured 2026-09-10). Yo has no destructuring binding, so `pair`
+  /// stays in scope beside `tx` and `rx` and holds its own reference to each
+  /// half; `tx := pair.0` copies a handle rather than moving it out. The
+  /// consequence is specific: dropping `tx` early does NOT drop the last
+  /// sender, so the auto-close does not fire until the whole scope — the
+  /// `Receiver` included — goes away. Use this form when the producers and
+  /// the consumer share a scope and the count of values is known, or call
+  /// `close()` explicitly; use `receiver()` + `sender()` when the receiver
+  /// needs to learn that the producers are finished.
+  pair : (fn(capacity : usize) -> Tuple(Sender(T), Receiver(T)))({
+    ch := Self.new(capacity);
+    (Sender(T)._attach(ch), Receiver(T)._attach(ch))
+  })
 );
 export(Channel);
