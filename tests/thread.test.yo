@@ -206,6 +206,42 @@ test("Thread spawn releases its closure's captures", {
     "the captured object disposed exactly once — the spawn wrapper released the reference it took"
   );
 });
+test("Thread spawn's captured local is still owned by the caller", {
+  // The other half of the accounting, and the one that was wrong. A closure
+  // definition's capture dups are the capture STRUCT's field initializers, so
+  // they must not be cancelled against the capturing scope's drop: the capture
+  // struct is moved into the closure value and released by whatever owns it —
+  // here the spawn wrapper, which runs BEFORE the capturing scope ends.
+  //
+  // The dup/drop pair optimizer cancelled exactly that pair when a closure had
+  // a single RC'd capture, so the capture struct held a borrowed alias. That
+  // read as a leak while nothing released it, and became a use-after-free the
+  // moment the wrapper started to: `tests/arc.test.yo`'s "Test Arc shared
+  // across thread" read 0 instead of 42, while its THREE-thread sibling passed
+  // for the wrong reason — two capture dups is more than one, and the
+  // optimizer only ever cancelled a single dup.
+  // issues/fixed/spawn-closure-captures-never-dropped-leak.md
+  _spawn_dispose_count.store(usize(0), MemoryOrder.Release);
+  {
+    tracked := _Tracked(tag : i32(9));
+    t := Thread.spawn(io => {
+      _x := tracked.tag;
+      ()
+    });
+    t.join();
+    // The wrapper has released the capture's reference by now. The caller's
+    // own reference must still be holding the object up.
+    assert(
+      _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(0),
+      "the caller still owns its reference after the thread released the capture's"
+    );
+    assert(tracked.tag == i32(9), "and can still read through it");
+  };
+  assert(
+    _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(1),
+    "disposed once, when the caller's own reference went out of scope"
+  );
+});
 test("Thread spawn releases captures on every iteration of a loop", {
   // The leak was unbounded, so one iteration is not the interesting case.
   _spawn_dispose_count.store(usize(0), MemoryOrder.Release);

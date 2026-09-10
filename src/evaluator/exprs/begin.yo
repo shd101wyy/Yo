@@ -228,6 +228,34 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     return(());
   });
   ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  // Skip a CLOSURE DEFINITION's captures for the same reason, and this is the
+  // general case the io.async guard above is one instance of. A closure
+  // definition's `deferred_dup_expressions` are its capture-struct FIELD
+  // INITIALIZERS (evaluator/values/anonymous_function.yo, via
+  // generate_captured_variable_dup_expressions) — not stores into a container
+  // that shares this scope's lifetime. The capture struct is moved into the
+  // closure value and released by whatever owns that value: a spawn wrapper,
+  // an async future, a stored FuncVal. Its release can therefore happen
+  // BEFORE the capturing scope ends, so the local must keep its own count.
+  //
+  // Cancelling the pair made the capture struct hold a borrowed alias, which
+  // read as a leak for as long as nothing released it — and became a
+  // use-after-free the moment something did. Both symptoms were live:
+  // `tests/arc.test.yo`'s "Test Arc shared across thread" read 0 instead of 42
+  // once the spawn wrapper started releasing its captures, while its
+  // three-thread sibling passed for the wrong reason (TWO capture dups means
+  // runtime_count > 1, and the optimizer only cancels a single dup).
+  // See issues/fixed/spawn-closure-captures-never-dropped-leak.md.
+  match(
+    ei_opt,
+    .Some(ei_cl) => if(
+      match(ei_cl.is_anonymous_function_definition, .Some(b) => b, .None => false)
+      && ei_cl.deferred_dup_expressions.is_some(),
+      return(()),
+      ()
+    ),
+    .None => ()
+  );
   // Attached deferred dups first (begin.ts:371-375).
   match(
     ei_opt,
