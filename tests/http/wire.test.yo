@@ -1,0 +1,239 @@
+//! `std/http/wire` — HTTP/1.1 message framing, and specifically the
+//! leftover-carrying read that connection reuse needs.
+//!
+//! These tests drive `read_http_message_buffered` through a SCRIPTED reader
+//! rather than a socket: the point is what happens when one `read` returns
+//! bytes belonging to two messages, and a socket cannot be made to do that on
+//! demand. The scripted reader hands out at most `chunk` bytes per call and
+//! counts its calls, so "did this cost a read?" is directly observable.
+pragma(Pragma.AllowUnsafe); // pointer writes into the reader's buffer
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ Exception, IoExn } :: import("std/error");
+{ Reader } :: import("std/io");
+{ println } :: import("std/fmt");
+wire :: import("std/http/wire.yo");
+{ parse_response } :: import("std/http/http.yo");
+// A `Reader` over a fixed byte script, handing out at most `chunk` bytes per
+// call. `reads` counts the calls, which is how a test asserts that a message
+// already sitting in the carry buffer cost NO read — on a real connection that
+// read would block until the peer sent something it has no reason to send.
+_ScriptedReader :: ref(
+  struct(
+    data : ArrayList(u8),
+    pos : usize,
+    chunk : usize,
+    reads : usize
+  )
+);
+_scripted :: (fn(text : String, chunk : usize) -> _ScriptedReader)(
+  _ScriptedReader(data : text.as_bytes(), pos : usize(0), chunk : chunk, reads : usize(0))
+);
+impl(
+  _ScriptedReader,
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async(e => {
+      self.reads = (self.reads + usize(1));
+      limit := cond((self.chunk < size) => self.chunk, true => size);
+      n := usize(0);
+      while(runtime((n < limit) && (self.pos < self.data.len())), {
+        consume((buf.add(n)).* = self.data(self.pos));
+        self.pos = (self.pos + usize(1));
+        n = (n + usize(1));
+      });
+      n
+    })
+  )
+);
+impl(
+  _ScriptedReader,
+  Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+_R1 :: "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nfirst";
+_R2 :: "HTTP/1.1 201 Created\r\nContent-Length: 6\r\n\r\nsecond";
+// Two responses arriving in ONE read is the case that makes reuse unsafe: the
+// second response's bytes must be CARRIED, not appended to the first body.
+// Framing the second by "whatever arrives next" is response smuggling
+// (RFC 9112 §11.2) and is a heisenbug — it only shows when writes coalesce.
+test("two pipelined responses in one read: the first is framed exactly, the second is carried", {
+  // A `ctl` handler unwinds the frame it is installed in, so it cannot be
+  // returned from a helper — each test installs its own.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  // A chunk larger than both responses together, so ONE read delivers both.
+  r := _scripted(`${_R1}${_R2}`, usize(4096));
+  carry := ArrayList(u8).new();
+  first := io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e);
+  raw1 := match(
+    first,
+    .Ok(x) => x,
+    .Err(err) => {
+      assert(false, `first message: ${err}`);
+      String.new()
+    }
+  );
+  assert(raw1 == String.from(_R1), `the first message is framed at its Content-Length, got ${raw1.len()} bytes`);
+  assert(carry.len() == String.from(_R2).len(), `the second response's bytes are carried, not swallowed (carry=${carry.len()})`);
+  // The second message is already in hand: reading it must cost no read at all.
+  reads_before := r.reads;
+  second := io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e);
+  raw2 := match(
+    second,
+    .Ok(x) => x,
+    .Err(err) => {
+      assert(false, `second message: ${err}`);
+      String.new()
+    }
+  );
+  assert(raw2 == String.from(_R2), `the second message is framed from the carried bytes, got ${raw2.len()} bytes`);
+  assert(r.reads == reads_before, "a message already carried costs no read");
+  assert(carry.len() == usize(0), "nothing is left after the second message");
+  // Both parse, and both keep their own status and version.
+  p1 := parse_response(raw1).unwrap();
+  p2 := parse_response(raw2).unwrap();
+  assert(p1.status.as_u16() == u16(200), "first is 200");
+  assert(p1.body == `first`, `first body: ${p1.body}`);
+  assert(p2.status.as_u16() == u16(201), "second is 201");
+  assert(p2.body == `second`, `second body: ${p2.body}`);
+});
+// The same, byte-at-a-time: the framing decision must not depend on how the
+// peer's writes happen to split.
+test("one-byte reads frame the same two messages", {
+  // A `ctl` handler unwinds the frame it is installed in, so it cannot be
+  // returned from a helper — each test installs its own.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  r := _scripted(`${_R1}${_R2}`, usize(1));
+  carry := ArrayList(u8).new();
+  raw1 := match(
+    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    .Ok(x) => x,
+    .Err(_) => {
+      assert(false, "first message");
+      String.new()
+    }
+  );
+  assert(raw1 == String.from(_R1), "byte-at-a-time framing matches");
+  raw2 := match(
+    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    .Ok(x) => x,
+    .Err(_) => {
+      assert(false, "second message");
+      String.new()
+    }
+  );
+  assert(raw2 == String.from(_R2), "and so does the second");
+});
+// A chunked body's terminating zero chunk is the boundary; `Dechunk.Done` now
+// reports where it ended, which is what lets the next message be carried.
+test("a chunked response followed by another response carries the tail", {
+  // A `ctl` handler unwinds the frame it is installed in, so it cannot be
+  // returned from a helper — each test installs its own.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  chunked := "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
+  r := _scripted(`${chunked}${_R2}`, usize(4096));
+  carry := ArrayList(u8).new();
+  raw1 := match(
+    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    .Ok(x) => x,
+    .Err(err) => {
+      assert(false, `chunked message: ${err}`);
+      String.new()
+    }
+  );
+  p1 := parse_response(raw1).unwrap();
+  assert(p1.body == `hello`, `the chunked body is decoded: ${p1.body}`);
+  assert(carry.len() == String.from(_R2).len(), `the following response is carried (carry=${carry.len()})`);
+  raw2 := match(
+    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    .Ok(x) => x,
+    .Err(_) => {
+      assert(false, "second message after chunked");
+      String.new()
+    }
+  );
+  assert(raw2 == String.from(_R2), "the message after a chunked body is framed from the carry");
+});
+// The one-shot wrapper keeps its old behaviour: it frames the first message
+// and DISCARDS the rest, which is correct only because its connection is
+// about to be closed.
+test("read_http_message frames the first message and discards the rest", {
+  // A `ctl` handler unwinds the frame it is installed in, so it cannot be
+  // returned from a helper — each test installs its own.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  r := _scripted(`${_R1}${_R2}`, usize(4096));
+  raw := match(
+    io.await(wire.read_http_message(r, usize(0), false, io), e),
+    .Ok(x) => x,
+    .Err(_) => {
+      assert(false, "message");
+      String.new()
+    }
+  );
+  assert(raw == String.from(_R1), "the one-shot read still frames exactly one message");
+});
+// A response with no framing header at all is delimited by the close, so every
+// byte read is body and nothing can be carried.
+test("a close-delimited response consumes everything", {
+  // A `ctl` handler unwinds the frame it is installed in, so it cannot be
+  // returned from a helper — each test installs its own.
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  body := "HTTP/1.0 200 OK\r\nServer: x\r\n\r\nno length here";
+  r := _scripted(String.from(body), usize(4096));
+  carry := ArrayList(u8).new();
+  raw := match(
+    io.await(wire.read_http_message_buffered(r, usize(0), false, carry, io), e),
+    .Ok(x) => x,
+    .Err(_) => {
+      assert(false, "message");
+      String.new()
+    }
+  );
+  assert(raw == String.from(body), "a close-delimited response is every byte read");
+  assert(carry.len() == usize(0), "and leaves nothing to carry");
+  p := parse_response(raw).unwrap();
+  assert(p.version == `HTTP/1.0`, `the version is kept as received: ${p.version}`);
+});

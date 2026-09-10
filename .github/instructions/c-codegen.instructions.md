@@ -87,6 +87,34 @@ no-ops; `windows-11-arm` gets the latest from choco). An "arm64-only" C failure
 may be a clang VERSION difference, not an architecture one — check the
 versions in the job logs first.
 
+## `ExprInfo.variable_name` is UNTRUSTWORTHY in cond/match arm-value position
+
+`attach_temp_variable_to_expr` can stamp a SPURIOUS temp `variable_name` onto a
+bare variable reference used as a `cond`/`match` arm's value (`(n == 0) => min`).
+`src/codegen/exprs/atom.yo` already resolved the NAME by the source token for
+that reason — but it still asked "is this variable captured by the current
+closure?" about `variable_name`, which is not in the capture set, so the answer
+was "no", the plain-identifier early return fired, and a closure body emitted a
+bare identifier that does not exist in it:
+
+```c
+if (((((__yo_t14*)closure_context)->cap) < (10ULL))) { /* rewritten */ }
+else { _file____priv_temp_17218 = cap; }               /* NOT rewritten */
+```
+
+**Any question about a variable in this position must be asked about the SOURCE
+TOKEN, not `variable_name`.** And do not write the same predicate twice: the
+guard that decides whether to take an early return and the site that actually
+emits must call ONE function, or they will eventually disagree — that
+disagreement *was* the bug
+(`issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md`,
+`_is_captured_here`).
+
+Why it survived so long: wrapping the capture in ANY expression
+(`cap + usize(1)`) routes it through the call-argument path, which rewrites
+correctly. Every use of a capture in `std/` and `src/` happened to sit inside
+some expression, so the bare-atom arm position had never been exercised.
+
 ## Compilation commands
 
 - Emit C only: `yo compile tmp/fixme.yo --emit-c --skip-c-compiler --optimize 2`

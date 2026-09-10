@@ -560,9 +560,11 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 **I/O.** Verified against the code 2026-09-09 — LANDED:
 `Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
 `Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
-`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: HTTP keep-alive.
-(`Child` stdin/stdout/stderr as `Reader`/`Writer` handles and `Watcher`
-`Dispose` landed 2026-09-10 — described just below.) (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
+`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: HTTP keep-alive —
+its FRAMING half landed 2026-09-10 (described just below), the pooling client
+is the remaining piece. (`Child` stdin/stdout/stderr as `Reader`/`Writer`
+handles and `Watcher` `Dispose` also landed 2026-09-10, described below.)
+(`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
 `UdpSocket.recv_from -> (n, from)`, `StatusCode` and `HeaderMap` all landed
 2026-09-09 — described just below.)
 
@@ -608,6 +610,53 @@ it. `close` moved from `inout(self)` to `self : Self` to allow that delegation
 — every other closeable in `std/` already spelled it that way, and `Watcher`
 is a `ref(struct)`, so the field writes are unchanged.
 (`issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md`)
+
+**HTTP keep-alive, the framing half — LANDED 2026-09-10.**
+
+Connection reuse is blocked on one thing before any pool exists: a single
+`read` can return bytes belonging to TWO messages, and framing the second by
+"whatever arrives next" is request/response smuggling (RFC 9112 §11.2) — and a
+heisenbug, because it only shows up when the peer's writes coalesce.
+`read_http_message` already truncated at the message boundary (that was
+`_message_upto`, added for exactly this reason) but **discarded** the excess,
+which is correct only because its connection was about to be closed.
+
+`read_http_message_buffered(stream, max_bytes, is_request, carry, io)` is the
+reusable form: `carry` comes in holding whatever the previous message left
+behind and goes out holding whatever this one left behind. One list per
+connection. `read_http_message` stays as a wrapper that passes a fresh list, so
+no existing caller changes.
+
+Three supporting pieces, each needed by the above:
+
+- **`Dechunk.Done` carries an `end`.** A chunked body's boundary is the index
+  just past its terminating CRLF, and nothing recorded it — the decoder only
+  handed back the decoded data.
+- **The stopping decision moved into `_frame_status`.** It was inline in the
+  read loop, which meant a keep-alive read could not ask it BEFORE its first
+  read — and asking first is not an optimization: a message already complete in
+  the carried bytes must not cost a read, because that read would block until
+  the peer sent something it has no reason to send.
+- **`HttpResponse.version`.** The status line's version was parsed and thrown
+  away, and reuse turns on it: an `HTTP/1.0` response without
+  `Connection: keep-alive` ends its connection (RFC 9112 §9.3). It is kept for
+  the same reason `status_text` is — a proxy passes it through — and
+  `to_string` now emits it, so a parsed response round-trips.
+
+Tests drive a SCRIPTED reader rather than a socket (`tests/http/wire.test.yo`):
+the whole point is what happens when one read spans two messages, and a socket
+cannot be made to do that on demand. The reader counts its calls, so "did this
+cost a read?" is an assertion rather than an assumption.
+
+Still open for the client: the pool itself. The intended shape is an
+`HttpClient` object that OWNS its idle connections (Rust's `reqwest::Client`
+model) rather than a module-global — explicit lifetime, `Dispose` closes the
+idle set, and no global mutable state in `std/`. The free `fetch`/`fetch_with`
+keep their current one-shot behaviour. Server-side keep-alive needs a
+prerequisite of its own that the client does not: an IDLE TIMEOUT. `serve` is
+one-connection-at-a-time, so a client that holds a keep-alive connection open
+and sends nothing would wedge the server — which is why the server half is not
+simply "loop until the client closes".
 
 **`Seek` + `OpenOptions` + `SystemTime` — LANDED 2026-09-09, and the shapes
 each had a reason.**
