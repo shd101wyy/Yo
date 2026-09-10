@@ -1,9 +1,10 @@
-//! JoinHandle combinators — `join_all`, `race`, `any`, `timeout`
+//! JoinHandle combinators — `join_all`, `race`, `race_first`, `any`,
+//! `any_first`, `timeout`
 //! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 6).
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ join_all, race, any, timeout, TimeoutError } :: import("std/async");
+{ join_all, race, race_first, any, any_first, timeout, TimeoutError } :: import("std/async");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
 
@@ -138,4 +139,55 @@ test("Test timeout aborts on deadline", {
   // Outlive the aborted task's timer so its completion fires the entry guard.
   io.await(sleep(u64(120)), io);
   assert(!(ran.*), "the timed-out body must not resume past its suspension point");
+});
+// ---------------------------------------------------------------------------
+// race_first / any_first — the cleanup done for you
+//
+// `race`/`any` hand back an INDEX and leave a manual contract behind: every
+// handle must still be awaited exactly once, and the losers aborted first if
+// their results are unwanted. A caller who forgets it leaks every loser's
+// state machine. These two do it themselves — abort AND await each loser
+// (aborting alone leaves the await outstanding, which is the same leak one
+// step later) and return the winner's result.
+//
+// This is the answer to the plan's "JoinHandle Dispose" row: dropping Yo's
+// async `JoinHandle` DETACHES, exactly as dropping Tokio's does, so the fix
+// belongs in the combinator rather than in a drop.
+// ---------------------------------------------------------------------------
+test("Test race_first returns the fastest task's value", {
+  handles := ArrayList(JoinHandle(i32)).new();
+  handles.push(io.spawn(sleepy(i32(10), u64(60), io), io));
+  handles.push(io.spawn(sleepy(i32(20), u64(1), io), io));
+  handles.push(io.spawn(sleepy(i32(30), u64(60), io), io));
+  r := race_first(handles, io);
+  assert(match(r, .Some(v) => (v == i32(20)), .None => false), "the 1 ms task wins");
+  // Both losers are terminal now, and neither is awaiting: race_first
+  // aborted and awaited them.
+  assert(handles(usize(0)).is_finished(), "loser 0 is terminal");
+  assert(handles(usize(2)).is_finished(), "loser 2 is terminal");
+  assert(handles(usize(0)).state() == FutureState.Aborted, "loser 0 was aborted, not left running");
+  assert(handles(usize(2)).state() == FutureState.Aborted, "loser 2 was aborted, not left running");
+});
+test("Test race_first with a single handle", {
+  handles := ArrayList(JoinHandle(i32)).new();
+  handles.push(io.spawn(sleepy(i32(7), u64(1), io), io));
+  r := race_first(handles, io);
+  assert(match(r, .Some(v) => (v == i32(7)), .None => false), "one handle wins by default");
+});
+test("Test any_first returns the first COMPLETED value and aborts the rest", {
+  handles := ArrayList(JoinHandle(i32)).new();
+  handles.push(io.spawn(sleepy(i32(1), u64(60), io), io));
+  handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
+  r := any_first(handles, io);
+  assert(match(r, .Some(v) => (v == i32(2)), .None => false), "the fast task's value comes back");
+  assert(handles(usize(0)).state() == FutureState.Aborted, "the loser was aborted");
+});
+test("Test any_first is None when every handle was aborted", {
+  handles := ArrayList(JoinHandle(i32)).new();
+  handles.push(io.spawn(sleepy(i32(1), u64(60), io), io));
+  handles.push(io.spawn(sleepy(i32(2), u64(60), io), io));
+  handles(usize(0)).abort();
+  handles(usize(1)).abort();
+  r := any_first(handles, io);
+  assert(match(r, .Some(_) => false, .None => true), "no completion means .None");
 });
