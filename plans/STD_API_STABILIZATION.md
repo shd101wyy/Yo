@@ -443,8 +443,9 @@ saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
 `thread_rng`. Concurrency — `Thread` is NOT generic and `join -> unit`
 (`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split,
-`Condvar.wait_timeout`, `RwLock.try_*` (the runtime primitives landed
-2026-09-10; the std half waits one release), `spawn_blocking` absent
+`spawn_blocking` absent (`Mutex.try_with_lock`,
+`Cond.wait_timeout` and `RwLock.try_with_read`/`try_with_write` all LANDED
+2026-09-10, once v0.2.30 shipped the runtime primitives as the seed)
 (`Semaphore.with_permit` and `TryRecvError` were LISTED HERE IN ERROR — both
 landed, in `std/sync/semaphore.yo:148` with a test at
 `tests/sync/semaphore.test.yo:318`, and in `std/sync/channel.yo` /
@@ -837,13 +838,61 @@ there is no waker. The shapes available today are a `yield` spin or a
 are stopgaps that the waker work in this same group would immediately replace.
 It belongs with that work, not ahead of it.
 
-**`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*` — the COMPILER HALF
-LANDED 2026-09-10; the std half waits for one release.**
+**`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*` — COMPLETE
+2026-09-10.** The compiler half landed first; **v0.2.30 shipped it as the seed,
+and the std half landed the same day.** This was the last "blocked on the seed,
+not on design" row in the document.
 
-`__yo_mutex_trylock` and `__yo_cond_timedwait` are now in the emitted runtime
-(`src/codegen/types/generation.yo`). `std/` still cannot call them until the
-SEED ships them, so the sequence is: this compiler PR → release → SEED_VERSION
-bump → the std PR.
+The std surface, shaped to this library rather than transliterated:
+
+- **`Mutex.try_with_lock(body) -> Option(R)`**, not `try_lock() -> Guard`.
+  `Mutex(T)` deliberately has no guard type — access is only granted inside a
+  closure — so the "did I get it" answer is the `Option`. `body` not running IS
+  the failure case, which is why the result is optional rather than the lock
+  state being reported alongside a value: there is no way to observe "not
+  acquired" and still have one. Release goes through the same
+  `__MutexUnlocker`, so an early `return` or `unwind` out of `body` unlocks.
+- **`Mutex.is_unlocked()`**, documented as advisory and racy by construction:
+  it takes the lock to find out and releases it again, so the answer describes
+  a moment that has passed. Branching on it to predict whether a later
+  `with_lock` blocks is a TOCTOU bug, and the name is a question about the past
+  for that reason.
+- **`Cond.wait_timeout(handle, Duration) -> bool`** — true on a wake (possibly
+  SPURIOUS, which the caller must re-check its predicate for either way),
+  false only on a genuine timeout. The doc states the trap Rust also states:
+  the timeout is per WAIT, not per loop, so a spurious wake restarts the full
+  budget and a predicate loop can outlast its nominal deadline. Track an
+  `Instant` and pass the remaining time when the total matters.
+- **`RwLock.try_with_read` / `try_with_write` -> Option(R)`**, with the trap
+  spelled out: a SINGLE concurrent reader is enough to make `try_with_write`
+  fail, so it fails far more often than `try_with_read` under a read-heavy
+  load, and polling it can starve a writer indefinitely — which is exactly
+  what the blocking `with_write` avoids by parking in the queue.
+
+**One claim in the old note was wrong and is corrected here: `RwLock.try_*` did
+NOT need `__yo_mutex_trylock`.** Its job is to test `_writer`/`_readers` and
+bail without a condvar WAIT; that test happens under the short internal mutex,
+held only for a few field reads and never across a wait. Blocking on that is
+bounded and unrelated to how long the RwLock itself is held, so the
+non-blocking part was always skipping the wait, not skipping the mutex. Only
+`Mutex.try_with_lock` and `Cond.wait_timeout` were genuinely seed-gated.
+
+Coverage: `tests/sync/mutex.test.yo` 12/12 (+4), `tests/sync/rwlock.test.yo`
+22/22 (+5), and a NEW `tests/sync/cond.test.yo` (6) — `Cond` had no test file
+at all, so `wait`/`signal`/`broadcast` were untested too. The tests use a
+`Channel` handshake rather than sleeps, so contention is deterministic; the
+trylock contention cases are cross-thread on purpose, since a same-thread
+re-entry is the one case where Windows (recursive `CRITICAL_SECTION`) and POSIX
+legitimately disagree. Two of them assert the absence of a leak rather than a
+value: that a failed `try_with_read` leaves the reader count untouched (a bail
+after incrementing would make the lock permanently unwritable), and that four
+`broadcast` waiters all run to completion (a `signal` would leave three parked
+and HANG rather than report a wrong number).
+
+The runtime side, for reference — `__yo_mutex_trylock` and
+`__yo_cond_timedwait` live in `src/codegen/types/generation.yo`, and the
+sequence that got them usable was: compiler PR (#529) → release v0.2.30 →
+`SEED_VERSION` bump → the std PR.
 
 Three platform shapes, and the reason for each:
 

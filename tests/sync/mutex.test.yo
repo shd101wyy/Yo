@@ -4,6 +4,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Mutex } :: import("std/sync/mutex");
 { Thread } :: import("std/thread");
 { WaitGroup } :: import("std/sync/waitgroup");
+{ Channel } :: import("std/sync/channel");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
 
 // ============================================================================
@@ -160,4 +162,84 @@ test("A Mutex survives being locked and released repeatedly by many threads", {
   });
   final := m.with_lock(v => v);
   assert(final == i64(0), `every increment was matched by a decrement, got ${final}`);
+});
+// ============================================================================
+// try_with_lock — the non-blocking acquisition
+// ============================================================================
+test("try_with_lock runs the body and hands back Some on a free mutex", {
+  m := Mutex(i64).new(i64(7));
+  got := m.try_with_lock(v => {
+    v = (v + i64(1));
+    v * i64(2)
+  });
+  assert(got.is_some(), "an uncontended try_with_lock takes the lock");
+  assert(got.unwrap() == i64(16), `the body's value came back, got ${got.unwrap()}`);
+  // The mutation landed AND the lock was released, so a second attempt works.
+  again := m.try_with_lock(v => v);
+  assert(again.is_some(), "the lock was released on the way out");
+  assert(again.unwrap() == i64(8), "the mutation persisted");
+});
+test("try_with_lock returns None while ANOTHER thread holds the mutex", {
+  // Cross-thread, and with a handshake rather than a sleep, so the result is
+  // deterministic. A same-thread re-entry would not be portable: a Windows
+  // CRITICAL_SECTION is recursive and would answer .Some.
+  m := Mutex(i64).new(i64(0));
+  held := Channel(i32).new(usize(1));
+  release := Channel(i32).new(usize(1));
+  holder := Thread.spawn(io => {
+    m.with_lock(v => {
+      held.send(i32(1));
+      release.recv();
+      v = i64(99);
+    });
+  });
+  held.recv();
+  blocked := m.try_with_lock(v => v);
+  assert(blocked.is_none(), "a held mutex gives .None, and the body never ran");
+  release.send(i32(1));
+  holder.join();
+  // Once released it is takeable again, and the holder's write is visible.
+  after := m.try_with_lock(v => v);
+  assert(after.is_some(), "takeable again after the holder released");
+  assert(after.unwrap() == i64(99), "the holder's write is visible");
+});
+test("try_with_lock does not run the body when it fails", {
+  // The body not running IS the failure case, so this pins that there is no
+  // path where the body runs and the result is still .None.
+  m := Mutex(i64).new(i64(0));
+  ran := AtomicI32.new(i32(0));
+  held := Channel(i32).new(usize(1));
+  release := Channel(i32).new(usize(1));
+  holder := Thread.spawn(io => {
+    m.with_lock(v => {
+      held.send(i32(1));
+      release.recv();
+    });
+  });
+  held.recv();
+  m.try_with_lock(v => {
+    ran.fetch_add(i32(1), MemoryOrder.SeqCst);
+  });
+  assert(ran.load(MemoryOrder.SeqCst) == i32(0), "the body did not run at all");
+  release.send(i32(1));
+  holder.join();
+});
+test("is_unlocked answers about the past, and says so", {
+  m := Mutex(i64).new(i64(0));
+  assert(m.is_unlocked(), "a fresh mutex is unlocked");
+  // It takes the lock to find out and releases it again, so it must leave the
+  // mutex takeable.
+  assert(m.try_with_lock(v => v).is_some(), "is_unlocked released what it took");
+  held := Channel(i32).new(usize(1));
+  release := Channel(i32).new(usize(1));
+  holder := Thread.spawn(io => {
+    m.with_lock(v => {
+      held.send(i32(1));
+      release.recv();
+    });
+  });
+  held.recv();
+  assert(!m.is_unlocked(), "a held mutex reports locked");
+  release.send(i32(1));
+  holder.join();
 });
