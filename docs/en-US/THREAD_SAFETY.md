@@ -113,7 +113,15 @@ high_water := AtomicUsize(usize(0));
 high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
 
-`MemoryOrder` enum: `Relaxed`, `Consume`, `Acquire`, `Release`, `AcqRel`, `SeqCst`.
+`MemoryOrder` enum: `Relaxed`, `Acquire`, `Release`, `AcqRel`, `SeqCst`.
+
+There is no `Consume`. C11 has it, but every production compiler promotes it
+to `Acquire`, so the name promised a weaker barrier than any target actually
+emits; Rust omits it for the same reason. Use `Acquire`.
+
+An order that the operation cannot legally take — `Release` on a load,
+`Acquire` on a store, `AcqRel` on either — panics rather than being silently
+reinterpreted.
 
 Each operation requires an **explicit** memory order — there is no default
 `SeqCst` to avoid accidental performance cost.

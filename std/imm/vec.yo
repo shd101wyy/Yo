@@ -1,10 +1,39 @@
-//! Persistent immutable vector with efficient indexed access and append.
+//! Immutable vector with O(1) indexed access — a flat copy-on-write array,
+//! NOT a structurally-shared trie.
 //!
-//! `Vec(T)` is an immutable vector backed by `atomic object` for thread-safe
-//! structural sharing. All mutations return new vectors, leaving the original
-//! unchanged.
+//! `Vec(T)` is an immutable vector: every mutation returns a new vector and
+//! leaves the original unchanged. All elements must implement `Send`, which is
+//! what makes a vector safe to hand to another thread.
 //!
-//! All elements must implement `Send` to guarantee thread safety.
+//! # What "immutable" costs here, exactly
+//!
+//! The backing store is ONE flat array behind an atomic refcount. So:
+//!
+//! | operation | refcount 1 (unshared) | refcount > 1 (shared) |
+//! | --- | --- | --- |
+//! | `get` / `len` | O(1) | O(1) |
+//! | `push` / `pop` / `set` | O(1) amortized, in place | **O(n)** — the whole array is copied |
+//!
+//! That is a real trade and it is deliberate: indexed access is a single
+//! pointer offset, and a linear chain of mutations on an unshared vector costs
+//! what a mutable array would. It is NOT the O(log n)-everywhere behaviour of
+//! `im::Vector`'s RRB tree, and this module does not claim it — an earlier
+//! version of this doc said "structural sharing", which was wrong about the
+//! implementation and is the reason this section exists.
+//!
+//! **Decision (2026-09-11, `plans/STD_API_STABILIZATION.md` §5):** stay flat
+//! COW and document it, rather than implement RRB. Two reasons. The ergonomics
+//! push callers toward the fast path anyway — `push` takes `own(self)`, so the
+//! receiver is MOVED and keeping the earlier version requires an extra binding
+//! (`kept := v; bigger := v.push(x)`), which is also exactly what pushes the
+//! refcount above one and sends `push` down the copying path. And a flat array
+//! is what makes `Vec` the right choice for the case it is actually reached
+//! for: build once, then read and share. Reach for `imm.List` when you need
+//! cheap prepend on a shared value, and for `ArrayList` when you want
+//! mutation.
+//!
+//! If a workload needs shared-mutation to be sublinear, that is an RRB
+//! implementation behind this same API, and the API will not have to change.
 //!
 //! # Cycle safety
 //!
@@ -30,11 +59,12 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { assert } :: import("../assert");
 { malloc, free } :: GlobalAllocator;
-/// Persistent immutable vector.
+/// Immutable vector: a flat copy-on-write array behind an atomic refcount.
 ///
-/// Backed by a shared flat array with copy-on-write semantics.
-/// All mutations create a new vector, sharing the backing buffer via
-/// atomic reference counting when possible.
+/// `get` is a pointer offset. A mutation on an UNSHARED vector (refcount 1)
+/// happens in place and is O(1) amortized; a mutation on a SHARED one copies
+/// the whole array and is O(n). See the module header for why that trade was
+/// kept rather than replaced with a structurally-shared trie.
 Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(

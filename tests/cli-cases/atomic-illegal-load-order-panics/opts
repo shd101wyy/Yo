@@ -1,0 +1,14 @@
+# `Atomic*.load` accepted a store-only memory order and `store` accepted a
+# load-only one, passing it straight to C11. The order is a RUNTIME value at
+# that point, so the C compiler cannot reject it the way it rejects a literal:
+# the program compiled clean at -O2, ran, and silently got whichever ordering
+# the runtime switch fell into. Rust panics on exactly these combinations
+# (`Ordering::Release` in `load` is a documented panic) rather than clamping,
+# because substituting a different ordering hides the bug.
+#
+# The program compiles cleanly and PANICS at run time; `build run` propagates
+# that as a non-zero rc. The panic message rides stderr with build chatter and
+# ends in a machine-specific `(at file:///…/std/sync/atomic.yo:L:C)`, so stdout
+# keeps only the diagnostic substring.
+stdout_keep_match=Atomic load: MemoryOrder.Release is not a load ordering
+timeout=600

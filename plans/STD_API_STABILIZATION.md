@@ -1416,15 +1416,77 @@ first.
 
 ---
 
-## 5. Maintainer decisions still needed
+## 5. Maintainer decisions — DECIDED 2026-09-11
 
-- `imm/Vec`: implement structural sharing (RRB), or re-document as a flat COW
-  array and accept O(n) on shared mutation?
-- `MemoryOrder.Consume`: keep (C11 has it; every compiler promotes it to
-  `Acquire`; Rust omits it) or remove?
-- `HashMap.new()` stays deterministic-keyed (the fixpoint gate depends on
-  byte-identical emitted C); ship `with_random_keys()` for programs that face
-  untrusted keys?
+All three are answered below, each with the measurement that decided it. Two
+changed code; one deliberately did not.
+
+**1. `imm/Vec`: flat COW, documented as such — no RRB.**
+
+The doc claimed "structural sharing", which was false about the
+implementation: the backing store is one flat array behind an atomic refcount,
+so `push`/`pop`/`set` are O(1) in place at refcount 1 and **O(n)** on a shared
+vector. The module header now carries that table and says why the trade was
+kept.
+
+Two reasons to keep it. The ergonomics already push callers onto the fast
+path — `push` takes `own(self)`, so the receiver is MOVED and keeping the
+earlier version needs an extra binding (`kept := v; bigger := v.push(x)`),
+which is exactly what raises the refcount above one and sends `push` down the
+copying path. And a flat array is what makes `Vec` right for the case it is
+actually reached for: build once, then read and share (O(1) indexing is a
+single pointer offset). `imm.List` is the answer for cheap prepend on a shared
+value, `ArrayList` for mutation. If a workload ever needs shared mutation to be
+sublinear, that is an RRB implementation behind this same API — and the API
+does not have to change for it.
+
+**2. `MemoryOrder.Consume`: REMOVED.**
+
+C11 has `memory_order_consume`, and no production compiler implements it —
+clang and gcc both strengthen it to `acquire`, and C++ has formally discouraged
+it (P0371R1) for that reason. A variant that costs `acquire` while promising
+dependency ordering is a correctness trap: code written against the promise is
+unsound on any compiler that ever keeps it, and nothing today does. Rust omits
+it. Measured before removing: **zero uses in `std/` or `src/`** — the only
+eleven were in `tests/sync/atomic.test.yo`, where it was an arbitrary order for
+`fetch_xor`.
+
+**Removing it surfaced a real bug in the same file.** `Atomic*.load` accepted a
+STORE-only order and `store` accepted a LOAD-only one, passing it straight
+through to C11. §7.17.7.1–2 forbid both, but the order arrives as a RUNTIME
+value here, so the C compiler cannot reject it the way it rejects a literal:
+`a.load(MemoryOrder.Release)` compiled clean at `-O2`, ran, and silently got
+whichever ordering the runtime switch fell into. Rust PANICS on exactly these
+combinations rather than clamping, because substituting a different ordering
+hides the bug — and so does this now, at all 33 sites (11 `load`, 11 `store`,
+11 compare-exchange failure orders). `_read_order`'s existing clamp for a
+compare-exchange loop's failure order is untouched: there the mapping is
+required by C11, not a guess.
+
+`std/sync/atomic.yo` also gained the `## Stability` section it lacked and
+`///` docs on all 126 of its members — every one had no comment at all.
+
+**3. `HashMap.with_random_keys()`: NOT shipped; `with_keys` documents the
+recipe instead.**
+
+`with_keys(k0, k1)` already exists and does the whole job. A wrapper was
+PROBED, not assumed, and the probe decided it: adding
+`{ random_u64 } :: import("../crypto/random")` to `std/collections/hash_map.yo`
+takes `yo check ./std` from 173/173 to **166/173** — `std/crypto/random`
+imports `collections/array_list`, `process`, `string`, `encoding/hex`, `error`
+and `fmt`, and a core collection cannot depend on that closure.
+
+The signature is also wrong for a constructor: `random_u64` takes an
+`Exception`, so the convenience would be `with_random_keys(exn)` and a
+`HashMap.new()`-shaped call would throw on entropy failure. Rust's
+`RandomState` can abort, but Rust's randomness is not in the collection's
+dependency graph.
+
+So the recipe stays at the call site, where the reader needs to SEE that the
+choice was made:
+`HashMap(K, V).with_keys(random_u64(exn), random_u64(exn))`. `new()` stays
+deterministically keyed — the bootstrap fixpoint gate depends on byte-identical
+emitted C, so it could not be randomized even if that were wanted.
 
 ---
 
