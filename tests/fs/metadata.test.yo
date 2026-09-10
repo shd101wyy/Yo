@@ -1,8 +1,8 @@
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
 { assert } :: import("std/assert");
-open(import("std/libc/stdio"));
-open(import("std/string"));
+{ FILE, printf, rename } :: import("std/libc/stdio");
+{ String } :: import("std/string");
 { Path } :: import("std/path");
 { IoError } :: import("std/sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
@@ -11,6 +11,8 @@ fs_metadata :: import("std/fs/metadata");
 fs_file :: import("std/fs/file");
 fs_dir :: import("std/fs/dir");
 { temp_dir, path_join } :: import("../helper");
+{ SystemTime } :: import("std/time/instant");
+{ eprintln } :: import("std/fmt");
 // ============================================================================
 // metadata on a regular file
 // ============================================================================
@@ -265,5 +267,72 @@ test("File.metadata returns correct info", {
   assert(m.size() == i64(9), "size should be 9");
   assert(m.is_file(), "should be file");
   io.await(f.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// SystemTime timestamp accessors
+// ============================================================================
+test("Metadata.modified reports a wall-clock timestamp near now", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  timestamp error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_meta_mtime.txt`));
+  before := SystemTime.now();
+  io.await(fs_file.write_string(fpath, String.from("mtime"), io), IoExn(io : io, exn : exn));
+  md := io.await(fs_metadata.metadata(fpath, io), IoExn(io : io, exn : exn));
+  m := md.modified();
+  // The mtime is CLOSE to now, in EITHER direction.
+  //
+  // Not "not in the future": a filesystem timestamp and `CLOCK_REALTIME` are
+  // different clock domains, so the stamp can sit a hair AHEAD of a later
+  // `now()` — emscripten's MEMFS put it 64 ns ahead and the strict-ordering
+  // version of this assertion failed on that leg alone. No OS promises the
+  // ordering; what it promises is that the two are close.
+  //
+  // Filesystem granularity is coarse in the other direction (HFS+ stamps whole
+  // seconds), so the window is a minute, not a millisecond.
+  now := SystemTime.now();
+  skew := match(
+    now.duration_since(m),
+    .Ok(d) => d,
+    // `.Err` carries how far backwards it went, which is the skew itself.
+    .Err(e) => match(e, .EarlierThan({ by }) => by)
+  );
+  assert(skew.as_secs() < i64(60), `mtime is within a minute of now, ${skew.as_secs()}s away`);
+  assert(m.as_unix_secs() >= (before.as_unix_secs() - i64(2)), "mtime is not before the write");
+  assert((m.nanos >= i64(0)) && (m.nanos < i64(1000000000)), "nanos normalized into [0, 1e9)");
+  // The seconds-only accessor must agree with the SystemTime one, which is
+  // the whole point of keeping both.
+  assert(md.modified_time() == m.as_unix_secs(), "modified_time() is modified().as_unix_secs()");
+  assert(md.accessed_time() == md.accessed().as_unix_secs(), "accessed agrees too");
+  assert(md.status_changed_time() == md.status_changed().as_unix_secs(), "status_changed agrees too");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("Metadata.modified advances when the file is rewritten", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  rewrite error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_meta_mtime2.txt`));
+  io.await(fs_file.write_string(fpath, String.from("first"), io), IoExn(io : io, exn : exn));
+  first := io.await(fs_metadata.metadata(fpath, io), IoExn(io : io, exn : exn)).modified();
+  io.await(fs_file.write_string(fpath, String.from("second write, longer"), io), IoExn(io : io, exn : exn));
+  second := io.await(fs_metadata.metadata(fpath, io), IoExn(io : io, exn : exn)).modified();
+  // Not strictly greater: a coarse-granularity filesystem can stamp both
+  // writes at the same instant. It must never go BACKWARDS.
+  assert(second >= first, "the second write is not stamped earlier than the first");
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });

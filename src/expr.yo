@@ -3,7 +3,7 @@
 //!
 //! Note: Named `AstExpr` (not `Expr`) to avoid conflict with the prelude's builtin `Expr` type.
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
+{ String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TokenKind, Token } :: import("./token.yo");
 { format_error_message } :: import("./error.yo");
@@ -18,7 +18,6 @@ BK_BEGIN :: "begin";
 BK_IMPORT :: "import";
 BK_ANON_STRUCT :: "_";
 BK_EXPORT :: "export";
-BK_OPEN :: "open";
 /// Builtin function name strings used by evaluator handlers.
 /// Mirrors `BuiltinFunctions` in `src/expr.ts`.
 BF_TYPEOF :: "typeof";
@@ -539,7 +538,7 @@ ast_expr_to_string :: (fn(e : AstExpr) -> String)(
     }
   )
 );
-export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT, BK_OPEN);
+export(AstExpr, ExprId, BK_TUPLE, BK_TUPLE_TYPE, BK_ARRAY, BK_SLICE, BK_ARRAY_VAL, BK_BEGIN, BK_IMPORT, BK_ANON_STRUCT, BK_EXPORT);
 export(BF_TYPEOF, BF_SIZEOF, BF_ALIGNOF, BF_TYPEID, BF_RUNTIME, BF_UNWIND, BF_RECUR, BF_DOT);
 export(BK_COMPTIME, BK_GIVEN, BK_GENERIC, BK_COLON, BK_ASSIGN, BK_INIT_ASSIGN, BK_CONST, BK_COND, BK_MATCH);
 export(BK_WHILE, BK_RETURN, BK_BREAK, BK_TEST);

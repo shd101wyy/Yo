@@ -48,6 +48,9 @@ env:
   SEED_VERSION: v0.2.29
   # See test.yml's APT_OPTS comment: a bare apt-get can hang forever on the
   # dpkg lock held by the runner's unattended-upgrades timer.
+  # Each `update` below is also preceded by an `rm` of the image's third-party
+  # apt sources — see test.yml's APT_OPTS comment and
+  # issues/ci-apt-update-fails-on-an-unused-third-party-source.md.
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
@@ -74,6 +77,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config time
 

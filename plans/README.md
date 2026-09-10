@@ -79,6 +79,10 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 [`reference/WINDOWS_ALLOCATOR_DECISION.md`](reference/WINDOWS_ALLOCATOR_DECISION.md),
 [`reference/MATCHING_LOGIC_RESEARCH.md`](reference/MATCHING_LOGIC_RESEARCH.md)
 (matching logic / K assessed and declined as the verifier foundation, 2026-09-09),
+[`reference/REMOVE_OPEN_BUILTIN.md`](reference/REMOVE_OPEN_BUILTIN.md)
+(the `open(...)` builtin removed 2026-09-10 — glob imports are
+`{ ... } :: import(...)`, and the migration rules there are how to read an
+`open(...)` in an older doc),
 ….
 
 Backlog (`backlog/`) — written, not started. Recent additions:

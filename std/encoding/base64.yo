@@ -8,7 +8,7 @@
 //! s := base64_encode(data);
 //! b := base64_decode(s.to_string()).unwrap();
 //! ```
-open(import("../string"));
+{ String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { EncodingError } :: import("./error");
 { Error, AnyError, Exception } :: import("../error");
@@ -64,7 +64,7 @@ export(base64_encode, base64_encode_url);
 // ============================================================================
 // Decoding
 // ============================================================================
-_decode_char_res :: (fn(c : u8, alpha : str) -> Result(u8, EncodingError))({
+_decode_char_res :: (fn(c : u8, alpha : str, pos : usize) -> Result(u8, EncodingError))({
   i := usize(0);
   while(i < usize(64), i = (i + usize(1)), {
     cond(
@@ -74,7 +74,7 @@ _decode_char_res :: (fn(c : u8, alpha : str) -> Result(u8, EncodingError))({
       true => ()
     );
   });
-  .Err(EncodingError.InvalidChar(c))
+  .Err(EncodingError.InvalidChar(ch : c, pos : pos))
 });
 _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), EncodingError))({
   // Strip trailing padding
@@ -84,7 +84,7 @@ _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), Encodi
   // error, not a zero byte (issues/fixed/base64-decode-accepted-impossible-lengths-and-trailing-bits.md).
   cond(
     ((len % usize(4)) == usize(1)) => {
-      return(.Err(EncodingError.InvalidLength));
+      return(.Err(EncodingError.InvalidLength(len : len)));
     },
     true => ()
   );
@@ -92,7 +92,7 @@ _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), Encodi
   i := usize(0);
   while(i < len, i = (i + usize(4)), {
     c0 := match(
-      _decode_char_res(s.byte_at(i), alpha),
+      _decode_char_res(s.byte_at(i), alpha, i),
       .Ok(v) => v,
       .Err(e) => {
         return(.Err(e));
@@ -100,7 +100,7 @@ _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), Encodi
     );
     c1 := cond(
       ((i + usize(1)) < len) => match(
-        _decode_char_res(s.byte_at(i + usize(1)), alpha),
+        _decode_char_res(s.byte_at(i + usize(1)), alpha, i + usize(1)),
         .Ok(v) => v,
         .Err(e) => {
           return(.Err(e));
@@ -112,7 +112,7 @@ _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), Encodi
     cond(
       ((i + usize(2)) < len) => {
         c2 := match(
-          _decode_char_res(s.byte_at(i + usize(2)), alpha),
+          _decode_char_res(s.byte_at(i + usize(2)), alpha, i + usize(2)),
           .Ok(v) => v,
           .Err(e) => {
             return(.Err(e));
@@ -122,7 +122,7 @@ _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), Encodi
         cond(
           ((i + usize(3)) < len) => {
             c3 := match(
-              _decode_char_res(s.byte_at(i + usize(3)), alpha),
+              _decode_char_res(s.byte_at(i + usize(3)), alpha, i + usize(3)),
               .Ok(v) => v,
               .Err(e) => {
                 return(.Err(e));
@@ -136,7 +136,7 @@ _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), Encodi
             // encoding (Rust rejects it as InvalidLastSymbol).
             cond(
               ((c2 & u8(3)) != u8(0)) => {
-                return(.Err(EncodingError.InvalidLastSymbol(s.byte_at(i + usize(2)))));
+                return(.Err(EncodingError.InvalidLastSymbol(ch : s.byte_at(i + usize(2)), pos : (i + usize(2)))));
               },
               true => ()
             );
@@ -148,7 +148,7 @@ _decode_with_res :: (fn(s : String, alpha : str) -> Result(ArrayList(u8), Encodi
         // second must be zero.
         cond(
           ((c1 & u8(15)) != u8(0)) => {
-            return(.Err(EncodingError.InvalidLastSymbol(s.byte_at(i + usize(1)))));
+            return(.Err(EncodingError.InvalidLastSymbol(ch : s.byte_at(i + usize(1)), pos : (i + usize(1)))));
           },
           true => ()
         );

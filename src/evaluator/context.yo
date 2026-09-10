@@ -16,7 +16,7 @@
 //! * TypeScript `Expr | FnCallExpr` → `AstExpr`.
 //! * TypeScript `PathCollection` (Path[]) → `PathCollection :: ArrayList(ArrayList(String))`
 //!   imported from `src/expr_info.yo` (Phase 2k).
-open(import("std/string"));
+{ String } :: import("std/string");
 _(env : ctx_dbg_env) :: import("std/env");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
@@ -1003,7 +1003,7 @@ forward_ref_diagnostic :: (fn(msg : String) -> Option(String))({
               match(
                 found_row,
                 .Some(row) => Option(String).Some(
-                  `forward reference to "${name}" (bound at line ${(row + usize(1)).to_string()}) — imports, opens, pragmas and runtime bindings are evaluated in order (only \`::\` definitions and \`impl\` registrations are order-independent); move that statement above this use`
+                  `forward reference to "${name}" (bound at line ${(row + usize(1)).to_string()}) — imports, pragmas and runtime bindings are evaluated in order (only \`::\` definitions and \`impl\` registrations are order-independent); move that statement above this use`
                 ),
                 .None => Option(String).None
               )
@@ -1219,7 +1219,7 @@ _make_pending_def :: (fn(name : String, e : AstExpr, index : usize, is_impl : bo
   )
 );
 /// Classify one module-level statement. `.Some(def)` for a deferrable
-/// statement, `.None` for an ordered one (imports, opens, pragmas, runtime
+/// statement, `.None` for an ordered one (imports, pragmas, runtime
 /// globals, destructurings, bare expressions, exports).
 ///
 /// Deferrable: `name :: rhs` with an atom LHS whose rhs is not a bare

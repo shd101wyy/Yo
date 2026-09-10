@@ -15,11 +15,12 @@
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
-open(import("../string"));
+{ String } :: import("../string");
 { Path } :: import("../path");
 { IoError } :: import("../sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { Statx } :: import("../sys/statx");
+{ SystemTime } :: import("../time/instant");
 IO_file :: import("../sys/file");
 { AT_FDCWD, AT_SYMLINK_NOFOLLOW, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, S_IFMT, S_IFREG, S_IFDIR, S_IFLNK, S_IWUSR, S_IWGRP, S_IWOTH } :: import("../sys/constants");
 /// File metadata wrapper around `Statx`.
@@ -51,11 +52,32 @@ impl(
   is_symlink : (fn(self : Self) -> bool)(
     self._statx.is_symlink()
   ),
+  // Last modification time as a wall-clock `SystemTime` — Rust's
+  // `Metadata::modified`. Full nanosecond resolution: `statx` reports
+  // `mtime_nsec` and it was being discarded by the seconds-only accessor
+  // below, which is why this is the one to reach for.
+  modified : (fn(self : Self) -> SystemTime)(
+    SystemTime.from_unix_parts(self._statx.mtime_sec(), i64(self._statx.mtime_nsec()))
+  ),
+  // Last access time as a `SystemTime`.
+  accessed : (fn(self : Self) -> SystemTime)(
+    SystemTime.from_unix_parts(self._statx.atime_sec(), i64(self._statx.atime_nsec()))
+  ),
+  // Status change time as a `SystemTime` — POSIX ctime; see
+  // `status_changed_time` below for why this is NOT a creation time.
+  status_changed : (fn(self : Self) -> SystemTime)(
+    SystemTime.from_unix_parts(self._statx.ctime_sec(), i64(self._statx.ctime_nsec()))
+  ),
   // Last modification time (seconds since epoch).
+  //
+  // Kept for callers that want the raw field, but `modified()` above is the
+  // one to use: it carries the nanoseconds this drops, and a `SystemTime` can
+  // be compared and subtracted without every call site re-deriving what the
+  // integer means.
   modified_time : (fn(self : Self) -> i64)(
     self._statx.mtime_sec()
   ),
-  // Last access time (seconds since epoch).
+  // Last access time (seconds since epoch). See `accessed()`.
   accessed_time : (fn(self : Self) -> i64)(
     self._statx.atime_sec()
   ),

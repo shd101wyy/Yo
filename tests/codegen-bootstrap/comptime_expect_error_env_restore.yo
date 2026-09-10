@@ -7,8 +7,8 @@
 // expression"). comptime_expect_error must snapshot/restore env frame depth
 // and the ctx mode fields around the arg eval (TS needs no restore: persistent
 // envs + spread-copied contexts). See issues (Bug 2, algebraic_effects batch).
-open(import("std/string"));
-open(import("std/fmt"));
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
 _(assert : assert) :: import("std/assert");
 // The param name `msg` deliberately matches the later real handler's param.
 comptime_expect_error((escaped_handler : (ctl(msg : String) -> i32)) = (msg -> begin(unwind(i32(0)), ())));

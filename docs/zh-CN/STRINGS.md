@@ -22,7 +22,7 @@ Go 的模型相同。这条规则贯穿日常代码里会遇到的所有字符�
 —— 它的每个字节都是边界。
 
 ```rust
-open(import("std/string"));
+{ String } :: import("std/string");
 
 //        a=1B @0   é=2B @1   中=3B @3   𝄞=4B @6   —— 共 10 字节，4 个 rune
 s := String.from("aé中𝄞");

@@ -1,0 +1,19 @@
+// Repro for issues/typeid-diagnostic-suggests-a-nonexistent-is-builtin.md
+//
+// `typeid` takes a TYPE. Passing a VALUE produces a diagnostic that suggests
+// an `is()` builtin, which the language does not have.
+//
+//   yo check issues/repros/typeid-on-a-value-suggests-is.yo
+//
+// expected (today):
+//   error: typeid expects a type argument. Use is() or downcast() for runtime
+//   type checks on Dyn values.
+//
+// NOTE the binding must be plain — wrapping it in `comptime_print(...)` hides
+// the message behind "Failed to evaluate argument for comptime_print".
+main :: (fn() -> unit)({
+  x := i32(1);
+  y := typeid(x);
+  ()
+});
+export(main);

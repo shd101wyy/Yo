@@ -6,7 +6,7 @@
 //! `generateTypeDeclarations` driver (runtime preamble: GC headers, atomics,
 //! thread-sync macros, __yo_ref_header_t, future types — then the type-walk),
 //! the Iso/closure/future declarations, and the dyn re-exports are pending.
-open(import("std/string"));
+{ String } :: import("std/string");
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
@@ -552,11 +552,33 @@ typedef HANDLE __YO_THREAD_TYPE;
 #define __yo_mutex_destroy(m) DeleteCriticalSection(m)
 #define __yo_mutex_lock(m) EnterCriticalSection(m)
 #define __yo_mutex_unlock(m) LeaveCriticalSection(m)
+// NOTE a CRITICAL_SECTION is RECURSIVE: a thread that already owns it acquires
+// it again, so this answers true where POSIX's default mutex answers false.
+// The divergence is pre-existing (__yo_mutex_lock is EnterCriticalSection,
+// which re-enters, while pthread_mutex_lock on a NORMAL mutex deadlocks) and
+// std/sync never re-locks from the owning thread.
+#define __yo_mutex_trylock(m) (TryEnterCriticalSection(m) != 0)
 #define __yo_cond_init(c) InitializeConditionVariable(c)
 #define __yo_cond_destroy(c) ((void)0)
 #define __yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
 #define __yo_cond_signal(c) WakeConditionVariable(c)
 #define __yo_cond_broadcast(c) WakeAllConditionVariable(c)
+// Wait until signalled or until timeout_ns elapse. True means the wait ended
+// in a wake (possibly SPURIOUS - the caller re-checks its predicate either
+// way, which is the condvar contract); false means it genuinely timed out.
+static inline bool __yo_cond_timedwait(__YO_COND_TYPE* c, __YO_THREAD_SYNC_TYPE* m, int64_t timeout_ns) {
+  int64_t ms;
+  if (timeout_ns < 0) timeout_ns = 0;
+  // Round UP to the next millisecond. SleepConditionVariableCS takes ms, and
+  // truncating a sub-millisecond timeout to 0 makes it return IMMEDIATELY, so
+  // a "wait 100 us" would never wait at all.
+  ms = (timeout_ns + 999999LL) / 1000000LL;
+  if (ms > (int64_t)(INFINITE - 1)) ms = (int64_t)(INFINITE - 1);
+  if (SleepConditionVariableCS(c, m, (DWORD)ms)) return true;
+  // Only ERROR_TIMEOUT is a timeout. Any other failure is reported as a wake
+  // so the caller re-checks its predicate instead of concluding "timed out".
+  return GetLastError() != ERROR_TIMEOUT;
+}
 #define __yo_raw_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
 #define __yo_raw_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
 #define __yo_raw_thread_detach(t) (CloseHandle(t), 0)
@@ -573,6 +595,8 @@ typedef HANDLE __YO_THREAD_TYPE;
 #include <pthread.h>
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <errno.h>
+#include <time.h>
 ${macos_includes}
 typedef pthread_mutex_t __YO_THREAD_SYNC_TYPE;
 typedef pthread_cond_t __YO_COND_TYPE;
@@ -585,11 +609,80 @@ typedef pthread_t __YO_THREAD_TYPE;
 #define __yo_mutex_destroy(m) pthread_mutex_destroy(m)
 #define __yo_mutex_lock(m) pthread_mutex_lock(m)
 #define __yo_mutex_unlock(m) pthread_mutex_unlock(m)
-#define __yo_cond_init(c) pthread_cond_init(c, NULL)
+// EBUSY (not 0) is the "someone else holds it" answer, and every other
+// non-zero return is also a failure to acquire, so success is exactly == 0.
+#define __yo_mutex_trylock(m) (pthread_mutex_trylock(m) == 0)
 #define __yo_cond_destroy(c) pthread_cond_destroy(c)
 #define __yo_cond_wait(c, m) pthread_cond_wait(c, m)
 #define __yo_cond_signal(c) pthread_cond_signal(c)
 #define __yo_cond_broadcast(c) pthread_cond_broadcast(c)
+// A timed condvar wait must not be lengthened or cut short by a wall-clock
+// step, so it runs off a MONOTONIC clock wherever the platform allows it. The
+// clock is a property of the CONDVAR, not of the wait: pthread_cond_timedwait
+// interprets its absolute deadline with the clock the condvar was created
+// with, so __yo_cond_init below and the deadline read in __yo_cond_timedwait
+// MUST agree - hence one macro naming the clock for both.
+#if defined(__APPLE__)
+  // macOS has no pthread_condattr_setclock. It does have the RELATIVE wait,
+  // which needs no deadline arithmetic and no clock agreement at all.
+  #define __YO_COND_RELATIVE_WAIT 1
+  #define __YO_COND_CLOCKID CLOCK_REALTIME
+#elif defined(__linux__) && defined(CLOCK_MONOTONIC)
+  #define __YO_COND_RELATIVE_WAIT 0
+  #define __YO_COND_MONOTONIC 1
+  #define __YO_COND_CLOCKID CLOCK_MONOTONIC
+#else
+  // wasm and anything else without condattr clock selection: the wall clock
+  // for BOTH halves, which is still correct absent a clock step.
+  #define __YO_COND_RELATIVE_WAIT 0
+  #define __YO_COND_CLOCKID CLOCK_REALTIME
+#endif
+static inline void __yo_cond_init(__YO_COND_TYPE* c) {
+#if defined(__YO_COND_MONOTONIC)
+  pthread_condattr_t attr;
+  if (pthread_condattr_init(&attr) == 0) {
+    if (pthread_condattr_setclock(&attr, __YO_COND_CLOCKID) == 0) {
+      int rc = pthread_cond_init(c, &attr);
+      pthread_condattr_destroy(&attr);
+      if (rc == 0) return;
+    } else {
+      pthread_condattr_destroy(&attr);
+    }
+  }
+  // Fall through to the default clock: a condvar that exists on the wall clock
+  // beats one that failed to initialize.
+#endif
+  pthread_cond_init(c, NULL);
+}
+// Wait until signalled or until timeout_ns elapse. True means the wait ended
+// in a wake (possibly SPURIOUS - the caller re-checks its predicate either
+// way, which is the condvar contract); false means it genuinely timed out.
+static inline bool __yo_cond_timedwait(__YO_COND_TYPE* c, __YO_THREAD_SYNC_TYPE* m, int64_t timeout_ns) {
+  int rc;
+  if (timeout_ns < 0) timeout_ns = 0;
+#if __YO_COND_RELATIVE_WAIT
+  {
+    struct timespec rel;
+    rel.tv_sec = (time_t)(timeout_ns / 1000000000LL);
+    rel.tv_nsec = (long)(timeout_ns % 1000000000LL);
+    rc = pthread_cond_timedwait_relative_np(c, m, &rel);
+  }
+#else
+  {
+    struct timespec deadline;
+    int64_t nsec;
+    clock_gettime(__YO_COND_CLOCKID, &deadline);
+    // Carry the nanosecond sum into seconds. tv_nsec must stay in [0, 1e9) or
+    // pthread_cond_timedwait returns EINVAL and the wait never happens at all
+    // - which looks exactly like an instant timeout.
+    nsec = (int64_t)deadline.tv_nsec + (timeout_ns % 1000000000LL);
+    deadline.tv_sec += (time_t)((timeout_ns / 1000000000LL) + (nsec / 1000000000LL));
+    deadline.tv_nsec = (long)(nsec % 1000000000LL);
+    rc = pthread_cond_timedwait(c, m, &deadline);
+  }
+#endif
+  return rc != ETIMEDOUT;
+}
 #define __yo_raw_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
 #define __yo_raw_thread_join(t) pthread_join(t, NULL)
 #define __yo_raw_thread_detach(t) pthread_detach(t)

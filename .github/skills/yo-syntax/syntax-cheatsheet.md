@@ -265,12 +265,13 @@ transform :: (fn(list : ArrayList(i32), f : Impl(Fn(x : i32) -> i32)) -> unit)({
 { Parser } :: import("./parser.yo");
 parser_module :: import("./parser.yo");
 
-open(import("std/string"));
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ ... } :: import("std/string"); // glob: every export in scope
 ```
 
 - Use relative imports for nearby `.yo` files
-- Use `open(import("std/module"))` for standard-library modules you want fully in scope
+- Name what you import. `{ ... } :: import("std/module")` is the glob form for the rare file that wants every export; there is NO `open(...)` builtin (removed 2026-09-10)
 - Do not write `import "./file.yo" as name`
 - Do not import `std/prelude`
 
@@ -885,7 +886,7 @@ fact :: (fn(n : i32) -> i32)(cond((n <= 1) => 1, true => (n * fact(n - 1))));
 
 One limit: from INSIDE an `impl(T, …)` block, a method defined in a LATER `impl(T, …)` block is still unreachable (misses on `T` while one of its impls is being evaluated are the in-block sibling case, never a force) — put methods that call each other in one block; free functions, generic bodies and other types' impls may use any later block.
 
-What stays ORDERED (still "define before use"): imports (`{ a } :: import(...)`, `open(import(...))`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, and the bindings inside an `impl({ ... })` block. A forced definition sees only what precedes the REFERENCE that forced it — keep imports/opens at the top. Cycles between constants/types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while forced reports its own error plus a `note: ... was evaluated here because it is referenced before its definition`.
+What stays ORDERED (still "define before use"): imports (`{ a } :: import(...)`, `{ ... } :: import(...)`), `pragma(...)`, module-level runtime globals (`x := v`, `(g : T) = v`), the declare-then-assign `comptime(x) : T; x = v` spelling, `comptime_assert`, and the bindings inside an `impl({ ... })` block. A forced definition sees only what precedes the REFERENCE that forced it — keep imports at the top. Cycles between constants/types are `cyclic definition: a (line N) → b (line M) → a` errors; a definition that fails while forced reports its own error plus a `note: ... was evaluated here because it is referenced before its definition`.
 
 **SEED GATE — do NOT rely on this in `std/` or `src/` yet.** `yo build` compiles `std/` and `src/` with the SEED compiler (`SEED_VERSION`), which predates the feature and still fails with `Variable "X" not found` on a forward reference (and needs `recur` for self-recursion). Keep the callee-before-caller / impl-before-caller order in `std/` and `src/` until a release carrying the feature becomes the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md` is the scheduling point). `tests/` are compiled by the stage-1 built from the tree and may use the new order.
 

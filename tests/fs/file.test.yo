@@ -1,18 +1,20 @@
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.SkipWasm32Wasi); // Emscripten syscalls (__syscall_*) not available in standalone WASI
 { assert } :: import("std/assert");
-open(import("std/libc/stdio"));
-open(import("std/string"));
+{ printf } :: import("std/libc/stdio");
+{ String } :: import("std/string");
 { GlobalAllocator } :: import("std/allocator");
 { malloc, free } :: GlobalAllocator;
 { Path } :: import("std/path");
 { IoError } :: import("std/sys/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
 fs_file :: import("std/fs/file");
-{ File, OpenMode, FilePermission } :: import("std/fs/file");
+{ File, OpenMode, OpenOptions, FilePermission, SeekFrom } :: import("std/fs/file");
+IoTraits :: import("std/io");
+{ O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_EXCL, O_CLOEXEC } :: import("std/sys/constants");
 { temp_dir, path_join } :: import("../helper");
 fs_dir :: import("std/fs/dir");
-open(import("std/fmt"));
+{ println, eprintln } :: import("std/fmt");
 // ============================================================================
 // Convenience function tests
 // ============================================================================
@@ -428,5 +430,226 @@ test("File.from_fd wraps an existing descriptor", {
   assert((buf.add(usize(7))).* == u8(33), "last byte is '!'");
   free(.Some((*void)(buf)));
   io.await(wrapped.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// OpenOptions
+// ============================================================================
+test("OpenOptions.to_flags picks the access mode as a value, not a bit set", {
+  // O_RDONLY is 0, so it must be CHOSEN — OR-ing it in would silently make
+  // every read-only open look identical to a write-only one.
+  ro := OpenOptions.new().read(true).to_flags().unwrap();
+  wo := OpenOptions.new().write(true).to_flags().unwrap();
+  rw := OpenOptions.new().read(true).write(true).to_flags().unwrap();
+  assert((ro & O_WRONLY) == i32(0), "read-only carries neither write bit");
+  assert((ro & O_RDWR) == i32(0), "read-only is not read-write");
+  assert((wo & O_WRONLY) == O_WRONLY, "write-only carries O_WRONLY");
+  assert((rw & O_RDWR) == O_RDWR, "read+write is O_RDWR");
+  assert((ro & O_CLOEXEC) == O_CLOEXEC, "every open is close-on-exec");
+});
+test("OpenOptions.to_flags maps each flag", {
+  f := OpenOptions.new().write(true).create(true).truncate(true).to_flags().unwrap();
+  assert((f & O_CREAT) == O_CREAT, "create sets O_CREAT");
+  assert((f & O_TRUNC) == O_TRUNC, "truncate sets O_TRUNC");
+  assert((f & O_EXCL) == i32(0), "plain create is not exclusive");
+  g := OpenOptions.new().append(true).create_new(true).to_flags().unwrap();
+  assert((g & O_APPEND) == O_APPEND, "append sets O_APPEND");
+  assert((g & O_CREAT) == O_CREAT, "create_new implies O_CREAT");
+  assert((g & O_EXCL) == O_EXCL, "create_new sets O_EXCL");
+  assert((g & O_WRONLY) == O_WRONLY, "append alone grants write access");
+  assert(OpenOptions.new().append(true).creates() == false, "append alone does not create");
+  assert(OpenOptions.new().create_new(true).creates(), "create_new creates");
+});
+test("OpenOptions.to_flags rejects the combinations POSIX would ignore", {
+  // Each of these is silently misinterpreted by open(2) rather than
+  // diagnosed, so the builder has to catch them.
+  assert(OpenOptions.new().to_flags().is_err(), "no access mode at all");
+  assert(OpenOptions.new().read(true).truncate(true).to_flags().is_err(), "truncate without write");
+  assert(
+    OpenOptions.new().write(true).append(true).truncate(true).to_flags().is_err(),
+    "truncate and append are contradictory"
+  );
+  assert(OpenOptions.new().read(true).create(true).to_flags().is_err(), "create without write");
+  match(
+    OpenOptions.new().read(true).truncate(true).to_flags(),
+    .Ok(f) => {
+      eprintln(`  unexpectedly accepted: ${f}`);
+      assert(false, "must be rejected");
+    },
+    .Err(msg) => assert(msg.contains("truncate needs write access"), "message names the contradiction")
+  );
+});
+test("OpenOptions setters do not mutate the value they were called on", {
+  // The setters are functional, so a base can be reused for several opens.
+  base := OpenOptions.new().read(true);
+  writing := base.write(true);
+  assert(base.to_flags().unwrap() != writing.to_flags().unwrap(), "the derived value differs");
+  assert((base.to_flags().unwrap() & O_RDWR) == i32(0), "and the base is untouched");
+});
+test("File.open_opts read+append writes at the end and reads from the start", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  open_opts error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_open_opts_ra.txt`));
+  io.await(fs_file.write_string(fpath, String.from("head"), io), IoExn(io : io, exn : exn));
+  // read+append is exactly the combination OpenMode cannot express.
+  f := io.await(
+    File.open_opts(fpath, OpenOptions.new().read(true).append(true), io),
+    IoExn(io : io, exn : exn)
+  );
+  io.await(f.write_string(String.from("-tail"), io), IoExn(io : io, exn : exn));
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  content := io.await(fs_file.read_to_string(fpath, io), IoExn(io : io, exn : exn));
+  assert(content == String.from("head-tail"), "append landed after the existing content");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+test("File.open_opts create without truncate keeps existing content", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  open_opts create error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_open_opts_create.txt`));
+  io.await(fs_file.write_string(fpath, String.from("keepme"), io), IoExn(io : io, exn : exn));
+  f := io.await(
+    File.open_opts(fpath, OpenOptions.new().read(true).write(true).create(true), io),
+    IoExn(io : io, exn : exn)
+  );
+  assert(f.size() == i64(6), "the file was not truncated");
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  // The same options on a MISSING path create it.
+  gpath := Path.new(path_join(tmp, `yo_fs_open_opts_new.txt`));
+  g := io.await(
+    File.open_opts(gpath, OpenOptions.new().write(true).create(true), io),
+    IoExn(io : io, exn : exn)
+  );
+  io.await(g.write_string(String.from("fresh"), io), IoExn(io : io, exn : exn));
+  io.await(g.close(io), IoExn(io : io, exn : exn));
+  fresh := io.await(fs_file.read_to_string(gpath, io), IoExn(io : io, exn : exn));
+  assert(fresh == String.from("fresh"), "created and written");
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(gpath, io), IoExn(io : io, exn : exn));
+});
+test("File.open_opts create_new fails on an existing path", {
+  setup_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception during setup");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_open_opts_excl.txt`));
+  io.await(fs_file.write_string(fpath, String.from("x"), io), IoExn(io : io, exn : setup_exn));
+  // Effect handlers are capture-free, so the expectation is asserted INSIDE
+  // the handler and the line after the guarded call is the failure case —
+  // the same shape as the OpenMode.CreateNew test above.
+  exn := Exception(
+    throw : (
+      err -> {
+        unsafe(printf("  create_new correctly failed on an existing path\n"));
+        unwind(());
+      }
+    )
+  );
+  io.await(
+    File.open_opts(fpath, OpenOptions.new().write(true).create_new(true), io),
+    IoExn(io : io, exn : exn)
+  );
+  assert(false, "O_CREAT|O_EXCL on an existing file must throw");
+});
+test("File.open_opts throws a Context naming the rejected combination", {
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_open_opts_bad.txt`));
+  exn := Exception(
+    throw : (
+      err -> {
+        msg := err.to_string();
+        eprintln(`  rejected with: ${msg}`);
+        assert(msg.contains("truncate needs write access"), "the explanation survives the throw");
+        // The Context wraps an IoError, so the KIND Rust would report is
+        // still reachable through the chain.
+        assert(msg.contains("invalid input"), "and the underlying IoError kind is chained");
+        unwind(());
+      }
+    )
+  );
+  io.await(
+    File.open_opts(fpath, OpenOptions.new().read(true).truncate(true), io),
+    IoExn(io : io, exn : exn)
+  );
+  assert(false, "a contradictory OpenOptions must throw");
+});
+// ============================================================================
+// Seek trait + rewind
+// ============================================================================
+test("File.rewind returns to the beginning", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  rewind error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_rewind.txt`));
+  io.await(fs_file.write_string(fpath, String.from("abcdef"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  buf := (*u8)(malloc(usize(3)).unwrap());
+  io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
+  assert(f.position() == i64(3), "three bytes consumed");
+  f.rewind(exn);
+  assert(f.position() == i64(0), "back at the start");
+  n := io.await(f.read(buf, usize(3), io), IoExn(io : io, exn : exn));
+  assert(n == usize(3), "read again from the start");
+  assert((buf).* == u8(97), "first byte is 'a' again");
+  free(.Some((*void)(buf)));
+  io.await(f.close(io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+});
+// A generic function bounded on `Seek` — this is what the trait exists for,
+// and it is the only thing that proves the impl is actually registered
+// (an inherent `seek` would satisfy the call sites above on its own).
+_skip_forward :: (
+  fn(generic(S : Type), s : S, by : i64, exn : Exception, where(S <: IoTraits.Seek(SeekFrom))) -> i64
+)(
+  S.seek(s, by, SeekFrom.Current, exn)
+);
+test("File satisfies the Seek trait bound", {
+  exn := Exception(
+    throw : (
+      err -> {
+        eprintln(`  seek-bound error: ${err}`);
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_seek_trait.txt`));
+  io.await(fs_file.write_string(fpath, String.from("0123456789"), io), IoExn(io : io, exn : exn));
+  f := io.await(File.open(fpath, .Read, io), IoExn(io : io, exn : exn));
+  assert(_skip_forward(f, i64(4), exn) == i64(4), "generic Seek call moved the position");
+  assert(_skip_forward(f, i64(3), exn) == i64(7), "and it is relative to Current");
+  buf := (*u8)(malloc(usize(1)).unwrap());
+  io.await(f.read(buf, usize(1), io), IoExn(io : io, exn : exn));
+  assert((buf).* == u8(55), "the byte at offset 7 is '7'");
+  free(.Some((*void)(buf)));
+  io.await(f.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
 });

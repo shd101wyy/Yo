@@ -64,7 +64,8 @@ adds no new cycle.
 
 ## Validation
 
-- Minimal repro + `tests/codegen-bootstrap/open_import_println.yo` (new fixture)
+- Minimal repro + `tests/codegen-bootstrap/named_import_println.yo` (new fixture; renamed from
+  `open_import_println.yo` when `open` was removed)
   → 0 errors, runs "YNS" matching TS.
 - `yo-self/error.yo` transpile errors 1 → 0.
 - Corpus differential: PASS, 0 DIFFs. (The 2 SELF-FAILs seen per run are the

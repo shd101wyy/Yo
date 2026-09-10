@@ -5,8 +5,8 @@
 // generic SomeT and the body's `panic(msg)` specialized (and was called) at an
 // UNEMITTED SomeT-keyed C function ("call to undeclared function" from clang).
 // See issues/yo-self-test-runner-remaining-bugs.md (Bug 1).
-open(import("std/string"));
-open(import("std/fmt"));
+{ String } :: import("std/string");
+{ ToString, println } :: import("std/fmt");
 _(assert : assert) :: import("std/assert");
 describe :: (fn(generic(T : Type), tag : String, (v : T) ?= "fallback", where(T <: ToString)) -> unit)({
   println(`${tag}: ${v.to_string()}`);

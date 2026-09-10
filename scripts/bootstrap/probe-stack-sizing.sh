@@ -38,7 +38,7 @@ WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
 
 cat > "$WORK/probe.yo" <<'YO'
-open(import("std/fmt"));
+{ println } :: import("std/fmt");
 
 bump :: (fn(inout(x) : i64) -> unit)({ x = (x + i64(1)); });
 

@@ -7,35 +7,72 @@
 //! ```rust
 //! { EncodingError } :: import "std/encoding/error";
 //!
-//! exn.throw(dyn(EncodingError.OddLength));
+//! exn.throw(dyn(EncodingError.OddLength(len : usize(5))));
 //! ```
-open(import("../string"));
+import("../string");
 { Error } :: import("../error");
 { ToString } :: import("../fmt");
 // ============================================================================
 // Error type
 // ============================================================================
 /// Encoding/decoding error type.
+///
+/// Every variant that can name a position carries `pos`, the BYTE OFFSET into
+/// the input where the fault is. Without it a caller decoding a 4 KiB blob
+/// learns only that one byte somewhere was wrong, which is not enough to
+/// report, highlight, or skip past — the character alone does not say WHICH
+/// occurrence of it (Rust's `base64::DecodeError` carries the same offset for
+/// exactly this reason).
 EncodingError :: enum(
-  /// Invalid character encountered during decoding.
-  InvalidChar(ch : u8),
-  /// Input string has odd length (hex requires even length).
-  OddLength,
+  /// Invalid character encountered during decoding, and where it was.
+  InvalidChar(ch : u8, pos : usize),
+  /// Input string has odd length (hex requires even length); `len` is the
+  /// length seen, so the caller need not re-measure.
+  OddLength(len : usize),
   /// base64 input whose length is 1 mod 4 (after padding): one sextet
   /// cannot encode a byte, so no encoder produces it.
-  InvalidLength,
+  InvalidLength(len : usize),
   /// base64 input whose final symbol carries bits that no byte can occupy
   /// (a 2-symbol group must end in one of `AQgw`, a 3-symbol group in a
   /// symbol whose low two bits are zero); Rust's `InvalidLastSymbol`.
-  InvalidLastSymbol(ch : u8)
+  InvalidLastSymbol(ch : u8, pos : usize),
+  /// A UTF-16 surrogate with no partner: a high surrogate at the end of the
+  /// input or followed by a non-low unit, or a bare low surrogate. `pos` is an
+  /// index in CODE UNITS, not bytes, because that is what the input is.
+  ///
+  /// The field is `code_unit` rather than `unit` because a field named after a
+  /// builtin type breaks the unhygienic derived body — see
+  /// issues/derive-body-field-name-collides-with-a-builtin-type.md.
+  ///
+  /// A separate variant because `InvalidChar` cannot carry it: a UTF-16 code
+  /// unit is 16 bits and `ch` is a `u8`, so the surrogate decoders were all
+  /// reporting `InvalidChar(0)` — an offending character of NUL, which is not
+  /// what was wrong and told the caller nothing.
+  UnpairedSurrogate(code_unit : u16, pos : usize)
 );
 derive(
   EncodingError,
   Error(
-    .InvalidChar => `encoding error: invalid character ${ch}`,
-    .OddLength => `encoding error: odd length`,
-    .InvalidLength => `encoding error: base64 length is 1 mod 4`,
-    .InvalidLastSymbol => `encoding error: non-canonical trailing bits in base64 symbol ${ch}`
+    .InvalidChar => `encoding error: invalid character ${ch} at offset ${pos}`,
+    .OddLength => `encoding error: odd length ${len}`,
+    .InvalidLength => `encoding error: base64 length ${len} is 1 mod 4`,
+    .InvalidLastSymbol => `encoding error: non-canonical trailing bits in base64 symbol ${ch} at offset ${pos}`,
+    .UnpairedSurrogate => `encoding error: unpaired UTF-16 surrogate ${code_unit} at code-unit index ${pos}`
+  )
+);
+impl(
+  EncodingError,
+  /// The byte offset the fault was found at, for the variants that have one.
+  /// `.None` for a whole-input length complaint, which has no single position.
+  pos : (fn(self : Self) -> Option(usize))(
+    match(
+      self,
+      .InvalidChar({ pos }) => .Some(pos),
+      .InvalidLastSymbol({ pos }) => .Some(pos),
+      .UnpairedSurrogate({ pos }) => .Some(pos),
+      .OddLength => .None,
+      .InvalidLength => .None
+    )
   )
 );
 export(EncodingError);

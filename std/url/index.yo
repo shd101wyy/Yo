@@ -10,7 +10,7 @@
 //! This is a security boundary, not a tidiness rule: `Url.path()` flows into
 //! `HttpRequest`'s request line, so a URL carrying a raw CRLF would otherwise
 //! split one HTTP request into two.
-open(import("../string"));
+{ String, StringBuilder } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { StringBuilder } :: import("../string/string_builder");
 { percent_decode } :: import("../encoding/percent");
@@ -490,6 +490,153 @@ impl(
   userinfo : (fn(self : Self) -> Option(String))(
     self._userinfo
   ),
+  // --- Setters (RFC 3986 component replacement) ---
+  //
+  // Every setter VALIDATES and returns `Result(unit, UrlError)`. That is not
+  // ceremony: `Url.parse` rejects any byte outside RFC 3986 §2 as a SECURITY
+  // boundary — a raw CRLF in a path flows through `Url.path()` into
+  // `HttpRequest`'s request line and splits one HTTP request into two — and a
+  // setter that skipped the check would be a hole straight past the parser.
+  // Each also rejects the delimiters that would relocate the component: a `?`
+  // written into a path silently becomes a query on the next parse.
+  /// Replace the scheme. Must be `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`.
+  set_scheme : (fn(self : Self, scheme : String) -> Result(unit, UrlError))(
+    cond(
+      !_is_scheme(scheme) => .Err(UrlError.Other(`invalid scheme: ${scheme}`)),
+      true => {
+        self._scheme = scheme;
+        .Ok(())
+      }
+    )
+  ),
+  /// Replace the host, or remove it with `.None`.
+  ///
+  /// An IPv6 literal must be bracketed (`[::1]`) — that is how RFC 3986 §3.2.2
+  /// keeps the host's colons apart from the port's. `/`, `?`, `#` and `@` are
+  /// rejected because each of them ENDS the host in the grammar, so accepting
+  /// one would mean the next parse read a different URL than the one built.
+  ///
+  /// The `.None` case removes the whole authority, so a following `to_string`
+  /// renders the opaque `scheme:path` form.
+  set_host : (fn(self : Self, host : Option(String)) -> Result(unit, UrlError))(
+    match(
+      host,
+      .None => {
+        self._host = Option(String).None;
+        .Ok(())
+      },
+      .Some(h) =>
+        match(
+          _validate_component(h, `host`, `/?#@`),
+          .Err(e) => .Err(e),
+          .Ok(_) =>
+            cond(
+              h.is_empty() => .Err(UrlError.Other(`host may not be empty — use .None to remove it`)),
+              // A bare V6 literal has colons that would read as a port.
+              (h.contains(`:`) && !(h.starts_with(`[`) && h.ends_with(`]`))) =>
+                .Err(UrlError.Other(`an IPv6 host must be bracketed, as in [::1]`)),
+              true => {
+                self._host = Option(String).Some(h);
+                .Ok(())
+              }
+            )
+        )
+    )
+  ),
+  /// Replace the port, or remove it with `.None`. Infallible: every `u16` is a
+  /// legal port, including 0.
+  set_port : (fn(self : Self, port : Option(u16)) -> unit)({
+    self._port = port;
+  }),
+  /// Replace the path.
+  ///
+  /// With a host present the path must be empty or start with `/`, because
+  /// `to_string` writes `scheme://host` immediately followed by the path —
+  /// a path of `x` would render `http://hostx`. With NO host the path must not
+  /// start with `//`, which would render `scheme://...` and re-parse as an
+  /// authority: a different URL than the one built.
+  set_path : (fn(self : Self, path : String) -> Result(unit, UrlError))(
+    match(
+      _validate_component(path, `path`, `?#`),
+      .Err(e) => .Err(e),
+      .Ok(_) =>
+        cond(
+          (self._host.is_some() && (!path.is_empty() && !path.starts_with(`/`))) =>
+            .Err(UrlError.Other(`a path must start with '/' when a host is present`)),
+          (self._host.is_none() && path.starts_with(`//`)) =>
+            .Err(UrlError.Other(`a path may not start with '//' when there is no host`)),
+          true => {
+            self._path = path;
+            .Ok(())
+          }
+        )
+    )
+  ),
+  /// Replace the query (WITHOUT the leading `?`), or remove it with `.None`.
+  set_query : (fn(self : Self, query : Option(String)) -> Result(unit, UrlError))(
+    match(
+      query,
+      .None => {
+        self._query = Option(String).None;
+        .Ok(())
+      },
+      .Some(q) =>
+        match(
+          _validate_component(q, `query`, `#`),
+          .Err(e) => .Err(e),
+          .Ok(_) => {
+            self._query = Option(String).Some(q);
+            .Ok(())
+          }
+        )
+    )
+  ),
+  /// Replace the fragment (WITHOUT the leading `#`), or remove it with
+  /// `.None`. The fragment is LAST in the grammar, so nothing can follow it and
+  /// there is no delimiter to guard — every URI byte is legal here, including
+  /// `/`, `?` and `#`.
+  set_fragment : (fn(self : Self, fragment : Option(String)) -> Result(unit, UrlError))(
+    match(
+      fragment,
+      .None => {
+        self._fragment = Option(String).None;
+        .Ok(())
+      },
+      .Some(f) =>
+        match(
+          _validate_component(f, `fragment`, ``),
+          .Err(e) => .Err(e),
+          .Ok(_) => {
+            self._fragment = Option(String).Some(f);
+            .Ok(())
+          }
+        )
+    )
+  ),
+  /// Replace the userinfo (WITHOUT the trailing `@`), or remove it with
+  /// `.None`.
+  ///
+  /// A `@` inside userinfo is rejected: the authority splits at the LAST `@`,
+  /// so `set_userinfo("a@b")` on `//host` would re-parse with userinfo `a` and
+  /// host `b` — the classic credential-confusion shape.
+  set_userinfo : (fn(self : Self, userinfo : Option(String)) -> Result(unit, UrlError))(
+    match(
+      userinfo,
+      .None => {
+        self._userinfo = Option(String).None;
+        .Ok(())
+      },
+      .Some(u) =>
+        match(
+          _validate_component(u, `userinfo`, `/?#@`),
+          .Err(e) => .Err(e),
+          .Ok(_) => {
+            self._userinfo = Option(String).Some(u);
+            .Ok(())
+          }
+        )
+    )
+  ),
   // Returns the host:port as a String, or just host if no port
   host_port : (fn(self : Self) -> Option(String))(
     match(
@@ -552,6 +699,49 @@ _UrlRef :: struct(
   query : Option(String),
   fragment : Option(String)
 );
+/// Check every byte of a component against RFC 3986 §2, reporting the byte
+/// OFFSET of the first offender in `UrlError.InvalidCharacter` — the same
+/// error and the same offset convention `Url.parse` uses, so a caller handles
+/// one shape whether the URL came from text or from a setter.
+///
+/// `forbidden` additionally rejects the bytes that END this component in the
+/// grammar. They differ per component and getting them wrong is the whole
+/// point: a `/` is legal in a path and a query but ends a host; a `?` is legal
+/// in a query but starts one inside a path. A forbidden byte does not corrupt
+/// the value, it silently RELOCATES it on the next parse — which is why this
+/// rejects rather than escapes: escaping would change what the caller asked
+/// for, without saying so.
+_validate_component :: (
+  fn(s : String, what : String, forbidden : String) -> Result(unit, UrlError)
+)({
+  forbidden_b := forbidden.as_bytes();
+  (i : usize) = usize(0);
+  while(runtime(i < s.len()), {
+    b := s.byte_at(i);
+    cond(
+      !_is_uri_byte(b) => {
+        return(Result(unit, UrlError).Err(UrlError.InvalidCharacter(pos : i)));
+      },
+      true => ()
+    );
+    (j : usize) = usize(0);
+    while(runtime(j < forbidden_b.len()), {
+      cond(
+        (forbidden_b(j) == b) => {
+          return(
+            Result(unit, UrlError).Err(
+              UrlError.Other(`byte ${b} at offset ${i} ends a ${what} in the RFC 3986 grammar — percent-encode it`)
+            )
+          );
+        },
+        true => ()
+      );
+      j = (j + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  Result(unit, UrlError).Ok(())
+});
 /// Is `s` a valid RFC 3986 scheme — `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`?
 /// Needed because `foo:bar` is an absolute URI while `foo bar:baz` and
 /// `1a:b` are not, and a relative path may legally contain a colon after the

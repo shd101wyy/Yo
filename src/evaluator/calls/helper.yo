@@ -20,8 +20,8 @@
 //! `src/env.yo:get_variables_needing_drop`; the prior simplified
 //! stub that lived here has been retired.
 pragma(Pragma.AllowUnsafe);
-open(import("std/string"));
-open(import("std/fmt"));
+{ String } :: import("std/string");
+{ eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -2090,7 +2090,7 @@ create_specialized_function_inline :: (
       // Refuse to mint a specialization from a DEGENERATE analysis pass: a
       // runtime arg whose type collapsed to UNIT against a concrete non-unit
       // DECLARED param only arises when an upstream resolution soft-failed
-      // (e.g. an `open`-module member read under analysis → UnknownVal →
+      // (e.g. a destructured-module member read under analysis → UnknownVal →
       // unit-typed chain). The minted spec carries unit params/locals and an
       // empty condition render (`void flag`, `if ()` — the assert spec from
       // issues/repros/void-param-assert-open-env.yo), nothing ever calls it,
@@ -3391,7 +3391,7 @@ create_specialized_function_inline :: (
                 // and the ARG type degenerated to unit: TS's specializedType
                 // params come from the declared parameters (+ substitutions),
                 // never from arg types, so a degenerate analysis-pass arg
-                // (open-module member soft-fail → UnknownVal → unit) cannot
+                // (module-member soft-fail → UnknownVal → unit) cannot
                 // poison the registered spec type. yo-self keeps the arg type
                 // as the general source (Phase 3 design: it carries the
                 // call-site concretization for generic params) and falls back

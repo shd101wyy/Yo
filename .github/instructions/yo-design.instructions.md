@@ -671,11 +671,11 @@ Do **not** create `index.yo` re-export files for directories with multiple disti
 // CORRECT — explicit submodule imports:
 { TcpStream } :: import("std/net/tcp");
 { HashMap } :: import("std/collections/hash_map");
-open(import("std/fs/file"));
+{ File } :: import("std/fs/file");
 
 // WRONG — don't create catch-all index.yo for these:
-// open(import("std/net")); // which module? tcp? udp? dns?
-// open(import("std/fs"));  // which module? file? dir? walker?
+// { ... } :: import("std/net"); // which module? tcp? udp? dns?
+// { ... } :: import("std/fs");  // which module? file? dir? walker?
 ```
 
 Modules in this category: `std/net`, `std/fs`, `std/sync`, `std/time`, `std/crypto`, `std/encoding`, `std/collections`, `std/cli`, `std/testing`.

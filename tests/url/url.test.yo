@@ -1,6 +1,6 @@
 { assert } :: import("std/assert");
-open(import("std/libc/stdio"));
-open(import("std/string"));
+import("std/libc/stdio");
+{ String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { Url, UrlError } :: import("std/url");
 { Error, AnyError, Exception } :: import("std/error");
@@ -374,4 +374,118 @@ test("Url.path_segments splits the path and is None without an authority", {
   assert(root.len() == usize(0), "the root path has no segments");
   // `mailto:` has an opaque path, not a /-separated hierarchy.
   assert(Url.parse(`mailto:a@b.com`).unwrap().path_segments().is_none(), "a URL that cannot be a base has no segments");
+});
+// ============================================================================
+// Setters
+// ============================================================================
+test("Url setters replace each component and round-trip through to_string", {
+  u := Url.parse(String.from("http://example.com/a?x=1#f")).unwrap();
+  assert(u.set_scheme(`https`).is_ok(), "scheme replaced");
+  assert(u.set_host(Option(String).Some(`other.example`)).is_ok(), "host replaced");
+  u.set_port(Option(u16).Some(u16(8443)));
+  assert(u.set_path(`/b/c`).is_ok(), "path replaced");
+  assert(u.set_query(Option(String).Some(`y=2`)).is_ok(), "query replaced");
+  assert(u.set_fragment(Option(String).Some(`g`)).is_ok(), "fragment replaced");
+  assert(u.to_string() == `https://other.example:8443/b/c?y=2#g`, `rendered ${u.to_string()}`);
+  // And it re-parses to the same thing, which is the property that matters.
+  again := Url.parse(u.to_string()).unwrap();
+  assert(again.scheme() == `https`, "scheme survives the round-trip");
+  assert(again.port().unwrap() == u16(8443), "port survives");
+  assert(again.path() == `/b/c`, "path survives");
+  assert(again.query().unwrap() == `y=2`, "query survives");
+  assert(again.fragment().unwrap() == `g`, "fragment survives");
+});
+test("Url setters remove optional components with .None", {
+  u := Url.parse(String.from("http://user@example.com:99/a?x=1#f")).unwrap();
+  assert(u.set_query(Option(String).None).is_ok(), "query removed");
+  assert(u.set_fragment(Option(String).None).is_ok(), "fragment removed");
+  assert(u.set_userinfo(Option(String).None).is_ok(), "userinfo removed");
+  u.set_port(Option(u16).None);
+  assert(u.to_string() == `http://example.com/a`, `rendered ${u.to_string()}`);
+  assert(u.query().is_none(), "query is gone");
+  // Dropping the host renders the opaque scheme:path form.
+  assert(u.set_host(Option(String).None).is_ok(), "host removed");
+  assert(u.to_string() == `http:/a`, `opaque form: ${u.to_string()}`);
+});
+test("Url.set_port takes every u16 including 0", {
+  u := Url.parse(String.from("http://example.com/")).unwrap();
+  u.set_port(Option(u16).Some(u16(0)));
+  assert(u.to_string() == `http://example.com:0/`, `port 0: ${u.to_string()}`);
+  u.set_port(Option(u16).Some(u16(65535)));
+  assert(u.port().unwrap() == u16(65535), "the top port");
+});
+test("Url setters reject a raw CRLF — the request-splitting vector", {
+  // This is the whole reason the setters validate. A raw CRLF in a path flows
+  // through Url.path() into HttpRequest's request line and splits one request
+  // into two; Url.parse has always rejected it, and a setter that did not
+  // would be a hole straight past the parser.
+  u := Url.parse(String.from("http://example.com/a")).unwrap();
+  crlf := `/a\r\nX-Injected: 1`;
+  match(
+    u.set_path(crlf),
+    .Ok(_) => assert(false, "a raw CRLF must be rejected"),
+    .Err(e) =>
+      match(
+        e,
+        .InvalidCharacter(pos) => assert(pos == usize(2), `the offset names the CR, got ${pos}`),
+        _ => assert(false, "expected InvalidCharacter")
+      )
+  );
+  assert(u.path() == `/a`, "and the path is unchanged after a rejected set");
+  // A raw space, a control byte and a non-ASCII byte are all rejected too.
+  assert(u.set_path(`/a b`).is_err(), "a raw space is not a URI byte");
+  assert(u.set_query(Option(String).Some(`a=\t`)).is_err(), "a tab is not either");
+  assert(u.set_fragment(Option(String).Some(`é`)).is_err(), "nor a raw UTF-8 byte");
+});
+test("Url setters reject the delimiters that would relocate the component", {
+  u := Url.parse(String.from("http://example.com/a")).unwrap();
+  // A `?` inside a path silently becomes a query on the next parse.
+  assert(u.set_path(`/a?x=1`).is_err(), "a ? ends a path");
+  assert(u.set_path(`/a#f`).is_err(), "and so does a #");
+  // A `#` inside a query starts a fragment.
+  assert(u.set_query(Option(String).Some(`x=1#f`)).is_err(), "a # ends a query");
+  // But a `/` and a `?` are LEGAL in a query, and everything is legal in a
+  // fragment — nothing follows it in the grammar.
+  assert(u.set_query(Option(String).Some(`a=/b?c`)).is_ok(), "/ and ? are legal in a query");
+  assert(u.set_fragment(Option(String).Some(`a/b?c#d`)).is_ok(), "a fragment has no delimiter to guard");
+  // A `/` is legal in a path (it is the separator) but ends a host.
+  assert(u.set_path(`/a/b/c`).is_ok(), "/ is a path separator");
+  assert(u.set_host(Option(String).Some(`a.example/x`)).is_err(), "a / ends a host");
+  assert(u.set_host(Option(String).Some(`a.example@b`)).is_err(), "an @ ends a host");
+  // The credential-confusion shape: the authority splits at the LAST @.
+  assert(u.set_userinfo(Option(String).Some(`a@b`)).is_err(), "an @ in userinfo is rejected");
+  assert(u.set_userinfo(Option(String).Some(`user:pw`)).is_ok(), "but a colon is fine");
+});
+test("Url.set_host requires brackets for an IPv6 literal", {
+  u := Url.parse(String.from("http://example.com/")).unwrap();
+  assert(u.set_host(Option(String).Some(`[::1]`)).is_ok(), "bracketed V6 accepted");
+  assert(u.to_string() == `http://[::1]/`, `rendered ${u.to_string()}`);
+  // A bare V6 literal's colons would read as a port on the next parse.
+  assert(u.set_host(Option(String).Some(`::1`)).is_err(), "bare V6 rejected");
+  assert(u.set_host(Option(String).Some(`2001:db8::1`)).is_err(), "and a longer one");
+  assert(u.set_host(Option(String).Some(``)).is_err(), "an empty host is .None, not ''");
+});
+test("Url.set_path guards the shapes to_string would render ambiguously", {
+  // With a host, `to_string` writes scheme://host immediately followed by the
+  // path — a path of `x` would render `http://hostx`.
+  u := Url.parse(String.from("http://example.com/a")).unwrap();
+  assert(u.set_path(`x`).is_err(), "a relative path with a host is rejected");
+  assert(u.set_path(``).is_ok(), "but an empty path is fine");
+  assert(u.to_string() == `http://example.com`, `rendered ${u.to_string()}`);
+  // With NO host, a path starting with `//` would render scheme://... and
+  // re-parse as an authority: a different URL than the one built.
+  o := Url.parse(String.from("mailto:user@example.com")).unwrap();
+  assert(o.host().is_none(), "an opaque URI has no host");
+  assert(o.set_path(`//evil.example/x`).is_err(), "// with no host is rejected");
+  assert(o.set_path(`/ok`).is_ok(), "a single slash is fine");
+});
+test("Url.set_scheme takes only an RFC 3986 scheme", {
+  u := Url.parse(String.from("http://example.com/")).unwrap();
+  assert(u.set_scheme(`https`).is_ok(), "letters");
+  assert(u.set_scheme(`x-y.z+1`).is_ok(), "letters, digits, - . + after the first byte");
+  assert(u.set_scheme(`1http`).is_err(), "a scheme must start with a letter");
+  assert(u.set_scheme(``).is_err(), "and must not be empty");
+  assert(u.set_scheme(`ht tp`).is_err(), "no space");
+  assert(u.set_scheme(`ht:tp`).is_err(), "no colon");
+  assert(u.scheme() == `x-y.z+1`, "the last successful set stands");
 });

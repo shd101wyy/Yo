@@ -1,0 +1,11 @@
+# `typeid` is comptime and takes a TYPE; a VALUE argument is an error. The
+# message used to read "Use is() or downcast() ...", but there is no `is()` in
+# the language — no BF_IS in src/expr.yo and no definition anywhere in src/ or
+# std/ — so a user who followed the advice got a second, unrelated
+# "Variable \"is\" not found". Pin the replacement, which names only APIs that
+# exist (issues/fixed/typeid-diagnostic-suggests-a-nonexistent-is-builtin.md).
+# NOTE the value is an ERE consumed by `grep -oE`, so the parentheses in the
+# message must be ESCAPED — unescaped they are capture groups and the pattern
+# matches nothing, which the harness reports as a vacuous NO-GOLDEN.
+stdout_keep_match=downcast\(value, T\), which returns Option\(T\)
+timeout=120

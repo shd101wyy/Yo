@@ -36,6 +36,17 @@ env:
   #
   # EVERY apt-get call in this file must use these — a bare one reintroduces
   # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  #
+  # Every `update` is ALSO preceded by an `rm` of the runner image's
+  # third-party apt sources, which is a separate failure with the same blast
+  # radius: `apt-get update` exits 100 if ANY configured source fails, and on
+  # 2026-09-09 a Hash Sum mismatch on the image's Google Chrome list took out
+  # every Linux job across three PRs — 18 red checks from one root cause, most
+  # of them reported as "Artifact not found" on legs that never even ran apt.
+  # This repo installs only from Ubuntu's own archives, so those lists are pure
+  # liability. Acquire::Retries above cannot help: a hash mismatch is
+  # DETERMINISTIC, so each retry re-fetches the same bad file.
+  # See issues/ci-apt-update-fails-on-an-unused-third-party-source.md.
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
@@ -371,6 +382,8 @@ jobs:
       # and the extension published.
       - name: Install liburing
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
 
@@ -538,6 +551,8 @@ jobs:
       # src/main.yo, with the Homebrew-keg fallbacks for local runs).
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -834,7 +849,7 @@ jobs:
         run: |
           BUNDLE_DIR="$PWD/$BUNDLE"
           mkdir -p "$RUNNER_TEMP/seed-smoke" && cd "$RUNNER_TEMP/seed-smoke"
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
+          printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
           if [ -f "$BUNDLE_DIR/bin/yo.exe" ]; then YO="$BUNDLE_DIR/bin/yo.exe"; else YO="$BUNDLE_DIR/bin/yo"; fi
           YO_STD="$BUNDLE_DIR/std" "$YO" compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
           cat compile.err
@@ -954,6 +969,8 @@ jobs:
       # exact seed-driven pipeline in PR CI).
       - name: Install liburing (needed to run the seed)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
 
@@ -1130,7 +1147,7 @@ jobs:
       - name: Smoke-test the bundle on Alpine
         run: |
           mkdir -p smoke
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > smoke/hello.yo
+          printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > smoke/hello.yo
           docker run --rm --security-opt seccomp=unconfined \
             -v "$PWD:/w" -w /w/smoke -e BUNDLE="$BUNDLE" alpine:3.20 sh -euc '
               apk add --no-cache build-base liburing-dev
@@ -1168,7 +1185,7 @@ jobs:
         run: |
           BUNDLE_DIR="$PWD/$BUNDLE"
           mkdir -p "$RUNNER_TEMP/musl-smoke" && cd "$RUNNER_TEMP/musl-smoke"
-          printf '%s\n' 'open(import("std/fmt"));' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
+          printf '%s\n' '{ println } :: import("std/fmt");' 'main :: (fn() -> unit)(println("hello from the yo seed"));' 'export(main);' > hello.yo
           YO_STD="$BUNDLE_DIR/std" "$BUNDLE_DIR/bin/yo" compile hello.yo --optimize 2 -o hello 2>compile.err || { cat compile.err; exit 1; }
           cat compile.err
           if grep -q "mimalloc: error" compile.err; then
@@ -1255,6 +1272,8 @@ jobs:
       # anything.
       - name: Install OpenSSL headers (portable-C parse gate)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y libssl-dev pkg-config
 

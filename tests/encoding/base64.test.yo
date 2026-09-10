@@ -1,6 +1,6 @@
 { assert } :: import("std/assert");
-open(import("std/string"));
-open(import("std/encoding/base64"));
+{ rune, String, StringError } :: import("std/string");
+{ base64_encode, base64_encode_url, base64_decode, base64_decode_url, base64_decode_exn } :: import("std/encoding/base64");
 { ArrayList } :: import("std/collections/array_list");
 { Error, AnyError, Exception } :: import("std/error");
 // ===== Encoding Tests =====
@@ -153,7 +153,7 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
     match(
       base64_decode(String.from("Zm9v YmFy")),
       .Ok(_) => false,
-      .Err(e) => match(e, .InvalidLength => true, _ => false)
+      .Err(e) => match(e, .InvalidLength({ len }) => (len == usize(9)), _ => false)
     ),
     "a 9-symbol input is InvalidLength, whatever else is wrong with it"
   );
@@ -163,7 +163,7 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
     match(
       base64_decode(String.from("Zm9v YmFyIQ==")),
       .Ok(_) => false,
-      .Err(e) => match(e, .InvalidChar(c) => (c == u8(32)), _ => false)
+      .Err(e) => match(e, .InvalidChar({ ch }) => (ch == u8(32)), _ => false)
     ),
     "the space is reported as InvalidChar(0x20)"
   );
@@ -215,4 +215,59 @@ test("base64_decode still accepts the canonical short groups, padded or not", {
   assert((c.len() == usize(2)) && ((c(usize(0)) == u8(65)) && (c(usize(1)) == u8(66))), "QUI= is AB");
   d := base64_decode(String.from("QUI")).unwrap();
   assert(d.len() == usize(2), "QUI is AB without padding");
+});
+// ===== Offsets =====
+test("base64_decode reports WHERE the bad symbol was", {
+  // "Zm9v YmFyIQ==" strips to 11 symbols, so the scan runs; the space is at
+  // index 4 of the input.
+  assert(
+    match(
+      base64_decode(String.from("Zm9v YmFyIQ==")),
+      .Ok(_) => false,
+      .Err(e) => match(e, .InvalidChar({ ch, pos }) => ((ch == u8(32)) && (pos == usize(4))), _ => false)
+    ),
+    "the offending symbol and its offset"
+  );
+  // A bad symbol in each of the four positions of a group reports its own
+  // index — each is decoded separately and passes its own position.
+  assert(
+    match(
+      base64_decode(String.from("Zm9vYm!yIQ==")),
+      .Ok(_) => false,
+      .Err(e) => match(e, .InvalidChar({ pos }) => (pos == usize(6)), _ => false)
+    ),
+    "third symbol of the second group"
+  );
+  // InvalidLastSymbol carries the offset of the symbol whose bits are wrong.
+  // "QR==" strips to "QR": R's low four bits are 0001, which no byte can
+  // occupy, and R is at index 1.
+  assert(
+    match(
+      base64_decode(String.from("QR==")),
+      .Ok(_) => false,
+      .Err(e) => match(e, .InvalidLastSymbol({ ch, pos }) => ((ch == u8(82)) && (pos == usize(1))), _ => false)
+    ),
+    "the two-symbol group's trailing symbol and its offset"
+  );
+  // "QUJ=" strips to "QUJ": J's low two bits are 01, and J is at index 2.
+  assert(
+    match(
+      base64_decode(String.from("QUJ=")),
+      .Ok(_) => false,
+      .Err(e) => match(e, .InvalidLastSymbol({ ch, pos }) => ((ch == u8(74)) && (pos == usize(2))), _ => false)
+    ),
+    "the three-symbol group's trailing symbol and its offset"
+  );
+  // InvalidLength is a whole-input complaint, so pos() is .None while the
+  // variant still carries the length that was wrong.
+  assert(
+    match(
+      base64_decode(String.from("Zm9v YmFy")),
+      .Ok(_) => false,
+      .Err(e) => (
+        e.pos().is_none() && match(e, .InvalidLength({ len }) => (len == usize(9)), _ => false)
+      )
+    ),
+    "a length complaint has no position but does carry the length"
+  );
 });

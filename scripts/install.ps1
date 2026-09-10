@@ -402,7 +402,7 @@ function Verify-Install {
   $tmp = New-TempDir
   $src = Join-Path $tmp 'hello.yo'
   $hello = @'
-open(import("std/fmt"));
+{ println } :: import("std/fmt");
 main :: (fn() -> unit)({
   println(`Yo is installed`);
 });

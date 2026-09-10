@@ -105,6 +105,17 @@ env:
   #
   # EVERY apt-get call in this file must use these — a bare one reintroduces
   # the hang. See issues/ci-apt-hangs-on-dpkg-lock.md.
+  #
+  # Every `update` is ALSO preceded by an `rm` of the runner image's
+  # third-party apt sources, which is a separate failure with the same blast
+  # radius: `apt-get update` exits 100 if ANY configured source fails, and on
+  # 2026-09-09 a Hash Sum mismatch on the image's Google Chrome list took out
+  # every Linux job across three PRs — 18 red checks from one root cause, most
+  # of them reported as "Artifact not found" on legs that never even ran apt.
+  # This repo installs only from Ubuntu's own archives, so those lists are pure
+  # liability. Acquire::Retries above cannot help: a hash mismatch is
+  # DETERMINISTIC, so each retry re-fetches the same bad file.
+  # See issues/ci-apt-update-fails-on-an-unused-third-party-source.md.
   APT_OPTS: "-o DPkg::Lock::Timeout=600 -o Acquire::Retries=3"
 
 jobs:
@@ -285,6 +296,8 @@ jobs:
       # The seed links liburing dynamically and cannot start without it.
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -374,6 +387,8 @@ jobs:
       - name: Install the pinned Z3
         run: |
           set -euo pipefail
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y unzip
           curl -fsSL -o /tmp/z3.zip \
@@ -385,6 +400,8 @@ jobs:
       # The seed links liburing dynamically and cannot start without it.
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -488,6 +505,8 @@ jobs:
 
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -804,6 +823,8 @@ jobs:
 
       - name: Install liburing (needed to run the seed's compiled children; + OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -909,6 +930,8 @@ jobs:
 
       - name: Install liburing (needed to run the candidate)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
 
@@ -1104,6 +1127,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           # + OpenSSL dev: this job compiles stage-2 itself (std/http in the
           # compiler closure puts OpenSSL headers into the emitted C).
@@ -1236,6 +1261,8 @@ jobs:
 
       - name: Install liburing and GNU time
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev time
 
@@ -1333,6 +1360,8 @@ jobs:
 
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -1470,6 +1499,8 @@ jobs:
 
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -1587,6 +1618,8 @@ jobs:
       # the Alpine stage links into the artifact below.
       - name: Install liburing (needed to run the seed)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev
 
@@ -1728,6 +1761,8 @@ jobs:
 
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
@@ -1978,6 +2013,8 @@ jobs:
 
       - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
         run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           sudo apt-get $APT_OPTS update
           sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
 
