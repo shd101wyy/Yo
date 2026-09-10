@@ -25,6 +25,7 @@ open(import("std/fmt"));
 {
   AstExpr,
   ExprId,
+  BK_TUPLE,
   ast_expr_id,
   ast_expr_token,
   ast_expr_is_fn_call,
@@ -165,6 +166,10 @@ VcCtx :: ref(
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
     fresh : usize,
+    /// Havoc-version counter for loop encodings (V4): each `while` gets a
+    /// distinct post-havoc generation so nested/back-to-back loops never
+    /// share a synthetic constant.
+    havoc : usize,
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -182,6 +187,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     obligations : ArrayList(VcObligation).new(),
     subset_error : Option(VcSubsetError).None,
     fresh : usize(0),
+    havoc : usize(0),
     datatypes : ArrayList(String).new()
   )
 );
@@ -1135,6 +1141,269 @@ _arm_under_pattern :: (
   });
   v
 });
+// ============================================================================
+// Loops (V4): the havoc-invariant rule
+// ============================================================================
+/// Conjoin a non-empty term list with AndOp (single terms pass through).
+_and_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
+  r := ts.get(usize(0)).unwrap();
+  (i : usize) = usize(1);
+  while(i < ts.len(), {
+    nxt := ts.get(i).unwrap();
+    r = _app2(VcOp.AndOp, r, nxt);
+    i = (i + usize(1));
+  });
+  r
+});
+/// Collect every source name ASSIGNED inside a loop body: `:=`/`=` LHS
+/// names (the havoc set). Follows `ExprInfo.macro_expansion` for macro
+/// calls (`for`, collection literals, user macros — the branch structure
+/// lives in the expansion, not the macro call; the optimizer-family
+/// discipline from issues/fixed/where-constraints-arraylist-96b-leak.md).
+/// Names already in `out` are skipped (idempotent).
+_scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList(String)) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, f, fargs, _, _) => {
+      // Macro calls: the semantics live in the expansion.
+      expanded := match(
+        expr_info_table_get(table, ast_expr_id(e)),
+        .Some(ei) => ei.macro_expansion,
+        .None => Option(AstExpr).None
+      );
+      match(
+        expanded,
+        .Some(xp) => _scan_assigned(table, xp, out),
+        .None => {
+          head := ast_expr_token(f).value;
+          if(((head == ":=") || (head == "=")) && (fargs.len() == usize(2)), {
+            match(
+              _binding_name_of(fargs.get(usize(0)).unwrap()),
+              .Some(name) => {
+                if(!out.contains(name.clone()), {
+                  out.push(name.clone());
+                });
+              },
+              .None => ()
+            );
+          });
+          (i : usize) = usize(0);
+          while(i < fargs.len(), {
+            match(
+              fargs.get(i),
+              .Some(a) => _scan_assigned(table, a, out),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+        }
+      );
+    }
+  )
+);
+/// Extract the loop body's leading `invariant(...)` predicates and the
+/// optional trailing `decreases(...)` measure; every other statement is
+/// the executable body. Returns `.None` when no invariant leads the body.
+_loop_annotations :: (
+  fn(body : AstExpr) -> Option(LoopAnnotations)
+)(
+  match(
+    body,
+    .FnCall(_, f, stmts, _, _) => match(
+      stmts.get(usize(0)),
+      .Some(first) => match(
+        first,
+        .FnCall(_, invf, inv_args, _, _) => if(ast_expr_token(invf).value == "invariant", {
+          measure := Option(AstExpr).None;
+          rest_at := usize(1);
+          match(
+            stmts.get(usize(1)),
+            .Some(second) => match(
+              second,
+              .FnCall(_, df, dargs, _, _) => if((ast_expr_token(df).value == "decreases") && (dargs.len() == usize(1)), {
+                measure = dargs.get(usize(0));
+                rest_at = usize(2);
+              }),
+              .Atom(_, _) => ()
+            ),
+            .None => ()
+          );
+          rest := ArrayList(AstExpr).new();
+          (i : usize) = rest_at;
+          while(i < stmts.len(), {
+            match(
+              stmts.get(i),
+              .Some(s) => rest.push(s.clone()),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          Option(LoopAnnotations).Some(LoopAnnotations(invariants : inv_args.clone(), decreases : measure, body : rest))
+        }, Option(LoopAnnotations).None),
+        .Atom(_, _) => Option(LoopAnnotations).None
+      ),
+      .None => Option(LoopAnnotations).None
+    ),
+    .Atom(_, _) => Option(LoopAnnotations).None
+  )
+);
+LoopAnnotations :: struct(invariants : ArrayList(AstExpr), decreases : Option(AstExpr), body : ArrayList(AstExpr));
+/// The havoc-invariant encoding of `while(cond, { invariant(...); body })`:
+///
+/// 1. ENTRY — prove `Inv` over the current state.
+/// 2. ITERATE — assume `Inv ∧ Cond` over a HAVOCED state (every assigned
+///    name rebound to a fresh unconstrained constant), execute the body
+///    symbolically, prove `Inv` over the resulting state. Body obligations
+///    (asserts, callee requires) emitted during the walk carry the iterate
+///    assumptions through `ctx.path`.
+/// 3. EXIT — the post-body bindings stay, with `Inv ∧ ¬Cond` over them
+///    pushed onto `ctx.path` for everything after the loop.
+///
+/// `decreases(M)`: at iterate, prove `0 <= M` over the havoced state and
+/// `M' < M` over the post-body state (M < M compared SIGNED at M's width —
+/// the measure must be an integer expression).
+_while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+  if(args.len() != usize(2), {
+    _fail_subset(ctx, String.from("while with unexpected arity"), e);
+    return(Option(VcTerm).None);
+  });
+  ann := _loop_annotations(args.get(usize(1)).unwrap());
+  if(ann.is_none(), {
+    _fail_subset(ctx, String.from("while loop without a leading invariant(...)"), e);
+    return(Option(VcTerm).None);
+  });
+  a := ann.unwrap();
+  if(a.invariants.len() == usize(0), {
+    _fail_subset(ctx, String.from("invariant(...) with no predicates"), e);
+    return(Option(VcTerm).None);
+  });
+  // 1. ENTRY: Inv over the current state.
+  inv_entry_terms := ArrayList(VcTerm).new();
+  (ii : usize) = usize(0);
+  while(ii < a.invariants.len(), {
+    match(
+      _expr_term(ctx, a.invariants.get(ii).unwrap()),
+      .Some(t) => inv_entry_terms.push(t),
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+    ii = (ii + usize(1));
+  });
+  _emit(ctx, String.from("loop-invariant-entry"), ArrayList(VcTerm).new(), _and_terms(inv_entry_terms));
+  // 2. HAVOC: rebind every assigned name to a fresh constant.
+  assigned := ArrayList(String).new();
+  (bi : usize) = usize(0);
+  while(bi < a.body.len(), {
+    match(
+      a.body.get(bi),
+      .Some(s) => _scan_assigned(ctx.table, s, assigned),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  ctx.havoc = (ctx.havoc + usize(1));
+  (ai : usize) = usize(0);
+  while(ai < assigned.len(), {
+    name := assigned.get(ai).unwrap();
+    // The havoc constant's sort: the OLD binding's own sort — a Var
+    // carries it; anything else keeps the term's bit width (a comptime
+    // -folded literal like `i := i32(0)` is a BvLit). Width 1 = bool.
+    srt := match(
+      ctx.vars.get(name.clone()),
+      .Some(old) => match(
+        old,
+        .Var(_, s) => s,
+        _ => cond(
+          (_term_width(old) > usize(1)) => VcSort.BvS(width : _term_width(old)),
+          true => VcSort.BoolS
+        )
+      ),
+      .None => VcSort.BoolS
+    );
+    hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
+    ctx.vars.insert(name.clone(), VcTerm.Var(name : hv, sort : srt));
+    ai = (ai + usize(1));
+  });
+  // ITERATE assumptions over the havoced state.
+  inv_havoc_terms := ArrayList(VcTerm).new();
+  (hi : usize) = usize(0);
+  while(hi < a.invariants.len(), {
+    match(
+      _expr_term(ctx, a.invariants.get(hi).unwrap()),
+      .Some(t) => inv_havoc_terms.push(t),
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+    hi = (hi + usize(1));
+  });
+  cond_havoc := _expr_term(ctx, args.get(usize(0)).unwrap());
+  if(cond_havoc.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  ctx.path.push(_and_terms(inv_havoc_terms));
+  ctx.path.push(cond_havoc.unwrap());
+  // Optional measure over the havoced state.
+  m_havoc := match(
+    a.decreases,
+    .Some(dm) => _expr_term(ctx, dm),
+    .None => Option(VcTerm).None
+  );
+  if(m_havoc.is_some(), {
+    m := m_havoc.unwrap();
+    zero := VcTerm.BvLit(value : u64(0), width : _term_width(m));
+    _emit(ctx, String.from("loop-variant-nonneg"), ArrayList(VcTerm).new(), _app2(VcOp.BvSge, m, zero));
+  });
+  // 3. Walk the executable body (obligations inside carry the iterate
+  //    assumptions via ctx.path). `_begin_term` is the statement walker —
+  //    it is what knows `:=`/`=` rebind ctx.vars.
+  bd := _begin_term(ctx, a.body.clone());
+  if(bd.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  // ITERATE goal: Inv over the post-body state.
+  inv_after_terms := ArrayList(VcTerm).new();
+  (ti : usize) = usize(0);
+  while(ti < a.invariants.len(), {
+    match(
+      _expr_term(ctx, a.invariants.get(ti).unwrap()),
+      .Some(t) => inv_after_terms.push(t),
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+    ti = (ti + usize(1));
+  });
+  _emit(ctx, String.from("loop-invariant-iterate"), ArrayList(VcTerm).new(), _and_terms(inv_after_terms));
+  if(m_havoc.is_some(), {
+    m2 := match(
+      a.decreases,
+      .Some(dm) => _expr_term(ctx, dm),
+      .None => Option(VcTerm).None
+    );
+    if(m2.is_none(), {
+      return(Option(VcTerm).None);
+    });
+    _emit(
+      ctx,
+      String.from("loop-variant-decreases"),
+      ArrayList(VcTerm).new(),
+      _app2(VcOp.BvSlt, m2.unwrap(), m_havoc.unwrap())
+    );
+  });
+  // Pop the iterate assumptions; push the EXIT facts permanently.
+  _ := ctx.path.pop();
+  _ := ctx.path.pop();
+  cond_after := _expr_term(ctx, args.get(usize(0)).unwrap());
+  if(cond_after.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  ctx.path.push(_and_terms(inv_after_terms));
+  ctx.path.push(_app1(VcOp.NotOp, cond_after.unwrap()));
+  Option(VcTerm).Some(VcTerm.BoolLit(true))
+});
 /// The operator/cast/call dispatch.
 _call_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, head : String, args : ArrayList(AstExpr), info : ExprInfo)
@@ -1246,17 +1515,16 @@ _call_term :: (
   if(head == "match", {
     return(_match_term(ctx, e, args));
   });
-  // --- while / for: precise subset rejections ----------------------
-  // These would otherwise fall into the callee-call path and report a
-  // misleading "uncontracted callee" error. Loops need the V4
-  // havoc-invariant rule; `match` needs the enum/datatype encoding
-  // (later in V3); `for` is a macro over while (same V4 rule).
+  // --- while: the V4 havoc-invariant encoding ----------------------
+  // `for` is a macro over while; its expansion has no invariant
+  // annotation, so verifying it directly is outside the subset (the
+  // expansion's while reports the precise missing-invariant error when
+  // reached through a macro_expansion walk).
   if(head == "while", {
-    _fail_subset(ctx, String.from("while loop (requires invariant(...) — Phase V4)"), e);
-    return(Option(VcTerm).None);
+    return(_while_term(ctx, e, args));
   });
   if(head == "for", {
-    _fail_subset(ctx, String.from("for loop (requires invariant(...) — Phase V4)"), e);
+    _fail_subset(ctx, String.from("for loop (write it as a while with an invariant — the macro form cannot carry one)"), e);
     return(Option(VcTerm).None);
   });
   // --- begin blocks --------------------------------------------------------
@@ -1444,6 +1712,16 @@ _binding_name_of :: (fn(lhs : AstExpr) -> Option(String))(
     true => Option(String).None
   )
 );
+/// The `()` unit literal — the parser's trailing element of blocks that
+/// end in a statement (parser.yo's make_unit_call: a zero-arg `tuple`
+/// call).
+_is_unit_lit :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, at) => (at.value == "()"),
+    .FnCall(_, f, a, _, _) => ((ast_expr_token(f).value == BK_TUPLE) && (a.len() == usize(0)))
+  )
+);
 _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTerm))({
   (i : usize) = usize(0);
   result := Option(VcTerm).None;
@@ -1483,16 +1761,22 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
         }
       );
     }, {
-      v := _expr_term(ctx, stmt);
-      match(
-        v,
-        .Some(vt) => {
-          result = Option(VcTerm).Some(vt);
-        },
-        .None => {
-          return(Option(VcTerm).None);
-        }
-      );
+      // The parser appends a trailing `()` to statement-final blocks — a
+      // block ending in a statement (the while-body shape) carries it.
+      if(_is_unit_lit(stmt), {
+        result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+      }, {
+        v := _expr_term(ctx, stmt);
+        match(
+          v,
+          .Some(vt) => {
+            result = Option(VcTerm).Some(vt);
+          },
+          .None => {
+            return(Option(VcTerm).None);
+          }
+        );
+      });
     });
     i = (i + usize(1));
   });
