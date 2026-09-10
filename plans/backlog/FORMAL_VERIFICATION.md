@@ -1077,14 +1077,19 @@ function. `verify+` erases proved asserts (verified by inspecting
 > ensures-assumptions pushed during the arm walk (selective
 > `_unwind_path_guards`); a callee ensures outside the subset
 > silently dropped its assumption (now a loud subset error).
-> ADJUSTMENT — deferred to a V4.1 increment (2026-09-10): task 2's
-> break/continue obligations (exit-path disjunction + continue-site
-> invariants) AND assignments inside cond arms (needs a phi-merge of
-> per-arm states — the sequential rebind is unsound for it, precise
-> subset errors stand in) AND `for` (the macro expansion cannot carry
-> an invariant). binary_search lands with V4.1 (its body assigns in
-> cond arms). Tasks 5's negative twins: wrong-invariant landed; the
-> non-decreasing-measure twin lands with V4.1.
+> V4.1 LANDED 2026-09-10 (same branch): the cond-arm phi-merge (each
+> arm walks from the SAME pre-cond state; every assigned name's
+> post-cond binding is the ite-fold over the arm guards — the
+> binary-search index skeleton `bsearch_step` proves 7/7 obligations
+> through it), `continue` as the loop body's final statement (it jumps
+> to the head, where the invariant is assumed — the iterate obligation
+> discharges it; the parser's trailing `()` appendix is tolerated), and
+> the non-decreasing-measure negative twin (REFUTES at
+> loop-variant-decreases). V4.2 REMAINS: `break` (the exit-path
+> disjunction needs per-path state reasoning — the break state differs
+> from the post-body state, so it is not expressible over the post-body
+> bindings; precise subset error stands in) and `for` (the macro
+> expansion cannot carry an invariant).
 
 **Scope:** `while` verification, `decreases(...)`, recursion, `break`/
 `continue` semantics.

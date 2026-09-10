@@ -154,6 +154,57 @@ test("recursion verifies through decreases(n) (sum_down proves)", {
   assert(rp.outcome == "ok", `sum_down proves, got: [${_reports_dump(reports)}]`);
 });
 
+test("cond arms that assign verify through the phi merge (bsearch_step proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/cond_phi_merge.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := match(
+    reports.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      assert(false, "report missing");
+      return(());
+    }
+  );
+  assert(rp.outcome == "ok", `bsearch_step proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("continue as the loop body's final statement verifies (skip_step proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_continue.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := match(
+    reports.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      assert(false, "report missing");
+      return(());
+    }
+  );
+  assert(rp.outcome == "ok", `skip_step proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("a non-decreasing loop measure is REFUTED at the variant obligation", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/non_decreasing_measure.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := match(
+    reports.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      assert(false, "report missing");
+      return(());
+    }
+  );
+  assert(rp.outcome != "ok", `stuck_measure must not prove, got: [${_reports_dump(reports)}]`);
+});
+
 test("a wrong loop invariant is REFUTED at the iterate obligation", {
   if(!_have_z3(), {
     return(());

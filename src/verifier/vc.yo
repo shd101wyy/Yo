@@ -1281,6 +1281,53 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
     _fail_subset(ctx, String.from("invariant(...) with no predicates"), e);
     return(Option(VcTerm).None);
   });
+  // `continue` as the FINAL statement jumps to the head, where the
+  // invariant is assumed — exactly what the iterate obligation proves.
+  // Drop it from the executable body; a mid-body continue keeps the
+  // precise error (later statements must not run).
+  (bi2 : usize) = usize(0);
+  while(bi2 < a.body.len(), {
+    match(
+      a.body.get(bi2),
+      .Some(stmt) => {
+        if(ast_expr_is_atom(stmt) && (ast_expr_token(stmt).value == "continue"), {
+          // Only trailing unit literals may follow (the parser's `()`
+          // appendix of statement-final blocks); anything real would be
+          // skipped by the jump.
+          (real_after : bool) = false;
+          (ti2 : usize) = (bi2 + usize(1));
+          while(ti2 < a.body.len(), {
+            match(
+              a.body.get(ti2),
+              .Some(t2) => {
+                if(!_is_unit_lit(t2), {
+                  real_after = true;
+                });
+              },
+              .None => ()
+            );
+            ti2 = (ti2 + usize(1));
+          });
+          if(real_after, {
+            _fail_subset(
+              ctx,
+              String.from("continue before the loop body's end (statements after it would be skipped)"),
+              stmt
+            );
+            return(Option(VcTerm).None);
+          });
+          // Drop the continue AND the trailing units.
+          (di2 : usize) = (a.body.len() - bi2);
+          while(di2 > usize(0), {
+            _ := a.body.pop();
+            di2 = (di2 - usize(1));
+          });
+        });
+      },
+      .None => ()
+    );
+    bi2 = (bi2 + usize(1));
+  });
   // 1. ENTRY: Inv over the current state.
   inv_entry_terms := ArrayList(VcTerm).new();
   (ii : usize) = usize(0);
@@ -1530,7 +1577,8 @@ _call_term :: (
     _fail_subset(ctx, String.from("for loop (write it as a while with an invariant — the macro form cannot carry one)"), e);
     return(Option(VcTerm).None);
   });
-  if((head == "break") || (head == "continue"), {
+  if((head == "break") || (head == "continue") ||
+    (ast_expr_is_atom(e) && ((ast_expr_token(e).value == "break") || (ast_expr_token(e).value == "continue"))), {
     _fail_subset(
       ctx,
       String.from("break/continue in verified loops (needs the exit-path disjunction increment)"),
@@ -1672,8 +1720,35 @@ _unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize
 });
 _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
   // Pair up (condition, value); the trailing `true => v` arm is the else.
+  // An arm may ASSIGN (a block value): every arm walks from the SAME
+  // pre-cond state, and each assigned name's post-cond binding is the
+  // phi ite-fold over the arm guards (exactly one arm runs).
   conds := ArrayList(VcTerm).new();
   vals := ArrayList(VcTerm).new();
+  // Pre-pass: the union of names assigned in any arm, and the pre-cond
+  // bindings they are restored to between arms.
+  phi_names := ArrayList(String).new();
+  (ai0 : usize) = usize(0);
+  while(ai0 < args.len(), {
+    arm0 := args.get(ai0).unwrap();
+    if(ast_expr_is_fn_call_of(arm0, "=>", Option(usize).Some(usize(2))), {
+      aa0 := match(
+        arm0,
+        .FnCall(_, _, a2, _, _) => a2,
+        .Atom(_, _) => ArrayList(AstExpr).new()
+      );
+      _scan_assigned(ctx.table, aa0.get(usize(1)).unwrap(), phi_names);
+    });
+    ai0 = (ai0 + usize(1));
+  });
+  pre_vals := ArrayList(Option(VcTerm)).new();
+  (pi0 : usize) = usize(0);
+  while(pi0 < phi_names.len(), {
+    pre_vals.push(ctx.vars.get(phi_names.get(pi0).unwrap().clone()));
+    pi0 = (pi0 + usize(1));
+  });
+  // Per-arm resulting bindings for the phi names (parallel to the arms).
+  arm_states := ArrayList(HashMap(String, VcTerm)).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
     arm := args.get(i).unwrap();
@@ -1684,19 +1759,6 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
         .FnCall(_, _, a2, _, _) => a2,
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
-      // An arm that ASSIGNS would need a phi-merge of the per-arm states
-      // — the sequential rebind this walk does is unsound for it. Precise
-      // error until that increment lands.
-      arm_assigned := ArrayList(String).new();
-      _scan_assigned(ctx.table, aa.get(usize(1)).unwrap(), arm_assigned);
-      if(arm_assigned.len() > usize(0), {
-        _fail_subset(
-          ctx,
-          String.from("assignment inside a cond arm (needs the phi-merge increment — keep arm values pure)"),
-          arm
-        );
-        return(Option(VcTerm).None);
-      });
       c_opt := _expr_term(ctx, aa.get(usize(0)).unwrap());
       // The arm's value walks under its GUARD (this condition ∧ the
       // negation of every earlier condition): obligations inside the arm
@@ -1716,6 +1778,38 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
         pushed = (pushed + usize(1));
       });
       v_opt := _expr_term(ctx, aa.get(usize(1)).unwrap());
+      // Capture this arm's resulting bindings, then restore the pre-cond
+      // state so the NEXT arm walks from it (exactly one arm runs).
+      state := HashMap(String, VcTerm).new();
+      (ci : usize) = usize(0);
+      while(ci < phi_names.len(), {
+        nm := phi_names.get(ci).unwrap();
+        match(
+          ctx.vars.get(nm.clone()),
+          .Some(now) => {
+            state.insert(nm.clone(), now);
+          },
+          .None => ()
+        );
+        match(
+          pre_vals.get(ci),
+          .Some(pre) => {
+            match(
+              pre,
+              .Some(old) => {
+                ctx.vars.insert(nm.clone(), old);
+              },
+              .None => {
+                _ := ctx.vars.remove(nm.clone());
+                ()
+              }
+            );
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      arm_states.push(state);
       _unwind_path_guards(ctx, path_base, pushed);
       if(c_opt.is_none() || v_opt.is_none(), {
         return(Option(VcTerm).None);
@@ -1733,6 +1827,64 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
   if(vals.len() == usize(0), {
     _fail_subset(ctx, String.from("empty cond"), at);
     return(Option(VcTerm).None);
+  });
+  // Phi-fold every assigned name: the post-cond binding is the ite over
+  // the guards of each arm's resulting term (an arm that does not assign
+  // keeps the pre-cond value); the LAST arm is the else — its entry is
+  // the fold base.
+  (fi : usize) = usize(0);
+  while(fi < phi_names.len(), {
+    fname := phi_names.get(fi).unwrap();
+    pre_opt := pre_vals.get(fi);
+    base := match(
+      arm_states.get(arm_states.len() - usize(1)),
+      .Some(last_state) => match(
+        last_state.get(fname.clone()),
+        .Some(v) => v,
+        .None => match(
+          pre_opt,
+          .Some(pv) => match(
+            pv,
+            .Some(pv2) => pv2,
+            .None => VcTerm.BoolLit(true)
+          ),
+          .None => VcTerm.BoolLit(true)
+        )
+      ),
+      .None => VcTerm.BoolLit(true)
+    );
+    phi_cell := box(base);
+    (fj : usize) = (conds.len() - usize(1));
+    while(true, {
+      if(fj == usize(0), {
+        break;
+      });
+      fj = (fj - usize(1));
+      arm_v := match(
+        arm_states.get(fj),
+        .Some(st) => match(
+          st.get(fname.clone()),
+          .Some(v) => v,
+          .None => match(
+            pre_opt,
+            .Some(pv) => match(
+              pv,
+              .Some(pv2) => pv2,
+              .None => phi_cell.*
+            ),
+            .None => phi_cell.*
+          )
+        ),
+        .None => phi_cell.*
+      );
+      ite_a := ArrayList(VcTerm).new();
+      ite_a.push(conds.get(fj).unwrap());
+      ite_a.push(arm_v);
+      ite_a.push(phi_cell.*);
+      phi_cell.* = VcTerm.App(VcOp.IteOp, ite_a);
+    });
+    ctx.vars.insert(fname.clone(), phi_cell.*);
+    fi = (fi + usize(1));
   });
   // Fold right: else = last value; each earlier arm ites on its condition.
   // VcTerm is a ref enum, so the folded cell is written through a pointer.

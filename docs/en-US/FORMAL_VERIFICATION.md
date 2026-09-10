@@ -97,7 +97,8 @@ runtime assert).
 | structs / tuples / ref enums | 🚧 in progress |
 | `while` with `invariant(...)` (the havoc rule) | ✅ verified (V4) |
 | `decreases(M)` — loop statement variant + recursion measure | ✅ verified (V4) |
-| `break`/`continue`, assignments inside `cond` arms (phi merge), `for` loops | 🚧 V4.1 |
+| assignments inside `cond` arms (the phi merge); `continue` as the loop body's final statement | ✅ verified (V4.1) |
+| `break` (exit-path disjunction), `for` loops | 🚧 V4.2 |
 | Ghost code, quantifiers, two-state reasoning | V5 |
 | Traits/generics across boundaries, `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
