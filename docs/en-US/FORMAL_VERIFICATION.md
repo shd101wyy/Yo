@@ -98,7 +98,8 @@ runtime assert).
 | `while` with `invariant(...)` (the havoc rule) | ✅ verified (V4) |
 | `decreases(M)` — loop statement variant + recursion measure | ✅ verified (V4) |
 | assignments inside `cond` arms (the phi merge); `continue` as the loop body's final statement | ✅ verified (V4.1) |
-| `break` (exit-path disjunction), `for` loops | 🚧 V4.2 |
+| `break` (exit-path disjunction); `continue` at any statement (proved at the site); `while(runtime(true), ...)` | ✅ verified (V4.2) |
+| `for` loops (need the iterator/collection model) | later phases |
 | Ghost code, quantifiers, two-state reasoning | V5 |
 | Traits/generics across boundaries, `Refine` | V6 |
 | `object`/heap, string content, floats, effects, `unsafe`, FFI | outside the subset |
@@ -124,6 +125,16 @@ the invariant additionally proves the measure non-negative over the
 havoced state and strictly decreasing across the iteration; a
 `decreases(M)` clause in a function signature does the same at every
 recursive self-call, which is what makes recursion verifiable at all.
+The exit state is a **fresh havoc generation** — a loop that never runs
+keeps its pre-state, which the body's output cannot represent, so the
+exit facts are `invariant ∧ ¬condition` over unconstrained constants.
+A `break` adds its own exit disjunct: a fresh boolean selects the state
+snapshot taken at the break site (its full path condition included),
+and everything after the loop is proved under the disjunction. A
+`continue` anywhere in the body proves the invariant (and the measure
+step) at the statement itself. `runtime(e)` is the identity marker —
+`while(runtime(true), { invariant(...); ...; if(done, { break; }) })`
+is the verifiable form of "loop until done".
 The exact-width bitvector model means **wraparound is real**: a spec
 that lets arithmetic overflow will be honestly refuted, so fixtures
 carry the bounds their arithmetic needs.

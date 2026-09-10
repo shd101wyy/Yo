@@ -1,0 +1,30 @@
+// The V4.2 break exit-path disjunction: the loop can only leave through
+// the break (the head cond is runtime(true) — the identity marker), and
+// the break site's snapshot state — where the invariant gives i == n —
+// is one disjunct of the exit state. The bitvector bounds keep the
+// arithmetic overflow-free, as in loop_invariant.yo.
+pragma(Pragma.Verify);
+
+break_sum :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(1000)),
+    ensures(result == ((n * (n + i32(1))) / i32(2)))
+  ) -> (result : i32)
+)({
+  i := i32(0);
+  acc := i32(0);
+  while(runtime(true), {
+    invariant(i >= i32(0), i <= n, acc == ((i * (i + i32(1))) / i32(2)));
+    cond(
+      (i == n) => {
+        break;
+      },
+      true => {
+        i = (i + i32(1));
+        acc = (acc + i);
+      }
+    );
+  });
+  acc
+});

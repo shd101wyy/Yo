@@ -1,8 +1,10 @@
-//! The loop/invariant/decreases tests — V4's core row
+//! The loop/invariant/decreases tests — V4's core row + V4.2's exits
 //! (FORMAL_VERIFICATION.md): `while` lowers to the havoc-invariant rule
-//! (entry proof; havoc-assume-iterate proof; exit facts), and
-//! `decreases(M)` rides as a signature clause (recursion) and a loop
-//! statement (variant).
+//! (entry proof; havoc-assume-iterate proof; exit facts), `decreases(M)`
+//! rides as a signature clause (recursion) and a loop statement
+//! (variant), and the V4.2 exit is a FRESH havoc state disjoined with
+//! every break site's snapshot (`break`), with continue sites proving
+//! the invariant at their statements.
 //!
 //! In-process model (verifier_match's shape); refutations need the real
 //! solver (YO_TEST_Z3=1), the encoding pins run solver-free.
@@ -286,4 +288,118 @@ test("the SMT encoding of a loop query havocs the assigned names (solver-free)",
   // The iterate obligation's goal is the invariant conjunction over the
   // havoc constants — sum_to itself contains no cond, so no `ite` is
   // expected here (the phi-merge fixtures carry those).
+});
+
+test("break exits through the disjunction (break_sum proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_break.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := match(
+    reports.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      assert(false, "report missing");
+      return(());
+    }
+  );
+  assert(rp.outcome == "ok", `break_sum proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("a mid-body continue verifies at its site (skip_then proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/loop_continue_mid.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := match(
+    reports.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      assert(false, "report missing");
+      return(());
+    }
+  );
+  assert(rp.outcome == "ok", `skip_then proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("a zero-iteration exit is NOT the body's output (pin_exit REFUTED)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/loop_exit_havoc.yo"), io);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := match(
+    reports.get(usize(0)),
+    .Some(r) => r,
+    .None => {
+      assert(false, "report missing");
+      return(());
+    }
+  );
+  assert(rp.outcome != "ok", `pin_exit must not prove (the exit is a fresh havoc state), got: [${_reports_dump(reports)}]`);
+});
+
+test("the exit encoding re-havocs and selects break states (solver-free)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_loops: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  rel := String.from("./tests/spec/fixtures/valid/loop_break.yo");
+  targets := ArrayList(String).new();
+  targets.push(rel.clone());
+  targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);
+  assert(outcome.ok, "fixture must evaluate cleanly");
+  tasks := take_verify_tasks();
+  assert(tasks.len() == usize(1), `one task, got ${tasks.len().to_string()}`);
+  t := match(
+    tasks.get(usize(0)),
+    .Some(x) => x,
+    .None => {
+      assert(false, "task missing");
+      return(());
+    }
+  );
+  res := verify_function_body(
+    VerifyFnInput(
+      fn_name : t.fn_id.clone(),
+      func_id : t.func_id.clone(),
+      body : t.body.clone(),
+      param_names : t.param_names.clone(),
+      param_types : t.param_types.clone(),
+      result_type : t.result_type.clone(),
+      requires_exprs : t.requires_exprs.clone(),
+      ensures_exprs : t.ensures_exprs.clone(),
+      decreases_expr : t.decreases_expr.clone(),
+      return_label : t.return_label.clone(),
+      table : t.table
+    )
+  );
+  assert(res.error.is_none(), `no subset error expected for the break fixture`);
+  scripts := StringBuilder.new();
+  (oi : usize) = usize(0);
+  while(oi < res.obligations.len(), {
+    match(
+      res.obligations.get(oi),
+      .Some(obl) => {
+        scripts.write_string(encode_script(obl.query, default_encode_options()));
+      },
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  all := scripts.to_string();
+  assert(all.contains(String.from("__yo_br")), "the break selector constants appear in the encoding");
+  assert(all.contains(String.from("__yo_hv2_")), "the exit re-havocs under a second generation");
 });

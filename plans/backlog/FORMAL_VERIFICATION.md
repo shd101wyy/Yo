@@ -1087,11 +1087,28 @@ function. `verify+` erases proved asserts (verified by inspecting
 > to the head, where the invariant is assumed — the iterate obligation
 > discharges it; the parser's trailing `()` appendix is tolerated), and
 > the non-decreasing-measure negative twin (REFUTES at
-> loop-variant-decreases). V4.2 REMAINS: `break` (the exit-path
-> disjunction needs per-path state reasoning — the break state differs
-> from the post-body state, so it is not expressible over the post-body
-> bindings; precise subset error stands in) and `for` (the macro
-> expansion cannot carry an invariant).
+> loop-variant-decreases). V4.2 LANDED 2026-09-10 (same branch):
+> `break` as the exit-path disjunction (each break site snapshots its
+> full path condition + bindings; the exit state is that snapshot
+> disjoined with a FRESH-havoc cond-exit generation — fresh bools
+> select per assigned name — so the exit is never pinned to the body's
+> output), `continue` at ANY statement (the invariant and measure step
+> are proven at the site; dead arms are excluded from the phi-fold with
+> their guards negated on the fall-through path), `runtime(e)` as the
+> identity marker (`while(runtime(true), ...)` + break is the
+> "loop until done" idiom; `break_sum` proves 8/8, `skip_then` proves,
+> the zero-iteration pin twin `pin_exit` REFUTES). RECLASSIFIED: `for`
+> stays outside the subset — its expansion drives an uncontracted
+> iterator trait call over collection state, which needs the V6
+> collection/iterator model; the precise subset error and the
+> while+runtime(true) workaround are documented. SURFACED AND FIXED:
+> the V4 exit kept POST-BODY bindings, pinning zero-iteration exits to
+> the body's output — a false PROOF (`ensures(result == 5)` after
+> `while(y < 0, { invariant(y >= 0); y = 5; })` "proved" though x = 100
+> never enters the loop) —
+> issues/fixed/verifier-loop-exit-pins-post-body-bindings.md; the exit now
+> re-havocs under a second generation and assumes Inv ∧ ¬Cond over the
+> fresh constants (all V4/V4.1 fixtures still prove).
 
 **Scope:** `while` verification, `decreases(...)`, recursion, `break`/
 `continue` semantics.
