@@ -1,4 +1,5 @@
 //! File system types for open modes, permissions, and seek positions.
+{ String } :: import("../string");
 { O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_EXCL, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("../sys/constants");
 /// Determines how a file is opened.
 OpenMode :: enum(
@@ -62,6 +63,182 @@ impl(
   )
 );
 export(FilePermission);
+/// A builder for the open flags — Rust's `fs::OpenOptions`.
+///
+/// `OpenMode`'s five variants are the common combinations, and they cannot
+/// express the rest: there is no read+append, no create-without-truncate, no
+/// read+write+create. Rather than grow that enum combinatorially, this builds
+/// the flag set directly.
+///
+/// A plain value struct with functional setters, so a chain builds a new
+/// value at each step and nothing is shared or allocated:
+///
+/// ```rust
+/// f := io.await(
+///   File.open_opts(path, OpenOptions.new().read(true).append(true).create(true), io),
+///   { io, exn }
+/// );
+/// ```
+///
+/// `to_flags()` resolves the POSIX flag set, and REJECTS the combinations
+/// POSIX would silently misinterpret rather than passing them through.
+OpenOptions :: struct(
+  _read : bool,
+  _write : bool,
+  _append : bool,
+  _truncate : bool,
+  _create : bool,
+  _create_new : bool
+);
+export(OpenOptions);
+impl(
+  OpenOptions,
+  /// All flags off. At least one of `read`/`write`/`append` must be set
+  /// before `to_flags()` will accept it.
+  new : (fn() -> Self)(
+    Self(
+      _read : false,
+      _write : false,
+      _append : false,
+      _truncate : false,
+      _create : false,
+      _create_new : false
+    )
+  ),
+  /// Open for reading.
+  read : (fn(self : Self, on : bool) -> Self)(
+    Self(
+      _read : on,
+      _write : self._write,
+      _append : self._append,
+      _truncate : self._truncate,
+      _create : self._create,
+      _create_new : self._create_new
+    )
+  ),
+  /// Open for writing.
+  write : (fn(self : Self, on : bool) -> Self)(
+    Self(
+      _read : self._read,
+      _write : on,
+      _append : self._append,
+      _truncate : self._truncate,
+      _create : self._create,
+      _create_new : self._create_new
+    )
+  ),
+  /// Every write goes to the END of the file regardless of the seek position
+  /// (`O_APPEND`). Grants write access on its own.
+  append : (fn(self : Self, on : bool) -> Self)(
+    Self(
+      _read : self._read,
+      _write : self._write,
+      _append : on,
+      _truncate : self._truncate,
+      _create : self._create,
+      _create_new : self._create_new
+    )
+  ),
+  /// Truncate the file to zero length on open. Needs write access.
+  truncate : (fn(self : Self, on : bool) -> Self)(
+    Self(
+      _read : self._read,
+      _write : self._write,
+      _append : self._append,
+      _truncate : on,
+      _create : self._create,
+      _create_new : self._create_new
+    )
+  ),
+  /// Create the file if it does not exist. Needs write or append access.
+  create : (fn(self : Self, on : bool) -> Self)(
+    Self(
+      _read : self._read,
+      _write : self._write,
+      _append : self._append,
+      _truncate : self._truncate,
+      _create : on,
+      _create_new : self._create_new
+    )
+  ),
+  /// Create the file, failing if it ALREADY exists. Implies `create`, and the
+  /// check-and-create is atomic (`O_EXCL`), which is what makes it usable as a
+  /// lock.
+  create_new : (fn(self : Self, on : bool) -> Self)(
+    Self(
+      _read : self._read,
+      _write : self._write,
+      _append : self._append,
+      _truncate : self._truncate,
+      _create : self._create,
+      _create_new : on
+    )
+  ),
+  /// True when this combination can create the file, so the caller knows
+  /// whether the permission argument is consulted.
+  creates : (fn(self : Self) -> bool)(
+    (self._create || self._create_new)
+  ),
+  /// The POSIX flag set, or `.Err` naming the contradiction.
+  ///
+  /// The rejected combinations are the ones POSIX does NOT diagnose — it
+  /// quietly ignores whichever flag does not apply, handing back a file that
+  /// behaves differently from what was asked:
+  ///
+  /// - nothing to do: no `read`, `write` or `append`.
+  /// - `truncate` without write access: `O_TRUNC` with `O_RDONLY` is
+  ///   undefined by POSIX and a no-op on Linux.
+  /// - `truncate` with `append`: contradictory — append means every write
+  ///   goes to the end, truncate means the end is zero.
+  /// - `create` without write access: there is nothing to create the file for.
+  to_flags : (fn(self : Self) -> Result(i32, String))(
+    cond(
+      ((!self._read && !self._write) && !self._append) =>
+        Result(i32, String).Err(
+          String.from("OpenOptions: set at least one of read, write or append")
+        ),
+      (self._truncate && (!self._write && !self._append)) =>
+        Result(i32, String).Err(
+          String.from("OpenOptions: truncate needs write access")
+        ),
+      (self._truncate && self._append) =>
+        Result(i32, String).Err(
+          String.from("OpenOptions: truncate and append are contradictory")
+        ),
+      (self.creates() && (!self._write && !self._append)) =>
+        Result(i32, String).Err(
+          String.from("OpenOptions: create needs write or append access")
+        ),
+      true => {
+        // The access mode is a VALUE, not a bit set: O_RDONLY is 0, so it has
+        // to be chosen, never OR-ed in.
+        flags := cond(
+          (self._read && (self._write || self._append)) => O_RDWR,
+          (self._write || self._append) => O_WRONLY,
+          true => O_RDONLY
+        );
+        with_append := cond(
+          self._append => (flags | O_APPEND),
+          true => flags
+        );
+        with_trunc := cond(
+          self._truncate => (with_append | O_TRUNC),
+          true => with_append
+        );
+        with_create := cond(
+          self.creates() => (with_trunc | O_CREAT),
+          true => with_trunc
+        );
+        // O_EXCL only means "fail if it exists" together with O_CREAT.
+        with_excl := cond(
+          self._create_new => (with_create | O_EXCL),
+          true => with_create
+        );
+        Result(i32, String).Ok((with_excl | O_CLOEXEC))
+      }
+    )
+  )
+);
 /// Reference point for file seek operations.
 SeekFrom :: enum(
   /// Seek from the beginning of the file.

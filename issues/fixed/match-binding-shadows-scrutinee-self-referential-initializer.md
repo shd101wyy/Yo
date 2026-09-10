@@ -1,6 +1,6 @@
 # Match-arm binding shadowing the scrutinee emits a self-referential C initializer (UB)
 
-- **Status**: open (fix implemented, see below)
+- **Status**: FIXED 2026-09-09 — develop `1d4023b0d` (#527): `_emit_pattern_binding_decl` hoists the initializer into a `__yo_pat_<bind>` temp at all five emission sites; regression tests in `tests/internal/match_binding_shadow.test.yo`.
 - **Found**: 2026-09-09, during V3 of `plans/backlog/FORMAL_VERIFICATION.md` (match/datatype encoding)
 - **Severity**: high — undefined behavior in generated C; nondeterministic garbage pointers, premature frees, rc=139 SIGSEGV
 - **Surface**: any Yo `match` whose arm pattern binds a name that is also the scrutinee's name (or, generally, any name referenced by the binding's initializer)

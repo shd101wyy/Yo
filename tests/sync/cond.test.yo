@@ -1,0 +1,144 @@
+/// `Cond` — wait / signal / broadcast, and `wait_timeout`.
+///
+/// `Cond` had no test file at all before this. `wait_timeout` arrives with the
+/// v0.2.30 seed, which is the first one whose emitted runtime carries
+/// `__yo_cond_timedwait` (the compiler half landed in #529; `std/` cannot call
+/// a new `__yo_*` primitive until a seed ships it).
+pragma(Pragma.AllowUnsafe);
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+{ Cond } :: import("std/sync/cond");
+{ Mutex } :: import("std/sync/mutex");
+{ Thread } :: import("std/thread");
+{ Channel } :: import("std/sync/channel");
+{ Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ eprintln } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+// ============================================================================
+// wait_timeout
+// ============================================================================
+test("wait_timeout reports a timeout when nobody signals", {
+  m := Mutex(i64).new(i64(0));
+  cv := Cond.new();
+  m._raw_lock();
+  woken := cv.wait_timeout(m._raw_handle_ptr(), Duration.from_millis(i64(40)));
+  m._raw_unlock();
+  assert(!woken, "an unsignalled wait reports false");
+});
+test("wait_timeout returns true when signalled before the deadline", {
+  // The signaller takes the mutex, which is what proves the waiter has
+  // already released it and is inside the wait.
+  m := Mutex(i64).new(i64(0));
+  cv := Cond.new();
+  ready := Channel(i32).new(usize(1));
+  signaller := Thread.spawn(io => {
+    ready.recv();
+    m._raw_lock();
+    cv.signal();
+    m._raw_unlock();
+  });
+  m._raw_lock();
+  ready.send(i32(1));
+  // A 10s budget that must not be consumed.
+  woken := cv.wait_timeout(m._raw_handle_ptr(), Duration.from_secs(i64(10)));
+  m._raw_unlock();
+  signaller.join();
+  assert(woken, "a signalled wait reports true, not a timeout");
+});
+test("wait_timeout treats a zero and a negative Duration as 'do not block'", {
+  m := Mutex(i64).new(i64(0));
+  cv := Cond.new();
+  m._raw_lock();
+  assert(!cv.wait_timeout(m._raw_handle_ptr(), Duration.zero()), "zero times out");
+  // A negative Duration must clamp to zero rather than becoming a very long
+  // wait through an unsigned conversion.
+  assert(
+    !cv.wait_timeout(m._raw_handle_ptr(), Duration.from_millis(i64(-5))),
+    "a negative Duration times out too"
+  );
+  m._raw_unlock();
+});
+test("wait_timeout re-acquires the mutex before returning", {
+  // The condvar contract: the mutex is released while waiting and held again
+  // on return, on the timeout path as much as the signalled one. If it came
+  // back unlocked, this unlock would be on a mutex we do not hold — and the
+  // following acquisition from another thread would then be able to interleave.
+  m := Mutex(i64).new(i64(0));
+  cv := Cond.new();
+  m._raw_lock();
+  cv.wait_timeout(m._raw_handle_ptr(), Duration.from_millis(i64(20)));
+  // Still held here, so a try from this point must be the only thing that
+  // can take it after we release.
+  m._raw_unlock();
+  assert(m.try_with_lock(v => v).is_some(), "the mutex was held on return and released cleanly");
+});
+// ============================================================================
+// wait / signal / broadcast — the untimed forms, which had no coverage either
+// ============================================================================
+test("wait blocks until signalled, with the predicate re-checked", {
+  m := Mutex(i64).new(i64(0));
+  cv := Cond.new();
+  flag := AtomicI32.new(i32(0));
+  waiting := Channel(i32).new(usize(1));
+  setter := Thread.spawn(io => {
+    waiting.recv();
+    m._raw_lock();
+    flag.store(i32(1), MemoryOrder.SeqCst);
+    cv.signal();
+    m._raw_unlock();
+  });
+  m._raw_lock();
+  waiting.send(i32(1));
+  // The predicate loop is the contract: a spurious wake must not be mistaken
+  // for the condition becoming true.
+  while(runtime(flag.load(MemoryOrder.SeqCst) == i32(0)), {
+    cv.wait(m._raw_handle_ptr());
+  });
+  m._raw_unlock();
+  setter.join();
+  assert(flag.load(MemoryOrder.SeqCst) == i32(1), "the waiter observed the condition");
+});
+test("broadcast releases every waiter", {
+  m := Mutex(i64).new(i64(0));
+  cv := Cond.new();
+  flag := AtomicI32.new(i32(0));
+  woken := AtomicI32.new(i32(0));
+  parked := Channel(i32).new(usize(4));
+  handles := ArrayList(Thread).new();
+  (t : i64) = i64(0);
+  while(runtime(t < i64(4)), {
+    handles.push(
+      Thread.spawn(io => {
+        m._raw_lock();
+        parked.send(i32(1));
+        while(runtime(flag.load(MemoryOrder.SeqCst) == i32(0)), {
+          cv.wait(m._raw_handle_ptr());
+        });
+        m._raw_unlock();
+        woken.fetch_add(i32(1), MemoryOrder.SeqCst);
+      })
+    );
+    t = (t + i64(1));
+  });
+  // Every waiter has taken the mutex and is about to wait (or already is).
+  (p : i64) = i64(0);
+  while(runtime(p < i64(4)), {
+    parked.recv();
+    p = (p + i64(1));
+  });
+  m._raw_lock();
+  flag.store(i32(1), MemoryOrder.SeqCst);
+  cv.broadcast();
+  m._raw_unlock();
+  (j : usize) = usize(0);
+  while(runtime(j < handles.len()), {
+    handles(j).join();
+    j = (j + usize(1));
+  });
+  // Joining all four IS the assertion: a signal() instead of a broadcast()
+  // would leave three of them parked and this test would hang rather than
+  // report a wrong number.
+  assert(woken.load(MemoryOrder.SeqCst) == i32(4), "all four waiters ran to completion");
+});

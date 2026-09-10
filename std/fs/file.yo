@@ -29,12 +29,12 @@ import("../fmt");
 { Path } :: import("../path");
 { IoError } :: import("../sys/errors");
 { EINVAL } :: import("../libc/errno");
-{ Error, AnyError, Exception, IoExn } :: import("../error");
+{ Error, AnyError, Exception, IoExn, Context } :: import("../error");
 { Metadata } :: import("./metadata");
 _metadata_mod :: import("./metadata");
 { Statx } :: import("../sys/statx");
 IO_path :: import("../sys/path");
-{ OpenMode, FilePermission, SeekFrom, _open_mode_to_flags, _open_mode_needs_perm } :: import("./types");
+{ OpenMode, OpenOptions, FilePermission, SeekFrom, _open_mode_to_flags, _open_mode_needs_perm } :: import("./types");
 IO_file :: import("../sys/file");
 IoTraits :: import("../io");
 { AT_FDCWD, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("../sys/constants");
@@ -106,6 +106,47 @@ impl(
   /// Open a file from a `str` path with the given mode and default permissions.
   open_str : (fn(path : str, mode : OpenMode, io : Io) -> Impl(Future(File, IoExn)))(
     File.open(Path.new(String.from(path)), mode, io)
+  ),
+  /// Open a file at `path` with an `OpenOptions` flag set and custom
+  /// permissions.
+  ///
+  /// `perm` is consulted only when `opts.creates()` — POSIX ignores the mode
+  /// argument otherwise, so passing one for a non-creating open is silently
+  /// meaningless and this mirrors that.
+  ///
+  /// Throws when `opts` names a contradictory combination (see
+  /// `OpenOptions.to_flags`): the thrown error is a `Context` carrying the
+  /// explanation over an `IoError.InvalidInput`, so `to_string()` says which
+  /// combination was rejected while `source()` still reports the kind Rust
+  /// would report.
+  open_opts_with : (fn(path : Path, opts : OpenOptions, perm : FilePermission, io : Io) -> Impl(Future(File, IoExn)))({
+    file_mode := cond(
+      opts.creates() => i32(perm.mode),
+      true => i32(0)
+    );
+    io.async(e => {
+      flags := match(
+        opts.to_flags(),
+        .Ok(f) => f,
+        .Err(msg) => e.exn.throw(dyn(Context.new(msg, dyn(IoError.InvalidInput))))
+      );
+      path_str := path.to_string();
+      cstr_bytes := path_str.to_cstr();
+      cstr := cstr_bytes.ptr().unwrap();
+      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
+      fd := IoError.check(result, e.exn);
+      File(
+        _fd : fd,
+        _path : path,
+        _is_closed : false,
+        _pos : u64(0)
+      )
+    })
+  }),
+  /// Open a file at `path` with an `OpenOptions` flag set and default
+  /// permissions (0o644).
+  open_opts : (fn(path : Path, opts : OpenOptions, io : Io) -> Impl(Future(File, IoExn)))(
+    File.open_opts_with(path, opts, FilePermission.default(), io)
   ),
   /// Open a file from a C string path with the given mode and default permissions.
   open_cstr : (fn(path : *u8, mode : OpenMode, io : Io) -> Impl(Future(File, IoExn)))(
@@ -233,6 +274,14 @@ impl(
   position : (fn(self : Self) -> i64)(
     i64(self._pos)
   ),
+  /// Move back to the beginning of the file (Rust's `Seek::rewind`).
+  ///
+  /// Inherent rather than a `Seek` default because a trait generic over the
+  /// reference-point type cannot name its own "start" — see `io.Seek`.
+  rewind : (fn(self : Self, exn : Exception) -> unit)({
+    self.seek(i64(0), SeekFrom.Start, exn);
+    ()
+  }),
   /// Get the file size in bytes.
   size : (fn(self : Self) -> i64)(
     IO_file.file_size(self._fd)
@@ -290,7 +339,7 @@ impl(
     })
   )
 );
-export(File, OpenMode, FilePermission, SeekFrom);
+export(File, OpenMode, OpenOptions, FilePermission, SeekFrom);
 // === std/io async trait impls (STD_API_AUDIT D5) ===
 // Registered BEFORE the convenience functions below: they call the Reader
 // defaults (`file.read_to_end` / `file.read_to_string`) on a `File`, and a
@@ -314,6 +363,17 @@ impl(
     // fd writes are unbuffered — nothing to flush.
     flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())
+    )
+  )
+);
+impl(
+  File,
+  IoTraits.Seek(SeekFrom)(
+    seek : (fn(self : Self, offset : i64, from : SeekFrom, exn : Exception) -> i64)(
+      self.seek(offset, from, exn)
+    ),
+    position : (fn(self : Self) -> i64)(
+      self.position()
     )
   )
 );

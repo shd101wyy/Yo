@@ -1,4 +1,18 @@
-import unicodedata, sys
+import unicodedata, sys, os
+
+_ALLOWED_WRITE_ROOTS = (os.path.abspath("."), os.path.abspath("/tmp"))
+
+def _no_traversal(p):
+    """Dev-tool write guard: normalize the path, refuse any `..` component,
+    and confine the result to an allowed root (repo cwd or /tmp), so a
+    mistyped argument cannot write outside the intended tree."""
+    if ".." in p.replace("\\", "/").split("/"):
+        sys.exit("refusing path with '..' component: %s" % p)
+    abs_p = os.path.abspath(os.path.normpath(p))
+    if not any(abs_p == r or abs_p.startswith(r + os.sep) for r in _ALLOWED_WRITE_ROOTS):
+        sys.exit("refusing path outside allowed roots (cwd, /tmp): %s" % p)
+    return abs_p
+
 # simple (single-codepoint) mappings; multi-codepoint expansions listed separately
 simple={}  # cp -> (dU, dL)
 multi_up=[]; multi_lo=[]
@@ -45,8 +59,9 @@ out=""
 out+="// Generated from Unicode %s (Python unicodedata) by scratch gen_case.py.\n" % unicodedata.unidata_version
 out+="// Each entry i covers code points _LO(i)..=_HI(i). When _UL(i) is 1 the\n// range alternates Upper, Lower, Upper, Lower… from _LO(i) (upper→lower is\n// +1, lower→upper is −1); otherwise upper(cp) = cp + _DU(i) and\n// lower(cp) = cp + _DL(i) (0 = no mapping).\n"
 out+=emit_arr("_LO",lo)+emit_arr("_HI",hi)+emit_arr("_DU",du)+emit_arr("_DL",dl)+emit_arr("_UL",ul)
-open("case_table.yo","w").write(out)
-open("multi.txt","w").write("UP\n"+"\n".join(f"{cp:04X} -> {' '.join('%04X'%x for x in m)} {unicodedata.name(chr(cp),'?')}" for cp,m in multi_up)+"\nLO\n"+"\n".join(f"{cp:04X} -> {' '.join('%04X'%x for x in m)}" for cp,m in multi_lo))
+from pathlib import Path
+Path(_no_traversal("case_table.yo")).write_text(out)
+Path(_no_traversal("multi.txt")).write_text("UP\n"+"\n".join(f"{cp:04X} -> {' '.join('%04X'%x for x in m)} {unicodedata.name(chr(cp),'?')}" for cp,m in multi_up)+"\nLO\n"+"\n".join(f"{cp:04X} -> {' '.join('%04X'%x for x in m)}" for cp,m in multi_lo))
 # sanity: verify table reproduces simple map
 def lookup(cp):
     import bisect

@@ -421,7 +421,7 @@ window as D9–D18):
 
 | row as written | actual state |
 | --- | --- |
-| `Seek` trait | `SeekFrom` exists (`std/fs/types.yo:66`); there is no `Seek` TRAIT |
+| `Seek` trait | ~~`SeekFrom` exists (`std/fs/types.yo:66`); there is no `Seek` TRAIT~~ — **LANDED 2026-09-09**, `std/io/index.yo` `Seek(From)`, implemented by `File` |
 | `Reader.read_exact` as a default | exists as a `BufReader` method (`std/io/bufio.yo:137`); NOT a `Reader` trait default |
 | `Stdout.write_string` | exists on `BufWriter(W)` (`std/io/bufio.yo:235`); NOT on `Stdout` |
 | `FromIterator` on `HashMap`/`BTreeMap`/`imm/*` | exists on `HashSet` only (`std/collections/hash_set.yo:411`); `hash_map.yo` and `btree_map.yo` have zero |
@@ -435,17 +435,21 @@ remove_entry/get_key_value` (all 5). `Deque.front`/`back`. `BTreeMap` —
 no `Iterator` on any of the six collection types (`imm/string.yo:627` has one).
 Text — every listed `String` method, `next_back`, `is_ascii_*` renames. Encoding
 — `Url.join/query_pairs/path_segments`, `JsonValue` mutation/`as_i64`/`pointer`,
-regex naming, `glob()`. I/O — `OpenOptions`, `Watcher`
-`Dispose`, `SystemTime`/`UNIX_EPOCH`, `SocketAddr` `Eq`/`Hash`,
+regex naming, `glob()`. I/O — `Watcher`
+`Dispose`, `SocketAddr` `Eq`/`Hash`,
 `TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`. Core — **all of it**: every `checked_/wrapping_/
 saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
 `thread_rng`. Concurrency — `Thread` is NOT generic and `join -> unit`
 (`std/thread.yo:61,78`), so **D18b is still open**; `Sender`/`Receiver` split,
-`Condvar.wait_timeout`, `RwLock.try_*` (the runtime primitives landed
-2026-09-10; the std half waits one release),
-`Semaphore.with_permit`, `interval`, `spawn_blocking`, `TryRecvError` all absent;
+`spawn_blocking` absent (`Mutex.try_with_lock`,
+`Cond.wait_timeout` and `RwLock.try_with_read`/`try_with_write` all LANDED
+2026-09-10, once v0.2.30 shipped the runtime primitives as the seed)
+(`Semaphore.with_permit` and `TryRecvError` were LISTED HERE IN ERROR — both
+landed, in `std/sync/semaphore.yo:148` with a test at
+`tests/sync/semaphore.test.yo:318`, and in `std/sync/channel.yo` /
+`std/async/channel.yo`; re-verified 2026-09-10. `interval` landed 2026-09-10);
 `_raw_lock` is still public (`std/sync/once.yo:70`) — that row asks for REMOVAL,
 so "present" means the work remains.
 
@@ -556,12 +560,75 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 **I/O.** Verified against the code 2026-09-09 — LANDED:
 `Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
 `Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
-`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: a `Seek` trait
-(only a bare `lseek` in `std/sys/seek.yo`); `OpenOptions`; a real
-`SystemTime`/`UNIX_EPOCH` in `std/time` for `Metadata.modified` to return;
-`Child` stdin/stdout/stderr as `Reader`/`Writer` handles; `Watcher` `Dispose`;
-HTTP keep-alive. (`IpAddr.parse_v6`, `UdpSocket.recv_from -> (n, from)`,
-`StatusCode` and `HeaderMap` landed 2026-09-09 — described just below.)
+`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: `Child`
+stdin/stdout/stderr as `Reader`/`Writer` handles; `Watcher` `Dispose`; HTTP
+keep-alive. (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
+`UdpSocket.recv_from -> (n, from)`, `StatusCode` and `HeaderMap` all landed
+2026-09-09 — described just below.)
+
+**`Seek` + `OpenOptions` + `SystemTime` — LANDED 2026-09-09, and the shapes
+each had a reason.**
+
+`SystemTime` is a SECOND clock, deliberately not interconvertible with
+`Instant`: `Instant` reads `CLOCK_MONOTONIC` (no epoch, never steps, only
+differences mean anything), `SystemTime` reads `CLOCK_REALTIME` (anchored at
+`UNIX_EPOCH`, and steppable by NTP or by hand). `duration_since` therefore
+returns `Result(Duration, SystemTimeError)` — Rust's shape — because a
+backwards step is a real outcome, not a bug to swallow. All of its arithmetic
+stays on the `(secs, nanos)` PAIR: converting either side to a single `i64`
+nanosecond count overflows past year 2262, and signed overflow is UB in C.
+Every constructor normalizes `nanos` into `[0, 1e9)` with a FLOOR second, so one instant has one
+representation — without that, `(-1, -4e8)` and `(-2, 6e8)` are the same
+timestamp and compare unequal under the field-wise `Eq`/`Ord`.
+
+`Metadata.modified`/`accessed`/`status_changed` now return `SystemTime` built
+from `statx`'s seconds AND nanoseconds. The seconds-only `*_time` accessors are
+kept (a caller that wants the raw field should not have to go through a struct)
+and pinned by a test asserting `modified_time() == modified().as_unix_secs()`.
+
+**A filesystem timestamp and `CLOCK_REALTIME` are different clock domains**, so
+an mtime can sit a hair AHEAD of a later `SystemTime.now()`. Emscripten's MEMFS
+put it 64 ns ahead, which failed a first version of the test that asserted the
+ordering ("mtime must not be in the future") — no OS promises that ordering,
+only that the two readings are close. The test now bounds the skew in either
+direction. It is also a live demonstration of why `duration_since` returns a
+`Result`: the 64 ns showed up as `SystemTimeError.EarlierThan`, exactly the
+outcome a silent `Duration.zero()` would have hidden.
+
+The `Seek` trait is SYNCHRONOUS while `Reader`/`Writer` are async, because
+moving a position is arithmetic on a handle's own state: `File`'s reads and
+writes are positional (`pread`/`pwrite`), so its descriptor sits at offset 0
+forever and `File.seek` never touches it. It is parameterized over the
+reference-point type (`Seek(From)`) rather than re-declaring `SeekFrom`, so
+there is one spelling of "from where" in the tree. It has NO `rewind`, unlike
+Rust: every absolute move needs a `From` VALUE naming the beginning, and a
+trait generic over `From` cannot name one — a `rewind(self, from, exn)` default
+would make the caller pass the very thing `rewind` exists to hide, so the
+convenience is inherent on `File` instead.
+
+`OpenOptions` is a plain value struct with FUNCTIONAL setters (each returns a
+new value), not the `ref(struct(...))`-with-mutation shape `Command` uses: a
+flag bag needs no allocation or refcount, and an immutable builder lets one
+base be reused for several opens. It exists because `OpenMode`'s five variants
+cannot express read+append, create-without-truncate, or read+write+create, and
+growing that enum combinatorially is the wrong answer. `to_flags()` returns
+`Result(i32, String)` and REJECTS the four combinations POSIX does not
+diagnose — no access mode at all, `truncate` without write access, `truncate`
+with `append`, `create` without write access — because `open(2)` quietly
+ignores whichever flag does not apply and hands back a file that behaves
+differently from what was asked. `File.open_opts` raises a rejection as a
+`Context` over `IoError.InvalidInput`, so `to_string()` names the contradiction
+while `source()` still reports the kind Rust would report. Note the access mode
+is a VALUE, not a bit set (`O_RDONLY` is 0), so it is chosen rather than OR-ed.
+
+Coverage: 9 `SystemTime` tests in `tests/time/instant.test.yo` (14/14), 2
+timestamp tests in `tests/fs/metadata.test.yo` (10/10), and 10 in
+`tests/fs/file.test.yo` (29/29) covering flag mapping, each rejected
+combination, setter non-mutation, read+append, create-without-truncate,
+`create_new` on an existing path, the `Context` message, `rewind`, and a
+generic function bounded on `Seek(SeekFrom)` — the last one being the only
+thing that proves the impl is registered rather than the inherent method being
+picked up.
 
 **`IpAddr.parse_v6` + `UdpSocket.recv_from` + HTTP `StatusCode`/`HeaderMap` —
 LANDED 2026-09-09.**
@@ -670,7 +737,11 @@ an `Array(u8, N)` sized by its width — neither is nameable from a blanket.
 `usize`/`isize` get `abs_diff` but deliberately NO byte conversions: N would
 be the target pointer width and a type-level size cannot be derived the way
 `_USIZE_BITS` derives a value, so hard-coding 8 would be silently wrong on
-wasm32. STILL OPEN: a documented `downcast`.
+wasm32. `downcast` is now DOCUMENTED (2026-09-09) in
+`docs/{en-US,zh-CN}/DYN_DESIGN.md` — the `Option(T)` result, the single
+pointer-compare against the vtable's `__yo_type_id`, the owned/RC'd result, the
+box-unwrapping for value targets, and the statically-`.None` case for a target
+no `dyn()` in the program ever wraps.
 **`ErrorChain` and `root_cause` are BLOCKED on a compiler defect, not on
 design** —
 `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
@@ -705,16 +776,123 @@ say to take an own `Rng.from_entropy()` in a hot loop instead.
 `async/mutex.with_lock` either taking an `io` (so its doc claim becomes true)
 or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface;
-`JoinHandle` `Dispose`; `interval`; `spawn_blocking`; a concurrent test for
-`Mutex` (it has none).
+`JoinHandle` `Dispose`; `spawn_blocking`. (`interval` and the concurrent
+`Mutex` tests landed 2026-09-10 — below.)
 
-**`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*` — the COMPILER HALF
-LANDED 2026-09-10; the std half waits for one release.**
+**`interval` — LANDED 2026-09-10.** `std/time/sleep.yo` gains `Interval` and
+`interval(period, io)`. The reason it exists rather than a `sleep` in a loop is
+DRIFT: `while(true, { work(); sleep(period); })` takes `period + work` per
+iteration, so 100 ticks of 10 ms work on a 1 s period ends 1 s behind. An
+interval anchors each tick to a SCHEDULE — tick `n` is due at
+`start + n * period` — so the work comes out of the wait instead of being added
+to it. The first `tick()` is immediate, as Tokio's is.
 
-`__yo_mutex_trylock` and `__yo_cond_timedwait` are now in the emitted runtime
-(`src/codegen/types/generation.yo`). `std/` still cannot call them until the
-SEED ships them, so the sequence is: this compiler PR → release → SEED_VERSION
-bump → the std PR.
+Missed ticks **burst**: after an overrun the owed ticks are already due and
+come back to back until the schedule is caught up (Tokio's
+`MissedTickBehavior::Burst`). That is right for anything counting ticks, since
+the total over a window is what the period promises, and WRONG for a rate
+limiter, which wants a stall to swallow ticks rather than repay them. Tokio's
+`Delay`/`Skip` are deliberately NOT implemented: the choice belongs to the call
+site and guessing it here would be worse than leaving it out.
+
+Tested on the SCHEDULE, not the wall clock (`tests/time/sleep.test.yo`, 7/7):
+`_next` advances by exactly one period per tick however long the body took —
+which IS the no-drift property — the first tick is due at construction, and
+three ticks owed after an overrun advance the schedule by exactly three
+periods. A first version compared measured elapsed time against a computed
+"a drifting loop would take ~180 ms" and failed on a macOS CI runner that took
+492 ms: that runner needs 163 ms for a 60 ms sleep, so every 30 ms tick costs
+~90 ms and BOTH loops blow past any absolute figure. Timer granularity is not
+something a test can assume away. NO wall-clock assertion survives. One did
+briefly — "a not-yet-due tick waits at least 20ms of its 30ms period", on the
+theory that a slow machine makes a wait longer and never shorter. That is wrong
+for a COARSE one: Windows timers have ~15.6ms granularity and windows-11-arm
+measured 19ms for a 30ms wait. Whether `sleep` sleeps long enough is `sleep`'s
+contract, covered by its own cases; re-asserting it inside the interval tests
+only imported that flakiness.
+
+**`Once.call` now runs its slow path under `Mutex.with_lock`** (2026-09-10),
+and the long-standing NOTE claiming the old manual `_raw_lock`/`_raw_unlock`
+pair could **leave the mutex held forever on an unwind is WRONG** — corrected
+in place. `f` is an `Impl(Fn() -> unit)` and a closure cannot capture an
+`Exception` ("Closures cannot capture a value of control-bound type"), so `f`
+has no way to throw past that frame; the leak was never reachable. The rewrite
+still stands: the guarantee is now structural rather than resting on `f`'s
+signature staying un-throwable, and it removes three `_raw_*` call sites that
+the privatization row needs gone. It was blocked until now on the `R = unit`
+callback codegen bug, fixed 2026-08-26 and shipped in the v0.2.29 seed.
+
+**`Mutex` has concurrent tests now** (`tests/sync/mutex.test.yo`, 8/8). Every
+previous test in that file was single-threaded, so none of them could tell a
+working `Mutex` from a no-op. The new three run 8 threads x 2000 contended
+read-modify-writes and assert the exact total (a lost update is an off-by-any),
+check that `with_lock` hands back the closure's value while the mutation
+persists, and hammer 8,000 lock/unlock/lock cycles to catch an unlock that
+fires at the wrong moment — which shows up as a deadlock rather than a wrong
+number, so that one asserts progress.
+
+**`spawn_blocking` is deliberately still open**, and this is why: it has to
+bridge an OS thread's completion back into the single-threaded event loop, and
+there is no waker. The shapes available today are a `yield` spin or a
+1 ms-backoff poll (which is what `std/async/channel` already does), and both
+are stopgaps that the waker work in this same group would immediately replace.
+It belongs with that work, not ahead of it.
+
+**`Mutex.try_lock`, `Condvar.wait_timeout`, `RwLock.try_*` — COMPLETE
+2026-09-10.** The compiler half landed first; **v0.2.30 shipped it as the seed,
+and the std half landed the same day.** This was the last "blocked on the seed,
+not on design" row in the document.
+
+The std surface, shaped to this library rather than transliterated:
+
+- **`Mutex.try_with_lock(body) -> Option(R)`**, not `try_lock() -> Guard`.
+  `Mutex(T)` deliberately has no guard type — access is only granted inside a
+  closure — so the "did I get it" answer is the `Option`. `body` not running IS
+  the failure case, which is why the result is optional rather than the lock
+  state being reported alongside a value: there is no way to observe "not
+  acquired" and still have one. Release goes through the same
+  `__MutexUnlocker`, so an early `return` or `unwind` out of `body` unlocks.
+- **`Mutex.is_unlocked()`**, documented as advisory and racy by construction:
+  it takes the lock to find out and releases it again, so the answer describes
+  a moment that has passed. Branching on it to predict whether a later
+  `with_lock` blocks is a TOCTOU bug, and the name is a question about the past
+  for that reason.
+- **`Cond.wait_timeout(handle, Duration) -> bool`** — true on a wake (possibly
+  SPURIOUS, which the caller must re-check its predicate for either way),
+  false only on a genuine timeout. The doc states the trap Rust also states:
+  the timeout is per WAIT, not per loop, so a spurious wake restarts the full
+  budget and a predicate loop can outlast its nominal deadline. Track an
+  `Instant` and pass the remaining time when the total matters.
+- **`RwLock.try_with_read` / `try_with_write` -> Option(R)`**, with the trap
+  spelled out: a SINGLE concurrent reader is enough to make `try_with_write`
+  fail, so it fails far more often than `try_with_read` under a read-heavy
+  load, and polling it can starve a writer indefinitely — which is exactly
+  what the blocking `with_write` avoids by parking in the queue.
+
+**One claim in the old note was wrong and is corrected here: `RwLock.try_*` did
+NOT need `__yo_mutex_trylock`.** Its job is to test `_writer`/`_readers` and
+bail without a condvar WAIT; that test happens under the short internal mutex,
+held only for a few field reads and never across a wait. Blocking on that is
+bounded and unrelated to how long the RwLock itself is held, so the
+non-blocking part was always skipping the wait, not skipping the mutex. Only
+`Mutex.try_with_lock` and `Cond.wait_timeout` were genuinely seed-gated.
+
+Coverage: `tests/sync/mutex.test.yo` 12/12 (+4), `tests/sync/rwlock.test.yo`
+22/22 (+5), and a NEW `tests/sync/cond.test.yo` (6) — `Cond` had no test file
+at all, so `wait`/`signal`/`broadcast` were untested too. The tests use a
+`Channel` handshake rather than sleeps, so contention is deterministic; the
+trylock contention cases are cross-thread on purpose, since a same-thread
+re-entry is the one case where Windows (recursive `CRITICAL_SECTION`) and POSIX
+legitimately disagree. Two of them assert the absence of a leak rather than a
+value: that a failed `try_with_read` leaves the reader count untouched (a bail
+after incrementing would make the lock permanently unwritable), and that four
+`broadcast` waiters all run to completion (a `signal` would leave three parked
+and HANG rather than report a wrong number).
+
+The runtime side, for reference — `__yo_mutex_trylock` and
+`__yo_cond_timedwait` live in `src/codegen/types/generation.yo`, and the
+sequence that got them usable was: compiler PR (#529) → release v0.2.30 →
+`SEED_VERSION` bump → the std PR.
 
 Three platform shapes, and the reason for each:
 
@@ -961,10 +1139,11 @@ cooperative-scheduling contract.
    read-back that `TcpListener.bind` and `UdpSocket.bind` each open-coded is
    now one `_read_local_addr` helper.
 
-   Still open in this group: `TcpListener.incoming`, `Seek`, `OpenOptions`,
-   `SystemTime`, `Watcher` `Dispose`, lazy `read_dir`.
-   (`UdpSocket.recv_from -> (n, from)`, `IpAddr.parse_v6`, `StatusCode`,
-   `HeaderMap` and the byte-sliced response body all landed 2026-09-09.)
+   Still open in this group: `TcpListener.incoming` and `Watcher` `Dispose`.
+   (`Seek`, `OpenOptions`, `SystemTime`, `UdpSocket.recv_from -> (n, from)`,
+   `IpAddr.parse_v6`, `StatusCode`, `HeaderMap` and the byte-sliced response
+   body all landed 2026-09-09; lazy `read_dir` and the request-side byte bodies
+   were already in.)
 
    **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`
    is a BLOCKING iterator of `io::Result<TcpStream>`. Yo's `accept` is

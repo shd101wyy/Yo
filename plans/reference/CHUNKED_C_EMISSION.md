@@ -37,15 +37,21 @@ emits **byte-identical** C to a single-file-built one
 
 ## What is intentionally not done
 
-- **Chunking stays opt-in.** The four conditions for flipping the default are
-  under "Chunk count" below; three now hold, and the fourth (auto-N) is blocked
-  on a std CPU-count API.
-- **Auto-N** — blocked: `std` has no `available_parallelism`, and there is no
-  `YO_JOBS` override yet. The N sweep below says the target is ~8, not
-  "2x cores".
-- **The behavioural fixpoint gate is a script, not a CI job** — two self-builds
-  plus two self-emits (~12 min, heavy RAM) to guard an opt-in flag no default
-  path uses.
+- **Chunking stays opt-in for `yo compile`.** All four default-on conditions
+  hold since Phase 1 (`plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md` §4):
+  `--emit-chunks auto` exists, and the ONE default flip it enabled is
+  `yo build`'s DEBUG executables. Plain `yo compile` still emits one file
+  unless the flag is passed — the single-file emission remains what the
+  bootstrap gates and the portable-C distribution compare.
+- **Auto-N — LANDED**: `N = clamp(1, cap, emitted_bytes / MIN_CHUNK_BYTES)`
+  resolved at chunk-assembly time from the REAL emitted bytes; cap is
+  `YO_JOBS` when usable, else `std/thread.get_hardware_threads()`.
+  `MIN_CHUNK_BYTES = 4 MiB`, measured (a 410-line program emits 168 KB with
+  a ~20% shared header — N=4 there is ~155% of the single-file C work, so
+  the floor keeps it N=1).
+- **The behavioural fixpoint gate is now a CI job** (`chunked-gate` in
+  test.yml, since the DEBUG-build default made chunking a default path) —
+  two self-builds plus two self-emits against the shared suite-candidate.
 - **The parallel driver still generates a `sh` script.** It did that because
   `io.spawn` in a loop hung — which is now FIXED
   (`issues/fixed/io-spawn-in-loop-or-recursion-hangs.md`: a surviving

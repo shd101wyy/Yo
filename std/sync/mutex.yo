@@ -12,6 +12,7 @@ extern(
   __YO_THREAD_SYNC_TYPE : Type,
   __yo_mutex_create : (fn() -> __YO_THREAD_SYNC_TYPE),
   __yo_mutex_lock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
+  __yo_mutex_trylock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> bool),
   __yo_mutex_unlock : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit),
   __yo_mutex_destroy : (fn(mutex : *__YO_THREAD_SYNC_TYPE) -> unit)
 );
@@ -80,6 +81,60 @@ impl(
     _guard := __MutexUnlocker(T)(self);
     body(self._value)
   }),
+  /// Run `body` under the lock IF it can be taken without waiting, and
+  /// return `.Some(result)`; `.None` when another thread holds it.
+  ///
+  /// The closure-scoped counterpart of Rust's `try_lock`. Rust hands back a
+  /// `Result<MutexGuard, TryLockError>`; `Mutex(T)` deliberately has no guard
+  /// type — access is only ever granted inside a closure — so the "did I get
+  /// it" answer is the `Option` instead. `body` not running IS the failure
+  /// case, which is why the result is optional rather than the lock state
+  /// being reported separately: there is no way to observe "not acquired" and
+  /// still have a value.
+  ///
+  /// Release is by the same `__MutexUnlocker` `with_lock` uses, so an early
+  /// `return` or an `unwind` out of `body` still unlocks.
+  ///
+  /// **Do not spin on this.** A `while(!took, ...)` loop around `try_with_lock`
+  /// is a busy-wait that starves the holder on a single core; `with_lock`
+  /// parks instead. `try_with_lock` is for the case where there is other
+  /// useful work to do when the lock is busy.
+  ///
+  /// One platform note: a Windows `CRITICAL_SECTION` is RECURSIVE, so a thread
+  /// that ALREADY holds this mutex gets `.Some` here, where a POSIX mutex
+  /// gives `.None`. Do not use the answer to detect self-reentrancy.
+  try_with_lock : (
+    fn(
+      generic(R : Type),
+      self : Self,
+      body : Impl(Fn(inout(v) : T) -> R)
+    ) -> Option(R)
+  )(
+    cond(
+      !__yo_mutex_trylock(&self._handle) => Option(R).None,
+      true => {
+        _guard := __MutexUnlocker(T)(self);
+        Option(R).Some(body(self._value))
+      }
+    )
+  ),
+  /// True when the mutex is NOT held right now.
+  ///
+  /// **Advisory only, and racy by construction:** it takes the lock to find
+  /// out and releases it again, so the answer describes a moment that has
+  /// already passed. Never branch on this to decide whether a later
+  /// `with_lock` will block — that is a TOCTOU bug. It exists for assertions
+  /// and diagnostics, which is why it is spelled as a question about the past
+  /// rather than as `can_lock`.
+  is_unlocked : (fn(self : Self) -> bool)(
+    cond(
+      __yo_mutex_trylock(&self._handle) => {
+        self._raw_unlock();
+        true
+      },
+      true => false
+    )
+  ),
   // Internal methods — pragma-only. These are public to the module system
   // but the _-prefixed naming convention signals "internal API".
   _raw_lock : (fn(self : Self) -> unit)(

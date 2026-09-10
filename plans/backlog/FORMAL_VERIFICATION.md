@@ -970,8 +970,9 @@ results; no language behavior changed yet.
 
 ### Phase V3 — Straight-line verification + auto-obligations (the Dafny core)
 
-> **Status: IN FLIGHT 2026-09-08** (branch `feat/fv3-straight-line-vc`,
-> rebased on the merged V2). LANDED so far — the wiring: mode dispatch in
+> **Status: IN FLIGHT 2026-09-08→09** (branch `feat/fv3-straight-line-vc`;
+> core + wiring MERGED as develop `48df44429` (#497) and task 6 MERGED as
+> `175a53991` (#512)). LANDED so far — the wiring: mode dispatch in
 > `wrap_function_body_with_contracts` (splice suppressed for verify-mode
 > TARGET files only — non-targets keep their runtime asserts, so an
 > un-verified contract never silently loses its check), the `VerifyTask`
@@ -992,9 +993,28 @@ results; no language behavior changed yet.
 > `tests/spec/fixtures/negative/`, the in-process harness
 > `tests/internal/verifier_negative.test.yo` — subset assertions run
 > solver-free, refutations gated YO_TEST_Z3=1 — and the CI verify job
-> runs both the harness and the battery end-to-end). REMAINING in V3:
-> task 6 (`verify+` stripping pass), match/datatype encoding, docs
-> en+zh, end-to-end validation on a locally built self-hosted binary.
+> runs both the harness and the battery end-to-end). Task 6 (`verify+` stripping) LANDED in #512: VerifyTask carries the
+> FuncVal; `strip_proved_ensures_asserts` rewrites the wrapped body in
+> place (proved `ensures failed` asserts dropped; `requires failed`
+> guards stay — their obligations live at call sites); the check/compile
+> integration arms entry files and verifies after evaluation
+> (REFUTED always fails; unproven fails in `verify`, warns in `verify+`;
+> a MISSING solver is a hard failure — verify-mode codegen carries no
+> runtime asserts). DEVIATION recorded: the TEST runner's batch compiles
+> pass `--no-verify` (CI caught the flaw — a verify-pragma fixture on a
+> Z3-less leg became unsound and unrunnable): `yo test` is a runtime
+> harness, the static gate lives in check/compile/verify.
+> tests/internal/verifier_strip.test.yo covers the mechanism (solver-free)
+> and the full verify+ pipeline (YO_TEST_Z3=1). The last V3 row —
+> match/datatype encoding — LANDED via #533 (PR in flight 2026-09-10):
+> value enums as SMT datatypes (mangled ctor/accessor spellings,
+> declare-datatypes rendered per SMT-LIB 2.6), match lowered to nested
+> ite over is-testers with accessor projections, constructions as Ctor
+> terms; locally proven end-to-end against z3 5.1.0 (the fixture's
+> obligation is unsat). Surfaced AND fixed along the way: the
+> match-binding shadowing codegen UB (#527, develop 1d4023b0d — a
+> `.Arm(x)` binding named like the scrutinee emitted a self-referential
+> C initializer per C11 6.2.1p4). With #533, V3 is COMPLETE.
 
 **Scope:** the flagship loop closes. Pure, loop-free functions verify;
 callers discharge callee `requires`; AoRTE obligations fire on

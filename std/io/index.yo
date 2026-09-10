@@ -27,10 +27,15 @@
 //! `write_string`/`write_bytes` conveniences stay because the trait has no
 //! counterpart.
 //!
+//! `Seek(From)` joins them as of 2026-09-09, and is the one trait here that
+//! is SYNCHRONOUS — moving a position is arithmetic on a handle's own state,
+//! not I/O. Implemented by `File`; see the trait's own doc for why it takes
+//! the reference-point type as a parameter and has no `rewind`.
+//!
 //! STILL TO COME: a buffered `lines()`, which waits on an async iterator
 //! protocol rather than being faked.
 pragma(Pragma.AllowUnsafe);
-{ IoExn } :: import("../error");
+{ IoExn, Exception } :: import("../error");
 { IoError } :: import("../sys/errors");
 { ArrayList } :: import("../collections/array_list");
 { String } :: import("../string");
@@ -115,6 +120,33 @@ Writer :: trait(
         })
     )
 );
+/// Something whose read/write position can be moved — Rust's `io::Seek`.
+///
+/// SYNCHRONOUS, unlike `Reader`/`Writer`: moving a position is arithmetic on a
+/// handle's own state, not I/O. `File.seek` resolves the target itself and
+/// never touches the descriptor (its reads and writes are positional, so the
+/// descriptor sits at 0 forever), so there is nothing to await. Keeping it
+/// synchronous also means a `Seek` bound composes with a plain function.
+///
+/// `SeekFrom` lives in `std/fs/types` because that is where the `File` API it
+/// was written for lives; the trait takes it as a parameter rather than
+/// re-declaring it, so there is one spelling of "from where".
+///
+/// There is deliberately no `rewind` (Rust has one): every absolute move needs
+/// a `From` VALUE naming the beginning, and a trait generic over `From` cannot
+/// name one. A default `rewind(self, from, exn)` would make the caller pass the
+/// very thing `rewind` exists to hide, so the convenience lives on the concrete
+/// type instead — see `File.rewind`.
+Seek :: (fn(comptime(From) : Type) -> comptime(Trait))(
+  trait(
+    /// Move to `offset` relative to `from` and return the new absolute byte
+    /// offset. Throws when the target would be negative.
+    seek : (fn(self : Self, offset : i64, from : From, exn : Exception) -> i64),
+    /// The current absolute byte offset.
+    position : (fn(self : Self) -> i64)
+  )
+);
+export(Seek);
 /// Copy everything from `r` to `w` until `r` reaches end-of-stream,
 /// resolving to the total number of bytes copied (`u64` so totals larger
 /// than a 32-bit `usize` cannot overflow). Does NOT flush `w`.

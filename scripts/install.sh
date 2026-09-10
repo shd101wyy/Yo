@@ -872,6 +872,12 @@ YOEOF
   if ! "$PREFIX/lib/yo/$VERSION/bin/yo" compile "$YO_TEMP_DIR/hello.yo" -o "$YO_TEMP_DIR/hello" > "$YO_TEMP_DIR/verify.log" 2>&1 ; then
     warn "Verification FAILED. Compiler output:"
     warn "$(cat "$YO_TEMP_DIR/verify.log")"
+    # This script installs the LATEST release, not the one it shipped with, so
+    # an old local copy can hand a hello world to a newer compiler that no
+    # longer accepts it. Say so: the compiler output alone reads like a broken
+    # release.
+    warn "If this copy of install.sh is older than $VERSION, it may be compiling a hello world that $VERSION no longer accepts. Re-fetch the installer and retry:"
+    warn "  curl -fsSL https://shd101wyy.github.io/Yo/install.sh | sh"
     stop "The install is present but cannot compile. See the output above."
   fi
   out="$("$YO_TEMP_DIR/hello" 2>&1 || true)"

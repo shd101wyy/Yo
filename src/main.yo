@@ -35,6 +35,24 @@ _(env : proc_env) :: import("std/env");
 { read_dir, FileType, remove_file, create_dir_all } :: import("std/fs/dir");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
+{ get_hardware_threads } :: import("std/thread");
+{
+  profile_set_enabled,
+  profile_reset,
+  profile_enabled,
+  profile_record_phase,
+  profile_phase_count,
+  profile_phase_name_at,
+  profile_phase_nanos_at,
+  profile_module_count,
+  profile_module_path_at,
+  profile_module_parse_ns_at,
+  profile_module_eval_ns_at,
+  profile_fn_total,
+  profile_fn_at_collect,
+  profile_fn_std
+} :: import("./utils.yo");
 { Command } :: import("std/process/command");
 { exit } :: import("std/libc/stdlib");
 { ArrayList } :: import("std/collections/array_list");
@@ -1991,6 +2009,170 @@ _compile_chunks_parallel :: (
   });
   objs
 });
+/// Nanoseconds → "1234.5 ms" (one decimal, integer arithmetic — no float
+/// formatting drift between builds).
+_fmt_profile_ms :: (fn(ns : i64) -> String)({
+  tenths := (ns / i64(100000));
+  `${(tenths / i64(10)).to_string()}.${(tenths % i64(10)).to_string()} ms`
+});
+/// Minimal JSON string escaping: backslash, double quote, and control bytes
+/// as \u00XX. Module paths are the only strings that flow through here.
+_json_escape :: (fn(s : String) -> String)({
+  bytes := s.as_bytes();
+  out := ArrayList(u8).new();
+  hexdigits := String.from("0123456789abcdef");
+  (i : usize) = usize(0);
+  while(i < bytes.len(), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    cond(
+      (b == u8(92)) => {
+        out.push(u8(92));
+        out.push(u8(92));
+      },
+      (b == u8(34)) => {
+        out.push(u8(92));
+        out.push(u8(34));
+      },
+      (b < u8(32)) => {
+        (hi : usize) = (usize(b) / usize(16));
+        (lo : usize) = (usize(b) % usize(16));
+        out.push(u8(92));
+        out.push(u8(117));
+        out.push(hexdigits.byte_at(hi));
+        out.push(hexdigits.byte_at(lo));
+      },
+      true => {
+        out.push(b);
+      }
+    );
+    i = (i + usize(1));
+  });
+  String.from_bytes(out)
+});
+/// The `--profile` report (Phase 0, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3).
+/// Phase rows are WALL times in record order; module rows are EXCLUSIVE (the
+/// loader subtracts nested demand loads), top 20 by evaluation time; the
+/// census line answers "how many functions reach emission, from where, how
+/// many minted during emission". A non-empty `json_path` also writes the
+/// machine-readable form — module keys are absolute paths, sorted, so the
+/// file diffs cleanly across commits and machines.
+_print_compile_profile :: (
+  fn(
+    json_path : String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  if(!(profile_enabled()), {
+    return(());
+  });
+  eprintln(String.from("profile: phases"));
+  (i : usize) = usize(0);
+  while(i < profile_phase_count(), {
+    eprintln(
+      `profile: phase ${profile_phase_name_at(i)} ${_fmt_profile_ms(profile_phase_nanos_at(i))}`
+    );
+    i = (i + usize(1));
+  });
+  n := profile_module_count();
+  k := cond((n < usize(20)) => n, true => usize(20));
+  eprintln(
+    `profile: modules top ${k.to_string()} of ${n.to_string()} by evaluation (exclusive)`
+  );
+  taken := ArrayList(bool).new();
+  (ti : usize) = usize(0);
+  while(ti < n, {
+    taken.push(false);
+    ti = (ti + usize(1));
+  });
+  (pick : usize) = usize(0);
+  while(pick < k, {
+    (best : usize) = n;
+    (best_ns : i64) = i64(-1);
+    (mi : usize) = usize(0);
+    while(mi < n, {
+      if(!(taken(mi)), {
+        ns := profile_module_eval_ns_at(mi);
+        if(ns > best_ns, {
+          best_ns = ns;
+          best = mi;
+        });
+      });
+      mi = (mi + usize(1));
+    });
+    if(best < n, {
+      taken(best) = true;
+      eprintln(
+        `profile: module ${_fmt_profile_ms(profile_module_eval_ns_at(best))} (parse ${_fmt_profile_ms(profile_module_parse_ns_at(best))}) ${profile_module_path_at(best)}`
+      );
+    });
+    pick = (pick + usize(1));
+  });
+  ft := profile_fn_total();
+  fs := profile_fn_std();
+  eprintln(
+    `profile: functions ${ft.to_string()} total, ${fs.to_string()} std, ${(ft - fs).to_string()} project, ${(ft - profile_fn_at_collect()).to_string()} minted-during-emission`
+  );
+  if(json_path.len() > usize(0), {
+    // Modules sorted by path: byte-stable regardless of load order.
+    order := ArrayList(usize).new();
+    (oi : usize) = usize(0);
+    while(oi < n, {
+      order.push(oi);
+      oi = (oi + usize(1));
+    });
+    (oa : usize) = usize(1);
+    while(oa < n, {
+      (ob : usize) = oa;
+      while((ob > usize(0)) && (profile_module_path_at(order(ob)) < profile_module_path_at(order(ob - usize(1)))), {
+        tmp := order(ob);
+        order(ob) = order(ob - usize(1));
+        order(ob - usize(1)) = tmp;
+        ob = (ob - usize(1));
+      });
+      oa = (oa + usize(1));
+    });
+    js := String.new();
+    js.push_str("{\"phases\":{");
+    (pi : usize) = usize(0);
+    while(pi < profile_phase_count(), {
+      if(pi > usize(0), {
+        js.push_str(",");
+      });
+      js.push_str("\"");
+      js.push_string(_json_escape(profile_phase_name_at(pi)));
+      js.push_str("\":");
+      js.push_string(profile_phase_nanos_at(pi).to_string());
+      pi = (pi + usize(1));
+    });
+    js.push_str("},\"modules\":{");
+    (oi2 : usize) = usize(0);
+    while(oi2 < order.len(), {
+      idx := match(order.get(oi2), .Some(x) => x, .None => usize(0));
+      if(oi2 > usize(0), {
+        js.push_str(",");
+      });
+      js.push_str("\"");
+      js.push_string(_json_escape(profile_module_path_at(idx)));
+      js.push_str("\":{\"parse_ns\":");
+      js.push_string(profile_module_parse_ns_at(idx).to_string());
+      js.push_str(",\"eval_ns\":");
+      js.push_string(profile_module_eval_ns_at(idx).to_string());
+      js.push_str("}");
+      oi2 = (oi2 + usize(1));
+    });
+    js.push_str("},\"functions\":{\"total\":");
+    js.push_string(profile_fn_total().to_string());
+    js.push_str(",\"std\":");
+    js.push_string(profile_fn_std().to_string());
+    js.push_str(",\"project\":");
+    js.push_string((profile_fn_total() - profile_fn_std()).to_string());
+    js.push_str(",\"minted_during_emission\":");
+    js.push_string((profile_fn_total() - profile_fn_at_collect()).to_string());
+    js.push_str("}}\n");
+    io.await(write_string(Path.new(json_path.clone()), js, io), IoExn(io : io, exn : exn));
+  });
+});
 /// Run the `compile` subcommand.
 run_compile :: (
   fn(
@@ -2019,9 +2201,17 @@ run_compile :: (
   (heap_size : usize) = usize(16777216);
   (debug_heap : bool) = false;
   (emit_chunks : usize) = usize(0);
+  // `--emit-chunks auto` (Phase 1, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
+  // §4): N is resolved AFTER emission, from the actual emitted bytes —
+  // clamp(1, cap, emitted / MIN_CHUNK_BYTES) — with cap = YO_JOBS or the
+  // hardware thread count.
+  (emit_chunks_auto : bool) = false;
   (chunk_no_lto : bool) = false;
   // --jobs J: parallel per-chunk `cc -c` jobs (chunked emission only).
-  (jobs : usize) = usize(8);
+  // 0 = not given: defaults to 8, or to the auto cap when --emit-chunks auto
+  // resolves N from the core count (no point minting more chunks than the
+  // driver will compile at once).
+  (jobs : usize) = usize(0);
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
@@ -2040,6 +2230,12 @@ run_compile :: (
   // the test runner on its batch-compile children (see `set_evaluator_deadline`
   // in evaluator/exprs/_expr.yo for why this travels as a flag).
   (compile_timeout_ms : String) = String.new();
+  // Phase 0 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): print the
+  // per-phase / per-module timing table on stderr after the compile, and
+  // optionally write the machine-readable form (keys are absolute module
+  // paths) for diffing across commits.
+  (profile : bool) = false;
+  (profile_json : String) = String.new();
   // V3: opt OUT of the post-eval contract verification (the test runner's
   // batch compiles — a runtime harness; legs without Z3 could not compile
   // verify-pragma fixtures otherwise).
@@ -2107,6 +2303,14 @@ run_compile :: (
       },
       (a_name == "--compile-timeout-ms") => {
         compile_timeout_ms = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--profile") => {
+        profile = true;
+        ai = (ai + usize(1));
+      },
+      (a_name == "--profile-json") => {
+        profile_json = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
       },
       (a_name == "--allocator") => {
@@ -2243,7 +2447,14 @@ run_compile :: (
       },
       (a == "--emit-chunks") => {
         ecv := _arg_val_req(argv, ai, String.from("--emit-chunks"), exn);
-        emit_chunks = match(ecv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        cond(
+          (ecv == "auto") => {
+            emit_chunks_auto = true;
+          },
+          true => {
+            emit_chunks = match(ecv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
+          }
+        );
         ai = (ai + usize(2));
       },
       (a == "--debug-parallelism") => {
@@ -2326,15 +2537,44 @@ run_compile :: (
   });
   // Chunked emission drives multiple TU inputs through the executable link
   // line; the static-library path compiles ONE input to ONE `.o`.
-  if((emit_chunks >= usize(1)) && static_library, {
+  if(((emit_chunks >= usize(1)) || emit_chunks_auto) && static_library, {
     exn.throw(dyn(String.from("compile: --emit-chunks is not supported with --static-library")));
   });
   // Both flags decide what C files get WRITTEN, so the combination is
   // ambiguous rather than merely redundant: `--emit-c-to` names ONE file, and
   // the chunked path writes a header plus N chunks. (`--emit-c`, which only
   // PRINTS the single-file equivalent, stays allowed.)
-  if((emit_chunks >= usize(1)) && (emit_c_to.len() > usize(0)), {
+  if(((emit_chunks >= usize(1)) || emit_chunks_auto) && (emit_c_to.len() > usize(0)), {
     exn.throw(dyn(String.from("compile: --emit-c-to writes one C file and --emit-chunks writes a header plus N chunks — pass only one")));
+  });
+  // `--emit-chunks auto` cap (Phase 1): YO_JOBS wins when set to a usable
+  // value, else the hardware thread count. A malformed YO_JOBS warns and
+  // falls back — it is a tuning knob, not a correctness setting.
+  (chunk_auto_cap : usize) = usize(0);
+  if(emit_chunks_auto, {
+    match(
+      proc_env.get(String.from("YO_JOBS")),
+      .Some(v) => match(
+        v.parse_u64(),
+        .Some(n) => if(n > u64(0), {
+          chunk_auto_cap = usize(n);
+        }, {
+          eprintln(String.from("compile: YO_JOBS must be a positive integer; ignoring it"));
+        }),
+        .None => {
+          eprintln(String.from("compile: YO_JOBS must be a positive integer; ignoring it"));
+        }
+      ),
+      .None => ()
+    );
+    if(chunk_auto_cap == usize(0), {
+      chunk_auto_cap = get_hardware_threads();
+    });
+  });
+  // --jobs default: 8, or the auto cap (no point minting more chunks than
+  // the driver will compile at once).
+  if(jobs == usize(0), {
+    jobs = cond((chunk_auto_cap >= usize(1)) => chunk_auto_cap, true => usize(8));
   });
   // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
   // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
@@ -2480,6 +2720,13 @@ run_compile :: (
   // flag prefix — both needed to retry without the cache if the link fails.
   (chunk_used_cache : bool) = false;
   chunk_link_flags := ArrayList(String).new();
+  // Phase 0: arm the profiler before anything is evaluated (the module loader
+  // and codegen record only when armed). `profile_reset` first so this
+  // compile's report is this compile alone even in a long-lived process.
+  profile_reset();
+  if(profile, {
+    profile_set_enabled(true);
+  });
   {
     clear_module_cache();
     mm_clear_prelude_env();
@@ -2492,13 +2739,19 @@ run_compile :: (
     // `mm_eval_entry_exprs` below
     // (issues/fixed/failed-prelude-load-prints-twice-and-continues.md).
     // `mm_preload_prelude` already emitted it, so exit without adding a word.
+    // The prelude load is a phase of its own: every child compile, every test
+    // batch and every artifact re-pays it (Phase 0's first question).
+    prof_prelude_t0 := Instant.now();
     if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
       unsafe(exit(int(1)));
     });
+    profile_record_phase(String.from("prelude evaluation"), prof_prelude_t0.elapsed().as_nanos());
     // Read + parse the input module.
+    prof_parse_t0 := Instant.now();
     src_bytes := io.await(read(Path.new(input_path.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
     exprs := parse(src, input_path.clone(), exn);
+    profile_record_phase(String.from("read+parse entry"), prof_parse_t0.elapsed().as_nanos());
     // Demand-driven module loading. The entry module's eval context reuses the
     // shared ExprInfoTable (created above, also used by the prelude load and every
     // demand-loaded module) so codegen has metadata for the bodies of ALL
@@ -2514,7 +2767,11 @@ run_compile :: (
       v_targets.push(entry_abs.clone());
       set_verify_target_paths(v_targets);
     });
+    prof_eval_t0 := Instant.now();
     outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, exn);
+    // Wall, not exclusive: the entry's evaluation includes every demand load
+    // it triggered (the per-module rows decompose this same wall exclusively).
+    profile_record_phase(String.from("entry module evaluation"), prof_eval_t0.elapsed().as_nanos());
     if(!(outcome.ok), {
       // The eval failure's rendered diagnostic is in the loader's stash (its
       // handlers no longer print — the P1 single-print rule). Emit it on the
@@ -2546,18 +2803,30 @@ run_compile :: (
     // V3: contract verification runs BEFORE codegen (the verify+ strip
     // rewrites function bodies in place); a failure exits 1 — the
     // per-function lines are already printed by the helper.
+    prof_verify_t0 := Instant.now();
     if(!(_run_contract_verification(io, exn)), {
       unsafe(exit(int(1)));
     });
+    profile_record_phase(String.from("contract verification"), prof_verify_t0.elapsed().as_nanos());
     // --skip-codegen: evaluate only (type-check), emit no C.
     if(skip_codegen, {
+      _print_compile_profile(profile_json.clone(), io, exn);
       return(());
     });
     // Generate C11 from the evaluated module. A static library has no main()
     // wrapper (is_library = true). Allocator + debug-logging flags are threaded
     // through to the code generator (mirrors CodeGeneratorC.compileModule).
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks);
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
+    // `--emit-chunks auto` resolved its N inside compile_module (from the
+    // actual emitted bytes); read it back so every later decision — the
+    // chunk writer, the ThinLTO gate, the driver report — sees the real N.
+    if(emit_chunks_auto, {
+      emit_chunks = cond(
+        (chunk_parts.len() > usize(1)) => (chunk_parts.len() - usize(1)),
+        true => usize(0)
+      );
+    });
     // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
@@ -2594,6 +2863,7 @@ run_compile :: (
         .None => ()
       );
     });
+    prof_write_t0 := Instant.now();
     cond(
       (emit_chunks >= usize(1)) => {
         // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): parts[0] is
@@ -2627,6 +2897,7 @@ run_compile :: (
         io.await(write_string(Path.new(c_path.clone()), c_src, io), IoExn(io : io, exn : exn));
       }
     );
+    profile_record_phase(String.from("write C"), prof_write_t0.elapsed().as_nanos());
   };
   // The scope above has dropped the AST, the evaluated module, the env, the
   // eval context and the 140 MB C string. The module-manager GLOBALS still
@@ -2639,6 +2910,7 @@ run_compile :: (
   mm_reset();
   // --skip-c-compiler: write the C and stop.
   if(skip_cc, {
+    _print_compile_profile(profile_json.clone(), io, exn);
     return(());
   });
   // ----- assemble the C-compiler invocation (mirrors src/codegen/index.ts) ---
@@ -2948,6 +3220,7 @@ run_compile :: (
       // `cc -c` per chunk, in parallel and behind the `.o` cache, then link
       // the objects with the same command line.
       chunk_hits := ArrayList(usize).new();
+      prof_cc_t0 := Instant.now();
       chunk_objs := _compile_chunks_parallel(
         cc.clone(),
         cmd.recorded,
@@ -2960,6 +3233,7 @@ run_compile :: (
         io,
         exn
       );
+      profile_record_phase(String.from("cc compile (chunks)"), prof_cc_t0.elapsed().as_nanos());
       chunk_link_flags = cmd.recorded;
       chunk_used_cache = match(chunk_hits.get(usize(0)), .Some(h) => (h > usize(0)), .None => false);
       (cci : usize) = usize(0);
@@ -3061,7 +3335,15 @@ run_compile :: (
     cmd.arg(String.from("-lsecur32"));
     cmd.arg(String.from("-lcrypt32"));
   });
+  prof_link_t0 := Instant.now();
   st := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
+  profile_record_phase(
+    cond(
+      (chunk_c_files.len() > usize(0)) => String.from("link"),
+      true => String.from("cc compile+link")
+    ),
+    prof_link_t0.elapsed().as_nanos()
+  );
   if(st.raw != i32(0), {
     // A chunk `.o` can be present with a matching stamp yet unusable (a
     // truncated or clobbered file — the stamp records the INPUTS, so it cannot
@@ -3085,12 +3367,13 @@ run_compile :: (
       );
       st2 := io.await(_cc_command(cc.clone(), cmd.recorded).status(io), IoExn(io : io, exn : exn));
       if(st2.raw != i32(0), {
-        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
+        exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()} on ${c_path}`));
       });
       return(())
     });
-    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()}) on ${c_path}`));
+    exn.throw(dyn(`compile: C compiler failed (exit ${st.code().unwrap_or(i32(-1)).to_string()} on ${c_path}`));
   });
+  _print_compile_profile(profile_json.clone(), io, exn);
 });
 /// Recursively collect `*.test.yo` files under `path_str` (or `[path_str]`
 /// for a file). Mirrors `findTestFiles` in src/test-runner.ts (reuses the
@@ -3155,6 +3438,10 @@ run_test :: (
   (name_pattern : String) = String.from("");
   (verbose : bool) = false;
   (no_sanitize : bool) = false;
+  // Phase 0: forward --profile to every batch-compile child (each prints the
+  // per-phase/per-module table on stderr) and print a per-file wall line —
+  // `tests/internal`'s 22 min is the number this measures.
+  (test_profile : bool) = false;
   (test_cc : String) = String.from("");
   (test_target : String) = String.from("");
   // Allocator choice forwarded to every batch compile (`--allocator fixed`
@@ -3237,7 +3524,11 @@ run_test :: (
         json_summary = true;
         ai = (ai + usize(1));
       },
-      ((a == "--keep-generated-files") || (a == "-k") || (a == "--profile")) => {
+      ((a == "--keep-generated-files") || (a == "-k")) => {
+        ai = (ai + usize(1));
+      },
+      (a == "--profile") => {
+        test_profile = true;
         ai = (ai + usize(1));
       },
       a.starts_with(String.from("-")) => {
@@ -3422,9 +3713,11 @@ run_test :: (
   (failed : usize) = usize(0);
   (bailed : bool) = false;
   (fi : usize) = usize(0);
+  (profile_t0 : Instant) = Instant.now();
   while((fi < files.len()) && !(bailed), {
     file := match(files.get(fi), .Some(f) => f, .None => String.from(""));
     fi = (fi + usize(1));
+    file_t0 := Instant.now();
     println(``);
     println(`${file}`);
     src_bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
@@ -3618,6 +3911,11 @@ run_test :: (
         // indication of which file was responsible.
         ccmd.arg(String.from("--compile-timeout-ms"));
         ccmd.arg(String.from("600000"));
+        // The runner's --profile rides along: the child prints its own
+        // per-phase table (stderr is inherited).
+        if(test_profile, {
+          ccmd.arg(String.from("--profile"));
+        });
         // The test runner is a RUNTIME harness: verification is a static
         // gate (yo check / yo compile / yo verify), and legs without Z3
         // could not run verify-pragma fixtures at all if the batch compile
@@ -3850,6 +4148,12 @@ run_test :: (
         bi = (bi + usize(1));
       });
     });
+    if(test_profile, {
+      eprintln(`profile: file ${file} ${_fmt_profile_ms(file_t0.elapsed().as_nanos())}`);
+    });
+  });
+  if(test_profile, {
+    eprintln(`profile: files ${files.len().to_string()} total ${_fmt_profile_ms(profile_t0.elapsed().as_nanos())}`);
   });
   if(bailed, {
     println(``);
@@ -4987,10 +5291,13 @@ Options:
   --emit-c-to <path>        Write the generated C to a file and stop
   --skip-c-compiler         Generate C but skip the C compile
   --skip-codegen            Evaluate only (no C generation)
-  --emit-chunks <n>         Split emitted C into n translation units (implies -flto=thin)
+  --emit-chunks <n|auto>    Split emitted C into n translation units (implies -flto=thin);
+                            auto picks n from emitted size and core count (YO_JOBS overrides)
   --no-chunk-lto            Opt out of ThinLTO for chunked builds
   --jobs <n>                Parallel C compiles for chunked builds
   --compile-timeout-ms <ms> C compiler timeout
+  --profile                 Print per-phase / per-module timing on stderr
+  --profile-json <path>     Write the profile as JSON (module keys are absolute paths)
   --emcc-environment <env>  Emscripten environment (node|web)
   --debug-gc / --debug-async-await / --debug-parallelism
                             Runtime debug logging in the emitted binary
@@ -5030,10 +5337,13 @@ Examples:
   --emit-c-to <path>        把生成的 C 写入文件然后停止
   --skip-c-compiler         只生成 C，跳过 C 编译
   --skip-codegen            只做求值（不生成 C）
-  --emit-chunks <n>         把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）
+  --emit-chunks <n|auto>    把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）；
+                            auto 按产物大小与核数选 n（可用 YO_JOBS 覆盖）
   --no-chunk-lto            分块构建时退出 ThinLTO
   --jobs <n>                分块构建的并行 C 编译数
   --compile-timeout-ms <ms> C 编译器超时
+  --profile                 在 stderr 上打印分阶段/分模块耗时
+  --profile-json <path>     把耗时写成 JSON（模块键为绝对路径）
   --emcc-environment <env>  Emscripten 环境（node|web）
   --debug-gc / --debug-async-await / --debug-parallelism
                             产出二进制内的运行时调试日志

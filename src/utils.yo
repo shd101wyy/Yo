@@ -177,11 +177,153 @@ str_lit_unquote_bytes :: (fn(raw : String) -> String)({
   }, raw.clone())
 });
 
+// ---------------------------------------------------------------------------
+// Compile-time profiling (Phase 0, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3)
+// ---------------------------------------------------------------------------
+// Process-wide, opt-in state behind `yo compile --profile` /
+// `yo test --profile`. The module loader (per-module rows), codegen
+// (collection/emission split + function census) and the compile driver
+// (phase walls) all record here; the driver renders the stderr table and the
+// `--profile-json` file. No std/time import in this leaf module: callers hold
+// their own Instant handles and hand raw nanos in, so every record function
+// stays a plain parallel-array append.
+(g_prof_enabled : bool) = false;
+profile_set_enabled :: (fn(on : bool) -> unit)({
+  g_prof_enabled = on;
+});
+profile_enabled :: (fn() -> bool)(g_prof_enabled);
+/// Phase wall-times, name → accumulated nanos. A phase entered twice in one
+/// process SUMS (the shape watch rounds will need); first record inserts.
+(g_prof_phase_names : ArrayList(String)) = ArrayList(String).new();
+(g_prof_phase_nanos : ArrayList(i64)) = ArrayList(i64).new();
+profile_record_phase :: (fn(name : String, nanos : i64) -> unit)({
+  if(!g_prof_enabled, {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < g_prof_phase_names.len(), {
+    if(g_prof_phase_names(i) == name, {
+      g_prof_phase_nanos(i) = (g_prof_phase_nanos(i) + nanos);
+      return(());
+    });
+    i = (i + usize(1));
+  });
+  g_prof_phase_names.push(name.clone());
+  g_prof_phase_nanos.push(nanos);
+});
+profile_phase_count :: (fn() -> usize)(g_prof_phase_names.len());
+profile_phase_name_at :: (fn(i : usize) -> String)(
+  match(
+    g_prof_phase_names.get(i),
+    .Some(n) => n.clone(),
+    .None => String.new()
+  )
+);
+profile_phase_nanos_at :: (fn(i : usize) -> i64)(
+  match(
+    g_prof_phase_nanos.get(i),
+    .Some(n) => n,
+    .None => i64(0)
+  )
+);
+/// Per-module read+parse and evaluation times, keyed by ABSOLUTE module path.
+/// Rows are EXCLUSIVE — the wall a module's evaluation spends demand-loading
+/// OTHER modules is subtracted out by the loader's nesting accumulator — so
+/// the rows decompose total evaluation time without double-counting.
+(g_prof_mod_paths : ArrayList(String)) = ArrayList(String).new();
+(g_prof_mod_parse_ns : ArrayList(i64)) = ArrayList(i64).new();
+(g_prof_mod_eval_ns : ArrayList(i64)) = ArrayList(i64).new();
+profile_record_module :: (fn(path : String, parse_ns : i64, eval_ns : i64) -> unit)({
+  if(!g_prof_enabled, {
+    return(());
+  });
+  (i : usize) = usize(0);
+  while(i < g_prof_mod_paths.len(), {
+    if(g_prof_mod_paths(i) == path, {
+      g_prof_mod_parse_ns(i) = (g_prof_mod_parse_ns(i) + parse_ns);
+      g_prof_mod_eval_ns(i) = (g_prof_mod_eval_ns(i) + eval_ns);
+      return(());
+    });
+    i = (i + usize(1));
+  });
+  g_prof_mod_paths.push(path.clone());
+  g_prof_mod_parse_ns.push(parse_ns);
+  g_prof_mod_eval_ns.push(eval_ns);
+});
+profile_module_count :: (fn() -> usize)(g_prof_mod_paths.len());
+profile_module_path_at :: (fn(i : usize) -> String)(
+  match(
+    g_prof_mod_paths.get(i),
+    .Some(p) => p.clone(),
+    .None => String.new()
+  )
+);
+profile_module_parse_ns_at :: (fn(i : usize) -> i64)(
+  match(
+    g_prof_mod_parse_ns.get(i),
+    .Some(n) => n,
+    .None => i64(0)
+  )
+);
+profile_module_eval_ns_at :: (fn(i : usize) -> i64)(
+  match(
+    g_prof_mod_eval_ns.get(i),
+    .Some(n) => n,
+    .None => i64(0)
+  )
+);
+/// Function census (Phase 0 §3 question 3): how many functions reach
+/// emission, how many existed when body emission STARTED (the delta is the
+/// specializations minted DURING emission — they have no single home module),
+/// and how many are defined under std.
+(g_prof_fn_total : usize) = usize(0);
+(g_prof_fn_at_collect : usize) = usize(0);
+(g_prof_fn_std : usize) = usize(0);
+profile_record_function_census :: (
+  fn(total : usize, at_collect : usize, std_defs : usize) -> unit
+)({
+  g_prof_fn_total = total;
+  g_prof_fn_at_collect = at_collect;
+  g_prof_fn_std = std_defs;
+});
+profile_fn_total :: (fn() -> usize)(g_prof_fn_total);
+profile_fn_at_collect :: (fn() -> usize)(g_prof_fn_at_collect);
+profile_fn_std :: (fn() -> usize)(g_prof_fn_std);
+/// Clear every accumulator. `run_compile` calls this before arming the flag
+/// so each compile's report is that compile alone.
+profile_reset :: (fn() -> unit)({
+  g_prof_enabled = false;
+  g_prof_phase_names = ArrayList(String).new();
+  g_prof_phase_nanos = ArrayList(i64).new();
+  g_prof_mod_paths = ArrayList(String).new();
+  g_prof_mod_parse_ns = ArrayList(i64).new();
+  g_prof_mod_eval_ns = ArrayList(i64).new();
+  g_prof_fn_total = usize(0);
+  g_prof_fn_at_collect = usize(0);
+  g_prof_fn_std = usize(0);
+});
+
 export(str_lit_unquote_bytes);
 export(
   generate_temp_variable_name_prefix,
   generate_new_temp_variable_name,
   is_temp_variable_name,
   is_any_temp_variable_name,
-  random_id
+  random_id,
+  profile_set_enabled,
+  profile_enabled,
+  profile_record_phase,
+  profile_phase_count,
+  profile_phase_name_at,
+  profile_phase_nanos_at,
+  profile_record_module,
+  profile_module_count,
+  profile_module_path_at,
+  profile_module_parse_ns_at,
+  profile_module_eval_ns_at,
+  profile_record_function_census,
+  profile_fn_total,
+  profile_fn_at_collect,
+  profile_fn_std,
+  profile_reset
 );

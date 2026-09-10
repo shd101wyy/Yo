@@ -2,8 +2,8 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { printf } :: import("std/libc/stdio");
 import("std/string");
-import("std/fmt");
-{ Instant } :: import("std/time/instant");
+{ eprintln } :: import("std/fmt");
+{ Instant, SystemTime, SystemTimeError, UNIX_EPOCH } :: import("std/time/instant");
 { Duration } :: import("std/time/duration");
 // ============================================================================
 // Instant tests
@@ -61,4 +61,121 @@ test("Instant add/sub shift and Eq/Ord order", {
   round := later.sub(Duration.from_millis(i64(1500)));
   assert(round == base, "add then sub round-trips");
   assert(base >= base, "reflexive");
+});
+// ============================================================================
+// SystemTime tests
+// ============================================================================
+test("SystemTime.now is well past the epoch", {
+  t := SystemTime.now();
+  // Any sane wall clock is past 2020-01-01 (1577836800).
+  assert(t.as_unix_secs() > i64(1577836800), "wall clock is past 2020");
+  assert((t.nanos >= i64(0)) && (t.nanos < i64(1000000000)), "nanos normalized into [0, 1e9)");
+});
+test("SystemTime.duration_since UNIX_EPOCH is the timestamp", {
+  t := SystemTime.from_unix_parts(i64(1700000000), i64(250000000));
+  match(
+    t.duration_since(UNIX_EPOCH),
+    .Ok(d) => {
+      assert(d.as_secs() == i64(1700000000), "seconds since the epoch");
+      assert(d.subsec_nanos() == i64(250000000), "sub-second part preserved");
+    },
+    .Err(e) => {
+      eprintln(`  unexpected err: ${e.to_string()}`);
+      assert(false, "duration_since UNIX_EPOCH must succeed");
+    }
+  );
+});
+test("SystemTime.duration_since a LATER time reports how far backwards", {
+  earlier := SystemTime.from_unix_secs(i64(1000));
+  later := SystemTime.from_unix_parts(i64(1002), i64(500000000));
+  match(
+    earlier.duration_since(later),
+    .Ok(d) => {
+      eprintln(`  unexpected ok: ${d.as_nanos()}`);
+      assert(false, "an earlier minus a later must be .Err");
+    },
+    .Err(e) =>
+      match(
+        e,
+        .EarlierThan({ by }) => {
+          assert(by.as_secs() == i64(2), "2 whole seconds backwards");
+          assert(by.subsec_nanos() == i64(500000000), "plus half a second");
+        }
+      )
+  );
+});
+test("SystemTime.duration_since across a borrow", {
+  // The sub-second part of the later time is SMALLER, so the subtraction has
+  // to borrow a second — the case a naive field-wise subtraction gets wrong.
+  earlier := SystemTime.from_unix_parts(i64(100), i64(900000000));
+  later := SystemTime.from_unix_parts(i64(102), i64(100000000));
+  match(
+    later.duration_since(earlier),
+    .Ok(d) => {
+      assert(d.as_secs() == i64(1), "1 whole second");
+      assert(d.subsec_nanos() == i64(200000000), "and 200ms");
+    },
+    .Err(e) => {
+      eprintln(`  unexpected err: ${e.to_string()}`);
+      assert(false, "must succeed");
+    }
+  );
+});
+test("SystemTime add/sub round-trip and normalize", {
+  base := SystemTime.from_unix_parts(i64(50), i64(600000000));
+  shifted := base.add(Duration.from_millis(i64(700)));
+  // 50.6s + 0.7s = 51.3s — the nanos carry into secs.
+  assert(shifted.as_unix_secs() == i64(51), "carried a second");
+  assert(shifted.nanos == i64(300000000), "300ms remains");
+  back := shifted.sub(Duration.from_millis(i64(700)));
+  assert(back == base, "sub undoes add");
+  // Borrowing the other way: 50.6s - 0.9s = 49.7s.
+  under := base.sub(Duration.from_millis(i64(900)));
+  assert(under.as_unix_secs() == i64(49), "borrowed a second");
+  assert(under.nanos == i64(700000000), "700ms remains, never negative");
+});
+test("SystemTime before the epoch normalizes to a floor second", {
+  // 0.4s BEFORE the epoch is (secs -1, nanos 600000000), never
+  // (secs 0, nanos -400000000) — otherwise Eq/Ord would split one instant
+  // into two representations.
+  t := UNIX_EPOCH.sub(Duration.from_millis(i64(400)));
+  assert(t.as_unix_secs() == i64(-1), "floor second is -1");
+  assert(t.nanos == i64(600000000), "nanos stay in range");
+  assert(t == SystemTime.from_unix_parts(i64(0), i64(-400000000)), "both spellings are one value");
+  assert(t < UNIX_EPOCH, "and it orders before the epoch");
+});
+test("SystemTime.elapsed of now is small and non-negative", {
+  t := SystemTime.now();
+  match(
+    t.elapsed(),
+    .Ok(d) => assert(d.as_secs() < i64(5), "elapsed since a moment ago is under 5s"),
+    .Err(e) => {
+      eprintln(`  clock stepped backwards: ${e.to_string()}`);
+      assert(false, "elapsed of a just-taken reading must succeed");
+    }
+  );
+});
+test("SystemTime Eq/Ord order by seconds then nanos", {
+  a := SystemTime.from_unix_parts(i64(10), i64(0));
+  b := SystemTime.from_unix_parts(i64(10), i64(1));
+  c := SystemTime.from_unix_parts(i64(11), i64(0));
+  assert(a < b, "same second, smaller nanos is earlier");
+  assert(b < c, "smaller second wins over larger nanos");
+  assert(a != b, "distinct instants are unequal");
+  assert(a == SystemTime.from_unix_secs(i64(10)), "same instant is equal");
+  assert(c >= b, "and >= agrees");
+});
+test("SystemTime far in the future does not overflow", {
+  // secs * 1e9 overflows i64 past ~year 2262, and signed overflow is UB in C,
+  // so the arithmetic must stay on the (secs, nanos) pair.
+  far := SystemTime.from_unix_secs(i64(100000000000));
+  further := far.add(Duration.from_secs(i64(1)));
+  match(
+    further.duration_since(far),
+    .Ok(d) => assert(d.as_secs() == i64(1), "one second apart, year 5138"),
+    .Err(e) => {
+      eprintln(`  unexpected err: ${e.to_string()}`);
+      assert(false, "must succeed");
+    }
+  );
 });

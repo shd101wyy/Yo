@@ -24,7 +24,11 @@ VcSort :: enum(
   /// SMT `Bool`.
   BoolS,
   /// SMT `(_ BitVec <width>)` — widths 8/16/32/64 (and the target's usize).
-  BvS(width : usize)
+  BvS(width : usize),
+  /// A DECLARED DATATYPE sort (V3: value enums). The name is the
+  /// sanitized datatype name; the `(declare-datatypes ...)` block rides
+  /// `VcQuery.datatypes` (rendered once, before the constants).
+  DataS(name : String)
 );
 derive(VcSort, Eq(VcSort));
 impl(
@@ -34,7 +38,8 @@ impl(
       match(
         self,
         .BoolS => String.from("bool"),
-        .BvS(w) => `bv${w.to_string()}`
+        .BvS(w) => `bv${w.to_string()}`,
+        .DataS(name) => name.clone()
       )
     )
   )
@@ -111,6 +116,13 @@ VcTerm :: ref(
     /// Operator application. Arity/widths are the BUILDER's responsibility
     /// (checked at VC-construction time in V3, not re-checked here).
     App(op : VcOp, args : ArrayList(Self)),
+    /// Datatype constructor application (`.Variant(args...)`).
+    Ctor(name : String, args : ArrayList(Self)),
+    /// Datatype tester `(is-<Ctor> t)` — a match arm's discriminator.
+    Test(ctor : String, t : Self),
+    /// Datatype field projection `(<Ctor>-<idx> t)` — a match arm's
+    /// pattern binding.
+    Proj(ctor : String, idx : usize, t : Self),
     /// Quantifier with explicitly-typed bound variables.
     Quant(kind : VcQuantKind, names : ArrayList(String), sorts : ArrayList(VcSort), body : Self)
   )
@@ -132,7 +144,12 @@ VcQuery :: ref(
     /// Assumed terms, conjoined.
     assumptions : ArrayList(VcAssumption),
     /// The obligation proper.
-    goal : VcTerm
+    goal : VcTerm,
+    /// Datatype declaration BLOCK CONTENT — one entry per datatype, the
+    /// `(name 0)` arity pair plus its constructors. Rendered as ONE
+    /// combined `declare-datatypes` before the constants so mutually
+    /// recursive datatypes need no ordering.
+    datatypes : ArrayList(String)
   )
 );
 impl(
@@ -159,7 +176,8 @@ new_vc_query :: (fn(name : String) -> VcQuery)(
     name : name,
     declarations : ArrayList(VcDecl).new(),
     assumptions : ArrayList(VcAssumption).new(),
-    goal : VcTerm.BoolLit(true)
+    goal : VcTerm.BoolLit(true),
+    datatypes : ArrayList(String).new()
   )
 );
 // ============================================================================

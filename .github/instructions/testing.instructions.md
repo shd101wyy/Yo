@@ -365,6 +365,36 @@ Review the diff before committing: it should be exactly one changed hash line
 per case per edited skill file. Anything else means the install copied
 something you did not intend.
 
+## Yo source also lives INSIDE scripts and workflows — GATE 8 checks it
+
+Seven Yo programs are embedded in non-`.yo` files, and `yo check ./std`,
+`yo check ./src` and the language suite can see none of them:
+
+- the verification hello world in `scripts/install.sh` and
+  `scripts/install.ps1` (compiled on a user's machine, with the release the
+  script just downloaded);
+- the post-install smoke in `.github/workflows/install-scripts.yml` (POSIX and
+  Windows legs);
+- the three bundle smokes in `.github/workflows/release.yml`.
+
+`install-scripts.yml` is `paths`-filtered to the two installer files, and
+`release.yml` runs at release time only, so **a language change that removes a
+form one of those snippets used to land green and still break the installer
+for real users.** That happened when the `open(...)` builtin was removed
+(`issues/fixed/installer-verification-snippet-is-outside-every-per-pr-gate.md`).
+
+`scripts/check-embedded-yo.sh <path-to-yo>` extracts each snippet from its host
+file, compiles it, runs it and compares stdout against the line that host file
+asserts. It runs as GATE 8 of `gates_fast.sh`, so it is covered on every PR.
+**A tree-wide language sweep must include these files** — grep the scripts and
+workflows, not just `std/`, `src/` and `tests/`.
+
+`scripts/build_site.yo` is the same class of file (Yo source outside the three
+checked directories). `test.yml`'s `docs-site` job compiles it per-PR, but with
+the **SEED** compiler, which by construction still accepts every form it
+shipped with — that job catches std API drift, not language removals. Sweep it
+by hand.
+
 ## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
 
 Type keys embed each declaring module's PATH SPELLING, and std resolution is

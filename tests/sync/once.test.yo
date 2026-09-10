@@ -296,3 +296,43 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
   comptime_expect_error(OnceCell(CyclicNode));
   assert(true, "rejected at comptime");
 });
+// ============================================================================
+// The slow path runs under with_lock
+// ============================================================================
+// NOTE what this can and cannot show. `f` is an `Impl(Fn() -> unit)` and a
+// closure cannot capture an `Exception` ("Closures cannot capture a value of
+// control-bound type"), so `f` CANNOT throw past `call` — the "an unwind leaves
+// the mutex held forever" hazard the old NOTE in once.yo described is not
+// reachable, and a test claiming to prove it would be testing nothing. (A
+// first version of this test used `unwind(())` inside the closure and passed
+// against the OLD code, which is how that was caught: `unwind` in a plain
+// closure is a return from the closure, not an unwind past `call`.)
+//
+// What IS observable: an `f` that returns early still leaves the mutex
+// released and the `Once` un-done, so the next call can acquire and re-run.
+_early_return_init :: (fn(o : Once, counter : AtomicI32) -> unit)({
+  o.call(() => {
+    counter.fetch_add(i32(1), MemoryOrder.SeqCst);
+    // Leave the closure before `call` records completion.
+    unwind(());
+  });
+});
+test("Once.call leaves the lock released and the Once un-done when f exits early", {
+  o := Once.new();
+  counter := AtomicI32.new(i32(0));
+  _early_return_init(o, counter);
+  assert(counter.load(MemoryOrder.SeqCst) == i32(1), "the initializer ran once");
+  assert(!o.is_done(), "an f that did not complete does not mark the Once done");
+  // If the mutex had been left held, THIS call would hang instead of running.
+  ran_again := AtomicI32.new(i32(0));
+  o.call(() => {
+    ran_again.fetch_add(i32(1), MemoryOrder.SeqCst);
+  });
+  assert(ran_again.load(MemoryOrder.SeqCst) == i32(1), "the retry acquired the lock and ran");
+  assert(o.is_done(), "and a completed initializer does mark it done");
+  // Third call takes the fast path: no lock, no run.
+  o.call(() => {
+    ran_again.fetch_add(i32(1), MemoryOrder.SeqCst);
+  });
+  assert(ran_again.load(MemoryOrder.SeqCst) == i32(1), "a done Once never runs f again");
+});
