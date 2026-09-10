@@ -1,0 +1,17 @@
+// Loop-measure fixture for the V4 verifier: the `decreases(n - i)`
+// statement rides between the invariant and the body; the encoding
+// proves the measure non-negative over the havoced state and strictly
+// decreasing over the post-body state.
+pragma(Pragma.Verify);
+
+count_down :: (
+  fn(n : i32, requires(n >= i32(0)), ensures(result == n)) -> (result : i32)
+)({
+  i := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n);
+    decreases(n - i);
+    i = (i + i32(1));
+  });
+  i
+});

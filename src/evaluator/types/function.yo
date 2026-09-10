@@ -33,7 +33,8 @@ import("std/fmt");
   BK_CTL,
   BK_TUPLE,
   BF_REQUIRES,
-  BF_ENSURES
+  BF_ENSURES,
+  BF_DECREASES
 }
 :: import("../../expr.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, lookup_some_resolved_concrete, register_some_resolved_concrete, adopt_receiver_struct_instance } :: import("../../expr_info.yo");
@@ -563,6 +564,8 @@ get_func_where_constraints :: (fn(func_id : String) -> ArrayList(WhereConstraint
 /// (src/types/definitions.ts:875).
 (g_func_ensures_exprs : HashMap(String, ArrayList(AstExpr))) =
   HashMap(String, ArrayList(AstExpr)).new();
+/// Phase V4 `decreases(M)` termination measure (at most one per fn).
+(g_func_decreases_expr : HashMap(String, AstExpr)) = HashMap(String, AstExpr).new();
 /// Phase V1 (plans/backlog/FORMAL_VERIFICATION.md): the signature's labeled
 /// return `-> (name : T)` — same keys and lifecycle as the predicate tables
 /// above. `ensures(...)` predicates name the return value through this label
@@ -582,6 +585,20 @@ register_func_ensures_exprs :: (fn(func_id : String, preds : ArrayList(AstExpr))
     g_func_ensures_exprs.insert(func_id.clone(), preds);
   });
 });
+/// Register the signature's `decreases(M)` measure. No-op when absent.
+register_func_decreases_expr :: (fn(func_id : String, measure : Option(AstExpr)) -> unit)({
+  match(
+    measure,
+    .Some(m) => {
+      g_func_decreases_expr.insert(func_id.clone(), m);
+    },
+    .None => ()
+  );
+});
+/// Return the `decreases(M)` measure for `func_id` (None when absent).
+get_func_decreases_expr :: (fn(func_id : String) -> Option(AstExpr))(
+  g_func_decreases_expr.get(func_id.clone())
+);
 /// Re-key both contract tables from the fn-type-expr id to the FuncVal id.
 copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
   match(
@@ -595,6 +612,13 @@ copy_func_contract_exprs :: (fn(from_id : String, to_id : String) -> unit)({
     g_func_ensures_exprs.get(from_id.clone()),
     .Some(preds) => {
       g_func_ensures_exprs.insert(to_id.clone(), preds);
+    },
+    .None => ()
+  );
+  match(
+    g_func_decreases_expr.get(from_id.clone()),
+    .Some(m) => {
+      g_func_decreases_expr.insert(to_id.clone(), m);
     },
     .None => ()
   );
@@ -740,7 +764,9 @@ FuncParamsResult :: struct(
   /// Appended last so existing positional constructions only need trailing args.
   requires_exprs : ArrayList(AstExpr),
   /// Phase-0 `ensures(...)` predicates (same rationale).
-  ensures_exprs : ArrayList(AstExpr)
+  ensures_exprs : ArrayList(AstExpr),
+  /// Phase V4 `decreases(M)` termination measure (at most one).
+  decreases_expr : Option(AstExpr)
 );
 // ---------------------------------------------------------------------------
 // Local helpers
@@ -881,6 +907,7 @@ _clause_zone :: (fn(e : AstExpr) -> usize)(
     ast_expr_is_fn_call_of(e, BK_WHERE, Option(usize).None) => usize(2),
     ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => usize(3),
     ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => usize(4),
+    ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None) => usize(5),
     true => usize(1)
   )
 );
@@ -891,6 +918,7 @@ _clause_name :: (fn(e : AstExpr) -> String)(
     ast_expr_is_fn_call_of(e, BK_WHERE, Option(usize).None) => String.from("where(...)"),
     ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) => String.from("requires(...)"),
     ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) => String.from("ensures(...)"),
+    ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None) => String.from("decreases(...)"),
     true => String.from("parameter")
   )
 );
@@ -901,14 +929,16 @@ _zone_label :: (fn(zone : usize) -> String)(
     (zone == usize(1)) => String.from("regular parameters"),
     (zone == usize(2)) => String.from("where(...)"),
     (zone == usize(3)) => String.from("requires(...)"),
-    true => String.from("ensures(...)")
+    (zone == usize(4)) => String.from("ensures(...)"),
+    true => String.from("decreases(...)")
   )
 );
 /// True when `e` is a Phase-0 contract clause (`requires(...)`/`ensures(...)`).
 /// Such clauses are NOT runtime parameters: every parameter pass skips them.
 _is_contract_clause :: (fn(e : AstExpr) -> bool)(
   ast_expr_is_fn_call_of(e, BF_REQUIRES, Option(usize).None) ||
-    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None)
+    ast_expr_is_fn_call_of(e, BF_ENSURES, Option(usize).None) ||
+      ast_expr_is_fn_call_of(e, BF_DECREASES, Option(usize).None)
 );
 /// Whether any identifier atom in `e` has the name `name` — Phase V1: the
 /// unit-return label check for `ensures(...)`. Walks FnCall heads and
@@ -3165,8 +3195,10 @@ evaluate_function_parameters :: (
   // rule: `requires(P1, P2, ...)`). Zero-argument forms are rejected.
   (requires_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
   (ensures_exprs : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+  (decreases_expr : Option(AstExpr)) = Option(AstExpr).None;
   (seen_requires : bool) = false;
   (seen_ensures : bool) = false;
+  (seen_decreases : bool) = false;
   (ci : usize) = usize(0);
   while(ci < param_exprs.len(), {
     c_expr := match(param_exprs.get(ci), .Some(e) => e, .None => make_err_expr());
@@ -3241,6 +3273,32 @@ evaluate_function_parameters :: (
         );
         cei = (cei + usize(1));
       });
+      continue;
+    });
+    if(ast_expr_is_fn_call_of(c_expr, BF_DECREASES, Option(usize).None), {
+      d_args := _fn_call_args(c_expr);
+      if(d_args.len() != usize(1), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("'decreases(...)' takes exactly one measure expression: decreases(M).")
+            )
+          )
+        );
+      });
+      if(seen_decreases, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(c_expr),
+              String.from("Multiple 'decreases(...)' clauses in the same signature are a syntax error.")
+            )
+          )
+        );
+      });
+      seen_decreases = true;
+      decreases_expr = d_args.get(usize(0));
       continue;
     });
   });
@@ -3658,7 +3716,8 @@ evaluate_function_parameters :: (
             has_variadic,
             variadic_param,
             requires_exprs,
-            ensures_exprs
+            ensures_exprs,
+            decreases_expr
           )
         )
       );
@@ -3668,7 +3727,7 @@ evaluate_function_parameters :: (
       _retry_errors := parse_where_clause_constraints(one_failed, env_mut, ctx, false, exn);
     });
   });
-  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs)
+  FuncParamsResult(params, forall_params, implicit_params, where_clause_exprs, has_variadic, variadic_param, requires_exprs, ensures_exprs, decreases_expr)
 });
 // Helper to get a param expr for error reporting
 param_exprs_for_error :: (fn(arg_list : ArrayList(AstExpr), idx : usize) -> Option(AstExpr))(
@@ -4167,6 +4226,7 @@ evaluate_function_type :: (
   // Mirrors function.ts:2273-2274 storing them on the FunctionType.
   register_func_requires_exprs(ast_expr_id(expr).to_string(), params_result.requires_exprs);
   register_func_ensures_exprs(ast_expr_id(expr).to_string(), params_result.ensures_exprs);
+  register_func_decreases_expr(ast_expr_id(expr).to_string(), params_result.decreases_expr);
   // Phase V1: `-> (name : unit)` parses, but the label names nothing — reject
   // `ensures(...)` predicates that reference it (decision D3,
   // plans/backlog/FORMAL_VERIFICATION.md). Checked here, where the evaluated
@@ -4974,6 +5034,8 @@ export(
 export(
   register_func_requires_exprs,
   register_func_ensures_exprs,
+  register_func_decreases_expr,
+  get_func_decreases_expr,
   register_func_return_label,
   copy_func_contract_exprs,
   get_func_requires_exprs,

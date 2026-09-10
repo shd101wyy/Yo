@@ -1,0 +1,22 @@
+// The loop-exit state is a FRESH havoc generation (V4.2): a zero-iteration
+// exit keeps the pre-loop value, which the body's output cannot
+// represent (issues/verifier-loop-exit-pins-post-body-bindings.md). With
+// x = 7 the loop never runs and result is 7 — `result == 5` is honestly
+// REFUTED; proving it would require pinning the exit to the body's
+// `y = 5`, which is exactly the unsoundness this fixture guards against.
+pragma(Pragma.Verify);
+
+pin_exit :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0)),
+    ensures(result == i32(5))
+  ) -> (result : i32)
+)({
+  y := x;
+  while(y < i32(0), {
+    invariant(y >= i32(0));
+    y = i32(5);
+  });
+  y
+});

@@ -31,7 +31,7 @@ _(env : cap_dbg_env_fnty_rp) :: import("std/env");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_return_label, copy_func_contract_exprs } :: import("../types/function.yo");
+{ copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs } :: import("../types/function.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -1269,6 +1269,11 @@ Result type: ${type_to_string(result_box)}`
             result_type : result_box.clone(),
             requires_exprs : evd_reqs,
             ensures_exprs : evd_enss,
+            decreases_expr : match(
+              get_func_decreases_expr(fn_val_id.clone()),
+              .Some(dm) => Option(AstExpr).Some(evaluated_for_verify(dm.clone(), pred_env, ctx, exn)),
+              .None => Option(AstExpr).None
+            ),
             return_label : get_func_return_label(fn_val_id.clone()),
             table : ctx.expr_info_table,
             mode : vmode,

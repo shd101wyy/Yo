@@ -1,0 +1,29 @@
+// A continue that is NOT the body's final statement (V4.2): the invariant
+// is proven at the continue site itself, the dead arm is excluded from
+// the phi merge with its guard negated on the fall-through path, and the
+// statement after the cond runs only there. Concretely i walks 0, 1, 2,
+// ... n (the first step skips ahead to 1), so result == n for every
+// n >= 0 — including the zero-iteration n == 0 exit.
+pragma(Pragma.Verify);
+
+skip_then :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(1000)),
+    ensures(result == n)
+  ) -> (result : i32)
+)({
+  i := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n);
+    cond(
+      (i == i32(0)) => {
+        i = i32(1);
+        continue;
+      },
+      true => ()
+    );
+    i = (i + i32(1));
+  });
+  i
+});

@@ -1006,7 +1006,9 @@ results; no language behavior changed yet.
 > harness, the static gate lives in check/compile/verify.
 > tests/internal/verifier_strip.test.yo covers the mechanism (solver-free)
 > and the full verify+ pipeline (YO_TEST_Z3=1). The last V3 row —
-> match/datatype encoding — LANDED via #533 (PR in flight 2026-09-10):
+> match/datatype encoding — LANDED via #535 (develop af84f69b5,
+> 2026-09-10; the PR chain #528→#533→#534 fell to GitHub's Actions
+> run-creation stall before it):
 > value enums as SMT datatypes (mangled ctor/accessor spellings,
 > declare-datatypes rendered per SMT-LIB 2.6), match lowered to nested
 > ite over is-testers with accessor projections, constructions as Ctor
@@ -1061,6 +1063,52 @@ function. `verify+` erases proved asserts (verified by inspecting
 **Estimate:** ~5–7 weeks.
 
 ### Phase V4 — Loops, invariants, termination
+
+> **Status: CORE LANDED 2026-09-10** (branch `feat/fv4-loops`,
+> ad8070f5e + 96dcddce3 + ba68f59de, stacked on the V3 branch —
+> locally z3-proven, PR follows #535). LANDED: the havoc-invariant
+> rule (task 1's assigned-variable scan with the macro_expansion
+> discipline; task 2's entry/iterate/exit obligations) and `decreases`
+> BOTH forms (task 3: zone-5 signature clause with registration +
+> arity checks, and the loop statement position). Locally proven on
+> four fixtures: sum_to 7/7 unsat, count_down (loop measure) 5/5,
+> sum_down (recursion measure) 8/8, and the wrong-invariant twin
+> REFUTES at iterate. Surfaced and fixed along the way: cond arms
+> walked without their path guards (obligations inside arms were
+> reachable unconditionally); a naive pop-count unwind ate callee
+> ensures-assumptions pushed during the arm walk (selective
+> `_unwind_path_guards`); a callee ensures outside the subset
+> silently dropped its assumption (now a loud subset error).
+> V4.1 LANDED 2026-09-10 (same branch): the cond-arm phi-merge (each
+> arm walks from the SAME pre-cond state; every assigned name's
+> post-cond binding is the ite-fold over the arm guards — the
+> binary-search index skeleton `bsearch_step` proves 7/7 obligations
+> through it), `continue` as the loop body's final statement (it jumps
+> to the head, where the invariant is assumed — the iterate obligation
+> discharges it; the parser's trailing `()` appendix is tolerated), and
+> the non-decreasing-measure negative twin (REFUTES at
+> loop-variant-decreases). V4.2 LANDED 2026-09-10 (same branch):
+> `break` as the exit-path disjunction (each break site snapshots its
+> full path condition + bindings; the exit state is that snapshot
+> disjoined with a FRESH-havoc cond-exit generation — fresh bools
+> select per assigned name — so the exit is never pinned to the body's
+> output), `continue` at ANY statement (the invariant and measure step
+> are proven at the site; dead arms are excluded from the phi-fold with
+> their guards negated on the fall-through path), `runtime(e)` as the
+> identity marker (`while(runtime(true), ...)` + break is the
+> "loop until done" idiom; `break_sum` proves 8/8, `skip_then` proves,
+> the zero-iteration pin twin `pin_exit` REFUTES). RECLASSIFIED: `for`
+> stays outside the subset — its expansion drives an uncontracted
+> iterator trait call over collection state, which needs the V6
+> collection/iterator model; the precise subset error and the
+> while+runtime(true) workaround are documented. SURFACED AND FIXED:
+> the V4 exit kept POST-BODY bindings, pinning zero-iteration exits to
+> the body's output — a false PROOF (`ensures(result == 5)` after
+> `while(y < 0, { invariant(y >= 0); y = 5; })` "proved" though x = 100
+> never enters the loop) —
+> issues/fixed/verifier-loop-exit-pins-post-body-bindings.md; the exit now
+> re-havocs under a second generation and assumes Inv ∧ ¬Cond over the
+> fresh constants (all V4/V4.1 fixtures still prove).
 
 **Scope:** `while` verification, `decreases(...)`, recursion, `break`/
 `continue` semantics.
