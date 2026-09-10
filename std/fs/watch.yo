@@ -15,6 +15,11 @@
 //! w.close();
 //! ```
 //!
+//! `close()` is idempotent and runs automatically when the last reference to
+//! the watcher goes away, so a watcher that simply falls out of scope stops
+//! its native watch rather than leaving the event loop calling back into
+//! freed memory.
+//!
 //! Event kinds follow the backend's (and libuv's) two-way split: `Rename`
 //! covers create / delete / move, `Change` covers a write or metadata change.
 //! `name` is the entry name relative to a watched directory (the file's own
@@ -173,13 +178,31 @@ impl(
     })
   ),
   /// Stop the native watch. Queued events stay readable through `poll`;
-  /// `next` no longer waits.
-  close : (fn(inout(self) : Self) -> unit)({
+  /// `next` no longer waits. Idempotent, and called for you when the last
+  /// reference to the watcher goes away (`Dispose` below).
+  close : (fn(self : Self) -> unit)({
     if(self._active, {
       self._active = false;
       events.fs_event_stop(self._handle);
       events.fs_event_close(self._handle);
     });
   })
+);
+impl(
+  Watcher,
+  /// Releasing the last reference stops the native watch.
+  ///
+  /// This is not merely tidy. `watch` registers `_on_fs_event` with a RAW,
+  /// NON-OWNING pointer to the watcher (`unsafe.cast(w, *u8)`), so a watcher
+  /// that is dropped while active leaves the event loop holding a dangling
+  /// pointer and calling back into freed memory — a use-after-free, on top of
+  /// leaking the backend's `__yo_fs_event_t` and its inotify/kqueue
+  /// descriptor. `dispose` unregistering the watch is exactly what makes the
+  /// non-owning `user_data` sound: the callback cannot outlive the object,
+  /// because the object's own teardown removes it.
+  /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(self.close())
+  )
 );
 export(FsEventKind, FsEvent, WatchOptions, Watcher, watch);

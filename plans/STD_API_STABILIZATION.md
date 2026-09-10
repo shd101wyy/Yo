@@ -559,11 +559,54 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 **I/O.** Verified against the code 2026-09-09 — LANDED:
 `Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
 `Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
-`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: `Child`
-stdin/stdout/stderr as `Reader`/`Writer` handles; `Watcher` `Dispose`; HTTP
-keep-alive. (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
+`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: HTTP keep-alive.
+(`Child` stdin/stdout/stderr as `Reader`/`Writer` handles and `Watcher`
+`Dispose` landed 2026-09-10 — described just below.) (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
 `UdpSocket.recv_from -> (n, from)`, `StatusCode` and `HeaderMap` all landed
 2026-09-09 — described just below.)
+
+**`Child` pipe handles + `Watcher` `Dispose` — LANDED 2026-09-10.**
+
+`Command.spawn`'s `Child` now yields the parent ends of its pipes as typed
+handles: `take_stdin() -> Option(ChildStdin)` (a `Writer`),
+`take_stdout() -> Option(ChildStdout)` and
+`take_stderr() -> Option(ChildStderr)` (both `Reader`s). That is what puts a
+child's streams inside `std/io`'s surface — `write_all`, `read_to_string`,
+`read_exact`, `BufReader.lines` — instead of the three bespoke methods
+(`write_stdin`, `read_stdout_to_end`, `read_stderr_to_end`) that were the only
+way in. Those stay, and now say they throw `BadFileDescriptor` once the fd has
+been taken.
+
+Three shape decisions:
+
+- **Taking MOVES the fd** out of the `Child` (`_stdout_fd = .None`), so `wait()`
+  no longer closes it and there is exactly one owner. A second `take_stdout()`
+  is `.None`, which is also how "this stream was not `Stdio.Piped`" reads —
+  the same answer to the same question ("can I have that stream?").
+- **`ChildStderr` is a distinct type** from `ChildStdout` despite being
+  structurally identical, for Rust's reason: the type says which stream you
+  are holding.
+- **`close` sets its flag INSIDE the async body**, after the close, mirroring
+  `File.close`. A future that is created and never awaited must leave the
+  handle closeable, or `dispose` would skip an fd that is still open.
+
+Each handle has a `Dispose`, so dropping a `ChildStdin` delivers the EOF the
+child is waiting for without an explicit `close`.
+
+`Watcher` gained the `Dispose` it never had, and the missing one was worse than
+a leak. `watch` registers its callback with a **raw, non-owning** pointer to
+the watcher (`unsafe.cast(w, *u8)`), so a watcher dropped while active left the
+event loop calling `_on_fs_event` into freed memory — reading `w._active` and
+then pushing into a freed `ArrayList` — on top of leaking the backend's
+`__yo_fs_event_t` and its inotify/kqueue descriptor. Linux caps inotify
+instances per user at 128 by default, so the leak alone stopped a
+watcher-creating loop from watching anything. `dispose` delegating to the
+already-idempotent `close()` is what makes the non-owning `user_data` sound:
+the callback cannot outlive the object, because the object's teardown removes
+it. `close` moved from `inout(self)` to `self : Self` to allow that delegation
+— every other closeable in `std/` already spelled it that way, and `Watcher`
+is a `ref(struct)`, so the field writes are unchanged.
+(`issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md`)
 
 **`Seek` + `OpenOptions` + `SystemTime` — LANDED 2026-09-09, and the shapes
 each had a reason.**

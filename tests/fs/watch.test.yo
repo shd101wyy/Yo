@@ -113,3 +113,75 @@ test("FsEventKind renders", {
   assert(FsEventKind.Rename.to_string() == "rename", "rename");
   assert(FsEventKind.Change.to_string() == "change", "change");
 });
+// A watcher created inside this function drops at the function's end without
+// `close()`. Returns false if `watch` itself threw.
+_watch_and_drop :: (fn(p : String) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(false);
+      }
+    )
+  );
+  w := watch(Path.new(p), WatchOptions.defaults(), exn);
+  assert(w.is_active(), "a fresh watcher is active");
+  true
+});
+// Open-and-close a file and report the descriptor number it got. The kernel
+// hands out the LOWEST free descriptor, so this reads as "how many fds are
+// currently in use" without depending on any resource limit.
+_probe_fd :: (fn(path : String, io : Io) -> i32)({
+  c := path.to_cstr();
+  p := c.ptr().unwrap();
+  fd := io.await(file.openat(AT_FDCWD, p, O_CREAT | O_WRONLY, i32(0o644)), io);
+  assert(fd >= i32(0), "the probe file opened");
+  io.await(file.close(fd), io);
+  fd
+});
+// Regression: `Watcher` shipped a `close()` and no `Dispose`, so a dropped
+// watcher never unregistered — leaking the backend's `__yo_fs_event_t` and its
+// descriptors, AND leaving the event loop holding a raw non-owning pointer to
+// freed memory
+// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md).
+//
+// The oracle is the descriptor NUMBER, not a resource limit: each live watcher
+// holds an inotify instance on Linux and an O_EVTONLY fd plus a kqueue fd on
+// macOS, so 200 leaked watchers push the next free descriptor hundreds higher.
+// A limit-based oracle would have been vacuous here — this machine's
+// RLIMIT_NOFILE swallows 200 leaks without complaining.
+test("a watcher dropped without close() releases its backend handle", {
+  d := temp_dir();
+  probe := path_join(d, `yo_watch_fd_probe.txt`);
+  base := _probe_fd(probe, io);
+  (i : usize) = usize(0);
+  while(i < usize(200), {
+    assert(
+      _watch_and_drop(d),
+      `watch failed at iteration ${i} — dropped watchers are not releasing their backend handles`
+    );
+    i = (i + usize(1));
+  });
+  after := _probe_fd(probe, io);
+  assert(
+    after <= (base + i32(8)),
+    `200 dropped watchers moved the next free descriptor from ${base} to ${after} — their backend handles leaked`
+  );
+  // And the backend still works afterwards: a fresh watcher still delivers.
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  target := path_join(d, `yo_watch_drop.txt`);
+  _unlink(target, io);
+  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  _touch(target, String.from("x"), io);
+  ev := io.await(w.next(io), io);
+  assert(ev.is_some(), "a watcher created after 200 dropped ones still delivers");
+  w.close();
+  _unlink(target, io);
+  _unlink(probe, io);
+});
