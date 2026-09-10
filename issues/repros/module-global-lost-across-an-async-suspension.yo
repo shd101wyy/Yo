@@ -1,0 +1,50 @@
+// A module-level mutable binding read or written ACROSS A SUSPENSION POINT in
+// an `io.async` body operates on a COPY: the writes are lost, and a later
+// read starts from the value the global had before the body ran. The same
+// body without an `io.await` in it updates the real global, which is what
+// makes this a lowering bug rather than a documented restriction.
+//
+//   yo compile issues/repros/module-global-lost-across-an-async-suspension.yo \
+//     --std-path ./std --optimize 2 -o /tmp/repro.out && /tmp/repro.out
+//
+// Expected: every line reports task and global agreeing, and the two
+//           `suspending` lines report 2 then 4.
+// Actual:   the suspending forms report "global=0", and the second call
+//           starts from 0 again, so it reports task=2 rather than task=4.
+{ println } :: import("std/fmt");
+{ Exception, IoExn } :: import("std/error");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/time/sleep");
+(g_n : usize) = usize(0);
+// The control: two increments in an async body with NO suspension point.
+_bump_flat :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    g_n = (g_n + usize(1));
+    g_n = (g_n + usize(1));
+    return(g_n);
+  })
+);
+// The bug: the identical body with an `io.await` between the increments.
+_bump_suspending :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    g_n = (g_n + usize(1));
+    e.io.await(sleep(Duration.from_millis(i64(1)), e.io), e);
+    g_n = (g_n + usize(1));
+    return(g_n);
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  a := io.await(_bump_flat(io), e);
+  println(`flat, awaited:       task=${a} global=${g_n}`);
+  g_n = usize(0);
+  b := io.await(_bump_suspending(io), e);
+  println(`suspending, awaited: task=${b} global=${g_n}`);
+  c := io.await(_bump_suspending(io), e);
+  println(`suspending, awaited: task=${c} global=${g_n}`);
+  g_n = usize(0);
+  h := io.spawn(_bump_suspending(io), e);
+  d := match(h.await(io), .Some(v) => v, .None => usize(0));
+  println(`suspending, spawned: task=${d} global=${g_n}`);
+});
+export(main);

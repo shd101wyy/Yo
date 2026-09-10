@@ -303,6 +303,15 @@ generate_object_constructor_declarations :: (fn(context : CodeGenContext) -> uni
   // Builtin reference counting functions (static — single C file).
   em.emit_declaration_line("static inline void __yo_decr_rc(void* ptr); // Decrement reference count");
   em.emit_declaration_line("static inline void* __yo_incr_rc(void* ptr); // Increment reference count");
+  // The ATOMIC pair is defined in the CODE buffer (gc_runtime.yo, both the
+  // lightweight and the full-GC path) and so lands AFTER everything in the
+  // declaration buffer. Declaration-buffer code that releases a reference —
+  // the spawn wrapper's per-field capture drop — calls it, and without these
+  // two lines that call was an implicit declaration followed by a `static`
+  // definition, which is a hard C error
+  // (issues/fixed/spawn-closure-captures-never-dropped-leak.md).
+  em.emit_declaration_line("static void __yo_decr_rc_atomic(void* ptr); // Atomic RC decrement (Iso / atomic ref structs)");
+  em.emit_declaration_line("static void* __yo_incr_rc_atomic(void* ptr); // Atomic RC increment (Iso / atomic ref structs)");
   // GC function declarations.
   em.emit_declaration_line("static void __yo_gc_register(void* ptr); // Register object for cycle detection");
   em.emit_declaration_line("static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection");

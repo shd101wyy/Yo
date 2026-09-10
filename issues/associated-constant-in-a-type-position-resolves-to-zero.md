@@ -96,3 +96,22 @@ Reject it. An associated constant (or a `forall` value parameter) appearing in
 a type position should be a compile error naming the limitation, not a silent
 0. That is a small change at the substitution site and removes the
 silently-wrong-type case.
+
+## Partial landing 2026-09-11 — the silent half is gone
+
+The "minimum fix" above is implemented (`src/evaluator/types/array.yo`): a
+length expression that is neither compile-time known nor a bare identifier is
+now REJECTED with a diagnostic naming the limitation and pointing at
+`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`. `Array(u8, T.BYTES)`
+in a signature therefore errors instead of quietly becoming
+`Array_uint8_t_0`, and the "a length-0 result the body also produces would
+compile" case above can no longer happen.
+
+Covered by `tests/array.test.yo` — the rejection, plus an over-rejection
+canary listing the length forms that MUST keep working (a literal, a
+`comptime` binding, a `generic(N : usize)` parameter used by name).
+
+**This issue stays OPEN**: the feature — a value channel in `substitute()`, so
+an associated constant can be rewritten in a type position — is still missing,
+and it is still what blocks collapsing `std/prelude.yo`'s ten byte-conversion
+impl blocks and giving `usize`/`isize` byte conversions at all.

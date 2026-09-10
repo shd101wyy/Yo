@@ -29,7 +29,8 @@
 { get_type_string, get_variable_name_for_codegen, type_key } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { expr_info_closure_function_value } :: import("../../expr_info.yo");
-{ get_dup_function_for_type, get_drop_function_for_type } :: import("./drop_dup.yo");
+{ get_dup_function_for_type, get_drop_function_for_type, generate_drop_code_for_value } :: import("./drop_dup.yo");
+{ HashSet } :: import("std/collections/hash_set");
 { _call_generate_expr } :: import("./_expr.yo");
 /// C name of the capture struct for `capture_type`: the registered type-entry
 /// c_name if present, else `async_capture_<id>`. (Same lookup as async.yo's
@@ -113,6 +114,81 @@ _closure_runtime_arg_zeroinits :: (fn(closure_fid : String, context : FunctionGe
   );
   out
 });
+/// Emit the per-field RC release for a capture struct that has NO synthesized
+/// `___drop`, as DECLARATION lines inside the spawn wrapper.
+///
+/// This is the leak fix. The wrapper's drop was emitted only when
+/// `get_drop_function_for_type` resolved a `___drop` C function, and the
+/// self-hosted compiler synthesizes none for an ANONYMOUS closure-capture
+/// struct — so both the call-site dup and the wrapper drop took their `.None`
+/// arms and the wrapper degenerated to "call the closure, free the memory".
+/// The `+1` taken when the capture struct is constructed at the call site then
+/// had no matching decrement anywhere, and every spawned closure leaked one
+/// reference per RC'd capture field: ~344 B per `spawn` with a captured
+/// `Channel(bool)`, unbounded in a loop
+/// (issues/fixed/spawn-closure-captures-never-dropped-leak.md).
+///
+/// It also made a whole class of std API silently inert across a spawn
+/// boundary: a captured handle's `Dispose` never ran, so
+/// "the last `Sender` to go closes the channel" did not happen for a `Sender`
+/// moved into a `Thread.spawn` closure.
+///
+/// `generate_drop_code_for_value`'s plain-struct fallback already knows how to
+/// walk a struct's runtime fields, including nested arrays, tuples and enums.
+/// The only problem is WHERE it writes: it emits into the CODE buffer, while a
+/// spawn wrapper is a file-scope `static` living in the DECLARATION buffer. So
+/// the walk runs against the code buffer and the lines it produced are moved
+/// across — the same snapshot-and-rewrite `codegen/functions/generation.yo`
+/// uses for its FTT stub. The declared/scope trackers are unhooked for the
+/// duration so the moved lines are not recorded as declarations of the
+/// enclosing function.
+///
+/// NO dup is added at the call site to match. The heap copy is a shallow copy
+/// of the call-site struct, so it INHERITS that struct's references — the
+/// spawn is a move, and exactly one release is what balances it. (When a
+/// `___dup`/`___drop` pair DOES resolve, the existing paths handle both sides
+/// and this helper is not reached.)
+_emit_capture_drop_lines :: (
+  fn(target : String, capture_type : TypeValue, context : FunctionGenerationContext) -> unit
+)({
+  em := context.base.emitter;
+  before := em.code.len();
+  prev_declared := em.declared_ref;
+  prev_scope := em.scope_ref;
+  em.declared_ref = Option(HashSet(String)).None;
+  em.scope_ref = Option(ArrayList(String)).None;
+  tail := generate_drop_code_for_value(target, capture_type, context);
+  em.declared_ref = prev_declared;
+  em.scope_ref = prev_scope;
+  produced := em.code.substring(before, em.code.len());
+  em.code = em.code.substring(usize(0), before);
+  // Re-emit what the walk produced, one line at a time, into the declaration
+  // buffer with the wrapper's indentation.
+  (start : usize) = usize(0);
+  pn := produced.len();
+  (pi : usize) = usize(0);
+  while(pi <= pn, {
+    at_end := (pi == pn);
+    is_nl := if(at_end, false, produced.byte_at(pi) == u8(10));
+    if(at_end || is_nl, {
+      if(pi > start, {
+        line := String.from("  ");
+        line.push_string(produced.substring(start, pi));
+        em.emit_declaration_string_line(line);
+      });
+      start = (pi + usize(1));
+    });
+    pi = (pi + usize(1));
+  });
+  // A leaf type (an `Rc` field, a `dyn`, a Future handle) yields its release as
+  // the RETURN value rather than an emitted line.
+  if(tail.len() > usize(0), {
+    line := String.from("  ");
+    line.push_string(tail);
+    line.push_str(";");
+    em.emit_declaration_string_line(line);
+  });
+});
 /// Emit a spawn-wrapper function (RC cleanup for the heap-copied capture struct)
 /// to the declaration section and return its C name. Mirrors `generateSpawnWrapper`.
 _generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name : String, capture_type : TypeValue, runtime_args : String, prefix : String, context : FunctionGenerationContext) -> String)({
@@ -145,7 +221,14 @@ _generate_spawn_wrapper :: (fn(closure_fn_c_name : String, capture_struct_c_name
       drop_line.push_str("*)closure);");
       em.emit_declaration_string_line(drop_line);
     },
-    .None => ()
+    // No synthesized `___drop` — walk the fields instead. Taking this arm as a
+    // no-op is what leaked every spawned closure's captures.
+    .None => {
+      target := String.from("*(");
+      target.push_string(capture_struct_c_name.clone());
+      target.push_str("*)closure");
+      _emit_capture_drop_lines(target, capture_type, context);
+    }
   );
   em.emit_declaration_string_line(String.from("  __yo_free(closure);"));
   em.emit_declaration_string_line(String.from("}"));

@@ -185,11 +185,9 @@ impl(
   /// Must not be called from inside a pool task: the caller's worker thread
   /// would be busy waiting for its own sentinel.
   ///
-  /// KNOWN LEAK, pre-existing and below std: a spawn wrapper never drops its
-  /// closure's reference-counted captures, so the sentinels' `drained` channel
-  /// is never freed and each call leaks ~344 bytes. Measured on `develop` too,
-  /// with plain task closures — see
-  /// `issues/spawn-closure-captures-never-dropped-leak.md`.
+  /// The ~344 bytes this used to leak per call — the sentinels' `drained`
+  /// channel, whose reference a spawn wrapper never released — are freed as of
+  /// 2026-09-11 (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
   join_all : (fn(self : Self) -> unit)({
     cond(
       self._used.load(MemoryOrder.Acquire) => {

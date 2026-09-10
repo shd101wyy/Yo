@@ -41,7 +41,7 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_id, ast_expr_is_fn_call_of } :: import("../../expr.yo");
-{ ExprInfo, lookup_macro_expansion } :: import("../../expr_info.yo");
+{ ExprInfo, lookup_macro_expansion, is_module_level_global } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
 {
@@ -212,6 +212,28 @@ _capture_env_variable :: (
     variable_id_remapping : HashMap(String, String)
   ) -> unit
 )({
+  // A MODULE-LEVEL global is not a local and must never be hoisted into the
+  // state-machine struct. Captured, it became `sm->var_<id>`: the field starts
+  // at zero (the struct is calloc'd, and nothing initializes it FROM the
+  // global), every write inside the body went to the field, and the state
+  // entry then declared `size_t <mangled global name> = sm->var_<id>;` — a
+  // local SHADOWING the real global. So a body that suspends read and wrote a
+  // copy: the writes were lost and the next call restarted from zero, while
+  // the same body with no `io.await` in it updated the real global. Silently
+  // (issues/fixed/a-module-global-is-lost-across-an-async-suspension.md).
+  //
+  // A global needs no hoisting at all: it has static storage duration, so it
+  // survives the suspension by construction and every state addresses it by
+  // its module-mangled C name.
+  //
+  // This mirrors the guard the CLOSURE-capture path already has
+  // (evaluator/context.yo, `is_module_level_global` → return), and it uses
+  // the same REGISTRY rather than `Variable.is_module_level`, for the reason
+  // recorded there: env copies (def-time body envs, module import snapshots)
+  // drop that flag on some resolution paths while keeping it on others.
+  if(is_module_level_global(env.module_path, var_name.clone()), {
+    return(());
+  });
   variables := get_variables_from_env(env, var_name.clone());
   n_vars := variables.len();
   if(n_vars > usize(0), {
