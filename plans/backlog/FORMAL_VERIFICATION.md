@@ -1064,9 +1064,10 @@ function. `verify+` erases proved asserts (verified by inspecting
 
 ### Phase V4 — Loops, invariants, termination
 
-> **Status: CORE LANDED 2026-09-10** (branch `feat/fv4-loops`,
-> ad8070f5e + 96dcddce3 + ba68f59de, stacked on the V3 branch —
-> locally z3-proven, PR follows #535). LANDED: the havoc-invariant
+> **Status: LANDED via #538 (develop d0c5fe165, 2026-09-11 — branch
+> `feat/fv4-loops`, all 26 checks green; the branch also carried the
+> develop merge through the v0.2.30 release and #535's V3 landing).**
+> **CORE (2026-09-10):** the havoc-invariant
 > rule (task 1's assigned-variable scan with the macro_expansion
 > discipline; task 2's entry/iterate/exit obligations) and `decreases`
 > BOTH forms (task 3: zone-5 signature clause with registration +
@@ -1079,7 +1080,7 @@ function. `verify+` erases proved asserts (verified by inspecting
 > ensures-assumptions pushed during the arm walk (selective
 > `_unwind_path_guards`); a callee ensures outside the subset
 > silently dropped its assumption (now a loud subset error).
-> V4.1 LANDED 2026-09-10 (same branch): the cond-arm phi-merge (each
+> V4.1 (2026-09-10): the cond-arm phi-merge (each
 > arm walks from the SAME pre-cond state; every assigned name's
 > post-cond binding is the ite-fold over the arm guards — the
 > binary-search index skeleton `bsearch_step` proves 7/7 obligations
@@ -1087,7 +1088,7 @@ function. `verify+` erases proved asserts (verified by inspecting
 > to the head, where the invariant is assumed — the iterate obligation
 > discharges it; the parser's trailing `()` appendix is tolerated), and
 > the non-decreasing-measure negative twin (REFUTES at
-> loop-variant-decreases). V4.2 LANDED 2026-09-10 (same branch):
+> loop-variant-decreases). **V4.2 (2026-09-10):**
 > `break` as the exit-path disjunction (each break site snapshots its
 > full path condition + bindings; the exit state is that snapshot
 > disjoined with a FRESH-havoc cond-exit generation — fresh bools
