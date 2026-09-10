@@ -1138,8 +1138,8 @@ a broken invariant is a compile error naming the failing iteration.
 
 ### Phase V5 — Ghost code, quantifiers, two-state reasoning
 
-> **Status: FIRST ROW LANDED on feat/fv5-twostate (2026-09-11, task 4's
-> `old` half + the honest-diagnostics ground):** `old(e)` now walks e
+> **Status: FIRST ROW LANDED via #557 (develop c801e54ec, 2026-09-11,
+> task 4's `old` half + the honest-diagnostics ground):** `old(e)` now walks e
 > against the FUNCTION-ENTRY snapshot (task 4) — the V3 identity was a
 > false PROOF once V4 legalized `=` on locals (`y := x; y = (y + 1);
 > assert(y == old(y))` "proved"; confirmed end-to-end against z3), and
