@@ -1711,7 +1711,8 @@ found while writing or measuring std, and each was silent.
    `fmt --check` scans the fixture trees and a fixture that does not lex fails
    that gate.
 
-2. **A spawn closure's captures were never released**
+2. **A spawn closure's captures were never released, and the dup/drop pair
+   optimizer made releasing them unsafe**
    (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`). The spawn
    wrapper emitted its drop only when a `___drop` C function resolved, and none
    is synthesized for an anonymous capture struct — so ~344 B leaked per
@@ -1725,6 +1726,20 @@ found while writing or measuring std, and each was silent.
    `std/sync/channel.yo`, `std/async/channel.yo` and `std/thread.yo`'s
    `Pool.join_all` are corrected rather than restated. Gated by a Dispose
    counter (CI runs `detect_leaks=0` everywhere), once and sixteen-times.
+
+   Releasing the captures turned out to be only half the accounting. The
+   dup/drop pair optimizer (`_search_dup_calls`, `src/evaluator/exprs/begin.yo`)
+   skipped `io.async` captures with the right reason on it — "the SM path needs
+   BOTH the dup and the scope-exit drop; cancelling them would leak" — but as a
+   SPECIAL CASE, so every other closure fell through. A closure definition's
+   deferred dups are its capture-STRUCT field initializers, and that struct is
+   moved into the closure value and released by whatever owns it, possibly
+   before the capturing scope ends; cancelling the pair left the capture
+   holding a borrowed alias. `tests/arc.test.yo`'s "Test Arc shared across
+   thread" read 0 instead of 42 the moment the wrapper started releasing, while
+   its three-thread sibling passed for the wrong reason (two capture dups is
+   more than one, and only a single dup was ever cancelled). Which is why the
+   guard is now general.
 
 3. **A module-level global was lost across an async suspension**
    (`issues/fixed/a-module-global-is-lost-across-an-async-suspension.md`). The
