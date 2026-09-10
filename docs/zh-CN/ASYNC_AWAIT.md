@@ -871,6 +871,60 @@ main :: (fn(io : Io) -> unit)({
 export main;
 ```
 
+### 从另一个任务唤醒任务：`Waker` 与 `Park`
+
+`yield` 把一个轮次交还给事件循环，但它无法让一个任务等待**另一个任务的进展**。
+那需要一个可以被对方触发的令牌，`std/async/waker` 就是它。
+
+```rust
+{ Park } :: import "std/async/waker";
+
+// 等待方。先创建 park，把它的 waker 交给将来发信号的一方，然后挂起 ——
+// 顺序就是这样，中间不能有 await。
+p := Park.new();
+waiters.push(p.waker());
+io.await(p.wait(io), io);
+
+// 发信号方，可以来自任何其他任务：
+match(waiters.pop(), .Some(w) => w.wake(), .None => ());
+```
+
+有三条性质值得记住，因为建立在它之上的原语都依赖它们：
+
+- **在等待方挂起之前到达的唤醒不会丢失。** await 点会先读取 future 的状态，
+  再注册续延，所以一个已被唤醒的 park 会直接就地恢复，而不会挂起。
+- **唤醒是幂等的。** 第二次 `wake()`，或者唤醒一个任务已经结束的 park，都是空操作。
+  因此等待者列表可以逐个唤醒所有人，而无需记录谁已经跑过了。
+- **无人能唤醒的 park 会被报告，而不是挂死。** 运行时会统计存活的 waker 令牌；
+  当没有可运行的任务、没有未完成的 I/O，却仍有令牌存活时，事件循环会明确报告并停止，
+  而不是空转。
+
+对于只需要一个 waker 的常见情形，`park(register, io)` 把整个顺序包好了：
+
+```rust
+{ park } :: import "std/async/waker";
+
+io.await(park((w : Waker) => { slot.* = Option(Waker).Some(w); }, io), io);
+```
+
+`register` 在挂起**之前**运行并拿到 waker，所以顺序不可能写错。这与 Rust 的
+`Future::poll(cx)` 是同一种形状。当等待者列表需要自己持有令牌时，直接使用 `Park`。
+
+### `yield_now`：不带定时器的公平让出
+
+`std/async` 的 `yield` 会把一个轮次交还给事件循环，代价是一次 1 毫秒的 sleep ——
+这给建立在它之上的一切都加上了毫秒级的下限。`yield_now`（`std/async/waker`）
+免费给出同样的保证：它的 future 创建时处于 pending 状态，由下一次就绪任务批处理在
+测量完自己的配额之后完成它，于是被恢复的任务在下一个轮次运行，中间正好有一次
+I/O 轮询。
+
+在一个 spawn 出来的任务里跑 400 个轮次，`-O0` 和 `--optimize 2` 下的实测：
+`yield_now` 0 毫秒，`yield` 603 毫秒。
+
+`yield` 本身会在下一个版本变成它。今天做不到的原因是引导（bootstrap），而不是设计：
+`yield` 位于编译器自身的 import 路径上，而用来构建本仓库的 seed 编译器所生成的
+async 运行时里没有这个新原语 —— 把 `yield` 指向它会导致编译器**链接失败**。
+
 ## 与其他语言的比较
 
 | 语言                     | 模型           | 线程模型   | 每任务内存 | 最大并发数 |

@@ -1,0 +1,165 @@
+//! `Waker` and `park` — the "resume THIS task" primitive.
+//!
+//! Yo's async runtime can suspend a task on I/O, but until this module there
+//! was no way for one task to be woken by ANOTHER task's progress. So every
+//! std primitive that waits on a peer polled a clock — `yield`, a contended
+//! `async.Mutex.lock`, a blocked `async.Channel` send or recv — which puts a
+//! **millisecond floor under every hand-off**: a producer/consumer pair caps
+//! at ~1000 hand-offs per second no matter how fast the work is.
+//! (`plans/backlog/WAKER_BASED_SCHEDULING.md`.)
+//!
+//! ```rust
+//! { Park } :: import("std/async/waker");
+//!
+//! // The waiter: create the park, hand its waker to whoever will signal,
+//! // then suspend. Nothing may await between those three steps.
+//! p := Park.new();
+//! waiters.push(p.waker());
+//! io.await(p.wait(io), io);
+//!
+//! // The signaller, from any other task:
+//! match(waiters.pop(), .Some(w) => w.wake(), .None => ());
+//! ```
+//!
+//! ## Why the order matters, and why it is not a race here
+//!
+//! The classic mistake is to suspend and THEN publish the waker: the wake can
+//! arrive in between and be lost. Publishing first is safe, and in a
+//! single-threaded loop it is not even close — no other task can run between
+//! `waker()` and `wait()`, because those are ordinary synchronous calls.
+//!
+//! It stays safe even when a wake DOES arrive first, which is the property
+//! that matters if the loop ever becomes multi-threaded: `wake` completes the
+//! park future, and an await point reads the future's state BEFORE it
+//! registers a continuation (`src/codegen/async/state_machine.yo`), so an
+//! already-woken park resumes inline instead of suspending. `park` below wraps
+//! the whole sequence for callers who only need one waker and would rather not
+//! be able to get the order wrong.
+//!
+//! ## Waking is idempotent
+//!
+//! A second `wake()`, or a `wake()` of a park whose task is already gone, does
+//! nothing. That is what lets a waiter list signal everyone without tracking
+//! who already ran.
+//!
+//! ## Stability
+//!
+//! unstable — new in this release, and it is the mechanism the four
+//! `std/async` modules' stability notes say will change under them.
+pragma(Pragma.AllowUnsafe);
+{ IoFuture } :: import("../sys/future.yo");
+{
+  __yo_async_park_start,
+  __yo_async_yield_start,
+  __yo_waker_new,
+  __yo_waker_wake,
+  __yo_waker_is_woken,
+  __yo_waker_release
+} :: import("../sys/externs.yo");
+/// A token that makes one suspended task runnable again.
+///
+/// Cheap to copy, safe to fire more than once, and safe to fire from a task
+/// that is not the sleeper. It holds a REFERENCE to the park it resumes, so
+/// the token cannot outlive its target — a non-owning pointer here would be
+/// the use-after-free `Watcher`'s event-loop callback once had
+/// (`issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md`).
+Waker :: ref(
+  struct(
+    /// The park future, with one reference held on this token's behalf.
+    _p : *u8
+  )
+);
+impl(
+  Waker,
+  /// Make the parked task runnable. A no-op if it was already woken, or if
+  /// its task ended without ever suspending.
+  wake : (fn(self : Self) -> unit)(unsafe(__yo_waker_wake(self._p))),
+  /// Whether the park has already been woken. Non-blocking, and only useful
+  /// for diagnostics: by the time a caller acts on `false` it may be `true`.
+  is_woken : (fn(self : Self) -> bool)(unsafe(__yo_waker_is_woken(self._p)))
+);
+impl(
+  Waker,
+  /// Releasing the last reference to a token releases its hold on the park.
+  ///
+  /// The runtime counts live tokens, and that count is how the event loop
+  /// knows a parked task is still wakeable: the I/O backend cannot see a park,
+  /// so without it the loop would decide there is nothing left to wait for and
+  /// return with the parked task's future unresolved. When the last token for
+  /// a park is dropped, nothing can wake it any more — and the loop then
+  /// reports that rather than hanging.
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(unsafe(__yo_waker_release(self._p)))
+  )
+);
+/// A suspension point that a `Waker` resumes.
+///
+/// Create it, hand out as many wakers as there are signallers, then `wait`.
+/// This is the primitive a waiter LIST wants — a `Mutex` or a `Channel` stores
+/// the waker in its queue and suspends — which is why it is exposed beside the
+/// closure-shaped `park` below.
+Park :: ref(
+  struct(
+    _future : IoFuture
+  )
+);
+impl(
+  Park,
+  /// A fresh, unwoken park.
+  new : (fn() -> Self)(Self(_future : unsafe(__yo_async_park_start()))),
+  /// A token that will resume whoever is waiting on this park. Call it before
+  /// `wait`, and as many times as there are signallers.
+  waker : (fn(self : Self) -> Waker)(
+    Waker(_p : unsafe(__yo_waker_new(self._future)))
+  ),
+  /// Suspend the current task until one of this park's wakers fires. Resolves
+  /// immediately if a wake already arrived.
+  wait : (fn(self : Self, io : Io) -> Impl(Future(unit, Io)))(
+    io.async((io : Io) => {
+      _r := io.await(self._future, io);
+      ()
+    })
+  )
+);
+/// Suspend the current task until the waker handed to `register` is woken.
+///
+/// `register` runs BEFORE the suspension and receives the waker, so it can
+/// hand it to whoever will fire it without any chance of publishing it too
+/// late. This is the shape Rust's `Future::poll(cx)` and every correct condvar
+/// API use, and it is the right default for a caller who needs exactly one
+/// waker; reach for `Park` directly when a waiter list wants to hold the token
+/// itself.
+park :: (fn(register : Impl(Fn(w : Waker) -> unit), io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    p := Park.new();
+    register(p.waker());
+    io.await(p.wait(io), io);
+    ()
+  })
+);
+/// Give the event loop ONE turn, including an I/O poll, and come back — a
+/// fairness yield with no timer under it.
+///
+/// This is what `std/async`'s `yield` will become. It cannot be that today for
+/// a bootstrap reason, not a design one: `yield` is on the compiler's own
+/// import path (through `std/fs/watch`), and the SEED compiler that builds this
+/// tree emits an async runtime without `__yo_async_yield_start` in it — so
+/// pointing `yield` here fails to LINK the compiler. It moves in the release
+/// after the one that ships this runtime. Until then this is the fast form and
+/// `yield` is the 1 ms-timer form, and they are otherwise interchangeable.
+///
+/// The mechanism: the future is created PENDING and completed at the top of
+/// the next ready-task drain, after that drain has measured its budget, so the
+/// resumed continuation lands beyond the budget and runs in the following step
+/// — with exactly one `__yo_io_poll()` in between. An already-complete future
+/// would not do: the await point takes an inline fast path for one of those
+/// and the task never leaves the C stack, which is the spin that once made a
+/// poll-until-finished loop starve I/O
+/// (issues/build-smoke-hangs-registry-perturbation.md).
+yield_now :: (fn(io : Io) -> Impl(Future(unit, Io)))(
+  io.async((io : Io) => {
+    _r := io.await(unsafe(__yo_async_yield_start()), io);
+    ()
+  })
+);
+export(Waker, Park, park, yield_now);

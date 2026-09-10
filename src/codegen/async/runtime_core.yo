@@ -65,6 +65,25 @@ static bool __yo_has_pending_io(void);
 static int __yo_io_poll(void);
 static int __yo_io_wait(void);
 
+// Waker / park state + forward declarations. The DEFINITIONS live further
+// down, beside the rest of the waker machinery; they are declared here because
+// the three event-loop drivers (__yo_async_poll_step,
+// __yo_async_run_until_complete, __yo_async_wait_all) sit between the two and
+// call them. The thread-local state has to be DEFINED here rather than
+// declared, not merely declared: a static object has no forward-declaration
+// spelling in C.
+// See plans/backlog/WAKER_BASED_SCHEDULING.md.
+static ${thread_local} size_t __yo_async_live_wakers = 0;
+typedef struct __yo_yield_node_t {
+  __yo_io_future_t* future;
+  struct __yo_yield_node_t* next;
+} __yo_yield_node_t;
+static ${thread_local} __yo_yield_node_t* __yo_yield_pending = NULL;
+static void __yo_async_drain_yields(void);
+static bool __yo_async_has_pending_yield(void);
+static bool __yo_async_has_pending_work(void);
+static void __yo_async_report_wake_deadlock(void);
+
 // Initialize async scheduler (lightweight - just sets flag)
 static void __yo_async_scheduler_init(void) {
   if (__yo_async_scheduler_initialized) {
@@ -135,6 +154,10 @@ static int __yo_async_strict_nesting(void) {
 // blocking waiter watches may have changed in this step.
 static int __yo_async_run_ready_tasks(void) {
   int budget = (int)__yo_thread_async_queue.count;
+  // AFTER the snapshot, deliberately: a completed yield enqueues its
+  // continuation past the budget, so it resumes in the NEXT step — with one
+  // __yo_io_poll() in between, which is the whole point of yielding.
+  __yo_async_drain_yields();
   int ran = 0;
   while (__yo_thread_async_queue.head && budget > 0) {
     ran++;
@@ -191,10 +214,31 @@ static void __yo_async_poll_step(void) {
     // 100 ms wait timeout hid this on macOS; io_uring_wait_cqe waits forever
     // (issues/fixed/event-loop-blocks-after-completing-the-awaited-future.md).
     // Same rule as __yo_async_wait_all's !tasks_processed.
-    if (ran == 0 && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
+    if (ran == 0 && !__yo_thread_async_queue.head && !__yo_async_has_pending_yield()
+        && __yo_has_pending_io()) {
       __yo_io_wait();
     }
   }
+}
+
+// One step, for a caller that is polling a predicate rather than a future:
+// reports whether anything could still change. False means the caller's
+// predicate will never become true, so it must stop rather than spin.
+static bool __yo_async_poll_step_live(void) {
+  __yo_async_poll_step();
+  if (__yo_thread_async_queue.head) {
+    return true;
+  }
+  if (__yo_async_has_pending_yield()) {
+    return true;
+  }
+  if (__yo_has_pending_io()) {
+    return true;
+  }
+  if (__yo_async_live_wakers > 0) {
+    __yo_async_report_wake_deadlock();
+  }
+  return false;
 }
 
 // Run event loop until a specific Future completes (for async main).
@@ -209,6 +253,7 @@ static void __yo_async_run_until_complete(void* future_ptr) {
   int __future_state = future->state;
   while (__future_state != -1 && __future_state != -2) {
     int tasks_run = 0;
+    __yo_async_drain_yields();
     while (tasks_run < 100) {
       __yo_continuation_t* cont = __yo_thread_async_queue.head;
       if (!cont) break;
@@ -232,16 +277,22 @@ static void __yo_async_run_until_complete(void* future_ptr) {
     if (__future_state == -1 || __future_state == -2) {
       break;
     }
-    if (tasks_run == 0 && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
+    if (tasks_run == 0 && !__yo_thread_async_queue.head
+        && !__yo_async_has_pending_yield() && __yo_has_pending_io()) {
       __yo_io_wait();
       __future_state = future->state;
       continue;
     }
     if (!__yo_thread_async_queue.head) {
-      if (!__yo_has_pending_io()) {
+      if (!__yo_async_has_pending_work()) {
         if (__future_state != -1 && __future_state != -2) {
           break;
         }
+      } else if (!__yo_has_pending_io()) {
+        // Live wakers but no I/O to wait on: in a single-threaded loop
+        // nothing can fire them. Report and stop rather than spin.
+        __yo_async_report_wake_deadlock();
+        break;
       }
     }
   }
@@ -266,6 +317,7 @@ static void __yo_async_wait_all(void) {
   __yo_io_init();
   while (true) {
     bool tasks_processed = false;
+    __yo_async_drain_yields();
     while (__yo_thread_async_queue.head) {
       __yo_continuation_t* cont = __yo_thread_async_queue.head;
       __yo_thread_async_queue.head = cont->next;
@@ -278,11 +330,16 @@ static void __yo_async_wait_all(void) {
       tasks_processed = true;
     }
     __yo_io_poll();
-    if (!tasks_processed && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
+    if (!tasks_processed && !__yo_thread_async_queue.head
+        && !__yo_async_has_pending_yield() && __yo_has_pending_io()) {
       __yo_io_wait();
       continue;
     }
-    if (!__yo_thread_async_queue.head && !__yo_has_pending_io()) {
+    if (!__yo_thread_async_queue.head && !__yo_async_has_pending_yield()
+        && !__yo_has_pending_io()) {
+      if (__yo_async_live_wakers > 0) {
+        __yo_async_report_wake_deadlock();
+      }
       break;
     }
   }
@@ -346,6 +403,173 @@ static __yo_yield_future_t __yo_async_yield(void) {
   future.continuation_fn = NULL;
   future.continuation_sm = NULL;
   return future;
+}
+
+// ============================================================================
+// Waker / park — "resume THIS task"
+// ============================================================================
+// The primitive every peer-waiting primitive needs
+// (plans/backlog/WAKER_BASED_SCHEDULING.md). Without it, everything that waits
+// on ANOTHER TASK's progress — yield, a contended async Mutex, a blocked
+// Channel send/recv — polls a 1 ms timer, which puts a millisecond floor under
+// every hand-off.
+//
+// A parked task is suspended on an ordinary __yo_io_future_t that NO backend
+// will ever complete: only __yo_waker_wake does. That is the entire
+// difference from an I/O future, and it is why the loop needs a count of live
+// wakers below — __yo_has_pending_io() asks the I/O backend, which knows about
+// sockets, timers and file operations and cannot know about a park.
+//
+// The await point's own protocol is what makes an early wake safe: it reads
+// the future state FIRST, and only registers a continuation if it is still
+// pending (state_machine.yo, _emit_await_suspension_core). So a wake that
+// arrives before the task suspends leaves state == -1 with no continuation,
+// and the await point resumes inline instead of suspending. Nothing is lost.
+
+// How many waker TOKENS are alive. Not how many tasks are parked: a parked
+// task always has at least one live waker somewhere (whoever is going to wake
+// it holds one), and if every waker for it is dropped then nothing can ever
+// wake it. So this is the right liveness question for the loop to ask, and it
+// is answerable without a dispose hook on the future.
+// Create a park future: pending, with no backend registration.
+static __yo_io_future_t* __yo_async_park_start(void) {
+  __yo_io_future_t* f = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  memset(f, 0, sizeof(__yo_io_future_t));
+  f->header.ref_count = 1;
+  atomic_init(&f->state, 0);
+  f->result = 0;
+  atomic_init(&f->continuation_fn, NULL);
+  atomic_init(&f->continuation_sm, NULL);
+  return f;
+}
+
+// Hand out a waker for the future, taking a REFERENCE so the token cannot
+// outlive the future it resumes — the mistake Watcher's non-owning callback
+// pointer made
+// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md).
+// Balanced by __yo_waker_release.
+static void* __yo_waker_new(void* f) {
+  if (!f) {
+    return NULL;
+  }
+  __yo_incr_rc(f);
+  __yo_async_live_wakers++;
+  return f;
+}
+
+// Make the parked task runnable. Idempotent: a second wake, or a wake of a
+// future that reached a terminal state some other way, is a no-op — which is
+// what lets a waiter list wake everyone without tracking who already ran.
+static void __yo_waker_wake(void* p) {
+  if (!p) {
+    return;
+  }
+  __yo_io_future_t* f = (__yo_io_future_t*)p;
+  int expected = 0;
+  if (!atomic_compare_exchange_strong(&f->state, &expected, -1)) {
+    return;
+  }
+  void (*cont)(void*) = atomic_exchange(&f->continuation_fn, NULL);
+  void* sm = atomic_load(&f->continuation_sm);
+  if (cont) {
+    atomic_store(&f->continuation_sm, NULL);
+    __yo_async_enqueue_continuation(cont, sm);
+  }
+}
+
+// Non-blocking read: has this park future been woken?
+static bool __yo_waker_is_woken(void* p) {
+  if (!p) {
+    return true;
+  }
+  return atomic_load(&((__yo_io_future_t*)p)->state) != 0;
+}
+
+// Drop a waker token.
+static void __yo_waker_release(void* p) {
+  if (!p) {
+    return;
+  }
+  if (__yo_async_live_wakers > 0) {
+    __yo_async_live_wakers--;
+  }
+  __yo_decr_rc(p);
+}
+
+// ============================================================================
+// Deferred yields — a fairness yield with no timer under it
+// ============================================================================
+// A yield must give the loop a turn, which means the yielding task has to
+// resume AFTER an I/O poll, not before it. An immediately-completed future
+// cannot do that: the await point sees state == -1 and takes its inline
+// fast-path, so the task never leaves the C stack. A 1 ms timer does it by
+// accident, at the cost of a millisecond.
+//
+// So a yield future is created PENDING and parked on this list. The list is
+// completed at the top of each ready-task drain, AFTER the drain's budget has
+// been measured — which puts the resumed continuation beyond the budget, so it
+// runs in the next step, after exactly one __yo_io_poll(). That is the
+// property the 1 ms sleep was standing in for, and losing it is what made an
+// earlier timer-free yield spin a poll-until-finished loop without ever
+// polling I/O (issues/build-smoke-hangs-registry-perturbation.md).
+// Create a yield future: pending now, completed by the next drain.
+static __yo_io_future_t* __yo_async_yield_start(void) {
+  __yo_io_future_t* f = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
+  memset(f, 0, sizeof(__yo_io_future_t));
+  f->header.ref_count = 1;
+  atomic_init(&f->state, 0);
+  f->result = 0;
+  atomic_init(&f->continuation_fn, NULL);
+  atomic_init(&f->continuation_sm, NULL);
+  __yo_yield_node_t* n = (__yo_yield_node_t*)__yo_rc_alloc(sizeof(__yo_yield_node_t));
+  n->future = (__yo_io_future_t*)__yo_incr_rc((void*)f);
+  n->next = __yo_yield_pending;
+  __yo_yield_pending = n;
+  return f;
+}
+
+// Complete every parked yield. Takes the whole list first, so a yield created
+// by a continuation this call resumes lands on the NEXT list rather than
+// looping here forever.
+static void __yo_async_drain_yields(void) {
+  __yo_yield_node_t* n = __yo_yield_pending;
+  __yo_yield_pending = NULL;
+  while (n) {
+    __yo_yield_node_t* next = n->next;
+    __yo_waker_wake((void*)n->future);
+    __yo_decr_rc((void*)n->future);
+    __yo_free(n);
+    n = next;
+  }
+}
+
+// Is a yield waiting to be completed? A yielding task is runnable work the
+// I/O backend cannot see, exactly like a parked task.
+static bool __yo_async_has_pending_yield(void) {
+  return __yo_yield_pending != NULL;
+}
+
+// Could anything still make progress? The I/O backend cannot see a parked
+// task, so a live waker counts as pending work — otherwise the loops below
+// decide there is nothing left to wait for and return with the parked task's
+// future unresolved.
+static bool __yo_async_has_pending_work(void) {
+  return __yo_has_pending_io() || __yo_async_live_wakers > 0
+    || __yo_async_has_pending_yield();
+}
+
+// Nothing runnable, no I/O outstanding, and yet a waker is alive: in a
+// single-threaded loop nothing can ever fire it, so this is a genuine
+// deadlock. Report it and let the caller stop, instead of exiting silently
+// with the future unresolved or spinning at 100% CPU. A lost wake is
+// otherwise invisible — it shows up as a hang, and on one platform only.
+static void __yo_async_report_wake_deadlock(void) {
+  fprintf(stderr,
+    "panic: every async task is parked on a waker that nothing can fire "
+    "(%zu waker token(s) alive, no runnable task, no pending I/O). A wake was "
+    "lost, or two tasks are each waiting for the other.\\n",
+    __yo_async_live_wakers);
+  fflush(stderr);
 }
 
 // JoinHandle introspection/cancellation — every spawned future starts with

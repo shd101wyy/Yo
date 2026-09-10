@@ -992,14 +992,106 @@ say to take an own `Rng.from_entropy()` in a hot loop instead.
 **Concurrency.** Verified against the code 2026-09-09 — LANDED:
 `Thread(T).spawn` + `join() -> T` (D18); `Semaphore.with_permit`;
 `try_recv -> TryRecvError{Empty, Disconnected}` (#506);
-`Sender`/`Receiver` with auto-close on the last sender (2026-09-11, below).
-STILL OPEN: waker-based
-`yield`/`async channel`/`async mutex` instead of 1 ms timer polls;
+`Sender`/`Receiver` with auto-close on the last sender (#553, 2026-09-11,
+below); the `Waker`/`Park` PRIMITIVE plus `yield_now` (2026-09-11, below) —
+which is what the rest of this group was waiting on. STILL OPEN: waker-based
+`async channel`/`async mutex` written OVER that primitive, and
+`std/async/index.yo`'s own `yield`, which is still on its 1 ms timer because
+pointing it at the new extern cannot bootstrap under the v0.2.30 seed;
 `async/mutex.with_lock` either taking an `io` (so its doc claim becomes true)
 or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface;
-`JoinHandle` `Dispose`; `spawn_blocking`. (`interval` and the concurrent
-`Mutex` tests landed 2026-09-10 — below.)
+`spawn_blocking`. (`interval` and the concurrent `Mutex` tests landed
+2026-09-10 — below; `JoinHandle` `Dispose` was ANSWERED rather than
+implemented, see `race_first`/`any_first`.)
+
+**`Waker`/`Park` and a timer-free `yield` — LANDED 2026-09-11. This is the
+missing primitive the whole concurrency group was waiting on.**
+
+Yo's async runtime could suspend a task on I/O but had no way for one task to
+be woken by ANOTHER task's progress. So everything that waited on a peer polled
+a clock: `yield`, a contended `async.Mutex.lock`, a blocked `async.Channel`
+send or recv, and the `race`/`any`/`timeout` spin. The cost was not overhead,
+it was a **latency floor** — every hand-off cost up to a millisecond, capping a
+producer/consumer pair at ~1000 hand-offs per second no matter how fast the
+work was — and it made `spawn_blocking` inexpressible, because "wake the
+awaiting task when the blocking call returns" is exactly the primitive that did
+not exist.
+
+`std/async/waker.yo` adds it: `Park.new()` / `park.waker()` / `park.wait(io)`,
+plus a closure-shaped `park(register, io)` for the single-waker case.
+
+Four things had to be got right:
+
+- **A wake that arrives before the sleeper suspends must not be lost.** It
+  isn't, and not by luck: the await point reads the future's state BEFORE it
+  registers a continuation (`state_machine.yo`,
+  `_emit_await_suspension_core`), so an already-woken park resumes inline
+  instead of suspending. That is also why a park is an ordinary
+  `__yo_io_future_t` — one that no backend will ever complete — rather than a
+  new kind of object.
+- **The loop has to know a parked task exists.** `__yo_has_pending_io()` asks
+  the I/O backend, which knows about sockets, timers and files and cannot know
+  about a park; without a second signal the loop decides there is nothing left
+  to wait for and returns with the parked task's future unresolved. The
+  runtime therefore counts live waker TOKENS, not parked tasks: a parked task
+  always has at least one live token (whoever will wake it holds one), and if
+  every token for it is dropped then nothing can ever wake it. That is the
+  right question, and it is answerable without a dispose hook on the future.
+- **A lost wake must not be a hang.** When nothing is runnable, no I/O is
+  outstanding, and a token is still alive, the loop reports it and stops rather
+  than spinning at 100% CPU or exiting quietly with the future unresolved. A
+  lost wake is otherwise invisible — it shows up as a hang, and historically on
+  one platform only.
+- **Waking is idempotent.** A second `wake()`, or a wake of a park whose task
+  has already gone, does nothing — which is what lets a waiter list signal
+  everyone without tracking who already ran.
+
+**A fairness yield with no timer, as `yield_now`.** The contract is "give the
+loop one turn, including an I/O poll", and `yield` bought that with a 1 ms
+timer. `yield_now` gets it for free: its future is created PENDING and
+completed at the top of the next ready-task drain, AFTER that drain has
+measured its budget — which puts the resumed continuation beyond the budget, so
+it runs in the following step with exactly one `__yo_io_poll()` in between.
+Both wrong shapes are on record and both are pinned by tests: an
+immediately-complete future takes the await point's inline fast path and never
+leaves the C stack (that is the spin that made a poll-until-finished loop
+starve I/O, issues/build-smoke-hangs-registry-perturbation.md), and a timer
+costs a millisecond per turn on the critical path of every combinator.
+
+**`std/async`'s `yield` itself is SEED-GATED and moves next release.** It is on
+the compiler's own import path (through `std/fs/watch`), and the seed compiler
+that builds this tree emits an async runtime without `__yo_async_yield_start`
+in it — so pointing `yield` at the new primitive fails to LINK the compiler.
+The same gate applies to `Mutex`/`Channel` adoption only where the compiler
+imports them, which it does not, so those can follow immediately. This is the
+ordinary two-step for a runtime addition with a std caller, and it is worth
+writing down because the failure mode is a link error in the BOOTSTRAP, not a
+test failure.
+
+**The measured claim.** A floor removal has to be reported as hand-offs, not as
+suite wall time. Standalone, 400 iterations in a spawned task, at BOTH `-O0`
+and `--optimize 2` (and again under `--sanitize address`, which is what the
+test runner uses):
+
+| | 400 turns |
+| --- | --- |
+| `yield_now` | **0 ms** |
+| `Park` + `wake` + `wait` | **0 ms** |
+| a no-op `io.async` | 0 ms |
+| the 1 ms-timer `yield` | **603 ms** |
+
+Each loop was verified to have run all 400 iterations (the task returns its
+counter), so a 0 ms reading is not an elided loop.
+
+The suite tests CORRECTNESS plus a catastrophic-regression bound rather than a
+tight time bound, deliberately: the same `yield_now` loop measures ~604 ms
+INSIDE a test batch and ~0 ms outside one, at every optimization level and with
+or without the sanitizer, so a tight bound there would pin the harness rather
+than the feature — and would flake on a slower runner. That discrepancy is
+filed on its own
+(`issues/yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`)
+because it will otherwise mask the next piece of async performance work.
 
 **`interval` — LANDED 2026-09-10.** `std/time/sleep.yo` gains `Interval` and
 `interval(period, io)`. The reason it exists rather than a `sleep` in a loop is
