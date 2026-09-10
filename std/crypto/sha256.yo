@@ -9,7 +9,7 @@
 //! ```
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
-{ hex_encode } :: import("../encoding/hex");
+hex :: import("../encoding/hex");
 { Digest } :: import("./digest");
 { String } :: import("../string");
 // ============================================================================
@@ -273,12 +273,12 @@ sha256 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(32)))(
 // Hash data and return the 64-character lowercase hex digest.
 sha256_hex :: (fn(data : ArrayList(u8)) -> String)({
   digest := sha256(data);
-  // Convert fixed array to ArrayList(u8) for hex_encode
+  // Convert fixed array to ArrayList(u8) for hex.encode
   bytes := ArrayList(u8).with_capacity(usize(32));
   i := usize(0);
   while(i < usize(32), i = (i + usize(1)), {
     bytes.push(digest(i));
   });
-  hex_encode(bytes)
+  hex.encode(bytes)
 });
 export(sha256, sha256_hex);

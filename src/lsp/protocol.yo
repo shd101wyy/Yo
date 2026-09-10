@@ -20,7 +20,7 @@
 { rune, String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { JsonValue } :: import("std/encoding/json");
-{ percent_encode, percent_decode_bytes } :: import("std/encoding/percent");
+percent :: import("std/encoding/percent");
 
 /// Chainable JSON object builder.
 JsonObjBuilder :: ref(
@@ -275,7 +275,7 @@ uri_to_fs_path :: (fn(uri : String) -> String)({
     s = s.substring(usize(7), s.len());
   });
   decoded := match(
-    percent_decode_bytes(s.clone()),
+    percent.decode_bytes(s.clone()),
     .Ok(bytes) => String.from_bytes(bytes),
     .Err(_) => s
   );
@@ -301,7 +301,7 @@ fs_path_to_uri :: (fn(path : String) -> String)({
     match(
       segs.get(i),
       .Some(seg) => {
-        encoded.push(percent_encode(seg));
+        encoded.push(percent.encode(seg));
       },
       .None => ()
     );

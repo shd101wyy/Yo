@@ -12,7 +12,8 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { env, home_dir } :: import("std/env");
 { Exception, IoExn } :: import("std/error");
-{ json_parse_string, json_stringify, JsonValue } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
 { sha256_hex } :: import("std/crypto/sha256");
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
@@ -291,7 +292,7 @@ _cache_lookup :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> Option(VerifyResult)
     _z3_read_file_sync(cache_path.clone()),
     .None => Option(VerifyResult).None,
     .Some(content) => match(
-      json_parse_string(content),
+      json.parse_string(content),
       // The store's shape is {query, verdict: {...}} — unwrap the verdict
       // member before parsing it. A corrupt cache entry is a MISS, not an
       // error — the store overwrites.
@@ -320,7 +321,7 @@ _cache_store :: (fn(q : VcQuery, verdict : VerifyVerdict) -> unit)({
     String.from("verdict"),
     _verdict_to_json(verdict)
   );
-  _ := _z3_write_file_sync(cache_path.clone(), json_stringify(payload));
+  _ := _z3_write_file_sync(cache_path.clone(), json.stringify(payload));
   ()
 });
 /// Run one obligation end-to-end: cache lookup → solver → parse → cache

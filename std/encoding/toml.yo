@@ -1,7 +1,7 @@
 //! TOML v1.0.0 parsing and serialization.
 //!
-//! `toml_parse` scans a whole document with a byte scanner and returns a
-//! `TomlValue` tree; `toml_stringify` writes one back out. The value model is
+//! `toml.parse` scans a whole document with a byte scanner and returns a
+//! `TomlValue` tree; `toml.stringify` writes one back out. The value model is
 //! the Rust `toml` crate's `Value`: string, integer, float, boolean,
 //! date-time, array, table.
 //!
@@ -17,14 +17,15 @@
 //! ## Example
 //!
 //! ```rust
-//! { toml_parse, toml_stringify, TomlValue } :: import "std/encoding/toml";
+//! toml :: import("std/encoding/toml");
+//! { TomlValue } :: import("std/encoding/toml");
 //!
-//! doc := toml_parse(`title = "yo"
+//! doc := toml.parse(`title = "yo"
 //! [server]
 //! port = 8080
 //! `).unwrap();
 //! println(doc.get(`server`).unwrap().get(`port`).unwrap().as_int().unwrap());
-//! println(toml_stringify(doc));
+//! println(toml.stringify(doc));
 //! ```
 //!
 //! ## Stability
@@ -2194,10 +2195,10 @@ _parse_document :: (fn(p : _Parser) -> Result(TomlValue, TomlError))({
 /// Parse a TOML document into a `TomlValue` tree (D13 — a pure transform
 /// returns a `Result`). The root is always a `.Table`; `.Err` carries the
 /// byte offset of the fault.
-toml_parse :: (fn(input : String) -> Result(TomlValue, TomlError))(
+parse :: (fn(input : String) -> Result(TomlValue, TomlError))(
   _parse_document(_Parser.new(input.as_bytes()))
 );
-export(toml_parse);
+export(parse);
 // ============================================================================
 // Serialization
 // ============================================================================
@@ -2582,10 +2583,10 @@ _write_table_body :: (fn(table : TomlValue, prefix : String, out : ArrayList(u8)
   )
 );
 /// Serialize a `TomlValue` to TOML text. A table renders as a document
-/// (`toml_parse(toml_stringify(v))` gives `v` back for every value the
+/// (`toml.parse(toml.stringify(v))` gives `v` back for every value the
 /// parser produces); any other value renders in its inline form, which is
 /// what a caller stringifying one field wants.
-toml_stringify :: (fn(value : TomlValue) -> String)({
+stringify :: (fn(value : TomlValue) -> String)({
   out := ArrayList(u8).new();
   cond(
     value.is_table() => _write_table_body(value, String.new(), out),
@@ -2593,15 +2594,15 @@ toml_stringify :: (fn(value : TomlValue) -> String)({
   );
   String.from_bytes(out)
 });
-export(toml_stringify);
+export(stringify);
 /// `ToString` — the TOML text, the same channel `JsonValue` gives
-/// `json_stringify`. The structural render is `Debug`'s job (D15), so the two
+/// `json.stringify`. The structural render is `Debug`'s job (D15), so the two
 /// do not collide.
 impl(
   TomlValue,
   ToString(
     to_string : (fn(inout(self) : Self) -> String)(
-      toml_stringify(self)
+      stringify(self)
     )
   )
 );
@@ -2731,3 +2732,15 @@ impl(
     )
   )
 );
+// ============================================================================
+// DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32
+// ============================================================================
+// `toml :: import("std/encoding/toml")` already qualifies the call, so the
+// `toml_` prefix stuttered (`toml.toml_parse`). These thin aliases keep the
+// pre-rename spellings compiling for one release, the way `json_parse_result`
+// and `derive(ToString)` were kept in v0.2.28.
+/// DEPRECATED, removed in v0.2.32: call `toml.parse`.
+toml_parse :: (fn(input : String) -> Result(TomlValue, TomlError))(parse(input));
+/// DEPRECATED, removed in v0.2.32: call `toml.stringify`.
+toml_stringify :: (fn(value : TomlValue) -> String)(stringify(value));
+export(toml_parse, toml_stringify);

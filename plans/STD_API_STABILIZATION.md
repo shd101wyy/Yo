@@ -33,7 +33,7 @@ gap that makes most collections unprintable, un-keyable and un-defaultable.
 | wrong value / wrong answer | 8 | `IpAddr.parse_v4`, `UdpSocket.bind` port, `Path.strip_prefix`, `DateTime.now`, `base64_decode`, `glob [a-z]`, derive fallbacks, `Rng.range` |
 | performance cliff | 6 | hash tombstones → O(capacity), `html_decode` O(n²), `glob` exponential, `ArrayList.retain` O(n²), `OrderedMap.remove` O(n), `async/channel.recv` O(n) |
 | D1 violations (error style) | 14 sites | `Result(_, String)` ×5, effects for pure parses ×6, `Option` for numeric parses ×8, `LinkedList.remove -> Result` vs `ArrayList.remove -> panic` |
-| D2 violations (naming) | 12 | `BTreeMap.insert -> unit`, pub `size` fields, `iter()` yielding values, `get_header`/`get_level`, module-prefix stutter ×7, `has_key`, `table_len` |
+| D2 violations (naming) | 12 | `BTreeMap.insert -> unit`, pub `size` fields, `iter()` yielding values, `get_header`/`get_level`, ~~module-prefix stutter ×7~~ (**6 of 7 DONE 2026-09-11** — every `std/encoding` module, plus `percent`/`utf16`; `glob_match` deferred, `plans/backlog/MODULE_PREFIX_STUTTER_REMAINDER.md`), `has_key`, `table_len` |
 | trait coverage | — | `Default` on 1/9 collections, `ToString` 1/9, `Hash`/`Ord` 0/9, `IntoIterator` on 0/6 imm types, `Eq`/`Hash` on 0/2 net address types |
 | docs | ~230 names | `//` instead of `///` (dropped by `yo doc`): atomic.yo ~130, log.yo 15, metadata 13, duration 13, temp 11, url 10, collections 37 … |
 | stability markers | 8 modules | `http/server`, `async/*` ×3, `sync/barrier`, `sync/semaphore`, `gc` have no `## Stability` |
@@ -492,9 +492,12 @@ bytes while `FormatSpec` pads by runes; `Alignment` exported.
 **Encoding.** Verified against the code 2026-09-09 — LANDED:
 `Url.join`/`query_pairs`/`path_segments`; `JsonValue` mutation
 (`insert`/`remove`/`object()`), `is_*`/`as_i64`/`as_u64`, `pointer`, integer
-arms; TOML values; `GlobPattern` + filesystem `glob()`. STILL OPEN: module-prefix
-stutter (`json_parse` → `json.parse` …). `Url.set_*` and `EncodingError`
-offsets **LANDED 2026-09-09** — described below.
+arms; TOML values; `GlobPattern` + filesystem `glob()`. The module-prefix
+stutter (`json_parse` → `json.parse` …) **LANDED 2026-09-11** across all eight
+`std/encoding` modules — described below; `glob_match` is the one member of the
+original ×7 left, and it is deferred for a reason
+(`plans/backlog/MODULE_PREFIX_STUTTER_REMAINDER.md`). `Url.set_*` and
+`EncodingError` offsets **LANDED 2026-09-09** — described below.
 
 **`Url.set_*` — LANDED 2026-09-09, and every setter is FALLIBLE.**
 
@@ -1825,10 +1828,10 @@ emitted C, so it could not be randomized even if that were wanted.
    struct tag like every other struct type
    (issues/fixed/tuple-type-has-no-forward-declaration.md).
 
-   Still open in Encoding: the module-prefix stutter. (regex Rust-shaped
-   names, `GlobPattern.new -> Result` + filesystem `glob()`, `Url.set_*` and
-   `EncodingError` offsets all landed 2026-09-09; TOML landed 2026-09-11, the
-   record below.)
+   Encoding is now clear on both counts: TOML landed 2026-09-11 (the record
+   below) and the module-prefix stutter landed the same day (the record after
+   it). (regex Rust-shaped names, `GlobPattern.new -> Result` + filesystem
+   `glob()`, `Url.set_*` and `EncodingError` offsets all landed 2026-09-09.)
 
    **Encoding — TOML is a real parser now: DONE (2026-09-11).** The row asked
    for "floats/arrays/dates/inline tables/escapes/comments/serializer", and
@@ -1946,6 +1949,57 @@ emitted C, so it could not be randomized even if that were wanted.
    return `.Err`. Nothing in the tree consumed it (the only reference was its
    own test), so the blast radius is external users, and it belongs in the
    release notes.
+
+   **Module-prefix stutter — LANDED 2026-09-11, aliases removed in v0.2.32.**
+   A function in module `std/encoding/json` is reached as `json.parse(...)`
+   once the module is imported as a module (`json :: import(...)`), which is
+   how this tree already reads `std/sys/events` (`events.fs_event_stop`) and
+   how Rust reads `serde_json::from_str`. The `json_` in `json.json_parse`
+   said the same word twice. 33 functions across eight modules lost the
+   prefix:
+
+   | module | old → new |
+   | --- | --- |
+   | `encoding/json` | `json_parse`/`_bytes`/`_string`/`_exn`/`_bytes_exn`/`_string_exn` → `parse`/`parse_bytes`/`parse_string`/`parse_exn`/`parse_bytes_exn`/`parse_string_exn`; `json_stringify`/`_pretty` → `stringify`/`stringify_pretty`; `json_encode`/`json_decode` → `encode`/`decode` |
+   | `encoding/csv` | `csv_parse`/`_with`/`_strict` → `parse`/`parse_with`/`parse_strict`; `csv_write`/`_with` → `write`/`write_with` |
+   | `encoding/base64` | `base64_encode`/`_url` → `encode`/`encode_url`; `base64_decode`/`_url`/`_exn`/`_url_exn` → `decode`/`decode_url`/`decode_exn`/`decode_url_exn` |
+   | `encoding/hex` | `hex_encode` → `encode`; `hex_decode`/`_exn` → `decode`/`decode_exn` |
+   | `encoding/html` | `html_encode`/`html_decode` → `encode`/`decode` |
+   | `encoding/toml` | `toml_parse` → `parse` |
+   | `encoding/percent` | `percent_encode` → `encode`; `percent_decode`/`_bytes` → `decode`/`decode_bytes` |
+   | `encoding/utf16` | `utf8_to_utf16` → `from_utf8`; `utf16_to_utf8`/`_exn` → `to_utf8`/`to_utf8_exn` |
+
+   `utf16` is the only pair that is not pure prefix-stripping: `to_utf16` /
+   `_to_utf8` would be nonsense, and `utf16.utf8_to_utf16` stutters at the
+   TAIL, so the directions are named the way `String::from_utf16` names them.
+   `csv_write` became `csv.write`, NOT the `stringify` that
+   `STD_API_STABILIZATION_FINDINGS.md` item 28 floats — that is a second,
+   independent naming decision (does a CSV writer speak JSON's vocabulary?)
+   and this change deliberately only removed prefixes.
+
+   **Every old spelling survives as a thin deprecated alias, removed in
+   v0.2.32** — the mechanism `json_parse_result` and `derive(ToString)` used
+   in v0.2.28, since the breaking window shipped with v0.2.28. Each module
+   carries one `DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32`
+   block at its foot, so the removal is deleting one block per module. The
+   34 aliases (33 plus `json_parse_result`, whose removal is now scheduled
+   with them) are compiled AND executed by a probe that asserts each one
+   equals its replacement, and eight of them are pinned inside existing tests
+   (`assert(hex.hex_encode(data) == result, ...)`) so the suite goes red if an
+   alias stops delegating.
+
+   Every in-tree call site moved: `std/crypto/{hmac,digest,sha1,sha256,sha512,
+   md5,random}` and `src/fetch.yo` (`hex.encode`), `std/url/index.yo` and
+   `src/lsp/protocol.yo` (`percent.*`), `src/main.yo`,
+   `src/diagnostics{,_registry}.yo`, `src/lsp/server.yo`,
+   `src/verifier/driver.yo`, `src/doc/render_json.yo` (`json.*`), and the test
+   corpus including every `test("...")` NAME string — a test called
+   `json_parse null` after the rename is a filed defect in this tree
+   (`issues/collection-test-names-still-use-pre-rename-method-spellings.md`),
+   because `--test-name-pattern` is how one test is run. Two locals had to be
+   renamed to make room for the module binding: `hex` → `hex_str` in
+   `std/crypto/random.yo` and `src/fetch.yo`, and the three `utf16` locals in
+   `tests/encoding/utf16.test.yo` → `units`.
 
    **`FromStr` renamed to `FromString` (2026-09-09).** The trait's parameter is
    a `String`, and its own doc comment said so one line above the signature —

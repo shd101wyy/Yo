@@ -14,7 +14,7 @@ pragma(Pragma.AllowUnsafe);
 { platform, Platform } :: import("../process");
 { String } :: import("../string");
 { snprintf } :: import("../libc/stdio");
-{ hex_encode } :: import("../encoding/hex");
+hex :: import("../encoding/hex");
 { Error, AnyError, Exception } :: import("../error");
 { ToString } :: import("../fmt");
 // ============================================================================
@@ -203,8 +203,8 @@ uuid_v4 :: (fn(exn : Exception) -> String)({
   while(i < usize(16), i = (i + usize(1)), {
     bytes.push(buf(i));
   });
-  hex := hex_encode(bytes);
-  hex_bytes := hex.as_bytes();
+  hex_str := hex.encode(bytes);
+  hex_bytes := hex_str.as_bytes();
   // Insert dashes: 8-4-4-4-12
   out := ArrayList(u8).with_capacity(usize(36));
   positions := Array(usize, usize(4))(usize(8), usize(12), usize(16), usize(20));

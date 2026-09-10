@@ -5,7 +5,7 @@
 //! a raw space, a control byte, a CR or LF, a raw UTF-8 byte — is rejected
 //! with `UrlError.InvalidCharacter(pos)`. Callers with non-ASCII or
 //! space-bearing components percent-encode first, via
-//! `std/encoding/percent`'s `percent_encode`.
+//! `std/encoding/percent` (`percent.encode`).
 //!
 //! This is a security boundary, not a tidiness rule: `Url.path()` flows into
 //! `HttpRequest`'s request line, so a URL carrying a raw CRLF would otherwise
@@ -13,7 +13,7 @@
 { String, StringBuilder } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { StringBuilder } :: import("../string/string_builder");
-{ percent_decode } :: import("../encoding/percent");
+percent :: import("../encoding/percent");
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
 /// Errors that can occur during URL parsing.
@@ -669,7 +669,7 @@ impl(
 // ============================================================================
 /// Percent-decode, or hand back the input UNCHANGED when it does not decode.
 ///
-/// `percent_decode` reports a malformed escape or non-UTF-8 result as an
+/// `percent.decode` reports a malformed escape or non-UTF-8 result as an
 /// error, which is the right shape for a caller decoding one value on purpose.
 /// It is the wrong shape for `path_segments` / `query_pairs`, which decode
 /// every component of a URL that already parsed: one bad escape in one query
@@ -677,7 +677,7 @@ impl(
 /// equivalents are lossy for the same reason. The raw text is the honest
 /// fallback — it is what the URL actually contains.
 _decode_lossy :: (fn(s : String) -> String)(
-  match(percent_decode(s), .Ok(v) => v, .Err(_) => s)
+  match(percent.decode(s), .Ok(v) => v, .Err(_) => s)
 );
 /// `application/x-www-form-urlencoded` decoding: `+` is a SPACE, then the
 /// percent escapes. The order matters — decoding `%2B` first would turn an
