@@ -894,7 +894,11 @@ impl(
       )
     )
   ),
-  /// Return a new map without `key`.
+  /// Return a new map without `key` — `im`'s `without`. A key that is not
+  /// present gives back `self` itself, not a copy.
+  ///
+  /// This deliberately does NOT report what it removed; `extract` is the form
+  /// that does.
   remove : (fn(self : Self, key : K) -> Self)(
     match(
       self._root,
@@ -909,6 +913,29 @@ impl(
       .None => self
     )
   ),
+  /// The value at `key` together with the map WITHOUT it, or `.None` when
+  /// the key is absent — `im`'s `extract`.
+  ///
+  /// This exists because `remove` answers only "the map afterwards", so a
+  /// caller who wants the removed value had to look it up first and could not
+  /// tell "absent" from "removed a value that happens to equal the default".
+  /// The `.None` arm carries no map, which is the point: on a miss the
+  /// caller's own `self` already IS the answer, so nothing is rebuilt.
+  ///
+  /// TWO walks of the trie, not one. `im`'s `extract` is one walk because
+  /// Rust can move the value out of the node it visits; threading the value
+  /// out of `_node_remove` here would make every `remove` — the common case —
+  /// carry and then drop a value it does not want. A HAMT walk is
+  /// ⌈log₃₂ n⌉ levels (2 for a million entries), so the second walk is a
+  /// smaller cost than the refcount traffic on the first.
+  extract : (fn(self : Self, key : K) -> Option(Tuple(V, Self)))({
+    hit := self.get(key);
+    match(
+      hit,
+      .Some(v) => Option(Tuple(V, Self)).Some((v, self.remove(key))),
+      .None => Option(Tuple(V, Self)).None
+    )
+  }),
   /// Merge another map into this one. Keys from `other` overwrite `self`.
   merge : (fn(self : Self, other : Self) -> Self)(
     match(
