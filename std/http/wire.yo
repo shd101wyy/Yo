@@ -236,8 +236,10 @@ is_chunked :: (fn(data : ArrayList(u8), header_end : usize) -> bool)({
 // Outcome of decoding a chunked body prefix.
 Dechunk :: enum(
   // Every chunk up to and including the terminating zero chunk was present;
-  // `data` is the concatenated chunk data (trailers dropped).
-  Done(data : ArrayList(u8)),
+  // `data` is the concatenated chunk data (trailers dropped) and `end` is the
+  // index just past the body's final CRLF — where the NEXT message on a
+  // keep-alive connection begins.
+  Done(data : ArrayList(u8), end : usize),
   // Well-formed so far, but the terminating zero chunk has not arrived.
   Incomplete,
   // The framing is broken; `msg` names the defect.
@@ -307,7 +309,7 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
               return(Dechunk.Incomplete);
             },
             ((body(i) == u8(13)) && (body(i + usize(1)) == u8(10))) => {
-              return(Dechunk.Done(out));
+              return(Dechunk.Done(out, i + usize(2)));
             },
             true => ()
           );
@@ -352,7 +354,12 @@ dechunk :: (fn(body : ArrayList(u8), body_start : usize) -> Dechunk)({
 // ours. Handing those bytes on as body is response smuggling (RFC 9112 §11.2)
 // — and it is a heisenbug, because the same server and the same client agree
 // on every platform where the writes happen not to coalesce.
-_message_upto :: (fn(data : ArrayList(u8), limit : usize) -> String)(
+// The bytes past `limit` are not garbage: on a keep-alive connection they are
+// the beginning of the NEXT message, so they are moved into `carry` rather
+// than dropped. `carry` is emptied first — a caller reuses one list across a
+// connection's whole lifetime.
+_split_message :: (fn(data : ArrayList(u8), limit : usize, carry : ArrayList(u8)) -> String)({
+  carry.clear();
   cond(
     (limit >= data.len()) => String.from_bytes(data),
     true => {
@@ -362,7 +369,65 @@ _message_upto :: (fn(data : ArrayList(u8), limit : usize) -> String)(
         out.push(data(i));
         i = (i + usize(1));
       });
+      i = limit;
+      while(runtime(i < data.len()), {
+        carry.push(data(i));
+        i = (i + usize(1));
+      });
       String.from_bytes(out)
+    }
+  )
+});
+// Whether the bytes in hand already frame a whole message — the read loop's
+// stopping decision, and the same decision a keep-alive read makes BEFORE its
+// first read.
+_FrameStatus :: enum(
+  // Stop reading. Either the message is complete, or its chunk framing is
+  // broken — the assembly below re-runs `dechunk` and turns that into the
+  // `MalformedChunkedBody` error, so both cases stop the same way.
+  Complete,
+  // Keep reading: the header section or the body is still short.
+  NeedMore,
+  // RFC 9112 §6.3: a `Content-Length` that is present but unreadable is an
+  // unrecoverable framing error, NOT a body-less message — reading on would
+  // frame the body by whatever the peer does next.
+  BadContentLength(msg : String)
+);
+_frame_status :: (fn(data : ArrayList(u8), is_request : bool) -> _FrameStatus)(
+  cond(
+    (data.len() <= usize(4)) => _FrameStatus.NeedMore,
+    true => {
+      header_end := find_header_end(data);
+      cond(
+        (header_end == usize(0)) => _FrameStatus.NeedMore,
+        true => {
+          body_start := (header_end + usize(4));
+          cond(
+            // Chunked: complete once the terminating zero chunk and its final
+            // CRLF are in.
+            is_chunked(data, header_end) => match(
+              dechunk(data, body_start),
+              .Done(_, _) => _FrameStatus.Complete,
+              .Malformed(_) => _FrameStatus.Complete,
+              .Incomplete => _FrameStatus.NeedMore
+            ),
+            true => match(
+              find_content_length(data, header_end),
+              .Length(cl) => cond(
+                ((data.len() - body_start) >= cl) => _FrameStatus.Complete,
+                true => _FrameStatus.NeedMore
+              ),
+              .Invalid(msg) => _FrameStatus.BadContentLength(msg),
+              // A request with no body framing ends with its headers; a
+              // response with none is delimited by close.
+              .Absent => cond(
+                is_request => _FrameStatus.Complete,
+                true => _FrameStatus.NeedMore
+              )
+            )
+          )
+        }
+      )
     }
   )
 );
@@ -394,22 +459,62 @@ _message_upto :: (fn(data : ArrayList(u8), limit : usize) -> String)(
 /// decoder returns `Result`; the client throws the `.Err` at its call site —
 /// issues/fixed/one-malformed-request-killed-http-server-serve.md). I/O
 /// failures on the stream itself still throw through `io`'s exception.
-read_http_message :: (
-  fn(generic(R : Type), stream : R, max_bytes : usize, is_request : bool, io : Io, where(R <: Reader)) ->
-    Impl(Future(Result(String, HttpError), IoExn))
+/// The keep-alive form: `carry` holds whatever a previous call read PAST the
+/// previous message on this connection, and on return holds whatever this call
+/// read past THIS message. One list per connection, reused across its
+/// messages; pass a fresh empty one for a connection that is used once.
+///
+/// This is what makes connection reuse safe. A single `read` can return bytes
+/// belonging to two pipelined messages, and framing the second one by
+/// "whatever arrived next" is request/response smuggling (RFC 9112 §11.2) —
+/// and a heisenbug, because it only shows up when the peer's writes coalesce.
+read_http_message_buffered :: (
+  fn(
+    generic(R : Type),
+    stream : R,
+    max_bytes : usize,
+    is_request : bool,
+    carry : ArrayList(u8),
+    io : Io,
+    where(R <: Reader)
+  ) -> Impl(Future(Result(String, HttpError), IoExn))
 )(
   io.async(e => {
     buf_size := usize(8192);
     buf := (*u8)(malloc(buf_size).unwrap());
+    // Seed from what the previous message left behind — those bytes are
+    // already this message's, and there may be enough of them that no read is
+    // needed at all.
     result := ArrayList(u8).new();
+    ci := usize(0);
+    while(runtime(ci < carry.len()), {
+      result.push(carry(ci));
+      ci = (ci + usize(1));
+    });
+    carry.clear();
     // A framing defect ends the read loop and comes back as the `.Err`. The
     // body is deliberately free of mid-loop `return`s: an async body's state
     // machine does not lower them, and the closure then fails codegen as
     // "never fully evaluated".
     failed := i32(0);
     failed_msg := String.new();
-    // Read until connection closes or we've read the full response
+    // Read until the connection closes or a whole message is in hand. The
+    // FIRST decision is made before any read: the carried-over bytes may
+    // already contain a complete message, and reading in that case would
+    // block until the peer sent something it has no reason to send.
     done := false;
+    match(
+      _frame_status(result, is_request),
+      .Complete => {
+        done = true;
+      },
+      .BadContentLength(msg) => {
+        failed = i32(2);
+        failed_msg = msg;
+        done = true;
+      },
+      .NeedMore => ()
+    );
     while(runtime(!done), {
       n := e.io.await(stream.read(buf, buf_size, e.io), e);
       cond(
@@ -434,66 +539,21 @@ read_http_message :: (
             result.push((buf.add(i)).*);
             i = (i + usize(1));
           });
-          // Check if we've received the full response by looking for
-          // Content-Length or end of chunked transfer
-          // For simplicity, check if the header section is complete
-          // and if Content-Length is satisfied
-          cond(
-            (!done && (result.len() > usize(4))) => {
-              // Check if we have a complete header section (\r\n\r\n)
-              header_end := find_header_end(result);
-              cond(
-                (header_end > usize(0)) => {
-                  body_start := (header_end + usize(4));
-                  cond(
-                    // Chunked: complete once the terminating zero chunk and
-                    // its final CRLF are in; malformed framing surfaces below.
-                    is_chunked(result, header_end) => match(
-                      dechunk(result, body_start),
-                      .Done(_) => {
-                        done = true;
-                      },
-                      .Malformed(_) => {
-                        done = true;
-                      },
-                      .Incomplete => ()
-                    ),
-                    true => match(
-                      find_content_length(result, header_end),
-                      .Length(cl) => {
-                        body_len := (result.len() - body_start);
-                        cond(
-                          (body_len >= cl) => {
-                            done = true;
-                          },
-                          true => ()
-                        );
-                      },
-                      // RFC 9112 §6.3: a Content-Length that is present but
-                      // unreadable is an unrecoverable framing error, NOT a
-                      // body-less message — reading on would frame the body
-                      // by whatever the peer does next.
-                      .Invalid(msg) => {
-                        failed = i32(2);
-                        failed_msg = msg;
-                        done = true;
-                      },
-                      // A request with no body framing ends with its headers.
-                      .Absent => {
-                        cond(
-                          is_request => {
-                            done = true;
-                          },
-                          true => ()
-                        );
-                      }
-                    )
-                  );
-                },
-                true => ()
-              );
+          // Stop as soon as the bytes in hand frame a whole message. Extracted
+          // to `_frame_status` because a keep-alive read must ask the SAME
+          // question before its first read: a message already complete in the
+          // carried-over bytes must not cost a read that would block.
+          match(
+            _frame_status(result, is_request),
+            .Complete => {
+              done = true;
             },
-            true => ()
+            .BadContentLength(msg) => {
+              failed = i32(2);
+              failed_msg = msg;
+              done = true;
+            },
+            .NeedMore => ()
           );
         }
       );
@@ -510,7 +570,16 @@ read_http_message :: (
         body_start := (header_end + usize(4));
         match(
           dechunk(result, body_start),
-          .Done(data) => {
+          .Done(data, end) => {
+            // Bytes after the terminating chunk belong to the next message.
+            // `_split_message` is not usable here: the value handed on is the
+            // DECODED rewrite, not a prefix of `result`.
+            carry.clear();
+            k := end;
+            while(runtime(k < result.len()), {
+              carry.push(result(k));
+              k = (k + usize(1));
+            });
             decoded := ArrayList(u8).with_capacity(body_start + data.len());
             j := usize(0);
             while(runtime(j < body_start), {
@@ -537,13 +606,13 @@ read_http_message :: (
             // `cl < avail`, not `(body_start + cl) < result.len()`: the sum can
             // overflow usize on a hostile Content-Length.
             .Length(cl) => cond(
-              (cl < avail) => _message_upto(result, body_start + cl),
+              (cl < avail) => _split_message(result, body_start + cl, carry),
               true => String.from_bytes(result)
             ),
             // A REQUEST with no framing header ends with its headers; a RESPONSE
             // with none is delimited by close, so every byte read is body.
             .Absent => cond(
-              is_request => _message_upto(result, body_start),
+              is_request => _split_message(result, body_start, carry),
               true => String.from_bytes(result)
             ),
             // Unreachable: the read loop records `.Invalid` as soon as the header
@@ -556,4 +625,23 @@ read_http_message :: (
     )
   })
 );
-export(find_header_end, ContentLength, find_content_length, is_chunked, Dechunk, dechunk, read_http_message);
+/// Read exactly one HTTP message off `stream`. For a connection used once:
+/// anything the peer sent past this message is DISCARDED, which is the right
+/// answer when the connection is about to be closed and the wrong one when it
+/// is about to be reused — use `read_http_message_buffered` there.
+read_http_message :: (
+  fn(generic(R : Type), stream : R, max_bytes : usize, is_request : bool, io : Io, where(R <: Reader)) ->
+    Impl(Future(Result(String, HttpError), IoExn))
+)(
+  read_http_message_buffered(stream, max_bytes, is_request, ArrayList(u8).new(), io)
+);
+export(
+  find_header_end,
+  ContentLength,
+  find_content_length,
+  is_chunked,
+  Dechunk,
+  dechunk,
+  read_http_message,
+  read_http_message_buffered
+);

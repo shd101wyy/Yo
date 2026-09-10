@@ -1,0 +1,58 @@
+//! Regression: a captured variable read as a `cond`/`match` arm's VALUE was
+//! emitted as a bare identifier instead of a `closure_context` access, so the
+//! generated C did not compile
+//! (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md).
+//!
+//! The trigger is a BARE capture atom in arm-value position. Wrapping it in any
+//! expression routes it through the call-argument path, which always rewrote
+//! correctly — which is why this survived: nearly every real use of a capture
+//! sits inside some expression. Each shape below is therefore its own test.
+{ assert } :: import("std/assert");
+{ IoExn, Exception } :: import("std/error");
+// Bare capture as the `true` (final else) arm's value.
+_last_arm :: (fn(cap : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => cond((cap < usize(10)) => usize(0), true => cap))
+);
+// Bare capture as the FIRST arm's value.
+_first_arm :: (fn(cap : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => cond((cap < usize(10)) => cap, true => usize(0)))
+);
+// Bare capture as a single-arm cond's value.
+_single_arm :: (fn(cap : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => cond(true => cap))
+);
+// Bare capture as a `match` arm's value — the same position, other construct.
+_match_arm :: (fn(cap : usize, flag : bool, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => match(Option(usize).Some(cap), .Some(v) => v, .None => cap))
+);
+// Control: the same capture INSIDE an expression, which always worked.
+_wrapped :: (fn(cap : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => cond((cap < usize(10)) => usize(0), true => (cap + usize(1))))
+);
+test("a captured variable is readable as a cond arm's value (final arm)", {
+  exn := Exception(throw : (_err -> unwind(())));
+  e := IoExn(io : io, exn : exn);
+  assert(io.await(_last_arm(usize(42), io), e) == usize(42), "the taken arm reads the capture");
+  assert(io.await(_last_arm(usize(3), io), e) == usize(0), "and the other arm still works");
+});
+test("a captured variable is readable as a cond arm's value (first arm)", {
+  exn := Exception(throw : (_err -> unwind(())));
+  e := IoExn(io : io, exn : exn);
+  assert(io.await(_first_arm(usize(3), io), e) == usize(3), "the first arm reads the capture");
+  assert(io.await(_first_arm(usize(42), io), e) == usize(0), "and the other arm still works");
+});
+test("a captured variable is readable as a single-arm cond's value", {
+  exn := Exception(throw : (_err -> unwind(())));
+  e := IoExn(io : io, exn : exn);
+  assert(io.await(_single_arm(usize(7), io), e) == usize(7), "a one-arm cond reads the capture");
+});
+test("a captured variable is readable as a match arm's value", {
+  exn := Exception(throw : (_err -> unwind(())));
+  e := IoExn(io : io, exn : exn);
+  assert(io.await(_match_arm(usize(9), true, io), e) == usize(9), "a match arm reads the capture");
+});
+test("a captured variable inside an arm EXPRESSION still works", {
+  exn := Exception(throw : (_err -> unwind(())));
+  e := IoExn(io : io, exn : exn);
+  assert(io.await(_wrapped(usize(42), io), e) == usize(43), "the wrapped shape is unchanged");
+});
