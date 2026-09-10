@@ -124,16 +124,16 @@ test("interval's first tick is due immediately", {
   // After it, the next is due one period later — never two.
   assert(t._next.duration_since(before).as_millis() >= i64(35), "the second tick is a period out");
 });
-test("interval waits between ticks and bursts to catch up after an overrun", {
-  // The one wall-clock assertion left, and only in the direction that is
-  // safe on ANY machine: a tick that is not yet due must WAIT. A slow runner
-  // makes this take longer, never shorter.
+test("interval bursts to catch up after an overrun", {
+  // NO wall-clock assertion here, deliberately. A first version asserted that
+  // a not-yet-due tick waited at least 20ms of its 30ms period, on the theory
+  // that a slow machine makes a wait LONGER, never shorter. That is wrong for
+  // a COARSE one: Windows timers have ~15.6ms granularity and the
+  // windows-11-arm leg measured 19ms for a 30ms wait. Whether `sleep` sleeps
+  // long enough is `sleep`'s contract, tested by the sleep cases above; it is
+  // not interval's, and re-asserting it here only imports that flakiness.
   t := interval(Duration.from_millis(i64(30)), io);
   io.await(t.tick(io), io);
-  start := Instant.now();
-  io.await(t.tick(io), io);
-  waited := start.elapsed();
-  assert(waited.as_millis() >= i64(20), `a not-yet-due tick waited, ${waited.as_millis()}ms`);
   // Missed ticks BURST: after an overrun the owed ticks are already due, so
   // the schedule catches up one period at a time rather than re-anchoring to
   // now. Checked on the schedule again — how FAST the burst comes back is a

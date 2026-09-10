@@ -802,9 +802,13 @@ periods. A first version compared measured elapsed time against a computed
 "a drifting loop would take ~180 ms" and failed on a macOS CI runner that took
 492 ms: that runner needs 163 ms for a 60 ms sleep, so every 30 ms tick costs
 ~90 ms and BOTH loops blow past any absolute figure. Timer granularity is not
-something a test can assume away. One wall-clock assertion survives, in the
-only direction that is safe anywhere: a tick that is not yet due must WAIT, and
-a slow machine makes that longer, never shorter.
+something a test can assume away. NO wall-clock assertion survives. One did
+briefly — "a not-yet-due tick waits at least 20ms of its 30ms period", on the
+theory that a slow machine makes a wait longer and never shorter. That is wrong
+for a COARSE one: Windows timers have ~15.6ms granularity and windows-11-arm
+measured 19ms for a 30ms wait. Whether `sleep` sleeps long enough is `sleep`'s
+contract, covered by its own cases; re-asserting it inside the interval tests
+only imported that flakiness.
 
 **`Once.call` now runs its slow path under `Mutex.with_lock`** (2026-09-10),
 and the long-standing NOTE claiming the old manual `_raw_lock`/`_raw_unlock`
