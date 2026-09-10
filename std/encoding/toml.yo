@@ -1,25 +1,252 @@
-//! Basic TOML parser for configuration files.
+//! TOML v1.0.0 parsing and serialization.
 //!
-//! Parses a subset of TOML into a `TomlValue` tree.
-//! Supports: strings, integers, booleans, table sections, comments.
+//! `toml_parse` scans a whole document with a byte scanner and returns a
+//! `TomlValue` tree; `toml_stringify` writes one back out. The value model is
+//! the Rust `toml` crate's `Value`: string, integer, float, boolean,
+//! date-time, array, table.
+//!
+//! Everything TOML v1.0.0 admits is accepted: comments, bare / quoted /
+//! dotted keys, basic and literal strings (single and multi-line, with
+//! escapes), decimal / hex / octal / binary integers, floats including
+//! `inf` and `nan`, the four date-time forms, arrays (heterogeneous,
+//! nested, trailing comma, newlines inside the brackets), inline tables,
+//! `[table]` headers and `[[array of tables]]`. Everything it does not
+//! admit is an `.Err` with a byte offset — a document that parses is the
+//! document that was written.
 //!
 //! ## Example
 //!
 //! ```rust
-//! { toml_parse, TomlValue } :: import "std/encoding/toml";
+//! { toml_parse, toml_stringify, TomlValue } :: import "std/encoding/toml";
+//!
+//! doc := toml_parse(`title = "yo"
+//! [server]
+//! port = 8080
+//! `).unwrap();
+//! println(doc.get(`server`).unwrap().get(`port`).unwrap().as_int().unwrap());
+//! println(toml_stringify(doc));
 //! ```
+//!
+//! ## Stability
+//! unstable — the v0.2.31 rewrite replaced the line-based subset parser, so
+//! the value model gained four variants and the error type changed from
+//! `String` to `TomlError`; the API may still change until the next release.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
-/// TOML value type — the result of parsing a TOML document.
+{ Error } :: import("../error");
+{ ToString } :: import("../fmt");
+{ DateTime } :: import("../time/datetime");
+{ snprintf } :: import("../libc/stdio");
+// Registers `f64.is_nan` / `f64.is_infinite` and the non-finite constants.
+import("../math");
+utf8 :: import("./utf8");
+// ============================================================================
+// Byte constants
+// ============================================================================
+_TAB :: u8(9);
+_LF :: u8(10);
+_CR :: u8(13);
+_SPACE :: u8(32);
+_QUOTE :: u8(34);
+_HASH :: u8(35);
+_APOS :: u8(39);
+_PLUS :: u8(43);
+_COMMA :: u8(44);
+_MINUS :: u8(45);
+_DOT :: u8(46);
+_ZERO :: u8(48);
+_NINE :: u8(57);
+_COLON :: u8(58);
+_EQUALS :: u8(61);
+_LBRACKET :: u8(91);
+_BACKSLASH :: u8(92);
+_RBRACKET :: u8(93);
+_UNDERSCORE :: u8(95);
+_LBRACE :: u8(123);
+_RBRACE :: u8(125);
+_DEL :: u8(127);
+_is_digit :: (fn(b : u8) -> bool)(
+  (b >= _ZERO) && (b <= _NINE)
+);
+/// One hex digit's value, or 255 for a non-hex byte (same helper shape as
+/// `json.yo`'s `_hex_digit`).
+_hex_digit :: (fn(b : u8) -> u8)(
+  cond(
+    ((b >= _ZERO) && (b <= _NINE)) => (b - _ZERO),
+    ((b >= u8(97)) && (b <= u8(102))) => (b - u8(87)),
+    ((b >= u8(65)) && (b <= u8(70))) => (b - u8(55)),
+    true => u8(255)
+  )
+);
+/// A byte a BARE key may contain: `A-Za-z0-9_-`.
+_is_bare_key_byte :: (fn(b : u8) -> bool)(
+  cond(
+    _is_digit(b) => true,
+    ((b >= u8(65)) && (b <= u8(90))) => true,
+    ((b >= u8(97)) && (b <= u8(122))) => true,
+    (b == _UNDERSCORE) => true,
+    (b == _MINUS) => true,
+    true => false
+  )
+);
+/// A control character TOML forbids in a string, key, or comment. Tab is
+/// allowed everywhere; LF and CR are allowed only inside a multi-line string,
+/// which its own scanner handles before asking this.
+_is_forbidden_control :: (fn(b : u8) -> bool)(
+  ((b < _SPACE) && (b != _TAB)) || (b == _DEL)
+);
+/// A byte that ends an unquoted value token (number, boolean, date-time).
+_is_value_terminator :: (fn(b : u8) -> bool)(
+  cond(
+    (b == u8(0)) => true,
+    (b == _SPACE) => true,
+    (b == _TAB) => true,
+    (b == _LF) => true,
+    (b == _CR) => true,
+    (b == _COMMA) => true,
+    (b == _RBRACKET) => true,
+    (b == _RBRACE) => true,
+    (b == _HASH) => true,
+    true => false
+  )
+);
+// ============================================================================
+// TomlError
+// ============================================================================
+/// A TOML parse failure. Every variant carries a BYTE OFFSET into the input,
+/// the same contract `EncodingError` and `CsvError` have: a caller decoding a
+/// 4 KiB config learns WHERE the document is wrong, not merely that it is.
+TomlError :: enum(
+  /// A byte that cannot appear here — a garbage line, a missing `=`, a
+  /// second value where a separator belongs, a control character in a
+  /// comment.
+  UnexpectedChar(ch : u8, pos : usize),
+  /// The input ended inside a construct (a header, an array, an inline
+  /// table, a key/value pair). `pos` is the end of the input.
+  UnexpectedEnd(pos : usize),
+  /// A string ran to the end of its line (single-line forms) or to the end
+  /// of the input without its closing delimiter. `start` is the opening
+  /// quote.
+  UnterminatedString(start : usize),
+  /// A backslash escape that is not one of TOML's (`\b \t \n \f \r \" \\
+  /// \uXXXX \UXXXXXXXX`, plus the multi-line line-ending backslash).
+  InvalidEscape(pos : usize),
+  /// A `\u` / `\U` escape whose digits are not hex, or whose value is not a
+  /// Unicode scalar (a surrogate, or above U+10FFFF).
+  InvalidUnicode(pos : usize),
+  /// A numeric literal outside TOML's integer/float grammar, or an integer
+  /// outside `i64`. TOML rejects `01`, `1.`, `1_`, `_1`, `0x1p3` and
+  /// `-0xff`, and this is how it says so.
+  InvalidNumber(pos : usize),
+  /// A date-time literal that is not one of RFC 3339's forms TOML admits, or
+  /// whose components are outside the calendar.
+  InvalidDatetime(pos : usize),
+  /// A key defined twice in the same table.
+  DuplicateKey(key : String, pos : usize),
+  /// A table header that reopens a table already closed — defined by an
+  /// earlier header, by a dotted key, or as an inline-table value — or an
+  /// `[[array]]` header on a key that is not an array of tables.
+  RedefinedTable(key : String, pos : usize),
+  /// A dotted key or header path that runs THROUGH a value which is not a
+  /// table (`a = 1` then `a.b = 2`).
+  ExpectedTable(key : String, pos : usize)
+);
+derive(
+  TomlError,
+  Error(
+    .UnexpectedChar => `TOML error: unexpected character ${ch} at byte ${pos}`,
+    .UnexpectedEnd => `TOML error: unexpected end of input at byte ${pos}`,
+    .UnterminatedString => `TOML error: unterminated string starting at byte ${start}`,
+    .InvalidEscape => `TOML error: invalid escape sequence at byte ${pos}`,
+    .InvalidUnicode => `TOML error: invalid unicode escape at byte ${pos}`,
+    .InvalidNumber => `TOML error: invalid number at byte ${pos}`,
+    .InvalidDatetime => `TOML error: invalid date-time at byte ${pos}`,
+    .DuplicateKey => `TOML error: duplicate key "${key}" at byte ${pos}`,
+    .RedefinedTable => `TOML error: table "${key}" is already defined, at byte ${pos}`,
+    .ExpectedTable => `TOML error: "${key}" is not a table, at byte ${pos}`
+  )
+);
+impl(
+  TomlError,
+  /// The byte offset the fault was found at. Unlike `EncodingError.pos` this
+  /// is total: every TOML failure has a position, because the scanner always
+  /// knows where it is.
+  pos : (fn(self : Self) -> usize)(
+    match(
+      self,
+      .UnexpectedChar({ pos }) => pos,
+      .UnexpectedEnd({ pos }) => pos,
+      .UnterminatedString({ start }) => start,
+      .InvalidEscape({ pos }) => pos,
+      .InvalidUnicode({ pos }) => pos,
+      .InvalidNumber({ pos }) => pos,
+      .InvalidDatetime({ pos }) => pos,
+      .DuplicateKey({ pos }) => pos,
+      .RedefinedTable({ pos }) => pos,
+      .ExpectedTable({ pos }) => pos
+    )
+  )
+);
+export(TomlError);
+// ============================================================================
+// TomlDateTime
+// ============================================================================
+/// Which of TOML's four date-time forms a `TomlDateTime` holds. The tag is
+/// what `DateTime` alone cannot supply, and every form needs it:
+/// `1979-05-27T07:32:00Z` and `1979-05-27T07:32:00` are DIFFERENT TOML values
+/// (one names an instant, one a wall-clock reading with no zone), and a local
+/// date has no time while a local time has no date. Without the tag a parse
+/// would have to invent a zone or a date and the serializer could not write
+/// back what it read.
+TomlDateTimeKind :: enum(
+  /// `1979-05-27T07:32:00Z`, `1979-05-27T00:32:00-07:00` — a real instant.
+  OffsetDateTime,
+  /// `1979-05-27T07:32:00` — a wall-clock reading with no zone.
+  LocalDateTime,
+  /// `1979-05-27` — no time, no zone.
+  LocalDate,
+  /// `07:32:00.999999` — no date, no zone.
+  LocalTime
+);
+/// A TOML date-time: `std/time/datetime`'s `DateTime` for the components,
+/// plus the tag saying which of them are significant.
+///
+/// The components are REUSED rather than redeclared so the calendar rules
+/// live in one place — `DateTime.new` is what validates a leap day, and this
+/// module would otherwise carry a second copy of the leap-year table. What
+/// `DateTime` cannot do is distinguish TOML's four forms (it has no "no
+/// offset" state and no date-less or time-less form), which is why `kind`
+/// exists; the components the tag calls absent are set to the epoch's
+/// (`1970-01-01` for a local time, `00:00:00` for a local date) and must not
+/// be read.
+TomlDateTime :: struct(
+  /// Which form this is — and therefore which components mean anything.
+  kind : TomlDateTimeKind,
+  /// The components. `utc_offset_secs` is meaningful only for
+  /// `.OffsetDateTime`.
+  value : DateTime
+);
+export(TomlDateTimeKind, TomlDateTime);
+// ============================================================================
+// TomlValue
+// ============================================================================
+/// TOML value type — the result of parsing a TOML document. The variants are
+/// the Rust `toml` crate's `Value`, in its order.
 TomlValue :: enum(
   /// A TOML string value.
   Str(value : String),
-  /// A TOML integer value.
+  /// A TOML integer value (64-bit signed, as TOML requires).
   Int(value : i64),
+  /// A TOML float value (IEEE 754 double, as TOML requires).
+  Float(value : f64),
   /// A TOML boolean value.
   Bool(value : bool),
-  /// A TOML table (ordered key-value map).
+  /// A TOML offset/local date-time, local date, or local time.
+  Datetime(value : TomlDateTime),
+  /// A TOML array. TOML v1.0.0 allows mixed element types.
+  Array(items : ArrayList(Self)),
+  /// A TOML table, keys in insertion order.
   Table(keys : ArrayList(String), values : ArrayList(Self))
 );
 impl(
@@ -27,6 +254,10 @@ impl(
   /// Create a new empty table.
   new_table : (fn() -> Self)(
     Self.Table(keys : ArrayList(String).new(), values : ArrayList(TomlValue).new())
+  ),
+  /// Create a new empty array.
+  new_array : (fn() -> Self)(
+    Self.Array(items : ArrayList(TomlValue).new())
   ),
   /// Look up a value by key in a table. Returns `.None` if not a table or key is missing.
   get : (fn(self : Self, key : String) -> Option(TomlValue))(
@@ -37,46 +268,45 @@ impl(
         while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              return(.Some(values(i)));
+              return(Option(TomlValue).Some(values(i)));
             },
             true => ()
           );
         });
-        .None
+        Option(TomlValue).None
       },
-      _ => .None
+      _ => Option(TomlValue).None
     )
   ),
   /// Check whether the table contains the given key.
   has_key : (fn(self : Self, key : String) -> bool)(
     self.get(key).is_some()
   ),
-  /// Insert or update a key-value pair in the table.
-  insert : (fn(self : Self, key : String, value : TomlValue) -> unit)(
+  /// Set `key` to `value`, returning the value it REPLACED (`.None` when the
+  /// key is new) — the D2 shape for a map insert, matching
+  /// `JsonValue.insert`. Insertion order is preserved and a replacement keeps
+  /// the key's original position. A non-table receiver is a no-op returning
+  /// `.None`.
+  insert : (fn(self : Self, key : String, value : TomlValue) -> Option(TomlValue))(
     match(
       self,
       .Table(keys, values) => {
         i := usize(0);
-        len := keys.len();
-        found := false;
-        while(i < len, i = (i + usize(1)), {
+        while(i < keys.len(), i = (i + usize(1)), {
           cond(
             (keys(i) == key) => {
-              &(values(i)).* = value;
-              found = true;
+              old := values(i);
+              values(i) = value;
+              return(Option(TomlValue).Some(old));
             },
             true => ()
           );
         });
-        cond(
-          !found => {
-            keys.push(key);
-            values.push(value);
-          },
-          true => ()
-        );
+        keys.push(key);
+        values.push(value);
+        Option(TomlValue).None
       },
-      _ => ()
+      _ => Option(TomlValue).None
     )
   ),
   /// Return the number of keys in the table, or `0` if not a table.
@@ -87,115 +317,2407 @@ impl(
       _ => usize(0)
     )
   ),
+  /// Return the number of elements in the array, or `0` if not an array.
+  array_len : (fn(self : Self) -> usize)(
+    match(
+      self,
+      .Array(items) => items.len(),
+      _ => usize(0)
+    )
+  ),
+  /// The `index`-th element of an array, or `.None`.
+  at : (fn(self : Self, index : usize) -> Option(TomlValue))(
+    match(
+      self,
+      .Array(items) => items.get(index),
+      _ => Option(TomlValue).None
+    )
+  ),
   /// Extract the string value, or `.None` if not a `Str`.
   as_string : (fn(self : Self) -> Option(String))(
-    match(self, .Str(s) => .Some(s), _ => .None)
+    match(self, .Str(s) => Option(String).Some(s), _ => Option(String).None)
   ),
   /// Extract the integer value, or `.None` if not an `Int`.
   as_int : (fn(self : Self) -> Option(i64))(
-    match(self, .Int(n) => .Some(n), _ => .None)
+    match(self, .Int(n) => Option(i64).Some(n), _ => Option(i64).None)
+  ),
+  /// Extract the float value, or `.None` if not a `Float`.
+  as_float : (fn(self : Self) -> Option(f64))(
+    match(self, .Float(f) => Option(f64).Some(f), _ => Option(f64).None)
   ),
   /// Extract the boolean value, or `.None` if not a `Bool`.
   as_bool : (fn(self : Self) -> Option(bool))(
-    match(self, .Bool(b) => .Some(b), _ => .None)
+    match(self, .Bool(b) => Option(bool).Some(b), _ => Option(bool).None)
+  ),
+  /// Extract the date-time value, or `.None` if not a `Datetime`.
+  as_datetime : (fn(self : Self) -> Option(TomlDateTime))(
+    match(self, .Datetime(d) => Option(TomlDateTime).Some(d), _ => Option(TomlDateTime).None)
+  ),
+  /// Extract the array items, or `.None` if not an `Array`.
+  as_array : (fn(self : Self) -> Option(ArrayList(TomlValue)))(
+    match(self, .Array(items) => Option(ArrayList(TomlValue)).Some(items), _ => Option(ArrayList(TomlValue)).None)
+  ),
+  /// True for a TOML string.
+  is_string : (fn(self : Self) -> bool)(
+    match(self, .Str(_) => true, _ => false)
+  ),
+  /// True for a TOML integer.
+  is_int : (fn(self : Self) -> bool)(
+    match(self, .Int(_) => true, _ => false)
+  ),
+  /// True for a TOML float.
+  is_float : (fn(self : Self) -> bool)(
+    match(self, .Float(_) => true, _ => false)
+  ),
+  /// True for a TOML boolean.
+  is_bool : (fn(self : Self) -> bool)(
+    match(self, .Bool(_) => true, _ => false)
+  ),
+  /// True for a TOML date-time of any of the four forms.
+  is_datetime : (fn(self : Self) -> bool)(
+    match(self, .Datetime(_) => true, _ => false)
+  ),
+  /// True for a TOML array.
+  is_array : (fn(self : Self) -> bool)(
+    match(self, .Array(_) => true, _ => false)
+  ),
+  /// True for a TOML table.
+  is_table : (fn(self : Self) -> bool)(
+    match(self, .Table(_, _) => true, _ => false)
   )
 );
-_parse_toml_value :: (fn(raw : String) -> Result(TomlValue, String))({
-  trimmed := raw.trim();
+export(TomlValue);
+// ============================================================================
+// Scanner
+// ============================================================================
+/// How a table came to exist. TOML's redefinition rules are not "has this
+/// path been seen" but "how was it created": a header may extend a table an
+/// earlier header path created implicitly, and may not reopen one an earlier
+/// header, a dotted key, or an inline-table value already closed.
+_TableKind :: enum(
+  /// Created by its own `[header]`, or promoted from `.Implicit` by one.
+  Explicit,
+  /// Created as an intermediate segment of a longer header path.
+  Implicit,
+  /// Created by a dotted KEY (`a.b = 1`); a later header may not reopen it.
+  Dotted,
+  /// The array a `[[header]]` created.
+  ArrayOfTables,
+  /// One element of an array of tables.
+  ArrayElem
+);
+/// The parser's state: the input bytes, the cursor, the tree, the table
+/// `key = value` lines currently land in, and the provenance table above.
+///
+/// BYTES, not `str`: `str` is the STATIC string view and a runtime `String`
+/// cannot become one, so a str-typed parser could never parse a config file
+/// read at runtime — the same reason `json.yo`'s `_Parser` holds bytes.
+_Parser :: ref(
+  struct(
+    src : ArrayList(u8),
+    pos : usize,
+    /// The document's root table.
+    root : TomlValue,
+    /// The table bare `key = value` lines are inserted into.
+    cur : TomlValue,
+    /// `cur`'s encoded provenance path.
+    cur_path : String,
+    /// Encoded paths of every table this parse has created…
+    paths : ArrayList(String),
+    /// …and how each of them was created, in the same order.
+    kinds : ArrayList(_TableKind)
+  )
+);
+/// Append `key` to an encoded provenance path. The key is LENGTH-PREFIXED so
+/// no two distinct key sequences can encode to the same string (a plain `.`
+/// separator would make `["a.b"]` and `["a", "b"]` collide, and TOML keeps
+/// those distinct).
+_path_key :: (fn(prefix : String, key : String) -> String)({
+  n := key.len().to_string();
+  `${prefix}${n}:${key}`
+});
+/// Append an array-of-tables ELEMENT index to an encoded path. `@…;` cannot
+/// collide with `_path_key`'s `<len>:<key>`, which always starts with a
+/// digit.
+_path_index :: (fn(prefix : String, idx : usize) -> String)({
+  n := idx.to_string();
+  `${prefix}@${n};`
+});
+impl(
+  _Parser,
+  new : (fn(src : ArrayList(u8)) -> Self)({
+    root := TomlValue.new_table();
+    p := Self(
+      src : src,
+      pos : usize(0),
+      root : root,
+      cur : root,
+      cur_path : String.new(),
+      paths : ArrayList(String).new(),
+      kinds : ArrayList(_TableKind).new()
+    );
+    p.paths.push(String.new());
+    p.kinds.push(_TableKind.Explicit);
+    p
+  }),
+  eof : (fn(self : Self) -> bool)(
+    self.pos >= self.src.len()
+  ),
+  /// The byte `off` past the cursor, or 0 at/after the end of input. No TOML
+  /// construct admits a NUL — `_is_forbidden_control` rejects it inside every
+  /// string, key and comment — so 0 is an unambiguous end marker for the
+  /// lookahead tests below.
+  at : (fn(self : Self, off : usize) -> u8)(
+    match(self.src.get(self.pos + off), .Some(b) => b, .None => u8(0))
+  ),
+  cur_byte : (fn(self : Self) -> u8)(
+    self.at(usize(0))
+  ),
+  advance : (fn(self : Self) -> unit)({
+    self.pos = (self.pos + usize(1));
+  }),
+  /// Spaces and tabs only — never a newline, which is significant everywhere
+  /// except inside brackets.
+  skip_spaces : (fn(self : Self) -> unit)({
+    (going : bool) = true;
+    while(going, {
+      b := self.cur_byte();
+      cond(
+        ((b == _SPACE) || (b == _TAB)) => self.advance(),
+        true => {
+          going = false;
+        }
+      );
+    });
+  }),
+  /// Spaces, then an optional `# comment`, stopping AT the line's newline (or
+  /// the end of input). A control character inside the comment is rejected,
+  /// as TOML requires.
+  skip_spaces_comment : (fn(self : Self) -> Result(unit, TomlError))({
+    self.skip_spaces();
+    cond(
+      (self.cur_byte() == _HASH) => {
+        self.advance();
+        (going : bool) = true;
+        while(going, {
+          b := self.cur_byte();
+          cond(
+            (self.eof() || (b == _LF)) => {
+              going = false;
+            },
+            _is_forbidden_control(b) => {
+              return(Result(unit, TomlError).Err(TomlError.UnexpectedChar(ch : b, pos : self.pos)));
+            },
+            true => self.advance()
+          );
+        });
+      },
+      true => ()
+    );
+    Result(unit, TomlError).Ok(())
+  }),
+  /// Whitespace, newlines and comments — the "anything may appear here"
+  /// skipper used between statements and inside array brackets.
+  skip_ws_lines : (fn(self : Self) -> Result(unit, TomlError))({
+    (going : bool) = true;
+    while(going, {
+      b := self.cur_byte();
+      cond(
+        self.eof() => {
+          going = false;
+        },
+        ((b == _SPACE) || (b == _TAB) || ((b == _LF) || (b == _CR))) => self.advance(),
+        (b == _HASH) => {
+          _skipped := match(
+            self.skip_spaces_comment(),
+            .Ok(_) => true,
+            .Err(e) => {
+              return(Result(unit, TomlError).Err(e));
+            }
+          );
+        },
+        true => {
+          going = false;
+        }
+      );
+    });
+    Result(unit, TomlError).Ok(())
+  }),
+  /// After a header or a key/value pair: spaces, an optional comment, then a
+  /// newline or the end of input. Anything else is trailing content, which
+  /// TOML rejects. A bare CR is rejected too — TOML's newline is LF or CRLF.
+  expect_line_end : (fn(self : Self) -> Result(unit, TomlError))({
+    _skipped := match(
+      self.skip_spaces_comment(),
+      .Ok(_) => true,
+      .Err(e) => {
+        return(Result(unit, TomlError).Err(e));
+      }
+    );
+    b := self.cur_byte();
+    cond(
+      self.eof() => Result(unit, TomlError).Ok(()),
+      (b == _LF) => {
+        self.advance();
+        Result(unit, TomlError).Ok(())
+      },
+      (b == _CR) => cond(
+        (self.at(usize(1)) == _LF) => {
+          self.advance();
+          self.advance();
+          Result(unit, TomlError).Ok(())
+        },
+        true => Result(unit, TomlError).Err(TomlError.UnexpectedChar(ch : b, pos : self.pos))
+      ),
+      true => Result(unit, TomlError).Err(TomlError.UnexpectedChar(ch : b, pos : self.pos))
+    )
+  }),
+  /// How the table at `path` was created, or `.None` when this parse never
+  /// created it — which for an EXISTING table means it came from an inline
+  /// table value and is therefore closed.
+  kind_of : (fn(self : Self, path : String) -> Option(_TableKind))({
+    (found : Option(_TableKind)) = Option(_TableKind).None;
+    i := usize(0);
+    while(i < self.paths.len(), i = (i + usize(1)), {
+      cond(
+        (self.paths(i) == path) => {
+          found = Option(_TableKind).Some(self.kinds(i));
+        },
+        true => ()
+      );
+    });
+    found
+  }),
+  set_kind : (fn(self : Self, path : String, kind : _TableKind) -> unit)({
+    (replaced : bool) = false;
+    i := usize(0);
+    while(i < self.paths.len(), i = (i + usize(1)), {
+      cond(
+        (self.paths(i) == path) => {
+          self.kinds(i) = kind;
+          replaced = true;
+        },
+        true => ()
+      );
+    });
+    cond(
+      !replaced => {
+        self.paths.push(path);
+        self.kinds.push(kind);
+      },
+      true => ()
+    );
+  })
+);
+// ============================================================================
+// Strings
+// ============================================================================
+/// `\uXXXX` / `\UXXXXXXXX`: `count` hex digits, validated as a Unicode
+/// scalar (a surrogate half or a value above U+10FFFF is rejected, so no
+/// CESU-8 can be produced), then UTF-8 encoded into `out`.
+_read_hex_escape :: (
+  fn(p : _Parser, out : ArrayList(u8), count : usize, esc_pos : usize) -> Result(unit, TomlError)
+)({
+  (code : u32) = u32(0);
+  i := usize(0);
+  while(i < count, i = (i + usize(1)), {
+    cond(
+      p.eof() => {
+        return(Result(unit, TomlError).Err(TomlError.InvalidUnicode(pos : esc_pos)));
+      },
+      true => ()
+    );
+    d := _hex_digit(p.cur_byte());
+    cond(
+      (d == u8(255)) => {
+        return(Result(unit, TomlError).Err(TomlError.InvalidUnicode(pos : esc_pos)));
+      },
+      true => ()
+    );
+    p.advance();
+    code = ((code * u32(16)) + u32(d));
+  });
   cond(
-    trimmed.is_empty() => {
-      return(.Err(`Empty value`));
+    ((code > u32(0x10FFFF)) || ((code >= u32(0xD800)) && (code <= u32(0xDFFF)))) => {
+      return(Result(unit, TomlError).Err(TomlError.InvalidUnicode(pos : esc_pos)));
     },
     true => ()
   );
-  // Quoted string: starts and ends with "
+  _written := utf8.encode_lossy_into(code, out);
+  Result(unit, TomlError).Ok(())
+});
+/// One backslash escape inside a basic string. `multiline` enables TOML's
+/// line-ending backslash, which trims itself plus all following whitespace
+/// AND newlines up to the next non-whitespace byte.
+_read_escape :: (
+  fn(p : _Parser, out : ArrayList(u8), multiline : bool) -> Result(unit, TomlError)
+)({
+  esc_pos := p.pos;
+  p.advance();
+  e := p.cur_byte();
   cond(
-    (trimmed.starts_with(`"`) && trimmed.ends_with(`"`)) => {
-      len := trimmed.len();
+    p.eof() => Result(unit, TomlError).Err(TomlError.InvalidEscape(pos : esc_pos)),
+    (e == u8(98)) => {
+      p.advance();
+      out.push(u8(8));
+      Result(unit, TomlError).Ok(())
+    },
+    (e == u8(116)) => {
+      p.advance();
+      out.push(_TAB);
+      Result(unit, TomlError).Ok(())
+    },
+    (e == u8(110)) => {
+      p.advance();
+      out.push(_LF);
+      Result(unit, TomlError).Ok(())
+    },
+    (e == u8(102)) => {
+      p.advance();
+      out.push(u8(12));
+      Result(unit, TomlError).Ok(())
+    },
+    (e == u8(114)) => {
+      p.advance();
+      out.push(_CR);
+      Result(unit, TomlError).Ok(())
+    },
+    (e == _QUOTE) => {
+      p.advance();
+      out.push(_QUOTE);
+      Result(unit, TomlError).Ok(())
+    },
+    (e == _BACKSLASH) => {
+      p.advance();
+      out.push(_BACKSLASH);
+      Result(unit, TomlError).Ok(())
+    },
+    (e == u8(117)) => {
+      p.advance();
+      _read_hex_escape(p, out, usize(4), esc_pos)
+    },
+    (e == u8(85)) => {
+      p.advance();
+      _read_hex_escape(p, out, usize(8), esc_pos)
+    },
+    ((e == _SPACE) || (e == _TAB) || ((e == _LF) || (e == _CR))) => {
+      // A line-ending backslash: only in a multi-line string, and only when
+      // the backslash is the last non-whitespace byte on its line.
+      (saw_newline : bool) = false;
+      (going : bool) = true;
+      while(going, {
+        c := p.cur_byte();
+        cond(
+          p.eof() => {
+            going = false;
+          },
+          ((c == _SPACE) || (c == _TAB)) => p.advance(),
+          ((c == _LF) || (c == _CR)) => {
+            saw_newline = true;
+            p.advance();
+          },
+          true => {
+            going = false;
+          }
+        );
+      });
       cond(
-        (len < usize(2)) => {
-          return(.Err(`Unterminated string`));
+        (multiline && saw_newline) => Result(unit, TomlError).Ok(()),
+        true => Result(unit, TomlError).Err(TomlError.InvalidEscape(pos : esc_pos))
+      )
+    },
+    true => Result(unit, TomlError).Err(TomlError.InvalidEscape(pos : esc_pos))
+  )
+});
+/// A run of `delim` bytes at the cursor, without consuming any.
+_quote_run :: (fn(p : _Parser, delim : u8) -> usize)({
+  (run : usize) = usize(0);
+  while(p.at(run) == delim, {
+    run = (run + usize(1));
+  });
+  run
+});
+/// A quoted string: `"…"` / `"""…"""` (with escapes) or the apostrophe forms
+/// (without). The cursor is at the opening delimiter.
+///
+/// One scanner for both forms, because they differ in exactly two ways — the
+/// delimiter byte and whether a backslash starts an escape — and everything
+/// else about them is the same fiddly rule set: in the multi-line form a
+/// newline immediately after the opening delimiter is dropped, one or two
+/// delimiters are ordinary content, and a run of three to five ends the string
+/// with the leading ones as content (TOML's exact rule, which is why the run
+/// is COUNTED rather than matched). Keeping two copies meant fixing each rule
+/// twice.
+_parse_quoted_string :: (
+  fn(p : _Parser, delim : u8, escapes : bool) -> Result(String, TomlError)
+)({
+  start := p.pos;
+  open_run := _quote_run(p, delim);
+  (multiline : bool) = (open_run >= usize(3));
+  cond(
+    multiline => {
+      p.advance();
+      p.advance();
+      p.advance();
+      // A newline directly after the opening delimiter is not part of the
+      // string.
+      cond(
+        (p.cur_byte() == _LF) => p.advance(),
+        ((p.cur_byte() == _CR) && (p.at(usize(1)) == _LF)) => {
+          p.advance();
+          p.advance();
         },
-        true => {
-          return(.Ok(.Str(trimmed.substring(usize(1), len - usize(1)))));
-        }
+        true => ()
+      );
+    },
+    true => p.advance()
+  );
+  bytes := ArrayList(u8).new();
+  (closed : bool) = false;
+  while(!closed, {
+    cond(
+      p.eof() => {
+        return(Result(String, TomlError).Err(TomlError.UnterminatedString(start : start)));
+      },
+      true => ()
+    );
+    b := p.cur_byte();
+    cond(
+      (b == delim) => {
+        cond(
+          multiline => {
+            run := _quote_run(p, delim);
+            cond(
+              (run >= usize(3)) => {
+                cond(
+                  (run > usize(5)) => {
+                    return(Result(String, TomlError).Err(TomlError.UnexpectedChar(ch : delim, pos : p.pos)));
+                  },
+                  true => ()
+                );
+                extra := (run - usize(3));
+                j := usize(0);
+                while(j < extra, j = (j + usize(1)), {
+                  bytes.push(delim);
+                });
+                k := usize(0);
+                while(k < run, k = (k + usize(1)), {
+                  p.advance();
+                });
+                closed = true;
+              },
+              true => {
+                j2 := usize(0);
+                while(j2 < run, j2 = (j2 + usize(1)), {
+                  bytes.push(delim);
+                  p.advance();
+                });
+              }
+            );
+          },
+          true => {
+            p.advance();
+            closed = true;
+          }
+        );
+      },
+      ((b == _BACKSLASH) && escapes) => {
+        _esc := match(
+          _read_escape(p, bytes, multiline),
+          .Ok(_) => true,
+          .Err(e) => {
+            return(Result(String, TomlError).Err(e));
+          }
+        );
+      },
+      ((b == _LF) || (b == _CR)) => {
+        cond(
+          !multiline => {
+            return(Result(String, TomlError).Err(TomlError.UnterminatedString(start : start)));
+          },
+          // TOML's newline is LF or CRLF; a lone CR is just a control
+          // character, and no control character may appear raw in a string.
+          ((b == _CR) && (p.at(usize(1)) != _LF)) => {
+            return(Result(String, TomlError).Err(TomlError.UnexpectedChar(ch : b, pos : p.pos)));
+          },
+          true => {
+            bytes.push(b);
+            p.advance();
+          }
+        );
+      },
+      _is_forbidden_control(b) => {
+        return(Result(String, TomlError).Err(TomlError.UnexpectedChar(ch : b, pos : p.pos)));
+      },
+      true => {
+        bytes.push(b);
+        p.advance();
+      }
+    );
+  });
+  Result(String, TomlError).Ok(String.from_bytes(bytes))
+});
+/// A basic string: `"…"` or `"""…"""`, escapes decoded.
+_parse_basic_string :: (fn(p : _Parser) -> Result(String, TomlError))(
+  _parse_quoted_string(p, _QUOTE, true)
+);
+/// A literal string: the apostrophe forms. No escapes — every byte up to the
+/// closing delimiter is content, so a backslash is itself.
+_parse_literal_string :: (fn(p : _Parser) -> Result(String, TomlError))(
+  _parse_quoted_string(p, _APOS, false)
+);
+// ============================================================================
+// Keys
+// ============================================================================
+/// One key: bare (`A-Za-z0-9_-`), basic-quoted (escapes decoded) or
+/// literal-quoted. A quoted key's CONTENT is the key, so `"my key"` and
+/// `'my key'` are the same key as far as duplicate detection goes.
+_parse_simple_key :: (fn(p : _Parser) -> Result(String, TomlError))({
+  b := p.cur_byte();
+  cond(
+    p.eof() => Result(String, TomlError).Err(TomlError.UnexpectedEnd(pos : p.pos)),
+    (b == _QUOTE) => _parse_basic_string(p),
+    (b == _APOS) => _parse_literal_string(p),
+    _is_bare_key_byte(b) => {
+      bytes := ArrayList(u8).new();
+      while(_is_bare_key_byte(p.cur_byte()), {
+        bytes.push(p.cur_byte());
+        p.advance();
+      });
+      Result(String, TomlError).Ok(String.from_bytes(bytes))
+    },
+    true => Result(String, TomlError).Err(TomlError.UnexpectedChar(ch : b, pos : p.pos))
+  )
+});
+/// A dotted key path: one or more simple keys separated by `.`, with
+/// optional spaces around the dots. `a.b.c` is three keys, never one key
+/// containing dots.
+_parse_key_path :: (fn(p : _Parser) -> Result(ArrayList(String), TomlError))({
+  keys := ArrayList(String).new();
+  (going : bool) = true;
+  while(going, {
+    p.skip_spaces();
+    k := match(
+      _parse_simple_key(p),
+      .Ok(v) => v,
+      .Err(e) => {
+        return(Result(ArrayList(String), TomlError).Err(e));
+      }
+    );
+    keys.push(k);
+    p.skip_spaces();
+    cond(
+      (p.cur_byte() == _DOT) => p.advance(),
+      true => {
+        going = false;
+      }
+    );
+  });
+  Result(ArrayList(String), TomlError).Ok(keys)
+});
+// ============================================================================
+// Numbers
+// ============================================================================
+/// Do the bytes from `at` to the end of `b` spell exactly `s`?
+_rest_is :: (fn(b : ArrayList(u8), at : usize, s : str) -> bool)({
+  cond(
+    ((b.len() - at) != s.len()) => {
+      return(false);
+    },
+    true => ()
+  );
+  (same : bool) = true;
+  i := usize(0);
+  while(i < s.len(), i = (i + usize(1)), {
+    cond(
+      (b(at + i) != s.bytes(i)) => {
+        same = false;
+      },
+      true => ()
+    );
+  });
+  same
+});
+/// A validated decimal literal: the text with underscores removed, plus
+/// whether the grammar made it a float (a fraction or an exponent).
+_Decimal :: struct(
+  text : String,
+  is_float : bool
+);
+/// TOML's decimal grammar over `src[from..to]`, with the sign already
+/// stripped by the caller:
+///
+///     dec_int  = DIGIT ( DIGIT | '_' DIGIT )*        ; no leading zero
+///     frac     = '.' DIGIT ( DIGIT | '_' DIGIT )*
+///     exp      = ('e'|'E') ['+'|'-'] DIGIT ( DIGIT | '_' DIGIT )*
+///
+/// `.None` for anything else — `01`, `1.`, `.5`, `1_`, `_1`, `1__2`, `1e`,
+/// `1e_2`, or trailing bytes. This VALIDATES rather than scanning loosely
+/// and handing the span to `atof`, which is how the old parser turned
+/// `99999999999999999999` into a wrapped `Int`.
+_clean_decimal :: (fn(src : ArrayList(u8), from : usize, to : usize) -> Option(_Decimal))({
+  out := ArrayList(u8).new();
+  (k : usize) = from;
+  (bad : bool) = false;
+  (is_float : bool) = false;
+  // --- integer part
+  (int_count : usize) = usize(0);
+  (first_digit : u8) = u8(0);
+  (prev_us : bool) = false;
+  (going : bool) = true;
+  while(going, {
+    cond(
+      (k >= to) => {
+        going = false;
+      },
+      _is_digit(src(k)) => {
+        cond(
+          (int_count == usize(0)) => {
+            first_digit = src(k);
+          },
+          true => ()
+        );
+        out.push(src(k));
+        int_count = (int_count + usize(1));
+        prev_us = false;
+        k = (k + usize(1));
+      },
+      (src(k) == _UNDERSCORE) => {
+        cond(
+          ((int_count == usize(0)) || prev_us) => {
+            bad = true;
+            going = false;
+          },
+          true => {
+            prev_us = true;
+            k = (k + usize(1));
+          }
+        );
+      },
+      true => {
+        going = false;
+      }
+    );
+  });
+  cond(
+    ((int_count == usize(0)) || prev_us) => {
+      bad = true;
+    },
+    true => ()
+  );
+  cond(
+    ((int_count > usize(1)) && (first_digit == _ZERO)) => {
+      bad = true;
+    },
+    true => ()
+  );
+  // --- fraction
+  cond(
+    ((!bad && (k < to)) && (src(k) == _DOT)) => {
+      is_float = true;
+      out.push(_DOT);
+      k = (k + usize(1));
+      (frac_count : usize) = usize(0);
+      (prev_us2 : bool) = false;
+      (going2 : bool) = true;
+      while(going2, {
+        cond(
+          (k >= to) => {
+            going2 = false;
+          },
+          _is_digit(src(k)) => {
+            out.push(src(k));
+            frac_count = (frac_count + usize(1));
+            prev_us2 = false;
+            k = (k + usize(1));
+          },
+          (src(k) == _UNDERSCORE) => {
+            cond(
+              ((frac_count == usize(0)) || prev_us2) => {
+                bad = true;
+                going2 = false;
+              },
+              true => {
+                prev_us2 = true;
+                k = (k + usize(1));
+              }
+            );
+          },
+          true => {
+            going2 = false;
+          }
+        );
+      });
+      cond(
+        ((frac_count == usize(0)) || prev_us2) => {
+          bad = true;
+        },
+        true => ()
       );
     },
     true => ()
   );
-  // Booleans
+  // --- exponent
   cond(
-    (trimmed == `true`) => {
-      return(.Ok(.Bool(true)));
-    },
-    (trimmed == `false`) => {
-      return(.Ok(.Bool(false)));
+    ((!bad && (k < to)) && ((src(k) == u8(101)) || (src(k) == u8(69)))) => {
+      is_float = true;
+      out.push(u8(101));
+      k = (k + usize(1));
+      cond(
+        ((k < to) && ((src(k) == _PLUS) || (src(k) == _MINUS))) => {
+          out.push(src(k));
+          k = (k + usize(1));
+        },
+        true => ()
+      );
+      (exp_count : usize) = usize(0);
+      (prev_us3 : bool) = false;
+      (going3 : bool) = true;
+      while(going3, {
+        cond(
+          (k >= to) => {
+            going3 = false;
+          },
+          _is_digit(src(k)) => {
+            out.push(src(k));
+            exp_count = (exp_count + usize(1));
+            prev_us3 = false;
+            k = (k + usize(1));
+          },
+          (src(k) == _UNDERSCORE) => {
+            cond(
+              ((exp_count == usize(0)) || prev_us3) => {
+                bad = true;
+                going3 = false;
+              },
+              true => {
+                prev_us3 = true;
+                k = (k + usize(1));
+              }
+            );
+          },
+          true => {
+            going3 = false;
+          }
+        );
+      });
+      cond(
+        ((exp_count == usize(0)) || prev_us3) => {
+          bad = true;
+        },
+        true => ()
+      );
     },
     true => ()
   );
-  // Integer
-  match(
-    trimmed.parse_i64(),
-    .Some(n) => {
-      return(.Ok(.Int(n)));
+  cond(
+    (k != to) => {
+      bad = true;
     },
-    .None => ()
+    true => ()
   );
-  .Err(`Unknown value: ${trimmed}`)
+  cond(
+    bad => Option(_Decimal).None,
+    true => Option(_Decimal).Some(_Decimal(text : String.from_bytes(out), is_float : is_float))
+  )
 });
-/// Parse a TOML string into a `TomlValue` tree. Returns `Result(TomlValue, String)`.
-toml_parse :: (fn(input : String) -> Result(TomlValue, String))({
-  root_keys := ArrayList(String).new();
-  root_vals := ArrayList(TomlValue).new();
-  cur_keys := root_keys;
-  cur_vals := root_vals;
-  lines := input.split(`\n`);
-  i := usize(0);
-  line_count := lines.len();
-  while(i < line_count, i = (i + usize(1)), {
-    match(
-      lines.get(i),
-      .Some(raw_line) => {
-        line := raw_line.trim();
+/// A prefixed integer's digits (`0x`, `0o`, `0b`): at least one digit of the
+/// radix, underscores only between digits. Returns the underscore-free text.
+_clean_radix :: (fn(src : ArrayList(u8), from : usize, to : usize, radix : u32) -> Option(String))({
+  out := ArrayList(u8).new();
+  (bad : bool) = false;
+  (count : usize) = usize(0);
+  (prev_us : bool) = false;
+  i := from;
+  while(i < to, i = (i + usize(1)), {
+    b := src(i);
+    d := _hex_digit(b);
+    ok_digit := ((d != u8(255)) && (u32(d) < radix));
+    cond(
+      ok_digit => {
+        out.push(b);
+        count = (count + usize(1));
+        prev_us = false;
+      },
+      (b == _UNDERSCORE) => {
         cond(
-          line.is_empty() => (),
-          line.starts_with(`#`) => (),
-          // Table header: [name]
-          (line.starts_with(`[`) && line.ends_with(`]`)) => {
-            table_name := line.substring(usize(1), line.len() - usize(1)).trim();
-            new_keys := ArrayList(String).new();
-            new_vals := ArrayList(TomlValue).new();
-            root_keys.push(table_name);
-            root_vals.push(.Table(keys : new_keys, values : new_vals));
-            cur_keys = new_keys;
-            cur_vals = new_vals;
+          ((count == usize(0)) || prev_us) => {
+            bad = true;
           },
-          // Key = value
           true => {
-            match(
-              line.index_of(`=`),
-              .Some(pos) => {
-                key := line.substring(usize(0), pos).trim();
-                val_str := line.substring(pos + usize(1), line.len()).trim();
-                match(
-                  _parse_toml_value(val_str),
-                  .Ok(val) => {
-                    cur_keys.push(key);
-                    cur_vals.push(val);
-                  },
-                  .Err(e) => {
-                    return(.Err(e));
-                  }
-                );
+            prev_us = true;
+          }
+        );
+      },
+      true => {
+        bad = true;
+      }
+    );
+  });
+  cond(
+    (((count == usize(0)) || prev_us) || bad) => Option(String).None,
+    true => Option(String).Some(String.from_bytes(out))
+  )
+});
+/// Every byte up to a value terminator (whitespace, `,`, `]`, `}`, `#`, end
+/// of input). Date-times are detected by lookahead BEFORE this is called,
+/// because the `1979-05-27 07:32:00` form contains a space.
+_scan_token :: (fn(p : _Parser) -> String)({
+  bytes := ArrayList(u8).new();
+  while(!_is_value_terminator(p.cur_byte()), {
+    bytes.push(p.cur_byte());
+    p.advance();
+  });
+  String.from_bytes(bytes)
+});
+/// Classify a scanned numeric token: `inf`/`nan` with an optional sign, a
+/// `0x`/`0o`/`0b` integer (no sign — TOML's prefixed integers are
+/// unsigned in the grammar), or a decimal integer/float.
+_classify_number :: (fn(tok : String, start : usize) -> Result(TomlValue, TomlError))({
+  b := tok.as_bytes();
+  n := b.len();
+  bad := Result(TomlValue, TomlError).Err(TomlError.InvalidNumber(pos : start));
+  cond(
+    (n == usize(0)) => {
+      return(bad);
+    },
+    true => ()
+  );
+  (i : usize) = usize(0);
+  (neg : bool) = false;
+  (signed : bool) = false;
+  c0 := b(usize(0));
+  cond(
+    (c0 == _PLUS) => {
+      i = usize(1);
+      signed = true;
+    },
+    (c0 == _MINUS) => {
+      i = usize(1);
+      neg = true;
+      signed = true;
+    },
+    true => ()
+  );
+  cond(
+    _rest_is(b, i, "inf") => {
+      return(
+        Result(TomlValue, TomlError).Ok(
+          TomlValue.Float(cond(neg => f64.NEG_INFINITY, true => f64.INFINITY))
+        )
+      );
+    },
+    // TOML admits `nan`, `+nan` and `-nan`; the sign of a NaN is not
+    // observable through `is_nan`, and Rust's parser keeps it likewise
+    // unspecified.
+    _rest_is(b, i, "nan") => {
+      return(Result(TomlValue, TomlError).Ok(TomlValue.Float(f64.NAN)));
+    },
+    true => ()
+  );
+  // Prefixed integers.
+  (radix : u32) = u32(0);
+  cond(
+    (((n - i) > usize(2)) && (b(i) == _ZERO)) => {
+      pfx := b(i + usize(1));
+      cond(
+        (pfx == u8(120)) => {
+          radix = u32(16);
+        },
+        (pfx == u8(111)) => {
+          radix = u32(8);
+        },
+        (pfx == u8(98)) => {
+          radix = u32(2);
+        },
+        true => ()
+      );
+    },
+    true => ()
+  );
+  cond(
+    (radix != u32(0)) => {
+      cond(
+        signed => {
+          return(bad);
+        },
+        true => ()
+      );
+      digits := match(
+        _clean_radix(b, i + usize(2), n, radix),
+        .Some(s) => s,
+        .None => {
+          return(bad);
+        }
+      );
+      return(
+        match(
+          digits.parse_i64_radix(radix),
+          .Some(v) => Result(TomlValue, TomlError).Ok(TomlValue.Int(v)),
+          .None => bad
+        )
+      );
+    },
+    true => ()
+  );
+  dec := match(
+    _clean_decimal(b, i, n),
+    .Some(d) => d,
+    .None => {
+      return(bad);
+    }
+  );
+  signed_text := cond(neg => `-${dec.text}`, true => dec.text);
+  cond(
+    dec.is_float => match(
+      signed_text.parse_f64(),
+      .Some(v) => Result(TomlValue, TomlError).Ok(TomlValue.Float(v)),
+      .None => bad
+    ),
+    true => match(
+      signed_text.parse_i64_radix(u32(10)),
+      .Some(v) => Result(TomlValue, TomlError).Ok(TomlValue.Int(v)),
+      .None => bad
+    )
+  )
+});
+// ============================================================================
+// Date-times
+// ============================================================================
+/// `YYYY-` at the cursor: the start of a local date or a date-time.
+_looks_like_date :: (fn(p : _Parser) -> bool)(
+  (
+    (_is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1)))) && (_is_digit(p.at(usize(2))) && _is_digit(p.at(usize(3))))
+  ) && (p.at(usize(4)) == _MINUS)
+);
+/// `HH:` at the cursor: the start of a local time.
+_looks_like_time :: (fn(p : _Parser) -> bool)(
+  (_is_digit(p.at(usize(0))) && _is_digit(p.at(usize(1)))) && (p.at(usize(2)) == _COLON)
+);
+/// Exactly `count` digits, as a number. `.None` on any non-digit.
+_read_digits :: (fn(p : _Parser, count : usize) -> Option(i64))({
+  (acc : i64) = i64(0);
+  i := usize(0);
+  while(i < count, i = (i + usize(1)), {
+    b := p.cur_byte();
+    cond(
+      !_is_digit(b) => {
+        return(Option(i64).None);
+      },
+      true => ()
+    );
+    acc = ((acc * i64(10)) + i64(b - _ZERO));
+    p.advance();
+  });
+  Option(i64).Some(acc)
+});
+_DateParts :: struct(
+  year : i64,
+  month : i64,
+  day : i64
+);
+_TimeParts :: struct(
+  hour : i64,
+  minute : i64,
+  second : i64,
+  nanos : i64
+);
+_read_date :: (fn(p : _Parser, start : usize) -> Result(_DateParts, TomlError))({
+  bad := Result(_DateParts, TomlError).Err(TomlError.InvalidDatetime(pos : start));
+  year := match(
+    _read_digits(p, usize(4)),
+    .Some(v) => v,
+    .None => {
+      return(bad);
+    }
+  );
+  cond(
+    (p.cur_byte() != _MINUS) => {
+      return(bad);
+    },
+    true => ()
+  );
+  p.advance();
+  month := match(
+    _read_digits(p, usize(2)),
+    .Some(v) => v,
+    .None => {
+      return(bad);
+    }
+  );
+  cond(
+    (p.cur_byte() != _MINUS) => {
+      return(bad);
+    },
+    true => ()
+  );
+  p.advance();
+  day := match(
+    _read_digits(p, usize(2)),
+    .Some(v) => v,
+    .None => {
+      return(bad);
+    }
+  );
+  Result(_DateParts, TomlError).Ok(_DateParts(year : year, month : month, day : day))
+});
+/// `HH:MM:SS` with an optional fraction. TOML v1.0.0 requires the seconds;
+/// fractional digits beyond nanosecond precision are truncated, as RFC 3339
+/// parsing in `std/time` does.
+_read_time :: (fn(p : _Parser, start : usize) -> Result(_TimeParts, TomlError))({
+  bad := Result(_TimeParts, TomlError).Err(TomlError.InvalidDatetime(pos : start));
+  hour := match(
+    _read_digits(p, usize(2)),
+    .Some(v) => v,
+    .None => {
+      return(bad);
+    }
+  );
+  cond(
+    (p.cur_byte() != _COLON) => {
+      return(bad);
+    },
+    true => ()
+  );
+  p.advance();
+  minute := match(
+    _read_digits(p, usize(2)),
+    .Some(v) => v,
+    .None => {
+      return(bad);
+    }
+  );
+  cond(
+    (p.cur_byte() != _COLON) => {
+      return(bad);
+    },
+    true => ()
+  );
+  p.advance();
+  second := match(
+    _read_digits(p, usize(2)),
+    .Some(v) => v,
+    .None => {
+      return(bad);
+    }
+  );
+  (nanos : i64) = i64(0);
+  cond(
+    (p.cur_byte() == _DOT) => {
+      p.advance();
+      (seen : usize) = usize(0);
+      (scale : i64) = i64(100000000);
+      (going : bool) = true;
+      while(going, {
+        b := p.cur_byte();
+        cond(
+          _is_digit(b) => {
+            cond(
+              (seen < usize(9)) => {
+                nanos = (nanos + (i64(b - _ZERO) * scale));
+                scale = (scale / i64(10));
               },
-              .None => ()
+              true => ()
+            );
+            seen = (seen + usize(1));
+            p.advance();
+          },
+          true => {
+            going = false;
+          }
+        );
+      });
+      cond(
+        (seen == usize(0)) => {
+          return(bad);
+        },
+        true => ()
+      );
+    },
+    true => ()
+  );
+  Result(_TimeParts, TomlError).Ok(
+    _TimeParts(hour : hour, minute : minute, second : second, nanos : nanos)
+  )
+});
+/// One of TOML's four date-time forms. Range validation is `DateTime.new`'s
+/// — it is leap-aware and admits second 60, exactly what TOML wants — so the
+/// calendar rules are not duplicated here.
+_parse_datetime :: (fn(p : _Parser) -> Result(TomlValue, TomlError))({
+  start := p.pos;
+  bad := Result(TomlValue, TomlError).Err(TomlError.InvalidDatetime(pos : start));
+  (year : i64) = i64(1970);
+  (month : i64) = i64(1);
+  (day : i64) = i64(1);
+  (hour : i64) = i64(0);
+  (minute : i64) = i64(0);
+  (second : i64) = i64(0);
+  (nanos : i64) = i64(0);
+  (offset : i32) = i32(0);
+  (kind : TomlDateTimeKind) = TomlDateTimeKind.LocalTime;
+  has_date := _looks_like_date(p);
+  cond(
+    has_date => {
+      d := match(
+        _read_date(p, start),
+        .Ok(v) => v,
+        .Err(e) => {
+          return(Result(TomlValue, TomlError).Err(e));
+        }
+      );
+      year = d.year;
+      month = d.month;
+      day = d.day;
+      kind = TomlDateTimeKind.LocalDate;
+      // A time part follows only if the separator is T/t/space AND what
+      // comes after it really is `HH:` — a trailing space before a comment
+      // must not be read as a separator.
+      sep := p.cur_byte();
+      sep_ok := (((sep == u8(84)) || (sep == u8(116))) || (sep == _SPACE));
+      time_follows := (
+        sep_ok && (
+          (_is_digit(p.at(usize(1))) && _is_digit(p.at(usize(2)))) && (p.at(usize(3)) == _COLON)
+        )
+      );
+      cond(
+        time_follows => {
+          p.advance();
+          t := match(
+            _read_time(p, start),
+            .Ok(v) => v,
+            .Err(e) => {
+              return(Result(TomlValue, TomlError).Err(e));
+            }
+          );
+          hour = t.hour;
+          minute = t.minute;
+          second = t.second;
+          nanos = t.nanos;
+          kind = TomlDateTimeKind.LocalDateTime;
+          oc := p.cur_byte();
+          cond(
+            ((oc == u8(90)) || (oc == u8(122))) => {
+              p.advance();
+              kind = TomlDateTimeKind.OffsetDateTime;
+            },
+            ((oc == _PLUS) || (oc == _MINUS)) => {
+              oneg := (oc == _MINUS);
+              p.advance();
+              oh := match(
+                _read_digits(p, usize(2)),
+                .Some(v) => v,
+                .None => {
+                  return(bad);
+                }
+              );
+              cond(
+                (p.cur_byte() != _COLON) => {
+                  return(bad);
+                },
+                true => ()
+              );
+              p.advance();
+              om := match(
+                _read_digits(p, usize(2)),
+                .Some(v) => v,
+                .None => {
+                  return(bad);
+                }
+              );
+              cond(
+                (om > i64(59)) => {
+                  return(bad);
+                },
+                true => ()
+              );
+              raw := i32((oh * i64(3600)) + (om * i64(60)));
+              offset = cond(oneg => (i32(0) - raw), true => raw);
+              kind = TomlDateTimeKind.OffsetDateTime;
+            },
+            true => ()
+          );
+        },
+        true => ()
+      );
+    },
+    true => {
+      t := match(
+        _read_time(p, start),
+        .Ok(v) => v,
+        .Err(e) => {
+          return(Result(TomlValue, TomlError).Err(e));
+        }
+      );
+      hour = t.hour;
+      minute = t.minute;
+      second = t.second;
+      nanos = t.nanos;
+      kind = TomlDateTimeKind.LocalTime;
+    }
+  );
+  // Whatever follows must end the value — `1979-05-27x` is not a date.
+  cond(
+    !_is_value_terminator(p.cur_byte()) => {
+      return(bad);
+    },
+    true => ()
+  );
+  match(
+    DateTime.new(
+      i32(year),
+      u8(month),
+      u8(day),
+      u8(hour),
+      u8(minute),
+      u8(second),
+      u32(nanos),
+      offset
+    ),
+    .Ok(dt) => Result(TomlValue, TomlError).Ok(
+      TomlValue.Datetime(TomlDateTime(kind : kind, value : dt))
+    ),
+    .Err(_) => bad
+  )
+});
+// ============================================================================
+// Values
+// ============================================================================
+/// Insert `keys` → `value` into an INLINE table. Dotted keys are legal
+/// inside `{ }`, and a table they create may be extended by a later dotted
+/// key of the same inline table — but by nothing else, which is what
+/// `dotted` records: the encoded paths this inline table created itself.
+_insert_inline :: (
+  fn(
+    table : TomlValue,
+    keys : ArrayList(String),
+    value : TomlValue,
+    dotted : ArrayList(String),
+    pos : usize
+  ) -> Result(unit, TomlError)
+)({
+  (cur : TomlValue) = table;
+  (path : String) = String.new();
+  last := (keys.len() - usize(1));
+  i := usize(0);
+  while(i < last, i = (i + usize(1)), {
+    k := keys(i);
+    child_path := _path_key(path, k);
+    (next_tbl : TomlValue) = cur;
+    match(
+      cur.get(k),
+      .None => {
+        t := TomlValue.new_table();
+        _old := cur.insert(k, t);
+        dotted.push(child_path);
+        next_tbl = t;
+      },
+      .Some(v) => {
+        cond(
+          v.is_table() => {
+            (seen : bool) = false;
+            j := usize(0);
+            while(j < dotted.len(), j = (j + usize(1)), {
+              cond(
+                (dotted(j) == child_path) => {
+                  seen = true;
+                },
+                true => ()
+              );
+            });
+            cond(
+              seen => {
+                next_tbl = v;
+              },
+              true => {
+                return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+              }
+            );
+          },
+          true => {
+            return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
+          }
+        );
+      }
+    );
+    cur = next_tbl;
+    path = child_path;
+  });
+  final_key := keys(last);
+  cond(
+    cur.has_key(final_key) => {
+      return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
+    },
+    true => ()
+  );
+  _prev := cur.insert(final_key, value);
+  Result(unit, TomlError).Ok(())
+});
+/// One value. Arrays and inline tables are scanned INLINE here rather than in
+/// their own functions so the element parse is a plain `recur(p)` — the same
+/// shape `json.yo`'s `_parse_value` uses for objects and arrays.
+_parse_value :: (fn(p : _Parser) -> Result(TomlValue, TomlError))({
+  b := p.cur_byte();
+  cond(
+    p.eof() => Result(TomlValue, TomlError).Err(TomlError.UnexpectedEnd(pos : p.pos)),
+    (b == _QUOTE) => match(
+      _parse_basic_string(p),
+      .Ok(s) => Result(TomlValue, TomlError).Ok(TomlValue.Str(s)),
+      .Err(e) => Result(TomlValue, TomlError).Err(e)
+    ),
+    (b == _APOS) => match(
+      _parse_literal_string(p),
+      .Ok(s) => Result(TomlValue, TomlError).Ok(TomlValue.Str(s)),
+      .Err(e) => Result(TomlValue, TomlError).Err(e)
+    ),
+    (b == _LBRACKET) => {
+      // Array: newlines and comments may appear anywhere between the
+      // brackets, a trailing comma is allowed, and the element types need
+      // not agree (TOML v1.0.0 dropped that restriction).
+      p.advance();
+      items := ArrayList(TomlValue).new();
+      (closed : bool) = false;
+      while(!closed, {
+        _sk := match(
+          p.skip_ws_lines(),
+          .Ok(_) => true,
+          .Err(e) => {
+            return(Result(TomlValue, TomlError).Err(e));
+          }
+        );
+        cond(
+          p.eof() => {
+            return(Result(TomlValue, TomlError).Err(TomlError.UnexpectedEnd(pos : p.pos)));
+          },
+          (p.cur_byte() == _RBRACKET) => {
+            p.advance();
+            closed = true;
+          },
+          true => {
+            v := match(
+              recur(p),
+              .Ok(x) => x,
+              .Err(e) => {
+                return(Result(TomlValue, TomlError).Err(e));
+              }
+            );
+            items.push(v);
+            _sk2 := match(
+              p.skip_ws_lines(),
+              .Ok(_) => true,
+              .Err(e) => {
+                return(Result(TomlValue, TomlError).Err(e));
+              }
+            );
+            cond(
+              (p.cur_byte() == _COMMA) => p.advance(),
+              (p.cur_byte() == _RBRACKET) => {
+                p.advance();
+                closed = true;
+              },
+              p.eof() => {
+                return(Result(TomlValue, TomlError).Err(TomlError.UnexpectedEnd(pos : p.pos)));
+              },
+              true => {
+                return(
+                  Result(TomlValue, TomlError).Err(
+                    TomlError.UnexpectedChar(ch : p.cur_byte(), pos : p.pos)
+                  )
+                );
+              }
             );
           }
+        );
+      });
+      Result(TomlValue, TomlError).Ok(TomlValue.Array(items))
+    },
+    (b == _LBRACE) => {
+      // Inline table: one line only (TOML v1.0.0 admits no newline between
+      // the braces) and no trailing comma.
+      p.advance();
+      tbl := TomlValue.new_table();
+      dotted := ArrayList(String).new();
+      (closed : bool) = false;
+      (after_comma : bool) = false;
+      while(!closed, {
+        p.skip_spaces();
+        cond(
+          p.eof() => {
+            return(Result(TomlValue, TomlError).Err(TomlError.UnexpectedEnd(pos : p.pos)));
+          },
+          (p.cur_byte() == _RBRACE) => cond(
+            after_comma => {
+              return(
+                Result(TomlValue, TomlError).Err(
+                  TomlError.UnexpectedChar(ch : _RBRACE, pos : p.pos)
+                )
+              );
+            },
+            true => {
+              p.advance();
+              closed = true;
+            }
+          ),
+          true => {
+            kv_pos := p.pos;
+            keys := match(
+              _parse_key_path(p),
+              .Ok(k) => k,
+              .Err(e) => {
+                return(Result(TomlValue, TomlError).Err(e));
+              }
+            );
+            p.skip_spaces();
+            cond(
+              (p.cur_byte() != _EQUALS) => {
+                return(
+                  Result(TomlValue, TomlError).Err(
+                    TomlError.UnexpectedChar(ch : p.cur_byte(), pos : p.pos)
+                  )
+                );
+              },
+              true => ()
+            );
+            p.advance();
+            p.skip_spaces();
+            v := match(
+              recur(p),
+              .Ok(x) => x,
+              .Err(e) => {
+                return(Result(TomlValue, TomlError).Err(e));
+              }
+            );
+            _ins := match(
+              _insert_inline(tbl, keys, v, dotted, kv_pos),
+              .Ok(_) => true,
+              .Err(e) => {
+                return(Result(TomlValue, TomlError).Err(e));
+              }
+            );
+            p.skip_spaces();
+            cond(
+              (p.cur_byte() == _COMMA) => {
+                p.advance();
+                after_comma = true;
+              },
+              (p.cur_byte() == _RBRACE) => {
+                p.advance();
+                closed = true;
+              },
+              true => {
+                return(
+                  Result(TomlValue, TomlError).Err(
+                    TomlError.UnexpectedChar(ch : p.cur_byte(), pos : p.pos)
+                  )
+                );
+              }
+            );
+          }
+        );
+      });
+      Result(TomlValue, TomlError).Ok(tbl)
+    },
+    _looks_like_date(p) => _parse_datetime(p),
+    _looks_like_time(p) => _parse_datetime(p),
+    true => {
+      // `true` / `false`, or a number. Both are unquoted tokens, so both are
+      // scanned the same way and told apart by their text — which also means
+      // `truex` is rejected instead of read as `true` plus garbage.
+      start := p.pos;
+      tok := _scan_token(p);
+      cond(
+        (tok == `true`) => Result(TomlValue, TomlError).Ok(TomlValue.Bool(true)),
+        (tok == `false`) => Result(TomlValue, TomlError).Ok(TomlValue.Bool(false)),
+        true => _classify_number(tok, start)
+      )
+    }
+  )
+});
+// ============================================================================
+// Tables, headers, key/value pairs
+// ============================================================================
+/// A table and its encoded provenance path.
+_Cursor :: struct(
+  table : TomlValue,
+  path : String
+);
+/// Walk (creating as needed) the first `upto` segments of a header path from
+/// the document root. A segment that names an array of tables descends into
+/// its LAST element, which is what makes `[[fruit]] … [fruit.variety]` attach
+/// to the fruit most recently opened.
+_walk_header_path :: (
+  fn(p : _Parser, keys : ArrayList(String), upto : usize, pos : usize) -> Result(_Cursor, TomlError)
+)({
+  (cur : TomlValue) = p.root;
+  (path : String) = String.new();
+  i := usize(0);
+  while(i < upto, i = (i + usize(1)), {
+    k := keys(i);
+    child_path := _path_key(path, k);
+    (next_tbl : TomlValue) = cur;
+    (next_path : String) = child_path;
+    match(
+      cur.get(k),
+      .None => {
+        t := TomlValue.new_table();
+        _old := cur.insert(k, t);
+        p.set_kind(child_path, _TableKind.Implicit);
+        next_tbl = t;
+      },
+      .Some(v) => {
+        cond(
+          v.is_table() => {
+            extendable := match(
+              p.kind_of(child_path),
+              .Some(kk) => match(
+                kk,
+                .Explicit => true,
+                .Implicit => true,
+                .ArrayElem => true,
+                _ => false
+              ),
+              .None => false
+            );
+            cond(
+              extendable => {
+                next_tbl = v;
+              },
+              true => {
+                return(Result(_Cursor, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+              }
+            );
+          },
+          v.is_array() => {
+            is_aot := match(
+              p.kind_of(child_path),
+              .Some(kk2) => match(kk2, .ArrayOfTables => true, _ => false),
+              .None => false
+            );
+            cond(
+              is_aot => {
+                items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
+                idx := (items.len() - usize(1));
+                next_tbl = items(idx);
+                next_path = _path_index(child_path, idx);
+              },
+              true => {
+                return(Result(_Cursor, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+              }
+            );
+          },
+          true => {
+            return(Result(_Cursor, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
+          }
+        );
+      }
+    );
+    cur = next_tbl;
+    path = next_path;
+  });
+  Result(_Cursor, TomlError).Ok(_Cursor(table : cur, path : path))
+});
+/// A `[table]` or `[[array of tables]]` header. On success the parser's
+/// current table is the one the header opened.
+_parse_header :: (fn(p : _Parser) -> Result(unit, TomlError))({
+  pos := p.pos;
+  p.advance();
+  is_array := (p.cur_byte() == _LBRACKET);
+  cond(
+    is_array => p.advance(),
+    true => ()
+  );
+  keys := match(
+    _parse_key_path(p),
+    .Ok(k) => k,
+    .Err(e) => {
+      return(Result(unit, TomlError).Err(e));
+    }
+  );
+  p.skip_spaces();
+  cond(
+    (p.cur_byte() != _RBRACKET) => {
+      return(
+        Result(unit, TomlError).Err(TomlError.UnexpectedChar(ch : p.cur_byte(), pos : p.pos))
+      );
+    },
+    true => ()
+  );
+  p.advance();
+  cond(
+    is_array => cond(
+      (p.cur_byte() != _RBRACKET) => {
+        return(
+          Result(unit, TomlError).Err(TomlError.UnexpectedChar(ch : p.cur_byte(), pos : p.pos))
+        );
+      },
+      true => p.advance()
+    ),
+    true => ()
+  );
+  last := (keys.len() - usize(1));
+  cursor := match(
+    _walk_header_path(p, keys, last, pos),
+    .Ok(c) => c,
+    .Err(e) => {
+      return(Result(unit, TomlError).Err(e));
+    }
+  );
+  k := keys(last);
+  child_path := _path_key(cursor.path, k);
+  existing := cursor.table.get(k);
+  cond(
+    is_array => match(
+      existing,
+      .None => {
+        items := ArrayList(TomlValue).new();
+        elem := TomlValue.new_table();
+        items.push(elem);
+        _old := cursor.table.insert(k, TomlValue.Array(items));
+        p.set_kind(child_path, _TableKind.ArrayOfTables);
+        elem_path := _path_index(child_path, usize(0));
+        p.set_kind(elem_path, _TableKind.ArrayElem);
+        p.cur = elem;
+        p.cur_path = elem_path;
+      },
+      .Some(v) => {
+        is_aot := match(
+          p.kind_of(child_path),
+          .Some(kk) => match(kk, .ArrayOfTables => true, _ => false),
+          .None => false
+        );
+        cond(
+          is_aot => {
+            items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
+            elem := TomlValue.new_table();
+            items.push(elem);
+            elem_path := _path_index(child_path, items.len() - usize(1));
+            p.set_kind(elem_path, _TableKind.ArrayElem);
+            p.cur = elem;
+            p.cur_path = elem_path;
+          },
+          true => {
+            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+          }
+        );
+      }
+    ),
+    true => match(
+      existing,
+      .None => {
+        t := TomlValue.new_table();
+        _old := cursor.table.insert(k, t);
+        p.set_kind(child_path, _TableKind.Explicit);
+        p.cur = t;
+        p.cur_path = child_path;
+      },
+      .Some(v) => {
+        // Only a table an earlier header path created IMPLICITLY may be
+        // opened by its own header; everything else — a second `[a]`, a
+        // dotted key's table, an inline table, an array of tables — is a
+        // redefinition.
+        promotable := match(
+          p.kind_of(child_path),
+          .Some(kk) => match(kk, .Implicit => true, _ => false),
+          .None => false
+        );
+        cond(
+          (promotable && v.is_table()) => {
+            p.set_kind(child_path, _TableKind.Explicit);
+            p.cur = v;
+            p.cur_path = child_path;
+          },
+          v.is_table() => {
+            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+          },
+          v.is_array() => {
+            return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+          },
+          true => {
+            return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
+          }
+        );
+      }
+    )
+  );
+  Result(unit, TomlError).Ok(())
+});
+/// Insert a (possibly dotted) key/value pair into the parser's current
+/// table. Tables the dots create are recorded as `.Dotted`, which is what
+/// makes a later `[a.b]` header over them a redefinition.
+_insert_keyval :: (
+  fn(p : _Parser, keys : ArrayList(String), value : TomlValue, pos : usize) -> Result(unit, TomlError)
+)({
+  (cur : TomlValue) = p.cur;
+  (path : String) = p.cur_path;
+  last := (keys.len() - usize(1));
+  i := usize(0);
+  while(i < last, i = (i + usize(1)), {
+    k := keys(i);
+    child_path := _path_key(path, k);
+    (next_tbl : TomlValue) = cur;
+    match(
+      cur.get(k),
+      .None => {
+        t := TomlValue.new_table();
+        _old := cur.insert(k, t);
+        p.set_kind(child_path, _TableKind.Dotted);
+        next_tbl = t;
+      },
+      .Some(v) => {
+        cond(
+          v.is_table() => {
+            reopenable := match(
+              p.kind_of(child_path),
+              .Some(kk) => match(kk, .Dotted => true, _ => false),
+              .None => false
+            );
+            cond(
+              reopenable => {
+                next_tbl = v;
+              },
+              true => {
+                return(Result(unit, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
+              }
+            );
+          },
+          true => {
+            return(Result(unit, TomlError).Err(TomlError.ExpectedTable(key : k, pos : pos)));
+          }
+        );
+      }
+    );
+    cur = next_tbl;
+    path = child_path;
+  });
+  final_key := keys(last);
+  cond(
+    cur.has_key(final_key) => {
+      return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
+    },
+    true => ()
+  );
+  _prev := cur.insert(final_key, value);
+  Result(unit, TomlError).Ok(())
+});
+_parse_keyval :: (fn(p : _Parser) -> Result(unit, TomlError))({
+  pos := p.pos;
+  keys := match(
+    _parse_key_path(p),
+    .Ok(k) => k,
+    .Err(e) => {
+      return(Result(unit, TomlError).Err(e));
+    }
+  );
+  p.skip_spaces();
+  cond(
+    (p.cur_byte() != _EQUALS) => {
+      return(
+        Result(unit, TomlError).Err(TomlError.UnexpectedChar(ch : p.cur_byte(), pos : p.pos))
+      );
+    },
+    true => ()
+  );
+  p.advance();
+  p.skip_spaces();
+  value := match(
+    _parse_value(p),
+    .Ok(v) => v,
+    .Err(e) => {
+      return(Result(unit, TomlError).Err(e));
+    }
+  );
+  _insert_keyval(p, keys, value, pos)
+});
+/// The document: a sequence of headers and key/value pairs, one per line,
+/// each of which must be followed by nothing but spaces, a comment, and a
+/// newline. A line that is none of those is an error rather than skipped
+/// text.
+_parse_document :: (fn(p : _Parser) -> Result(TomlValue, TomlError))({
+  (going : bool) = true;
+  while(going, {
+    _sk := match(
+      p.skip_ws_lines(),
+      .Ok(_) => true,
+      .Err(e) => {
+        return(Result(TomlValue, TomlError).Err(e));
+      }
+    );
+    cond(
+      p.eof() => {
+        going = false;
+      },
+      (p.cur_byte() == _LBRACKET) => {
+        _h := match(
+          _parse_header(p),
+          .Ok(_) => true,
+          .Err(e) => {
+            return(Result(TomlValue, TomlError).Err(e));
+          }
+        );
+        _le := match(
+          p.expect_line_end(),
+          .Ok(_) => true,
+          .Err(e) => {
+            return(Result(TomlValue, TomlError).Err(e));
+          }
+        );
+      },
+      true => {
+        _kv := match(
+          _parse_keyval(p),
+          .Ok(_) => true,
+          .Err(e) => {
+            return(Result(TomlValue, TomlError).Err(e));
+          }
+        );
+        _le2 := match(
+          p.expect_line_end(),
+          .Ok(_) => true,
+          .Err(e) => {
+            return(Result(TomlValue, TomlError).Err(e));
+          }
+        );
+      }
+    );
+  });
+  Result(TomlValue, TomlError).Ok(p.root)
+});
+/// Parse a TOML document into a `TomlValue` tree (D13 — a pure transform
+/// returns a `Result`). The root is always a `.Table`; `.Err` carries the
+/// byte offset of the fault.
+toml_parse :: (fn(input : String) -> Result(TomlValue, TomlError))(
+  _parse_document(_Parser.new(input.as_bytes()))
+);
+export(toml_parse);
+// ============================================================================
+// Serialization
+// ============================================================================
+_push_string :: (fn(s : String, out : ArrayList(u8)) -> unit)({
+  b := s.as_bytes();
+  i := usize(0);
+  while(i < b.len(), i = (i + usize(1)), {
+    out.push(b(i));
+  });
+});
+_push_lit :: (fn(s : str, out : ArrayList(u8)) -> unit)({
+  i := usize(0);
+  while(i < s.len(), i = (i + usize(1)), {
+    out.push(s.bytes(i));
+  });
+});
+_HEX_DIGITS :: "0123456789ABCDEF";
+/// `\uXXXX` for a byte no other escape covers.
+_write_u_escape :: (fn(b : u8, out : ArrayList(u8)) -> unit)({
+  out.push(_BACKSLASH);
+  out.push(u8(117));
+  out.push(_ZERO);
+  out.push(_ZERO);
+  out.push(_HEX_DIGITS.bytes(usize(b / u8(16))));
+  out.push(_HEX_DIGITS.bytes(usize(b % u8(16))));
+});
+/// A basic string. Multi-byte UTF-8 passes through unescaped (it is legal
+/// inside a basic string and stays readable); the control characters that
+/// are not `\b \t \n \f \r` become `\u00XX`.
+///
+/// The writer never emits a multi-line or literal string: one output form
+/// round-trips every input form, and choosing between them would only make
+/// the output prettier, never more correct.
+_write_basic_string :: (fn(s : String, out : ArrayList(u8)) -> unit)({
+  out.push(_QUOTE);
+  b := s.as_bytes();
+  i := usize(0);
+  while(i < b.len(), i = (i + usize(1)), {
+    c := b(i);
+    cond(
+      (c == _QUOTE) => {
+        out.push(_BACKSLASH);
+        out.push(_QUOTE);
+      },
+      (c == _BACKSLASH) => {
+        out.push(_BACKSLASH);
+        out.push(_BACKSLASH);
+      },
+      (c == u8(8)) => {
+        out.push(_BACKSLASH);
+        out.push(u8(98));
+      },
+      (c == _TAB) => {
+        out.push(_BACKSLASH);
+        out.push(u8(116));
+      },
+      (c == _LF) => {
+        out.push(_BACKSLASH);
+        out.push(u8(110));
+      },
+      (c == u8(12)) => {
+        out.push(_BACKSLASH);
+        out.push(u8(102));
+      },
+      (c == _CR) => {
+        out.push(_BACKSLASH);
+        out.push(u8(114));
+      },
+      _is_forbidden_control(c) => _write_u_escape(c, out),
+      true => out.push(c)
+    );
+  });
+  out.push(_QUOTE);
+});
+/// May `key` be written bare?
+_is_bare_key :: (fn(key : String) -> bool)({
+  b := key.as_bytes();
+  cond(
+    (b.len() == usize(0)) => {
+      return(false);
+    },
+    true => ()
+  );
+  (ok : bool) = true;
+  i := usize(0);
+  while(i < b.len(), i = (i + usize(1)), {
+    cond(
+      !_is_bare_key_byte(b(i)) => {
+        ok = false;
+      },
+      true => ()
+    );
+  });
+  ok
+});
+_write_key :: (fn(key : String, out : ArrayList(u8)) -> unit)(
+  cond(
+    _is_bare_key(key) => _push_string(key, out),
+    true => _write_basic_string(key, out)
+  )
+);
+_key_string :: (fn(key : String) -> String)({
+  out := ArrayList(u8).new();
+  _write_key(key, out);
+  String.from_bytes(out)
+});
+/// A float, in the SHORTEST `%g` rendering that reads back as the same
+/// double (`%g`'s default 6 significant digits would turn
+/// `3.141592653589793` into `3.14159`, and a fixed `%.17g` would turn `3.14`
+/// into `3.1400000000000001`). A rendering with neither `.` nor an exponent
+/// gets `.0` appended, because TOML would otherwise read it as an integer.
+_write_f64 :: (fn(v : f64, out : ArrayList(u8)) -> unit)({
+  cond(
+    v.is_nan() => {
+      _push_lit("nan", out);
+      return();
+    },
+    v.is_infinite() => {
+      cond(
+        (v < f64(0.0)) => _push_lit("-inf", out),
+        true => _push_lit("inf", out)
+      );
+      return();
+    },
+    true => ()
+  );
+  (text : String) = String.new();
+  (found : bool) = false;
+  (p : i32) = i32(1);
+  while((p <= i32(17)) && !found, p = (p + i32(1)), {
+    buf := Array(u8, usize(48)).fill(u8(0));
+    buf_ptr := &buf(usize(0));
+    unsafe(snprintf((*char)(buf_ptr), usize(48), "%.*g", p, v));
+    s := String.from_cstr(buf_ptr).unwrap();
+    match(
+      s.parse_f64(),
+      .Some(back) => {
+        cond(
+          (back == v) => {
+            text = s;
+            found = true;
+          },
+          true => ()
         );
       },
       .None => ()
     );
   });
-  .Ok(.Table(keys : root_keys, values : root_vals))
+  b := text.as_bytes();
+  (needs_point : bool) = true;
+  i := usize(0);
+  while(i < b.len(), i = (i + usize(1)), {
+    c := b(i);
+    cond(
+      (((c == _DOT) || (c == u8(101))) || (c == u8(69))) => {
+        needs_point = false;
+      },
+      true => ()
+    );
+  });
+  _push_string(text, out);
+  cond(
+    needs_point => _push_lit(".0", out),
+    true => ()
+  );
 });
-export(TomlValue, toml_parse);
+/// A date-time in the form its `kind` names. `DateTime.to_string` cannot be
+/// reused: it always writes a full RFC 3339 date-time (so a local date would
+/// gain a time and a zone) and it drops the fraction.
+_write_datetime :: (fn(d : TomlDateTime, out : ArrayList(u8)) -> unit)({
+  v := d.value;
+  has_date := match(d.kind, .LocalTime => false, _ => true);
+  has_time := match(d.kind, .LocalDate => false, _ => true);
+  cond(
+    has_date => {
+      dbuf := Array(u8, usize(32)).fill(u8(0));
+      dptr := &dbuf(usize(0));
+      unsafe(snprintf((*char)(dptr), usize(32), "%04d-%02u-%02u", v.year, v.month, v.day));
+      _push_string(String.from_cstr(dptr).unwrap(), out);
+    },
+    true => ()
+  );
+  cond(
+    (has_date && has_time) => out.push(u8(84)),
+    true => ()
+  );
+  cond(
+    has_time => {
+      tbuf := Array(u8, usize(32)).fill(u8(0));
+      tptr := &tbuf(usize(0));
+      unsafe(snprintf((*char)(tptr), usize(32), "%02u:%02u:%02u", v.hour, v.minute, v.second));
+      _push_string(String.from_cstr(tptr).unwrap(), out);
+      cond(
+        (v.nanosecond != u32(0)) => {
+          fbuf := Array(u8, usize(16)).fill(u8(0));
+          fptr := &fbuf(usize(0));
+          unsafe(snprintf((*char)(fptr), usize(16), "%09u", v.nanosecond));
+          fs := String.from_cstr(fptr).unwrap();
+          fb := fs.as_bytes();
+          (end : usize) = fb.len();
+          while((end > usize(1)) && (fb(end - usize(1)) == _ZERO), {
+            end = (end - usize(1));
+          });
+          out.push(_DOT);
+          i := usize(0);
+          while(i < end, i = (i + usize(1)), {
+            out.push(fb(i));
+          });
+        },
+        true => ()
+      );
+    },
+    true => ()
+  );
+  is_offset := match(d.kind, .OffsetDateTime => true, _ => false);
+  cond(
+    is_offset => cond(
+      (v.utc_offset_secs == i32(0)) => out.push(u8(90)),
+      true => {
+        off := v.utc_offset_secs;
+        neg := (off < i32(0));
+        mag := cond(neg => (i32(0) - off), true => off);
+        cond(
+          neg => out.push(_MINUS),
+          true => out.push(_PLUS)
+        );
+        obuf := Array(u8, usize(16)).fill(u8(0));
+        optr := &obuf(usize(0));
+        unsafe(
+          snprintf(
+            (*char)(optr),
+            usize(16),
+            "%02d:%02d",
+            mag / i32(3600),
+            (mag % i32(3600)) / i32(60)
+          )
+        );
+        _push_string(String.from_cstr(optr).unwrap(), out);
+      }
+    ),
+    true => ()
+  );
+});
+/// A value in its INLINE form — the only form a scalar, an array, or a
+/// non-top-level table has.
+_write_inline :: (fn(value : TomlValue, out : ArrayList(u8)) -> unit)(
+  match(
+    value,
+    .Str(s) => _write_basic_string(s, out),
+    .Int(n) => _push_string(n.to_string(), out),
+    .Float(f) => _write_f64(f, out),
+    .Bool(b) => cond(
+      b => _push_lit("true", out),
+      true => _push_lit("false", out)
+    ),
+    .Datetime(d) => _write_datetime(d, out),
+    .Array(items) => {
+      out.push(_LBRACKET);
+      i := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        cond(
+          (i > usize(0)) => _push_lit(", ", out),
+          true => ()
+        );
+        recur(items(i), out);
+      });
+      out.push(_RBRACKET);
+    },
+    .Table(keys, values) => {
+      out.push(_LBRACE);
+      i := usize(0);
+      while(i < keys.len(), i = (i + usize(1)), {
+        cond(
+          (i > usize(0)) => _push_lit(", ", out),
+          true => _push_lit(" ", out)
+        );
+        _write_key(keys(i), out);
+        _push_lit(" = ", out);
+        recur(values(i), out);
+      });
+      cond(
+        (keys.len() > usize(0)) => _push_lit(" ", out),
+        true => ()
+      );
+      out.push(_RBRACE);
+    }
+  )
+);
+/// Is `value` a non-empty array whose every element is a table — the only
+/// shape `[[header]]` can express? A mixed or empty array is written inline
+/// instead, which is what the Rust `toml` serializer does too.
+_is_array_of_tables :: (fn(value : TomlValue) -> bool)(
+  match(
+    value,
+    .Array(items) => {
+      cond(
+        (items.len() == usize(0)) => {
+          return(false);
+        },
+        true => ()
+      );
+      (all : bool) = true;
+      i := usize(0);
+      while(i < items.len(), i = (i + usize(1)), {
+        cond(
+          !items(i).is_table() => {
+            all = false;
+          },
+          true => ()
+        );
+      });
+      all
+    },
+    _ => false
+  )
+);
+/// A table's body: its scalar entries first, then its sub-tables and arrays
+/// of tables, each under its own header.
+///
+/// The two passes are not cosmetic. A `[header]` changes which table the
+/// following bare keys belong to, so a scalar written after a sub-table would
+/// be read back into the WRONG table — the output must put every scalar
+/// before the first header. Within each pass the order is the table's own
+/// insertion order, so the rendering is a deterministic function of the tree.
+_write_table_body :: (fn(table : TomlValue, prefix : String, out : ArrayList(u8)) -> unit)(
+  match(
+    table,
+    .Table(keys, values) => {
+      i := usize(0);
+      while(i < keys.len(), i = (i + usize(1)), {
+        v := values(i);
+        cond(
+          (v.is_table() || _is_array_of_tables(v)) => (),
+          true => {
+            _write_key(keys(i), out);
+            _push_lit(" = ", out);
+            _write_inline(v, out);
+            out.push(_LF);
+          }
+        );
+      });
+      j := usize(0);
+      while(j < keys.len(), j = (j + usize(1)), {
+        v2 := values(j);
+        key_text := _key_string(keys(j));
+        child_prefix := cond(
+          prefix.is_empty() => key_text,
+          true => `${prefix}.${key_text}`
+        );
+        cond(
+          v2.is_table() => {
+            cond(
+              (out.len() > usize(0)) => out.push(_LF),
+              true => ()
+            );
+            out.push(_LBRACKET);
+            _push_string(child_prefix, out);
+            out.push(_RBRACKET);
+            out.push(_LF);
+            recur(v2, child_prefix, out);
+          },
+          _is_array_of_tables(v2) => {
+            items := match(v2.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
+            k := usize(0);
+            while(k < items.len(), k = (k + usize(1)), {
+              cond(
+                (out.len() > usize(0)) => out.push(_LF),
+                true => ()
+              );
+              _push_lit("[[", out);
+              _push_string(child_prefix, out);
+              _push_lit("]]", out);
+              out.push(_LF);
+              recur(items(k), child_prefix, out);
+            });
+          },
+          true => ()
+        );
+      });
+    },
+    _ => ()
+  )
+);
+/// Serialize a `TomlValue` to TOML text. A table renders as a document
+/// (`toml_parse(toml_stringify(v))` gives `v` back for every value the
+/// parser produces); any other value renders in its inline form, which is
+/// what a caller stringifying one field wants.
+toml_stringify :: (fn(value : TomlValue) -> String)({
+  out := ArrayList(u8).new();
+  cond(
+    value.is_table() => _write_table_body(value, String.new(), out),
+    true => _write_inline(value, out)
+  );
+  String.from_bytes(out)
+});
+export(toml_stringify);
+/// `ToString` — the TOML text, the same channel `JsonValue` gives
+/// `json_stringify`. The structural render is `Debug`'s job (D15), so the two
+/// do not collide.
+impl(
+  TomlValue,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)(
+      toml_stringify(self)
+    )
+  )
+);
+impl(
+  TomlDateTime,
+  ToString(
+    to_string : (fn(inout(self) : Self) -> String)({
+      out := ArrayList(u8).new();
+      _write_datetime(self, out);
+      String.from_bytes(out)
+    })
+  )
+);
+// ============================================================================
+// Equality
+// ============================================================================
+derive(TomlDateTimeKind, Eq(TomlDateTimeKind));
+/// Date-times compare COMPONENTWISE, including the kind and the offset —
+/// unlike `DateTime`'s own `Eq`, which compares INSTANTS and would call
+/// `07:32:00Z` and `08:32:00+01:00` equal. TOML's are two different values
+/// (they serialize differently), and a round-trip test must be able to see
+/// that. Comparing a local time with a local date is likewise false, not a
+/// comparison of the placeholder components.
+_dt_eq :: (fn(a : TomlDateTime, b : TomlDateTime) -> bool)({
+  x := a.value;
+  y := b.value;
+  d1 := ((x.year == y.year) && (x.month == y.month));
+  d2 := ((x.day == y.day) && (x.hour == y.hour));
+  d3 := ((x.minute == y.minute) && (x.second == y.second));
+  d4 := ((x.nanosecond == y.nanosecond) && (x.utc_offset_secs == y.utc_offset_secs));
+  ((a.kind == b.kind) && ((d1 && d2) && (d3 && d4)))
+});
+/// Structural equality. Tables compare as MAPS — the same key set with equal
+/// values, whatever order they were parsed in — because TOML table order is
+/// not significant and a document that round-trips through the serializer may
+/// legitimately come back with its keys regrouped. Arrays compare
+/// positionally, since TOML array order IS significant.
+///
+/// Floats compare as `f64`, so two NaNs are NOT equal — assert with
+/// `is_nan()`.
+///
+/// ONE self-recursive function rather than a trio of helpers, for the reason
+/// `json.yo`'s `_json_eq` gives: a helper that compares two children with
+/// `==` and an `Eq` body that calls that helper are mutually recursive
+/// THROUGH the impl, and impl fields get no signature-first binding phase.
+_toml_eq :: (fn(lhs : TomlValue, rhs : TomlValue) -> bool)(
+  match(
+    lhs,
+    .Str(a) => match(rhs, .Str(b) => (a == b), _ => false),
+    .Int(a) => match(rhs, .Int(b) => (a == b), _ => false),
+    .Float(a) => match(rhs, .Float(b) => (a == b), _ => false),
+    .Bool(a) => match(rhs, .Bool(b) => (a == b), _ => false),
+    .Datetime(a) => match(rhs, .Datetime(b) => _dt_eq(a, b), _ => false),
+    .Array(a) => match(
+      rhs,
+      .Array(b) => {
+        cond(
+          (a.len() != b.len()) => {
+            return(false);
+          },
+          true => ()
+        );
+        (same : bool) = true;
+        i := usize(0);
+        while(i < a.len(), i = (i + usize(1)), {
+          cond(
+            !recur(a(i), b(i)) => {
+              same = false;
+            },
+            true => ()
+          );
+        });
+        same
+      },
+      _ => false
+    ),
+    .Table(a_keys, a_values) => match(
+      rhs,
+      .Table(b_keys, b_values) => {
+        cond(
+          (a_keys.len() != b_keys.len()) => {
+            return(false);
+          },
+          true => ()
+        );
+        (same : bool) = true;
+        i := usize(0);
+        while(i < a_keys.len(), i = (i + usize(1)), {
+          key := a_keys(i);
+          (found : bool) = false;
+          j := usize(0);
+          while(j < b_keys.len(), j = (j + usize(1)), {
+            cond(
+              (b_keys(j) == key) => {
+                found = true;
+                cond(
+                  !recur(a_values(i), b_values(j)) => {
+                    same = false;
+                  },
+                  true => ()
+                );
+              },
+              true => ()
+            );
+          });
+          cond(
+            !found => {
+              same = false;
+            },
+            true => ()
+          );
+        });
+        same
+      },
+      _ => false
+    )
+  )
+);
+impl(
+  TomlValue,
+  Eq(TomlValue)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      _toml_eq(lhs, rhs)
+    ),
+    (!=) : (fn(lhs : Self, rhs : Self) -> bool)(
+      !_toml_eq(lhs, rhs)
+    )
+  )
+);
