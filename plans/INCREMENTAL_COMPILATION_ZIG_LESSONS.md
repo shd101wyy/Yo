@@ -1,8 +1,10 @@
 # Faster edit-compile-run: what Yo can take from Zig, and what it cannot
 
-_Status: ACTIVE (2026-09-09) — plan written, nothing started. Phase 0
-(instrumentation) is the first PR; every later phase is gated on the
-numbers it produces._
+_Status: ACTIVE (2026-09-09) — Phase 0 (instrumentation) LANDED 2026-09-10
+(`--profile` / `--profile-json` real, `tests/cli-cases/compile-profile` gate,
+answers recorded in §3.1); Phase 1 (dev profile) LANDED 2026-09-10
+(`--emit-chunks auto` + the DEBUG `yo build` default + the `chunked-gate`
+CI job, numbers in §4); Phases 2–5 not started.
 
 This is the successor to two landed designs and should be read after them:
 
@@ -187,6 +189,65 @@ Non-goals, stated so they are not re-litigated:
 
 ## 3. Phase 0 — instrumentation before anything else
 
+**LANDED 2026-09-10.** `yo compile --profile` prints the per-phase /
+per-module table on stderr; `--profile-json <path>` writes the
+machine-readable form (module keys are absolute paths, sorted, so the file
+diffs cleanly across commits); `yo test --profile` forwards the flag to every
+batch-compile child and prints per-file wall lines; `tests/cli-cases/
+compile-profile` pins the phase table (values normalized to `<TIME>` by the
+CLI harness). The phase walls live around the existing boundaries in
+`run_compile` (`src/main.yo`); per-module rows are recorded by the demand
+loader (`_load_module_at_abs`, `mm_eval_entry_exprs`, `mm_load_prelude_file`
+in `src/module_manager.yo`) as EXCLUSIVE times (nested demand loads
+subtracted via a nesting accumulator, so rows sum without double-counting);
+the collect/emit split and the function census live in `compile_module`
+(`src/codegen/codegen_c.yo`); the shared state is the parallel-array block
+in `src/utils.yo`.
+
+### 3.1 The three answers (measured 2026-09-10)
+
+Machine: AMD Ryzen AI MAX+ 395 (32c), WSL2, clang 21.1.7 `-O2`, seed-built
+stage-2 at develop `0319bce7c` — **not** the M4, so absolute numbers are
+~2.5× the M4's; the RATIOS are the signal. Self-build profile
+(`compile src/main.yo --optimize 2 --skip-c-compiler --profile`, JSON kept
+at `/tmp/prof-selfbuild.json` when re-measuring):
+
+| phase | seconds |
+| --- | --- |
+| prelude evaluation | 1.3 |
+| read+parse entry | 0.03 |
+| entry module evaluation (wall, incl. all demand loads) | 228.7 |
+| codegen: collect | 25.0 |
+| codegen: emit | 88.3 |
+| write C | 0.1 |
+
+1. **Prelude + std is ~6% of evaluation** (1.3 s prelude + 12.7 s summed
+   std-module rows of the 228.7 s eval wall; 86 std modules). By the
+   decision rule below, **Phase 3 (per-definition invalidation) matters
+   more than Phase 4 (resident evaluator)**: the daemon's per-artifact,
+   per-test-batch saving on this class of machine is ~14 s, not ~40 s.
+2. **`src/` is 93.6% of evaluation** (214.1 s across 309 modules) and
+   extremely skewed: `env.yo` 27.2 s, `value.yo` 24.5 s,
+   `vendor/markdown_yo/src/data/emoji_data.yo` 20.9 s,
+   `evaluator/builtins/comptime_numeric_fns.yo` 15.5 s,
+   `vendor/markdown_yo/src/common/entities.yo` 12.8 s — the top five alone
+   are ~44% of the eval wall, and vendor/markdown_yo as a whole is 37.1 s
+   (16%). Also: `codegen: emit` is 26% of the eval+emit total here, not the
+   "minor share" the M4 suggested — the emission split matters on slower
+   machines.
+3. **Function census:** 8186 functions reach emission; 4351 from std, 3835
+   from src+vendor; **0 minted during emission** — every specialization is
+   minted during the COLLECTION passes (`collect_required_functions` and
+   friends), so Phase 5's "specialization goes with its original's module"
+   grouping has no emission-time minting to attribute, and Phase 2's
+   specialization naming is complete before body emission starts.
+
+These answers re-order nothing structurally but sharpen the targets: the
+220-file hub re-check and the 22-minute `tests/internal` run are dominated
+by re-evaluating `src/` modules that did not change — Phase 3's per-
+definition dependency tracking is where the 228 s becomes proportional to
+the edit.
+
 Every phase below is chosen against the 137 s evaluator number and its
 unknown breakdown. Do not guess; measure. This is one PR.
 
@@ -220,6 +281,41 @@ batch; if it is 10 s, Phase 3 matters more than Phase 4. The order of the
 later phases may change on these numbers; the phases themselves do not.
 
 ## 4. Phase 1 — a dev profile that skips the optimizer (Zig lesson 1a)
+
+**LANDED 2026-09-10.** `--emit-chunks auto` resolves
+`N = clamp(1, cap, emitted_bytes / MIN_CHUNK_BYTES)` from the REAL emitted
+size at chunk-assembly time (`compile_module`, `src/codegen/codegen_c.yo`);
+`cap` is `YO_JOBS` when usable, else `std/thread.get_hardware_threads()`
+(the cross-platform runtime shim that already existed — the plan's
+"missing primitive" was `available_parallelism`; the existing API serves).
+`MIN_CHUNK_BYTES = 4 MiB`, measured: a 410-line program emits 168 KB whose
+shared header is ~20%, so N=4 there costs ~155% of the single-file C work —
+every such program stays N=1. `--jobs` now defaults to the auto cap when
+`--emit-chunks auto` is given (0-sentinel until parsed), else 8 as before.
+`yo build` compiles DEBUG executables (no `optimize` field) with
+`--emit-chunks auto` (`compile_artifact`, `src/build_runner.yo`), gated off
+for optimized builds, libraries, `emit_c_to` and wasm; `YO_JOBS=1` is the
+opt-out. `Executable.emit_chunks` already threaded to the child argv —
+CHUNKED_C_EMISSION step 5 had landed it.
+
+Measured on the dev machine (Ryzen AI MAX+ 395, 32c, clang 21):
+
+| self-build C leg, `-O0` | wall |
+| --- | --- |
+| single file (`--profile`'s `cc compile+link` phase) | 23.9 s |
+| `--emit-chunks auto` (N=32, jobs=32, header 12.1 MB; chunk-write→linked) | **7 s** |
+
+Cheap `-O0` flags, measured individually on a 168 KB emission and NOT
+adopted: `-fno-asynchronous-unwind-tables` and `-fno-color-diagnostics`
+were both inside the ±10% run-to-run noise (309–338 ms baselines), the
+latter because cc never colorizes a piped child anyway, and dropping unwind
+tables risks the runtime's `backtrace()` diagnostics; `-g` was already
+conditional on `--debug-symbols`.
+
+Gates: `chunked-gate` CI job (test.yml) runs
+`scripts/bootstrap/chunked_gate.sh` against the shared suite-candidate —
+chunking is now a default for something; `tests/cli-cases/compile-emit-chunks`
+grew an `auto` line pinning `chunks: 1 unit(s), … (jobs=4)`.
 
 Zig's biggest single win was refusing to run an optimizer on debug builds.
 Yo's equivalent is already measured: at `-O0`, chunked parallel compile is

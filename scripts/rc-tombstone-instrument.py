@@ -10,7 +10,24 @@ a 4M-event ring). Frees are QUARANTINED (never reused), so detection is exact
 and deterministic without gmalloc. See
 issues/yo-self-stage2-unwind-check-coverage.md (drain workflow).
 """
+import os
 import sys
+from pathlib import Path
+
+_ALLOWED_WRITE_ROOTS = (os.path.abspath("."), os.path.abspath("/tmp"))
+
+
+def _no_traversal(p):
+    """Dev-tool write guard: normalize the path, refuse any `..` component,
+    and confine the result to an allowed root (repo cwd or /tmp), so a
+    mistyped argument cannot write outside the intended tree."""
+    if ".." in p.replace("\\", "/").split("/"):
+        sys.exit("refusing path with '..' component: %s" % p)
+    abs_p = os.path.abspath(os.path.normpath(p))
+    if not any(abs_p == r or abs_p.startswith(r + os.sep) for r in _ALLOWED_WRITE_ROOTS):
+        sys.exit("refusing path outside allowed roots (cwd, /tmp): %s" % p)
+    return abs_p
+
 
 src = open(sys.argv[1]).read()
 
@@ -127,5 +144,5 @@ new_incr = '''static inline void* __yo_incr_rc(void* ptr) {
 assert old_incr in src
 src = src.replace(old_incr, new_incr, 1)
 
-open(sys.argv[2], 'w').write(src)
+Path(_no_traversal(sys.argv[2])).write_text(src)
 print(f"instrumented -> {sys.argv[2]}")

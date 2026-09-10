@@ -89,7 +89,7 @@ env:
   # firing was rejected by GH013 — RELEASE_PAT lacked the fine-grained
   # "Workflows: read and write" permission, which any push touching
   # .github/workflows/ requires (issues/fixed/release-seed-bump-needs-workflow-scope-pat.md).
-  SEED_VERSION: v0.2.29
+  SEED_VERSION: v0.2.30
 
   # apt-get waits on /var/lib/dpkg/lock-frontend FOREVER by default, and the
   # runner images run unattended-upgrades / apt-daily timers in the background.
@@ -872,6 +872,57 @@ jobs:
           path: yo-candidate
           retention-days: 1
           if-no-files-found: error
+
+  # Phase 1 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §4.6): `yo build`
+  # now compiles DEBUG executables with `--emit-chunks auto`, so chunking is
+  # a DEFAULT for something and the behavioural fixpoint gate runs on every
+  # code PR — a chunked-built and a single-file-built compiler must emit
+  # byte-identical C.
+  chunked-gate:
+    name: Chunked-emission behavioural fixpoint (chunked vs single)
+    needs: [changes, suite-candidate]
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Same memory treatment as every self-emitting job (see release.yml's
+      # seed-cross-emit for the 16 min vs 159 min zswap measurement).
+      - name: Add swap space
+        run: |
+          sudo fallocate -l 32G /mnt/swapfile
+          sudo chmod 600 /mnt/swapfile
+          sudo mkswap /mnt/swapfile
+          sudo swapon /mnt/swapfile
+
+      - name: Tune the kernel for a swap-heavy self-emit
+        run: |
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/enabled || true
+          echo never | sudo tee /sys/kernel/mm/transparent_hugepage/defrag || true
+          echo Y | sudo tee /sys/module/zswap/parameters/enabled || true
+
+      - name: Install liburing (+ OpenSSL dev for std/http in the compiler closure)
+        run: |
+          # Drop the runner image's third-party apt sources first — see APT_OPTS.
+          sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y liburing-dev libssl-dev pkg-config
+
+      - name: Download the candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: suite-candidate
+
+      - name: Run the chunked behavioural fixpoint gate
+        env:
+          YO_MAIN_STACK_MB: "4096"
+        run: |
+          chmod +x yo-candidate
+          S1="$PWD/yo-candidate" N=4 bash scripts/bootstrap/chunked_gate.sh
 
   suite-cross-emit:
     name: Cross-emit suite compiler (${{ matrix.target }})

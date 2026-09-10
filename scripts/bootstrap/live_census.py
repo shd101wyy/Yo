@@ -4,8 +4,24 @@ Injects a counter at the top of every `__yo_new_*` constructor (+1) and every
 `*___dispose` (-1 for the type it disposes), then dumps the net per type at
 exit. live[type] * sizeof(type) = the retained bytes of that type.
 """
+import os
 import re
 import sys
+from pathlib import Path
+
+_ALLOWED_WRITE_ROOTS = (os.path.abspath("."), os.path.abspath("/tmp"))
+
+
+def _no_traversal(p):
+    """Dev-tool write guard: normalize the path, refuse any `..` component,
+    and confine the result to an allowed root (repo cwd or /tmp), so a
+    mistyped argument cannot write outside the intended tree."""
+    if ".." in p.replace("\\", "/").split("/"):
+        sys.exit("refusing path with '..' component: %s" % p)
+    abs_p = os.path.abspath(os.path.normpath(p))
+    if not any(abs_p == r or abs_p.startswith(r + os.sep) for r in _ALLOWED_WRITE_ROOTS):
+        sys.exit("refusing path outside allowed roots (cwd, /tmp): %s" % p)
+    return abs_p
 
 SRC = sys.argv[1] if len(sys.argv) > 1 else "/tmp/re/s1r9.c"
 OUT = sys.argv[2] if len(sys.argv) > 2 else "/tmp/re/s1live.c"
@@ -75,8 +91,8 @@ ins = src.rfind("\n\n", 0, first)
 if ins < 0:
     ins = src.rfind("\n", 0, first)
 src = src[:ins] + prelude + src[ins:]
-open(OUT, "w").write(src)
-with open(MAP, "w") as f:
-    for i, lab in enumerate(labels):
-        f.write("%d\t%s\n" % (i, lab))
+Path(_no_traversal(OUT)).write_text(src)
+Path(_no_traversal(MAP)).write_text(
+    "".join("%d\t%s\n" % (i, lab) for i, lab in enumerate(labels))
+)
 print("ctors: %d  disposes: %d  types: %d" % (n_ctor, n_disp, n))
