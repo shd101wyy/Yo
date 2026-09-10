@@ -97,4 +97,4 @@ invocations) keeps full verdicts.
 - tests/sync/waitgroup.test.yo
 - tests/sys/bufio.test.yo
 - tests/sys/timer.test.yo
-- tests/toml/toml.test.yo
+- tests/encoding/toml.test.yo

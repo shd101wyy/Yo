@@ -1825,10 +1825,127 @@ emitted C, so it could not be randomized even if that were wanted.
    struct tag like every other struct type
    (issues/fixed/tuple-type-has-no-forward-declaration.md).
 
-   Still open in Encoding: TOML floats/arrays/dates/inline tables/escapes/
-   comments/serializer, and the module-prefix stutter. (regex Rust-shaped
+   Still open in Encoding: the module-prefix stutter. (regex Rust-shaped
    names, `GlobPattern.new -> Result` + filesystem `glob()`, `Url.set_*` and
-   `EncodingError` offsets all landed 2026-09-09.)
+   `EncodingError` offsets all landed 2026-09-09; TOML landed 2026-09-11, the
+   record below.)
+
+   **Encoding — TOML is a real parser now: DONE (2026-09-11).** The row asked
+   for "floats/arrays/dates/inline tables/escapes/comments/serializer", and
+   measuring it first showed the gap was bigger than the list: the module was
+   a LINE-based subset parser (`input.split("\n")`, one `cond` per trimmed
+   line) that also silently CORRUPTED twelve inputs — `[[fruit]]` became a
+   table keyed `[fruit]`, `[server.http]` one flat key, `"my key"` a key with
+   its quotes still on, a duplicate key two unreachable entries, and
+   `n = 99999999999999999999` a wrapped `Int`
+   (`issues/fixed/toml-parse-returns-ok-with-corrupted-data.md`, now closed).
+   A line loop cannot be patched into TOML — multi-line strings, arrays across
+   lines and inline tables all cross line boundaries, and a typed error needs
+   offsets that `split` has thrown away — so `std/encoding/toml.yo` is a byte
+   scanner over the whole document, in the shape `csv.yo` and `json.yo`
+   already use. Everything TOML v1.0.0 admits is accepted and everything else
+   is an `.Err` with a byte offset. `tests/encoding/toml.test.yo` (moved out of
+   `tests/toml/`, the last encoding test that lived elsewhere) is 35 tests.
+
+   Nothing on the row's list was already there: `3.14`, `[1, 2]`,
+   `1979-05-27`, `{ a = 1 }` and `\n` all returned `.Err` or the wrong value
+   before this.
+
+   **The value model is Rust's `toml::Value`.** `Str`/`Int`/`Bool`/`Table`
+   kept their names; `Float`, `Datetime` and `Array` are new. `insert` now
+   returns the REPLACED value (`Option(TomlValue)`) per D2's map-insert shape,
+   matching `JsonValue.insert` — the old one returned `unit`, and it also set
+   every matching key instead of stopping at the first.
+
+   **`TomlError`, not `EncodingError`.** `EncodingError` is the shared error of
+   the BYTE codecs (`hex`, `base64`, `utf16`): `InvalidChar`, `OddLength`,
+   `InvalidLength`. A TOML failure is a document failure — a duplicate key, a
+   redefined table, an unterminated multi-line string — and putting ten such
+   variants into the byte-codec enum would make every `hex` caller match on
+   them. `json.yo` set the precedent with `JsonError`, and D1 requires a real
+   enum implementing `Error()` (the old `Result(_, String)` is exactly what D1
+   bans). Every one of the ten variants carries a byte offset, so unlike
+   `EncodingError.pos` the accessor is TOTAL: `pos() -> usize`, no `Option`,
+   because the scanner always knows where it is.
+
+   **`TomlDateTime` is `std/time`'s `DateTime` plus a four-way tag**, not a
+   fresh component struct. TOML has four date-time forms and `DateTime` cannot
+   tell them apart: it has no "no offset" state (a local date-time would be
+   indistinguishable from `…Z`) and no date-less or time-less form, so a tag
+   is unavoidable. What IS reusable is the component set and, more
+   importantly, `DateTime.new`'s leap-aware validation — a dedicated struct
+   would have meant a second copy of the leap-year table in `std/`, which is
+   the one thing the D8 UTF-8 consolidation says never to do. The components a
+   tag calls absent are set to the epoch's and documented as unreadable. The
+   cost is a dependency from `std/encoding` on `std/time`; Rust's `toml` crate
+   avoids the equivalent (its `Datetime` is self-contained so the crate does
+   not pull `chrono`), but Yo's `DateTime` is in the standard library, not a
+   third-party crate, and a caller who parses an offset date-time wants
+   something it can compare and add a `Duration` to.
+
+   `TomlDateTime` equality is FIELDWISE, deliberately unlike `DateTime`'s own
+   `Eq`, which compares instants and would call `07:32:00Z` and
+   `08:32:00+01:00` equal. Those are two different TOML values — they
+   serialize differently — and a round-trip test has to be able to see that.
+
+   **Redefinition needs provenance, not a "seen" set.** TOML's rules are not
+   about whether a path was seen but HOW it was created: a header may extend a
+   table an earlier header path created implicitly, and may not reopen one an
+   earlier header, a dotted key, or an inline-table value already closed. So
+   the parser carries a `(path, _TableKind)` table — `Explicit`, `Implicit`,
+   `Dotted`, `ArrayOfTables`, `ArrayElem` — and an EXISTING table with no
+   recorded kind means "came from an inline table", which is closed. Paths are
+   length-prefixed (`<len>:<key>`) so `["a.b"]` and `["a", "b"]` cannot
+   collide, and an array-of-tables element appends `@<index>;` so
+   `[[fruit]] … [fruit.variety]` attaches to the fruit most recently opened
+   rather than to the first.
+
+   **The serializer's two passes are correctness, not cosmetics.** A
+   `[header]` changes which table the following bare keys belong to, so a
+   scalar written after a sub-table would be READ BACK into the wrong table:
+   `_write_table_body` emits every scalar of a table before the first header
+   under it, then the sub-tables and arrays of tables, each in the table's own
+   insertion order — a deterministic function of the tree, and the test
+   asserts stringify-twice is byte-identical. `[[header]]` is used only for a
+   non-empty array whose every element is a table (what the form can express);
+   any other array goes inline, as Rust's serializer does too. Strings are
+   always written single-line basic — one output form round-trips every input
+   form, and choosing between them would only make the output prettier.
+   `toml_stringify` is the name because D2 says text formats are
+   `parse`/`stringify`; `TomlValue` also gets `ToString` (the text) with the
+   structural render left to `Debug` per D15.
+
+   Floats are written in the shortest `%g` rendering that reads back as the
+   same double (a loop over precisions 1..17, each checked by parsing it
+   again). `%g`'s default six significant digits would turn
+   `3.141592653589793` into `3.14159` — a serializer that loses data — and a
+   fixed `%.17g` would turn `3.14` into `3.1400000000000001`. A rendering with
+   neither `.` nor an exponent gets `.0` appended, or TOML would read the
+   float back as an integer. `inf`/`-inf`/`nan` are spelled out; `nan != nan`,
+   so the test asserts with `is_nan()`.
+
+   **`\u{XXXX}` is deliberately NOT accepted.** The escape list on this row
+   named it, but it is Rust's spelling, not TOML's: TOML v1.0.0 has `\uXXXX`
+   and `\UXXXXXXXX` only, and accepting the braced form would accept documents
+   the `toml` crate rejects, which is the opposite of the parity this row asks
+   for. Both spec forms are implemented, with surrogate halves and values
+   above U+10FFFF rejected so no CESU-8 can be produced. A raw control
+   character is rejected in strings, keys and comments, and a lone CR is
+   rejected inside a multi-line string (TOML's newline is LF or CRLF).
+
+   **One compiler bug fell out**, from writing those escape tests:
+   `"\uZZZZ"` compiles to a NUL byte and `"\u{41}"` to U+0410 (not U+0041)
+   because `_hex_digit_val` (`src/evaluator/values/string.yo`) returns 0 for a
+   non-hex rune instead of failing, and the backtick form leaves the same text
+   literal — one spelling, two meanings, neither an error
+   (`issues/unicode-escape-accepts-non-hex-digits.md`, with a reproducer).
+
+   The module is marked `## Stability unstable` for one release: the error type
+   changed from `String` to `TomlError`, the value model gained three
+   variants, `insert` changed shape, and documents that used to "parse" now
+   return `.Err`. Nothing in the tree consumed it (the only reference was its
+   own test), so the blast radius is external users, and it belongs in the
+   release notes.
 
    **`FromStr` renamed to `FromString` (2026-09-09).** The trait's parameter is
    a `String`, and its own doc comment said so one line above the signature —

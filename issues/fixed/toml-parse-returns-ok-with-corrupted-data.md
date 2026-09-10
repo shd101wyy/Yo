@@ -1,7 +1,11 @@
 # `toml_parse` returns `.Ok` with a corrupted document for twelve inputs instead of parsing or rejecting them
 
-**Status:** OPEN — silent data corruption from a shipped parser. Found
-2026-09-04 in the std-API-audit re-measurement of the encoding/TOML row.
+**Status:** FIXED 2026-09-11 — `std/encoding/toml.yo` was rewritten as a byte
+scanner over the whole document (the "Fix" section below, in full), and every
+row of the table is now either parsed correctly or rejected with a byte offset.
+Regression tests: `tests/encoding/toml.test.yo` (35 tests), whose "Rejected or
+parsed correctly: the twelve corruption rows" case asserts one line per row.
+Found 2026-09-04 in the std-API-audit re-measurement of the encoding/TOML row.
 
 `std/encoding/toml.yo` documents itself as a subset parser (*"Parses a subset of
 TOML … Supports: strings, integers, booleans, table sections, comments"*,
@@ -187,6 +191,7 @@ return `.Err`.
 `tests/toml/toml.test.yo` is the only encoding test outside `tests/encoding/`
 (its siblings `base64`, `csv`, `hex`, `html`, `json`, `percent`, `utf16`, `utf8`
 all live there); move it to `tests/encoding/toml.test.yo` as part of this work.
+(Moved 2026-09-11.)
 
 Its current 10 tests are all happy paths of the supported subset and assert
 nothing about rejection. Add one assertion per row of the table above — either
@@ -201,3 +206,31 @@ return `.Err`, and the error type changes from `String` to `TomlError`. Nothing
 in the tree consumes the module — the only non-comment reference anywhere is
 `tests/toml/toml.test.yo:2` — so the blast radius is external users only. Call
 it out in the release notes.
+
+## Verification (2026-09-11)
+
+All five steps of the fix landed together, because the corruption fix and the
+value-model gap share the scanner (`plans/STD_API_STABILIZATION.md`, Encoding):
+
+1. **Keys** — `_parse_simple_key` / `_parse_key_path`: bare, basic-quoted (with
+   escape decoding), literal-quoted, dotted. A dotted key builds nested tables
+   and records them as `.Dotted`, so `[a.b]` over one is rejected.
+2. **Headers** — `_walk_header_path` walks/creates `[a.b.c]`, descending into
+   the LAST element of an array of tables; `[[a]]` appends. `TomlValue` gained
+   the `Array` variant (plus `Float` and `Datetime`).
+3. **Values** — scanned, never end-tested: basic and literal strings, single
+   and multi-line, escapes decoded; a `#` only starts a comment outside a
+   string.
+4. **Errors** — `TomlError`, ten variants, every one carrying a byte offset,
+   with a total `pos()` accessor. Duplicate keys, redefined tables,
+   unterminated headers and strings, and any line that is not blank, comment,
+   header or `key = value` are hard errors. Both `Result(_, String)`
+   signatures are gone.
+5. **Integers** — underscores stripped and validated (only between digits),
+   `0x`/`0o`/`0b` dispatched to `parse_i64_radix`, and overflow reported: the
+   `parse_i64` wrap this issue depended on was fixed separately, so
+   `n = 99999999999999999999` is now `.Err(InvalidNumber)`.
+
+The offsets the tests pin: duplicate key at byte 6 of `a = 1\na = 2`, table
+redefinition at byte 10 of the `[t] … [t]` document, the garbage line at byte 5
+(where its `=` should be), `[not a header` at byte 5, `s = """` at byte 4.

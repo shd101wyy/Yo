@@ -1,0 +1,810 @@
+// std/encoding/toml — TOML v1.0.0 parser and serializer.
+//
+// The twelve `.Ok`-with-a-different-document rows of
+// issues/toml-parse-returns-ok-with-corrupted-data.md are the "rejected or
+// parsed correctly" test below; the rest covers the value model, the
+// scanner's forms, and the serializer's round trip.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ToString } :: import("std/fmt");
+{ ArrayList } :: import("std/collections/array_list");
+{ toml_parse, toml_stringify, TomlValue, TomlDateTimeKind } :: import("std/encoding/toml");
+import("std/math");
+/// Parse, failing the test on an error.
+_doc :: (fn(text : String) -> TomlValue)(
+  match(
+    toml_parse(text),
+    .Ok(v) => v,
+    .Err(e) => {
+      assert(false, `unexpected toml error: ${e}`);
+      TomlValue.new_table()
+    }
+  )
+);
+/// The byte offset an input fails at — `usize.MAX` when it wrongly parsed.
+_epos :: (fn(text : String) -> usize)(
+  match(toml_parse(text), .Err(e) => e.pos(), .Ok(_) => usize.MAX)
+);
+_rejected :: (fn(text : String) -> bool)(
+  toml_parse(text).is_err()
+);
+/// The string at a top-level key.
+_str_at :: (fn(text : String, key : String) -> String)({
+  d := _doc(text);
+  match(
+    d.get(key),
+    .Some(v) => match(v.as_string(), .Some(s) => s, .None => `<not a string>`),
+    .None => `<missing>`
+  )
+});
+/// parse → stringify → parse → equal.
+_round_trips :: (fn(text : String) -> bool)({
+  a := match(
+    toml_parse(text),
+    .Ok(v) => v,
+    .Err(_) => {
+      return(false);
+    }
+  );
+  s := toml_stringify(a);
+  b := match(
+    toml_parse(s),
+    .Ok(v) => v,
+    .Err(_) => {
+      return(false);
+    }
+  );
+  a == b
+});
+// ============================================================================
+// The table API
+// ============================================================================
+test("Empty table", {
+  t := TomlValue.new_table();
+  assert(t.table_len() == usize(0), "new table should be empty");
+  assert(!t.has_key(`x`), "should not have key x");
+  assert(t.is_table(), "is_table");
+});
+test("Table insert returns the replaced value", {
+  t := TomlValue.new_table();
+  first := t.insert(`name`, TomlValue.Str(`hello`));
+  assert(first.is_none(), "a new key replaces nothing");
+  assert(t.table_len() == usize(1), "should have 1 entry");
+  assert(t.has_key(`name`), "should have key name");
+  s := t.get(`name`).unwrap().as_string();
+  assert(s.is_some(), "should be string");
+  assert(s.unwrap() == `hello`, "should be hello");
+  second := t.insert(`name`, TomlValue.Str(`bye`));
+  assert(second.is_some(), "a replacement returns the old value");
+  assert(second.unwrap().as_string().unwrap() == `hello`, "which is the old string");
+  assert(t.table_len() == usize(1), "and does not add a key");
+});
+test("Value accessors and predicates", {
+  assert(TomlValue.Int(i64(7)).as_int().unwrap() == i64(7), "as_int");
+  assert(TomlValue.Float(f64(1.5)).as_float().unwrap() == f64(1.5), "as_float");
+  assert(TomlValue.Bool(true).as_bool().unwrap(), "as_bool");
+  assert(TomlValue.Int(i64(7)).is_int(), "is_int");
+  assert(!TomlValue.Int(i64(7)).is_float(), "an Int is not a Float");
+  arr := TomlValue.new_array();
+  assert(arr.is_array(), "is_array");
+  assert(arr.array_len() == usize(0), "empty array");
+  assert(arr.as_array().unwrap().len() == usize(0), "as_array");
+});
+// ============================================================================
+// Comments
+// ============================================================================
+test("Comments anywhere a value or key can be followed by one", {
+  input :=
+    `# leading comment
+name = "test"   # after a value
+
+# between entries
+[server]  # after a header
+port = 8080 # after the last value
+# trailing comment, no newline`;
+  d := _doc(input);
+  assert(d.get(`name`).unwrap().as_string().unwrap() == `test`, "name survives its comment");
+  srv := d.get(`server`).unwrap();
+  assert(srv.get(`port`).unwrap().as_int().unwrap() == i64(8080), "port survives its comment");
+  assert(d.table_len() == usize(2), "two root keys");
+});
+test("A hash inside a string is not a comment", {
+  assert(_str_at(`s = "a # b"`, `s`) == `a # b`, "basic string keeps the hash");
+  assert(_str_at(`s = 'a # b'`, `s`) == `a # b`, "literal string keeps the hash");
+  // The old parser's `s = "a" # "c"` case: the comment must be stripped and
+  // the string must not swallow it.
+  assert(_str_at(`s = "a" # "c"`, `s`) == `a`, "comment after a string is stripped");
+});
+test("A control character in a comment is rejected", {
+  // Built byte by byte: a raw BEL cannot be written in a Yo source literal.
+  bad := `x = 1 # bad`;
+  bad.push_byte(u8(7));
+  bad.push_str("here");
+  assert(_rejected(bad), "BEL in a comment");
+  ok := `x = 1 #`;
+  ok.push_byte(u8(9));
+  ok.push_str("a tab is allowed");
+  assert(!_rejected(ok), "a tab in a comment is fine");
+});
+// ============================================================================
+// Strings
+// ============================================================================
+test("Basic string escapes", {
+  assert(
+    _str_at(`s = "a\\nb"`, `s`) ==
+      `a
+b`,
+    "backslash-n is a newline"
+  );
+  assert(_str_at(`s = "a\\tb"`, `s`) == `a\tb`, "backslash-t is a tab");
+  assert(_str_at(`s = "a\\rb"`, `s`) == `a\rb`, "backslash-r is a CR");
+  assert(_str_at(`s = "a\\\\b"`, `s`) == `a\\b`, "double backslash is one backslash");
+  assert(_str_at(`s = "a\\"b"`, `s`) == `a"b`, "escaped quote");
+  assert(_str_at(`s = "a\\bb"`, `s`).len() == usize(3), "backslash-b is one byte");
+  assert(_str_at(`s = "a\\fb"`, `s`).len() == usize(3), "backslash-f is one byte");
+});
+test("Unicode escapes", {
+  assert(_str_at(`s = "\\u00E9"`, `s`) == `é`, "4-digit escape");
+  assert(_str_at(`s = "\\U0001F600"`, `s`) == `😀`, "8-digit escape");
+  assert(_str_at(`s = "\\u0041\\u0042"`, `s`) == `AB`, "two escapes in a row");
+  assert(_rejected(`s = "\\uD800"`), "a lone surrogate is not a scalar");
+  assert(_rejected(`s = "\\U00110000"`), "above U+10FFFF");
+  assert(_rejected(`s = "\\u00G0"`), "a non-hex digit");
+  assert(_rejected(`s = "\\q"`), "an unknown escape");
+});
+test("Multi-line basic strings", {
+  input :=
+    `s = """
+first
+second"""`;
+  assert(
+    _str_at(input, `s`) ==
+      `first
+second`,
+    "the newline right after the opener is dropped"
+  );
+  quoted :=
+    `s = """he said ""hi"" ok"""`;
+  assert(_str_at(quoted, `s`) == `he said ""hi"" ok`, "one or two quotes are content");
+  four :=
+    `s = """a""""`;
+  assert(_str_at(four, `s`) == `a"`, "a run of four ends the string after one content quote");
+  trimmed :=
+    `s = """a \\
+      b"""`;
+  assert(_str_at(trimmed, `s`) == `a b`, "a line-ending backslash trims the newline and the indent");
+  assert(
+    _rejected(
+      `s = "a\\
+b"`
+    ),
+    "a line-ending backslash is not allowed in a single-line string"
+  );
+});
+test("Literal strings", {
+  assert(_str_at(`s = 'a\\nb'`, `s`).len() == usize(4), "no escapes in a literal string");
+  assert(_str_at(`s = 'C:\\path'`, `s`) == `C:\\path`, "a backslash is itself");
+  ml :=
+    `s = '''
+raw \\n stays'''`;
+  assert(_str_at(ml, `s`) == `raw \\n stays`, "multi-line literal, opening newline dropped");
+  assert(_str_at(`s = ''`, `s`) == ``, "the empty literal string");
+  assert(_str_at(`s = ""`, `s`) == ``, "the empty basic string");
+});
+test("A single-line string may not contain a newline", {
+  assert(
+    _rejected(
+      `s = "a
+b"`
+    ),
+    "raw newline in a basic string"
+  );
+  assert(
+    _rejected(
+      `s = 'a
+b'`
+    ),
+    "raw newline in a literal string"
+  );
+  assert(_epos(`s = """`) == usize(4), "an unterminated multi-line string points at its opener");
+});
+// ============================================================================
+// Integers and floats
+// ============================================================================
+test("Integers", {
+  d := _doc(
+    `a = 0
+b = +99
+c = -17
+d = 1_000_000
+e = 0xDEADbeef
+f = 0o755
+g = 0b1010
+h = -9223372036854775808
+i = 9223372036854775807`
+  );
+  assert(d.get(`a`).unwrap().as_int().unwrap() == i64(0), "zero");
+  assert(d.get(`b`).unwrap().as_int().unwrap() == i64(99), "leading plus");
+  assert(d.get(`c`).unwrap().as_int().unwrap() == i64(-17), "negative");
+  assert(d.get(`d`).unwrap().as_int().unwrap() == i64(1000000), "underscores");
+  assert(d.get(`e`).unwrap().as_int().unwrap() == i64(3735928559), "hex, mixed case");
+  assert(d.get(`f`).unwrap().as_int().unwrap() == i64(493), "octal");
+  assert(d.get(`g`).unwrap().as_int().unwrap() == i64(10), "binary");
+  assert(d.get(`h`).unwrap().as_int().unwrap() == i64.MIN, "i64.MIN parses");
+  assert(d.get(`i`).unwrap().as_int().unwrap() == i64.MAX, "i64.MAX parses");
+});
+test("Malformed integers are rejected, not wrapped", {
+  assert(_rejected(`n = 99999999999999999999`), "out of i64 range");
+  assert(_rejected(`n = 0x10000000000000000`), "hex out of range");
+  assert(_rejected(`n = 01`), "a leading zero");
+  assert(_rejected(`n = 1_`), "a trailing underscore");
+  assert(_rejected(`n = _1`), "a leading underscore");
+  assert(_rejected(`n = 1__2`), "a doubled underscore");
+  assert(_rejected(`n = -0xff`), "a signed prefixed integer");
+  assert(_rejected(`n = 0x`), "a prefix with no digits");
+  assert(_rejected(`n = 0b102`), "a digit outside the radix");
+});
+test("Floats", {
+  d := _doc(
+    `a = 3.14
+b = 5e+22
+c = 6.626e-34
+d = -0.01
+e = 1_000.000_1
+f = 224_617.445_991_228
+g = 0.0
+h = 1e6`
+  );
+  assert(d.get(`a`).unwrap().as_float().unwrap() == f64(3.14), "3.14");
+  assert(d.get(`b`).unwrap().as_float().unwrap() == f64(5.0e22), "5e+22");
+  assert(d.get(`c`).unwrap().as_float().unwrap() == f64(6.626e-34), "6.626e-34");
+  assert(d.get(`d`).unwrap().as_float().unwrap() == f64(-0.01), "negative fraction");
+  assert(d.get(`e`).unwrap().as_float().unwrap() == f64(1000.0001), "underscores both sides");
+  assert(d.get(`g`).unwrap().is_float(), "0.0 is a float, not an int");
+  assert(d.get(`h`).unwrap().is_float(), "an exponent alone makes it a float");
+  assert(!d.get(`a`).unwrap().is_int(), "a float is not an int");
+});
+test("inf and nan", {
+  d := _doc(
+    `a = inf
+b = -inf
+c = +inf
+d = nan
+e = -nan`
+  );
+  assert(d.get(`a`).unwrap().as_float().unwrap().is_infinite(), "inf");
+  assert(d.get(`a`).unwrap().as_float().unwrap() > f64(0.0), "inf is positive");
+  assert(d.get(`b`).unwrap().as_float().unwrap() < f64(0.0), "-inf is negative");
+  assert(d.get(`c`).unwrap().as_float().unwrap().is_infinite(), "+inf");
+  assert(d.get(`d`).unwrap().as_float().unwrap().is_nan(), "nan (nan != nan, so is_nan is the test)");
+  assert(d.get(`e`).unwrap().as_float().unwrap().is_nan(), "-nan");
+});
+test("Malformed floats are rejected", {
+  assert(_rejected(`x = 1.`), "no digit after the point");
+  assert(_rejected(`x = .5`), "no digit before the point");
+  assert(_rejected(`x = 1e`), "no exponent digits");
+  assert(_rejected(`x = 1.2.3`), "two points");
+  assert(_rejected(`x = 1.e2`), "empty fraction before the exponent");
+  assert(_rejected(`x = infinity`), "only `inf` spells infinity");
+});
+// ============================================================================
+// Arrays
+// ============================================================================
+test("Arrays: heterogeneous, nested, trailing comma, newlines", {
+  d := _doc(
+    `ints = [1, 2, 3]
+mixed = [1, "two", 3.0, true]
+nested = [[1, 2], [3]]
+trailing = [1, 2,]
+empty = []
+multi = [
+  1,   # a comment inside the brackets
+  2,
+]`
+  );
+  ints := d.get(`ints`).unwrap();
+  assert(ints.array_len() == usize(3), "three ints");
+  assert(ints.at(usize(2)).unwrap().as_int().unwrap() == i64(3), "third int");
+  mixed := d.get(`mixed`).unwrap();
+  assert(mixed.array_len() == usize(4), "mixed types are legal in TOML v1.0.0");
+  assert(mixed.at(usize(1)).unwrap().as_string().unwrap() == `two`, "string element");
+  assert(mixed.at(usize(3)).unwrap().as_bool().unwrap(), "bool element");
+  nested := d.get(`nested`).unwrap();
+  assert(nested.at(usize(0)).unwrap().array_len() == usize(2), "nested array");
+  assert(d.get(`trailing`).unwrap().array_len() == usize(2), "trailing comma");
+  assert(d.get(`empty`).unwrap().array_len() == usize(0), "empty array");
+  assert(d.get(`multi`).unwrap().array_len() == usize(2), "newlines and comments inside brackets");
+});
+test("Malformed arrays are rejected", {
+  assert(_rejected(`a = [1 2]`), "a missing comma");
+  assert(_rejected(`a = [1,`), "an unterminated array");
+  assert(_rejected(`a = [,1]`), "a leading comma");
+});
+// ============================================================================
+// Inline tables
+// ============================================================================
+test("Inline tables", {
+  d := _doc(
+    `a = { x = 1, y = "two" }
+empty = {}
+nested = { inner = { deep = true } }
+dotted = { a.b = 1, a.c = 2 }`
+  );
+  a := d.get(`a`).unwrap();
+  assert(a.is_table(), "an inline table is a table");
+  assert(a.get(`x`).unwrap().as_int().unwrap() == i64(1), "x");
+  assert(a.get(`y`).unwrap().as_string().unwrap() == `two`, "y");
+  assert(d.get(`empty`).unwrap().table_len() == usize(0), "the empty inline table");
+  inner := d.get(`nested`).unwrap().get(`inner`).unwrap();
+  assert(inner.get(`deep`).unwrap().as_bool().unwrap(), "nested inline table");
+  dotted := d.get(`dotted`).unwrap().get(`a`).unwrap();
+  assert(dotted.table_len() == usize(2), "dotted keys inside an inline table");
+});
+test("Inline tables reject a trailing comma, a newline, and a duplicate", {
+  assert(_rejected(`a = { x = 1, }`), "a trailing comma");
+  assert(
+    _rejected(
+      `a = { x = 1,
+y = 2 }`
+    ),
+    "a newline between the braces"
+  );
+  assert(_rejected(`a = { x = 1, x = 2 }`), "a duplicate key");
+  assert(_rejected(`a = { x = 1 y = 2 }`), "a missing comma");
+});
+// ============================================================================
+// Date-times
+// ============================================================================
+test("The four date-time forms", {
+  d := _doc(
+    `odt1 = 1979-05-27T07:32:00Z
+odt2 = 1979-05-27T00:32:00-07:00
+odt3 = 1979-05-27T00:32:00.999999-07:00
+ldt1 = 1979-05-27T07:32:00
+ldt2 = 1979-05-27 07:32:00
+ld = 1979-05-27
+lt1 = 07:32:00
+lt2 = 00:32:00.999999`
+  );
+  o1 := d.get(`odt1`).unwrap().as_datetime().unwrap();
+  assert(match(o1.kind, .OffsetDateTime => true, _ => false), "odt1 is an offset date-time");
+  assert(o1.value.year == i32(1979), "year");
+  assert(o1.value.month == u8(5), "month");
+  assert(o1.value.day == u8(27), "day");
+  assert(o1.value.hour == u8(7), "hour");
+  assert(o1.value.utc_offset_secs == i32(0), "Z is offset zero");
+  o2 := d.get(`odt2`).unwrap().as_datetime().unwrap();
+  assert(o2.value.utc_offset_secs == i32(-25200), "-07:00 is -25200 seconds");
+  o3 := d.get(`odt3`).unwrap().as_datetime().unwrap();
+  assert(o3.value.nanosecond == u32(999999000), "six fractional digits are nanoseconds");
+  l1 := d.get(`ldt1`).unwrap().as_datetime().unwrap();
+  assert(match(l1.kind, .LocalDateTime => true, _ => false), "ldt1 has no offset");
+  l2 := d.get(`ldt2`).unwrap().as_datetime().unwrap();
+  assert(match(l2.kind, .LocalDateTime => true, _ => false), "a space may replace the T");
+  assert(l2.value.hour == u8(7), "the space form keeps its time");
+  ld := d.get(`ld`).unwrap().as_datetime().unwrap();
+  assert(match(ld.kind, .LocalDate => true, _ => false), "a bare date is a local date");
+  lt := d.get(`lt1`).unwrap().as_datetime().unwrap();
+  assert(match(lt.kind, .LocalTime => true, _ => false), "a bare time is a local time");
+  assert(lt.value.hour == u8(7), "local time hour");
+  lt2 := d.get(`lt2`).unwrap().as_datetime().unwrap();
+  assert(lt2.value.nanosecond == u32(999999000), "local time fraction");
+});
+test("A date-time followed by a comment or inside an array still parses", {
+  d := _doc(
+    `a = 1979-05-27 # a comment
+b = [1979-05-27, 07:32:00]`
+  );
+  assert(d.get(`a`).unwrap().is_datetime(), "trailing space is not a T separator");
+  assert(d.get(`b`).unwrap().array_len() == usize(2), "date-times in an array");
+});
+test("Malformed date-times are rejected", {
+  assert(_rejected(`d = 1979-13-27`), "month 13");
+  assert(_rejected(`d = 1979-02-30`), "February 30");
+  assert(_rejected(`d = 1979-05-27T25:00:00Z`), "hour 25");
+  assert(_rejected(`d = 1979-05-27T07:32Z`), "TOML v1.0.0 requires the seconds");
+  assert(_rejected(`d = 1979-05-27T07:32:00+07`), "an offset needs minutes");
+  assert(_rejected(`d = 1979-05-27x`), "trailing text");
+  assert(!_rejected(`d = 1980-02-29`), "a real leap day is fine");
+});
+// ============================================================================
+// Keys and tables
+// ============================================================================
+test("Quoted and dotted keys", {
+  d := _doc(
+    `"my key" = 1
+'literal key' = 2
+"" = 3
+a.b.c = 4
+"quoted".nested = 5
+spaced . out = 6`
+  );
+  assert(d.get(`my key`).unwrap().as_int().unwrap() == i64(1), "a quoted key's content is the key");
+  assert(d.get(`literal key`).unwrap().as_int().unwrap() == i64(2), "a literal-quoted key");
+  assert(d.get(``).unwrap().as_int().unwrap() == i64(3), "the empty quoted key");
+  abc := d.get(`a`).unwrap().get(`b`).unwrap().get(`c`).unwrap();
+  assert(abc.as_int().unwrap() == i64(4), "a dotted key builds nested tables");
+  assert(!d.has_key(`a.b.c`), "and does NOT make one flat key with dots in it");
+  assert(d.get(`quoted`).unwrap().get(`nested`).unwrap().as_int().unwrap() == i64(5), "quoted then bare");
+  assert(d.get(`spaced`).unwrap().get(`out`).unwrap().as_int().unwrap() == i64(6), "spaces around the dot");
+});
+test("Table headers, nested and out of order", {
+  d := _doc(
+    `title = "root"
+[server.http]
+port = 80
+[server]
+host = "localhost"
+[a.b.c]
+x = 1`
+  );
+  assert(d.get(`title`).unwrap().as_string().unwrap() == `root`, "root key");
+  srv := d.get(`server`).unwrap();
+  assert(srv.get(`host`).unwrap().as_string().unwrap() == `localhost`, "the super-table may be defined afterwards");
+  assert(srv.get(`http`).unwrap().get(`port`).unwrap().as_int().unwrap() == i64(80), "[server.http] nests");
+  assert(!d.has_key(`server.http`), "and is not one flat key");
+  assert(
+    d.get(`a`).unwrap().get(`b`).unwrap().get(`c`).unwrap().get(`x`).unwrap().as_int().unwrap() == i64(1),
+    "three levels"
+  );
+});
+test("Arrays of tables", {
+  d := _doc(
+    `[[products]]
+name = "Hammer"
+sku = 738594937
+
+[[products]]  # an empty element
+
+[[products]]
+name = "Nail"
+sku = 284758393
+
+[[fruit]]
+name = "apple"
+[fruit.physical]
+color = "red"
+[[fruit.variety]]
+name = "granny smith"
+[[fruit.variety]]
+name = "red delicious"
+
+[[fruit]]
+name = "banana"
+[[fruit.variety]]
+name = "plantain"`
+  );
+  products := d.get(`products`).unwrap();
+  assert(products.is_array(), "[[products]] is an array");
+  assert(products.array_len() == usize(3), "three elements");
+  assert(products.at(usize(0)).unwrap().get(`name`).unwrap().as_string().unwrap() == `Hammer`, "first");
+  assert(products.at(usize(1)).unwrap().table_len() == usize(0), "the empty middle element");
+  assert(products.at(usize(2)).unwrap().get(`sku`).unwrap().as_int().unwrap() == i64(284758393), "third");
+  fruit := d.get(`fruit`).unwrap();
+  assert(fruit.array_len() == usize(2), "two fruits");
+  apple := fruit.at(usize(0)).unwrap();
+  assert(apple.get(`physical`).unwrap().get(`color`).unwrap().as_string().unwrap() == `red`, "[fruit.physical] attaches to the last element");
+  assert(apple.get(`variety`).unwrap().array_len() == usize(2), "apple has two varieties");
+  banana := fruit.at(usize(1)).unwrap();
+  assert(banana.get(`variety`).unwrap().array_len() == usize(1), "banana has one, not three");
+  assert(banana.get(`variety`).unwrap().at(usize(0)).unwrap().get(`name`).unwrap().as_string().unwrap() == `plantain`, "and it is the plantain");
+});
+test("Dotted keys extend their own table, and only their own", {
+  d := _doc(
+    `[x]
+a.b = 1
+a.c = 2
+a.d.e = 3`
+  );
+  a := d.get(`x`).unwrap().get(`a`).unwrap();
+  assert(a.table_len() == usize(3), "three dotted branches under one prefix");
+  assert(a.get(`b`).unwrap().as_int().unwrap() == i64(1), "b");
+  assert(a.get(`d`).unwrap().get(`e`).unwrap().as_int().unwrap() == i64(3), "d.e");
+  assert(
+    _rejected(
+      `a.b = 1
+a = 2`
+    ),
+    "a dotted key's prefix cannot then be given a value"
+  );
+  assert(
+    _rejected(
+      `a = 2
+a.b = 1`
+    ),
+    "and a value cannot then be extended by a dotted key"
+  );
+});
+test("A raw CR inside a multi-line string is not a newline", {
+  bad := `s = """a`;
+  bad.push_byte(u8(13));
+  bad.push_str("b\"\"\"");
+  assert(_rejected(bad), "a lone CR is a forbidden control character");
+});
+// ============================================================================
+// Rejection — the corruption rows of the issue, with their offsets
+// ============================================================================
+test("Rejected or parsed correctly: the twelve corruption rows", {
+  // Each of these used to return `.Ok` with a DIFFERENT document.
+  assert(
+    _epos(
+      `a = 1
+a = 2`
+    ) == usize(6),
+    "duplicate key, at the second definition"
+  );
+  assert(
+    _epos(
+      `[t]
+x = 1
+[t]
+y = 2`
+    ) == usize(10),
+    "table redefinition, at the second header"
+  );
+  assert(_epos(`this is not toml at all`) == usize(5), "a garbage line fails at the byte where `=` should be");
+  assert(_epos(`[not a header`) == usize(5), "an unterminated header");
+  assert(_rejected(`n = 99999999999999999999`), "an out-of-range integer");
+  assert(_rejected(`s = """`), "the start of a multi-line string");
+  // The six that must PARSE, correctly.
+  assert(_doc(`[[fruit]]`).get(`fruit`).unwrap().is_array(), "[[fruit]] is an array of tables, not a key named [fruit]");
+  assert(_doc(`[server.http]`).get(`server`).unwrap().get(`http`).unwrap().is_table(), "[server.http] nests");
+  assert(_doc(`"my key" = 1`).has_key(`my key`), "a quoted key loses its quotes");
+  assert(_doc(`a.b = 1`).get(`a`).unwrap().has_key(`b`), "a dotted key nests");
+  assert(_str_at(`s = "a" # "c"`, `s`) == `a`, "a comment after a string");
+  assert(_str_at(`s = "a\\nb"`, `s`).len() == usize(3), "an escape is decoded");
+});
+test("Other rejections carry the right offset", {
+  assert(_epos(`x = 1 y = 2`) == usize(6), "trailing content after a value");
+  assert(_epos(`x = `) == usize(4), "a missing value");
+  assert(_epos(`= 1`) == usize(0), "a missing key");
+  assert(_epos(`x = "unterminated`) == usize(4), "an unterminated basic string points at its quote");
+  assert(
+    _rejected(
+      `x = 1
+[a]
+[a]`
+    ),
+    "a repeated header"
+  );
+  assert(
+    _rejected(
+      `a = 1
+[a]`
+    ),
+    "a header over a non-table value"
+  );
+  assert(
+    _rejected(
+      `a = { b = 1 }
+[a.c]`
+    ),
+    "a header into an inline table"
+  );
+  assert(
+    _rejected(
+      `[a]
+b.c = 1
+[a.b]`
+    ),
+    "a header over a table a dotted key created"
+  );
+  assert(
+    _rejected(
+      `a = [1]
+[[a]]`
+    ),
+    "[[…]] over a plain array"
+  );
+  assert(
+    _rejected(
+      `[[a]]
+[a]`
+    ),
+    "[…] over an array of tables"
+  );
+  assert(_rejected(`x = 1\ry = 2`), "a bare CR is not a newline");
+  assert(
+    !_rejected(
+      `x = 1\r
+y = 2`
+    ),
+    "but CRLF is"
+  );
+  lone_cr :=
+    `x = 1
+`;
+  lone_cr.push_byte(u8(13));
+  lone_cr.push_str("y = 2");
+  assert(_rejected(lone_cr), "a bare CR between lines is not whitespace either");
+});
+// ============================================================================
+// Serialization
+// ============================================================================
+test("Serializer output shape", {
+  d := _doc(
+    `[server]
+port = 8080
+name = "x"
+[server.inner]
+deep = true`
+  );
+  s := toml_stringify(d);
+  assert(s.contains(`[server]`), "a header for the sub-table");
+  assert(s.contains(`[server.inner]`), "a dotted header for the nested table");
+  assert(s.contains(`port = 8080`), "an integer");
+  assert(s.contains(`name = "x"`), "a quoted string");
+  // Every scalar of a table must precede its first sub-table header, or a
+  // reparse would file it under the wrong table.
+  port_at := s.index_of(`port = 8080`).unwrap();
+  inner_at := s.index_of(`[server.inner]`).unwrap();
+  assert(port_at < inner_at, "scalars come before nested headers");
+});
+test("Serializer: keys, floats, arrays of tables, empty tables", {
+  t := TomlValue.new_table();
+  _a := t.insert(`bare_key-1`, TomlValue.Int(i64(1)));
+  _b := t.insert(`needs quoting`, TomlValue.Int(i64(2)));
+  s := toml_stringify(t);
+  assert(s.contains(`bare_key-1 = 1`), "a bare key is written bare");
+  assert(s.contains(`"needs quoting" = 2`), "a key that cannot be bare is quoted");
+  f := TomlValue.new_table();
+  _c := f.insert(`whole`, TomlValue.Float(f64(3.0)));
+  _d := f.insert(`pi`, TomlValue.Float(f64(3.141592653589793)));
+  _e := f.insert(`inf`, TomlValue.Float(f64.INFINITY));
+  _f2 := f.insert(`nan`, TomlValue.Float(f64.NAN));
+  fs := toml_stringify(f);
+  assert(fs.contains(`whole = 3.0`), "an integral float keeps a `.0` so it stays a float");
+  assert(fs.contains(`pi = 3.141592653589793`), "a float renders in full precision, shortest form");
+  assert(fs.contains(`inf = inf`), "infinity");
+  assert(fs.contains(`nan = nan`), "not-a-number");
+  aot := _doc(
+    `[[x]]
+a = 1
+[[x]]
+a = 2`
+  );
+  as_text := toml_stringify(aot);
+  assert(as_text.contains(`[[x]]`), "an array of tables gets [[…]] headers");
+  mixed := _doc(`x = [1, "two"]`);
+  assert(toml_stringify(mixed).contains(`x = [1, "two"]`), "a mixed array stays inline");
+  empty := _doc(`[a]`);
+  assert(toml_stringify(empty).contains(`[a]`), "an empty table still gets its header");
+});
+test("Round trip: one per value kind", {
+  assert(_round_trips(`s = "hi"`), "string");
+  assert(_round_trips(`s = "esc \\n \\t \\" \\\\ \\u00E9 done"`), "string with escapes");
+  assert(
+    _round_trips(
+      `s = """multi
+line"""`
+    ),
+    "multi-line string"
+  );
+  assert(_round_trips(`s = 'literal \\n'`), "literal string");
+  assert(_round_trips(`n = 42`), "integer");
+  assert(_round_trips(`n = -9223372036854775808`), "i64.MIN");
+  assert(_round_trips(`n = 0xff`), "hex integer (as a decimal integer)");
+  assert(_round_trips(`f = 3.14`), "float");
+  assert(_round_trips(`f = 6.626e-34`), "small float");
+  assert(_round_trips(`f = 5e+22`), "large float");
+  assert(_round_trips(`f = inf`), "infinity");
+  assert(_round_trips(`b = true`), "boolean");
+  assert(_round_trips(`d = 1979-05-27T07:32:00Z`), "offset date-time");
+  assert(_round_trips(`d = 1979-05-27T00:32:00.999999-07:00`), "offset date-time with a fraction");
+  assert(_round_trips(`d = 1979-05-27T07:32:00`), "local date-time");
+  assert(_round_trips(`d = 1979-05-27`), "local date");
+  assert(_round_trips(`d = 07:32:00.5`), "local time");
+  assert(_round_trips(`a = [1, [2, 3], "x"]`), "nested heterogeneous array");
+  assert(_round_trips(`t = { a = 1, b = { c = 2 } }`), "inline table");
+  assert(
+    _round_trips(
+      `[a]
+x = 1
+[a.b]
+y = 2`
+    ),
+    "nested tables"
+  );
+  assert(
+    _round_trips(
+      `[[p]]
+a = 1
+[[p]]
+a = 2
+[[p.q]]
+b = 3`
+    ),
+    "arrays of tables"
+  );
+  assert(_round_trips(``), "the empty document");
+  assert(_round_trips(`"dotted.key" = 1`), "a key that contains a dot stays one key");
+  assert(
+    _round_trips(
+      `[[p]]
+[[p]]
+a = 1`
+    ),
+    "an array of tables whose first element is empty"
+  );
+  assert(
+    _round_trips(
+      `["a.b"]
+x = 1`
+    ),
+    "a table whose name contains a dot"
+  );
+});
+test("Round trip: a whole document", {
+  input :=
+    `# a config
+title = "TOML Example"
+
+[owner]
+name = "Tom Preston-Werner"
+dob = 1979-05-27T07:32:00-08:00
+
+[database]
+enabled = true
+ports = [8000, 8001, 8002]
+data = [["delta", "phi"], [3.14]]
+temp_targets = { cpu = 79.5, case = 72.0 }
+
+[servers.alpha]
+ip = "10.0.0.1"
+role = "frontend"
+
+[servers.beta]
+ip = "10.0.0.2"
+role = "backend"
+
+[[fruits]]
+name = "apple"
+
+[[fruits]]
+name = "banana"`;
+  d := _doc(input);
+  assert(d.get(`title`).unwrap().as_string().unwrap() == `TOML Example`, "title");
+  assert(d.get(`owner`).unwrap().get(`dob`).unwrap().is_datetime(), "dob");
+  assert(d.get(`database`).unwrap().get(`ports`).unwrap().array_len() == usize(3), "ports");
+  assert(d.get(`servers`).unwrap().get(`beta`).unwrap().get(`ip`).unwrap().as_string().unwrap() == `10.0.0.2`, "beta ip");
+  assert(d.get(`fruits`).unwrap().array_len() == usize(2), "two fruits");
+  assert(_round_trips(input), "the whole document round-trips");
+  // And the serialized text is stable: stringify twice, same bytes.
+  once := toml_stringify(d);
+  twice := toml_stringify(_doc(once));
+  assert(once == twice, "serialization is deterministic");
+});
+test("ToString renders TOML text; the kind enum compares", {
+  d := _doc(`x = 1`);
+  assert(
+    d.to_string() ==
+      `x = 1
+`,
+    "TomlValue.to_string is the document text"
+  );
+  assert(TomlValue.Int(i64(5)).to_string() == `5`, "a scalar renders inline");
+  dt := _doc(`d = 1979-05-27T00:32:00.5-07:00`).get(`d`).unwrap().as_datetime().unwrap();
+  assert(dt.to_string() == `1979-05-27T00:32:00.5-07:00`, "TomlDateTime.to_string round-trips its text");
+  assert(dt.kind == TomlDateTimeKind.OffsetDateTime, "the kind enum has Eq");
+  assert(dt.kind != TomlDateTimeKind.LocalDate, "and inequality");
+});
+test("Equality compares tables as maps and arrays positionally", {
+  a := _doc(
+    `x = 1
+y = 2`
+  );
+  b := _doc(
+    `y = 2
+x = 1`
+  );
+  assert(a == b, "table key order is not significant");
+  c := _doc(`a = [1, 2]`);
+  d := _doc(`a = [2, 1]`);
+  assert(c != d, "array order IS significant");
+  e := _doc(`n = 1`);
+  f := _doc(`n = 1.0`);
+  assert(e != f, "an integer is not a float");
+  g := _doc(`d = 1979-05-27T07:32:00Z`);
+  h := _doc(`d = 1979-05-27T08:32:00+01:00`);
+  assert(g != h, "the same instant at a different offset is a different TOML value");
+});
