@@ -36,6 +36,7 @@ _(env : proc_env) :: import("std/env");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
 { Instant } :: import("std/time/instant");
+{ get_hardware_threads } :: import("std/thread");
 {
   profile_set_enabled,
   profile_reset,
@@ -2137,9 +2138,17 @@ run_compile :: (
   (sysroot : String) = String.from("");
   (allocator : String) = String.from("system");
   (emit_chunks : usize) = usize(0);
+  // `--emit-chunks auto` (Phase 1, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
+  // §4): N is resolved AFTER emission, from the actual emitted bytes —
+  // clamp(1, cap, emitted / MIN_CHUNK_BYTES) — with cap = YO_JOBS or the
+  // hardware thread count.
+  (emit_chunks_auto : bool) = false;
   (chunk_no_lto : bool) = false;
   // --jobs J: parallel per-chunk `cc -c` jobs (chunked emission only).
-  (jobs : usize) = usize(8);
+  // 0 = not given: defaults to 8, or to the auto cap when --emit-chunks auto
+  // resolves N from the core count (no point minting more chunks than the
+  // driver will compile at once).
+  (jobs : usize) = usize(0);
   (optimize : String) = String.from(""); // "" = unset; "0".."3"
   (sanitize : String) = String.from(""); // "" / "address" / "leak" / "thread"
   (cflags : String) = String.from("");
@@ -2367,7 +2376,14 @@ run_compile :: (
       },
       (a == "--emit-chunks") => {
         ecv := _arg_val_req(argv, ai, String.from("--emit-chunks"), exn);
-        emit_chunks = match(ecv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
+        cond(
+          (ecv == "auto") => {
+            emit_chunks_auto = true;
+          },
+          true => {
+            emit_chunks = match(ecv.parse_u64(), .Some(n) => usize(n), .None => usize(0));
+          }
+        );
         ai = (ai + usize(2));
       },
       (a == "--debug-parallelism") => {
@@ -2430,15 +2446,44 @@ run_compile :: (
   });
   // Chunked emission drives multiple TU inputs through the executable link
   // line; the static-library path compiles ONE input to ONE `.o`.
-  if((emit_chunks >= usize(1)) && static_library, {
+  if(((emit_chunks >= usize(1)) || emit_chunks_auto) && static_library, {
     exn.throw(dyn(String.from("compile: --emit-chunks is not supported with --static-library")));
   });
   // Both flags decide what C files get WRITTEN, so the combination is
   // ambiguous rather than merely redundant: `--emit-c-to` names ONE file, and
   // the chunked path writes a header plus N chunks. (`--emit-c`, which only
   // PRINTS the single-file equivalent, stays allowed.)
-  if((emit_chunks >= usize(1)) && (emit_c_to.len() > usize(0)), {
+  if(((emit_chunks >= usize(1)) || emit_chunks_auto) && (emit_c_to.len() > usize(0)), {
     exn.throw(dyn(String.from("compile: --emit-c-to writes one C file and --emit-chunks writes a header plus N chunks — pass only one")));
+  });
+  // `--emit-chunks auto` cap (Phase 1): YO_JOBS wins when set to a usable
+  // value, else the hardware thread count. A malformed YO_JOBS warns and
+  // falls back — it is a tuning knob, not a correctness setting.
+  (chunk_auto_cap : usize) = usize(0);
+  if(emit_chunks_auto, {
+    match(
+      proc_env.get(String.from("YO_JOBS")),
+      .Some(v) => match(
+        v.parse_u64(),
+        .Some(n) => if(n > u64(0), {
+          chunk_auto_cap = usize(n);
+        }, {
+          eprintln(String.from("compile: YO_JOBS must be a positive integer; ignoring it"));
+        }),
+        .None => {
+          eprintln(String.from("compile: YO_JOBS must be a positive integer; ignoring it"));
+        }
+      ),
+      .None => ()
+    );
+    if(chunk_auto_cap == usize(0), {
+      chunk_auto_cap = get_hardware_threads();
+    });
+  });
+  // --jobs default: 8, or the auto cap (no point minting more chunks than
+  // the driver will compile at once).
+  if(jobs == usize(0), {
+    jobs = cond((chunk_auto_cap >= usize(1)) => chunk_auto_cap, true => usize(8));
   });
   // ----- C compiler resolution (src/yo-cli.ts:468-486) ---------------------
   // Auto-select emcc for wasm targets when --cc was not given; otherwise probe
@@ -2676,7 +2721,16 @@ run_compile :: (
     // wrapper (is_library = true). Allocator + debug-logging flags are threaded
     // through to the code generator (mirrors CodeGeneratorC.compileModule).
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks);
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
+    // `--emit-chunks auto` resolved its N inside compile_module (from the
+    // actual emitted bytes); read it back so every later decision — the
+    // chunk writer, the ThinLTO gate, the driver report — sees the real N.
+    if(emit_chunks_auto, {
+      emit_chunks = cond(
+        (chunk_parts.len() > usize(1)) => (chunk_parts.len() - usize(1)),
+        true => usize(0)
+      );
+    });
     // --emit-c prints the generated C to stdout (module-manager.ts:473-475) —
     // and compilation continues; only --skip-c-compiler stops before the link.
     if(emit_c, {
@@ -5076,7 +5130,8 @@ Options:
   --emit-c-to <path>        Write the generated C to a file and stop
   --skip-c-compiler         Generate C but skip the C compile
   --skip-codegen            Evaluate only (no C generation)
-  --emit-chunks <n>         Split emitted C into n translation units (implies -flto=thin)
+  --emit-chunks <n|auto>    Split emitted C into n translation units (implies -flto=thin);
+                            auto picks n from emitted size and core count (YO_JOBS overrides)
   --no-chunk-lto            Opt out of ThinLTO for chunked builds
   --jobs <n>                Parallel C compiles for chunked builds
   --compile-timeout-ms <ms> C compiler timeout
@@ -5119,7 +5174,8 @@ Examples:
   --emit-c-to <path>        把生成的 C 写入文件然后停止
   --skip-c-compiler         只生成 C，跳过 C 编译
   --skip-codegen            只做求值（不生成 C）
-  --emit-chunks <n>         把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）
+  --emit-chunks <n|auto>    把生成的 C 拆成 n 个翻译单元（隐含 -flto=thin）；
+                            auto 按产物大小与核数选 n（可用 YO_JOBS 覆盖）
   --no-chunk-lto            分块构建时退出 ThinLTO
   --jobs <n>                分块构建的并行 C 编译数
   --compile-timeout-ms <ms> C 编译器超时

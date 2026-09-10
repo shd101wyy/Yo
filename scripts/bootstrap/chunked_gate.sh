@@ -17,9 +17,10 @@
 # compilers would disagree on some emitted byte. They do not.
 #
 # Cost: two full self-builds plus two self-emits (~12 min on an M4, and a lot
-# of RAM). That is why this is a script you run deliberately rather than a CI
-# job on every PR — `--emit-chunks` is opt-in and no default path uses it. Wire
-# it in if chunking ever becomes a default (see the plan's four conditions).
+# of RAM). Since Phase 1 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §4)
+# made `--emit-chunks auto` the default for DEBUG `yo build` executables,
+# chunking IS a default path, so test.yml runs this as the `chunked-gate` job
+# on every code PR (against the shared suite-candidate binary).
 set -u
 cd "$(dirname "$0")/../.." || exit 2
 S1=${S1:?set S1 to a working yo binary}
