@@ -675,14 +675,42 @@ entries. `checked_shl` is not a convenience: a shift by the width or more is
 undefined behaviour in C, so the count must be rejected BEFORE the shift is
 performed, which is exactly what the `.None` arm does.
 
-The existing per-type bit batteries (`count_ones`, `leading_zeros`,
-`rotate_left`, …) stay per-type, and the banner now gives the real reason:
-width alone is not enough for them — each needs the receiver widened to `u64`
-THROUGH its own unsigned type (`i8(-1).count_ones()` is 8, not 64), and a
-blanket body cannot spell "the unsigned type of the same width". That is also
-why `unsigned_abs` is per-type: its RESULT is the receiver's unsigned
-counterpart. Yo has no associated TYPE; that, not `BITS`, is the remaining
-limitation.
+`unsigned_abs` is ALSO one blanket impl, over a new `UnsignedCounterpart`
+trait carrying an ASSOCIATED TYPE (`Unsigned : Type`), so the body can name
+its own result:
+
+```rust
+UnsignedCounterpart :: trait(id := "UnsignedCounterpart", Unsigned : Type);
+impl(i8, UnsignedCounterpart(Unsigned : u8));
+…
+impl(
+  generic(T : Type),
+  where(T <: (Integer, SignedInteger, UnsignedCounterpart)),
+  T,
+  unsigned_abs : (fn(self : T) -> T.Unsigned)(T.Unsigned(self.wrapping_abs()))
+);
+```
+
+**It was first written five times, once per signed type, on the belief that
+"Yo has no associated type to name the unsigned type of the same width". That
+belief was wrong.** Associated types are a documented Yo feature —
+`docs/en-US/DESIGN.md` specifies `Iterator`/`IntoIterator` in terms of
+`Item : Type`, `Self.Item` and `Trait(Item := X)` — and a probe confirmed the
+exact shape needed works today: an associated type in a RETURN position,
+supplied per-type, consumed from a blanket impl, and used as a constructor.
+The five copies were replaced with one.
+
+The same correction applies to the per-type bit batteries (`count_ones`,
+`leading_zeros`, `rotate_left`, …). They need the receiver widened to `u64`
+THROUGH its own unsigned type (`i8(-1).count_ones()` is 8, not 64), and
+`T.Unsigned` now names that type — so collapsing those ten blocks into one
+blanket impl is a REFACTOR nobody has done, not a language limitation. The
+banner says so instead of blaming the language.
+
+**The lesson, for the rest of this campaign:** "Yo has no X" in a comment is a
+claim about a moving target, and three of them turned out to be false in one
+day (`T.BITS` as an associated constant, associated types, and
+`async/channel.try_recv`'s shape). Probe before working around.
 
 One thing this batch had to get right twice: `-1` cannot be spelled
 `T(0) - T(1)` in a blanket body. On an unsigned instantiation that is a
@@ -1075,6 +1103,39 @@ candidates are the `io.spawn` codegen path, how an await of an
 already-completed future suspends, and corruption via the LIFO continuation
 free list. Do not weaken the assertion — it encodes the documented
 cooperative-scheduling contract.
+
+---
+
+## 4b. Language features this campaign is blocked on
+
+Five rows cannot be closed in `std/` alone. Each now has a design doc written
+from the blocked call sites, in `plans/backlog/`:
+
+| blocked row | language feature | doc |
+| --- | --- | --- |
+| waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](backlog/WAKER_BASED_SCHEDULING.md) |
+| `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility (`priv`, plus a path-prefix scope for the cross-module `std/` callers) | [`MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) |
+| `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
+| the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
+| `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |
+
+`ErrorChain`/`root_cause` is a sixth blocker but is a compiler DEFECT rather
+than a missing feature —
+`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`
+(filed as #521).
+
+**Three "Yo has no X" claims in this document were measured and found false**
+on 2026-09-10, so treat the rest with the same suspicion:
+
+- `T.BITS` as an associated constant — `MIN`/`MAX` were already exactly that.
+- Associated TYPES — a documented feature (`docs/en-US/DESIGN.md`'s
+  `Iterator`/`IntoIterator`), working today in a return position, supplied
+  per-type, consumed from a blanket impl and used as a constructor.
+- `async/channel.try_recv` "still returns `Option(T)`" — it returns
+  `Result(T, TryRecvError)` and has since #506.
+
+Each cost a per-type workaround that was written and then deleted. Probe
+first.
 
 ---
 

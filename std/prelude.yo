@@ -5145,75 +5145,35 @@ impl(
     cond((self == T.MIN) => T.MIN, (self < T(0)) => (T(0) - self), true => self)
   )
 );
-impl(
-  i8,
-  /// The absolute value as the same-width UNSIGNED type — Rust's
-  /// `unsigned_abs`. This is the one absolute value that is total: `i8.MIN`
-  /// has no positive counterpart in `i8`, so `abs` must panic there, while
-  /// its magnitude fits `u8` exactly.
-  ///
-  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
-  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
-  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
-  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
-  /// unsigned magnitude.
-  unsigned_abs : (fn(self : Self) -> u8)(u8(self.wrapping_abs()))
+/// The same-width UNSIGNED counterpart of a signed integer type.
+///
+/// An ASSOCIATED TYPE, which is the whole point: `unsigned_abs` needs to name
+/// "the unsigned type of the same width" in its RESULT position, and
+/// `T.Unsigned` is exactly that name. Without it the method would have to be
+/// written out once per signed type — five copies of one body, differing only
+/// in a cast.
+UnsignedCounterpart :: trait(
+  id := "UnsignedCounterpart",
+  Unsigned : Type
 );
+export(UnsignedCounterpart);
+impl(i8, UnsignedCounterpart(Unsigned : u8));
+impl(i16, UnsignedCounterpart(Unsigned : u16));
+impl(i32, UnsignedCounterpart(Unsigned : u32));
+impl(i64, UnsignedCounterpart(Unsigned : u64));
+impl(isize, UnsignedCounterpart(Unsigned : usize));
 impl(
-  i16,
+  generic(T : Type),
+  where(T <: (Integer, SignedInteger, UnsignedCounterpart)),
+  T,
   /// The absolute value as the same-width UNSIGNED type — Rust's
-  /// `unsigned_abs`. This is the one absolute value that is total: `i16.MIN`
-  /// has no positive counterpart in `i16`, so `abs` must panic there, while
-  /// its magnitude fits `u16` exactly.
+  /// `unsigned_abs`. This is the one absolute value that is TOTAL: `T.MIN`
+  /// has no positive counterpart in `T`, so `abs` must panic there, while its
+  /// magnitude fits `T.Unsigned` exactly.
   ///
-  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
-  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
-  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
-  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
-  /// unsigned magnitude.
-  unsigned_abs : (fn(self : Self) -> u16)(u16(self.wrapping_abs()))
-);
-impl(
-  i32,
-  /// The absolute value as the same-width UNSIGNED type — Rust's
-  /// `unsigned_abs`. This is the one absolute value that is total: `i32.MIN`
-  /// has no positive counterpart in `i32`, so `abs` must panic there, while
-  /// its magnitude fits `u32` exactly.
-  ///
-  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
-  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
-  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
-  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
-  /// unsigned magnitude.
-  unsigned_abs : (fn(self : Self) -> u32)(u32(self.wrapping_abs()))
-);
-impl(
-  i64,
-  /// The absolute value as the same-width UNSIGNED type — Rust's
-  /// `unsigned_abs`. This is the one absolute value that is total: `i64.MIN`
-  /// has no positive counterpart in `i64`, so `abs` must panic there, while
-  /// its magnitude fits `u64` exactly.
-  ///
-  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
-  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
-  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
-  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
-  /// unsigned magnitude.
-  unsigned_abs : (fn(self : Self) -> u64)(u64(self.wrapping_abs()))
-);
-impl(
-  isize,
-  /// The absolute value as the same-width UNSIGNED type — Rust's
-  /// `unsigned_abs`. This is the one absolute value that is total: `isize.MIN`
-  /// has no positive counterpart in `isize`, so `abs` must panic there, while
-  /// its magnitude fits `usize` exactly.
-  ///
-  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
-  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
-  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
-  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
-  /// unsigned magnitude.
-  unsigned_abs : (fn(self : Self) -> usize)(usize(self.wrapping_abs()))
+  /// The body is `wrapping_abs` reinterpreted: at `MIN` that is `MIN` itself,
+  /// whose two's-complement bit pattern IS the unsigned magnitude.
+  unsigned_abs : (fn(self : T) -> T.Unsigned)(T.Unsigned(self.wrapping_abs()))
 );
 /**
 * Bit-level integer batteries, Rust's shapes.
@@ -5221,9 +5181,10 @@ impl(
 * Every one of them is a WIDTH-dependent operation. `T.BITS` now exists (added
 * beside `MIN`/`MAX`, which is what lets the SHIFTS above be a single blanket
 * impl), but width alone is not enough here: each of these needs the receiver
-* widened to `u64` THROUGH its own unsigned type, and a `where(T <: Integer)`
-* body cannot spell "the unsigned type of the same width" — Yo has no
-* associated type. They are therefore written ONCE over
+* widened to `u64` THROUGH its own unsigned type. `UnsignedCounterpart` above
+* now names that type (`T.Unsigned`), so collapsing these ten blocks into one
+* blanket impl is possible — it is simply a refactor nobody has done yet, not
+* a language limitation. They are for now written ONCE over
 * `u64` here and delegated to per-type, with the width as a literal — which is
 * also how Rust implements them (its macro pastes the width in).
 *
