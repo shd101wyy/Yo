@@ -1,0 +1,22 @@
+{ println } :: import("std/fmt");
+
+// Can an associated CONSTANT be an Array length in a blanket impl? If so,
+// `to_be_bytes`/`from_le_bytes` collapse from ten per-type copies to one,
+// and usize/isize can have them at all.
+Widthy :: trait(BYTES : usize);
+impl(u8, Widthy(BYTES : usize(1)));
+impl(u32, Widthy(BYTES : usize(4)));
+
+impl(
+  generic(T : Type),
+  where(T <: Widthy),
+  T,
+  zeros : (fn(self : T) -> Array(u8, T.BYTES))(Array(u8, T.BYTES).fill(u8(0)))
+);
+
+main :: (fn() -> unit)({
+  a := u8(1).zeros();
+  b := u32(1).zeros();
+  println(`${a.len()} ${b.len()}`);
+});
+export(main);

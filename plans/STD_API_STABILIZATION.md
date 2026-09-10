@@ -658,6 +658,129 @@ one-connection-at-a-time, so a client that holds a keep-alive connection open
 and sends nothing would wedge the server — which is why the server half is not
 simply "loop until the client closes".
 
+**`BITS` as an associated constant — LANDED 2026-09-10, and it retires a
+documented blocker.**
+
+The bit-battery banner in `std/prelude.yo` said a width-dependent operation
+"cannot" be a `where(T <: Integer)` blanket impl because "Yo has no `T.BITS`
+associated constant". That was a gap in `std/`, not in the language: `MIN` and
+`MAX` are ordinary associated constants declared in an `impl` (`MIN : u8(0)`),
+and a blanket body already reads `T.MIN`. So `BITS : u32(8)` sits beside them
+for the eight fixed-width types, and beside `_USIZE_BITS` for `usize`/`isize`
+— which is where their target-dependent width is already decided.
+
+With it, the six shift methods (`checked_shl`/`shr`, `wrapping_shl`/`shr`,
+`overflowing_shl`/`shr`) are ONE blanket impl rather than sixty per-type
+entries. `checked_shl` is not a convenience: a shift by the width or more is
+undefined behaviour in C, so the count must be rejected BEFORE the shift is
+performed, which is exactly what the `.None` arm does.
+
+`unsigned_abs` is ALSO one blanket impl, over a new `UnsignedCounterpart`
+trait carrying an ASSOCIATED TYPE (`Unsigned : Type`), so the body can name
+its own result:
+
+```rust
+UnsignedCounterpart :: trait(id := "UnsignedCounterpart", Unsigned : Type);
+impl(i8, UnsignedCounterpart(Unsigned : u8));
+…
+impl(
+  generic(T : Type),
+  where(T <: (Integer, SignedInteger, UnsignedCounterpart)),
+  T,
+  unsigned_abs : (fn(self : T) -> T.Unsigned)(T.Unsigned(self.wrapping_abs()))
+);
+```
+
+**It was first written five times, once per signed type, on the belief that
+"Yo has no associated type to name the unsigned type of the same width". That
+belief was wrong.** Associated types are a documented Yo feature —
+`docs/en-US/DESIGN.md` specifies `Iterator`/`IntoIterator` in terms of
+`Item : Type`, `Self.Item` and `Trait(Item := X)` — and a probe confirmed the
+exact shape needed works today: an associated type in a RETURN position,
+supplied per-type, consumed from a blanket impl, and used as a constructor.
+The five copies were replaced with one.
+
+The same correction applies to the per-type bit batteries (`count_ones`,
+`leading_zeros`, `rotate_left`, …). They need the receiver widened to `u64`
+THROUGH its own unsigned type (`i8(-1).count_ones()` is 8, not 64), and
+`T.Unsigned` now names that type — so collapsing those ten blocks into one
+blanket impl was a REFACTOR nobody had done, not a language limitation.
+**That refactor then landed too, and it took two compiler fixes with it —
+described just below.**
+
+**The lesson, for the rest of this campaign:** "Yo has no X" in a comment is a
+claim about a moving target, and three of them turned out to be false in one
+day (`T.BITS` as an associated constant, associated types, and
+`async/channel.try_recv`'s shape). Probe before working around.
+
+**The ten bit batteries are now ONE blanket impl — LANDED 2026-09-10, and
+writing it surfaced two codegen defects.**
+
+`count_ones`, `count_zeros`, `leading_zeros`, `trailing_zeros`,
+`leading_ones`, `trailing_ones`, `rotate_left`, `rotate_right`,
+`reverse_bits` and `swap_bytes` were ten near-identical `impl(<type>, …)`
+blocks — a hundred method bodies differing only in a width literal and a cast.
+They are now one `where(T <: (Integer, UnsignedCounterpart))` blanket over
+`T.BITS` and `T.Unsigned`, and `is_power_of_two` /
+`checked_next_power_of_two` / `next_power_of_two` are a second blanket
+restricted by a new `UnsignedInteger` marker (the mirror of `SignedInteger`,
+and the half of the integers Rust defines them on). Net −314 lines of
+`std/prelude.yo`.
+
+Three small pieces made it possible:
+
+- **`UnsignedCounterpart` now covers the unsigned types too**, each naming
+  ITSELF (`impl(u8, UnsignedCounterpart(Unsigned : u8))`). Trivial, and it is
+  what lets one blanket serve all ten types: `T.Unsigned` is the type every
+  receiver is widened through, so the unsigned half has to name it as well.
+- **The result comes back as `T(T.Unsigned(x))`**, which truncates the `u64`
+  to the receiver's width and only then reinterprets the sign — so a rotate or
+  a byte swap cannot leak bits from above the type.
+- **`_USIZE_BITS` and the `usize`/`isize` `BITS` impls moved above the
+  blankets**, since the blanket reads `T.BITS` for those two types as well.
+
+**Codegen defect 1 — a unary operator on a value of a GENERIC type parameter
+could not be transpiled at all.** `~self` inside a blanket-impl body compiled
+to a `// Failed to transpile` marker, which then became an
+`__attribute__((error))` stub, which failed the C compile at every call site —
+while `yo check` reported "evaluator OK". Unary `-self` failed identically.
+Cause: codegen has two operator fast paths that lower a PRIMITIVE operand
+straight to the C operator instead of dispatching to the trait method, because
+for a primitive the trait impl's body IS an inline builtin and there is no real
+function to call. The infix path covers every binary operator; the unary path
+covered **`!` only**. It was gated that narrowly because
+`_operator_inline_name` is keyed by the operator SYMBOL alone and `-` has two
+lowerings — an earlier attempt to widen the gate diverted a prefix `-y` into
+the BINARY lowering and emitted `(y) - ()`. The fix is a second, ARITY-keyed
+table (`_unary_operator_inline_name`: `!`, `~`, `-`), so the two readings of
+`-` can no longer collide.
+(`issues/fixed/unary-operator-on-a-generic-parameter-fails-to-transpile.md`)
+
+**Codegen defect 2 — the inline unary lowering did not narrow its result, and
+that one was a WRONG ANSWER rather than a failed compile.** C promotes
+`~(uint8_t)255` to `int` `0xFFFFFF00`; the trait-method path never noticed
+because a primitive's `bit_not` impl is a real function whose RETURN TYPE does
+the conversion, but an inline lowering has none. Measured:
+`u64((~self))` on a `u8` receiver produced `0xFFFFFFFFFFFFFF00`, and
+`u8.MAX.trailing_ones()` answered `64` instead of `8` — the `(~self) == T(0)`
+guard compared `int -256` against `0` and took the wrong arm. Binding the
+complement to a local first HIDES it, because the local's declared type
+narrows, which is why the ten per-type bodies never hit it. `~` and unary `-`
+now emit `((<operand C type>)(<op>(x)))`.
+
+The lesson for the campaign: **collapsing N copies into one generic body is
+not a behaviour-preserving edit by construction.** The per-type bodies had
+been passing through code paths the generic body does not, and only the
+existing 38-test battery in `tests/int_checked_arithmetic.test.yo` caught the
+`trailing_ones` regression — a value-level oracle, not a compile-level one.
+
+One thing this batch had to get right twice: `-1` cannot be spelled
+`T(0) - T(1)` in a blanket body. On an unsigned instantiation that is a
+comptime overflow and a HARD compile error (`Result -1 exceeds u8 range`), and
+it fires even from an arm the unsigned type would never take. The file's
+existing idiom — `rhs < T(0) && (T(0) - rhs) == T(1)`, which short-circuits
+before the subtraction — is what the five `MIN / -1` guards use.
+
 **`Seek` + `OpenOptions` + `SystemTime` — LANDED 2026-09-09, and the shapes
 each had a reason.**
 
@@ -807,10 +930,15 @@ extension adds ones above the receiver's width — `i8(-1).count_ones()` is 8,
 not 64, and a test pins that at every width. `usize`/`isize` derive their
 width from `usize.MAX` instead of hardcoding 64, because it is 32 on wasm32.
 The private SWAR `popcount` in `std/imm/map.yo` is deleted in favour of
-`u32.count_ones()`. Still open: `abs`/`signum`/`pow` (unchecked forms),
-`abs_diff`, `div_euclid`/`rem_euclid`, `midpoint`, `isqrt`,
-`to_be_bytes`/`from_le_bytes` — the byte conversions want a `SignedInteger`
-marker or per-type `Array(u8, N)` returns, which is a separate change.
+`u32.count_ones()`. **That "still open" list was STALE and is now empty.** Re-measured against the
+code 2026-09-10: `abs`, `signum`, `pow`, `abs_diff`, `div_euclid`,
+`rem_euclid`, `midpoint`, `isqrt` and the byte conversions were all already
+there — `abs`/`signum` under the `SignedInteger` marker the note said they
+wanted, the byte conversions per-type. What was genuinely missing is now in
+(2026-09-10): `wrapping_pow`, `overflowing_pow`, `wrapping_div`,
+`wrapping_rem`, `saturating_div`, `overflowing_neg`, `checked_div_euclid`,
+`checked_rem_euclid`, `ilog2`, `ilog10`, `ilog`, the six shifts, and
+`unsigned_abs`. See the `BITS` note below.
 The `f64`/`f32`
 methods and consts (`sqrt/abs/floor/ceil/round/trunc/is_nan/is_finite/
 is_infinite/signum/min/max/hypot/exp/ln/sin/EPSILON/INFINITY/NAN`) are all
@@ -1037,6 +1165,39 @@ candidates are the `io.spawn` codegen path, how an await of an
 already-completed future suspends, and corruption via the LIFO continuation
 free list. Do not weaken the assertion — it encodes the documented
 cooperative-scheduling contract.
+
+---
+
+## 4b. Language features this campaign is blocked on
+
+Five rows cannot be closed in `std/` alone. Each now has a design doc written
+from the blocked call sites, in `plans/backlog/`:
+
+| blocked row | language feature | doc |
+| --- | --- | --- |
+| waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](backlog/WAKER_BASED_SCHEDULING.md) |
+| `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility (`priv`, plus a path-prefix scope for the cross-module `std/` callers) | [`MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) |
+| `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
+| the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
+| `rand.thread_rng` | thread-local storage | [`THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) |
+
+`ErrorChain`/`root_cause` is a sixth blocker but is a compiler DEFECT rather
+than a missing feature —
+`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`
+(filed as #521).
+
+**Three "Yo has no X" claims in this document were measured and found false**
+on 2026-09-10, so treat the rest with the same suspicion:
+
+- `T.BITS` as an associated constant — `MIN`/`MAX` were already exactly that.
+- Associated TYPES — a documented feature (`docs/en-US/DESIGN.md`'s
+  `Iterator`/`IntoIterator`), working today in a return position, supplied
+  per-type, consumed from a blanket impl and used as a constructor.
+- `async/channel.try_recv` "still returns `Option(T)`" — it returns
+  `Result(T, TryRecvError)` and has since #506.
+
+Each cost a per-type workaround that was written and then deleted. Probe
+first.
 
 ---
 

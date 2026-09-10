@@ -1146,6 +1146,74 @@ block-shaped (unit) sibling arm is a type error ("Incompatible types" /
 "{ ... } without semicolons"). Brace-and-semicolon every arm whose result
 is not meant to be the value: `(c) => { bytes.push(b); },`.
 
+### Associated CONSTANTS exist, and a blanket body can read them
+
+An `impl` may declare a plain value member beside its methods, and that member
+is readable off the TYPE — including off a generic type parameter inside a
+blanket impl. `MIN`/`MAX`/`BITS` on the integer types are exactly this:
+
+```rust
+impl(u8, MIN : u8(0), MAX : u8(255), BITS : u32(8));
+impl(usize, BITS : _USIZE_BITS);          // a comptime-computed value is fine
+
+impl(
+  generic(T : Type),
+  where(T <: Integer),
+  T,
+  // T.BITS is what makes a WIDTH-dependent method writable ONCE instead of
+  // ten times.
+  checked_shl : (fn(self : T, n : u32) -> Option(T))(
+    cond((n >= T.BITS) => Option(T).None, true => Option(T).Some((self << T(n))))
+  )
+);
+```
+
+Pair it with an associated TYPE when a method's RESULT depends on the receiver
+type — `T.Unsigned` from a `UnsignedCounterpart(Unsigned : Type)` trait is how
+`unsigned_abs` and the ten bit batteries became single blanket impls:
+
+```rust
+UnsignedCounterpart :: trait(id := "UnsignedCounterpart", Unsigned : Type);
+impl(i8, UnsignedCounterpart(Unsigned : u8));
+impl(u8, UnsignedCounterpart(Unsigned : u8));   // an unsigned type names ITSELF
+
+impl(
+  generic(T : Type),
+  where(T <: (Integer, UnsignedCounterpart)),
+  T,
+  count_ones : (fn(self : T) -> u32)(_popcount_u64(u64(T.Unsigned(self))))
+);
+```
+
+**Do NOT read an associated constant from a TYPE position.** `-> Array(u8,
+T.BYTES)` silently resolves the length to **0** in the signature while
+specialized bodies emit the right widths, which produces invalid C
+(`issues/associated-constant-in-a-type-position-resolves-to-zero.md`,
+`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`). A VALUE position is
+fine; a type position is not.
+
+### "Yo has no X" in a comment is a claim about a moving target
+
+Three such comments in `std/` were measured FALSE in one day (`T.BITS` as an
+associated constant, associated types at all, and `channel.try_recv`'s shape),
+and each had already produced a per-type workaround that then got deleted.
+Probe before working around: a 15-line `tmp/probe.yo` plus
+`yo compile tmp/probe.yo --std-path ./std --emit-c --skip-c-compiler` settles
+it in under a minute, and `grep "failed to transpile"` on the emitted C is the
+oracle — `yo check` is evaluator-only and reports OK over a body codegen
+cannot emit.
+
+### Collapsing N per-type copies into one generic body is not behaviour-preserving
+
+The per-type bodies were reaching code paths the generic body does not. Two
+real regressions came out of one such collapse: a unary `~`/`-` on a
+generic-typed value could not be transpiled at all (the unary inline fast path
+was gated to `!`), and the inline `~` lowering did not narrow its result, so
+`u64((~self))` on a `u8` gave `0xFFFFFFFFFFFFFF00` and
+`u8.MAX.trailing_ones()` answered 64 instead of 8. Both were caught by a
+VALUE-level test battery, not by the compile. Collapse behind assertions that
+check answers, not just that it builds.
+
 ### A trait where-clause cannot bind another trait's assoc type to its OWN
 
 A trait may name its own associated type in a METHOD signature (`Self.Item`),

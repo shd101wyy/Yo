@@ -95,6 +95,34 @@ generalize) and
 [`backlog/ZEROLANG_AGENT_FIRST_LESSONS.md`](backlog/ZEROLANG_AGENT_FIRST_LESSONS.md)
 (a keep/reject audit, explicitly not a commitment).
 
+**Language features the std campaign is blocked on** (added 2026-09-10, each
+written from the std row that needs it, with the blocked call sites named):
+
+- [`backlog/WAKER_BASED_SCHEDULING.md`](backlog/WAKER_BASED_SCHEDULING.md) —
+  the largest one. Everything that waits on a peer (async `Mutex`, `Channel`,
+  `yield`, the combinators) polls a **1 ms timer**, which puts a millisecond
+  floor under every hand-off and makes `spawn_blocking` inexpressible.
+- [`backlog/MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) — Yo has no
+  visibility mechanism; the leading-underscore convention standing in for it
+  covers **752 members** in `std/` and enforces nothing. Blocks three
+  stabilization rows, including `Mutex._raw_lock`.
+- [`backlog/ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) —
+  no async analogue of `Iterator`, so four std APIs have each invented their
+  own "value, later, repeatedly" shape. Blocks `TcpListener.incoming`. This
+  one needs **no compiler change**.
+- [`backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md)
+  — an associated constant in a TYPE position (`Array(u8, T.BYTES)`) silently
+  resolves to **0**. Blocks collapsing the ten per-type byte conversions, and
+  `usize`/`isize` having them at all.
+- [`backlog/THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) — no
+  thread-local storage, so `rand.thread_rng` is not expressible.
+
+Two things measured while writing these, both of which turned out to be
+features Yo already HAS despite comments in the tree saying otherwise:
+associated **types** (`Item : Type`, `Self.Item`, used as a return type and as
+a constructor) and associated **constants** in a value position (`T.BITS`).
+Probe before working around.
+
 ## Conventions
 
 - When a plan completes (or is refuted/superseded), add a closing banner at
