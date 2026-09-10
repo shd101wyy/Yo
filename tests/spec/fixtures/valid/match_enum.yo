@@ -1,0 +1,35 @@
+// match/datatype fixture for the V3 verifier's last subset row
+// (tests/internal/verifier_match.test.yo): a value enum with a match —
+// both proving shapes (positives here; the bugged twin lives in the
+// negative set).
+pragma(Pragma.Verify);
+
+Mark :: enum(On(n : i32), Off);
+
+// bind_floor: match with a binding pattern + a bare variant arm. The
+// binding is USED but the ensures stays provable with unconstrained
+// inputs: (v - v) is 0 under two's-complement wrap, so both arms
+// return >= d exactly.
+bind_floor :: (
+  fn(m : Mark, d : i32, ensures(r >= d)) -> (r : i32)
+)(
+  match(
+    m,
+    .On(v) => (d + (v - v)),
+    .Off => d
+  )
+);
+
+// A construction inside a match arm body: the cond clamps the On-arm's
+// subtraction back to >= 0, so the ensures holds on both paths.
+toggle :: (fn(m : Mark, ensures(r >= i32(0))) -> (r : i32))({
+  n := match(
+    m,
+    .On(v) => (v - i32(1)),
+    .Off => i32(0)
+  );
+  cond(
+    (n < i32(0)) => i32(0),
+    true => n
+  )
+});

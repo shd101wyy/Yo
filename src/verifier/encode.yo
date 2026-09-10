@@ -12,6 +12,8 @@
 //!   - `encode_script` — the full script: determinism options, then the
 //!     content, then the post-check-sat evidence directives
 //!     (get-unsat-core / get-value for the counter-example).
+pragma(Pragma.AllowUnsafe);
+
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { VcSort, VcOp, VcTerm, VcQuantKind, VcQuery } :: import("./terms.yo");
@@ -53,7 +55,8 @@ encode_sort :: (fn(s : VcSort) -> String)(
   match(
     s,
     .BoolS => String.from("Bool"),
-    .BvS(w) => `(_ BitVec ${w.to_string()})`
+    .BvS(w) => `(_ BitVec ${w.to_string()})`,
+    .DataS(name) => name.clone()
   )
 );
 // ============================================================================
@@ -135,6 +138,35 @@ encode_term :: (fn(t : VcTerm) -> String)(
       sb.write_byte(u8(0x29));
       sb.to_string()
     },
+    .Ctor(name, args) => {
+      sb := StringBuilder.new();
+      sb.write_byte(u8(0x28));
+      sb.write_string(name.clone());
+      (ci : usize) = usize(0);
+      while(ci < args.len(), {
+        match(
+          args.get(ci),
+          .Some(a) => {
+            sb.write_byte(u8(0x20));
+            sb.write_string(encode_term(a));
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      sb.write_byte(u8(0x29));
+      sb.to_string()
+    },
+    // NOTE: the child bindings are deliberately NOT named `t` — binding the
+    // scrutinee's own name hit the codegen self-referential-initializer UB
+    // (C11 6.2.1p4; issues/fixed/match-binding-shadows-scrutinee-...) and the
+    // v0.2.29 seed still miscompiles it, breaking every local run.
+    // Test renders `(is-<ctor> t)`; Proj renders `(<accessor> t)` where the
+    // accessor is the MANGLED `<ctor>_<label>` symbol the datatype's
+    // constructor declares (z3 resolves field access by symbol, not
+    // position).
+    .Test(ctor, child) => `(is-${ctor} ${encode_term(child)})`,
+    .Proj(ctor, _, child) => `(${ctor} ${encode_term(child)})`,
     .Quant(kind, names, sorts, body) => {
       kw := match(
         kind,
@@ -177,8 +209,155 @@ encode_term :: (fn(t : VcTerm) -> String)(
 /// The logic content of one obligation: declarations, named assumptions,
 /// the negated goal, and check-sat. No options, no evidence directives —
 /// this text (plus run options) is the cache key input.
+/// Deterministically ordered copy of a small string list (the datatype
+/// entries; insertion sort — same discipline as the verifier's
+/// `_sorted_strings`).
+_sorted_lines :: (fn(xs : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    match(
+      xs.get(i),
+      .Some(x) => {
+        out.push(x.clone());
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  // An empty (or single-element) list has nothing to sort — and an empty
+  // ArrayList's ptr() is None, so the unwrap below must not run.
+  if(out.len() > usize(1), {
+    buf := out.ptr().unwrap();
+    (j : usize) = usize(1);
+    while(j < out.len(), {
+      key := (unsafe((buf.add(j)).*)).clone();
+      (k : usize) = j;
+      while(k > usize(0), {
+        prev := unsafe((buf.add(k - usize(1))).*);
+        if(prev <= key, {
+          break;
+        });
+        unsafe((buf.add(k)).* = prev);
+        k = (k - usize(1));
+      });
+      unsafe((buf.add(k)).* = key);
+      j = (j + usize(1));
+    });
+  });
+  out
+});
+/// Wrap each constructor segment of a datatype entry's ctor list in its
+/// own parens, flattening the field group: SMT-LIB 2.6 grammar is
+/// `((C0 (a S)) (C1))` — one paren'd constructor per segment, accessor
+/// pairs directly under it — while the entry stores the flat
+/// `C0 ((a S)) C1` (the group keeps multi-field ctors one segment).
+_wrap_ctor_segments :: (fn(ctors : String) -> String)({
+  parts := ArrayList(String).new();
+  (i : usize) = usize(0);
+  (n : usize) = ctors.len();
+  (go : bool) = true;
+  while(go, {
+    while((i < n) && (ctors.byte_at(i) == u8(0x20)), {
+      i = (i + usize(1));
+    });
+    if(i < n, {
+      seg := StringBuilder.new();
+      seg.write_byte(u8(0x28));
+      while((i < n) && !(ctors.byte_at(i) == u8(0x20)), {
+        seg.write_byte(ctors.byte_at(i));
+        i = (i + usize(1));
+      });
+      if(((i + usize(1)) < n) && (ctors.byte_at(i) == u8(0x20)) && (ctors.byte_at(i + usize(1)) == u8(0x28)), {
+        // Consume the balanced group, then emit its INNER text (drop the
+        // group's own parens): `(C (a S) (b S))`, not `(C ((a S) (b S)))`.
+        seg.write_byte(u8(0x20));
+        i = (i + usize(1));
+        gs := (i + usize(1));
+        (depth : usize) = usize(0);
+        (scan : bool) = true;
+        while(scan && (i < n), {
+          b := ctors.byte_at(i);
+          cond(
+            (b == u8(0x28)) => {
+              depth = (depth + usize(1));
+            },
+            (b == u8(0x29)) => {
+              depth = (depth - usize(1));
+              if(depth == usize(0), {
+                scan = false;
+              });
+            },
+            true => ()
+          );
+          i = (i + usize(1));
+        });
+        seg.write_string(ctors.substring(gs, i - usize(1)));
+      });
+      seg.write_byte(u8(0x29));
+      parts.push(seg.to_string());
+    }, {
+      go = false;
+    });
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < parts.len(), {
+    if(j > usize(0), {
+      sb.write_byte(u8(0x20));
+    });
+    sb.write_string(parts.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
 encode_content :: (fn(q : VcQuery) -> String)({
   sb := StringBuilder.new();
+  // The datatype block FIRST (constants may carry datatype sorts; one
+  // combined declare-datatypes covers mutual recursion without ordering
+  // constraints). Deterministic order: the entries are pre-sorted by the
+  // builder; a stable re-sort keeps the encoding reproducible regardless.
+  dt_entries := _sorted_lines(q.datatypes);
+  if(dt_entries.len() > usize(0), {
+    sb.write_str("(declare-datatypes (");
+    (ti : usize) = usize(0);
+    while(ti < dt_entries.len(), {
+      match(
+        dt_entries.get(ti),
+        .Some(entry) => {
+          // Each entry is "<name>|<ctors...>": split at the first '|'.
+          bar := entry.index_of(String.from("|"));
+          nm := match(
+            bar,
+            .Some(b) => entry.substring(usize(0), b),
+            .None => entry.clone()
+          );
+          sb.write_string(`(${nm} 0)`);
+        },
+        .None => ()
+      );
+      ti = (ti + usize(1));
+    });
+    sb.write_str(") (");
+    (tj : usize) = usize(0);
+    while(tj < dt_entries.len(), {
+      match(
+        dt_entries.get(tj),
+        .Some(entry) => {
+          bar := entry.index_of(String.from("|"));
+          ctors := match(
+            bar,
+            .Some(b) => entry.substring(b + usize(1), entry.len()),
+            .None => String.new()
+          );
+          sb.write_string(`(${_wrap_ctor_segments(ctors)})`);
+        },
+        .None => ()
+      );
+      tj = (tj + usize(1));
+    });
+    sb.write_str("))\n");
+  });
   (di : usize) = usize(0);
   while(di < q.declarations.len(), {
     match(
