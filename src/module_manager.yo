@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 { Path } :: import("std/path");
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
-{ current_exe } :: import("std/env");
+{ current_exe, cwd } :: import("std/env");
 { Instant } :: import("std/time/instant");
 { profile_record_module } :: import("./utils.yo");
 { AstExpr } :: import("./expr.yo");
@@ -205,6 +205,30 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
 /// loaded and the majority of user code references (`Option`, `Box`, `+`, …)
 /// fail with "Variable not found".
 ///
+/// Canonicalize a std-directory spelling: absolute (against the cwd when
+/// relative), separators normalized, `.`/`..` folded LEXICALLY. The resolved
+/// std path feeds module paths, which feed TYPE KEYS and mangled C names —
+/// two spellings of one directory (`YO_STD=<abs>` vs `--std-path ./std`)
+/// otherwise produce different emitted C, so any two-stage comparison whose
+/// stages resolve std differently (a local bootstrap fixpoint: stage-1 via
+/// exe-walk-up, stage-3 via the ./std fallback) false-fails on ~19k lines of
+/// `__yo_tN` renumbering churn
+/// (issues/fixpoint-gate-std-path-spelling-changes-type-keys.md). Lexical
+/// only — no symlink resolution: this is sync and runs inside the module
+/// loader. Falls back to the raw spelling when the cwd is unobtainable.
+_std_canonicalize :: (fn(p : String) -> String)({
+  path := Path.new(p.clone());
+  if(!path.is_absolute(), {
+    match(
+      cwd(),
+      .Ok(base) => {
+        path = base.join(path);
+      },
+      .Err(_) => ()
+    );
+  });
+  path.normalize().to_string()
+});
 /// Lookup order (mirrors TS `module-manager.ts` `findStdDirectory`):
 ///   1. The `--std-path` CLI flag (stashed via `set_std_path_override`).
 ///   2. `YO_STD` env var, if set and non-empty.
@@ -212,11 +236,14 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
 ///      executable's directory. This is what makes an installed release
 ///      bundle (`<prefix>/bin/yo` + `<prefix>/std`) self-locating.
 ///   4. `./std` relative to the current working directory (repo dev flow).
+///
+/// Every branch returns the CANONICALIZED spelling (see `_std_canonicalize`)
+/// so the resolution route never leaks into module paths or emitted C.
 resolve_std_path :: (fn() -> String)({
   match(
     g_std_path_override,
     .Some(p) => {
-      return(p.clone());
+      return(_std_canonicalize(p.clone()));
     },
     .None => {}
   );
@@ -228,7 +255,7 @@ resolve_std_path :: (fn() -> String)({
     .Some(ptr) => {
       v := String.from_cstr((*u8)(ptr)).unwrap();
       if(v.len() > usize(0), {
-        return(v);
+        return(_std_canonicalize(v));
       });
     }
   );
@@ -241,13 +268,13 @@ resolve_std_path :: (fn() -> String)({
         d := dir.unwrap();
         candidate := d.join(Path.new(String.from("std")));
         if(_path_exists_sync(candidate.to_string()), {
-          return(candidate.to_string());
+          return(_std_canonicalize(candidate.to_string()));
         });
         dir = d.parent();
       });
     }
   );
-  return(String.from("./std"));
+  _std_canonicalize(String.from("./std"))
 });
 // ---------------------------------------------------------------------------
 // State accessors (main.yo's compile path drives these directly)

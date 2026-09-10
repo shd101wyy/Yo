@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { FetchOptions, fetch_with } :: import("std/http/client");
 { Command } :: import("std/process/command");
 { host_target, is_target_windows, is_target_linux, is_target_macos, arch_triple_str } :: import("../target.yo");
+{ Instant } :: import("std/time/instant");
 stat :: import("std/libc/sys/stat");
 fcntl :: import("std/libc/fcntl");
 unistd :: import("std/libc/unistd");
@@ -206,9 +207,28 @@ _z3_ensure_dir_sync :: (fn(path : String) -> unit)({
 /// Monotonic counter for temp-file names — unique within one process run,
 /// like the contract wrapper's `g_contract_old_counter`.
 (g_z3_tmp_counter : usize) = usize(0);
-/// A fresh temp path under the system temp dir (`<tmp>/yo-verify-<n>.<ext>`).
+/// Per-process temp-name prefix: the monotonic clock at nanosecond
+/// resolution, captured lazily on first use. LOAD-BEARING for concurrency:
+/// the temp dir is SHARED, and a counter-only name let one concurrent yo
+/// process's z3 read another's script or output file — wrong verdicts,
+/// different verify+ strips, and emitted C that flips under load
+/// (issues/verify-pass-emission-flips-under-load-with-z3.md). Temp names
+/// never reach emitted C, so seeding them from the wall of the clock does
+/// not affect compile determinism.
+(g_z3_tmp_prefix : Option(i64)) = Option(i64).None;
+/// A fresh temp path under the system temp dir
+/// (`<tmp>/yo-verify-<start-nanos>-<n>.<ext>`, unique per process AND per
+/// query).
 _z3_temp_path :: (fn(ext : String) -> String)({
-  p := `${temp_dir()}/yo-verify-${g_z3_tmp_counter.to_string()}.${ext}`;
+  match(
+    g_z3_tmp_prefix,
+    .None => {
+      t := Instant.now();
+      g_z3_tmp_prefix = Option(i64).Some((t.secs * i64(1000000000)) + t.nanos);
+    },
+    .Some(_) => ()
+  );
+  p := `${temp_dir()}/yo-verify-${g_z3_tmp_prefix.unwrap().to_string()}-${g_z3_tmp_counter.to_string()}.${ext}`;
   g_z3_tmp_counter = (g_z3_tmp_counter + usize(1));
   p
 });
