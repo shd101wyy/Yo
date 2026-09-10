@@ -1,9 +1,11 @@
 # v0.2.30
 
-> **DRAFT.** The release workflow fills the GitHub release body from the last
-> commit message only, so these notes are edited in from this file after the
-> run publishes. Archive it to `plans/archive/` once shipped, with a banner,
-> the way `RELEASE_NOTES_v0.2.29_DRAFT.md` was.
+> **ARCHIVED 2026-09-10 — v0.2.30 shipped.** This was the pre-release draft;
+> the published notes are on the GitHub release
+> (https://github.com/shd101wyy/Yo/releases/tag/v0.2.30), edited in from this
+> file because the workflow fills the body from the last commit message only.
+> 13 assets, `SEED_VERSION` auto-bumped to v0.2.30 — which is what unblocks the
+> std half of `Mutex.try_lock` / `Condvar.wait_timeout` / `RwLock.try_*`.
 
 **`open(...)` is gone from the language.** That is a breaking change in a patch
 release, and it is the first thing to know: every glob import becomes a named
