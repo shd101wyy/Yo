@@ -704,13 +704,75 @@ The same correction applies to the per-type bit batteries (`count_ones`,
 `leading_zeros`, `rotate_left`, …). They need the receiver widened to `u64`
 THROUGH its own unsigned type (`i8(-1).count_ones()` is 8, not 64), and
 `T.Unsigned` now names that type — so collapsing those ten blocks into one
-blanket impl is a REFACTOR nobody has done, not a language limitation. The
-banner says so instead of blaming the language.
+blanket impl was a REFACTOR nobody had done, not a language limitation.
+**That refactor then landed too, and it took two compiler fixes with it —
+described just below.**
 
 **The lesson, for the rest of this campaign:** "Yo has no X" in a comment is a
 claim about a moving target, and three of them turned out to be false in one
 day (`T.BITS` as an associated constant, associated types, and
 `async/channel.try_recv`'s shape). Probe before working around.
+
+**The ten bit batteries are now ONE blanket impl — LANDED 2026-09-10, and
+writing it surfaced two codegen defects.**
+
+`count_ones`, `count_zeros`, `leading_zeros`, `trailing_zeros`,
+`leading_ones`, `trailing_ones`, `rotate_left`, `rotate_right`,
+`reverse_bits` and `swap_bytes` were ten near-identical `impl(<type>, …)`
+blocks — a hundred method bodies differing only in a width literal and a cast.
+They are now one `where(T <: (Integer, UnsignedCounterpart))` blanket over
+`T.BITS` and `T.Unsigned`, and `is_power_of_two` /
+`checked_next_power_of_two` / `next_power_of_two` are a second blanket
+restricted by a new `UnsignedInteger` marker (the mirror of `SignedInteger`,
+and the half of the integers Rust defines them on). Net −314 lines of
+`std/prelude.yo`.
+
+Three small pieces made it possible:
+
+- **`UnsignedCounterpart` now covers the unsigned types too**, each naming
+  ITSELF (`impl(u8, UnsignedCounterpart(Unsigned : u8))`). Trivial, and it is
+  what lets one blanket serve all ten types: `T.Unsigned` is the type every
+  receiver is widened through, so the unsigned half has to name it as well.
+- **The result comes back as `T(T.Unsigned(x))`**, which truncates the `u64`
+  to the receiver's width and only then reinterprets the sign — so a rotate or
+  a byte swap cannot leak bits from above the type.
+- **`_USIZE_BITS` and the `usize`/`isize` `BITS` impls moved above the
+  blankets**, since the blanket reads `T.BITS` for those two types as well.
+
+**Codegen defect 1 — a unary operator on a value of a GENERIC type parameter
+could not be transpiled at all.** `~self` inside a blanket-impl body compiled
+to a `// Failed to transpile` marker, which then became an
+`__attribute__((error))` stub, which failed the C compile at every call site —
+while `yo check` reported "evaluator OK". Unary `-self` failed identically.
+Cause: codegen has two operator fast paths that lower a PRIMITIVE operand
+straight to the C operator instead of dispatching to the trait method, because
+for a primitive the trait impl's body IS an inline builtin and there is no real
+function to call. The infix path covers every binary operator; the unary path
+covered **`!` only**. It was gated that narrowly because
+`_operator_inline_name` is keyed by the operator SYMBOL alone and `-` has two
+lowerings — an earlier attempt to widen the gate diverted a prefix `-y` into
+the BINARY lowering and emitted `(y) - ()`. The fix is a second, ARITY-keyed
+table (`_unary_operator_inline_name`: `!`, `~`, `-`), so the two readings of
+`-` can no longer collide.
+(`issues/fixed/unary-operator-on-a-generic-parameter-fails-to-transpile.md`)
+
+**Codegen defect 2 — the inline unary lowering did not narrow its result, and
+that one was a WRONG ANSWER rather than a failed compile.** C promotes
+`~(uint8_t)255` to `int` `0xFFFFFF00`; the trait-method path never noticed
+because a primitive's `bit_not` impl is a real function whose RETURN TYPE does
+the conversion, but an inline lowering has none. Measured:
+`u64((~self))` on a `u8` receiver produced `0xFFFFFFFFFFFFFF00`, and
+`u8.MAX.trailing_ones()` answered `64` instead of `8` — the `(~self) == T(0)`
+guard compared `int -256` against `0` and took the wrong arm. Binding the
+complement to a local first HIDES it, because the local's declared type
+narrows, which is why the ten per-type bodies never hit it. `~` and unary `-`
+now emit `((<operand C type>)(<op>(x)))`.
+
+The lesson for the campaign: **collapsing N copies into one generic body is
+not a behaviour-preserving edit by construction.** The per-type bodies had
+been passing through code paths the generic body does not, and only the
+existing 38-test battery in `tests/int_checked_arithmetic.test.yo` caught the
+`trailing_ones` regression — a value-level oracle, not a compile-level one.
 
 One thing this batch had to get right twice: `-1` cannot be spelled
 `T(0) - T(1)` in a blanket body. On an unsigned instantiation that is a

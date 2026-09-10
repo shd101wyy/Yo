@@ -28,6 +28,8 @@
   BF_YO_OP_EQ,
   BF_YO_OP_NEQ,
   BF_YO_OP_NOT,
+  BF_YO_OP_NEG,
+  BF_YO_OP_BIT_COMPLEMENT,
   BF_YO_OP_LT,
   BF_YO_OP_LTE,
   BF_YO_OP_GT,
@@ -194,6 +196,22 @@ _operator_inline_name :: (fn(op : String) -> Option(String))(
     true => Option(String).None
   )
 );
+/// The inline lowering for a PREFIX operator symbol — the unary half of
+/// `_operator_inline_name`, which is keyed by symbol alone and therefore
+/// answers for the BINARY reading of a symbol that has both.
+///
+/// `-` is why this is a separate table: `_operator_inline_name("-")` is
+/// `BF_YO_OP_SUB`, so resolving a one-argument `-y` through it emitted
+/// `(y) - ()`. The arity is what decides which lowering a symbol has, and the
+/// caller knows the arity.
+_unary_operator_inline_name :: (fn(op : String) -> Option(String))(
+  cond(
+    (op == "!") => Option(String).Some(String.from(BF_YO_OP_NOT)),
+    (op == "~") => Option(String).Some(String.from(BF_YO_OP_BIT_COMPLEMENT)),
+    (op == "-") => Option(String).Some(String.from(BF_YO_OP_NEG)),
+    true => Option(String).None
+  )
+);
 /// True when `expr` is a primitive infix-operator call (`x op y` on primitive
 /// operands) that should lower via the builtin-inline path. Gated to primitive
 /// operands so custom operator overloads on non-primitive types still route to
@@ -235,7 +253,7 @@ _is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGeneration
   )
 );
 /// The unary counterpart of `_is_primitive_infix_operator`: a 1-arg, NON-infix
-/// operator-symbol call (`!(x)`) whose operand is primitive.
+/// operator-symbol call (`!(x)`, `~(x)`, `-(x)`) whose operand is primitive.
 ///
 /// Without this, a unary operator applied DIRECTLY to a PARAMETER inside a
 /// closure-specialized function emitted
@@ -253,23 +271,26 @@ _is_primitive_infix_operator :: (fn(expr : AstExpr, context : FunctionGeneration
 /// Gated to primitive operands for the same reason as the infix gate: a custom
 /// `Not` overload on a non-primitive type must still reach the trait-method path.
 ///
-/// ONLY `!` qualifies, and the check must be on the RESOLVED INLINE NAME being
-/// `BF_YO_OP_NOT` — not merely on `_operator_inline_name` returning something.
-/// Every other entry in that map is a BINARY lowering: an earlier version of this
-/// gate admitted any 1-arg operator with an inline name, which diverted unary
-/// MINUS (`-y`) into `BF_YO_OP_SUB` and emitted `(y) - ()` — caught by
+/// ALL THREE prefix operators qualify, and the resolution goes through
+/// `_unary_operator_inline_name`, never `_operator_inline_name`. That
+/// distinction is the whole point: `_operator_inline_name` is keyed by symbol
+/// alone, so it answers `BF_YO_OP_SUB` for `-`, and an earlier version of this
+/// gate that admitted any 1-arg operator with an inline name diverted unary
+/// MINUS into the binary lowering and emitted `(y) - ()` — caught by
 /// `tests/operator_grouping.test.yo` ("runtime negation of an i32 variable").
-/// Unary minus must keep reaching the trait-method path.
+/// With an arity-aware table there is no such collision, and restricting the
+/// gate to `!` was itself a defect: `~self` and `-self` on a value of a
+/// GENERIC type parameter reached the trait-method path, which bails for a
+/// specialized body, so every one of those bodies became a
+/// `// Failed to transpile` marker and then an `__attribute__((error))` stub —
+/// `~self` in a `where(T <: Integer)` blanket impl simply could not be
+/// written (issues/fixed/unary-operator-on-a-generic-parameter-fails-to-transpile.md).
 _is_primitive_unary_operator :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> bool)(
   match(
     expr,
     .FnCall(_, _, op_args, is_infix, _) => if(
       !is_infix && (op_args.len() == usize(1))
-      && match(
-        _operator_inline_name(_func_name(expr)),
-        .Some(inline_nm) => (inline_nm == BF_YO_OP_NOT),
-        .None => false
-      ),
+      && _unary_operator_inline_name(_func_name(expr)).is_some(),
       match(
         op_args.get(usize(0)),
         .Some(operand) => match(
@@ -317,7 +338,22 @@ _generate_inline_call :: (fn(expr : AstExpr, indent : String, context : Function
   });
   // Resolve an operator SYMBOL callee (`+`) to its inline name (`__yo_op_add`);
   // non-operator inline calls (`__yo_op_add(...)`) pass through unchanged.
-  inline_name := match(_operator_inline_name(_func_name(expr)), .Some(opn) => opn, .None => _func_name(expr));
+  //
+  // A one-argument, non-infix call resolves through the UNARY table first:
+  // `-` names both lowerings, and only the arity says which, so asking
+  // `_operator_inline_name` for a prefix `-y` would answer `__yo_op_sub` and
+  // emit `(y) - ()`.
+  is_prefix_call := match(
+    expr,
+    .FnCall(_, _, res_args, res_infix, _) => (!res_infix && (res_args.len() == usize(1))),
+    .Atom(_, _) => false
+  );
+  unary_name := if(is_prefix_call, _unary_operator_inline_name(_func_name(expr)), Option(String).None);
+  inline_name := match(
+    unary_name,
+    .Some(un) => un,
+    .None => match(_operator_inline_name(_func_name(expr)), .Some(opn) => opn, .None => _func_name(expr))
+  );
   generate_yo_inline_function_call(inline_name, args, expr, context, indent)
 });
 /// Lower a transparent wrapper (`unsafe`/`old`/`ghost_fn`/`runtime`) to its
