@@ -421,7 +421,7 @@ window as D9–D18):
 
 | row as written | actual state |
 | --- | --- |
-| `Seek` trait | `SeekFrom` exists (`std/fs/types.yo:66`); there is no `Seek` TRAIT |
+| `Seek` trait | ~~`SeekFrom` exists (`std/fs/types.yo:66`); there is no `Seek` TRAIT~~ — **LANDED 2026-09-09**, `std/io/index.yo` `Seek(From)`, implemented by `File` |
 | `Reader.read_exact` as a default | exists as a `BufReader` method (`std/io/bufio.yo:137`); NOT a `Reader` trait default |
 | `Stdout.write_string` | exists on `BufWriter(W)` (`std/io/bufio.yo:235`); NOT on `Stdout` |
 | `FromIterator` on `HashMap`/`BTreeMap`/`imm/*` | exists on `HashSet` only (`std/collections/hash_set.yo:411`); `hash_map.yo` and `btree_map.yo` have zero |
@@ -435,8 +435,8 @@ remove_entry/get_key_value` (all 5). `Deque.front`/`back`. `BTreeMap` —
 no `Iterator` on any of the six collection types (`imm/string.yo:627` has one).
 Text — every listed `String` method, `next_back`, `is_ascii_*` renames. Encoding
 — `Url.join/query_pairs/path_segments`, `JsonValue` mutation/`as_i64`/`pointer`,
-regex naming, `glob()`. I/O — `OpenOptions`, `Watcher`
-`Dispose`, `SystemTime`/`UNIX_EPOCH`, `SocketAddr` `Eq`/`Hash`,
+regex naming, `glob()`. I/O — `Watcher`
+`Dispose`, `SocketAddr` `Eq`/`Hash`,
 `TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`. Core — **all of it**: every `checked_/wrapping_/
 saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
@@ -559,12 +559,75 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 **I/O.** Verified against the code 2026-09-09 — LANDED:
 `Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
 `Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
-`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: a `Seek` trait
-(only a bare `lseek` in `std/sys/seek.yo`); `OpenOptions`; a real
-`SystemTime`/`UNIX_EPOCH` in `std/time` for `Metadata.modified` to return;
-`Child` stdin/stdout/stderr as `Reader`/`Writer` handles; `Watcher` `Dispose`;
-HTTP keep-alive. (`IpAddr.parse_v6`, `UdpSocket.recv_from -> (n, from)`,
-`StatusCode` and `HeaderMap` landed 2026-09-09 — described just below.)
+`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: `Child`
+stdin/stdout/stderr as `Reader`/`Writer` handles; `Watcher` `Dispose`; HTTP
+keep-alive. (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
+`UdpSocket.recv_from -> (n, from)`, `StatusCode` and `HeaderMap` all landed
+2026-09-09 — described just below.)
+
+**`Seek` + `OpenOptions` + `SystemTime` — LANDED 2026-09-09, and the shapes
+each had a reason.**
+
+`SystemTime` is a SECOND clock, deliberately not interconvertible with
+`Instant`: `Instant` reads `CLOCK_MONOTONIC` (no epoch, never steps, only
+differences mean anything), `SystemTime` reads `CLOCK_REALTIME` (anchored at
+`UNIX_EPOCH`, and steppable by NTP or by hand). `duration_since` therefore
+returns `Result(Duration, SystemTimeError)` — Rust's shape — because a
+backwards step is a real outcome, not a bug to swallow. All of its arithmetic
+stays on the `(secs, nanos)` PAIR: converting either side to a single `i64`
+nanosecond count overflows past year 2262, and signed overflow is UB in C.
+Every constructor normalizes `nanos` into `[0, 1e9)` with a FLOOR second, so one instant has one
+representation — without that, `(-1, -4e8)` and `(-2, 6e8)` are the same
+timestamp and compare unequal under the field-wise `Eq`/`Ord`.
+
+`Metadata.modified`/`accessed`/`status_changed` now return `SystemTime` built
+from `statx`'s seconds AND nanoseconds. The seconds-only `*_time` accessors are
+kept (a caller that wants the raw field should not have to go through a struct)
+and pinned by a test asserting `modified_time() == modified().as_unix_secs()`.
+
+**A filesystem timestamp and `CLOCK_REALTIME` are different clock domains**, so
+an mtime can sit a hair AHEAD of a later `SystemTime.now()`. Emscripten's MEMFS
+put it 64 ns ahead, which failed a first version of the test that asserted the
+ordering ("mtime must not be in the future") — no OS promises that ordering,
+only that the two readings are close. The test now bounds the skew in either
+direction. It is also a live demonstration of why `duration_since` returns a
+`Result`: the 64 ns showed up as `SystemTimeError.EarlierThan`, exactly the
+outcome a silent `Duration.zero()` would have hidden.
+
+The `Seek` trait is SYNCHRONOUS while `Reader`/`Writer` are async, because
+moving a position is arithmetic on a handle's own state: `File`'s reads and
+writes are positional (`pread`/`pwrite`), so its descriptor sits at offset 0
+forever and `File.seek` never touches it. It is parameterized over the
+reference-point type (`Seek(From)`) rather than re-declaring `SeekFrom`, so
+there is one spelling of "from where" in the tree. It has NO `rewind`, unlike
+Rust: every absolute move needs a `From` VALUE naming the beginning, and a
+trait generic over `From` cannot name one — a `rewind(self, from, exn)` default
+would make the caller pass the very thing `rewind` exists to hide, so the
+convenience is inherent on `File` instead.
+
+`OpenOptions` is a plain value struct with FUNCTIONAL setters (each returns a
+new value), not the `ref(struct(...))`-with-mutation shape `Command` uses: a
+flag bag needs no allocation or refcount, and an immutable builder lets one
+base be reused for several opens. It exists because `OpenMode`'s five variants
+cannot express read+append, create-without-truncate, or read+write+create, and
+growing that enum combinatorially is the wrong answer. `to_flags()` returns
+`Result(i32, String)` and REJECTS the four combinations POSIX does not
+diagnose — no access mode at all, `truncate` without write access, `truncate`
+with `append`, `create` without write access — because `open(2)` quietly
+ignores whichever flag does not apply and hands back a file that behaves
+differently from what was asked. `File.open_opts` raises a rejection as a
+`Context` over `IoError.InvalidInput`, so `to_string()` names the contradiction
+while `source()` still reports the kind Rust would report. Note the access mode
+is a VALUE, not a bit set (`O_RDONLY` is 0), so it is chosen rather than OR-ed.
+
+Coverage: 9 `SystemTime` tests in `tests/time/instant.test.yo` (14/14), 2
+timestamp tests in `tests/fs/metadata.test.yo` (10/10), and 10 in
+`tests/fs/file.test.yo` (29/29) covering flag mapping, each rejected
+combination, setter non-mutation, read+append, create-without-truncate,
+`create_new` on an existing path, the `Context` message, `rewind`, and a
+generic function bounded on `Seek(SeekFrom)` — the last one being the only
+thing that proves the impl is registered rather than the inherent method being
+picked up.
 
 **`IpAddr.parse_v6` + `UdpSocket.recv_from` + HTTP `StatusCode`/`HeaderMap` —
 LANDED 2026-09-09.**
@@ -673,7 +736,11 @@ an `Array(u8, N)` sized by its width — neither is nameable from a blanket.
 `usize`/`isize` get `abs_diff` but deliberately NO byte conversions: N would
 be the target pointer width and a type-level size cannot be derived the way
 `_USIZE_BITS` derives a value, so hard-coding 8 would be silently wrong on
-wasm32. STILL OPEN: a documented `downcast`.
+wasm32. `downcast` is now DOCUMENTED (2026-09-09) in
+`docs/{en-US,zh-CN}/DYN_DESIGN.md` — the `Option(T)` result, the single
+pointer-compare against the vtable's `__yo_type_id`, the owned/RC'd result, the
+box-unwrapping for value targets, and the statically-`.None` case for a target
+no `dyn()` in the program ever wraps.
 **`ErrorChain` and `root_cause` are BLOCKED on a compiler defect, not on
 design** —
 `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`.
@@ -1019,10 +1086,11 @@ cooperative-scheduling contract.
    read-back that `TcpListener.bind` and `UdpSocket.bind` each open-coded is
    now one `_read_local_addr` helper.
 
-   Still open in this group: `TcpListener.incoming`, `Seek`, `OpenOptions`,
-   `SystemTime`, `Watcher` `Dispose`, lazy `read_dir`.
-   (`UdpSocket.recv_from -> (n, from)`, `IpAddr.parse_v6`, `StatusCode`,
-   `HeaderMap` and the byte-sliced response body all landed 2026-09-09.)
+   Still open in this group: `TcpListener.incoming` and `Watcher` `Dispose`.
+   (`Seek`, `OpenOptions`, `SystemTime`, `UdpSocket.recv_from -> (n, from)`,
+   `IpAddr.parse_v6`, `StatusCode`, `HeaderMap` and the byte-sliced response
+   body all landed 2026-09-09; lazy `read_dir` and the request-side byte bodies
+   were already in.)
 
    **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`
    is a BLOCKING iterator of `io::Result<TcpStream>`. Yo's `accept` is

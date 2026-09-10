@@ -223,6 +223,55 @@ int32_t result = value.vtable->return_i32(value.data);
 value.vtable->print(value.data);
 ```
 
+## 运行时类型检查：`downcast(value, T)`
+
+`Dyn` 擦除了具体类型，而 `downcast` 是把它取回来的方式：
+
+```rust
+downcast(dyn_value, T) -> Option(T)
+```
+
+这是从 `Dyn` 安全恢复具体类型的唯一途径，`std/error.yo` 里的 `error_is(err, T)`
+就是用它实现的。两个参数的形式是固定的：第一个必须是 `Dyn` 类型，第二个必须是一个
+**类型**（在编译期求值，所以 `T` 永远不是运行时值）。
+
+```rust
+Animal :: trait(speak : (fn(self : Self) -> unit));
+// ... impl(Cat, Animal(...)); impl(Dog, Animal(...));
+
+animal := dyn(Cat.new());
+
+match(downcast(animal, Cat),
+  .Some(cat) => cat.purr(),      // 具体的 Cat，已计数且被拥有
+  .None => println(`not a cat`)
+);
+
+// 只做判断、不使用值：
+if(downcast(animal, Dog).is_some(), { println(`a dog`); });
+```
+
+**检查是怎么做的。** 每个 `Dyn` 虚表都带一个 `__yo_type_id` 字段，每个具体类型都有
+一个静态变量，其**地址**就是它的规范类型 id。检查就是一次指针比较——
+`value.vtable->__yo_type_id == (uintptr_t)&__yo_typeid_Cat`——一次加载加一次比较，
+没有字符串比较，也没有 RTTI 表。
+
+**结果是被拥有的。** `Dyn` 只持有引用计数数据，所以成功的 downcast 会增加引用计数并
+返回一个被拥有的引用：`Dyn` 保留自己那一份，两者各自独立释放。
+
+**值类型会从盒子里取出来。** `dyn(42)` 会自动装箱（见
+[dyn(...) 的引用语义类型要求](#dyn-的引用语义类型要求)），所以 `dyn.data` 指向的是
+一个 `Box` 结构而不是值本身。downcast 到值类型或 newtype 目标时，会从那个盒子里把值
+读出来并 dup——把 `data` 直接转成值结构体连合法的 C 都算不上。
+
+**永远不可能成功的 downcast 是编译期的 `.None`。** 编译器知道程序中每一个
+`dyn(...)` 的创建点。如果没有任何地方把 `T` 包进这个 `Dyn`，二进制里就没有任何虚表
+携带 `T` 的类型 id，比较永远不可能成立，于是整个表达式被降级为常量 `.None`，而不是
+一个永远为假的检查。
+
+**没有非检查式的强制转换。** `downcast` 始终返回 `Option(T)`；如果你想在不匹配时
+panic，那就是 `downcast(v, T).unwrap()`，写在调用点上因此是可见的。`typeid` 是另一个
+内建，它接受一个**类型**而不是值——不能用来在运行时判断 `Dyn`。
+
 ## Dyn 的引用计数
 
 由于 `Dyn` 是值类型，我们需要对 `data` 指针进行操作的 dup/drop 函数。

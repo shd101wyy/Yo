@@ -53,6 +53,15 @@ __derive_error_head :: (fn(comptime(v) : VariantInfo) -> comptime(comptime_str))
 /// ));
 /// ```
 ///
+/// **The calling file must have `ToString` in scope.** The rule splices an
+/// `impl(T, ToString(...), Error())` into the CALL SITE's scope, and the
+/// derived body is unhygienic, so a file that imports `Error` but not
+/// `ToString` fails with `Variable "ToString" not found` pointing into
+/// `std/error.yo`
+/// (issues/fixed/derive-tostring-debug-body-is-unhygienic-and-aborts.md is the
+/// same defect for the structural derives). Import
+/// `{ ToString } :: import("../fmt/to_string")` alongside `Error`.
+///
 /// The message is ORDINARY YO, spliced into the arm that binds the payload, so
 /// `${pos}` is the variant's own field — not a positional `{0}` the way
 /// `thiserror` has to spell it. Nothing new to learn, and a typo in a field
