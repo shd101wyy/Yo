@@ -885,6 +885,69 @@ main :: (fn(io : Io) -> unit)({
 export main;
 ```
 
+### Waking a task from another task: `Waker` and `Park`
+
+`yield` hands the loop a turn; it does not let one task wait for *another
+task's progress*. That needs a token the other side can fire, and
+`std/async/waker` is it.
+
+```rust
+{ Park } :: import "std/async/waker";
+
+// The waiter. Create the park, hand its waker to whoever will signal, then
+// suspend — in that order, and with no await in between.
+p := Park.new();
+waiters.push(p.waker());
+io.await(p.wait(io), io);
+
+// The signaller, from any other task:
+match(waiters.pop(), .Some(w) => w.wake(), .None => ());
+```
+
+Three properties are worth knowing, because primitives built on this depend on
+them:
+
+- **A wake that arrives before the sleeper suspends is not lost.** An await
+  point reads the future's state before it registers a continuation, so an
+  already-woken park resumes inline instead of suspending.
+- **Waking is idempotent.** A second `wake()`, or a wake of a park whose task
+  has already finished, does nothing. A waiter list can therefore signal
+  everyone without tracking who already ran.
+- **A park that nothing can wake is reported, not hung.** The runtime counts
+  live waker tokens; when nothing is runnable, no I/O is outstanding, and a
+  token is still alive, the loop says so and stops instead of spinning.
+
+`park(register, io)` wraps the whole sequence for the common case of a single
+waker:
+
+```rust
+{ park } :: import "std/async/waker";
+
+io.await(park((w : Waker) => { slot.* = Option(Waker).Some(w); }, io), io);
+```
+
+`register` runs *before* the suspension and receives the waker, so the order
+cannot be got wrong. This is the shape Rust's `Future::poll(cx)` uses. Reach
+for `Park` directly when a waiter list wants to hold the token itself.
+
+### `yield_now`: a fairness yield with no timer
+
+`std/async`'s `yield` gives the loop one turn and pays a 1 ms sleep for it,
+which puts a millisecond floor under everything built on it. `yield_now`
+(`std/async/waker`) gives the same guarantee for free: its future is created
+pending and completed by the next ready-task drain, after that drain has
+measured its budget, so the resumed task runs on the following turn with
+exactly one I/O poll in between.
+
+Measured over 400 turns in a spawned task, at both `-O0` and `--optimize 2`:
+`yield_now` 0 ms, `yield` 603 ms.
+
+`yield` itself will become this, one release from now. It cannot today for a
+bootstrap reason rather than a design one: `yield` is on the compiler's own
+import path, and the seed compiler that builds the tree emits an async runtime
+without the new primitive in it, so pointing `yield` at it fails to LINK the
+compiler.
+
 ## Comparison with Other Languages
 
 | Language                            | Model                    | Threading           | Memory/Task | Max Concurrency |
