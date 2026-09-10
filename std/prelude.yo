@@ -1245,7 +1245,11 @@ export(bool : _boolean);
 impl(
   i8,
   MIN : i8(-(128)),
-  MAX : i8(127)
+  MAX : i8(127),
+  /// The width in bits — Rust's `i8::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(8)
 );
 impl(i8, Send());
 impl(i8, Acyclic());
@@ -1535,7 +1539,11 @@ export(i8 : _i8);
 impl(
   i16,
   MIN : i16(-(32768)),
-  MAX : i16(32767)
+  MAX : i16(32767),
+  /// The width in bits — Rust's `i16::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(16)
 );
 impl(i16, Send());
 impl(i16, Acyclic());
@@ -1825,7 +1833,11 @@ export(i16 : _i16);
 impl(
   i32,
   MIN : i32(-(2147483648)),
-  MAX : i32(2147483647)
+  MAX : i32(2147483647),
+  /// The width in bits — Rust's `i32::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(32)
 );
 impl(i32, Send());
 impl(i32, Acyclic());
@@ -2118,7 +2130,11 @@ export(i32 : _i32);
 impl(
   i64,
   MIN : i64(-(9223372036854775808)),
-  MAX : i64(9223372036854775807)
+  MAX : i64(9223372036854775807),
+  /// The width in bits — Rust's `i64::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(64)
 );
 impl(i64, Send());
 impl(i64, Acyclic());
@@ -2408,7 +2424,11 @@ export(i64 : _i64);
 impl(
   u8,
   MIN : u8(0),
-  MAX : u8(255)
+  MAX : u8(255),
+  /// The width in bits — Rust's `u8::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(8)
 );
 impl(u8, Send());
 impl(u8, Acyclic());
@@ -2681,7 +2701,11 @@ export(u8 : _u8);
 impl(
   u16,
   MIN : u16(0),
-  MAX : u16(65535)
+  MAX : u16(65535),
+  /// The width in bits — Rust's `u16::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(16)
 );
 impl(u16, Send());
 impl(u16, Acyclic());
@@ -2954,7 +2978,11 @@ export(u16 : _u16);
 impl(
   u32,
   MIN : u32(0),
-  MAX : u32(4294967295)
+  MAX : u32(4294967295),
+  /// The width in bits — Rust's `u32::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(32)
 );
 impl(u32, Send());
 impl(u32, Acyclic());
@@ -3227,7 +3255,11 @@ export(u32 : _u32);
 impl(
   u64,
   MIN : u64(0),
-  MAX : u64(18446744073709551615)
+  MAX : u64(18446744073709551615),
+  /// The width in bits — Rust's `u64::BITS`. An associated constant, so a
+  /// `where(T <: Integer)` blanket impl can express a WIDTH-dependent
+  /// operation (the shifts below) instead of repeating it ten times.
+  BITS : u32(64)
 );
 impl(u64, Send());
 impl(u64, Acyclic());
@@ -4882,6 +4914,193 @@ impl(
         r
       }
     )
+  ),
+  /// `self` raised to `exp`, WRAPPING on overflow — Rust's `wrapping_pow`.
+  /// Exponentiation by squaring, every step through `wrapping_mul`, so no
+  /// intermediate can leave the type (signed overflow is undefined behaviour
+  /// in C, so the product must never be formed unchecked).
+  wrapping_pow : (fn(self : T, exp : u32) -> T)({
+    (acc : T) = T(1);
+    (base : T) = self;
+    (e : u32) = exp;
+    while((e > u32(0)), {
+      cond(
+        ((e & u32(1)) == u32(1)) => {
+          acc = acc.wrapping_mul(base);
+        },
+        true => ()
+      );
+      e = (e >> u32(1));
+      cond(
+        (e > u32(0)) => {
+          base = base.wrapping_mul(base);
+        },
+        true => ()
+      );
+    });
+    acc
+  }),
+  /// `(self.wrapping_pow(exp), overflowed)` — Rust's `overflowing_pow`.
+  /// `overflowed` is decided by `checked_pow`, so the flag is the same
+  /// question `checked_pow` already answers rather than a second derivation.
+  overflowing_pow : (fn(self : T, exp : u32) -> Tuple(T, bool))(
+    match(
+      self.checked_pow(exp),
+      .Some(v) => (v, false),
+      .None => (self.wrapping_pow(exp), true)
+    )
+  ),
+  /// `self / rhs` wrapped to the type's range — Rust's `wrapping_div`. The
+  /// ONLY input where it differs from `/` is `T.MIN / -1`, whose true
+  /// quotient does not fit; that wraps back to `T.MIN`.
+  ///
+  /// The `-1` test is spelled `rhs < 0 && 0 - rhs == 1`, not `rhs == 0 - 1`:
+  /// on an unsigned instantiation `T(0) - T(1)` is a comptime overflow and a
+  /// HARD ERROR, while `rhs < T(0)` short-circuits before the subtraction is
+  /// ever evaluated. `checked_div` above already uses that idiom.
+  wrapping_div : (fn(self : T, rhs : T) -> T)(
+    cond(
+      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MIN,
+      true => (self / rhs)
+    )
+  ),
+  /// `self % rhs` wrapped to the type's range — Rust's `wrapping_rem`. As
+  /// with `wrapping_div`, only `T.MIN % -1` differs from `%`, and its
+  /// mathematical remainder is `0`.
+  wrapping_rem : (fn(self : T, rhs : T) -> T)(
+    cond(
+      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T(0),
+      true => (self % rhs)
+    )
+  ),
+  /// `self / rhs`, clamped to the type's bound — Rust's `saturating_div`.
+  /// `T.MIN / -1` saturates to `T.MAX`; every other quotient already fits.
+  saturating_div : (fn(self : T, rhs : T) -> T)(
+    cond(
+      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MAX,
+      true => (self / rhs)
+    )
+  ),
+  /// `-self`, or `.None` when the negation does not fit — Rust's
+  /// `checked_neg`'s companion `overflowing_neg`. `T.MIN` negates to itself
+  /// with the flag set; on an unsigned type every nonzero value overflows,
+  /// which is Rust's behaviour too.
+  overflowing_neg : (fn(self : T) -> Tuple(T, bool))(
+    match(self.checked_neg(), .Some(v) => (v, false), .None => (T.MIN, true))
+  ),
+  /// Euclidean division, or `.None` when it does not fit — Rust's
+  /// `checked_div_euclid`. `.None` for a zero divisor and for `T.MIN / -1`.
+  checked_div_euclid : (fn(self : T, rhs : T) -> Option(T))(
+    cond(
+      (rhs == T(0)) => Option(T).None,
+      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
+      true => Option(T).Some(self.div_euclid(rhs))
+    )
+  ),
+  /// Euclidean remainder, or `.None` when it does not fit — Rust's
+  /// `checked_rem_euclid`. Same two rejected inputs as
+  /// `checked_div_euclid`: the pair is computed together.
+  checked_rem_euclid : (fn(self : T, rhs : T) -> Option(T))(
+    cond(
+      (rhs == T(0)) => Option(T).None,
+      ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
+      true => Option(T).Some(self.rem_euclid(rhs))
+    )
+  ),
+  /// `floor(log2(self))` — the position of the highest set bit. PANICS for a
+  /// receiver at or below zero, which has no logarithm (Rust's `ilog2` does
+  /// the same; there is no `checked_ilog2` here because `.None` for
+  /// "not positive" is the only case it could report).
+  ///
+  /// Written as a halving loop rather than `BITS - 1 - leading_zeros()`
+  /// because the latter needs the receiver widened to `u64` through its own
+  /// unsigned type, which a `where(T <: Integer)` body cannot spell.
+  ilog2 : (fn(self : T) -> u32)(
+    cond(
+      (self <= T(0)) => __yo_panic("ilog2: the receiver must be positive"),
+      true => {
+        (v : T) = self;
+        (n : u32) = u32(0);
+        while((v > T(1)), {
+          v = (v / T(2));
+          n = (n + u32(1));
+        });
+        n
+      }
+    )
+  ),
+  /// `floor(log10(self))`. PANICS for a receiver at or below zero.
+  ilog10 : (fn(self : T) -> u32)(
+    cond(
+      (self <= T(0)) => __yo_panic("ilog10: the receiver must be positive"),
+      true => {
+        (v : T) = self;
+        (n : u32) = u32(0);
+        while((v > T(9)), {
+          v = (v / T(10));
+          n = (n + u32(1));
+        });
+        n
+      }
+    )
+  ),
+  /// `floor(log(self) / log(base))`. PANICS for a receiver at or below zero
+  /// and for a base below 2 — Rust panics on both, and a base of 1 has no
+  /// terminating loop at all.
+  ilog : (fn(self : T, base : T) -> u32)(
+    cond(
+      (self <= T(0)) => __yo_panic("ilog: the receiver must be positive"),
+      (base < T(2)) => __yo_panic("ilog: the base must be at least 2"),
+      true => {
+        (v : T) = self;
+        (n : u32) = u32(0);
+        while((v >= base), {
+          v = (v / base);
+          n = (n + u32(1));
+        });
+        n
+      }
+    )
+  ),
+  /// `self << n`, or `.None` when `n` is at or above the type's width —
+  /// Rust's `checked_shl`. A shift by the width or more is undefined
+  /// behaviour in C, so the shift is not performed at all in that case.
+  ///
+  /// This and the five below are what `BITS` is for: a width-dependent
+  /// operation written ONCE over `T` instead of ten times per method.
+  checked_shl : (fn(self : T, n : u32) -> Option(T))(
+    cond(
+      (n >= T.BITS) => Option(T).None,
+      true => Option(T).Some((self << T(n)))
+    )
+  ),
+  /// `self >> n`, or `.None` when `n` is at or above the type's width.
+  /// Arithmetic on a signed type, logical on an unsigned one — Yo's `>>`
+  /// already follows the receiver's signedness.
+  checked_shr : (fn(self : T, n : u32) -> Option(T))(
+    cond(
+      (n >= T.BITS) => Option(T).None,
+      true => Option(T).Some((self >> T(n)))
+    )
+  ),
+  /// `self << (n % BITS)` — Rust's `wrapping_shl`. The shift COUNT wraps, not
+  /// the value; bits shifted out are still discarded.
+  wrapping_shl : (fn(self : T, n : u32) -> T)(
+    (self << T((n % T.BITS)))
+  ),
+  /// `self >> (n % BITS)` — Rust's `wrapping_shr`.
+  wrapping_shr : (fn(self : T, n : u32) -> T)(
+    (self >> T((n % T.BITS)))
+  ),
+  /// `(self.wrapping_shl(n), n >= BITS)` — Rust's `overflowing_shl`. The flag
+  /// reports that the COUNT was reduced, not that any bit was lost: a shift
+  /// that discards set bits is not an overflow here, exactly as in Rust.
+  overflowing_shl : (fn(self : T, n : u32) -> Tuple(T, bool))(
+    (self.wrapping_shl(n), (n >= T.BITS))
+  ),
+  /// `(self.wrapping_shr(n), n >= BITS)` — Rust's `overflowing_shr`.
+  overflowing_shr : (fn(self : T, n : u32) -> Tuple(T, bool))(
+    (self.wrapping_shr(n), (n >= T.BITS))
   )
 );
 /// Marks the SIGNED integers. `abs` and `signum` exist only for them — Rust
@@ -4926,12 +5145,85 @@ impl(
     cond((self == T.MIN) => T.MIN, (self < T(0)) => (T(0) - self), true => self)
   )
 );
+impl(
+  i8,
+  /// The absolute value as the same-width UNSIGNED type — Rust's
+  /// `unsigned_abs`. This is the one absolute value that is total: `i8.MIN`
+  /// has no positive counterpart in `i8`, so `abs` must panic there, while
+  /// its magnitude fits `u8` exactly.
+  ///
+  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
+  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
+  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
+  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
+  /// unsigned magnitude.
+  unsigned_abs : (fn(self : Self) -> u8)(u8(self.wrapping_abs()))
+);
+impl(
+  i16,
+  /// The absolute value as the same-width UNSIGNED type — Rust's
+  /// `unsigned_abs`. This is the one absolute value that is total: `i16.MIN`
+  /// has no positive counterpart in `i16`, so `abs` must panic there, while
+  /// its magnitude fits `u16` exactly.
+  ///
+  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
+  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
+  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
+  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
+  /// unsigned magnitude.
+  unsigned_abs : (fn(self : Self) -> u16)(u16(self.wrapping_abs()))
+);
+impl(
+  i32,
+  /// The absolute value as the same-width UNSIGNED type — Rust's
+  /// `unsigned_abs`. This is the one absolute value that is total: `i32.MIN`
+  /// has no positive counterpart in `i32`, so `abs` must panic there, while
+  /// its magnitude fits `u32` exactly.
+  ///
+  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
+  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
+  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
+  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
+  /// unsigned magnitude.
+  unsigned_abs : (fn(self : Self) -> u32)(u32(self.wrapping_abs()))
+);
+impl(
+  i64,
+  /// The absolute value as the same-width UNSIGNED type — Rust's
+  /// `unsigned_abs`. This is the one absolute value that is total: `i64.MIN`
+  /// has no positive counterpart in `i64`, so `abs` must panic there, while
+  /// its magnitude fits `u64` exactly.
+  ///
+  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
+  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
+  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
+  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
+  /// unsigned magnitude.
+  unsigned_abs : (fn(self : Self) -> u64)(u64(self.wrapping_abs()))
+);
+impl(
+  isize,
+  /// The absolute value as the same-width UNSIGNED type — Rust's
+  /// `unsigned_abs`. This is the one absolute value that is total: `isize.MIN`
+  /// has no positive counterpart in `isize`, so `abs` must panic there, while
+  /// its magnitude fits `usize` exactly.
+  ///
+  /// Per-type rather than a `where(T <: SignedInteger)` blanket because the
+  /// RESULT type is the receiver's unsigned counterpart, and Yo has no
+  /// associated type to name it. The body is `wrapping_abs` reinterpreted:
+  /// at `MIN` that is `MIN` itself, whose two's-complement bit pattern IS the
+  /// unsigned magnitude.
+  unsigned_abs : (fn(self : Self) -> usize)(usize(self.wrapping_abs()))
+);
 /**
 * Bit-level integer batteries, Rust's shapes.
 *
-* Every one of them is a WIDTH-dependent operation, and Yo has no `T.BITS`
-* associated constant, so a single blanket `impl(generic(T), where(T <:
-* Integer), T, ...)` cannot express them. They are therefore written ONCE over
+* Every one of them is a WIDTH-dependent operation. `T.BITS` now exists (added
+* beside `MIN`/`MAX`, which is what lets the SHIFTS above be a single blanket
+* impl), but width alone is not enough here: each of these needs the receiver
+* widened to `u64` THROUGH its own unsigned type, and a `where(T <: Integer)`
+* body cannot spell "the unsigned type of the same width" — Yo has no
+* associated type. They are therefore written ONCE over
 * `u64` here and delegated to per-type, with the width as a literal — which is
 * also how Rust implements them (its macro pastes the width in).
 *
@@ -5373,6 +5665,11 @@ impl(
 // an out-of-range literal — a hard comptime error — on the 32-bit targets this
 // is meant to detect.
 _USIZE_BITS :: cond((usize.MAX == usize(4294967295)) => u32(32), true => u32(64));
+// `BITS` for the two target-width integers. Declared here rather than beside
+// their `MIN`/`MAX` because that is where `_USIZE_BITS` — the value it must be
+// — is decided.
+impl(usize, BITS : _USIZE_BITS);
+impl(isize, BITS : _USIZE_BITS);
 impl(
   usize,
   /// The number of one bits.

@@ -658,6 +658,39 @@ one-connection-at-a-time, so a client that holds a keep-alive connection open
 and sends nothing would wedge the server — which is why the server half is not
 simply "loop until the client closes".
 
+**`BITS` as an associated constant — LANDED 2026-09-10, and it retires a
+documented blocker.**
+
+The bit-battery banner in `std/prelude.yo` said a width-dependent operation
+"cannot" be a `where(T <: Integer)` blanket impl because "Yo has no `T.BITS`
+associated constant". That was a gap in `std/`, not in the language: `MIN` and
+`MAX` are ordinary associated constants declared in an `impl` (`MIN : u8(0)`),
+and a blanket body already reads `T.MIN`. So `BITS : u32(8)` sits beside them
+for the eight fixed-width types, and beside `_USIZE_BITS` for `usize`/`isize`
+— which is where their target-dependent width is already decided.
+
+With it, the six shift methods (`checked_shl`/`shr`, `wrapping_shl`/`shr`,
+`overflowing_shl`/`shr`) are ONE blanket impl rather than sixty per-type
+entries. `checked_shl` is not a convenience: a shift by the width or more is
+undefined behaviour in C, so the count must be rejected BEFORE the shift is
+performed, which is exactly what the `.None` arm does.
+
+The existing per-type bit batteries (`count_ones`, `leading_zeros`,
+`rotate_left`, …) stay per-type, and the banner now gives the real reason:
+width alone is not enough for them — each needs the receiver widened to `u64`
+THROUGH its own unsigned type (`i8(-1).count_ones()` is 8, not 64), and a
+blanket body cannot spell "the unsigned type of the same width". That is also
+why `unsigned_abs` is per-type: its RESULT is the receiver's unsigned
+counterpart. Yo has no associated TYPE; that, not `BITS`, is the remaining
+limitation.
+
+One thing this batch had to get right twice: `-1` cannot be spelled
+`T(0) - T(1)` in a blanket body. On an unsigned instantiation that is a
+comptime overflow and a HARD compile error (`Result -1 exceeds u8 range`), and
+it fires even from an arm the unsigned type would never take. The file's
+existing idiom — `rhs < T(0) && (T(0) - rhs) == T(1)`, which short-circuits
+before the subtraction — is what the five `MIN / -1` guards use.
+
 **`Seek` + `OpenOptions` + `SystemTime` — LANDED 2026-09-09, and the shapes
 each had a reason.**
 
@@ -807,10 +840,15 @@ extension adds ones above the receiver's width — `i8(-1).count_ones()` is 8,
 not 64, and a test pins that at every width. `usize`/`isize` derive their
 width from `usize.MAX` instead of hardcoding 64, because it is 32 on wasm32.
 The private SWAR `popcount` in `std/imm/map.yo` is deleted in favour of
-`u32.count_ones()`. Still open: `abs`/`signum`/`pow` (unchecked forms),
-`abs_diff`, `div_euclid`/`rem_euclid`, `midpoint`, `isqrt`,
-`to_be_bytes`/`from_le_bytes` — the byte conversions want a `SignedInteger`
-marker or per-type `Array(u8, N)` returns, which is a separate change.
+`u32.count_ones()`. **That "still open" list was STALE and is now empty.** Re-measured against the
+code 2026-09-10: `abs`, `signum`, `pow`, `abs_diff`, `div_euclid`,
+`rem_euclid`, `midpoint`, `isqrt` and the byte conversions were all already
+there — `abs`/`signum` under the `SignedInteger` marker the note said they
+wanted, the byte conversions per-type. What was genuinely missing is now in
+(2026-09-10): `wrapping_pow`, `overflowing_pow`, `wrapping_div`,
+`wrapping_rem`, `saturating_div`, `overflowing_neg`, `checked_div_euclid`,
+`checked_rem_euclid`, `ilog2`, `ilog10`, `ilog`, the six shifts, and
+`unsigned_abs`. See the `BITS` note below.
 The `f64`/`f32`
 methods and consts (`sqrt/abs/floor/ceil/round/trunc/is_nan/is_finite/
 is_infinite/signum/min/max/hypot/exp/ln/sin/EPSILON/INFINITY/NAN`) are all
