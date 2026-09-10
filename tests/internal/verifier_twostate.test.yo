@@ -39,8 +39,13 @@ _have_z3 :: (fn() -> bool)(
   )
 );
 /// Load one fixture with targets armed; returns its reports (the task
-/// list is drained into the run inside `_run_reports`).
-_load_reports :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))({
+/// list is drained into the run inside `_run_reports`). `expect_ok`
+/// false = the fixture's load EXPECTEDLY fails (e.g. the E0902
+/// def-eval fixture: the load fails, the registered task survives, and
+/// the REPORT carries the recorded cause).
+_load_reports :: (
+  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+)({
   exn := Exception(
     throw : (
       err -> {
@@ -61,10 +66,13 @@ _load_reports :: (fn(rel_path : String, io : Io) -> ArrayList(VerifyFnReport))({
   match(
     _take_load_error(),
     .Some(rendered) => {
-      assert(outcome.ok, `fixture ${rel_path} failed: ${rendered}`);
+      assert(
+        outcome.ok == expect_ok,
+        `fixture ${rel_path} load ok=${outcome.ok.to_string()} (expected ${expect_ok.to_string()}): ${rendered}`
+      );
     },
     .None => {
-      assert(outcome.ok, `fixture ${rel_path} must evaluate cleanly`);
+      assert(outcome.ok == expect_ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}`);
     }
   );
   cfg := default_verify_run_config();
@@ -108,14 +116,14 @@ test("old(...) reads the ENTRY state (old_step proves)", {
   if(!_have_z3(), {
     return(());
   });
-  reports := _load_reports(String.from("./tests/spec/fixtures/valid/two_state_old.yo"), io);
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/two_state_old.yo"), io, true);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
   rp := _first(reports);
   assert(rp.outcome == "ok", `old_step proves, got: [${_reports_dump(reports)}]`);
 });
 
 test("old(...) of a body-local is a LOUD gate (solver-free)", {
-  reports := _load_reports(String.from("./tests/spec/fixtures/negative/two_state_old_gate.yo"), io);
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/two_state_old_gate.yo"), io, true);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
   rp := _first(reports);
   assert(rp.outcome == "subset-error", `old_local is gated, got: [${_reports_dump(reports)}]`);
@@ -126,7 +134,9 @@ test("old(...) of a body-local is a LOUD gate (solver-free)", {
 });
 
 test("a swallowed def-time body failure reports its CAUSE (solver-free)", {
-  reports := _load_reports(String.from("./tests/spec/fixtures/negative/def_eval_swallowed.yo"), io);
+  // The load EXPECTEDLY fails (E0902); the registered task survives it
+  // and the report below carries the recorded cause.
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/def_eval_swallowed.yo"), io, false);
   assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
   rp := _first(reports);
   assert(rp.outcome == "subset-error", `reassign_param reports the cause, got: [${_reports_dump(reports)}]`);
