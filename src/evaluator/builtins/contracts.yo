@@ -23,6 +23,7 @@ open(import("std/fmt"));
   BF_REQUIRES,
   BF_ENSURES,
   BF_INVARIANT,
+  BF_DECREASES,
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
@@ -138,6 +139,18 @@ evaluate_invariant :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, 
   _reject_zero_arg_marker(
     expr,
     String.from("'invariant(...)' with zero arguments is a syntax error."),
+    exn
+  );
+  _evaluate_contract_marker(expr, env, ctx, exn)
+});
+/// `decreases(M)` — no-op marker in expression position: the loop-body
+/// statement form (right after `invariant(...)`) is consumed by the V4
+/// verifier's loop encoding; the SIGNATURE clause is extracted by the
+/// function-type evaluator.
+evaluate_decreases :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  _reject_zero_arg_marker(
+    expr,
+    String.from("'decreases(...)' with zero arguments is a syntax error."),
     exn
   );
   _evaluate_contract_marker(expr, env, ctx, exn)
@@ -499,6 +512,8 @@ VerifyTask :: ref(
     result_type : TypeValue,
     requires_exprs : ArrayList(AstExpr),
     ensures_exprs : ArrayList(AstExpr),
+    /// Phase V4 `decreases(M)` termination measure (at most one).
+    (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
     return_label : Option(String),
     table : ExprInfoTable,
     /// `"verify"` | `"verify+"` — only those modes register.
@@ -949,7 +964,7 @@ wrap_function_body_with_contracts :: (
   });
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
-export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_ghost);
+export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_ghost);
 export(evaluate_ghost_fn, evaluate_old);
 export(wrap_function_body_with_contracts);
 export(

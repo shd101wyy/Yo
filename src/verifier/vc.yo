@@ -170,6 +170,8 @@ VcCtx :: ref(
     /// distinct post-havoc generation so nested/back-to-back loops never
     /// share a synthetic constant.
     havoc : usize,
+    /// This function's `decreases(M)` measure (V4 recursion), if any.
+    decreases : Option(AstExpr),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -188,6 +190,7 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     subset_error : Option(VcSubsetError).None,
     fresh : usize(0),
     havoc : usize(0),
+    decreases : Option(AstExpr).None,
     datatypes : ArrayList(String).new()
   )
 );
@@ -1628,6 +1631,37 @@ _widen_or_trunc :: (fn(t : VcTerm, src_w : usize, dst_w : usize, src_signed : bo
 });
 /// `cond(c1 => v1, …, true => vN)` as nested ite VALUES (V3: no branch-local
 /// obligations — the whole cond is one value).
+/// Remove `guard_count` entries starting at index `base` of ctx.path,
+/// keeping everything ABOVE them (stacked off and restored in order).
+/// The cond-arm guards are arm-local; assumptions pushed DURING the arm
+/// walk — callee ensures at call sites — must survive the arm.
+_unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize) -> unit)({
+  keep := ArrayList(VcTerm).new();
+  (k : usize) = (ctx.path.len() - (base + guard_count));
+  while(k > usize(0), {
+    match(
+      ctx.path.get(ctx.path.len() - usize(1)),
+      .Some(top) => keep.push(top),
+      .None => ()
+    );
+    _ := ctx.path.pop();
+    k = (k - usize(1));
+  });
+  (g : usize) = guard_count;
+  while(g > usize(0), {
+    _ := ctx.path.pop();
+    g = (g - usize(1));
+  });
+  (r : usize) = keep.len();
+  while(r > usize(0), {
+    r = (r - usize(1));
+    match(
+      keep.get(r),
+      .Some(t) => ctx.path.push(t),
+      .None => ()
+    );
+  });
+});
 _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
   // Pair up (condition, value); the trailing `true => v` arm is the else.
   conds := ArrayList(VcTerm).new();
@@ -1643,11 +1677,29 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       c_opt := _expr_term(ctx, aa.get(usize(0)).unwrap());
+      // The arm's value walks under its GUARD (this condition ∧ the
+      // negation of every earlier condition): obligations inside the arm
+      // — callee requires, asserts — are reachable only on that path.
+      guard_cell := box(match(c_opt, .Some(c0) => c0, .None => VcTerm.BoolLit(true)));
+      path_base := ctx.path.len();
+      (pi : usize) = usize(0);
+      pushed := usize(0);
+      while(pi < conds.len(), {
+        ng := _app1(VcOp.NotOp, conds.get(pi).unwrap());
+        ctx.path.push(ng);
+        pushed = (pushed + usize(1));
+        pi = (pi + usize(1));
+      });
+      if(c_opt.is_some(), {
+        ctx.path.push(c_opt.unwrap());
+        pushed = (pushed + usize(1));
+      });
       v_opt := _expr_term(ctx, aa.get(usize(1)).unwrap());
+      _unwind_path_guards(ctx, path_base, pushed);
       if(c_opt.is_none() || v_opt.is_none(), {
         return(Option(VcTerm).None);
       });
-      ct := c_opt.unwrap();
+      ct := guard_cell.*;
       vt := v_opt.unwrap();
       conds.push(ct);
       vals.push(vt);
@@ -1812,10 +1864,17 @@ _callee_call_term :: (
     return(Option(VcTerm).None);
   });
   fid := callee_id.unwrap();
-  // Recursion: a self-call needs `decreases(...)` — termination measures
-  // are Phase V4 (plan §"Loops, mutation, old, and decreases").
-  if(fid == ctx.func_id, {
-    _fail_subset(ctx, String.from("recursion (requires decreases(...) — Phase V4)"), e);
+  // Recursion (V4): a self-call needs `decreases(M)`. The measure of the
+  // CURRENT state is captured BEFORE the param rebinding; after the
+  // rebinding (callee params = actual terms) the measure evaluates as the
+  // ACTUALS' measure, and the call proves M(actuals) < M(current) — the
+  // well-foundedness step that makes the ensures-assume below sound.
+  m_current := Option(VcTerm).None;
+  if((fid == ctx.func_id) && ctx.decreases.is_some(), {
+    m_current = _expr_term(ctx, ctx.decreases.unwrap());
+  });
+  if((fid == ctx.func_id) && m_current.is_none(), {
+    _fail_subset(ctx, String.from("recursion (requires decreases(...) in the signature)"), e);
     return(Option(VcTerm).None);
   });
   reqs := get_func_requires_exprs(fid.clone());
@@ -1875,6 +1934,16 @@ _callee_call_term :: (
     );
     i = (i + usize(1));
   });
+  if((fid == ctx.func_id) && m_current.is_some(), {
+    m_actual := _expr_term(ctx, ctx.decreases.unwrap());
+    match(
+      m_actual,
+      .Some(ma) => {
+        _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(VcOp.BvSlt, ma, m_current.unwrap()));
+      },
+      .None => ()
+    );
+  });
   (ri : usize) = usize(0);
   while(ri < reqs.len(), {
     match(
@@ -1926,7 +1995,9 @@ _callee_call_term :: (
           .Some(ett) => {
             ctx.path.push(ett);
           },
-          .None => ()
+          .None => {
+            _fail_subset(ctx, String.from("callee ensures outside the subset (dropped assumption)"), ens);
+          }
         );
       },
       .None => ()
@@ -2013,6 +2084,8 @@ VerifyFnInput :: ref(
     result_type : TypeValue,
     requires_exprs : ArrayList(AstExpr),
     ensures_exprs : ArrayList(AstExpr),
+    /// Phase V4 `decreases(M)` termination measure (recursion).
+    (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
     return_label : Option(String),
     table : ExprInfoTable
   )
@@ -2047,6 +2120,7 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     );
     i = (i + usize(1));
   });
+  ctx.decreases = input.decreases_expr;
   // Callee-side: ASSUME the requires.
   (ri : usize) = usize(0);
   while(ri < input.requires_exprs.len(), {
@@ -2066,6 +2140,24 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     );
     ri = (ri + usize(1));
   });
+  // V4 termination: with a `decreases(M)` measure, prove M >= 0 on entry
+  // (the well-foundedness ground for every recursive call's decrease) —
+  // under the assumed requires, where it is actually provable.
+  match(
+    ctx.decreases,
+    .Some(dm) => {
+      m := _expr_term(ctx, dm);
+      match(
+        m,
+        .Some(mt) => {
+          zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
+          _emit(ctx, String.from("decreases-nonneg"), ArrayList(VcTerm).new(), _app2(VcOp.BvSge, mt, zero));
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
   // Bind the return label to the body value; then prove each ensures.
   body_val := _expr_term(ctx, input.body);
   match(

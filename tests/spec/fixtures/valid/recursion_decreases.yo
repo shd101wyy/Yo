@@ -1,0 +1,21 @@
+// Recursion + decreases fixture for the V4 verifier: a `decreases(n)`
+// measure in the signature (zone 5), a recursive call whose actuals must
+// measure-decrease, and an ensures proved through the assumed callee
+// ensures. The additive shape keeps every product out of the picture —
+// the exact-width bitvector model wraps, so multiplicative recursion
+// needs result bounds the contract vocabulary cannot express yet.
+pragma(Pragma.Verify);
+
+sum_down :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(1000)),
+    ensures(result >= i32(0), result <= ((n * (n + i32(1))) / i32(2))),
+    decreases(n)
+  ) -> (result : i32)
+)(
+  cond(
+    (n <= i32(0)) => i32(0),
+    true => (n + sum_down(n - i32(1)))
+  )
+);
