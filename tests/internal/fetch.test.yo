@@ -2,8 +2,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { DirEntry, FileType } :: import("std/fs/dir");
 { Path } :: import("std/path");
-{ normalize_line_endings, sort_dir_entries } :: import("../../src/fetch.yo");
-{ get_cached_dep_dir } :: import("../../src/cache.yo");
+{ normalize_line_endings, sort_dir_entries, is_local_git_path, git_remote_url } :: import("../../src/fetch.yo");
 { assert, panic } :: import("std/assert");
 // ---------------------------------------------------------------------------
 // normalize_line_endings
@@ -52,23 +51,20 @@ test("normalize_line_endings: multiple CRLF sequences", {
   assert(result.len() == usize(4), "two CRLFs removed two CRs");
 });
 // ---------------------------------------------------------------------------
-// get_cached_dep_dir
+// git_remote_url
 // ---------------------------------------------------------------------------
-test("get_cached_dep_dir: appends name-shortcommit", {
-  path := get_cached_dep_dir(
-    String.from("/home/.cache/yo/deps"),
-    String.from("my-lib"),
-    String.from("abc123def456789")
-  );
-  assert(path == "/home/.cache/yo/deps/my-lib-abc123def456", "path matches expected");
+test("is_local_git_path: ./, ../ and / are paths; URLs and scp-style remotes are not", {
+  assert(is_local_git_path(String.from("./remote.git")), "./");
+  assert(is_local_git_path(String.from("../up/remote.git")), "../");
+  assert(is_local_git_path(String.from("/abs/remote.git")), "/");
+  assert(!is_local_git_path(String.from("https://github.com/o/r.git")), "https");
+  assert(!is_local_git_path(String.from("git@github.com:o/r.git")), "scp-style");
+  assert(!is_local_git_path(String.from("ssh://git@host/r.git")), "ssh");
 });
-test("get_cached_dep_dir: uses first 12 chars of commit", {
-  path := get_cached_dep_dir(
-    String.from("/cache"),
-    String.from("foo"),
-    String.from("aabbccddeeff1122")
-  );
-  assert(path == "/cache/foo-aabbccddeeff", "exactly 12 commit chars");
+test("git_remote_url: a local path is made absolute against the project dir; a URL is as written", {
+  assert(git_remote_url(String.from("/proj"), String.from("./remote.git")) == "/proj/remote.git", "./ under the project");
+  assert(git_remote_url(String.from("/proj/sub"), String.from("../remote.git")) == "/proj/remote.git", "../ normalizes");
+  assert(git_remote_url(String.from("/proj"), String.from("https://h/r.git")) == "https://h/r.git", "URL untouched");
 });
 // ---------------------------------------------------------------------------
 // sort_dir_entries

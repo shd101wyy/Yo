@@ -876,15 +876,33 @@ exe.link(add_lib);
 
 ### 全局缓存
 
-依赖被全局缓存，避免跨项目重复下载：
+依赖全局存储，每个不同的源码树只存一份，因此两个项目（或内容相同的两个提交）共享同一份拷贝：
 
 ```bash
 # 显示缓存位置
 yo cache path           # 例如 ~/.cache/yo
 
-# 清除缓存
+# 删除依赖存储（包树、镜像、标签列表）；已缓存的 Yo 版本保留
 yo cache clean
+
+# 只删除不再被任何已记录项目的 yo.lock 引用的内容
+yo cache gc
 ```
+
+缓存根目录下的布局：
+
+```
+~/.cache/yo/
+├── store/sha256/<hash>/          # 每个内容哈希（锁的 `integrity`）一棵提取出的包树
+├── store/sha256/<hash>.verified  # 完整哈希确认该树之后写入
+├── git/<sha256(url)>.git/        # 每个远端一个裸镜像，增量抓取
+├── index/<sha256(url)>.tags      # 每个远端最近一次 `git ls-remote --tags` 的结果（--offline 下的标签来源）
+├── store.lock                    # 两个并发 install 轮流持有的锁
+├── projects                      # 运行过 `yo install` 的所有项目——`yo cache gc` 据此保留
+└── versions/                     # 已缓存的 Yo 工具链（`yo version`）
+```
+
+包树的名字**就是**它的内容哈希，因此 `import("dep")` 只凭 `yo.lock` 就能解析（`integrity` → `store/sha256/<hash>`），新克隆的项目 `yo build` 不访问网络就能找到锁记录的一切，而内容漂移的树不再对应它的名字。`yo build` 还会把 `yo-out/deps/<name>` 链接到每个依赖的存储树，让编辑器能通过稳定路径打开依赖源码（是输出而非输入；Windows 上不创建）。
 
 **解析顺序：**
 
@@ -923,9 +941,9 @@ integrity = "sha256-9a0b2e..."
 
 `source` 是 `git+<url>#<ref>` 或 `path+<相对 yo.toml 的路径>`；`version` 是所选标签的语义化版本（分支、提交或路径没有）；`dependencies` 列出该包自己的依赖名。路径包没有提交和哈希——它是实时的。
 
-1. **抓取时** — `yo install` 在解析出的提交处克隆包，遍历提取的文件树，计算所有文件名和内容的 SHA-256 哈希。哈希写入 `yo.lock` 以及缓存目录内的 `.yo-content-hash` 旁车文件。
+1. **抓取时** — `yo install` 把提交拉进远端的裸镜像（首次 `git clone --mirror`，之后 `git fetch`），在存储中以临时名字提取出源码树，遍历它计算所有文件名和内容的 SHA-256 哈希，再重命名为 `store/sha256/<hash>` 并写入 `.verified` 标记。该哈希就是锁条目的 `integrity`。抓到的树哈希与锁不符则是完整性错误——依赖的历史被重写了，`yo update <name>` 是接受新树的方式。
 
-2. **安装时** — 复用锁条目的包会与旁车文件比对（O(1)）；匹配则不抓取。旁车缺失触发完整重新哈希；缓存树的哈希与锁不符（被篡改或损坏）则删除并重新克隆，重新抓取后**仍然**不符则是完整性错误——依赖的历史被重写了，`yo update <name>` 是接受新树的方式。
+2. **安装时** — 复用锁条目的包按哈希查找：带 `.verified` 标记的存储树直接使用（不访问网络、不重新哈希）；没有标记的树（被中断的安装、手工改动过的存储）先重新哈希，不再对应其名字的树会被删除并重新抓取。
 
 **跨平台稳定性：**哈希把 `\r\n` 规范化为 `\n`，因此同一依赖在 Windows 与 Linux 上的哈希相同；文件名以与区域设置无关的顺序排序。这遵循 Zig 对提取内容而非归档字节做哈希的模型。
 
@@ -1021,10 +1039,11 @@ yo cache <action>
 
 Actions:
   path                   打印全局缓存目录路径
-  clean                  删除所有缓存的依赖
+  clean                  删除依赖存储（store/、git/、index/）；已缓存的 Yo 版本保留
+  gc                     删除没有任何已记录项目的 yo.lock 引用的包树、镜像和标签列表
 ```
 
-可通过 `YO_CACHE_DIR` 环境变量覆盖缓存位置。
+`gc` 读取每个运行过 `yo install` 的项目（记录在 `<cache>/projects`；目录或锁已不存在的项目被遗忘）的 `yo.lock`，删除它们都不引用的每棵存储树、镜像和标签列表。可通过 `YO_CACHE_DIR` 环境变量覆盖缓存位置。
 
 ## 文档生成
 

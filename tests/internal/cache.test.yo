@@ -3,45 +3,102 @@ import("std/fmt");
 { assert, panic } :: import("std/assert");
 {
   get_global_cache_dir,
-  get_global_deps_cache_dir,
+  get_store_dir,
+  store_tree_dir,
+  store_verified_marker,
+  get_git_mirrors_dir,
+  url_key,
+  git_mirror_dir,
+  get_index_dir,
+  tags_index_path,
+  store_lock_path,
+  projects_registry_path,
   get_global_versions_cache_dir,
   get_version_cache_dir
 } :: import("../../src/cache.yo");
 // ---------------------------------------------------------------------------
-// get_global_deps_cache_dir and get_global_versions_cache_dir
+// The store layout (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.4)
 // ---------------------------------------------------------------------------
-test("get_global_deps_cache_dir: ends with /deps", {
-  d := get_global_deps_cache_dir();
-  assert(d.ends_with(String.from("/deps")), "deps cache ends with /deps");
+HEX64 :: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+test("get_store_dir: <root>/store/sha256", {
+  assert(get_store_dir(String.from("/c")) == "/c/store/sha256", "store dir");
 });
+test("store_tree_dir: sha256-<64 hex> maps to <root>/store/sha256/<hex>", {
+  r := store_tree_dir(String.from("/c"), `sha256-${HEX64}`);
+  match(
+    r,
+    .Ok(d) => assert(d == `/c/store/sha256/${HEX64}`, "tree dir is the hex under the store"),
+    .Err(m) => panic(`unexpected error: ${m}`)
+  );
+});
+test("store_tree_dir: a value without the sha256- prefix is an error naming it", {
+  match(
+    store_tree_dir(String.from("/c"), String.from(HEX64)),
+    .Ok(_) => panic("accepted a bare hex"),
+    .Err(m) => assert(m.contains(String.from("does not start with \"sha256-\"")), m)
+  );
+});
+test("store_tree_dir: a short hash is an error", {
+  match(
+    store_tree_dir(String.from("/c"), String.from("sha256-abc")),
+    .Ok(_) => panic("accepted a short hash"),
+    .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), m)
+  );
+});
+test("store_tree_dir: uppercase or non-hex digits are an error (no path escape)", {
+  bad := String.from("sha256-");
+  bad.push_str("../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../////////");
+  match(
+    store_tree_dir(String.from("/c"), bad),
+    .Ok(_) => panic("accepted a path-escaping value"),
+    .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), m)
+  );
+  upper := String.from("sha256-");
+  upper.push_str("0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef");
+  match(
+    store_tree_dir(String.from("/c"), upper),
+    .Ok(_) => panic("accepted uppercase hex"),
+    .Err(_) => ()
+  );
+});
+test("store_verified_marker: a sibling file of the tree", {
+  assert(store_verified_marker(String.from("/c/store/sha256/abc")) == "/c/store/sha256/abc.verified", "marker path");
+});
+test("url_key: 64 hex digits, stable, and different per URL", {
+  a := url_key(String.from("https://example.com/a.git"));
+  b := url_key(String.from("https://example.com/b.git"));
+  assert(a.len() == usize(64), "sha256 hex");
+  assert(a == url_key(String.from("https://example.com/a.git")), "deterministic");
+  assert(a != b, "distinct remotes have distinct keys");
+});
+test("git_mirror_dir / tags_index_path: filed under the URL's key", {
+  k := url_key(String.from("u"));
+  assert(git_mirror_dir(String.from("/c"), String.from("u")) == `/c/git/${k}.git`, "mirror dir");
+  assert(tags_index_path(String.from("/c"), String.from("u")) == `/c/index/${k}.tags`, "tags index");
+  assert(get_git_mirrors_dir(String.from("/c")) == "/c/git", "mirrors dir");
+  assert(get_index_dir(String.from("/c")) == "/c/index", "index dir");
+});
+test("store_lock_path / projects_registry_path: at the cache root", {
+  assert(store_lock_path(String.from("/c")) == "/c/store.lock", "lock");
+  assert(projects_registry_path(String.from("/c")) == "/c/projects", "registry");
+});
+// ---------------------------------------------------------------------------
+// The version cache (untouched by the store)
+// ---------------------------------------------------------------------------
 test("get_global_versions_cache_dir: ends with /versions", {
   d := get_global_versions_cache_dir();
   assert(d.ends_with(String.from("/versions")), "versions cache ends with /versions");
 });
-// ---------------------------------------------------------------------------
-// get_version_cache_dir
-// ---------------------------------------------------------------------------
 test("get_version_cache_dir: appends version segment", {
   d := get_version_cache_dir(String.from("0.1.23"));
   assert(d.ends_with(String.from("/versions/0.1.23")), "version dir ends with /versions/0.1.23");
 });
-// ---------------------------------------------------------------------------
-// get_global_cache_dir: basic sanity
-// ---------------------------------------------------------------------------
 test("get_global_cache_dir: returns non-empty string", {
   d := get_global_cache_dir();
   assert(d.len() > usize(0), "cache dir is non-empty");
 });
-// ---------------------------------------------------------------------------
-// Consistency: deps and versions are children of cache root
-// ---------------------------------------------------------------------------
-test("get_global_deps_cache_dir: is under cache root", {
+test("store and versions are children of the cache root", {
   root := get_global_cache_dir();
-  deps := get_global_deps_cache_dir();
-  assert(deps.starts_with(root), "deps dir is under cache root");
-});
-test("get_global_versions_cache_dir: is under cache root", {
-  root := get_global_cache_dir();
-  vers := get_global_versions_cache_dir();
-  assert(vers.starts_with(root), "versions dir is under cache root");
+  assert(get_store_dir(root.clone()).starts_with(root.clone()), "store dir is under cache root");
+  assert(get_global_versions_cache_dir().starts_with(root), "versions dir is under cache root");
 });

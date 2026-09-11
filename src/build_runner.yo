@@ -18,7 +18,10 @@ pragma(Pragma.AllowUnsafe);
 // throughout this file (`run_step.args`). Same rename form main.yo uses for `env`.
 _(args : proc_args) :: import("std/env");
 { exists, read, write_string } :: import("std/fs/file");
-{ read_dir, DirEntry } :: import("std/fs/dir");
+{ read_dir, DirEntry, symlink, remove_file } :: import("std/fs/dir");
+{ platform, Platform } :: import("std/process");
+{ get_global_cache_dir, store_tree_dir } :: import("./cache.yo");
+{ parse_lock_file } :: import("./lock_file.yo");
 { sha256_hex } :: import("std/crypto/sha256");
 { CURRENT_YO_VERSION } :: import("./version.yo");
 _(env : proc_env) :: import("std/env");
@@ -373,9 +376,84 @@ resolve_build_import_roots :: (
       li = (li + usize(1));
     });
     g_import_lines = lines;
+    e.io.await(_link_store_trees(manifest, e.io, e.exn), e);
     ()
   })
 );
+/// The editor's view of the store (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+/// §4.4): `yo-out/deps/<name>` → the store tree of every git dependency the
+/// lock records, so a dependency's source can be opened by a stable path.
+/// Outputs, not inputs — the compile receives the absolute roots — and not
+/// created on Windows, where a symlink needs a privilege a build must not
+/// depend on. A stale link (a `yo update` moved the tree) is replaced.
+_link_store_trees :: (
+  fn(
+    manifest : Manifest,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    if(platform == Platform.Windows, {
+      return(());
+    });
+    lock_text := match(read_lock_text(manifest, e.exn), .Some(t) => t.clone(), .None => String.new());
+    if(lock_text.len() == usize(0), {
+      return(());
+    });
+    lock := match(
+      parse_lock_file(lock_text),
+      .Ok(l) => l,
+      .Err(_) => {
+        return(());
+      }
+    );
+    cache_root := get_global_cache_dir();
+    deps_dir := `${manifest.dir}/yo-out/deps`;
+    (has_git : bool) = false;
+    (i : usize) = usize(0);
+    while(i < lock.packages.len(), {
+      if(lock.packages(i).integrity.len() > usize(0), {
+        has_git = true;
+      });
+      i = (i + usize(1));
+    });
+    if(!has_git, {
+      return(());
+    });
+    e.io.await(create_dir_all(Path.new(deps_dir.clone()), e.io), e);
+    // What is in `yo-out/deps` now — a dangling link is not `exists`, so the
+    // directory listing (which reports a link as a link) is what says whether
+    // a name has to be unlinked before it can be linked again.
+    entries := e.io.await(read_dir(Path.new(deps_dir.clone()), e.io), e);
+    (pi : usize) = usize(0);
+    while(pi < lock.packages.len(), {
+      entry := lock.packages(pi);
+      pi = (pi + usize(1));
+      tree := if(entry.integrity.len() == usize(0), String.new(), match(store_tree_dir(cache_root.clone(), entry.integrity.clone()), .Ok(d) => d, .Err(_) => String.new()));
+      link := `${deps_dir}/${entry.name}`;
+      is_link := _names_a_symlink(entries, entry.name.clone());
+      if((tree.len() > usize(0)) && is_link, {
+        e.io.await(remove_file(Path.new(link.clone()), e.io), e);
+      });
+      if(tree.len() > usize(0), {
+        e.io.await(symlink(Path.new(tree.clone()), Path.new(link.clone()), e.io), e);
+      });
+    });
+    ()
+  })
+);
+/// Is `name` a symbolic link among `entries`?
+_names_a_symlink :: (fn(entries : ArrayList(DirEntry), name : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < entries.len(), {
+    if(entries(i).name == name, {
+      return(match(entries(i).file_type, .Symlink => true, _ => false));
+    });
+    i = (i + usize(1));
+  });
+  false
+});
 // ---------------------------------------------------------------------------
 // Linked static libraries
 // ---------------------------------------------------------------------------

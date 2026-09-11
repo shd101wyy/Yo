@@ -61,7 +61,7 @@ _(env : proc_env) :: import("std/env");
 { TokenKind } :: import("./token.yo");
 { parse } :: import("./parser.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
-{ get_global_cache_dir } :: import("./cache.yo");
+{ get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
 { BuildOptions, run_build } :: import("./build_runner.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
@@ -70,7 +70,7 @@ _(env : proc_env) :: import("std/env");
 { generate_unsafe_report, format_unsafe_report, unsafe_report_to_json } :: import("./unsafe_report.yo");
 { generate_public_safe_report, format_public_safe_report, public_safe_report_to_json } :: import("./public_safe_report.yo");
 { HashMap } :: import("std/collections/hash_map");
-{ remove_dir_all } :: import("./fetch.yo");
+{ remove_dir_all, gc_store } :: import("./fetch.yo");
 {
   verify_mode_of_string,
   default_verify_run_config,
@@ -4352,30 +4352,84 @@ run_cache :: (
     exn : Exception
   ) -> unit
 )({
+  usage := "Usage: yo cache <path|clean|gc>";
   if(argv.len() < usize(3), {
-    exn.throw(dyn(String.from("cache: missing action. Usage: yo cache <path|clean>")));
+    exn.throw(dyn(`cache: missing action. ${usage}`));
   });
   action := argv(usize(2));
   if(argv.len() > usize(3), {
-    exn.throw(dyn(`cache: unexpected extra argument '${argv(usize(3))}'. Usage: yo cache <path|clean>`));
+    exn.throw(dyn(`cache: unexpected extra argument '${argv(usize(3))}'. ${usage}`));
   });
   cache_dir := get_global_cache_dir();
   cond(
     (action == "path") => println(cache_dir),
-    (action == "clean") => {
-      present := io.await(exists(Path.new(cache_dir.clone()), io), io);
-      cond(
-        present => {
-          io.await(remove_dir_all(Path.new(cache_dir.clone()), io), IoExn(io : io, exn : exn));
-          println(`Removed cache directory: ${cache_dir}`);
-        },
-        true => println(`Cache directory does not exist: ${cache_dir}`)
-      );
-    },
+    (action == "clean") => _cache_clean(cache_dir, io, exn),
+    (action == "gc") => _cache_gc(cache_dir, io, exn),
     true => {
-      exn.throw(dyn(`cache: unknown action '${action}'. Usage: yo cache <path|clean>`));
+      exn.throw(dyn(`cache: unknown action '${action}'. ${usage}`));
     }
   );
+});
+/// `yo cache clean`: remove the dependency store — `store/`, `git/`, `index/`,
+/// the store lock and the projects registry — and nothing else; `versions/`
+/// belongs to `yo version clean`.
+_cache_clean :: (
+  fn(
+    cache_dir : String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
+  if(!present, {
+    println(`Cache directory does not exist: ${cache_dir}`);
+    return(());
+  });
+  e := IoExn(io : io, exn : exn);
+  // `store/` (the parent of `store/sha256`), the mirrors and the tag index.
+  dirs := ArrayList(String).new();
+  dirs.push(cache_dir.concat(String.from("/store")));
+  dirs.push(get_git_mirrors_dir(cache_dir.clone()));
+  dirs.push(get_index_dir(cache_dir.clone()));
+  (i : usize) = usize(0);
+  while(i < dirs.len(), {
+    d := dirs(i);
+    i = (i + usize(1));
+    d_present := io.await(exists(Path.new(d.clone()), io), io);
+    if(d_present, {
+      io.await(remove_dir_all(Path.new(d), io), e);
+    });
+  });
+  files := ArrayList(String).new();
+  files.push(store_lock_path(cache_dir.clone()));
+  files.push(projects_registry_path(cache_dir.clone()));
+  (j : usize) = usize(0);
+  while(j < files.len(), {
+    f := files(j);
+    j = (j + usize(1));
+    f_present := io.await(exists(Path.new(f.clone()), io), io);
+    if(f_present, {
+      io.await(remove_file(Path.new(f), io), e);
+    });
+  });
+  println(`Removed the dependency store under ${cache_dir} (store/, git/, index/). versions/ is kept — 'yo version clean' removes it.`);
+});
+/// `yo cache gc`: drop every store tree, mirror and tag list no recorded
+/// project's `yo.lock` references.
+_cache_gc :: (
+  fn(
+    cache_dir : String,
+    io : Io,
+    exn : Exception
+  ) -> unit
+)({
+  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
+  if(!present, {
+    println(`Cache directory does not exist: ${cache_dir}`);
+    return(());
+  });
+  report := io.await(gc_store(cache_dir.clone(), io, exn), IoExn(io : io, exn : exn));
+  println(`Kept ${report.trees_kept.to_string()} tree(s) referenced by ${report.projects_kept.to_string()} project(s); removed ${report.trees_removed.to_string()} tree(s), ${report.mirrors_removed.to_string()} mirror(s), ${report.indexes_removed.to_string()} tag list(s); forgot ${report.projects_forgotten.to_string()} project(s) whose yo.lock is gone.`);
 });
 /// Run the `add` subcommand — declare a dependency in `yo.toml`, resolve and
 /// fetch it, write `yo.lock`.
@@ -5935,26 +5989,32 @@ Examples:
       tr(
         `Usage: yo cache <action>
 
-Manage the global dependency cache (~/.cache/yo/deps).
+Manage the global dependency store (~/.cache/yo: store/, git/, index/).
 
 Actions:
   path                      Print the global cache directory
-  clean                     Remove all cached dependencies
+  clean                     Remove the dependency store (every package tree,
+                            mirror and tag list); cached Yo versions are kept
+  gc                        Remove the trees, mirrors and tag lists no recorded
+                            project's yo.lock references
 
 Examples:
   $ yo cache path
-  $ yo cache clean`,
+  $ yo cache clean
+  $ yo cache gc`,
         `用法：yo cache <action>
 
-管理全局依赖缓存（~/.cache/yo/deps）。
+管理全局依赖存储（~/.cache/yo：store/、git/、index/）。
 
 动作：
   path                      打印全局缓存目录
-  clean                     删除所有缓存的依赖
+  clean                     删除依赖存储（所有包树、镜像和标签列表）；已缓存的 Yo 版本保留
+  gc                        删除没有任何已记录项目的 yo.lock 引用的包树、镜像和标签列表
 
 示例：
   $ yo cache path
-  $ yo cache clean`
+  $ yo cache clean
+  $ yo cache gc`
       )
     ),
     (subcmd == "version") => Option(String).Some(

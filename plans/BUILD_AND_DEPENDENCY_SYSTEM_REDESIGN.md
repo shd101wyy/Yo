@@ -717,10 +717,38 @@ by develop's tip it passes. The branch therefore merges after the v0.2.31
 seed bump, not before. cli-case fixture bare repositories carry a tracked
 `refs/.keep` — git does not check out empty directories, and a bare repo
 without `refs/` "does not appear to be a git repository".
-Not in P1.4a (next, **P1.4b**): the content-addressed store (§4.4 — bare
-mirrors, `store/<sha256>` trees, `gc`, a lock across concurrent installs),
-`build.manifest` in `build.yo`; then §4.5.2 dependency `build.yo` evaluation
-+ system-library propagation, §4.5.3 linking, §4.5.4 shared libraries.
+**P1.4b — the store** (`p1/store`, stacked on P1.4a): §4.4 as designed.
+`src/cache.yo` names the layout — `store/sha256/<hash>` trees with a
+`.verified` sibling, `git/<sha256(url)>.git` bare mirrors,
+`index/<sha256(url)>.tags`, `store.lock`, `projects` — and `src/fetch.yo`'s
+`fetch_package` reuses a stored tree the lock names (no network, no hash when
+the marker is present; a full hash when it is not, eviction when it fails),
+otherwise brings the commit into the mirror (`clone --mirror` once, `fetch`
+after, a direct commit fetch as the last resort), extracts through a
+throwaway index (`GIT_INDEX_FILE`, so the mirror stays bare), hashes, and
+renames the tree to its hash under the store `flock`. `manifest.yo` resolves
+`import("dep")` from the lock's `integrity` alone; the runner links
+`yo-out/deps/<name>` to the store trees for editors (not on Windows). The tag
+index is what `--offline` reads. `yo cache clean` removes `store/`, `git/`,
+`index/` and nothing else; `yo cache gc` reads every recorded project's lock
+and removes the trees, mirrors and tag lists none references. Every git child
+runs `GIT_TERMINAL_PROMPT=0` + `GIT_ASKPASS=echo`; a manifest `git =
+"./x.git"` path is made absolute against the manifest's directory before git
+(which resolves relative remotes against the child's cwd) sees it. Gates:
+`tests/internal/cache.test.yo` (layout table, the integrity value validated
+before it becomes a path), `fetch.test.yo` (`git_remote_url`), cli-case
+`cache-gc` (install → gc keeps the tree; `yo remove` → gc drops the tree, the
+mirror and the tag list), the nine git-backed cases re-recorded on the store
+layout (their `ignore` files drop `git/`, `index/` and `projects`, whose names
+are keyed by the sandbox path). One compiler bug surfaced: a nested bare block
+`{ …await…; }` as a STATEMENT of an async cond/match arm was silently dropped
+by the async lowering (the content hasher's file arm vanished and every store
+tree hashed alike); the body is now flattened before analysis
+(issues/fixed/async-nested-bare-block-in-loop-arm-dropped.md), and the
+hasher keeps the flat shape as a seed gate.
+Not in P1.4b (next): `build.manifest` in `build.yo`; then §4.5.2 dependency
+`build.yo` evaluation + system-library propagation, §4.5.3 linking, §4.5.4
+shared libraries.
 
 **Dogfooding milestone (maintainer, 2026-09-11): un-vendor `vendor/markdown_yo`.**
 The compiler itself imports the Markdown renderer by submodule path
