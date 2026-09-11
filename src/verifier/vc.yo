@@ -305,7 +305,7 @@ _emit :: (
         match(
           declared.get(k.clone()),
           .Some(srt) => {
-            _ := q.declare(mangle_vc_name(ctx.fn_name.clone(), k.clone()), srt);
+            q.declare(mangle_vc_name(ctx.fn_name.clone(), k.clone()), srt);
             ();
           },
           .None => ()
@@ -353,7 +353,7 @@ _emit :: (
   });
   (ai : usize) = usize(0);
   while(ai < all.len(), {
-    _ := q.assume(all.get(ai).unwrap());
+    q.assume(all.get(ai).unwrap());
     ai = (ai + usize(1));
   });
   q.goal = _rename_vars(goal, rename_map);
@@ -1240,7 +1240,7 @@ _arm_under_pattern :: (
             ctx.vars.insert(sn.clone(), old);
           },
           .None => {
-            _ := ctx.vars.remove(sn.clone());
+            ctx.vars.remove(sn.clone());
             ()
           }
         );
@@ -1640,7 +1640,7 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   //    Inv ∧ ¬Cond over unconstrained constants, the standard modular
   //    rule (issues/fixed/verifier-loop-exit-pins-post-body-bindings.md).
   while(ctx.path.len() > path_mark, {
-    _ := ctx.path.pop();
+    ctx.path.pop();
   });
   _havoc_assigned(ctx, assigned);
   inv_exit := ArrayList(VcTerm).new();
@@ -2163,12 +2163,12 @@ _unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize
       .Some(top) => keep.push(top),
       .None => ()
     );
-    _ := ctx.path.pop();
+    ctx.path.pop();
     k = (k - usize(1));
   });
   (g : usize) = guard_count;
   while(g > usize(0), {
-    _ := ctx.path.pop();
+    ctx.path.pop();
     g = (g - usize(1));
   });
   (r : usize) = keep.len();
@@ -2267,7 +2267,7 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
                 ctx.vars.insert(nm.clone(), old);
               },
               .None => {
-                _ := ctx.vars.remove(nm.clone());
+                ctx.vars.remove(nm.clone());
                 ()
               }
             );
@@ -2745,7 +2745,7 @@ _callee_call_term :: (
                 ctx.vars.insert(sn.clone(), old);
               },
               .None => {
-                _ := ctx.vars.remove(sn.clone());
+                ctx.vars.remove(sn.clone());
                 ()
               }
             );

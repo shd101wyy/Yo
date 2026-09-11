@@ -47,7 +47,7 @@ pragma(Pragma.AllowUnsafe);
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module } :: import("./evaluator/module_loader.yo");
 { purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
-{ EvalValue } :: import("./value.yo");
+{ EvalValue, type_of_eval_value } :: import("./value.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { clear_type_display_names } :: import("./types/string.yo");
 { render_any_error, stash_error_diagnostics } :: import("./error.yo");
@@ -183,7 +183,7 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
     cond(
       (n < i64(0)) => {
         free(.Some((*void)(buf)));
-        _ := unsafe(unistd.close(fd));
+        unsafe(unistd.close(fd));
         exn.throw(dyn(IoError.from_errno(__yo_errno())));
       },
       (n == i64(0)) => break,
@@ -197,7 +197,7 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
     );
   });
   free(.Some((*void)(buf)));
-  _ := unsafe(unistd.close(fd));
+  unsafe(unistd.close(fd));
   result
 });
 /// Resolve the standard-library root. The proper evaluator needs this so
@@ -814,6 +814,36 @@ mm_eval_entry_exprs :: (
     )
   )
 });
+/// The load outcome for `std/prelude.yo`, built from the CACHED env rather
+/// than from a second evaluation.
+///
+/// Both prelude paths through `mm_load_file` — the cache hit and the first
+/// load — used to answer `UnitVal`/`Unit`, which is not a description of
+/// anything. `yo doc` asks `is_module_type(module_type)` before it reads a
+/// single declaration, so `std/prelude.yo` rendered as an empty page and the
+/// core traits were never available to donate their method docs to the
+/// trait-impl methods across `std/`
+/// (issues/fixed/yo-doc-renders-the-prelude-empty.md). Re-evaluating the
+/// prelude to get a namespace is NOT an option — it re-registers every impl
+/// under fresh type identities and corrupts where-constrained generic-impl
+/// resolution for every file checked afterwards
+/// (issues/fixed/seed-built-stage1-array-fill-method-miss.md) — so the
+/// namespace is reconstructed from the bindings the cached env already holds.
+_prelude_load_outcome :: (fn(input_path : String, std_path : String) -> ModuleLoadOutcome)({
+  prelude_env := match(
+    g_cached_prelude_env,
+    .Some(pe) => pe,
+    .None => Environment.new(input_path.clone())
+  );
+  prelude_val := _build_module_val_from_env(prelude_env);
+  ModuleLoadOutcome(
+    ok : true,
+    module_value : prelude_val,
+    module_type : type_of_eval_value(prelude_val),
+    env : prelude_env,
+    ctx : eval_context_new(std_path.clone(), input_path.clone())
+  )
+});
 /// Run the evaluator against a single `.yo` file, catching any thrown evaluator
 /// error via a local exception handler so a directory walk keeps going across
 /// files. `verbose` prints the `check: …` progress chatter.
@@ -856,15 +886,7 @@ mm_load_file :: (
     if(verbose, {
       emit_chatter(`check: ${input_path} — evaluator OK`);
     });
-    return(
-      ModuleLoadOutcome(
-        ok : true,
-        module_value : EvalValue.UnitVal,
-        module_type : TypeValue.Unit,
-        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(input_path.clone())),
-        ctx : eval_context_new(std_path.clone(), input_path.clone())
-      )
-    );
+    return(_prelude_load_outcome(input_path.clone(), std_path.clone()));
   });
   // ANY already-cached module is a HIT — never re-evaluate it (TS parity:
   // `check`'s CodeGenerator reuse makes a file already loaded as a DEPENDENCY
@@ -913,15 +935,10 @@ mm_load_file :: (
     if(verbose, {
       emit_chatter(`check: ${input_path} — evaluator OK`);
     });
-    return(
-      ModuleLoadOutcome(
-        ok : true,
-        module_value : EvalValue.UnitVal,
-        module_type : TypeValue.Unit,
-        env : match(g_cached_prelude_env, .Some(pe) => pe, .None => Environment.new(input_path.clone())),
-        ctx : eval_context_new(std_path.clone(), input_path.clone())
-      )
-    );
+    // The FIRST load of the prelude answers with the same namespace the cache
+    // hit above does — `yo doc <one file>` reaches the prelude by this path,
+    // not by that one.
+    return(_prelude_load_outcome(input_path.clone(), std_path.clone()));
   });
   // Ensure the prelude env is cached (single-file loads skip any pre-load step).
   if(g_cached_prelude_env.is_none(), {

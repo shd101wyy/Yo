@@ -997,6 +997,8 @@ foo();
 bar();
 ```
 
+**Prefer the bare call over `_ := foo();` / `___ := foo();` when the result is unused** (a 2026-09-11 tree sweep removed 45 such discard bindings). Two cases where the binding is load-bearing — leave it: drop/borrow fixtures that count `rc(...)` or test the discard's own scope-end drop, and compile-error fixtures whose diagnostic fires only on the value-evaluation path a binding forces (a bare statement can skip it — e.g. the `list(i).*` clear-error fixture in `tests/collections/array_list.test.yo` errors under `_ := bad_list(usize(0)).*;` but passes as a bare `bad_list(usize(0)).*;` statement).
+
 ## ArrayList indexing via `arr(index)`
 
 `ArrayList(T)` implements the `Index` trait, so elements can be accessed with call syntax:

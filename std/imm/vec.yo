@@ -172,7 +172,7 @@ impl(
   /// (issues/fixed/imm-vec-leaks-on-grow-and-drops-uninitialized-memory.md).
   _move_elems : (fn(dst : *T, src : *T, count : usize) -> unit)({
     if(count > usize(0), {
-      _ := unsafe(memcpy((*void)(dst), (*void)(src), count * sizeof(T)));
+      unsafe(memcpy((*void)(dst), (*void)(src), count * sizeof(T)));
     });
   }),
   /// Create a new empty vector.

@@ -137,7 +137,7 @@ _z3_read_file_sync :: (fn(path : String) -> Option(String))({
     cond(
       (n < i64(0)) => {
         free(.Some((*void)(buf)));
-        _ := unsafe(unistd.close(fd));
+        unsafe(unistd.close(fd));
         return(Option(String).None);
       },
       (n == i64(0)) => break,
@@ -151,7 +151,7 @@ _z3_read_file_sync :: (fn(path : String) -> Option(String))({
     );
   });
   free(.Some((*void)(buf)));
-  _ := unsafe(unistd.close(fd));
+  unsafe(unistd.close(fd));
   match(
     String.from_utf8(result),
     .Ok(s) => Option(String).Some(s),
@@ -174,7 +174,7 @@ _z3_write_file_sync :: (fn(path : String, contents : String) -> bool)({
         .None => (*u8)(malloc(usize(1)).unwrap())
       );
       wrote := unsafe(stdio.fwrite((*void)(bptr), usize(1), b.len(), fh));
-      _ := unsafe(stdio.fclose(fh));
+      unsafe(stdio.fclose(fh));
       wrote == b.len()
     },
     .None => false
@@ -183,7 +183,7 @@ _z3_write_file_sync :: (fn(path : String, contents : String) -> bool)({
 /// Unlink a file (best effort — failures ignored; the temp dir recovers).
 _z3_unlink_sync :: (fn(path : String) -> unit)({
   cstr := path.to_cstr().ptr().unwrap();
-  _ := unsafe(unistd.unlink((*char)(cstr)));
+  unsafe(unistd.unlink((*char)(cstr)));
   ()
 });
 /// Ensure a directory (and its parents) exist — portable BECAUSE it shells
@@ -201,7 +201,7 @@ _z3_ensure_dir_sync :: (fn(path : String) -> unit)({
   );
   cmd_buf := cmd.to_cstr();
   cmd_cstr := cmd_buf.ptr().unwrap();
-  _ := unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
+  unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
   ()
 });
 /// Monotonic counter for temp-file names — unique within one process run,

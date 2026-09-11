@@ -30,6 +30,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Value Types vs Reference-Semantics Types](#value-types-vs-reference-semantics-types)
   - [Variable Declaration](#variable-declaration)
     - [No variable shadowing](#no-variable-shadowing)
+    - [Discarding a call result](#discarding-a-call-result)
   - [Type inference](#type-inference)
     - [Uninitialized variable](#uninitialized-variable)
 - [Function Declaration](#function-declaration)
@@ -507,6 +508,20 @@ Variables can be shadowed in different block scopes:
   x := 2; // Allowed: different scope
 }
 ```
+
+#### Discarding a call result
+
+When you call a function only for its side effect and do not need its result, write the call as a bare expression statement — do not bind it to a discard name:
+
+```rust
+// Preferred:
+unsafe(unistd.close(fd));
+
+// Works, but the binding is pure noise:
+_ := unsafe(unistd.close(fd));
+```
+
+`_ := expr` declares a throwaway binding that is dropped at scope end (`_` may repeat within a scope; `___` may not). Reserve it for the rare cases where the binding itself matters — e.g. a test that counts drops via `rc(...)`, or forcing the value-evaluation path that a compile-error fixture depends on.
 
 ### Type inference
 

@@ -1195,13 +1195,13 @@ Result type: ${type_to_string(result_box)}`
         // the return label as unknown values — exactly the names a
         // predicate may mention.
         pred_env := _share_def_time_frames(caller_env, false);
-        _ := pred_env.push_frame(false);
+        pred_env.push_frame(false);
         (pv_i : usize) = usize(0);
         while(pv_i < param_labels.len(), {
           pv_name := match(param_labels.get(pv_i), .Some(l) => l, .None => String.new());
           pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
           if(pv_name.len() > usize(0), {
-            _ := add_variable_to_env(
+            add_variable_to_env(
               pred_env,
               pv_name.clone(),
               pv_ty.clone(),
@@ -1219,7 +1219,7 @@ Result type: ${type_to_string(result_box)}`
         match(
           raw_label,
           .Some(rl) => {
-            _ := add_variable_to_env(
+            add_variable_to_env(
               pred_env,
               rl.clone(),
               result_box.clone(),

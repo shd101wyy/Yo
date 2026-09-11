@@ -130,7 +130,7 @@ pragma(Pragma.AllowUnsafe);
 copy_bytes :: (fn(dst : *(u8), src : *(u8), n : usize) -> unit)({
   // The extern call MUST be wrapped in unsafe(...) — see "Per-Call
   // Audit Marker" below.
-  _ := unsafe(memcpy((*void)(dst), (*void)(src), n));
+  unsafe(memcpy((*void)(dst), (*void)(src), n));
 });
 ```
 
