@@ -1,5 +1,19 @@
 # Yo Build System Design
 
+> **Corrected in part (2026-09-12).** The dependency and module SURFACE this
+> record describes — `build.module({ name, root })`, `step.add_import` /
+> `add_import_list` / `ImportEntry`, `build.dependency({ url, ref })` /
+> `build.path_dependency({…})`, `deps.yo`, `yo fetch`, `yo install <spec>`
+> (Phases 8–9 below) — was replaced by the `yo.toml` manifest of
+> `plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md` §4.1–§4.5: modules and
+> dependencies are declared in `yo.toml`, `import("dep")` resolves through the
+> manifest in every command, and `build.module({ name })` /
+> `build.dependency("name")` only NAME manifest entries. The runner sections
+> that assume in-process compilation are likewise superseded by the child
+> `yo compile` + `--imports` design there. Everything else (artifacts, steps,
+> the DAG, targets, options, docs) remains the landed design. User-facing
+> reference: `docs/*/BUILD_SYSTEM.md`.
+
 ## Problem Statement
 
 The Yo compiler currently has no project-level build system. Each compilation is a standalone `yo compile <file>` invocation with all flags passed manually. This makes it difficult to:
