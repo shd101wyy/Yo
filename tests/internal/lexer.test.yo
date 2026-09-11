@@ -759,36 +759,42 @@ test("Tokenize x : (fn() -> i32) yields correct bracket count", {
   assert(lp == usize(2), "expected 2 LParen tokens");
   assert(rp == usize(2), "expected 2 RParen tokens");
 });
-// ─── Reserved verification quantifiers ───────────────────────────────────────
-// Port of src/tests/reserved-quantifiers.test.ts: `forall` / `∀` are reserved
-// at LEX time (plans/archive/FORALL_TO_GENERIC.md) with a diagnostic that
-// names the fix; `exists` / `∃` are deliberately NOT reserved (`exists` is a
-// live std API, std/fs/file.yo). The TS file's compile-level positives
-// (`generic(T : Type)` binds, `exists` fns compile) are covered by the whole
-// std/ + tests/ corpus; the lexer-level gate is what needs a direct test.
-test("forall is reserved for verification quantifiers", {
+// ─── Verification quantifiers (V5 naming) ────────────────────────────────────
+// `forall` was held at LEX time between FORALL_TO_GENERIC and V5 of
+// plans/backlog/FORMAL_VERIFICATION.md (§6); V5 ACTIVATES it, so it now
+// tokenizes as a plain identifier and the evaluator dispatches the
+// ghost-only quantifier builtin on the call head. `exists` also lexes as a
+// plain identifier: the quantifier in ghost context, and outside it the
+// ordinary call path — std/fs's `exists(path, io)` (defined `_exists`,
+// exported as `export(exists : _exists)`) keeps working. Only the
+// non-ASCII `∀`/`∃` are rejected, with an ASCII-spelling hint.
+test("forall tokenizes as a plain identifier (V5 activates the quantifier)", {
   exn := Exception(
     throw : (
       err -> {
-        match(
-          downcast(err, YoError),
-          .Some(ye) => assert(ye.to_string().contains(`\`forall\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`), "wrong error message"),
-          .None => assert(false, "expected a YoError diagnostic")
-        );
+        assert(false, "unexpected lexer error");
         unwind(());
       }
     )
   );
-  tokenize(`sum :: (fn(forall(T : Type), a : T) -> T)(a);`, `test.yo`, exn);
-  assert(false, "expected a lexer error to be raised");
+  toks := non_ws(lex_or_panic(`forall`, exn));
+  assert(toks.len() == usize(1), "expected 1 token");
+  match(
+    toks.get(usize(0)),
+    .None => assert(false, "no token at 0"),
+    .Some(tok) => {
+      assert(tok.kind == TokenKind.Identifier, "expected Identifier");
+      assert(tok.value == `forall`, "value must be 'forall'");
+    }
+  );
 });
-test("∀ is reserved for verification quantifiers", {
+test("∀ is rejected with the ASCII-spelling hint", {
   exn := Exception(
     throw : (
       err -> {
         match(
           downcast(err, YoError),
-          .Some(ye) => assert(ye.to_string().contains(`\`∀\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`), "wrong error message"),
+          .Some(ye) => assert(ye.to_string().contains(`\`∀\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\``), "wrong error message"),
           .None => assert(false, "expected a YoError diagnostic")
         );
         unwind(());
@@ -796,6 +802,22 @@ test("∀ is reserved for verification quantifiers", {
     )
   );
   tokenize(`x :: ∀;`, `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("∃ is rejected with the ASCII-spelling hint", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(`\`∃\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\``), "wrong error message"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(`x :: ∃;`, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
 test("exists is NOT reserved — tokenizes as a plain identifier", {
