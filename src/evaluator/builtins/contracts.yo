@@ -237,7 +237,7 @@ _reject_not_ghost_context :: (fn(expr : AstExpr, ctx : EvalContext, exn : Except
     );
   });
 });
-/// forall_val/exists_val — V5 quantifier builtins, ghost-only. N binder
+/// forall/exists — V5 quantifier builtins, ghost-only. N binder
 /// args `(name : Type)` then the predicate body. The binders are bound
 /// to UNKNOWN values of their annotated types in a scoped frame for the
 /// body's evaluation (the verifier walks the real AST into a Quant
@@ -396,7 +396,7 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
   expr
 });
 /// forall_val(...) — ghost-only universal quantifier (V5).
-evaluate_forall_val :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+evaluate_forall :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_quantifier(expr, env, ctx, exn)
 );
 /// exists_val(...) — ghost-only existential quantifier (V5).
@@ -1227,7 +1227,7 @@ wrap_function_body_with_contracts :: (
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_ghost);
-export(evaluate_ghost_fn, evaluate_old, evaluate_forall_val, evaluate_exists_val, evaluate_implies);
+export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists_val, evaluate_implies);
 export(wrap_function_body_with_contracts);
 export(
   VerifyTask,

@@ -100,7 +100,7 @@ runtime assert).
 | assignments inside `cond` arms (the phi merge); `continue` as the loop body's final statement | ✅ verified (V4.1) |
 | `break` (exit-path disjunction); `continue` at any statement (proved at the site); `while(runtime(true), ...)` | ✅ verified (V4.2) |
 | `for` loops (need the iterator/collection model) | later phases |
-| `forall_val`/`exists_val`/`==>` in contracts (ghost-only; SMT quantifiers, MBQI instantiation) | ✅ verified (V5) |
+| `forall`/`exists_val`/`==>` in contracts (ghost-only; SMT quantifiers, MBQI instantiation) | ✅ verified (V5) |
 | `inout` params — the reassignable two-state binding (`old(v)` reads the entry snapshot) | ✅ verified (V5) |
 | Ghost code (`ghost`/`ghost_fn` erasure), `std/spec` collections | V5 (remaining) |
 | Traits/generics across boundaries, `Refine` | V6 |
@@ -137,7 +137,7 @@ and everything after the loop is proved under the disjunction. A
 step) at the statement itself. `runtime(e)` is the identity marker —
 `while(runtime(true), { invariant(...); ...; if(done, { break; }) })`
 is the verifiable form of "loop until done".
-`forall_val((k : T), P)`/`exists_val((k : T), P)` lower to SMT
+`forall((k : T), P)`/`exists_val((k : T), P)` lower to SMT
 quantifiers over the annotated binders (z3's model-based instantiation
 discharges them in these small goals; explicit `:pattern` triggers are
 deferred until a benchmark needs them), and `a ==> b` is boolean

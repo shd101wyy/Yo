@@ -793,16 +793,17 @@ tokenize :: (
           j = (j + usize(1));
         });
         id_str := id_sb.to_string();
-        // RESERVED for Dafny-style verification quantifiers
-        // (plans/archive/FORALL_TO_GENERIC.md). The type-parameter binder was renamed
-        // `forall` -> `generic`; the word is held back so `requires` /
-        // `ensures` can bind VALUES with a predicate later. Rejected at lex
-        // time — mirrors src/lexer.ts, and parser parity across the two
-        // frontends is a STRICT_FIXPOINT prerequisite.
-        //
-        // `exists` / `∃` are deliberately NOT reserved — `exists` is a live
-        // public API (`std/fs/file.yo:324`, used in 72 files).
-        if((id_str == `forall`) || (id_str == `∀`), {
+        // `forall` was RESERVED for Dafny-style verification quantifiers
+        // (plans/archive/FORALL_TO_GENERIC.md) while the type-parameter
+        // binder was `forall` -> `generic`. V5 of
+        // plans/backlog/FORMAL_VERIFICATION.md §6 ACTIVATES it: `forall(...)`
+        // is the ghost-only universal quantifier builtin (dispatched like the
+        // other contract builtins). `exists` keeps its `_val` spelling
+        // (`exists_val`) — the bare name is a live public API
+        // (`std/fs/file.yo`'s `exists(path, io)`, used across the corpus) that
+        // a builtin dispatch on the bare head would shadow. The non-ASCII
+        // `∀`/`∃` remain rejected (the plan's ASCII-only stance).
+        if((id_str == `∀`) || (id_str == `∃`), {
           exn.throw(
             dyn(
               format_lexer_error(
@@ -810,7 +811,7 @@ tokenize :: (
                 input,
                 line,
                 col,
-                `\`${id_str}\` is reserved for verification quantifiers. Use \`generic(T : Type)\` to declare type parameters.`
+                `\`${id_str}\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists_val(...)\` (plans/backlog/FORMAL_VERIFICATION.md §6)`
               )
             )
           );

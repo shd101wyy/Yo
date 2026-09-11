@@ -1724,7 +1724,7 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   ctx.path.push(_or_terms(disj));
   Option(VcTerm).Some(VcTerm.BoolLit(true))
 });
-/// forall_val/exists_val (V5 §6): N binder args `(name : Type)` then the
+/// forall/exists_val (V5 §6): N binder args `(name : Type)` then the
 /// predicate body. Each binder shadows any outer binding for the body
 /// walk (saved/restored like the cond-arm pre-state); the SMT binder
 /// handles scoping at the solver level. Instantiation relies on z3's
@@ -1734,7 +1734,7 @@ _quant_term :: (
   fn(inout(ctx) : VcCtx, at : AstExpr, head : String, args : ArrayList(AstExpr)) -> Option(VcTerm)
 )({
   kind := cond(
-    (head == "forall_val") => VcQuantKind.Forall,
+    (head == "forall") => VcQuantKind.Forall,
     true => VcQuantKind.Exists
   );
   qnames := ArrayList(String).new();
@@ -2061,7 +2061,7 @@ _call_term :: (
     return(_expr_term(ctx, args.get(usize(0)).unwrap()));
   });
   // --- ghost quantifiers/implication (V5 §6) ----------------------------------
-  // `a ==> b` lowers to the boolean implication; forall_val/exists_val
+  // `a ==> b` lowers to the boolean implication; forall/exists
   // build a Quant term over the annotated binders. Both are ghost-only
   // at the evaluator level (no runtime semantics) — the walk sees them
   // only inside contract predicates.
@@ -2076,7 +2076,7 @@ _call_term :: (
     });
     return(Option(VcTerm).Some(_app2(VcOp.ImpOp, a.unwrap(), b.unwrap())));
   });
-  if(((head == "forall_val") || (head == "exists_val")) && (n >= usize(2)), {
+  if(((head == "forall") || (head == "exists_val")) && (n >= usize(2)), {
     return(_quant_term(ctx, e, head, args));
   });
   // --- calls to contracted callees ----------------------------------------

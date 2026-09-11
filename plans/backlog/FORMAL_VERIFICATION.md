@@ -197,7 +197,7 @@ missing. That is Phase V1.
 
 Six primitives exist today (`requires`, `ensures`, `invariant`, `ghost`,
 `ghost_fn`, `old`); the verifier adds three (`decreases`,
-`forall_val`/`exists_val`, `==>`) and one real type constructor
+`forall`/`exists`, `==>`) and one real type constructor
 (`Refine(T, predicate)`), plus the three verification pragmas that already
 parse.
 
@@ -379,7 +379,7 @@ factorial :: (fn(
   Measures may be integer expressions or lexicographic tuples
   (`decreases((a, b))`).
 
-### 6. Quantifier builtins — `forall_val`, `exists_val`, `==>` (new, Phase V5)
+### 6. Quantifier builtins — `forall`, `exists_val`, `==>` (new, Phase V5; NAMING 2026-09-11, maintainer decision: `forall` takes the word RESERVED for it since FORALL_TO_GENERIC (the lex-time hold-back is released — it existed for exactly this), while `exists` keeps the `_val` spelling because the bare name is std/fs's live `exists(path, io)` API that a builtin head-dispatch would shadow)
 
 Well-formed **only inside ghost context** (contract clauses, `ghost(...)`
 bindings, `ghost_fn` bodies) — enforced by an `is_ghost_context` flag on
@@ -389,7 +389,7 @@ is only well-formed inside `ctl(...) -> R`:
 
 ```rust
 sorted_quantified :: ghost_fn((fn(s : Slice(i32)) -> bool)(
-  forall_val((i : usize), (j : usize),
+  forall((i : usize), (j : usize),
     (((i < j) && (j < s.len())) ==> ((s(i)) <= (s(j))))
   )
 ));
@@ -695,7 +695,7 @@ tools emit).
 | `&& \|\| !` | `and or not` (short-circuit preserved via path-condition structure) |
 | widening cast `i64(x)` | sign/zero extension (`(_ sign_extend 32)` / `(_ zero_extend …)`) |
 | narrowing cast `i32(x)` | `(_ extract 31 0)` |
-| `forall_val` / `exists_val` | `forall`/`exists` with auto E-matching triggers (V5) |
+| `forall` / `exists` | quantifiers with auto E-matching triggers (V5) |
 | `==>` | `=>` |
 
 ### Statements → symbolic execution
@@ -1151,8 +1151,10 @@ a broken invariant is a compile error naming the failing iteration.
 > reassignment — illegal Yo; E0401 unimported `assert`) reaches the
 > verifier hollow — the pipeline now records and reports the swallowed
 > CAUSE. SECOND ROW LANDED on feat/fv5-quantifiers (2026-09-11, tasks
-> 1 + 4's inout half): the quantifier builtins `forall_val` /
-> `exists_val` / `==>` (§6) are real — `==>` is a new THREE-CHAR
+> 1 + 4's inout half): the quantifier builtins `forall` /
+> `exists_val` / `==>` (§6) are real (`forall` is the PLAIN word the
+> lexer reserved for it since FORALL_TO_GENERIC — the hold-back is
+> released; `exists` keeps `_val` — the bare name is std/fs's live API) — `==>` is a new THREE-CHAR
 > operator (the only one; `_is_three_char_operator` ahead of the greedy
 > two-char split; reserved-list + GRAMMAR en+zh updated) and the word
 > builtins dispatch through new BF constants; all three are gated by
@@ -1177,7 +1179,7 @@ functional correctness specs need.
 Tasks:
 
 1. `is_ghost_context` evaluation flag; ghost-context gating for
-   `forall_val`/`exists_val`/`==>` (new builtins in `src/expr.yo`,
+   `forall`/`exists`/`==>` (new builtins in `src/expr.yo`,
    handlers in `src/evaluator/builtins/contracts.yo`).
 2. Quantifier encoding with auto E-matching triggers; trigger-stability
    guidance in diagnostics ("quantifier-heavy predicate could not be
@@ -1325,7 +1327,7 @@ verifier design choices (kept from the 2026-05 draft, now normative):
 
 - No second dialect: contracts are builtin calls, predicates are
   ordinary `bool` expressions, quantifiers are calls, ghost values are
-  bindings. The new vocabulary (`decreases`, `forall_val`, `exists_val`,
+  bindings. The new vocabulary (`decreases`, `forall`, `exists`,
   `==>`) is tiny and gated to ghost context so it adds no ambient noise.
 - Named returns strengthen this: the post-condition's variable is
   declared in the signature by normal syntax, not keyword magic an LLM
