@@ -1,0 +1,14 @@
+// The refuting twin of inout_two_state: v == old(v) is false after the
+// bump — the two-state encoding must REFUTE (an identity `old` would
+// wrongly PROVE this; that was the pre-V5 soundness hole).
+pragma(Pragma.Verify);
+
+inout_nochange :: (
+  fn(
+    inout(v) : i32,
+    requires(v >= i32(0), v <= i32(1000)),
+    ensures(v == old(v))
+  ) -> unit
+)({
+  v = (v + i32(1));
+});

@@ -109,8 +109,15 @@ Notes:
 
 ### Reserved operators (no user binding, no overload)
 
-`=` `:=` `::` `.` `:` `=>` `->` `<:` `?=` `&&` `\|\|` `#` `...#` `...`
+`=` `:=` `::` `.` `:` `=>` `->` `<:` `?=` `&&` `\|\|` `#` `...#` `...` `==>`
 
+- `==>` (added 2026-09-11, V5 of
+  `plans/backlog/FORMAL_VERIFICATION.md` §6) is ghost-only logical
+  implication — well-formed only inside contract clauses, `ghost(...)`
+  bindings, and `ghost_fn` bodies; it has no runtime semantics, so
+  ordinary code using it is a compile error. It is the ONLY three-char
+  operator: `_is_three_char_operator` matches it before the greedy
+  two-char split.
 - `&&`/`\|\|` stay lazy builtins — an overload would silently lose
   short-circuiting (Rust reserves them for the same reason).
 - The rest are structural: binding forms, member access, arm/label/type

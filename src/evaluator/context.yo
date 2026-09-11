@@ -340,6 +340,12 @@ EvalContext :: ref(
     /// a predicate therefore soft-falls-back to an unknown value instead of
     /// the hard `Variable not found` error; type errors still surface.
     is_evaluating_contract_predicate : bool,
+    /// Ghost context (V5, plans/backlog/FORMAL_VERIFICATION.md §6):
+    /// inside contract-clause predicates, `ghost(...)` args, and
+    /// `ghost_fn` bodies — the ONLY places the ghost-only builtins
+    /// (`forall_val`, `exists_val`, `==>`) are well-formed. They have no
+    /// runtime semantics, so ordinary code using them is a compile error.
+    is_ghost_context : bool,
     /// Whether we are evaluating the RHS of a `given(...)` assignment.
     is_inside_given_handler : bool,
     /// Whether we are re-evaluating type expressions during generic impl specialisation.
@@ -412,6 +418,7 @@ eval_context_new :: (fn(std_path : String, module_path : String) -> EvalContext)
     is_in_function_call_checking_phase : false,
     is_inside_io_async_call : false,
     is_evaluating_contract_predicate : false,
+    is_ghost_context : false,
     is_inside_given_handler : false,
     is_evaluating_generic_impl_specialization : false,
     currently_specializing_function : Option(SpecializingFunctionInfo).None,
@@ -1157,6 +1164,7 @@ copy_eval_context :: (fn(ctx : EvalContext) -> EvalContext)(
     is_inside_where_clause : ctx.is_inside_where_clause,
     is_lhs_of_assignment : ctx.is_lhs_of_assignment,
     is_evaluating_contract_predicate : ctx.is_evaluating_contract_predicate,
+    is_ghost_context : ctx.is_ghost_context,
     function_return_impl_concrete_type : ctx.function_return_impl_concrete_type,
     force_compile_time_bindings : ctx.force_compile_time_bindings,
     is_analyzing_ctfe_capability : ctx.is_analyzing_ctfe_capability,
@@ -2099,6 +2107,7 @@ create_function_body_evaluation_context :: (
     is_inside_where_clause : ctx.is_inside_where_clause,
     is_lhs_of_assignment : ctx.is_lhs_of_assignment,
     is_evaluating_contract_predicate : ctx.is_evaluating_contract_predicate,
+    is_ghost_context : ctx.is_ghost_context,
     is_in_function_call_checking_phase : ctx.is_in_function_call_checking_phase,
     is_inside_io_async_call : ctx.is_inside_io_async_call,
     is_inside_given_handler : ctx.is_inside_given_handler,

@@ -1,0 +1,15 @@
+// A FALSE universally-quantified post-condition (V5 §6): with x = 1,
+// k = 0 satisfies k <= 0 but NOT k < result - 1 — the negated goal has
+// a concrete model, so z3 must REFUTE (a counter-example naming k).
+pragma(Pragma.Verify);
+
+off_by_one :: (
+  fn(
+    x : i32,
+    requires(x > i32(0), x <= i32(1000)),
+    ensures(forall_val((k : i32), ((k <= i32(0)) ==> (k < (result - i32(1))))))
+  ) -> (result : i32)
+)({
+  y := x;
+  y
+});

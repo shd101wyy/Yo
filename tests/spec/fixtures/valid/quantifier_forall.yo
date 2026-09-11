@@ -1,0 +1,15 @@
+// forall_val + ==> in a POST-condition (V5 §6): with x > 0, every
+// non-positive k is strictly below the result. z3 discharges the
+// negated existential by model-based quantifier instantiation.
+pragma(Pragma.Verify);
+
+positive_floor :: (
+  fn(
+    x : i32,
+    requires(x > i32(0), x <= i32(1000)),
+    ensures(forall_val((k : i32), ((k <= i32(0)) ==> (k < result))))
+  ) -> (result : i32)
+)({
+  y := x;
+  y
+});

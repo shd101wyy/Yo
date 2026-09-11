@@ -1,0 +1,15 @@
+// ==> OUTSIDE ghost context (V5 §6): it has no runtime semantics, so
+// this is a compile error at the definition-time evaluation — the
+// honest-diagnostics chain then reports the recorded cause.
+pragma(Pragma.Verify);
+
+runtime_implies :: (
+  fn(
+    x : i32,
+    requires(x >= i32(0)),
+    ensures(result >= i32(0))
+  ) -> (result : i32)
+)({
+  y := ((x > i32(0)) ==> (x < i32(5)));
+  x
+});

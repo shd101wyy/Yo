@@ -74,6 +74,9 @@ import("std/fmt");
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
+  BF_FORALL_VAL,
+  BF_EXISTS_VAL,
+  BF_IMPLIES,
   BF_ALIGNOF,
   BF_TYPEID,
   BF_RUNTIME,
@@ -326,7 +329,10 @@ import("std/fmt");
   evaluate_decreases,
   evaluate_ghost,
   evaluate_ghost_fn,
-  evaluate_old
+  evaluate_old,
+  evaluate_forall_val,
+  evaluate_exists_val,
+  evaluate_implies
 } :: import("../builtins/contracts.yo");
 { evaluate_the } :: import("../builtins/the.yo");
 {
@@ -846,6 +852,12 @@ _evaluate_expression :: (
           evaluate_ghost_fn(expr, env, ctx, exn),
         ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_OLD, .None)) =>
           evaluate_old(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_FORALL_VAL, .None)) =>
+          evaluate_forall_val(expr, env, ctx, exn),
+        ((__dk_len == usize(10)) && ast_expr_is_fn_call_of(expr, BF_EXISTS_VAL, .None)) =>
+          evaluate_exists_val(expr, env, ctx, exn),
+        ((__dk_len == usize(3)) && ast_expr_is_fn_call_of(expr, BF_IMPLIES, .None)) =>
+          evaluate_implies(expr, env, ctx, exn),
         ((__dk_len == usize(7)) && ast_expr_is_fn_call_of(expr, BF_ALIGNOF, .None)) =>
           evaluate_align_of(expr, env, ctx, exn),
         ((__dk_len == usize(6)) && ast_expr_is_fn_call_of(expr, BF_TYPEID, .None)) =>

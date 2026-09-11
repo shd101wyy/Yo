@@ -101,7 +101,9 @@ BacktickIdentifier ::= '`' Identifier '`'
 Operator      ::= DotOperator | TableOperator
 DotOperator   ::= '.' | '..' | '..=' | '...' | '...#'
 
-TableOperator ::= ;; two-character (matched first)
+TableOperator ::= ;; three-character (matched first)
+                  '==>'
+                  ;; two-character (matched next)
                   '!=' | '&&' | '->' | '::' | ':=' | '<:' | '<<' | '<='
                 | '==' | '=>' | '>=' | '>>' | '?=' | '||'
                   ;; one-character
@@ -109,7 +111,8 @@ TableOperator ::= ;; two-character (matched first)
                 | ':' | '<' | '=' | '>' | '?' | '^' | '|' | '~'
 
 ;; RESERVED operators — lexable but can never be bound or overloaded:
-;; '=' ':=' '::' ':' '=>' '->' '<:' '?=' '&&' '||' '#' '...#' '..' '..=' '...'
+;; '=' ':=' '::' ':' '=>' '->' '<:' '?=' '&&' '||' '#' '...#' '..' '..=' '...' '==>'
+;; ('==>' is ghost-only implication: contract clauses / ghost bindings only)
 ```
 
 ## Composite Expressions

@@ -1150,9 +1150,26 @@ a broken invariant is a compile error naming the failing iteration.
 > verify-target body whose def-time trial throws (E0902 param
 > reassignment — illegal Yo; E0401 unimported `assert`) reaches the
 > verifier hollow — the pipeline now records and reports the swallowed
-> CAUSE. Remaining V5: the `inout` half of task 4, quantifier builtins
-> (tasks 1–2), ghost erasure (task 3), std/spec collections (task 5),
-> the insertion-sort exit (task 6).
+> CAUSE. SECOND ROW LANDED on feat/fv5-quantifiers (2026-09-11, tasks
+> 1 + 4's inout half): the quantifier builtins `forall_val` /
+> `exists_val` / `==>` (§6) are real — `==>` is a new THREE-CHAR
+> operator (the only one; `_is_three_char_operator` ahead of the greedy
+> two-char split; reserved-list + GRAMMAR en+zh updated) and the word
+> builtins dispatch through new BF constants; all three are gated by
+> the `is_ghost_context` EvalContext flag (set at the contract-marker
+> bracket, `ghost_fn` bodies, and `evaluated_for_verify` — a compile
+> error anywhere else, and the ghost-gate error reaches the report
+> through the #557 def-eval chain). The walk lowers them to
+> `VcTerm.Quant` (annotated binders, shadowing saved/restored; the
+> collect/rename walkers are binder-aware so bound names stay
+> raw-spelled) and `ImpOp`; instantiation relies on z3 MBQI — explicit
+> `:pattern` triggers DEFERRED until a benchmark needs them (recorded
+> here as the honest scope cut). The INOUT half of task 4 needed NO new
+> machinery: `param_types` records the declared T, `=` rebinds the
+> current, and #557's entry snapshot already backs `old(v)` — pinned by
+> the inout_bump proves / inout_nochange REFUTES twins. Remaining V5:
+> ghost erasure (task 3), std/spec collections (task 5), the
+> insertion-sort exit (task 6).
 
 **Scope:** specification-only computation — the vocabulary real
 functional correctness specs need.

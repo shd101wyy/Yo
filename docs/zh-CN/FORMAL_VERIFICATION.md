@@ -94,7 +94,9 @@ refuted  fn@/abs/path.yo:8 [verify]
 | `cond` 分支内赋值（phi 合并）；`continue` 作为循环体最后一条语句 | ✅ 已支持（V4.1） |
 | `break`（退出路径析取）；任意位置的 `continue`（在位点处证明）；`while(runtime(true), ...)` | ✅ 已支持（V4.2） |
 | `for` 循环（需要迭代器/集合模型） | 后续阶段 |
-| Ghost 代码、量词、双态推理 | V5 |
+| 契约中的 `forall_val`/`exists_val`/`==>`（仅限幽灵上下文；SMT 量词，MBQI 实例化） | ✅ 已支持（V5） |
+| `inout` 参数 —— 可重赋值的双态绑定（`old(v)` 读入口快照） | ✅ 已支持（V5） |
+| Ghost 代码（`ghost`/`ghost_fn` 擦除）、`std/spec` 集合 | V5（剩余） |
 | 跨抽象边界的 trait/泛型、`Refine` | V6 |
 | `object`/堆、字符串内容、浮点、效应、`unsafe`、FFI | 子集之外 |
 
@@ -124,6 +126,13 @@ havoc 状态（每个被赋值名都换成全新无约束常量）上假设
 `runtime(e)` 是恒等标记 —— `while(runtime(true),
 { invariant(...); ...; if(done, { break; }) })` 是"循环直到
 完成"的可验证写法。
+`forall_val((k : T), P)`/`exists_val((k : T), P)` 降级为带注解
+绑定器的 SMT 量词（这些小目标由 z3 的基于模型的实例化求解；
+显式 `:pattern` 触发器推迟到有基准需要时），`a ==> b` 是布尔
+蕴含。三者都**仅限幽灵上下文** —— 只允许出现在契约子句、
+`ghost(...)` 绑定和 `ghost_fn` 体内，其他位置是编译错误（它们
+没有运行期语义）。`inout` 参数是子集中唯一可重赋值的绑定：
+函数体内的 `=` 重绑定当前值，而 `old(v)` 始终读入口快照。
 
 ## 求解器
 

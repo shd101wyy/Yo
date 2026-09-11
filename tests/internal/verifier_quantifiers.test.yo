@@ -1,0 +1,227 @@
+//! The V5 quantifier/inout tests (FORMAL_VERIFICATION.md §6 + task 4's
+//! inout half): `forall_val`/`exists_val`/`==>` are ghost-only builtins
+//! (the walk lowers them to SMT quantifiers/implication), and an `inout`
+//! param is the one reassignable binding — `old(v)` reads the entry
+//! snapshot while the body's `=` rebinds the current value.
+//!
+//! In-process model (verifier_twostate's shape); proofs and refutations
+//! need the real solver (YO_TEST_Z3=1), the ghost-gate and encoding pins
+//! run solver-free.
+{ String, StringBuilder } :: import("std/string");
+{ Exception } :: import("std/error");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{ env } :: import("std/env");
+{
+  mm_load_file,
+  mm_preload_prelude,
+  mm_resolve_entry_abs,
+  resolve_std_path,
+  _take_load_error
+} :: import("../../src/module_manager.yo");
+{ clear_module_cache } :: import("../../src/evaluator/module_loader.yo");
+{
+  set_verify_mode_override,
+  set_verify_target_paths,
+  take_verify_tasks
+} :: import("../../src/evaluator/builtins/contracts.yo");
+{
+  default_verify_run_config,
+  resolve_solver_sync,
+  verify_and_strip_tasks,
+  VerifyFnReport
+} :: import("../../src/verifier/driver.yo");
+{ VerifyFnInput, verify_function_body } :: import("../../src/verifier/vc.yo");
+{ encode_script, default_encode_options } :: import("../../src/verifier/encode.yo");
+
+_have_z3 :: (fn() -> bool)(
+  match(
+    env.get(String.from("YO_TEST_Z3")),
+    .Some(v) => (v == String.from("1")),
+    .None => false
+  )
+);
+/// Load one fixture with targets armed; `expect_ok` false = the load
+/// EXPECTEDLY fails (the ghost-gate fixture: `==>` outside ghost context
+/// is a compile error; the registered task carries the recorded cause).
+_load_reports :: (
+  fn(rel_path : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+)({
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_quantifiers: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  targets := ArrayList(String).new();
+  targets.push(rel_path.clone());
+  targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
+  match(
+    _take_load_error(),
+    .Some(rendered) => {
+      assert(
+        outcome.ok == expect_ok,
+        `fixture ${rel_path} load ok=${outcome.ok.to_string()} (expected ${expect_ok.to_string()}): ${rendered}`
+      );
+    },
+    .None => {
+      assert(outcome.ok == expect_ok, `fixture ${rel_path} load ok=${outcome.ok.to_string()}`);
+    }
+  );
+  cfg := default_verify_run_config();
+  binary := match(
+    resolve_solver_sync(cfg),
+    .Resolved(p) => p,
+    _ => String.new()
+  );
+  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+});
+_reports_dump :: (fn(reports : ArrayList(VerifyFnReport)) -> String)({
+  ids := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < reports.len(), {
+    match(
+      reports.get(i),
+      .Some(rp) => {
+        ids.push(`${rp.fn_id}=${rp.outcome} [${rp.subset_construct}: ${rp.subset_source}]`);
+      },
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  sb := StringBuilder.new();
+  (j : usize) = usize(0);
+  while(j < ids.len(), {
+    if(j > usize(0), {
+      sb.write_string(String.from(", "));
+    });
+    sb.write_string(ids.get(j).unwrap().clone());
+    j = (j + usize(1));
+  });
+  sb.to_string()
+});
+_first :: (fn(reports : ArrayList(VerifyFnReport)) -> VerifyFnReport)(
+  reports.get(usize(0)).unwrap()
+);
+
+test("a universally-quantified post-condition proves (positive_floor)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/quantifier_forall.yo"), io, true);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `positive_floor proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("a FALSE universally-quantified post-condition REFUTES (off_by_one)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/quantifier_false.yo"), io, true);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "refuted", `off_by_one refutes, got: [${_reports_dump(reports)}]`);
+});
+
+test("inout params verify two-state (inout_bump proves)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/valid/inout_two_state.yo"), io, true);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "ok", `inout_bump proves, got: [${_reports_dump(reports)}]`);
+});
+
+test("inout old/current are DISTINCT states (inout_nochange REFUTES)", {
+  if(!_have_z3(), {
+    return(());
+  });
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/inout_two_state_wrong.yo"), io, true);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "refuted", `inout_nochange refutes, got: [${_reports_dump(reports)}]`);
+});
+
+test("==> outside ghost context is a compile error (solver-free)", {
+  reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost_gate_runtime.yo"), io, false);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  rp := _first(reports);
+  assert(rp.outcome == "subset-error", `runtime_implies is gated, got: [${_reports_dump(reports)}]`);
+  assert(
+    rp.subset_construct.contains(String.from("ghost-only builtin")) || rp.subset_construct.contains(String.from("definition-time evaluation failed")),
+    `the report names the ghost gate (possibly via the def-eval chain), got: ${rp.subset_construct}`
+  );
+});
+
+test("the encoding emits a raw-spelling SMT forall (solver-free)", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `verifier_quantifiers: unexpected throw: ${err}`);
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  rel := String.from("./tests/spec/fixtures/valid/quantifier_forall.yo");
+  targets := ArrayList(String).new();
+  targets.push(rel.clone());
+  targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
+  _ := take_verify_tasks();
+  set_verify_mode_override(Option(String).None);
+  set_verify_target_paths(targets);
+  clear_module_cache();
+  mm_preload_prelude(std_path.clone(), true, io, exn);
+  outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);
+  assert(outcome.ok, "fixture must evaluate cleanly");
+  tasks := take_verify_tasks();
+  assert(tasks.len() == usize(1), `one task, got ${tasks.len().to_string()}`);
+  t := match(
+    tasks.get(usize(0)),
+    .Some(x) => x,
+    .None => {
+      assert(false, "task missing");
+      return(());
+    }
+  );
+  res := verify_function_body(
+    VerifyFnInput(
+      fn_name : t.fn_id.clone(),
+      func_id : t.func_id.clone(),
+      body : t.body.clone(),
+      param_names : t.param_names.clone(),
+      param_types : t.param_types.clone(),
+      result_type : t.result_type.clone(),
+      requires_exprs : t.requires_exprs.clone(),
+      ensures_exprs : t.ensures_exprs.clone(),
+      decreases_expr : t.decreases_expr.clone(),
+      return_label : t.return_label.clone(),
+      table : t.table
+    )
+  );
+  assert(res.error.is_none(), `no subset error expected for the quantifier fixture`);
+  scripts := StringBuilder.new();
+  (oi : usize) = usize(0);
+  while(oi < res.obligations.len(), {
+    match(
+      res.obligations.get(oi),
+      .Some(obl) => {
+        scripts.write_string(encode_script(obl.query, default_encode_options()));
+      },
+      .None => ()
+    );
+    oi = (oi + usize(1));
+  });
+  all := scripts.to_string();
+  assert(all.contains(String.from("(forall ((k (_ BitVec 32)))")), `the forall binder appears raw-spelled, got: ${all}`);
+  assert(all.contains(String.from("(=> ")), "the ==> implication renders as the SMT => operator");
+});
