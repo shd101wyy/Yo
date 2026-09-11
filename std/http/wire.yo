@@ -33,6 +33,7 @@ pragma(Pragma.AllowUnsafe);
 { IoExn } :: import("../error");
 { Reader } :: import("../io");
 { HttpError } :: import("./http.yo");
+{ eprintln } :: import("../fmt");
 // ============================================================================
 // Internal helpers
 // ============================================================================
@@ -626,7 +627,12 @@ read_http_message_buffered :: (
       .NeedMore => ()
     );
     while(runtime(!done), {
+      // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-deadline.md):
+      // says whether the read was ISSUED and never woken, or never issued.
+      // Comes out with the diagnosis.
+      eprintln(`  [wire] issuing read (have=${result.len()})`);
       n := e.io.await(stream.read(buf, buf_size, e.io), e);
+      eprintln(`  [wire] read returned ${n.to_string()}`);
       cond(
         // 0 bytes means the peer closed the connection. A negative count is
         // no longer representable: NetError.check throws on error, so read()
