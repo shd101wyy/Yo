@@ -9,6 +9,7 @@
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
+  ast_expr_token,
   BF_YO_OP_ADD,
   BF_YO_OP_SUB,
   BF_YO_OP_MUL,
@@ -62,7 +63,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { is_enum_type } :: import("../../types/guards.yo");
 { is_target_windows } :: import("../../target.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, can_optimize_as_simple_enum } :: import("../utils/index.yo");
 /// Argument code at index `i` (empty if absent).
@@ -288,8 +289,8 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     },
     (function_name == BF_YO_MAYBE_UNINIT_NEW) => {
       self_c_type := get_type_string(ei_ty(expr, context), context.base);
-      uninit_var := String.from("__yo_uninit_");
-      uninit_var.push_string(random_id(String.from("")));
+      uninit_tok := ast_expr_token(expr);
+      uninit_var := stable_label_id(String.from("__yo_uninit_"), uninit_tok.module_path, uninit_tok.row, uninit_tok.column);
       line := indent.clone();
       line.push_string(self_c_type);
       line.push_str(" ");

@@ -401,8 +401,9 @@ _evaluate_inout_local_binding :: (
   (pin_var : Option(Variable)) = Option(Variable).None;
   match(
     pin_expr,
-    .Some(_) => {
-      pin_name := generate_new_temp_variable_name(env.module_path);
+    .Some(pp) => {
+      pp_tok := ast_expr_token(pp);
+      pin_name := generate_new_temp_variable_name(env.module_path, pp_tok.row, pp_tok.column);
       pin_var = add_variable_to_env(env, pin_name, pin_type, Option(EvalValue).None, false, false, true, false, name_tok);
     },
     .None => ()
@@ -951,7 +952,7 @@ ${rhs_str}`
     actual_lhs_tok := ast_expr_token(actual_lhs);
     (var_name : String) = cond(
       (actual_lhs_tok.value == "_") =>
-        generate_new_temp_variable_name(env.module_path),
+        generate_new_temp_variable_name(env.module_path, actual_lhs_tok.row, actual_lhs_tok.column),
       true =>
         actual_lhs_tok.value.clone()
     );

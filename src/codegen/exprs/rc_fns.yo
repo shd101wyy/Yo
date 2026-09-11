@@ -16,10 +16,9 @@
 { is_array_type, is_atomic_reference_struct_type, is_rc_type, is_some_type, is_tuple_type } :: import("../../types/guards.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { parse_raw_int } :: import("../../evaluator/utils.yo");
-{ random_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name } :: import("../utils/index.yo");
 { generate_drop_code_for_value, generate_dup_code_for_value, get_drop_function_for_type, get_dup_function_for_type, resolve_some_type_param_type } :: import("./drop_dup.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The `i`-th argument of a FnCall (or `.None`).
@@ -150,8 +149,7 @@ generate_yo_drop_array_element :: (fn(expr : AstExpr, indent : String, context :
         return(codegen_fatal_expr(String.from("array element has non-constant length")));
       });
       em := context.base.emitter;
-      loop_var := String.from("i_");
-      loop_var.push_string(random_id(String.from("")));
+      loop_var := fresh_local_name(String.from("i_"), context.base.current_function_name);
       hdr := String.from("for (size_t ");
       hdr.push_string(loop_var.clone());
       hdr.push_str(" = 0; ");
@@ -215,10 +213,8 @@ generate_yo_dup_array_element :: (fn(expr : AstExpr, indent : String, context : 
         return(codegen_fatal_expr(String.from("array element has non-constant length")));
       });
       em := context.base.emitter;
-      temp_var := String.from("temp_array_");
-      temp_var.push_string(random_id(String.from("")));
-      loop_var := String.from("i_");
-      loop_var.push_string(random_id(String.from("")));
+      temp_var := fresh_local_name(String.from("temp_array_"), context.base.current_function_name);
+      loop_var := fresh_local_name(String.from("i_"), context.base.current_function_name);
       element_c_name := get_type_string(element_type, context.base);
       decl := element_c_name;
       decl.push_str(" ");

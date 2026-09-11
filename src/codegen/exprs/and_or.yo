@@ -13,9 +13,9 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_is_fn_call_of, ast_expr_id, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_id, ast_expr_token, BK_OP_AND, BK_OP_OR } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
-{ random_id, is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, is_deferred_drop_for_closure_capture } :: import("../utils/index.yo");
@@ -448,8 +448,8 @@ generate_op_and :: (fn(expr : AstExpr, indent : String, context : FunctionGenera
       context.short_circuit_root_node = Option(AstExpr).Some(expr);
     }
   );
-  sc_var := String.from("__yo_sc_");
-  sc_var.push_string(random_id(String.from("")));
+  sc_tok := ast_expr_token(expr);
+  sc_var := stable_label_id(String.from("__yo_sc_"), sc_tok.module_path, sc_tok.row, sc_tok.column);
   em := context.base.emitter;
   d := indent.clone();
   d.push_str("bool ");
@@ -601,8 +601,8 @@ generate_op_or :: (fn(expr : AstExpr, indent : String, context : FunctionGenerat
       context.short_circuit_root_node = Option(AstExpr).Some(expr);
     }
   );
-  sc_var := String.from("__yo_sc_");
-  sc_var.push_string(random_id(String.from("")));
+  sc_tok := ast_expr_token(expr);
+  sc_var := stable_label_id(String.from("__yo_sc_"), sc_tok.module_path, sc_tok.row, sc_tok.column);
   em := context.base.emitter;
   d := indent.clone();
   d.push_str("bool ");

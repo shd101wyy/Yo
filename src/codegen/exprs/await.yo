@@ -19,7 +19,6 @@
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val } :: import("../../value.yo");
-{ random_id } :: import("../../utils.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
   is_enum_type,
@@ -47,7 +46,8 @@
   get_type_string,
   get_variable_type_string,
   get_enum_variant_c_name,
-  get_deferred_drop_target_atom_name
+  get_deferred_drop_target_atom_name,
+  fresh_local_name
 } :: import("../utils/index.yo");
 { get_dup_function_for_type, generate_dup_code_for_value } :: import("./drop_dup.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -276,7 +276,7 @@ emit_io_spawn_effect_injection :: (fn(expr : AstExpr, future_var : String, inden
     .None => effect.ty
   );
   bundle_type := get_type_string(cast_type, context.base);
-  tmp_name := `__yo_eff_bundle_${random_id(String.from("eff"))}`;
+  tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
   em := context.base.emitter;
   em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
   em.emit_string_line(`${indent.clone()}if (${future_var.clone()}->__yo_set_effect_fn) ${future_var.clone()}->__yo_set_effect_fn((void*)${future_var.clone()}, "__bundle", (void*)&${tmp_name});`);
@@ -317,7 +317,7 @@ emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, inde
           .None => effect.ty
         );
         bundle_type := get_type_string(bundle_cast_ty, context.base);
-        tmp_name := `__yo_eff_bundle_${random_id(String.from("eff"))}`;
+        tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
         em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
         em.emit_string_line(`${indent.clone()}if (${future_var.clone()}->__yo_set_effect_fn) ${future_var.clone()}->__yo_set_effect_fn((void*)${future_var.clone()}, "__bundle", (void*)&${tmp_name});`);
       },
@@ -330,7 +330,7 @@ emit_effect_injection_for_await :: (fn(expr : AstExpr, future_var : String, inde
         .Some(bei) => {
           bundle_code := _call_generate_expr(bundle_arg, indent.clone(), context);
           bundle_type := get_type_string(bei.ty, context.base);
-          tmp_name := `__yo_eff_bundle_${random_id(String.from("eff"))}`;
+          tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
           em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
           em.emit_string_line(`${indent.clone()}if (${future_var.clone()}->__yo_set_effect_fn) ${future_var.clone()}->__yo_set_effect_fn((void*)${future_var.clone()}, "__bundle", (void*)&${tmp_name});`);
         },

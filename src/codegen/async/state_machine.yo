@@ -29,7 +29,7 @@
 { expr_contains_await, expr_contains_while_with_await } :: import("../../expr_traversal.yo");
 { is_temp_variable_name, random_id } :: import("../../utils.yo");
 { codegen_fatal } :: import("../constants.yo");
-{ get_type_string } :: import("../utils/index.yo");
+{ get_type_string, fresh_local_name } :: import("../utils/index.yo");
 { get_state_machine_field_name } :: import("./state_machine_naming.yo");
 { Emitter } :: import("../../emitter.yo");
 { emit_async_future_completion, emit_async_future_escape } :: import("../exprs/async_completion.yo");
@@ -1391,7 +1391,7 @@ emit_effect_injection_for_sm :: (
                         .None => etype
                       );
                       bundle_type := get_type_string(bundle_cast_ty, context.base);
-                      tmp_name := `__yo_eff_bundle_${random_id(String.from("eff"))}`;
+                      tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
                       em.emit_string_line(`${indent}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
                       em.emit_string_line(`${indent}if (${future_access}->__yo_set_effect_fn) ${future_access}->__yo_set_effect_fn((void*)${future_access}, "__bundle", (void*)&${tmp_name});`);
                     },

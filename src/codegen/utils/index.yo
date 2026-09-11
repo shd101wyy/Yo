@@ -89,7 +89,8 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
   ast_expr_id,
   ast_expr_is_atom,
   ast_expr_is_fn_call,
-  ast_expr_is_fn_call_of
+  ast_expr_is_fn_call_of,
+  ast_expr_token
 } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { is_io_async_call } :: import("../../evaluator/async/await_analysis.yo");
@@ -112,8 +113,11 @@ get_uses_tls :: (fn() -> bool)(g_uses_tls);
 // ===========================================================================
 CodegenTypeEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
 CodegenExternFnEntry :: ref(struct(ty : TypeValue, c_name : String, c_include : Option(String)));
-/// A reachable function to be generated. `value` is the FuncVal EvalValue.
-CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String));
+/// A reachable function to be generated. `value` is the FuncVal EvalValue;
+/// `def_module` is the defining module's path (the body token's), recorded at
+/// registration for Phase 5's by-module TU grouping
+/// (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5.4).
+CodegenFunctionEntry :: ref(struct(value : EvalValue, c_name : String, def_module : String));
 /// An entry in `impl_closure_call_map`: the resolved concrete capture-struct
 /// type id → the generated closure implementation function for that type.
 /// Mirrors the `implClosureCallMap` value type (utils/index.ts:139).
@@ -165,6 +169,8 @@ CodeGenContext :: ref(
     types : HashMap(String, CodegenTypeEntry),
     /// Collected functions that need to be generated (keyed by func_id).
     functions : HashMap(String, CodegenFunctionEntry),
+    /// Every C name handed out by register_function — O(1) collision check.
+    registered_c_names : HashSet(String),
     /// Insertion order of func_ids registered into `functions`. Codegen emits
     /// functions by iterating THIS list, mirroring TS's
     /// `for (funcId in context.functions)` (JS objects iterate in insertion
@@ -318,6 +324,7 @@ impl(
     Self(
       types : HashMap(String, CodegenTypeEntry).new(),
       functions : HashMap(String, CodegenFunctionEntry).new(),
+      registered_c_names : HashSet(String).new(),
       function_order : ArrayList(String).new(),
       extern_functions : HashMap(String, CodegenExternFnEntry).new(),
       array_struct_types : HashMap(String, ArrayStructInfo).new(),
@@ -439,6 +446,10 @@ impl(
     expr_info_table_get(self.info_table, ast_expr_id(expr))
   ),
   /// Register a reachable function to be generated (idempotent on func_id).
+  /// Phase 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): C names are
+  /// content-derived, so a sanitization collision between two DIFFERENT
+  /// functions is now possible (the counter never collided) — disambiguate
+  /// with an `_x<k>` suffix rather than emit two definitions of one symbol.
   register_function : (fn(self : Self, func_id : String, value : EvalValue, c_name : String) -> unit)({
     // Record first-registration order (insertion order) so codegen emits
     // functions deterministically, mirroring TS `for..in` semantics rather
@@ -446,7 +457,32 @@ impl(
     if(!self.functions.contains_key(func_id.clone()), {
       self.function_order.push(func_id.clone());
     });
-    self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : c_name));
+    (final_name : String) = c_name.clone();
+    match(
+      self.functions.get(func_id),
+      .Some(existing) => {
+        // Same func_id re-registered: keep the FIRST name it was given (the
+        // plain-label path re-registers exports; renaming here would strand
+        // already-emitted call sites).
+        final_name = existing.c_name;
+      },
+      .None => {
+        if(self.registered_c_names.contains(final_name.clone()), {
+          (k : usize) = usize(1);
+          while(self.registered_c_names.contains(`${c_name}_x${k.to_string()}`), {
+            k = (k + usize(1));
+          });
+          final_name = `${c_name}_x${k.to_string()}`;
+        });
+        self.registered_c_names.insert(final_name.clone());
+      }
+    );
+    def_mod := match(
+      value,
+      .FuncVal(fvd, _) => ast_expr_token(fvd.*.body).module_path,
+      _ => String.new()
+    );
+    self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : final_name, def_module : def_mod));
     ()
   }),
   /// True if a function with this func_id is already registered.
@@ -465,7 +501,7 @@ impl(
     // get_type_c_name above (the enum sibling-cname pollution).
     match(
       self.functions.get(func_id),
-      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone())),
+      .Some(fe) => Option(CodegenFunctionEntry).Some(CodegenFunctionEntry(value : fe.value, c_name : fe.c_name.clone(), def_module : fe.def_module)),
       .None => Option(CodegenFunctionEntry).None
     )
   ),
@@ -669,6 +705,23 @@ _is_c_identifier_byte :: (fn(b : u8) -> bool)(
     || (b == u8(95))
   ) // _
 );
+/// A fresh LOCAL name (`<prefix><k>`) unique within `current_function_name`'s
+/// emission (Phase 2, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the
+/// k-th mint of this prefix in this function. Stable across edits anywhere
+/// else — the counter is per (prefix, function), not global — and unique
+/// within the function's C scope. NOT for file-scope names (two functions
+/// mint colliding `<prefix>0`); those derive from their own identity.
+(g_fresh_local_counts : HashMap(String, usize)) = HashMap(String, usize).new();
+fresh_local_name :: (fn(prefix : String, current_function_name : String) -> String)({
+  key := `${prefix}@${current_function_name}`;
+  k := match(
+    g_fresh_local_counts.get(key),
+    .Some(n) => n,
+    .None => usize(0)
+  );
+  g_fresh_local_counts.insert(key, k + usize(1));
+  `${prefix}${k.to_string()}`
+});
 /// Sanitize a string to be a valid C identifier. Replaces any byte that is
 /// not `[a-zA-Z0-9_]` with `_u<byte>_` (ASCII byte value — operators in
 /// identifiers are ASCII, so this matches TS `charCodeAt` for the cases that
@@ -1483,7 +1536,7 @@ get_variable_name_for_codegen :: (fn(variable_name : String, env : Option(Enviro
           is_extern_c := (is_extern_c_fn || is_extern_c_glob);
           var_name := sanitize_for_c_identifier(variable.name.clone(), is_extern_c);
           // A generated fn_* name shadowing a local → prefer the original name.
-          if((var_name != variable_name) && var_name.starts_with(String.from("fn_")), {
+          if((var_name != variable_name) && var_name.starts_with(String.from("fn_yo_id_")), {
             return(sanitize_for_c_identifier(variable_name.clone(), false));
           });
           // Module-qualify module-level globals — without this, same-named
@@ -1686,6 +1739,7 @@ find_returned_async_block :: (fn(expr : Option(AstExpr)) -> Option(AstExpr))(
 export(
   mark_uses_tls,
   get_uses_tls,
+  fresh_local_name,
   CodeGenContext,
   ChunkRange,
   CodegenTypeEntry,

@@ -26,7 +26,7 @@
   ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
-{ random_id } :: import("../../utils.yo");
+{ stable_position_id, stable_label_id } :: import("../../utils.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
   is_function_type,
@@ -81,7 +81,8 @@
   get_variable_name_for_codegen,
   scope_stack_contains,
   mark_uses_parallelism,
-  mark_uses_tls
+  mark_uses_tls,
+  fresh_local_name
 } :: import("../utils/index.yo");
 { Environment } :: import("../../env.yo");
 {
@@ -1580,8 +1581,11 @@ _build_async_capture_struct_literal :: (
       .None => {
         // Name the temp FIRST so each retain line is built against it — the
         // lines have to be lvalue references into the materialized struct.
-        tmp := String.from("__yo_cap_");
-        tmp.push_string(random_id(String.from("")));
+        // Position-derived (not per-function): the same async block's temp
+        // is minted from BOTH the enclosing emission and the wrapper — a
+        // per-function counter gives them different names.
+        cap_tok := ast_expr_token(expr);
+        tmp := stable_label_id(String.from("__yo_cap_"), cap_tok.module_path, cap_tok.row, cap_tok.column);
         retain_lines := ArrayList(String).new();
         (ri : usize) = usize(0);
         while(ri < fields.len(), {
@@ -1768,9 +1772,9 @@ generate_async_block :: (fn(expr : AstExpr, io_async_body : Option(AstExpr), ana
     ei.variable_name,
     .Some(n) => n,
     .None => {
-      p := String.from("async_block_");
-      p.push_string(random_id(String.from("async")));
-      p
+      // Phase 2: position-derived with MERGE semantics — see the twin above.
+      ab2_tok := ast_expr_token(expr);
+      stable_position_id(String.from("async_block_"), ab2_tok.module_path, ab2_tok.row, ab2_tok.column)
     }
   );
   struct_name := `${async_block_id.clone()}_state_t`;
@@ -2321,9 +2325,13 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
               ei.variable_name,
               .Some(n) => n,
               .None => {
-                p := String.from("async_block_");
-                p.push_string(random_id(String.from("async")));
-                p
+                // Phase 2: the unnamed block's identity is its source
+                // position — file-scope SM names must not follow the
+                // counter. MERGE semantics (stable_position_id, not the
+                // occurrence label): preregistration and generation BOTH
+                // mint this id and must agree on the struct name.
+                ab_tok := ast_expr_token(expr);
+                stable_position_id(String.from("async_block_"), ab_tok.module_path, ab_tok.row, ab_tok.column)
               }
             );
             struct_name := `${async_block_id}_state_t`;
@@ -2350,9 +2358,10 @@ preregister_async_blocks_in_expr :: (fn(expr : AstExpr, context : FunctionGenera
               ei.variable_name,
               .Some(n) => n,
               .None => {
-                p := String.from("io_async_block_");
-                p.push_string(random_id(String.from("async")));
-                p
+                // Phase 2: position-derived, MERGE semantics (two passes
+                // must agree on the struct name).
+                io_tok := ast_expr_token(expr);
+                stable_position_id(String.from("io_async_block_"), io_tok.module_path, io_tok.row, io_tok.column)
               }
             );
             // Must mirror the dispatcher's routing decision (generation.yo):
@@ -2487,9 +2496,9 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
     cei.variable_name,
     .Some(n) => n,
     .None => {
-      p := String.from("io_async_block_");
-      p.push_string(random_id(String.from("async")));
-      p
+      // Phase 2: position-derived, MERGE semantics — see the twin above.
+      io2_tok := ast_expr_token(expr);
+      stable_position_id(String.from("io_async_block_"), io2_tok.module_path, io2_tok.row, io2_tok.column)
     }
   );
   per_clone_key := output_some_id.clone();

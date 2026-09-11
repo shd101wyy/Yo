@@ -23,137 +23,139 @@
 //!     their TS callers gain yo-self counterparts.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 // ---------------------------------------------------------------------------
-// Temp variable name generation
+// Position-stable IDs (Phase 2, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5)
 // ---------------------------------------------------------------------------
-/// Global counter for generating unique temp variable names.
-/// Mirrors `tempVariableNameCount` in `src/utils.ts`.
-(g_temp_counter : usize) = usize(1);
-/// Compute the module-specific prefix for temp variables.
-///
-/// In TypeScript this uses the first 10 characters of SHA-1(modulePath).
-/// Here we use a simplified sanitisation: replace every non-alphanumeric
-/// character with `_` and take the first 12 bytes, which is unique
-/// enough for the yo-self bootstrap.
-///
-/// Mirrors `generateTempVariableNamePrefix` in `src/utils.ts`.
-generate_temp_variable_name_prefix :: (fn(module_path : String) -> String)({
-  result := String.new();
-  bytes := module_path.as_bytes();
-  n := bytes.len();
-  i := usize(0);
-  taken := usize(0);
-  while((i < n) && (taken < usize(12)), {
+/// FNV-1a 64 over the bytes (same constants as std/hash's Fnv1aHasher —
+/// inlined here because the Hasher trait is not exported from std/hash).
+/// The shared content-hash behind the stable id/name schemes.
+fnv1a64 :: (fn(s : String) -> u64)({
+  (state : u64) = u64(14695981039346656037);
+  bytes := s.as_bytes();
+  (i : usize) = usize(0);
+  while(i < bytes.len(), {
     b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
-    is_alnum := (
-      ((b >= u8(97)) && (b <= u8(122))) || // 'a'-'z'
-      ((b >= u8(65)) && (b <= u8(90))) || // 'A'-'Z'
-      ((b >= u8(48)) && (b <= u8(57))) // '0'-'9'
-    );
-    if(is_alnum, {
-      result.push_byte(b);
-    }, {
-      result.push_str("_");
-    });
+    state = ((state ^ u64(b)) * u64(1099511628211));
     i = (i + usize(1));
-    taken = (taken + usize(1));
   });
-  out := `_${result}_temp_`;
+  state
+});
+/// The identity half of a function's emitted C name: the last two path
+/// segments of its defining module (readable, and "index" only collides
+/// across same-named directories), every byte outside [A-Za-z0-9_] mapped
+/// to `_`, extension `.yo` dropped. Deterministic in the module's PATH,
+/// which an edit elsewhere in the tree never changes.
+_stable_id_module_stem :: (fn(module_path : String) -> String)({
+  p := module_path.clone();
+  if(p.starts_with(String.from("file://")), {
+    p = p.substring(usize(7), p.len());
+  });
+  if((p.len() > usize(3)) && p.ends_with(String.from(".yo")), {
+    p = p.substring(usize(0), p.len() - usize(3));
+  });
+  segments := p.split("/");
+  out := String.new();
+  (start_at : usize) = cond(
+    (segments.len() >= usize(2)) => (segments.len() - usize(2)),
+    true => usize(0)
+  );
+  (si : usize) = usize(0);
+  while(si < segments.len(), {
+    if(si >= start_at, {
+      if(out.len() > usize(0), {
+        out.push_str("__");
+      });
+      seg := match(segments.get(si), .Some(s) => s, .None => String.new());
+      bytes := seg.as_bytes();
+      (bi : usize) = usize(0);
+      while(bi < bytes.len(), {
+        b := match(bytes.get(bi), .Some(x) => x, .None => u8(0));
+        cond(
+          (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90)))) => {
+            out.push_byte(b);
+          },
+          ((b >= u8(48)) && (b <= u8(57))) => {
+            out.push_byte(b);
+          },
+          true => {
+            out.push_str("_");
+          }
+        );
+        bi = (bi + usize(1));
+      });
+    });
+    si = (si + usize(1));
+  });
   out
 });
-/// Generate a unique temp variable name for `_` discarded bindings.
-///
-/// Mirrors `generateNewTempVariableName` in `src/utils.ts`.
-generate_new_temp_variable_name :: (fn(module_path : String) -> String)({
-  prefix := generate_temp_variable_name_prefix(module_path);
-  count := g_temp_counter;
-  g_temp_counter = (g_temp_counter + usize(1));
-  `${prefix}${count.to_string()}`
+/// Mint registry: stable id → the `<module_path>:<row>:<column>` source key
+/// that claimed it. The SAME source position minting again (a re-evaluated
+/// generation of the same module) REUSES its id — identity merge, exactly
+/// what the closure fid-source registry already does. A DIFFERENT source
+/// position colliding on the same stem+row+col (two `…/x/index.yo` files)
+/// takes the `_x2`, `_x3`… suffixes.
+(g_stable_id_owner : HashMap(String, String)) = HashMap(String, String).new();
+/// Occurrence counters (Phase 2 companion to `stable_position_id`): how many
+/// times each source position has minted a SAME-SITE-DISTINCT name in this
+/// process. For constructs that legitimately mint several names from one
+/// site — an `_` binding evaluated per inlined call, a loop label re-emitted
+/// per enclosing function — the k-th mint gets suffix `_n<k-1>`, so the names
+/// stay a function of WHAT is at that position, not of the global mint order.
+(g_stable_occurrence : HashMap(String, usize)) = HashMap(String, usize).new();
+/// The next 0-based occurrence index for `key`. Keys are caller-composed:
+/// `<module>:<row>:<column>` where a source position exists, a semantic key
+/// (`<module>:dup:<var>`) where one does not.
+stable_occurrence_key :: (fn(key : String) -> usize)({
+  next := match(
+    g_stable_occurrence.get(key),
+    .Some(n) => n,
+    .None => usize(0)
+  );
+  g_stable_occurrence.insert(key.clone(), next + usize(1));
+  next
 });
-/// Return true if `var_name` was generated by `generate_new_temp_variable_name`
-/// for the given `module_path`.
-///
-/// Mirrors `isTempVariableName` in `src/utils.ts`.
-is_temp_variable_name :: (fn(module_path : String, var_name : String) -> bool)({
-  prefix := generate_temp_variable_name_prefix(module_path);
-  var_name.starts_with(prefix)
+/// A stable, unique-per-emission label for `prefix` at a source position:
+/// `<prefix>r<row>c<col>_n<k>`, where k is that position's occurrence index.
+/// The codegen label/temp mints that used to embed the global `random_id`
+/// counter (loop labels, short-circuit temps, …) go through here (Phase 2).
+stable_label_id :: (
+  fn(prefix : String, module_path : String, row : usize, column : usize) -> String
+)({
+  k := stable_occurrence_key(`${module_path}:${row.to_string()}:${column.to_string()}`);
+  `${prefix}r${row.to_string()}c${column.to_string()}_n${k.to_string()}`
 });
-/// True iff `b` is a byte `generate_temp_variable_name_prefix` can emit
-/// between its underscores: an alphanumeric it kept, or the `_` it
-/// substituted.
-_is_temp_prefix_byte :: (fn(b : u8) -> bool)(
-  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) ||
-    (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
-);
-/// True iff `var_name` has the shape `generate_new_temp_variable_name`
-/// produces for ANY module path: `_`, at most twelve prefix bytes, `_temp_`,
-/// then one or more digits. The module-path-keyed `is_temp_variable_name`
-/// needs the path spelling the generator saw, which a consumer holding only
-/// the binding (the LSP's completion, which must hide these internals) does
-/// not reliably have — the prelude's temporaries are minted against the plain
-/// std path while their tokens carry the `file://` spelling
-/// (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
-is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
-  bytes := var_name.as_bytes();
-  n := bytes.len();
-  // `_` + `_temp_` + one digit is the shortest possible spelling (an empty
-  // module path yields the prefix `__temp_`).
-  if((n < usize(8)) || (match(bytes.get(usize(0)), .Some(b) => b, .None => u8(0)) != u8(95)), {
-    return(false);
+/// A stable ID for a definition: `<prefix><module_stem>_r<row>c<column>`.
+/// Content-derived (defining module + source position), so an edit anywhere
+/// ELSE in the tree leaves it — and every emitted C name derived from it —
+/// byte-identical. Callers that genuinely need per-mint uniqueness (gensym)
+/// keep `random_id`.
+stable_position_id :: (
+  fn(prefix : String, module_path : String, row : usize, column : usize) -> String
+)({
+  src_key := `${module_path}:${row.to_string()}:${column.to_string()}`;
+  base := `${prefix}${_stable_id_module_stem(module_path)}_r${row.to_string()}c${column.to_string()}`;
+  (candidate : String) = base.clone();
+  (suffix : usize) = usize(1);
+  while(runtime(true), {
+    match(
+      g_stable_id_owner.get(candidate),
+      .Some(owner) => {
+        if(owner == src_key, {
+          return(candidate);
+        });
+        suffix = (suffix + usize(1));
+        candidate = `${base}_x${suffix.to_string()}`;
+      },
+      .None => {
+        g_stable_id_owner.insert(candidate.clone(), src_key.clone());
+        return(candidate);
+      }
+    );
   });
-  marker := String.from("_temp_");
-  // The prefix bytes span from index 1 to the `_temp_` marker; try each
-  // legal length (0..=12) so a sanitized path that itself ends in `_temp_`
-  // cannot confuse the split.
-  (k : usize) = usize(0);
-  while(k <= usize(12), {
-    start := (usize(1) + k);
-    if((start + usize(6)) < n, {
-      (prefix_ok : bool) = true;
-      (i : usize) = usize(1);
-      while(i < start, {
-        if(!_is_temp_prefix_byte(match(bytes.get(i), .Some(b) => b, .None => u8(0))), {
-          prefix_ok = false;
-        });
-        i = (i + usize(1));
-      });
-      if(prefix_ok && (var_name.substring(start, start + usize(6)) == marker), {
-        (digits_ok : bool) = true;
-        (j : usize) = (start + usize(6));
-        while(j < n, {
-          d := match(bytes.get(j), .Some(b) => b, .None => u8(0));
-          if((d < u8(48)) || (d > u8(57)), {
-            digits_ok = false;
-          });
-          j = (j + usize(1));
-        });
-        if(digits_ok, {
-          return(true);
-        });
-      });
-    });
-    k = (k + usize(1));
-  });
-  false
+  candidate
 });
-// ---------------------------------------------------------------------------
-// random_id
-// ---------------------------------------------------------------------------
-/// Global counter for generating module-scoped unique IDs.
-/// Mirrors the `moduleIdCounters` map in `src/utils.ts`.
-///
-/// Note: We use a single global counter (not per-module) for simplicity.
-/// The resulting IDs are globally unique and will not satisfy
-/// `is_temp_variable_name` (they start with `yo_id_`, not `_…_temp_`).
-(g_random_id_counter : usize) = usize(0);
-/// Generate a unique ID for a module-scoped value (e.g. recur result names).
-///
-/// Mirrors `randomId` in `src/utils.ts`.
-random_id :: (fn(_module_path : String) -> String)({
-  count := g_random_id_counter;
-  g_random_id_counter = (g_random_id_counter + usize(1));
-  `yo_id_${count.to_string()}`
-});
+export(stable_position_id, stable_occurrence_key, stable_label_id, fnv1a64, _stable_id_module_stem);
 /// Byte-exact StrLit unquote: drop the first and last BYTE (the ASCII `"`
 /// delimiters yo-self's StrLit convention keeps). It was written because the
 /// historical pattern `raw.substring(1, raw.len()-1)` mixed a BYTE length with
@@ -303,6 +305,157 @@ profile_reset :: (fn() -> unit)({
   g_prof_fn_std = usize(0);
 });
 
+// ---------------------------------------------------------------------------
+// Temp variable name generation
+// ---------------------------------------------------------------------------
+/// Compute the module-specific prefix for temp variables.
+///
+/// In TypeScript this uses the first 10 characters of SHA-1(modulePath).
+/// Here we use a simplified sanitisation: replace every non-alphanumeric
+/// character with `_` and take the first 12 bytes, which is unique
+/// enough for the yo-self bootstrap.
+///
+/// Mirrors `generateTempVariableNamePrefix` in `src/utils.ts`.
+generate_temp_variable_name_prefix :: (fn(module_path : String) -> String)({
+  result := String.new();
+  bytes := module_path.as_bytes();
+  n := bytes.len();
+  i := usize(0);
+  taken := usize(0);
+  while((i < n) && (taken < usize(12)), {
+    b := match(bytes.get(i), .Some(x) => x, .None => u8(0));
+    is_alnum := (
+      ((b >= u8(97)) && (b <= u8(122))) || // 'a'-'z'
+      ((b >= u8(65)) && (b <= u8(90))) || // 'A'-'Z'
+      ((b >= u8(48)) && (b <= u8(57))) // '0'-'9'
+    );
+    if(is_alnum, {
+      result.push_byte(b);
+    }, {
+      result.push_str("_");
+    });
+    i = (i + usize(1));
+    taken = (taken + usize(1));
+  });
+  out := `_${result}_temp_`;
+  out
+});
+/// Generate a unique temp variable name for `_` discarded bindings.
+///
+/// Mirrors `generateNewTempVariableName` in `src/utils.ts`. Phase 2: the
+/// digit tail is an occurrence index for the mint SITE (source position, or
+/// the caller's semantic slot when no position exists) instead of a global
+/// counter — the `_<prefix>_temp_<digits>` shape the predicates match is
+/// unchanged, and an edit elsewhere in the tree no longer renumbers every
+/// later temp.
+generate_new_temp_variable_name :: (
+  fn(
+    module_path : String,
+    (row : usize) ?= usize(0),
+    (column : usize) ?= usize(0),
+    (slot : String) ?= String.new()
+  ) -> String
+)({
+  prefix := generate_temp_variable_name_prefix(module_path);
+  // The digit tail is a HASH of the mint site's identity (prefix + position
+  // + slot) with this key's occurrence index appended — digits only, keeping
+  // the `_<prefix>_temp_<digits>` shape the predicates match. The hash
+  // separates DIFFERENT sites (the `_` LHS token and the discarded RHS expr
+  // are two positions of one statement; a plain occurrence counter let both
+  // take 0 and collide, and keying by the raw path is wrong — two spellings
+  // sanitize to one prefix). The occurrence digit separates several
+  // COEXISTING temps from one site — a trial and a real evaluation of the
+  // same binding mint into the same frame with different types, which the
+  // old global counter kept apart by construction.
+  key := `${prefix}:${row.to_string()}:${column.to_string()}:${slot}`;
+  k := fnv1a64(key);
+  n := stable_occurrence_key(key);
+  `${prefix}${k.to_string()}${n.to_string()}`
+});
+/// Return true if `var_name` was generated by `generate_new_temp_variable_name`
+/// for the given `module_path`.
+///
+/// Mirrors `isTempVariableName` in `src/utils.ts`.
+is_temp_variable_name :: (fn(module_path : String, var_name : String) -> bool)({
+  prefix := generate_temp_variable_name_prefix(module_path);
+  var_name.starts_with(prefix)
+});
+/// True iff `b` is a byte `generate_temp_variable_name_prefix` can emit
+/// between its underscores: an alphanumeric it kept, or the `_` it
+/// substituted.
+_is_temp_prefix_byte :: (fn(b : u8) -> bool)(
+  ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) ||
+    (((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)))
+);
+/// True iff `var_name` has the shape `generate_new_temp_variable_name`
+/// produces for ANY module path: `_`, at most twelve prefix bytes, `_temp_`,
+/// then one or more digits. The module-path-keyed `is_temp_variable_name`
+/// needs the path spelling the generator saw, which a consumer holding only
+/// the binding (the LSP's completion, which must hide these internals) does
+/// not reliably have — the prelude's temporaries are minted against the plain
+/// std path while their tokens carry the `file://` spelling
+/// (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
+is_any_temp_variable_name :: (fn(var_name : String) -> bool)({
+  bytes := var_name.as_bytes();
+  n := bytes.len();
+  // `_` + `_temp_` + one digit is the shortest possible spelling (an empty
+  // module path yields the prefix `__temp_`).
+  if((n < usize(8)) || (match(bytes.get(usize(0)), .Some(b) => b, .None => u8(0)) != u8(95)), {
+    return(false);
+  });
+  marker := String.from("_temp_");
+  // The prefix bytes span from index 1 to the `_temp_` marker; try each
+  // legal length (0..=12) so a sanitized path that itself ends in `_temp_`
+  // cannot confuse the split.
+  (k : usize) = usize(0);
+  while(k <= usize(12), {
+    start := (usize(1) + k);
+    if((start + usize(6)) < n, {
+      (prefix_ok : bool) = true;
+      (i : usize) = usize(1);
+      while(i < start, {
+        if(!_is_temp_prefix_byte(match(bytes.get(i), .Some(b) => b, .None => u8(0))), {
+          prefix_ok = false;
+        });
+        i = (i + usize(1));
+      });
+      if(prefix_ok && (var_name.substring(start, start + usize(6)) == marker), {
+        (digits_ok : bool) = true;
+        (j : usize) = (start + usize(6));
+        while(j < n, {
+          d := match(bytes.get(j), .Some(b) => b, .None => u8(0));
+          if((d < u8(48)) || (d > u8(57)), {
+            digits_ok = false;
+          });
+          j = (j + usize(1));
+        });
+        if(digits_ok, {
+          return(true);
+        });
+      });
+    });
+    k = (k + usize(1));
+  });
+  false
+});
+// ---------------------------------------------------------------------------
+// random_id
+// ---------------------------------------------------------------------------
+/// Global counter for generating module-scoped unique IDs.
+/// Mirrors the `moduleIdCounters` map in `src/utils.ts`.
+///
+/// Note: We use a single global counter (not per-module) for simplicity.
+/// The resulting IDs are globally unique and will not satisfy
+/// `is_temp_variable_name` (they start with `yo_id_`, not `_…_temp_`).
+(g_random_id_counter : usize) = usize(0);
+/// Generate a unique ID for a module-scoped value (e.g. recur result names).
+///
+/// Mirrors `randomId` in `src/utils.ts`.
+random_id :: (fn(_module_path : String) -> String)({
+  count := g_random_id_counter;
+  g_random_id_counter = (g_random_id_counter + usize(1));
+  `yo_id_${count.to_string()}`
+});
 export(str_lit_unquote_bytes);
 export(
   generate_temp_variable_name_prefix,

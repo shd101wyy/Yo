@@ -85,7 +85,7 @@ _(env : anonfn_dbg_env) :: import("std/env");
   CapturedVarInfo,
   ExpectedTypeCtx
 } :: import("../context.yo");
-{ random_id } :: import("../../utils.yo");
+{ random_id, stable_position_id } :: import("../../utils.yo");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 {
@@ -1243,9 +1243,18 @@ evaluate_anonymous_function_implementation :: (
   // Build the FuncVal.
   // Phase 3ad: captures are populated from the outer env snapshot above.
   // -------------------------------------------------------------------------
+  // Phase 2 (plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5): the id is a
+  // function of WHAT the function is — its defining module and source
+  // position — not of how many ids were minted before it. OCCURRENCE-indexed
+  // (not merged): each EVALUATION of this literal mints a distinct FuncVal
+  // (generic instantiation, inlining trials and call-time re-evaluation give
+  // the same source site different captures and parameter types — merging
+  // their ids corrupts the func-type registries, which surfaced as trait
+  // resolution failures in deep import chains). The occurrence counter is
+  // per-position, so ids still do not shift on unrelated edits.
   func_id := cond(
-    is_creating_closure => (String.from("closure_") + random_id(env.module_path)),
-    true => (String.from("fn_") + random_id(env.module_path))
+    is_creating_closure => stable_position_id(String.from("closure_"), tok.module_path, tok.row, tok.column),
+    true => stable_position_id(String.from("fn_"), tok.module_path, tok.row, tok.column)
   );
   // Source-position identity: every re-eval generation of this source
   // closure registers under the same key so capture info can merge across

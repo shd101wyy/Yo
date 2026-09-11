@@ -6,13 +6,13 @@
 //! is named while_loop.yo (`while` is a keyword).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_is_fn_call_of, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
+{ AstExpr, ast_expr_is_fn_call_of, ast_expr_token, BK_BEGIN, BK_COMPTIME, BK_ASSIGN } :: import("../../expr.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { Emitter } :: import("../../emitter.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { _looks_like_minted_temp } :: import("./begin.yo");
 { get_deferred_drop_target_atom_name, sanitize_for_c_identifier } :: import("../utils/index.yo");
-{ random_id, is_temp_variable_name } :: import("../../utils.yo");
+{ is_temp_variable_name, stable_label_id } :: import("../../utils.yo");
 { expr_info_consumed_variable_drop_expressions } :: import("../../expr_info.yo");
 /// Emit `<indent><text>` + newline.
 _emit_line :: (fn(em : Emitter, indent : String, text : String) -> unit)({
@@ -276,8 +276,8 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       cond_expr := _strip_comptime(match(args.get(usize(0)), .Some(c) => c, .None => expr));
       body_expr := match(args.get(usize(1)), .Some(b) => b, .None => expr);
       saved_loop := context.base.current_loop_label;
-      loop_label := String.from("loop_");
-      loop_label.push_string(random_id(String.from("")));
+      loop_tok := ast_expr_token(expr);
+      loop_label := stable_label_id(String.from("loop_"), loop_tok.module_path, loop_tok.row, loop_tok.column);
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
       context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
@@ -309,10 +309,9 @@ generate_while_loop :: (fn(expr : AstExpr, indent : String, context : FunctionGe
       body_expr := match(args.get(usize(2)), .Some(b) => b, .None => expr);
       saved_loop := context.base.current_loop_label;
       saved_continue := context.base.current_continue_label;
-      loop_label := String.from("loop_");
-      loop_label.push_string(random_id(String.from("")));
-      continue_label := String.from("continue_");
-      continue_label.push_string(random_id(String.from("")));
+      loop3_tok := ast_expr_token(expr);
+      loop_label := stable_label_id(String.from("loop_"), loop3_tok.module_path, loop3_tok.row, loop3_tok.column);
+      continue_label := stable_label_id(String.from("continue_"), loop3_tok.module_path, loop3_tok.row, loop3_tok.column);
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       context.base.current_continue_label = Option(String).Some(continue_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
