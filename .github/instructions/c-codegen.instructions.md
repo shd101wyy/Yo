@@ -127,6 +127,33 @@ no-ops; `windows-11-arm` gets the latest from choco). An "arm64-only" C failure
 may be a clang VERSION difference, not an architecture one — check the
 versions in the job logs first.
 
+## `sm->await_future_N` OWNS its reference — a borrowed future must be dup'd
+
+The state machine `__yo_decr_rc`s that slot in three places: when the await's
+result is extracted, when the awaited future aborts, and in the state machine's
+dispose function. So whatever is stored there must be a reference the slot owns:
+
+- a future the awaited expression **produces** (an `io.async(…)` block, a
+  `__yo_async_*_start()` extern, a call returning `Impl(Future)`) hands over the
+  reference it just created, and its temp's deferred drop is aliased onto the
+  slot rather than emitted separately (`state_machine.yo`, Phase 1b);
+- a **named** future is never stored in the slot at all — the await reads the
+  variable's own field, because storing it would hand the slot a reference it
+  does not own;
+- a future read out of a **place** (a field, or a chain of them) is BORROWED:
+  the owner still drops it, so the slot must `__yo_incr_rc` its own.
+
+All seven store sites go through `emit_await_future_store`
+(`src/codegen/async/state_code_gen.yo`) for exactly that reason — do not write
+a bare `sm->await_future_N = …` at a new one. The missing dup was a
+use-after-free in `Park.wait`, which awaits `self._future`
+(`issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`);
+it does not reproduce by running the program locally (this box's
+`--sanitize address` is inert — the runner prints "AddressSanitizer is not
+functional with this compiler setup … Skipping sanitizer"), while ALL SIX CI
+`test (…)` legs die on it. An RC change around awaits is not clean until those
+legs have run; until then, read the counts in the emitted C.
+
 ## `ExprInfo.variable_name` is UNTRUSTWORTHY in cond/match arm-value position
 
 `attach_temp_variable_to_expr` can stamp a SPURIOUS temp `variable_name` onto a
