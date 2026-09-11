@@ -65,6 +65,28 @@ The reference accounting is asymmetric along the await path:
 
 Net: +2 increments vs 3 decrements for one park with one waker.
 
+## Root cause (confirmed against the generated C)
+
+`Park.wait` is `io.async((io) => { io.await(self._future, io); })`. The async
+state machine stores the awaited future into its slot WITHOUT a reference:
+
+```c
+// wait-SM: store — NO incr; _future is borrowed from the Park
+sm->await_future_0 = (void*)(sm->__capture.self->_future);
+...
+// SM teardown: unconditional DEC — over-consumes the Park's own reference
+if (sm->await_future_0) { __yo_decr_rc((void*)sm->await_future_0); }
+```
+
+The slot-dec contract is "the await consumed one reference" — true when the
+awaited future is an owned `io.async` result (rc=1, transferred to the slot),
+but `Park._future` is only BORROWED by `wait`: the dec over-consumes, the
+waker's release then frees at rc 0, and the Park's own field dispose
+(`yo_id_7108` → `__yo_decr_rc(self->_future)`) reads the freed header.
+
+The waker API is the first consumer that awaits a BORROWED `IoFuture`; every
+previous std call site awaits a freshly-created future (rc=1 transferred).
+
 ## Fix directions
 
 1. **Runtime**: `IoFuture` await must not dec a future it does not own (or
