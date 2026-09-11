@@ -490,19 +490,15 @@ _collect_required_function_field :: (
       // top-level exports from the CURRENT module use their plain label (for
       // external linkage) unless that plain name collides; everything else is
       // mangled by func_id.
-      from_current_module := (
-        is_top_level_export
-        && match(
-          context.current_module_id,
-          .Some(mid) => {
-            prefix := String.from("fn_");
-            prefix.push_string(mid.clone());
-            prefix.push_str("_");
-            func_id.clone().starts_with(prefix)
-          },
-          .None => false
-        )
-      );
+      // is_top_level_export is passed as `true` ONLY for the root call — the
+      // compiled module's own export list (imported modules are collected with
+      // `false`). The extra current_module_id prefix check here required
+      // context.current_module_id, which is never SET on the exe path, so
+      // every top-level export fell to the mangled yo_id_NNN branch and was
+      // emitted `static inline` — Emscripten's --export=wasm_render then found
+      // no symbol (markdown_yo wasm_api). See
+      // issues/exported-functions-emit-as-static-yo-id-names-breaks-emscripten-exports.md.
+      from_current_module := is_top_level_export;
       cond(
         from_current_module => {
           plain := sanitize_for_c_identifier(label.clone(), false);
