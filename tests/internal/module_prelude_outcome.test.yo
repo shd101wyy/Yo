@@ -1,0 +1,63 @@
+//! The cached prelude's load outcome must still DESCRIBE the prelude.
+//!
+//! `mm_load_file` refuses to re-evaluate `std/prelude.yo` once its env is
+//! cached — re-registering its impls under fresh type identities corrupts
+//! where-constrained generic-impl resolution for every file checked afterwards
+//! (`issues/fixed/seed-built-stage1-array-fill-method-miss.md`). That guard is
+//! right. What it USED to return was `module_value : UnitVal` with
+//! `module_type : Unit`, and that is not a description of anything: `yo doc`
+//! asks `is_module_type(module_type)` before it reads a single declaration, so
+//! `std/prelude.yo` — `Option`, `Result`, `Box`, `Io`, `JoinHandle`, every
+//! numeric type and every core trait — rendered as an empty page, and the core
+//! traits were never available to donate their method docs to the 454
+//! trait-impl methods across `std/`
+//! (`issues/fixed/yo-doc-renders-the-prelude-empty.md`).
+//!
+//! The namespace is now rebuilt from the cached env instead of from a second
+//! evaluation, so the guard is untouched and the outcome is honest.
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ mm_load_file, resolve_std_path } :: import("../../src/module_manager.yo");
+{ EvalValue } :: import("../../src/value.yo");
+{ TypeValue } :: import("../../src/types/definitions.yo");
+{ is_module_type } :: import("../../src/types/guards.yo");
+pragma(Pragma.AllowUnsafe);
+/// The field labels of a source-namespace module type, or an empty list for
+/// anything else.
+_ns_labels :: (fn(t : TypeValue) -> ArrayList(String))(
+  match(t, .Struct({ field_labels }) => field_labels, _ => ArrayList(String).new())
+);
+test("the cached prelude loads as a module, not as Unit", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `prelude load threw: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  std_path := resolve_std_path();
+  prelude := `${std_path}/prelude.yo`;
+  // First load populates the cached prelude env (or finds it already warm —
+  // every other file in this batch cloned it). Either way the SECOND call is
+  // the cache-hit branch this test is about.
+  _first := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
+  assert(outcome.ok, "the cached prelude is a successful load");
+  assert(is_module_type(outcome.module_type), "the outcome's type is a module type, not Unit");
+  labels := _ns_labels(outcome.module_type);
+  assert(labels.len() > usize(100), `the prelude namespace is populated, got ${labels.len().to_string()} field(s)`);
+  // Three declarations a reader of the prelude page must find: a type, a
+  // generic type constructor and a trait.
+  assert(labels.contains(String.from("Option")), "Option is in the namespace");
+  assert(labels.contains(String.from("JoinHandle")), "JoinHandle is in the namespace");
+  assert(labels.contains(String.from("Dispose")), "Dispose is in the namespace");
+  // The values must come with it — `build_doc_module` dispatches on the VALUE
+  // (a TypeVal classifies as a struct/enum/trait; anything else falls through
+  // to the constant list), so a namespace of labels with no values would
+  // document every declaration as an untyped constant.
+  vals := match(outcome.module_value, .StructVal(_, _, field_values) => field_values, _ => ArrayList(EvalValue).new());
+  assert(vals.len() == labels.len(), `one value per label, got ${vals.len().to_string()} for ${labels.len().to_string()}`);
+});

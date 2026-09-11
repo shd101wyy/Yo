@@ -1455,6 +1455,42 @@ Two consequences for this row. A doc sweep aimed at the 479 would write comments
 "done" criterion has to be the published number, not the grep — they differ by a
 factor of three.
 
+**The re-export fix landed (#589) and took the published number to 1293 of
+3345. The residue is ONE more extractor defect, not missing comments —
+measured 2026-09-11.** `yo doc` renders `std/prelude.yo` with **zero members**
+(`issues/fixed/yo-doc-renders-the-prelude-empty.md`). The same file copied to
+another path documents 527. `mm_load_file` must not re-evaluate a prelude
+whose env is cached — that guard is load-bearing — but the outcome it recorded
+was `module_value : UnitVal, module_type : Unit`, and `build_doc_module`
+returns an empty module for anything that is not a module type.
+
+That is the whole residue. The undocumented top names are `next` (36),
+`dispose` (28), `default` (28), `source` (26), `to_string` (24), `==`/`!=` (22
+each), `into_iter` (16), `<`/`<=`/`>`/`>=` (14 each) and the `Iterator`
+combinators (13 each) — every one an impl of a trait DECLARED IN THE PRELUDE,
+so `_inherit_trait_method_docs` never had a donor for any of them, because no
+module's `traits` list ever contained `Iterator`, `Eq`, `Ord`, `Dispose` or
+`Default`. The rest is `libc/*` (338 across math/stdio/stdlib/string/
+stdatomic), raw C bindings that `sys/externs`'s reasoning covers: not public
+API and not intended to become it.
+
+**Done, and re-measured at each step (2026-09-11):** 1293 → 1207 (the prelude
+renders) → 1178 (`Dispose.dispose` and `Error.source` documented, 54 impls
+inheriting from two comments) → **1161** (a DERIVED impl counts as a trait
+impl — `extract_trait_impls_from_tokens` scanned only `impl(`, so every
+`derive(Type, Trait(...))` left `trait_impls` empty and could inherit
+nothing). `std/prelude.yo` itself: 0 items → 957, 0 traits → 31.
+
+The remaining 1161 is characterized rather than estimated
+(`issues/fixed/yo-doc-renders-the-prelude-empty.md`): 338 are `libc/*` raw C
+bindings that `sys/externs`'s reasoning already excludes; ~104 are the `Eq`/
+`Ord` operator family, whose traits are generic CONSTRUCTORS and so never
+appear as traits at all; 24 are the `to_string` that `derive(Error)` generates
+under D15, which the doc pipeline does not know implies `ToString`. What is
+left is genuinely un-commented source, concentrated in `string/index` (138)
+and `string/string` (122) — and that is where a doc sweep now pays, because
+`yo doc` will keep what it writes.
+
 **`## Stability` markers — DONE 2026-09-11. All 175 std modules carry one.**
 The last fifteen were the ones a doc sweep cannot write mechanically, because
 the honest answer in each case is a specific blocker rather than a status word:
