@@ -1,21 +1,68 @@
-//! Signal handling functions.
+//! Signal registration and delivery — the raw syscall boundary.
 //!
-//! Provides low-level wrappers for signal registration and delivery.
+//! `sigaction(2)` and `kill(2)` behind a trampoline the generated runtime
+//! owns. `std/signal.yo` is the public surface: it wraps these with a typed
+//! `Signal` enum and does the per-platform signal-NUMBER mapping, which is
+//! the part callers actually need (`SIGUSR1` is 30 on macOS and 10 on Linux).
+//!
+//! ## Stability
+//!
+//! unstable — two things below the API have to settle first. The handler
+//! table is a fixed 32 slots, so a signal number outside `0..31` is `-EINVAL`
+//! rather than registered (real-time signals are unreachable); and the
+//! `user_data` channel is declared but never populated, so the `data`
+//! parameter of a `SignalHandler` is always NULL
+//! (`issues/stddoc-sys-signal-handler-data-always-null.md`). On top of that,
+//! handlers run in a real signal context on POSIX, where almost nothing is
+//! legal to call, and this layer does nothing to enforce that — a
+//! self-pipe/`signalfd` design that delivers on the event loop instead is the
+//! shape that would make this freezable. `std/signal` is the surface to use
+//! meanwhile.
 pragma(Pragma.AllowUnsafe);
 { __yo_signal_start, __yo_signal_stop, __yo_kill } :: import("./externs.yo");
+/// The shape of a signal handler: `(data : *u8) -> unit`.
+///
+/// `data` is ALWAYS NULL. The runtime keeps a per-signal user-data table but
+/// `__yo_signal_start` never writes to it, so the parameter exists for ABI
+/// shape only — do not build on it
+/// (`issues/stddoc-sys-signal-handler-data-always-null.md`). Capture what you
+/// need instead, and remember the POSIX rule the wrapper cannot enforce: the
+/// body runs in a signal context, so it must stay to async-signal-safe work
+/// (set a flag, write to a self-pipe) and must not allocate or take locks.
 SignalHandler :: (fn(data : *u8) -> unit);
-// Register a signal handler.
-// Returns 0 on success, -errno on failure.
+/// Install `handler` for `signum`, replacing any previous one. Returns 0 on
+/// success, a negative errno on failure; `signum` outside `0..31` is
+/// `-EINVAL` (the runtime's handler table is that wide).
+///
+/// On POSIX this is `sigaction(2)` with `SA_RESTART`, so interrupted syscalls
+/// restart rather than failing with `EINTR`, and the C-level handler is a
+/// shared trampoline that dispatches through the table.
+///
+/// Windows has no `sigaction`. Only the seven signals the CRT implements
+/// (`SIGABRT`, `SIGFPE`, `SIGILL`, `SIGINT`, `SIGSEGV`, `SIGTERM`,
+/// `SIGBREAK`) are registered with `signal()`; any other number is accepted
+/// and recorded in the table, but the OS will never raise it — the only thing
+/// that can reach such a handler there is an in-process `kill` (below).
 on_signal :: (fn(signum : i32, handler : SignalHandler) -> i32)(
   __yo_signal_start(signum, unsafe.cast(handler, *u8))
 );
-// Remove a signal handler (reset to default).
-// Returns 0 on success, -errno on failure.
+/// Remove the handler for `signum` and restore the default disposition
+/// (`SIG_DFL`). Returns 0 on success, a negative errno on failure; the same
+/// `0..31` range rule applies. Calling it for a signal that was never
+/// registered still resets the disposition rather than failing.
 off_signal :: (fn(signum : i32) -> i32)(
   __yo_signal_stop(signum)
 );
-// Send a signal to a process.
-// Returns 0 on success, -errno on failure.
+/// Send `signum` to process `pid` — POSIX `kill(2)`. Returns 0 on success, a
+/// negative errno on failure. `signum` 0 sends nothing and is the standard
+/// way to ask "does this pid exist and may I signal it".
+///
+/// Windows has no signals between processes, and the emulation is narrow
+/// enough to matter: to SELF (`pid` 0 or the current pid) it invokes the
+/// registered handler synchronously, or `raise()`s for a CRT signal; to
+/// another process only `signum` 0 (an existence probe via `OpenProcess`) and
+/// `signum` 9 (`TerminateProcess` with exit code 1) work, and everything else
+/// — including `SIGTERM`, the polite one — returns `-ENOSYS`.
 kill :: (fn(pid : i32, signum : i32) -> i32)(
   __yo_kill(pid, signum)
 );

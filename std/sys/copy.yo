@@ -1,22 +1,54 @@
-//! File copy operations.
+//! File copy and zero-copy transfer — the raw syscall boundary.
 //!
-//! Synchronous wrappers for `copyfile`/`sendfile`.
-//! These are inherently synchronous on all platforms.
+//! Two wrappers over the kernel's bulk-copy primitives. Both are genuinely
+//! synchronous on every platform: there is no `IoFuture` here because none of
+//! the four backends has an asynchronous form of them. No public `std` module
+//! calls them yet (`std/fs` has no `copy` today);
+//! `tests/sys/copy.test.yo` is their only caller in this tree.
 //!
-//! ## Return values
+//! ## Stability
 //!
-//! - `copyfile`: 0 on success, -errno on failure
-//! - `sendfile`: bytes transferred on success, -errno on failure
+//! unstable — `copyfile`'s `flags` word is the blocker. It is an integer
+//! whose bits mean different things per platform (bit 0 is exclusive-create
+//! on Linux/macOS/wasm, bits 1 and 2 are macOS clone hints) and which the
+//! Windows implementation ignores entirely, so the same call silently
+//! overwrites there and refuses here. `sendfile` has a narrower but similar
+//! problem: it takes `count` as `usize` and returns the transferred count as
+//! `i32`, so a single call above 2 GiB is not representable. Freezing needs a
+//! named flag type that every backend either honours or rejects, and a
+//! transferred-count type that matches the argument.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_copyfile, __yo_sync_sendfile } :: import("./externs.yo");
-// Copy a file using kernel-accelerated copy.
-// flags: 0 = default, 1 = COPYFILE_EXCL (fail if dst exists)
-// Returns 0 on success, -errno on failure.
+/// Copy the file at `src` to `dst`, using the kernel's accelerated path where
+/// there is one. Returns 0 on success, a negative errno on failure.
+///
+/// `flags` bit 0 means "fail if `dst` exists". It is honoured on Linux and
+/// wasm (`O_EXCL` on the destination open) and on macOS (`COPYFILE_EXCL`),
+/// and **ignored on Windows**, where the runtime calls
+/// `CopyFileW(src, dst, FALSE)` and therefore always overwrites — see
+/// `issues/stddoc-sys-windows-copyfile-ignores-flags.md`. macOS additionally
+/// reads bit 1 as `COPYFILE_CLONE` and bit 2 as `COPYFILE_CLONE_FORCE`.
+///
+/// How much is copied differs too: macOS uses `copyfile(3)` with
+/// `COPYFILE_ALL`, so ACLs, extended attributes and timestamps come along,
+/// while Linux copies the DATA plus `st_mode` (via `copy_file_range(2)`,
+/// falling back to `sendfile(2)`) and wasm copies the data with a read/write
+/// loop.
 copyfile :: (fn(src : *u8, dst : *u8, flags : i32) -> i32)(
   __yo_sync_copyfile(src, dst, flags)
 );
-// Transfer data between file descriptors (zero-copy when possible).
-// Returns bytes transferred on success, -errno on failure.
+/// Transfer up to `count` bytes from `in_fd` at `offset` to `out_fd`,
+/// without a userspace round trip where the platform allows it. Returns the
+/// number of bytes transferred (which may be SHORT — loop on it), or a
+/// negative errno.
+///
+/// Only Linux and macOS have a real `sendfile(2)`, and both restrict it:
+/// `in_fd` must be a regular file, and on macOS `out_fd` must be a socket.
+/// The macOS wrapper therefore falls back to an 8 KiB `pread`/`write` copy
+/// loop on `ENOTSOCK`, `EINVAL` or `ENOSYS`, and Windows and wasm use that
+/// loop unconditionally — so "zero-copy" is a property of the platform, not
+/// a guarantee of this function. `out_fd` is written at ITS current position
+/// in every implementation; only `in_fd` is read positionally.
 sendfile :: (fn(out_fd : i32, in_fd : i32, offset : i64, count : usize) -> i32)(
   __yo_sync_sendfile(out_fd, in_fd, offset, count)
 );

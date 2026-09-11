@@ -21,6 +21,16 @@
 //! pq.push(Reverse(i32)(1));
 //! x := pq.pop().unwrap().value;  // 1 — the SMALLEST
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the MAX-heap flip (D11) shipped in v0.2.28 and this is the
+//! campaign's one CONTESTABLE flip: `priority_queue` is max-ordered in C++
+//! but MIN-ordered in Java, so the name alone does not settle which end
+//! `pop` should return, and Rust's `BinaryHeap` is what decided it here. One
+//! release of real use is what would freeze it. The rest of the surface
+//! (`push`/`pop`/`peek`/`len`/`is_empty`, `Default`, the two iterators) is
+//! settled, and Rust's `into_sorted_vec`/`from` would be additive.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("./array_list");
 /// MAX-heap backed by an ArrayList (D11 — Rust's `BinaryHeap`).
@@ -37,26 +47,32 @@ PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(
   generic(T : Type),
   PriorityQueue(T),
-  // Create an empty priority queue.
+  /// Empty queue. Allocates nothing until the first `push`.
   new : (fn() -> Self)(
     Self(_data : ArrayList(T).new())
   ),
-  // Number of elements.
+  /// Number of elements. O(1).
   len : (fn(self : Self) -> usize)(
     self._data.len()
   ),
-  // True if empty.
+  /// True when the queue holds no elements.
   is_empty : (fn(self : Self) -> bool)(
     self._data.len() == usize(0)
   ),
-  // Inspect the largest element without removing it.
+  /// The LARGEST element without removing it, or `.None` when empty — O(1),
+  /// since the heap keeps its maximum at the root. Rust's
+  /// `BinaryHeap::peek`.
   peek : (fn(self : Self) -> Option(T))(
     cond(
       (self._data.len() == usize(0)) => .None,
       true => self._data.get(usize(0))
     )
   ),
-  // Insert a new element.
+  /// Insert an element and sift it up to its place — O(log n). Rust's
+  /// `BinaryHeap::push`.
+  ///
+  /// PANICS on allocation failure, since the backing `ArrayList.push` does
+  /// (D9); there is no `try_push` here.
   push : (fn(self : Self, val : T, where(T <: Ord(T))) -> unit)({
     // `push`'s Result used to be discarded, so an allocation failure went on
     // to sift an element that was never stored and underflowed `len() - 1`.
@@ -81,7 +97,12 @@ impl(
       );
     });
   }),
-  // Remove and return the largest element.
+  /// Remove and return the LARGEST element, or `.None` when empty —
+  /// O(log n). Rust's `BinaryHeap::pop`.
+  ///
+  /// For smallest-first, build the queue over `Reverse(T)` rather than
+  /// negating keys: negation is wrong for an unsigned type and for a signed
+  /// minimum.
   pop : (fn(self : Self, where(T <: Ord(T))) -> Option(T))({
     n := self._data.len();
     cond(
@@ -128,10 +149,13 @@ impl(
     )
   })
 );
-/**
-* Value iterator for PriorityQueue - yields elements in heap (arbitrary) order
-* Note: This iterates in internal storage order, NOT sorted order.
-*/
+/// Value iterator over a PriorityQueue — yields elements in the heap's
+/// INTERNAL array order, which is NOT sorted order (only the first element is
+/// guaranteed to be the maximum). This is what `into_iter()`, and therefore
+/// `for(pq, ...)`, returns.
+///
+/// Rust's `BinaryHeap::iter` makes the same no-order promise; drain the queue
+/// with `pop` in a loop when the order matters.
 PriorityQueueIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _data : ArrayList(T),
@@ -166,9 +190,13 @@ impl(
     )
   )
 );
-/**
-* Pointer iterator for PriorityQueue - yields pointers to elements in heap order
-*/
+/// Pointer iterator over a PriorityQueue — yields `*(T)` into the backing
+/// array, in the same unsorted heap order. This is what `iter()` returns
+/// (D14), so nothing is dup'd.
+///
+/// Writing through a yielded pointer can BREAK the heap invariant: nothing
+/// re-sifts afterwards. A `push` that grows the array invalidates pointers
+/// already yielded.
 PriorityQueueIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _data : ArrayList(T),
@@ -200,6 +228,8 @@ impl(
 impl(
   generic(T : Type),
   PriorityQueue(T),
+  /// Borrowing walk over the heap array, in unsorted order (D14) — see
+  /// `PriorityQueueIterPtr` for the invariant this can break.
   iter : (fn(inout(self) : Self) -> PriorityQueueIterPtr(T))(
     PriorityQueueIterPtr(T)(_data : self._data, _index : usize(0))
   )

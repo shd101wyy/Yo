@@ -5,23 +5,90 @@
 //! a raw space, a control byte, a CR or LF, a raw UTF-8 byte — is rejected
 //! with `UrlError.InvalidCharacter(pos)`. Callers with non-ASCII or
 //! space-bearing components percent-encode first, via
-//! `std/encoding/percent`'s `percent_encode`.
+//! `std/encoding/percent` (`percent.encode`).
 //!
 //! This is a security boundary, not a tidiness rule: `Url.path()` flows into
 //! `HttpRequest`'s request line, so a URL carrying a raw CRLF would otherwise
 //! split one HTTP request into two.
+//!
+//! ## Escaping
+//!
+//! Parsing NEVER decodes. `scheme()` is lowercased and everything else —
+//! `host()`, `path()`, `query()`, `fragment()`, `userinfo()` — comes back
+//! byte-for-byte as written, percent escapes intact. That is Rust's `url`
+//! shape and it is the only safe one for a component that goes back on a
+//! wire: decoding `%2F` in a path would produce a string whose `/` count no
+//! longer matches the URL's own structure.
+//!
+//! Decoding is therefore an explicit step, and there are two spellings
+//! because there are two grammars: `path_segments()` and `query_pairs()`
+//! decode for you (the latter also reading `+` as a space, per
+//! `application/x-www-form-urlencoded`), while `std/encoding/percent`'s
+//! `percent_decode` handles one value at a time and REPORTS a malformed
+//! escape. The accessors are deliberately lossy where `percent_decode` is
+//! strict — one bad escape in one query value must not fail the whole
+//! accessor.
+//!
+//! ## Absent versus empty
+//!
+//! The `Option`-returning accessors distinguish "not written" from "written
+//! empty", and callers get this wrong: `http://h/` has NO query (`.None`),
+//! `http://h/?` has an EMPTY one (`.Some("")`), and the two are different
+//! URLs that stay different through `to_string`. Same for `fragment()` (a
+//! trailing `#`) and `userinfo()` (a bare `@`). `path()` is the exception —
+//! it is a plain `String` and `""` covers both, because RFC 3986 §3.3 makes
+//! the two the same thing.
+//!
+//! ## Stability
+//!
+//! unstable — the surface moved twice in September 2026 and one shape
+//! question is still open in the code. `Url.parse` became
+//! `Result(Url, UrlError)` with `parse_exn` as the wrapper (D13), and the
+//! seven fallible `set_*` setters plus `join`/`path_segments`/`query_pairs`
+//! landed on 2026-09-09; none of that has been through a release yet.
+//!
+//! The open question is the EMPTY host. `Url.parse` folds "no `//` authority"
+//! and "an authority whose host is empty" into the same `host() == .None`
+//! (`mailto:a@b` and `file:///a/b` are indistinguishable), which makes
+//! `path_segments()` answer `.None` for `file:///a/b` — Rust answers
+//! `Some(["a", "b"])`, because a `file:` URL can be a base. The same fold
+//! makes the empty host asymmetric: `http://:80/x` keeps a `.Some("")` host
+//! while `http:///x` loses it. Fixing it means either an
+//! `Option(String)`-inside-authority representation or a separate
+//! "has authority" bit, and both change what `host()` returns. Freezing
+//! follows that decision, plus a decision on the authority split: this parser
+//! takes the FIRST `@` where the WHATWG URL Standard (and so Rust's `url`)
+//! takes the LAST, and whether `userinfo()` should split into
+//! `username()`/`password()` the way Rust does.
 { String, StringBuilder } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { StringBuilder } :: import("../string/string_builder");
-{ percent_decode } :: import("../encoding/percent");
+percent :: import("../encoding/percent");
 { ToString } :: import("../fmt");
 { Error, AnyError, Exception } :: import("../error");
 /// Errors that can occur during URL parsing.
 UrlError :: enum(
+  /// The input string was empty. A URL needs at least a scheme.
   EmptyInput,
+  /// No `scheme:` prefix, or the scheme is not
+  /// `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`. A bare `example.com/x` and
+  /// a `1http://x` both land here — Yo has no "relative URL" mode, so a
+  /// reference is resolved through `join` against a base instead.
   MissingScheme,
+  /// The `:port` was empty, held a non-digit, or exceeded 65535. There is no
+  /// separate "port too large" variant; a value out of range is as malformed
+  /// as a letter.
   InvalidPort,
+  /// A byte outside RFC 3986 §2 was found at BYTE offset `pos` in the input —
+  /// a raw space, a control byte, a CR/LF, or a raw UTF-8 byte. `pos` is what
+  /// lets a caller point at the offender in a 4 KiB URL instead of only
+  /// knowing that one exists. Percent-encode the component first.
   InvalidCharacter(pos : usize),
+  /// A structural rejection with no dedicated variant, carrying its own
+  /// message: an authority-bearing URL whose path does not start with `/`, an
+  /// invalid scheme handed to `set_scheme`, or one of the three `to_string`
+  /// round-trip guards on the setters (bare IPv6 host, relative path beside a
+  /// host, `//`-leading path with no host).
   Other(msg : String)
 );
 derive(
@@ -139,9 +206,6 @@ Url :: ref(
 );
 impl(
   Url,
-  // Parse a URL string.
-  // Supports: scheme://[userinfo@]host[:port]/path[?query][#fragment]
-  // Also supports scheme:path (opaque URIs like mailto:user@example.com)
   /// Parse a URL string into a `Url` (D13 — a pure transform returns a
   /// `Result`; `parse_exn` is the effect-carrying wrapper).
   ///
@@ -469,24 +533,76 @@ impl(
     match(Self.parse(s), .Ok(u) => u, .Err(e) => exn.throw(dyn(e)))
   ),
   // --- Accessors ---
+  //
+  // NONE of these decode. Every component comes back exactly as it was
+  // written, percent escapes intact — see the module doc's "Escaping" note for
+  // why, and reach for `path_segments()` / `query_pairs()` when you want the
+  // decoded form.
+  /// The scheme WITHOUT the `:`, lowercased — `Url.parse` normalizes it, so
+  /// `HTTP://x` and `http://x` both answer `http`, as RFC 3986 §3.1 requires
+  /// and Rust's `Url::scheme` does. Always present: a URL that has no scheme
+  /// is a `MissingScheme` error, not a `Url`.
   scheme : (fn(self : Self) -> String)(
     self._scheme
   ),
+  /// The host, still percent-encoded, with an IPv6 literal keeping its
+  /// brackets (`[::1]`) — Rust's `Url::host_str`.
+  ///
+  /// `.None` means "no host to speak of", which covers TWO different URLs:
+  /// an opaque URI with no `//` authority at all (`mailto:a@b`), and an
+  /// authority whose host is empty (`file:///a/b`). This library does not
+  /// distinguish them, which is a divergence from Rust — see the module doc's
+  /// `## Stability` note.
   host : (fn(self : Self) -> Option(String))(
     self._host
   ),
+  /// The port as written, or `.None` when the URL carried no `:port`.
+  ///
+  /// `.None` is NOT "the scheme's default port": nothing here knows that
+  /// `http` means 80, so a caller that needs a port supplies its own default.
+  /// A `:` with nothing after it is `InvalidPort` at parse time rather than
+  /// `.None`, so `.None` only ever means the colon was absent.
   port : (fn(self : Self) -> Option(u16))(
     self._port
   ),
+  /// The path, still percent-encoded, `""` when absent — an `Option` would be
+  /// a distinction without a difference here, since RFC 3986 §3.3 makes the
+  /// path the one always-present component and its empty form the same thing
+  /// as its absence. Rust's `Url::path` answers `"/"` for `http://h`, this
+  /// answers `""`; the byte is not invented because it was not written.
+  ///
+  /// For an authority-bearing URL this is guaranteed to start with `/` — a
+  /// path that does not is rejected as `Other` at parse time.
   path : (fn(self : Self) -> String)(
     self._path
   ),
+  /// The query WITHOUT the leading `?`, still percent-encoded and with `+`
+  /// still a `+` — Rust's `Url::query`.
+  ///
+  /// `.None` and `.Some("")` are DIFFERENT and both reachable: `http://h/`
+  /// has no query (`.None`), `http://h/?` has an empty one (`.Some("")`).
+  /// The distinction survives `to_string`, which is the point — a form
+  /// submitted with no fields sends the bare `?`.
   query : (fn(self : Self) -> Option(String))(
     self._query
   ),
+  /// The fragment WITHOUT the leading `#`, still percent-encoded — Rust's
+  /// `Url::fragment`. As with `query`, `.None` (no `#`) and `.Some("")` (a
+  /// trailing `#`) are different URLs and stay different through `to_string`.
   fragment : (fn(self : Self) -> Option(String))(
     self._fragment
   ),
+  /// The userinfo WITHOUT the trailing `@`, still percent-encoded and NOT
+  /// split at the `:` — `user:pw@h` answers `.Some("user:pw")`, where Rust
+  /// splits `username()` from `password()`.
+  ///
+  /// `.None` means the authority had no `@`; `.Some("")` means it had one with
+  /// nothing before it (`http://@h/`). Note this splits at the FIRST `@` in
+  /// the authority, where the WHATWG URL Standard — and so Rust's `url` —
+  /// splits at the LAST one: `http://a@b@h/` is userinfo `a`, host `b@h` here
+  /// and userinfo `a@b`, host `h` there. RFC 3986 §3.2.1 does not admit a raw
+  /// `@` inside userinfo at all, which is why `set_userinfo` rejects one
+  /// outright rather than picking a side.
   userinfo : (fn(self : Self) -> Option(String))(
     self._userinfo
   ),
@@ -616,9 +732,10 @@ impl(
   /// Replace the userinfo (WITHOUT the trailing `@`), or remove it with
   /// `.None`.
   ///
-  /// A `@` inside userinfo is rejected: the authority splits at the LAST `@`,
-  /// so `set_userinfo("a@b")` on `//host` would re-parse with userinfo `a` and
-  /// host `b` — the classic credential-confusion shape.
+  /// A `@` inside userinfo is rejected: the authority splits at its FIRST
+  /// `@`, so `set_userinfo("a@b")` on `//host` would re-parse with userinfo
+  /// `a` and host `b@host` — the classic credential-confusion shape, where
+  /// the host a reader sees is not the host the URL resolves to.
   set_userinfo : (fn(self : Self, userinfo : Option(String)) -> Result(unit, UrlError))(
     match(
       userinfo,
@@ -637,7 +754,12 @@ impl(
         )
     )
   ),
-  // Returns the host:port as a String, or just host if no port
+  /// `host:port`, or the bare host when no port was written — the string a
+  /// `Host:` header and a `connect()` both want, assembled once instead of at
+  /// every call site.
+  ///
+  /// `.None` exactly when `host()` is `.None`. An IPv6 host keeps its
+  /// brackets, so the result stays unambiguous (`[::1]:8080`).
   host_port : (fn(self : Self) -> Option(String))(
     match(
       self._host,
@@ -650,7 +772,14 @@ impl(
         )
     )
   ),
-  // Returns scheme + "://" + host_port (the origin)
+  /// `scheme://host[:port]` — the same-origin key, and the prefix to hang a
+  /// path off when building a sibling URL.
+  ///
+  /// Two divergences from the web platform's notion of an origin, both because
+  /// nothing here knows a scheme's default port: the port is included only
+  /// when it was WRITTEN, so `http://h` and `http://h:80` give different
+  /// strings for the same origin; and a URL with no host answers the bare
+  /// scheme rather than the opaque `"null"` that HTML specifies.
   origin : (fn(self : Self) -> String)(
     match(
       self._host,
@@ -669,7 +798,7 @@ impl(
 // ============================================================================
 /// Percent-decode, or hand back the input UNCHANGED when it does not decode.
 ///
-/// `percent_decode` reports a malformed escape or non-UTF-8 result as an
+/// `percent.decode` reports a malformed escape or non-UTF-8 result as an
 /// error, which is the right shape for a caller decoding one value on purpose.
 /// It is the wrong shape for `path_segments` / `query_pairs`, which decode
 /// every component of a URL that already parsed: one bad escape in one query
@@ -677,7 +806,7 @@ impl(
 /// equivalents are lossy for the same reason. The raw text is the honest
 /// fallback — it is what the URL actually contains.
 _decode_lossy :: (fn(s : String) -> String)(
-  match(percent_decode(s), .Ok(v) => v, .Err(_) => s)
+  match(percent.decode(s), .Ok(v) => v, .Err(_) => s)
 );
 /// `application/x-www-form-urlencoded` decoding: `+` is a SPACE, then the
 /// percent escapes. The order matters — decoding `%2B` first would turn an
@@ -693,10 +822,20 @@ _form_decode :: (fn(s : String) -> String)(
 /// "present and empty", and `//` with an empty authority and `?` with an empty
 /// query are both legal and both distinguishable from their absence.
 _UrlRef :: struct(
+  /// `.None` for a relative reference — which is what makes §5.3's first
+  /// branch ("the reference is already absolute") testable.
   scheme : Option(String),
+  /// The authority WITHOUT the `//`, so an empty authority (`file:///x`)
+  /// is `.Some("")` and stays distinguishable from having none.
   authority : Option(String),
+  /// Never optional in §5.3 — a missing path IS the empty path, and the
+  /// empty-path case is what selects the base's path in the merge.
   path : String,
+  /// `.None` for "no `?` was written"; `.Some("")` for a bare `?`. §5.3
+  /// carries the base's query only in the first of the two cases.
   query : Option(String),
+  /// `.None` for "no `#` was written". A fragment is never inherited from
+  /// the base, so this one is copied straight through.
   fragment : Option(String)
 );
 /// Check every byte of a component against RFC 3986 §2, reporting the byte

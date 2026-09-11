@@ -1,0 +1,42 @@
+// Two defects in Yo string-escape handling, both silent.
+//
+//   yo compile issues/repros/unicode-escape-accepts-non-hex-digits.yo \\
+//     --std-path ./std --optimize 2 -o /tmp/r && /tmp/r
+//
+// 1. In a DOUBLE-QUOTED literal, a unicode escape whose four digits are not
+//    hex is decoded with each non-hex character contributing 0, instead of
+//    being an error: the ZZZZ case is a NUL byte and the braced case is
+//    U+0410, not U+0041.
+// 2. The escape is not recognised in a BACKTICK template at all — it stays
+//    literal source text — so one spelling means two things.
+//
+// Expected: (1) a compile error, as Rust gives for the same escapes; (2) the
+// same verdict from both literal forms.
+//
+// NOTE the labels below deliberately spell no escape of their own: a label is
+// a double-quoted literal, so writing one there would decode it too.
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+_dump :: (fn(label : str, s : String) -> unit)({
+  b := s.as_bytes();
+  (out : String) = ``;
+  i := usize(0);
+  while(i < b.len(), i = (i + usize(1)), {
+    v := b(i).to_string();
+    out = `${out} ${v}`;
+  });
+  println(`${label} len=${b.len()}:${out}`);
+});
+main :: (fn() -> unit)({
+  // len=1: 0                — four non-hex digits become U+0000
+  _dump("dq   u+ZZZZ    ", String.from("\uZZZZ"));
+  // len=2: 208 144          — U+0410: `{`,`4`,`1`,`}` read as 0,4,1,0
+  _dump("dq   u+{41}     ", String.from("\u{41}"));
+  // len=4: 201 163 65 125   — U+0263, then a literal "A}"
+  _dump("dq   u+{263A}   ", String.from("\u{263A}"));
+  // len=3: 120 65 121       — well formed, decoded
+  _dump("dq   x u+0041 y ", String.from("x\u0041y"));
+  // len=8: 120 92 117 48 48 52 49 121 — NOT an escape in a template
+  _dump("tmpl x u+0041 y ", `x\u0041y`);
+});
+export(main);

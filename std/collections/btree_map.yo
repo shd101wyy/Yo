@@ -1,4 +1,13 @@
-//! Sorted map backed by a sorted array with O(log n) lookup via binary search.
+//! Sorted map backed by a sorted array with O(log n) lookup via binary
+//! search.
+//!
+//! The name is Rust's, the shape is Rust's — key-ordered iteration, `range`,
+//! `first_entry`/`last_entry`, `pop_first`/`pop_last` — but the storage is
+//! not: entries live in one `ArrayList` kept in key order, so `get` and
+//! `contains_key` are O(log n) while `insert` and `remove` are O(n) (they
+//! shift the tail), where Rust's B-tree gives all four O(log n). That trade
+//! wins for the small, read-mostly maps this is used for and costs on
+//! insert-heavy ones; use `HashMap` when the order is not needed.
 //!
 //! ## Example
 //!
@@ -10,6 +19,16 @@
 //! m.insert(String.from("a"), 1);
 //! // Iteration order: a, b
 //! ```
+//!
+//! ## Stability
+//!
+//! stable — the surface mirrors `std::collections::BTreeMap` (`insert`
+//! returning the replaced value since 2026-09-06, `contains_key`, `range`
+//! over a `Range(K)`, `pop_first`/`pop_last`, `FromIterator`), and
+//! `plans/STD_API_STABILIZATION.md` §4 lists nothing open against it. The
+//! sorted-array backing is an implementation choice, not part of the
+//! contract: replacing it with a real B-tree would change complexity, not
+//! any signature.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("./array_list");
 { MapEntry } :: import("./entry.yo");
@@ -30,15 +49,15 @@ BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
-  // Create an empty map.
+  /// Empty map.
   new : (fn() -> Self)(
     Self(_entries : ArrayList(MapEntry(K, V)).new())
   ),
-  // Number of entries.
+  /// Number of entries. O(1).
   len : (fn(self : Self) -> usize)(
     self._entries.len()
   ),
-  // True if empty.
+  /// True when the map holds no entries.
   is_empty : (fn(self : Self) -> bool)(
     self._entries.len() == usize(0)
   ),
@@ -64,7 +83,9 @@ impl(
     });
     _FindResult(lo, false)
   }),
-  // Retrieve the value associated with key `k`.
+  /// Copy of the value stored under `k`, or `.None` — O(log n) binary
+  /// search. `self(k)` (the `Index` impl) asserts the key is present
+  /// instead.
   get : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
@@ -105,7 +126,8 @@ impl(
       }
     )
   }),
-  // Remove the entry with key `k`. Returns the old value, or .None.
+  /// Remove the entry for `k` and return its value, or `.None` — O(log n)
+  /// to find it, O(n) to close the gap, and the key order is preserved.
   remove : (fn(self : Self, k : K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
@@ -117,12 +139,8 @@ impl(
       true => .None
     )
   }),
-  /// Return the entry with the smallest key, or `.None`.
-  ///
-  /// Named `first_entry`/`last_entry` rather than `min`/`max` because this is a
-  /// MAP: it returns a whole `MapEntry`, not a key. Sets keep `min`/`max`,
-  /// which do return the element (plans/archive/STD_API_AUDIT.md §5).
-  /// Whether `k` is present — Rust's `contains_key`.
+  /// Whether `k` is present — Rust's `contains_key`. O(log n), and it does
+  /// not touch the value.
   contains_key : (fn(self : Self, k : K, where(K <: Ord(K))) -> bool)(
     match(self.get(k), .Some(_) => true, .None => false)
   ),
@@ -148,6 +166,12 @@ impl(
       .None => Option(MapEntry(K, V)).None
     )
   ),
+  /// The entry with the smallest key, or `.None` — O(1), since the backing
+  /// array is kept in key order.
+  ///
+  /// Named `first_entry`/`last_entry` rather than `min`/`max` because this is
+  /// a MAP: it returns a whole `MapEntry`, not a key. Sets keep `min`/`max`,
+  /// which do return the element (plans/archive/STD_API_AUDIT.md §5).
   first_entry : (fn(self : Self) -> Option(MapEntry(K, V)))(
     cond(
       (self._entries.len() == usize(0)) => .None,
@@ -162,9 +186,13 @@ impl(
     )
   )
 );
-/**
-* Value iterator for BTreeMap - yields MapEntry(K, V) in sorted key order
-*/
+/// Value iterator over a BTreeMap — yields each `MapEntry(K, V)` BY VALUE in
+/// KEY ORDER. This is what `into_iter()`, and therefore `for(map, ...)`,
+/// returns; `iter()` yields pointers.
+///
+/// It holds the backing entry list by handle, so the walk sees the array as
+/// it was when the iterator was made plus any in-place value updates;
+/// inserting or removing during the walk shifts entries under it.
 BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _entries : ArrayList(MapEntry(K, V)),
@@ -199,9 +227,12 @@ impl(
     )
   )
 );
-/**
-* Pointer iterator for BTreeMap - yields pointers to MapEntry(K, V) in sorted key order
-*/
+/// Pointer iterator over a BTreeMap — yields `*(MapEntry(K, V))` into the
+/// backing array, in key order. This is what `iter()` returns (D14): nothing
+/// is dup'd, and `p.*.value` can be written in place.
+///
+/// An `insert` or `remove` during the walk shifts or reallocates that array
+/// and invalidates every pointer already yielded.
 BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _entries : ArrayList(MapEntry(K, V)),
@@ -233,13 +264,14 @@ impl(
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
+  /// Borrowing walk in key order: yields a `*(MapEntry(K, V))` into the
+  /// backing array and leaves the map intact (D14).
   iter : (fn(self : Self) -> BTreeMapIterPtr(K, V))(
     BTreeMapIterPtr(K, V)(_entries : self._entries, _index : usize(0))
   )
 );
-/**
-* Keys iterator - wraps BTreeMapIter and yields only keys in sorted order
-*/
+/// Iterator over a BTreeMap's keys in ascending order — what `keys()`
+/// returns. Keys are yielded by value.
 BTreeMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _inner : BTreeMapIter(K, V)
@@ -262,13 +294,13 @@ impl(
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
+  /// Walk the keys in ascending order — Rust's `keys`.
   keys : (fn(self : Self) -> BTreeMapKeys(K, V))(
     BTreeMapKeys(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
-/**
-* Values iterator - wraps BTreeMapIter and yields only values in sorted key order
-*/
+/// Iterator over a BTreeMap's values, ordered by their KEYS — what
+/// `values()` returns. Values are yielded by value.
 BTreeMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _inner : BTreeMapIter(K, V)
@@ -291,14 +323,17 @@ impl(
 impl(
   generic(K : Type, V : Type),
   BTreeMap(K, V),
+  /// Walk the values in key order — Rust's `values`.
   values : (fn(self : Self) -> BTreeMapValues(K, V))(
     BTreeMapValues(K, V)(_inner : BTreeMapIter(K, V)(_entries : self._entries, _index : usize(0)))
   )
 );
-/**
-* Range iterator for BTreeMap - yields MapEntry(K, V) over a key window
-* in sorted key order.
-*/
+/// Iterator over the entries of one key window, in key order — what
+/// `range(k1 .. k2)` returns.
+///
+/// The window is resolved to array INDICES once, when the iterator is made,
+/// so an insertion during the walk moves entries in or out of it. Yields
+/// entries by value.
 BTreeMapRange :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(
     _entries : ArrayList(MapEntry(K, V)),

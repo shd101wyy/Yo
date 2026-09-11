@@ -9,6 +9,10 @@ import("std/fmt");
 { Path } :: import("std/path");
 { watch, WatchOptions, FsEvent, FsEventKind, Watcher } :: import("std/fs/watch");
 { Exception } :: import("std/error");
+{ Stream } :: import("std/async/stream");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
+{ ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 file :: import("std/sys/file");
 dir :: import("std/sys/dir");
@@ -184,4 +188,42 @@ test("a watcher dropped without close() releases its backend handle", {
   w.close();
   _unlink(target, io);
   _unlink(probe, io);
+});
+// A `Watcher` is the first `Stream` implementor — its `next` WAS this shape
+// before the trait existed (plans/reference/ASYNC_ITERATION_STREAM.md), so
+// every combinator applies to it. The chain is bounded by `take(1)` and the
+// await runs in a spawned task under a deadline, so a regression that stops
+// delivering events fails instead of hanging.
+test("a Watcher is a Stream: map + take collects one event name", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  d := temp_dir();
+  target := path_join(d, `yo_watch_stream.txt`);
+  _unlink(target, io);
+  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  names := w.map(e => e.name).take(usize(1));
+  h := io.spawn(names.collect(io), io);
+  _touch(target, String.from("x"), io);
+  got := match(
+    timeout(h, Duration.from_millis(i64(5000)), io),
+    .Ok(list) => list,
+    .Err(_) => {
+      assert(false, "the watcher stream delivered no event inside the deadline");
+      ArrayList(String).new()
+    }
+  );
+  assert(got.len() == usize(1), "take(1) ends the stream after one event");
+  assert(got(usize(0)).len() > usize(0), "the mapped item is the entry name");
+  (more : Option(FsEvent)) = w.poll();
+  while(more.is_some(), {
+    more = w.poll();
+  });
+  w.close();
+  _unlink(target, io);
 });

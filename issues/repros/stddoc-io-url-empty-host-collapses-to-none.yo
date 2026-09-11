@@ -1,0 +1,55 @@
+// Reproducer for issues/stddoc-io-url-empty-host-collapses-to-none.md
+//
+//   yo compile issues/repros/stddoc-io-url-empty-host-collapses-to-none.yo \
+//     --std-path ./std --optimize 2 -o /tmp/t && /tmp/t
+//
+// Observed:
+//   file:///a/b   host_is_some=false  path_segments_is_some=false
+//   http://:80/x  host_is_some=true   host=""
+//   http:///x     host_is_some=false
+//
+// Expected (Rust's `url` crate as the reference): all three have a host, and
+// `file:///a/b` has path segments ["a", "b"].
+{ println } :: import("std/fmt");
+{ Url } :: import("std/url");
+main :: (fn() -> i32)({
+  a := match(
+    Url.parse(`file:///a/b`),
+    .Ok(u) => u,
+    .Err(_) => {
+      println(`file:///a/b did not parse`);
+      return(i32(1));
+    }
+  );
+  println(
+    `file:///a/b   host_is_some=${a.host().is_some()}  path_segments_is_some=${a.path_segments().is_some()}`
+  );
+  b := match(
+    Url.parse(`http://:80/x`),
+    .Ok(u) => u,
+    .Err(_) => {
+      println(`http://:80/x did not parse`);
+      return(i32(2));
+    }
+  );
+  match(
+    b.host(),
+    .Some(h) => println(`http://:80/x  host_is_some=true   host="${h}"`),
+    .None => println(`http://:80/x  host_is_some=false`)
+  );
+  c := match(
+    Url.parse(`http:///x`),
+    .Ok(u) => u,
+    .Err(_) => {
+      println(`http:///x did not parse`);
+      return(i32(3));
+    }
+  );
+  match(
+    c.host(),
+    .Some(h) => println(`http:///x     host_is_some=true   host="${h}"`),
+    .None => println(`http:///x     host_is_some=false`)
+  );
+  i32(0)
+});
+export(main);

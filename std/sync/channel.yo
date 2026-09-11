@@ -51,8 +51,28 @@
 //!
 //! ## Producers on other threads
 //!
-//! Mint each producer's `Sender` INSIDE its thread and keep one in the parent
-//! until the workers are running:
+//! A `Sender` MOVED INTO a `Thread.spawn` closure disposes when the thread
+//! finishes, so it closes the channel like any other sender:
+//!
+//! ```rust
+//! rx := Channel(i32).receiver(usize(16));
+//! {
+//!   tx := rx.sender();
+//!   w := Thread.spawn((io) => {
+//!     tx.send(i32(7));                     // the capture is released when
+//!   });                                    // the thread's body returns
+//!   w.join();
+//! };                                       // and tx itself drops here
+//! rx.recv().unwrap();                      // 7
+//! rx.recv();                               // .Err(Disconnected)
+//! ```
+//!
+//! This did NOT work before 2026-09-11: a spawn closure's captures were never
+//! released at all, so such a sender's `dispose` never ran and the count never
+//! reached zero (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
+//! Minting each producer's `Sender` inside its own thread, with one `keeper`
+//! in the parent, is still a fine pattern and is what you want when the
+//! senders outnumber the threads:
 //!
 //! ```rust
 //! rx := Channel(i32).receiver(usize(16));
@@ -66,14 +86,18 @@
 //! };                                       // keeper drops -> closed
 //! ```
 //!
-//! A `Sender` MOVED INTO a `Thread.spawn` closure instead does not work
-//! today: a spawn closure's captures are never released
-//! (`issues/spawn-closure-captures-never-dropped-leak.md`), so such a
-//! sender's `dispose` never runs and the count never reaches zero. Values
-//! still flow — only the auto-close is lost.
-//! `plans/backlog/SPAWN_CAPTURE_AUTOCLOSE.md` tracks the fix; async tasks
-//! (`std/async/channel`) release their captures correctly and need no such
-//! care.
+//! ## Stability
+//!
+//! unstable — the shapes are settled and the ownership model just changed.
+//! `try_recv -> Result(T, TryRecvError)` landed in #506 and the blocking core
+//! (`send` / `recv` / `close` / `len`) has not moved since; the
+//! `Sender`/`Receiver` split landed 2026-09-11 and is what this release is
+//! asking for use on before freezing. Still missing, all additive: Rust's
+//! `recv_timeout`, an iterator over received values, and an unbounded variant
+//! (`plans/STD_API_STABILIZATION_FINDINGS.md` item 10).
+//!
+//! This is the BLOCKING channel — it parks OS threads and needs no `Io`. The
+//! async one is `std/async/channel`.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;

@@ -33,9 +33,9 @@ gap that makes most collections unprintable, un-keyable and un-defaultable.
 | wrong value / wrong answer | 8 | `IpAddr.parse_v4`, `UdpSocket.bind` port, `Path.strip_prefix`, `DateTime.now`, `base64_decode`, `glob [a-z]`, derive fallbacks, `Rng.range` |
 | performance cliff | 6 | hash tombstones → O(capacity), `html_decode` O(n²), `glob` exponential, `ArrayList.retain` O(n²), `OrderedMap.remove` O(n), `async/channel.recv` O(n) |
 | D1 violations (error style) | 14 sites | `Result(_, String)` ×5, effects for pure parses ×6, `Option` for numeric parses ×8, `LinkedList.remove -> Result` vs `ArrayList.remove -> panic` |
-| D2 violations (naming) | 12 | `BTreeMap.insert -> unit`, pub `size` fields, `iter()` yielding values, `get_header`/`get_level`, module-prefix stutter ×7, `has_key`, `table_len` |
+| D2 violations (naming) | 12 | `BTreeMap.insert -> unit`, pub `size` fields, `iter()` yielding values, `get_header`/`get_level`, ~~module-prefix stutter ×7~~ (**6 of 7 DONE 2026-09-11** — every `std/encoding` module, plus `percent`/`utf16`; `glob_match` deferred, `plans/backlog/MODULE_PREFIX_STUTTER_REMAINDER.md`), `has_key`, `table_len` |
 | trait coverage | — | `Default` on 1/9 collections, `ToString` 1/9, `Hash`/`Ord` 0/9, `IntoIterator` on 0/6 imm types, `Eq`/`Hash` on 0/2 net address types |
-| docs | ~230 names | `//` instead of `///` (dropped by `yo doc`): atomic.yo ~130, log.yo 15, metadata 13, duration 13, temp 11, url 10, collections 37 … |
+| docs | 838 members → **479** (measured 2026-09-11) | the row's diagnosis was wrong: almost none of these were `//` instead of `///`, they had NO comment at all. 359 written in the sweep below; `atomic.yo`'s 126 landed separately |
 | stability markers | 8 modules | `http/server`, `async/*` ×3, `sync/barrier`, `sync/semaphore`, `gc` have no `## Stability` |
 
 ---
@@ -413,7 +413,7 @@ window as D9–D18):
 | row as written | actual state |
 | --- | --- |
 | `Alignment` exported | done — `std/fmt/writer.yo:22` |
-| `JoinHandle` `Dispose` | done — Yo's `Thread` IS Rust's `JoinHandle` and has `Dispose` (`std/thread.yo:88`, detach-on-drop) |
+| `JoinHandle` `Dispose` | **that row conflated two types, and the ask is answered differently — see the `race_first`/`any_first` note below.** Yo's `Thread` is Rust's *thread* `JoinHandle` and does have `Dispose` (`std/thread.yo:88`, detach-on-drop); Yo's async `JoinHandle(T)` is TOKIO's, and cannot carry `Dispose` at all |
 | HTTP byte bodies (*"`parse_response` string-concats the body — binary responses are broken client-side"*) | **done, and the claim is stale**: the body is copied byte-wise and wrapped with unchecked `String.from_bytes` (`std/http/http.yo:363-374`), byte-transparent end to end, pinned by `tests/http/server.test.yo` |
 | `OrderedMap` `IntoIterator` | done via D14 — `std/collections/ordered_map.yo:319` |
 
@@ -437,7 +437,7 @@ Text — every listed `String` method, `next_back`, `is_ascii_*` renames. Encodi
 — `Url.join/query_pairs/path_segments`, `JsonValue` mutation/`as_i64`/`pointer`,
 regex naming, `glob()`. I/O — `Watcher`
 `Dispose`, `SocketAddr` `Eq`/`Hash`,
-`TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`. Core — **all of it**: every `checked_/wrapping_/
+`TcpStream.local_addr` (it is on `TcpListener`). Core — **all of it**: every `checked_/wrapping_/
 saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
@@ -492,9 +492,12 @@ bytes while `FormatSpec` pads by runes; `Alignment` exported.
 **Encoding.** Verified against the code 2026-09-09 — LANDED:
 `Url.join`/`query_pairs`/`path_segments`; `JsonValue` mutation
 (`insert`/`remove`/`object()`), `is_*`/`as_i64`/`as_u64`, `pointer`, integer
-arms; TOML values; `GlobPattern` + filesystem `glob()`. STILL OPEN: module-prefix
-stutter (`json_parse` → `json.parse` …). `Url.set_*` and `EncodingError`
-offsets **LANDED 2026-09-09** — described below.
+arms; TOML values; `GlobPattern` + filesystem `glob()`. The module-prefix
+stutter (`json_parse` → `json.parse` …) **LANDED 2026-09-11** across all eight
+`std/encoding` modules — described below; `glob_match` is the one member of the
+original ×7 left, and it is deferred for a reason
+(`plans/backlog/MODULE_PREFIX_STUTTER_REMAINDER.md`). `Url.set_*` and
+`EncodingError` offsets **LANDED 2026-09-09** — described below.
 
 **`Url.set_*` — LANDED 2026-09-09, and every setter is FALLIBLE.**
 
@@ -561,9 +564,10 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 **I/O.** Verified against the code 2026-09-09 — LANDED:
 `Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
 `Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
-`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: HTTP keep-alive —
-its FRAMING half landed 2026-09-10 (described just below), the pooling client
-is the remaining piece. (`Child` stdin/stdout/stderr as `Reader`/`Writer`
+`TcpStream.local_addr`; `TcpListener.incoming` (this one 2026-09-11, on the
+new `Stream` trait — described below). STILL OPEN: HTTP keep-alive — its
+FRAMING half landed 2026-09-10 (described just below), the pooling client is
+the remaining piece. (`Child` stdin/stdout/stderr as `Reader`/`Writer`
 handles and `Watcher` `Dispose` also landed 2026-09-10, described below.)
 (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
 `UdpSocket.recv_from -> (n, from)`, `StatusCode` and `HeaderMap` all landed
@@ -992,14 +996,141 @@ say to take an own `Rng.from_entropy()` in a hot loop instead.
 **Concurrency.** Verified against the code 2026-09-09 — LANDED:
 `Thread(T).spawn` + `join() -> T` (D18); `Semaphore.with_permit`;
 `try_recv -> TryRecvError{Empty, Disconnected}` (#506);
-`Sender`/`Receiver` with auto-close on the last sender (2026-09-11, below).
-STILL OPEN: waker-based
-`yield`/`async channel`/`async mutex` instead of 1 ms timer polls;
+`Sender`/`Receiver` with auto-close on the last sender (#553, 2026-09-11,
+below); the `Waker`/`Park` PRIMITIVE plus `yield_now` (2026-09-11, below) —
+which is what the rest of this group was waiting on. STILL OPEN: waker-based
+`async channel`/`async mutex` written OVER that primitive, and
+`std/async/index.yo`'s own `yield`, which is still on its 1 ms timer because
+pointing it at the new extern cannot bootstrap under the v0.2.30 seed;
 `async/mutex.with_lock` either taking an `io` (so its doc claim becomes true)
 or dropping the claim; `Once.call` rewritten over `Mutex.with_lock`;
 `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface;
-`JoinHandle` `Dispose`; `spawn_blocking`. (`interval` and the concurrent
-`Mutex` tests landed 2026-09-10 — below.)
+`spawn_blocking`. (`interval` and the concurrent `Mutex` tests landed
+2026-09-10 — below; `JoinHandle` `Dispose` was ANSWERED rather than
+implemented, see `race_first`/`any_first`; and `async/channel.try_recv` was
+already aligned — both below.)
+
+**`Waker`/`Park` and a timer-free `yield` — LANDED 2026-09-11. This is the
+missing primitive the whole concurrency group was waiting on.**
+
+Yo's async runtime could suspend a task on I/O but had no way for one task to
+be woken by ANOTHER task's progress. So everything that waited on a peer polled
+a clock: `yield`, a contended `async.Mutex.lock`, a blocked `async.Channel`
+send or recv, and the `race`/`any`/`timeout` spin. The cost was not overhead,
+it was a **latency floor** — every hand-off cost up to a millisecond, capping a
+producer/consumer pair at ~1000 hand-offs per second no matter how fast the
+work was — and it made `spawn_blocking` inexpressible, because "wake the
+awaiting task when the blocking call returns" is exactly the primitive that did
+not exist.
+
+`std/async/waker.yo` adds it: `Park.new()` / `park.waker()` / `park.wait(io)`,
+plus a closure-shaped `park(register, io)` for the single-waker case.
+
+Four things had to be got right:
+
+- **A wake that arrives before the sleeper suspends must not be lost.** It
+  isn't, and not by luck: the await point reads the future's state BEFORE it
+  registers a continuation (`state_machine.yo`,
+  `_emit_await_suspension_core`), so an already-woken park resumes inline
+  instead of suspending. That is also why a park is an ordinary
+  `__yo_io_future_t` — one that no backend will ever complete — rather than a
+  new kind of object.
+- **The loop has to know a parked task exists.** `__yo_has_pending_io()` asks
+  the I/O backend, which knows about sockets, timers and files and cannot know
+  about a park; without a second signal the loop decides there is nothing left
+  to wait for and returns with the parked task's future unresolved. The
+  runtime therefore counts live waker TOKENS, not parked tasks: a parked task
+  always has at least one live token (whoever will wake it holds one), and if
+  every token for it is dropped then nothing can ever wake it. That is the
+  right question, and it is answerable without a dispose hook on the future.
+- **A lost wake must not be a hang.** When nothing is runnable, no I/O is
+  outstanding, and a token is still alive, the loop reports it and stops rather
+  than spinning at 100% CPU or exiting quietly with the future unresolved. A
+  lost wake is otherwise invisible — it shows up as a hang, and historically on
+  one platform only.
+- **Waking is idempotent.** A second `wake()`, or a wake of a park whose task
+  has already gone, does nothing — which is what lets a waiter list signal
+  everyone without tracking who already ran.
+
+**A fairness yield with no timer, as `yield_now`.** The contract is "give the
+loop one turn, including an I/O poll", and `yield` bought that with a 1 ms
+timer. `yield_now` gets it for free: its future is created PENDING and
+completed at the top of the next ready-task drain, AFTER that drain has
+measured its budget — which puts the resumed continuation beyond the budget, so
+it runs in the following step with exactly one `__yo_io_poll()` in between.
+Both wrong shapes are on record and both are pinned by tests: an
+immediately-complete future takes the await point's inline fast path and never
+leaves the C stack (that is the spin that made a poll-until-finished loop
+starve I/O, issues/build-smoke-hangs-registry-perturbation.md), and a timer
+costs a millisecond per turn on the critical path of every combinator.
+
+**`std/async`'s `yield` itself is SEED-GATED and moves next release.** It is on
+the compiler's own import path (through `std/fs/watch`), and the seed compiler
+that builds this tree emits an async runtime without `__yo_async_yield_start`
+in it — so pointing `yield` at the new primitive fails to LINK the compiler.
+The same gate applies to `Mutex`/`Channel` adoption only where the compiler
+imports them, which it does not, so those can follow immediately. This is the
+ordinary two-step for a runtime addition with a std caller, and it is worth
+writing down because the failure mode is a link error in the BOOTSTRAP, not a
+test failure.
+
+**The measured claim.** A floor removal has to be reported as hand-offs, not as
+suite wall time. Standalone, 400 iterations in a spawned task, at BOTH `-O0`
+and `--optimize 2` (and again under `--sanitize address`, which is what the
+test runner uses):
+
+| | 400 turns |
+| --- | --- |
+| `yield_now` | **0 ms** |
+| `Park` + `wake` + `wait` | **0 ms** |
+| a no-op `io.async` | 0 ms |
+| the 1 ms-timer `yield` | **603 ms** |
+
+Each loop was verified to have run all 400 iterations (the task returns its
+counter), so a 0 ms reading is not an elided loop.
+
+The suite tests CORRECTNESS plus a catastrophic-regression bound rather than a
+tight time bound, deliberately: the same `yield_now` loop measures ~604 ms
+INSIDE a test batch and ~0 ms outside one, at every optimization level and with
+or without the sanitizer, so a tight bound there would pin the harness rather
+than the feature — and would flake on a slower runner. That discrepancy is
+filed on its own
+(`issues/yield-now-costs-a-millisecond-per-turn-inside-a-test-batch.md`)
+because it will otherwise mask the next piece of async performance work.
+
+**`JoinHandle` `Dispose` — ANSWERED 2026-09-10, and the answer is `race_first`
+/ `any_first`, not a `Dispose`.**
+
+The row asked for "a `Dispose` on `JoinHandle` that aborts a non-terminal
+task", motivated by the finding that `race`/`any` leave a manual contract
+("every handle must still be awaited exactly once; abort the losers first if
+their results are unwanted") whose losers leak when a caller forgets it.
+
+The prescription is wrong twice over:
+
+- **Structurally.** `JoinHandle(T)` is a bare copyable `struct` over a raw
+  pointer (`struct(__future : *(T))`), not an `Rc`, and `Dispose` is
+  `where(Self <: Rc)`. Making it an `Rc` would change what `io.spawn` returns
+  and how every handle copies.
+- **Semantically.** Dropping Yo's async `JoinHandle` DETACHES the task,
+  exactly as dropping Tokio's does — that is what makes fire-and-forget
+  `io.spawn` work at all. Abort-on-drop is Tokio's opt-in
+  `AbortOnDropHandle`, not its default, and adopting it as the default would
+  silently kill every detached task.
+
+The leak is a combinator-contract problem, so it is fixed in the combinators:
+`race_first(handles, io) -> Option(T)` and
+`any_first(handles, io) -> Option(T)` do the cleanup themselves — they abort
+**and await** every loser (aborting alone marks the task and leaves its await
+outstanding, which is the same leak one step later) and return the winner's
+result. `race`/`any` keep their index-returning shapes for callers who want
+them.
+
+**`async/channel.try_recv` was already aligned.** The concurrency list's row
+("`async/channel.try_recv` still returns `Option(T)` where `sync/channel`'s
+returns `Result(T, TryRecvError)`") is stale: `std/async/channel.yo:145` reads
+`try_recv : (fn(self : Self) -> Result(T, TryRecvError))`, over the SAME
+`TryRecvError` type, and says so in its doc comment.
 
 **`interval` — LANDED 2026-09-10.** `std/time/sleep.yo` gains `Interval` and
 `interval(period, io)`. The reason it exists rather than a `sleep` in a loop is
@@ -1231,21 +1362,20 @@ The shape, and why each part is shaped that way:
   two facts apart is what lets a `Sender` that outlives its receiver report the
   honest failure instead of looking like a normal close.
 
-**One thing the row asked for does not work across `Thread.spawn`, and it is
-not the channel's fault.** A `Sender` MOVED INTO a spawn closure never runs its
-`dispose`, because a spawn closure's captures are never released
-(`issues/spawn-closure-captures-never-dropped-leak.md`, OPEN, pre-existing,
-filed as a memory leak) — so the count never reaches zero. Measured side by
-side in `issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo`: a
-sender dropped in a plain scope closes the channel, the same sender captured by
-`Thread.spawn` does not. The interim answer is a pattern rather than a trick —
-the parent holds one `keeper` sender while the workers start, and each worker
-mints its own inside its body, where the local's scope-end drop is real — and
-`plans/backlog/SPAWN_CAPTURE_AUTOCLOSE.md` records the codegen fix, the
-rejected std-side alternatives, and why the fix was not bundled here (it needs
-the dup/drop emit-diff gate and a compiler rebuild). `io.async` captures
-release correctly, so the async channel has the full behaviour, producer tasks
-included.
+**One thing the row asked for did not work across `Thread.spawn` — and it was
+not the channel's fault. FIXED 2026-09-11.** A `Sender` MOVED INTO a spawn
+closure never ran its `dispose`, because a spawn closure's captures were never
+released at all
+(`issues/fixed/spawn-closure-captures-never-dropped-leak.md`), so the count
+never reached zero. Measured side by side in
+`issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo`, which now
+reports `true` on both lines: a sender dropped in a plain scope and the same
+sender captured by `Thread.spawn` both close the channel.
+`plans/archive/SPAWN_CAPTURE_AUTOCLOSE.md` is the closed record — the codegen
+fix that landed, the std-side alternatives it rejected, and the
+mint-inside-the-thread pattern, which is still a good pattern when the senders
+outnumber the threads. `io.async` captures always released correctly, so the
+async channel had the full behaviour throughout.
 
 Coverage: `tests/sync/channel.test.yo` 41/41 (+13), `tests/async/channel.test.yo`
 15/15 (+10). Verified RED-FIRST: with the auto-close disabled, six sync and five
@@ -1264,7 +1394,7 @@ from the blocked call sites, in `plans/backlog/`:
 
 | blocked row | language feature | doc |
 | --- | --- | --- |
-| waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](backlog/WAKER_BASED_SCHEDULING.md) |
+| waker-based `yield`/async `channel`/async `mutex`; `spawn_blocking` | a `Waker` + `park` primitive, so one task can be woken by another's progress | [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) |
 | `_raw_lock`/`_raw_unlock`/`_raw_handle_ptr` off the public surface; `ctrl`/`data`/`size` private; `imm/*` internals | member visibility (`priv`, plus a path-prefix scope for the cross-module `std/` callers) | [`MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) |
 | `TcpListener.incoming` | a `Stream` trait — the async analogue of `Iterator`. **Needs no compiler change** | [`ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) |
 | the ten per-type byte conversions; `usize`/`isize` byte conversions at all; `Array(T, N)`'s `Default` | value substitution in a TYPE position — an associated constant as an `Array` length silently resolves to 0 (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`) | [`VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md) |
@@ -1290,15 +1420,118 @@ first.
 
 ---
 
-## 5. Maintainer decisions still needed
+**The doc sweep — 359 members documented, 2026-09-11, and the headline row's
+diagnosis was wrong.**
 
-- `imm/Vec`: implement structural sharing (RRB), or re-document as a flat COW
-  array and accept O(n) on shared mutation?
-- `MemoryOrder.Consume`: keep (C11 has it; every compiler promotes it to
-  `Acquire`; Rust omits it) or remove?
-- `HashMap.new()` stays deterministic-keyed (the fixpoint gate depends on
-  byte-identical emitted C); ship `with_random_keys()` for programs that face
-  untrusted keys?
+§1 described this as "`//` instead of `///` (dropped by `yo doc`)". Measured
+against the code, that is not what it was: the `//` lines in the worst
+offender (`std/sync/atomic.yo`, 33 of them) are all SECTION BANNERS, and its
+126 members simply had no comment at all. So a mechanical `//` → `///`
+conversion would have converted the wrong lines and documented nothing.
+
+Counting impl members with no preceding `///`: **838 before, 479 after**.
+`atomic.yo`'s 126 landed in its own PR (beside the `MemoryOrder.Consume`
+removal), and the 359 here cover `std/collections/*`, `std/imm/*`,
+`std/crypto/*`, `std/encoding/*`, `std/url`, `std/time/*`, `std/fs/*`,
+`std/sys/*` and the root modules.
+
+**Still open, and now measured rather than estimated:** 479 members. §1's
+"8 modules" count was a subset: it listed the ones a reader was most likely to
+reach for, not the ones that lack a marker.
+
+**`## Stability` markers — DONE 2026-09-11. All 175 std modules carry one.**
+The last fifteen were the ones a doc sweep cannot write mechanically, because
+the honest answer in each case is a specific blocker rather than a status word:
+
+| module | what keeps it from freezing |
+| --- | --- |
+| `prelude` | its surface is a LANGUAGE decision — every name is in scope everywhere, so an addition can shadow a user binding and a removal breaks every program. The byte-conversion battery is the known mover, blocked on value substitution in a type position. |
+| `thread` | `Send` is DECLARED at the spawn boundary and not enforced — the capture check is a no-op stub, so a closure capturing a non-atomic `ref` compiles and races a refcount. Freezing would freeze the guarantee as decoration. |
+| `error` | `ErrorChain`/`root_cause` cannot be written at all (#521): `source()`'s result loses the `Error` trait on an erased receiver, so a caller can follow one link and print it but never store or re-throw it. |
+| `allocator` | a trait surface with exactly ONE implementor and nothing in `std` generic over it; the shape has never had to survive a second backend. |
+| `path` | `Path` is a byte path, which is not what Windows wants (its API is UTF-16); Rust answers with `OsString` and Yo has not decided. No `canonicalize` beside the textual `normalize`. |
+| `build` | the API every project's `build.yo` is written against, so a break costs every downstream project an edit — and the `Step`/`StepKind` DAG vocabulary is still moving with the runner. |
+| `env` | three different failure channels across one module (Option, Result, throw) because the functions were added at different times; D1 wants one. |
+| `signal` | `SignalHandler` is a bare `fn(*(u8))`, so a handler can close over nothing and runs in signal context. The shape this wants is signals as EVENTS on the `Io` loop. |
+| `term` | `enter_raw_mode`/`restore_mode` is a hand-balanced pair that leaves the terminal raw if the process dies between them; wants a `Dispose` guard like `Mutex.with_lock`. |
+| `assert` | stable in shape; the caveat is that there is no `debug_assert` that compiles out. |
+| `sys/errors` | close to stable and the most-depended-on type in `std/sys`; what is open is only whether the enum is non-exhaustive. |
+| `sys/{dir,dns,file}` | raw errno-oriented wrappers that freeze, if ever, as implementation details of `std/fs` and `std/net`. `sys/dns` also carries the no-happy-eyeballs gap. |
+| `sys/externs` | **not public API and not intended to become it** — the list of C runtime symbols the async layer binds against, which is also why its members carry no `///`. |
+
+---
+
+## 5. Maintainer decisions — DECIDED 2026-09-11
+
+All three are answered below, each with the measurement that decided it. Two
+changed code; one deliberately did not.
+
+**1. `imm/Vec`: flat COW, documented as such — no RRB.**
+
+The doc claimed "structural sharing", which was false about the
+implementation: the backing store is one flat array behind an atomic refcount,
+so `push`/`pop`/`set` are O(1) in place at refcount 1 and **O(n)** on a shared
+vector. The module header now carries that table and says why the trade was
+kept.
+
+Two reasons to keep it. The ergonomics already push callers onto the fast
+path — `push` takes `own(self)`, so the receiver is MOVED and keeping the
+earlier version needs an extra binding (`kept := v; bigger := v.push(x)`),
+which is exactly what raises the refcount above one and sends `push` down the
+copying path. And a flat array is what makes `Vec` right for the case it is
+actually reached for: build once, then read and share (O(1) indexing is a
+single pointer offset). `imm.List` is the answer for cheap prepend on a shared
+value, `ArrayList` for mutation. If a workload ever needs shared mutation to be
+sublinear, that is an RRB implementation behind this same API — and the API
+does not have to change for it.
+
+**2. `MemoryOrder.Consume`: REMOVED.**
+
+C11 has `memory_order_consume`, and no production compiler implements it —
+clang and gcc both strengthen it to `acquire`, and C++ has formally discouraged
+it (P0371R1) for that reason. A variant that costs `acquire` while promising
+dependency ordering is a correctness trap: code written against the promise is
+unsound on any compiler that ever keeps it, and nothing today does. Rust omits
+it. Measured before removing: **zero uses in `std/` or `src/`** — the only
+eleven were in `tests/sync/atomic.test.yo`, where it was an arbitrary order for
+`fetch_xor`.
+
+**Removing it surfaced a real bug in the same file.** `Atomic*.load` accepted a
+STORE-only order and `store` accepted a LOAD-only one, passing it straight
+through to C11. §7.17.7.1–2 forbid both, but the order arrives as a RUNTIME
+value here, so the C compiler cannot reject it the way it rejects a literal:
+`a.load(MemoryOrder.Release)` compiled clean at `-O2`, ran, and silently got
+whichever ordering the runtime switch fell into. Rust PANICS on exactly these
+combinations rather than clamping, because substituting a different ordering
+hides the bug — and so does this now, at all 33 sites (11 `load`, 11 `store`,
+11 compare-exchange failure orders). `_read_order`'s existing clamp for a
+compare-exchange loop's failure order is untouched: there the mapping is
+required by C11, not a guess.
+
+`std/sync/atomic.yo` also gained the `## Stability` section it lacked and
+`///` docs on all 126 of its members — every one had no comment at all.
+
+**3. `HashMap.with_random_keys()`: NOT shipped; `with_keys` documents the
+recipe instead.**
+
+`with_keys(k0, k1)` already exists and does the whole job. A wrapper was
+PROBED, not assumed, and the probe decided it: adding
+`{ random_u64 } :: import("../crypto/random")` to `std/collections/hash_map.yo`
+takes `yo check ./std` from 173/173 to **166/173** — `std/crypto/random`
+imports `collections/array_list`, `process`, `string`, `encoding/hex`, `error`
+and `fmt`, and a core collection cannot depend on that closure.
+
+The signature is also wrong for a constructor: `random_u64` takes an
+`Exception`, so the convenience would be `with_random_keys(exn)` and a
+`HashMap.new()`-shaped call would throw on entropy failure. Rust's
+`RandomState` can abort, but Rust's randomness is not in the collection's
+dependency graph.
+
+So the recipe stays at the call site, where the reader needs to SEE that the
+choice was made:
+`HashMap(K, V).with_keys(random_u64(exn), random_u64(exn))`. `new()` stays
+deterministically keyed — the bootstrap fixpoint gate depends on byte-identical
+emitted C, so it could not be randomized even if that were wanted.
 
 ---
 
@@ -1380,6 +1613,33 @@ first.
      `get` then `insert`, which is the same two walks a combined form would
      pay, and `insert`'s signature stays the one every existing call site
      wants.
+
+   Still open in this group: `imm` `remove` shape, private `ctrl/data/size`
+   fields (which needs a visibility feature Yo does not have), the `imm/Vec`
+   RRB-vs-flat-COW doc (§5).
+
+   **`OrderedMap.swap_remove` — LANDED 2026-09-10, and it needed a side
+   table.** `IndexMap::swap_remove` is O(1) because `IndexMap` keeps a
+   key→position map. Yo's `OrderedMap` kept only `HashMap(K, V)` plus an
+   `ArrayList(K)` order list, so finding the slot to swap into meant scanning
+   the order list — which would have made `swap_remove` O(n) and pointless,
+   since avoiding the walk is the entire reason it exists beside `remove`. It
+   therefore gains `_index : HashMap(K, usize)`, maintained at the four sites
+   that write `_order` (`new`, `insert`, `remove`, `clear`).
+
+   The side table pays for itself three more times. `remove` used to rebuild
+   the whole order list into a fresh `ArrayList` to skip one key; now it asks
+   the index where the key is, calls `ArrayList.remove` on that slot, and
+   re-records only the TAIL — same O(n) worst case, but no allocation, one
+   pass instead of two, and O(1) when the removed key is near the end. And
+   `index_of` / `get_index` (Rust's `get_index_of` / `get_index`) fall out of
+   it for free, which is the positional half of `IndexMap`'s surface that
+   `OrderedMap` had no way to offer before.
+
+   Both removals now PANIC if the key is in `_map` but not in `_index`
+   instead of defaulting the position to 0. A default would corrupt the order
+   list silently on the next operation; the invariant is internal, so a
+   violation is a bug in this file and not something a caller can cause.
 
    **Evidence for that §5 decision, found while writing the iterator tests:**
    `imm.Vec.push` takes `own(self)`, so the receiver is MOVED and keeping the
@@ -1519,20 +1779,78 @@ first.
    read-back that `TcpListener.bind` and `UdpSocket.bind` each open-coded is
    now one `_read_local_addr` helper.
 
-   Still open in this group: `TcpListener.incoming` and `Watcher` `Dispose`.
-   (`Seek`, `OpenOptions`, `SystemTime`, `UdpSocket.recv_from -> (n, from)`,
-   `IpAddr.parse_v6`, `StatusCode`, `HeaderMap` and the byte-sliced response
-   body all landed 2026-09-09; lazy `read_dir` and the request-side byte bodies
-   were already in.)
+   Nothing is open in this group any more. (`Seek`, `OpenOptions`,
+   `SystemTime`, `UdpSocket.recv_from -> (n, from)`, `IpAddr.parse_v6`,
+   `StatusCode`, `HeaderMap` and the byte-sliced response body all landed
+   2026-09-09; lazy `read_dir` and the request-side byte bodies were already
+   in; `Watcher` `Dispose` landed 2026-09-10; `TcpListener.incoming` landed
+   2026-09-11 — below.)
 
-   **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`
-   is a BLOCKING iterator of `io::Result<TcpStream>`. Yo's `accept` is
-   `Impl(Future(TcpStream, IoExn))`, and there is no `Stream` trait — no async
-   analogue of `Iterator` — for an iterator of futures to implement. Giving
-   `incoming` an `Iterator` that blocks the event loop per element would be
-   worse than not having it (a blocking await inside a task nests the loop and
-   deadlocks). The row wants an async-iteration abstraction first; it is a
-   language/std design question, not a missing method.
+   **`TcpListener.incoming` — LANDED 2026-09-11, on a new `Stream` trait.**
+   This row was deferred for one reason: Rust's `incoming()` is a BLOCKING
+   iterator of `io::Result<TcpStream>`, Yo's `accept` is
+   `Impl(Future(TcpStream, IoExn))`, and there was no async analogue of
+   `Iterator` for an iterator of futures to implement. Giving `incoming` an
+   `Iterator` that blocks the event loop per element would have been worse
+   than not having it — a blocking await inside a task nests the loop and
+   deadlocks. So the abstraction came first: `std/async/stream.yo`
+   (`plans/reference/ASYNC_ITERATION_STREAM.md`), and `incoming()` returns
+   `Incoming`, a `Stream` whose `Item` is `Result(TcpStream, NetError)`.
+
+   Four shape decisions are worth keeping, because each was measured against
+   the compiler rather than chosen on taste:
+
+   - **`next` returns `Impl(Future(Option(Self.Item), Io))` — `Io`, not
+     `IoExn`.** A stream never throws: it reports failure IN the item, so its
+     bundle needs no `Exception` and a consumer needs no handler. The plan doc
+     had written `IoExn`; `Watcher.next` — which already had this exact shape
+     before the trait existed — had `Io`, and `Io` is what compiles. The
+     consequence is the `Reader` asymmetry recorded in
+     `plans/backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`: an async
+     `BufReader.lines` cannot be built until `Reader` has a read that returns
+     its failure instead of throwing it, because a `ctl` handler can neither
+     be installed across a suspension nor stored in a `ref` struct.
+   - **`Item = Result(TcpStream, NetError)`, not a bare `TcpStream` and not
+     `IoError`.** A single failed `accept` — a client that vanished between
+     the SYN and the accept, a per-process descriptor limit — is one bad
+     connection, not the end of the listener, which is exactly why Rust's
+     item is a `Result` too. The error type is `NetError` because that is
+     what `accept` THROWS (`NetError.from_io(IoError.from_errno(...))`), so a
+     server loop moving from `accept` to `incoming` keeps one error
+     vocabulary; `NetError.Io(IoError)` still carries the raw errno case. The
+     stream's `next` therefore calls the RAW `IO_tcp.accept` rather than the
+     throwing `accept` method.
+   - **`self : Self`, not `inout(self)` as `Iterator` has.** The future
+     outlives the call, and an `inout` borrow cannot be held across a
+     suspension. So every stream source is a reference-semantics type and
+     field writes propagate through the handle — the same reason `File.close`
+     takes `self : Self`.
+   - **`.None` is terminal and STAYS terminal**, and each combinator
+     preserves it: `take` stops touching upstream once its count is spent or
+     upstream ends, `skip`/`filter` treat upstream's `.None` as their own.
+     `incoming` finishes when the listener is closed — including by another
+     task while a `next` is pending — which mirrors `Watcher` and gives a
+     server loop a termination condition it otherwise lacks.
+
+   The trait's other two implementors came for three lines each: `Watcher`'s
+   hand-rolled `next` BECAME the trait method with no signature change, and
+   `Channel(T)`'s `next` IS `recv` (whose "closed and drained" `.None` is
+   already the stream's terminal answer). The combinators —
+   `map`/`filter`/`filter_map`/`take`/`skip` lazily, `for_each`/`collect` as
+   consumers — are one blanket impl over `where(S <: Stream)`, mirroring the
+   `Iterator` combinators in `std/prelude.yo`.
+
+   **What did NOT land, and why it is not a shortcut.** The plan's `for_await`
+   macro was written, worked from `main`, and DEADLOCKED inside a spawned
+   task: an `io.await` reached only through a macro expansion is not counted
+   as a suspension point, so codegen emits the enclosing `io.async` body as a
+   plain closure with a blocking await
+   (`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
+   `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`). It was
+   removed rather than shipped with a caveat, because "correct from `main`,
+   hangs in a task" is the wrong way round for a server loop. `for_each`,
+   `take` and the hand-written `while` + `await next()` + `match` loop cover
+   the ground until the async transform follows `ExprInfo.macro_expansion`.
    **`f64`/`f32` non-finite constants: DONE (2026-09-09), unblocked by the
    v0.2.29 seed.** `INFINITY`, `NEG_INFINITY` and `NAN` are the last three
    names `std/math` was missing. They had to wait for a seed because the
@@ -1610,10 +1928,178 @@ first.
    struct tag like every other struct type
    (issues/fixed/tuple-type-has-no-forward-declaration.md).
 
-   Still open in Encoding: TOML floats/arrays/dates/inline tables/escapes/
-   comments/serializer, and the module-prefix stutter. (regex Rust-shaped
-   names, `GlobPattern.new -> Result` + filesystem `glob()`, `Url.set_*` and
-   `EncodingError` offsets all landed 2026-09-09.)
+   Encoding is now clear on both counts: TOML landed 2026-09-11 (the record
+   below) and the module-prefix stutter landed the same day (the record after
+   it). (regex Rust-shaped names, `GlobPattern.new -> Result` + filesystem
+   `glob()`, `Url.set_*` and `EncodingError` offsets all landed 2026-09-09.)
+
+   **Encoding — TOML is a real parser now: DONE (2026-09-11).** The row asked
+   for "floats/arrays/dates/inline tables/escapes/comments/serializer", and
+   measuring it first showed the gap was bigger than the list: the module was
+   a LINE-based subset parser (`input.split("\n")`, one `cond` per trimmed
+   line) that also silently CORRUPTED twelve inputs — `[[fruit]]` became a
+   table keyed `[fruit]`, `[server.http]` one flat key, `"my key"` a key with
+   its quotes still on, a duplicate key two unreachable entries, and
+   `n = 99999999999999999999` a wrapped `Int`
+   (`issues/fixed/toml-parse-returns-ok-with-corrupted-data.md`, now closed).
+   A line loop cannot be patched into TOML — multi-line strings, arrays across
+   lines and inline tables all cross line boundaries, and a typed error needs
+   offsets that `split` has thrown away — so `std/encoding/toml.yo` is a byte
+   scanner over the whole document, in the shape `csv.yo` and `json.yo`
+   already use. Everything TOML v1.0.0 admits is accepted and everything else
+   is an `.Err` with a byte offset. `tests/encoding/toml.test.yo` (moved out of
+   `tests/toml/`, the last encoding test that lived elsewhere) is 35 tests.
+
+   Nothing on the row's list was already there: `3.14`, `[1, 2]`,
+   `1979-05-27`, `{ a = 1 }` and `\n` all returned `.Err` or the wrong value
+   before this.
+
+   **The value model is Rust's `toml::Value`.** `Str`/`Int`/`Bool`/`Table`
+   kept their names; `Float`, `Datetime` and `Array` are new. `insert` now
+   returns the REPLACED value (`Option(TomlValue)`) per D2's map-insert shape,
+   matching `JsonValue.insert` — the old one returned `unit`, and it also set
+   every matching key instead of stopping at the first.
+
+   **`TomlError`, not `EncodingError`.** `EncodingError` is the shared error of
+   the BYTE codecs (`hex`, `base64`, `utf16`): `InvalidChar`, `OddLength`,
+   `InvalidLength`. A TOML failure is a document failure — a duplicate key, a
+   redefined table, an unterminated multi-line string — and putting ten such
+   variants into the byte-codec enum would make every `hex` caller match on
+   them. `json.yo` set the precedent with `JsonError`, and D1 requires a real
+   enum implementing `Error()` (the old `Result(_, String)` is exactly what D1
+   bans). Every one of the ten variants carries a byte offset, so unlike
+   `EncodingError.pos` the accessor is TOTAL: `pos() -> usize`, no `Option`,
+   because the scanner always knows where it is.
+
+   **`TomlDateTime` is `std/time`'s `DateTime` plus a four-way tag**, not a
+   fresh component struct. TOML has four date-time forms and `DateTime` cannot
+   tell them apart: it has no "no offset" state (a local date-time would be
+   indistinguishable from `…Z`) and no date-less or time-less form, so a tag
+   is unavoidable. What IS reusable is the component set and, more
+   importantly, `DateTime.new`'s leap-aware validation — a dedicated struct
+   would have meant a second copy of the leap-year table in `std/`, which is
+   the one thing the D8 UTF-8 consolidation says never to do. The components a
+   tag calls absent are set to the epoch's and documented as unreadable. The
+   cost is a dependency from `std/encoding` on `std/time`; Rust's `toml` crate
+   avoids the equivalent (its `Datetime` is self-contained so the crate does
+   not pull `chrono`), but Yo's `DateTime` is in the standard library, not a
+   third-party crate, and a caller who parses an offset date-time wants
+   something it can compare and add a `Duration` to.
+
+   `TomlDateTime` equality is FIELDWISE, deliberately unlike `DateTime`'s own
+   `Eq`, which compares instants and would call `07:32:00Z` and
+   `08:32:00+01:00` equal. Those are two different TOML values — they
+   serialize differently — and a round-trip test has to be able to see that.
+
+   **Redefinition needs provenance, not a "seen" set.** TOML's rules are not
+   about whether a path was seen but HOW it was created: a header may extend a
+   table an earlier header path created implicitly, and may not reopen one an
+   earlier header, a dotted key, or an inline-table value already closed. So
+   the parser carries a `(path, _TableKind)` table — `Explicit`, `Implicit`,
+   `Dotted`, `ArrayOfTables`, `ArrayElem` — and an EXISTING table with no
+   recorded kind means "came from an inline table", which is closed. Paths are
+   length-prefixed (`<len>:<key>`) so `["a.b"]` and `["a", "b"]` cannot
+   collide, and an array-of-tables element appends `@<index>;` so
+   `[[fruit]] … [fruit.variety]` attaches to the fruit most recently opened
+   rather than to the first.
+
+   **The serializer's two passes are correctness, not cosmetics.** A
+   `[header]` changes which table the following bare keys belong to, so a
+   scalar written after a sub-table would be READ BACK into the wrong table:
+   `_write_table_body` emits every scalar of a table before the first header
+   under it, then the sub-tables and arrays of tables, each in the table's own
+   insertion order — a deterministic function of the tree, and the test
+   asserts stringify-twice is byte-identical. `[[header]]` is used only for a
+   non-empty array whose every element is a table (what the form can express);
+   any other array goes inline, as Rust's serializer does too. Strings are
+   always written single-line basic — one output form round-trips every input
+   form, and choosing between them would only make the output prettier.
+   `toml_stringify` is the name because D2 says text formats are
+   `parse`/`stringify`; `TomlValue` also gets `ToString` (the text) with the
+   structural render left to `Debug` per D15.
+
+   Floats are written in the shortest `%g` rendering that reads back as the
+   same double (a loop over precisions 1..17, each checked by parsing it
+   again). `%g`'s default six significant digits would turn
+   `3.141592653589793` into `3.14159` — a serializer that loses data — and a
+   fixed `%.17g` would turn `3.14` into `3.1400000000000001`. A rendering with
+   neither `.` nor an exponent gets `.0` appended, or TOML would read the
+   float back as an integer. `inf`/`-inf`/`nan` are spelled out; `nan != nan`,
+   so the test asserts with `is_nan()`.
+
+   **`\u{XXXX}` is deliberately NOT accepted.** The escape list on this row
+   named it, but it is Rust's spelling, not TOML's: TOML v1.0.0 has `\uXXXX`
+   and `\UXXXXXXXX` only, and accepting the braced form would accept documents
+   the `toml` crate rejects, which is the opposite of the parity this row asks
+   for. Both spec forms are implemented, with surrogate halves and values
+   above U+10FFFF rejected so no CESU-8 can be produced. A raw control
+   character is rejected in strings, keys and comments, and a lone CR is
+   rejected inside a multi-line string (TOML's newline is LF or CRLF).
+
+   **One compiler bug fell out**, from writing those escape tests:
+   `"\uZZZZ"` compiles to a NUL byte and `"\u{41}"` to U+0410 (not U+0041)
+   because `_hex_digit_val` (`src/evaluator/values/string.yo`) returns 0 for a
+   non-hex rune instead of failing, and the backtick form leaves the same text
+   literal — one spelling, two meanings, neither an error
+   (`issues/unicode-escape-accepts-non-hex-digits.md`, with a reproducer).
+
+   The module is marked `## Stability unstable` for one release: the error type
+   changed from `String` to `TomlError`, the value model gained three
+   variants, `insert` changed shape, and documents that used to "parse" now
+   return `.Err`. Nothing in the tree consumed it (the only reference was its
+   own test), so the blast radius is external users, and it belongs in the
+   release notes.
+
+   **Module-prefix stutter — LANDED 2026-09-11, aliases removed in v0.2.32.**
+   A function in module `std/encoding/json` is reached as `json.parse(...)`
+   once the module is imported as a module (`json :: import(...)`), which is
+   how this tree already reads `std/sys/events` (`events.fs_event_stop`) and
+   how Rust reads `serde_json::from_str`. The `json_` in `json.json_parse`
+   said the same word twice. 33 functions across eight modules lost the
+   prefix:
+
+   | module | old → new |
+   | --- | --- |
+   | `encoding/json` | `json_parse`/`_bytes`/`_string`/`_exn`/`_bytes_exn`/`_string_exn` → `parse`/`parse_bytes`/`parse_string`/`parse_exn`/`parse_bytes_exn`/`parse_string_exn`; `json_stringify`/`_pretty` → `stringify`/`stringify_pretty`; `json_encode`/`json_decode` → `encode`/`decode` |
+   | `encoding/csv` | `csv_parse`/`_with`/`_strict` → `parse`/`parse_with`/`parse_strict`; `csv_write`/`_with` → `write`/`write_with` |
+   | `encoding/base64` | `base64_encode`/`_url` → `encode`/`encode_url`; `base64_decode`/`_url`/`_exn`/`_url_exn` → `decode`/`decode_url`/`decode_exn`/`decode_url_exn` |
+   | `encoding/hex` | `hex_encode` → `encode`; `hex_decode`/`_exn` → `decode`/`decode_exn` |
+   | `encoding/html` | `html_encode`/`html_decode` → `encode`/`decode` |
+   | `encoding/toml` | `toml_parse` → `parse` |
+   | `encoding/percent` | `percent_encode` → `encode`; `percent_decode`/`_bytes` → `decode`/`decode_bytes` |
+   | `encoding/utf16` | `utf8_to_utf16` → `from_utf8`; `utf16_to_utf8`/`_exn` → `to_utf8`/`to_utf8_exn` |
+
+   `utf16` is the only pair that is not pure prefix-stripping: `to_utf16` /
+   `_to_utf8` would be nonsense, and `utf16.utf8_to_utf16` stutters at the
+   TAIL, so the directions are named the way `String::from_utf16` names them.
+   `csv_write` became `csv.write`, NOT the `stringify` that
+   `STD_API_STABILIZATION_FINDINGS.md` item 28 floats — that is a second,
+   independent naming decision (does a CSV writer speak JSON's vocabulary?)
+   and this change deliberately only removed prefixes.
+
+   **Every old spelling survives as a thin deprecated alias, removed in
+   v0.2.32** — the mechanism `json_parse_result` and `derive(ToString)` used
+   in v0.2.28, since the breaking window shipped with v0.2.28. Each module
+   carries one `DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32`
+   block at its foot, so the removal is deleting one block per module. The
+   34 aliases (33 plus `json_parse_result`, whose removal is now scheduled
+   with them) are compiled AND executed by a probe that asserts each one
+   equals its replacement, and eight of them are pinned inside existing tests
+   (`assert(hex.hex_encode(data) == result, ...)`) so the suite goes red if an
+   alias stops delegating.
+
+   Every in-tree call site moved: `std/crypto/{hmac,digest,sha1,sha256,sha512,
+   md5,random}` and `src/fetch.yo` (`hex.encode`), `std/url/index.yo` and
+   `src/lsp/protocol.yo` (`percent.*`), `src/main.yo`,
+   `src/diagnostics{,_registry}.yo`, `src/lsp/server.yo`,
+   `src/verifier/driver.yo`, `src/doc/render_json.yo` (`json.*`), and the test
+   corpus including every `test("...")` NAME string — a test called
+   `json_parse null` after the rename is a filed defect in this tree
+   (`issues/collection-test-names-still-use-pre-rename-method-spellings.md`),
+   because `--test-name-pattern` is how one test is run. Two locals had to be
+   renamed to make room for the module binding: `hex` → `hex_str` in
+   `std/crypto/random.yo` and `src/fetch.yo`, and the three `utf16` locals in
+   `tests/encoding/utf16.test.yo` → `units`.
 
    **`FromStr` renamed to `FromString` (2026-09-09).** The trait's parameter is
    a `String`, and its own doc comment said so one line above the signature —
@@ -1695,6 +2181,76 @@ first.
    not a rider on this one.
 5. **Freeze** — re-run the five measurements; a module freezes only when its
    group's list is empty.
+
+**Four COMPILER defects the std audit surfaced — FIXED 2026-09-11.** Each was
+found while writing or measuring std, and each was silent.
+
+1. **A unicode escape accepted non-hex digits, and a template ignored `\u`
+   entirely** (`issues/fixed/unicode-escape-accepts-non-hex-digits.md`).
+   `\uZZZZ` decoded to U+0000 and `\u{41}` to U+0410. The digits now go
+   through one shared scanner (`src/utils.yo`: `hex_digit_value`,
+   `scan_unicode_escape`) used by the lexer's double-quoted VALIDATION, the
+   lexer's template DECODE (which had no `\u` arm at all) and the evaluator's
+   literal decoder, so the two literal forms cannot disagree. Rust's
+   `\u{X..XXXXXX}` is accepted alongside JSON's `\uXXXX`, and a malformed
+   escape is a positioned LEXER error. Eight tests in
+   `tests/internal/lexer.test.yo` — a cli-case cannot host this, because CI's
+   `fmt --check` scans the fixture trees and a fixture that does not lex fails
+   that gate.
+
+2. **A spawn closure's captures were never released, and the dup/drop pair
+   optimizer made releasing them unsafe**
+   (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`). The spawn
+   wrapper emitted its drop only when a `___drop` C function resolved, and none
+   is synthesized for an anonymous capture struct — so ~344 B leaked per
+   `spawn` with a captured `Channel(bool)`, unbounded in a loop, and a captured
+   handle's `Dispose` never ran. `_emit_capture_drop_lines` now walks the
+   struct's runtime fields into the declaration buffer, with the two forward
+   declarations (`__yo_decr_rc_atomic`, `__yo_incr_rc_atomic`) that made that
+   legal C. **This closes
+   `plans/archive/SPAWN_CAPTURE_AUTOCLOSE.md`**: a `Sender` moved into a
+   `Thread.spawn` closure closes its channel, so the caveats in
+   `std/sync/channel.yo`, `std/async/channel.yo` and `std/thread.yo`'s
+   `Pool.join_all` are corrected rather than restated. Gated by a Dispose
+   counter (CI runs `detect_leaks=0` everywhere), once and sixteen-times.
+
+   Releasing the captures turned out to be only half the accounting. The
+   dup/drop pair optimizer (`_search_dup_calls`, `src/evaluator/exprs/begin.yo`)
+   skipped `io.async` captures with the right reason on it — "the SM path needs
+   BOTH the dup and the scope-exit drop; cancelling them would leak" — but as a
+   SPECIAL CASE, so every other closure fell through. A closure definition's
+   deferred dups are its capture-STRUCT field initializers, and that struct is
+   moved into the closure value and released by whatever owns it, possibly
+   before the capturing scope ends; cancelling the pair left the capture
+   holding a borrowed alias. `tests/arc.test.yo`'s "Test Arc shared across
+   thread" read 0 instead of 42 the moment the wrapper started releasing, while
+   its three-thread sibling passed for the wrong reason (two capture dups is
+   more than one, and only a single dup was ever cancelled). Which is why the
+   guard is now general.
+
+3. **A module-level global was lost across an async suspension**
+   (`issues/fixed/a-module-global-is-lost-across-an-async-suspension.md`). The
+   suspension analysis hoisted globals into the state-machine struct, where the
+   field started at zero and the state entry declared a local SHADOWING the
+   real global: a suspending body read and wrote a copy. This is why the
+   keep-alive server's accept counter read zero, and it makes the
+   module-counter oracle that `.github/instructions/testing.instructions.md`
+   recommends unsound for async code. `_capture_env_variable` now returns early
+   for a module-level global, mirroring the guard the closure-capture path
+   already had.
+
+4. **An unsubstitutable array length silently became zero** — item 9 of the
+   handover's ranked list, and step 1 of
+   `plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`.
+   `-> Array(u8, T.BYTES)` in a blanket impl emitted `Array_uint8_t_0` while
+   the specialized bodies emitted lengths 1 and 4; C caught it only because
+   those are different types. It is now a diagnostic naming the limitation.
+   The feature itself — a value channel in `substitute()` — stays open
+   (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`), and
+   with it the collapse of `std/prelude.yo`'s ten byte-conversion blocks and
+   byte conversions for `usize`/`isize`. `tests/array.test.yo` carries the
+   rejection plus an over-rejection canary for every length form that must keep
+   working.
 
 Per-group raw findings — every file:line, the Rust counterpart for each item,
 and the doc-coverage tables — are in `plans/STD_API_STABILIZATION_FINDINGS.md`.

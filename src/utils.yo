@@ -21,8 +21,148 @@
 //!   * `generateModuleId`, `resetModuleIdCounter`, `generateVarialeId`,
 //!     `hashString`, `clearAllModuleCounters`. These are deferred until
 //!     their TS callers gain yo-self counterparts.
-{ String } :: import("std/string");
+{ rune, String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+// ---------------------------------------------------------------------------
+// Unicode escape scanning — shared by the lexer (template strings, and
+// VALIDATION of double-quoted ones) and by the evaluator's string-literal
+// decoder, so the two forms cannot disagree about what a `\u` escape means.
+// ---------------------------------------------------------------------------
+/// The value of a hex-digit rune, or `.None` when the rune is not one.
+///
+/// The failure channel is the whole point. The version this replaces answered
+/// `0` for a non-hex rune, so `"\uZZZZ"` decoded to U+0000 and `"\u{41}"` —
+/// whose four runes are `{`, `4`, `1`, `}` — decoded to U+0410 rather than
+/// U+0041, both silently
+/// (issues/fixed/unicode-escape-accepts-non-hex-digits.md).
+hex_digit_value :: (fn(r : rune) -> Option(u32))({
+  c := r.char;
+  cond(
+    ((c >= u32(0x30)) && (c <= u32(0x39))) => Option(u32).Some(c - u32(0x30)),
+    ((c >= u32(0x41)) && (c <= u32(0x46))) => Option(u32).Some((c - u32(0x41)) + u32(10)),
+    ((c >= u32(0x61)) && (c <= u32(0x66))) => Option(u32).Some((c - u32(0x61)) + u32(10)),
+    true => Option(u32).None
+  )
+});
+/// How a `\u` escape scanned.
+///
+/// `consumed` counts the runes taken INCLUDING the `u` but excluding the
+/// backslash, so a caller advances by `1 + consumed`.
+UnicodeEscape :: enum(
+  /// A well-formed escape and its code point.
+  Ok(code : u32, consumed : usize),
+  /// Not well formed. Carries the diagnostic to report.
+  Bad(reason : String)
+);
+/// Scan the `\u` escape whose `u` sits at `at`. Accepts BOTH spellings:
+///
+/// - `\uXXXX` — exactly four hex digits, JSON's form, which is what Yo has
+///   always documented. A high surrogate is returned AS the surrogate value so
+///   the caller can combine it with a following low surrogate (JSON's way of
+///   writing an astral code point); this function does not look past the four
+///   digits.
+/// - `\u{X}` … `\u{XXXXXX}` — one to six hex digits in braces, Rust's form.
+///   Accepted because it is what a reader coming from Rust writes, and because
+///   the alternative was decoding it to a WRONG code point in silence. A value
+///   above U+10FFFF, or a lone surrogate, is rejected here — neither is a
+///   scalar value, and Rust rejects both.
+///
+/// Anything else is `.Bad`, which is the behaviour change: this used to be
+/// undiagnosed.
+scan_unicode_escape :: (fn(runes : ArrayList(rune), at : usize) -> UnicodeEscape)({
+  n := runes.len();
+  nul := rune(u32(0));
+  opener := match(runes.get(at + usize(1)), .Some(r) => r, .None => nul);
+  cond(
+    (opener.char == u32(0x7B)) => {
+      // `\u{...}` — Rust's form.
+      (v : u32) = u32(0);
+      (digits : usize) = usize(0);
+      (j : usize) = (at + usize(2));
+      (bad : Option(String)) = Option(String).None;
+      (closed : bool) = false;
+      while((j < n) && bad.is_none() && !closed, {
+        r := match(runes.get(j), .Some(rr) => rr, .None => nul);
+        cond(
+          (r.char == u32(0x7D)) => {
+            closed = true;
+          },
+          true => match(
+            hex_digit_value(r),
+            .Some(d) => {
+              digits = (digits + usize(1));
+              cond(
+                (digits > usize(6)) => {
+                  bad = Option(String).Some(
+                    String.from("unicode escape \\u{...} takes at most six hex digits")
+                  );
+                },
+                true => {
+                  v = ((v * u32(16)) + d);
+                  j = (j + usize(1));
+                }
+              );
+            },
+            .None => {
+              bad = Option(String).Some(
+                String.from("invalid character in unicode escape: \\u{...} takes hex digits only")
+              );
+            }
+          )
+        );
+      });
+      match(
+        bad,
+        .Some(msg) => UnicodeEscape.Bad(msg),
+        .None => cond(
+          !closed => UnicodeEscape.Bad(
+            String.from("unterminated unicode escape: \\u{ was never closed by }")
+          ),
+          (digits == usize(0)) => UnicodeEscape.Bad(
+            String.from("empty unicode escape: \\u{} has no hex digits")
+          ),
+          (v > u32(0x10FFFF)) => UnicodeEscape.Bad(
+            String.from("unicode escape is out of range: the largest code point is 10FFFF")
+          ),
+          ((v >= u32(0xD800)) && (v <= u32(0xDFFF))) => UnicodeEscape.Bad(
+            String.from(
+              "unicode escape names a surrogate, which is not a character; write the astral code point itself"
+            )
+          ),
+          // `u` + `{` + digits + `}`
+          true => UnicodeEscape.Ok(v, digits + usize(3))
+        )
+      )
+    },
+    true => {
+      // `\uXXXX` — JSON's form, exactly four hex digits.
+      (v : u32) = u32(0);
+      (ok : bool) = true;
+      (j : usize) = usize(0);
+      while((j < usize(4)) && ok, {
+        r := match(runes.get(at + usize(1) + j), .Some(rr) => rr, .None => nul);
+        match(
+          hex_digit_value(r),
+          .Some(d) => {
+            v = ((v * u32(16)) + d);
+            j = (j + usize(1));
+          },
+          .None => {
+            ok = false;
+          }
+        );
+      });
+      cond(
+        ok => UnicodeEscape.Ok(v, usize(5)),
+        true => UnicodeEscape.Bad(
+          String.from(
+            "invalid unicode escape: \\uXXXX takes exactly four hex digits (or use \\u{X..XXXXXX})"
+          )
+        )
+      )
+    }
+  )
+});
 // ---------------------------------------------------------------------------
 // Temp variable name generation
 // ---------------------------------------------------------------------------
@@ -304,6 +444,7 @@ profile_reset :: (fn() -> unit)({
 });
 
 export(str_lit_unquote_bytes);
+export(hex_digit_value, UnicodeEscape, scan_unicode_escape);
 export(
   generate_temp_variable_name_prefix,
   generate_new_temp_variable_name,

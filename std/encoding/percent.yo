@@ -1,18 +1,46 @@
 //! Percent-encoding (RFC 3986) — the URI component codec
 //! (`plans/archive/STD_API_AUDIT.md` §7 P0 item 1).
 //!
-//! `percent_encode` keeps the RFC 3986 UNRESERVED set (`A-Z a-z 0-9 - _ . ~`)
+//! `percent.encode` keeps the RFC 3986 UNRESERVED set (`A-Z a-z 0-9 - _ . ~`)
 //! and encodes every other BYTE as `%XX` (uppercase hex), so multibyte UTF-8
 //! is encoded byte-by-byte — the component form (`encodeURIComponent` /
 //! Rust's `percent-encoding` NON_ALPHANUMERIC minus the unreserved marks).
 //!
-//! `percent_decode` reverses it: `%XX` → byte, validated as UTF-8 on the way
+//! `percent.decode` reverses it: `%XX` → byte, validated as UTF-8 on the way
 //! back into a `String` (D1 style 2: a pure fallible transform returning
-//! `Result(_, PercentError)`); `percent_decode_bytes` returns the raw bytes
+//! `Result(_, PercentError)`); `percent.decode_bytes` returns the raw bytes
 //! for callers decoding non-text data.
 //!
 //! `+` is NOT treated as a space: that is the `application/x-www-form-urlencoded`
 //! FORM dialect, not RFC 3986 — a form variant can be added additively.
+//!
+//! ## Stability
+//!
+//! unstable — `percent_encode`'s escape set is HARDCODED to the unreserved
+//! set, and that is the open question. It makes this function
+//! `encodeURIComponent` and nothing else: handed a whole path it escapes the
+//! `/` to `%2F`, handed a query string it escapes the `&` and `=`, so the
+//! only correct use is one component at a time. Rust's `percent-encoding`
+//! crate takes an `AsciiSet` for exactly this reason and ships
+//! `NON_ALPHANUMERIC`, `CONTROLS`, `PATH_SEGMENT`, `QUERY` and `USERINFO`
+//! variants of it. Growing that here is additive if it arrives as a second
+//! function (`percent_encode_with(input, set)`) and breaking if
+//! `percent_encode` gains a parameter — and which of those it is has not
+//! been decided.
+//!
+//! Two smaller open items. The FORM dialect (`+` for space) is still absent,
+//! noted above as additive, and `std/url`'s `query_pairs` currently
+//! hand-rolls it by replacing `+` before calling here — so the encoder half
+//! has no home at all. And the names stutter (D2): `percent_encode` repeats
+//! its module, where the decided direction for the whole encoding group is
+//! `percent.encode` on the imported module value
+//! (`plans/STD_API_STABILIZATION.md` §4, STILL OPEN).
+//!
+//! What IS settled: the decoder's split into `percent_decode` (validating
+//! UTF-8, returning a `String`) and `percent_decode_bytes` (raw, for
+//! non-text data), and `PercentError` carrying the byte index of the fault
+//! rather than only its kind. Both have been through several releases
+//! unchanged and are covered by `tests/encoding/percent.test.yo`.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 utf8 :: import("./utf8");
@@ -23,8 +51,8 @@ PercentError :: enum(
   TruncatedEscape(index : usize),
   /// A `%XY` whose `X` or `Y` is not a hex digit; carries the bad byte.
   InvalidHexDigit(index : usize, byte : u8),
-  /// The decoded bytes are not valid UTF-8 (only from `percent_decode`;
-  /// `percent_decode_bytes` never yields it).
+  /// The decoded bytes are not valid UTF-8 (only from `decode`;
+  /// `decode_bytes` never yields it).
   InvalidUtf8(cause : utf8.Utf8Error)
 );
 /// True for the RFC 3986 unreserved set: `A-Z a-z 0-9 - _ . ~`.
@@ -42,7 +70,7 @@ _hex_val :: (fn(b : u8) -> Option(u8))(
   )
 );
 /// Percent-encode `input` for use as a URI component.
-percent_encode :: (fn(input : String) -> String)({
+encode :: (fn(input : String) -> String)({
   bytes := input.as_bytes();
   n := bytes.len();
   out := String.with_capacity(n);
@@ -64,7 +92,7 @@ percent_encode :: (fn(input : String) -> String)({
 /// Percent-decode `input` to raw bytes. `%XX` becomes one byte; every other
 /// byte passes through (including `+`, which stays `+` — RFC 3986, not the
 /// form dialect).
-percent_decode_bytes :: (fn(input : String) -> Result(ArrayList(u8), PercentError))({
+decode_bytes :: (fn(input : String) -> Result(ArrayList(u8), PercentError))({
   bytes := input.as_bytes();
   n := bytes.len();
   out := ArrayList(u8).with_capacity(n);
@@ -105,9 +133,9 @@ percent_decode_bytes :: (fn(input : String) -> Result(ArrayList(u8), PercentErro
 });
 /// Percent-decode `input` to a `String`, validating the decoded bytes as
 /// UTF-8.
-percent_decode :: (fn(input : String) -> Result(String, PercentError))(
+decode :: (fn(input : String) -> Result(String, PercentError))(
   match(
-    percent_decode_bytes(input),
+    decode_bytes(input),
     .Err(e) => Result(String, PercentError).Err(e),
     .Ok(bytes) => match(
       String.from_utf8(bytes),
@@ -120,4 +148,20 @@ percent_decode :: (fn(input : String) -> Result(String, PercentError))(
     )
   )
 );
-export(PercentError, percent_encode, percent_decode, percent_decode_bytes);
+export(PercentError, encode, decode, decode_bytes);
+// ============================================================================
+// DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32
+// ============================================================================
+// `percent :: import("std/encoding/percent")` already qualifies the call, so the
+// `percent_` prefix stuttered (`percent.percent_encode`). These thin aliases
+// keep the pre-rename spellings compiling for one release, the way
+// `json_parse_result` and `derive(ToString)` were kept in v0.2.28.
+/// DEPRECATED, removed in v0.2.32: call `percent.encode`.
+percent_encode :: (fn(input : String) -> String)(encode(input));
+/// DEPRECATED, removed in v0.2.32: call `percent.decode`.
+percent_decode :: (fn(input : String) -> Result(String, PercentError))(decode(input));
+/// DEPRECATED, removed in v0.2.32: call `percent.decode_bytes`.
+percent_decode_bytes :: (fn(input : String) -> Result(ArrayList(u8), PercentError))(
+  decode_bytes(input)
+);
+export(percent_encode, percent_decode, percent_decode_bytes);

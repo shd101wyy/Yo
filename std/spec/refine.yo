@@ -12,10 +12,6 @@
 // taking `denom : NonZero(i32)` documents the precondition; callers
 // that want runtime enforcement can pair the alias with a
 // `requires(denom != i32(0))` clause until the verifier lands.
-/// A value of type `T` paired with a (compile-time) refinement
-/// predicate. Phase 0 ignores the predicate; later phases will
-/// require it as a second parameter and enforce it via
-/// the SMT backend.
 //!
 //! **EXPERIMENTAL — not covered by the std stability promise** (audit spec/
 //! verdict: FREEZE AS DOC). These are Phase 0 identity stubs from
@@ -29,6 +25,23 @@
 //! lands. The section exists so `yo doc` reports it: the warning above is
 //! prose, and a consumer keyed on the machine-readable stability channel read
 //! these two modules as frozen std surface.
+/// The base refinement constructor the other three are written in terms
+/// of — `Refine(T)` is intended to read as "a `T` that satisfies a
+/// compile-time predicate".
+///
+/// **In Phase 0 it IS `T`, exactly.** The body is `T`, so
+/// `Refine(i32)`, `NonZero(i32)`, `Bounded(i32, 0, 9)` and `i32` are one
+/// and the same type: nothing is checked, nothing is rejected, and a
+/// plain `i32(0)` passes wherever a `NonZero(i32)` is asked for. The
+/// annotation is a signature that documents a precondition to a human or
+/// an LLM reader, not one the compiler enforces — pair it with a
+/// `requires(...)` clause if you want the precondition checked before the
+/// Phase 2 verifier lands.
+///
+/// The predicate is not a parameter yet: Phase 2 widens the surface to
+/// `Refine(T, predicate)` and enforces it at construction sites, so code
+/// written against today's one-parameter spelling will have to name its
+/// predicate then.
 Refine :: (fn(comptime(T) : Type) -> comptime(Type))(T);
 export(Refine);
 

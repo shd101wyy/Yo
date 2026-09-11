@@ -1,0 +1,10 @@
+# The audit's headline reproducer (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+# §1.1): a path dependency declared in deps.yo and wired with add_import_list,
+# imported by NAME from the program — `import("mylib")` and the sub-module
+# form `import("mylib/extra")`. The runner resolves the dependency's module
+# root through its build.yo (`build.module`) and hands the mapping to the child
+# compile as `--imports`; the evaluator's resolver rule 0 consumes it
+# (issues/dependency-imports-never-resolve-in-the-self-hosted-compiler.md).
+# The program's own output is the assertion.
+timeout=600
+stdout_keep=^(Building|12$|15$)

@@ -1,25 +1,43 @@
-//! Async timer operations — the raw timer boundary.
+//! Async sleep (`sleep`) — the raw timer boundary.
 //!
 //! This is the PLUMBING layer: it speaks whole milliseconds and raw errno,
-//! matching the syscall underneath. Application code should use
-//! `std/time/sleep`'s `sleep(Duration, io)`, which wraps this.
+//! matching the platform timer underneath. Application code should use
+//! `std/time/sleep`'s `sleep(Duration, io)`, which wraps this; `std/async`
+//! also reaches it for its own timeouts (`std/async/index.yo`,
+//! `std/async/channel.yo`, `std/async/mutex.yo`) and so does the compiler's
+//! `yo check --watch` loop.
 //!
-//! - `sleep(ms)` — async sleep for the given number of milliseconds
+//! ## Stability
 //!
-//! Returns an `IoFuture` that resolves to a positive value on success
-//! or a negative errno. Use with `await` in async contexts.
-//
-// Example:
-//   Io :: import "std/io";
-//
-//   task := async {
-//     // Sleep for 100 milliseconds
-//     result := await Io.sleep(u64(100));
-//     printf("Woke up! result=%d\n", result);
-//   };
+//! unstable — the unit is the open question. A millisecond `u64` is what
+//! `timerfd`, `kqueue` and the Windows threadpool all accept, so it is the
+//! honest shape for this layer, but it means every sub-millisecond duration
+//! silently rounds and `std/time/sleep` has to do the `Duration` conversion
+//! on the way in. There is also no cancellation: the returned future has no
+//! way to be dropped early, which is what a `timeout`-shaped API needs.
+//! Freezing follows those two — a resolution the platforms agree on
+//! (nanoseconds, truncating) and a cancel path. `std/time/sleep` is the
+//! stable surface meanwhile.
 { IoFuture } :: import("./future.yo");
 { IoError } :: import("./errors.yo");
 { __yo_async_sleep_start } :: import("./externs.yo");
+/// Suspend the current async task for `milliseconds`, without blocking the
+/// event loop — the one operation in `std/sys` that exists purely to yield
+/// time back to the loop.
+///
+/// Resolves to 8 on success (the size of the `timerfd` read the Linux
+/// implementation performs; macOS reports the same number deliberately, so
+/// the value carries no information) or a negative errno. Awaiting it is what
+/// arms the timer's completion; a future that is created and never awaited
+/// still holds the loop open until it fires.
+///
+/// Each platform uses its native timer: `timerfd_create(CLOCK_MONOTONIC)`
+/// submitted through io_uring on Linux, a `kqueue` `EVFILT_TIMER` on macOS,
+/// threadpool timers on Windows and a sorted timer queue the loop drains on
+/// wasm. On a Linux box built without liburing the whole async family is
+/// unavailable and this resolves immediately to `-ENOSYS` — it is the one
+/// operation there that degrades instead of aborting, so that a program which
+/// only sleeps still runs.
 sleep :: (fn(milliseconds : u64) -> IoFuture)(
   __yo_async_sleep_start(milliseconds)
 );

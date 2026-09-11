@@ -1,10 +1,26 @@
-//! Network error types.
-// std/net/errors.yo - Network error type
-//
-// Higher-level network error that wraps IoError with network-specific variants.
-//
-// Example:
-//   { NetError } :: import "std/net/errors";
+//! The network error type — `NetError`, the payload every throw in
+//! `std/net` carries.
+//!
+//! It is the network-facing subset of `IoError` promoted to its own variants
+//! (`ConnectionRefused`, `AddrInUse`, `TimedOut`, …) so a caller can `match`
+//! the cases it can actually recover from, plus `Io(err)` for everything the
+//! kernel reports that is not network-specific. `from_io` does that
+//! promotion; `check(result, exn)` is the shape every `std/net` call site
+//! uses — a negative syscall return is turned into a `NetError` and THROWN
+//! (D1), which is why the byte counts those calls resolve to are always real
+//! counts.
+//!
+//! ## Stability
+//!
+//! unstable — `Other(msg : String)` is the open question. It is where every
+//! ADDRESS-PARSE failure currently lands (`IpAddr.parse`,
+//! `SocketAddr.parse`, the port scanner), so a caller that wants to tell
+//! "port above 65535" from "host is not an IP" has to read English text,
+//! which D1 rules out. Rust puts that case in a separate `AddrParseError`
+//! rather than in its I/O error, and `std/net/addr`'s own `## Stability`
+//! names the same decision. Since callers `match` this enum, adding the
+//! variants that would replace `Other` is not an additive change; freezing
+//! waits on that split.
 { String } :: import("../string");
 { IoError } :: import("../sys/errors");
 { ToString } :: import("../fmt");

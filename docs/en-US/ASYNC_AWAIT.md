@@ -801,6 +801,131 @@ State machines are small (~32-500 bytes):
 - No synchronization overhead
 - Cache-friendly (small state machines)
 
+## Async iteration: the `Stream` trait
+
+`Iterator` yields values now. `Future` yields one value later. A **`Stream`**
+is both — "a value, later, repeatedly":
+
+```rust
+Stream :: trait(
+  Item : Type,
+  next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
+);
+```
+
+It lives in `std/async/stream` and `.None` means the stream is finished —
+terminal, and it stays terminal.
+
+```rust
+{ Stream } :: import("std/async/stream");
+{ TcpListener } :: import("std/net/tcp");
+
+conns := listener.incoming().take(usize(3));       // a Stream, lazily
+accepted := io.await(conns.collect(io), io);       // ArrayList(Result(TcpStream, NetError))
+```
+
+### Who implements it
+
+| type | its stream |
+| --- | --- |
+| `TcpListener.incoming()` (`std/net/tcp`) | `Item = Result(TcpStream, NetError)` — one connection per item |
+| `Watcher` (`std/fs/watch`) | `Item = FsEvent` — `.None` once the watcher is closed and drained |
+| `Channel(T)` (`std/async/channel`) | `Item = T` — `next` IS `recv`; `.None` once closed AND drained |
+
+### Combinators and consumers
+
+Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
+
+| lazy | what it does |
+| --- | --- |
+| `map(f)` | transform each item |
+| `filter(pred)` | keep the items satisfying `pred` (by value, like `map`) |
+| `filter_map(f)` | `f` answers `Option(B)`; the `.Some`s are yielded |
+| `take(n)` | at most `n` items, then finished — without touching upstream again |
+| `skip(n)` | discard the first `n` |
+
+| consumer | what it does |
+| --- | --- |
+| `for_each(f, io)` | drive the stream to its end, calling `f` on each item |
+| `collect(io)` | drive it to its end, gathering the items into an `ArrayList` |
+
+```rust
+// Every third event's name, at most five of them.
+names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
+io.await(names.for_each(n => println(n), io), io);
+```
+
+### Implementing one
+
+`next` takes `self : Self`, NOT `inout(self)` the way `Iterator` does: the
+future outlives the call, and an `inout` borrow cannot be held across a
+suspension. So a stream source is a reference-semantics type
+(`ref(struct(...))`) and its field writes propagate through the handle:
+
+```rust
+Countdown :: ref(struct(_n : i32));
+impl(
+  Countdown,
+  Stream(
+    Item : i32,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async((io : Io) =>
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        )
+      )
+    )
+  )
+);
+```
+
+A stream whose items can FAIL carries the failure IN the item — `Item =
+Result(T, E)`, the way `incoming` yields `Result(TcpStream, NetError)`. That
+is why `next`'s future is `Future(_, Io)` and not `Future(_, IoExn)`: **a
+stream never throws**, so one failed item does not end the sequence and a
+consumer needs no `Exception` handler.
+
+### Four things to know before writing one
+
+1. **Build a chain OUTSIDE the `io.async` body that awaits it.** A closure
+   passed to a generic callback INSIDE an async body leaves the enclosing
+   future's result type unresolved, and the error lands on the caller's
+   `await`. Make the chain first, then await it — including from inside a
+   spawned task:
+
+   ```rust
+   chain := source.map(x => f(x));            // out here
+   task := io.async((io : Io) => io.await(chain.collect(io), io));   // awaited in there
+   ```
+
+2. **There is no `for_await`.** An async loop written as a MACRO compiles its
+   `io.await` to the BLOCKING form (a macro's expansion is not scanned for
+   suspension points), which deadlocks inside a spawned task. Use `for_each`,
+   or the hand-written loop, which works everywhere:
+
+   ```rust
+   (done : bool) = false;
+   while(done == false, {
+     nx := io.await(stream.next(io), io);
+     match(nx, .Some(x) => { … }, .None => { done = true; });
+   });
+   ```
+
+3. **A generic consumer takes a bare or a concrete bound.**
+   `where(S <: Stream)` and `where(S <: Stream(Item := i32))` both accept
+   sources and combinator chains; `where(S <: Stream(Item := A))` with a
+   generic `A` binds nothing and rejects both. A consumer that must be
+   generic over the item type is written as a blanket impl method, which is
+   how `collect` and `for_each` themselves are written.
+
+4. **`.None` is terminal.** A consumer stops on it, so an implementor must
+   keep answering `.None` afterwards — never resume after finishing.
+
 ## API
 
 ### Core Operations
@@ -884,6 +1009,69 @@ main :: (fn(io : Io) -> unit)({
 });
 export main;
 ```
+
+### Waking a task from another task: `Waker` and `Park`
+
+`yield` hands the loop a turn; it does not let one task wait for *another
+task's progress*. That needs a token the other side can fire, and
+`std/async/waker` is it.
+
+```rust
+{ Park } :: import "std/async/waker";
+
+// The waiter. Create the park, hand its waker to whoever will signal, then
+// suspend — in that order, and with no await in between.
+p := Park.new();
+waiters.push(p.waker());
+io.await(p.wait(io), io);
+
+// The signaller, from any other task:
+match(waiters.pop(), .Some(w) => w.wake(), .None => ());
+```
+
+Three properties are worth knowing, because primitives built on this depend on
+them:
+
+- **A wake that arrives before the sleeper suspends is not lost.** An await
+  point reads the future's state before it registers a continuation, so an
+  already-woken park resumes inline instead of suspending.
+- **Waking is idempotent.** A second `wake()`, or a wake of a park whose task
+  has already finished, does nothing. A waiter list can therefore signal
+  everyone without tracking who already ran.
+- **A park that nothing can wake is reported, not hung.** The runtime counts
+  live waker tokens; when nothing is runnable, no I/O is outstanding, and a
+  token is still alive, the loop says so and stops instead of spinning.
+
+`park(register, io)` wraps the whole sequence for the common case of a single
+waker:
+
+```rust
+{ park } :: import "std/async/waker";
+
+io.await(park((w : Waker) => { slot.* = Option(Waker).Some(w); }, io), io);
+```
+
+`register` runs *before* the suspension and receives the waker, so the order
+cannot be got wrong. This is the shape Rust's `Future::poll(cx)` uses. Reach
+for `Park` directly when a waiter list wants to hold the token itself.
+
+### `yield_now`: a fairness yield with no timer
+
+`std/async`'s `yield` gives the loop one turn and pays a 1 ms sleep for it,
+which puts a millisecond floor under everything built on it. `yield_now`
+(`std/async/waker`) gives the same guarantee for free: its future is created
+pending and completed by the next ready-task drain, after that drain has
+measured its budget, so the resumed task runs on the following turn with
+exactly one I/O poll in between.
+
+Measured over 400 turns in a spawned task, at both `-O0` and `--optimize 2`:
+`yield_now` 0 ms, `yield` 603 ms.
+
+`yield` itself will become this, one release from now. It cannot today for a
+bootstrap reason rather than a design one: `yield` is on the compiler's own
+import path, and the seed compiler that builds the tree emits an async runtime
+without the new primitive in it, so pointing `yield` at it fails to LINK the
+compiler.
 
 ## Comparison with Other Languages
 
@@ -1083,4 +1271,5 @@ r2 := handle2.await(io);  // Option(T)
 | CPU-bound parallel computation | `Thread.spawn` (see PARALLELISM.md) |
 | Background processing          | `Thread.spawn` (see PARALLELISM.md) |
 | Waiting for multiple IOs       | `io.spawn` + `handle.await`       |
+| Consuming an async sequence    | `Stream` + `for_each`/`collect` (see [Async iteration](#async-iteration-the-stream-trait)) |
 | Utilizing multiple CPU cores   | `Thread.spawn` (see PARALLELISM.md) |

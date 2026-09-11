@@ -1,17 +1,46 @@
-//! Async HTTP client with high-level fetch API.
-// std/http/client.yo - Async HTTP client using TCP
-//
-// Provides an async HTTP client and a high-level `fetch` function
-// similar to JavaScript's fetch API.
-//
-// Example:
-//   { fetch, HttpResponse } :: import "std/http";
-//   { Exception } :: import "std/error";
-//
-//   main :: (fn(io : Io, exn : Exception) -> unit)({
-//     resp := io.await(fetch(`http://example.com/api/data`, io), { io, exn });
-//     println(resp.body);
-//   });
+//! Async HTTP client — `fetch` and `fetch_with`, shaped like JavaScript's
+//! `fetch` and configured like `reqwest`.
+//!
+//! `fetch(url, io)` is a GET with defaults; `fetch_with(url, opts, io)` takes
+//! a `FetchOptions` carrying the method, headers, body, redirect cap,
+//! response ceiling and a deadline for the WHOLE exchange. Both speak
+//! plaintext over `TcpStream` and TLS over `TlsStream` (`https` is real TLS,
+//! not a stub), and both buffer the entire response into memory — which is
+//! why `max_response_bytes` exists and defaults to 64 MiB rather than being
+//! unlimited.
+//!
+//! Each call is a fresh connection, and a `Connection: close` request header
+//! says so on the wire: there is no pool yet (see `## Stability`). Failures
+//! throw `IoExn` carrying an `HttpError` (D1); a deadline that wins the race
+//! throws `HttpError.Timeout` and aborts the in-flight task, so a hung server
+//! cannot pin a caller forever.
+//!
+//! ```rust
+//! { fetch } :: import("std/http");
+//! { IoExn } :: import("std/error");
+//!
+//! resp := io.await(fetch(`http://example.com/api/data`, io), IoExn(io : io, exn : exn));
+//! println(resp.body);
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — the connection model is going to change. Every request sets
+//! `Connection: close` and reads through `read_http_message`, the framing
+//! form that DISCARDS whatever the peer sent past the message, so nothing
+//! here can reuse a connection today; the reusable framing landed in
+//! `./wire.yo` on 2026-09-10 and the pool is the remaining piece. Its
+//! intended shape is decided — an `HttpClient` object that OWNS its idle
+//! connections (Rust's `reqwest::Client`), with an explicit lifetime and a
+//! `Dispose` that closes the idle set, rather than a module-global — and the
+//! free `fetch`/`fetch_with` are meant to keep their one-shot behaviour when
+//! it arrives, so this file grows a type rather than changing these two.
+//!
+//! A second, smaller shape is open: a plaintext request connects to the
+//! FIRST address `lookup_host` returns and does not fall back to the next on
+//! failure, so a host whose IPv6 route is dead fails instead of reaching its
+//! IPv4 address (no happy-eyeballs, and the resolver order decides). That
+//! sits behind `std/net/dns`'s own open questions.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");

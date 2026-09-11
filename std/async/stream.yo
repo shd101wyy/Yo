@@ -1,0 +1,428 @@
+//! Async iteration — the `Stream` trait: "a value, later, repeatedly"
+//! (`plans/reference/ASYNC_ITERATION_STREAM.md`).
+//!
+//! `Iterator` yields values now; `Future` yields one value later. A `Stream`
+//! is both: each `next(io)` returns a FUTURE of `Option(Item)`, and `.None`
+//! means the stream is finished. Before this trait existed, every std API
+//! that produced a sequence asynchronously invented its own shape —
+//! `TcpListener.accept` in the caller's own loop, `Watcher.next` answering
+//! `Option(FsEvent)`, `Channel.recv` plus a separate `try_recv` — and none of
+//! them composed.
+//!
+//! ```rust
+//! { Stream } :: import("std/async/stream");
+//! { watch, WatchOptions } :: import("std/fs/watch");
+//!
+//! w := watch(Path.new(`./logs`), WatchOptions.defaults(), exn);
+//! names := w.map(e => e.name).take(usize(3));
+//! got := io.await(names.collect(io), io);   // ArrayList(String), 3 entries
+//! ```
+//!
+//! The combinators (`map`, `filter`, `filter_map`, `take`, `skip`) are LAZY:
+//! each wraps the upstream stream and pulls one item per `next`. The
+//! consumers (`for_each`, `collect`) drive the stream to `.None`.
+//!
+//! ## There is no `for_await`
+//!
+//! The plan called for a `for_await(stream, io, (x) => body)` macro — a loop
+//! whose body can `break`, `continue` and `return`. It was written and it
+//! deadlocks: an `io.await` reached only through a MACRO EXPANSION is not
+//! counted as a suspension point, so the enclosing `io.async` body is emitted
+//! as a plain closure with a BLOCKING await, and a blocking await inside a
+//! spawned task nests the event loop
+//! (`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
+//! `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`). It was
+//! removed rather than shipped, because it works from `main` and hangs in a
+//! task — the wrong way round for a server loop.
+//!
+//! Until that codegen fix lands, the loop is either `for_each` (whose await
+//! lives in an ordinary function body, so it works everywhere) or the
+//! hand-written form, which is what `for_await` expanded to:
+//!
+//! ```rust
+//! (done : bool) = false;
+//! while(done == false, {
+//!   nx := io.await(stream.next(io), io);
+//!   match(nx, .Some(x) => { … }, .None => { done = true; });
+//! });
+//! ```
+//!
+//! ## Implementing it
+//!
+//! `next` takes `self : Self` — not `inout(self)`, the way `Iterator` does —
+//! because the future it returns outlives the call, and an `inout` borrow
+//! cannot be held across a suspension. So every stream SOURCE is a
+//! reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), and
+//! field writes propagate through the handle:
+//!
+//! ```rust
+//! Countdown :: ref(struct(_n : i32));
+//! impl(
+//!   Countdown,
+//!   Stream(
+//!     Item : i32,
+//!     next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+//!       io.async((io : Io) =>
+//!         cond(
+//!           (self._n <= i32(0)) => Option(i32).None,
+//!           true => {
+//!             v := self._n;
+//!             self._n = (self._n - i32(1));
+//!             Option(i32).Some(v)
+//!           }
+//!         )
+//!       )
+//!     )
+//!   )
+//! );
+//! ```
+//!
+//! A stream whose items can FAIL carries the failure in the item —
+//! `Item = Result(T, E)`, the way `TcpListener.incoming` yields
+//! `Result(TcpStream, IoError)` — so one bad item does not end the stream and
+//! no consumer needs an `Exception` handler. That is why `next`'s future is
+//! `Future(_, Io)` and not `Future(_, IoExn)`: a stream never throws.
+//!
+//! ## Writing a chain
+//!
+//! **Build the chain OUTSIDE the `io.async` body that awaits it.** An `=>`
+//! closure passed to a generic callback parameter INSIDE an async body leaves
+//! the enclosing future's result type unresolved
+//! (`issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`),
+//! so `s.map(f)` written inside a task body fails at the task's `await`. The
+//! chain is a value: make it first, then await it wherever you like —
+//! including from inside a spawned task.
+//!
+//! ## Stability
+//!
+//! unstable — new in v0.2.27; the API may still change until the next release.
+//! Two things are most likely to move: the combinator SET (`flat_map` is
+//! deliberately absent — its doubly-derived item type is the shape a
+//! var-bound combinator receiver still resolves wrongly), and how the async
+//! `for` loop is eventually spelled (see "There is no `for_await`" above).
+{ ArrayList } :: import("../collections/array_list");
+
+/// Something that yields values asynchronously: `next(io)` resolves to the
+/// next item, or `.None` once the stream is finished.
+///
+/// `.None` is TERMINAL and must stay terminal — a stream that answered
+/// `.None` answers `.None` for every later `next`. Consumers rely on it to
+/// stop, and every combinator here preserves it.
+///
+/// COHERENCE RULE (not compiler-checked, same as `DoubleEndedIterator`'s):
+/// the associated-type registry is keyed by (type id, label) with no trait
+/// discrimination and takes the FIRST match, so a type implementing BOTH
+/// `Stream` and `Iterator` would have one `Item` silently serve both. No std
+/// type does; a user type that wants both must give them the same `Item`.
+Stream :: trait(
+  /// The type of the values yielded.
+  Item : Type,
+  /// Yield the next item, or `.None` once the stream is finished.
+  next :
+    (
+      fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io))
+    )
+);
+export(Stream);
+// ---------------------------------------------------------------------------
+// StreamMap
+// ---------------------------------------------------------------------------
+/// Lazy stream that maps each item through `F`. Created by `.map(f)`.
+StreamMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
+  ref(struct(_inner : S, _f : F))
+);
+impl(
+  generic(S : Type, A : Type, B : Type, F : Type),
+  where(S <: Stream(Item := A), F <: (Fn(item : A) -> B)),
+  StreamMap(S, B, F),
+  Stream(
+    Item : B,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(B), Io)))(
+      io.async((io : Io) => {
+        nx := io.await(self._inner.next(io), io);
+        match(
+          nx,
+          .Some(item) => Option(B).Some((self._f)(item)),
+          .None => Option(B).None
+        )
+      })
+    )
+  )
+);
+export(StreamMap);
+// ---------------------------------------------------------------------------
+// StreamFilter
+// ---------------------------------------------------------------------------
+/// Lazy stream that keeps only the items for which the predicate holds.
+/// Created by `.filter(pred)`. The predicate takes the item BY VALUE,
+/// symmetric with `map`.
+StreamFilter :: (fn(comptime(S) : Type, comptime(F) : Type) -> comptime(Type))(
+  ref(struct(_inner : S, _f : F))
+);
+impl(
+  generic(S : Type, A : Type, F : Type),
+  where(S <: Stream(Item := A), F <: (Fn(item : A) -> bool)),
+  StreamFilter(S, F),
+  Stream(
+    Item : A,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(A), Io)))(
+      io.async((io : Io) => {
+        (out : Option(A)) = Option(A).None;
+        (searching : bool) = true;
+        while(searching, {
+          nx := io.await(self._inner.next(io), io);
+          match(
+            nx,
+            .Some(item) => {
+              keep := (self._f)(item);
+              if(keep, {
+                out = Option(A).Some(item);
+                searching = false;
+              });
+            },
+            .None => {
+              searching = false;
+            }
+          );
+        });
+        out
+      })
+    )
+  )
+);
+export(StreamFilter);
+// ---------------------------------------------------------------------------
+// StreamFilterMap
+// ---------------------------------------------------------------------------
+/// Lazy stream that maps each item to `Option(B)` and yields only the
+/// `.Some`s. Created by `.filter_map(f)`.
+StreamFilterMap :: (fn(comptime(S) : Type, comptime(B) : Type, comptime(F) : Type) -> comptime(Type))(
+  ref(struct(_inner : S, _f : F))
+);
+impl(
+  generic(S : Type, A : Type, B : Type, F : Type),
+  where(S <: Stream(Item := A), F <: (Fn(item : A) -> Option(B))),
+  StreamFilterMap(S, B, F),
+  Stream(
+    Item : B,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(B), Io)))(
+      io.async((io : Io) => {
+        (out : Option(B)) = Option(B).None;
+        (searching : bool) = true;
+        while(searching, {
+          nx := io.await(self._inner.next(io), io);
+          match(
+            nx,
+            .Some(item) => {
+              mapped := (self._f)(item);
+              if(mapped.is_some(), {
+                out = mapped;
+                searching = false;
+              });
+            },
+            .None => {
+              searching = false;
+            }
+          );
+        });
+        out
+      })
+    )
+  )
+);
+export(StreamFilterMap);
+// ---------------------------------------------------------------------------
+// StreamTake
+// ---------------------------------------------------------------------------
+/// Lazy stream that yields at most `n` items, then finishes — without
+/// touching the upstream stream again. Created by `.take(n)`.
+StreamTake :: (fn(comptime(S) : Type) -> comptime(Type))(
+  ref(struct(_inner : S, _remaining : usize))
+);
+impl(
+  generic(S : Type, A : Type),
+  where(S <: Stream(Item := A)),
+  StreamTake(S),
+  Stream(
+    Item : A,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(A), Io)))(
+      io.async((io : Io) => {
+        (out : Option(A)) = Option(A).None;
+        if(self._remaining > usize(0), {
+          self._remaining = (self._remaining - usize(1));
+          nx := io.await(self._inner.next(io), io);
+          out = nx;
+          // Upstream finished early: stop pulling on every later `next`.
+          if(nx.is_none(), {
+            self._remaining = usize(0);
+          });
+        });
+        out
+      })
+    )
+  )
+);
+export(StreamTake);
+// ---------------------------------------------------------------------------
+// StreamSkip
+// ---------------------------------------------------------------------------
+/// Lazy stream that discards the first `n` items, then yields the rest.
+/// Created by `.skip(n)`.
+StreamSkip :: (fn(comptime(S) : Type) -> comptime(Type))(
+  ref(struct(_inner : S, _to_skip : usize))
+);
+impl(
+  generic(S : Type, A : Type),
+  where(S <: Stream(Item := A)),
+  StreamSkip(S),
+  Stream(
+    Item : A,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(A), Io)))(
+      io.async((io : Io) => {
+        (out : Option(A)) = Option(A).None;
+        (pulling : bool) = true;
+        while(pulling, {
+          nx := io.await(self._inner.next(io), io);
+          match(
+            nx,
+            .Some(item) => {
+              cond(
+                (self._to_skip > usize(0)) => {
+                  self._to_skip = (self._to_skip - usize(1));
+                },
+                true => {
+                  out = Option(A).Some(item);
+                  pulling = false;
+                }
+              );
+            },
+            .None => {
+              self._to_skip = usize(0);
+              pulling = false;
+            }
+          );
+        });
+        out
+      })
+    )
+  )
+);
+export(StreamSkip);
+// ---------------------------------------------------------------------------
+// The combinators, once, over every `Stream`
+// ---------------------------------------------------------------------------
+impl(
+  generic(S : Type),
+  where(S <: Stream),
+  S,
+  /// Transform each item with `f`, producing a `StreamMap` stream.
+  map : (
+    fn(
+      generic(A : Type, B : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> B))
+    ) -> StreamMap(Self, B, F)
+  )(
+    StreamMap(Self, B, F)(_inner : self, _f : f)
+  ),
+  /// Keep only the items for which `pred` returns `true`.
+  filter : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> bool))
+    ) -> StreamFilter(Self, F)
+  )(
+    StreamFilter(Self, F)(_inner : self, _f : f)
+  ),
+  /// Map each item to `Option(B)` and keep the `.Some`s — `map` and `filter`
+  /// in one pass.
+  filter_map : (
+    fn(
+      generic(A : Type, B : Type, F : Type),
+      self : Self,
+      f : F,
+      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> Option(B)))
+    ) -> StreamFilterMap(Self, B, F)
+  )(
+    StreamFilterMap(Self, B, F)(_inner : self, _f : f)
+  ),
+  /// Yield at most `n` items.
+  take : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      n : usize,
+      where(Self <: Stream(Item := A))
+    ) -> StreamTake(Self)
+  )(
+    StreamTake(Self)(_inner : self, _remaining : n)
+  ),
+  /// Discard the first `n` items.
+  skip : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      n : usize,
+      where(Self <: Stream(Item := A))
+    ) -> StreamSkip(Self)
+  )(
+    StreamSkip(Self)(_inner : self, _to_skip : n)
+  ),
+  /// Drive the stream to its end, calling `f` on each item.
+  for_each : (
+    fn(
+      generic(A : Type, F : Type),
+      self : Self,
+      f : F,
+      io : Io,
+      where(Self <: Stream(Item := A), F <: (Fn(item : A) -> unit))
+    ) -> Impl(Future(unit, Io))
+  )(
+    io.async((io : Io) => {
+      (draining : bool) = true;
+      while(draining, {
+        nx := io.await(self.next(io), io);
+        match(
+          nx,
+          .Some(item) => {
+            (f)(item);
+          },
+          .None => {
+            draining = false;
+          }
+        );
+      });
+      ()
+    })
+  ),
+  /// Drive the stream to its end, gathering every item into an `ArrayList`.
+  collect : (
+    fn(
+      generic(A : Type),
+      self : Self,
+      io : Io,
+      where(Self <: Stream(Item := A))
+    ) -> Impl(Future(ArrayList(A), Io))
+  )(
+    io.async((io : Io) => {
+      out := ArrayList(A).new();
+      (draining : bool) = true;
+      while(draining, {
+        nx := io.await(self.next(io), io);
+        match(
+          nx,
+          .Some(item) => {
+            out.push(item);
+          },
+          .None => {
+            draining = false;
+          }
+        );
+      });
+      out
+    })
+  )
+);

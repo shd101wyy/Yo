@@ -1,0 +1,6 @@
+build :: import("std/build");
+lib :: build.static_library({ name : "add", root : "./add.yo" });
+exe :: build.executable({ name : "demo", root : "./demo.yo" });
+exe.link(lib);
+run_step :: build.step("run", "Build and run demo");
+run_step.depend_on(build.run(exe));

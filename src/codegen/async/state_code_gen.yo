@@ -10,7 +10,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { codegen_fatal } :: import("../constants.yo");
-{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH, BK_TUPLE } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_is_atom, ast_expr_token, BF_DOT, BK_WHILE, BK_BEGIN, BK_COND, BK_MATCH, BK_TUPLE } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { AwaitPoint, CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { SuspensionPoint } :: import("../../evaluator/shared/suspension_analysis_types.yo");
@@ -768,6 +768,76 @@ hoist_non_splittable_awaits :: (fn(segments : ArrayList(StateSegment)) -> unit)(
     i = (i + usize(1));
   });
 });
+/// True when the awaited expression READS a future out of a place it does not
+/// own — a struct field, or a chain of them (`self._future`) — instead of
+/// producing one.
+///
+/// `sm->await_future_N` OWNS its reference: the slot is `__yo_decr_rc`'d when
+/// the await completes, when the awaited future aborts, and when the state
+/// machine is disposed. Every other way a future reaches that slot already
+/// satisfies that. A future the awaited expression PRODUCES — an `io.async(…)`
+/// block, a `__yo_async_*_start()` extern, a call returning `Impl(Future)` —
+/// hands over the reference it just created, and its temp's own deferred drop
+/// is aliased onto the slot so it is not dropped twice (`state_machine.yo`
+/// Phase 1b). A NAMED future is never stored here at all: the await reads the
+/// variable's field directly, for exactly this reason (see the dispatch-mode
+/// branch below).
+///
+/// A field read is neither. The struct keeps its reference and releases it in
+/// its own dispose, so a slot that does not take one of its own makes the
+/// await's drop a SECOND release of the same object — the use-after-free
+/// `Park.wait` hit, where `p`'s scope-end drop then read a future the await
+/// had already freed
+/// (issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md).
+///
+/// Shaped after `arg_is_rc_projection_place` (`evaluator/utils.yo`), which asks
+/// the same borrow question about an ordinary call argument. This one is purely
+/// syntactic: codegen has no environment to resolve the root binding in, and a
+/// dot chain rooted at an atom is the only borrowed form an await can take.
+_await_future_expr_is_borrowed_place :: (fn(e : AstExpr) -> bool)({
+  if(!ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
+    return(false);
+  });
+  e_args := match(e, .FnCall(_, _, __afp_a, _, _) => __afp_a, .Atom(_, _) => ArrayList(AstExpr).new());
+  field := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
+  if(!ast_expr_is_atom(field), {
+    return(false);
+  });
+  (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
+  while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
+    r_args := match(root, .FnCall(_, _, __afp_ra, _, _) => __afp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
+    r_field := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
+    if(!ast_expr_is_atom(r_field), {
+      return(false);
+    });
+    root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
+  });
+  ast_expr_is_atom(root)
+});
+/// Emit the `sm->await_future_N = …` store, taking the reference the slot owns.
+///
+/// Every await-future store in this file goes through here so the borrowed case
+/// cannot be forgotten at one of the seven positions an await can appear in.
+emit_await_future_store :: (
+  fn(
+    future_expr : AstExpr,
+    future_code : String,
+    idx_s : String,
+    indent : String,
+    context : FunctionGenerationContext
+  ) -> unit
+)({
+  em := context.base.emitter;
+  em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+  if(_await_future_expr_is_borrowed_place(future_expr), {
+    em.emit_string_line(`${indent}// Borrowed future (read out of a field): the slot releases what it`);
+    em.emit_string_line(`${indent}// holds, so it needs a reference of its own — otherwise this await`);
+    em.emit_string_line(`${indent}// frees the field's future out from under its owner.`);
+    em.emit_string_line(
+      `${indent}if (sm->await_future_${idx_s} != NULL) { __yo_incr_rc((void*)sm->await_future_${idx_s}); }`
+    );
+  });
+});
 /// Emit the future store for an await hoisted out of a non-splittable position.
 ///
 /// The enclosing expression now lives in the next segment, so this segment ends
@@ -795,7 +865,7 @@ emit_hoisted_await_future_store :: (
     args.get(usize(0)),
     .Some(future_expr) => {
       future_code := _call_generate_expr(future_expr, indent, context);
-      em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+      emit_await_future_store(future_expr, future_code, idx_s, indent, context);
     },
     .None => ()
   );
@@ -1071,7 +1141,7 @@ generate_await_expression :: (
         .None => {
           future_code := _call_generate_expr(future_expr, indent, context);
           em.emit_string_line(`${indent}// Store pattern-matched Future for await ${idx_s}`);
-          em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+          emit_await_future_store(future_expr, future_code, idx_s, indent, context);
         },
         .Some(_) => {
           em.emit_string_line(`${indent}// Prepare for await (future already stored in state machine variable)`);
@@ -1111,7 +1181,7 @@ generate_await_expression :: (
                 .None => {
                   future_code := _call_generate_expr(future_expr, indent, context);
                   em.emit_string_line(`${indent}// Store Future for await (assignment)`);
-                  em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+                  emit_await_future_store(future_expr, future_code, idx_s, indent, context);
                 },
                 .Some(_) => {
                   em.emit_string_line(`${indent}// Store Future for await (assignment) - future already in state machine`);
@@ -1516,7 +1586,7 @@ generate_while_body_with_await :: (
           .Some(future_expr) => {
             future_code := _call_generate_expr(future_expr, indent, context);
             em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
-            em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+            emit_await_future_store(future_expr, future_code, idx_s, indent, context);
           },
           .None => ()
         );
@@ -1534,7 +1604,7 @@ generate_while_body_with_await :: (
           .None => {
             future_code := _call_generate_expr(future_expr, indent, context);
             em.emit_string_line(`${indent}// Store Future for await ${idx_s} (while loop body)`);
-            em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+            emit_await_future_store(future_expr, future_code, idx_s, indent, context);
           },
           .Some(_) => ()
         ),
@@ -1856,7 +1926,7 @@ generate_cond_branch_with_await :: (
                   }, {
                     future_code := _call_generate_expr(future_expr, indent, context);
                     em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
-                    em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+                    emit_await_future_store(future_expr, future_code, idx_s, indent, context);
                   }),
                   .None => ()
                 );
@@ -1881,7 +1951,7 @@ generate_cond_branch_with_await :: (
                     .None => {
                       future_code := _call_generate_expr(future_expr, indent, context);
                       em.emit_string_line(`${indent}// Store Future for await ${idx_s} (cond branch)`);
-                      em.emit_string_line(`${indent}sm->await_future_${idx_s} = (void*)(${future_code});`);
+                      emit_await_future_store(future_expr, future_code, idx_s, indent, context);
                     },
                     .Some(fv) => {
                       em.emit_string_line(`${indent}// Await will use Future from sm->var_${fv}`);

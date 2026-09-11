@@ -2,6 +2,13 @@
 //! Only available when compiling for macOS: import this module only from
 //! inside a `platform == Platform.Macos` branch (the same rule as
 //! `std/libc/windows`).
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding serving one caller: `std/env`'s
+//! `current_exe()` on macOS. The public surface is `std/env`; this module
+//! follows Darwin's dynamic-linker API, so its shape is Apple's to change,
+//! not Yo's. It grows by demand as `std/` needs more of `<mach-o/dyld.h>`.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<mach-o/dyld.h>",

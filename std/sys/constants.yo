@@ -1,83 +1,190 @@
-//! File system constants.
+//! File-system constants — the numeric flag values `std/fs` passes to the
+//! async I/O runtime.
 //!
-//! File mode bits, permission bits, `AT_*` flags, open flags,
-//! access mode constants, copyfile flags, directory entry types,
-//! and default permission modes.
+//! File mode bits, permission bits, `AT_*` flags, open flags, access mode
+//! constants, copy flags, directory entry types, and the default permission
+//! modes `fs.create`/`fs.mkdir` use.
+//!
+//! Every value here is a Yo literal rather than a `c_include` of the real
+//! header, because these numbers cross the Yo/C boundary as plain integers:
+//! `std/fs` hands them to the generated runtime (`src/codegen/async/`), which
+//! passes them to the syscall. Where a value DIFFERS between platforms it is a
+//! `cond` on `platform` and the difference is called out at the definition —
+//! `AT_FDCWD`, `AT_REMOVEDIR` and `AT_SYMLINK_NOFOLLOW` are the three that do.
+//! Everything else is identical on Linux and macOS. Non-Unix targets take the
+//! Linux arm.
+//!
+//! ## Stability
+//!
+//! unstable — this is a private constant table for `std/fs`, not a public
+//! surface. It grows an entry whenever `std/fs` needs one more flag, it
+//! duplicates numbers that live authoritatively in `<fcntl.h>` / `<sys/stat.h>`
+//! / `<dirent.h>`, and three of its members (`AT_EMPTY_PATH`,
+//! `COPYFILE_FICLONE`, `COPYFILE_FICLONE_FORCE`) are exported with no Yo caller
+//! at all. Callers want `std/fs` — `FileType`, `FilePermission`, `OpenOptions`
+//! and `fs.copy` — which is where the stable spelling of all of this lives.
+//! Freezing this module would mean deciding it is public, and the reason to do
+//! that has not appeared; the more likely end state is that it becomes
+//! `_`-private once `std/fs` covers the last raw-flag call site.
 { platform, Platform } :: import("../process");
 // Import platform-correct open flags from libc
 { O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND, O_NONBLOCK, O_CLOEXEC, O_DIRECTORY } :: import("../libc/fcntl");
 // ============================================================================
 // AT_* Flags
 // ============================================================================
+/// The `dirfd` that makes an `*at()` syscall resolve a relative path against
+/// the process's current directory — every `std/fs` call that takes a path
+/// rather than an open handle passes this. The value differs per kernel
+/// (`-2` on macOS, `-100` on Linux), which is exactly why it is a constant
+/// here and not a literal at the call sites.
 AT_FDCWD :: cond(
   (platform == Platform.Macos) => i32(-2),
   true => i32(-100)
 );
+/// `unlinkat()` flag selecting the `rmdir()` behaviour instead of `unlink()`:
+/// remove the name only if it is an empty directory. `std/fs` uses `0` to
+/// delete a file and this to delete a directory. macOS `0x80`, Linux `0x200`.
 AT_REMOVEDIR :: cond(
   (platform == Platform.Macos) => i32(0x80),
   true => i32(0x200)
 );
+/// Linux `statx()`/`fstatat()` flag meaning "the path is empty, stat the
+/// `dirfd` itself" — the way to stat a handle whose name may already have been
+/// renamed or unlinked. This is the LINUX value and there is no macOS
+/// equivalent (the macOS runtime stats by fd another way), so it is not
+/// `cond`-ed per platform: nothing in Yo reads it. The generated Linux runtime
+/// uses the C macro directly (`src/codegen/async/runtime_io_linux.yo`).
 AT_EMPTY_PATH :: i32(0x1000);
+/// `*at()` flag that makes the call act on a symlink itself instead of its
+/// target — what separates `fs.symlink_metadata` from `fs.metadata`. macOS
+/// `0x20`, Linux `0x100`.
 AT_SYMLINK_NOFOLLOW :: cond(
   (platform == Platform.Macos) => i32(0x20),
   true => i32(0x100)
 );
+/// `statx()` synchronisation mode: "whatever a plain `stat()` would do" —
+/// zero, so OR-ing it into a flag word is a no-op that documents the intent at
+/// the call site rather than changing behaviour.
 AT_STATX_SYNC_AS_STAT :: i32(0x0000);
-// STATX_BASIC_STATS - request basic stats (Linux-specific)
+/// `statx()` field mask requesting the fields a `struct stat` carries (all
+/// eleven `STATX_*` basic bits). Linux-specific; the macOS and wasm runtimes
+/// emulate `statx` over `fstatat` and ignore the mask.
 STATX_BASIC_STATS :: u32(0x000007ff);
 // ============================================================================
 // File Mode Bits (S_IF* and S_I* from sys/stat.h)
 // ============================================================================
+/// Mask selecting the file-type bits out of a mode word: `mode & S_IFMT`
+/// yields one of the `S_IF*` values below. `std/sys/statx.yo`'s `is_file` /
+/// `is_directory` / `is_symlink` are exactly that comparison.
 S_IFMT :: u32(0o170000);
+/// File type: unix-domain socket.
 S_IFSOCK :: u32(0o140000);
+/// File type: symbolic link. Only ever seen through a NOFOLLOW stat — a
+/// following stat reports the target's type.
 S_IFLNK :: u32(0o120000);
+/// File type: regular file.
 S_IFREG :: u32(0o100000);
+/// File type: block device.
 S_IFBLK :: u32(0o060000);
+/// File type: directory.
 S_IFDIR :: u32(0o040000);
+/// File type: character device.
 S_IFCHR :: u32(0o020000);
+/// File type: FIFO (named pipe).
 S_IFIFO :: u32(0o010000);
 // ============================================================================
 // Permission Bits
 // ============================================================================
+/// Owner read + write + execute (`0o700`) — the union of the three below.
 S_IRWXU :: u32(0o0700);
+/// Owner may read.
 S_IRUSR :: u32(0o0400);
+/// Owner may write.
 S_IWUSR :: u32(0o0200);
+/// Owner may execute — on a directory, may traverse it.
 S_IXUSR :: u32(0o0100);
+/// Group read + write + execute (`0o070`).
 S_IRWXG :: u32(0o0070);
+/// Group may read.
 S_IRGRP :: u32(0o0040);
+/// Group may write.
 S_IWGRP :: u32(0o0020);
+/// Group may execute — on a directory, may traverse it.
 S_IXGRP :: u32(0o0010);
+/// Other read + write + execute (`0o007`).
 S_IRWXO :: u32(0o0007);
+/// Others may read.
 S_IROTH :: u32(0o0004);
+/// Others may write.
 S_IWOTH :: u32(0o0002);
+/// Others may execute — on a directory, may traverse it.
 S_IXOTH :: u32(0o0001);
 // Default permissions
+/// Mode `std/fs` creates a new file with (`rw-r--r--`). It is the mode
+/// REQUESTED — the process umask still masks bits out of it, so a file created
+/// under `umask 077` lands at `0o600`.
 DEFAULT_FILE_MODE :: u32(0o644);
+/// Mode `std/fs` creates a new directory with (`rwxr-xr-x`), umask applied as
+/// above. The owner-execute bit is what makes the directory traversable, so
+/// this is not `DEFAULT_FILE_MODE` plus decoration.
 DEFAULT_DIR_MODE :: u32(0o755);
 // ============================================================================
 // Directory Entry Types (DT_*)
 // ============================================================================
+/// `dirent.d_type` sentinel meaning the directory did not report a type.
+/// It is not an error: several file systems (and every platform where the
+/// field is absent) always answer this, so a directory walk that needs the
+/// type must fall back to a `stat` of the entry — which is what
+/// `std/fs/dir.yo`'s `read_dir` does.
 DT_UNKNOWN :: u8(0);
+/// Directory entry is a FIFO (named pipe).
 DT_FIFO :: u8(1);
+/// Directory entry is a character device.
 DT_CHR :: u8(2);
+/// Directory entry is a directory.
 DT_DIR :: u8(4);
+/// Directory entry is a block device.
 DT_BLK :: u8(6);
+/// Directory entry is a regular file.
 DT_REG :: u8(8);
+/// Directory entry is a symbolic link.
 DT_LNK :: u8(10);
+/// Directory entry is a unix-domain socket.
 DT_SOCK :: u8(12);
+/// Directory entry is a BSD whiteout marker — a union-mount tombstone. Only
+/// macOS ever reports it.
 DT_WHT :: u8(14);
 // ============================================================================
 // Access Mode Constants (for access/faccessat)
 // ============================================================================
+/// `access()`/`faccessat()` mode: test existence only. Zero, so it cannot be
+/// OR-ed with the three below — asking for `F_OK | R_OK` is just `R_OK`.
 F_OK :: i32(0);
+/// `access()` mode: test read permission. OR-able with `W_OK` / `X_OK`.
 R_OK :: i32(4);
+/// `access()` mode: test write permission.
 W_OK :: i32(2);
+/// `access()` mode: test execute (for a directory, traverse) permission.
 X_OK :: i32(1);
 // ============================================================================
 // Copyfile Flags
 // ============================================================================
+/// `sys/copy.copyfile` flag: fail with `EEXIST` rather than overwrite an
+/// existing destination. Honoured on every platform — macOS maps it to
+/// `copyfile(3)`'s `COPYFILE_EXCL`, Linux and wasm to `O_EXCL` when they open
+/// the destination.
 COPYFILE_EXCL :: i32(1);
+/// `sys/copy.copyfile` flag: prefer a copy-on-write clone, fall back to a
+/// byte copy. **macOS only** — it becomes `copyfile(3)`'s `COPYFILE_CLONE`,
+/// while the Linux and wasm arms of the runtime ignore the bit entirely
+/// (`src/codegen/async/runtime_io_common.yo`); Linux tries
+/// `copy_file_range` regardless of it. The name and the 1/2/4 numbering follow
+/// libuv's `UV_FS_COPYFILE_*`, not any one platform's header. No Yo caller
+/// passes it today.
 COPYFILE_FICLONE :: i32(2);
+/// `sys/copy.copyfile` flag: require a copy-on-write clone and fail if the
+/// file system cannot do one. Same macOS-only caveat as `COPYFILE_FICLONE`
+/// (`COPYFILE_CLONE_FORCE` there); ignored elsewhere, and unused from Yo.
 COPYFILE_FICLONE_FORCE :: i32(4);
 export(
   // Open flags (re-exported from libc)

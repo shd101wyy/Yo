@@ -15,6 +15,27 @@
 //!   };
 //! });
 //! ```
+//!
+//! The walk is EAGER and iterative: `walk_with` drains the whole tree into
+//! one `ArrayList(WalkEntry)` before its future resolves, using an explicit
+//! stack rather than recursion, so depth costs heap and not C stack. The root
+//! itself is never an entry — only what is inside it. Order is the
+//! filesystem's, further shuffled by the stack (the last subdirectory found
+//! is the first descended), so nothing here is sorted; sort if you need
+//! determinism.
+//!
+//! ## Stability
+//!
+//! unstable — Rust's `walkdir` is a lazy `Iterator<Item = Result<DirEntry>>`
+//! and this is a materialised list, which decides two things a caller
+//! cannot work around: `walk` over a large tree allocates the entire tree
+//! (there is no "stop after the first match" — `glob` below pays exactly
+//! that cost), and ONE unreadable subdirectory throws out of the whole walk
+//! instead of surfacing as one failed item. `follow_symlinks` is also
+//! disabled outright on Windows
+//! (`issues/walker-follow-symlinks-windows-unsupported.md`). Freezing
+//! follows a lazy cursor with per-entry errors and Windows symlink descent,
+//! not a release count.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { HashSet } :: import("../collections/hash_set");
@@ -39,17 +60,42 @@ _FOLLOW_SUPPORTED :: cond(
 _dir :: import("./dir");
 /// Entry returned by the directory walker.
 WalkEntry :: struct(
+  /// Full path, built as walk-root + every intervening directory name +
+  /// `name`. It carries the root SPELLED AS GIVEN, so a walk of `./x`
+  /// reports `./x/...` and a walk of `/abs/x` reports `/abs/x/...` — this is
+  /// not canonicalised.
   path : Path,
+  /// The entry's own name, with no directory part.
   name : String,
+  /// How deep below the walk root this entry sits: `0` for the root's own
+  /// children, `1` for their children, and so on. `WalkOptions.max_depth`
+  /// is a bound on exactly this number.
   depth : u32,
+  /// The entry's kind, WITHOUT following a final symlink — a link is always
+  /// `.Symlink`, whatever `follow_symlinks` is set to. That option governs
+  /// descent, not classification, so a followed directory symlink appears
+  /// once as `.Symlink` and its contents appear beneath it.
   file_type : FileType
 );
 
 export(WalkEntry);
 /// Options controlling directory walk behavior.
 WalkOptions :: struct(
+  /// Deepest `WalkEntry.depth` to report, or `.None` for unlimited. A
+  /// directory deeper than this is not read at all, so `.Some(0)` lists the
+  /// root's immediate children and nothing else.
   max_depth : Option(u32),
+  /// Descend THROUGH directory symlinks as well as reporting them. Off by
+  /// default, and ignored entirely on Windows (see the module header).
+  /// Following is cycle-guarded by canonicalising each followed target and
+  /// entering it at most once, so a link pointing at an ancestor terminates
+  /// instead of recursing forever — but it costs a `stat` plus a
+  /// `canonicalize` per symlink encountered.
   follow_symlinks : bool,
+  /// Report directories as entries of their own, not just their contents.
+  /// Directories are DESCENDED either way; this only decides whether they
+  /// appear in the result. `remove_dir_all` needs them, which is why the
+  /// default is `true` — the opposite of what a file-oriented caller wants.
   include_dirs : bool,
   /// When set, only entries whose path RELATIVE TO THE WALK ROOT matches
   /// this glob (std/glob semantics; `**` crosses separators) are returned.
@@ -59,6 +105,8 @@ WalkOptions :: struct(
 );
 impl(
   WalkOptions,
+  /// Unlimited depth, symlinks reported but not followed, directories
+  /// included, no pattern — what `walk` uses.
   defaults : (fn() -> Self)(
     Self(
       max_depth : .None,
@@ -99,7 +147,6 @@ _canon_dir_target :: (fn(lp : String, io : Io) -> Impl(Future(String, IoExn)))(
 // ============================================================================
 // Walk functions
 // ============================================================================
-// Walk a directory tree with custom options.
 /// Keep the entries whose ROOT-RELATIVE path matches `pattern` (byte prefix
 /// strip is exact — every entry path is `_join_path(root_s, ...)`). `.None`
 /// passes everything through.
@@ -130,6 +177,21 @@ _filter_by_pattern :: (fn(results : ArrayList(WalkEntry), root_s : String, patte
   });
   kept
 });
+/// Walk the tree under `root` with explicit options, returning every entry
+/// found — the general form behind `walk` and `glob`.
+///
+/// Async: awaited on the single-threaded event loop, and it throws `IoExn`
+/// as soon as any directory in the tree cannot be read (including `root`
+/// itself), discarding the entries collected so far. A tree the caller has
+/// only partial access to therefore needs `read_dir` per level rather than
+/// this.
+///
+/// Symlink handling is deferred by design: a directory's symlinks are
+/// collected while its entries are scanned and resolved in a second pass
+/// over that same directory, because the `stat` + `canonicalize` the follow
+/// decision needs are awaits, and an await that deep inside the scan loop
+/// trips the async state machine
+/// (issues/async-nested-cond-await-duplicate-while-labels.md).
 walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))({
   root_s := root.to_string();
   io.async(e => {
@@ -241,11 +303,18 @@ walk_with :: (fn(root : Path, options : WalkOptions, io : Io) -> Impl(Future(Arr
     _filter_by_pattern(results, root_s, options.pattern)
   })
 });
+/// `walk_with` taking a NUL-terminated C string as the root, for callers
+/// already holding one from a C API. Identical otherwise: the bytes are
+/// copied into a `Path` immediately. An undecodable or unterminated pointer
+/// yields an EMPTY path rather than an error (`Path.from_cstr`), which then
+/// throws when the walk tries to read it.
 walk_with_cstr :: (fn(root : *u8, options : WalkOptions, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(
   walk_with(Path.from_cstr(root), options, io)
 );
 /// Walk a directory tree with default options.
 walk :: (fn(root : Path, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk_with(root, WalkOptions.defaults(), io));
+/// `walk` taking a NUL-terminated C string as the root. See
+/// `walk_with_cstr` for what an undecodable pointer does.
 walk_cstr :: (fn(root : *u8, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn)))(walk(Path.from_cstr(root), io));
 /// Split a glob pattern into (static base dir, relative pattern): the base
 /// is everything up to the last `/` BEFORE the first metacharacter

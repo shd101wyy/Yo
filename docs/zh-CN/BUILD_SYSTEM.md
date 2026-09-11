@@ -454,17 +454,17 @@ export add;
 **可执行模块**（`demo.yo`）：
 
 ```rust
-stdio :: import "std/libc/stdio";
+// `extern(...)` is an FFI declaration, so the file must opt into unsafe code.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
 
-extern "Yo",
-  add : (fn(a: i32, b: i32) -> i32);
+extern("Yo", add : (fn(a : i32, b : i32) -> i32));
 
 main :: (fn() -> unit)({
-  result := add(i32(3), i32(4));
-  stdio.printf("3 + 4 = %d\n", result);
+  println(add(i32(3), i32(4)).to_string());
 });
 
-export main;
+export(main);
 ```
 
 **构建文件**（`build.yo`）：

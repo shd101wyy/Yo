@@ -23,6 +23,25 @@
 //!   .Err(e) => println(e)
 //! );
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `SystemTime` arrived in v0.2.28 (#522) and has had one release,
+//! and two shapes here still differ from Rust in ways that a caller can only
+//! discover by reading the body. `Instant.duration_since` and `Instant.sub`
+//! CLAMP at zero, where Rust's `Instant::duration_since` panics on a later
+//! argument and splits the non-panicking cases into `checked_duration_since`
+//! and `saturating_duration_since`; the clamp is defensible for a monotonic
+//! clock but it silently turns a reversed-argument bug into a zero. Neither
+//! type has the `checked_add`/`checked_sub` Rust offers, `Instant` has no
+//! `Hash` or `Default` while `Duration` has both, and `SystemTime` has no
+//! `ToString`/`Debug` — a timestamp that cannot be printed. `Instant.add`/
+//! `sub` also multiply out to a nanosecond count, which is exactly what the
+//! `SystemTime` helpers below were written to avoid; it is harmless only
+//! because a monotonic reading is uptime rather than a date.
+//!
+//! Freezing needs the clamp-vs-`checked_*` split decided and those trait gaps
+//! filled. The two-clock division itself is settled and will not move.
 pragma(Pragma.AllowUnsafe);
 { Duration } :: import("./duration");
 { CLOCK_MONOTONIC, CLOCK_REALTIME, clock_gettime } :: import("../sys/clock");
@@ -35,15 +54,22 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("../fmt/to_string");
 /// Snapshot from the monotonic clock. Use `elapsed` to measure durations.
 Instant :: struct(
+  /// Whole seconds of a raw `CLOCK_MONOTONIC` reading. The ORIGIN is
+  /// arbitrary and OS-chosen (boot, on Linux), so the absolute number means
+  /// nothing outside this process — only differences between two `Instant`s
+  /// do.
   secs : i64,
+  /// Sub-second part of the same reading, in `[0, 1e9)`.
   nanos : i64
 );
 impl(
   Instant,
-  // Capture the current monotonic time.
-  // Panics if the monotonic clock fails — like Rust's `Instant::now`, a
-  // broken clock must not silently yield the epoch
-  // (plans/archive/STD_API_AUDIT.md C10).
+  /// Read the monotonic clock — Rust's `Instant::now`.
+  ///
+  /// Panics if `clock_gettime(CLOCK_MONOTONIC)` fails, rather than returning
+  /// a zero: a broken clock must not read as "the beginning of time", which
+  /// would make every subsequent `elapsed()` enormous
+  /// (plans/archive/STD_API_AUDIT.md C10).
   now : (fn() -> Self)({
     clk := CLOCK_MONOTONIC;
     out_s := i64(0);
@@ -57,8 +83,13 @@ impl(
     );
     Self(secs : out_s, nanos : out_ns)
   }),
-  // Duration between this instant and an earlier one.
-  // Returns Duration.zero() if `earlier` is actually later.
+  /// How much later `self` is than `earlier`.
+  ///
+  /// CLAMPS to `Duration.zero()` when `earlier` is actually the later of the
+  /// two, rather than panicking as Rust's `Instant::duration_since` does — so
+  /// a reversed pair of arguments reads as "no time passed" instead of
+  /// failing. A monotonic clock cannot itself run backwards, so a zero here
+  /// means the arguments were the wrong way round.
   duration_since : (fn(inout(self) : Self, earlier : Instant) -> Duration)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     earlier_ns := ((earlier.secs * i64(1000000000)) + earlier.nanos);
@@ -67,7 +98,9 @@ impl(
       true => Duration.from_nanos(self_ns - earlier_ns)
     )
   }),
-  // Duration elapsed since this instant was created.
+  /// How long ago this reading was taken —
+  /// `Instant.now().duration_since(self)`, and the method to reach for when
+  /// timing a section of code.
   elapsed : (fn(inout(self) : Self) -> Duration)({
     current := Instant.now();
     current.duration_since(self)

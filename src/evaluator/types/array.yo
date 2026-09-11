@@ -236,6 +236,31 @@ evaluate_array_type :: (
   // VARIABLE NAME on the type so generic-impl matching can bind it
   // (mirrors TS storing an UnknownValue with `variableName` in
   // `ArrayType.length`; the synthesizer binds it at match time).
+  // A length that is neither compile-time known NOR a bare variable name has
+  // nowhere to go: `t_array_var` can only record an IDENTIFIER, so the old
+  // fall-through built `Array(elem, 0, "")` — a CONCRETE length of zero. That
+  // is how `-> Array(u8, T.BYTES)` in a blanket impl emitted a signature
+  // returning `Array_uint8_t_0` while the specialized bodies emitted
+  // `Array_uint8_t_1` and `Array_uint8_t_4`. C caught it only because those
+  // are different types; a length-0 result the body also produced would have
+  // compiled, so this was a silently-wrong-type class
+  // (issues/associated-constant-in-a-type-position-resolves-to-zero.md).
+  //
+  // Reject it instead, naming the limitation. The real feature — a value
+  // half for `substitute()`, so an associated constant can be rewritten in a
+  // type position — is designed in
+  // plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md step 2. Until then
+  // an error is strictly better than a wrong type.
+  if(len_is_var && !ast_expr_is_atom(length_expr), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(length_expr),
+          `Array length is neither a compile-time constant nor a bare generic parameter:\n${ast_expr_to_string(length_expr)}\n\nAn associated constant or a computed expression in a LENGTH position needs value substitution, which the evaluator cannot express yet (plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md). Bind the length to a generic(N : usize) parameter and use that name directly, or write the type once per instantiation.`
+        )
+      )
+    );
+  });
   array_type := cond(
     (len_is_var && ast_expr_is_atom(length_expr)) =>
       t_array_var(child_type, ast_expr_token(length_expr).value.clone()),

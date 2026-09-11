@@ -1,4 +1,15 @@
 //! C11 `<dirent.h>` — directory entry operations.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design, and currently unused:
+//! nothing in the tree imports it. Directory listing does NOT go through
+//! `<dirent.h>` — `std/fs/dir` reads entries through the async runtime
+//! (`__yo_async_getdents_start` plus the `__yo_dirent_*` field accessors in
+//! `std/sys/externs.yo`), because a blocking `readdir` cannot be driven from
+//! the event loop. `DIR` and `dirent` are bound as opaque `Type`s for the
+//! same reason `sys/stat`'s `statbuf` is `*void`: their layout is per-OS.
+//! The supported surface is `std/fs/dir`.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<dirent.h>",

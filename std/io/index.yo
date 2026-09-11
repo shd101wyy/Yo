@@ -32,8 +32,28 @@
 //! not I/O. Implemented by `File`; see the trait's own doc for why it takes
 //! the reference-point type as a parameter and has no `rewind`.
 //!
-//! STILL TO COME: a buffered `lines()`, which waits on an async iterator
-//! protocol rather than being faked.
+//! STILL TO COME: a buffered `lines()`. The async iterator protocol it was
+//! waiting on landed 2026-09-11 (`std/async/stream.yo`), so the remaining
+//! blocker is this trait's own error style: a `Stream` reports failure in its
+//! ITEM and `read`/`read_line` THROW, which cannot be caught inside an async
+//! body. See `plans/backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md` for the
+//! `try_read` proposal.
+//!
+//! ## Stability
+//!
+//! unstable — the traits' core signature is the open question. `read` and
+//! `write` take a caller buffer as `*(u8)` + length because Yo has no slice
+//! type; if one arrives, that parameter shape is what it would replace, and
+//! that is a breaking change to every implementor (`File`, `TcpStream`,
+//! `UnixStream`, `TlsStream`, the stdio handles, `BufReader`/`BufWriter`,
+//! `Child`'s pipe handles) at once. It is also why safe code cannot
+//! implement these traits at all today, only consume them through the
+//! pointer-free defaults. Two smaller items ride along: `read_exact` is a
+//! `BufReader` method rather than the `Reader` default Rust has, and
+//! `lines()` waits on the non-throwing read named above. `Seek(From)` is
+//! newer still — 2026-09-09 — and inside its one-release window. `copy`, and
+//! the `read_to_end`/`read_to_string`/`write_all` defaults, are expected to
+//! keep their names and meanings.
 pragma(Pragma.AllowUnsafe);
 { IoExn, Exception } :: import("../error");
 { IoError } :: import("../sys/errors");

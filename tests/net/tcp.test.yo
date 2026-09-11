@@ -12,6 +12,9 @@ pragma(Pragma.AllowUnsafe);
 { SocketAddr, IpAddr } :: import("std/net/addr");
 { NetError } :: import("std/net/errors");
 { Error, AnyError, Exception, IoExn } :: import("std/error");
+{ Stream } :: import("std/async/stream");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
 // ============================================================================
 // TcpListener tests
 // ============================================================================
@@ -520,5 +523,119 @@ test("TCP local_addr is this end, and it is the peer's peer_addr", {
   assert(server_stream.local_addr().port == u16(19934), "the accepted socket is bound to the listening port");
   io.await(server_stream.close(io), IoExn(io : io, exn : exn));
   io.await(client.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+// ============================================================================
+// TcpListener.incoming — the listener as a `Stream`
+// (plans/reference/ASYNC_ITERATION_STREAM.md)
+// ============================================================================
+test("TcpListener.incoming is a Stream of accepted connections", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  bound := listener.local_addr();
+  // The chain is built here, not inside the task: a closure argument written
+  // inside an `io.async` body loses the future's result type.
+  conns := listener.incoming().take(usize(2));
+  server := io.spawn(conns.collect(io), io);
+  // Both connects happen while the server task's accept is pending.
+  client1 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
+  client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
+  accepted := match(
+    timeout(server, Duration.from_millis(i64(5000)), io),
+    .Ok(list) => list,
+    .Err(_) => {
+      assert(false, "incoming().take(2) did not deliver two connections inside the deadline");
+      ArrayList(Result(TcpStream, NetError)).new()
+    }
+  );
+  assert(accepted.len() == usize(2), "take(2) ends the stream after two connections");
+  assert(
+    match(accepted(usize(0)), .Ok(st) => (st.fd() >= i32(0)), .Err(_) => false),
+    "the first item is an Ok TcpStream"
+  );
+  assert(
+    match(accepted(usize(1)), .Ok(st) => (st.fd() >= i32(0)), .Err(_) => false),
+    "so is the second — the failure lives IN the item, so one bad accept would not end the stream"
+  );
+  io.await(client1.close(io), IoExn(io : io, exn : exn));
+  io.await(client2.close(io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+});
+test("a closed listener's incoming stream is finished", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  io.await(listener.close(io), IoExn(io : io, exn : exn));
+  conns := listener.incoming();
+  first := io.await(conns.next(io), io);
+  assert(first.is_none(), "a closed listener accepts nothing more, so the stream is over");
+  second := io.await(conns.next(io), io);
+  assert(second.is_none(), "and it stays over");
+});
+test("a consumer loop over incoming serves each connection in turn", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), IoExn(io : io, exn : exn));
+  bound := listener.local_addr();
+  fds := ArrayList(i32).new();
+  conns := listener.incoming().take(usize(2));
+  // The accepted streams are dropped by the loop body; `TcpStream`'s Dispose
+  // closes the descriptor, so nothing leaks while the fd is recorded. The
+  // loop is hand-written because a macro that expands to an `io.await` is
+  // emitted as a BLOCKING await inside a task and deadlocks
+  // (issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md).
+  server_task := io.async((io : Io) => {
+    (serving : bool) = true;
+    while(serving, {
+      nx := io.await(conns.next(io), io);
+      match(
+        nx,
+        .Some(c) => {
+          match(
+            c,
+            .Ok(st) => {
+              fds.push(st.fd());
+            },
+            .Err(_) => {
+              fds.push(i32(-1));
+            }
+          );
+        },
+        .None => {
+          serving = false;
+        }
+      );
+    });
+    ()
+  });
+  h := io.spawn(server_task, io);
+  client1 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
+  client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
+  r := timeout(h, Duration.from_millis(i64(5000)), io);
+  assert(r.is_ok(), "the loop finished when take(2) ended the stream");
+  assert(fds.len() == usize(2), "the body ran once per connection");
+  assert(fds(usize(0)) >= i32(0), "first connection was accepted, not an error item");
+  assert(fds(usize(1)) >= i32(0), "second too");
+  io.await(client1.close(io), IoExn(io : io, exn : exn));
+  io.await(client2.close(io), IoExn(io : io, exn : exn));
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });

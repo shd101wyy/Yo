@@ -1,16 +1,51 @@
-//! Socket constants.
+//! Socket constants and `sockaddr` sizes — the numbers `std/net` passes to
+//! `socket()`, `setsockopt()`, `shutdown()` and `getnameinfo()`.
 //!
-//! Platform-aware socket constants for TCP, UDP, and Unix domain sockets.
-//! Uses `process.platform` for values that differ between Linux and macOS.
+//! Almost nothing here is portable by value. The BSD and Linux socket stacks
+//! agree on the IANA protocol numbers and on very little else: option levels,
+//! every `SO_*` option name, the IPv6 address family, the TCP keepalive knobs
+//! and the `NI_*` flags all differ, and Windows follows BSD for some and
+//! neither for others. So each constant that differs is a `cond` on
+//! `process.platform` with the per-platform value called out at its
+//! definition, and the values were checked against the macOS 14 SDK headers
+//! (`sys/socket.h`, `netinet/tcp.h`, `netdb.h`) and the Linux `asm-generic`
+//! numbering. Targets that are neither macOS nor Windows take the Linux arm.
+//!
+//! The `sockaddr_*_size` functions are here rather than being constants
+//! because a C `struct sockaddr_in` has no Yo declaration to take the size of:
+//! each one calls the generated runtime, which returns the C `sizeof`.
+//!
+//! ## Stability
+//!
+//! unstable — a private numeric table for `std/net` (`TcpStream`,
+//! `TcpListener`, `UdpSocket`, `UnixStream`) rather than a surface of its own,
+//! and it grows an entry whenever `std/net` needs one more option. Two entries
+//! are already placeholders rather than kernel values: `SO_REUSEPORT` is `0` on
+//! Windows because Windows has no such option, and `AF_LOCAL` is a second
+//! spelling of `AF_UNIX`. Callers want `std/net`'s typed sockets and
+//! `std/net/addr`'s address types, which is where the stable spelling lives.
+//! Freezing would mean deciding this table is public; the more likely end state
+//! is that it goes `_`-private once `std/net` covers the last raw-`setsockopt`
+//! call site.
 { platform, Platform } :: import("../process");
 { __yo_sockaddr_storage_size, __yo_sockaddr_in_size, __yo_sockaddr_in6_size, __yo_sockaddr_un_size } :: import("./externs.yo");
 // ============================================================================
 // Address Families (AF_*)
 // ============================================================================
+/// Address family: unspecified — for `getaddrinfo`, "either IPv4 or IPv6,
+/// whichever resolves".
 AF_UNSPEC :: i32(0);
+/// Address family: unix-domain (filesystem) socket. `1` on every supported
+/// platform.
 AF_UNIX :: i32(1);
+/// POSIX's spelling of `AF_UNIX`, and the same number. Kept because the
+/// headers define both; there is no behavioural difference.
 AF_LOCAL :: i32(1);
+/// Address family: IPv4. `2` on every supported platform.
 AF_INET :: i32(2);
+/// Address family: IPv6. The one address family whose number is NOT portable
+/// — macOS 30, Windows 23, Linux 10 — which is why an IPv6 socket created with
+/// a hardcoded `10` silently fails on macOS.
 AF_INET6 :: cond(
   (platform == Platform.Macos) => i32(30),
   (platform == Platform.Windows) => i32(23),
@@ -19,64 +54,116 @@ AF_INET6 :: cond(
 // ============================================================================
 // Socket Types (SOCK_*)
 // ============================================================================
+/// Socket type: a reliable, ordered, connection-oriented byte stream (TCP, or
+/// a unix-domain stream socket).
 SOCK_STREAM :: i32(1);
+/// Socket type: connectionless, unordered, unreliable datagrams (UDP).
 SOCK_DGRAM :: i32(2);
+/// Socket type: raw protocol access. Needs privileges on every platform;
+/// `std/net` does not expose it.
 SOCK_RAW :: i32(3);
+/// Socket type: reliable, ordered, connection-oriented datagrams — record
+/// boundaries preserved, unlike `SOCK_STREAM`. `5` on both Unixes.
 SOCK_SEQPACKET :: i32(5);
 // ============================================================================
 // Socket Option Levels
 // ============================================================================
+/// The `setsockopt`/`getsockopt` level for the `SO_*` options below.
+/// `0xFFFF` on macOS and Windows, `1` on Linux — so the level and the option
+/// name must always be taken from the same platform's table.
 SOL_SOCKET :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0xFFFF),
   true => i32(1)
 );
+/// Option level (and `socket()` protocol) for TCP. An IANA protocol number,
+/// so `6` everywhere.
 IPPROTO_TCP :: i32(6);
+/// Option level (and `socket()` protocol) for UDP — IANA `17`.
 IPPROTO_UDP :: i32(17);
+/// Option level for IPv4-level options, and the `socket()` protocol meaning
+/// "the default for this type".
 IPPROTO_IP :: i32(0);
+/// Option level for IPv6-level options (`IPV6_V6ONLY` and friends) — IANA
+/// `41`.
 IPPROTO_IPV6 :: i32(41);
 // ============================================================================
 // Socket Options (SO_*)
 // ============================================================================
+/// Allow `bind()` to a local address still held in `TIME_WAIT` — what lets a
+/// server restart on its port immediately. On BSD/macOS it does NOT let two
+/// live sockets share a port; that is `SO_REUSEPORT`.
 SO_REUSEADDR :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x0004),
   true => i32(2)
 );
+/// Enable TCP keepalive probes on an idle connection. The timing is set
+/// separately through `TCP_KEEPIDLE`/`TCP_KEEPINTVL`/`TCP_KEEPCNT`, and the
+/// platform defaults are on the order of two hours.
 SO_KEEPALIVE :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x0008),
   true => i32(9)
 );
+/// Permit sending to a broadcast address on a datagram socket. Sending to
+/// `INADDR_BROADCAST` without it fails with `EACCES`.
 SO_BROADCAST :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x0020),
   true => i32(6)
 );
+/// Receive buffer size in bytes. The kernel may round the request up or cap
+/// it, and Linux doubles the value it is given for bookkeeping — read it back
+/// with `getsockopt` rather than assuming the set value took.
 SO_RCVBUF :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x1002),
   true => i32(8)
 );
+/// Send buffer size in bytes, with the same round-up/cap caveat as
+/// `SO_RCVBUF`.
 SO_SNDBUF :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x1001),
   true => i32(7)
 );
+/// Receive timeout, as a `struct timeval`. Applies to BLOCKING reads; it has
+/// no effect on `std/net`'s async path, which is driven by the event loop and
+/// times out through `std/time`.
 SO_RCVTIMEO :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x1006),
   true => i32(20)
 );
+/// Send timeout, as a `struct timeval`, with the same blocking-only caveat as
+/// `SO_RCVTIMEO`.
 SO_SNDTIMEO :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x1005),
   true => i32(21)
 );
+/// Read-and-clear the socket's pending error. This is how the completion of a
+/// non-blocking `connect()` is turned into success or an errno — the whole
+/// reason the option exists in an async stack.
 SO_ERROR :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x1007),
   true => i32(4)
 );
+/// Read back the socket's type (`SOCK_STREAM`, `SOCK_DGRAM`, …). Read-only.
 SO_TYPE :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x1008),
   true => i32(3)
 );
+/// Whether `close()` blocks until queued data is sent, as a `struct linger`.
+///
+/// The macOS value is the `_DARWIN_C_SOURCE` one, `0x0080`, whose interval is
+/// in **ticks**; macOS's other spelling, `SO_LINGER_SEC` (`0x1080`), takes
+/// **seconds**. So a linger interval that is right on Linux is not right on
+/// macOS through this constant.
 SO_LINGER :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(0x0080),
   true => i32(13)
 );
+/// Allow several live sockets to bind the same address and port, with the
+/// kernel load-balancing accepts between them.
+///
+/// **Windows has no equivalent, and the Windows arm is the placeholder `0`,
+/// not a kernel option name** — passing it to `setsockopt` there is an error
+/// rather than a no-op. Guard the call by platform instead of relying on this
+/// value.
 SO_REUSEPORT :: cond(
   (platform == Platform.Macos) => i32(0x0200),
   (platform == Platform.Windows) => i32(0),
@@ -85,17 +172,27 @@ SO_REUSEPORT :: cond(
 // ============================================================================
 // TCP Options (TCP_*)
 // ============================================================================
+/// Disable Nagle's algorithm: send small writes immediately instead of
+/// coalescing them. `1` on every supported platform. This is what a
+/// request/response protocol wants and a bulk transfer does not.
 TCP_NODELAY :: i32(1);
+/// Idle seconds before the first keepalive probe. macOS spells this
+/// `TCP_KEEPALIVE` (`0x10`) rather than `TCP_KEEPIDLE`; Windows `3`, Linux
+/// `4`. Only has an effect once `SO_KEEPALIVE` is set.
 TCP_KEEPIDLE :: cond(
   (platform == Platform.Macos) => i32(0x10),
   (platform == Platform.Windows) => i32(3),
   true => i32(4)
 );
+/// Seconds between keepalive probes once the first has gone unanswered.
+/// macOS `0x101`, Windows `17`, Linux `5`.
 TCP_KEEPINTVL :: cond(
   (platform == Platform.Macos) => i32(0x101),
   (platform == Platform.Windows) => i32(17),
   true => i32(5)
 );
+/// Unanswered keepalive probes before the connection is dropped. macOS
+/// `0x102`, Windows `16`, Linux `6`.
 TCP_KEEPCNT :: cond(
   (platform == Platform.Macos) => i32(0x102),
   (platform == Platform.Windows) => i32(16),
@@ -104,49 +201,84 @@ TCP_KEEPCNT :: cond(
 // ============================================================================
 // shutdown() how parameter
 // ============================================================================
+/// `shutdown()` how: close the receiving half. Further reads see EOF; the peer
+/// can still be written to.
 SHUT_RD :: i32(0);
+/// `shutdown()` how: close the sending half, sending FIN so the peer reads
+/// EOF while this end can still read its reply. The half-close a
+/// request-then-read-response protocol needs.
 SHUT_WR :: i32(1);
+/// `shutdown()` how: close both halves. Unlike `close()`, this tears down the
+/// connection without releasing the descriptor.
 SHUT_RDWR :: i32(2);
 // ============================================================================
 // Special IP Addresses
 // ============================================================================
+/// IPv4 wildcard `0.0.0.0` — bind to every local interface. In HOST byte
+/// order, like its two siblings; the runtime converts on the way to a
+/// `sockaddr_in`.
 INADDR_ANY :: u32(0x00000000);
+/// IPv4 loopback `127.0.0.1`, in host byte order.
 INADDR_LOOPBACK :: u32(0x7F000001);
+/// IPv4 limited broadcast `255.255.255.255`, in host byte order. Sending to
+/// it needs `SO_BROADCAST`.
 INADDR_BROADCAST :: u32(0xFFFFFFFF);
 // ============================================================================
 // Sockaddr helpers
 // ============================================================================
+/// `sizeof(struct sockaddr_storage)` from the C compiler — the size to
+/// allocate for an address of unknown family, e.g. the out-parameter of
+/// `accept()` or `recvfrom()`. Yo cannot take the size of a C struct it has no
+/// declaration for, so this asks the generated runtime.
 sockaddr_storage_size :: (fn() -> usize)(
   __yo_sockaddr_storage_size()
 );
+/// `sizeof(struct sockaddr_in)` from the C compiler — the exact length to pass
+/// to `bind`/`connect` for an IPv4 address.
 sockaddr_in_size :: (fn() -> usize)(
   __yo_sockaddr_in_size()
 );
+/// `sizeof(struct sockaddr_in6)` from the C compiler — the IPv6 counterpart of
+/// `sockaddr_in_size`, and a different size from it.
 sockaddr_in6_size :: (fn() -> usize)(
   __yo_sockaddr_in6_size()
 );
+/// `sizeof(struct sockaddr_un)` from the C compiler. This is the size of the
+/// whole struct including its fixed-length path array, not the length of any
+/// particular path.
 sockaddr_un_size :: (fn() -> usize)(
   __yo_sockaddr_un_size()
 );
 // ============================================================================
 // getnameinfo() flags (NI_*)
 // ============================================================================
+/// `getnameinfo` flag: return the numeric address instead of doing a reverse
+/// DNS lookup. macOS/Windows `2`, Linux `1` — the `NI_*` flags are permuted
+/// between the two tables, so mixing them silently asks for a different flag.
 NI_NUMERICHOST :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(2),
   true => i32(1)
 );
+/// `getnameinfo` flag: return the numeric port instead of a service name.
+/// macOS/Windows `8`, Linux `2`.
 NI_NUMERICSERV :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(8),
   true => i32(2)
 );
+/// `getnameinfo` flag: for a host on the local network, return the bare host
+/// name rather than the fully qualified one. macOS/Windows `1`, Linux `4`.
 NI_NOFQDN :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(1),
   true => i32(4)
 );
+/// `getnameinfo` flag: fail rather than fall back to the numeric form when the
+/// name cannot be resolved. macOS/Windows `4`, Linux `8`.
 NI_NAMEREQD :: cond(
   ((platform == Platform.Macos) || (platform == Platform.Windows)) => i32(4),
   true => i32(8)
 );
+/// `getnameinfo` flag: look the service up as UDP rather than TCP — the two
+/// name spaces differ for a handful of ports. `16` on all three platforms.
 NI_DGRAM :: i32(16);
 export(
   AF_UNSPEC,

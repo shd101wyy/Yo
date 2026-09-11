@@ -1067,3 +1067,170 @@ test("BOM-only input tokenizes to an empty stream", {
   toks := non_ws(lex_or_panic(sb.to_string(), exn));
   assert(toks.len() == usize(0), "expected 0 tokens");
 });
+// ─── Unicode escapes ─────────────────────────────────────────────────────────
+// `\uXXXX` read the next four runes unconditionally and folded a NON-hex rune
+// as if it were 0, so `"\uZZZZ"` decoded to a single U+0000 byte and
+// `"\u{41}"` — whose four runes are `{`, `4`, `1`, `}` — decoded to U+0410
+// rather than U+0041. Neither was diagnosed anywhere. And a BACKTICK template
+// had no `\u` arm at all, so it kept the escape as literal source text while
+// the double-quoted form decoded it: one spelling, two meanings.
+// issues/fixed/unicode-escape-accepts-non-hex-digits.md
+//
+// A malformed escape is a LEXICAL error, as in Rust, so these are lexer tests
+// rather than `comptime_expect_error` cases — which cannot express a lexer
+// failure — and rather than a cli-case, whose fixture tree is scanned by CI's
+// `fmt --check` gate and so cannot hold a file that does not lex.
+//
+// Every source below writes the backslash as a DOUBLED backslash in a
+// double-quoted literal, which decodes to one: writing it in a template would
+// make this file's own lexing the thing under test.
+test("A non-hex digit in a unicode escape is a lexer error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(String.from("invalid unicode escape")), "wrong error message: four-digit form rejects a non-hex rune"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("s :: \"\\uZZZZ\";"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("A braced unicode escape with no digits is a lexer error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(String.from("empty unicode escape")), "wrong error message: empty braces are rejected"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("s :: \"\\u{}\";"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("A braced unicode escape above 10FFFF is a lexer error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(String.from("out of range")), "wrong error message: beyond the largest code point"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("s :: \"\\u{110000}\";"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("A braced unicode escape naming a surrogate is a lexer error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(String.from("surrogate")), "wrong error message: a lone surrogate is not a scalar value"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("s :: \"\\u{D800}\";"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("A braced unicode escape with more than six digits is a lexer error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(String.from("at most six hex digits")), "wrong error message: seven digits are rejected"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("s :: \"\\u{1234567}\";"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("A braced unicode escape closed by the string delimiter is a lexer error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(String.from("takes hex digits only")), "wrong error message: the closing quote is not a hex digit and not a closing brace"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("s :: \"\\u{41\";"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+test("A non-hex digit in a TEMPLATE unicode escape is a lexer error", {
+  exn := Exception(
+    throw : (
+      err -> {
+        match(
+          downcast(err, YoError),
+          .Some(ye) => assert(ye.to_string().contains(String.from("invalid unicode escape")), "wrong error message: the template path validates too"),
+          .None => assert(false, "expected a YoError diagnostic")
+        );
+        unwind(());
+      }
+    )
+  );
+  tokenize(String.from("s :: `\\uZZZZ`;"), `test.yo`, exn);
+  assert(false, "expected a lexer error to be raised");
+});
+// The positive side: what must keep lexing. A double-quoted literal keeps its
+// escape RAW (the evaluator decodes it, and `yo fmt` prints the token value
+// back, so decoding here would rewrite the source); a template is decoded by
+// the lexer, so its token value is the finished text.
+test("Well-formed unicode escapes lex, and a template decodes them", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected error");
+        unwind(());
+      }
+    )
+  );
+  dq := non_ws(lex_or_panic(String.from("s :: \"x\\u0041y\";"), exn));
+  assert(dq.get(2).unwrap().kind == TokenKind.StringLit, "the literal lexed");
+  assert(
+    dq.get(2).unwrap().value == String.from("\"x\\u0041y\""),
+    "a double-quoted literal keeps the escape raw, delimiters included"
+  );
+  tmpl := non_ws(lex_or_panic(String.from("s :: `x\\u0041y`;"), exn));
+  assert(tmpl.get(2).unwrap().kind == TokenKind.TemplateString, "the template lexed");
+  assert(
+    tmpl.get(2).unwrap().value == String.from("xAy"),
+    "a template DECODES the escape: four hex digits became one A"
+  );
+  braced := non_ws(lex_or_panic(String.from("s :: `x\\u{41}y`;"), exn));
+  assert(
+    braced.get(2).unwrap().value == String.from("xAy"),
+    "the braced spelling decodes to the same text"
+  );
+  astral := non_ws(lex_or_panic(String.from("s :: `\\u{1F600}`;"), exn));
+  assert(astral.get(2).unwrap().value.len() == usize(4), "U+1F600 is four UTF-8 bytes");
+  pair := non_ws(lex_or_panic(String.from("s :: `\\uD83D\\uDE00`;"), exn));
+  assert(
+    pair.get(2).unwrap().value == astral.get(2).unwrap().value,
+    "a surrogate PAIR combines into the same code point"
+  );
+});

@@ -1,20 +1,39 @@
-//! Async TCP networking — listeners and streams with Exception-based error handling.
-// std/net/tcp.yo - High-level TCP types
-//
-// Wraps std/sys/tcp with typed TcpListener and TcpStream objects.
-// Uses the Exception effect for error handling.
-//
-// Example:
-//   { TcpListener, TcpStream } :: import "std/net/tcp";
-//   { SocketAddr, IpAddr } :: import "std/net/addr";
-//   { Exception } :: import "std/error";
-//
-//   main :: (fn(io : Io, exn : Exception) -> unit)({
-//     addr := SocketAddr.new(IpAddr.any_v4(), u16(8080));
-//     listener := io.await(TcpListener.bind(addr, io), { io, exn });
-//     stream := io.await(listener.accept(io), { io, exn });
-//     // ...
-//   });
+//! Async TCP networking — typed `TcpListener` and `TcpStream` objects over
+//! `std/sys/tcp`, with Exception-based error handling.
+//!
+//! Every operation that touches the network is an `io.async` future, so it
+//! runs on the ONE event-loop thread: awaiting a `read` parks this task and
+//! lets every other task on the loop run, and nothing here blocks a thread.
+//! Kernel failures are thrown as `IoExn` carrying an `IoError` (D1) instead
+//! of being returned, which is why a resolved byte count is always a real
+//! count and never a negative errno.
+//!
+//! ```rust
+//! { TcpListener, TcpStream } :: import("std/net/tcp");
+//! { SocketAddr } :: import("std/net/addr");
+//! { Exception, IoExn } :: import("std/error");
+//!
+//! main :: (fn(io : Io, exn : Exception) -> unit)({
+//!   e := IoExn(io : io, exn : exn);
+//!   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(8080)), io), e);
+//!   stream := io.await(listener.accept(io), e);
+//!   io.await(stream.write_str("pong", io), e);
+//! });
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — two shapes are still open, both in the READ direction. A
+//! `TcpStream` can be written from safe code (`write_str`, `write_string`,
+//! `write_bytes`) but can only be read through `read(buf : *(u8), size, io)`,
+//! so a program without `pragma(Pragma.AllowUnsafe)` has to go through the
+//! `Reader` defaults or `std/io/bufio`'s `BufReader` to get a byte out — the
+//! same asymmetry `std/net/udp` closed on 2026-09-09 with `recv_bytes`, and
+//! not yet closed here. And there is no `incoming`: Rust's listener iterator
+//! needs the async iterator protocol Yo does not have (`std/io/index.yo`
+//! names the same gap), so `accept` in a loop is the only spelling.
+//! Freezing waits on a pointer-free read; the listener/stream names, which
+//! mirror Rust's, are not expected to move.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -27,6 +46,7 @@ import("../fmt");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_tcp :: import("../sys/tcp");
 IoTraits :: import("../io");
+{ Stream } :: import("../async/stream");
 SockInfo :: import("../sys/sockinfo");
 { AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE, SHUT_RD, SHUT_WR, SHUT_RDWR } :: import("../sys/socket");
 // ============================================================================
@@ -161,6 +181,66 @@ TcpListener :: ref(
     _is_closed : bool
   )
 );
+/// The stream of connections arriving at a `TcpListener` — Rust's
+/// `TcpListener::incoming`, created by `listener.incoming()`.
+///
+/// Item is a `Result`, not a bare `TcpStream`, for the reason Rust's is: a
+/// single failed `accept` (a client that vanished between the SYN and the
+/// accept, a per-process descriptor limit) is ONE bad connection, not the end
+/// of the listener. Carrying the failure in the item is what lets the stream
+/// survive it — and it is why `Stream.next` needs no `Exception` handler
+/// (`std/async/stream.yo`).
+///
+/// The error is a `NetError`, the same type `accept` THROWS, so moving a
+/// server loop from `accept` to `incoming` does not change its error
+/// vocabulary.
+///
+/// The stream finishes (`.None`) once the listener is closed — including by
+/// another task while a `next` is pending — mirroring `Watcher`.
+Incoming :: ref(struct(_listener : TcpListener));
+impl(
+  Incoming,
+  Stream(
+    Item : Result(TcpStream, NetError),
+    next : (
+      fn(self : Self, io : Io) -> Impl(Future(Option(Result(TcpStream, NetError)), Io))
+    )(
+      io.async((io : Io) => {
+        (out : Option(Result(TcpStream, NetError))) = Option(Result(TcpStream, NetError)).None;
+        if(!self._listener._is_closed, {
+          // The raw accept, not the throwing `accept` method: this stream
+          // reports failure IN the item, and an `Exception` handler cannot be
+          // installed across a suspension inside an async body.
+          addr_buf := (*u8)(malloc(usize(128)).unwrap());
+          addr_len := (*u32)(malloc(usize(4)).unwrap());
+          addr_len.* = u32(128);
+          client_fd := io.await(IO_tcp.accept(self._listener._fd, addr_buf, addr_len), io);
+          // The peer address is parsed only on success: on failure the kernel
+          // filled nothing in, so `addr_buf` is still uninitialized malloc.
+          out = cond(
+            (client_fd < i32(0)) => Option(Result(TcpStream, NetError)).Some(
+              Result(TcpStream, NetError).Err(NetError.from_io(IoError.from_errno(i32(0) - client_fd)))
+            ),
+            true => Option(Result(TcpStream, NetError)).Some(
+              Result(TcpStream, NetError).Ok(
+                TcpStream(
+                  _fd : client_fd,
+                  _peer_addr : sockaddr_to_socket_addr(addr_buf),
+                  _local_addr : _read_local_addr(client_fd, SocketAddr.any(u16(0))),
+                  _is_closed : false
+                )
+              )
+            )
+          );
+          free(.Some((*void)(addr_buf)));
+          free(.Some((*void)(addr_len)));
+        });
+        out
+      })
+    )
+  )
+);
+export(Incoming);
 impl(
   TcpListener,
   /// Bind to a socket address and start listening.
@@ -236,6 +316,19 @@ impl(
       );
     })
   }),
+  /// The connections arriving at this listener, as a `Stream` of
+  /// `Result(TcpStream, NetError)` — Rust's `TcpListener::incoming`.
+  ///
+  /// ```rust
+  /// conns := listener.incoming().take(usize(3));
+  /// io.await(conns.for_each(c => { handle(c); }, io), io);
+  /// ```
+  ///
+  /// Every `std/async/stream` combinator applies, and a function can be
+  /// generic over `where(S <: Stream)` instead of over this listener.
+  incoming : (fn(self : Self) -> Incoming)(
+    Incoming(_listener : self)
+  ),
   /// Get the local address this listener is bound to.
   local_addr : (fn(self : Self) -> SocketAddr)(
     self._local_addr
@@ -314,8 +407,18 @@ impl(
       );
     })
   ),
-  /// Read bytes from the stream into `buf`.
-  /// Returns the number of bytes read, or 0 if the peer closed the connection.
+  /// Read up to `size` bytes from the stream into `buf`, resolving to the
+  /// number actually read. `0` — and only `0` — means the peer closed its end;
+  /// a SHORT count is ordinary on a stream socket and says nothing about
+  /// end-of-stream, so a caller that needs `size` bytes loops. Awaiting parks
+  /// this task on the event loop until the kernel has bytes; a failure throws
+  /// `IoExn` rather than resolving to a negative count.
+  ///
+  /// `buf` must have room for `size` bytes, and raw pointers are unavailable
+  /// in safe code, so calling this directly needs
+  /// `pragma(Pragma.AllowUnsafe)`. Safe code uses the `Reader` defaults
+  /// (`read_to_end`, `read_to_string`) or wraps the stream in
+  /// `BufReader(TcpStream)`.
   read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
@@ -323,8 +426,12 @@ impl(
       usize(NetError.check(r, e.exn))
     })
   }),
-  /// Write up to `size` raw bytes from `buf` to the stream.
-  /// Returns the number of bytes written.
+  /// Write up to `size` raw bytes from `buf`, resolving to the number the
+  /// kernel accepted — which may be LESS than `size`. A caller that must
+  /// deliver everything loops, or takes the `Writer` trait's `write_all`.
+  /// Awaiting parks this task until the socket is writable; a failure throws
+  /// `IoExn`. Needs `pragma(Pragma.AllowUnsafe)` for the raw pointer —
+  /// `write_bytes` / `write_str` / `write_string` are the safe spellings.
   write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {

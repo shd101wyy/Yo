@@ -4760,3 +4760,67 @@ test("io.async closure body mutates a module-level global", {
   io.await(task, io);
   assert(module_global_counter.load(MemoryOrder.Relaxed) == i32(6), "the async body reached the module global");
 });
+// ---------------------------------------------------------------------------
+// A MODULE-LEVEL global survives a suspension point.
+//
+// It did not. The suspension analysis hoisted every referenced variable into
+// the state-machine struct, module globals included, so a global became
+// `sm->var_<id>`: the field starts at zero (the struct is calloc'd and nothing
+// initializes it FROM the global), every write inside the body went to the
+// field, and the state entry then declared a LOCAL with the global's mangled C
+// name reading `sm->var_<id>` — shadowing the real global. A body that
+// suspended therefore read and wrote a COPY: the writes were lost and the next
+// call restarted from zero, while the same body with no `io.await` updated the
+// real global.
+//
+// Silent, and worse than silent: the testing guidance recommends a
+// module-level counter as the in-language oracle for a leak, and a counter
+// that reads zero looks exactly like "the thing under test never happened".
+// issues/fixed/a-module-global-is-lost-across-an-async-suspension.md
+//
+// The control (no suspension point) is asserted alongside, because that path
+// always worked and its passing is what localises a regression.
+// ---------------------------------------------------------------------------
+(_g_async_counter : usize) = usize(0);
+_bump_flat :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io2 : Io) => {
+    _g_async_counter = (_g_async_counter + usize(1));
+    _g_async_counter = (_g_async_counter + usize(1));
+    return(_g_async_counter);
+  })
+);
+_bump_suspending :: (fn(io : Io) -> Impl(Future(usize, Io)))(
+  io.async((io2 : Io) => {
+    _g_async_counter = (_g_async_counter + usize(1));
+    io2.await(yield(io2), io2);
+    _g_async_counter = (_g_async_counter + usize(1));
+    return(_g_async_counter);
+  })
+);
+test("Test a module global survives a suspension point", {
+  if(arch == Arch.Wasm32, return(()));
+  // Control: no suspension point. This always worked.
+  _g_async_counter = usize(0);
+  a := io.await(_bump_flat(io), io);
+  assert(a == usize(2), "the flat body saw both of its own increments");
+  assert(_g_async_counter == usize(2), "and they landed on the real global");
+  // The regression case: the identical body with an await between them.
+  _g_async_counter = usize(0);
+  b := io.await(_bump_suspending(io), io);
+  assert(b == usize(2), "the suspending body saw both of its own increments");
+  assert(
+    _g_async_counter == usize(2),
+    `the suspending body's writes landed on the real global, not a state-machine copy (global is ${_g_async_counter.to_string()})`
+  );
+  // A SECOND call must continue from 2, not restart from 0 — the state field
+  // was fresh per call, which is the other half of the symptom.
+  c := io.await(_bump_suspending(io), io);
+  assert(c == usize(4), `the second call continued from the global (saw ${c.to_string()})`);
+  assert(_g_async_counter == usize(4), "and the global agrees");
+  // And through a SPAWNED task, which is the shape the pool tests used.
+  _g_async_counter = usize(0);
+  h := io.spawn(_bump_suspending(io), io);
+  d := match(h.await(io), .Some(v) => v, .None => usize(0));
+  assert(d == usize(2), "a spawned suspending body saw its own increments");
+  assert(_g_async_counter == usize(2), "and they landed on the real global");
+});

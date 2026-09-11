@@ -1,0 +1,20 @@
+// The `g` and `u` regex flags are parsed, stored on RegexFlags, and then read
+// by nobody. `g` in particular reads as "replace all" and does not.
+// Also shown: the `i` flag folds ASCII only.
+{ Regex } :: import("std/regex");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  // `g` accepted; replace is still first-match-only. Expected "XXX" if `g`
+  // meant anything; actual "Xaa".
+  reg := Regex.new_with_flags(`a`, `g`).unwrap();
+  println(reg.replace(`aaa`, `X`));
+  // `u` accepted; the engine was already rune-based, so nothing changes.
+  reu := Regex.new_with_flags(`.`, `u`).unwrap();
+  println(reu.is_match(`é`));
+  // `i` is honoured, but the fold is A-Z only: false for é/É, true for a/A.
+  rei := Regex.new_with_flags(`é`, `i`).unwrap();
+  println(rei.is_match(`É`));
+  reI := Regex.new_with_flags(`a`, `i`).unwrap();
+  println(reI.is_match(`A`));
+});
+export(main);

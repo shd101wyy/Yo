@@ -116,7 +116,25 @@ DocFunction :: struct(
   returns : Option(String),
   errors : Option(String),
   deprecated : Option(String),
-  examples : Option(String)
+  examples : Option(String),
+  /// The trait this method's `doc` was INHERITED from, when the impl carried
+  /// no doc comment of its own.
+  ///
+  /// Rustdoc, which this library follows deliberately, shows a trait impl's
+  /// methods with the TRAIT's documentation unless the impl overrides it: the
+  /// contract is stated once at the trait and inherited by every
+  /// implementation. Without that, 454 trait-impl methods across `std/`
+  /// rendered as bare signatures — `hash`, `clone`, `next`, `to_string`,
+  /// `dispose`, one per implementing type — and the alternative, writing 454
+  /// per-instance restatements into `std/`, would be noise that drifts from
+  /// the trait's text and would still leave every user crate's impls blank
+  /// (`issues/fixed/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`).
+  ///
+  /// `.None` when the doc is the method's own, which is also the case for a
+  /// method that overrides the trait's text — an impl-site comment always
+  /// wins, because several `std/` impls document a DIVERGENCE there
+  /// (`imm/*`'s `IntoIterator` says it is eager rather than lazy).
+  inherited_from : Option(String)
 );
 // ---------------------------------------------------------------------------
 // Type documentation

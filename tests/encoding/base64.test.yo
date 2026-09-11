@@ -1,69 +1,71 @@
 { assert } :: import("std/assert");
 { rune, String, StringError } :: import("std/string");
-{ base64_encode, base64_encode_url, base64_decode, base64_decode_url, base64_decode_exn } :: import("std/encoding/base64");
+base64 :: import("std/encoding/base64");
 { ArrayList } :: import("std/collections/array_list");
 { Error, AnyError, Exception } :: import("std/error");
 // ===== Encoding Tests =====
-test("base64_encode empty input", {
+test("base64.encode empty input", {
   data := ArrayList(u8).new();
-  result := base64_encode(data);
+  result := base64.encode(data);
   assert(result == "", "empty input should produce empty string");
 });
-test("base64_encode Hello", {
+test("base64.encode Hello", {
   data := ArrayList(u8).new();
   data.push(u8(72));
   data.push(u8(101));
   data.push(u8(108));
   data.push(u8(108));
   data.push(u8(111));
-  result := base64_encode(data);
+  result := base64.encode(data);
   assert(result == "SGVsbG8=", "Hello should encode to SGVsbG8=");
+  // The deprecated `base64_encode` alias (removed in v0.2.32) still delegates.
+  assert(base64.base64_encode(data) == result, "base64_encode alias delegates to base64.encode");
 });
-test("base64_encode single byte", {
+test("base64.encode single byte", {
   data := ArrayList(u8).new();
   data.push(u8(65));
-  result := base64_encode(data);
+  result := base64.encode(data);
   assert(result == "QQ==", "A should encode to QQ==");
 });
-test("base64_encode two bytes", {
+test("base64.encode two bytes", {
   data := ArrayList(u8).new();
   data.push(u8(65));
   data.push(u8(66));
-  result := base64_encode(data);
+  result := base64.encode(data);
   assert(result == "QUI=", "AB should encode to QUI=");
 });
-test("base64_encode three bytes no padding", {
+test("base64.encode three bytes no padding", {
   data := ArrayList(u8).new();
   data.push(u8(65));
   data.push(u8(66));
   data.push(u8(67));
-  result := base64_encode(data);
+  result := base64.encode(data);
   assert(result == "QUJD", "ABC should encode to QUJD with no padding");
 });
-test("base64_encode Man", {
+test("base64.encode Man", {
   // "Man" -> "TWFu"
   data := ArrayList(u8).new();
   data.push(u8(77));
   data.push(u8(97));
   data.push(u8(110));
-  result := base64_encode(data);
+  result := base64.encode(data);
   assert(result == "TWFu", "Man should encode to TWFu");
 });
 // ===== URL-safe Encoding =====
-test("base64_encode_url no padding", {
+test("base64.encode_url no padding", {
   data := ArrayList(u8).new();
   data.push(u8(65));
-  result := base64_encode_url(data);
+  result := base64.encode_url(data);
   // URL-safe should not have padding
   assert(result == "QQ", "URL-safe single byte should not have padding");
 });
 // ===== Decoding Tests =====
-test("base64_decode empty string", {
-  bytes := base64_decode(String.from("")).unwrap();
+test("base64.decode empty string", {
+  bytes := base64.decode(String.from("")).unwrap();
   assert(bytes.len() == usize(0), "empty string should decode to 0 bytes");
 });
-test("base64_decode Hello", {
-  bytes := base64_decode(String.from("SGVsbG8=")).unwrap();
+test("base64.decode Hello", {
+  bytes := base64.decode(String.from("SGVsbG8=")).unwrap();
   assert(bytes.len() == usize(5), "SGVsbG8= should decode to 5 bytes");
   assert(bytes(usize(0)) == u8(72), "byte 0 = H");
   assert(bytes(usize(1)) == u8(101), "byte 1 = e");
@@ -71,14 +73,14 @@ test("base64_decode Hello", {
   assert(bytes(usize(3)) == u8(108), "byte 3 = l");
   assert(bytes(usize(4)) == u8(111), "byte 4 = o");
 });
-test("base64_decode no padding", {
-  bytes := base64_decode(String.from("TWFu")).unwrap();
+test("base64.decode no padding", {
+  bytes := base64.decode(String.from("TWFu")).unwrap();
   assert(bytes.len() == usize(3), "TWFu should decode to 3 bytes");
   assert(bytes(usize(0)) == u8(77), "byte 0 = M");
   assert(bytes(usize(1)) == u8(97), "byte 1 = a");
   assert(bytes(usize(2)) == u8(110), "byte 2 = n");
 });
-test("base64_decode invalid character error", {
+test("base64.decode invalid character error", {
   exn := Exception(
     throw : (
       err -> {
@@ -86,7 +88,7 @@ test("base64_decode invalid character error", {
       }
     )
   );
-  base64_decode_exn(String.from("!!!!"), exn);
+  base64.decode_exn(String.from("!!!!"), exn);
   assert(false, "invalid chars should have thrown");
 });
 // ===== Roundtrip Tests =====
@@ -97,8 +99,8 @@ test("base64 roundtrip", {
     data.push(i);
   });
   data.push(u8(255));
-  encoded := base64_encode(data);
-  decoded := base64_decode(encoded).unwrap();
+  encoded := base64.encode(data);
+  decoded := base64.decode(encoded).unwrap();
   assert(decoded.len() == usize(256), "roundtrip should preserve length");
   j := usize(0);
   while(j < usize(256), j = (j + usize(1)), {
@@ -110,8 +112,8 @@ test("base64 url roundtrip", {
   data.push(u8(0xFB));
   data.push(u8(0xFF));
   data.push(u8(0xFE));
-  encoded := base64_encode_url(data);
-  decoded := base64_decode_url(encoded).unwrap();
+  encoded := base64.encode_url(data);
+  decoded := base64.decode_url(encoded).unwrap();
   assert(decoded.len() == usize(3), "url roundtrip should preserve length");
   assert(decoded(usize(0)) == u8(0xFB), "url roundtrip byte 0");
   assert(decoded(usize(1)) == u8(0xFF), "url roundtrip byte 1");
@@ -119,26 +121,26 @@ test("base64 url roundtrip", {
 });
 // ===== Text payloads go through the byte API =====
 // The former `base64_encode_string` / `base64_decode_string` pair was deleted
-// (plans/archive/STD_API_AUDIT.md §6): the first was `base64_encode(s.as_bytes())`,
+// (plans/archive/STD_API_AUDIT.md §6): the first was `base64.encode(s.as_bytes())`,
 // the second returned a stringly-typed `Result(String, String)` and silently
 // skipped whitespace. Text is bytes in, bytes out, then `String.from_utf8`.
 test("encode a String's bytes", {
-  assert(base64_encode(String.new().as_bytes()) == "", "empty");
-  assert(base64_encode(String.from("f").as_bytes()) == "Zg==", "f");
-  assert(base64_encode(String.from("fo").as_bytes()) == "Zm8=", "fo");
-  assert(base64_encode(String.from("foo").as_bytes()) == "Zm9v", "foo");
-  assert(base64_encode(String.from("foobar").as_bytes()) == "Zm9vYmFy", "foobar");
-  assert(base64_encode(String.from("Hello, World!").as_bytes()) == "SGVsbG8sIFdvcmxkIQ==", "Hello, World!");
+  assert(base64.encode(String.new().as_bytes()) == "", "empty");
+  assert(base64.encode(String.from("f").as_bytes()) == "Zg==", "f");
+  assert(base64.encode(String.from("fo").as_bytes()) == "Zm8=", "fo");
+  assert(base64.encode(String.from("foo").as_bytes()) == "Zm9v", "foo");
+  assert(base64.encode(String.from("foobar").as_bytes()) == "Zm9vYmFy", "foobar");
+  assert(base64.encode(String.from("Hello, World!").as_bytes()) == "SGVsbG8sIFdvcmxkIQ==", "Hello, World!");
 });
 test("decode to a String through from_utf8", {
-  s := String.from_utf8(base64_decode(String.from("SGVsbG8sIFdvcmxkIQ==")).unwrap());
+  s := String.from_utf8(base64.decode(String.from("SGVsbG8sIFdvcmxkIQ==")).unwrap());
   assert(match(s, .Ok(v) => (v == "Hello, World!"), .Err(_) => false), "Hello, World!");
   // "w6k=" is 0xC3 0xA9 — U+00E9, valid UTF-8.
-  m := String.from_utf8(base64_decode(String.from("w6k=")).unwrap());
+  m := String.from_utf8(base64.decode(String.from("w6k=")).unwrap());
   assert(match(m, .Ok(v) => ((v.chars().count() == usize(1)) && (v.len() == usize(2))), .Err(_) => false), "one rune, two bytes");
   // "/w==" is the single byte 0xFF, never valid UTF-8: the byte decode is fine,
   // the String conversion is the honest error.
-  bad := String.from_utf8(base64_decode(String.from("/w==")).unwrap());
+  bad := String.from_utf8(base64.decode(String.from("/w==")).unwrap());
   assert(match(bad, .Ok(_) => false, .Err(_) => true), "a non-UTF-8 payload is a StringError, not a broken String");
 });
 test("whitespace inside base64 text is rejected, like any other non-alphabet byte", {
@@ -151,7 +153,7 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
   // scan ever reaches the space.
   assert(
     match(
-      base64_decode(String.from("Zm9v YmFy")),
+      base64.decode(String.from("Zm9v YmFy")),
       .Ok(_) => false,
       .Err(e) => match(e, .InvalidLength({ len }) => (len == usize(9)), _ => false)
     ),
@@ -161,7 +163,7 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
   // space itself is reported.
   assert(
     match(
-      base64_decode(String.from("Zm9v YmFyIQ==")),
+      base64.decode(String.from("Zm9v YmFyIQ==")),
       .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ ch }) => (ch == u8(32)), _ => false)
     ),
@@ -170,7 +172,7 @@ test("whitespace inside base64 text is rejected, like any other non-alphabet byt
 });
 // ===== Canonical-form rejection =====
 // issues/fixed/base64-decode-accepted-impossible-lengths-and-trailing-bits.md
-test("base64_decode rejects a length of 1 mod 4", {
+test("base64.decode rejects a length of 1 mod 4", {
   exn := Exception(
     throw : (
       err -> {
@@ -178,10 +180,10 @@ test("base64_decode rejects a length of 1 mod 4", {
       }
     )
   );
-  base64_decode_exn(String.from("QUJDR"), exn);
+  base64.decode_exn(String.from("QUJDR"), exn);
   assert(false, "a lone trailing sextet encodes nothing and must throw InvalidLength");
 });
-test("base64_decode rejects non-zero trailing bits in a two-symbol group", {
+test("base64.decode rejects non-zero trailing bits in a two-symbol group", {
   exn := Exception(
     throw : (
       err -> {
@@ -191,10 +193,10 @@ test("base64_decode rejects non-zero trailing bits in a two-symbol group", {
   );
   // "QR": Q=16, R=17 → the second symbol's low four bits are 0001, which no
   // byte can occupy. The canonical encoding of 0x41 is "QQ==".
-  base64_decode_exn(String.from("QR=="), exn);
+  base64.decode_exn(String.from("QR=="), exn);
   assert(false, "must throw InvalidLastSymbol");
 });
-test("base64_decode rejects non-zero trailing bits in a three-symbol group", {
+test("base64.decode rejects non-zero trailing bits in a three-symbol group", {
   exn := Exception(
     throw : (
       err -> {
@@ -203,26 +205,26 @@ test("base64_decode rejects non-zero trailing bits in a three-symbol group", {
     )
   );
   // "QUJ": J=9 → low two bits 01. "AB" encodes canonically as "QUI=".
-  base64_decode_exn(String.from("QUJ="), exn);
+  base64.decode_exn(String.from("QUJ="), exn);
   assert(false, "must throw InvalidLastSymbol");
 });
-test("base64_decode still accepts the canonical short groups, padded or not", {
-  a := base64_decode(String.from("QQ==")).unwrap();
+test("base64.decode still accepts the canonical short groups, padded or not", {
+  a := base64.decode(String.from("QQ==")).unwrap();
   assert((a.len() == usize(1)) && (a(usize(0)) == u8(65)), "QQ== is A");
-  b := base64_decode(String.from("QQ")).unwrap();
+  b := base64.decode(String.from("QQ")).unwrap();
   assert((b.len() == usize(1)) && (b(usize(0)) == u8(65)), "QQ is A without padding");
-  c := base64_decode(String.from("QUI=")).unwrap();
+  c := base64.decode(String.from("QUI=")).unwrap();
   assert((c.len() == usize(2)) && ((c(usize(0)) == u8(65)) && (c(usize(1)) == u8(66))), "QUI= is AB");
-  d := base64_decode(String.from("QUI")).unwrap();
+  d := base64.decode(String.from("QUI")).unwrap();
   assert(d.len() == usize(2), "QUI is AB without padding");
 });
 // ===== Offsets =====
-test("base64_decode reports WHERE the bad symbol was", {
+test("base64.decode reports WHERE the bad symbol was", {
   // "Zm9v YmFyIQ==" strips to 11 symbols, so the scan runs; the space is at
   // index 4 of the input.
   assert(
     match(
-      base64_decode(String.from("Zm9v YmFyIQ==")),
+      base64.decode(String.from("Zm9v YmFyIQ==")),
       .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ ch, pos }) => ((ch == u8(32)) && (pos == usize(4))), _ => false)
     ),
@@ -232,7 +234,7 @@ test("base64_decode reports WHERE the bad symbol was", {
   // index — each is decoded separately and passes its own position.
   assert(
     match(
-      base64_decode(String.from("Zm9vYm!yIQ==")),
+      base64.decode(String.from("Zm9vYm!yIQ==")),
       .Ok(_) => false,
       .Err(e) => match(e, .InvalidChar({ pos }) => (pos == usize(6)), _ => false)
     ),
@@ -243,7 +245,7 @@ test("base64_decode reports WHERE the bad symbol was", {
   // occupy, and R is at index 1.
   assert(
     match(
-      base64_decode(String.from("QR==")),
+      base64.decode(String.from("QR==")),
       .Ok(_) => false,
       .Err(e) => match(e, .InvalidLastSymbol({ ch, pos }) => ((ch == u8(82)) && (pos == usize(1))), _ => false)
     ),
@@ -252,7 +254,7 @@ test("base64_decode reports WHERE the bad symbol was", {
   // "QUJ=" strips to "QUJ": J's low two bits are 01, and J is at index 2.
   assert(
     match(
-      base64_decode(String.from("QUJ=")),
+      base64.decode(String.from("QUJ=")),
       .Ok(_) => false,
       .Err(e) => match(e, .InvalidLastSymbol({ ch, pos }) => ((ch == u8(74)) && (pos == usize(2))), _ => false)
     ),
@@ -262,7 +264,7 @@ test("base64_decode reports WHERE the bad symbol was", {
   // variant still carries the length that was wrong.
   assert(
     match(
-      base64_decode(String.from("Zm9v YmFy")),
+      base64.decode(String.from("Zm9v YmFy")),
       .Ok(_) => false,
       .Err(e) => (
         e.pos().is_none() && match(e, .InvalidLength({ len }) => (len == usize(9)), _ => false)

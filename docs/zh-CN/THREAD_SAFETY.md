@@ -100,7 +100,14 @@ high_water := AtomicUsize(usize(0));
 high_water.fetch_max(usize(512), MemoryOrder.AcqRel);
 ```
 
-`MemoryOrder` 枚举值：`Relaxed`、`Consume`、`Acquire`、`Release`、`AcqRel`、`SeqCst`。
+`MemoryOrder` 枚举值：`Relaxed`、`Acquire`、`Release`、`AcqRel`、`SeqCst`。
+
+没有 `Consume`。C11 有这个顺序，但所有生产编译器都会把它提升为 `Acquire`，
+因此这个名字承诺的屏障比任何目标实际生成的都更弱；Rust 出于同样的原因也
+省略了它。请使用 `Acquire`。
+
+操作无法合法采用的顺序——load 上的 `Release`、store 上的 `Acquire`、两者上的
+`AcqRel`——会 panic，而不是被静默重新解释。
 
 每个操作需要**显式**内存顺序——没有默认的 `SeqCst` 以避免意外的性能成本。
 

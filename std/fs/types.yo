@@ -1,4 +1,30 @@
 //! File system types for open modes, permissions, and seek positions.
+//!
+//! Three small vocabularies that `std/fs/file` consumes: `OpenMode` (the five
+//! common open recipes) and `OpenOptions` (the full flag set, for the
+//! combinations the enum cannot spell), `FilePermission` (the POSIX mode a
+//! newly created file gets), and `SeekFrom` (the reference point for
+//! `File.seek`, and the type argument of `std/io`'s `Seek(From)` trait).
+//!
+//! Nothing here performs I/O — these are the values you hand to the calls
+//! that do, so every function in this module is a pure, synchronous
+//! translation into POSIX flag words.
+//!
+//! ## Stability
+//!
+//! unstable — `OpenMode` and `OpenOptions` are two answers to one question
+//! and only one of them should survive. `OpenOptions` (new 2026-09-09) is
+//! strictly more expressive; `OpenMode` remains the argument type of
+//! `File.open`, the spelling every existing caller uses, and the shape whose
+//! `.CreateNew` variant does NOT grant read access the way
+//! `OpenOptions.create_new(true)` can. Freezing follows a decision on
+//! whether `OpenMode` becomes a set of `OpenOptions` constructors (and
+//! `File.open` takes `OpenOptions`), not a release count.
+//!
+//! `OpenOptions.to_flags` also still returns `Result(i32, String)`, which is
+//! a D1 violation carried deliberately: the four rejections are programmer
+//! mistakes rather than OS failures, and giving them an error enum is
+//! pending the same decision.
 { String } :: import("../string");
 { O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND, O_EXCL, O_CLOEXEC, DEFAULT_FILE_MODE } :: import("../sys/constants");
 /// Determines how a file is opened.
@@ -45,19 +71,30 @@ FilePermission :: newtype(
 );
 impl(
   FilePermission,
-  // Default file permissions: rw-r--r-- (0o644)
+  /// `0o644` — `rw-r--r--`. The usual mode for a data file: writable by its
+  /// owner, readable by everyone. This is what `File.open` passes when the
+  /// mode creates a file and the caller named no permission; the process
+  /// `umask` still clears bits from it, so a `umask` of `0o022` is what makes
+  /// this the effective default rather than the request.
   default : (fn() -> Self)(
     Self(mode : u32(0o644))
   ),
-  // Executable permissions: rwxr-xr-x (0o755)
+  /// `0o755` — `rwxr-xr-x`. `default` plus the execute bit for everyone:
+  /// scripts and binaries. Note the execute bit is only meaningful on POSIX;
+  /// Windows decides executability from the file extension.
   executable : (fn() -> Self)(
     Self(mode : u32(0o755))
   ),
-  // Read-only permissions: r--r--r-- (0o444)
+  /// `0o444` — `r--r--r--`. Readable by everyone, writable by nobody, which
+  /// is the state `Metadata.is_readonly` reports true for. It does not stop
+  /// root, and it does not stop the file's owner from `chmod`-ing it back.
   readonly : (fn() -> Self)(
     Self(mode : u32(0o444))
   ),
-  // Private permissions: rw------- (0o600)
+  /// `0o600` — `rw-------`. Owner only: the mode to use for anything holding
+  /// a credential, and the mode `mkstemp` (so `TempFile`) already creates
+  /// with. Unlike the other three this is not weakened by a typical `umask`,
+  /// because no group or other bit is being asked for.
   private : (fn() -> Self)(
     Self(mode : u32(0o600))
   )

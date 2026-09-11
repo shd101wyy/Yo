@@ -1,17 +1,56 @@
-//! JSON parsing and serialization.
+//! JSON parsing and serialization (RFC 8259).
 //!
 //! Provides a dynamically-typed JSON value tree.
 //!
 //! ## Example
 //!
 //! ```rust
-//! { json_parse, json_stringify, JsonValue } :: import "std/encoding/json";
+//! json :: import("std/encoding/json");
+//! { JsonValue } :: import("std/encoding/json");
 //! { Exception } :: import "std/error";
 //!
 //! exn := Exception(throw : ((err) -> { unwind (); }));
-//! v := json_parse(`{"x": 1}`);
-//! println(json_stringify(v));
+//! v := json.parse(`{"x": 1}`);
+//! println(json.stringify(v));
 //! ```
+//!
+//! ## Which parse to call
+//!
+//! Three entry points, differing only in what they take: `json_parse(str)`
+//! for a literal, `json_parse_string(String)` for runtime text, and
+//! `json_parse_bytes(ArrayList(u8))` for a network body. All three funnel into
+//! one parser over BYTES and all three return `Result(JsonValue, JsonError)`.
+//! Each has a `*_exn` twin that throws through an `Exception` instead — take
+//! those only when the caller is already inside an effect scope, since D13
+//! makes the `Result` form the primary one.
+//!
+//! Parsing rejects trailing content: `[1,2][3,4]` is an error, not `[1,2]`.
+//!
+//! ## Stability
+//!
+//! unstable — two open questions, one of them a rename that touches every
+//! call site.
+//!
+//! The names still stutter (D2): `json_parse` / `json_parse_bytes` /
+//! `json_parse_string` / `json_stringify` repeat the module they live in, and
+//! the decided direction is `json.parse` / `json.stringify` on the imported
+//! module value. That rename is listed as STILL OPEN in
+//! `plans/STD_API_STABILIZATION.md` §4 and is the main thing holding this
+//! module unstable. `json_parse_result` is a deprecated alias of
+//! `json_parse_string`, kept for one release and due for removal.
+//!
+//! The second is how strict the string scanner should be. `parse_string`
+//! accepts a raw control byte (U+0000-U+001F) where RFC 8259 §7 requires it
+//! escaped, and copies non-escape bytes through without UTF-8 validation, so
+//! invalid UTF-8 in the input reaches the resulting `String`. `serde_json`
+//! rejects both. Tightening either one turns input that parses today into an
+//! error, so it is a breaking change rather than a bug fix
+//! (`issues/stddoc-io-json-parse-string-accepts-raw-control-bytes.md`).
+//!
+//! The value tree itself is settled: `JsonValue`'s six variants, the `is_*` /
+//! `as_*` accessors, `pointer`, `insert`/`remove`/`object`, and the
+//! `ToJson`/`FromJson` traits all landed with the P1 encoding batch and are
+//! covered by tests.
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.AllowMacroDef);
 { String } :: import("../string");
@@ -74,8 +113,17 @@ JsonValue :: enum(
 // JsonKV - key/value pair convenience struct for Object
 // ============================================================================
 /// Key-value pair for JSON object entries.
+///
+/// `JsonValue.Object` stores two parallel `ArrayList`s (keys and values)
+/// rather than a list of pairs, because that is what keeps insertion order
+/// without a per-entry allocation. `as_object()` zips them into these for
+/// iteration; it is the only producer, and nothing in the module consumes
+/// them — building an object goes through `object()` / `insert` instead.
 JsonKV :: struct(
+  /// The member name, DECODED — escapes in the source are already resolved,
+  /// so this is the key as JSON means it and not as it was written.
   key : String,
+  /// The member's value.
   value : JsonValue
 );
 impl(
@@ -441,18 +489,30 @@ _Parser :: ref(
 );
 impl(
   _Parser,
+  /// A cursor over `src` positioned at byte 0. `src` is stored by reference
+  /// (an `ArrayList` is a `ref` type), so the parser does not copy the input.
   new : (fn(src : ArrayList(u8)) -> Self)(
     Self(src : src, pos : usize(0))
   ),
+  /// The byte at the cursor WITHOUT consuming it, or `.None` at end of
+  /// input. Every `.None` here becomes `JsonError.UnexpectedEnd` at the
+  /// caller — this is the only place the parser learns it ran out.
   peek : (fn(self : Self) -> Option(u8))(
     cond(
       (self.pos < self.src.len()) => .Some(self.src(self.pos)),
       true => .None
     )
   ),
+  /// Step the cursor one byte forward. Deliberately unchecked: it is only
+  /// ever called after a `peek()` that returned `.Some`, and letting `pos`
+  /// run one past the end is harmless because `peek` bounds-checks.
   advance : (fn(self : Self) -> unit)({
     self.pos = (self.pos + usize(1));
   }),
+  /// Consume the four bytes RFC 8259 §2 calls insignificant whitespace —
+  /// space, tab, LF, CR — and nothing else. A JSON comment or a vertical tab
+  /// is NOT whitespace and stops the scan, so it surfaces as
+  /// `UnexpectedChar` rather than being skipped.
   skip_ws : (fn(self : Self) -> unit)({
     while(runtime(true), {
       match(
@@ -469,6 +529,12 @@ impl(
       );
     });
   }),
+  /// Skip whitespace, then consume `ch` or fail. The structural workhorse —
+  /// `{`, `}`, `[`, `]`, `:` and `,` all go through it.
+  ///
+  /// Note the position in `UnexpectedChar(c, self.pos)` is the offset of the
+  /// OFFENDING byte, after whitespace was skipped, so it points at what the
+  /// caller should look at rather than at where the token was expected.
   expect : (fn(self : Self, ch : u8) -> Result(unit, JsonError))({
     self.skip_ws();
     match(
@@ -508,6 +574,21 @@ impl(
     });
     .Ok(cp)
   }),
+  /// A `"`-delimited string, decoded to UTF-8. Called with the cursor ON the
+  /// opening quote, which it consumes; leaves it just past the closing one.
+  ///
+  /// All eight RFC 8259 §7 escapes (`\" \\ \/ \b \f \n \r \t`) plus `\uXXXX`,
+  /// with surrogate pairs combined into one scalar. A high surrogate not
+  /// followed by `\uDC00`-`\uDFFF`, and a lone low surrogate, are both
+  /// `.Err(.InvalidUnicode)` — this does NOT substitute U+FFFD, so a
+  /// round-trip cannot silently change the data. Any other escape letter is
+  /// `.Err(.InvalidEscape)`.
+  ///
+  /// Two deliberate leniences, both wider than `serde_json`: a raw control
+  /// byte (U+0000-U+001F) inside the string is accepted where §7 requires it
+  /// escaped, and the non-escape bytes are copied through without UTF-8
+  /// validation, so invalid UTF-8 in the input reaches the resulting `String`.
+  /// See the module's `## Stability` note.
   parse_string : (fn(self : Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
@@ -999,7 +1080,7 @@ _expect_eof :: (fn(p : _Parser) -> Result(unit, JsonError))({
 /// Parse JSON bytes into a `JsonValue` tree (D13 — a pure transform returns a
 /// `Result`). `.Err` on invalid input, INCLUDING any content after the single
 /// top-level value.
-json_parse_bytes :: (fn(bytes : ArrayList(u8)) -> Result(JsonValue, JsonError))({
+parse_bytes :: (fn(bytes : ArrayList(u8)) -> Result(JsonValue, JsonError))({
   p := _Parser.new(bytes);
   match(
     _parse_value(p),
@@ -1008,7 +1089,7 @@ json_parse_bytes :: (fn(bytes : ArrayList(u8)) -> Result(JsonValue, JsonError))(
   )
 });
 /// Parse a static `str` of JSON into a `JsonValue` tree.
-json_parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
+parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
   bytes := ArrayList(u8).new();
   n := s.len();
   (i : usize) = usize(0);
@@ -1016,34 +1097,34 @@ json_parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
     bytes.push(s.bytes(i));
     i = (i + usize(1));
   });
-  json_parse_bytes(bytes)
+  parse_bytes(bytes)
 });
-/// Parse a runtime `String` of JSON into a `JsonValue` tree. (`json_parse`
+/// Parse a runtime `String` of JSON into a `JsonValue` tree. (`parse`
 /// takes the STATIC `str` view; runtime input — an HTTP body, an LSP frame —
 /// arrives as `String`.)
-json_parse_string :: (fn(s : String) -> Result(JsonValue, JsonError))(
-  json_parse_bytes(s.as_bytes())
+parse_string :: (fn(s : String) -> Result(JsonValue, JsonError))(
+  parse_bytes(s.as_bytes())
 );
-/// `json_parse_bytes` as an effect, for callers already inside an effect
+/// `parse_bytes` as an effect, for callers already inside an effect
 /// scope. Same for the two below.
-json_parse_bytes_exn :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)(
-  match(json_parse_bytes(bytes), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+parse_bytes_exn :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)(
+  match(parse_bytes(bytes), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
-/// `json_parse` as an effect.
-json_parse_exn :: (fn(s : str, exn : Exception) -> JsonValue)(
-  match(json_parse(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+/// `parse` as an effect.
+parse_exn :: (fn(s : str, exn : Exception) -> JsonValue)(
+  match(parse(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
-/// `json_parse_string` as an effect.
-json_parse_string_exn :: (fn(s : String, exn : Exception) -> JsonValue)(
-  match(json_parse_string(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+/// `parse_string` as an effect.
+parse_string_exn :: (fn(s : String, exn : Exception) -> JsonValue)(
+  match(parse_string(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 export(
-  json_parse,
-  json_parse_bytes,
-  json_parse_string,
-  json_parse_exn,
-  json_parse_bytes_exn,
-  json_parse_string_exn
+  parse,
+  parse_bytes,
+  parse_string,
+  parse_exn,
+  parse_bytes_exn,
+  parse_string_exn
 );
 // ============================================================================
 // Serialisation
@@ -1155,7 +1236,7 @@ _stringify_into :: (fn(value : JsonValue, out : ArrayList(u8)) -> unit)({
   );
 });
 /// Serialize a `JsonValue` to a compact JSON string.
-json_stringify :: (fn(value : JsonValue) -> String)({
+stringify :: (fn(value : JsonValue) -> String)({
   out := ArrayList(u8).new();
   _stringify_into(value, out);
   String.from_bytes(out)
@@ -1237,9 +1318,9 @@ _stringify_pretty_into :: (
 /// Serialize a `JsonValue` to a pretty-printed JSON string, `indent` spaces per
 /// nesting level. `indent == 0` produces the compact form, as
 /// `JSON.stringify(v, null, 0)` does.
-json_stringify_pretty :: (fn(value : JsonValue, indent : usize) -> String)(
+stringify_pretty :: (fn(value : JsonValue, indent : usize) -> String)(
   cond(
-    (indent == usize(0)) => json_stringify(value),
+    (indent == usize(0)) => stringify(value),
     true => {
       out := ArrayList(u8).new();
       _stringify_pretty_into(value, indent, usize(0), out);
@@ -1254,7 +1335,7 @@ impl(
   JsonValue,
   ToString(
     to_string : (fn(inout(self) : Self) -> String)(
-      json_stringify(self)
+      stringify(self)
     )
   )
 );
@@ -1379,20 +1460,20 @@ impl(
     )
   )
 );
-export(json_stringify, json_stringify_pretty);
+export(stringify, stringify_pretty);
 // ============================================================================
 // ToJson / FromJson — typed (de)serialisation through JsonValue
 // ============================================================================
 /// Serialise a value to a `JsonValue` tree. Implement (or later, derive)
 /// this to make a type encodable; the text form always goes through
-/// `json_stringify`, so formatting stays centralized.
+/// `stringify`, so formatting stays centralized.
 ToJson :: trait(
   to_json : (fn(inout(self) : Self) -> JsonValue)
 );
 /// Deserialise a value from a `JsonValue` tree. Returns `Result` rather
 /// than throwing: decode failures are ordinary values a caller matches
 /// on, and `JsonError` can grow structured variants without breaking
-/// this signature. Call as `T.from_json(v)` or through `json_decode`.
+/// this signature. Call as `T.from_json(v)` or through `decode`.
 FromJson :: trait(
   from_json : (fn(v : JsonValue) -> Result(Self, JsonError))
 );
@@ -1705,22 +1786,23 @@ impl(
   )
 );
 /// Parse a JSON `String` into a `JsonValue`, as a `Result` (no Exception
-/// plumbing — the decode-side counterpart of `json_stringify`).
-/// DEPRECATED (D13), kept for one release: `json_parse_string` now returns the
-/// same `Result`. This name existed only because `json_parse*` used to throw.
+/// plumbing — the decode-side counterpart of `json.stringify`).
+/// DEPRECATED (D13), removed in v0.2.32 with the module-prefix aliases below:
+/// `json.parse_string` returns the same `Result`. This name existed only
+/// because `json.parse*` used to throw.
 json_parse_result :: (fn(s : String) -> Result(JsonValue, JsonError))(
-  json_parse_string(s)
+  parse_string(s)
 );
 /// Serialise any `ToJson` value to JSON text.
-json_encode :: (fn(generic(T : Type), v : T, where(T <: ToJson)) -> String)(
-  json_stringify(v.to_json())
+encode :: (fn(generic(T : Type), v : T, where(T <: ToJson)) -> String)(
+  stringify(v.to_json())
 );
 /// Parse JSON text and decode it into `T`:
-/// `json_decode(Point, s)` → `Result(Point, JsonError)`.
-json_decode :: (fn(comptime(T) : Type, s : String, where(T <: FromJson)) -> Result(T, JsonError))(
-  match(json_parse_result(s), .Ok(v) => T.from_json(v), .Err(e) => .Err(e))
+/// `json.decode(Point, s)` → `Result(Point, JsonError)`.
+decode :: (fn(comptime(T) : Type, s : String, where(T <: FromJson)) -> Result(T, JsonError))(
+  match(parse_string(s), .Ok(v) => T.from_json(v), .Err(e) => .Err(e))
 );
-export(ToJson, FromJson, json_parse_result, json_encode, json_decode);
+export(ToJson, FromJson, json_parse_result, encode, decode);
 // ============================================================================
 // derive(ToJson) / derive(FromJson) — struct derives
 // ============================================================================
@@ -1797,3 +1879,52 @@ __derive_from_json :: (
   )
 });
 derive_rule(FromJson, __derive_from_json);
+// ============================================================================
+// DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32
+// ============================================================================
+// `json :: import("std/encoding/json")` already qualifies the call, so the
+// `json_` prefix stuttered (`json.json_parse`). These thin aliases keep the
+// pre-rename spellings compiling for one release, the way `json_parse_result`
+// and `derive(ToString)` were kept in v0.2.28.
+/// DEPRECATED, removed in v0.2.32: call `json.parse`.
+json_parse :: (fn(s : str) -> Result(JsonValue, JsonError))(parse(s));
+/// DEPRECATED, removed in v0.2.32: call `json.parse_bytes`.
+json_parse_bytes :: (fn(bytes : ArrayList(u8)) -> Result(JsonValue, JsonError))(
+  parse_bytes(bytes)
+);
+/// DEPRECATED, removed in v0.2.32: call `json.parse_string`.
+json_parse_string :: (fn(s : String) -> Result(JsonValue, JsonError))(parse_string(s));
+/// DEPRECATED, removed in v0.2.32: call `json.parse_exn`.
+json_parse_exn :: (fn(s : str, exn : Exception) -> JsonValue)(parse_exn(s, exn));
+/// DEPRECATED, removed in v0.2.32: call `json.parse_bytes_exn`.
+json_parse_bytes_exn :: (fn(bytes : ArrayList(u8), exn : Exception) -> JsonValue)(
+  parse_bytes_exn(bytes, exn)
+);
+/// DEPRECATED, removed in v0.2.32: call `json.parse_string_exn`.
+json_parse_string_exn :: (fn(s : String, exn : Exception) -> JsonValue)(
+  parse_string_exn(s, exn)
+);
+/// DEPRECATED, removed in v0.2.32: call `json.stringify`.
+json_stringify :: (fn(value : JsonValue) -> String)(stringify(value));
+/// DEPRECATED, removed in v0.2.32: call `json.stringify_pretty`.
+json_stringify_pretty :: (fn(value : JsonValue, indent : usize) -> String)(
+  stringify_pretty(value, indent)
+);
+/// DEPRECATED, removed in v0.2.32: call `json.encode`.
+json_encode :: (fn(generic(T : Type), v : T, where(T <: ToJson)) -> String)(encode(v));
+/// DEPRECATED, removed in v0.2.32: call `json.decode`.
+json_decode :: (fn(comptime(T) : Type, s : String, where(T <: FromJson)) -> Result(T, JsonError))(
+  decode(T, s)
+);
+export(
+  json_parse,
+  json_parse_bytes,
+  json_parse_string,
+  json_parse_exn,
+  json_parse_bytes_exn,
+  json_parse_string_exn,
+  json_stringify,
+  json_stringify_pretty,
+  json_encode,
+  json_decode
+);

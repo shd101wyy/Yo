@@ -1,7 +1,25 @@
 //! Doubly-linked list with O(1) push/pop at both ends.
-/// Error variants for LinkedList operations.
+//!
+//! Every node is a separate reference-counted allocation holding `next` and
+//! `prev` handles, so indexing is an O(n) walk and each element costs a
+//! pointer pair on top of its value: reach for `ArrayList` unless the point
+//! is cheap splicing at the ends, and for `Deque` when both ends are what you
+//! want. Positional `insert`/`remove` report a bad index as a `Result` rather
+//! than panicking (D1) — deliberately unlike `ArrayList`, where the same
+//! mistake panics, because a list that has to walk to the index is already
+//! answering a question that can fail.
+//!
+//! ## Stability
+//!
+//! stable — names mirror Rust's `LinkedList`
+//! (`push_front`/`push_back`/`pop_front`/`pop_back`/`front`/`back`), the
+//! `Result` shape of `insert`/`remove` is the settled D1 decision, and
+//! `plans/STD_API_STABILIZATION.md` §4 lists nothing open against this
+//! module. `tests/collections/linked_list.test.yo` covers the surface.
+//! Missing trait impls (`Debug`, `Ord`, `Hash`) would be additive.
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("../assert");
+/// What a positional `insert` / `remove` can fail with.
 LinkedListError :: enum(
   /// Index is out of bounds for the current length.
   IndexOutOfBounds(index : usize, length : usize),
@@ -31,9 +49,7 @@ LinkedList :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(
   generic(T : Type),
   LinkedList(T),
-  /**
-  * Create a new empty LinkedList
-  */
+  /// Empty list. Allocates nothing — each `push_*` allocates its own node.
   new : (fn() -> Self)(
     Self(
       head : .None,
@@ -41,22 +57,17 @@ impl(
       length : usize(0)
     )
   ),
-  /**
-  * Get the number of elements in the list
-  */
+  /// Number of elements. O(1) — the count is maintained, not walked.
   len : (fn(self : Self) -> usize)(
     self.length
   ),
-  /**
-  * Check if the list is empty
-  */
+  /// True when the list holds no elements.
   is_empty : (fn(self : Self) -> bool)(
     self.length == usize(0)
   ),
-  /**
-  * Push an element to the front of the list
-  * O(1) time complexity
-  */
+  /// Add an element at the front — O(1), one node allocation. Rust's
+  /// `push_front`. Existing element positions shift by one; no pointer or
+  /// iterator into another node is disturbed.
   push_front : (fn(self : Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
@@ -75,10 +86,9 @@ impl(
     self.head = .Some(new_node);
     self.length = (self.length + usize(1));
   }),
-  /**
-  * Push an element to the back of the list
-  * O(1) time complexity
-  */
+  /// Add an element at the back — O(1), one node allocation. Rust's
+  /// `push_back`. This is the cheap append; `ArrayList.push` is cheaper
+  /// still if you do not need stable node identity.
   push_back : (fn(self : Self, value : T) -> unit)({
     new_node := Node(T)(
       value : value,
@@ -97,10 +107,10 @@ impl(
     self.tail = .Some(new_node);
     self.length = (self.length + usize(1));
   }),
-  /**
-  * Remove and return the element from the front
-  * O(1) time complexity
-  */
+  /// Remove and return the first element, or `.None` when empty — O(1).
+  ///
+  /// Clears the new head's `prev` handle, which is what breaks the
+  /// reference cycle every adjacent node pair forms (see `dispose`).
   pop_front : (fn(self : Self) -> Option(T))(
     match(
       self.head,
@@ -124,10 +134,8 @@ impl(
       }
     )
   ),
-  /**
-  * Remove and return the element from the back
-  * O(1) time complexity
-  */
+  /// Remove and return the last element, or `.None` when empty — O(1),
+  /// because the list keeps a tail handle.
   pop_back : (fn(self : Self) -> Option(T))(
     match(
       self.tail,
@@ -151,9 +159,9 @@ impl(
       }
     )
   ),
-  /**
-  * Get reference to the front element without removing it
-  */
+  /// Copy of the first element without removing it, or `.None` — Rust's
+  /// `front`. The value is dup'd for a refcounted `T`; `iter()` yields
+  /// pointers if that matters.
   front : (fn(self : Self) -> Option(T))(
     match(
       self.head,
@@ -161,9 +169,8 @@ impl(
       .Some(head_node) => .Some(head_node.value)
     )
   ),
-  /**
-  * Get reference to the back element without removing it
-  */
+  /// Copy of the last element without removing it, or `.None` — Rust's
+  /// `back`.
   back : (fn(self : Self) -> Option(T))(
     match(
       self.tail,
@@ -171,10 +178,11 @@ impl(
       .Some(tail_node) => .Some(tail_node.value)
     )
   ),
-  /**
-  * Get element at a specific index
-  * O(n) time complexity
-  */
+  /// Copy of the element at `index`, or `.None` when out of range.
+  ///
+  /// O(n): it walks from the head — there is no random access. Rust has no
+  /// `LinkedList::get` at all, for exactly this reason; a full traversal
+  /// belongs in `iter()`, and a `get` in a loop is quadratic.
   get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
       (index >= self.length) => .None,
@@ -201,10 +209,13 @@ impl(
       }
     )
   ),
-  /**
-  * Insert element at a specific index
-  * O(n) time complexity
-  */
+  /// Insert `value` so that it ends up at `index`, shifting the rest along
+  /// — O(n) to walk there, O(1) to splice. `index == len()` appends.
+  ///
+  /// `.Err(.IndexOutOfBounds)` when `index > len()`. This is the D1 line:
+  /// an out-of-range index is a CALLER MISTAKE and stays a `Result` here,
+  /// while an allocation failure panics; `ArrayList.insert` panics on the
+  /// same mistake, and that difference is deliberate.
   insert : (fn(self : Self, index : usize, value : T) -> Result(unit, LinkedListError))(
     cond(
       (index > self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
@@ -257,10 +268,12 @@ impl(
       }
     )
   ),
-  /**
-  * Remove element at a specific index
-  * O(n) time complexity
-  */
+  /// Remove the element at `index` and return it — O(n) to walk there.
+  ///
+  /// `.Err(.IndexOutOfBounds)` when `index >= len()`, where
+  /// `ArrayList.remove` panics — the same deliberate D1 difference as
+  /// `insert`. The first and last indices are routed through
+  /// `pop_front`/`pop_back`.
   remove : (fn(self : Self, index : usize) -> Result(T, LinkedListError))(
     cond(
       (index >= self.length) => .Err(.IndexOutOfBounds(index : index, length : self.length)),
@@ -322,18 +335,20 @@ impl(
       }
     )
   ),
-  /**
-  * Clear all elements from the list
-  */
+  /// Drop every element — O(n).
+  ///
+  /// Pops from the front rather than releasing the head handle, because each
+  /// adjacent node pair is a reference CYCLE (`a.next == b`, `b.prev == a`):
+  /// dropping the head alone would leave the whole chain with a nonzero
+  /// refcount. `pop_front` clears each new head's `prev`, which unlinks the
+  /// chain as it goes.
   clear : (fn(self : Self) -> unit)({
     while(self.length > usize(0), {
       _ := self.pop_front();
     });
   }),
-  /**
-  * Check if the list contains a value
-  * O(n) time complexity
-  */
+  /// Whether any element equals `value` — a walk from the head, O(n),
+  /// stopping at the first match.
   contains : (
     fn(
       self : Self,
@@ -363,10 +378,10 @@ impl(
     });
     false
   }),
-  /**
-  * Reverse the list in place
-  * O(n) time complexity
-  */
+  /// Reverse the list in place — O(n).
+  ///
+  /// Swaps each node's `next` and `prev` handles and then exchanges head and
+  /// tail, so no element is moved or copied and node identity is preserved.
   reverse : (fn(self : Self) -> unit)({
     current_opt := self.head;
     i := usize(0);
@@ -393,18 +408,21 @@ impl(
   generic(T : Type),
   LinkedList(T),
   Dispose(
-    /**
-    * RAII destructor - automatically called when LinkedList goes out of scope
-    */
+    /// Unlinks and drops every node when the last reference to the list goes
+    /// away. Delegates to `clear` because the `prev` handles make the chain
+    /// cyclic — see `clear`.
     dispose : (fn(self : Self) -> unit)(
       self.clear()
     )
   )
 );
-/**
-* Value iterator for LinkedList - yields elements by value (T)
-* Traverses the linked list following node.next pointers.
-*/
+/// Value iterator over a LinkedList — follows `next` from the head and
+/// yields each element BY VALUE (dup'd for a refcounted `T`). This is what
+/// `into_iter()`, and therefore `for(list, ...)`, returns.
+///
+/// It holds only the current NODE, so the walk survives elements being
+/// removed behind it, but removing the node it is parked on cuts the walk
+/// short.
 LinkedListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _current : Option(Node(T))
@@ -438,11 +456,12 @@ impl(
     )
   )
 );
-/**
-* Pointer iterator for LinkedList - yields pointers to elements (*(T))
-* Yields &(node.value) for each node. Pointers are valid as long as
-* the list is not modified during iteration.
-*/
+/// Pointer iterator over a LinkedList — yields `&(node.value)` for each
+/// node, so nothing is dup'd and writing through the pointer updates the
+/// element in place. This is what `iter()` returns (D14).
+///
+/// A yielded pointer is valid only while its node is alive: removing that
+/// element during the walk leaves it dangling.
 LinkedListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _current : Option(Node(T))
@@ -468,6 +487,9 @@ impl(
 impl(
   generic(T : Type),
   LinkedList(T),
+  /// Borrowing walk from the head: yields a `*(T)` into each node, leaving
+  /// the list intact — `for(list.iter(), p => ...)`, where `into_iter`
+  /// moves the list and yields values (D14).
   iter : (fn(self : Self) -> LinkedListIterPtr(T))(
     LinkedListIterPtr(T)(_current : self.head)
   )

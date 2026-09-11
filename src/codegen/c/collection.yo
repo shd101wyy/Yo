@@ -187,16 +187,20 @@ emit_c_includes :: (fn(context : CodeGenContext) -> unit)({
   // (GlobalAllocator.malloc and the try_* APIs). The fixed arm defines
   // __yo_alloc_fail itself (with heap stats) in the code section; the other
   // arms get the plain definition below.
+  // In library mode the helper is `static`: a static library is linked into a
+  // program that carries its own copy, and two external definitions would be
+  // a duplicate-symbol link error (issues/fixed/static-library-exports-no-symbols.md).
+  alloc_fail_linkage := if(context.is_library, "static ", "");
   if(context.allocator != "fixed", {
     context.emitter.emit_string_line(
       `
-void __yo_alloc_fail(size_t size) {
+${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
   fprintf(stderr, "out of memory: requested %zu bytes\\n", size);
   abort();
 }`
     );
   });
-  context.emitter.emit_header_line("void __yo_alloc_fail(size_t size);");
+  context.emitter.emit_header_string_line(`${alloc_fail_linkage}void __yo_alloc_fail(size_t size);`);
   context.emitter.emit_header_string_line(
     `
 static inline void* __yo_rc_alloc(size_t size) {

@@ -5,6 +5,7 @@ import("std/libc/stdio");
 { get_thread_id, Thread } :: import("std/thread");
 { yield } :: import("std/async");
 { Channel } :: import("std/sync/channel");
+{ AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
 { ArrayList } :: import("std/collections/array_list");
 log :: import("std/log");
 test("Thread spawn and join without captures", {
@@ -149,4 +150,112 @@ test("std/log configuration and filtering are safe from several threads at once"
   log.set_timestamps(false);
   assert(!log.enabled(log.Level.Error), "Off after the storm");
   assert(log.get_level() == log.Level.Off, "the last writer's level stands");
+});
+// ---------------------------------------------------------------------------
+// A spawn closure's RC'd captures are RELEASED when the thread finishes.
+//
+// They were not. The wrapper the spawn emitter generates was supposed to be
+// "heap-copy -> run -> drop -> free", but the drop was emitted only when the
+// capture type resolved a `___drop` C function — and the self-hosted compiler
+// synthesizes none for an ANONYMOUS closure-capture struct. So the wrapper
+// degenerated to "run, free the memory", and the `+1` taken when the capture
+// struct is built at the call site had no matching decrement anywhere: one
+// leaked reference per RC'd capture field, every spawn, unbounded in a loop
+// (~344 B per `spawn` with a captured Channel).
+// issues/fixed/spawn-closure-captures-never-dropped-leak.md
+//
+// The oracle is a DISPOSE COUNTER, not a leak checker: CI runs with
+// detect_leaks=0 on every platform, so a leak sanitizer would report nothing.
+// A captured object whose `dispose` runs has been released; one that leaks
+// never disposes.
+//
+// The counter is a MODULE-LEVEL atomic rather than a field of the tracked
+// object, deliberately: putting it in a field makes the tracked object hold a
+// reference to it, and a local stored into a struct field is dangling once the
+// container dies
+// (issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md),
+// which is a different bug and would be the thing this test measured.
+// ---------------------------------------------------------------------------
+_spawn_dispose_count := AtomicUsize.new(usize(0));
+_Tracked :: atomic(ref(struct(tag : i32)));
+impl(
+  _Tracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      _p := _spawn_dispose_count.fetch_add(usize(1), MemoryOrder.AcqRel);
+      ()
+    })
+  )
+);
+test("Thread spawn releases its closure's captures", {
+  _spawn_dispose_count.store(usize(0), MemoryOrder.Release);
+  {
+    // `tracked` is captured by the spawn closure, so the closure's capture
+    // struct holds the reference. When the thread finishes, the wrapper must
+    // release it — and since the capture is a move (the heap copy inherits
+    // the call-site struct's references), that release is the last one.
+    tracked := _Tracked(tag : i32(7));
+    t := Thread.spawn(io => {
+      assert(tracked.tag == i32(7), "the capture arrived on the thread");
+      ()
+    });
+    t.join();
+  };
+  assert(
+    _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(1),
+    "the captured object disposed exactly once — the spawn wrapper released the reference it took"
+  );
+});
+test("Thread spawn's captured local is still owned by the caller", {
+  // The other half of the accounting, and the one that was wrong. A closure
+  // definition's capture dups are the capture STRUCT's field initializers, so
+  // they must not be cancelled against the capturing scope's drop: the capture
+  // struct is moved into the closure value and released by whatever owns it —
+  // here the spawn wrapper, which runs BEFORE the capturing scope ends.
+  //
+  // The dup/drop pair optimizer cancelled exactly that pair when a closure had
+  // a single RC'd capture, so the capture struct held a borrowed alias. That
+  // read as a leak while nothing released it, and became a use-after-free the
+  // moment the wrapper started to: `tests/arc.test.yo`'s "Test Arc shared
+  // across thread" read 0 instead of 42, while its THREE-thread sibling passed
+  // for the wrong reason — two capture dups is more than one, and the
+  // optimizer only ever cancelled a single dup.
+  // issues/fixed/spawn-closure-captures-never-dropped-leak.md
+  _spawn_dispose_count.store(usize(0), MemoryOrder.Release);
+  {
+    tracked := _Tracked(tag : i32(9));
+    t := Thread.spawn(io => {
+      _x := tracked.tag;
+      ()
+    });
+    t.join();
+    // The wrapper has released the capture's reference by now. The caller's
+    // own reference must still be holding the object up.
+    assert(
+      _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(0),
+      "the caller still owns its reference after the thread released the capture's"
+    );
+    assert(tracked.tag == i32(9), "and can still read through it");
+  };
+  assert(
+    _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(1),
+    "disposed once, when the caller's own reference went out of scope"
+  );
+});
+test("Thread spawn releases captures on every iteration of a loop", {
+  // The leak was unbounded, so one iteration is not the interesting case.
+  _spawn_dispose_count.store(usize(0), MemoryOrder.Release);
+  (i : i32) = i32(0);
+  while(i < i32(16), i = (i + i32(1)), {
+    tracked := _Tracked(tag : i);
+    t := Thread.spawn(io => {
+      _x := tracked.tag;
+      ()
+    });
+    t.join();
+  });
+  assert(
+    _spawn_dispose_count.load(MemoryOrder.Acquire) == usize(16),
+    `all sixteen captured objects disposed; ${_spawn_dispose_count.load(MemoryOrder.Acquire).to_string()} did`
+  );
 });

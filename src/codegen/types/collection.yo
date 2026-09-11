@@ -38,7 +38,8 @@
   is_future_trait_type,
   is_some_type,
   is_function_type,
-  is_array_type
+  is_array_type,
+  get_adopted_extern_c_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type } :: import("../../types/utils.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
@@ -249,8 +250,24 @@ collect_type :: (fn(type_in : TypeValue, context : CodeGenContext) -> unit)({
       }
     );
     if(!(aliased), {
-      c_name := _intern_type_c_name(tk.clone());
-      context.register_type(tk, type, c_name, Option(String).None);
+      // A type ADOPTED by a `c_include` (`Color : Type` naming a Yo struct)
+      // already has a C name and a definition — the header's. Register THAT
+      // name and the header: `collect_c_includes` then emits the `#include`,
+      // and the declaration passes skip every forward declaration and body for
+      // an entry whose `c_include` is set, so the emitted C uses the header's
+      // struct and passes it BY VALUE across the real ABI. This is what the
+      // "Gap 3: extern-C names not modelled generally" note below refers to
+      // (TS reads `type.isExtern` / `type.externName` off the type itself).
+      match(
+        get_adopted_extern_c_type(type),
+        .Some(adopted) => {
+          context.register_type(tk, type, adopted.c_name.clone(), Option(String).Some(adopted.c_header.clone()));
+        },
+        .None => {
+          c_name := _intern_type_c_name(tk.clone());
+          context.register_type(tk, type, c_name, Option(String).None);
+        }
+      );
     });
     // Future trait interface: collect the OUTPUT type (T in Future(T)) — its
     // C name appears as the interface struct's `result` field. Mirrors TS

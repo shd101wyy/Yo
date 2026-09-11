@@ -156,7 +156,7 @@ test("AtomicI8 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == i8(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(i8(3), MemoryOrder.Relaxed) == i8(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == i8(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(i8(6), MemoryOrder.Consume) == i8(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(i8(6), MemoryOrder.AcqRel) == i8(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == i8(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicI8 fetch_min / fetch_max", {
@@ -203,7 +203,7 @@ test("AtomicI16 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == i16(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(i16(3), MemoryOrder.Relaxed) == i16(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == i16(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(i16(6), MemoryOrder.Consume) == i16(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(i16(6), MemoryOrder.AcqRel) == i16(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == i16(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicI16 fetch_min / fetch_max", {
@@ -250,7 +250,7 @@ test("AtomicI32 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == i32(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(i32(3), MemoryOrder.Relaxed) == i32(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == i32(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(i32(6), MemoryOrder.Consume) == i32(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(i32(6), MemoryOrder.AcqRel) == i32(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == i32(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicI32 fetch_min / fetch_max", {
@@ -297,7 +297,7 @@ test("AtomicI64 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == i64(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(i64(3), MemoryOrder.Relaxed) == i64(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == i64(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(i64(6), MemoryOrder.Consume) == i64(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(i64(6), MemoryOrder.AcqRel) == i64(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == i64(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicI64 fetch_min / fetch_max", {
@@ -344,7 +344,7 @@ test("AtomicU8 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == u8(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(u8(3), MemoryOrder.Relaxed) == u8(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == u8(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(u8(6), MemoryOrder.Consume) == u8(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(u8(6), MemoryOrder.AcqRel) == u8(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == u8(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicU8 fetch_min / fetch_max", {
@@ -392,7 +392,7 @@ test("AtomicU16 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == u16(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(u16(3), MemoryOrder.Relaxed) == u16(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == u16(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(u16(6), MemoryOrder.Consume) == u16(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(u16(6), MemoryOrder.AcqRel) == u16(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == u16(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicU16 fetch_min / fetch_max", {
@@ -440,7 +440,7 @@ test("AtomicU32 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == u32(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(u32(3), MemoryOrder.Relaxed) == u32(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == u32(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(u32(6), MemoryOrder.Consume) == u32(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(u32(6), MemoryOrder.AcqRel) == u32(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == u32(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicU32 fetch_min / fetch_max", {
@@ -488,7 +488,7 @@ test("AtomicU64 fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == u64(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(u64(3), MemoryOrder.Relaxed) == u64(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == u64(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(u64(6), MemoryOrder.Consume) == u64(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(u64(6), MemoryOrder.AcqRel) == u64(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == u64(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicU64 fetch_min / fetch_max", {
@@ -536,7 +536,7 @@ test("AtomicUsize fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == usize(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(usize(3), MemoryOrder.Relaxed) == usize(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == usize(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(usize(6), MemoryOrder.Consume) == usize(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(usize(6), MemoryOrder.AcqRel) == usize(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == usize(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicUsize fetch_min / fetch_max", {
@@ -587,7 +587,7 @@ test("AtomicIsize fetch_and / fetch_or / fetch_xor", {
   assert(a.load(MemoryOrder.Acquire) == isize(8), "0b1101 & 0b1010 == 0b1000");
   assert(a.fetch_or(isize(3), MemoryOrder.Relaxed) == isize(8), "fetch_or returns previous");
   assert(a.load(MemoryOrder.Acquire) == isize(11), "0b1000 | 0b0011 == 0b1011");
-  assert(a.fetch_xor(isize(6), MemoryOrder.Consume) == isize(11), "fetch_xor returns previous");
+  assert(a.fetch_xor(isize(6), MemoryOrder.AcqRel) == isize(11), "fetch_xor returns previous");
   assert(a.load(MemoryOrder.Acquire) == isize(13), "0b1011 ^ 0b0110 == 0b1101");
 });
 test("AtomicIsize fetch_min / fetch_max", {
@@ -803,7 +803,7 @@ test("AtomicI32 fetch_min / fetch_max under four-thread contention", {
 // ============================================================================
 test("fence accepts every ordering", {
   fence(MemoryOrder.Relaxed);
-  fence(MemoryOrder.Consume);
+  fence(MemoryOrder.AcqRel);
   fence(MemoryOrder.Acquire);
   fence(MemoryOrder.Release);
   fence(MemoryOrder.AcqRel);

@@ -1,0 +1,37 @@
+// An `io.await` reached only through a MACRO EXPANSION is not counted as a
+// suspension point: the enclosing `io.async` body is emitted as a plain
+// closure (not a state machine) and the await becomes the blocking form
+// (`// Synchronous await (io.await outside state machine)` in the C). Inside
+// a spawned task that is a deadlock — the task's cold start never returns,
+// so the caller never reaches the `try_send` the task is waiting for.
+//
+//   yo compile issues/repros/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.yo \
+//     --std-path ./std --optimize 2 -o /tmp/repro.bin
+//   timeout 10 /tmp/repro.bin       # rc=124, prints nothing
+//
+// Writing the SAME await directly in the async body (no macro) prints both
+// lines and exits 0.
+pragma(Pragma.AllowMacroDef);
+{ eprintln } :: import("std/fmt");
+{ Channel } :: import("std/async/channel");
+// A macro whose expansion contains an `io.await`.
+recv_one :: (fn(quote(io_arg) : Expr, quote(ch) : Expr) -> unquote(Expr))(
+  return(
+    quote({
+      unquote(io_arg).await(unquote(ch).recv(unquote(io_arg)), unquote(io_arg));
+    })
+  )
+);
+main :: (fn(io : Io) -> unit)({
+  ch := Channel(i32).new(usize(1));
+  task := io.async((io : Io) => {
+    recv_one(io, ch);
+    i32(1)
+  });
+  h := io.spawn(task, io);
+  eprintln(`spawn returned — with a state machine this prints; with a blocking await it never does`);
+  _s := ch.try_send(i32(5));
+  r := h.await(io);
+  eprintln(`got ${match(r, .Some(v) => v, .None => i32(-1))}`);
+});
+export(main);

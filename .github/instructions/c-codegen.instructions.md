@@ -30,6 +30,46 @@ both learned the hard way:
    through untouched, which is why `#define X \` line continuations work as
    written; only `\n`, `\r` and `\"` are transformed.
 
+3. **A backtick inside that literal must be ESCAPED as `` \` ``.** This is
+   about STRING CONTENT, not about comments: an ordinary Yo comment can contain
+   backticks freely (`` // This is `valid` without escape `` compiles today, and
+   so does a `///` doc comment with markdown fences in it — the lexer skips
+   comments). But `src/codegen/**` emits C from backtick TEMPLATES, so a C
+   comment there is inside a string literal, and an unescaped backtick CLOSES
+   it. The rest of the C is then parsed as Yo, and the error is
+   `E0008: paren-less function and operator calls are not supported` anchored on
+   a WORD INSIDE A C COMMENT — nonsense until you spot the delimiter, and
+   `yo fmt` makes it worse by padding the fragment to `` ` state ` ``.
+
+   The escape is supported and is the right answer — markdown in an emitted C
+   comment is fine, write it:
+
+   ```rust
+   c := `// reads \`state\` first, then registers
+   static int x = 1;`;
+   ```
+
+   Verified end to end: the emitted C contains a real `` ` ``, and `yo fmt`
+   preserves the `` \` `` and is idempotent over it. So there is nothing here to
+   avoid — only something to escape, the way `` \$ `` keeps a literal `${`.
+   `plans/backlog/RAW_AND_FENCED_STRING_LITERALS.md` proposes removing the need
+   (a better diagnostic first, then a triple-backtick fence that still
+   interpolates).
+
+4. **A new runtime function must be DECLARED before anything that calls it.**
+   The emitters write into two buffers — declarations and code — and the
+   declaration buffer is flushed first, so a call emitted into declarations
+   reaches a `static` definition that the code buffer emits later. C rejects
+   that as `static declaration of 'X' follows non-static declaration` (via an
+   implicit declaration), not as a warning. Two places this bites: a runtime
+   helper defined after the loop drivers that call it (hoist the thread-local
+   state and a forward declaration into the flags block —
+   `src/codegen/async/runtime_core.yo` does this for the waker), and
+   declaration-buffer code calling an RC primitive (`generate_object_constructor_declarations`
+   in `src/codegen/functions/declarations.yo` forward-declares
+   `__yo_decr_rc`/`__yo_incr_rc` and their `_atomic` counterparts for exactly
+   this reason).
+
 **Gate for any restructuring of an emitter literal:** extract every backtick
 literal from the function, concatenate, unescape, and diff against the same
 extraction from `HEAD`. Byte-identical output proves the refactor changed no
@@ -86,6 +126,33 @@ clang majors (`windows-latest` pre-installs LLVM 20 so `choco install llvm`
 no-ops; `windows-11-arm` gets the latest from choco). An "arm64-only" C failure
 may be a clang VERSION difference, not an architecture one — check the
 versions in the job logs first.
+
+## `sm->await_future_N` OWNS its reference — a borrowed future must be dup'd
+
+The state machine `__yo_decr_rc`s that slot in three places: when the await's
+result is extracted, when the awaited future aborts, and in the state machine's
+dispose function. So whatever is stored there must be a reference the slot owns:
+
+- a future the awaited expression **produces** (an `io.async(…)` block, a
+  `__yo_async_*_start()` extern, a call returning `Impl(Future)`) hands over the
+  reference it just created, and its temp's deferred drop is aliased onto the
+  slot rather than emitted separately (`state_machine.yo`, Phase 1b);
+- a **named** future is never stored in the slot at all — the await reads the
+  variable's own field, because storing it would hand the slot a reference it
+  does not own;
+- a future read out of a **place** (a field, or a chain of them) is BORROWED:
+  the owner still drops it, so the slot must `__yo_incr_rc` its own.
+
+All seven store sites go through `emit_await_future_store`
+(`src/codegen/async/state_code_gen.yo`) for exactly that reason — do not write
+a bare `sm->await_future_N = …` at a new one. The missing dup was a
+use-after-free in `Park.wait`, which awaits `self._future`
+(`issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`);
+it does not reproduce by running the program locally (this box's
+`--sanitize address` is inert — the runner prints "AddressSanitizer is not
+functional with this compiler setup … Skipping sanitizer"), while ALL SIX CI
+`test (…)` legs die on it. An RC change around awaits is not clean until those
+legs have run; until then, read the counts in the emitted C.
 
 ## `ExprInfo.variable_name` is UNTRUSTWORTHY in cond/match arm-value position
 

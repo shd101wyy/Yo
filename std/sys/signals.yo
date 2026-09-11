@@ -1,50 +1,131 @@
-//! POSIX signal constants.
+//! POSIX signal numbers, as plain integers for `std/sys/signal`'s
+//! `on_signal` / `off_signal` / `kill`.
 //!
-//! Platform-aware signal numbers.
-//! Uses `process.platform` for values that differ between Linux and macOS.
+//! Signal numbers are NOT uniform across Unix. Numbers 1-15 agree between
+//! Linux and macOS except for three, and everything above 15 was renumbered
+//! wholesale by 4.4BSD, so a portable table has to branch per platform. Four
+//! members here do (`SIGCHLD`, `SIGCONT`, `SIGSTOP`, `SIGTSTP`, via `cond` on
+//! `process.platform`); **four more differ on macOS and do NOT branch, and are
+//! therefore wrong there** — see the warnings on `SIGBUS`, `SIGURG`, `SIGUSR1`
+//! and `SIGUSR2`, and `issues/sys-signals-macos-numbers-are-linux-values.md`.
+//! Non-Unix targets take the Linux arm.
+//!
+//! `std/signal.yo` is the portable surface — its `Signal` enum carries its own
+//! per-platform number table (`_signal_num`) with the macOS values right, and
+//! deliberately does not read this module.
+//!
+//! ## Stability
+//!
+//! unstable — and not merely by convention: the table is known to be wrong on
+//! macOS for four of its 27 entries, so freezing it would freeze a bug. It is
+//! also a raw numeric table with one Yo consumer, the `std/sys/signal` tests;
+//! the supported surface is `std/signal.yo`'s `Signal` enum, which is where a
+//! new signal should be added. Freezing follows fixing the four values and
+//! deciding whether this module should exist at all rather than being folded
+//! into `std/signal.yo`'s table.
 { platform, Platform } :: import("../process");
 // ============================================================================
 // Signal Constants (POSIX signals)
 // ============================================================================
+/// Hangup — the controlling terminal closed, or the session leader exited.
+/// Conventionally also "reload your configuration" for a daemon.
 SIGHUP :: i32(1);
+/// Interrupt from the keyboard (Ctrl-C).
 SIGINT :: i32(2);
+/// Quit from the keyboard (Ctrl-\\) — like `SIGINT`, but the default action
+/// also dumps core.
 SIGQUIT :: i32(3);
+/// Illegal instruction.
 SIGILL :: i32(4);
+/// Trace/breakpoint trap — what a debugger's breakpoints raise.
 SIGTRAP :: i32(5);
+/// Abort — what C's `abort()` raises, and so what a Yo panic ends up as.
+/// This is process termination, and has nothing to do with the `unwind`
+/// keyword (see AGENTS.md).
 SIGABRT :: i32(6);
+/// Bus error — an unaligned or otherwise unmappable access.
+///
+/// **WRONG ON macOS.** 7 is Linux's number; macOS's `SIGBUS` is 10 and its 7
+/// is `SIGEMT`. This constant does not branch on `platform`, so on macOS it
+/// names the wrong signal
+/// (`issues/sys-signals-macos-numbers-are-linux-values.md`).
 SIGBUS :: i32(7);
+/// Arithmetic exception — integer divide by zero, not floating point
+/// despite the name (IEEE arithmetic does not trap by default).
 SIGFPE :: i32(8);
+/// Kill. Cannot be caught, blocked or ignored, so `on_signal` for it is
+/// pointless; `kill(pid, SIGKILL)` is the unconditional stop.
 SIGKILL :: i32(9);
+/// User-defined signal 1.
+///
+/// **WRONG ON macOS.** 10 is Linux's number; macOS's `SIGUSR1` is 30, and 10
+/// there is `SIGBUS` — so sending this on macOS crashes the target instead of
+/// poking it (`issues/sys-signals-macos-numbers-are-linux-values.md`).
+/// `std/signal.yo`'s `Signal.User1` has the right value.
 SIGUSR1 :: i32(10);
+/// Segmentation fault. A `-O0` Yo binary that takes this on deep recursion is
+/// out of stack, not corrupting the heap — see the `YO_MAIN_STACK_MB` note in
+/// AGENTS.md before reaching for a sanitizer.
 SIGSEGV :: i32(11);
+/// User-defined signal 2.
+///
+/// **WRONG ON macOS.** 12 is Linux's number; macOS's `SIGUSR2` is 31, and 12
+/// there is `SIGSYS`, whose default action kills the process
+/// (`issues/sys-signals-macos-numbers-are-linux-values.md`). `std/signal.yo`'s
+/// `Signal.User2` has the right value.
 SIGUSR2 :: i32(12);
+/// Wrote to a pipe or socket with no reader. Terminates the process by
+/// default, which is why servers normally ignore it and read the `EPIPE` from
+/// the write instead.
 SIGPIPE :: i32(13);
+/// Timer expired (`alarm()`/`setitimer()` real time).
 SIGALRM :: i32(14);
+/// Polite termination request — the default of `kill(1)`, and the one a
+/// process is expected to catch in order to shut down cleanly.
 SIGTERM :: i32(15);
 // Platform-dependent signal numbers
+/// A child process stopped or exited. macOS 20, Linux 17.
 SIGCHLD :: cond(
   (platform == Platform.Macos) => i32(20),
   true => i32(17)
 );
+/// Continue a stopped process. macOS 19, Linux 18.
 SIGCONT :: cond(
   (platform == Platform.Macos) => i32(19),
   true => i32(18)
 );
+/// Stop the process; like `SIGKILL` it cannot be caught or ignored.
+/// macOS 17, Linux 19.
 SIGSTOP :: cond(
   (platform == Platform.Macos) => i32(17),
   true => i32(19)
 );
+/// Stop typed at the terminal (Ctrl-Z) — catchable, unlike `SIGSTOP`.
+/// macOS 18, Linux 20.
 SIGTSTP :: cond(
   (platform == Platform.Macos) => i32(18),
   true => i32(20)
 );
+/// A background process tried to read from the terminal.
 SIGTTIN :: i32(21);
+/// A background process tried to write to the terminal (only when the tty has
+/// `TOSTOP` set).
 SIGTTOU :: i32(22);
+/// Urgent (out-of-band) data arrived on a socket.
+///
+/// **WRONG ON macOS.** 23 is Linux's number; macOS's `SIGURG` is 16 and its 23
+/// is `SIGIO` (`issues/sys-signals-macos-numbers-are-linux-values.md`).
 SIGURG :: i32(23);
+/// CPU time limit exceeded (`RLIMIT_CPU`).
 SIGXCPU :: i32(24);
+/// File size limit exceeded (`RLIMIT_FSIZE`).
 SIGXFSZ :: i32(25);
+/// Virtual (process CPU time) timer expired.
 SIGVTALRM :: i32(26);
+/// Profiling timer expired.
 SIGPROF :: i32(27);
+/// The terminal window was resized — the cue to re-read the size from
+/// `std/term`.
 SIGWINCH :: i32(28);
 export(
   SIGHUP,

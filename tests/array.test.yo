@@ -307,3 +307,66 @@ test("Array Hash agrees with Eq through a HashMap key", {
   m.insert(k2, i32(22));
   assert(m.len() == usize(2), "re-inserting an equal key replaces rather than adds");
 });
+// ---------------------------------------------------------------------------
+// An array LENGTH that is neither compile-time known nor a bare generic
+// parameter is REJECTED, not silently zero.
+//
+// `t_array_var` can only record an IDENTIFIER, so a length like `T.BYTES`
+// fell through to `Array(elem, 0, "")` — a concrete length of ZERO. A blanket
+// impl returning `Array(u8, T.BYTES)` therefore emitted a signature returning
+// `Array_uint8_t_0` while its specialized bodies emitted `Array_uint8_t_1` and
+// `Array_uint8_t_4`. C caught that only because those are different types; a
+// length-0 result the body also produced would have compiled, which made this
+// a silently-wrong-type class rather than a reliable error.
+// issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md
+//
+// The real feature — a value half for `substitute()`, so an associated
+// constant can be rewritten in a type position — is step 2 of
+// plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md. Until then this is an
+// error, which is strictly better than a wrong type.
+//
+// The cases that must KEEP working are below the rejection, deliberately:
+// a bare generic parameter, a comptime constant, and `_` inference are all
+// legal lengths and none of them may be caught by the new guard.
+_Widthy :: trait(
+  id := "WidthyArrayLen",
+  BYTES : usize
+);
+impl(u8, _Widthy(BYTES : usize(1)));
+impl(u32, _Widthy(BYTES : usize(4)));
+_ARR_LEN :: usize(3);
+test("Test an array length that cannot be substituted is an error, not zero", {
+  comptime_expect_error(
+    // `T.BYTES` in a LENGTH position: an associated constant, which
+    // substitution has no channel to rewrite.
+    impl(
+      generic(T : Type),
+      where(T <: _Widthy),
+      T,
+      _zeros : (fn(self : T) -> Array(u8, T.BYTES))(Array(u8, T.BYTES).fill(u8(0)))
+    )
+  );
+});
+test("Test the array lengths that DO work are unaffected", {
+  // A comptime constant, by name.
+  a := Array(i32, _ARR_LEN)(1, 2, 3);
+  assert(a.len() == 3, "a named comptime constant is a legal length");
+  // A literal.
+  b := Array(i32, usize(2))(7, 8);
+  assert(b.len() == 2, "a literal is a legal length");
+  // Inference.
+  c := Array(i32, _)(1, 2, 3, 4);
+  assert(c.len() == 4, "an inferred length is a legal length");
+  // A bare generic parameter, which is the shape the guard must not catch:
+  // `t_array_var` records the NAME and generic-impl matching binds it.
+  sum_all :: (fn(generic(N : usize), xs : Array(i32, N)) -> i32)({
+    (t : i32) = 0;
+    (i : usize) = usize(0);
+    while(i < xs.len(), i = (i + usize(1)), {
+      t = (t + xs(i));
+    });
+    t
+  });
+  assert(sum_all(Array(i32, usize(3))(1, 2, 3)) == 6, "a generic length parameter still binds");
+  assert(sum_all(Array(i32, usize(2))(10, 20)) == 30, "at more than one width");
+});

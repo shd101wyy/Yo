@@ -228,6 +228,34 @@ _search_dup_calls :: (fn(expr : AstExpr, res : DupCallsResult, ctx : EvalContext
     return(());
   });
   ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  // Skip a CLOSURE DEFINITION's captures for the same reason, and this is the
+  // general case the io.async guard above is one instance of. A closure
+  // definition's `deferred_dup_expressions` are its capture-struct FIELD
+  // INITIALIZERS (evaluator/values/anonymous_function.yo, via
+  // generate_captured_variable_dup_expressions) — not stores into a container
+  // that shares this scope's lifetime. The capture struct is moved into the
+  // closure value and released by whatever owns that value: a spawn wrapper,
+  // an async future, a stored FuncVal. Its release can therefore happen
+  // BEFORE the capturing scope ends, so the local must keep its own count.
+  //
+  // Cancelling the pair made the capture struct hold a borrowed alias, which
+  // read as a leak for as long as nothing released it — and became a
+  // use-after-free the moment something did. Both symptoms were live:
+  // `tests/arc.test.yo`'s "Test Arc shared across thread" read 0 instead of 42
+  // once the spawn wrapper started releasing its captures, while its
+  // three-thread sibling passed for the wrong reason (TWO capture dups means
+  // runtime_count > 1, and the optimizer only cancels a single dup).
+  // See issues/fixed/spawn-closure-captures-never-dropped-leak.md.
+  match(
+    ei_opt,
+    .Some(ei_cl) => if(
+      match(ei_cl.is_anonymous_function_definition, .Some(b) => b, .None => false)
+      && ei_cl.deferred_dup_expressions.is_some(),
+      return(()),
+      ()
+    ),
+    .None => ()
+  );
   // Attached deferred dups first (begin.ts:371-375).
   match(
     ei_opt,
@@ -1209,6 +1237,48 @@ _optimize_dup_drop_pairs :: (
               // copies need their own drop — never cancel (begin.ts:1900-1909).
               value_type_with_rc := (!is_reference_struct_type(base.ty) && type_contains_rc_type(base.ty));
               partial := _ids_list_contains(merged.vars_with_partial_branch_dups, base_id.clone());
+              // A dup taken in a DEEPER SCOPE than the candidate's own frame
+              // — the body of a nested `{ … }` block — feeds a container whose
+              // scope end comes FIRST. Cancelling the pair moves this local's
+              // only count into that container, and the inner block's drop
+              // then frees a value the outer scope goes on using:
+              //
+              //   sink := S.new();
+              //   { h := H(sink : sink); };   // h dies here, taking sink's count
+              //   sink.count();               // use after free
+              //
+              // A `ref` holding a `ref` is cycle-capable and therefore
+              // GC-TRACKED, so `__yo_decr_rc` buffers a possible root instead
+              // of freeing on the spot and the fault reads as a correct
+              // answer; an `atomic(ref(…))` is an Iso type, never tracked, and
+              // faults immediately. That asymmetry is why this survived
+              // (issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md).
+              //
+              // Measured by the dup's own `ExprInfo.env` depth rather than by
+              // restructuring the collector: a traversal that treats a nested
+              // `begin` as a unit also takes ALIAS bindings (`env := env_in`)
+              // off the consumed path the early-return drop machinery uses,
+              // which cost 165 `__yo_decr_rc` calls in the compiler's own
+              // emit. Cond/match arms and `while` bodies are deliberately NOT
+              // caught: they are measured correct today (the branch-aware
+              // path and the while early-return above already keep them), and
+              // an arm body's frame is not deeper than this one's.
+              (nested_dup : bool) = false;
+              (ndi : usize) = usize(0);
+              while((ndi < dups.len()) && !nested_dup, {
+                match(
+                  dups.get(ndi),
+                  .Some(nd) => match(
+                    expr_info_table_get(ctx.expr_info_table, ast_expr_id(nd)),
+                    .Some(ndei) => if(ndei.env.frames.len() > (v.frame_level + usize(1)), {
+                      nested_dup = true;
+                    }),
+                    .None => ()
+                  ),
+                  .None => ()
+                );
+                ndi = (ndi + usize(1));
+              });
               // A main-path dup in a child AFTER an early-return child: the
               // early return never executes the dup, so the value is still
               // live and needs the scope-exit drop (begin.ts:1919-1935).
@@ -1255,7 +1325,7 @@ _optimize_dup_drop_pairs :: (
                   bci2 = (bci2 + usize(1));
                 });
               });
-              gates_ok := (!value_type_with_rc && (!partial && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed))));
+              gates_ok := (!value_type_with_rc && (!partial && (!nested_dup && (!ret_before_dup && ((consumed_dups == usize(0)) && !base_consumed)))));
               if(gates_ok, {
                 // Count RUNTIME dups — every collected dup counts
                 // (begin.ts:1930-1955).

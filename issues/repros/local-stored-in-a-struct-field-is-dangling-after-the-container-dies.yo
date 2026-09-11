@@ -1,0 +1,44 @@
+// Reproducer: a named local stored into a struct FIELD loses its own
+// reference, so once the container dies the local is dangling — and reading it
+// is a use-after-free. No threads and no async are involved; the container
+// simply lives in an INNER scope.
+//
+//   yo compile issues/repros/local-stored-in-a-struct-field-is-dangling-after-the-container-dies.yo \
+//     --std-path ./std --optimize 2 -o /tmp/repro && /tmp/repro
+//
+// Expected: "after block: count=1" (the container disposed; `sink` is still
+// alive because main holds its own reference).
+// Measured 2026-09-11 (macOS arm64, --optimize 2, seed 0.2.30 AND a tree
+// build): rc=139, SIGSEGV inside `sink.count()`.
+// issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md
+{ AtomicUsize, MemoryOrder } :: import("std/sync/atomic");
+{ printf } :: import("std/libc/stdio");
+pragma(Pragma.AllowUnsafe);
+_disposed :: atomic(ref(struct(n : AtomicUsize)));
+impl(
+  _disposed,
+  new : (fn() -> Self)(Self(n : AtomicUsize.new(usize(0)))),
+  bump : (fn(self : Self) -> unit)({
+    _p := self.n.fetch_add(usize(1), MemoryOrder.AcqRel);
+    ()
+  }),
+  count : (fn(self : Self) -> usize)(self.n.load(MemoryOrder.Acquire))
+);
+_Tracked :: atomic(ref(struct(tag : i32, sink : _disposed)));
+impl(
+  _Tracked,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(self.sink.bump())
+  )
+);
+main :: (fn() -> unit)({
+  sink := _disposed.new();
+  {
+    tracked := _Tracked(tag : i32(7), sink : sink);
+    _t := tracked.tag;
+    ()
+  };
+  // No thread anywhere: `tracked` died at the end of the block above.
+  _b := unsafe(printf("after block: count=%zu\n", sink.count()));
+});
+export(main);

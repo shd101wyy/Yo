@@ -3,39 +3,122 @@
 //!
 //! **Internal to `std/regex`.** Nothing here is public API: import
 //! `std/regex` and use `Regex`. This module's shape changes freely.
+//!
+//! ## What it produces
+//!
+//! A `NfaProgram`: one flat `ArrayList(Instr)` addressed by index (the "pc"),
+//! plus a side table of character classes, the group count, the named-group
+//! table and an optional literal prefix. Control flow is entirely by pc —
+//! `Split` forks to two pcs, `Jump` goes to one — so the tree shape is gone
+//! and the VM never recurses over an AST.
+//!
+//! `compile` wraps the pattern in the group-0 saves, so every program is
+//! `Save 0`, the pattern's own instructions, `Save 1`, `Match`. That is why
+//! group 0 needs no special case anywhere downstream: it is just the
+//! outermost capture. Capture slots are laid out two per group — group `g`
+//! writes `2g` and `2g+1` — which is where the VM's `2 * (n_groups + 1)` slot
+//! allocation comes from.
+//!
+//! ## Where the cost is
+//!
+//! Thompson's construction is linear in the pattern EXCEPT for a bounded
+//! quantifier: `{m,n}` is compiled by emitting `n - m` optional copies of the
+//! body, so `(ab){1,500}` emits ~500 copies and `(a{100}){100}` emits 10 000.
+//! There is no repetition-size limit, unlike Rust's regex crate, which
+//! refuses a pattern whose compiled size exceeds a budget. `*` and `+` are
+//! loops and cost nothing extra.
+//!
+//! Greediness is not a property of any instruction — it is only the ORDER a
+//! `Split`'s two targets are written in, body-first for greedy and exit-first
+//! for lazy. The VM always tries `target_a` before `target_b`.
+//!
+//! ## Stability
+//!
+//! unstable, and deliberately not public. `InstrKind` and `Instr` are the
+//! engine's internal wire format between this module and `vm.yo`: they change
+//! together, in the same commit, and neither is meaningful without the other.
+//! Two known changes are pending — a repetition-size budget, so `{m,n}` cannot
+//! blow the program up, and a sorted/merged class table so class membership is
+//! not a linear scan — and both alter the produced program. `NfaProgram` is
+//! exported only because `Regex` has to hold one and clear its
+//! `literal_prefix`; treat that as an implementation detail, not API.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 import("std/string");
 { RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
 /// NFA instruction types.
 InstrKind :: enum(
+  /// Consume one rune, which must equal `codepoint`. Fails the thread
+  /// otherwise.
   Char,
+  /// Consume one rune, which must be accepted by class `class_idx` of the
+  /// program's class table.
   CharClass,
+  /// Consume any one rune (`.`). Whether `\n` counts is decided at match
+  /// time by the `s` flag, not here.
   AnyChar,
+  /// Fork: continue at `target_a`, and on failure at `target_b`. The ONLY
+  /// branching instruction — alternation, `*`, `+`, `?` and `{m,n}` all lower
+  /// to it, and `target_a` is always the preferred path.
   Split,
+  /// Unconditional goto `target`.
   Jump,
+  /// Record the current byte position into capture slot `slot`. Slots are two
+  /// per group: `2g` opens group `g`, `2g+1` closes it.
   Save,
+  /// Accept. The program's own last instruction, and also the terminator of
+  /// each lookaround sub-program.
   Match,
+  /// `^`. Zero-width.
   AssertStart,
+  /// `$`. Zero-width.
   AssertEnd,
+  /// `\b`. Zero-width.
   AssertWordBoundary,
+  /// `\B`. Zero-width.
   AssertNonWordBoundary,
+  /// Re-match the text captured by group `slot`. This is what takes the
+  /// engine out of the linear-time class: a backreference needs the actual
+  /// captured text, so threads cannot be merged by pc.
   Backref,
+  /// Run the sub-program `target_a .. target_b` at the current position and
+  /// keep only whether it matched (`slot == 1` requires success, `slot == 0`
+  /// requires failure), then continue where we were.
   Lookahead,
+  /// As `Lookahead`, matched backwards from the current position.
   Lookbehind
 );
-// A single NFA instruction
+/// One NFA instruction — a wide value struct where `kind` decides which
+/// fields mean anything, the same discipline `RegexNode` uses. Build them
+/// through the `*_instr` constructors below, never by literal, so the unused
+/// fields are reliably zero.
+///
+/// Note that `slot` is OVERLOADED three ways: a capture slot for `Save`, a
+/// group number for `Backref`, and a 1/0 polarity flag for the two
+/// lookarounds.
 Instr :: struct(
+  /// Which instruction this is, and therefore which other fields are live.
   kind : InstrKind,
+  /// `Char`: the code point that must match.
   codepoint : u32,
+  /// `CharClass`: index into `NfaProgram.classes`.
   class_idx : usize,
+  /// `Split`: the pc tried FIRST. `Lookahead`/`Lookbehind`: first pc of the
+  /// sub-program.
   target_a : usize,
+  /// `Split`: the pc tried on failure of `target_a`.
+  /// `Lookahead`/`Lookbehind`: one past the sub-program's last pc.
   target_b : usize,
+  /// `Jump`: the pc to continue at.
   target : usize,
+  /// `Save`: the capture slot to write. `Backref`: the group to re-match.
+  /// `Lookahead`/`Lookbehind`: 1 for a positive assertion, 0 for a negative
+  /// one.
   slot : usize
 );
 impl(
   Instr,
+  /// A `Char` instruction matching exactly `cp`.
   char_instr : (fn(cp : u32) -> Self)(
     Self(
       kind : .Char,
@@ -47,6 +130,7 @@ impl(
       slot : usize(0)
     )
   ),
+  /// An `AnyChar` instruction — the `.` atom.
   any_char_instr : (fn() -> Self)(
     Self(
       kind : .AnyChar,
@@ -58,6 +142,9 @@ impl(
       slot : usize(0)
     )
   ),
+  /// A `CharClass` instruction resolving through `idx` in the program's class
+  /// table. Classes live in a side table rather than in the instruction so an
+  /// `Instr` stays a fixed-size value type.
   char_class_instr : (fn(idx : usize) -> Self)(
     Self(
       kind : .CharClass,
@@ -69,6 +156,10 @@ impl(
       slot : usize(0)
     )
   ),
+  /// A `Split` forking to `a` first and `b` second. Emitted with placeholder
+  /// targets and PATCHED IN PLACE once the real pcs are known — the
+  /// `&(...).* = ` writes in `_compile_node` are that patching, and every
+  /// `split_instr(0, 0)` you see is a forward reference not yet resolved.
   split_instr : (fn(a : usize, b : usize) -> Self)(
     Self(
       kind : .Split,
@@ -80,6 +171,8 @@ impl(
       slot : usize(0)
     )
   ),
+  /// A `Jump` to `t`, likewise patched after the fact when it is a forward
+  /// reference.
   jump_instr : (fn(t : usize) -> Self)(
     Self(
       kind : .Jump,
@@ -91,6 +184,9 @@ impl(
       slot : usize(0)
     )
   ),
+  /// A `Save` writing the current position into capture slot `s`. Group `g`
+  /// uses `2g` (open) and `2g+1` (close), so slots 0 and 1 are the whole
+  /// match.
   save_instr : (fn(s : usize) -> Self)(
     Self(
       kind : .Save,
@@ -102,6 +198,8 @@ impl(
       slot : s
     )
   ),
+  /// A `Match` — accept. Emitted once at the end of the program, and once at
+  /// the end of each lookaround sub-program to give it a terminator of its own.
   match_instr : (fn() -> Self)(
     Self(
       kind : .Match,
@@ -113,6 +211,7 @@ impl(
       slot : usize(0)
     )
   ),
+  /// An `AssertStart` — `^`.
   assert_start_instr : (fn() -> Self)(
     Self(
       kind : .AssertStart,
@@ -124,6 +223,7 @@ impl(
       slot : usize(0)
     )
   ),
+  /// An `AssertEnd` — `$`.
   assert_end_instr : (fn() -> Self)(
     Self(
       kind : .AssertEnd,
@@ -135,6 +235,7 @@ impl(
       slot : usize(0)
     )
   ),
+  /// An `AssertWordBoundary` — `\b`.
   assert_word_boundary_instr : (fn() -> Self)(
     Self(
       kind : .AssertWordBoundary,
@@ -146,6 +247,7 @@ impl(
       slot : usize(0)
     )
   ),
+  /// An `AssertNonWordBoundary` — `\B`.
   assert_non_word_boundary_instr : (fn() -> Self)(
     Self(
       kind : .AssertNonWordBoundary,
@@ -157,6 +259,8 @@ impl(
       slot : usize(0)
     )
   ),
+  /// A `Backref` re-matching group `group_idx`, stored in the `slot` field.
+  /// The parser has already verified the group exists.
   backref_instr : (fn(group_idx : usize) -> Self)(
     Self(
       kind : .Backref,
@@ -168,7 +272,15 @@ impl(
       slot : group_idx
     )
   ),
-  // Lookahead: target_a=sub_start, target_b=sub_end, slot=1 for positive/0 for negative
+  /// A `Lookahead` over the sub-program `sub_start .. sub_end`, with
+  /// `positive` stored in `slot` as 1/0.
+  ///
+  /// The sub-program is emitted INLINE, immediately after this instruction, so
+  /// the pc range is contiguous and the VM jumps over it rather than into it
+  /// when the assertion is not being evaluated.
+  ///
+  /// Field mapping: `target_a` = `sub_start`, `target_b` = `sub_end`,
+  /// `slot` = 1 for positive / 0 for negative.
   lookahead_instr : (fn(sub_start : usize, sub_end : usize, positive : bool) -> Self)(
     Self(
       kind : .Lookahead,
@@ -180,7 +292,12 @@ impl(
       slot : cond(positive => usize(1), true => usize(0))
     )
   ),
-  // Lookbehind: target_a=sub_start, target_b=sub_end, slot=1 for positive/0 for negative
+  /// A `Lookbehind` over the inline sub-program `sub_start .. sub_end`, with
+  /// `positive` stored in `slot` as 1/0. Same layout as `lookahead_instr`;
+  /// only the VM's direction of travel differs.
+  ///
+  /// Same field mapping: `target_a` = `sub_start`, `target_b` = `sub_end`,
+  /// `slot` = 1 for positive / 0 for negative.
   lookbehind_instr : (fn(sub_start : usize, sub_end : usize, positive : bool) -> Self)(
     Self(
       kind : .Lookbehind,
@@ -193,22 +310,48 @@ impl(
     )
   )
 );
-// Character class table entry
+/// One entry of a program's character-class table, referenced by index from a
+/// `CharClass` instruction. Kept out of the instruction so `Instr` can stay a
+/// fixed-size value struct with no owned allocation.
 ClassEntry :: struct(
+  /// Inclusive code-point ranges, exactly as the parser built them: NOT
+  /// sorted, NOT merged and possibly overlapping, so membership is a linear
+  /// scan in the VM rather than a binary search.
   ranges : ArrayList(CharRange),
+  /// `[^...]` — membership is inverted. Applied AFTER the scan, so a negated
+  /// empty class matches every rune.
   negated : bool
 );
-// The compiled NFA program
+/// A compiled pattern: everything the VM needs and nothing about a particular
+/// input. A `Regex` holds one and runs it against many haystacks, so it must
+/// stay immutable during execution — the VM only reads it.
 NfaProgram :: ref(
   struct(
+    /// The program. Instruction `i` is at pc `i`; every `Split`/`Jump`/
+    /// lookaround target is an index into this list.
     instructions : ArrayList(Instr),
+    /// Character classes, referenced by `Instr.class_idx`.
     classes : ArrayList(ClassEntry),
+    /// How many capturing groups the pattern declared, NOT counting group 0.
+    /// The VM allocates `2 * (n_groups + 1)` capture slots from it.
     n_groups : usize,
+    /// `(?<name>...)` declarations in source order, passed through to
+    /// `RegexMatch.named_group`.
     group_names : ArrayList(GroupNameEntry),
+    /// ASCII bytes every match must begin with, or empty when there is no
+    /// such prefix — a `memchr`-style skip that lets the VM reject start
+    /// positions without running the program. `Regex.new_with_flags` CLEARS
+    /// it when the `i` flag is set, because the scan is case-sensitive, and
+    /// the caller ignores it under `y` (sticky), because there is nowhere to
+    /// skip to.
     literal_prefix : ArrayList(u8)
   )
 );
-// The NFA compiler
+/// The compiler itself: a `NfaProgram` under construction plus the emit
+/// helpers that append to it. SINGLE USE — `compile` returns the program it
+/// has been accumulating into, so a second `compile` on the same instance
+/// would append to a finished program. `Regex.new_with_flags` builds a fresh
+/// one per pattern.
 NfaCompiler :: ref(
   struct(
     _program : NfaProgram
@@ -217,6 +360,7 @@ NfaCompiler :: ref(
 // Utilities defined first (bottom-up ordering required)
 impl(
   NfaCompiler,
+  /// A compiler with an empty program. Use it for exactly one `compile`.
   new : (fn() -> Self)(
     Self(
       _program : NfaProgram(
@@ -441,6 +585,17 @@ impl(
 // Top-level compile method
 impl(
   NfaCompiler,
+  /// Lower the AST `root` into a runnable program.
+  ///
+  /// Wraps the pattern in the group-0 captures and terminates it, so the
+  /// result is always `Save 0` / pattern / `Save 1` / `Match` — which is why
+  /// nothing downstream special-cases the whole match. `n_groups` and
+  /// `group_names` come from the parser and are stored verbatim; this function
+  /// does not re-derive or validate them.
+  ///
+  /// Finally extracts the literal prefix, so the returned program is complete:
+  /// after this call the compiler has no more work to do and the program is
+  /// only read.
   compile : (fn(self : Self, root : RegexNode, n_groups : usize, group_names : ArrayList(GroupNameEntry)) -> NfaProgram)({
     self._program.n_groups = n_groups;
     self._program.group_names = group_names;

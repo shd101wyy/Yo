@@ -7,6 +7,19 @@
 //! - 0 on success (for mkdir, unlink, rename, symlink, link)
 //! - Bytes read for getdents
 //! - Negative value: -errno on failure
+//!
+//! ## Stability
+//!
+//! unstable — a raw, errno-oriented wrapper over the C directory calls, and
+//! not the surface a caller wants: results come back as a bare `i32` that is
+//! either a count or `-errno`, and `getdents` hands back a byte buffer the
+//! caller has to walk itself. `std/fs` is the typed face (`Dir`, `read_dir`,
+//! `create_dir_all`, `remove_dir_all`), it returns `Result(_, IoError)`, and
+//! it is what should be imported.
+//!
+//! This module freezes, if ever, as an implementation detail of `std/fs`; the
+//! more likely end state is that it goes `_`-private once `std/fs` covers the
+//! last direct caller.
 //
 // Sync operations (readlink) return i32 directly:
 //   - Bytes read on success

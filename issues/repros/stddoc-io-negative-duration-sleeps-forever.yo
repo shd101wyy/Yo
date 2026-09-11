@@ -1,0 +1,24 @@
+// Reproducer: a negative `Duration` reaches `sleep` / `sleep_blocking` as a
+// near-infinite unsigned millisecond count instead of returning immediately.
+//
+//   yo compile issues/repros/stddoc-io-negative-duration-sleeps-forever.yo \
+//     --std-path ./std --optimize 2 -o /tmp/negdur && /tmp/negdur
+//
+// Expected (Rust's stance, where `Duration` is unsigned so this is
+// unrepresentable): either `Duration.from_secs(i64(-1))` is rejected/clamped,
+// or `sleep_blocking` treats a non-positive span as "do not sleep".
+//
+// Actual: the printed unsigned counts are ~1.8e19 milliseconds (~585 million
+// years). Uncommenting the `sleep_blocking` line hangs the process.
+{ Duration } :: import("std/time/duration");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  d := Duration.from_secs(i64(-1));
+  println(`as_millis=${d.as_millis()}`);
+  // What std/time/sleep.yo's `sleep` passes to IO_timer.sleep:
+  println(`u64 ms=${u64(d.as_millis())}`);
+  // What `sleep_blocking` passes to __yo_ms_sleep:
+  println(`usize ms=${usize(d.as_millis())}`);
+  // sleep_blocking(d);   // hangs
+});
+export(main);
