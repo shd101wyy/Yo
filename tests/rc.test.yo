@@ -1096,3 +1096,113 @@ test("alias made in an inner block, base reassigned there, base used after", {
   };
   assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
 });
+// ---------------------------------------------------------------------------
+// A local stored into a struct field that lives in a NESTED block keeps its
+// own count.
+//
+// `_optimize_dup_drop_pairs` cancels a local's single dup against its
+// scope-end drop and calls the result a move. That is sound only while the
+// container the dup fed OUTLIVES the local — and it does not when the
+// container is declared in an inner block, because the inner block's scope end
+// releases the field first. The outer local was then dangling for the rest of
+// its own scope:
+//
+//   sink := S.new();
+//   { h := H(sink : sink); };   // h dies here, taking sink's only count
+//   sink.count();               // use after free
+//
+// The non-atomic path hid it behind a correct-looking answer: a `ref` holding
+// a `ref` is cycle-capable, so it is GC-TRACKED and `__yo_decr_rc` buffers a
+// possible root instead of freeing on the spot. An `atomic(ref(...))` is an
+// Iso type, never tracked, so the free is immediate and the read faults.
+// issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md
+//
+// The oracle is a Dispose counter rather than a value read, because it catches
+// BOTH directions: a missing dup frees early (the bug), and an unmatched dup
+// never disposes at all (the over-correction).
+// ---------------------------------------------------------------------------
+(g_nested_disposed : i32) = i32(0);
+NestedSink :: ref(struct(tag : i32));
+impl(
+  NestedSink,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_nested_disposed = (g_nested_disposed + i32(1));
+    })
+  )
+);
+NestedHolder :: ref(struct(label : i32, sink : NestedSink));
+test("a local stored into a container in a NESTED block outlives that block", {
+  before := g_nested_disposed;
+  {
+    sink := NestedSink(tag : i32(1));
+    {
+      h := NestedHolder(label : i32(2), sink : sink);
+      assert(h.label == i32(2), "the container sees its own field");
+    };
+    // The container is gone. `sink` must still be alive here — it is a live
+    // local of THIS scope and nothing has consumed it.
+    assert(g_nested_disposed == before, "the inner block's container did not take the outer local with it");
+    assert(sink.tag == i32(1), "and the outer local still reads correctly");
+  };
+  assert(
+    g_nested_disposed == (before + i32(1)),
+    "disposed exactly once, when its own scope ended — not twice, and not never"
+  );
+});
+test("a container two blocks deep does not take the outer local either", {
+  before := g_nested_disposed;
+  {
+    sink := NestedSink(tag : i32(3));
+    {
+      {
+        h := NestedHolder(label : i32(4), sink : sink);
+        assert(h.label == i32(4), "the container sees its own field");
+      };
+      ()
+    };
+    assert(sink.tag == i32(3), "still readable through two closed scopes");
+  };
+  assert(g_nested_disposed == (before + i32(1)), "and disposed exactly once");
+});
+// OVER-CANCELLATION CANARY. The gate above must not fire on a container in the
+// SAME scope: that cancellation is correct — drops run in reverse declaration
+// order, so the container is released before the local it borrowed from — and
+// keeping it is what stops every struct store from costing a dup/drop pair
+// again. If this ever reports two disposes the gate has gone too wide in the
+// other direction; if it reports none, a dup is unmatched.
+test("a container in the SAME scope still shares one count", {
+  before := g_nested_disposed;
+  {
+    sink := NestedSink(tag : i32(5));
+    h := NestedHolder(label : i32(6), sink : sink);
+    assert(h.label == i32(6), "the container sees its own field");
+    assert(sink.tag == i32(5), "and the local still reads");
+    assert(g_nested_disposed == before, "nothing disposed while both are live");
+  };
+  assert(g_nested_disposed == (before + i32(1)), "disposed exactly once at the shared scope end");
+});
+test("a container in a cond arm and in a while body behave the same way", {
+  before := g_nested_disposed;
+  {
+    sink := NestedSink(tag : i32(7));
+    cond(
+      true => {
+        h := NestedHolder(label : i32(8), sink : sink);
+        assert(h.label == i32(8), "the arm's container sees its field");
+      },
+      true => ()
+    );
+    assert(sink.tag == i32(7), "readable after the arm");
+    (i : i32) = i32(0);
+    while(i < i32(3), i = (i + i32(1)), {
+      w := NestedHolder(label : i, sink : sink);
+      assert(w.label == i, "the loop body's container sees its field");
+    });
+    assert(sink.tag == i32(7), "and after three loop iterations");
+  };
+  assert(
+    g_nested_disposed == (before + i32(1)),
+    "still exactly one dispose: a loop body taking a reference per iteration must release it per iteration"
+  );
+});
