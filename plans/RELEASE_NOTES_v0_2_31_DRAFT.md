@@ -91,6 +91,9 @@ is what `source` and the operator families were waiting on.
   lost across an async suspension, a silently-zero array length.
 - **`c_include`: a `Name : Type` field ADOPTS the Yo type of that name** (#582).
 - Two codegen fixes riding with `BITS`/`T.Unsigned` (#548).
+- **Nested `cond`/`match` arms in an async body dispatch by code on the shared
+  field** (#592) — six emitter bugs in one, including the dead arm that made
+  `yo install user/repo@tag` write `ref: ""`.
 
 ## std
 
@@ -117,6 +120,8 @@ is what `source` and the operator families were waiting on.
   (#541).
 - The verifier reaches V3 datatypes (#535), V4 loops and exits (#538) and V5's
   first row — two-state `old()` (#557).
+- Discarded calls are written as bare statements rather than `_ :=` / `___ :=`
+  bindings across the tree (#594, docs in #595).
 
 ## Known residuals
 
@@ -125,6 +130,19 @@ is what `source` and the operator families were waiting on.
   path so far.
 - `race`/`any` still poll rather than park —
   `plans/WAKER_BASED_SCHEDULING.md` step 4.
-- D18b (`Thread(T).join() -> T`) is still open, blocked on the spawn
-  lowering's ZST-returning captured call
-  (`issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`).
+- D18b (`Thread(T).join() -> T`) is still open. Its three blockers are now
+  separately diagnosed and none of them is the spawn lowering that
+  `issues/thread-spawn-callback-returning-a-zst-emits-void-star-from-void.md`
+  used to blame. The first — a static-dispatch call reading the CALL
+  EXPRESSION's type instead of the callee's prototype, so a `void`-returning
+  closure call was bound to a `void*` temp — is fixed in #598, which lands
+  after this release. The other two are
+  `issues/generic-channel-send-specialisation-is-called-but-never-emitted.md`
+  — one specialisation mangled two ways, so it is emitted under one name and
+  called under another — and `_capture_judgement_type` resolving a captured
+  closure to its capture STRUCT and then rejecting it as not `Send`.
+- A body-less HTTP response can go unread until its deadline on some CI
+  runners (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`).
+  The read completes with the whole response in hand and the exchange still
+  times out, so what is lost sits above the read; the tagged checkpoints that
+  separate the two remaining candidates are on the #556 branch.
