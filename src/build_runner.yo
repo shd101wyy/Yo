@@ -39,6 +39,7 @@ _(env : proc_env) :: import("std/env");
   BuildRegistry,
   ResolvedDep,
   BuildSystemLibrary,
+  ImportedModule,
   get_build_registry,
   clear_build_registry,
   swap_build_registry
@@ -259,13 +260,16 @@ _abs_under :: (fn(base : String, rel : String) -> String)({
   Path.new(absolute).normalize().to_string()
 });
 /// The directory a dependency's sources live in: a path dependency's `path`
-/// under the project, or a git dependency's fetched cache dir (via `yo.lock`).
-/// `.None` for an empty name (a LOCAL module import). Every await is a
-/// top-level statement of the async body on purpose (see compile_artifact).
+/// under `base_dir` (the declaring project's directory), or a git dependency's
+/// fetched cache dir (via the ROOT project's `yo.lock` at `lock_dir` — a
+/// dependency's own git dependencies are recorded there). `.None` for an
+/// empty name (a LOCAL module import). Every await is a top-level statement
+/// of the async body on purpose (see compile_artifact).
 _dependency_dir :: (
   fn(
     registry : BuildRegistry,
-    project_dir : String,
+    base_dir : String,
+    lock_dir : String,
     dep_name : String,
     io : Io,
     exn : Exception
@@ -282,10 +286,10 @@ _dependency_dir :: (
     );
     // Resolved unconditionally (an unknown name finds no lock entry and
     // yields `.None`) so the await stays a top-level statement.
-    git_dir := e.io.await(resolve_dep_path(project_dir.clone(), if(is_git, dep_name.clone(), String.new()), git_sub, e.io, e.exn), e);
+    git_dir := e.io.await(resolve_dep_path(lock_dir.clone(), if(is_git, dep_name.clone(), String.new()), git_sub, e.io, e.exn), e);
     cond(
       (dep_name.len() == usize(0)) => Option(String).None,
-      path_dep.is_some() => Option(String).Some(_abs_under(project_dir.clone(), path_dep.unwrap().path.clone())),
+      path_dep.is_some() => Option(String).Some(_abs_under(base_dir.clone(), path_dep.unwrap().path.clone())),
       is_git => match(
         git_dir,
         .Some(d) => Option(String).Some(d),
@@ -295,18 +299,30 @@ _dependency_dir :: (
         }
       ),
       true => {
-        e.exn.throw(dyn(`Error: Dependency "${dep_name}" is not declared by build.dependency or build.path_dependency in this build.yo.`));
+        e.exn.throw(dyn(`Error: Dependency "${dep_name}" is not declared by build.dependency or build.path_dependency in ${base_dir}/build.yo.`));
         Option(String).None
       }
     )
   })
 );
+/// What `_dependency_module_root` learns about a dependency: the root file of
+/// the requested module, and the dependency's own build registry (its
+/// `build.module`s, `add_import`s and dependencies) when it has a build file —
+/// the transitive walk in `_resolve_artifact_import_roots` reads that.
+// Field names deliberately avoid `root`/`registry`, the names of locals in
+// the async bodies that read them — see the note at `dep_root_opt`.
+DepModuleResolution :: ref(
+  struct(
+    module_root : Option(String),
+    dep_registry : Option(BuildRegistry)
+  )
+);
 /// The root file of `module_name` inside a dependency: its `build.yo`
-/// (evaluated in an isolated registry, so the project's own registry survives)
+/// (evaluated in an isolated registry, so the caller's registry survives)
 /// declares modules with `build.module`; an empty `module_name` means the sole
 /// module. Without a build file or a matching module, the conventional roots
-/// `src/lib.yo` → `index.yo` → `<dep_name>.yo`. `.None` when `dep_dir_opt` is
-/// `.None` (a local module import) or nothing matches.
+/// `src/lib.yo` → `index.yo` → `<dep_name>.yo`. `root` is `.None` when
+/// `dep_dir_opt` is `.None` (a local module import) or nothing matches.
 _dependency_module_root :: (
   fn(
     dep_dir_opt : Option(String),
@@ -314,7 +330,7 @@ _dependency_module_root :: (
     dep_name : String,
     io : Io,
     exn : Exception
-  ) -> Impl(Future(Option(String), IoExn))
+  ) -> Impl(Future(DepModuleResolution, IoExn))
 )(
   io.async((e : IoExn) => {
     dep_dir := match(dep_dir_opt, .Some(d) => d, .None => String.new());
@@ -328,6 +344,7 @@ _dependency_module_root :: (
     has_index_default := e.io.await(exists(Path.new(index_default.clone()), e.io), e.io);
     has_named_default := e.io.await(exists(Path.new(named_default.clone()), e.io), e.io);
     (declared_root : Option(String)) = Option(String).None;
+    (dep_registry : Option(BuildRegistry)) = Option(BuildRegistry).None;
     if(has_dep && has_build, {
       prev := swap_build_registry(Option(BuildRegistry).Some(BuildRegistry.new()));
       outcome := mm_load_yo_file(build_file.clone(), e.io, e.exn);
@@ -342,6 +359,7 @@ _dependency_module_root :: (
         );
         e.exn.throw(dyn(`Error: Failed to evaluate build file ${build_file} (dependency "${dep_name}")`));
       });
+      dep_registry = Option(BuildRegistry).Some(dep_reg);
       cond(
         (module_name.len() == usize(0)) => cond(
           (dep_reg.modules.len() == usize(1)) => {
@@ -363,21 +381,49 @@ _dependency_module_root :: (
         )
       );
     });
-    cond(
+    // Named `module_root`, not `root`: the worklist in
+    // `_resolve_artifact_import_roots` binds a String `root`, and two
+    // same-named locals in two io.async bodies of one module were typed from
+    // the WRONG binding at the state-machine store (C: assigning String to
+    // Option(String)).
+    module_root := cond(
       !(has_dep) => Option(String).None,
       declared_root.is_some() => declared_root,
       has_lib_default => Option(String).Some(lib_default),
       has_index_default => Option(String).Some(index_default),
       has_named_default => Option(String).Some(named_default),
       true => Option(String).None
-    )
+    );
+    DepModuleResolution(module_root : module_root, dep_registry : dep_registry)
   })
 );
-/// Resolve ONE artifact's `add_import` entries to module root files and record
-/// each on its entry (`ImportedModule.resolved_root`). A local module (empty
-/// dependency name) resolves against this build.yo's `build.module`
-/// declarations. Its own async body so that the artifact loop in
-/// `resolve_import_roots` and this entry loop are two state machines: two
+/// One import still to resolve in the transitive walk: the entry, the
+/// registry it was declared in (the root project's, or a dependency's), and
+/// the directory that registry's paths are relative to.
+PendingImport :: ref(
+  struct(
+    imp : ImportedModule,
+    registry : BuildRegistry,
+    base_dir : String
+  )
+);
+/// The resolved `name=/abs/root.yo` lines per artifact name, written by
+/// `resolve_import_roots` and read by `compile_artifact`. A side table
+/// rather than a `BuildArtifact` field: the entries include the
+/// DEPENDENCIES' imports, which belong to no artifact of this project.
+(g_artifact_import_lines : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+/// Resolve ONE artifact's `add_import` entries — and, transitively, the
+/// `add_import` entries of every dependency reached — to module root files.
+/// The artifact's compile gets ONE flat mapping (`--imports`): a dependency's
+/// own modules import THEIR dependencies by name too, and they are compiled
+/// as part of this artifact. A dependency's imports are the union of its
+/// artifacts' `add_import` entries (the module has no import API of its own —
+/// the manifest design in plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1
+/// gives packages one dependency table). The same import name reaching two
+/// different roots is an error; a dependency directory is expanded once.
+/// A local module (empty dependency name) resolves against the declaring
+/// build.yo's `build.module`. Its own async body so that the artifact loop in
+/// `resolve_import_roots` and this worklist loop are two state machines: two
 /// `while` loops in ONE `io.async` body emit the same `while_loop_N` C labels
 /// (issues/nested-while-loops-in-an-async-body-redefine-c-labels.md).
 _resolve_artifact_import_roots :: (
@@ -390,17 +436,34 @@ _resolve_artifact_import_roots :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    (i : usize) = usize(0);
-    while(i < artifact.imported_modules.len(), {
-      imp := artifact.imported_modules(i);
-      dep_dir_opt := e.io.await(_dependency_dir(registry, project_dir.clone(), imp.dependency_name.clone(), e.io, e.exn), e);
-      dep_root_opt := e.io.await(_dependency_module_root(dep_dir_opt, imp.module_name.clone(), imp.dependency_name.clone(), e.io, e.exn), e);
+    lines := ArrayList(String).new();
+    seen_names := ArrayList(String).new();
+    seen_roots := ArrayList(String).new();
+    expanded_dirs := ArrayList(String).new();
+    pending := ArrayList(PendingImport).new();
+    (si : usize) = usize(0);
+    while(si < artifact.imported_modules.len(), {
+      pending.push(PendingImport(imp : artifact.imported_modules(si), registry : registry, base_dir : project_dir.clone()));
+      si = (si + usize(1));
+    });
+    // The worklist loop: one await per resolution step, all top-level.
+    while(pending.len() > usize(0), {
+      item := pending.pop().unwrap();
+      imp := item.imp;
+      dep_dir_opt := e.io.await(_dependency_dir(item.registry, item.base_dir.clone(), project_dir.clone(), imp.dependency_name.clone(), e.io, e.exn), e);
+      resolution := e.io.await(_dependency_module_root(dep_dir_opt, imp.module_name.clone(), imp.dependency_name.clone(), e.io, e.exn), e);
+      // Plain locals for the match scrutinees below. Reading a field named
+      // `root` here made the LOCAL `root` below an Option(String) slot in the
+      // state machine (C error at the store): the async emitter appears to
+      // key a slot by NAME, so a field and a local must not share one.
+      dep_root_opt := resolution.module_root;
+      dep_registry_opt := resolution.dep_registry;
       root := cond(
         (imp.dependency_name.len() == usize(0)) => match(
-          registry.find_module(imp.module_name.clone()),
-          .Some(m) => _abs_under(project_dir.clone(), m.root.clone()),
+          item.registry.find_module(imp.module_name.clone()),
+          .Some(m) => _abs_under(item.base_dir.clone(), m.root.clone()),
           .None => {
-            e.exn.throw(dyn(`Error: Module "${imp.module_name}" (imported as "${imp.import_name}" by "${artifact.name}") is not declared by build.module in this build.yo.`));
+            e.exn.throw(dyn(`Error: Module "${imp.module_name}" (imported as "${imp.import_name}") is not declared by build.module in ${item.base_dir}/build.yo.`));
             String.new()
           }
         ),
@@ -413,9 +476,62 @@ _resolve_artifact_import_roots :: (
           }
         )
       );
-      imp.resolved_root = Option(String).Some(root);
-      i = (i + usize(1));
+      imp.resolved_root = Option(String).Some(root.clone());
+      // Dedupe by import name; the same name at two roots is a conflict.
+      (known : Option(usize)) = Option(usize).None;
+      (ki : usize) = usize(0);
+      while(ki < seen_names.len(), {
+        if(seen_names(ki) == imp.import_name, {
+          known = Option(usize).Some(ki);
+        });
+        ki = (ki + usize(1));
+      });
+      match(
+        known,
+        .Some(k) => if(seen_roots(k) != root, {
+          e.exn.throw(dyn(`Error: Import name "${imp.import_name}" reaches two different modules in the closure of "${artifact.name}": ${seen_roots(k)} and ${root}. Rename one of the imports.`));
+        }),
+        .None => {
+          seen_names.push(imp.import_name.clone());
+          seen_roots.push(root.clone());
+          lines.push(`${imp.import_name}=${root}`);
+        }
+      );
+      // Expand the dependency's own imports once per directory.
+      match(
+        dep_dir_opt,
+        .Some(expand_dir) => match(
+          dep_registry_opt,
+          .Some(dep_reg) => {
+            (already : bool) = false;
+            (di : usize) = usize(0);
+            while(di < expanded_dirs.len(), {
+              if(expanded_dirs(di) == expand_dir, {
+                already = true;
+              });
+              di = (di + usize(1));
+            });
+            if(!(already), {
+              expanded_dirs.push(expand_dir.clone());
+              (ai : usize) = usize(0);
+              while(ai < dep_reg.artifacts.len(), {
+                dep_art := dep_reg.artifacts(ai);
+                (mi : usize) = usize(0);
+                while(mi < dep_art.imported_modules.len(), {
+                  pending.push(PendingImport(imp : dep_art.imported_modules(mi), registry : dep_reg, base_dir : expand_dir.clone()));
+                  mi = (mi + usize(1));
+                });
+                ai = (ai + usize(1));
+              });
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
     });
+    g_artifact_import_lines.insert(artifact.name.clone(), lines);
+    ()
   })
 );
 /// Resolve every artifact's `add_import` entries (see
@@ -438,27 +554,21 @@ resolve_import_roots :: (
     });
   })
 );
-/// The `name=/abs/root.yo` lines for an artifact's `add_import` entries — the
-/// contents of the `--imports` file the child compile resolves bare
-/// `import("name")` through. Reads what `resolve_import_roots` recorded.
-_artifact_import_lines :: (fn(artifact : BuildArtifact, exn : Exception) -> ArrayList(String))({
-  lines := ArrayList(String).new();
-  (i : usize) = usize(0);
-  while(i < artifact.imported_modules.len(), {
-    imp := artifact.imported_modules(i);
-    match(
-      imp.resolved_root,
-      .Some(root) => {
-        lines.push(`${imp.import_name}=${root}`);
-      },
-      .None => {
-        exn.throw(dyn(`internal: import "${imp.import_name}" of "${artifact.name}" was not resolved before compiling (resolve_import_roots must run first)`));
-      }
-    );
-    i = (i + usize(1));
-  });
-  lines
-});
+/// The `name=/abs/root.yo` lines for an artifact — the contents of the
+/// `--imports` file the child compile resolves bare `import("name")` through.
+/// Reads what `resolve_import_roots` recorded.
+_artifact_import_lines :: (fn(artifact : BuildArtifact, exn : Exception) -> ArrayList(String))(
+  match(
+    g_artifact_import_lines.get(artifact.name.clone()),
+    .Some(lines) => lines,
+    .None => {
+      if(artifact.imported_modules.len() > usize(0), {
+        exn.throw(dyn(`internal: imports of "${artifact.name}" were not resolved before compiling (resolve_import_roots must run first)`));
+      });
+      ArrayList(String).new()
+    }
+  )
+);
 // ---------------------------------------------------------------------------
 // Linked static libraries
 // ---------------------------------------------------------------------------
