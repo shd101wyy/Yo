@@ -2,7 +2,7 @@
 
 **Status:** FIXED 2026-09-11 — `collect_trace_methods_from_generic_impls`
 (`src/codegen/functions/collection.yo`).
-**Supersedes:** `issues/an-arraylist-of-a-waker-like-ref-loses-its-tracer-inside-std-async-channel.md`,
+**Supersedes:** `issues/fixed/an-arraylist-of-a-waker-like-ref-loses-its-tracer-inside-std-async-channel.md`,
 which reported the symptom and bisected it correctly but named the wrong
 object — see "What the earlier report got wrong" below.
 
