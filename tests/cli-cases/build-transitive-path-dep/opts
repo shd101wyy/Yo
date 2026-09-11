@@ -1,0 +1,8 @@
+# Transitive path dependencies: app imports b by name; b's module imports c by
+# name, and c is declared only in b/build.yo (with its own add_import). The
+# runner walks the dependency registries and hands app's compile ONE flat
+# --imports mapping holding both b and c; c has no build.yo, so its root is
+# the conventional src/lib.yo (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+# §4.5.1). The program's output (2*20+1) is the assertion.
+timeout=600
+stdout_keep=^(Building|41$)

@@ -47,30 +47,22 @@ Three things are wrong at once:
    commit SHA" (`src/fetch.yo:456-459`) and never checks the command's exit
    status.
 
-## What is known about the cause
+## Root cause (found 2026-09-11 by body substitution)
 
-`run_install` (`src/install_command.yo:594-720`) reads correctly on paper:
-`ref_str := match(g_pinned_ref, .Some(r) => { println(...); r }, .None => {
-... await resolve_latest_ref ... })`, then builds `dep_line` from `ref_str`,
-then `if(added, { println("Fetching..."); ... await fetch_all_deps ... })`.
-The observed output is consistent with the whole `.Git(...)` arm's statements
-after the destructuring running with `g_pinned_ref`/`ref_str` empty and the
-`if(added, ...)` body skipped — i.e. an `io.async` body lowering bug, not a
-logic bug. A **minimal** reproduction of that shape (value-producing `match`
-on an `Option(String)` with an awaiting `.None` arm, followed by an `if` whose
-body awaits, inside `io.async`) compiles and runs correctly on 0.2.30, so the
-trigger is something more specific to `run_install`: candidates are the outer
-`match(parsed, .Path(..) => ..., .Git(g_name, g_url, g_pinned_ref) => ...)`
-whose payload is itself an `Option`, the `unsafe(exit(...))`-then-placeholder
-arms (`:606-609`, `:683-686`), or the `_print_add_import_guidance` call after
-the awaits. Bisect by body substitution (the cheapest tool for this class —
-see the memory note on bisecting std-triggered bugs) before touching codegen.
+`issues/nested-value-match-with-await-drops-the-enclosing-match-arm.md`: in an
+`io.async` body, a match arm that contains a value-producing INNER match with
+an awaiting arm is emitted as nothing. `run_install`'s `.Git(…)` arm is that
+shape (`ref_str := match(g_pinned_ref, .Some(r) => r, .None => { await
+resolve_latest_ref })`), so its progress lines, the fetch and the lock write
+vanish and `ref_str` is empty. A standalone reproducer of the shape shows the
+same silent drop; a variant with the sibling `.Path` arm's `added :=` await
+fails at the C compiler with a mis-typed state-machine slot instead.
 
 ## Fix direction
 
-1. Find the lowering bug via body substitution on `run_install` and fix it in
-   `src/codegen/async/`; add the failing shape to
-   `tests/async_await.test.yo`.
+1. Fix the lowering bug in `src/codegen/async/` (the nested-match issue above
+   owns the reproducer and gate). Until then, `run_install` can hoist the
+   inner match's awaiting arm into its own async fn.
 2. Independently harden the data path: `resolve_git_ref` must fail loudly on
    an empty ref or a non-zero `git ls-remote`, and `run_install` must refuse to
    write a declaration with an empty ref. Gate: an offline cli-case that

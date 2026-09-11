@@ -1,0 +1,55 @@
+// Reproducer for issues/nested-value-match-with-await-drops-the-enclosing-match-arm.md
+// Compile + run: `yo compile <this> --optimize 2 -o r && ./r` — the `.Git` arm prints NOTHING.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+
+Parsed :: enum(
+  Git(name : String, pinned_ref : Option(String)),
+  Other
+);
+
+resolve :: (fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    s := String.from("resolved-latest");
+    s
+  })
+);
+
+// Minimal: an OUTER match arm containing a value-producing INNER match whose
+// `.None` arm awaits, followed by another await bound to a local.
+install :: (fn(parsed : Parsed, io : Io, exn : Exception) -> Impl(Future(unit, IoExn)))(
+  io.async((e : IoExn) => {
+    match(
+      parsed,
+      .Other => {
+        println("other arm");
+      },
+      .Git(g_name, g_pinned_ref) => {
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => {
+            println(`pinned ${r}`);
+            r
+          },
+          .None => {
+            println("resolving");
+            e.io.await(resolve(e.io, e.exn), e)
+          }
+        );
+        println(`ref_str = "${ref_str}"`);
+        println(`name = ${g_name}`);
+      }
+    );
+    ()
+  })
+);
+
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  io.await(install(Parsed.Git(String.from("raylib_yo"), Option(String).Some(String.from("v0.0.6"))), io, exn), IoExn(io : io, exn : exn));
+  println("---");
+  io.await(install(Parsed.Git(String.from("raylib_yo"), Option(String).None), io, exn), IoExn(io : io, exn : exn));
+  println("---");
+  io.await(install(Parsed.Other, io, exn), IoExn(io : io, exn : exn));
+});
+export(main);
