@@ -5104,8 +5104,8 @@ _sibling_second_awaits :: (fn(k : _SibKind, io : Io) -> Impl(Future(String, IoEx
     match(
       k,
       .A => {
-        exists := e.io.await(_sib_flag(e.io), e);
-        log.push_string(`A:exists=${exists.to_string()};`);
+        present := e.io.await(_sib_flag(e.io), e);
+        log.push_string(`A:present=${present.to_string()};`);
         added := e.io.await(_sib_flag(e.io), e);
         if(added, {
           log.push_str("A:added;");
@@ -5209,7 +5209,7 @@ test("a sibling arm's second-await binding is assigned when its continuation is 
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
   a := io.await(_sibling_second_awaits(_SibKind.A, io), bundle);
-  assert(a == "A:exists=true;A:added;", `the first arm binds both awaits (got ${a})`);
+  assert(a == "A:present=true;A:added;", `the first arm binds both awaits (got ${a})`);
   b := io.await(_sibling_second_awaits(_SibKind.B, io), bundle);
   assert(b == "B:nm=nm;B:added;", `the second arm's second-await binding is assigned (got ${b})`);
 });
