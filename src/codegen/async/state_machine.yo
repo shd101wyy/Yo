@@ -3483,10 +3483,73 @@ _emit_post_while_cond_branch :: (
 /// step + condition re-eval (loop back to `prev_await.index` or fall through to
 /// `after_while_loop_<outer>`). Mirrors the outer-while block in
 /// `generateAsyncBlockResumeFunction` (state-machine.ts:1703).
+/// Park a while loop's remaining body (everything after an additional await
+/// carried by `further`'s predecessor) on the entry at `next_index`. When
+/// that entry already belongs to a DIFFERENT loop — a nested while-with-await
+/// the additional await lives in — it is attached as that loop's
+/// `outer_while_loop` instead of replacing it, so the inner loop keeps its
+/// remaining code, its loop-back and its exit label, and the outer body
+/// resumes once the inner loop exits.
+_chain_while_remaining :: (
+  fn(
+    wm : HashMap(usize, WhileLoopInfo),
+    next_index : usize,
+    origin_index : usize,
+    condition_expr : AstExpr,
+    step_expr : Option(AstExpr),
+    body_expr : AstExpr,
+    further : ArrayList(AstExpr),
+    condition_await : Option(bool),
+    step_await : Option(bool),
+    cond_branch_post_while_exprs : Option(CondBranchPostWhileExprs),
+    outer_while_loop : Option(OuterWhileLoop)
+  ) -> unit
+)({
+  (attached : bool) = false;
+  match(
+    wm.get(next_index),
+    .Some(existing) => {
+      their_index := match(existing.while_loop_origin_index, .Some(o) => o, .None => next_index);
+      if((their_index != origin_index) && existing.outer_while_loop.is_none(), {
+        existing.outer_while_loop = Option(OuterWhileLoop).Some(
+          OuterWhileLoop(
+            while_loop_index : origin_index,
+            condition_expr : condition_expr,
+            step_expr : step_expr,
+            body_expr : body_expr,
+            body_exprs_after_await : further
+          )
+        );
+        wm.insert(next_index, existing);
+        attached = true;
+      });
+    },
+    .None => ()
+  );
+  if(!(attached), {
+    wm.insert(
+      next_index,
+      WhileLoopInfo(
+        condition_expr : condition_expr,
+        step_expr : step_expr,
+        body_expr : body_expr,
+        body_exprs_after_await : Option(ArrayList(AstExpr)).Some(further),
+        while_loop_origin_index : Option(usize).Some(origin_index),
+        is_chained_await : Option(bool).Some(true),
+        condition_await : condition_await,
+        step_await : step_await,
+        cond_branch_post_while_exprs : cond_branch_post_while_exprs,
+        outer_while_loop : outer_while_loop,
+        deferred_to_outer_while_loop : Option(bool).None
+      )
+    );
+  });
+});
 _emit_outer_while_continuation :: (
   fn(
     while_data : WhileLoopInfo,
     prev_await : AwaitPoint,
+    segment : StateSegment,
     body_expr : AstExpr,
     future_type : TypeValue,
     capture_type : Option(TypeValue),
@@ -3501,6 +3564,13 @@ _emit_outer_while_continuation :: (
       oidx := outer.while_loop_index.to_string();
       em.emit_string_line(`      // Execute remaining code from outer while loop body`);
       em.emit_string_line(`      if (sm->while_loop_${oidx}_active) {`);
+      // An await among the outer body's remaining statements (`tail :=
+      // e.io.await(...)` after the inner loop) is a suspension point of its
+      // own: store its future here and park the rest of the body on the next
+      // state, exactly as _emit_while_continuation does. Emitting it as a
+      // plain statement produced `sm->var_N = ;`
+      // (issues/fixed/nested-while-loops-in-an-async-body-redefine-c-labels.md).
+      (chained : bool) = false;
       if(outer.body_exprs_after_await.len() > usize(0), {
         p_in := context.in_async_state_machine;
         p_smv := context.state_machine_variables;
@@ -3522,12 +3592,39 @@ _emit_outer_while_continuation :: (
         context.sm_while_continue_info = Option(SmWhileContinueInfo).Some(SmWhileContinueInfo(label : `while_loop_${oidx}_continue`, emit_drops_before_goto : false, step_expr : Option(AstExpr).None));
         context.sm_while_body_drops = Option(ArrayList(AstExpr)).Some(obd);
         (i : usize) = usize(0);
-        while(i < outer.body_exprs_after_await.len(), {
+        while((i < outer.body_exprs_after_await.len()) && !(chained), {
           expr := match(outer.body_exprs_after_await.get(i), .Some(e) => e, .None => body_expr);
-          code := _call_generate_expr(expr, `        `, context);
-          skip := if(code.len() == usize(0), true, match(context.base.get_expr_info(expr), .Some(ein) => is_temp_variable_name(ein.env.module_path, code), .None => true));
-          if(!(skip), {
-            em.emit_string_line(`        ${code};`);
+          has_aw := match(segment.await_point, .Some(_) => expr_contains_await(expr), .None => false);
+          if(has_aw, {
+            match(
+              segment.await_point,
+              .Some(ap) => {
+                generate_remaining_expr_future(expr, ap, analysis, `        `, context);
+                further := ArrayList(AstExpr).new();
+                (k : usize) = (i + usize(1));
+                while(k < outer.body_exprs_after_await.len(), {
+                  match(
+                    outer.body_exprs_after_await.get(k),
+                    .Some(e) => {
+                      further.push(e);
+                    },
+                    .None => ()
+                  );
+                  k = (k + usize(1));
+                });
+                wm2 := match(context.async_while_loop_info, .Some(m) => m, .None => HashMap(usize, WhileLoopInfo).new());
+                _chain_while_remaining(wm2, ap.base.index, outer.while_loop_index, outer.condition_expr, outer.step_expr, outer.body_expr, further, Option(bool).None, Option(bool).None, Option(CondBranchPostWhileExprs).None, Option(OuterWhileLoop).None);
+                context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm2);
+                chained = true;
+              },
+              .None => ()
+            );
+          }, {
+            code := _call_generate_expr(expr, `        `, context);
+            skip := if(code.len() == usize(0), true, match(context.base.get_expr_info(expr), .Some(ein) => is_temp_variable_name(ein.env.module_path, code), .None => true));
+            if(!(skip), {
+              em.emit_string_line(`        ${code};`);
+            });
           });
           i = (i + usize(1));
         });
@@ -3538,6 +3635,13 @@ _emit_outer_while_continuation :: (
         context.state_machine_variables = p_smv;
         context.variable_id_remapping = p_vr;
         context.pending_deferred_drops = p_pdd;
+      });
+      // Chained: the next state's own continuation (origin `oidx`) emits the
+      // rest of the body, the continue label, the loop-back and the exit label.
+      if(chained, {
+        em.emit_string_line(`      }`);
+        em.emit_string_line(String.from(""));
+        return(());
       });
       em.emit_string_line(`      while_loop_${oidx}_continue:`);
       // Outer body drops before condition re-evaluation.
@@ -3829,20 +3933,19 @@ _emit_while_continuation :: (
                       );
                       k = (k + usize(1));
                     });
-                    new_wi := WhileLoopInfo(
-                      condition_expr : while_data.condition_expr,
-                      step_expr : while_data.step_expr,
-                      body_expr : while_data.body_expr,
-                      body_exprs_after_await : Option(ArrayList(AstExpr)).Some(further),
-                      while_loop_origin_index : Option(usize).Some(wai),
-                      is_chained_await : Option(bool).Some(true),
-                      condition_await : while_data.condition_await,
-                      step_await : while_data.step_await,
-                      cond_branch_post_while_exprs : while_data.cond_branch_post_while_exprs,
-                      outer_while_loop : while_data.outer_while_loop,
-                      deferred_to_outer_while_loop : Option(bool).None
-                    );
-                    wm.insert(ap.base.index, new_wi);
+                    // The await-carrying expression may itself be a NESTED
+                    // while-with-await (emitted just now by
+                    // generate_remaining_expr_future), which registered ITS
+                    // OWN entry at the next index. Overwriting it with this
+                    // loop's chained continuation made the next state treat
+                    // the inner loop's await as ours: the inner body's
+                    // remaining code and loop-back vanished, and the outer
+                    // loop advanced after one inner iteration
+                    // (issues/fixed/nested-while-loops-in-an-async-body-redefine-c-labels.md).
+                    // Hand the rest of THIS body to the inner loop as its
+                    // enclosing loop instead — the state that finishes the
+                    // inner loop emits it after `after_while_loop_<inner>`.
+                    _chain_while_remaining(wm, ap.base.index, wai, while_data.condition_expr, while_data.step_expr, while_data.body_expr, further, while_data.condition_await, while_data.step_await, while_data.cond_branch_post_while_exprs, while_data.outer_while_loop);
                     context.async_while_loop_info = Option(HashMap(usize, WhileLoopInfo)).Some(wm);
                     chained_to_next = true;
                     stop = true;
@@ -3964,7 +4067,7 @@ _emit_while_continuation :: (
         if(!(chained_to_next), {
           _emit_post_while_cond_branch(while_data, segment, body_expr, future_type, capture_type, analysis, context);
         });
-        _emit_outer_while_continuation(while_data, prev_await, body_expr, future_type, capture_type, analysis, context);
+        _emit_outer_while_continuation(while_data, prev_await, segment, body_expr, future_type, capture_type, analysis, context);
       },
       .None => ()
     ),
