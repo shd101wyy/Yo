@@ -132,6 +132,59 @@ test("unwind argument built by a may-unwind call", {
   // 10 raises x len("__err__")=7 + 20 pairs x (len("left-N")+len("right-N")).
   assert(acc == usize(358), "unwound values and normal results both intact");
 });
+// The bare cond arm above flushes the argument temps of its may-unwind call
+// right after the call, BEFORE the `if (__yo_effect_escaped)` block; the
+// escape path must not release them a second time. The handler parks every
+// argument in a module-level keeper (handlers cannot capture locals), so a
+// correct compiler disposes NOTHING during the loop — each object is still
+// held — and exactly one per argument when the keeper is cleared. On the
+// unfixed compiler the second release takes each held object to zero
+// (disposed 5 while kept 5), a deterministic oracle; a bare Dispose delta
+// cannot tell, because a decrement on an already-freed object is silent
+// unless the allocator happens to trap.
+(g_ue_disposed : i32) = i32(0);
+UeArg :: ref(struct(tag : i32));
+impl(
+  UeArg,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_ue_disposed = (g_ue_disposed + i32(1));
+    })
+  )
+);
+mk_ue :: (fn(n : i32) -> UeArg)(UeArg(tag : n));
+(g_ue_keep : ArrayList(UeArg)) = ArrayList(UeArg).new();
+test("may-unwind call in a bare cond arm releases its argument temp exactly once", {
+  RaiseUe :: (ctl(arg : UeArg) -> i32);
+  step :: (fn(n : i32, raise : RaiseUe) -> i32)(
+    cond(
+      ((n % i32(2)) == i32(0)) => raise(mk_ue(n)),
+      true => n
+    )
+  );
+  run :: (fn(n : i32) -> i32)({
+    (raise : RaiseUe) = (
+      arg -> {
+        g_ue_keep.push(arg);
+        unwind(arg.tag * i32(10))
+      }
+    );
+    step(n, raise)
+  });
+  before := g_ue_disposed;
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < i32(10), {
+    acc = (acc + run(i));
+    i = (i + i32(1));
+  });
+  // odd n → n (1+3+5+7+9 = 25); even n → 10n (0+20+40+60+80 = 200).
+  assert(acc == i32(225), "unwound and returned results both intact");
+  assert(g_ue_keep.len() == usize(5), "every raised argument reached the handler");
+  assert(g_ue_disposed == before, "the kept arguments are still alive after the unwinds");
+  g_ue_keep.clear();
+  assert(g_ue_disposed == (before + i32(5)), "each argument is disposed exactly once, by the keeper");
+});
 test("Test nested fn unwind inside resume handler", {
   Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),

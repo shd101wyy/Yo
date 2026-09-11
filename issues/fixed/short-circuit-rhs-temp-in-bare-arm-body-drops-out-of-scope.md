@@ -69,12 +69,29 @@ restores it after — the same bookkeeping the block paths do. The in-branch emi
 records the drop in `emitted_deferred_drop_ids`, so the post-call flush does not emit
 it a second time.
 
+The same set now also guards the EARLY-EXIT path (`generate_pending_deferred_drops`,
+`return.yo`). Feeding the bare body's drops into the pending list exposed them to the
+`if (__yo_effect_escaped)` block a may-unwind call emits, and that block is emitted
+AFTER the call's own post-call flush — so a bare `c => raise(make_arg())` arm released
+its argument temps once after the call and again on the escape path (the fast suite's
+"unwind argument built by a may-unwind call" died with rc 138; the first fix draft
+missed it because the escape path passes `skip_already_dropped = true` and never
+consulted the emitted set). A drop whose C has already been emitted at the escape point
+is skipped there, the same emitted-once contract the scope-end flushes follow.
+
 ## Gates
 
 - `tests/rc.test.yo`: five tests — bare match arm, bare cond arm, single-expression fn
   body, bare loop body, and the filed issue's `||`-ending-in-`Option.is_some()` shape
   inside a match arm inside a cond — each pinning "disposed exactly once" with a
   module-level `Dispose` counter. Red-first: the file did not compile before the fix.
+- `tests/algebraic_effects.test.yo` "may-unwind call in a bare cond arm releases its
+  argument temp exactly once": the handler parks each argument in a module-level
+  keeper, so the loop must dispose nothing and clearing the keeper must dispose each
+  once. Red-first against the first fix draft (disposed 5 while kept 5). A plain
+  Dispose delta could NOT see this double release — a decrement on an already-freed
+  object is silent unless the allocator traps — which is why the oracle keeps the
+  objects alive.
 - The compiler tree's own emission, before vs after (per-function compare): the only
   functions that change are those with this shape, and each change is a drop moving
   into its branch.
