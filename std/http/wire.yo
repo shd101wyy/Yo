@@ -614,6 +614,10 @@ read_http_message_buffered :: (
     // already contain a complete message, and reading in that case would
     // block until the peer sent something it has no reason to send.
     done := false;
+    // DIAGNOSTIC: which peer this read loop belongs to. The server frames
+    // Requests, the client frames Responses, and both print through here —
+    // without the tag the two traces cannot be paired.
+    _role := match(kind, .Request => `REQ`, _ => `RSP`);
     match(
       _frame_status(result, kind),
       .Complete => {
@@ -630,9 +634,9 @@ read_http_message_buffered :: (
       // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-deadline.md):
       // says whether the read was ISSUED and never woken, or never issued.
       // Comes out with the diagnosis.
-      eprintln(`  [wire] issuing read (have=${result.len()})`);
+      eprintln(`  [wire ${_role}] issuing read (have=${result.len()})`);
       n := e.io.await(stream.read(buf, buf_size, e.io), e);
-      eprintln(`  [wire] read returned ${n.to_string()}`);
+      eprintln(`  [wire ${_role}] read returned ${n.to_string()}`);
       cond(
         // 0 bytes means the peer closed the connection. A negative count is
         // no longer representable: NetError.check throws on error, so read()
@@ -679,6 +683,9 @@ read_http_message_buffered :: (
     // `headers CRLFCRLF data`, so `parse_response` sees the payload and the
     // Transfer-Encoding header stays visible on the response.
     header_end := find_header_end(result);
+    // DIAGNOSTIC: the read loop is OVER. If this prints and the caller never
+    // resumes, the inner future completed and the parent await lost its wake.
+    eprintln(`  [wire ${_role}] loop done, ${result.len()} byte(s), header_end=${header_end.to_string()}`);
     cond(
       (failed == i32(1)) => Result(String, HttpError).Err(HttpError.ResponseTooLarge),
       (failed == i32(2)) => Result(String, HttpError).Err(HttpError.MalformedContentLength(failed_msg)),

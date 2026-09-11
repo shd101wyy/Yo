@@ -47,7 +47,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
-import("../fmt");
+{ eprintln } :: import("../fmt");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 { TcpStream } :: import("../net/tcp");
 { TlsStream } :: import("../crypto/tls");
@@ -707,10 +707,17 @@ _fetch_once :: (
       );
       conn := conn_opt.unwrap();
       _wn := e.io.await(conn.write_string(prep.request, e.io), e);
+      // DIAGNOSTIC (issues/a-bodyless-http-response-is-not-read-until-the-
+      // deadline.md): the two prints bracket the ONE await the 204 hang stops
+      // inside. The wire-level checkpoints say the read itself returned the
+      // whole response, so what these settle is whether this parent await
+      // ever resumes once the inner future completes.
+      eprintln(`  [clt] awaiting the framed response (reused=${reused.to_string()})`);
       framed := e.io.await(
         read_http_message_buffered(conn, opts.max_response_bytes, prep.kind, carry, e.io),
         e
       );
+      eprintln(`  [clt] parent await resumed`);
       (raw : String) = String.new();
       (framing_err : Option(HttpError)) = Option(HttpError).None;
       match(
