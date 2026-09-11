@@ -57,7 +57,42 @@ Ruled out locally so the next session does not repeat them:
 - An x86_64 build under Rosetta could not be produced — homebrew's OpenSSL is
   arm-only, so `--target x86_64-apple-darwin` fails to link `TLS_client_method`.
 
-## Where to look
+## The most likely cause: the client's read is a two-arm match with an await in each arm
+
+`std/http/client.yo`'s `_Transport.read` is an `io.async` body whose only
+await sits inside a `match`, once per arm:
+
+```rust
+_Transport :: enum(Plain(stream : TcpStream), Secure(stream : TlsStream));
+read : ... io.async(e => {
+  (n : usize) = usize(0);
+  match(
+    self,
+    .Plain(stream) => { n = e.io.await(stream.read(buf, size, e.io), e); },
+    .Secure(stream) => { n = e.io.await(stream.read(buf, size, e.io), e); }
+  );
+  n
+})
+```
+
+That is the DISPATCH-MODE await point — one shared `await_future_N` slot,
+branches that await differently-shaped futures, a continuation that has to be
+routed back to the arm that suspended. It is the exact family #592 redesigns,
+and its six fixed bugs include "a sibling arm's second-await binding never
+assigned when its continuation lands in a chained layer" and "bound nested
+cond in a chained layer emitted nothing". A continuation that is routed to no
+arm is a task that never resumes — which is precisely what the checkpoints
+show: the bytes arrive, and the reader never wakes.
+
+It also explains the timing-dependence. Which arm's continuation is emitted as
+the representative, and whether the loop delivers the completion inline or
+through the ready queue, decides whether the mis-routed path is taken.
+
+**So the first thing to do after #592 lands is re-run this branch's battery.**
+If the hang is gone, this issue closes with #592 rather than needing a runtime
+fix. If it survives, the runtime question below is the next one.
+
+## Where to look, if #592 does not fix it
 
 `__yo_io_process_event` / the kqueue read registration in
 `src/codegen/async/runtime_io_macos.yo`, and the deferred changelist
