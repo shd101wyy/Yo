@@ -16,6 +16,30 @@
 //! s := FormatSpec.parse(">8.2");
 //! s.pad(`3.14159`, Alignment.Left);   // "    3.14"
 //! ```
+//!
+//! Widths and precisions are RUNE counts, not byte counts — `_apply_width`,
+//! `pad` and `pad_numeric` all measure with `chars().count()`, so `é` occupies
+//! one column and a truncation can never cut a rune in half. That is the one
+//! place in the string world where the unit is deliberately not bytes: a
+//! format spec describes a COLUMN, and D4's byte basis would have made
+//! accented rows come out ragged.
+//!
+//! ## Stability
+//!
+//! unstable — two shapes are still open, and both are breaking to change.
+//!
+//! The grammar is missing Rust's DYNAMIC width and precision (`{:w$}`,
+//! `{:.p$}`), as the module header says. Yo has no format macro to collect the
+//! extra arguments, so adding them means inventing a spelling
+//! (`spec.with_width(n)`? a second `pad` overload?) rather than extending the
+//! parse table.
+//!
+//! And `parse` is TOTAL: it never reports a bad spec, it ignores what it does
+//! not recognise, so `"{:.2x"` degrades silently to something a caller did not
+//! ask for. That is the right default for interpolation — a typo in a log line
+//! should not abort the program — but it also means a spec typo is invisible
+//! forever, and giving `parse` a `Result` later is breaking. Freezing waits on
+//! deciding both, not on a release count.
 { ArrayList } :: import("../collections/array_list");
 { Alignment, StringBuilder } :: import("../string/string_builder");
 { rune, String, Alignment, StringBuilder } :: import("../string");

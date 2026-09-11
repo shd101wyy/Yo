@@ -12,6 +12,30 @@
 //!   printf("is file: %d\n", i32(m.is_file()));
 //! });
 //! ```
+//!
+//! ## Platform coverage
+//!
+//! The backend is `statx` on Linux, `stat`/`fstat` on macOS and wasm, and
+//! `_wstat64` plus `GetFileAttributesExW`/`GetFileInformationByHandle` on
+//! Windows (`src/codegen/async/runtime_io_*.yo`). Everything a POSIX `stat`
+//! carries is available everywhere; the accessors that have no Windows
+//! equivalent say so at their own definition (`uid`, `gid`, `ino`,
+//! `status_changed*`).
+//!
+//! ## Stability
+//!
+//! unstable — the timestamp surface is one accessor short and the missing
+//! one changes this module's shape. There is no creation time (`btime`):
+//! `Statx` requests `STATX_BASIC_STATS`, which excludes `STATX_BTIME`, and
+//! `std/sys/statx.yo` declares no `btime_sec()` even though the Linux,
+//! macOS and Windows runtimes already implement `__yo_statx_btime_sec`
+//! (wasm does not). Adding it is additive,
+//! but it also settles what `status_changed()` should mean on Windows, where
+//! there is no POSIX ctime and the value is currently the creation time with
+//! the write time's nanoseconds
+//! (`issues/stddoc-io-windows-status-changed-mixes-two-timestamps.md`).
+//! Freezing follows a real `created()` and a decided Windows `ctime`, not a
+//! release count.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -32,84 +56,132 @@ Metadata :: ref(
 );
 impl(
   Metadata,
-  // File size in bytes.
+  /// Size in bytes — Rust's `Metadata::len`. For a directory this is the
+  /// filesystem's own bookkeeping size, not the number of entries; for a
+  /// symlink read through `symlink_metadata` it is the length of the target
+  /// string.
   size : (fn(self : Self) -> i64)(
     self._statx.size()
   ),
-  // Raw permission mode bits.
+  /// The raw `st_mode` word — permission bits AND the file-type bits
+  /// (`S_IFMT`) in one integer, so mask before comparing. Prefer
+  /// `is_file`/`is_dir`/`is_symlink` for the type and `is_readonly` for
+  /// writability. On Windows the CRT synthesises it from the file attributes
+  /// and the filename extension, so a real POSIX mode is only available on
+  /// Linux, macOS and wasm.
   mode : (fn(self : Self) -> u32)(
     self._statx.mode()
   ),
-  // True if this is a regular file.
+  /// True for a regular file — Rust's `Metadata::is_file`. Through
+  /// `metadata` (which follows symlinks) a link to a file answers true;
+  /// through `symlink_metadata` it does not.
   is_file : (fn(self : Self) -> bool)(
     self._statx.is_file()
   ),
-  // True if this is a directory.
+  /// True for a directory — Rust's `Metadata::is_dir`.
   is_dir : (fn(self : Self) -> bool)(
     self._statx.is_directory()
   ),
-  // True if this is a symbolic link.
+  /// True for a symbolic link — Rust's `Metadata::is_symlink`. This can only
+  /// ever be true for metadata obtained through `symlink_metadata`, because
+  /// `metadata` follows the final link and reports the target.
   is_symlink : (fn(self : Self) -> bool)(
     self._statx.is_symlink()
   ),
-  // Last modification time as a wall-clock `SystemTime` — Rust's
-  // `Metadata::modified`. Full nanosecond resolution: `statx` reports
-  // `mtime_nsec` and it was being discarded by the seconds-only accessor
-  // below, which is why this is the one to reach for.
+  /// Last content-modification time as a wall-clock `SystemTime` — Rust's
+  /// `Metadata::modified`. Full nanosecond resolution: `statx` reports
+  /// `mtime_nsec` and it was being discarded by the seconds-only accessor
+  /// below, which is why this is the one to reach for.
+  ///
+  /// A filesystem timestamp and `SystemTime.now()`'s `CLOCK_REALTIME` are
+  /// DIFFERENT CLOCK DOMAINS, so an mtime may sit a hair ahead of a `now()`
+  /// read afterwards (Emscripten's MEMFS measured 64 ns ahead). Nothing
+  /// promises the ordering — only that the two readings are close — which is
+  /// why `SystemTime.duration_since` hands back a `Result` rather than
+  /// clamping to zero.
   modified : (fn(self : Self) -> SystemTime)(
     SystemTime.from_unix_parts(self._statx.mtime_sec(), i64(self._statx.mtime_nsec()))
   ),
-  // Last access time as a `SystemTime`.
+  /// Last access time as a `SystemTime` — Rust's `Metadata::accessed`. Read
+  /// this expecting it to be stale: `relatime`/`noatime` mounts are the
+  /// default on Linux, so atime often only moves when the file is also
+  /// written.
   accessed : (fn(self : Self) -> SystemTime)(
     SystemTime.from_unix_parts(self._statx.atime_sec(), i64(self._statx.atime_nsec()))
   ),
-  // Status change time as a `SystemTime` — POSIX ctime; see
-  // `status_changed_time` below for why this is NOT a creation time.
+  /// POSIX ctime — the last INODE change — as a `SystemTime`. NOT a creation
+  /// time; see `status_changed_time` below for why, and for what Windows
+  /// reports here instead.
   status_changed : (fn(self : Self) -> SystemTime)(
     SystemTime.from_unix_parts(self._statx.ctime_sec(), i64(self._statx.ctime_nsec()))
   ),
-  // Last modification time (seconds since epoch).
-  //
-  // Kept for callers that want the raw field, but `modified()` above is the
-  // one to use: it carries the nanoseconds this drops, and a `SystemTime` can
-  // be compared and subtracted without every call site re-deriving what the
-  // integer means.
+  /// Last modification time in WHOLE SECONDS since the Unix epoch.
+  ///
+  /// Kept for callers that want the raw field, but `modified()` above is the
+  /// one to use: it carries the nanoseconds this drops, and a `SystemTime` can
+  /// be compared and subtracted without every call site re-deriving what the
+  /// integer means. The two agree by construction —
+  /// `modified_time() == modified().as_unix_secs()` is asserted by
+  /// `tests/fs/metadata.test.yo`.
   modified_time : (fn(self : Self) -> i64)(
     self._statx.mtime_sec()
   ),
-  // Last access time (seconds since epoch). See `accessed()`.
+  /// Last access time in whole seconds since the Unix epoch. See `accessed()`
+  /// for the nanosecond-carrying form and the staleness caveat.
   accessed_time : (fn(self : Self) -> i64)(
     self._statx.atime_sec()
   ),
-  // Status change time (seconds since epoch) — POSIX ctime.
-  //
-  // This is NOT the file's creation time: ctime moves whenever the inode's
-  // metadata changes (chmod, rename, link count), so it can be LATER than the
-  // modification time. A real creation time (statx btime / st_birthtime /
-  // Windows CreationTime) is not exposed yet — Statx requests
-  // STATX_BASIC_STATS (0x7ff), which does not include STATX_BTIME (0x800),
-  // and there is no btime_sec() accessor. See plans/archive/STD_API_AUDIT.md §5.
+  /// Status change time in whole seconds since the Unix epoch — POSIX ctime.
+  ///
+  /// This is NOT the file's creation time: ctime moves whenever the inode's
+  /// metadata changes (chmod, rename, link count), so it can be LATER than the
+  /// modification time. A real creation time (statx btime / st_birthtime /
+  /// Windows CreationTime) is not exposed yet — Statx requests
+  /// STATX_BASIC_STATS (0x7ff), which does not include STATX_BTIME (0x800),
+  /// and there is no btime_sec() accessor. See plans/archive/STD_API_AUDIT.md §5.
+  ///
+  /// Windows has no ctime at all: the CRT's `st_ctime` is the file's CREATION
+  /// time (and only on NTFS), so on that platform this answers a different
+  /// question from the POSIX one — treat it as "some timestamp about the
+  /// file" rather than as a change marker.
   status_changed_time : (fn(self : Self) -> i64)(
     self._statx.ctime_sec()
   ),
-  // True if the file is read-only (no write permission for anyone).
+  /// True when NO write bit is set for owner, group or other — Rust's
+  /// `Permissions::readonly`. This is a question about the mode bits, not
+  /// about whether THIS process can write: root ignores them, and an ACL, a
+  /// read-only mount or an immutable flag can deny a write that the bits
+  /// permit. Attempt the write if the answer has to be authoritative.
   is_readonly : (fn(self : Self) -> bool)({
     m := self._statx.mode();
     (m & (S_IWUSR | S_IWGRP | S_IWOTH)) == u32(0)
   }),
-  // Owner user ID.
+  /// Owning user id. POSIX only — on Windows the CRT's `_wstat64` leaves
+  /// `st_uid` at 0, so this reports 0 for every file there rather than
+  /// mapping the security descriptor's owner SID.
   uid : (fn(self : Self) -> u32)(
     self._statx.uid()
   ),
-  // Owner group ID.
+  /// Owning group id. POSIX only — 0 on Windows, for the same reason as
+  /// `uid`.
   gid : (fn(self : Self) -> u32)(
     self._statx.gid()
   ),
-  // Inode number.
+  /// Inode number — with the device id, the filesystem's identity for this
+  /// file, which is how two paths are recognised as the same file. On Windows
+  /// this is the NTFS file index from `GetFileInformationByHandle`, which
+  /// serves the same purpose but is 0 when that call fails (no open
+  /// permission, or a filesystem that has no index). The device id itself is
+  /// not exposed yet, so an identity comparison is only sound within one
+  /// filesystem.
   ino : (fn(self : Self) -> u64)(
     self._statx.ino()
   ),
-  // Number of hard links.
+  /// Number of hard links to this inode — 1 for an ordinary file, ≥2 once
+  /// `hard_link` has been used, and ≥2 for a directory (`.` and its parent's
+  /// entry). On Windows it comes from `GetFileInformationByHandle`, so it is
+  /// the real NTFS link count when that succeeds and the CRT's constant 1
+  /// otherwise.
   nlink : (fn(self : Self) -> u64)(
     self._statx.nlink()
   )

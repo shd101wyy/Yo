@@ -1,4 +1,17 @@
 //! POSIX `<sys/stat.h>` — file status and mode operations.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. The public surface is
+//! `std/fs` (`std/fs/file`'s `set_permissions` uses `chmod`, `std/fs/dir`
+//! uses `mkdir`); the compiler's own module loader also calls `stat` to
+//! check a file's existence and mtime. `statbuf` is typed `*void` and
+//! `struct stat` is not bound at all, because its layout is per-OS and
+//! per-`_FILE_OFFSET_BITS` — so a caller here cannot read the result
+//! portably and should be using `std/fs/metadata` instead. `mode_t` is
+//! opaque for the same reason, while `chmod`'s mode is bound as `u32`.
+//! Freezing would require a portable stat buffer, which is what `std/fs`
+//! provides in Yo.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<sys/stat.h>",

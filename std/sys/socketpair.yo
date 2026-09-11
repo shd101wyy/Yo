@@ -1,11 +1,36 @@
-//! Connected socket pair.
+//! Connected socket pair (`socketpair`) — the raw syscall boundary.
 //!
-//! Synchronous wrapper for `socketpair`-like behavior.
-//! Returns 0 on success, negative error on failure.
+//! One wrapper over POSIX `socketpair(2)`. No public `std` module uses it yet
+//! (`std/net` builds its sockets through `std/sys/tcp` and `std/sys/unix`);
+//! `tests/sys/socketpair.test.yo` is its only caller in this tree.
+//!
+//! ## Stability
+//!
+//! unstable — because the two platform behaviours are not the same object.
+//! POSIX returns a real `AF_UNIX` pair; Windows has no `socketpair()` at all,
+//! so the runtime emulates one with a loopback TCP `listen`/`connect`/`accept`
+//! and hands back two TCP sockets, and its failures are negated *WSA* codes,
+//! not `errno`. Freezing needs a decision on whether this module promises
+//! "two connected fds" (which the emulation satisfies) or "an `AF_UNIX`
+//! pair with `AF_UNIX` semantics" (which it does not), plus an error
+//! convention that is one thing on every platform.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_socketpair } :: import("./externs.yo");
-// Create a pair of connected sockets.
-// Writes two socket fds into `sv` (sv[0], sv[1]).
+/// Create a pair of connected sockets and write both descriptors into `sv`
+/// (`sv[0]` and `sv[1]`, so the buffer must hold two `i32`s) — POSIX
+/// `socketpair(2)`. Both ends are bidirectional; unlike `pipe`, either can
+/// read and write. Returns 0 on success, a negative errno on failure.
+///
+/// Per platform:
+/// * Linux and macOS — the real syscall, with `domain`, `sock_type` and
+///   `protocol` passed straight through.
+/// * Windows — emulated with a loopback TCP pair, so only `SOCK_STREAM` is
+///   accepted (`-WSAESOCKTNOSUPPORT` otherwise), `domain` must be one of
+///   `AF_UNIX` / `AF_INET` / `AF_UNSPEC` (`-WSAEAFNOSUPPORT` otherwise) and
+///   `protocol` must be 0 or `IPPROTO_TCP`. The failure values are NEGATED
+///   WSA codes (e.g. `-10047`), which `IoError.from_errno` will not classify
+///   — it lands in `.Other`.
+/// * wasm — `-ENOSYS`; Emscripten has no sockets.
 socketpair :: (fn(domain : i32, sock_type : i32, protocol : i32, sv : *i32) -> i32)(
   __yo_sync_socketpair(domain, sock_type, protocol, sv)
 );

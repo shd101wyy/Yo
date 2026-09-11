@@ -1,59 +1,70 @@
-//! File timestamp operations.
+//! File timestamp updates (`utime`/`futime`/`lutime`) — the raw syscall
+//! boundary.
 //!
-//! Provides synchronous wrappers for `utime`/`futime`/`lutime` to change file timestamps.
-//! All operations return `i32` directly (no `IoFuture` overhead).
+//! Three wrappers over `utimensat(2)`/`futimens(2)`: by path, by descriptor,
+//! and by path without following a symlink. All are synchronous on every
+//! platform, so they return `i32` directly rather than an `IoFuture`. No
+//! public `std` module sets timestamps yet (`std/fs/metadata` only reads
+//! them); `tests/sys/time.test.yo` is the only caller in this tree.
 //!
-//! Returns:
-//! - 0: success
-//! - Negative value: -errno on failure
-//
-// Timestamps use (seconds, nanoseconds) pairs for both atime and mtime.
-// Use special value UTIME_NOW (0x3fffffff) to set current time,
-// or UTIME_OMIT (0x3ffffffe) to leave a timestamp unchanged.
-//
-// Example:
-//   time :: import "std/sys/time";
-//
-//   // Set both atime and mtime to specific values
-//   ret := time.utime((*u8)("/tmp/test.txt"), i64(1000000), i64(0), i64(2000000), i64(0));
-//   assert(ret == i32(0));
-//
-//   // Set timestamps on an open fd
-//   ret2 := time.futime(fd, i64(1000000), i64(0), i64(2000000), i64(0));
-//   assert(ret2 == i32(0));
+//! Times are (seconds, nanoseconds) pairs, both for atime and mtime.
+//!
+//! ## Stability
+//!
+//! unstable — the `UTIME_NOW` / `UTIME_OMIT` sentinels are the open question.
+//! POSIX encodes "use the current time" and "leave this one alone" as magic
+//! `tv_nsec` values (`0x3fffffff` and `0x3ffffffe`), which the Linux and
+//! macOS paths forward to the kernel — but the Windows implementation folds
+//! `nsec` arithmetically into a `FILETIME`, so those sentinels become
+//! nonsense timestamps instead of being honoured. Freezing needs that
+//! divergence closed (recognize the sentinels in the Windows shim) and
+//! probably a Yo-level `Option`-shaped API where "omit" is `.None` rather
+//! than a reserved integer.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_utime, __yo_sync_futime, __yo_sync_lutime } :: import("./externs.yo");
 // ============================================================================
 // utime — Change file timestamps by path
 // ============================================================================
-// Change file access and modification times by path.
-// path: file path (null-terminated)
-// atime_sec, atime_nsec: access time (seconds + nanoseconds)
-// mtime_sec, mtime_nsec: modification time (seconds + nanoseconds)
-// Returns 0 on success, -errno on failure.
+/// Set the access and modification times of the file at `path`, FOLLOWING a
+/// symlink — POSIX `utimensat(AT_FDCWD, path, times, 0)`. Returns 0 on
+/// success, a negative errno on failure (`-EPERM` when you own neither the
+/// file nor `CAP_FOWNER`).
+///
+/// `atime_nsec` and `mtime_nsec` are 0..999_999_999, or one of the POSIX
+/// sentinels `UTIME_NOW` (`0x3fffffff`) / `UTIME_OMIT` (`0x3ffffffe`) — which
+/// are honoured on Linux and macOS only; see the module's Stability note for
+/// Windows. Note there is no way to set the ctime: POSIX updates it as a side
+/// effect of this call.
+///
+/// On Windows the runtime opens the path with `FILE_WRITE_ATTRIBUTES` and
+/// `FILE_FLAG_BACKUP_SEMANTICS` (so directories work) and calls `SetFileTime`.
 utime :: (fn(path : *u8, atime_sec : i64, atime_nsec : i64, mtime_sec : i64, mtime_nsec : i64) -> i32)(
   __yo_sync_utime(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
 );
 // ============================================================================
 // futime — Change file timestamps by fd
 // ============================================================================
-// Change file access and modification times by file descriptor.
-// fd: open file descriptor
-// atime_sec, atime_nsec: access time (seconds + nanoseconds)
-// mtime_sec, mtime_nsec: modification time (seconds + nanoseconds)
-// Returns 0 on success, -errno on failure.
+/// Set the access and modification times of an OPEN descriptor — POSIX
+/// `futimens(2)`. Returns 0 on success, a negative errno on failure.
+///
+/// This is the form to use when the path may have been renamed or unlinked
+/// since the open, for the same reason `std/sys/file`'s `fstat` exists. Same
+/// nanosecond and sentinel rules as `utime`.
+///
+/// Windows has no `futimens`: the runtime recovers the path from the handle
+/// with `GetFinalPathNameByHandleW`, reopens it for attribute writes and
+/// calls `SetFileTime` — so unlike POSIX it does need the file to still be
+/// reachable by name.
 futime :: (fn(fd : i32, atime_sec : i64, atime_nsec : i64, mtime_sec : i64, mtime_nsec : i64) -> i32)(
   __yo_sync_futime(fd, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
 );
 // ============================================================================
 // lutime — Change symlink timestamps (does not follow symlinks)
 // ============================================================================
-// Change file access and modification times of a symlink itself.
-// Does not follow the symlink (uses AT_SYMLINK_NOFOLLOW).
-// path: symlink path (null-terminated)
-// atime_sec, atime_nsec: access time (seconds + nanoseconds)
-// mtime_sec, mtime_nsec: modification time (seconds + nanoseconds)
-// Returns 0 on success, -errno on failure.
+/// Set the times of the SYMLINK itself rather than its target —
+/// `utimensat(..., AT_SYMLINK_NOFOLLOW)`. Returns 0 on success, a negative
+/// errno on failure. On a path that is not a symlink it behaves exactly like
+/// `utime`. Same nanosecond and sentinel rules.
 lutime :: (fn(path : *u8, atime_sec : i64, atime_nsec : i64, mtime_sec : i64, mtime_nsec : i64) -> i32)(
   __yo_sync_lutime(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
 );

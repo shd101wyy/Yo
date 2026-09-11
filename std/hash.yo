@@ -16,12 +16,25 @@
 //! - `DefaultHasher` — the alias `HashMap` uses (`SipHasher13`).
 //! - `hash_one(value)` — the one-liner: hash a single value with the default
 //!   hasher and default keys.
+//!
+//! ## Stability
+//!
+//! stable — the `Hash`/`Hasher` split is Rust's and the algorithm is real
+//! SipHash-1-3 with a 128-bit key, verified against reference vectors in
+//! `tests/hash.test.yo`. The one live question near this module —
+//! `plans/STD_API_STABILIZATION.md` §5, whether to ship a
+//! `HashMap.with_random_keys()` beside today's deterministic `new()` — is
+//! answered with a NEW function over the `new_with_keys` this module already
+//! exports, so it is additive; the fixed `DEFAULT_KEY_0`/`DEFAULT_KEY_1` are
+//! load-bearing for the compiler's own byte-identical-output fixpoint gate
+//! and are not going to change. Further hashers would be additive too.
 pragma(Pragma.AllowUnsafe);
 /// The keys `SipHasher13.new()` (and therefore `HashMap.new()`,
 /// `HashSet.new()` and `hash_one`) start from. Fixed rather than random so a
 /// program's hash values — and the iteration order of its maps — are the same
 /// on every run; `HashMap.with_keys` opts a map into per-instance keys.
 DEFAULT_KEY_0 :: u64(0);
+/// The second half of that fixed 128-bit key — see `DEFAULT_KEY_0`.
 DEFAULT_KEY_1 :: u64(0);
 /// SipHash-1-3 (one compression round per 8-byte block, three finalization
 /// rounds) with a 128-bit key, streaming: bytes may arrive in any grouping
@@ -29,11 +42,18 @@ DEFAULT_KEY_1 :: u64(0);
 ///
 /// `finish` may be called at any point and does not reset the state.
 SipHasher13 :: struct(
+  /// First half of the 128-bit key. Kept so `reset` can re-derive the state
+  /// without the caller passing the key again.
   k0 : u64,
+  /// Second half of the 128-bit key.
   k1 : u64,
+  /// SipHash internal state word 0, initialized to `k0 ^ "somepseu"`.
   v0 : u64,
+  /// SipHash internal state word 1, initialized to `k1 ^ "dorandom"`.
   v1 : u64,
+  /// SipHash internal state word 2, initialized to `k0 ^ "lygenera"`.
   v2 : u64,
+  /// SipHash internal state word 3, initialized to `k1 ^ "tedbytes"`.
   v3 : u64,
   /// Up to 7 pending bytes, little-endian packed.
   tail : u64,
@@ -182,6 +202,8 @@ impl(
 Fnv1aHasher :: struct(state : u64);
 impl(
   Fnv1aHasher,
+  /// A hasher at FNV-1a's 64-bit offset basis (14695981039346656037). There
+  /// is no keyed variant — FNV-1a has no key.
   new : (fn() -> Self)(Self(state : u64(14695981039346656037)))
 );
 impl(

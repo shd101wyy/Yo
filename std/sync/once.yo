@@ -21,6 +21,19 @@
 //! a := cell.get_or_init(() => i32(42)); // runs the closure
 //! b := cell.get_or_init(() => i32(99)); // returns 42, closure not run
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the mechanism is settled (double-checked locking over
+//! `Mutex.with_lock`, concurrently tested in `tests/sync/once.test.yo`),
+//! but one NAME is wrong against the Rust vocabulary the rest of this
+//! library follows: `OnceCell(T)` here is thread-safe, which is Rust's
+//! `OnceLock<T>`, while Rust's `OnceCell<T>` is the single-threaded one.
+//! Renaming it — or adding a genuinely single-threaded cell beside it — is
+//! a live question, so the name is not frozen. `LazyLock`'s counterpart is
+//! also still missing (`plans/STD_API_STABILIZATION_FINDINGS.md` item 10);
+//! that one is additive. Neither type has poisoning: an initializer that
+//! exits early leaves the `Once` un-done and the next caller retries.
 pragma(Pragma.AllowUnsafe);
 
 { Mutex } :: import("./mutex");
@@ -46,15 +59,12 @@ Once :: atomic(
 );
 impl(
   Once,
-  // Create a new Once.
+  /// Create a `Once` that has not run yet — Rust's `Once::new`.
   new : (fn() -> Self)({
     v := Self(false, Mutex(bool).new(false));
     unsafe(atomic_store_explicit(&v._done, false, memory_order_release));
     v
   }),
-  // Execute the function exactly once.
-  // Subsequent calls are no-ops.
-  //
   // The slow path runs under `Mutex.with_lock` rather than a manual
   // `_raw_lock` / `_raw_unlock` pair. This was long carried as a NOTE saying
   // the pair could leave the mutex held forever if `f` unwound; that claim is
@@ -74,11 +84,24 @@ impl(
   // emitted `void* tmp = closure(...)` against a `void`-returning C function
   // (issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md,
   // fixed 2026-08-26 and shipped in the v0.2.29 seed).
-  //
-  // `_done` is set only after `f` RETURNS, so an `f` that exits early leaves
-  // the `Once` un-done and the next caller runs it again. That is Rust's
-  // `Once::call_once` minus poisoning: Yo has no poisoned state, and marking a
-  // half-finished initialization "done" would be worse than retrying it.
+  /// Run `f` the first time this is called, and never again — Rust's
+  /// `Once::call_once`.
+  ///
+  /// Every later call is a no-op, and a call that arrives WHILE another
+  /// thread is running `f` blocks until that `f` returns, so `f` has
+  /// finished for every caller that this returns to. The already-done case
+  /// costs one Acquire load and takes no lock.
+  ///
+  /// `_done` is set only after `f` RETURNS, so an `f` that exits early
+  /// leaves the `Once` un-done and the next caller runs it again. That is
+  /// the one divergence from Rust, which poisons a `Once` whose closure
+  /// panicked and then propagates the panic to every later `call_once`: Yo
+  /// has no poisoned state, and marking a half-finished initialization
+  /// "done" would be worse than retrying it.
+  ///
+  /// `f` cannot throw — a closure cannot capture an `Exception` — so there
+  /// is no "the mutex stayed locked" case to worry about; release is
+  /// structural through `Mutex.with_lock` either way.
   call : (fn(self : Self, f : Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done (atomic_bool with Acquire load), no lock taken.
     cond(
@@ -97,7 +120,14 @@ impl(
         })
     );
   }),
-  // Check if the function has been called.
+  /// Whether the closure has already run to completion — Rust's
+  /// `Once::is_completed`.
+  ///
+  /// A lock-free Acquire load, so it is cheap, and it is honest in the
+  /// direction that matters: `true` means the initialization is finished
+  /// and its writes are visible to this thread. `false` can be stale the
+  /// instant it is read — another thread may be inside `f` — so do not use
+  /// it to decide whether `call` will block.
   is_done : (fn(self : Self) -> bool)(
     unsafe(atomic_load_explicit(&self._done, memory_order_acquire)) == true
   )

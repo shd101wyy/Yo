@@ -1,0 +1,15 @@
+// Reproducer: `%` on `f64` passes `yo check` and then emits C's integer-only
+// `%` on two doubles, so the C compiler rejects the generated file.
+//
+// $ yo check  issues/repros/stddoc-coll-float-modulo-emits-invalid-c.yo --std-path ./std   # OK
+// $ yo compile issues/repros/stddoc-coll-float-modulo-emits-invalid-c.yo --std-path ./std  # C error
+{ println } :: import("std/fmt");
+import("std/math");
+main :: (fn() -> i32)({
+  a := f64(-7.0);
+  b := f64(3.0);
+  println(`pct: ${a % b}`);
+  println(`rem_euclid: ${a.rem_euclid(b)}`);
+  i32(0)
+});
+export(main);

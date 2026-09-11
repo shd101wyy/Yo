@@ -10,6 +10,23 @@
 //! d.push_front(0);
 //! x := d.pop_front().unwrap();  // 0
 //! ```
+//!
+//! Elements live in one heap block used as a ring: `_head` is the front slot
+//! and the logical index `k` sits at `(_head + k) % capacity`, so both ends
+//! are O(1) and nothing shifts. Growth doubles the block (8 slots first) and
+//! LINEARISES the contents, which invalidates every pointer into the old
+//! buffer. Rust's counterpart is `VecDeque`.
+//!
+//! ## Stability
+//!
+//! stable — the surface mirrors `VecDeque`
+//! (`push_front`/`push_back`/`pop_front`/`pop_back`/`front`/`back`/`get`,
+//! `iter`/`into_iter`, `FromIterator`, `Default`), allocation failure panics
+//! like every other collection (D9), and `plans/STD_API_STABILIZATION.md` §4
+//! lists nothing open against this module.
+//! `tests/collections/deque.test.yo` covers the surface, including the
+//! wrap-around cases. Missing pieces such as `Debug` or a `retain` would be
+//! additive.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator");
 { SIZE_MAX } :: import("../libc/stdint");
@@ -30,15 +47,15 @@ Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(
   generic(T : Type),
   Deque(T),
-  // Create an empty Deque.
+  /// Empty deque. Allocates nothing — the first push buys an 8-slot ring.
   new : (fn() -> Self)(
     Self(_buf : .None, _head : usize(0), _tail : usize(0), _len : usize(0), _capacity : usize(0))
   ),
-  // Number of elements currently stored.
+  /// Number of elements. O(1); not the ring's capacity.
   len : (fn(self : Self) -> usize)(
     self._len
   ),
-  // True if the deque contains no elements.
+  /// True when the deque holds no elements.
   is_empty : (fn(self : Self) -> bool)(
     self._len == usize(0)
   ),
@@ -93,7 +110,11 @@ impl(
     self._tail = self._len;
     self._capacity = new_cap;
   }),
-  // Push an element to the back.
+  /// Add an element at the back — amortized O(1). Rust's `push_back`.
+  ///
+  /// A full ring grows (doubling and linearising), which PANICS on allocation
+  /// failure or capacity overflow rather than reporting it (D9), and
+  /// invalidates every pointer into the buffer.
   push_back : (fn(self : Self, val : T) -> unit)({
     cond(
       (self._len == self._capacity) => self._grow(self._len + usize(1)),
@@ -104,7 +125,11 @@ impl(
     self._tail = ((self._tail + usize(1)) % self._capacity);
     self._len = (self._len + usize(1));
   }),
-  // Push an element to the front.
+  /// Add an element at the front — amortized O(1) and no shifting, which is
+  /// the whole reason to use a deque over an `ArrayList`. Rust's
+  /// `push_front`.
+  ///
+  /// Grows exactly like `push_back` when the ring is full.
   push_front : (fn(self : Self, val : T) -> unit)({
     cond(
       (self._len == self._capacity) => self._grow(self._len + usize(1)),
@@ -118,7 +143,8 @@ impl(
     consume((buf.add(self._head)).* = val);
     self._len = (self._len + usize(1));
   }),
-  // Remove and return the front element.
+  /// Remove and return the front element, or `.None` when empty — O(1). The
+  /// capacity is kept.
   pop_front : (fn(self : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
@@ -133,7 +159,7 @@ impl(
       }
     )
   ),
-  // Remove and return the back element.
+  /// Remove and return the back element, or `.None` when empty — O(1).
   pop_back : (fn(self : Self) -> Option(T))(
     cond(
       (self._len == usize(0)) => .None,
@@ -151,7 +177,6 @@ impl(
       }
     )
   ),
-  // Get an element by logical index (0 = front).
   /// First element, or `.None` when empty — Rust's `VecDeque::front`.
   front : (fn(self : Self) -> Option(T))(
     self.get(usize(0))
@@ -163,6 +188,11 @@ impl(
       true => self.get(self._len - usize(1))
     )
   ),
+  /// Copy of the element at LOGICAL index `index` (0 = front), or `.None`
+  /// when out of range — O(1) through the ring's modulo, not a walk.
+  ///
+  /// `self(index)` (the `Index` impl) hands back a pointer into the ring and
+  /// asserts the bound instead.
   get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
       (index >= self._len) => .None,
@@ -200,10 +230,15 @@ impl(
     })
   )
 );
-/**
-* Value iterator for Deque - yields elements by value (T)
-* Traverses the circular buffer in logical order.
-*/
+/// Value iterator over a Deque — walks the ring in logical order (front
+/// first) and yields each element BY VALUE, dup'ing a refcounted `T`. This is
+/// what `into_iter()`, and therefore `for(deque, ...)`, returns; `iter()`
+/// yields pointers.
+///
+/// The element count is captured when the iterator is made, so pushes during
+/// the walk are not seen — and a pop is worse than unseen: it moves `_head`,
+/// which shifts every remaining position. Double-ended: `next_back` takes
+/// from the far end of the same window.
 DequeIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _deque : Deque(T),
@@ -263,11 +298,12 @@ impl(
     )
   )
 );
-/**
-* Pointer iterator for Deque - yields pointers to elements (*(T))
-* Yields pointers into the circular buffer. Pointers are valid as long as
-* the deque is not modified during iteration.
-*/
+/// Pointer iterator over a Deque — yields `*(T)` into the ring itself, in
+/// logical order. This is what `iter()` returns (D14): nothing is dup'd and
+/// writing through the pointer updates the element in place.
+///
+/// A yielded pointer dies with the buffer, so a push that grows the ring (or
+/// a `dispose`) during the walk leaves it dangling.
 DequeIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _deque : Deque(T),
@@ -298,6 +334,8 @@ impl(
 impl(
   generic(T : Type),
   Deque(T),
+  /// Borrowing walk from the front: yields a `*(T)` into the ring and
+  /// leaves the deque intact (D14).
   iter : (fn(self : Self) -> DequeIterPtr(T))(
     DequeIterPtr(T)(_deque : self, _pos : usize(0), _remaining : self._len)
   )
@@ -319,14 +357,13 @@ impl(
   generic(T : Type),
   Deque(T),
   Trace(
-    /**
-    * Cycle-GC tracing. The elements live in a malloc'd ring buffer the compiler's
-    * auto-derived field walk cannot reach, so trace each live element's buffer slot.
-    * Logical element `k` (0 = front) sits at physical slot `(_head + k) % _capacity`.
-    * `tracer.visit` takes the slot POINTER and reads it WITHOUT touching the element's
-    * reference count (a by-value managed handle would be dup'd then dropped, freeing a
-    * live element mid-collection). Mirrors the ArrayList `Trace` impl.
-    */
+    /// Cycle-GC tracing. The elements live in a malloc'd ring buffer the
+    /// compiler's auto-derived field walk cannot reach, so trace each live
+    /// element's buffer slot. Logical element `k` (0 = front) sits at
+    /// physical slot `(_head + k) % _capacity`. `tracer.visit` takes the slot
+    /// POINTER and reads it WITHOUT touching the element's reference count (a
+    /// by-value managed handle would be dup'd then dropped, freeing a live
+    /// element mid-collection). Mirrors the ArrayList `Trace` impl.
     trace : (fn(self : Self, tracer : GcTracer) -> unit)({
       match(
         self._buf,

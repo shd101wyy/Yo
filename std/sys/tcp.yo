@@ -1,38 +1,51 @@
-//! Async TCP socket operations.
+//! Async TCP sockets — the raw syscall boundary.
 //!
-//! Provides TCP socket wrappers around the low-level C runtime externs.
-//! Uses the socket address helpers to construct `sockaddr_in`/`sockaddr_in6` buffers.
+//! The socket calls plus the `sockaddr_in`/`sockaddr_in6` builders that every
+//! other socket module here reuses (`std/sys/udp` and `std/sys/unix` both
+//! import from this one). `std/net/tcp.yo` is the public surface —
+//! `TcpStream`, `TcpListener` and the `IpAddr` parsing this layer does not
+//! do.
 //!
-//! All async operations return `IoFuture` which resolves to:
-//! - Positive value: success (fd for socket/accept, bytes for send/recv, 0 for others)
-//! - Negative value: -errno on failure
-//
-// Example:
-//   { GlobalAllocator } :: import "../allocator.yo";
-//   { malloc, free } :: GlobalAllocator;
-//   tcp :: import "std/sys/tcp";
-//   { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP } :: import "std/sys/socket";
-//
-//   async {
-//     // Create a TCP socket
-//     sockfd := await tcp.socket(AF_INET, SOCK_STREAM, i32(0));
-//     assert(sockfd >= i32(0));
-//
-//     // Set SO_REUSEADDR
-//     await tcp.setsockopt_int(sockfd, SOL_SOCKET, SO_REUSEADDR, i32(1));
-//
-//     // Bind to 127.0.0.1:8080
-//     addr := tcp.make_sockaddr_in("127.0.0.1", u16(8080));
-//     bind_result := await tcp.bind(sockfd, addr.ptr, addr.len);
-//     assert(bind_result == i32(0));
-//
-//     // Listen
-//     await tcp.listen(sockfd, i32(128));
-//
-//     // Accept
-//     client_fd := await tcp.accept(sockfd);
-//     // ...
-//   };
+//! Every operation returns an `IoFuture` resolving to a non-negative value on
+//! success (an fd for `socket` and `accept`, a byte count for `send`/`recv`,
+//! 0 for the rest) or a NEGATIVE error code. On POSIX that code is an errno;
+//! on Windows the socket paths return a negated WSA code (`-10061` rather
+//! than `-ECONNREFUSED`), which `IoError.from_errno` will not classify.
+//!
+//! How much of this is genuinely asynchronous differs per platform, and it
+//! matters for latency, not just for tidiness: `socket`, `bind`, `listen`,
+//! `shutdown`, `setsockopt` and `getsockopt` are synchronous everywhere and
+//! merely wrapped in an already-completed future, while `accept`, `connect`,
+//! `send` and `recv` are real io_uring submissions on Linux, kqueue
+//! registrations on macOS (which also sets `O_NONBLOCK` on every socket it
+//! creates) and IOCP operations on Windows — except `connect`, which is
+//! still a BLOCKING `connect()` on the event-loop thread there.
+//!
+//! ```rust
+//! tcp :: import("std/sys/tcp");
+//! { AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR } :: import("std/sys/socket");
+//!
+//! fd := io.await(tcp.socket(AF_INET, SOCK_STREAM, i32(0)), io);
+//! addr := tcp.make_sockaddr_in_loopback(u16(8080));
+//! io.await(tcp.bind(fd, addr.buf, addr.len), io);
+//! io.await(tcp.listen(fd, i32(128)), io);
+//! client := io.await(tcp.accept(fd, addr.buf, ...), io);
+//! tcp.free_sockaddr(addr);
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — the address representation is what has to change first.
+//! `SockAddr` is a malloc'd byte buffer plus a length that the CALLER must
+//! free, with the field offsets baked into `make_sockaddr_in`
+//! (`buf.add(4)` for `sin_addr`, `buf.add(8)` for `sin6_addr`) rather than
+//! asked of the platform, and `make_sockaddr_in` silently ignores a failed
+//! `inet_pton` so a malformed IP string yields a zero address instead of an
+//! error. On top of that the error channel is two different vocabularies
+//! (errno and WSA) and the byte-order helpers are exported raw. Freezing
+//! needs an owning address type with a fallible parser and one error
+//! vocabulary; `std/net/tcp` already provides both, and is the surface to
+//! build on.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { malloc, free } :: GlobalAllocator;
@@ -42,82 +55,138 @@ pragma(Pragma.AllowUnsafe);
 // ============================================================================
 // SockAddr - Socket address buffer with pointer and length
 // ============================================================================
+/// A heap-allocated socket address buffer and its length — what the `bind`,
+/// `connect` and `accept` calls below take.
+///
+/// It OWNS its allocation but has no `Dispose`: every `make_sockaddr_*` must
+/// be paired with a `free_sockaddr`, or the buffer leaks. The `len` is the
+/// size of the platform's `sockaddr_in`/`sockaddr_in6`, not the number of
+/// bytes meaningfully filled.
 SockAddr :: struct(
+  /// The `sockaddr` bytes. Read them with `get_family` first, then with the
+  /// `get_*_in` or `get_*_in6` accessors for that family.
   buf : *u8,
+  /// Size of `buf` in bytes — the `addrlen` every socket call wants.
   len : u32
 );
 export(SockAddr);
 // ============================================================================
 // Core TCP Operations (return IoFuture, use with await)
 // ============================================================================
-// Create a TCP socket.
-// domain: AF_INET or AF_INET6
-// Returns fd on success, -errno on failure.
+/// Create a socket — POSIX `socket(2)`. Resolves to the new fd, or a negative
+/// error code. `domain` is `AF_INET` or `AF_INET6`, `sock_type` is normally
+/// `SOCK_STREAM`, and `protocol` 0 lets the kernel pick (TCP for
+/// `SOCK_STREAM`).
+///
+/// Synchronous underneath on every platform. On macOS the runtime also sets
+/// `O_NONBLOCK` on the new descriptor, because its kqueue backend requires
+/// it — so a socket from here behaves differently under a blocking
+/// `std/sys/iov` read on macOS than on Linux.
 socket :: (fn(domain : i32, sock_type : i32, protocol : i32) -> IoFuture)(
   __yo_async_socket_start(domain, sock_type, protocol)
 );
-// Bind a socket to a local address.
-// Returns 0 on success, -errno on failure.
+/// Bind the socket to a local address — POSIX `bind(2)`. Resolves to 0, or a
+/// negative error code (`-EADDRINUSE` when the port is taken, which is what
+/// `SO_REUSEADDR` is for). Binding to port 0 asks the kernel to choose; read
+/// the choice back with `std/sys/sockinfo`'s `getsockname`.
 bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_bind_start(sockfd, addr, addrlen)
 );
-// Listen for incoming connections on a socket.
-// backlog: maximum length of the pending connections queue.
-// Returns 0 on success, -errno on failure.
+/// Mark the socket as accepting connections — POSIX `listen(2)`. Resolves to
+/// 0, or a negative error code. `backlog` bounds the queue of connections the
+/// kernel completes before `accept` has taken them; on Linux it is capped by
+/// `somaxconn`, so a large value is a request rather than a guarantee.
 listen :: (fn(sockfd : i32, backlog : i32) -> IoFuture)(
   __yo_async_listen_start(sockfd, backlog)
 );
-// Accept an incoming connection on a listening socket.
-// Returns the new connection fd on success, -errno on failure.
-// addr/addrlen can be used to retrieve the peer address.
+/// Take the next completed connection off a listening socket's queue —
+/// POSIX `accept(2)`. Resolves to the NEW connection's fd, or a negative
+/// error code; the listening socket stays open.
+///
+/// `addr`/`addrlen` receive the peer's address, with `addrlen` in/out as in
+/// `getsockname` (set it to the buffer capacity first). This is one of the
+/// four genuinely asynchronous operations: io_uring on Linux, kqueue on
+/// macOS, and `AcceptEx` on Windows — which is an `AF_INET`/`AF_INET6`
+/// extension, so a Unix-domain listener there takes a different path.
 accept :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> IoFuture)(
   __yo_async_accept_start(sockfd, addr, addrlen)
 );
-// Connect to a remote address.
-// Returns 0 on success, -errno on failure.
+/// Connect to a remote address — POSIX `connect(2)`. Resolves to 0, or a
+/// negative error code (`-ECONNREFUSED`, `-ETIMEDOUT`).
+///
+/// Asynchronous on Linux (io_uring) and macOS (kqueue), but on Windows it is
+/// still a BLOCKING `connect()` on the event-loop thread, so a slow or
+/// unreachable peer stalls every other task in the program there. There is
+/// also no timeout parameter: the kernel's is the only one, and
+/// `std/async`'s `timeout` is the way to bound it.
 connect :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_connect_start(sockfd, addr, addrlen)
 );
-// Send data on a connected socket.
-// Returns number of bytes sent on success, -errno on failure.
+/// Send from `buf` on a connected socket — POSIX `send(2)`. Resolves to the
+/// number of bytes ACCEPTED, which may be fewer than `len` (loop, or use
+/// `std/io`'s `write_all` through `std/net`), or a negative error code.
+///
+/// `flags` is passed straight to the syscall. Note that nothing in the
+/// generated runtime ignores `SIGPIPE`, so on POSIX a send to a peer that has
+/// closed will KILL the process unless you either pass `MSG_NOSIGNAL`
+/// (Linux), set `SO_NOSIGPIPE` (macOS) or install a handler with
+/// `std/sys/signal`.
 send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
-// Receive data from a connected socket.
-// Returns number of bytes received on success (0 = peer closed), -errno on failure.
+/// Receive into `buf` on a connected socket — POSIX `recv(2)`. Resolves to
+/// the number of bytes read, or a negative error code. **0 means the peer
+/// performed an orderly shutdown**, not "nothing available yet" — this
+/// runtime never resolves a recv with `EAGAIN`, it suspends instead. `flags`
+/// is normally 0.
 recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
-// Shut down part of a full-duplex connection.
-// how: SHUT_RD (0), SHUT_WR (1), or SHUT_RDWR (2).
-// Returns 0 on success, -errno on failure.
+/// Shut down one or both directions of a connection — POSIX `shutdown(2)`.
+/// Resolves to 0, or a negative error code. `how` is `SHUT_RD` (0),
+/// `SHUT_WR` (1) or `SHUT_RDWR` (2).
+///
+/// `SHUT_WR` is the one worth knowing: it sends FIN so the peer sees
+/// end-of-stream, while still letting you read their reply — which `close`
+/// cannot do. Unlike `close` it affects the CONNECTION, not the descriptor,
+/// so a `dup`ed fd is shut down too.
 shutdown :: (fn(sockfd : i32, how : i32) -> IoFuture)(
   __yo_async_shutdown_start(sockfd, how)
 );
-// Close a socket file descriptor.
-// Returns 0 on success, -errno on failure.
+/// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
+/// error code. Do not retry on `-EINTR`: the descriptor is gone either way,
+/// and retrying can close an unrelated fd that has since taken the number.
 close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );
 // ============================================================================
 // Socket Options
 // ============================================================================
-// Set a socket option (raw).
-// Returns 0 on success, -errno on failure.
+/// Set a socket option from raw bytes — POSIX `setsockopt(2)`, wrapped as a
+/// future for use inside an `async` block (`std/sys/sockinfo` has the
+/// synchronous form of the same syscall). Resolves to 0, or a negative error
+/// code. `level` and `optname` come from `std/sys/socket`; `optval`/`optlen`
+/// must match what the option expects, and nothing here checks that.
 setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> IoFuture)(
   __yo_async_setsockopt_start(sockfd, level, optname, optval, optlen)
 );
-// Get a socket option (raw).
-// Returns 0 on success, -errno on failure.
+/// Read a socket option into raw bytes — POSIX `getsockopt(2)`, the
+/// future-returning form. Resolves to 0, or a negative error code. `optlen`
+/// is in/out: set it to the buffer capacity and read back the size written.
 getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> IoFuture)(
   __yo_async_getsockopt_start(sockfd, level, optname, optval, optlen)
 );
 // ============================================================================
 // Socket Address Helpers
 // ============================================================================
-// Create an IPv4 socket address (sockaddr_in) from an IP string and port.
-// The IP string must be a null-terminated C string (e.g. "127.0.0.1").
-// Returns a SockAddr with an allocated buffer. Caller must free buf when done.
+/// Build a `sockaddr_in` from a dotted-quad IP string and a HOST-order port
+/// (the helper does the `htons`). `ip` must be a NUL-terminated C string like
+/// `"127.0.0.1"`. The caller must `free_sockaddr` the result.
+///
+/// A malformed `ip` is NOT reported: the underlying `inet_pton` failure is
+/// discarded and the address field stays zero, which binds to
+/// `INADDR_ANY` — so validate the string first, or use `std/net`'s
+/// `IpAddr.parse`, which returns a `Result`.
 make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in_size();
   buf := (*u8)(malloc(size).unwrap());
@@ -131,9 +200,10 @@ make_sockaddr_in :: (fn(ip : *u8, port : u16) -> SockAddr)({
   __yo_inet_pton(AF_INET, ip, buf.add(usize(4)));
   SockAddr(buf, u32(size))
 });
-// Create an IPv6 socket address (sockaddr_in6) from an IP string and port.
-// The IP string must be a null-terminated C string (e.g. "::1").
-// Returns a SockAddr with an allocated buffer. Caller must free buf when done.
+/// Build a `sockaddr_in6` from an IPv6 string (e.g. `"::1"`) and a host-order
+/// port. Caller frees with `free_sockaddr`. Same silent-`inet_pton` caveat as
+/// `make_sockaddr_in`, and note that `sin6_scope_id` is left zero, so a
+/// link-local address (`fe80::…%en0`) cannot be expressed here.
 make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
   size := sockaddr_in6_size();
   buf := (*u8)(malloc(size).unwrap());
@@ -147,8 +217,10 @@ make_sockaddr_in6 :: (fn(ip : *u8, port : u16) -> SockAddr)({
   __yo_inet_pton(AF_INET6, ip, buf.add(usize(8)));
   SockAddr(buf, u32(size))
 });
-// Create an IPv4 socket address for INADDR_ANY (0.0.0.0) with a given port.
-// Returns a SockAddr with an allocated buffer. Caller must free buf when done.
+/// Build a `sockaddr_in` for `INADDR_ANY` (0.0.0.0) on `port` — bind to
+/// every IPv4 interface. This is the wildcard a server wants; note it does
+/// NOT also cover IPv6, which needs a separate `AF_INET6` socket (or a
+/// dual-stack one via `IPV6_V6ONLY`). Caller frees with `free_sockaddr`.
 make_sockaddr_in_any :: (fn(port : u16) -> SockAddr)({
   size := sockaddr_in_size();
   buf := (*u8)(malloc(size).unwrap());
@@ -162,8 +234,9 @@ make_sockaddr_in_any :: (fn(port : u16) -> SockAddr)({
   __yo_sockaddr_in_set_addr(buf, u32(0));
   SockAddr(buf, u32(size))
 });
-// Create an IPv4 socket address for loopback (127.0.0.1) with a given port.
-// Returns a SockAddr with an allocated buffer. Caller must free buf when done.
+/// Build a `sockaddr_in` for 127.0.0.1 on `port` — reachable only from this
+/// machine, which is what a test or a local-only service wants. Caller frees
+/// with `free_sockaddr`.
 make_sockaddr_in_loopback :: (fn(port : u16) -> SockAddr)({
   size := sockaddr_in_size();
   buf := (*u8)(malloc(size).unwrap());
@@ -177,36 +250,54 @@ make_sockaddr_in_loopback :: (fn(port : u16) -> SockAddr)({
   __yo_sockaddr_in_set_addr(buf, __yo_htonl(u32(0x7F000001)));
   SockAddr(buf, u32(size))
 });
-// Free a SockAddr buffer.
+/// Release a `SockAddr`'s buffer. Required after every `make_sockaddr_*`, and
+/// safe to call only once — there is no `Dispose` doing it for you.
 free_sockaddr :: (fn(addr : SockAddr) -> unit)(
   free(.Some((*void)(addr.buf)))
 );
-// Get the port number from an IPv4 socket address buffer.
+/// Read the port out of a `sockaddr_in` buffer, in HOST byte order (the
+/// accessor does the `ntohs`). Use it on the buffer `accept` or
+/// `getsockname` filled.
 get_port_in :: (fn(addr : *u8) -> u16)(
   __yo_sockaddr_in_get_port(addr)
 );
-// Get the IPv4 address as a u32 from a socket address buffer.
+/// Read the IPv4 address out of a `sockaddr_in` buffer as a `u32` in NETWORK
+/// byte order — unlike `get_port_in`, this one is NOT converted. Pass it
+/// through `ntohl` before comparing against a host-order literal.
 get_addr_in :: (fn(addr : *u8) -> u32)(
   __yo_sockaddr_in_get_addr(addr)
 );
-// Get the address family from a socket address buffer.
+/// Read the address family (`AF_INET`, `AF_INET6`, `AF_UNIX`) out of a
+/// `sockaddr` buffer. This is the first thing to read from an address the
+/// kernel filled, since it decides which of the accessors above is valid.
 get_family :: (fn(addr : *u8) -> u16)(
   __yo_sockaddr_get_family(addr)
 );
-// Get the port number from an IPv6 socket address buffer (host byte order).
+/// Read the port out of a `sockaddr_in6` buffer, in host byte order.
 get_port_in6 :: (fn(addr : *u8) -> u16)(
   __yo_sockaddr_in6_get_port(addr)
 );
-// Copy the 16-byte IPv6 address (network byte order) out of a sockaddr_in6.
+/// Copy the 16 bytes of an IPv6 address out of a `sockaddr_in6` buffer into
+/// `out`, which must have room for 16 bytes. They stay in NETWORK byte order,
+/// which for IPv6 is simply the canonical big-endian order the address is
+/// written in.
 get_addr_in6 :: (fn(addr : *u8, out : *u8) -> unit)(
   __yo_sockaddr_in6_get_addr(addr, out)
 );
 // ============================================================================
 // Byte Order Helpers
 // ============================================================================
+/// Host to network byte order, 16-bit — `htons(3)`. Ports on the wire are
+/// big-endian; on a big-endian host this is the identity.
 htons :: (fn(hostshort : u16) -> u16)(__yo_htons(hostshort));
+/// Network to host byte order, 16-bit — `ntohs(3)`. The inverse of `htons`,
+/// and the same operation on every real platform.
 ntohs :: (fn(netshort : u16) -> u16)(__yo_ntohs(netshort));
+/// Host to network byte order, 32-bit — `htonl(3)`. What turns
+/// `0x7F000001` into the bytes `127.0.0.1`.
 htonl :: (fn(hostlong : u32) -> u32)(__yo_htonl(hostlong));
+/// Network to host byte order, 32-bit — `ntohl(3)`. Apply it to
+/// `get_addr_in`'s result before comparing against a host-order literal.
 ntohl :: (fn(netlong : u32) -> u32)(__yo_ntohl(netlong));
 export(
   socket,

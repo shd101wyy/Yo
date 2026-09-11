@@ -1,4 +1,36 @@
-//! Immutable UTF-8 string type with comprehensive operations.
+//! Growable UTF-8 strings: `String`, its four iterators, and the `Pattern`
+//! and `FromString` traits.
+//!
+//! `String` owns heap bytes and is MUTABLE — `push_str` / `push_string` /
+//! `push_byte` / `push_rune` / `insert` / `insert_str` / `remove` / `pop` /
+//! `truncate` / `reserve` / `clear` take `inout(self)` and change the value in
+//! place. Everything else (the operators, `trim*`, `to_*case`, `replace*`,
+//! `substring`, …) returns a new string. For an immutable, atomically
+//! reference-counted string that is safe to share across threads, use
+//! `std/imm/string`. An empty `String` allocates nothing.
+//!
+//! ## Every index is a BYTE offset
+//!
+//! `len()` is the byte count at O(1), and `at` / `substring` / `s(a..b)` /
+//! `index_of` / `last_index_of`, the positional arguments of `contains` /
+//! `starts_with` / `ends_with`, and every method of the `Pattern` trait speak
+//! the same unit (D4, 2026-08-26). `substring` CLAMPS an endpoint past the end
+//! but PANICS on one inside a rune; `try_substring` refuses instead, and
+//! `floor_char_boundary` / `ceil_char_boundary` snap an arbitrary offset onto a
+//! boundary. Rune work composes `chars()` / `char_indices()` with iterator
+//! methods — the rune count is `s.chars().count()`, which is O(n) and spelled
+//! as an iterator so that cost stays visible at the call site. The whole
+//! contract, with the empty-needle corner cases, is `docs/en-US/STRINGS.md`.
+//!
+//! ## Stability
+//!
+//! unstable — the surface is Rust-shaped and settled, but this module still
+//! EXPORTS the aliases the v0.2.28 breaking window deprecated for one release
+//! and has not yet deleted: `replace_first` / `replace_all` (D10) and the eight
+//! `parse_*() -> Option(T)` spellings superseded by `s.parse(T)` (D12). Each
+//! carries a `DEPRECATED` line at its definition. Removing an export is not an
+//! additive change, so the module cannot be frozen while the deletion is still
+//! pending — freezing follows that deletion, not a release count.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { rune } :: import("./rune.yo");
@@ -48,45 +80,37 @@ String :: newtype(
 );
 impl(
   String,
-  /**
-  * Create a new empty string (zero allocation)
-  */
+  /// Create a new empty string (zero allocation)
   new : (fn() -> Self)(
     Self(_bytes : .None)
   ),
-  /**
-  * Create a new empty string with pre-allocated capacity for the given number of bytes.
-  * The string starts empty but can hold `capacity` bytes without reallocating.
-  */
+  /// Create a new empty string with pre-allocated capacity for the given number of bytes.
+  /// The string starts empty but can hold `capacity` bytes without reallocating.
   with_capacity : (fn(capacity : usize) -> Self)(
     cond(
       (capacity == usize(0)) => Self(_bytes : .None),
       true => Self(_bytes : .Some(ArrayList(u8).with_capacity(capacity)))
     )
   ),
-  /**
-  * Create a string from raw bytes WITHOUT checking that they are UTF-8.
-  *
-  * This is the unchecked constructor: the caller guarantees validity, and
-  * nothing scans the buffer. Use it when the bytes came from something that
-  * already produced UTF-8 — another `String`, a UTF-8 encoder, a byte-exact
-  * slice taken at rune boundaries. For bytes of unknown provenance (a file, a
-  * socket, a subprocess) use `from_utf8`, which validates and reports where
-  * the input went wrong.
-  */
+  /// Create a string from raw bytes WITHOUT checking that they are UTF-8.
+  ///
+  /// This is the unchecked constructor: the caller guarantees validity, and
+  /// nothing scans the buffer. Use it when the bytes came from something that
+  /// already produced UTF-8 — another `String`, a UTF-8 encoder, a byte-exact
+  /// slice taken at rune boundaries. For bytes of unknown provenance (a file, a
+  /// socket, a subprocess) use `from_utf8`, which validates and reports where
+  /// the input went wrong.
   from_bytes : (fn(bytes : ArrayList(u8)) -> Self)(
     cond(
       (bytes.len() == usize(0)) => Self(_bytes : .None),
       true => Self(_bytes : .Some(bytes))
     )
   ),
-  /**
-  * Create a string from raw bytes, checking that they are valid UTF-8.
-  *
-  * The checked counterpart to `from_bytes`: `Err(StringError.InvalidUtf8)`
-  * carries a `Utf8Error` naming the defect and the byte offset it starts at.
-  * Validation is a single linear scan through `std/encoding/utf8`.
-  */
+  /// Create a string from raw bytes, checking that they are valid UTF-8.
+  ///
+  /// The checked counterpart to `from_bytes`: `Err(StringError.InvalidUtf8)`
+  /// carries a `Utf8Error` naming the defect and the byte offset it starts at.
+  /// Validation is a single linear scan through `std/encoding/utf8`.
   from_utf8 : (fn(bytes : ArrayList(u8)) -> Result(Self, StringError))(
     match(
       utf8.validate(bytes),
@@ -94,11 +118,9 @@ impl(
       .Err(cause) => .Err(.InvalidUtf8(cause))
     )
   ),
-  /**
-  * Create a string from a slice of bytes str
-  * The slice is a fat pointer containing data pointer and length
-  * Example: String.from(slice) where slice is str
-  */
+  /// Create a string from a slice of bytes str
+  /// The slice is a fat pointer containing data pointer and length
+  /// Example: String.from(slice) where slice is str
   from : (fn(slice : str) -> Self)({
     slen := slice.len();
     if(slen == usize(0), {
@@ -108,13 +130,11 @@ impl(
     bytes.extend_from_ptr(slice.ptr(), slen);
     return(Self(_bytes : .Some(bytes)));
   }),
-  /**
-  * Create a string from a C null-terminated string *(u8)
-  * Copies bytes until it finds a null byte (0)
-  * Example: String.from_cstr(c_string_ptr)
-  *
-  * Note: We manually search for the null terminator by iterating
-  */
+  /// Create a string from a C null-terminated string *(u8)
+  /// Copies bytes until it finds a null byte (0)
+  /// Example: String.from_cstr(c_string_ptr)
+  ///
+  /// Note: We manually search for the null terminator by iterating
   from_cstr : (fn(cstr : *u8) -> Result(Self, StringError))({
     // SAFETY: caller's contract — `cstr` must point at a null-terminated byte
     // sequence (the standard C string invariant). `strlen` walks forward until
@@ -166,9 +186,7 @@ impl(
   len : (fn(self : Self) -> usize)(
     match(self._bytes, .Some(b) => b.len(), .None => usize(0))
   ),
-  /**
-  * Check if the string is empty
-  */
+  /// Check if the string is empty
   is_empty : (fn(self : Self) -> bool)(
     match(
       self._bytes,
@@ -176,10 +194,8 @@ impl(
       .Some(al) => (al.len() == usize(0))
     )
   ),
-  /**
-  * Get a reference to the internal byte array
-  * Returns an empty ArrayList if the string is empty
-  */
+  /// Get a reference to the internal byte array
+  /// Returns an empty ArrayList if the string is empty
   as_bytes : (fn(self : Self) -> ArrayList(u8))(
     match(
       self._bytes,
@@ -190,19 +206,15 @@ impl(
   // as_bytes : (fn(self: Self) -> ArrayList(u8))({
   //   return self._bytes;
   // }),
-  /**
-  * Get a str view into the string's UTF-8 bytes
-  * Returns a fat pointer (pointer + length) without copying
-  */
-  /**
-  * PRIVILEGED raw view of the heap buffer (ptr + byte length) for C
-  * interop and pragma'd std internals. Naming RawSlice requires
-  * pragma(Pragma.AllowUnsafe); the view dangles if the String mutates
-  * or dies — callers must not let it escape the borrow site.
-  * (This replaces the deleted `as_str()`: heap bytes can no longer be
-  * viewed as `str`, which is the STATIC string view.
-  * See plans/archive/SLICE_REWORK.md.)
-  */
+  /// Get a str view into the string's UTF-8 bytes
+  /// Returns a fat pointer (pointer + length) without copying
+  /// PRIVILEGED raw view of the heap buffer (ptr + byte length) for C
+  /// interop and pragma'd std internals. Naming RawSlice requires
+  /// pragma(Pragma.AllowUnsafe); the view dangles if the String mutates
+  /// or dies — callers must not let it escape the borrow site.
+  /// (This replaces the deleted `as_str()`: heap bytes can no longer be
+  /// viewed as `str`, which is the STATIC string view.
+  /// See plans/archive/SLICE_REWORK.md.)
   raw_bytes : (fn(self : Self) -> RawSlice(u8))(
     match(
       self._bytes,
@@ -214,10 +226,8 @@ impl(
       )
     )
   ),
-  /**
-  * Decode a UTF-8 encoded rune starting at the given byte index
-  * Internal helper method
-  */
+  /// Decode a UTF-8 encoded rune starting at the given byte index
+  /// Internal helper method
   _decode_rune_at : (fn(self : Self, byte_index : usize) -> Option(rune))(
     match(
       self._bytes,
@@ -268,9 +278,7 @@ impl(
   at : (fn(self : Self, index : usize) -> Option(rune))(
     self._decode_rune_at(index)
   ),
-  /**
-  * Concatenate two strings (like JavaScript +)
-  */
+  /// Concatenate two strings (like JavaScript +)
   concat : (fn(self : Self, other : Self) -> Self)({
     (self_len : usize) = match(self._bytes, .Some(b) => b.len(), .None => usize(0));
     (other_len : usize) = match(other._bytes, .Some(b) => b.len(), .None => usize(0));
@@ -582,10 +590,8 @@ impl(
       .None => false
     )
   ),
-  /**
-  * Split the string by a separator into an array of strings (like JavaScript split)
-  * Returns an ArrayList of String
-  */
+  /// Split the string by a separator into an array of strings (like JavaScript split)
+  /// Returns an ArrayList of String
   _split_impl : (fn(self : Self, separator : Self) -> ArrayList(Self))({
     result := ArrayList(Self).new();
     cond(
@@ -925,13 +931,11 @@ impl(
       )
     )
   }),
-  /**
-  * Uppercase using the full Unicode 15.1 case mapping (all scripts, plus the
-  * one-to-many expansions such as `ß` → `SS` and `ﬁ` → `FI`). Locale-independent
-  * (never consults the C locale). Context-sensitive rules (Greek final sigma,
-  * Turkish dotted i) are not applied — the mapping is per code point, like
-  * Go's `strings.ToUpper`. ASCII input keeps a byte-wise fast path.
-  */
+  /// Uppercase using the full Unicode 15.1 case mapping (all scripts, plus the
+  /// one-to-many expansions such as `ß` → `SS` and `ﬁ` → `FI`). Locale-independent
+  /// (never consults the C locale). Context-sensitive rules (Greek final sigma,
+  /// Turkish dotted i) are not applied — the mapping is per code point, like
+  /// Go's `strings.ToUpper`. ASCII input keeps a byte-wise fast path.
   to_uppercase : (fn(self : Self) -> Self)(
     match(
       self._bytes,
@@ -939,11 +943,9 @@ impl(
       .Some(_) => String.from_bytes(unicode_case.to_uppercase_bytes(self.as_bytes()))
     )
   ),
-  /**
-  * Lowercase using the full Unicode 15.1 case mapping (all scripts, plus the
-  * `İ` → `i̇` expansion). Locale-independent. ASCII input keeps a byte-wise
-  * fast path.
-  */
+  /// Lowercase using the full Unicode 15.1 case mapping (all scripts, plus the
+  /// `İ` → `i̇` expansion). Locale-independent. ASCII input keeps a byte-wise
+  /// fast path.
   to_lowercase : (fn(self : Self) -> Self)(
     match(
       self._bytes,
@@ -951,11 +953,9 @@ impl(
       .Some(_) => String.from_bytes(unicode_case.to_lowercase_bytes(self.as_bytes()))
     )
   ),
-  /**
-  * Uppercase ASCII letters A-Z only (byte-wise); all other bytes pass through
-  * unchanged. The explicitly-ASCII counterpart to `to_uppercase` for when the
-  * Unicode mapping must not apply (identifiers, protocol tokens, …).
-  */
+  /// Uppercase ASCII letters A-Z only (byte-wise); all other bytes pass through
+  /// unchanged. The explicitly-ASCII counterpart to `to_uppercase` for when the
+  /// Unicode mapping must not apply (identifiers, protocol tokens, …).
   to_ascii_uppercase : (fn(self : Self) -> Self)(
     match(
       self._bytes,
@@ -982,10 +982,8 @@ impl(
       }
     )
   ),
-  /**
-  * Lowercase ASCII letters A-Z only (byte-wise); all other bytes pass through
-  * unchanged. The explicitly-ASCII counterpart to `to_lowercase`.
-  */
+  /// Lowercase ASCII letters A-Z only (byte-wise); all other bytes pass through
+  /// unchanged. The explicitly-ASCII counterpart to `to_lowercase`.
   to_ascii_lowercase : (fn(self : Self) -> Self)(
     match(
       self._bytes,
@@ -1012,16 +1010,12 @@ impl(
       }
     )
   ),
-  /**
-  * Helper to check if a byte is ASCII whitespace
-  * Space (0x20), Tab (0x09), Newline (0x0A), Carriage Return (0x0D), Form Feed (0x0C), Vertical Tab (0x0B)
-  */
+  /// Helper to check if a byte is ASCII whitespace
+  /// Space (0x20), Tab (0x09), Newline (0x0A), Carriage Return (0x0D), Form Feed (0x0C), Vertical Tab (0x0B)
   _is_whitespace_byte : (fn(byte : u8) -> bool)(
     (byte == u8(0x20)) || ((byte == u8(0x09)) || ((byte == u8(0x0A)) || ((byte == u8(0x0D)) || ((byte == u8(0x0C)) || (byte == u8(0x0B))))))
   ),
-  /**
-  * Remove whitespace from both ends of the string (like JavaScript trim)
-  */
+  /// Remove whitespace from both ends of the string (like JavaScript trim)
   trim : (fn(self : Self) -> Self)(
     match(
       self._bytes,
@@ -1061,9 +1055,7 @@ impl(
       }
     )
   ),
-  /**
-  * Remove whitespace from the start of the string (like JavaScript trimStart)
-  */
+  /// Remove whitespace from the start of the string (like JavaScript trimStart)
   trim_start : (fn(self : Self) -> Self)(
     match(
       self._bytes,
@@ -1106,9 +1098,7 @@ impl(
       }
     )
   ),
-  /**
-  * Remove whitespace from the end of the string (like JavaScript trimEnd)
-  */
+  /// Remove whitespace from the end of the string (like JavaScript trimEnd)
   trim_end : (fn(self : Self) -> Self)(
     match(
       self._bytes,
@@ -1349,6 +1339,11 @@ Pattern :: trait(
   /// and `strip_prefix` cut the haystack by it; a zero-width pattern (empty
   /// string, empty-matching regex) legitimately answers 0.
   length_in : (fn(self : Self, haystack : String, at : usize) -> usize),
+  /// Every piece of `haystack` between occurrences of this pattern, in order.
+  /// The only `Pattern` method with no offset argument — it always covers the
+  /// whole haystack — and the only one an implementation may give a shape of
+  /// its own: `String` / `str` treat an EMPTY pattern as "split into runes"
+  /// (see `String.split`), which no offset-based method can express.
   split_of : (fn(self : Self, haystack : String) -> ArrayList(String))
 );
 impl(
@@ -1729,6 +1724,21 @@ impl(
   trim_matches : (fn(generic(P : Type), self : Self, pat : P, where(P <: Pattern)) -> Self)(
     self.trim_start_matches(pat).trim_end_matches(pat)
   ),
+  /// `self` cut at every occurrence of `separator` — Rust's `str::split`,
+  /// but EAGER: the pieces come back as an `ArrayList(String)`, not a lazy
+  /// iterator.
+  ///
+  /// `separator` is any `Pattern` (a `str`, a `String`, a single `rune`, or a
+  /// compiled `Regex`). Separators are consumed, so `n` matches yield `n + 1`
+  /// pieces, including empty ones at the ends; a separator that never matches
+  /// yields `self` alone, and splitting the empty string yields one empty
+  /// piece.
+  ///
+  /// DIVERGENCE from Rust: an EMPTY separator means "split into runes"
+  /// (JavaScript's `"abc".split("")`), so `"abc".split("")` is
+  /// `["a", "b", "c"]` — not Rust's `["", "a", "b", "c", ""]`. It is pinned to
+  /// the rune vocabulary on purpose: a byte-wise split would hand back
+  /// fragments that are not valid UTF-8 now that `len()` counts bytes.
   split : (fn(generic(P : Type), self : Self, separator : P, where(P <: Pattern)) -> ArrayList(String))(
     separator.split_of(self)
   ),
@@ -1861,12 +1871,10 @@ impl(
       .None => .None
     )
   }),
-  /**
-  * Shared left-to-right scanner behind `replace`, `replacen` and
-  * `replace_first`. When `bounded` is true it stops after `limit`
-  * replacements and copies the rest of the string verbatim; `limit == 0`
-  * with `bounded` replaces nothing.
-  */
+  /// Shared left-to-right scanner behind `replace`, `replacen` and
+  /// `replace_first`. When `bounded` is true it stops after `limit`
+  /// replacements and copies the rest of the string verbatim; `limit == 0`
+  /// with `bounded` replaces nothing.
   _replace_scan : (
     fn(
       generic(P : Type),
@@ -1947,29 +1955,25 @@ impl(
     });
     String.from_bytes(out)
   }),
-  /**
-  * Replace EVERY occurrence of `search_value` with `new_value` (D10 —
-  * Rust's `str::replace`).
-  *
-  * `search_value` is any `Pattern` — a `str`, a `String`, a single `rune`, or
-  * a compiled `Regex`. A zero-width match inserts `new_value` between every
-  * pair of runes and at both ends — Rust's `"abc".replace("", "-") ==
-  * "-a-b-c-"` — by stepping one rune past each zero-width match so the scan
-  * always advances. Returns `self` unchanged when the pattern never matches.
-  *
-  * NOTE this replaced only the FIRST occurrence before D10. Use `replacen`
-  * for a bounded count.
-  */
+  /// Replace EVERY occurrence of `search_value` with `new_value` (D10 —
+  /// Rust's `str::replace`).
+  ///
+  /// `search_value` is any `Pattern` — a `str`, a `String`, a single `rune`, or
+  /// a compiled `Regex`. A zero-width match inserts `new_value` between every
+  /// pair of runes and at both ends — Rust's `"abc".replace("", "-") ==
+  /// "-a-b-c-"` — by stepping one rune past each zero-width match so the scan
+  /// always advances. Returns `self` unchanged when the pattern never matches.
+  ///
+  /// NOTE this replaced only the FIRST occurrence before D10. Use `replacen`
+  /// for a bounded count.
   replace : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(0), false)
   ),
-  /**
-  * Replace the first `count` occurrences of `search_value` with `new_value`,
-  * leaving any later ones alone — Rust's `str::replacen`.
-  *
-  * `replacen(p, v, usize(1))` is the pre-D10 meaning of `replace`.
-  * `count == 0` returns `self` unchanged.
-  */
+  /// Replace the first `count` occurrences of `search_value` with `new_value`,
+  /// leaving any later ones alone — Rust's `str::replacen`.
+  ///
+  /// `replacen(p, v, usize(1))` is the pre-D10 meaning of `replace`.
+  /// `count == 0` returns `self` unchanged.
   replacen : (
     fn(
       generic(P : Type),
@@ -1982,21 +1986,17 @@ impl(
   )(
     Self._replace_scan(self, search_value, new_value, count, true)
   ),
-  /**
-  * Replace the FIRST occurrence of `search_value` with `new_value`.
-  *
-  * DEPRECATED (D10), kept for one release: this is what `replace` used to
-  * mean. Write `replacen(search_value, new_value, usize(1))` instead.
-  */
+  /// Replace the FIRST occurrence of `search_value` with `new_value`.
+  ///
+  /// DEPRECATED (D10), kept for one release: this is what `replace` used to
+  /// mean. Write `replacen(search_value, new_value, usize(1))` instead.
   replace_first : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(1), true)
   ),
-  /**
-  * Replace EVERY occurrence of `search_value` with `new_value`.
-  *
-  * DEPRECATED (D10), kept for one release: `replace` now means this. Rust
-  * spells it `replace`, with no `replace_all` on `str`.
-  */
+  /// Replace EVERY occurrence of `search_value` with `new_value`.
+  ///
+  /// DEPRECATED (D10), kept for one release: `replace` now means this. Rust
+  /// spells it `replace`, with no `replace_all` on `str`.
   replace_all : (fn(generic(P : Type), self : Self, search_value : P, new_value : Self, where(P <: Pattern)) -> Self)(
     Self._replace_scan(self, search_value, new_value, usize(0), false)
   )
@@ -2030,11 +2030,7 @@ impl(
     })
   )
 );
-/// === Iterator support ===
-/**
-* Rune iterator for `String` — yields decoded Unicode runes.
-* Used by `chars()` and `into_iter()`.
-*/
+// === Iterator support ===
 /// Byte index of the rune boundary immediately BEFORE `at` — the start of the
 /// rune that ENDS at `at`.
 ///
@@ -2049,6 +2045,11 @@ _prev_rune_start :: (fn(s : String, at : usize) -> usize)({
   });
   i
 });
+/// Rune iterator for `String` — yields decoded runes. Produced by `chars()`
+/// and by `into_iter()`, and double-ended (`next_back`), so `.rev()` works.
+/// Built on `std/encoding/utf8`, and inherits its malformed-input behaviour:
+/// iteration STOPS at the first byte sequence that will not decode rather
+/// than substituting a replacement character.
 StringChars :: struct(
   _string : String,
   _byte_index : usize,
@@ -2104,10 +2105,8 @@ impl(
     )
   )
 );
-/**
-* Byte iterator for `String` — yields raw UTF-8 bytes.
-* Used by `bytes()`.
-*/
+/// Byte iterator for `String` — yields raw UTF-8 bytes.
+/// Used by `bytes()`.
 StringBytes :: struct(
   _string : String,
   _index : usize,
@@ -2153,14 +2152,12 @@ impl(
     )
   )
 );
-/**
-* `(byte_offset, rune)` iterator for `String` — yields each rune together with
-* the byte offset it starts at. Used by `char_indices()`.
-*
-* Walks in lockstep with `StringChars`: same runes, same stopping point on
-* malformed input. The offsets it yields are exactly the indices
-* `is_char_boundary` answers `true` for (on well-formed UTF-8).
-*/
+/// `(byte_offset, rune)` iterator for `String` — yields each rune together with
+/// the byte offset it starts at. Used by `char_indices()`.
+///
+/// Walks in lockstep with `StringChars`: same runes, same stopping point on
+/// malformed input. The offsets it yields are exactly the indices
+/// `is_char_boundary` answers `true` for (on well-formed UTF-8).
 StringCharIndices :: struct(
   _string : String,
   _byte_index : usize,
@@ -2221,21 +2218,15 @@ impl(
 );
 impl(
   String,
-  /**
-  * Returns a rune iterator over the string's Unicode characters
-  */
+  /// Returns a rune iterator over the string's Unicode characters
   chars : (fn(self : Self) -> StringChars)(
     StringChars(_string : self, _byte_index : usize(0), _end : self.len())
   ),
-  /**
-  * Returns a byte iterator over the string's raw UTF-8 bytes
-  */
+  /// Returns a byte iterator over the string's raw UTF-8 bytes
   bytes : (fn(self : Self) -> StringBytes)(
     StringBytes(_string : self, _index : usize(0), _end : self.len())
   ),
-  /**
-  * Consume the string and return a rune iterator (default iteration)
-  */
+  /// Consume the string and return a rune iterator (default iteration)
   into_iter : (fn(self : Self) -> StringChars)(
     StringChars(_string : self, _byte_index : usize(0), _end : self.len())
   )
@@ -2364,12 +2355,10 @@ impl(
     .Some(Self(_bytes : .Some(new_bytes)))
   })
 );
-/// === String utility methods ===
-/**
-* Line iterator for `String` — yields one line at a time (split on `\n`).
-* The trailing newline is not included in each yielded line.
-* Used by `lines()`.
-*/
+// === String utility methods ===
+/// Line iterator for `String` — yields one line at a time (split on `\n`).
+/// The trailing newline is not included in each yielded line.
+/// Used by `lines()`.
 StringLines :: struct(
   _string : String,
   _byte_index : usize,
@@ -2507,32 +2496,28 @@ impl(
 );
 impl(
   String,
-  /**
-  * Returns a line iterator over the string.
-  * Each call to `next()` yields the next line (without the trailing `\n`).
-  *
-  * ## Example
-  * ```rust
-  * s := `hello\nworld`;
-  * iter := s.lines();
-  * assert(iter.next() == .Some(`hello`), "first line");
-  * assert(iter.next() == .Some(`world`), "second line");
-  * assert(iter.next() == .None, "done");
-  * ```
-  */
+  /// Returns a line iterator over the string.
+  /// Each call to `next()` yields the next line (without the trailing `\n`).
+  ///
+  /// ## Example
+  /// ```rust
+  /// s := `hello\nworld`;
+  /// iter := s.lines();
+  /// assert(iter.next() == .Some(`hello`), "first line");
+  /// assert(iter.next() == .Some(`world`), "second line");
+  /// assert(iter.next() == .None, "done");
+  /// ```
   lines : (fn(self : Self) -> StringLines)(
     StringLines(_string : self, _byte_index : usize(0), _end : self.len())
   ),
-  /**
-  * Returns a new string containing `n` copies of `self`.
-  * Returns an empty string when `n == 0` or `self` is empty.
-  *
-  * ## Example
-  * ```rust
-  * assert(`ab`.repeat(usize(3)) == `ababab`, "repeat");
-  * assert(`x`.repeat(usize(0)) == ``, "repeat 0");
-  * ```
-  */
+  /// Returns a new string containing `n` copies of `self`.
+  /// Returns an empty string when `n == 0` or `self` is empty.
+  ///
+  /// ## Example
+  /// ```rust
+  /// assert(`ab`.repeat(usize(3)) == `ababab`, "repeat");
+  /// assert(`x`.repeat(usize(0)) == ``, "repeat 0");
+  /// ```
   repeat : (fn(self : Self, n : usize) -> Self)(
     cond(
       (n == usize(0)) => Self(_bytes : .None),
@@ -2565,20 +2550,18 @@ impl(
       }
     )
   ),
-  /**
-  * Join an `ArrayList(String)` with this string as separator.
-  * Returns an empty string when `items` is empty.
-  *
-  * ## Example
-  * ```rust
-  * items := ArrayList(String).new();
-  * items.push(`a`);
-  * items.push(`b`);
-  * items.push(`c`);
-  * result := `, `.join(items);
-  * assert(result == `a, b, c`, "join");
-  * ```
-  */
+  /// Join an `ArrayList(String)` with this string as separator.
+  /// Returns an empty string when `items` is empty.
+  ///
+  /// ## Example
+  /// ```rust
+  /// items := ArrayList(String).new();
+  /// items.push(`a`);
+  /// items.push(`b`);
+  /// items.push(`c`);
+  /// result := `, `.join(items);
+  /// assert(result == `a, b, c`, "join");
+  /// ```
   join : (fn(self : Self, items : ArrayList(Self)) -> Self)({
     count := items.len();
     cond(
@@ -2661,16 +2644,14 @@ impl(
     )
   })
 );
-/// === Numeric parsing methods ===
+// === Numeric parsing methods ===
 impl(
   String,
-  /**
-  * Parse the string as a boolean.
-  * Returns .Some(true) for "true", .Some(false) for "false", .None for anything else.
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(bool)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse the string as a boolean.
+  /// Returns .Some(true) for "true", .Some(false) for "false", .None for anything else.
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(bool)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_bool : (fn(self : Self) -> Option(bool))(
     match(
       self._bytes,
@@ -2850,12 +2831,10 @@ _radix_digit :: (fn(b : u8, radix : u32) -> Option(u64))({
 });
 /// Magnitude of the digit run starting at `start` (sign already consumed),
 /// with overflow checks. The whole remainder must be digits.
-/**
-* Why a string could not be parsed as an integer — Rust's `ParseIntError`
-* (D12). The older `parse_*() -> Option(T)` methods collapsed all of these
-* into `.None`, so a caller could not tell a missing field from a malformed
-* one from one that simply did not fit.
-*/
+/// Why a string could not be parsed as an integer — Rust's `ParseIntError`
+/// (D12). The older `parse_*() -> Option(T)` methods collapsed all of these
+/// into `.None`, so a caller could not tell a missing field from a malformed
+/// one from one that simply did not fit.
 ParseIntError :: enum(
   /// The string was empty, or held only a sign.
   Empty,
@@ -2879,33 +2858,38 @@ ParseFloatError :: enum(
 /// Why a string could not be parsed as a bool — Rust's `ParseBoolError`.
 /// Only `"true"` and `"false"` are accepted.
 ParseBoolError :: enum(
+  /// The string was anything other than `"true"` or `"false"` — including
+  /// empty, mixed case, or surrounded by whitespace. There is only one
+  /// variant because there is only one way to fail: Rust's `ParseBoolError`
+  /// is likewise a single opaque error.
   Invalid
 );
-/**
-* `FromString` — parse a value of this type out of a `String`. Yo's
-* counterpart to Rust's `core::str::FromStr`.
-*
-* NAMED FOR THE TYPE IT CONVERTS FROM, which is what Rust's name does too —
-* `FromStr` there takes a `&str`. In Yo `str` and `String` are different
-* types: `str` is the static view a literal has, `String` owns heap bytes,
-* and there is no conversion from the second to the first (`as_str()` was
-* deleted in plans/archive/SLICE_REWORK.md). `String` is therefore the only
-* parameter this trait could take — `s.parse(T)`'s receiver IS a `String` —
-* so calling it `FromStr` would have named a type it cannot accept.
-*
-* Call it as `s.parse(T)`, which forwards to `T.from_string(s)`:
-*
-* ```rust
-* match(`42`.parse(i32), .Ok(v) => v, .Err(e) => i32(0));
-* ```
-*
-* `Err` is the type's own error, so a caller can tell an EMPTY string from
-* garbage from an out-of-range value — the distinction the older
-* `parse_*() -> Option(T)` methods threw away (D12).
-*/
+/// `FromString` — parse a value of this type out of a `String`. Yo's
+/// counterpart to Rust's `core::str::FromStr`.
+///
+/// NAMED FOR THE TYPE IT CONVERTS FROM, which is what Rust's name does too —
+/// `FromStr` there takes a `&str`. In Yo `str` and `String` are different
+/// types: `str` is the static view a literal has, `String` owns heap bytes,
+/// and there is no conversion from the second to the first (`as_str()` was
+/// deleted in plans/archive/SLICE_REWORK.md). `String` is therefore the only
+/// parameter this trait could take — `s.parse(T)`'s receiver IS a `String` —
+/// so calling it `FromStr` would have named a type it cannot accept.
+///
+/// Call it as `s.parse(T)`, which forwards to `T.from_string(s)`:
+///
+/// ```rust
+/// match(`42`.parse(i32), .Ok(v) => v, .Err(e) => i32(0));
+/// ```
+///
+/// `Err` is the type's own error, so a caller can tell an EMPTY string from
+/// garbage from an out-of-range value — the distinction the older
+/// `parse_*() -> Option(T)` methods threw away (D12).
 FromString :: trait(
   /// What this type reports when the string is not a valid value.
   Err : Type,
+  /// Parse the whole of `s` as a `Self`. Implementations reject trailing
+  /// junk and surrounding whitespace rather than stopping early, so a `.Ok`
+  /// means the entire string was consumed. Reached as `s.parse(T)`.
   from_string : (fn(s : String) -> Result(Self, Self.Err))
 );
 /// Magnitude scanner shared by every integer parser. Distinguishes an empty
@@ -3016,15 +3000,13 @@ _parse_u64_radix_res :: (
 });
 impl(
   String,
-  /**
-  * Parse an `f64` — Rust's `f64::from_str` grammar: optional sign, digits
-  * with optional fraction and exponent, or `inf`/`infinity`/`nan`
-  * (case-insensitive). Leading/trailing whitespace and hex floats are NOT
-  * accepted. `.None` when the string is not a valid number.
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(f64)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse an `f64` — Rust's `f64::from_str` grammar: optional sign, digits
+  /// with optional fraction and exponent, or `inf`/`infinity`/`nan`
+  /// (case-insensitive). Leading/trailing whitespace and hex floats are NOT
+  /// accepted. `.None` when the string is not a valid number.
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(f64)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_f64 : (fn(self : Self) -> Option(f64))({
     (ok : bool) = _f64_grammar_ok(self.as_bytes());
     cond(
@@ -3037,37 +3019,31 @@ impl(
       true => .None
     )
   }),
-  /**
-  * Parse an `i64` in the given `radix` (2..=36, digits 0-9/a-z/A-Z) —
-  * Rust's `i64::from_str_radix`. An optional leading `+`/`-` is allowed;
-  * `_` is not. `.None` on an empty digit run, any non-digit, a bad radix,
-  * or overflow.
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse an `i64` in the given `radix` (2..=36, digits 0-9/a-z/A-Z) —
+  /// Rust's `i64::from_str_radix`. An optional leading `+`/`-` is allowed;
+  /// `_` is not. `.None` on an empty digit run, any non-digit, a bad radix,
+  /// or overflow.
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_i64_radix : (fn(self : Self, radix : u32) -> Option(i64))(
     match(_parse_i64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
   ),
-  /**
-  * Parse a `u64` in the given `radix` (2..=36) — Rust's
-  * `u64::from_str_radix`. An optional leading `+` is allowed; `-` is not.
-  * `.None` on any non-digit, a bad radix, or overflow.
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse a `u64` in the given `radix` (2..=36) — Rust's
+  /// `u64::from_str_radix`. An optional leading `+` is allowed; `-` is not.
+  /// `.None` on any non-digit, a bad radix, or overflow.
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_u64_radix : (fn(self : Self, radix : u32) -> Option(u64))(
     match(_parse_u64_radix_res(self, radix), .Ok(v) => .Some(v), .Err(_) => .None)
   ),
-  /**
-  * Parse the string as a signed 32-bit integer — Rust's `i32::from_str`.
-  * An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
-  * any non-digit, or a value outside `i32`.
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(i32)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse the string as a signed 32-bit integer — Rust's `i32::from_str`.
+  /// An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
+  /// any non-digit, or a value outside `i32`.
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(i32)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_i32 : (fn(self : Self) -> Option(i32))(
     match(
       self.parse_i64_radix(u32(10)),
@@ -3078,23 +3054,19 @@ impl(
       .None => .None
     )
   ),
-  /**
-  * Parse the string as a signed 64-bit integer — Rust's `i64::from_str`.
-  * An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
-  * any non-digit, or overflow (`i64.MIN` itself is accepted).
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse the string as a signed 64-bit integer — Rust's `i64::from_str`.
+  /// An optional leading `+`/`-` is allowed. `.None` on an empty digit run,
+  /// any non-digit, or overflow (`i64.MIN` itself is accepted).
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(i64)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_i64 : (fn(self : Self) -> Option(i64))(self.parse_i64_radix(u32(10))),
-  /**
-  * Parse the string as an unsigned 32-bit integer — Rust's `u32::from_str`.
-  * An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
-  * run, any non-digit, or a value outside `u32`.
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(u32)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse the string as an unsigned 32-bit integer — Rust's `u32::from_str`.
+  /// An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
+  /// run, any non-digit, or a value outside `u32`.
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(u32)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_u32 : (fn(self : Self) -> Option(u32))(
     match(
       self.parse_u64_radix(u32(10)),
@@ -3105,14 +3077,12 @@ impl(
       .None => .None
     )
   ),
-  /**
-  * Parse the string as an unsigned 64-bit integer — Rust's `u64::from_str`.
-  * An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
-  * run, any non-digit, or overflow.
-  *
-  * DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
-  * WHY the parse failed instead of collapsing every reason into `.None`.
-  */
+  /// Parse the string as an unsigned 64-bit integer — Rust's `u64::from_str`.
+  /// An optional leading `+` is allowed, `-` is not. `.None` on an empty digit
+  /// run, any non-digit, or overflow.
+  ///
+  /// DEPRECATED (D12), kept for one release: use `s.parse(u64)`, which reports
+  /// WHY the parse failed instead of collapsing every reason into `.None`.
   parse_u64 : (fn(self : Self) -> Option(u64))(self.parse_u64_radix(u32(10)))
 );
 // ============================================================================
@@ -3316,31 +3286,25 @@ impl(
 );
 impl(
   String,
-  /**
-  * Parse this string as a `T` — Rust's `str::parse::<T>()` (D12).
-  *
-  * ```rust
-  * match(`42`.parse(i32), .Ok(v) => v, .Err(_) => i32(0));
-  * ```
-  *
-  * The error is `T`'s own, so a caller can tell an empty string from garbage
-  * from an out-of-range value. `T` is written out because it cannot be
-  * inferred from the arguments — only from the result, which Yo does not do.
-  */
+  /// Parse this string as a `T` — Rust's `str::parse::<T>()` (D12).
+  ///
+  /// ```rust
+  /// match(`42`.parse(i32), .Ok(v) => v, .Err(_) => i32(0));
+  /// ```
+  ///
+  /// The error is `T`'s own, so a caller can tell an empty string from garbage
+  /// from an out-of-range value. `T` is written out because it cannot be
+  /// inferred from the arguments — only from the result, which Yo does not do.
   parse : (fn(self : Self, comptime(T) : Type, where(T <: FromString)) -> Result(T, T.Err))(
     T.from_string(self)
   ),
-  /**
-  * Parse a signed integer in `radix` (2..=36) — Rust's `i64::from_str_radix`,
-  * reporting WHY it failed.
-  */
+  /// Parse a signed integer in `radix` (2..=36) — Rust's `i64::from_str_radix`,
+  /// reporting WHY it failed.
   parse_i64_radix_res : (fn(self : Self, radix : u32) -> Result(i64, ParseIntError))(
     _parse_i64_radix_res(self, radix)
   ),
-  /**
-  * Parse an unsigned integer in `radix` (2..=36) — Rust's
-  * `u64::from_str_radix`, reporting WHY it failed.
-  */
+  /// Parse an unsigned integer in `radix` (2..=36) — Rust's
+  /// `u64::from_str_radix`, reporting WHY it failed.
   parse_u64_radix_res : (fn(self : Self, radix : u32) -> Result(u64, ParseIntError))(
     _parse_u64_radix_res(self, radix)
   )

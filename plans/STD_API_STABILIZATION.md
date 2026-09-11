@@ -35,7 +35,7 @@ gap that makes most collections unprintable, un-keyable and un-defaultable.
 | D1 violations (error style) | 14 sites | `Result(_, String)` ×5, effects for pure parses ×6, `Option` for numeric parses ×8, `LinkedList.remove -> Result` vs `ArrayList.remove -> panic` |
 | D2 violations (naming) | 12 | `BTreeMap.insert -> unit`, pub `size` fields, `iter()` yielding values, `get_header`/`get_level`, ~~module-prefix stutter ×7~~ (**6 of 7 DONE 2026-09-11** — every `std/encoding` module, plus `percent`/`utf16`; `glob_match` deferred, `plans/backlog/MODULE_PREFIX_STUTTER_REMAINDER.md`), `has_key`, `table_len` |
 | trait coverage | — | `Default` on 1/9 collections, `ToString` 1/9, `Hash`/`Ord` 0/9, `IntoIterator` on 0/6 imm types, `Eq`/`Hash` on 0/2 net address types |
-| docs | ~230 names | `//` instead of `///` (dropped by `yo doc`): atomic.yo ~130, log.yo 15, metadata 13, duration 13, temp 11, url 10, collections 37 … |
+| docs | 838 members → **479** (measured 2026-09-11) | the row's diagnosis was wrong: almost none of these were `//` instead of `///`, they had NO comment at all. 359 written in the sweep below; `atomic.yo`'s 126 landed separately |
 | stability markers | 8 modules | `http/server`, `async/*` ×3, `sync/barrier`, `sync/semaphore`, `gc` have no `## Stability` |
 
 ---
@@ -1417,6 +1417,31 @@ on 2026-09-10, so treat the rest with the same suspicion:
 
 Each cost a per-type workaround that was written and then deleted. Probe
 first.
+
+---
+
+**The doc sweep — 359 members documented, 2026-09-11, and the headline row's
+diagnosis was wrong.**
+
+§1 described this as "`//` instead of `///` (dropped by `yo doc`)". Measured
+against the code, that is not what it was: the `//` lines in the worst
+offender (`std/sync/atomic.yo`, 33 of them) are all SECTION BANNERS, and its
+126 members simply had no comment at all. So a mechanical `//` → `///`
+conversion would have converted the wrong lines and documented nothing.
+
+Counting impl members with no preceding `///`: **838 before, 479 after**.
+`atomic.yo`'s 126 landed in its own PR (beside the `MemoryOrder.Consume`
+removal), and the 359 here cover `std/collections/*`, `std/imm/*`,
+`std/crypto/*`, `std/encoding/*`, `std/url`, `std/time/*`, `std/fs/*`,
+`std/sys/*` and the root modules.
+
+**Still open, and now measured rather than estimated:** 479 members, and
+**16 modules with no `## Stability` section** — `allocator`, `path`,
+`signal`, `error`, `thread`, `term`, `prelude`, `build`, `env`, `assert`,
+`sys/file`, `sys/dir`, `sys/dns`, `sys/errors`, `sys/externs`, and
+`sync/atomic` (whose marker lands in its own PR). §1's "8 modules" count was
+a subset: it listed the ones a reader was most likely to reach for, not the
+ones that lack a marker.
 
 ---
 

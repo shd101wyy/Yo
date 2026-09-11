@@ -1,23 +1,86 @@
-//! Kernel advisory hints.
+//! Kernel access-pattern hints (`posix_fadvise`/`madvise`) — the raw syscall
+//! boundary.
 //!
-//! Advisory wrappers for file and memory access pattern hints.
-//! Returns 0 on success, -errno / negative platform error on failure.
+//! Two advisory calls and the advice constants they take. Advisory means the
+//! kernel may ignore them entirely; nothing here changes what a subsequent
+//! read or write RETURNS, only how the kernel prefetches and evicts. No
+//! public `std` module issues hints yet; `tests/sys/advise.test.yo` is the
+//! only caller in this tree.
+//!
+//! ## Stability
+//!
+//! unstable, and for a sharper reason than "it follows the OS": on three of
+//! the four targets `fadvise` is a NO-OP that returns 0. A success return
+//! therefore does not mean the hint was applied, or even that the platform
+//! could have applied it, and that is not something a frozen API should say
+//! nothing about. Freezing needs a way to distinguish "applied", "not
+//! supported here" and "failed" — the same question `plans/` records for the
+//! other best-effort platform shims — plus advice values that are Yo's own
+//! names rather than raw Linux integers, since the numbering is not
+//! guaranteed identical across architectures.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_fadvise, __yo_sync_madvise } :: import("./externs.yo");
+/// `POSIX_FADV_NORMAL` from `<fcntl.h>` — no stated pattern; reset to the
+/// kernel's default readahead.
 POSIX_FADV_NORMAL :: i32(0);
+/// `POSIX_FADV_RANDOM` — accesses will jump around, so readahead is wasted
+/// work. Linux drops readahead to a minimum.
 POSIX_FADV_RANDOM :: i32(1);
+/// `POSIX_FADV_SEQUENTIAL` — the range will be read front to back, so
+/// aggressive readahead pays off. Linux roughly doubles it.
 POSIX_FADV_SEQUENTIAL :: i32(2);
+/// `POSIX_FADV_WILLNEED` — the range will be read soon; start pulling it
+/// into the page cache now. The prefetch is asynchronous, so the call
+/// returning does not mean the data is resident.
 POSIX_FADV_WILLNEED :: i32(3);
+/// `POSIX_FADV_DONTNEED` — the range is finished with; the page cache may
+/// drop it. Dirty pages are NOT written back by this, so on Linux a
+/// `sync_file_range`/`fsync` first is what makes it effective.
 POSIX_FADV_DONTNEED :: i32(4);
+/// `POSIX_FADV_NOREUSE` — the range is read once and never again. Linux has
+/// accepted and ignored this one for most of its history; treat it as a
+/// documented intention rather than a behaviour.
 POSIX_FADV_NOREUSE :: i32(5);
+/// `MADV_NORMAL` from `<sys/mman.h>` — default paging behaviour for a
+/// mapping. 0 on both Linux and macOS.
 MADV_NORMAL :: i32(0);
+/// `MADV_RANDOM` — pages will be touched out of order; do not read ahead.
 MADV_RANDOM :: i32(1);
+/// `MADV_SEQUENTIAL` — pages will be touched in order, so read ahead and
+/// free behind.
 MADV_SEQUENTIAL :: i32(2);
+/// `MADV_WILLNEED` — fault the range in now, before it is touched.
 MADV_WILLNEED :: i32(3);
+/// `MADV_DONTNEED` — the range is not needed. This is the one advice whose
+/// meaning genuinely DIVERGES between kernels: on Linux it discards a private
+/// anonymous mapping's contents (subsequent reads see zeroes), while on the
+/// BSDs and macOS it only frees the pages and the contents are preserved.
+/// It is also the only advice the Windows shim acts on (as `MEM_RESET`).
 MADV_DONTNEED :: i32(4);
+/// Tell the kernel how `[offset, len)` of `fd` will be accessed. `len` 0
+/// means "to the end of the file". Returns 0 on success, a negative errno on
+/// failure.
+///
+/// Only Linux implements this. There it is `posix_fadvise(2)`, which is
+/// unusual in returning its error code DIRECTLY rather than through `errno`,
+/// so the wrapper negates the return value rather than reading `errno`. On
+/// macOS, Windows and wasm the whole call is an unconditional no-op that
+/// returns 0 — see the module's Stability note: a 0 here does not mean the
+/// hint took effect.
 fadvise :: (fn(fd : i32, offset : i64, len : i64, advice : i32) -> i32)(
   __yo_sync_fadvise(fd, offset, len, advice)
 );
+/// Tell the kernel how the `length` bytes of mapped memory at `addr` will be
+/// accessed — `madvise(2)`. Returns 0 on success, a negative errno on
+/// failure. `addr` should be page-aligned and the range should lie inside a
+/// live mapping from `std/sys/mmap`.
+///
+/// Linux and macOS both have the real syscall (with `MADV_DONTNEED` meaning
+/// different things — see that constant). Windows has no equivalent: the
+/// shim acts only on `MADV_DONTNEED`, hinting the pages are discardable with
+/// `VirtualAlloc(MEM_RESET)`, returns 0 without acting for every other
+/// advice, and rejects a null `addr` or zero `length` with `-EINVAL`. wasm is
+/// a no-op returning 0.
 madvise :: (fn(addr : *u8, length : usize, advice : i32) -> i32)(
   __yo_sync_madvise(addr, length, advice)
 );

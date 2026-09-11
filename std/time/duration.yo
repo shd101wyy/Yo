@@ -9,58 +9,103 @@
 //! println(d.as_secs());    // 0
 //! println(d.as_millis());  // 500
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the signedness question is open, and it is not cosmetic. Rust's
+//! `Duration` is `(u64, u32)`, so a negative span cannot exist; Yo's is
+//! `(i64, i64)`, so `Duration.from_secs(i64(-1))` is an ordinary safe call.
+//! The type then takes two stances at once: `from_secs_f64` clamps a negative
+//! input to zero and `sub` saturates at zero, while the four integer
+//! constructors store the negative value as given. That already has a
+//! consequence outside this file — `std/time/sleep.yo` casts `as_millis()` to
+//! an unsigned count, so a negative span sleeps ~585 million years instead of
+//! returning at once
+//! (`issues/stddoc-io-negative-duration-sleeps-forever.md`).
+//!
+//! Freezing needs that decided — unsigned like Rust, or signed with the clamp
+//! made uniform — and needs the `checked_*`/`saturating_*` family that `add`
+//! lacks, plus the `mul`/`div` Rust has and accessor widths that do not
+//! overflow at 292 years (Rust returns `u128` from `as_nanos`). The member
+//! names and units are Rust's and are not expected to move.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ToString } :: import("../fmt");
 { snprintf } :: import("../libc/stdio");
 /// Span of time stored as seconds and nanoseconds.
+///
+/// **Signed, unlike Rust's `Duration`**, which is `(u64, u32)` and so cannot
+/// hold a negative span. See `## Stability` — the divergence is an open
+/// question, not a feature.
 Duration :: struct(
+  /// Whole seconds; negative for a negative span.
   secs : i64,
+  /// Sub-second part, strictly between `-1e9` and `1e9` and carrying the
+  /// span's sign. Every constructor normalizes it, but the field is public,
+  /// so a hand-built literal can break that — and `Eq`/`Ord` compare the two
+  /// fields, so a denormalized value compares wrong while `as_nanos` still
+  /// reads it correctly.
   nanos : i64
 );
 impl(
   Duration,
-  // Create a Duration from whole seconds.
+  /// A span of `secs` whole seconds — Rust's `Duration::from_secs`.
   from_secs : (fn(secs : i64) -> Self)(
     Self(secs : secs, nanos : i64(0))
   ),
-  // Create a Duration from milliseconds.
+  /// A span given in milliseconds. The remainder lands in `nanos` exactly,
+  /// so nothing is rounded away — Rust's `Duration::from_millis`.
   from_millis : (fn(millis : i64) -> Self)(
     Self(secs : (millis / i64(1000)), nanos : ((millis % i64(1000)) * i64(1000000)))
   ),
-  // Create a Duration from microseconds.
+  /// A span given in microseconds, exactly — Rust's
+  /// `Duration::from_micros`.
   from_micros : (fn(micros : i64) -> Self)(
     Self(secs : (micros / i64(1000000)), nanos : ((micros % i64(1000000)) * i64(1000)))
   ),
-  // Create a Duration of zero length.
+  /// The zero-length span — the only value `is_zero` answers true for, and
+  /// what `sub` returns when it saturates.
   zero : (fn() -> Self)(
     Self(secs : i64(0), nanos : i64(0))
   ),
-  // Create a Duration from raw nanoseconds.
+  /// A span given in nanoseconds — the finest resolution the type stores, so
+  /// this is the exact constructor.
   from_nanos : (fn(nanos : i64) -> Self)(
     Self(secs : (nanos / i64(1000000000)), nanos : (nanos % i64(1000000000)))
   ),
-  // Total whole seconds in the duration.
+  /// Whole seconds, truncating the sub-second part toward zero — this is the
+  /// `secs` field, so 1.999 s reads as `1`. Rust's `Duration::as_secs`.
   as_secs : (fn(inout(self) : Self) -> i64)(
     self.secs
   ),
-  // Total milliseconds (truncated).
+  /// Total milliseconds, truncated toward zero. Computed as
+  /// `secs * 1000 + nanos / 1e6`, so it overflows `i64` for spans beyond
+  /// ~2.9e8 years — Rust returns a `u128` here for that reason.
   as_millis : (fn(inout(self) : Self) -> i64)(
     (self.secs * i64(1000)) + (self.nanos / i64(1000000))
   ),
-  // Total microseconds (truncated).
+  /// Total microseconds, truncated toward zero. Same multiply-out as
+  /// `as_millis`, so it overflows `i64` beyond ~292 000 years.
   as_micros : (fn(inout(self) : Self) -> i64)(
     (self.secs * i64(1000000)) + (self.nanos / i64(1000))
   ),
-  // Total nanoseconds.
+  /// Total nanoseconds — exact for every value this type can hold up to
+  /// ~292 years, past which `secs * 1e9` overflows `i64` (signed overflow is
+  /// UB in C, so this is not a wrap you may rely on). Rust returns `u128`.
   as_nanos : (fn(inout(self) : Self) -> i64)(
     (self.secs * i64(1000000000)) + self.nanos
   ),
-  // Total seconds as a floating-point number.
+  /// Total seconds as an `f64` — Rust's `Duration::as_secs_f64`. An `f64`
+  /// carries 53 significant bits, so beyond ~104 days the nanosecond part no
+  /// longer fits and the result quietly loses sub-nanosecond precision.
   as_secs_f64 : (fn(inout(self) : Self) -> f64)(
     f64(self.secs) + (f64(self.nanos) / f64(1000000000.0))
   ),
-  // Add two durations together.
+  /// The sum of the two spans, carrying `nanos` into `secs`.
+  ///
+  /// NOT checked: the seconds sum can overflow `i64`. Rust's
+  /// `Duration::add` panics on that and offers `checked_add` /
+  /// `saturating_add`; neither exists here yet (see `## Stability`).
   add : (fn(inout(self) : Self, other : Duration) -> Duration)({
     total_nanos := (self.nanos + other.nanos);
     carry := (total_nanos / i64(1000000000));
@@ -69,7 +114,13 @@ impl(
       nanos : (total_nanos % i64(1000000000))
     )
   }),
-  // Subtract another duration (saturates to zero if negative).
+  /// `self - other`, SATURATING at zero — a subtraction that would go
+  /// negative returns `Duration.zero()`. That is Rust's `saturating_sub`
+  /// behaviour under the plain name, and it is why a span produced by
+  /// subtraction is never negative even though the type could hold one.
+  ///
+  /// Both sides go through `as_nanos`, so this inherits its ~292-year
+  /// overflow bound.
   sub : (fn(inout(self) : Self, other : Duration) -> Duration)({
     self_ns := self.as_nanos();
     other_ns := other.as_nanos();
@@ -78,7 +129,8 @@ impl(
       true => Duration.from_nanos(self_ns - other_ns)
     )
   }),
-  // Return true if this duration is zero.
+  /// True only for the zero span, both fields being zero — Rust's
+  /// `Duration::is_zero`.
   is_zero : (fn(inout(self) : Self) -> bool)(
     (self.secs == i64(0)) && (self.nanos == i64(0))
   )

@@ -5,6 +5,23 @@
 //! `inout(v): T` that is second-class (cannot escape the closure scope).
 //! The private `__MutexUnlocker` handles unlock on both normal return
 //! and unwind via its `Dispose` impl.
+//!
+//! ## Stability
+//!
+//! unstable — the closure-scoped shape (`with_lock` / `try_with_lock`, no
+//! guard type) is settled and concurrently tested
+//! (`tests/sync/mutex.test.yo`, 12/12), but ONE row of
+//! `plans/STD_API_STABILIZATION.md` §4 "Concurrency" is still open and it
+//! is on this surface: `_raw_lock` / `_raw_unlock` / `_raw_handle_ptr` are
+//! reachable from outside the module and are meant to be removed. They
+//! cannot go yet because `Cond.wait` takes the raw handle they hand out —
+//! `Mutex(T)` has no guard to pass instead — so freezing this module waits
+//! on a condvar API that couples to a `Mutex(T)` without exposing its
+//! primitive. There is also no poisoning: a thread that unwinds out of
+//! `body` releases the lock and leaves the data as it was, where Rust
+//! would mark the `Mutex` poisoned. That is a deliberate choice (Yo has no
+//! poisoned state anywhere), not an omission, and it is not what is
+//! holding the freeze.
 pragma(Pragma.AllowUnsafe);
 
 extern(
@@ -26,6 +43,31 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 // ============================================================================
 // Mutex(T) — atomic-object mutex wrapper with closure-scoped lock API
 // ============================================================================
+/// A mutual-exclusion lock that OWNS the data it protects — Rust's
+/// `Mutex<T>`, minus the guard.
+///
+/// Access is granted only inside a closure: `with_lock` hands `body` an
+/// `inout(v) : T` that is second-class and cannot escape the closure, so
+/// there is no way to hold a reference to the protected value after the
+/// lock is released. That is the deliberate divergence from Rust, which
+/// returns a `MutexGuard` and relies on its lifetime; Yo has no lifetimes
+/// to lean on, so the scope is the closure body.
+///
+/// `T` must be `Send` (it crosses threads) and `Acyclic` (the handle is
+/// atomically reference-counted, and atomic RC is only sound for data that
+/// cannot form a cycle). The `Acyclic` impl below is what lets a
+/// `Mutex(T)` nest inside another sync container or an `std/imm` structure.
+///
+/// A `Mutex(T)` value is a SHARED HANDLE, which is why every method takes
+/// `self : Self` rather than `inout(self)`: copying the handle (into a
+/// thread closure, say) bumps the atomic reference count and both copies
+/// name the same lock. The OS primitive is destroyed by the `Dispose` impl
+/// when the last handle goes away, so a mutex cannot outlive its own
+/// destruction — but it also is not destroyed while any thread still holds
+/// a handle.
+///
+/// There is no poisoning: if `body` unwinds, the lock is released and the
+/// data keeps whatever value it had at that moment.
 Mutex :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
@@ -67,9 +109,34 @@ impl(
   generic(T : Type),
   where(T <: (Send, Acyclic)),
   Mutex(T),
+  /// Wrap `value` in a new, unlocked mutex — Rust's `Mutex::new`.
+  ///
+  /// `value` moves INTO the lock and is thereafter reachable only through
+  /// `with_lock` / `try_with_lock`. Creating the OS primitive is the only
+  /// allocation-time cost; there is no lazy initialization on first lock.
   new : (fn(value : T) -> Self)({
     return(Self(__yo_mutex_create(), value));
   }),
+  /// Take the lock, run `body` on the protected value, release the lock,
+  /// and return `body`'s result — Rust's `lock().unwrap()` plus the guard's
+  /// scope, in one call.
+  ///
+  /// **This blocks** until the lock is available, parking the thread rather
+  /// than spinning. `body` receives an `inout(v) : T`, so it may mutate the
+  /// protected value in place; the mutation is visible to the next holder.
+  ///
+  /// Release is structural, not by falling off the end: a private
+  /// `__MutexUnlocker` is created inside the critical section and its
+  /// `Dispose` impl unlocks, so an early `return` out of `body` or an
+  /// `unwind` through this frame still releases the lock. Nothing marks the
+  /// mutex poisoned in that case (see the type doc).
+  ///
+  /// **Re-entering the same mutex from the same thread is not portable.**
+  /// The POSIX primitive is a default `pthread_mutex_t`, so a second
+  /// `with_lock` on a mutex this thread already holds deadlocks; on Windows
+  /// the primitive is a `CRITICAL_SECTION`, which is recursive and lets the
+  /// call through. Do not rely on either — nest different mutexes, not the
+  /// same one.
   with_lock : (
     fn(
       generic(R : Type),

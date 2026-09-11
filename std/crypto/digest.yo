@@ -7,10 +7,42 @@
 //! statics/constants of the implementor, which is what lets generic code —
 //! `hmac` (std/crypto/hmac.yo) is the flagship — construct and drive any
 //! hasher through a `where(D <: Digest)` bound.
+//!
+//! ## Stability
+//!
+//! unstable — the trait works and is exercised generically
+//! (`tests/crypto/digest.test.yo` hashes through a `where(D <: Digest)`
+//! bound and checks `digest_size` / `block_size`), but it is deliberately
+//! the minimum HMAC needed and two shape questions are open. There is no
+//! `reset`, so generic code cannot reuse a hasher and must build a new one
+//! per message; and `finish_bytes` does not CONSUME the hasher (Yo has no
+//! by-value `self` for a `ref` type here), so the trait cannot express
+//! "finalise exactly once" the way RustCrypto's `Digest::finalize(self)`
+//! does — every implementor's `finish` is single-use by convention, and
+//! the convention is documented rather than enforced. Freezing needs both
+//! calls made. Adding a method with a default (as `finish_hex` already is)
+//! stays additive; adding a required one does not.
 { ArrayList } :: import("../collections/array_list");
 hex :: import("../encoding/hex");
 { String } :: import("../string");
 
+/// The streaming-hash interface: `new`, `update`, `finish_bytes`, plus the
+/// two sizes HMAC needs — RustCrypto's `Digest` trait, cut down to what
+/// `std/crypto` actually uses.
+///
+/// Implemented by `Sha256`, `Sha512`, `Sha1` and `Md5`, and open to a user
+/// type. It exists so `hmac` can be written once over any hasher: `new`
+/// and the sizes are statics of the implementor, so a `where(D <: Digest)`
+/// function can CONSTRUCT a hasher it was never handed, which a
+/// method-only trait could not.
+///
+/// The digest crosses the trait boundary as an `ArrayList(u8)` — one type
+/// for every algorithm — where each implementor's inherent `finish()`
+/// returns a fixed-size `Array(u8, N)`. Prefer the inherent one when the
+/// algorithm is known at the call site; it does not allocate.
+///
+/// `finish_bytes` leaves the hasher in its finalised state rather than
+/// consuming it: hash one message per hasher and drop it.
 Digest :: trait(
   /// A fresh hasher.
   new : (fn() -> Self),

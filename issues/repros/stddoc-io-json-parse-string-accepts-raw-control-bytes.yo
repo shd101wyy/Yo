@@ -1,0 +1,37 @@
+// Reproducer for
+// issues/stddoc-io-json-parse-string-accepts-raw-control-bytes.md
+//
+//   yo compile issues/repros/stddoc-io-json-parse-string-accepts-raw-control-bytes.yo \
+//     --std-path ./std --optimize 2 -o /tmp/t && /tmp/t
+//
+// Observed: ACCEPTED raw control byte: {"a":"x\ny"}
+// Expected: rejected — RFC 8259 section 7 requires U+0000-U+001F escaped
+//           inside a string, and serde_json / JSON.parse / Go both reject it.
+//
+// The bytes are assembled by hand because the point is a RAW 0x0A inside the
+// string body; a Yo string literal would not carry one through unescaped.
+{ println } :: import("std/fmt");
+{ json_parse_bytes, json_stringify } :: import("std/encoding/json");
+{ ArrayList } :: import("std/collections/array_list");
+main :: (fn() -> i32)({
+  // {"a":"x<LF>y"}
+  b := ArrayList(u8).new();
+  b.push(u8(123)); // {
+  b.push(u8(34)); // "
+  b.push(u8(97)); // a
+  b.push(u8(34)); // "
+  b.push(u8(58)); // :
+  b.push(u8(34)); // "
+  b.push(u8(120)); // x
+  b.push(u8(10)); // RAW LF — must be \n per RFC 8259 section 7
+  b.push(u8(121)); // y
+  b.push(u8(34)); // "
+  b.push(u8(125)); // }
+  match(
+    json_parse_bytes(b),
+    .Ok(v) => println(`ACCEPTED raw control byte: ${json_stringify(v)}`),
+    .Err(e) => println(`rejected: ${e}`)
+  );
+  i32(0)
+});
+export(main);

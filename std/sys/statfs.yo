@@ -1,64 +1,101 @@
-//! Filesystem statistics.
+//! Filesystem statistics (`statvfs`) — the raw syscall boundary.
 //!
-//! Provides a synchronous wrapper around `statfs` and typed accessors
-//! for the statfs buffer returned by the C runtime.
+//! One synchronous query plus typed accessors over the buffer it fills. The
+//! accessors exist because the buffer is the platform's own struct — a
+//! `struct statvfs` on POSIX, a private shim struct on Windows — so only the
+//! generated runtime knows where the fields are. No public `std` module
+//! reports disk usage yet; `tests/sys/statfs.test.yo` is the only caller in
+//! this tree.
 //!
-//! All operations return `i32` directly (no `IoFuture` overhead):
-//! - 0 on success
-//! - Negative value: -errno on failure
-//
-// Example:
-//   statfs :: import "std/sys/statfs";
-//
-//   buf_size := statfs.statfs_buf_size();
-//   buf := (*u8)(malloc(buf_size).unwrap());
-//   ret := statfs.statfs((*u8)("/"), buf);
-//   assert(ret == i32(0));
-//   block_size := statfs.statfs_bsize(buf);
-//   free(.Some((*void)(buf)));
+//! `statfs` returns 0 on success, a negative errno on failure. The accessors
+//! cannot fail; they read whatever is in the buffer.
+//!
+//! ```rust
+//! statfs :: import("std/sys/statfs");
+//! { malloc, free } :: import("std/allocator").GlobalAllocator;
+//! buf_size := statfs.statfs_buf_size();
+//! buf := (*u8)(malloc(buf_size).unwrap());
+//! rc := statfs.statfs((*u8)("/"), buf);
+//! free_bytes := (statfs.statfs_bavail(buf) * statfs.statfs_bsize(buf));
+//! free(.Some((*void)(buf)));
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — a caller-allocated opaque buffer with nine free functions
+//! reading it is a layout contract, not an API, and two of those functions
+//! can only ever answer 0 (`statfs_type` everywhere, plus `statfs_files` and
+//! `statfs_ffree` on Windows). A frozen version returns a Yo struct from one
+//! call and drops the fields no platform can fill, the way
+//! `std/sys/statx`'s `Statx` at least wraps its buffer in a type. Freezing
+//! follows that rewrite, and a decision about whether "filesystem type"
+//! belongs in the API at all given that nothing supplies it.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_statfs, __yo_statfs_buf_size, __yo_statfs_type, __yo_statfs_bsize, __yo_statfs_blocks, __yo_statfs_bfree, __yo_statfs_bavail, __yo_statfs_files, __yo_statfs_ffree } :: import("./externs.yo");
 // ============================================================================
 // statfs — Filesystem statistics (sync)
 // ============================================================================
-// Get filesystem statistics for the given path.
-// Writes result to `buf` (use statfs_buf_size() to allocate).
-// Returns 0 on success, -errno on failure.
+/// Fill `buf` with statistics for the filesystem CONTAINING `path` — POSIX
+/// `statvfs(3)`, not `statfs(2)`, which is why there is no filesystem-type
+/// field below. `buf` must be `statfs_buf_size()` bytes. Returns 0 on
+/// success, a negative errno on failure.
+///
+/// `path` need only be some existing name on the filesystem — a directory is
+/// fine — and it is resolved, so a symlink reports its target's filesystem.
+/// On Windows the runtime combines `GetDiskFreeSpaceExW` (for the byte
+/// totals) and `GetDiskFreeSpaceW` (for the cluster geometry) into its own
+/// struct.
 statfs :: (fn(path : *u8, buf : *u8) -> i32)(
   __yo_sync_statfs(path, buf)
 );
 // ============================================================================
 // Statfs buffer helpers
 // ============================================================================
-// Get required buffer size for statfs.
+/// Bytes to allocate for a `statfs` buffer — `sizeof(struct statvfs)` on
+/// POSIX, the size of the Windows shim struct there. A call rather than a
+/// constant because only the generated runtime knows the platform's struct.
 statfs_buf_size :: (fn() -> usize)(
   __yo_statfs_buf_size()
 );
-// Filesystem type (0 on platforms without type).
+/// Filesystem type code. **Always 0**, on every platform: `statvfs` has no
+/// `f_type` field (that is `statfs(2)`'s, which this module does not use) and
+/// the Windows shim leaves its slot zeroed. The accessor exists for parity
+/// with the Linux `statfs` layout; do not branch on it.
 statfs_type :: (fn(buf : *u8) -> u64)(
   __yo_statfs_type(buf)
 );
-// Fundamental filesystem block size.
+/// Fundamental block size in bytes (`f_bsize`) — the unit that `blocks`,
+/// `bfree` and `bavail` are counted in, so free BYTES is `bavail × bsize`.
+/// On Windows this is sectors-per-cluster × bytes-per-sector, i.e. the
+/// cluster size.
 statfs_bsize :: (fn(buf : *u8) -> u64)(
   __yo_statfs_bsize(buf)
 );
-// Total data blocks in filesystem.
+/// Total data blocks on the filesystem (`f_blocks`), in `bsize` units — the
+/// denominator for a "disk N% full" figure.
 statfs_blocks :: (fn(buf : *u8) -> u64)(
   __yo_statfs_blocks(buf)
 );
-// Free blocks in filesystem.
+/// Free blocks (`f_bfree`), in `bsize` units — including the reserve that
+/// only a privileged process may consume. Use `bavail` instead unless you
+/// are that process.
 statfs_bfree :: (fn(buf : *u8) -> u64)(
   __yo_statfs_bfree(buf)
 );
-// Free blocks available to unprivileged users.
+/// Free blocks available to an UNPRIVILEGED process (`f_bavail`), in `bsize`
+/// units. This is the number that answers "can I write this file", and it is
+/// what `df`'s "Available" column reports.
 statfs_bavail :: (fn(buf : *u8) -> u64)(
   __yo_statfs_bavail(buf)
 );
-// Total file nodes (inodes).
+/// Total file nodes / inodes (`f_files`). 0 on Windows, which has no fixed
+/// inode table, and 0 on filesystems that allocate inodes dynamically — so
+/// treat 0 as "not reported" rather than "full".
 statfs_files :: (fn(buf : *u8) -> u64)(
   __yo_statfs_files(buf)
 );
-// Free file nodes (inodes).
+/// Free file nodes / inodes (`f_ffree`). 0 on Windows, and subject to the
+/// same "0 means not reported" reading as `statfs_files`.
 statfs_ffree :: (fn(buf : *u8) -> u64)(
   __yo_statfs_ffree(buf)
 );

@@ -18,6 +18,30 @@
 //!   .None => println(`no match`)
 //! );
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable. The Rust-shaped names landed only in v0.2.28 (#517 — `test` →
+//! `is_match`, `exec` → `find`, `match_all` → `find_all`, and the flag string
+//! split out into `new_with_flags`), and three shapes are still wrong rather
+//! than merely young:
+//!
+//! - `split` interleaves capture groups into its result and emits the literal
+//!   string `"undefined"` for a group that did not participate — JavaScript's
+//!   shape, described at the method and filed as
+//!   `issues/stddoc-str-regex-split-emits-the-literal-string-undefined.md`.
+//! - The `g` and `u` flags are accepted and ignored
+//!   (`issues/stddoc-str-regex-g-and-u-flags-are-silently-ignored.md`), so
+//!   `new_with_flags(p, "g")` reads as if it changed `replace` and does not.
+//! - `i` folds ASCII only, so an `i` pattern does not match `É` with `é`.
+//!
+//! Each fix changes behaviour, so none of them is additive, and the module
+//! cannot freeze before they are decided. What IS settled: `Regex` /
+//! `RegexMatch` / `RegexMatchIter` / `RegexError` as the whole public surface,
+//! byte offsets everywhere, `Result` rather than exceptions from `new`, no
+//! separate `captures` (a `RegexMatch` always carries its groups), and the
+//! `Pattern` impl that lets a compiled regex be passed to any `String` search
+//! method.
 { ArrayList } :: import("std/collections/array_list");
 { String, Pattern } :: import("std/string");
 { GroupNameEntry } :: import("./node.yo");
@@ -91,6 +115,10 @@ impl(
       }
     )
   }),
+  /// The pattern text this `Regex` was compiled from, exactly as given —
+  /// Rust's `Regex::as_str`. Useful in error messages and logs; it is the
+  /// SOURCE, not a canonical form, so it round-trips through `Regex.new` but
+  /// says nothing about the compiled program.
   source : (fn(self : Self) -> String)(
     self._pattern
   ),
@@ -665,6 +693,28 @@ impl(
 // (depends on Block 3+5)
 impl(
   Regex,
+  /// `input` with the FIRST match replaced — Rust's `Regex::replace`.
+  ///
+  /// FIRST, not all. This is deliberate and it is the one asymmetry in the
+  /// whole replace family: `String.replace(re, rep)` — the same regex reached
+  /// through the `Pattern` trait — replaces EVERY match (D10), because that is
+  /// what `str::replace` means, while `Regex::replace` / `Regex::replace_all`
+  /// is the split Rust's regex crate draws. So
+  ///
+  /// ```rust
+  /// re.replace(`aaa`, `X`)        // "Xaa"  — this method
+  /// `aaa`.replace(re, `X`)        // "XXX"  — String.replace, D10
+  /// re.replace_all(`aaa`, `X`)    // "XXX"  — say it explicitly
+  /// ```
+  ///
+  /// Returns `input` unchanged when nothing matches. `replacement` is
+  /// interpreted: `$&` is the whole match, `$1`–`$9` are groups, `${name}` is
+  /// a named group, `` $` `` and `$'` are the text before and after the match,
+  /// and `$$` is a literal `$`. Use `replace_with` when the replacement has to
+  /// be computed, or when the text must be inserted verbatim.
+  ///
+  /// The `g` flag does NOT change this — the engine ignores `g` entirely; the
+  /// method name is the only thing that decides one-or-all.
   replace : (fn(self : Self, input : String, replacement : String) -> String)({
     result := self.find(input);
     match(
@@ -695,6 +745,18 @@ impl(
       }
     )
   }),
+  /// `input` with EVERY non-overlapping match replaced — Rust's
+  /// `Regex::replace_all`, and the method to reach for when "replace" means
+  /// all of them (`replace` here does the first only).
+  ///
+  /// Matches come from `find_all`, so they are the same non-overlapping,
+  /// left-to-right set, and a zero-width-matching pattern advances the way
+  /// `find_all` advances rather than looping. `replacement` gets the same `$`
+  /// interpretation as `replace`. Returns `input` unchanged when nothing
+  /// matches.
+  ///
+  /// Builds the whole result in one pass over `input`, so it is O(input +
+  /// output) rather than one string allocation per match.
   replace_all : (fn(self : Self, input : String, replacement : String) -> String)({
     all_matches := self.find_all(input);
     cond(
@@ -799,6 +861,29 @@ impl(
       }
     )
   }),
+  /// `input` cut at every non-overlapping match, JavaScript-style — and
+  /// JavaScript-style is a real divergence from Rust worth reading twice.
+  ///
+  /// Two things follow `String.prototype.split(regexp)` rather than Rust's
+  /// `Regex::split`:
+  ///
+  /// - **Capture groups are INTERLEAVED into the result.** After each piece,
+  ///   the text of every group the pattern declared is pushed too, so
+  ///   `Regex.new("(-)").unwrap().split("a-b-c")` is
+  ///   `["a", "-", "b", "-", "c"]`, not `["a", "b", "c"]`. A pattern with no
+  ///   groups behaves as you would expect.
+  /// - **A group that did not participate contributes the literal string
+  ///   `"undefined"`**, JavaScript's `undefined` rendered as text. So
+  ///   `Regex.new(",(x)?").unwrap().split("a,b")` is
+  ///   `["a", "undefined", "b"]`. That is a magic string in a typed API and it
+  ///   is filed as
+  ///   `issues/stddoc-str-regex-split-emits-the-literal-string-undefined.md`;
+  ///   an `ArrayList(Option(String))` or simply omitting non-participating
+  ///   groups would both be better, and both are breaking.
+  ///
+  /// A pattern that never matches yields `[input]` — one piece, never an empty
+  /// list. This is also the body behind `String.split(re)`, so the `Pattern`
+  /// dispatch inherits both behaviours.
   split : (fn(self : Self, input : String) -> ArrayList(String))({
     parts := ArrayList(String).new();
     all_matches := self.find_all(input);

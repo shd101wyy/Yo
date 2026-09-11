@@ -1,31 +1,36 @@
-//! Async UDP socket operations.
+//! Async UDP sockets — the raw syscall boundary.
 //!
-//! Provides UDP socket wrappers around the low-level C runtime externs.
-//! Reuses `SockAddr` and address helpers from `tcp.yo`.
+//! The datagram socket calls. Addresses are built with `std/sys/tcp`'s
+//! `SockAddr` helpers — there is nothing UDP-specific about a `sockaddr_in`,
+//! so this module deliberately does not duplicate them. `std/net/udp.yo` is
+//! the public surface (`UdpSocket`).
 //!
-//! All async operations return `IoFuture` which resolves to:
-//! - Positive value: success (fd for socket, bytes for sendto/recvfrom, 0 for others)
-//! - Negative value: -errno on failure
-//
-// Example:
-//   { GlobalAllocator } :: import "../allocator.yo";
-//   { malloc, free } :: GlobalAllocator;
-//   udp :: import "std/sys/udp";
-//   tcp :: import "std/sys/tcp";
-//   { AF_INET, SOCK_DGRAM } :: import "std/sys/socket";
-//
-//   async {
-//     sockfd := await udp.socket(AF_INET, i32(0));
-//     assert(sockfd >= i32(0));
-//
-//     addr := tcp.make_sockaddr_in_loopback(u16(9999));
-//     bind_result := await udp.bind(sockfd, addr.buf, addr.len);
-//     assert(bind_result == i32(0));
-//
-//     // sendto / recvfrom ...
-//     await udp.close(sockfd);
-//     tcp.free_sockaddr(addr);
-//   };
+//! Every operation returns an `IoFuture` resolving to a non-negative value
+//! (an fd for `socket`, a byte count for the transfer calls, 0 for the rest)
+//! or a negative error code — an errno on POSIX, a negated WSA code on the
+//! Windows socket paths.
+//!
+//! ```rust
+//! udp :: import("std/sys/udp");
+//! tcp :: import("std/sys/tcp");
+//! { AF_INET } :: import("std/sys/socket");
+//!
+//! fd := io.await(udp.socket(AF_INET, i32(0)), io);
+//! addr := tcp.make_sockaddr_in_loopback(u16(9999));
+//! io.await(udp.bind(fd, addr.buf, addr.len), io);
+//! io.await(udp.close(fd), io);
+//! tcp.free_sockaddr(addr);
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — it inherits `std/sys/tcp`'s `SockAddr` (a caller-freed byte
+//! buffer) and its split error vocabulary, so it cannot freeze before that
+//! does. There is also a gap specific to datagrams: `recvfrom` reports only a
+//! byte count, so a datagram larger than the buffer is silently TRUNCATED
+//! with no way to notice — POSIX has `MSG_TRUNC` for exactly this, and it is
+//! not surfaced. Freezing needs that, plus the address rework. `std/net/udp`
+//! is the surface to build on.
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
 { __yo_async_socket_start, __yo_async_bind_start, __yo_async_send_start, __yo_async_recv_start, __yo_async_sendto_start, __yo_async_recvfrom_start, __yo_async_close_start, __yo_async_setsockopt_start, __yo_async_getsockopt_start } :: import("./externs.yo");
@@ -33,54 +38,81 @@ pragma(Pragma.AllowUnsafe);
 // ============================================================================
 // Core UDP Operations (return IoFuture, use with await)
 // ============================================================================
-// Create a UDP socket.
-// domain: AF_INET or AF_INET6
-// protocol: typically 0
-// Returns fd on success, -errno on failure.
+/// Create a UDP socket — `socket(2)` with `SOCK_DGRAM` supplied for you, so
+/// there is no way to ask for the wrong type. Resolves to the new fd, or a
+/// negative error code. `domain` is `AF_INET` or `AF_INET6`; `protocol` 0
+/// lets the kernel pick UDP.
+///
+/// As in `std/sys/tcp`, macOS additionally sets `O_NONBLOCK` on the new
+/// descriptor for its kqueue backend.
 socket :: (fn(domain : i32, protocol : i32) -> IoFuture)(
   __yo_async_socket_start(domain, SOCK_DGRAM, protocol)
 );
-// Bind a UDP socket to a local address.
-// Returns 0 on success, -errno on failure.
+/// Bind the socket to a local address — POSIX `bind(2)`. Resolves to 0, or a
+/// negative error code. A UDP socket must be bound to RECEIVE on a known
+/// port; sending works without it (the kernel picks an ephemeral port), so
+/// forgetting this shows up as "my replies never arrive" rather than as an
+/// error. Bind to port 0 and read it back with `std/sys/sockinfo`'s
+/// `getsockname` to learn the chosen one.
 bind :: (fn(sockfd : i32, addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_bind_start(sockfd, addr, addrlen)
 );
-// Send a datagram to a specific destination address.
-// Returns number of bytes sent on success, -errno on failure.
+/// Send one datagram to `dest_addr` — POSIX `sendto(2)`. Resolves to the
+/// number of bytes sent, or a negative error code. This is the call for an
+/// unconnected socket, and it is all-or-nothing: a datagram is never
+/// partially sent, so a short return does not happen the way it does for
+/// TCP. A `len` above the path MTU either fragments or fails with `-EMSGSIZE`
+/// depending on the platform and the `IP_DONTFRAG`-family options.
 sendto :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, dest_addr : *u8, addrlen : u32) -> IoFuture)(
   __yo_async_sendto_start(sockfd, buf, len, flags, dest_addr, addrlen)
 );
-// Receive a datagram and get the source address.
-// src_addr/addrlen are filled with the sender's address.
-// Returns number of bytes received on success, -errno on failure.
+/// Receive one datagram and learn who sent it — POSIX `recvfrom(2)`.
+/// Resolves to the number of bytes received, or a negative error code.
+/// `src_addr`/`addrlen` receive the sender's address, with `addrlen` in/out
+/// (set it to the buffer capacity first).
+///
+/// A datagram longer than `len` is TRUNCATED and the excess DISCARDED, and
+/// the return value cannot tell you that happened — see the module's
+/// Stability note. Unlike TCP's `recv`, a 0 here is a legitimate
+/// zero-length datagram, not end-of-stream.
 recvfrom :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32, src_addr : *u8, addrlen : *u32) -> IoFuture)(
   __yo_async_recvfrom_start(sockfd, buf, len, flags, src_addr, addrlen)
 );
-// Send data on a connected UDP socket (after connect()).
-// Returns number of bytes sent on success, -errno on failure.
+/// Send one datagram on a CONNECTED UDP socket — POSIX `send(2)`. Resolves
+/// to the number of bytes sent, or a negative error code.
+///
+/// `connect` on a datagram socket does not handshake; it fixes the default
+/// peer, which lets you use this instead of `sendto` and makes the kernel
+/// deliver ICMP errors (`-ECONNREFUSED` when nothing is listening) that an
+/// unconnected socket never sees. `std/sys/tcp`'s `connect` is what sets it.
 send :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_send_start(sockfd, buf, len, flags)
 );
-// Receive data on a connected UDP socket (after connect()).
-// Returns number of bytes received on success, -errno on failure.
+/// Receive one datagram on a connected UDP socket — POSIX `recv(2)`, i.e.
+/// `recvfrom` without the sender's address. Resolves to the byte count, or a
+/// negative error code. A connected socket drops datagrams from anyone else,
+/// which is the point of connecting. Same truncation caveat as `recvfrom`.
 recv :: (fn(sockfd : i32, buf : *u8, len : usize, flags : i32) -> IoFuture)(
   __yo_async_recv_start(sockfd, buf, len, flags)
 );
-// Close a UDP socket file descriptor.
-// Returns 0 on success, -errno on failure.
+/// Close the descriptor — POSIX `close(2)`. Resolves to 0, or a negative
+/// error code. Do not retry on `-EINTR`; see `std/sys/tcp`'s `close`.
 close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );
 // ============================================================================
 // Socket Options
 // ============================================================================
-// Set a socket option (raw).
-// Returns 0 on success, -errno on failure.
+/// Set a socket option from raw bytes — the same `setsockopt(2)` wrapper
+/// `std/sys/tcp` exports, repeated here so a UDP-only caller need not import
+/// the TCP module. Resolves to 0, or a negative error code. `SO_BROADCAST`
+/// and the `IP_ADD_MEMBERSHIP` multicast options are the UDP-specific ones
+/// worth knowing.
 setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> IoFuture)(
   __yo_async_setsockopt_start(sockfd, level, optname, optval, optlen)
 );
-// Get a socket option (raw).
-// Returns 0 on success, -errno on failure.
+/// Read a socket option into raw bytes — `getsockopt(2)`. Resolves to 0, or
+/// a negative error code; `optlen` is in/out.
 getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> IoFuture)(
   __yo_async_getsockopt_start(sockfd, level, optname, optval, optlen)
 );

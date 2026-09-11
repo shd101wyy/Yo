@@ -7,9 +7,22 @@
 //! in OAuth 1 / AWS SigV2-era APIs), which is why std ships it.
 //!
 //! ```rust
-//! { sha1_hex } :: import "std/crypto/sha1";
+//! { sha1_hex } :: import("std/crypto/sha1");
 //! digest := sha1_hex(data); // 40-char lowercase hex
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — and the open question here is whether the module should
+//! exist in this form at all, not how it computes. The vectors are right
+//! and tested, but SHA-1 has no dedicated test file: its cases live in
+//! `tests/crypto/digest.test.yo` beside the trait's. More importantly,
+//! nothing in the API marks it as the legacy-compatibility algorithm the
+//! module header says it is — a new caller reaching for `sha1_hex` gets no
+//! signal — and whether std keeps shipping it plainly, gates it, or moves
+//! it out has not been decided. The `finish` / `finish_bytes` double
+//! surface and the single-use `finish` are the `std/crypto/digest`
+//! questions.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 hex :: import("../encoding/hex");
@@ -83,7 +96,7 @@ Sha1 :: ref(
 );
 impl(
   Sha1,
-  // Initialise a new hasher.
+  /// A hasher seeded with the SHA-1 initial state.
   new : (fn() -> Self)(
     Self(
       _h : Array(u32, usize(5))(u32(0x67452301), u32(0xefcdab89), u32(0x98badcfe), u32(0x10325476), u32(0xc3d2e1f0)),
@@ -92,7 +105,9 @@ impl(
       _total : u64(0)
     )
   ),
-  // Feed more data into the hasher.
+  /// Absorb `data` and return the same hasher, so calls chain. O(len).
+  /// Buffers a partial 64-byte block, so how the input is split cannot
+  /// change the digest.
   update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
@@ -111,7 +126,12 @@ impl(
     });
     self
   }),
-  // Finalise and return the 20-byte digest.
+  /// Append the padding and the big-endian bit length, fold the last block
+  /// in, and return the 20-byte digest.
+  ///
+  /// **Single use** — the padding is written into the hasher's own buffer,
+  /// so a second `finish` digests the padded state rather than the
+  /// message.
   finish : (fn(self : Self) -> Array(u8, usize(20)))({
     bit_len := (self._total * u64(8));
     self._buf(self._buflen) = u8(0x80);
@@ -178,11 +198,18 @@ impl(
 // ============================================================================
 // Convenience functions
 // ============================================================================
-// Hash data and return the 20-byte digest.
+/// SHA-1 of `data` in one call — the 20-byte digest. Exactly
+/// `Sha1.new().update(data).finish()`.
+///
+/// Collision-broken (SHAttered, 2017): never use this to identify or sign
+/// content an attacker can influence. `sha256` is the replacement. This is
+/// here for protocols that specify SHA-1 — git object ids, HMAC-SHA1 in
+/// OAuth 1 and TOTP.
 sha1 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(20)))(
   Sha1.new().update(data).finish()
 );
-// Hash data and return the 40-character lowercase hex digest.
+/// SHA-1 of `data` as 40 lowercase hex characters — git's object-id
+/// spelling. Same collision caveat as `sha1`.
 sha1_hex :: (fn(data : ArrayList(u8)) -> String)({
   digest := sha1(data);
   bytes := ArrayList(u8).with_capacity(usize(20));

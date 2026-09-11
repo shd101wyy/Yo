@@ -1,0 +1,49 @@
+// Reproducer: `imm.Vec.dedup` leaks refcounted elements on its
+// uniquely-owned path — it writes a kept element into a LIVE slot with
+// `consume(p.* = v)` (which does not drop what it overwrites) and then
+// shortens `_len` over the stale tail slots.
+//
+// Expected: all three handles disposed exactly once (3).
+// Actual:   1.
+//
+// Run: yo compile issues/repros/stddoc-coll-imm-vec-dedup-leaks-rc-elements.yo \
+//        --std-path ./std --optimize 2 -o /tmp/dedup_leak && /tmp/dedup_leak
+{ Vec } :: import("std/imm/vec");
+{ println } :: import("std/fmt");
+(g_disposed : i32) = i32(0);
+/// Atomic ref handle (imm.Vec requires `Send`) that counts its disposals in a
+/// module-level global, which has program lifetime and is readable after the
+/// vector is gone.
+Handle :: atomic(ref(struct(tag : i32)));
+impl(
+  Handle,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+impl(
+  Handle,
+  Eq(Handle)(
+    (==) : (fn(lhs : Self, rhs : Self) -> bool)(
+      lhs.tag == rhs.tag
+    )
+  )
+);
+main :: (fn() -> i32)({
+  {
+    v := Vec(Handle).new();
+    v = v.push(Handle(tag : i32(1)));
+    v = v.push(Handle(tag : i32(1)));
+    v = v.push(Handle(tag : i32(2)));
+    v = v.dedup();
+    println(`len after dedup: ${v.len()}`);
+  };
+  println(`disposed: ${g_disposed} (expected 3)`);
+  cond(
+    (g_disposed == i32(3)) => i32(0),
+    true => i32(1)
+  )
+});
+export(main);

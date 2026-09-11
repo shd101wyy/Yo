@@ -1,5 +1,17 @@
 //! C11 `<assert.h>` — assertion debugging facility.
 //! Provides runtime assertion checking for debugging.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. C's `assert` is a macro, so
+//! what is bound here are the libc-internal functions the macro expands to,
+//! and which of them exists is a C library detail: glibc has
+//! `__assert_fail`, Apple's libc has `__assert`, and `_Static_assert_fail`
+//! is not universal. Nothing in the tree imports this module — the
+//! supported assertion surface is `std/assert` (`assert` / `panic`, lowered
+//! to the `__yo_panic` builtin) — and it exists because user code may not
+//! write its own `c_include`. Freezing it would mean committing to one
+//! spelling per C library, which is what `std/assert` already does in Yo.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<assert.h>",

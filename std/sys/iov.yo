@@ -1,24 +1,79 @@
-//! Scatter/gather I/O.
+//! Scatter/gather I/O (`readv`/`writev`) — the raw syscall boundary.
 //!
-//! Synchronous wrappers for vectored file descriptor I/O.
-//! Returns byte count on success, -errno / negative platform error on failure.
+//! Vectored reads and writes over a caller-built `struct iovec` array, plus
+//! the two helpers needed to build that array without knowing the platform's
+//! layout. No public `std` module uses vectored I/O yet — `std/io`'s
+//! `Reader`/`Writer` are single-buffer — so `tests/sys/iov.test.yo` is the
+//! only caller in this tree.
+//!
+//! ## Stability
+//!
+//! unstable, and this one is not merely "it follows the OS": the positioned
+//! forms are NOT the syscalls they are named after. `preadv`/`pwritev` are
+//! emulated per segment on Linux and macOS and by seek-around on Windows, so
+//! they lose the atomicity `preadv(2)` promises and report a short transfer
+//! as a partial count rather than an error. Freezing needs either the real
+//! syscalls on the platforms that have them, or a name and a documented
+//! contract that match the emulation. The array-building API — an untyped
+//! `*u8` plus an unchecked index — would also have to become a real slice
+//! type first.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_readv, __yo_sync_writev, __yo_sync_preadv, __yo_sync_pwritev, __yo_iovec_size, __yo_iovec_set } :: import("./externs.yo");
+/// `sizeof(struct iovec)` for this platform — allocate `n * iovec_size()`
+/// bytes for an `n`-segment array. It is a call rather than a constant
+/// because the struct is two pointer-sized words on POSIX and a Windows shim
+/// struct there, so the number is only known to the generated runtime.
 iovec_size :: (fn() -> usize)(
   __yo_iovec_size()
 );
+/// Read from `fd` into the `iovcnt` segments of `iov`, filling each in order
+/// before moving to the next — POSIX `readv(2)`. Reads from and advances the
+/// descriptor's CURRENT offset. Returns the total bytes read (0 at EOF, and
+/// possibly short of the segment total), or a negative errno.
+///
+/// On Windows this is not one operation: a socket goes through `WSARecv`
+/// (returning a negated WSA code on failure), and a regular file is emulated
+/// with a per-segment overlapped `ReadFile` loop that saves and restores the
+/// file pointer — so it is not atomic against another user of the same
+/// handle.
 readv :: (fn(fd : i32, iov : *u8, iovcnt : i32) -> i32)(
   __yo_sync_readv(fd, iov, iovcnt)
 );
+/// Write the `iovcnt` segments of `iov` to `fd` in order, from and advancing
+/// the descriptor's current offset — POSIX `writev(2)`. Returns the total
+/// bytes written, which may be SHORT, or a negative errno. The same Windows
+/// caveat as `readv` applies (`WSASend` for sockets, an emulated overlapped
+/// loop for files).
 writev :: (fn(fd : i32, iov : *u8, iovcnt : i32) -> i32)(
   __yo_sync_writev(fd, iov, iovcnt)
 );
+/// Read into `iov` starting at absolute `offset`, without touching the
+/// descriptor's own file position.
+///
+/// **This is not `preadv(2)` on the platforms you are most likely running.**
+/// Linux and macOS loop `pread` once per segment and STOP at the first short
+/// read, returning the partial total; a failure after some bytes have been
+/// read is reported as that partial total rather than as an error, so a
+/// caller cannot distinguish "end of file" from "error after 100 bytes".
+/// Windows saves the file pointer, seeks, runs the emulated `readv` and
+/// seeks back — racing any concurrent user of the fd. Only wasm calls the
+/// real `preadv`. Returns bytes read, or a negative errno if nothing was
+/// read; sockets on Windows are rejected with `-ESPIPE`.
 preadv :: (fn(fd : i32, iov : *u8, iovcnt : i32, offset : i64) -> i32)(
   __yo_sync_preadv(fd, iov, iovcnt, offset)
 );
+/// Write `iov` at absolute `offset`, without touching the descriptor's own
+/// file position. Same emulation and same partial-count caveat as `preadv`:
+/// a per-segment `pwrite` loop on Linux and macOS, seek-around on Windows,
+/// the real `pwritev` only on wasm. Returns bytes written, or a negative
+/// errno if nothing was written.
 pwritev :: (fn(fd : i32, iov : *u8, iovcnt : i32, offset : i64) -> i32)(
   __yo_sync_pwritev(fd, iov, iovcnt, offset)
 );
+/// Write one segment — `base` and `len` — into slot `index` of the array at
+/// `iov`. There is NO bounds check: `index` must be below the count the array
+/// was allocated for. A zero-`len` segment is skipped by the positioned
+/// forms and passed through by `readv`/`writev`.
 iovec_set :: (fn(iov : *u8, index : usize, base : *u8, len : usize) -> unit)(
   __yo_iovec_set(iov, index, base, len)
 );

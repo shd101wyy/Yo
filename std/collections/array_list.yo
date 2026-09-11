@@ -1,4 +1,13 @@
 //! Dynamic array (vector) with amortized O(1) push and O(1) indexed access.
+//!
+//! ## Stability
+//!
+//! stable — every breaking flip this type owed Rust shipped in v0.2.28:
+//! `push` is infallible with `try_push` beside it (D9), `iter()` yields
+//! POINTERS while `into_iter()` yields values (D14), and `sort` is the stable
+//! merge with `sort_unstable` as the heapsort (D17). The P1 battery is
+//! complete and test-covered, and `plans/STD_API_STABILIZATION.md` §4 lists
+//! nothing still open against this module, so further work here is additive.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, AllocError, size_would_overflow } :: import("../allocator.yo");
 { memmove, memcpy, memset } :: import("../libc/string.yo");
@@ -27,29 +36,39 @@ ArrayList :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(
   generic(T : Type),
   ArrayList(T),
+  /// Number of elements. O(1) — the length is stored, never counted.
   len : (fn(self : Self) -> usize)({
     return(self._length);
   }),
-  /**
-  * True when the list contains no elements.
-  */
+  /// True when the list holds no elements — `len() == 0`.
   is_empty : (fn(self : Self) -> bool)({
     return(self._length == usize(0));
   }),
+  /// Elements the current buffer can hold before `push` has to reallocate.
+  ///
+  /// `SIZE_MAX` for a zero-sized element type, which never grows — see
+  /// `_zst_anchor`. Rust's `Vec::capacity` reports `usize::MAX` for the same
+  /// reason.
   capacity : (fn(self : Self) -> usize)({
     return(self._capacity);
   }),
-  /**
-  * Get a pointer to the underlying data buffer
-  * Returns .None if the list is empty or has no allocated buffer
-  */
+  /// Raw pointer to the element buffer, or `.None` when nothing is allocated
+  /// yet — Rust's `Vec::as_ptr`, minus the dangling-pointer guarantee.
+  ///
+  /// The pointer is only valid until the next reallocation (`push` past
+  /// capacity, `reserve`, `ensure_total_capacity`, `shrink_to_fit`), and it
+  /// borrows: it does not keep the list alive.
   ptr : (fn(self : Self) -> ?(*(T)))(
     self._ptr
   ),
-  /**     * Directly set the length of the ArrayList
-  * UNSAFE: This does not initialize new elements or free removed elements
-  * Only use when you've manually populated the buffer (e.g., via direct memory writes)
-  */
+  /// Declare that the first `new_len` slots of the buffer are live — Rust's
+  /// `Vec::set_len`, and just as unsafe.
+  ///
+  /// Nothing is initialized and nothing is dropped: growing the length exposes
+  /// whatever bytes the buffer already held, and shrinking it leaks the
+  /// elements past the new end (`dispose` and `clear` only walk `[0, len)`).
+  /// Reach for it only after filling the buffer through `ptr()` or
+  /// `extend_from_ptr`. PANICS when `new_len` exceeds the capacity.
   set_len : (fn(self : Self, new_len : usize) -> unit)({
     cond(
       (new_len <= self._capacity) => {
@@ -58,9 +77,8 @@ impl(
       true => __yo_panic("set_len: new length exceeds capacity")
     );
   }),
-  /**
-  * Create a new empty ArrayList
-  */
+  /// Empty list. Allocates nothing — the first `push` buys the buffer (four
+  /// elements), as Rust's `Vec::new` does.
   new : (fn() -> Self)(
     Self(
       _ptr : .None,
@@ -68,16 +86,14 @@ impl(
       _capacity : usize(0)
     )
   ),
-  /**
-  * Create an ArrayList by copying the elements of a fixed-size array.
-  * The owned-copy companion to array range-indexing
-  * (plans/archive/SLICE_REWORK.md).
-  */
-  /**
-  * Owned copy of the elements in `[r.start, r.end)` — JS-style range
-  * slicing with value semantics (plans/archive/SLICE_REWORK.md: `list(a..b)`
-  * lowers to this).
-  */
+  /// Owned copy of the elements in `[r.start, r.end)` — JS-style range
+  /// slicing with value semantics (plans/archive/SLICE_REWORK.md: `list(a..b)`
+  /// lowers to this).
+  ///
+  /// The end is CLAMPED to the length rather than checked, so an over-long
+  /// range yields a short list instead of panicking; `slice` is the checked,
+  /// `Result`-returning spelling. Elements are copied (dup'd for a
+  /// refcounted `T`), so the result is independent of the source.
   slice_copy : (fn(self : Self, r : Range(usize)) -> Self)({
     e := cond((r.end > self.len()) => self.len(), true => r.end);
     out := Self.new();
@@ -109,6 +125,11 @@ impl(
     });
     out
   }),
+  /// Owned `ArrayList` copy of a fixed-size array's elements — the companion
+  /// to array range-indexing (plans/archive/SLICE_REWORK.md).
+  ///
+  /// `N` comes from the array's type, so the exact capacity is reserved up
+  /// front and no growth happens.
   from_array : (fn(generic(N : usize), arr : Array(T, N)) -> Self)({
     out := Self.with_capacity(N);
     i := usize(0);
@@ -117,9 +138,13 @@ impl(
     });
     out
   }),
-  /**
-  * Create an ArrayList with a specific initial cap
-  */
+  /// Empty list whose buffer already holds `cap` elements — Rust's
+  /// `Vec::with_capacity`.
+  ///
+  /// PANICS on `"capacity overflow"` when `sizeof(T) * cap` would wrap (Rust
+  /// panics with the same message), and on allocation failure. A zero-sized
+  /// element type takes the one-byte anchor buffer instead of allocating
+  /// `cap` of nothing.
   with_capacity : (fn(cap : usize) -> Self)(
     cond(
       (cap == usize(0)) =>
@@ -150,20 +175,18 @@ impl(
       }
     )
   ),
-  /**
-  * The one buffer an ArrayList of a ZERO-SIZED element type ever has.
-  *
-  * `sizeof(T) == 0` (`unit`, an all-`unit` aggregate, `Array(unit, N)`) means
-  * the elements occupy no bytes: a store writes nothing, a read reads nothing,
-  * and the byte size of every buffer is 0. Rust's `Vec<()>` never allocates
-  * and reports `capacity() == usize::MAX`. Yo cannot conjure a non-null
-  * dangling pointer, so the stand-in is ONE one-byte block, allocated once and
-  * never resized: the capacity is `SIZE_MAX`, so `push` never reaches the grow
-  * path, and `shrink_to_fit` is a no-op. Going through the allocator with
-  * `sizeof(T) * cap == 0` instead would `malloc(0)` and then `realloc(p, 0)` —
-  * which frees `p` and returns NULL on glibc and the Windows CRT — and the
-  * list would report "allocation failed" on its second growth.
-  */
+  /// The one buffer an ArrayList of a ZERO-SIZED element type ever has.
+  ///
+  /// `sizeof(T) == 0` (`unit`, an all-`unit` aggregate, `Array(unit, N)`) means
+  /// the elements occupy no bytes: a store writes nothing, a read reads nothing,
+  /// and the byte size of every buffer is 0. Rust's `Vec<()>` never allocates
+  /// and reports `capacity() == usize::MAX`. Yo cannot conjure a non-null
+  /// dangling pointer, so the stand-in is ONE one-byte block, allocated once and
+  /// never resized: the capacity is `SIZE_MAX`, so `push` never reaches the grow
+  /// path, and `shrink_to_fit` is a no-op. Going through the allocator with
+  /// `sizeof(T) * cap == 0` instead would `malloc(0)` and then `realloc(p, 0)` —
+  /// which frees `p` and returns NULL on glibc and the Windows CRT — and the
+  /// list would report "allocation failed" on its second growth.
   _zst_anchor : (fn() -> Self)(
     match(
       malloc(usize(1)),
@@ -176,11 +199,13 @@ impl(
       .None => __yo_panic("malloc returned None")
     )
   ),
-  /**
-  * Add an element to the end of the ArrayList, reporting allocation failure.
-  *
-  * The allocator-aware form (D9). `push` is the one to reach for.
-  */
+  /// Append an element, reporting allocation failure as
+  /// `.Err(.AllocError(.OutOfMemory))` instead of panicking.
+  ///
+  /// The allocator-aware form (D9); `push` is the one to reach for. Amortized
+  /// O(1) — the buffer doubles (4 elements first), so a growth INVALIDATES
+  /// every pointer previously handed out by `ptr()`, `iter()` or the `Index`
+  /// impl.
   try_push : (fn(self : Self, value : T) -> Result(unit, ArrayListError))(
     // Check if we need to grow
     cond(
@@ -231,17 +256,17 @@ impl(
         )
     )
   ),
-  /**
-  * Add an element to the end of the ArrayList.
-  *
-  * PANICS on allocation failure — Rust's `Vec::push` aborts, and so do this
-  * list's own `ensure_total_capacity` / `with_capacity`. Before D9 this
-  * returned a `Result` that every one of its callers discarded, usually via a
-  * throwaway `_p :=` binding: a `Result` nobody checks is strictly worse than
-  * a panic, because it reads as if the failure were handled.
-  *
-  * Use `try_push` when the caller genuinely handles OOM.
-  */
+  /// Append an element — amortized O(1).
+  ///
+  /// PANICS on allocation failure: Rust's `Vec::push` aborts, and so do this
+  /// list's own `ensure_total_capacity` / `with_capacity`. Before D9 this
+  /// returned a `Result` that every one of its callers discarded, usually via
+  /// a throwaway `_p :=` binding — a `Result` nobody checks is strictly worse
+  /// than a panic, because it reads as if the failure were handled. Use
+  /// `try_push` when the caller genuinely handles OOM.
+  ///
+  /// A growth reallocates, so any pointer into the buffer (`ptr()`, `iter()`,
+  /// `self(i)`) is invalid afterwards.
   push : (fn(self : Self, value : T) -> unit)(
     match(
       Self.try_push(self, value),
@@ -249,9 +274,8 @@ impl(
       .Err(_) => __yo_panic("ArrayList.push: allocation failed")
     )
   ),
-  /**
-  * Remove and return the last element
-  */
+  /// Remove and return the last element, or `.None` when empty — O(1), and
+  /// the capacity is kept.
   pop : (fn(self : Self) -> Option(T))(
     cond(
       (self._length == usize(0)) => .None,
@@ -272,9 +296,11 @@ impl(
       }
     )
   ),
-  /**
-  * Get an element by index (bounds checked)
-  */
+  /// Copy of the element at `index`, or `.None` when `index >= len()`.
+  ///
+  /// The bounds-checked reader. `self(index)` (the `Index` impl) hands back a
+  /// POINTER into the buffer and panics out of range instead; `iter()` is the
+  /// way to walk without copying a refcounted `T`.
   get : (fn(self : Self, index : usize) -> Option(T))(
     cond(
       (index >= self._length) => .None,
@@ -286,10 +312,14 @@ impl(
         )
     )
   ),
-  /**
-  * Shrink the capacity to match the current length
-  * This reduces memory usage but may cause reallocation on next push
-  */
+  /// Give the unused tail of the buffer back to the allocator so that
+  /// `capacity() == len()` — Rust's `Vec::shrink_to_fit`.
+  ///
+  /// Reallocates (an empty list frees its buffer outright), so every pointer
+  /// into the buffer is invalid afterwards and the next `push` grows again.
+  /// `.Err(.AllocError(.OutOfMemory))` when the shrinking `realloc` fails —
+  /// the list is left untouched and usable. A zero-sized element type is a
+  /// no-op: its anchor buffer cannot shrink.
   shrink_to_fit : (fn(self : Self) -> Result(unit, ArrayListError))(
     // If length equals capacity or both are zero, nothing to do. A zero-sized
     // element type has nothing to shrink either (its buffer is the one-byte
@@ -351,14 +381,13 @@ impl(
       true => ()
     )
   ),
-  /**
-  * Removes the elements in `r.start .. r.end` (half-open) and returns them
-  * as a fresh ArrayList(T), in order. Rust `Vec::drain` parity for the
-  * failure contract: an inverted range or an end past the length panics —
-  * the old `remove(start, count)` silently clamped the count, which hid
-  * caller bugs. (§5: the two-argument spelling is gone; use this, or the
-  * single-index `remove`.)
-  */
+  /// Remove the elements in `[r.start, r.end)` and return them, in order, as
+  /// a fresh list — Rust's `Vec::drain`, collected eagerly rather than lazily
+  /// (Yo has no borrowing iterator to hold the source open).
+  ///
+  /// O(n): the tail shifts left to close the gap. PANICS on an inverted range
+  /// or an end past the length — the old `remove(start, count)` silently
+  /// clamped the count, which hid caller bugs.
   drain : (fn(self : Self, r : Range(usize)) -> Self)({
     if((r.start > r.end) || (r.end > self._length), {
       __yo_panic("ArrayList.drain: invalid range for this length");
@@ -447,10 +476,6 @@ impl(
         )
     )
   }),
-  /**
-  * Removes and returns the element at `idx`, shifting the tail left.
-  * Panics if `idx` is out of bounds (the `Index` impl's contract).
-  */
   /// Insert `value` at `idx`, shifting the tail right — O(n). `idx == len`
   /// appends, as in Rust.
   insert : (fn(self : Self, idx : usize, value : T) -> unit)({
@@ -571,6 +596,13 @@ impl(
     });
     self.drain(at .. self._length)
   }),
+  /// Remove the element at `idx` and return it, shifting the tail left —
+  /// O(n), order preserved. Rust's `Vec::remove`.
+  ///
+  /// PANICS when `idx >= len()`. `swap_remove` is the O(1) alternative when
+  /// order does not matter, and `LinkedList.remove` returns a `Result`
+  /// instead — a deliberate difference (D1): the list that has to walk to
+  /// the index reports the caller's mistake as a value.
   remove : (fn(self : Self, idx : usize) -> T)({
     if(idx >= self._length, {
       __yo_panic("ArrayList.remove: index out of bounds");
@@ -585,11 +617,11 @@ impl(
       .None => __yo_panic("ArrayList.remove: get failed after bounds check")
     )
   }),
-  /**
-  * Create a new ArrayList containing a slice of elements from start to end (exclusive)
-  * Similar to array slicing in many languages: array[start:end]
-  * Returns a new ArrayList with copied elements
-  */
+  /// Owned copy of `[start, end)`, or an `.IndexOutOfBounds` error — the
+  /// CHECKED counterpart of `slice_copy`, which clamps instead.
+  ///
+  /// An inverted range reports `.IndexOutOfBounds(index : start, length :
+  /// end)`. O(end - start), one allocation of the exact size.
   slice : (fn(self : Self, start : usize, end : usize) -> Result(Self, ArrayListError))(
     // Validate indices
     cond(
@@ -634,10 +666,14 @@ impl(
       }
     )
   ),
-  /**
-  * Ensure the ArrayList can hold at least `min_cap` total elements
-  * without further reallocation.
-  */
+  /// Grow the buffer so it holds at least `min_cap` elements in TOTAL,
+  /// doubling as it goes; a request under the current capacity does nothing.
+  ///
+  /// `reserve(additional)` is the Rust spelling and takes a COUNT TO ADD —
+  /// the same call with a different meaning, and the easy one to get right at
+  /// a call site. PANICS on capacity overflow and on allocation failure
+  /// (`try_push` is the only allocator-aware entry point). Reallocates, so
+  /// pointers into the buffer do not survive it.
   ensure_total_capacity : (fn(self : Self, min_cap : usize) -> unit)({
     cond(
       (min_cap <= self._capacity) => (),
@@ -691,10 +727,13 @@ impl(
       }
     );
   }),
-  /**
-  * Append `count` elements from a raw pointer using memcpy.
-  * The caller must ensure `src` points to at least `count` valid elements.
-  */
+  /// Append `count` elements from a raw buffer with one `memcpy`.
+  ///
+  /// The caller guarantees `src` holds `count` initialized, correctly aligned
+  /// `T`s that do not alias this list's buffer. The bytes are copied WITHOUT
+  /// per-element dup, so for a refcounted `T` this MOVES the source elements:
+  /// the caller must not also release them. Reaching for it on a plain-data
+  /// element type is the point — that is where it beats a `push` loop.
   extend_from_ptr : (fn(self : Self, src : *(T), count : usize) -> unit)({
     cond(
       (count == usize(0)) => (),
@@ -712,18 +751,19 @@ impl(
       }
     );
   }),
-  /**
-  * Clear all elements but keep capacity
-  */
+  /// Drop every element and set the length to 0, KEEPING the capacity —
+  /// Rust's `Vec::clear`. Use `shrink_to_fit` afterwards to release the
+  /// buffer too.
   clear : (fn(self : Self) -> unit)({
     Self._free_elements(self);
     self._length = usize(0);
   }),
-  /**
-  * Fill all elements with a byte pattern using memset.
-  * Useful for zeroing bool/integer arrays in O(1).
-  * Only safe for types without RC (e.g., bool, u8, usize).
-  */
+  /// Overwrite the live `len()` elements with a repeated byte via `memset` —
+  /// the fast way to zero a `bool` / integer list.
+  ///
+  /// Writes over the elements without dropping them, so it is only sound for
+  /// a plain-data `T`: on a refcounted element type it strands every handle
+  /// it overwrites. `fill(value)` is the type-safe form.
   fill_with_byte : (fn(self : Self, byte_val : int) -> unit)(
     match(
       self._ptr,
@@ -733,11 +773,13 @@ impl(
       }
     )
   ),
-  /**
-  * Resize ArrayList to exactly `new_len` elements, filling new slots with
-  * a byte pattern via memset. Does not call destructors on removed elements.
-  * Only safe for trivial types (bool, u8, usize, etc.).
-  */
+  /// Set the length to exactly `new_len`, `memset`ting any newly exposed
+  /// slots to a repeated byte.
+  ///
+  /// Shrinking does NOT run destructors and growing does not construct
+  /// anything, so — like `fill_with_byte` — this is for a plain-data `T`
+  /// only; `resize(new_len, value)` is the type-safe form. Growing may
+  /// reallocate and can panic on allocation failure.
   resize_with_byte : (fn(self : Self, new_len : usize, byte_val : int) -> unit)({
     cond(
       (new_len <= self._length) => {
@@ -784,10 +826,9 @@ impl(
   generic(T : Type),
   ArrayList(T),
   Dispose(
-    /**
-    * RAII destructor - automatically called when ArrayList goes out of scope
-    * For `object`, this is called when the reference count drops to zero
-    */
+    /// Drops every live element and frees the buffer. Runs when the last
+    /// reference to the list goes away, not at the end of the binding's
+    /// scope.
     dispose : (fn(self : Self) -> unit)({
       match(
         self._ptr,
@@ -806,13 +847,12 @@ impl(
   generic(T : Type),
   ArrayList(T),
   Trace(
-    /**
-    * Cycle-GC tracing. The elements live in a malloc'd buffer the compiler's
-    * auto-derived field walk cannot reach, so trace each element's buffer slot.
-    * `tracer.visit` takes the slot POINTER and reads it WITHOUT touching the
-    * element's reference count — a by-value managed handle would be dup'd then
-    * dropped, freeing a live element mid-collection.
-    */
+    /// Cycle-GC tracing. The elements live in a malloc'd buffer the
+    /// compiler's auto-derived field walk cannot reach, so trace each
+    /// element's buffer slot. `tracer.visit` takes the slot POINTER and reads
+    /// it WITHOUT touching the element's reference count — a by-value managed
+    /// handle would be dup'd then dropped, freeing a live element
+    /// mid-collection.
     trace : (fn(self : Self, tracer : GcTracer) -> unit)({
       match(
         self._ptr,
@@ -829,10 +869,13 @@ impl(
   )
 );
 // === Iterator support ===
-/**
-* Value iterator for ArrayList - yields elements by value (T)
-* Used by into_iter() / IntoIterator trait
-*/
+/// Value iterator over an ArrayList — yields each element BY VALUE, which
+/// dups a refcounted `T`. This is what `into_iter()` (and therefore
+/// `for(list, ...)`) returns; `iter()` yields pointers instead (D14).
+///
+/// It holds the list by handle and re-reads `_length` on every `next`, so a
+/// `push` during a forward walk extends the walk. Double-ended: `next_back`
+/// takes from the far end.
 ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _list : ArrayList(T),
@@ -888,19 +931,18 @@ impl(
     )
   )
 );
-/**
-* Pointer iterator for ArrayList — yields `*(T)` INTO the list's own buffer
-* (D14). This is what `iter()` returns; `into_iter()` keeps yielding values.
-*
-* The elements are borrowed, not dup'd, so iterating a list of RC values costs
-* no refcount traffic and writing through the pointer mutates the list in
-* place. HashMapIterPtr established the shape.
-*
-* The pointers alias the buffer, so any operation that REALLOCATES it (`push`
-* past capacity, `reserve`, `shrink_to_fit`) invalidates every pointer already
-* yielded. Live-length semantics are otherwise the same as ArrayListIter's:
-* `_length` is re-read on each `next`.
-*/
+/// Pointer iterator over an ArrayList — yields `*(T)` INTO the list's own
+/// buffer (D14). This is what `iter()` returns; `into_iter()` keeps yielding
+/// values.
+///
+/// The elements are borrowed, not dup'd, so iterating a list of RC values
+/// costs no refcount traffic and writing through the pointer mutates the list
+/// in place. `HashMapIterPtr` established the shape.
+///
+/// The pointers alias the buffer, so any operation that REALLOCATES it
+/// (`push` past capacity, `reserve`, `shrink_to_fit`) invalidates every
+/// pointer already yielded. Live-length semantics are otherwise the same as
+/// `ArrayListIter`'s: `_length` is re-read on each `next`.
 ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _list : ArrayList(T),
@@ -950,14 +992,15 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
-  /**
-  * Non-consuming iteration over a shared handle: yields a `*(T)` into the
-  * list's buffer, leaving the list intact — `for(list.iter(), ptr => ...)`
-  * where `into_iter` would move the list and yield values (D14; this is the
-  * `iter` / `into_iter` split every other std collection already had).
-  * The receiver arrives RC-dup'd at the method boundary, so moving it into
-  * the iterator is balanced and the buffer outlives the walk.
-  */
+  /// Borrowing walk over a shared handle: yields a `*(T)` into the list's
+  /// buffer and leaves the list intact — `for(list.iter(), ptr => ...)`,
+  /// where `into_iter` would move the list and yield values (D14; the
+  /// `iter` / `into_iter` split every other std collection already had).
+  ///
+  /// The receiver arrives RC-dup'd at the method boundary, so moving it into
+  /// the iterator is balanced and the buffer outlives the walk. Do not grow
+  /// the list mid-walk: a reallocation invalidates the pointers already
+  /// yielded.
   iter : (fn(self : Self) -> ArrayListIterPtr(T))(
     ArrayListIterPtr(T)(_list : self, _index : usize(0), _back_taken : usize(0))
   )
@@ -1041,9 +1084,8 @@ impl(
       }
     )
   }),
-  /**
-  * Check if the list contains a value
-  */
+  /// Whether any element equals `value` — a linear scan, O(n), stopping at
+  /// the first match. Rust's `Vec::contains`.
   contains : (fn(self : Self, value : T) -> bool)({
     found := false;
     match(
@@ -1063,10 +1105,9 @@ impl(
     );
     return(found);
   }),
-  /**
-  * Find the first index of a matching value
-  * Returns .Some(index) if found, .None otherwise
-  */
+  /// Index of the FIRST element equal to `value`, or `.None` — a linear
+  /// scan, O(n). Rust spells this `iter().position(...)`; on a sorted list
+  /// reach for `binary_search` instead.
   index_of : (fn(self : Self, value : T) -> Option(usize))({
     (result : Option(usize)) = .None;
     found := false;
@@ -1092,9 +1133,10 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
-  /**
-  * Reverse elements in place
-  */
+  /// Reverse the elements in place, O(n).
+  ///
+  /// Exchanges raw slots, like `swap`, so no element is dup'd or dropped —
+  /// RC-neutral however `T` is refcounted.
   reverse : (fn(self : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
@@ -1307,12 +1349,12 @@ impl(
   generic(T : Type),
   where(T <: Ord(T)),
   ArrayList(T),
-  /**
-  * Sort elements in ascending order. STABLE: equal elements keep their
-  * input order, as `sort` does in Rust, Python, Java and Go. Use
-  * `sort_unstable` for the allocation-free heapsort when order among
-  * equals does not matter.
-  */
+  /// Sort ascending by `Ord`. STABLE (D17): equal elements keep their input
+  /// order, as `sort` does in Rust, Python, Java and Go.
+  ///
+  /// O(n log n) with one `usize` index array plus scratch allocated for the
+  /// merge — `sort_unstable` is the allocation-free heapsort for when order
+  /// among equals does not matter.
   sort : (fn(self : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
@@ -1324,11 +1366,9 @@ impl(
         )
     );
   }),
-  /**
-  * Sort elements in ascending order WITHOUT preserving the order of equal
-  * elements (heapsort — see `_heapsort_by`). O(n log n) worst case, in
-  * place, no allocation. Rust's `sort_unstable`.
-  */
+  /// Sort ascending by `Ord` WITHOUT preserving the order of equal elements
+  /// — Rust's `sort_unstable`. Heapsort: O(n log n) worst case, in place, no
+  /// allocation, no recursion (see `_heapsort_by`).
   sort_unstable : (fn(self : Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
@@ -1543,6 +1583,8 @@ array_list :: (fn(...(quote(elems))) -> unquote(Expr))({
 impl(
   generic(T : Type, N : usize),
   Array(T, N),
+  /// Owned copy of `[r.start, r.end)` of a fixed-size array. The end is
+  /// clamped to `N`, so an over-long range yields a short list.
   slice_copy : (fn(self : Array(T, N), r : Range(usize)) -> ArrayList(T))({
     e := cond((r.end > N) => N, true => r.end);
     out := ArrayList(T).new();
@@ -1552,6 +1594,7 @@ impl(
     });
     out
   }),
+  /// Inclusive-range companion of `slice_copy` (`arr(a..=b)`).
   slice_copy_inclusive : (fn(self : Array(T, N), r : RangeInclusive(usize)) -> ArrayList(T))({
     last := cond((r.end >= N) => N, true => (r.end + usize(1)));
     out := ArrayList(T).new();
@@ -1587,12 +1630,10 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
-  /// Sort ascending by a strict "less" closure — `less(a, b)` true when `a`
-  /// must come before `b`. Heapsort: O(n log n) worst case, in place, not
-  /// stable.
-  /// Sort by a caller-supplied strict "less". STABLE — equal elements keep
-  /// their input order, matching Rust's `sort_by`. Use `sort_unstable_by`
-  /// for the allocation-free heapsort.
+  /// Sort by a caller-supplied strict "less" — `less(a, b)` is true when `a`
+  /// must come before `b`. STABLE: equal elements keep their input order,
+  /// matching Rust's `sort_by`. Use `sort_unstable_by` for the
+  /// allocation-free heapsort.
   sort_by : (fn(self : Self, less : Impl(Fn(a : T, b : T) -> bool)) -> unit)({
     cond(
       (self._length <= usize(1)) => (),

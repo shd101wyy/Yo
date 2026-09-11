@@ -1,4 +1,16 @@
-//! Wall-clock date and time in UTC.
+//! Wall-clock date and time, either in UTC or at a FIXED offset from it.
+//!
+//! A `DateTime` is a broken-down civil date plus a `utc_offset_secs`. It is
+//! not zone-aware: the offset is a number of seconds, not a zone identifier,
+//! so a value cannot answer "what will this clock read next July" or be
+//! converted from one zone to another. `DateTime.now()` asks the C library
+//! for the offset in force right now (DST included) and stores that; every
+//! other constructor leaves the offset at 0, i.e. UTC.
+//!
+//! Two conversions look interchangeable and are not: `to_unix` reads the
+//! civil fields AS IF they were UTC, while `to_unix_utc` subtracts the offset
+//! and so names the actual instant. Reach for `to_unix_utc` unless you know
+//! the offset is 0.
 //!
 //! ## Example
 //!
@@ -8,6 +20,33 @@
 //! now := DateTime.now_utc();
 //! println(now.to_string());   // "2026-02-26T17:41:24Z"
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — two things in the surface are unsettled, and one is a live bug.
+//!
+//! The `to_unix` / `to_unix_utc` pair is a naming trap: `to_unix` is the
+//! shorter, more obvious name and is the WRONG one for any value with an
+//! offset, which is how `DateTime.now()` returns every value. Renaming
+//! `to_unix` to say that it reads the fields as UTC (`to_unix_as_utc`, or
+//! making `to_unix` the offset-aware one) is a breaking change nobody has
+//! decided yet. The local-offset behaviour of `now()` is itself only one
+//! release old — until 2026-09-06 it returned UTC under a local name
+//! (`issues/fixed/datetime-now-returned-utc-and-called-it-local.md`).
+//!
+//! `day_of_week` is wrong for year 0 and returns a `u8` wrap for negative
+//! years, because Sakamoto's algorithm needs floored division and C truncates
+//! toward zero
+//! (`issues/stddoc-io-datetime-day-of-week-wrong-for-non-positive-years.md`).
+//! `_validate` never checks the year, so those values reach it through the
+//! validating `new`.
+//!
+//! Beyond that: whether a real time-zone database belongs in `std` (Rust
+//! leaves it to `chrono-tz`/`jiff`) decides whether `utc_offset_secs` stays
+//! the whole zone story, and the eight public fields are unvalidated where
+//! `new` validates, so a struct literal can build a 31st of February that
+//! every method here will happily compute on. Freezing follows those three
+//! decisions, not a release count.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ToString } :: import("../fmt");
@@ -21,14 +60,34 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 /// Calendar date and time with nanosecond precision.
 /// Values are in UTC unless `utc_offset_secs` is non-zero.
+///
+/// The fields are public and are NOT checked on assignment — `DateTime.new`
+/// and `DateTime.parse` are the validating entry points. A value built with a
+/// struct literal can hold an impossible date, and every method here will
+/// compute on it without complaint.
 DateTime :: struct(
+  /// Proleptic Gregorian year, unbounded and signed (negative years are
+  /// years BCE). `_validate` does not range-check it, and `day_of_week` is
+  /// wrong for years at or below 0 — see `## Stability`.
   year : i32,
+  /// Month, `1..=12`.
   month : u8,
+  /// Day of month, `1` through the length of this month in this year
+  /// (leap-aware).
   day : u8,
+  /// Hour, `0..=23`.
   hour : u8,
+  /// Minute, `0..=59`.
   minute : u8,
+  /// Second, `0..=60` — 60 is admitted so a leap second parses rather than
+  /// being rejected as garbage.
   second : u8,
+  /// Nanoseconds within the second, `0..=999_999_999`.
   nanosecond : u32,
+  /// Seconds EAST of UTC for the civil fields above; `0` means the value is
+  /// UTC. `±86_399` is the accepted range. This is a fixed offset, not a
+  /// zone, so it records what the offset WAS at this instant and cannot be
+  /// used to convert the value to another zone.
   utc_offset_secs : i32
 );
 // Days per month lookup (non-leap year)
@@ -140,9 +199,12 @@ _local_utc_offset :: (fn(secs : i64) -> i32)({
 });
 impl(
   DateTime,
-  // Current UTC date/time.
-  // Panics if the realtime clock fails — a broken clock must not silently
-  // yield the epoch (plans/archive/STD_API_AUDIT.md C10).
+  /// The current UTC date and time, with `utc_offset_secs` left at 0 — use
+  /// `now()` for the local wall clock.
+  ///
+  /// Panics if `clock_gettime(CLOCK_REALTIME)` fails, rather than reading as
+  /// 1970: a broken clock must not silently yield the epoch
+  /// (plans/archive/STD_API_AUDIT.md C10).
   now_utc : (fn() -> Self)({
     sec := i64(0);
     nsec := i64(0);
@@ -174,11 +236,28 @@ impl(
     local.utc_offset_secs = off;
     local
   }),
-  // Construct from a Unix timestamp.
+  /// The UTC civil date and time of a Unix timestamp — `utc_offset_secs` is
+  /// 0, so the result is UTC even if the caller meant a local instant.
+  ///
+  /// Negative `secs` (before 1970) work: the day and the within-day remainder
+  /// are both normalised toward negative infinity. `nanos` is stored as
+  /// given, narrowed to `u32` and NOT normalised or validated — pass a value
+  /// already in `[0, 1e9)`, which is what every OS timestamp field supplies.
+  /// `DateTime.new` is the constructor that validates.
   from_unix : (fn(secs : i64, nanos : i64) -> Self)(
     _from_unix_secs(secs, nanos)
   ),
-  // Convert back to a Unix timestamp (seconds since epoch).
+  /// Unix seconds obtained by reading the civil fields AS IF they were UTC.
+  ///
+  /// This IGNORES `utc_offset_secs`, so for any value carrying an offset —
+  /// everything `now()` returns — it is not the instant the value names.
+  /// `to_unix_utc` is the offset-aware form and is the one to reach for; this
+  /// one is useful when you want the wall clock's own epoch reading, which is
+  /// how `_local_utc_offset` recovers a zone offset. The sub-second part is
+  /// dropped: whole seconds only.
+  ///
+  /// Exact for negative years too — it is the era-based inverse of
+  /// `from_unix`, not a loop.
   to_unix : (fn(inout(self) : Self) -> i64)({
     // Compute days since epoch using the inverse Gregorian algorithm
     y := i64(self.year);
@@ -203,11 +282,23 @@ impl(
     time_secs := (((i64(self.hour) * i64(3600)) + (i64(self.minute) * i64(60))) + i64(self.second));
     (days * i64(86400)) + time_secs
   }),
-  // True if this year is a leap year.
+  /// Whether `year` is a leap year under the proleptic Gregorian rule
+  /// (divisible by 4, except centuries not divisible by 400) — so year 0 and
+  /// year 2000 are leap years and 1900 is not.
   is_leap_year : (fn(inout(self) : Self) -> bool)(
     _is_leap_year(self.year)
   ),
-  // Day of week: 0 = Monday, 6 = Sunday (ISO 8601).
+  /// Day of the week as ISO 8601 numbers the days: `0` = Monday through
+  /// `6` = Sunday. Rust's `chrono` spells this `weekday()`.
+  ///
+  /// Reads the CIVIL fields, so it is the weekday of the wall clock rather
+  /// than of the UTC instant — the two differ near midnight for a value with
+  /// an offset.
+  ///
+  /// **Only valid for years 1 and later.** It is Sakamoto's algorithm, which
+  /// needs floored division; C truncates toward zero, so year 0 is off by one
+  /// and a negative year returns a `u8` wrap outside `0..=6`
+  /// (`issues/stddoc-io-datetime-day-of-week-wrong-for-non-positive-years.md`).
   day_of_week : (fn(inout(self) : Self) -> u8)({
     // Tomohiko Sakamoto's algorithm
     t := Array(i32, usize(12))(
@@ -238,7 +329,9 @@ impl(
       )
     )
   }),
-  // Day of year (1-based).
+  /// Day of the year, 1-based: `1` on 1 January and `365` (`366` in a leap
+  /// year) on 31 December. Leap-aware, and correct for negative years, unlike
+  /// `day_of_week` — it only sums month lengths.
   day_of_year : (fn(inout(self) : Self) -> u16)({
     m := i32(self.month);
     d := i32(self.day);

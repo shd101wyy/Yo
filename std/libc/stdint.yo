@@ -2,15 +2,35 @@
 //!
 //! Note: Yo already has `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`.
 //! This file provides C-compatible aliases and additional types/constants.
-// Type aliases for C compatibility (mapping Yo types to C stdint names)
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. Yo's own fixed-width types
+//! (`i8` … `u64`, `usize`) are the supported spelling; the aliases below
+//! exist so a prototype transcribed from a C header compiles unchanged.
+//! What `std/` actually uses from here is `SIZE_MAX` (`std/allocator`,
+//! `std/collections/array_list`, `std/collections/deque` — the capacity
+//! overflow guard) and `wint_t` (`std/libc/wctype`). The `*_least*` /
+//! `*_fast*` types and the limit constants are additive-by-demand and
+//! follow the platform's header, so no completeness claim is made.
 pragma(Pragma.AllowUnsafe);
+/// C's `int8_t` — an alias for Yo's `i8`. These eight aliases carry no
+/// behaviour of their own; they exist so a prototype transcribed from a C
+/// header resolves without rewriting its types. Yo code should write `i8`.
 int8_t :: i8;
+/// C's `int16_t` — Yo's `i16`.
 int16_t :: i16;
+/// C's `int32_t` — Yo's `i32`.
 int32_t :: i32;
+/// C's `int64_t` — Yo's `i64`.
 int64_t :: i64;
+/// C's `uint8_t` — Yo's `u8`.
 uint8_t :: u8;
+/// C's `uint16_t` — Yo's `u16`.
 uint16_t :: u16;
+/// C's `uint32_t` — Yo's `u32`.
 uint32_t :: u32;
+/// C's `uint64_t` — Yo's `u64`.
 uint64_t :: u64;
 c_include(
   "<stdint.h>",

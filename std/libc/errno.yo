@@ -1,4 +1,17 @@
 //! C11 `<errno.h>` — error handling constants and `errno` variable.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. The public surface over it
+//! is `std/sys/errors`, which maps these codes onto the `IoError` enum every
+//! `std/fs`, `std/net` and `std/process` result carries; `std/env` and
+//! `std/crypto/random` read individual codes (`EINTR`) directly. The VALUES
+//! are per-platform (that is the point of binding them rather than writing
+//! literals), and the LIST is additive-by-demand: entries appear as ports
+//! need them, so no completeness claim is made here. Reading `errno` after
+//! a call is only meaningful when the call reported failure, and only for
+//! the calling thread. Freezing would require deciding that `IoError`
+//! covers every code a supported OS can return, which it does not yet.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<errno.h>",

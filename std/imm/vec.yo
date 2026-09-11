@@ -3,7 +3,22 @@
 //!
 //! `Vec(T)` is an immutable vector: every mutation returns a new vector and
 //! leaves the original unchanged. All elements must implement `Send`, which is
-//! what makes a vector safe to hand to another thread.
+//! what makes a vector safe to hand to another thread. The sharing is
+//! whole-buffer: when the receiver is the ONLY owner the buffer is updated in
+//! place, and when anyone else still holds it the whole array is copied, so a
+//! mutation on a shared vector is O(n) rather than the O(log n) an RRB- or
+//! HAMT-backed persistent vector would give. Read `imm.List` for real
+//! structural sharing (O(1) prepend, shared tails) and `imm.Map` for a HAMT.
+//!
+//! The mutating methods take `own(self)`, so the RECEIVER IS MOVED:
+//!
+//! ```rust
+//! bigger := v.push(x);          // `v` is gone; `bigger` is the new vector
+//! kept := v; bigger := v.push(x);   // keeping the old version needs this...
+//! ```
+//!
+//! and the extra binding is also what pushes the refcount above one and sends
+//! `push` down its COPYING path.
 //!
 //! # What "immutable" costs here, exactly
 //!
@@ -53,6 +68,17 @@
 //! assert((v(usize(0)) == i32(1)), "first element");
 //! assert((v.len() == usize(3)), "length is 3");
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `plans/STD_API_STABILIZATION.md` §5 has an OPEN maintainer
+//! decision on exactly this type: implement real structural sharing (an RRB
+//! tree, which would make shared mutation O(log n)) or keep the flat
+//! copy-on-write array and stand behind the O(n). Either answer is
+//! compatible with these signatures, but the second is also an argument for
+//! renaming the mutators or dropping `own(self)`, so the surface cannot be
+//! frozen before the decision. The related `imm` question — the shape of
+//! `remove` across these containers — is open in the same section.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator, size_would_overflow } :: import("../allocator.yo");
 { memcpy } :: import("../libc/string.yo");
@@ -63,8 +89,11 @@ pragma(Pragma.AllowUnsafe);
 ///
 /// `get` is a pointer offset. A mutation on an UNSHARED vector (refcount 1)
 /// happens in place and is O(1) amortized; a mutation on a SHARED one copies
-/// the whole array and is O(n). See the module header for why that trade was
-/// kept rather than replaced with a structurally-shared trie.
+/// the whole array and is O(n) — there is no per-node sharing. See the module
+/// header for why that trade was kept rather than replaced with a
+/// structurally-shared trie. Elements must be `Send` (the buffer crosses
+/// threads) and `Acyclic` (the cycle collector does not scan atomic
+/// objects).
 Vec :: (fn(comptime(T) : Type, where(T <: (Send, Acyclic))) -> comptime(Type))(
   atomic(
     ref(
@@ -165,8 +194,12 @@ impl(
     });
     .Some((self._ptr.add(idx)).*)
   }),
-  /// Return a new vector with the element at `idx` replaced by `val`.
-  /// Panics if `idx >= len`.
+  /// New vector with the element at `idx` replaced by `val`. PANICS when
+  /// `idx >= len()`.
+  ///
+  /// Takes `own(self)`: the receiver is MOVED, and when it is the only owner
+  /// the element is overwritten in place (O(1)). If any other handle exists
+  /// the whole buffer is copied first — O(n).
   set : (fn(own(self) : Self, idx : usize, val : T) -> Self)({
     assert(idx < self._len, "imm.Vec.set: index out of bounds");
     if(rc(self) == usize(1), {
@@ -184,7 +217,14 @@ impl(
     unsafe.drop(self);
     result
   }),
-  /// Return a new vector with `val` appended.
+  /// New vector with `val` appended.
+  ///
+  /// Takes `own(self)`: the receiver is MOVED, so `v.push(x)` consumes `v`.
+  /// The uniquely-owned path appends in place (amortized O(1), doubling the
+  /// buffer when full); a SHARED vector copies its whole array first, which
+  /// is O(n) per push. Keeping the old version — `kept := v; bigger :=
+  /// v.push(x)` — is what makes it shared, so building a vector by pushing
+  /// while holding every intermediate is quadratic.
   push : (fn(own(self) : Self, val : T) -> Self)({
     if(rc(self) == usize(1), {
       if(self._len >= self._cap, {
@@ -227,7 +267,12 @@ impl(
     });
     .Some((self._ptr.add(self._len - usize(1))).*)
   }),
-  /// Return a new vector without the last element, and the removed element.
+  /// The vector without its last element, alongside that element — both in
+  /// one `PopResult`, since Yo has no multiple returns. `.value` is `.None`
+  /// on an empty vector.
+  ///
+  /// Takes `own(self)`: uniquely owned, it just shortens in place; shared, it
+  /// copies the remaining elements — O(n).
   pop : (fn(own(self) : Self) -> PopResult(T))({
     if(self.is_empty(), {
       return(PopResult(T)(vec : self, value : .None));
@@ -267,7 +312,9 @@ impl(
     Self._copy_elems(new_ptr, self._ptr, usize(0), actual_start, new_len);
     Self(_ptr : new_ptr, _len : new_len, _cap : new_len)
   }),
-  /// Return a new vector that is the concatenation of self and other.
+  /// New vector holding `self`'s elements followed by `other`'s — O(n + m),
+  /// always: there is no shared spine to splice, so the result is a fresh
+  /// array. Takes `own(self)`, so the left operand is MOVED.
   concat : (fn(own(self) : Self, other : Self) -> Self)({
     total := (self._len + other._len);
     if(rc(self) == usize(1), {
@@ -304,7 +351,8 @@ impl(
     unsafe.drop(self);
     result
   }),
-  /// Return a new vector with elements reversed.
+  /// New vector with the elements in reverse order — O(n). Takes
+  /// `own(self)`, so the receiver is MOVED.
   reverse : (fn(own(self) : Self) -> Self)({
     if(self._len <= usize(1), {
       return(self);
@@ -416,7 +464,11 @@ impl(
   contains : (fn(self : Self, val : T, where(T <: Eq(T))) -> bool)(
     self.index_of(val).is_some()
   ),
-  /// Return a new vector with duplicate elements removed (preserves first occurrence).
+  /// New vector with duplicates removed, keeping the FIRST occurrence of
+  /// each — unlike `ArrayList.dedup`, which only collapses ADJACENT equals.
+  ///
+  /// O(n²): every candidate is compared against the elements already kept.
+  /// Takes `own(self)`, so the receiver is MOVED.
   dedup : (fn(own(self) : Self, where(T <: Eq(T))) -> Self)({
     if(self._len <= usize(1), {
       return(self);

@@ -1,4 +1,15 @@
 //! C11 `<ctype.h>` — character classification and conversion functions.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. These take and return `int`
+//! because C's do (a negative value other than `EOF` is undefined
+//! behaviour), they classify one BYTE, and the answer depends on the
+//! process locale. Yo's own classification is on `rune` and is Unicode, not
+//! byte, wide: `std/string/rune.yo` (`is_digit`, `is_alphabetic`, …) is the
+//! supported surface, and nothing in the tree imports this module. It would
+//! only freeze if Yo decided to expose C locale behaviour deliberately,
+//! which it has not.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<ctype.h>",

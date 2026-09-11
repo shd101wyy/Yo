@@ -41,6 +41,28 @@
 //! and fail to C-compile (the same hole was in `Mutex.with_lock`). Fixed
 //! 2026-08-26:
 //! issues/fixed/generic-r-callback-with-unit-closure-emits-void-star-temp.md.
+//!
+//! ## Stability
+//!
+//! unstable — `try_with_read` / `try_with_write` landed 2026-09-10 and the
+//! file has 22 passing cases, but two properties of this surface are still
+//! open questions rather than decisions.
+//!
+//! First, READ-ONLY-NESS IS NOT ENFORCED. `with_read` binds the value by
+//! value because Yo has no read-only binding mode; for a `ref(...)` `T`
+//! that copy shares the same object, so a body that mutates through it
+//! mutates shared data while holding only a read lock — and assigning to
+//! the parameter degenerates in the evaluator
+//! (issues/assign-to-by-value-closure-param-under-generic-result-types-unit.md).
+//! Freezing `with_read` means either a language-level read-only binding or
+//! a different signature.
+//!
+//! Second, the lock is READER-PREFERRING and can starve a writer:
+//! `_raw_read_lock` waits only while a writer HOLDS the lock, not while one
+//! is queued, so an unbroken stream of readers never lets a waiting writer
+//! in. Rust's `RwLock` leaves the fairness to the OS primitive and says so;
+//! this one implements the policy itself, so the policy is part of the API
+//! and has to be chosen deliberately before it can be frozen.
 pragma(Pragma.AllowUnsafe);
 
 { Mutex } :: import("./mutex");

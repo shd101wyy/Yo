@@ -29,6 +29,21 @@
 //! migration waited on a seed carrying #299's shadow-registration fix, because
 //! `yo build` compiles `src/` with the SEED and the older one mis-emitted this
 //! module's match bindings; v0.2.18 carries it.
+//!
+//! ## Stability
+//!
+//! unstable — one thing here is expected to move and one thing is waiting on
+//! the language. `read_exact` is a `BufReader` METHOD returning
+//! `Option(ArrayList(u8))`, where Rust's is a `Read` trait method: the
+//! Rust-shaped end state is a `Reader` default (so a `File` or `TcpStream`
+//! gets it unbuffered too), which would leave two spellings of one operation
+//! unless this one is removed — a breaking change, so it waits for a window.
+//! And `lines()` cannot exist until Yo has an async iterator protocol, which
+//! is why `read_line` is the primitive; adding `lines()` later is additive,
+//! but it may well change what shape `read_line` wants to be. The
+//! no-flush-on-drop rule for `BufWriter` is NOT an open question — it is a
+//! deliberate match for tokio's `BufWriter` (a `Dispose` cannot await), and
+//! it is documented above because callers must act on it.
 pragma(Pragma.AllowUnsafe);
 { Reader, Writer } :: import("./index");
 { IoExn } :: import("../error");

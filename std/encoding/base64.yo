@@ -8,6 +8,34 @@
 //! s := base64.encode(data);
 //! b := base64.decode(s.to_string()).unwrap();
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the alphabet and the padding rule are baked into the function
+//! NAMES, and that is the open question. `base64_encode` uses the standard
+//! alphabet WITH padding, `base64_encode_url` the URL-safe alphabet WITHOUT
+//! it, and there is no way to ask for the other two combinations; both
+//! decoders accept padded and unpadded input alike, so `base64_decode` is
+//! Rust's `STANDARD` and `STANDARD_NO_PAD` engines at once. Rust's `base64`
+//! crate separates the alphabet from the padding policy into a
+//! configurable `Engine` precisely because four names do not scale, and a
+//! third axis (`Engine`'s `decode_padding_mode`) would make it eight here.
+//! Deciding whether Yo grows an options value or keeps naming the
+//! combinations is what has to happen before this freezes.
+//!
+//! Two smaller things ride along. The decode leniency is wider than Rust's:
+//! ALL trailing `=` are stripped before the length check, so `"QUJD===="` is
+//! accepted where Rust rejects excess padding — a canonical-form check would
+//! turn input that decodes today into an error. And the errors come from the
+//! shared `EncodingError` in `std/encoding/error.yo`, which gained its `pos`
+//! fields on 2026-09-09 and has not been through a release; whether one enum
+//! serves three codecs or splits per codec is that module's own open
+//! question.
+//!
+//! The names also still stutter (D2): `base64_encode` repeats the module it
+//! lives in, and the decided direction is `base64.encode` on the imported
+//! module value — listed as STILL OPEN in `plans/STD_API_STABILIZATION.md`
+//! §4 for the whole encoding group.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { EncodingError } :: import("./error");

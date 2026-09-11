@@ -1,23 +1,45 @@
-//! Temporary file/directory operations.
+//! Temporary file and directory creation — the raw syscall boundary.
 //!
-//! Synchronous wrappers for `mkdtemp`/`mkstemp`.
-//! These are inherently synchronous on all platforms.
+//! `mkdtemp(3)` and `mkstemp(3)`, both genuinely synchronous on every
+//! platform. `std/fs/temp.yo` owns the public surface (`TempDir`,
+//! `TempFile`), including the RAII cleanup this layer does not do.
 //!
-//! ## Return values
+//! ## Stability
 //!
-//! - `mkdtemp`: 0 on success, -errno on failure
-//! - `mkstemp`: fd on success, -errno on failure
+//! unstable — the in-place template is what has to go. Both functions
+//! REWRITE the caller's buffer, so the buffer has to be mutable, `*u8`, and
+//! big enough for what the platform writes back, and there is no way to ask
+//! for a name without also creating the thing. The Windows implementations
+//! are also weaker than the POSIX ones in a way a frozen API should not hide
+//! (`mkdtemp` there is not atomic — see below). Freezing needs a form that
+//! returns an owned path, and an atomic Windows `mkdtemp`; `std/fs/temp` is
+//! the stable surface until then.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_mkdtemp, __yo_sync_mkstemp } :: import("./externs.yo");
-// Create a temporary directory from template (e.g., "/tmp/myapp-XXXXXX").
-// The template is modified in-place with the actual path.
-// Returns 0 on success, -errno on failure.
+/// Create a uniquely named directory from `template` — POSIX `mkdtemp(3)`.
+/// The template must be a mutable NUL-terminated string ENDING in exactly six
+/// `X`s (e.g. `/tmp/myapp-XXXXXX`), and it is rewritten IN PLACE with the
+/// name that was actually used. Returns 0 on success, a negative errno on
+/// failure. The directory is created with mode 0700 and is NOT removed for
+/// you.
+///
+/// On Windows there is no `mkdtemp`: the runtime generates a name with
+/// `_wmktemp_s` and then calls `_wmkdir`, so the pick and the create are two
+/// steps and two processes can choose the same name — the exclusivity POSIX
+/// guarantees is not there.
 mkdtemp :: (fn(template : *u8) -> i32)(
   __yo_sync_mkdtemp(template)
 );
-// Create a temporary file from template (e.g., "/tmp/myfile-XXXXXX").
-// The template is modified in-place with the actual path.
-// Returns fd on success, -errno on failure.
+/// Create a uniquely named file from `template` and return its OPEN
+/// descriptor (or a negative errno) — POSIX `mkstemp(3)`. Same template rule
+/// as `mkdtemp`: six trailing `X`s, rewritten in place. The file is created
+/// `O_RDWR` with mode 0600, and is not unlinked for you.
+///
+/// Note the return convention differs from `mkdtemp`'s: success here is a
+/// non-negative fd, not 0. On Windows the name comes from `_wmktemp_s` and
+/// the file is opened `_O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY`, so the
+/// CREATE is still exclusive — but a lost race fails the call instead of
+/// retrying with another name, which POSIX `mkstemp` would do.
 mkstemp :: (fn(template : *u8) -> i32)(
   __yo_sync_mkstemp(template)
 );

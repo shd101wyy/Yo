@@ -17,6 +17,21 @@
 //! s = s.insert(i32(2));
 //! // elements are always sorted: 1, 2, 3
 //! ```
+//!
+//! `contains`, `insert` and `remove` are O(log n) through the tree, and
+//! `min`/`max` are the leftmost/rightmost walk. The set operations are
+//! eager — each builds a new set, O(n log n) — and `to_list()`, like the
+//! `IntoIterator` behind `for(set, ...)`, materializes an `imm.List` in
+//! ascending order, O(n).
+//!
+//! ## Stability
+//!
+//! unstable — inherits both open questions of the map it wraps
+//! (`plans/STD_API_STABILIZATION.md` §4): `remove(elem) -> Self` cannot say
+//! whether the element was present, and the wrapper stores
+//! `SortedMap(T, bool)` where D16's rule for `HashSet` says the value slot
+//! should be `unit`, now that `unit` is a true ZST. Freezing follows those
+//! two.
 pragma(Pragma.AllowUnsafe);
 { SortedMap } :: import("./sorted_map.yo");
 { ArrayList } :: import("../collections/array_list.yo");

@@ -1,32 +1,80 @@
-//! Runtime system identification.
+//! System identification (`uname`/`gethostname`) — the raw syscall boundary.
 //!
-//! Synchronous wrappers for `uname`/`gethostname`.
-//! Returns 0 on success, -errno / negative platform error on failure.
+//! `uname(2)` writes into a `struct utsname` whose FIELD LAYOUT differs per
+//! platform, so this module exports the offsets and sizes a caller needs to
+//! read it back — that is the only reason it is more than two functions. No
+//! public `std` module reads it (`std/process`'s `platform` is a compile-time
+//! constant, not a runtime query); `tests/sys/sysinfo.test.yo` is the only
+//! caller in this tree.
+//!
+//! ## Stability
+//!
+//! unstable — it hands the caller a raw C struct and a table of byte offsets
+//! into it, which is a layout contract, not an API. Every one of these
+//! constants is a `cond` on the platform, and adding a target means adding a
+//! branch here AND auditing every call site's arithmetic. A frozen version
+//! returns a Yo struct of `String`s from one call, so the layout stays in the
+//! runtime where it belongs. Freezing follows that rewrite, not a release
+//! count.
 pragma(Pragma.AllowUnsafe);
 { platform, Platform } :: import("../process");
 { __yo_sync_uname, __yo_sync_gethostname } :: import("./externs.yo");
-// uname() layout constants.
-// Linux uses 65-byte fields (6 fields total including domainname).
-// macOS uses 256-byte fields (5 fields).
-// Windows emulation uses 256-byte fields (5 fields).
+/// Size of ONE `struct utsname` field, which is where the platforms diverge:
+/// glibc's `_UTSNAME_LENGTH` is 65, while macOS uses 256 and the Windows
+/// emulation copies the macOS shape. Every offset below is a multiple of it.
 UTSNAME_FIELD_SIZE :: cond(
   (platform == Platform.Macos) => usize(256),
   (platform == Platform.Windows) => usize(256),
   true => usize(65)
 );
+/// Total bytes to allocate for the `uname` buffer. Larger than five fields on
+/// Linux because glibc's struct carries a sixth (`domainname`) that this
+/// module does not expose: 65 × 6 = 390, against 256 × 5 = 1280 on macOS and
+/// Windows. Allocate exactly this and pass it to `uname`.
 UTSNAME_SIZE :: cond(
   (platform == Platform.Macos) => usize(1280),
   (platform == Platform.Windows) => usize(1280),
   true => usize(390)
 );
+/// Byte offset of `sysname` — the OS name (`"Linux"`, `"Darwin"`, and the
+/// literal `"Windows"` the emulation writes). Each field is a NUL-terminated
+/// C string within its `UTSNAME_FIELD_SIZE` slot.
 UTSNAME_SYSNAME :: usize(0);
+/// Byte offset of `nodename` — the host name, the same value `gethostname`
+/// returns. The Windows emulation fills it from `gethostname` and falls back
+/// to `"localhost"` if that fails.
 UTSNAME_NODENAME :: UTSNAME_FIELD_SIZE;
+/// Byte offset of `release` — the kernel release (`"6.8.0-40-generic"`,
+/// `"23.5.0"`). The Windows emulation writes the constant `"win32"`, not a
+/// Windows version, so do not parse it for one.
 UTSNAME_RELEASE :: (UTSNAME_FIELD_SIZE * usize(2));
+/// Byte offset of `version` — the kernel build string. The Windows emulation
+/// writes the constant `"nt"`.
 UTSNAME_VERSION :: (UTSNAME_FIELD_SIZE * usize(3));
+/// Byte offset of `machine` — the hardware name. This is the one field the
+/// Windows emulation computes: `GetNativeSystemInfo` mapped to `"x86_64"`,
+/// `"aarch64"`, `"x86"`, `"arm"` or `"unknown"`, chosen to match what Linux
+/// and macOS report so a caller can compare the strings.
 UTSNAME_MACHINE :: (UTSNAME_FIELD_SIZE * usize(4));
+/// Fill `buf` (allocate `UTSNAME_SIZE` bytes) with system identification
+/// strings — POSIX `uname(2)`. Returns 0 on success, a negative errno on
+/// failure. Read a field with the `UTSNAME_*` offset constants above; each is
+/// a NUL-terminated C string.
+///
+/// Windows has no `uname`; the runtime SYNTHESIZES the struct as described on
+/// the offset constants, so the call always succeeds there but three of the
+/// five fields are constants rather than measurements.
 uname :: (fn(buf : *u8) -> i32)(
   __yo_sync_uname(buf)
 );
+/// Write the host name into `name`, at most `len` bytes — POSIX
+/// `gethostname(2)`. Returns 0 on success, a negative errno on failure (a
+/// negated WSA code on Windows).
+///
+/// The wrapper always writes a NUL at `name[len - 1]`, so a name longer than
+/// the buffer is silently TRUNCATED rather than reported as `-ENAMETOOLONG`.
+/// Size the buffer generously (`_POSIX_HOST_NAME_MAX` is 255) if the exact
+/// name matters.
 gethostname :: (fn(name : *u8, len : usize) -> i32)(
   __yo_sync_gethostname(name, len)
 );

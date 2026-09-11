@@ -13,6 +13,34 @@
 //!
 //! `+` is NOT treated as a space: that is the `application/x-www-form-urlencoded`
 //! FORM dialect, not RFC 3986 — a form variant can be added additively.
+//!
+//! ## Stability
+//!
+//! unstable — `percent_encode`'s escape set is HARDCODED to the unreserved
+//! set, and that is the open question. It makes this function
+//! `encodeURIComponent` and nothing else: handed a whole path it escapes the
+//! `/` to `%2F`, handed a query string it escapes the `&` and `=`, so the
+//! only correct use is one component at a time. Rust's `percent-encoding`
+//! crate takes an `AsciiSet` for exactly this reason and ships
+//! `NON_ALPHANUMERIC`, `CONTROLS`, `PATH_SEGMENT`, `QUERY` and `USERINFO`
+//! variants of it. Growing that here is additive if it arrives as a second
+//! function (`percent_encode_with(input, set)`) and breaking if
+//! `percent_encode` gains a parameter — and which of those it is has not
+//! been decided.
+//!
+//! Two smaller open items. The FORM dialect (`+` for space) is still absent,
+//! noted above as additive, and `std/url`'s `query_pairs` currently
+//! hand-rolls it by replacing `+` before calling here — so the encoder half
+//! has no home at all. And the names stutter (D2): `percent_encode` repeats
+//! its module, where the decided direction for the whole encoding group is
+//! `percent.encode` on the imported module value
+//! (`plans/STD_API_STABILIZATION.md` §4, STILL OPEN).
+//!
+//! What IS settled: the decoder's split into `percent_decode` (validating
+//! UTF-8, returning a `String`) and `percent_decode_bytes` (raw, for
+//! non-text data), and `PercentError` carrying the byte index of the fault
+//! rather than only its kind. Both have been through several releases
+//! unchanged and are covered by `tests/encoding/percent.test.yo`.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 utf8 :: import("./utf8");

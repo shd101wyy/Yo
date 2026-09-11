@@ -1,25 +1,59 @@
-//! Socket address and option query helpers.
+//! Socket address and option queries — the raw syscall boundary.
 //!
-//! Synchronous wrappers for socket metadata operations.
-//! Returns 0 on success, -errno (or negative platform socket error) on failure.
+//! The four synchronous socket-metadata calls: `getsockname`, `getpeername`,
+//! `getsockopt`, `setsockopt`. They are here rather than in `std/sys/tcp`
+//! because they do not submit I/O and so need no `IoFuture` — the kernel
+//! answers from the socket's own state. `std/net/tcp.yo` and
+//! `std/net/udp.yo` are the public surface (`local_addr`, `peer_addr`, and
+//! the `SO_*` setters behind `TcpListener`/`UdpSocket`).
+//!
+//! ## Stability
+//!
+//! unstable — the error convention is not one thing yet. POSIX returns a
+//! negative errno; the Windows implementations return a negated WSA code
+//! (`-10038`, `-10057`, …), which `IoError.from_errno` cannot classify and
+//! `IoError.from_win32` does not cover either, so it lands in `.Other`. The
+//! option API is also fully untyped — `level`, `optname`, an unsized `*u8`
+//! and a byte length, with no check that the three agree. Freezing needs the
+//! WSA codes folded into `IoError` (or translated in the runtime) and a typed
+//! option surface; `std/net` is the stable layer meanwhile.
 pragma(Pragma.AllowUnsafe);
 { __yo_sync_getsockname, __yo_sync_getpeername, __yo_sync_getsockopt, __yo_sync_setsockopt } :: import("./externs.yo");
-// Get local address of a socket.
-// Writes the address into `addr` buffer and updates `addrlen` with actual size.
+/// Read the LOCAL address `sockfd` is bound to into `addr` — POSIX
+/// `getsockname(2)`. `addrlen` is in/out: set it to the capacity of `addr`
+/// (`sockaddr_storage_size()` is the safe choice) and it comes back holding
+/// the size actually written. Returns 0 on success, a negative errno on
+/// failure (a negated WSA code on Windows).
+///
+/// This is how you learn the port the kernel picked after binding to port 0.
+/// Use `std/sys/tcp`'s `get_family` to decide whether to read the buffer as
+/// `sockaddr_in` or `sockaddr_in6`. wasm returns `-ENOSYS`.
 getsockname :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32)(
   __yo_sync_getsockname(sockfd, addr, addrlen)
 );
-// Get remote peer address of a connected socket.
-// Writes the address into `addr` buffer and updates `addrlen` with actual size.
+/// Read the REMOTE address `sockfd` is connected to into `addr` — POSIX
+/// `getpeername(2)`. Same in/out `addrlen` contract as `getsockname`.
+/// Returns 0 on success, a negative errno on failure; an unconnected socket
+/// is `-ENOTCONN` (`-WSAENOTCONN` on Windows). wasm returns `-ENOSYS`.
 getpeername :: (fn(sockfd : i32, addr : *u8, addrlen : *u32) -> i32)(
   __yo_sync_getpeername(sockfd, addr, addrlen)
 );
-// Get socket option value.
-// `optlen` should be initialized with input buffer size and is updated on return.
+/// Read socket option `optname` at `level` into `optval` — POSIX
+/// `getsockopt(2)`. `optlen` is in/out: set it to the capacity of `optval`
+/// (4 bytes for the many `i32`-valued options) and read back the size
+/// written. Returns 0 on success, a negative errno on failure.
+///
+/// Nothing checks that `optval`'s size matches what the option actually
+/// returns, so a too-small buffer is a kernel-side truncation or `-EINVAL`
+/// depending on the option, not a Yo-side error.
 getsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : *u32) -> i32)(
   __yo_sync_getsockopt(sockfd, level, optname, optval, optlen)
 );
-// Set socket option value.
+/// Set socket option `optname` at `level` from the `optlen` bytes at
+/// `optval` — POSIX `setsockopt(2)`. Returns 0 on success, a negative errno
+/// on failure. This is the synchronous form; `std/sys/tcp` and
+/// `std/sys/udp` also expose an `IoFuture`-returning `setsockopt`, which is
+/// the same syscall wrapped for use inside an `async` block.
 setsockopt :: (fn(sockfd : i32, level : i32, optname : i32, optval : *u8, optlen : u32) -> i32)(
   __yo_sync_setsockopt(sockfd, level, optname, optval, optlen)
 );

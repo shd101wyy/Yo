@@ -20,6 +20,29 @@
 //!   f := io.await(File.open(Path.new(`test.txt`), .Read, io), { io, exn });
 //! });
 //! ```
+//!
+//! ## Positions are per-handle, not per-descriptor
+//!
+//! Every read and write goes through POSITIONAL I/O (`pread`/`pwrite`), so
+//! the descriptor's own file offset never moves and `File._pos` is the only
+//! authority on "where am I". Two consequences a caller cannot see from the
+//! signatures: `seek`/`position` are pure arithmetic on the handle and never
+//! reach the OS (which is why `seek` needs only `exn`, not `io`), and a
+//! `File` is a `ref` handle, so a copy of one SHARES the position — two
+//! interleaved async reads through the same handle read from wherever the
+//! other one left off, they do not each get their own cursor.
+//!
+//! ## Stability
+//!
+//! unstable — `flush` names the wrong operation. The inherent
+//! `File.flush(io)` is an `fsync`, which is Rust's `File::sync_all`, while
+//! this file's `io.Writer` impl gives the same spelling Rust's
+//! `Write::flush` meaning: a no-op, because an fd write is unbuffered. So
+//! `f.flush(io)` costs a disk barrier while the identical call inside a
+//! function bounded on `Writer` costs nothing, and nothing in the signature
+//! says which one a reader is looking at. Freezing follows splitting those
+//! into `sync_all` / `sync_data` (`fdatasync`) with `flush` left to the
+//! trait, not a release count.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -208,7 +231,12 @@ impl(
         )
     )
   }),
-  /// Flush (fsync) file data to disk.
+  /// `fsync` this descriptor: block until the file's data AND metadata have
+  /// reached the storage device. This is Rust's `File::sync_all`, NOT Rust's
+  /// `Write::flush` — there is no user-space buffer in a `File` to flush, so
+  /// the `io.Writer` impl below deliberately makes the trait's `flush` a
+  /// no-op. Reach for this one only when durability is the point; it is by
+  /// far the most expensive call on the type.
   flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
     io.async(e => {
@@ -360,7 +388,9 @@ impl(
     write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.write(buf, size, io)
     ),
-    // fd writes are unbuffered — nothing to flush.
+    /// A no-op — Rust's `Write::flush` for `File`. An fd write has no
+    /// user-space buffer behind it, so there is nothing to push. The
+    /// inherent `File.flush` is an `fsync` instead; see its doc.
     flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())
     )

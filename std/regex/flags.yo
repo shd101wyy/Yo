@@ -3,29 +3,70 @@
 //! **Internal to `std/regex`.** `RegexFlags` is not public API — flags reach
 //! the engine as the string argument of `Regex.new_with_flags(pattern, flags)`.
 //!
-//! Regex flags follow JavaScript syntax: `"gi"`, `"ms"`, `"iu"`, etc.
+//! Regex flags follow JavaScript syntax: `"gi"`, `"ms"`, `"iu"`, etc. The
+//! flag string is a set, so order does not matter, but a repeat is an error
+//! (`DuplicateFlag`) rather than a no-op — a `"gg"` is far more likely a typo
+//! than an intention.
 //!
-//! Supported flags:
-//! - `g` — global: match all occurrences
-//! - `i` — ignoreCase: case-insensitive matching
-//! - `m` — multiline: `^` and `$` match line boundaries
-//! - `s` — dotAll: `.` matches newline characters
-//! - `u` — unicode: full Unicode matching
-//! - `y` — sticky: match from lastIndex only
+//! Accepted flags, and what the engine actually does with each:
+//! - `i` — ignoreCase. HONOURED, but ASCII-only: the fold is `A-Z` → `a-z`
+//!   (`NfaVm._to_lower`), so `é` does not match `É`. Setting it also discards
+//!   the literal-prefix optimisation, because that scan is case-sensitive.
+//! - `m` — multiline. HONOURED: `^` and `$` also match at `\n` boundaries.
+//! - `s` — dotAll. HONOURED: `.` also matches `\n`.
+//! - `y` — sticky. HONOURED: a match must start exactly where asked, and the
+//!   literal-prefix skip is disabled so it cannot jump ahead.
+//! - `g` — global. PARSED AND IGNORED. The engine has no `lastIndex`; "all
+//!   occurrences" is a method choice (`find_all` / `find_iter` /
+//!   `replace_all`), not a flag.
+//! - `u` — unicode. PARSED AND IGNORED. The VM decodes UTF-8 and matches whole
+//!   runes unconditionally, so there is no non-unicode mode to switch out of.
+//!
+//! The last two are accepted for JavaScript source compatibility and are
+//! filed as `issues/stddoc-str-regex-g-and-u-flags-are-silently-ignored.md`:
+//! accepting a flag and doing nothing is worse than rejecting it, because
+//! `Regex.new_with_flags(p, "g").replace(...)` looks like it replaces all and
+//! does not.
+//!
+//! ## Stability
+//!
+//! unstable — and not public: `RegexFlags` is an internal type, reached only
+//! through the flag STRING of `Regex.new_with_flags`. Two things have to be
+//! settled before even that string is frozen: what `g` and `u` should do
+//! (implement, or reject as invalid — either is a behaviour change for
+//! existing callers), and whether `i` grows real Unicode case folding, which
+//! would change what existing `i` patterns match. The Rust regex crate spells
+//! these as inline `(?i)` groups rather than a trailing flag string; adopting
+//! that would replace this module rather than extend it.
 { String } :: import("std/string");
 import("std/collections/array_list");
 { RegexError } :: import("./error.yo");
+/// The parsed flag set a `Regex` carries and hands to the VM on every
+/// execution. Produced only by `parse`; `Regex` keeps one and never mutates
+/// it, so a compiled pattern's flags are fixed for its lifetime.
 RegexFlags :: struct(
+  /// `g`. Set by `parse` and READ BY NOBODY — see the module header.
   global : bool,
+  /// `i` — ASCII-only case folding in the VM's character, class and
+  /// backreference comparisons.
   ignore_case : bool,
+  /// `m` — `^` matches at the start of input and after any `\n`; `$` matches
+  /// at the end and before any `\n`.
   multiline : bool,
+  /// `s` — `.` matches `\n` as well. Without it, `.` matches any rune except
+  /// `\n`.
   dot_all : bool,
+  /// `u`. Set by `parse` and READ BY NOBODY — the engine is always
+  /// rune-based. See the module header.
   unicode : bool,
+  /// `y` — anchor every attempt at the requested start offset instead of
+  /// scanning forward for one that matches.
   sticky : bool
 );
 impl(
   RegexFlags,
-  // Create default flags (all false)
+  /// Every flag off — what `Regex.new(pattern)` (the one-argument form) uses,
+  /// and the base `parse` builds on.
   default : (fn() -> Self)(
     Self(
       global : false,
@@ -36,7 +77,16 @@ impl(
       sticky : false
     )
   ),
-  // Parse flags from a string like `gi`, `ms`, etc.
+  /// Parse a JavaScript-style flag string (`""`, `"gi"`, `"msy"`, …).
+  ///
+  /// Returns `.Err(RegexError.InvalidFlag(b))` on the first byte outside
+  /// `gimsuy` and `.Err(RegexError.DuplicateFlag(b))` on the first repeat —
+  /// the first fault wins, so a caller sees one error, not a list. An empty
+  /// string is `.Ok(default())`.
+  ///
+  /// The scan is BYTE-wise, which is correct here only because every legal
+  /// flag is ASCII: a multi-byte rune in the flag string is reported as an
+  /// invalid flag on its lead byte rather than as one character.
   parse : (fn(flags_str : String) -> Result(Self, RegexError))({
     result := Self.default();
     bytes := flags_str.as_bytes();

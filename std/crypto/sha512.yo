@@ -5,6 +5,25 @@
 //! 128 bits in the spec; this implementation tracks the total as a `u64`
 //! BYTE count (caps input at 2^61 bytes — two exbibytes) and writes the
 //! high 64 bits of the bit length as `total >> 61`.
+//!
+//! ```rust
+//! { sha512_hex } :: import("std/crypto/sha512");
+//! digest := sha512_hex(data); // 128-char lowercase hex
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — the FIPS vectors pass (`tests/crypto/digest.test.yo`), but
+//! this module carries a deviation that becomes a promise the moment it is
+//! frozen: the spec's message-length field is 128 bits and this
+//! implementation tracks a `u64` byte count, so inputs are capped at 2^61
+//! bytes and the high half of the length field is derived rather than
+//! counted. Nothing in reach of a Yo program hits that, yet "SHA-512 as
+//! specified" and "SHA-512 up to two exbibytes" are different contracts.
+//! SHA-384 — the same compression function with a different IV and a
+//! truncated output — is also absent, and adding it may well change how
+//! this file is organised. The `finish` / `finish_bytes` double surface and
+//! the single-use `finish` are the `std/crypto/digest` questions.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 hex :: import("../encoding/hex");
@@ -157,7 +176,7 @@ Sha512 :: ref(
 );
 impl(
   Sha512,
-  // Initialise a new hasher.
+  /// A hasher seeded with the FIPS 180-4 SHA-512 initial state.
   new : (fn() -> Self)(
     Self(
       _h : Array(u64, usize(8))(
@@ -175,7 +194,9 @@ impl(
       _total : u64(0)
     )
   ),
-  // Feed more data into the hasher.
+  /// Absorb `data` and return the same hasher, so calls chain. O(len).
+  /// Buffers a partial 128-byte block internally, so how the input is
+  /// split cannot change the digest.
   update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
@@ -194,7 +215,12 @@ impl(
     });
     self
   }),
-  // Finalise and return the 64-byte digest.
+  /// Append the padding and the 128-bit length field, fold the last block
+  /// in, and return the 64-byte digest.
+  ///
+  /// **Single use** — the padding goes into the hasher's own buffer, so a
+  /// second `finish` returns a digest of the padded state rather than of
+  /// the message. One hasher, one message.
   finish : (fn(self : Self) -> Array(u8, usize(64)))({
     bit_len_low := (self._total << u64(3));
     bit_len_high := (self._total >> u64(61));
@@ -262,11 +288,14 @@ impl(
 // ============================================================================
 // Convenience functions
 // ============================================================================
-// Hash data and return the 64-byte digest.
+/// SHA-512 of `data` in one call — the 64-byte digest. Exactly
+/// `Sha512.new().update(data).finish()`.
 sha512 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(64)))(
   Sha512.new().update(data).finish()
 );
-// Hash data and return the 128-character lowercase hex digest.
+/// SHA-512 of `data` as 128 lowercase hex characters. Allocates the
+/// `String`; compare security-relevant digests with `constant_time_eq`
+/// (`std/crypto/hmac`).
 sha512_hex :: (fn(data : ArrayList(u8)) -> String)({
   digest := sha512(data);
   bytes := ArrayList(u8).with_capacity(usize(64));

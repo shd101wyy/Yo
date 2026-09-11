@@ -1,0 +1,26 @@
+// Repro: IpAddr.to_string() renders IPv6 in the full eight-group form instead
+// of the RFC 5952 §4.2 canonical form, so the same address has two spellings
+// that never compare equal as text.
+//
+//   yo compile issues/repros/stddoc-io-ipv6-to-string-is-not-rfc-5952-canonical.yo \
+//     --optimize 2 --std-path ./std -o /tmp/v6 && /tmp/v6
+//
+// Expected (Rust's Ipv6Addr::to_string, and every log/CLI in the ecosystem):
+//   ::1
+//   2001:db8::1
+// Actual:
+//   0:0:0:0:0:0:0:1
+//   2001:db8:0:0:0:0:0:1
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ IpAddr } :: import("std/net/addr");
+
+main :: (fn() -> unit)({
+  println(IpAddr.loopback_v6().to_string());
+  segs := Array(u16, usize(8)).fill(u16(0));
+  segs(usize(0)) = u16(0x2001);
+  segs(usize(1)) = u16(0x0db8);
+  segs(usize(7)) = u16(1);
+  println(IpAddr.V6(segs).to_string());
+});
+export(main);

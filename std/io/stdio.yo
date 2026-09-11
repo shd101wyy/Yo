@@ -12,6 +12,36 @@
 //! required when a standard stream is REDIRECTED to a regular file (the
 //! async runtime writes positionally there); for pipes and terminals the
 //! offset is ignored.
+//!
+//! **That offset is per HANDLE, and `stdout()` mints a new one starting at
+//! zero on every call — so two handles overwrite each other when stdout is
+//! redirected to a file, and so does mixing a handle with `std/fmt`'s
+//! `println` (which writes through libc's own buffered stdio and flushes at
+//! exit).** To a pipe or a terminal both work, which is what makes this easy
+//! to miss. Until it is fixed, pick ONE writer per stream for the lifetime
+//! of the process: keep a single handle and pass it around, and do not
+//! interleave `println` with it
+//! (`issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`).
+//!
+//! There is no `write_string` here: the handles carry exactly the trait
+//! surface, whose `write`/`write_all` take a raw `*(u8)`, so writing text
+//! from safe code goes through `BufWriter(Stdout)` (which has
+//! `write_string`/`write_bytes`) or through `std/fmt`. Likewise the line
+//! primitive for input is `BufReader(Stdin).read_line`, not a method here.
+//!
+//! ## Stability
+//!
+//! unstable — the offset field is the open question, and it is a bug before
+//! it is a design (see the paragraph above). The fix is likely to REMOVE
+//! per-handle offsets for the standard streams and let the kernel's own file
+//! offset apply, which changes no signature in this file but does change
+//! observable behaviour, so freezing before that would freeze the clobber.
+//! A second, smaller question rides along: Rust's `io::stdout()` returns a
+//! handle to ONE shared, locked stream, while `stdout()` here returns an
+//! independent object each time — if the offsets go away the two become
+//! equivalent, and if they do not, this needs to become a singleton. The
+//! three types, the three accessors and the `fd()` methods are expected to
+//! keep their names.
 pragma(Pragma.AllowUnsafe);
 { Reader, Writer } :: import("./index");
 { IoExn } :: import("../error");

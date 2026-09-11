@@ -18,6 +18,33 @@
 //! filter check and the write, so lines from different OS threads never
 //! interleave (the parallelism runtime is the multi-threaded path; the async
 //! runtime is single-threaded and never contends).
+//!
+//! Choosing a level follows Rust's `log` crate: `Error` for a failure the
+//! program could not handle, `Warn` for a hazard it recovered from, `Info`
+//! for the handful of lines an operator wants, `Debug` for developer detail,
+//! `Trace` for per-step verbosity. The default filter is `Info`, so `Debug`
+//! and `Trace` produce nothing until `set_level` or `YO_LOG` lowers it.
+//!
+//! ## Stability
+//!
+//! unstable — one name is a known convention violation and one piece of the
+//! record shape is missing.
+//!
+//! `get_level` carries a `get_` prefix that D2 rules out (Rust would spell it
+//! `level()`); it is listed among the D2 violations in
+//! `plans/STD_API_STABILIZATION.md` §1 and renaming it is breaking, so it has
+//! not happened yet. The `Sink` trait and `YO_LOG` are themselves one release
+//! old (#494).
+//!
+//! Three gaps against Rust's `log`, each of which would change a signature
+//! here: there is no `Record` — a sink gets `(level, target, msg)` and cannot
+//! learn the file, line or module a line came from, because `target` is
+//! caller-supplied text rather than metadata; `YO_LOG` takes a bare level
+//! where `env_logger` takes per-target directives (`RUST_LOG=mymod=debug`),
+//! which is the filtering everyone actually wants; and `set_sink` is
+//! re-settable at any time, where Rust's `set_logger` is set-once and returns
+//! a `Result`, so here a library can silently steal the application's sink.
+//! Freezing follows those decisions.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("./string");
 { ToString } :: import("./fmt");
@@ -124,7 +151,8 @@ _log_mutex := __yo_mutex_create();
 // setters used to write them bare while `_emit` read them under the lock,
 // which is a data race the moment two threads log and reconfigure
 // (issues/fixed/html-and-log-globals-raced.md).
-/// Set the minimum level that is emitted (`Off` silences everything).
+/// Set the minimum level that is emitted (`Off` silences everything). The
+/// default, before any call to this, is `Info`.
 set_level :: (fn(level : Level) -> unit)({
   unsafe(__yo_mutex_lock(&_log_mutex));
   _global_level = level;
@@ -290,21 +318,54 @@ export(log, log_target, log_lazy);
 // ============================================================================
 // Free-function facade
 // ============================================================================
+/// Per-step verbosity at `Trace` — Rust's `trace!`. Silent under the default
+/// `Info` filter.
 trace :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Trace, msg));
+/// Developer detail at `Debug` — Rust's `debug!`. Also silent under the
+/// default `Info` filter.
 debug :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Debug, msg));
+/// A line an operator should see, at `Info` — Rust's `info!`. This is the
+/// lowest level the default filter admits.
 info :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Info, msg));
+/// A hazard the program recovered from, at `Warn` — Rust's `warn!`.
 warn :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Warn, msg));
+/// A failure, at `Error` — Rust's `error!`. The highest level, but still
+/// suppressed by `Level.Off`, which drops everything.
 error :: (fn(generic(T : Type), msg : T, where(T <: ToString)) -> unit)(log(Level.Error, msg));
 export(trace, debug, info, warn, error);
+/// `trace` tagged with a subsystem name, which renders as `[db]` between the
+/// level and the message and reaches a `Sink` as its own argument — Rust's
+/// `trace!(target: "db", ...)`.
+///
+/// The tag is caller-supplied text; nothing derives or checks it, and it does
+/// not participate in filtering (the level is the only filter).
 trace_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Trace, target, msg));
+/// `debug` with a subsystem tag; see `trace_target`.
 debug_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Debug, target, msg));
+/// `info` with a subsystem tag; see `trace_target`.
 info_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Info, target, msg));
+/// `warn` with a subsystem tag; see `trace_target`.
 warn_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Warn, target, msg));
+/// `error` with a subsystem tag; see `trace_target`.
 error_target :: (fn(generic(T : Type), target : str, msg : T, where(T <: ToString)) -> unit)(log_target(Level.Error, target, msg));
 export(trace_target, debug_target, info_target, warn_target, error_target);
+/// `trace`, with the message built by `make` ONLY if `Trace` passes the
+/// filter — the form to use when rendering costs real work (a formatted dump,
+/// a query plan). The plain forms cannot help there: their argument is
+/// evaluated at the call site whatever the filter says.
+///
+/// Untagged; there is no lazy `*_target` form.
 trace_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Trace, make));
+/// `debug` with the message built only if `Debug` passes the filter; see
+/// `trace_lazy`.
 debug_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Debug, make));
+/// `info` with the message built only if `Info` passes the filter; see
+/// `trace_lazy`.
 info_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Info, make));
+/// `warn` with the message built only if `Warn` passes the filter; see
+/// `trace_lazy`.
 warn_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Warn, make));
+/// `error` with the message built only if `Error` passes the filter; see
+/// `trace_lazy`.
 error_lazy :: (fn(make : Impl(Fn() -> String)) -> unit)(log_lazy(Level.Error, make));
 export(trace_lazy, debug_lazy, info_lazy, warn_lazy, error_lazy);

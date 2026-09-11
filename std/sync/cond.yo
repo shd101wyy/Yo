@@ -1,4 +1,24 @@
 //! Condition variable for thread synchronization.
+//!
+//! A `Cond` parks threads until another thread announces that something
+//! they are waiting for may now be true. It carries no state of its own
+//! beyond the wait queue: the CONDITION lives in data the caller protects
+//! with a `Mutex`, and every wait must be wrapped in a loop that re-checks
+//! it (`std/sync/waitgroup.yo`'s `wait` is the reference shape).
+//!
+//! ## Stability
+//!
+//! unstable — the operations are Rust's `Condvar` (`wait`, `wait_timeout`,
+//! `signal`/`broadcast` for `notify_one`/`notify_all`) and are tested
+//! (`tests/sync/cond.test.yo`, 6 cases, added 2026-09-10), but the CALLING
+//! CONVENTION is known-wrong and slated to change: `wait` takes a
+//! `*__YO_THREAD_SYNC_TYPE` raw pointer that callers can only obtain from
+//! `Mutex._raw_handle_ptr()`. `plans/STD_API_STABILIZATION.md` §4
+//! "Concurrency" carries taking `_raw_handle_ptr` off the public surface as
+//! an open row, and doing that changes every signature in this file.
+//! Freezing follows a `Cond` that couples to a `Mutex(T)` without naming
+//! its OS primitive — Rust passes a `MutexGuard`, and `Mutex(T)`
+//! deliberately has no guard type to pass.
 pragma(Pragma.AllowUnsafe);
 { __YO_THREAD_SYNC_TYPE } :: import("./mutex");
 { Duration } :: import("../time/duration");
@@ -29,9 +49,44 @@ Cond :: atomic(
 );
 impl(
   Cond,
+  /// Create a condition variable with an empty wait queue — Rust's
+  /// `Condvar::new`.
+  ///
+  /// On Linux the underlying `pthread_cond_t` is bound to
+  /// `CLOCK_MONOTONIC` here, at construction, because the clock is a
+  /// property of the condvar and not of an individual wait; that is what
+  /// makes `wait_timeout` immune to a wall-clock step.
   new : (fn() -> Self)({
     return(Self(__yo_cond_create()));
   }),
+  /// Block until another thread calls `signal` or `broadcast` — Rust's
+  /// `Condvar::wait`, with the mutex passed as its raw handle.
+  ///
+  /// `handle` must be the handle of a mutex **this thread currently
+  /// holds**, obtained as `m._raw_handle_ptr()`. The wait atomically
+  /// releases that mutex and parks; when it returns, the mutex is held
+  /// again. Passing the handle of a mutex that is not held, or of a
+  /// different mutex than other waiters use, is undefined behaviour in the
+  /// C primitive underneath — this is the sharp edge the open
+  /// "`_raw_handle_ptr` off the public surface" row exists to remove.
+  ///
+  /// **A return does not mean the condition is true.** Condvars are
+  /// allowed to wake spuriously, and `broadcast` wakes every waiter
+  /// including those whose predicate is still false, so the call belongs
+  /// inside a re-checking loop:
+  ///
+  /// ```rust
+  /// m._raw_lock();
+  /// while(runtime(!ready()), {
+  ///   cv.wait(m._raw_handle_ptr());
+  /// });
+  /// m._raw_unlock();
+  /// ```
+  ///
+  /// A `signal` sent while no thread is waiting is LOST — it is not
+  /// remembered for the next waiter — which is why the predicate must be
+  /// mutated under the same mutex before signalling. Use `wait_timeout`
+  /// when the wait needs a deadline.
   wait : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
     return(__yo_cond_wait(&self.cv, handle));
   }),
@@ -68,9 +123,25 @@ impl(
   wait_timeout : (fn(self : Self, handle : *__YO_THREAD_SYNC_TYPE, timeout : Duration) -> bool)(
     __yo_cond_timedwait(&self.cv, handle, timeout.as_nanos())
   ),
+  /// Wake ONE waiting thread, if any — Rust's `Condvar::notify_one`.
+  ///
+  /// Which one is the platform's choice, not FIFO. The call never blocks
+  /// and does nothing when no thread is waiting; a signal sent to an empty
+  /// queue is lost, so publish the change to the predicate under the mutex
+  /// first and signal after. Use `broadcast` when more than one waiter
+  /// could be satisfied, or when different waiters are waiting for
+  /// different predicates on the same condvar — waking the wrong one there
+  /// loses the notification for good.
   signal : (fn(self : Self) -> unit)({
     return(__yo_cond_signal(&self.cv));
   }),
+  /// Wake EVERY waiting thread — Rust's `Condvar::notify_all`.
+  ///
+  /// Each woken thread re-acquires the mutex one at a time and re-checks
+  /// its own predicate, so this is the safe default whenever the change
+  /// could satisfy several waiters (a counter reaching zero, a queue going
+  /// from empty to non-empty for many consumers). The cost is a thundering
+  /// herd: N wakes and N re-checks where `signal` would have done one.
   broadcast : (fn(self : Self) -> unit)({
     return(__yo_cond_broadcast(&self.cv));
   })

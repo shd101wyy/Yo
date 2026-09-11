@@ -1,0 +1,29 @@
+// Reproducer: sys.copyfile's "fail if destination exists" flag (bit 0) is
+// honoured on Linux/macOS/wasm and ignored on Windows.
+//
+//   yo compile issues/repros/stddoc-sys-windows-copyfile-ignores-flags.yo \
+//     --optimize 2 -o /tmp/copyflags && /tmp/copyflags
+//
+// Expected on POSIX: "rc=-17" (-EEXIST) and dst still holds "OLD".
+// Observed on Windows: "rc=0" and dst holds "NEW" — the copy overwrote it.
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio");
+{ copyfile } :: import("std/sys/copy");
+{ open_sync, close_sync, write_sync, file_size } :: import("std/sys/file");
+{ O_CREAT, O_TRUNC, O_WRONLY } :: import("std/sys/constants");
+main :: (fn() -> unit)({
+  src := (*u8)("/tmp/yo_copyflags_src");
+  dst := (*u8)("/tmp/yo_copyflags_dst");
+  // src holds "NEW", dst holds "OLD" — same length, so file_size cannot tell
+  // them apart and the flag is the only thing under test.
+  src_fd := open_sync(src, O_WRONLY | (O_CREAT | O_TRUNC), i32(0o644));
+  write_sync(src_fd, (*u8)("NEW"), u32(3), u64(0));
+  close_sync(src_fd);
+  dst_fd := open_sync(dst, O_WRONLY | (O_CREAT | O_TRUNC), i32(0o644));
+  write_sync(dst_fd, (*u8)("OLD"), u32(3), u64(0));
+  close_sync(dst_fd);
+  // flags bit 0 = "fail if dst exists". dst exists, so this must fail.
+  rc := copyfile(src, dst, i32(1));
+  unsafe(printf("rc=%d\n", rc));
+});
+export(main);

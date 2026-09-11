@@ -1,7 +1,7 @@
 //! Hash set — a thin set-shaped view over `HashMap(T, unit)` (D16).
 //!
 //! Before D16 this file carried its OWN copy of the SwissTable: the control
-//! bytes, the quadratic probe, the tombstone accounting, the resize. 525 of
+//! bytes, the linear probe, the tombstone accounting, the resize. 525 of
 //! its lines were byte-identical to `hash_map.yo`, which meant every fix had
 //! to be made twice — the tombstone-reclamation fix genuinely was
 //! (`issues/fixed/hash-tombstones-are-never-reclaimed.md`).
@@ -18,6 +18,18 @@
 //! s.insert(i32(1));
 //! s.contains(i32(1));  // true
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — D16 has only just re-based this module on `HashMap(T, unit)`,
+//! and it inherits that map's open item: the backing table's `ctrl`, `data`,
+//! `capacity` and `size` are still public fields there
+//! (`plans/STD_API_STABILIZATION.md` §4). Two shapes of this file's own are
+//! also unsettled: the four set operations return
+//! `Result(Self, HashSetError)` while `insert` panics on the same allocation
+//! failure — D9 draws that line the other way round — and Rust returns lazy
+//! ITERATORS from `union`/`intersection`/`difference` rather than owned sets.
+//! Freezing follows those two decisions.
 pragma(Pragma.AllowUnsafe);
 { MapEntry } :: import("./entry.yo");
 { AllocError } :: import("../allocator.yo");
@@ -128,10 +140,9 @@ impl(
   clear : (fn(self : Self) -> unit)(
     self._map.clear()
   ),
-  /**
-  * Check if this set is a subset of another set.
-  * Returns true if all elements in self are also in other.
-  */
+  /// True when every element of `self` is also in `other` — Rust's
+  /// `is_subset`. O(len(self)) lookups, and a set larger than `other` is
+  /// rejected without probing anything.
   is_subset : (fn(self : Self, other : Self) -> bool)(
     cond(
       (self.len() > other.len()) => false,
@@ -156,17 +167,16 @@ impl(
       }
     )
   ),
-  /**
-  * Check if this set is a superset of another set.
-  */
+  /// True when `self` contains every element of `other` — Rust's
+  /// `is_superset`. Exactly `other.is_subset(self)`, so the cost is
+  /// O(len(other)).
   is_superset : (fn(self : Self, other : Self) -> bool)(
     other.is_subset(self)
   ),
-  /**
-  * Check if the sets have no elements in common.
-  *
-  * Walks the SMALLER set, as before D16.
-  */
+  /// True when the two sets share no element — Rust's `is_disjoint`.
+  ///
+  /// Walks the SMALLER set and probes the larger, so the cost is
+  /// O(min(len(self), len(other))) whichever way round it is called.
   is_disjoint : (fn(self : Self, other : Self) -> bool)({
     smaller := cond((self.len() <= other.len()) => self, true => other);
     larger := cond((self.len() <= other.len()) => other, true => self);
@@ -337,10 +347,13 @@ impl(
     .Ok(out)
   })
 );
-/**
-* Value iterator for HashSet — yields elements BY VALUE, in the backing map's
-* slot order. Used by `into_iter()` / `IntoIterator`.
-*/
+/// Value iterator over a HashSet — yields elements BY VALUE (dup'ing a
+/// refcounted `T`), in the backing map's bucket order. This is what
+/// `into_iter()`, and therefore `for(set, ...)`, returns; `iter()` yields
+/// pointers.
+///
+/// The order is arbitrary but reproducible for a set built with `new()`'s
+/// fixed SipHash keys.
 HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _inner : HashMapIter(T, unit)
@@ -369,14 +382,13 @@ impl(
     )
   )
 );
-/**
-* Pointer iterator for HashSet — yields `*(T)` INTO the backing map's bucket
-* array, so elements are borrowed rather than dup'd. This is what `iter()`
-* returns.
-*
-* The pointers alias the map's storage: any insert that rehashes, any
-* `remove`, or `clear` invalidates pointers already yielded.
-*/
+/// Pointer iterator over a HashSet — yields `*(T)` INTO the backing map's
+/// bucket array, so elements are borrowed rather than dup'd. This is what
+/// `iter()` returns (D14).
+///
+/// The pointers alias the map's storage: any insert that rehashes, any
+/// `remove`, or `clear` invalidates pointers already yielded. The element is
+/// the entry's KEY, addressed rather than assumed to sit at offset 0.
 HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
     _inner : HashMapIterPtr(T, unit)

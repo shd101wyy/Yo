@@ -1,4 +1,16 @@
 //! C11 `<signal.h>` — signal handling functions and constants.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design, and currently unused:
+//! nothing in the tree imports it. Yo's signal handling is `std/signal`
+//! over `std/sys/signal` (`__yo_signal_start` / `__yo_signal_stop` /
+//! `__yo_kill` in the runtime), which delivers handler calls through the
+//! event loop instead of running C code in signal context; the `signal()`
+//! bound here has the historic C semantics (handler reset on delivery on
+//! some platforms, nothing async-signal-safe about a Yo closure) and is not
+//! a supported way to handle a signal in Yo. The signal NUMBERS are the
+//! useful part and they are per-platform. Use `std/signal`.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<signal.h>",

@@ -1,4 +1,4 @@
-//! JSON parsing and serialization.
+//! JSON parsing and serialization (RFC 8259).
 //!
 //! Provides a dynamically-typed JSON value tree.
 //!
@@ -13,6 +13,44 @@
 //! v := json.parse(`{"x": 1}`);
 //! println(json.stringify(v));
 //! ```
+//!
+//! ## Which parse to call
+//!
+//! Three entry points, differing only in what they take: `json_parse(str)`
+//! for a literal, `json_parse_string(String)` for runtime text, and
+//! `json_parse_bytes(ArrayList(u8))` for a network body. All three funnel into
+//! one parser over BYTES and all three return `Result(JsonValue, JsonError)`.
+//! Each has a `*_exn` twin that throws through an `Exception` instead — take
+//! those only when the caller is already inside an effect scope, since D13
+//! makes the `Result` form the primary one.
+//!
+//! Parsing rejects trailing content: `[1,2][3,4]` is an error, not `[1,2]`.
+//!
+//! ## Stability
+//!
+//! unstable — two open questions, one of them a rename that touches every
+//! call site.
+//!
+//! The names still stutter (D2): `json_parse` / `json_parse_bytes` /
+//! `json_parse_string` / `json_stringify` repeat the module they live in, and
+//! the decided direction is `json.parse` / `json.stringify` on the imported
+//! module value. That rename is listed as STILL OPEN in
+//! `plans/STD_API_STABILIZATION.md` §4 and is the main thing holding this
+//! module unstable. `json_parse_result` is a deprecated alias of
+//! `json_parse_string`, kept for one release and due for removal.
+//!
+//! The second is how strict the string scanner should be. `parse_string`
+//! accepts a raw control byte (U+0000-U+001F) where RFC 8259 §7 requires it
+//! escaped, and copies non-escape bytes through without UTF-8 validation, so
+//! invalid UTF-8 in the input reaches the resulting `String`. `serde_json`
+//! rejects both. Tightening either one turns input that parses today into an
+//! error, so it is a breaking change rather than a bug fix
+//! (`issues/stddoc-io-json-parse-string-accepts-raw-control-bytes.md`).
+//!
+//! The value tree itself is settled: `JsonValue`'s six variants, the `is_*` /
+//! `as_*` accessors, `pointer`, `insert`/`remove`/`object`, and the
+//! `ToJson`/`FromJson` traits all landed with the P1 encoding batch and are
+//! covered by tests.
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.AllowMacroDef);
 { String } :: import("../string");
@@ -75,8 +113,17 @@ JsonValue :: enum(
 // JsonKV - key/value pair convenience struct for Object
 // ============================================================================
 /// Key-value pair for JSON object entries.
+///
+/// `JsonValue.Object` stores two parallel `ArrayList`s (keys and values)
+/// rather than a list of pairs, because that is what keeps insertion order
+/// without a per-entry allocation. `as_object()` zips them into these for
+/// iteration; it is the only producer, and nothing in the module consumes
+/// them — building an object goes through `object()` / `insert` instead.
 JsonKV :: struct(
+  /// The member name, DECODED — escapes in the source are already resolved,
+  /// so this is the key as JSON means it and not as it was written.
   key : String,
+  /// The member's value.
   value : JsonValue
 );
 impl(
@@ -442,18 +489,30 @@ _Parser :: ref(
 );
 impl(
   _Parser,
+  /// A cursor over `src` positioned at byte 0. `src` is stored by reference
+  /// (an `ArrayList` is a `ref` type), so the parser does not copy the input.
   new : (fn(src : ArrayList(u8)) -> Self)(
     Self(src : src, pos : usize(0))
   ),
+  /// The byte at the cursor WITHOUT consuming it, or `.None` at end of
+  /// input. Every `.None` here becomes `JsonError.UnexpectedEnd` at the
+  /// caller — this is the only place the parser learns it ran out.
   peek : (fn(self : Self) -> Option(u8))(
     cond(
       (self.pos < self.src.len()) => .Some(self.src(self.pos)),
       true => .None
     )
   ),
+  /// Step the cursor one byte forward. Deliberately unchecked: it is only
+  /// ever called after a `peek()` that returned `.Some`, and letting `pos`
+  /// run one past the end is harmless because `peek` bounds-checks.
   advance : (fn(self : Self) -> unit)({
     self.pos = (self.pos + usize(1));
   }),
+  /// Consume the four bytes RFC 8259 §2 calls insignificant whitespace —
+  /// space, tab, LF, CR — and nothing else. A JSON comment or a vertical tab
+  /// is NOT whitespace and stops the scan, so it surfaces as
+  /// `UnexpectedChar` rather than being skipped.
   skip_ws : (fn(self : Self) -> unit)({
     while(runtime(true), {
       match(
@@ -470,6 +529,12 @@ impl(
       );
     });
   }),
+  /// Skip whitespace, then consume `ch` or fail. The structural workhorse —
+  /// `{`, `}`, `[`, `]`, `:` and `,` all go through it.
+  ///
+  /// Note the position in `UnexpectedChar(c, self.pos)` is the offset of the
+  /// OFFENDING byte, after whitespace was skipped, so it points at what the
+  /// caller should look at rather than at where the token was expected.
   expect : (fn(self : Self, ch : u8) -> Result(unit, JsonError))({
     self.skip_ws();
     match(
@@ -509,6 +574,21 @@ impl(
     });
     .Ok(cp)
   }),
+  /// A `"`-delimited string, decoded to UTF-8. Called with the cursor ON the
+  /// opening quote, which it consumes; leaves it just past the closing one.
+  ///
+  /// All eight RFC 8259 §7 escapes (`\" \\ \/ \b \f \n \r \t`) plus `\uXXXX`,
+  /// with surrogate pairs combined into one scalar. A high surrogate not
+  /// followed by `\uDC00`-`\uDFFF`, and a lone low surrogate, are both
+  /// `.Err(.InvalidUnicode)` — this does NOT substitute U+FFFD, so a
+  /// round-trip cannot silently change the data. Any other escape letter is
+  /// `.Err(.InvalidEscape)`.
+  ///
+  /// Two deliberate leniences, both wider than `serde_json`: a raw control
+  /// byte (U+0000-U+001F) inside the string is accepted where §7 requires it
+  /// escaped, and the non-escape bytes are copied through without UTF-8
+  /// validation, so invalid UTF-8 in the input reaches the resulting `String`.
+  /// See the module's `## Stability` note.
   parse_string : (fn(self : Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();

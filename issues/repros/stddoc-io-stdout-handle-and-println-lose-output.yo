@@ -1,0 +1,30 @@
+// Repro: `std/fmt.println` (libc buffered stdio) and a `std/io/stdio` handle
+// (async runtime, positional write) are two independent writers to fd 1.
+//
+//   yo compile issues/repros/stddoc-io-stdout-handle-and-println-lose-output.yo \
+//     --optimize 2 --std-path ./std -o /tmp/p2 && /tmp/p2 | cat && /tmp/p2 > /tmp/p2.txt
+//
+// `println` runs FIRST in the source. Observed:
+//   to a PIPE:  "from handlefrom println"   (reordered — libc flushes at exit)
+//   to a FILE:  "from println"              (the handle's bytes are GONE)
+{ Exception, IoExn } :: import("std/error");
+{ Stdout, stdout } :: import("std/io/stdio");
+{ BufWriter } :: import("std/io/bufio");
+{ Writer } :: import("std/io");
+{ println } :: import("std/fmt");
+
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  println(`from println`);
+  w := BufWriter(Stdout).new(stdout());
+  io.await(w.write_string(`from handle`, io), e);
+  io.await(w.flush(io), e);
+});
+export(main);

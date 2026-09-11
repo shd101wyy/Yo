@@ -1,18 +1,48 @@
-//! High-resolution clock queries.
+//! High-resolution clock reads (`clock_gettime`) — the raw syscall boundary.
 //!
-//! Provides a synchronous wrapper for reading wall-clock and monotonic time.
-//! Returns 0 on success, -errno / negative platform error on failure.
+//! `std/time/instant.yo` (`Instant`, monotonic) and `std/time/datetime.yo`
+//! (`DateTime`, wall clock) are the public surface over this, and the
+//! compiler itself reads it for its own timings
+//! (`src/evaluator/exprs/_expr.yo`).
+//!
+//! ## Stability
+//!
+//! unstable — the clock IDs are the problem, not the call. They are raw
+//! platform integers whose numbering differs per OS (hence the `cond` on
+//! `CLOCK_MONOTONIC` below), and only two of the many POSIX clocks are
+//! exposed, with the Windows implementation recognizing exactly those two
+//! numbers and rejecting every other. A frozen version would name clocks with
+//! a Yo enum instead of passing the OS's integer through, so that adding
+//! `CLOCK_PROCESS_CPUTIME_ID` is not a new magic number in every caller.
+//! Until then, `std/time` is the stable surface: it already hides all of this.
 pragma(Pragma.AllowUnsafe);
 { platform, Platform } :: import("../process");
 { __yo_sync_clock_gettime } :: import("./externs.yo");
-// Wall clock time (Unix epoch seconds + nanoseconds)
+/// `CLOCK_REALTIME` from `<time.h>` — wall-clock time since the Unix epoch.
+/// Settable and subject to NTP steps, so it can jump backwards: never measure
+/// an elapsed duration with it. 0 on every POSIX platform, and the value the
+/// Windows shim recognizes as "wall clock".
 CLOCK_REALTIME :: i32(0);
-// Monotonic time (non-decreasing; use for durations)
+/// `CLOCK_MONOTONIC` from `<time.h>` — a non-decreasing counter from an
+/// unspecified epoch, which is what durations must be measured against. The
+/// value is genuinely different per OS (`6` on macOS, `1` on Linux), which is
+/// the whole reason this is a constant here rather than a literal at the call
+/// sites. The Windows shim accepts either number.
 CLOCK_MONOTONIC :: cond(
   (platform == Platform.Macos) => i32(6),
   true => i32(1)
 );
-// Read current time from the selected clock source.
+/// Read `clock_id` into `sec` (whole seconds) and `nsec` (0..999_999_999) —
+/// POSIX `clock_gettime(2)`. Returns 0 on success, a negative errno on
+/// failure; an unrecognized clock is `-EINVAL`.
+///
+/// On Windows there is no `clock_gettime`: `CLOCK_REALTIME` is served by
+/// `GetSystemTimePreciseAsFileTime` (falling back to
+/// `GetSystemTimeAsFileTime` on systems without it) with the 1601→1970 epoch
+/// shift applied, and `CLOCK_MONOTONIC` by `QueryPerformanceCounter` scaled
+/// by its frequency. That monotonic epoch is the machine's boot, not anything
+/// a POSIX monotonic clock reports, so the absolute value is meaningless
+/// across platforms — only differences are.
 clock_gettime :: (fn(clock_id : i32, sec : *i64, nsec : *i64) -> i32)(
   __yo_sync_clock_gettime(clock_id, sec, nsec)
 );

@@ -17,6 +17,24 @@
 //! assert(s.contains(i32(1)), "set contains 1");
 //! assert((s.len() == usize(2)), "two elements");
 //! ```
+//!
+//! Membership, insert and remove are O(log32 n) and share every node the
+//! mutation did not touch. The set operations (`union`, `intersection`,
+//! `difference`, `is_subset`, `is_disjoint`) are eager: each walks a set and
+//! builds a NEW one, so they cost O(n log32 n) rather than Rust's lazy
+//! iterator adaptors. `to_list()` — and the `IntoIterator` behind
+//! `for(set, ...)` — materializes an `imm.List` of the elements first, O(n).
+//!
+//! ## Stability
+//!
+//! unstable — two decisions from `plans/STD_API_STABILIZATION.md` still land
+//! on this module. D16 ("`HashSet(T)` IS `HashMap(T, unit)`") says the same
+//! treatment applies here, and it has NOT been done: the backing map is
+//! `Map(T, bool)` whose value is always `true`, which costs a byte per entry
+//! now that `unit` is a true ZST. And §4's open `imm` `remove` shape applies
+//! as it does to `imm.Map`: `remove(elem) -> Self` cannot tell a caller
+//! whether the element was present. Both change signatures or storage, so
+//! neither can be frozen first.
 pragma(Pragma.AllowUnsafe);
 { Map } :: import("./map.yo");
 { ArrayList } :: import("../collections/array_list.yo");

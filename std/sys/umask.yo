@@ -1,8 +1,30 @@
-//! Process file creation mask.
+//! Process file-creation mask (`umask`) — the raw syscall boundary.
 //!
-//! Synchronous wrapper for setting process `umask`.
-//! Returns previous mask value.
+//! One thin wrapper over POSIX `umask(2)`. There is no public `std` module
+//! over it yet; `tests/sys/umask.test.yo` is its only caller in this tree.
+//!
+//! ## Stability
+//!
+//! unstable — and the open question is Windows, not the shape. Windows has no
+//! process file-creation mask, so the generated runtime keeps the value in a
+//! process-global and returns the previous one: the call SUCCEEDS and changes
+//! nothing about how files are created. A caller cannot distinguish that from
+//! a working umask, which is exactly the kind of silent divergence a frozen
+//! API should not promise. Freezing needs a decision on which way to resolve
+//! it — have the Windows `openat` path honour the stored mask, or make this
+//! POSIX-only and fail loudly elsewhere.
 { __yo_sync_umask } :: import("./externs.yo");
+/// Set the process file-creation mask and return the PREVIOUS one — POSIX
+/// `umask(2)`. Bits set in `mask` are the permission bits *cleared* from the
+/// mode of newly created files, so `0o022` is the usual "group and other
+/// cannot write".
+///
+/// There is no failure path: `umask(2)` cannot fail, so the return is always
+/// the old mask and never a negative errno. Reading the current mask means
+/// setting it and setting it back.
+///
+/// On Windows the value is only remembered (see the module note) and nothing
+/// consults it.
 umask :: (fn(mask : i32) -> i32)(
   __yo_sync_umask(mask)
 );

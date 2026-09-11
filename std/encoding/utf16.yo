@@ -10,6 +10,33 @@
 //! words := utf16.from_utf8("hello");
 //! s := utf16.to_utf8(words);
 //! ```
+//!
+//! Both directions work in CODE UNITS, not bytes — the same basis as Rust's
+//! `str::encode_utf16` and `String::from_utf16`. There is no endianness and
+//! no BOM here: a caller reading a UTF-16LE file or a Windows `wchar_t*`
+//! assembles the `u16`s first.
+//!
+//! ## Stability
+//!
+//! unstable — the two directions disagree about failure, and settling that is
+//! the open question. `utf8_to_utf16` is LOSSY and infallible (a malformed
+//! byte becomes U+FFFD, via `utf8.decode_lossy`), while `utf16_to_utf8` is
+//! STRICT and returns a `Result` (an unpaired surrogate is
+//! `EncodingError.UnpairedSurrogate`). Rust ships BOTH forms of the fallible
+//! direction — `String::from_utf16` and `from_utf16_lossy` — and this module
+//! has neither counterpart: no `utf16_to_utf8_lossy` for a caller who wants
+//! replacement characters, and no strict `utf8_to_utf16` for a caller who
+//! would rather hear that the `String` it was handed is not valid UTF-8 than
+//! have the fault papered over. Adding the lossy decoder is additive; making
+//! the encoder fallible is not.
+//!
+//! Also not shipped yet: `utf16_to_utf8` became `Result`-returning in #467
+//! (D13), and `UnpairedSurrogate` — which fixed all three surrogate faults
+//! reporting `InvalidChar(u8(0))`, an offending character of NUL, because a
+//! 16-bit code unit does not fit a `u8` — landed 2026-09-09 (#526). The
+//! `pos` it carries is a CODE-UNIT index where every other `EncodingError`
+//! offset is a byte offset, which is part of why that shared enum is itself
+//! unstable. Names stutter (D2) like the rest of the encoding group.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { EncodingError } :: import("./error");

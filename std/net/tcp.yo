@@ -1,20 +1,39 @@
-//! Async TCP networking — listeners and streams with Exception-based error handling.
-// std/net/tcp.yo - High-level TCP types
-//
-// Wraps std/sys/tcp with typed TcpListener and TcpStream objects.
-// Uses the Exception effect for error handling.
-//
-// Example:
-//   { TcpListener, TcpStream } :: import "std/net/tcp";
-//   { SocketAddr, IpAddr } :: import "std/net/addr";
-//   { Exception } :: import "std/error";
-//
-//   main :: (fn(io : Io, exn : Exception) -> unit)({
-//     addr := SocketAddr.new(IpAddr.any_v4(), u16(8080));
-//     listener := io.await(TcpListener.bind(addr, io), { io, exn });
-//     stream := io.await(listener.accept(io), { io, exn });
-//     // ...
-//   });
+//! Async TCP networking — typed `TcpListener` and `TcpStream` objects over
+//! `std/sys/tcp`, with Exception-based error handling.
+//!
+//! Every operation that touches the network is an `io.async` future, so it
+//! runs on the ONE event-loop thread: awaiting a `read` parks this task and
+//! lets every other task on the loop run, and nothing here blocks a thread.
+//! Kernel failures are thrown as `IoExn` carrying an `IoError` (D1) instead
+//! of being returned, which is why a resolved byte count is always a real
+//! count and never a negative errno.
+//!
+//! ```rust
+//! { TcpListener, TcpStream } :: import("std/net/tcp");
+//! { SocketAddr } :: import("std/net/addr");
+//! { Exception, IoExn } :: import("std/error");
+//!
+//! main :: (fn(io : Io, exn : Exception) -> unit)({
+//!   e := IoExn(io : io, exn : exn);
+//!   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(8080)), io), e);
+//!   stream := io.await(listener.accept(io), e);
+//!   io.await(stream.write_str("pong", io), e);
+//! });
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — two shapes are still open, both in the READ direction. A
+//! `TcpStream` can be written from safe code (`write_str`, `write_string`,
+//! `write_bytes`) but can only be read through `read(buf : *(u8), size, io)`,
+//! so a program without `pragma(Pragma.AllowUnsafe)` has to go through the
+//! `Reader` defaults or `std/io/bufio`'s `BufReader` to get a byte out — the
+//! same asymmetry `std/net/udp` closed on 2026-09-09 with `recv_bytes`, and
+//! not yet closed here. And there is no `incoming`: Rust's listener iterator
+//! needs the async iterator protocol Yo does not have (`std/io/index.yo`
+//! names the same gap), so `accept` in a loop is the only spelling.
+//! Freezing waits on a pointer-free read; the listener/stream names, which
+//! mirror Rust's, are not expected to move.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -388,8 +407,18 @@ impl(
       );
     })
   ),
-  /// Read bytes from the stream into `buf`.
-  /// Returns the number of bytes read, or 0 if the peer closed the connection.
+  /// Read up to `size` bytes from the stream into `buf`, resolving to the
+  /// number actually read. `0` — and only `0` — means the peer closed its end;
+  /// a SHORT count is ordinary on a stream socket and says nothing about
+  /// end-of-stream, so a caller that needs `size` bytes loops. Awaiting parks
+  /// this task on the event loop until the kernel has bytes; a failure throws
+  /// `IoExn` rather than resolving to a negative count.
+  ///
+  /// `buf` must have room for `size` bytes, and raw pointers are unavailable
+  /// in safe code, so calling this directly needs
+  /// `pragma(Pragma.AllowUnsafe)`. Safe code uses the `Reader` defaults
+  /// (`read_to_end`, `read_to_string`) or wraps the stream in
+  /// `BufReader(TcpStream)`.
   read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
@@ -397,8 +426,12 @@ impl(
       usize(NetError.check(r, e.exn))
     })
   }),
-  /// Write up to `size` raw bytes from `buf` to the stream.
-  /// Returns the number of bytes written.
+  /// Write up to `size` raw bytes from `buf`, resolving to the number the
+  /// kernel accepted — which may be LESS than `size`. A caller that must
+  /// deliver everything loops, or takes the `Writer` trait's `write_all`.
+  /// Awaiting parks this task until the socket is writable; a failure throws
+  /// `IoExn`. Needs `pragma(Pragma.AllowUnsafe)` for the raw pointer —
+  /// `write_bytes` / `write_str` / `write_string` are the safe spellings.
   write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
