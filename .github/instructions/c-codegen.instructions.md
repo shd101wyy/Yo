@@ -30,6 +30,29 @@ both learned the hard way:
    through untouched, which is why `#define X \` line continuations work as
    written; only `\n`, `\r` and `\"` are transformed.
 
+3. **Never write a markdown backtick inside a C comment in that literal.** The
+   whole emitted block IS one `` ` ``-delimited literal, so a backtick in
+   `// reads `state` first` CLOSES it, and the rest of the C is parsed as Yo.
+   The error is `E0008: paren-less function and operator calls are not
+   supported` anchored on a WORD INSIDE A C COMMENT, which reads like nonsense
+   until you spot the delimiter — and `yo fmt` makes it worse by padding the
+   fragment to `` ` state ` ``. In C comments destined for a template, write
+   bare words or double quotes. After editing such a region, grep it:
+   `grep -n '`' <file>`.
+4. **A new runtime function must be DECLARED before anything that calls it.**
+   The emitters write into two buffers — declarations and code — and the
+   declaration buffer is flushed first, so a call emitted into declarations
+   reaches a `static` definition that the code buffer emits later. C rejects
+   that as `static declaration of 'X' follows non-static declaration` (via an
+   implicit declaration), not as a warning. Two places this bites: a runtime
+   helper defined after the loop drivers that call it (hoist the thread-local
+   state and a forward declaration into the flags block —
+   `src/codegen/async/runtime_core.yo` does this for the waker), and
+   declaration-buffer code calling an RC primitive (`generate_object_constructor_declarations`
+   in `src/codegen/functions/declarations.yo` forward-declares
+   `__yo_decr_rc`/`__yo_incr_rc` and their `_atomic` counterparts for exactly
+   this reason).
+
 **Gate for any restructuring of an emitter literal:** extract every backtick
 literal from the function, concatenate, unescape, and diff against the same
 extraction from `HEAD`. Byte-identical output proves the refactor changed no
