@@ -704,7 +704,12 @@ may-unwind call's `if (__yo_effect_escaped)` block drains, so the early-exit
 path now honours the emitted-once set and both scope-end flushes record a
 drop even when its code was written inline (the fast suite's "unwind argument
 built by a may-unwind call" caught the double release; a keeper-based test in
-`tests/algebraic_effects.test.yo` pins it). **Seed floor: v0.2.31.** A
+`tests/algebraic_effects.test.yo` pins it). Closing that hole exposed a fifth,
+PRE-EXISTING bug: develop's compiler already released an enum/Option-shaped
+argument temp of a may-unwind call twice on the unwind path (`if(x.to_lowercase()
+== "latest", …)` in `src/version.yo` — eleven functions of the compiler's own
+emission), because the scope-end flushes never recorded an inline-written
+multi-line drop (issues/fixed/escape-path-releases-option-temp-twice.md). **Seed floor: v0.2.31.** A
 compiler built by the v0.2.30 seed mislowers `inspect_cached_dep` (a nested
 match arm in an `io.async` body — the dead-arm family #592 fixed on develop
 after v0.2.30), so its second `yo install` dereferences a null result; built

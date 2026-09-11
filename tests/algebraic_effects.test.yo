@@ -185,6 +185,52 @@ test("may-unwind call in a bare cond arm releases its argument temp exactly once
   g_ue_keep.clear();
   assert(g_ue_disposed == (before + i32(5)), "each argument is disposed exactly once, by the keeper");
 });
+// The develop compiler had the same double release with an enum/Option-typed
+// temp in an ordinary block body: a may-unwind call in an `if` CONDITION
+// (`if(version.to_lowercase() == "latest", …)` in src/version.yo — `==` may
+// unwind) flushes its argument temp right after the call, then the
+// `if (__yo_effect_escaped)` block releases it again, because the multi-line
+// switch drop was written inline and never recorded in the emitted-once set
+// (issues/fixed/escape-path-releases-option-temp-twice.md). The handler here
+// resumes for odd tags and unwinds for even ones, so both paths run.
+mk_ue_opt :: (fn(n : i32) -> Option(UeArg))(Option(UeArg).Some(UeArg(tag : n)));
+test("may-unwind call in an if condition releases an Option-typed argument temp exactly once", {
+  RaiseOpt :: (ctl(arg : Option(UeArg)) -> bool);
+  step :: (fn(n : i32, raise : RaiseOpt) -> i32)({
+    r := if(raise(mk_ue_opt(n)), n * i32(3), n);
+    r
+  });
+  run :: (fn(n : i32) -> i32)({
+    (raise : RaiseOpt) = (
+      arg -> {
+        even := match(
+          arg,
+          .Some(a) => {
+            g_ue_keep.push(a);
+            (a.tag % i32(2)) == i32(0)
+          },
+          .None => false
+        );
+        if(even, unwind(i32(100)), return(false))
+      }
+    );
+    step(n, raise)
+  });
+  before := g_ue_disposed;
+  kept_before := g_ue_keep.len();
+  (acc : i32) = i32(0);
+  (i : i32) = i32(0);
+  while(i < i32(10), {
+    acc = (acc + run(i));
+    i = (i + i32(1));
+  });
+  // odd n → resumed with false → n (25); even n → unwound → 100 (500).
+  assert(acc == i32(525), "resumed and unwound results both intact");
+  assert(g_ue_keep.len() == (kept_before + usize(10)), "every argument reached the handler");
+  assert(g_ue_disposed == before, "the kept arguments are still alive after the unwinds");
+  g_ue_keep.clear();
+  assert(g_ue_disposed == (before + i32(10)), "each argument is disposed exactly once, by the keeper");
+});
 test("Test nested fn unwind inside resume handler", {
   Raise :: (ctl(msg : String, msg2 : String) -> i32);
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
