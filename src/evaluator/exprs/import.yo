@@ -2,12 +2,14 @@
 //!
 //! 1:1 port of `src/evaluator/exprs/import.ts` (317 lines).
 //!
-//! Phase 2 limitations
-//! -------------------
-//! * Dependency name resolution (`getBuildRegistry`, `getModuleImportRoot`,
-//!   `resolveDependencyPath`) is not yet ported.  Any import that is neither a
-//!   `std/` import nor a relative path (starting with `./` or `../`) will fail
-//!   with a descriptive error until those helpers are ported.
+//! Dependency-name imports (`import("mylib")`, `import("mylib/sub")`) resolve
+//! through the import-root table below, which the build runner fills per
+//! artifact and hands to the child compile as `--imports <file>`
+//! (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1). TS resolved them
+//! through an in-process registry + `yo.lock` lookup, which a child-process
+//! compile cannot see — the port had dropped the rule entirely
+//! (issues/dependency-imports-never-resolve-in-the-self-hosted-compiler.md).
+//!
 //! * The `safeRelativePath` Windows cross-drive helper is omitted; absolute
 //!   paths returned by `Path.join` are used directly.
 pragma(Pragma.AllowUnsafe);
@@ -54,6 +56,47 @@ _file_exists_sync :: (fn(absolute_path : String) -> bool)({
   rc == int(0)
 });
 // ---------------------------------------------------------------------------
+// Import roots — bare names the build runner resolved for this compile
+// ---------------------------------------------------------------------------
+/// `import("mylib")` / `import("mylib/sub")` resolve through this table: the
+/// build runner maps each artifact's dependency and module imports to a root
+/// file and hands the mapping to the child compile as `--imports <file>`
+/// (module_manager.yo loads it). Empty for a plain `yo compile`, where only
+/// `std/`, relative and CWD-relative imports exist. Rule 0 of
+/// `resolve_module_path`. Parallel arrays — the table is a handful of entries.
+(g_import_root_names : ArrayList(String)) = ArrayList(String).new();
+(g_import_root_paths : ArrayList(String)) = ArrayList(String).new();
+/// Map a bare import name to its module root file (absolute path). A name
+/// mapped twice resolves to the FIRST mapping — the runner rejects duplicate
+/// import names before this point.
+set_import_root :: (fn(name : String, root_file : String) -> unit)({
+  g_import_root_names.push(name);
+  g_import_root_paths.push(root_file);
+});
+clear_import_roots :: (fn() -> unit)({
+  g_import_root_names = ArrayList(String).new();
+  g_import_root_paths = ArrayList(String).new();
+});
+lookup_import_root :: (fn(name : String) -> Option(String))({
+  (i : usize) = usize(0);
+  while(i < g_import_root_names.len(), {
+    // `.get(i)` copies the element out: indexing a module-level container
+    // for a `ref` argument is rejected (a callee could reallocate it).
+    matches := match(g_import_root_names.get(i), .Some(n) => (n == name), .None => false);
+    if(matches, {
+      match(
+        g_import_root_paths.get(i),
+        .Some(p) => {
+          return(Option(String).Some(p));
+        },
+        .None => ()
+      );
+    });
+    i = (i + usize(1));
+  });
+  Option(String).None
+});
+// ---------------------------------------------------------------------------
 // Module path resolution (shared with main.yo's preload_module_tree)
 // ---------------------------------------------------------------------------
 /// Result of resolving an `import("…")` path string to a concrete file.
@@ -73,6 +116,8 @@ ModuleResolveResult :: enum(
 /// the *same* cache key for `ctx.load_module`.
 ///
 /// Mirrors the resolution order in `src/evaluator/exprs/import.ts`:
+///   0. `<name>` / `<name>/<sub>` where `<name>` is a mapped import root
+///                  → the root file / `<sub>` under the root's directory
 ///   1. `std/…`     → relative to `std_path`
 ///   2. `std`       → `std_path/index.yo`
 ///   3. `.`/`..`    → relative to `current_dir`
@@ -82,6 +127,35 @@ resolve_module_path :: (
   fn(import_path : String, current_dir : String, std_path : String) -> ModuleResolveResult
 )({
   (module_path_to_import : String) = import_path.clone();
+  // 0. A bare name the build runner mapped to a module root: `import("dep")`
+  //    is the root file itself; `import("dep/sub")` is `sub` under the root's
+  //    directory (then the usual extension resolution). Only the FIRST path
+  //    segment is looked up, and `std` / relative heads are never consulted,
+  //    so rules 1–3 cannot be shadowed. The mapped root is absolute, so the
+  //    rewritten path falls through rules 1–4 untouched.
+  head := match(
+    module_path_to_import.index_of("/"),
+    .Some(k) => module_path_to_import.substring(usize(0), k),
+    .None => module_path_to_import.clone()
+  );
+  if(!(head.starts_with(String.from(".")) || (head == "std")), {
+    match(
+      lookup_import_root(head.clone()),
+      .Some(root) => {
+        if(head.len() == module_path_to_import.len(), {
+          return(ModuleResolveResult.Found(`file://${root}`));
+        });
+        rest := module_path_to_import.substring(head.len() + usize(1), module_path_to_import.len());
+        root_dir := match(
+          Path.new(root.clone()).parent(),
+          .Some(p) => p.to_string(),
+          .None => String.from(".")
+        );
+        module_path_to_import = Path.new(`${root_dir}/${rest}`).normalize().to_string();
+      },
+      .None => ()
+    );
+  });
   // 1. `std/` prefix → resolve relative to std_path.
   if(module_path_to_import.starts_with(String.from("std/")), {
     rel := module_path_to_import.substring(usize(4), module_path_to_import.len());
@@ -481,3 +555,4 @@ evaluate_import :: (
   expr
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);
+export(set_import_root, clear_import_roots, lookup_import_root);

@@ -40,9 +40,10 @@ _(env : proc_env) :: import("std/env");
   ResolvedDep,
   BuildSystemLibrary,
   get_build_registry,
-  clear_build_registry
+  clear_build_registry,
+  swap_build_registry
 } :: import("./evaluator/builtins/build.yo");
-{ are_deps_cached, fetch_all_deps } :: import("./fetch.yo");
+{ are_deps_cached, fetch_all_deps, resolve_dep_path } :: import("./fetch.yo");
 { resolve_all_system_libraries } :: import("./pkg_config.yo");
 { DocCommandOptions, run_doc } :: import("./doc_command.yo");
 { TargetInfo, parse_target, host_target, is_target_windows, is_target_wasm } :: import("./target.yo");
@@ -237,6 +238,227 @@ _get_target_output_dir :: (
 )(
   `${project_dir}/yo-out/${target_triple}/${kind}`
 );
+// ---------------------------------------------------------------------------
+// Import roots — `Step.add_import` → the child compile's `--imports` file
+// ---------------------------------------------------------------------------
+/// `<base>/<rel>` as an ABSOLUTE, normalized path (`rel` may already be
+/// absolute; `base` — the project dir, `.` for the default `./build.yo` — may
+/// be relative, in which case the process cwd is prepended). The `--imports`
+/// file must hold absolute roots: the child compile's cwd is the same today,
+/// but the file is also an artifact-stamp input and a debugging aid.
+_abs_under :: (fn(base : String, rel : String) -> String)({
+  joined := if(
+    Path.new(rel.clone()).is_absolute(),
+    rel,
+    Path.new(base).join(Path.new(rel)).to_string()
+  );
+  absolute := if(Path.new(joined.clone()).is_absolute(), joined, {
+    cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+    Path.new(cwd_str).join(Path.new(joined)).to_string()
+  });
+  Path.new(absolute).normalize().to_string()
+});
+/// The directory a dependency's sources live in: a path dependency's `path`
+/// under the project, or a git dependency's fetched cache dir (via `yo.lock`).
+/// `.None` for an empty name (a LOCAL module import). Every await is a
+/// top-level statement of the async body on purpose (see compile_artifact).
+_dependency_dir :: (
+  fn(
+    registry : BuildRegistry,
+    project_dir : String,
+    dep_name : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Option(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    path_dep := registry.find_path_dependency(dep_name.clone());
+    git_dep := registry.find_dependency(dep_name.clone());
+    is_git := (path_dep.is_none() && git_dep.is_some());
+    git_sub := match(
+      git_dep,
+      .Some(gd) => if(gd.path.len() > usize(0), Option(String).Some(gd.path.clone()), Option(String).None),
+      .None => Option(String).None
+    );
+    // Resolved unconditionally (an unknown name finds no lock entry and
+    // yields `.None`) so the await stays a top-level statement.
+    git_dir := e.io.await(resolve_dep_path(project_dir.clone(), if(is_git, dep_name.clone(), String.new()), git_sub, e.io, e.exn), e);
+    cond(
+      (dep_name.len() == usize(0)) => Option(String).None,
+      path_dep.is_some() => Option(String).Some(_abs_under(project_dir.clone(), path_dep.unwrap().path.clone())),
+      is_git => match(
+        git_dir,
+        .Some(d) => Option(String).Some(d),
+        .None => {
+          e.exn.throw(dyn(`Error: Dependency "${dep_name}" is not fetched. Run 'yo fetch'.`));
+          Option(String).None
+        }
+      ),
+      true => {
+        e.exn.throw(dyn(`Error: Dependency "${dep_name}" is not declared by build.dependency or build.path_dependency in this build.yo.`));
+        Option(String).None
+      }
+    )
+  })
+);
+/// The root file of `module_name` inside a dependency: its `build.yo`
+/// (evaluated in an isolated registry, so the project's own registry survives)
+/// declares modules with `build.module`; an empty `module_name` means the sole
+/// module. Without a build file or a matching module, the conventional roots
+/// `src/lib.yo` → `index.yo` → `<dep_name>.yo`. `.None` when `dep_dir_opt` is
+/// `.None` (a local module import) or nothing matches.
+_dependency_module_root :: (
+  fn(
+    dep_dir_opt : Option(String),
+    module_name : String,
+    dep_name : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(Option(String), IoExn))
+)(
+  io.async((e : IoExn) => {
+    dep_dir := match(dep_dir_opt, .Some(d) => d, .None => String.new());
+    has_dep := (dep_dir.len() > usize(0));
+    build_file := `${dep_dir}/build.yo`;
+    has_build := e.io.await(exists(Path.new(build_file.clone()), e.io), e.io);
+    lib_default := `${dep_dir}/src/lib.yo`;
+    index_default := `${dep_dir}/index.yo`;
+    named_default := `${dep_dir}/${dep_name}.yo`;
+    has_lib_default := e.io.await(exists(Path.new(lib_default.clone()), e.io), e.io);
+    has_index_default := e.io.await(exists(Path.new(index_default.clone()), e.io), e.io);
+    has_named_default := e.io.await(exists(Path.new(named_default.clone()), e.io), e.io);
+    (declared_root : Option(String)) = Option(String).None;
+    if(has_dep && has_build, {
+      prev := swap_build_registry(Option(BuildRegistry).Some(BuildRegistry.new()));
+      outcome := mm_load_yo_file(build_file.clone(), e.io, e.exn);
+      load_error := _take_load_error();
+      dep_reg := get_build_registry();
+      _restored := swap_build_registry(prev);
+      if(!(outcome.ok), {
+        match(
+          load_error,
+          .Some(rendered) => emit_rendered_text(rendered),
+          .None => eprintln(`build: error in: ${build_file} (no diagnostic recorded)`)
+        );
+        e.exn.throw(dyn(`Error: Failed to evaluate build file ${build_file} (dependency "${dep_name}")`));
+      });
+      cond(
+        (module_name.len() == usize(0)) => cond(
+          (dep_reg.modules.len() == usize(1)) => {
+            declared_root = Option(String).Some(_abs_under(dep_dir.clone(), dep_reg.modules(usize(0)).root.clone()));
+          },
+          (dep_reg.modules.len() > usize(1)) => {
+            e.exn.throw(dyn(`Error: Dependency "${dep_name}" declares ${dep_reg.modules.len().to_string()} modules; name one: dep.module("<name>").`));
+          },
+          true => ()
+        ),
+        true => match(
+          dep_reg.find_module(module_name.clone()),
+          .Some(m) => {
+            declared_root = Option(String).Some(_abs_under(dep_dir.clone(), m.root.clone()));
+          },
+          .None => {
+            e.exn.throw(dyn(`Error: Dependency "${dep_name}" declares no module "${module_name}" (build.module in ${build_file}).`));
+          }
+        )
+      );
+    });
+    cond(
+      !(has_dep) => Option(String).None,
+      declared_root.is_some() => declared_root,
+      has_lib_default => Option(String).Some(lib_default),
+      has_index_default => Option(String).Some(index_default),
+      has_named_default => Option(String).Some(named_default),
+      true => Option(String).None
+    )
+  })
+);
+/// Resolve ONE artifact's `add_import` entries to module root files and record
+/// each on its entry (`ImportedModule.resolved_root`). A local module (empty
+/// dependency name) resolves against this build.yo's `build.module`
+/// declarations. Its own async body so that the artifact loop in
+/// `resolve_import_roots` and this entry loop are two state machines: two
+/// `while` loops in ONE `io.async` body emit the same `while_loop_N` C labels
+/// (issues/nested-while-loops-in-an-async-body-redefine-c-labels.md).
+_resolve_artifact_import_roots :: (
+  fn(
+    artifact : BuildArtifact,
+    registry : BuildRegistry,
+    project_dir : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    (i : usize) = usize(0);
+    while(i < artifact.imported_modules.len(), {
+      imp := artifact.imported_modules(i);
+      dep_dir_opt := e.io.await(_dependency_dir(registry, project_dir.clone(), imp.dependency_name.clone(), e.io, e.exn), e);
+      dep_root_opt := e.io.await(_dependency_module_root(dep_dir_opt, imp.module_name.clone(), imp.dependency_name.clone(), e.io, e.exn), e);
+      root := cond(
+        (imp.dependency_name.len() == usize(0)) => match(
+          registry.find_module(imp.module_name.clone()),
+          .Some(m) => _abs_under(project_dir.clone(), m.root.clone()),
+          .None => {
+            e.exn.throw(dyn(`Error: Module "${imp.module_name}" (imported as "${imp.import_name}" by "${artifact.name}") is not declared by build.module in this build.yo.`));
+            String.new()
+          }
+        ),
+        true => match(
+          dep_root_opt,
+          .Some(r) => r,
+          .None => {
+            e.exn.throw(dyn(`Error: Dependency "${imp.dependency_name}" has no module root for import "${imp.import_name}": no build.module in its build.yo and none of src/lib.yo, index.yo, ${imp.dependency_name}.yo exists.`));
+            String.new()
+          }
+        )
+      );
+      imp.resolved_root = Option(String).Some(root);
+      i = (i + usize(1));
+    });
+  })
+);
+/// Resolve every artifact's `add_import` entries (see
+/// `_resolve_artifact_import_roots`). Runs BEFORE the evaluator is reset —
+/// dependency build files are evaluated here — and before any artifact compiles.
+resolve_import_roots :: (
+  fn(
+    registry : BuildRegistry,
+    project_dir : String,
+    io : Io,
+    exn : Exception
+  ) -> Impl(Future(unit, IoExn))
+)(
+  io.async((e : IoExn) => {
+    (ai : usize) = usize(0);
+    while(ai < registry.artifacts.len(), {
+      artifact := registry.artifacts(ai);
+      e.io.await(_resolve_artifact_import_roots(artifact, registry, project_dir.clone(), e.io, e.exn), e);
+      ai = (ai + usize(1));
+    });
+  })
+);
+/// The `name=/abs/root.yo` lines for an artifact's `add_import` entries — the
+/// contents of the `--imports` file the child compile resolves bare
+/// `import("name")` through. Reads what `resolve_import_roots` recorded.
+_artifact_import_lines :: (fn(artifact : BuildArtifact, exn : Exception) -> ArrayList(String))({
+  lines := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < artifact.imported_modules.len(), {
+    imp := artifact.imported_modules(i);
+    match(
+      imp.resolved_root,
+      .Some(root) => {
+        lines.push(`${imp.import_name}=${root}`);
+      },
+      .None => {
+        exn.throw(dyn(`internal: import "${imp.import_name}" of "${artifact.name}" was not resolved before compiling (resolve_import_roots must run first)`));
+      }
+    );
+    i = (i + usize(1));
+  });
+  lines
+});
 // ---------------------------------------------------------------------------
 // Linked static libraries
 // ---------------------------------------------------------------------------
@@ -753,8 +975,19 @@ compile_artifact :: (
     rel_output := Path.new(output_path.to_string()).relative_to(Path.new(ctx.project_dir.clone()));
     lib_suffix := match(artifact.kind, .StaticLibrary => ".a", _ => "");
     println(`Building ${project_name}${version_suffix} → ${rel_output}${lib_suffix}`);
+    // `Step.add_import` entries → the child's `--imports` mapping file, written
+    // beside the output. Top-level awaits (see the cache block below).
+    import_lines := _artifact_import_lines(artifact, e.exn);
+    imports_path := `${output_path.to_string()}.imports`;
+    nl := String.from("\n");
+    imports_text := if(import_lines.len() > usize(0), `${nl.join(import_lines)}\n`, String.new());
+    _ := e.io.await(_write_stamp(imports_path.clone(), imports_text.clone(), e.io), e);
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("compile"));
+    if(import_lines.len() > usize(0), {
+      cmd.arg(String.from("--imports"));
+      cmd.arg(imports_path.clone());
+    });
     // Forward the parent's `--std-path` override to the child compile. TS
     // needs no equivalent: its build runner compiles artifacts in-process,
     // where the override already applies.
@@ -972,7 +1205,18 @@ compile_artifact :: (
     // see the comment above) and only USED when the cache is enabled; the
     // walk is exactly the work a cached build needs, and YO_BUILD_NO_CACHE
     // remains the escape hatch for it.
-    stamp_raw := e.io.await(_artifact_input_stamp(cmd._args, ctx.project_dir.clone(), e.io), e);
+    stamp_inputs := ArrayList(String).new();
+    (si : usize) = usize(0);
+    while(si < cmd._args.len(), {
+      stamp_inputs.push(cmd._args(si).clone());
+      si = (si + usize(1));
+    });
+    si = usize(0);
+    while(si < import_lines.len(), {
+      stamp_inputs.push(import_lines(si).clone());
+      si = (si + usize(1));
+    });
+    stamp_raw := e.io.await(_artifact_input_stamp(stamp_inputs, ctx.project_dir.clone(), e.io), e);
     stamp := cond(
       cache_enabled => stamp_raw,
       true => String.new()
@@ -1613,9 +1857,13 @@ evaluate_build_file :: (
     reg := get_build_registry();
     reg.cli_options = defines;
     outcome := mm_load_yo_file(build_file, e.io, e.exn);
-    // Take the diagnostic BEFORE `mm_reset`, which clears it.
     load_error := _take_load_error();
-    mm_reset();
+    // No `mm_reset()` here: the DEPENDENCIES' build files are evaluated next
+    // (resolve_import_roots) against the same cached prelude env, and the
+    // caller resets once after all of them. Re-loading the prelude after a
+    // reset registers every prelude impl a second time into the process-wide
+    // registries (see the cached-prelude guard in module_manager.yo), which
+    // broke the second build file's `{ assert, panic } :: import("std/assert")`.
     if(!(outcome.ok), {
       match(
         load_error,
@@ -1692,6 +1940,11 @@ run_build :: (
         });
       });
     });
+    // Resolve `add_import` entries to module roots — evaluates the
+    // dependencies' build files, so it runs before the single evaluator reset
+    // that follows (see evaluate_build_file).
+    e.io.await(resolve_import_roots(registry, project_dir.clone(), e.io, e.exn), e);
+    mm_reset();
     // Resolve system libraries per-artifact via pkg-config
     // (build-runner.ts:234-275). Each artifact only gets flags for libraries
     // it explicitly linked; wasm targets skip host pkg-config/vcpkg (paths

@@ -43,6 +43,14 @@ reproduce identically.
 
 ### 1.1 The headline: the dependency system is fetch-only
 
+> **Progress 2026-09-11:** the consume half now exists for DIRECT dependencies —
+> #577 (runner errors, linking), #578 (library exports) and the stacked
+> `p1/imports-plumbing` branch (`--imports` file + resolver rule 0, §4.5.1)
+> make `import("mylib")` / `import("mylib/sub")` work for path and fetched git
+> dependencies and for a project's own `build.module`. Transitive dependencies,
+> `yo check`/LSP outside a build, and system-library propagation remain (§6 P1).
+
+
 The documented workflow — `yo init`, `yo install user/repo`, `import("repo")`,
 `yo build` — fails at the import on 0.2.30, for path and git dependencies
 alike:
