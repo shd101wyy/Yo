@@ -56,7 +56,8 @@ make_function_ :: (fn() -> DocFunction)({
     returns : Option(String).None,
     errors : Option(String).None,
     deprecated : Option(String).None,
-    examples : Option(String).None
+    examples : Option(String).None,
+    inherited_from : Option(String).None
   )
 });
 make_type_ :: (fn() -> DocType)({
@@ -94,7 +95,8 @@ make_display_method_ :: (fn() -> DocFunction)({
     returns : Option(String).None,
     errors : Option(String).None,
     deprecated : Option(String).None,
-    examples : Option(String).None
+    examples : Option(String).None,
+    inherited_from : Option(String).None
   )
 });
 make_trait_ :: (fn() -> DocTrait)({
@@ -185,7 +187,8 @@ test("renderFunctionMd: renders comptime and implicit parameters", {
     returns : fn_.returns,
     errors : fn_.errors,
     deprecated : fn_.deprecated,
-    examples : fn_.examples
+    examples : fn_.examples,
+    inherited_from : Option(String).None
   );
   md := render_function_md(fn2);
   assert(md.contains(`*(comptime)*`), "comptime marker");
@@ -207,7 +210,8 @@ test("renderFunctionMd: renders a method with self type", {
     returns : fn_.returns,
     errors : fn_.errors,
     deprecated : fn_.deprecated,
-    examples : fn_.examples
+    examples : fn_.examples,
+    inherited_from : Option(String).None
   );
   md := render_function_md(fn2);
   assert(md.contains(`### \`Vec.len\``), "method heading");
@@ -227,7 +231,8 @@ test("renderFunctionMd: renders deprecated banner", {
     returns : fn_.returns,
     errors : fn_.errors,
     deprecated : Option(String).Some(`Use new_add instead.`),
-    examples : fn_.examples
+    examples : fn_.examples,
+    inherited_from : Option(String).None
   );
   md := render_function_md(fn2);
   assert(md.contains(`⚠️ **Deprecated**`), "deprecated banner");
@@ -248,7 +253,8 @@ test("renderFunctionMd: renders Returns section", {
     returns : Option(String).Some(`The sum of the two operands.`),
     errors : fn_.errors,
     deprecated : fn_.deprecated,
-    examples : fn_.examples
+    examples : fn_.examples,
+    inherited_from : Option(String).None
   );
   md := render_function_md(fn2);
   assert(md.contains(`The sum of the two operands.`), "returns content");
@@ -268,7 +274,8 @@ test("renderFunctionMd: renders Errors section", {
     returns : fn_.returns,
     errors : Option(String).Some(`Returns an error on overflow.`),
     deprecated : fn_.deprecated,
-    examples : fn_.examples
+    examples : fn_.examples,
+    inherited_from : Option(String).None
   );
   md := render_function_md(fn2);
   assert(md.contains(`**Errors:**`), "errors header");
@@ -289,7 +296,8 @@ test("renderFunctionMd: renders Examples section", {
     returns : fn_.returns,
     errors : fn_.errors,
     deprecated : fn_.deprecated,
-    examples : Option(String).Some(`\`\`\`rust\nresult :: add(i32(1), i32(2));\n\`\`\``)
+    examples : Option(String).Some(`\`\`\`rust\nresult :: add(i32(1), i32(2));\n\`\`\``),
+    inherited_from : Option(String).None
   );
   md := render_function_md(fn2);
   assert(md.contains(`**Examples:**`), "examples header");
@@ -312,7 +320,8 @@ test("renderFunctionMd: renders param with doc and default", {
     returns : fn_.returns,
     errors : fn_.errors,
     deprecated : fn_.deprecated,
-    examples : fn_.examples
+    examples : fn_.examples,
+    inherited_from : Option(String).None
   );
   md := render_function_md(fn2);
   assert(md.contains(`First operand.`), "param doc");
@@ -408,7 +417,8 @@ test("renderTypeMd: renders impl blocks with methods", {
     returns : Option(String).None,
     errors : Option(String).None,
     deprecated : Option(String).None,
-    examples : Option(String).None
+    examples : Option(String).None,
+    inherited_from : Option(String).None
   );
   empty_params := ArrayList(DocParam).new();
   empty_fn := DocFunction(
@@ -424,7 +434,8 @@ test("renderTypeMd: renders impl blocks with methods", {
     returns : Option(String).None,
     errors : Option(String).None,
     deprecated : Option(String).None,
-    examples : Option(String).None
+    examples : Option(String).None,
+    inherited_from : Option(String).None
   );
   methods := ArrayList(DocFunction).new();
   methods.push(size_fn);
