@@ -694,6 +694,25 @@ foo();
 bar();
 ```
 
+**Prefer the bare call** when the result is unused — `_ := foo();` and
+`___ := foo();` around a discarded call result are noise (the tree-wide
+sweep of 2026-09-11 removed 45 of them). Two cases where the binding IS
+load-bearing, so leave it alone:
+
+- Drop/borrow fixtures that count references (`rc(h)`) or test the
+  discard binding's own scope-end drop (`tests/rc.test.yo`,
+  `tests/ref_field_borrow.test.yo`,
+  `tests/shadowed_binding_early_return_drop.test.yo`).
+- Compile-error fixtures whose diagnostic fires on the VALUE-evaluation
+  path only: a binding forces the value to be evaluated and checked,
+  while the same expression as a bare statement can evaluate through a
+  statement path that skips it. Measured: in
+  `tests/collections/array_list.test.yo`, `_ := bad_list(usize(0)).*;`
+  is the `comptime_expect_error` fixture for the clear "index `.*` on
+  non-pointer Output" error, but the bare `bad_list(usize(0)).*;`
+  statement evaluates successfully — the `_ :=` is what makes the
+  error fire.
+
 ### Enum pattern matching does NOT support literal values
 
 Match patterns on enum variants only support **variable binding**, not literal comparison.

@@ -1091,7 +1091,7 @@ compile_artifact :: (
     imports_path := `${output_path.to_string()}.imports`;
     nl := String.from("\n");
     imports_text := if(import_lines.len() > usize(0), `${nl.join(import_lines)}\n`, String.new());
-    _ := e.io.await(_write_stamp(imports_path.clone(), imports_text.clone(), e.io), e);
+    e.io.await(_write_stamp(imports_path.clone(), imports_text.clone(), e.io), e);
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("compile"));
     if(import_lines.len() > usize(0), {
@@ -1350,7 +1350,7 @@ compile_artifact :: (
       ((st.success() && cache_enabled) && (stamp.len() > usize(0))) => stamp.clone(),
       true => String.new()
     );
-    _ := e.io.await(_write_stamp(stamp_path.clone(), stamp_to_write, e.io), e);
+    e.io.await(_write_stamp(stamp_path.clone(), stamp_to_write, e.io), e);
     cond(
       st.success() => Result(unit, String).Ok(()),
       true => {

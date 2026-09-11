@@ -321,7 +321,7 @@ _cache_store :: (fn(q : VcQuery, verdict : VerifyVerdict) -> unit)({
     String.from("verdict"),
     _verdict_to_json(verdict)
   );
-  _ := _z3_write_file_sync(cache_path.clone(), json.stringify(payload));
+  _z3_write_file_sync(cache_path.clone(), json.stringify(payload));
   ()
 });
 /// Run one obligation end-to-end: cache lookup → solver → parse → cache
@@ -618,7 +618,7 @@ verify_and_strip_tasks :: (
             // REFUTED function never reaches here (it is a compile error at
             // the caller); unproven ones keep their asserts (the fallback).
             if(t.mode == "verify+", {
-              _ := strip_proved_ensures_asserts(t.func_val, _proved_ensures(obligations));
+              strip_proved_ensures_asserts(t.func_val, _proved_ensures(obligations));
               ()
             });
             reports.push(

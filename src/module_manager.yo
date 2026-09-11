@@ -183,7 +183,7 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
     cond(
       (n < i64(0)) => {
         free(.Some((*void)(buf)));
-        _ := unsafe(unistd.close(fd));
+        unsafe(unistd.close(fd));
         exn.throw(dyn(IoError.from_errno(__yo_errno())));
       },
       (n == i64(0)) => break,
@@ -197,7 +197,7 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
     );
   });
   free(.Some((*void)(buf)));
-  _ := unsafe(unistd.close(fd));
+  unsafe(unistd.close(fd));
   result
 });
 /// Resolve the standard-library root. The proper evaluator needs this so

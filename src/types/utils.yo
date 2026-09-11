@@ -1737,7 +1737,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
             (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(f0), .None => Option(usize).None),
             true => _c_aggregate_size(sfts)
           );
-          _ := g_size_walk_stack.pop();
+          g_size_walk_stack.pop();
           out
         }
       ),
@@ -1781,7 +1781,7 @@ get_size_of_type :: (fn(ty_in : TypeValue) -> Option(usize))({
       true => {
         g_size_walk_stack.push(e_sz_id.clone());
         out := _enum_value_size(evf);
-        _ := g_size_walk_stack.pop();
+        g_size_walk_stack.pop();
         out
       }
     ),

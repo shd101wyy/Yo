@@ -743,7 +743,7 @@ impl(
           self._ptr,
           .Some(dst_base) => {
             dst := (*(void))(dst_base.add(self._length));
-            _ := unsafe(memcpy(dst, (*(void))(src), count * sizeof(T)));
+            unsafe(memcpy(dst, (*(void))(src), count * sizeof(T)));
             self._length = (self._length + count);
           },
           .None => __yo_panic("ArrayList.extend_from_ptr: no ptr after ensure_total_capacity")
@@ -769,7 +769,7 @@ impl(
       self._ptr,
       .None => (),
       .Some(_ptr) => {
-        _ := unsafe(memset((*(void))(_ptr), byte_val, self._length * sizeof(T)));
+        unsafe(memset((*(void))(_ptr), byte_val, self._length * sizeof(T)));
       }
     )
   ),
@@ -792,7 +792,7 @@ impl(
           .Some(_ptr) => {
             start := (*(void))(_ptr.add(self._length));
             fill_count := ((new_len - self._length) * sizeof(T));
-            _ := unsafe(memset(start, byte_val, fill_count));
+            unsafe(memset(start, byte_val, fill_count));
             self._length = new_len;
           },
           .None => __yo_panic("ArrayList.resize_with_byte: no ptr after ensure")
