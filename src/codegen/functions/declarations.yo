@@ -15,6 +15,7 @@
 { lookup_some_resolved_concrete, expr_info_effect_analysis, expr_info_async_state_machine_struct_name, lookup_method_callee_value } :: import("../../expr_info.yo");
 { EvalValue } :: import("../../value.yo");
 { get_func_type, is_effect_record_member, is_closure_fn, is_io_async_sm_closure, is_fn_unemittable, fn_has_specializations } :: import("../../function_value.yo");
+{ resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { CodeGenContext, get_type_string, get_storage_type_string, sanitize_for_c_identifier, get_runtime_struct_fields, RuntimeStructField, is_function_value_with_only_builtin_yo_inline_function_call, find_returned_async_block, type_key } :: import("../utils/index.yo");
 /// One evidence parameter threaded into a function that uses effect-record
 /// evidence passing. Mirrors the `EvidenceParameter` interface.
@@ -701,15 +702,15 @@ awaited_future_c_type_override :: (
     .None => Option(String).None
   )
 });
-/// Emit a single function's forward declaration with the right linkage. Mirrors
-/// `generateFunctionDeclaration`. `is_exported` is precomputed by the caller via
-/// the SAME predicate the body emitter (generate_function) uses, so the
-/// declaration's linkage matches the definition's.
-generate_function_declaration :: (fn(function_type : TypeValue, c_function_name : String, is_extern : bool, is_exported : bool, body : Option(AstExpr), is_closure : bool, context : CodeGenContext) -> unit)({
+/// The `override_return_type` a function's prototype is emitted with:
+/// `Impl(Future(T))` → the returned async block's SM struct (see
+/// `_async_override_return_type`); otherwise the BODY's concrete type for a
+/// SomeType / SomeType-containing signature. `.None` means the signature's own
+/// result spelling stands.
+_return_type_override :: (
+  fn(function_type : TypeValue, body : Option(AstExpr), context : CodeGenContext) -> Option(String)
+)({
   ret := _func_result_type(function_type);
-  // Override return type: Impl(Future(T)) → the returned async block's SM struct
-  // (see `_async_override_return_type`); otherwise the body's concrete type for
-  // SomeType / SomeType-containing signatures.
   (override : Option(String)) = Option(String).None;
   if(type_implements_future(ret), {
     override = _async_override_return_type(function_type, body, context);
@@ -741,6 +742,99 @@ generate_function_declaration :: (fn(function_type : TypeValue, c_function_name 
       .None => ()
     );
   });
+  override
+});
+/// The C return-type spelling `func_id`'s PROTOTYPE was emitted with — the same
+/// `override ?? signature` choice `generate_function_declaration` makes, read
+/// off the same three inputs (the registered func type, the entry's body, the
+/// effect-record-member body suppression).
+///
+/// A call site that binds a call's result to a temp must ask THIS rather than
+/// the call expression's own type whenever it emits a STATIC dispatch to a
+/// known callee: the two views disagree the moment the callee resolved a
+/// `SomeT` result the site did not. At `T = unit` the prototype says `void`
+/// while the site still spells the erasure `void*`, and the temp came out
+/// `void* t = <void-returning call>` — see
+/// issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
+///
+/// `.None` for a func_id with no registered entry or no Func type.
+emitted_return_type_string :: (
+  fn(func_id : String, context : CodeGenContext) -> Option(String)
+)(
+  match(
+    context.get_function_entry(func_id.clone()),
+    .Some(entry) => {
+      ft := get_func_type(func_id.clone());
+      cond(
+        !is_function_type(ft) => Option(String).None,
+        true => {
+          body := if(is_effect_record_member(func_id.clone()), Option(AstExpr).None, _func_value_body(entry.value));
+          Option(String).Some(
+            match(
+              _return_type_override(ft, body, context),
+              .Some(s) => s,
+              .None => match(
+                ft,
+                .Func({ result : r, meta : __erm }) => {
+                  base := get_type_string(r, context);
+                  if(__erm.*.result_is_ref, {
+                    base.push_str("*");
+                  });
+                  base
+                },
+                _ => String.new()
+              )
+            )
+          )
+        }
+      )
+    },
+    .None => Option(String).None
+  )
+);
+/// The C return-type spelling the CALLEE of `func_expr` was emitted with, when
+/// that callee resolves to a registered closure impl fn — the `cc_` STATIC
+/// dispatch `other_fn_call` emits as `closure_<fid>(&<capture>, args...)`.
+/// `.None` when the callee is not one of those.
+///
+/// This is the honest answer to "does this call have a value?" for a static
+/// dispatch. The call EXPRESSION's own type is the CALLER's view, and it still
+/// carries the unresolved generic whenever the callee specialised that generic
+/// away: at `T = unit` the expression spells the erasure `void*` while the
+/// callee's prototype says `void`. Three emitters asked the expression and all
+/// three were wrong the same way — the call-site temp, the binding's spill
+/// temp, and the binding itself
+/// (issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md).
+static_dispatch_callee_return_type :: (
+  fn(func_expr : AstExpr, context : CodeGenContext) -> Option(String)
+)(
+  match(
+    context.get_expr_info(func_expr),
+    .Some(cei) => {
+      sd_id := match(
+        resolve_some_type_to_concrete(cei.ty),
+        .Struct({ id : i }) => i,
+        .SomeT({ id : i }) => i,
+        _ => String.from("")
+      );
+      cond(
+        (sd_id.len() == usize(0)) => Option(String).None,
+        true => match(
+          context.impl_closure_call_map.get(sd_id),
+          .Some(sd_mp) => emitted_return_type_string(sd_mp.closure_fid.clone(), context),
+          .None => Option(String).None
+        )
+      )
+    },
+    .None => Option(String).None
+  )
+);
+/// Emit a single function's forward declaration with the right linkage. Mirrors
+/// `generateFunctionDeclaration`. `is_exported` is precomputed by the caller via
+/// the SAME predicate the body emitter (generate_function) uses, so the
+/// declaration's linkage matches the definition's.
+generate_function_declaration :: (fn(function_type : TypeValue, c_function_name : String, is_extern : bool, is_exported : bool, body : Option(AstExpr), is_closure : bool, context : CodeGenContext) -> unit)({
+  override := _return_type_override(function_type, body, context);
   prototype := generate_function_prototype(function_type, c_function_name.clone(), context, override, is_closure);
   // Three arms, matching generate_function's linkage EXACTLY (see the comment
   // there): extern, exported (no prefix), otherwise `static inline`. The dead
@@ -904,4 +998,4 @@ generate_function_declarations :: (fn(context : CodeGenContext) -> unit)({
   generate_closure_vtable_declarations(context);
   em.emit_declaration_line("");
 });
-export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override);
+export(EvidenceParameter, collect_evidence_from_record, get_evidence_parameters, generate_function_prototype, generate_function_declaration, generate_object_constructor_declarations, generate_closure_constructor_declarations, generate_capture_dispose_function_declarations, generate_closure_vtable_declarations, generate_function_declarations, should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, static_dispatch_callee_return_type);

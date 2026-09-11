@@ -1,0 +1,18 @@
+//! Narrow repro for symptom 1 of D18b: a closure that CAPTURES a generic
+//! callback and calls it. At `T = unit` the callee's emitted prototype says
+//! `void` while the call site still spells the erasure `void*`.
+{ println } :: import("std/fmt");
+_call1 :: (fn(f : Impl(Fn(n : i32) -> unit)) -> unit)({
+  f(i32(1));
+});
+_run :: (fn(generic(T : Type), cb : Impl(Fn(n : i32) -> T)) -> unit)({
+  _call1((k : i32) => {
+    _v := cb(k);
+    ()
+  });
+});
+main :: (fn() -> unit)({
+  _run((n : i32) => ());
+  println(`ok`);
+});
+export(main);

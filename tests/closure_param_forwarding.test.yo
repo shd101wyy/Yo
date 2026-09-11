@@ -100,3 +100,31 @@ test("Test two distinct closures through the same forwarding chain", {
   assert(r1 == i32(11), "first closure captures a=1: 1 + 10");
   assert(r2 == i32(2010), "second closure captures b=2000: 2000 + 10");
 });
+test("Test a captured generic callback at T = unit", {
+  // The ZST instantiation of a forwarded `Impl(Fn(...) -> T)`. The inner
+  // closure CAPTURES `cb` and calls it, so the call is a static dispatch
+  // through impl_closure_call_map — and at `T = unit` the callee's prototype
+  // returns `void` while the call expression's own type is still the
+  // unresolved `T`, whose C spelling is the erasure `void*`. Three emitters
+  // read the expression instead of the callee and emitted
+  // `void* t = <void call>;` (the call-site temp) and then `void* t = ;` (the
+  // binding's spill), for a program `yo check` accepts.
+  // See issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md.
+  hits := ArrayList(i32).new();
+  call_unit4 :: (fn(f : Impl(Fn(n : i32) -> unit)) -> unit)({
+    f(i32(7));
+  });
+  run4 :: (fn(generic(T : Type), cb : Impl(Fn(n : i32) -> T)) -> unit)({
+    call_unit4((k : i32) => {
+      _v := cb(k);
+      ()
+    });
+  });
+  run4((n : i32) => {
+    hits.push(n);
+  });
+  // The call must still RUN: the fix turns the binding into a statement, and a
+  // statement that was dropped instead of emitted would leave this empty.
+  assert(hits.len() == usize(1), "the captured unit callback ran exactly once");
+  assert(match(hits.get(usize(0)), .Some(v) => v, .None => i32(0)) == i32(7), "it ran with the forwarded argument");
+});
