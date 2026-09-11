@@ -1439,6 +1439,22 @@ removal), and the 359 here cover `std/collections/*`, `std/imm/*`,
 "8 modules" count was a subset: it listed the ones a reader was most likely to
 reach for, not the ones that lack a marker.
 
+**But 479 is a SOURCE-GREP number, and it is not what readers get — measured
+2026-09-11.** `yo doc ./std --format json` on develop reports **1554 of 3345**
+functions and methods with no documentation. The gap is not missing comments: it
+is `yo doc` DROPPING every doc comment of a re-exported type
+(`issues/yo-doc-drops-every-doc-comment-of-a-re-exported-type.md`). Each module
+is documented from its OWN file's tokens, so a type declared in `foo/thing.yo`
+and re-exported by `foo/index.yo` renders bare under the module readers actually
+open — `string/index` 275, `http/index` 93, `imm/string` 62, `process/index` 50.
+On `String` and `rune` the only methods with any doc are the two that #579
+inherits from the `Format` trait.
+
+Two consequences for this row. A doc sweep aimed at the 479 would write comments
+`yo doc` then discards, so **the extractor fix comes first**; and the row's
+"done" criterion has to be the published number, not the grep — they differ by a
+factor of three.
+
 **`## Stability` markers — DONE 2026-09-11. All 175 std modules carry one.**
 The last fifteen were the ones a doc sweep cannot write mechanically, because
 the honest answer in each case is a specific blocker rather than a status word:

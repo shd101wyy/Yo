@@ -1795,6 +1795,297 @@ build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
     mj = (mj + usize(1));
   });
   _inherit_trait_method_docs(modules);
+  _fill_re_exported_docs(modules);
+});
+/// Fill in the documentation of a RE-EXPORTED declaration from the module that
+/// declares it.
+///
+/// Each module is documented from its OWN file's tokens, so a type declared in
+/// `foo/thing.yo` and re-exported by `foo/index.yo` renders bare under the
+/// module a reader actually opens — no type doc, and no doc on any method.
+/// `std/` is organised exactly that way, which is why `yo doc ./std` reported
+/// 1554 of 3345 members undocumented while the source carries a `///` on nearly
+/// all of them
+/// (issues/fixed/yo-doc-drops-every-doc-comment-of-a-re-exported-type.md).
+///
+/// This is a fill-in, not an inheritance: a re-exported type IS the declared
+/// type, so its doc is that declaration's own text and needs no attribution.
+/// Only `.None` is filled, so a module that documents a re-export itself keeps
+/// what it wrote — and a donor that reaches itself is therefore a no-op.
+///
+/// **Matched on name AND signature.** The name alone is not safe — `std/` has
+/// several same-named types in different modules — but a genuine re-export is
+/// the same declaration, so its rendered signature is identical by
+/// construction, while two distinct types sharing a name differ in theirs. A
+/// type whose signature matches no documented donor is left alone.
+///
+/// Runs after `_inherit_trait_method_docs` so a donor that took its method docs
+/// from a trait passes those on too, attribution included — the re-export then
+/// reads exactly as the declaring module does.
+///
+/// Writes back by INDEX (`types(ti) = DocType(…)`, `methods(mi) = DocFunction(…)`)
+/// because `DocType` and `DocFunction` are value structs: mutating a `.get()`
+/// result changes a copy and is silently lost. Same reason the trait-inheritance
+/// pass above rebuilds each entry.
+_fill_re_exported_docs :: (fn(modules : ArrayList(DocModule)) -> unit)({
+  // Donors: every type that HAS documentation to give, keyed by name+signature.
+  d_keys := ArrayList(String).new();
+  d_types := ArrayList(DocType).new();
+  (mi : usize) = usize(0);
+  while(mi < modules.len(), {
+    m := match(
+      modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        mi = (mi + usize(1));
+        continue;
+      }
+    );
+    (ti : usize) = usize(0);
+    while(ti < m.types.len(), {
+      match(
+        m.types.get(ti),
+        .Some(t) => {
+          score := _doc_type_doc_count(t);
+          if(score > usize(0), {
+            key := `${t.name}|${t.signature}`;
+            match(
+              d_keys.index_of(key.clone()),
+              // Keep the RICHEST donor, not the first one seen. A re-exporting
+              // module's own entry can carry a doc or two — `String` in
+              // `string/index` has `format`, inherited from the `Format` trait
+              // — and registering that would let it claim the key and block the
+              // declaring module's fully documented entry. Module walk order is
+              // not something to depend on either way.
+              .Some(di) => if(score > _doc_type_doc_count(match(d_types.get(di), .Some(x) => x, .None => t)), {
+                d_types(di) = t;
+              }),
+              .None => {
+                d_keys.push(key);
+                d_types.push(t);
+              }
+            );
+          });
+        },
+        .None => ()
+      );
+      ti = (ti + usize(1));
+    });
+    mi = (mi + usize(1));
+  });
+  // Recipients: every type missing documentation a donor can supply.
+  (mj : usize) = usize(0);
+  while(mj < modules.len(), {
+    m2 := match(
+      modules.get(mj),
+      .Some(x) => x,
+      .None => {
+        mj = (mj + usize(1));
+        continue;
+      }
+    );
+    (tj : usize) = usize(0);
+    while(tj < m2.types.len(), {
+      t2 := match(
+        m2.types.get(tj),
+        .Some(x) => x,
+        .None => {
+          tj = (tj + usize(1));
+          continue;
+        }
+      );
+      match(
+        d_keys.index_of(`${t2.name}|${t2.signature}`),
+        .Some(di) => match(
+          d_types.get(di),
+          .Some(donor) => {
+            // Methods, fields and variants live in ArrayLists, which are shared
+            // handles even through a struct copy — indexed assignment on them
+            // reaches the model.
+            _fill_doc_methods_from(t2, donor);
+            _fill_doc_fields_from(t2, donor);
+            _fill_doc_variants_from(t2, donor);
+            // The type's OWN doc is a value field, so it needs a rebuilt entry.
+            if(t2.doc.is_none() && donor.doc.is_some(), {
+              m2.types(tj) = DocType(
+                name : t2.name,
+                doc : donor.doc,
+                kind : t2.kind,
+                signature : t2.signature,
+                type_params : t2.type_params,
+                fields : t2.fields,
+                variants : t2.variants,
+                methods : t2.methods,
+                trait_impls : t2.trait_impls,
+                impls : t2.impls,
+                deprecated : match(t2.deprecated, .Some(d) => .Some(d), .None => donor.deprecated),
+                examples : match(t2.examples, .Some(e) => .Some(e), .None => donor.examples)
+              );
+            });
+          },
+          .None => ()
+        ),
+        .None => ()
+      );
+      tj = (tj + usize(1));
+    });
+    mj = (mj + usize(1));
+  });
+});
+/// How many documented items this type carries — its own doc, plus every
+/// method, field and variant that has one. Used to pick the richest donor for a
+/// given name+signature; `0` means it has nothing to give.
+_doc_type_doc_count :: (fn(t : DocType) -> usize)({
+  (n : usize) = usize(0);
+  if(t.doc.is_some(), {
+    n = (n + usize(1));
+  });
+  (i : usize) = usize(0);
+  while(i < t.methods.len(), {
+    match(
+      t.methods.get(i),
+      .Some(f) => if(f.doc.is_some(), {
+        n = (n + usize(1));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  match(
+    t.fields,
+    .Some(fs) => {
+      (fi : usize) = usize(0);
+      while(fi < fs.len(), {
+        match(
+          fs.get(fi),
+          .Some(f2) => if(f2.doc.is_some(), {
+            n = (n + usize(1));
+          }),
+          .None => ()
+        );
+        fi = (fi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  match(
+    t.variants,
+    .Some(vs) => {
+      (vi : usize) = usize(0);
+      while(vi < vs.len(), {
+        match(
+          vs.get(vi),
+          .Some(v) => if(v.doc.is_some(), {
+            n = (n + usize(1));
+          }),
+          .None => ()
+        );
+        vi = (vi + usize(1));
+      });
+    },
+    .None => ()
+  );
+  n
+});
+/// Per-name method doc fill-in, carrying the trait attribution with the text.
+_fill_doc_methods_from :: (fn(dst : DocType, src : DocType) -> unit)({
+  (i : usize) = usize(0);
+  while(i < dst.methods.len(), {
+    match(
+      dst.methods.get(i),
+      .Some(dm) => if(dm.doc.is_none(), {
+        (found : Option(String)) = Option(String).None;
+        (found_from : Option(String)) = Option(String).None;
+        (j : usize) = usize(0);
+        while(j < src.methods.len(), {
+          match(
+            src.methods.get(j),
+            .Some(sm) => if((sm.name == dm.name) && sm.doc.is_some(), {
+              found = sm.doc;
+              found_from = sm.inherited_from;
+              j = src.methods.len();
+            }),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+        if(found.is_some(), {
+          dst.methods(i) = DocFunction(
+            name : dm.name,
+            doc : found,
+            signature : dm.signature,
+            parameters : dm.parameters,
+            return_type : dm.return_type,
+            type_params : dm.type_params,
+            effects : dm.effects,
+            is_method : dm.is_method,
+            self_type : dm.self_type,
+            returns : dm.returns,
+            errors : dm.errors,
+            deprecated : dm.deprecated,
+            examples : dm.examples,
+            inherited_from : match(dm.inherited_from, .Some(x) => .Some(x), .None => found_from)
+          );
+        });
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Per-name field doc fill-in (structs).
+_fill_doc_fields_from :: (fn(dst : DocType, src : DocType) -> unit)({
+  dfs := match(dst.fields, .Some(x) => x, .None => return(()));
+  sfs := match(src.fields, .Some(x) => x, .None => return(()));
+  (i : usize) = usize(0);
+  while(i < dfs.len(), {
+    match(
+      dfs.get(i),
+      .Some(df) => if(df.doc.is_none(), {
+        (j : usize) = usize(0);
+        while(j < sfs.len(), {
+          match(
+            sfs.get(j),
+            .Some(sf) => if((sf.name == df.name) && sf.doc.is_some(), {
+              dfs(i) = DocField(name : df.name, type_ : df.type_, doc : sf.doc, default_value : df.default_value);
+              j = sfs.len();
+            }),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+});
+/// Per-name variant doc fill-in (enums).
+_fill_doc_variants_from :: (fn(dst : DocType, src : DocType) -> unit)({
+  dvs := match(dst.variants, .Some(x) => x, .None => return(()));
+  svs := match(src.variants, .Some(x) => x, .None => return(()));
+  (i : usize) = usize(0);
+  while(i < dvs.len(), {
+    match(
+      dvs.get(i),
+      .Some(dv) => if(dv.doc.is_none(), {
+        (j : usize) = usize(0);
+        while(j < svs.len(), {
+          match(
+            svs.get(j),
+            .Some(sv) => if((sv.name == dv.name) && sv.doc.is_some(), {
+              dvs(i) = DocVariant(name : dv.name, fields : dv.fields, doc : sv.doc, discriminant : dv.discriminant);
+              j = svs.len();
+            }),
+            .None => ()
+          );
+          j = (j + usize(1));
+        });
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
 });
 /// Give every undocumented trait-impl method the TRAIT's documentation.
 ///
