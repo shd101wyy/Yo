@@ -27,6 +27,22 @@ test("call-site wrap: direct extern call works inside unsafe(...)", {
   n := unsafe(strlen(cstr));
   assert(n == usize(6), "wrapped strlen returns the expected length");
 });
+// ── Definition order: an `extern(...)` block declared BELOW a function that
+//    calls one of its members. `::` definitions have been order-independent
+//    since plans/reference/LAZY_TOPLEVEL_BINDINGS.md landed, but an extern
+//    member was not a pending binding, so this was
+//    `E0401 Variable "__yo_thread_self" not found`
+//    (issues/fixed/extern-declarations-are-not-forward-referenceable.md).
+thread_id_via_forward_extern :: (fn() -> usize)(__yo_thread_self());
+extern(
+  "Yo",
+  __yo_thread_self : (fn() -> usize)
+);
+test("definition order: a function may call an extern member declared below it", {
+  first := thread_id_via_forward_extern();
+  second := __yo_thread_self();
+  assert(first == second, "the forward-referenced extern member is the same symbol");
+});
 // ── Two externs, one signature. The codegen registry that collects extern
 //    symbols for prototype emission was keyed by the TYPE KEY, so `toupper`
 //    and `tolower` — identical `(fn(i32) -> i32)` types — collided and only

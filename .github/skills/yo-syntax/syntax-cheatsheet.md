@@ -927,13 +927,14 @@ What stays ORDERED (still "define before use"): imports (`{ a } :: import(...)`,
 
 **SEED GATE — do NOT rely on this in `std/` or `src/` yet.** `yo build` compiles `std/` and `src/` with the SEED compiler (`SEED_VERSION`), which predates the feature and still fails with `Variable "X" not found` on a forward reference (and needs `recur` for self-recursion). Keep the callee-before-caller / impl-before-caller order in `std/` and `src/` until a release carrying the feature becomes the seed (`plans/backlog/SEED_VERSION_AUTOMATION.md` is the scheduling point). `tests/` are compiled by the stage-1 built from the tree and may use the new order.
 
-**Exception: `extern("Yo", …)` / `extern("c", …)` declarations are NOT
-forward-referenceable.** Their members are not `::` bindings, so a call above
-the block is `E0401 Variable "…" not found` — and when that call is an
-argument of `dyn(…)` inside a fn body the miss is swallowed or misreported
-(`Type fn(T : Type) -> Type does not implement the trait Error`). Declare the
-`extern(...)` block ABOVE its first use
-(`issues/extern-declarations-are-not-forward-referenceable.md`).
+**`extern("Yo", …)` / `extern("c", …)` blocks are order-independent too
+(fixed 2026-09-12, `issues/fixed/extern-declarations-are-not-forward-referenceable.md`),
+but SEED-GATED: the released seed compiles `src/` and `std/` and still lacks
+that fix, so in those two trees declare the `extern(...)` block ABOVE its first
+use until `SEED_VERSION` carries it. The same fix made `dyn(<unknown name>)`
+report its E0401 instead of silently hollowing the function — if `yo check`
+passes a body you expected to fail, an older compiler's `dyn(...)` swallow is
+the first suspect.
 
 ### Named tuple fields in type syntax are not allowed
 

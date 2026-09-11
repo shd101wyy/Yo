@@ -1,6 +1,28 @@
 # `extern("Yo", …)` declarations are not forward-referenceable, and a miss inside `dyn(…)` is swallowed or misreported
 
-**Status:** OPEN
+**Status:** FIXED 2026-09-12 (`p1/yo-toml-manifest`), both faces.
+(1) `src/evaluator/context.yo`: an `extern(...)` statement is a pending
+definition of the lazy top-level walk — `classify_pending_def` records it
+with `members` = every `label : type` it declares, `_find_def_by_name`
+matches a miss on any member, and the resolution returns the module frame's
+binding of the requested member (`_def_variable_for`); forcing evaluates the
+whole block once and the walk skips it at its own position like any forced
+`::` definition. (2) `src/evaluator/values/dyn.yo`: the payload of `dyn(...)`
+is evaluated through `evaluate_expression_raw(…, exn)` instead of the
+exception-free `evaluate_expression`, whose wrapper SWALLOWS a throw — the
+E0401 now reaches the definition (and the "does not implement Error"
+message against a stand-in type is gone with it). Gates: the two reproducers
+below (`yo check` now passes `extern-forward-ref-not-found.yo` and reports E0401
+for `extern-forward-ref-inside-dyn-swallowed.yo`'s payload when the extern is
+missing), `tests/extern_unsafe_wrap.test.yo` "definition order: a function may
+call an extern member declared below it" (red-first: E0401), cli-case
+`check-dyn-unresolved-payload` (`yo check` rc=1 + the E0401; the pre-fix
+compiler passed the file), `check ./src` 271/271 and `check ./std` 175/175
+with the fixed compiler (nothing in the tree relied on the swallow), and the
+compiler's own emission is byte-identical before and after (order-correct
+code evaluates exactly as before). Seed gate: the released seed lacks (1), so
+`src/` and `std/` still declare an `extern(...)` block ABOVE its first use
+(`src/manifest.yo` does, with a comment) until SEED_VERSION carries this.
 **Found:** 2026-09-12, writing `src/manifest.yo` (the `yo.toml` manifest): its
 `read_file_sync` called `__yo_errno()` and the `extern("Yo", __yo_errno : …)`
 block sat BELOW the function, as it does in `std/fs/file.yo`'s style but in
@@ -31,7 +53,7 @@ yo check issues/repros/extern-forward-ref-inside-dyn-swallowed.yo  # passes — 
 Moving the `extern(...)` block above its first use makes both check and
 compile (`src/manifest.yo` does that today, with a comment).
 
-## Fix direction
+## Fix direction (as implemented)
 
 - Collect `extern(...)` (and `c_include(...)`-declared) member names in the
   lazy top-level pre-pass alongside `::` definitions, so a lookup MISS forces
