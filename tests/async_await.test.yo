@@ -4826,7 +4826,7 @@ test("Test a module global survives a suspension point", {
 });
 // ---------------------------------------------------------------------------
 // A cond/match with an awaiting arm NESTED inside an awaiting match arm
-// (issues/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
+// (issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
 // The enclosing arm's statements after the nested instance used to be a dead
 // dispatch case — the whole arm vanished, exit 0, `check` clean. The resume
 // now dispatches on a per-nesting-level field (`cond_branch_N_n<d>`) and a
@@ -4944,6 +4944,54 @@ _nested_shape_c :: (fn(parsed : _NestedParsed, deep : bool, io : Io) -> Impl(Fut
     out
   })
 );
+/// Shape D — a value-producing cond whose arm awaits TWICE (two plain bound
+/// awaits): the arm's tail value after the second await must reach the bound
+/// result (issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md).
+_nested_two_awaits :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := cond(
+      flag => {
+        a := e.io.await(_nested_resolve(e.io), e);
+        b := e.io.await(_nested_append(a.clone(), e.io), e);
+        `${a}|${b.to_string()}`
+      },
+      true => String.from("no")
+    );
+    out
+  })
+);
+/// Shape E — an awaiting `if` STATEMENT after a bound await, then the arm's
+/// tail value (the `yo install` `.Git` arm with `if(added, { … await fetch … })`).
+_nested_if_statement :: (fn(parsed : _NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        _
+      ) => p_name,
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => e.io.await(_nested_resolve(e.io), e)
+        );
+        added := e.io.await(_nested_append(g_name.clone(), e.io), e);
+        if(added, {
+          second := e.io.await(_nested_resolve(e.io), e);
+          log.push_string(`fetched:${second};`);
+        });
+        `${log}${ref_str};${g_name}`
+      }
+    );
+    out
+  })
+);
 test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -4978,4 +5026,24 @@ test("two nesting levels: an awaiting cond inside a match inside a match arm", {
   assert(shallow == "shallow!;n", `innermost synchronous arm: both enclosing levels completed inline (got ${shallow})`);
   pinned := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).Some(String.from("v1"))), true, io), bundle);
   assert(pinned == "v1;n", `middle synchronous arm (got ${pinned})`);
+});
+test("a value-producing cond arm that awaits twice keeps its tail value", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  got := io.await(_nested_two_awaits(true, io), bundle);
+  assert(got == "resolved|true", `the tail value after the second await reached the bound result (got ${got})`);
+  other := io.await(_nested_two_awaits(false, io), bundle);
+  assert(other == "no", "the synchronous arm is unaffected");
+});
+test("an awaiting if statement after a bound await, then the arm's tail value", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  pinned := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
+  assert(pinned == "fetched:resolved;v6;raylib", `pinned: the if body ran and the tail value reached the result (got ${pinned})`);
+  latest := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
+  assert(latest == "fetched:resolved;resolved;raylib", `resolved: the if body ran and the tail value reached the result (got ${latest})`);
+  path := io.await(_nested_if_statement(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
+  assert(path == "mylib", "a synchronous sibling arm is unaffected");
 });

@@ -1,6 +1,10 @@
 # `yo install user/repo[@tag]` writes `ref: ""` to `deps.yo`, skips the fetch, and exits 0
 
-**Status:** OPEN
+**Status:** OPEN — root cause FIXED 2026-09-11 (`fix/async-nested-match-dead-arm`,
+`issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md`);
+the data-path hardening in "Fix direction" item 2 is still owed, and the
+install flow itself is only fixed in a binary whose OWN body was compiled by a
+compiler carrying the fix (gen-2 — the released seed still has the old lowering).
 **Found:** 2026-09-11, auditing the dependency subsystem
 (`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
 `yo 0.2.30` on macOS and with a compiler built from `develop` (`94fae98f8`)
@@ -49,7 +53,7 @@ Three things are wrong at once:
 
 ## Root cause (found 2026-09-11 by body substitution)
 
-`issues/nested-value-match-with-await-drops-the-enclosing-match-arm.md`: in an
+`issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md`: in an
 `io.async` body, a match arm that contains a value-producing INNER match with
 an awaiting arm is emitted as nothing. `run_install`'s `.Git(…)` arm is that
 shape (`ref_str := match(g_pinned_ref, .Some(r) => r, .None => { await
@@ -60,9 +64,9 @@ fails at the C compiler with a mis-typed state-machine slot instead.
 
 ## Fix direction
 
-1. Fix the lowering bug in `src/codegen/async/` (the nested-match issue above
-   owns the reproducer and gate). Until then, `run_install` can hoist the
-   inner match's awaiting arm into its own async fn.
+1. ~~Fix the lowering bug in `src/codegen/async/`~~ — DONE 2026-09-11 (the
+   nested-match issue above owns the reproducer and gate); `run_install` is
+   unchanged and emits correctly under a fixed compiler.
 2. Independently harden the data path: `resolve_git_ref` must fail loudly on
    an empty ref or a non-zero `git ls-remote`, and `run_install` must refuse to
    write a declaration with an empty ref. Gate: an offline cli-case that

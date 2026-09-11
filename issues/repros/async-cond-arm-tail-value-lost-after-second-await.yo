@@ -1,0 +1,36 @@
+// Reproducer for issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md
+// Compile + run: `yo compile <this> --optimize 2 -o r && ./r` — printed an EMPTY first line before the fix (expected `r-a|r-b`).
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
+
+resolve :: (fn(tag : String, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    s := String.from("r-");
+    s.push_string(tag);
+    s
+  })
+);
+// Two plain bound awaits in one arm of a VALUE-producing match: the arm's
+// tail value after the SECOND await must reach `out`.
+two_awaits :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := cond(
+      flag => {
+        a := e.io.await(resolve(String.from("a"), e.io), e);
+        b := e.io.await(resolve(String.from("b"), e.io), e);
+        `${a}|${b}`
+      },
+      true => String.from("no")
+    );
+    out
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  b := IoExn(io : io, exn : exn);
+  println(io.await(two_awaits(true, io), b));
+  println(io.await(two_awaits(false, io), b));
+});
+export(main);

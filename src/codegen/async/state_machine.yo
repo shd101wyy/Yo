@@ -1458,6 +1458,13 @@ generate_remaining_expr_future :: (
           }),
           .None => ()
         );
+      }, {
+        // `x := cond/match(… await …)` as an arm's additional await: the
+        // await lives in a nested instance whose value is bound. This used to
+        // return here having emitted NOTHING — the binding, the instance and
+        // the arm's statements after it all vanished
+        // (issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md).
+        generate_await_expression(expr, await_point, usize(0), indent, context);
       }),
       .None => ()
     );
@@ -1979,6 +1986,43 @@ _await_target_has_struct_field :: (
 /// bound variable's field; else the cond's registered target when the branch
 /// VALUE is the await itself; else nothing (a discarded await result stays
 /// owned by the future and is released with it).
+/// The destination a cond/match layer's arm values go to at a resume state:
+/// the entry's own registered target, else — for an entry whose branches
+/// CONTINUE an outer cond's arms past an additional await (created by
+/// `_chain_additional_remaining`; `cond_field` names the outer field) — the
+/// outer cond's target. Before this the continuation of a value-producing
+/// cond whose arm awaited TWICE computed the arm's tail value after the second
+/// await and discarded it, so the bound result stayed zeroed
+/// (issues/fixed/async-cond-arm-tail-value-lost-after-second-await.md).
+_cond_layer_target :: (
+  fn(cbd : AsyncCondBranchInfo, cond_field : usize, context : FunctionGenerationContext) -> Option(String)
+)(
+  match(
+    cbd.target_assignment_code,
+    .Some(t) => Option(String).Some(t),
+    .None => match(
+      context.async_cond_branch_info,
+      .Some(m) => match(m.get(cond_field), .Some(outer) => outer.target_assignment_code, .None => Option(String).None),
+      .None => Option(String).None
+    )
+  )
+);
+/// The destination of a NESTED instance's value: its own `x :=` target, else —
+/// when it is the enclosing arm's TAIL (no remaining statements), so its value
+/// IS the enclosing arm's value — the enclosing level's target.
+_nested_level_target :: (
+  fn(branch : CondBranch, ninfo : AsyncCondBranchInfo, enclosing_target : Option(String)) -> Option(String)
+)(
+  match(
+    ninfo.target_assignment_code,
+    .Some(t) => Option(String).Some(t),
+    .None => if(
+      match(branch.remaining_exprs, .Some(r) => (r.len() == usize(0)), .None => true),
+      enclosing_target,
+      Option(String).None
+    )
+  )
+);
 /// One `case` of the dispatch-mode extraction switch. A branch whose await
 /// lives in a NESTED cond/match (`branch.nested`) switches on the nested
 /// instance's own field and extracts per nested arm, recursively — the
@@ -2007,12 +2051,13 @@ _emit_dispatch_extraction_case :: (
         em.emit_string_line(`        case ${branch.index.to_string()}: {`);
         em.emit_string_line(`          // Nested cond/match: extract per nested arm`);
         em.emit_string_line(`          switch (sm->${field}) {`);
+        level_target := _nested_level_target(branch, ninfo, level_target_assignment);
         (ni : usize) = usize(0);
         while(ni < ninfo.branches.len(), {
           match(
             ninfo.branches.get(ni),
             .Some(inner) => if(inner.has_await, {
-              recur(inner, ninfo.target_assignment_code, async_block_id.clone(), prev_await, depth, slot.clone(), context, cross_boundary_ids);
+              recur(inner, level_target, async_block_id.clone(), prev_await, depth, slot.clone(), context, cross_boundary_ids);
             }),
             .None => ()
           );
@@ -2147,7 +2192,7 @@ _emit_prev_await_result_extraction_dispatch :: (
     match(
       dispatch_branches.get(bi),
       .Some(branch) => if(branch.has_await, {
-        _emit_dispatch_extraction_case(branch, cbd.target_assignment_code, async_block_id.clone(), prev_await, depth, slot.clone(), context, cross_boundary_ids);
+        _emit_dispatch_extraction_case(branch, _cond_layer_target(cbd, cond_field, context), async_block_id.clone(), prev_await, depth, slot.clone(), context, cross_boundary_ids);
       }),
       .None => ()
     );
@@ -2650,7 +2695,7 @@ _emit_cond_branch_remaining :: (
 /// remaining code. The caller then runs the ENCLOSING arm's remaining code —
 /// the two-level dispatch that replaced the dead `case` the enclosing arm's
 /// statements used to be keyed on
-/// (issues/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
+/// (issues/fixed/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
 _emit_nested_level_switch :: (
   fn(
     ninfo : AsyncCondBranchInfo,
@@ -2668,6 +2713,8 @@ _emit_nested_level_switch :: (
     /// Dispatch-mode point: the per-branch extraction already wrote every
     /// destination — bind nothing here.
     dispatch_mode : bool,
+    /// Where this nested instance's value goes (`_nested_level_target`).
+    level_target : Option(String),
     /// A C condition that is true only when a future was stored and its
     /// result extracted (`__yo_had_future_N`): the bindings run under it,
     /// because this switch is emitted OUTSIDE the slot guard so that the
@@ -2710,7 +2757,7 @@ _emit_nested_level_switch :: (
               // nested instance's binding (`x := match(...)`).
               .None => if(match(inner.remaining_exprs, .Some(r) => (r.len() == usize(0)), .None => true), {
                 match(
-                  ninfo.target_assignment_code,
+                  level_target,
                   .Some(tac) => {
                     em.emit_string_line(`${inner_indent}${tac} = sm->await_result_${idx_s};`);
                   },
@@ -2727,13 +2774,13 @@ _emit_nested_level_switch :: (
             inner.nested,
             .Some(nk) => match(
               context.nested_cond_records.get(nk),
-              .Some(nn) => recur(nn, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, inner_indent.clone(), context, cross_boundary_ids, dispatch_mode, c_guard),
+              .Some(nn) => recur(nn, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, inner_indent.clone(), context, cross_boundary_ids, dispatch_mode, _nested_level_target(inner, nn, level_target), c_guard),
               .None => ()
             ),
             .None => ()
           );
         });
-        _emit_cond_branch_remaining(inner, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, ninfo.target_assignment_code, inner_indent, context);
+        _emit_cond_branch_remaining(inner, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, level_target, inner_indent, context);
         em.emit_string_line(`${indent}    break;`);
         em.emit_string_line(`${indent}  }`);
       }),
@@ -2803,6 +2850,7 @@ _emit_nested_branch_continuation :: (
       .Some(cbd) => {
         if(_cond_point_has_nested_arm(prev_await, context), {
           cond_field := match(cbd.cond_branch_field_index, .Some(x) => x, .None => prev_await.base.index);
+          layer_target := _cond_layer_target(cbd, cond_field, context);
           idx_s := prev_await.base.index.to_string();
           c_guard := Option(String).Some(`__yo_had_future_${idx_s}`);
           em.emit_string_line(`      // Arms with a nested cond/match: run whether or not the nested arm awaited`);
@@ -2817,10 +2865,10 @@ _emit_nested_branch_continuation :: (
                   em.emit_string_line(`        case ${branch.index.to_string()}: {`);
                   match(
                     context.nested_cond_records.get(nk),
-                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, false, c_guard),
+                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, false, _nested_level_target(branch, ninfo, layer_target), c_guard),
                     .None => ()
                   );
-                  _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, cbd.target_assignment_code, `          `, context);
+                  _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, layer_target, `          `, context);
                   em.emit_string_line(`          break;`);
                   em.emit_string_line(`        }`);
                 }),
@@ -2885,6 +2933,7 @@ _emit_cond_branch_continuation :: (
         });
         if(any_await, {
           cond_field := match(cbd.cond_branch_field_index, .Some(x) => x, .None => prev_await.base.index);
+          layer_target := _cond_layer_target(cbd, cond_field, context);
           skip_switch := (cond_field == usize.MAX);
           em.emit_string_line(`      // Execute remaining code from chosen cond branch`);
           if(!(skip_switch), {
@@ -2936,7 +2985,7 @@ _emit_cond_branch_continuation :: (
                     // no-target-assignment fallback below.
                     .None => if(match(branch.remaining_exprs, .Some(r) => (r.len() == usize(0)), .None => true), {
                       match(
-                        cbd.target_assignment_code,
+                        layer_target,
                         .Some(tac) => {
                           em.emit_string_line(`          ${tac} = sm->await_result_${prev_await.base.index.to_string()};`);
                         },
@@ -2949,12 +2998,12 @@ _emit_cond_branch_continuation :: (
                   branch.nested,
                   .Some(nk) => match(
                     context.nested_cond_records.get(nk),
-                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, dispatch_mode, Option(String).None),
+                    .Some(ninfo) => _emit_nested_level_switch(ninfo, async_block_id.clone(), prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, `          `, context, cross_boundary_ids, dispatch_mode, _nested_level_target(branch, ninfo, layer_target), Option(String).None),
                     .None => ()
                   ),
                   .None => ()
                 );
-                _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, cbd.target_assignment_code, `          `, context);
+                _emit_cond_branch_remaining(branch, prev_await, segment, body_expr, future_type, capture_type, analysis, cond_field, layer_target, `          `, context);
                 if(!(skip_switch), {
                   em.emit_string_line(`          break;`);
                   em.emit_string_line(`        }`);
@@ -3063,7 +3112,14 @@ _emit_outer_chained_branch_layers :: (
                     .Some(cb) => if(cb.has_await && match(cb.remaining_exprs, .Some(r) => (r.len() > usize(0)), .None => false), {
                       em.emit_string_line(`      // Outer cond branch ${cb.index.to_string()} remaining code (chained)`);
                       em.emit_string_line(`      if (sm->cond_branch_${layer.cond_branch_field_index.to_string()} == ${cb.index.to_string()}) {`);
-                      _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, Option(String).None, `      `, context);
+                      // The layer's tail value is the OUTER arm's value — it goes
+                      // to the outer cond's target (`_cond_layer_target`).
+                      outer_target := match(
+                        cbi_map.get(layer.cond_branch_field_index),
+                        .Some(outer) => outer.target_assignment_code,
+                        .None => Option(String).None
+                      );
+                      _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, outer_target, `      `, context);
                       em.emit_string_line(`      }`);
                     }),
                     .None => ()
