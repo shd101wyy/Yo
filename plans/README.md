@@ -122,10 +122,13 @@ of throwing it) and
 **Language features the std campaign is blocked on** (added 2026-09-10, each
 written from the std row that needs it, with the blocked call sites named):
 
-- [`backlog/WAKER_BASED_SCHEDULING.md`](backlog/WAKER_BASED_SCHEDULING.md) —
-  the largest one. Everything that waits on a peer (async `Mutex`, `Channel`,
-  `yield`, the combinators) polls a **1 ms timer**, which puts a millisecond
-  floor under every hand-off and makes `spawn_blocking` inexpressible.
+- [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) — the largest one,
+  and **now active** (moved out of `backlog/` on 2026-09-11). Everything that
+  waits on a peer used to poll a **1 ms timer**, putting a millisecond floor
+  under every hand-off and making `spawn_blocking` inexpressible. The `Waker` +
+  `park` primitive and the async `Mutex` over it have landed; `yield` is
+  seed-gated, `Channel` is blocked on a tracer defect, and the combinators and
+  cross-thread wake are open — the doc's status table says which is which.
 - [`backlog/MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) — Yo has no
   visibility mechanism; the leading-underscore convention standing in for it
   covers **752 members** in `std/` and enforces nothing. Blocks three

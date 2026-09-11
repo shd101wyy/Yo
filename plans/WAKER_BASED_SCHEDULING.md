@@ -1,9 +1,36 @@
 # Waker-based scheduling
 
-**Status:** BACKLOG — designed here, not started. Written 2026-09-10. This is
-the largest remaining item in `plans/STD_API_STABILIZATION.md`'s concurrency
-group, and four std modules' `## Stability` markers name it as the thing that
-will change under them.
+**Status:** IN PROGRESS — steps 1, 3a and 3b landed 2026-09-11, step 2 is
+seed-gated, steps 4-5 are open. Written 2026-09-10. This is the largest
+remaining item in `plans/STD_API_STABILIZATION.md`'s concurrency group, and four
+std modules' `## Stability` markers name it as the thing that will change under
+them.
+
+| step | state |
+| --- | --- |
+| 1. `Waker` + `park` in the runtime | **LANDED** (#561) — `std/async/waker.yo`, `__yo_async_park_start` / `__yo_waker_new` / `__yo_waker_wake` / `__yo_waker_release` in `codegen/async/runtime_core.yo`, plus the live-waker count the loop needs to know a parked task is still wakeable |
+| 2. `yield` over `park` | **SEED-GATED.** `yield_now` is the fast form and is landed; `yield` itself cannot point at it until the seed ships `__yo_async_yield_start`, because `yield` is on the compiler's own import path (through `std/fs/watch`) and the seed emits a runtime without that symbol, so the compiler fails to LINK. Moves in the release after the one that ships this runtime |
+| 3a. `Mutex` over a waiter queue | **LANDED** (#576) — `std/async/mutex.yo` holds an `ArrayList(Waker)`, `unlock` wakes the FRONT waiter, and `waiter_count()` is the oracle the FIFO test reads |
+| 3b. `Channel` over the same queue | **LANDED** (#586) — `send`/`recv` park on a waiter queue instead of re-checking on a 1 ms timer tick. It was blocked for a day by a compiler defect that the rewrite surfaced: the trace collector tried to monomorphize a GENERIC `ArrayList(T)` instance that only this shape put in the codegen type registry, and failed inside `array_list.yo`'s `Trace` body — a file the rewrite never touched (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`) |
+| 4. The combinators (`race`/`any`/`timeout`) | open |
+| 5. Cross-thread wake + `spawn_blocking` | open |
+
+**Two codegen bugs fell out of this campaign, both fixed.**
+
+- **#580** — `Park.wait` awaits `self._future`, a future read out of a FIELD,
+  and the state machine's await slot took that reference without a
+  `__yo_incr_rc` while `Park`'s own dispose still dropped it. Two releases for
+  one reference: a heap-use-after-free that failed every CI `test (…)` leg and
+  the hollow sweep
+  (`issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`).
+- **#586** — the Trace collector force-specializes every reference-semantics
+  type in the codegen type registry, and a GENERIC instance can be in there.
+  Monomorphizing one is meaningless and fails in `ArrayList`'s own `Trace` body
+  (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`).
+
+Both were invisible to the local gates that pass on macOS and surfaced only
+under CI's sanitizers or a specific std shape — worth remembering before the
+remaining steps.
 
 ## The problem: everything that waits, waits on a 1 ms timer
 

@@ -72,7 +72,7 @@ static int __yo_io_wait(void);
 // call them. The thread-local state has to be DEFINED here rather than
 // declared, not merely declared: a static object has no forward-declaration
 // spelling in C.
-// See plans/backlog/WAKER_BASED_SCHEDULING.md.
+// See plans/WAKER_BASED_SCHEDULING.md.
 static ${thread_local} size_t __yo_async_live_wakers = 0;
 typedef struct __yo_yield_node_t {
   __yo_io_future_t* future;
@@ -409,7 +409,7 @@ static __yo_yield_future_t __yo_async_yield(void) {
 // Waker / park — "resume THIS task"
 // ============================================================================
 // The primitive every peer-waiting primitive needs
-// (plans/backlog/WAKER_BASED_SCHEDULING.md). Without it, everything that waits
+// (plans/WAKER_BASED_SCHEDULING.md). Without it, everything that waits
 // on ANOTHER TASK's progress — yield, a contended async Mutex, a blocked
 // Channel send/recv — polls a 1 ms timer, which puts a millisecond floor under
 // every hand-off.

@@ -37,7 +37,7 @@ replaces.
 
 ## Why it matters
 
-The whole point of `plans/backlog/WAKER_BASED_SCHEDULING.md` is removing a
+The whole point of `plans/WAKER_BASED_SCHEDULING.md` is removing a
 millisecond floor from every hand-off, and the acceptance criterion is a
 measured hand-off rate. If the measurement is taken from inside the test
 harness it reads as "no improvement", which is how this nearly got mis-recorded
