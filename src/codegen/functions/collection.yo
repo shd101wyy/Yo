@@ -1148,7 +1148,26 @@ collect_trace_methods_from_generic_impls :: (
       vals.next(),
       .Some(entry) => {
         ty := entry.ty;
-        if(is_reference_struct_type(ty) || is_reference_enum_type(ty), {
+        // CONCRETE types only. A generic instance can reach the type registry
+        // — `is_registerable` admits a struct whose SomeType content sits
+        // behind function-typed fields — but monomorphizing its `trace` is
+        // meaningless: there is no element type to bind, so the body is
+        // re-evaluated with the impl's own `T` bound to itself and the first
+        // thing it does with an element (`tracer.visit(base.add(i))`, where
+        // `base : *(T)`) finds no method on an unresolved `*(T)`:
+        //
+        //     error: No matching call found with arguments: (base.add)(i)
+        //         --> std/collections/array_list.yo:862:30
+        //
+        // Nothing could ever call such a monomorphization either — the
+        // traversal generators look the trace function up by the CONCRETE
+        // container's type_key. The async `Channel` over wakers is what
+        // surfaced it (an `ArrayList(Waker)` field plus a park in `send`/`recv`
+        // put a generic `ArrayList(T)` in the registry beside the two concrete
+        // instances), and the error pointed at `array_list.yo` — a file the
+        // change never touched
+        // (issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md).
+        if((is_reference_struct_type(ty) || is_reference_enum_type(ty)) && !type_contains_some_type_deep(ty), {
           type_list.push(ty);
         });
       },
