@@ -69,6 +69,9 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 [`reference/VERSION_MANAGEMENT.md`](reference/VERSION_MANAGEMENT.md),
 [`reference/ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md),
 [`reference/PORTABLE_C_DISTRIBUTION.md`](reference/PORTABLE_C_DISTRIBUTION.md),
+[`reference/ASYNC_ITERATION_STREAM.md`](reference/ASYNC_ITERATION_STREAM.md)
+(the `Stream` trait — async iteration, LANDED 2026-09-11 with `for_await` and
+`BufReader.lines` parked in `backlog/`),
 …. Policy decisions:
 [`reference/MACRO_POLICY.md`](reference/MACRO_POLICY.md),
 [`reference/TARGET_TRIPLES.md`](reference/TARGET_TRIPLES.md),
@@ -93,7 +96,18 @@ expensive — with probes and a Rust/Swift comparison),
 mechanism was built and rejected twice; kept because the failure modes
 generalize) and
 [`backlog/ZEROLANG_AGENT_FIRST_LESSONS.md`](backlog/ZEROLANG_AGENT_FIRST_LESSONS.md)
-(a keep/reject audit, explicitly not a commitment).
+(a keep/reject audit, explicitly not a commitment). Three landed 2026-09-11
+alongside `reference/ASYNC_ITERATION_STREAM.md`, each parking a piece of it
+with the blocker measured:
+[`backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`](backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md)
+(an `io.await` inside a macro expansion compiles to a BLOCKING await, so an
+awaiting macro deadlocks in a task),
+[`backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`](backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md)
+(an async `BufReader.lines` needs a `Reader` that returns its failure instead
+of throwing it) and
+[`backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`](backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md)
+(`where(T <: Trait(Assoc := A))` binds nothing when `A` is a generic — true of
+`Iterator` too).
 
 **Language features the std campaign is blocked on** (added 2026-09-10, each
 written from the std row that needs it, with the blocked call sites named):

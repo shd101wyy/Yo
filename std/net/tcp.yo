@@ -27,6 +27,7 @@ import("../fmt");
 { Error, AnyError, Exception, IoExn } :: import("../error");
 IO_tcp :: import("../sys/tcp");
 IoTraits :: import("../io");
+{ Stream } :: import("../async/stream");
 SockInfo :: import("../sys/sockinfo");
 { AF_INET, AF_INET6, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE, SHUT_RD, SHUT_WR, SHUT_RDWR } :: import("../sys/socket");
 // ============================================================================
@@ -161,6 +162,66 @@ TcpListener :: ref(
     _is_closed : bool
   )
 );
+/// The stream of connections arriving at a `TcpListener` — Rust's
+/// `TcpListener::incoming`, created by `listener.incoming()`.
+///
+/// Item is a `Result`, not a bare `TcpStream`, for the reason Rust's is: a
+/// single failed `accept` (a client that vanished between the SYN and the
+/// accept, a per-process descriptor limit) is ONE bad connection, not the end
+/// of the listener. Carrying the failure in the item is what lets the stream
+/// survive it — and it is why `Stream.next` needs no `Exception` handler
+/// (`std/async/stream.yo`).
+///
+/// The error is a `NetError`, the same type `accept` THROWS, so moving a
+/// server loop from `accept` to `incoming` does not change its error
+/// vocabulary.
+///
+/// The stream finishes (`.None`) once the listener is closed — including by
+/// another task while a `next` is pending — mirroring `Watcher`.
+Incoming :: ref(struct(_listener : TcpListener));
+impl(
+  Incoming,
+  Stream(
+    Item : Result(TcpStream, NetError),
+    next : (
+      fn(self : Self, io : Io) -> Impl(Future(Option(Result(TcpStream, NetError)), Io))
+    )(
+      io.async((io : Io) => {
+        (out : Option(Result(TcpStream, NetError))) = Option(Result(TcpStream, NetError)).None;
+        if(!self._listener._is_closed, {
+          // The raw accept, not the throwing `accept` method: this stream
+          // reports failure IN the item, and an `Exception` handler cannot be
+          // installed across a suspension inside an async body.
+          addr_buf := (*u8)(malloc(usize(128)).unwrap());
+          addr_len := (*u32)(malloc(usize(4)).unwrap());
+          addr_len.* = u32(128);
+          client_fd := io.await(IO_tcp.accept(self._listener._fd, addr_buf, addr_len), io);
+          // The peer address is parsed only on success: on failure the kernel
+          // filled nothing in, so `addr_buf` is still uninitialized malloc.
+          out = cond(
+            (client_fd < i32(0)) => Option(Result(TcpStream, NetError)).Some(
+              Result(TcpStream, NetError).Err(NetError.from_io(IoError.from_errno(i32(0) - client_fd)))
+            ),
+            true => Option(Result(TcpStream, NetError)).Some(
+              Result(TcpStream, NetError).Ok(
+                TcpStream(
+                  _fd : client_fd,
+                  _peer_addr : sockaddr_to_socket_addr(addr_buf),
+                  _local_addr : _read_local_addr(client_fd, SocketAddr.any(u16(0))),
+                  _is_closed : false
+                )
+              )
+            )
+          );
+          free(.Some((*void)(addr_buf)));
+          free(.Some((*void)(addr_len)));
+        });
+        out
+      })
+    )
+  )
+);
+export(Incoming);
 impl(
   TcpListener,
   /// Bind to a socket address and start listening.
@@ -236,6 +297,19 @@ impl(
       );
     })
   }),
+  /// The connections arriving at this listener, as a `Stream` of
+  /// `Result(TcpStream, NetError)` — Rust's `TcpListener::incoming`.
+  ///
+  /// ```rust
+  /// conns := listener.incoming().take(usize(3));
+  /// io.await(conns.for_each(c => { handle(c); }, io), io);
+  /// ```
+  ///
+  /// Every `std/async/stream` combinator applies, and a function can be
+  /// generic over `where(S <: Stream)` instead of over this listener.
+  incoming : (fn(self : Self) -> Incoming)(
+    Incoming(_listener : self)
+  ),
   /// Get the local address this listener is bound to.
   local_addr : (fn(self : Self) -> SocketAddr)(
     self._local_addr

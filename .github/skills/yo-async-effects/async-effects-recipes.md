@@ -227,6 +227,59 @@ process_dir :: (fn(root: Path, ctx : WalkCtx) -> Impl(Future(unit, WalkCtx)))(
   a segfaulting binary with the branch body dropped. See
   `issues/fixed/yo-self-init-segfaults-on-first-run.md` and
   `issues/fixed/await-in-branch-positions-matrix.md`.
+- **An `io.await` reached only through a MACRO EXPANSION is compiled as a
+  BLOCKING await** (measured 2026-09-11). Codegen looks for awaits in the
+  body's own AST, and a macro call keeps the macro head there — the expansion
+  lives in `ExprInfo.macro_expansion`. So a body whose only awaits come from a
+  macro is emitted as a plain closure (no state machine) with
+  `// Synchronous await (io.await outside state machine)` in the C. Inside a
+  spawned task that is a DEADLOCK: `io.spawn` never returns from the cold
+  start, so the caller never reaches whatever would satisfy the await. It only
+  shows up when the awaited future depends on the caller — a timer completes
+  on its own and the program merely serialises, so an awaiting macro can pass
+  a whole test suite and then hang. This is why `std/async/stream.yo` ships NO
+  `for_await` macro
+  (`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
+  `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
+- **Build a combinator chain OUTSIDE the `io.async` body that awaits it.** An
+  `=>` closure passed to a generic callback parameter INSIDE an async body
+  leaves the enclosing future's result type unresolved, and the error lands on
+  the SPAWN site (`No matching call found with arguments: (h.await)(io)`), not
+  on the closure. A `(fn(x : T) -> R)(...)` literal in the same position works,
+  and so does the same call outside the body
+  (`issues/closure-argument-inside-an-io-async-body-loses-the-future-result-type.md`).
+- **Do not bind a captured value to a local and then call a SUSPENDING method
+  on the local** inside an async body: `local := captured_stream;` followed by
+  `io.await(local.next(io), io)` emits invalid C (a state-machine field
+  assigned from the wrong capture type). Await on the captured NAME itself.
+
+## Async iteration — `Stream`
+
+`std/async/stream` is the async analogue of `Iterator`: `next(self, io)`
+answers `Impl(Future(Option(Self.Item), Io))`, and `.None` is terminal.
+
+```rust
+{ Stream } :: import("std/async/stream");
+
+conns := listener.incoming().take(usize(3));    // lazy chain, built out here
+io.await(conns.for_each(c => serve(c), io), io);
+```
+
+- The future's effect bundle is **`Io`, not `IoExn`** — a stream never throws.
+  A fallible stream carries the failure in the ITEM (`Item = Result(T, E)`,
+  e.g. `incoming`'s `Result(TcpStream, NetError)`).
+- `next` takes `self : Self` (not `inout(self)`), so every source is a
+  `ref(struct(...))` — a future cannot hold an `inout` borrow across a
+  suspension.
+- Implementors: `TcpListener.incoming()`, `Watcher`, `Channel(T)`.
+  Combinators: `map`, `filter`, `filter_map`, `take`, `skip`; consumers:
+  `for_each`, `collect`.
+- A generic consumer uses a BARE bound (`where(S <: Stream)`) or a CONCRETE
+  one (`Item := i32`). `where(S <: Stream(Item := A))` with a generic `A`
+  binds nothing and rejects every argument — `Iterator` behaves the same way
+  (`plans/backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`). A blanket-impl
+  combinator method also cannot be called on a generic stream PARAMETER
+  (`s.collect(io)` → `No matching call found`); the trait's own `next` can.
 
 ## Exception (non-resumable)
 

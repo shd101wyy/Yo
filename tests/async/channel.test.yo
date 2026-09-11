@@ -3,6 +3,8 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Channel, Sender, Receiver, TryRecvError } :: import("std/async/channel");
+{ Stream } :: import("std/async/stream");
+{ ArrayList } :: import("std/collections/array_list");
 { timeout } :: import("std/async");
 { Duration } :: import("std/time/duration");
 { sleep } :: import("std/sys/timer");
@@ -278,4 +280,73 @@ test("async Sender implements Clone", {
   assert_clone :: (fn(comptime(T) : Type, where(T <: Clone)) -> comptime(unit))(());
   assert_clone(Sender(i32));
   assert(true, "checked at comptime");
+});
+// 5. a Channel IS a Stream (plans/reference/ASYNC_ITERATION_STREAM.md)
+// ---------------------------------------------------------------------------
+test("Test channel as a Stream: next is recv, close is the terminal .None", {
+  ch := Channel(i32).new(usize(4));
+  _a := ch.try_send(i32(1));
+  _b := ch.try_send(i32(2));
+  ch.close();
+  first := io.await(ch.next(io), io);
+  assert(match(first, .Some(v) => (v == i32(1)), .None => false), "the trait method delivers what recv would");
+  second := io.await(ch.next(io), io);
+  assert(match(second, .Some(v) => (v == i32(2)), .None => false), "FIFO through the trait too");
+  done := io.await(ch.next(io), io);
+  assert(done.is_none(), "closed AND drained is the stream's end");
+  again := io.await(ch.next(io), io);
+  assert(again.is_none(), "and the end stays the end");
+});
+test("Test channel Stream combinators", {
+  ch := Channel(i32).new(usize(8));
+  (i : i32) = i32(1);
+  while(i <= i32(5), {
+    _s := ch.try_send(i);
+    i = (i + i32(1));
+  });
+  ch.close();
+  chain := ch.filter(x => ((x % i32(2)) == i32(1))).map(x => (x * i32(10)));
+  h := io.spawn(chain.collect(io), io);
+  got := match(
+    timeout(h, Duration.from_millis(i64(5000)), io),
+    .Ok(list) => list,
+    .Err(_) => {
+      assert(false, "collecting a closed channel must not hang");
+      ArrayList(i32).new()
+    }
+  );
+  assert(got.len() == usize(3), "1, 3 and 5 pass the filter");
+  assert(got(usize(0)) == i32(10), "and the map applied");
+  assert(got(usize(2)) == i32(50), "last");
+});
+test("Test a consumer loop over a channel fed by another task", {
+  ch := Channel(i32).new(usize(2));
+  producer := io.async((io : Io) => {
+    (n : i32) = i32(0);
+    while(n < i32(3), {
+      _s := io.await(ch.send(n, io), io);
+      n = (n + i32(1));
+    });
+    ch.close();
+    ()
+  });
+  h := io.spawn(producer, io);
+  seen := ArrayList(i32).new();
+  (draining : bool) = true;
+  while(draining, {
+    nx := io.await(ch.next(io), io);
+    match(
+      nx,
+      .Some(v) => {
+        seen.push(v);
+      },
+      .None => {
+        draining = false;
+      }
+    );
+  });
+  _done := h.await(io);
+  assert(seen.len() == usize(3), "the loop saw every value the producer sent");
+  assert(seen(usize(0)) == i32(0), "in order");
+  assert(seen(usize(2)) == i32(2), "and it ended on the producer's close");
 });

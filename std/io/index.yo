@@ -32,8 +32,12 @@
 //! not I/O. Implemented by `File`; see the trait's own doc for why it takes
 //! the reference-point type as a parameter and has no `rewind`.
 //!
-//! STILL TO COME: a buffered `lines()`, which waits on an async iterator
-//! protocol rather than being faked.
+//! STILL TO COME: a buffered `lines()`. The async iterator protocol it was
+//! waiting on landed 2026-09-11 (`std/async/stream.yo`), so the remaining
+//! blocker is this trait's own error style: a `Stream` reports failure in its
+//! ITEM and `read`/`read_line` THROW, which cannot be caught inside an async
+//! body. See `plans/backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md` for the
+//! `try_read` proposal.
 pragma(Pragma.AllowUnsafe);
 { IoExn, Exception } :: import("../error");
 { IoError } :: import("../sys/errors");

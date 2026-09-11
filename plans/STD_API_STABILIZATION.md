@@ -437,7 +437,7 @@ Text — every listed `String` method, `next_back`, `is_ascii_*` renames. Encodi
 — `Url.join/query_pairs/path_segments`, `JsonValue` mutation/`as_i64`/`pointer`,
 regex naming, `glob()`. I/O — `Watcher`
 `Dispose`, `SocketAddr` `Eq`/`Hash`,
-`TcpStream.local_addr` (it is on `TcpListener`), `TcpListener.incoming`. Core — **all of it**: every `checked_/wrapping_/
+`TcpStream.local_addr` (it is on `TcpListener`). Core — **all of it**: every `checked_/wrapping_/
 saturating_/overflowing_`, `abs/pow/clamp/count_ones/leading_zeros`, every
 `f64`/`f32` method and const (only raw `libc/math` today), `Error.is`,
 `ErrorChain`, `Context`, `derive_rule(Error)`, `black_box`, log `Sink`/`YO_LOG`,
@@ -564,9 +564,10 @@ non-test caller existed in the whole tree (`src/main.yo`'s
 **I/O.** Verified against the code 2026-09-09 — LANDED:
 `Stdout.write_string`; `Reader.read_exact`; lazy `read_dir`;
 `Metadata.modified`; `SocketAddr`/`IpAddr` `Eq`/`Hash`/`Ord`/`Clone` + `parse`;
-`TcpStream.local_addr`; `TcpListener.incoming`. STILL OPEN: HTTP keep-alive —
-its FRAMING half landed 2026-09-10 (described just below), the pooling client
-is the remaining piece. (`Child` stdin/stdout/stderr as `Reader`/`Writer`
+`TcpStream.local_addr`; `TcpListener.incoming` (this one 2026-09-11, on the
+new `Stream` trait — described below). STILL OPEN: HTTP keep-alive — its
+FRAMING half landed 2026-09-10 (described just below), the pooling client is
+the remaining piece. (`Child` stdin/stdout/stderr as `Reader`/`Writer`
 handles and `Watcher` `Dispose` also landed 2026-09-10, described below.)
 (`Seek`, `OpenOptions`, `SystemTime`, `IpAddr.parse_v6`,
 `UdpSocket.recv_from -> (n, from)`, `StatusCode` and `HeaderMap` all landed
@@ -1737,20 +1738,78 @@ emitted C, so it could not be randomized even if that were wanted.
    read-back that `TcpListener.bind` and `UdpSocket.bind` each open-coded is
    now one `_read_local_addr` helper.
 
-   Still open in this group: `TcpListener.incoming` and `Watcher` `Dispose`.
-   (`Seek`, `OpenOptions`, `SystemTime`, `UdpSocket.recv_from -> (n, from)`,
-   `IpAddr.parse_v6`, `StatusCode`, `HeaderMap` and the byte-sliced response
-   body all landed 2026-09-09; lazy `read_dir` and the request-side byte bodies
-   were already in.)
+   Nothing is open in this group any more. (`Seek`, `OpenOptions`,
+   `SystemTime`, `UdpSocket.recv_from -> (n, from)`, `IpAddr.parse_v6`,
+   `StatusCode`, `HeaderMap` and the byte-sliced response body all landed
+   2026-09-09; lazy `read_dir` and the request-side byte bodies were already
+   in; `Watcher` `Dispose` landed 2026-09-10; `TcpListener.incoming` landed
+   2026-09-11 — below.)
 
-   **`TcpListener.incoming` is deferred, and this is why.** Rust's `incoming()`
-   is a BLOCKING iterator of `io::Result<TcpStream>`. Yo's `accept` is
-   `Impl(Future(TcpStream, IoExn))`, and there is no `Stream` trait — no async
-   analogue of `Iterator` — for an iterator of futures to implement. Giving
-   `incoming` an `Iterator` that blocks the event loop per element would be
-   worse than not having it (a blocking await inside a task nests the loop and
-   deadlocks). The row wants an async-iteration abstraction first; it is a
-   language/std design question, not a missing method.
+   **`TcpListener.incoming` — LANDED 2026-09-11, on a new `Stream` trait.**
+   This row was deferred for one reason: Rust's `incoming()` is a BLOCKING
+   iterator of `io::Result<TcpStream>`, Yo's `accept` is
+   `Impl(Future(TcpStream, IoExn))`, and there was no async analogue of
+   `Iterator` for an iterator of futures to implement. Giving `incoming` an
+   `Iterator` that blocks the event loop per element would have been worse
+   than not having it — a blocking await inside a task nests the loop and
+   deadlocks. So the abstraction came first: `std/async/stream.yo`
+   (`plans/reference/ASYNC_ITERATION_STREAM.md`), and `incoming()` returns
+   `Incoming`, a `Stream` whose `Item` is `Result(TcpStream, NetError)`.
+
+   Four shape decisions are worth keeping, because each was measured against
+   the compiler rather than chosen on taste:
+
+   - **`next` returns `Impl(Future(Option(Self.Item), Io))` — `Io`, not
+     `IoExn`.** A stream never throws: it reports failure IN the item, so its
+     bundle needs no `Exception` and a consumer needs no handler. The plan doc
+     had written `IoExn`; `Watcher.next` — which already had this exact shape
+     before the trait existed — had `Io`, and `Io` is what compiles. The
+     consequence is the `Reader` asymmetry recorded in
+     `plans/backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`: an async
+     `BufReader.lines` cannot be built until `Reader` has a read that returns
+     its failure instead of throwing it, because a `ctl` handler can neither
+     be installed across a suspension nor stored in a `ref` struct.
+   - **`Item = Result(TcpStream, NetError)`, not a bare `TcpStream` and not
+     `IoError`.** A single failed `accept` — a client that vanished between
+     the SYN and the accept, a per-process descriptor limit — is one bad
+     connection, not the end of the listener, which is exactly why Rust's
+     item is a `Result` too. The error type is `NetError` because that is
+     what `accept` THROWS (`NetError.from_io(IoError.from_errno(...))`), so a
+     server loop moving from `accept` to `incoming` keeps one error
+     vocabulary; `NetError.Io(IoError)` still carries the raw errno case. The
+     stream's `next` therefore calls the RAW `IO_tcp.accept` rather than the
+     throwing `accept` method.
+   - **`self : Self`, not `inout(self)` as `Iterator` has.** The future
+     outlives the call, and an `inout` borrow cannot be held across a
+     suspension. So every stream source is a reference-semantics type and
+     field writes propagate through the handle — the same reason `File.close`
+     takes `self : Self`.
+   - **`.None` is terminal and STAYS terminal**, and each combinator
+     preserves it: `take` stops touching upstream once its count is spent or
+     upstream ends, `skip`/`filter` treat upstream's `.None` as their own.
+     `incoming` finishes when the listener is closed — including by another
+     task while a `next` is pending — which mirrors `Watcher` and gives a
+     server loop a termination condition it otherwise lacks.
+
+   The trait's other two implementors came for three lines each: `Watcher`'s
+   hand-rolled `next` BECAME the trait method with no signature change, and
+   `Channel(T)`'s `next` IS `recv` (whose "closed and drained" `.None` is
+   already the stream's terminal answer). The combinators —
+   `map`/`filter`/`filter_map`/`take`/`skip` lazily, `for_each`/`collect` as
+   consumers — are one blanket impl over `where(S <: Stream)`, mirroring the
+   `Iterator` combinators in `std/prelude.yo`.
+
+   **What did NOT land, and why it is not a shortcut.** The plan's `for_await`
+   macro was written, worked from `main`, and DEADLOCKED inside a spawned
+   task: an `io.await` reached only through a macro expansion is not counted
+   as a suspension point, so codegen emits the enclosing `io.async` body as a
+   plain closure with a blocking await
+   (`issues/io-await-inside-a-macro-expansion-is-emitted-as-a-blocking-await.md`,
+   `plans/backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`). It was
+   removed rather than shipped with a caveat, because "correct from `main`,
+   hangs in a task" is the wrong way round for a server loop. `for_each`,
+   `take` and the hand-written `while` + `await next()` + `match` loop cover
+   the ground until the async transform follows `ExprInfo.macro_expansion`.
    **`f64`/`f32` non-finite constants: DONE (2026-09-09), unblocked by the
    v0.2.29 seed.** `INFINITY`, `NEG_INFINITY` and `NAN` are the last three
    names `std/math` was missing. They had to wait for a seed because the

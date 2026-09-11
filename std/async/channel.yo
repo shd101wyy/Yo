@@ -68,6 +68,7 @@
 { TryRecvError } :: import("../sync/channel");
 { assert } :: import("../assert");
 IO_timer :: import("../sys/timer");
+{ Stream } :: import("./stream");
 
 /// A bounded FIFO channel for same-thread async tasks.
 Channel :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -427,5 +428,20 @@ impl(
     ch := Self.new(capacity);
     (Sender(T)._attach(ch), Receiver(T)._attach(ch))
   })
+);
+/// A channel IS an async stream of the values sent to it: `next` is `recv`,
+/// and `recv`'s `.None` (closed AND drained) is exactly the stream's
+/// terminal answer. Registering it means a consumer loop is a combinator
+/// chain — `ch.map(f).take(n)`, `io.await(ch.for_each(f, io), io)` — instead
+/// of a `recv`/`try_recv` dance.
+impl(
+  generic(T : Type),
+  Channel(T),
+  Stream(
+    Item : T,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(T), Io)))(
+      self.recv(io)
+    )
+  )
 );
 export(Channel, TryRecvError);
