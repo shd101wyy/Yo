@@ -281,6 +281,44 @@ io.await(conns.for_each(c => serve(c), io), io);
   combinator method also cannot be called on a generic stream PARAMETER
   (`s.collect(io)` → `No matching call found`); the trait's own `next` can.
 
+## Waking a task from another task — `Waker` / `Park`, and `yield_now`
+
+`yield` hands the loop a turn; it does not let one task wait for ANOTHER
+task's progress. `std/async/waker` is that primitive.
+
+```rust
+{ Park, park, yield_now } :: import("std/async/waker");
+
+// The waiter: create the park, hand its waker to whoever will signal, THEN
+// suspend — in that order, with no await in between.
+p := Park.new();
+waiters.push(p.waker());
+io.await(p.wait(io), io);
+
+// The signaller, from any other task:
+match(waiters.pop(), .Some(w) => w.wake(), .None => ());
+
+// Or, for the single-waker case, with the ordering built in:
+io.await(park((w : Waker) => { slot.* = Option(Waker).Some(w); }, io), io);
+```
+
+- A wake that arrives BEFORE the sleeper suspends is not lost: an await point
+  reads the future's state before it registers a continuation, so an
+  already-woken park resumes inline.
+- Waking is idempotent — a waiter list can signal everyone without tracking
+  who already ran.
+- A park nothing can wake is REPORTED, not hung: the runtime counts live waker
+  tokens, and a loop with a parked task and no token left says so and stops.
+- **`yield_now(io)` is `yield` without the 1 ms timer.** Same guarantee (one
+  loop turn, including an I/O poll), measured at 0 ms against `yield`'s 603 ms
+  over 400 hand-offs. `std/async`'s own `yield` is still on the timer for a
+  bootstrap reason, not a design one — it is on the compiler's import path and
+  the seed emits a runtime without the new symbol — so prefer `yield_now` in
+  new code.
+
+Do NOT poll with `while(!h.is_finished(), io.await(yield(io), io))` when a
+waker will do: that is the millisecond floor this exists to remove.
+
 ## Exception (non-resumable)
 
 `Exception` is a built-in struct-record effect for non-resumable error handling. When the handler calls `unwind`, the continuation is discarded:
