@@ -1,11 +1,13 @@
-# A body-less HTTP response reaches the socket and the client's read never completes — macOS, timing-dependent
+# A body-less HTTP response reaches the socket and the client's read never completes — Linux and macOS, timing-dependent
 
 **Found**: 2026-09-11, by the server-side checkpoints added to
 `tests/http/http.test.yo` for #556. **Class**: a lost wake-up in the async
 runtime, visible as a ten-second `HttpError.Timeout` on an exchange that
-completes in ~1 ms. **Status**: OPEN. The "lost READ wake-up" reading is
-REFUTED as of 2026-09-12 — the read completes with the whole response in hand
-(see "The client-side trace" below); what is lost is one level up.
+completes in ~1 ms. **Status**: OPEN — a lost READ
+wake-up, confirmed 2026-09-12 by the ROLE-TAGGED trace below. (An intermediate
+reading that put the loss one level up came from pairing two peers' untagged
+prints by guesswork; that section is kept, marked, because the two candidates
+it names are the ones the tags had to rule out.)
 
 ## What the checkpoints prove
 
@@ -96,7 +98,13 @@ emitted C or by reading the registration flags, not by a passing test.
 now on this branch answer the remaining question directly: whether the read is
 never ISSUED, or issued and never woken.
 
-## The client-side trace (2026-09-12) — the read completes, and the exchange still hangs
+## The client-side trace (2026-09-12) — SUPERSEDED by the tagged trace above
+
+> Kept because the two candidates it names are what the role tags had to rule
+> out. Its pairing of the untagged `[wire]` prints was inferred, and the
+> inference was wrong.
+
+### The client-side trace (2026-09-12) — the read completes, and the exchange still hangs
 
 Run **34610920605**, job **103332927203**, `test (macos-26-intel)`. The
 checkpoints inside `read_http_message_buffered`'s read loop came back, and they
@@ -152,6 +160,60 @@ third print marks the read loop EXITING, and `client.yo` brackets its await on
 either side. The next trace separates the two candidates without inference: if
 `[wire RSP] loop done` prints and `[clt] parent await resumed` does not, it is
 candidate 1; if both print and the deadline still fires, it is candidate 2.
+
+## The TAGGED trace (2026-09-12) — the read is issued and never woken
+
+Run **34630623522**, job **103368382554**, `test (ubuntu-24.04-arm)`. With
+`REQ`/`RSP` tags there is no pairing to infer, and this is the whole failure:
+
+```
+[204] server spawned, issuing request one
+[srv] accepted connection 1
+[srv] awaiting a framed request (carry=0)
+[wire REQ] issuing read (have=0)
+[clt] awaiting the framed response (reused=false)
+[wire RSP] issuing read (have=0)          ← the client's read IS issued
+[wire REQ] read returned 38
+[wire REQ] loop done, 38 byte(s), header_end=34
+[srv] framed 38 request byte(s)
+[srv] wrote 46 of 46 answer byte(s)       ← the whole response is on the wire
+[srv] awaiting a framed request (carry=0)
+[wire REQ] issuing read (have=0)
+<ten seconds>
+unexpected exception: HTTP request timed out
+```
+
+`[wire RSP] read returned` never appears, and neither does
+`[wire RSP] loop done` or `[clt] parent await resumed`. So on THIS runner the
+answer is candidate (0) rather than either of the two above: the read is
+registered before the response is written, the response is written in full, and
+the completion is never delivered. **The original heading was right after all**
+— what the earlier, UNTAGGED macos-26-intel trace looked like was an artifact of
+pairing two peers' prints by guesswork.
+
+Note this is request ONE, on a FRESH connection (`reused=false`): the pool is
+not involved, and neither is the second exchange.
+
+### What that rules IN, and what is already excluded
+
+The remaining surface is the Linux io_uring completion path, with one caveat
+that has to be checked before anything else: **this branch is ~30 commits
+behind develop.** It predates #590 (`JoinHandle.abort` cancels the I/O the task
+is suspended in — which rewrote `__yo_io_cleanup` and the future header) and
+#592 (six async-emitter dispatch fixes). Rebase first; re-run; only then read
+the runtime.
+
+Already checked and NOT it:
+
+- **`IORING_SETUP_DEFER_TASKRUN` starving a userspace-only poller.** That is a
+  real bug of exactly this shape — the ring materialises completions only when
+  the thread enters the kernel with `IORING_ENTER_GETEVENTS`, and
+  `_fetch_deadline`'s `is_finished()`+`await yield()` spin means
+  `__yo_async_poll_step` never reaches `__yo_io_wait` — but it is ALREADY
+  FIXED, on develop and on this branch:
+  `__yo_io_poll` performs a zero-timeout `io_uring_wait_cqe_timeout` as its
+  non-blocking kernel entry
+  (`issues/fixed/io-uring-defer-taskrun-poll-never-enters-kernel.md`).
 
 ## Earlier hypothesis, now refuted: a two-arm match with an await in each arm
 
