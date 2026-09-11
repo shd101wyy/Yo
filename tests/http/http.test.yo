@@ -1507,19 +1507,33 @@ test("HttpClient: a 204 ends at its headers, whatever its Content-Length says", 
   task := io.spawn(_ka_serve(listener, usize(1), _KA_204, stats, io), e);
   client := HttpClient.new();
   opts := FetchOptions.new().with_timeout(Duration.from_secs(i64(10)));
+  // CHECKPOINTS: this exchange completes in under 20 ms locally (measured by
+  // dropping the deadline to 20 ms and watching it still pass), but times out
+  // at TEN SECONDS on the Linux CI legs while passing on macOS/arm64. The
+  // framing itself is ruled out — `tests/http/wire.test.yo` frames a 204 at
+  // its header section at chunk sizes 1, 42 and 4096, and carries the message
+  // after it — so what is left is WHERE the exchange stops, and only CI can
+  // say. `eprintln`, not `println`: a buffered `println` is lost when the
+  // deadline throws. The runner passes --verbose, so these reach the log.
+  eprintln(`  [204] server spawned, issuing request one`);
   a := io.await(client.fetch_with(`http://127.0.0.1:19853/one`, opts, io), e);
+  eprintln(`  [204] response one: status=${a.status.as_u16()} body_len=${a.body.len()} accepts=${stats.accepts} requests=${stats.requests}`);
   assert(a.status.as_u16() == u16(204), `status ${a.status.as_u16()}`);
   assert(a.body.is_empty(), `a 204 has no body, got [${a.body}]`);
   assert(a.get_header(`Content-Length`).unwrap() == `7`, "the header is kept as received");
   // Framed at the headers means the connection is at a message boundary, so
   // it is reusable — and the next response proves the boundary was right.
+  eprintln(`  [204] idle after one: ${client.idle_count()}`);
   assert(client.idle_count() == usize(1), `pooled, idle=${client.idle_count()}`);
+  eprintln(`  [204] issuing request two on the pooled connection`);
   b := io.await(client.fetch_with(`http://127.0.0.1:19853/two`, opts, io), e);
+  eprintln(`  [204] response two: status=${b.status.as_u16()} accepts=${stats.accepts} requests=${stats.requests}`);
   assert(b.status.as_u16() == u16(204), `second status ${b.status.as_u16()}`);
   assert(stats.accepts == usize(1), `one accept, got ${stats.accepts}`);
   assert(stats.requests == usize(2), `two requests framed, got ${stats.requests}`);
   client.close_idle();
   task.await(io);
+  eprintln(`  [204] server task joined`);
 });
 test("HttpClient: a HEAD response ends at its headers and the connection is reused", {
   exn := Exception(
