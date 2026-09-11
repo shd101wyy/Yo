@@ -1,0 +1,76 @@
+name: Codegen / C compile failure
+description: "`yo compile` produced C that the C compiler rejected, or that misbehaves at runtime."
+labels: ["bug", "codegen"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Yo compiles to C11 and hands the result to clang/gcc/zig, so this class
+        of bug is diagnosed in the **emitted C**. Get it with:
+
+        ```bash
+        yo compile repro.yo --emit-c --skip-c-compiler --optimize 2
+        ```
+
+        which writes `repro.c` next to the output without invoking the C
+        compiler.
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproducer
+      description: A complete `.yo` file. `yo compile` cannot take a `*.test.yo` file — extract the case into a standalone file with a `main` and `export(main);`.
+      render: rust
+    validations:
+      required: true
+  - type: textarea
+    id: cerror
+    attributes:
+      label: The C compiler's error
+      description: Verbatim, with the line numbers it printed.
+      render: text
+      placeholder: |
+        /tmp/repro.c:934:3: warning: call to undeclared function '__yo_decr_rc_atomic'
+        /tmp/repro.c:2430:13: error: static declaration of '__yo_decr_rc_atomic' follows non-static declaration
+    validations:
+      required: true
+  - type: textarea
+    id: cfragment
+    attributes:
+      label: The emitted C around the fault
+      description: The offending function, or ~20 lines either side. This is usually what identifies the emitter at fault.
+      render: c
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Yo version and C compiler
+      placeholder: "yo 0.2.30, Apple clang 17.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: optlevel
+    attributes:
+      label: Does it reproduce at both optimization levels?
+      options:
+        - "Both -O0 (default) and --optimize 2"
+        - "Only at --optimize 2"
+        - "Only at -O0"
+        - "Not sure"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (arm64)
+        - Windows
+        - WebAssembly (wasm32-wasip1 / emscripten)
+        - Other
+    validations:
+      required: true
