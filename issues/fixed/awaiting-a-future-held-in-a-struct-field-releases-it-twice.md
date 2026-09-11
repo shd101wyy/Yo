@@ -30,9 +30,10 @@ previously allocated by thread T1 here:
 Every ASan-armed CI leg reports it — the two Linux ones and macOS (there as
 exit code 6, an abort out of ASan). It does NOT reproduce by running the
 program on this development machine: the object is freed one drop early and the
-read that follows lands on memory the allocator has not reused, and the local
-box's `--sanitize address` build does not instrument (the long-standing local
-ASan defect). The emitted C is the oracle here, not a local run.
+read that follows lands on memory the allocator has not reused, and the local box's ASan is inert — the test runner
+prints "AddressSanitizer is not functional with this compiler setup … Skipping
+sanitizer" and runs the batch uninstrumented. The emitted C is the oracle here,
+not a local run.
 
 ## Reproducer
 
