@@ -4824,3 +4824,158 @@ test("Test a module global survives a suspension point", {
   assert(d == usize(2), "a spawned suspending body saw its own increments");
   assert(_g_async_counter == usize(2), "and they landed on the real global");
 });
+// ---------------------------------------------------------------------------
+// A cond/match with an awaiting arm NESTED inside an awaiting match arm
+// (issues/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
+// The enclosing arm's statements after the nested instance used to be a dead
+// dispatch case — the whole arm vanished, exit 0, `check` clean. The resume
+// now dispatches on a per-nesting-level field (`cond_branch_N_n<d>`) and a
+// nested arm that completes synchronously runs the enclosing statements inline.
+// ---------------------------------------------------------------------------
+_NestedParsed :: enum(
+  Git(name : String, pinned_ref : Option(String)),
+  Path(name : String, rel : String),
+  Other
+);
+_nested_resolve :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    s := String.from("resolved");
+    s
+  })
+);
+_nested_append :: (fn(line : String, io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    line.len() > usize(0)
+  })
+);
+/// Shape A — the reproducer: a value-producing inner match whose `.None` arm
+/// awaits (tail await) and whose `.Some` arm is synchronous, followed by
+/// statements that use the bound value and an outer pattern binding.
+_nested_shape_a :: (fn(parsed : _NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        p_rel
+      ) => `${p_name}@${p_rel}`,
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => e.io.await(_nested_resolve(e.io), e)
+        );
+        tail := `${ref_str};${g_name}`;
+        tail
+      }
+    );
+    out
+  })
+);
+/// Shape B — the `yo install` shape: the inner match, then a SECOND await
+/// bound to a local, then an `if` whose body awaits; a sibling arm binds the
+/// same local name from its own await.
+_nested_shape_b :: (fn(parsed : _NestedParsed, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        p_rel
+      ) => {
+        added := e.io.await(_nested_append(`${p_name} path ${p_rel}`, e.io), e);
+        if(added, `path-added:${p_name}`, `path-skipped:${p_name}`)
+      },
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        ref_str := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => e.io.await(_nested_resolve(e.io), e)
+        );
+        added := e.io.await(_nested_append(`${g_name}@${ref_str}`, e.io), e);
+        fetched := if(added, {
+          second := e.io.await(_nested_resolve(e.io), e);
+          `fetched:${second}`
+        }, String.from("not-fetched"));
+        `${ref_str};${fetched};${g_name}`
+      }
+    );
+    out
+  })
+);
+/// Shape C — two nesting levels: match → match → cond with an awaiting arm.
+_nested_shape_c :: (fn(parsed : _NestedParsed, deep : bool, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    out := match(
+      parsed,
+      .Other => String.from("other"),
+      .Path(
+        p_name,
+        _
+      ) => p_name,
+      .Git(
+        g_name,
+        g_pinned_ref
+      ) => {
+        inner := match(
+          g_pinned_ref,
+          .Some(r) => r,
+          .None => {
+            picked := cond(
+              deep => e.io.await(_nested_resolve(e.io), e),
+              true => String.from("shallow")
+            );
+            `${picked}!`
+          }
+        );
+        `${inner};${g_name}`
+      }
+    );
+    out
+  })
+);
+test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  pinned := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
+  assert(pinned == "v6;raylib", `synchronous inner arm: the trailing statements ran with the bound value (got ${pinned})`);
+  resolved := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
+  assert(resolved == "resolved;raylib", `awaiting inner arm: the trailing statements ran after the resume (got ${resolved})`);
+  other := io.await(_nested_shape_a(_NestedParsed.Other, io), bundle);
+  assert(other == "other", "an unrelated arm is unaffected");
+  path := io.await(_nested_shape_a(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
+  assert(path == "mylib@../mylib", "a synchronous sibling arm is unaffected");
+});
+test("the yo install shape: inner match, a second bound await, an awaiting if, and a sibling arm binding the same name", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  pinned := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
+  assert(pinned == "v6;fetched:resolved;raylib", `pinned ref: every statement of the arm ran (got ${pinned})`);
+  latest := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
+  assert(latest == "resolved;fetched:resolved;raylib", `resolved ref: every statement of the arm ran (got ${latest})`);
+  path := io.await(_nested_shape_b(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
+  assert(path == "path-added:mylib", `the sibling arm's own await binding is intact (got ${path})`);
+});
+test("two nesting levels: an awaiting cond inside a match inside a match arm", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  deep := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), true, io), bundle);
+  assert(deep == "resolved!;n", `innermost await: both enclosing levels' trailing statements ran (got ${deep})`);
+  shallow := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), false, io), bundle);
+  assert(shallow == "shallow!;n", `innermost synchronous arm: both enclosing levels completed inline (got ${shallow})`);
+  pinned := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).Some(String.from("v1"))), true, io), bundle);
+  assert(pinned == "v1;n", `middle synchronous arm (got ${pinned})`);
+});

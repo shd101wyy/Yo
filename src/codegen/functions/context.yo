@@ -230,7 +230,19 @@ CondBranch :: ref(
     /// dispatch-mode emitters access each branch's future through its own
     /// exact shape instead of the representative's. See
     /// issues/fixed/async-cond-shared-await-point-only-models-representative-branch.md.
-    await_exprs : Option(ArrayList(AstExpr))
+    await_exprs : Option(ArrayList(AstExpr)),
+    /// When this arm's await lives inside a cond/match NESTED in the arm body
+    /// (`.Git(..) => { x := match(o, .Some(v) => v, .None => io.await(...)); … }`),
+    /// the nested instance's own dispatch record: it writes its own
+    /// `cond_branch_N_n<depth>` field, so this arm's dispatch code survives
+    /// and the resume runs a two-level switch — the nested arm's remaining
+    /// code, then this arm's. Before this the nested instance overwrote the
+    /// shared `cond_branch_N` and this arm's remaining statements were a dead
+    /// `case` (issues/nested-value-match-with-await-drops-the-enclosing-match-arm.md).
+    /// An INDEX into `FunctionGenerationContext.nested_cond_records` — the
+    /// record type names `CondBranch`, and two type definitions may not name
+    /// each other.
+    nested : Option(usize)
   )
 );
 /// A chained cond/match continuation: an outer cond's remaining code that shares
@@ -253,7 +265,11 @@ AsyncCondBranchInfo :: ref(
     target_assignment_code : Option(String),
     /// The `cond_branch_X` index to use in the switch (continuation states).
     cond_branch_field_index : Option(usize),
-    chained_branches : Option(ArrayList(ChainedCondBranches))
+    chained_branches : Option(ArrayList(ChainedCondBranches)),
+    /// A NESTED instance's own state-machine field (`cond_branch_N_n<depth>`);
+    /// `.None` for a top-level instance, which dispatches on
+    /// `cond_branch_<cond_branch_field_index | await index>`.
+    cond_field_name : Option(String)
   )
 );
 /// Per-await-point info about a while loop containing an await. Mirrors the
@@ -402,6 +418,14 @@ FunctionGenerationContext :: ref(
     /// return value — its non-await branches must emit Future completion. Mirrors
     /// `asyncBodyReturnExpr`.
     async_body_return_expr : Option(AstExpr),
+    /// Nested cond/match emission (see `CondBranch.nested`). While a cond/match
+    /// NESTED inside an awaiting arm is being emitted, its branch records go to
+    /// this sink instead of the await point's entry and its dispatch writes go
+    /// to `cond_branch_N_n<nested_cond_depth>`.
+    nested_cond_sink : Option(AsyncCondBranchInfo),
+    /// The nested instances' dispatch records, addressed by `CondBranch.nested`.
+    nested_cond_records : ArrayList(AsyncCondBranchInfo),
+    nested_cond_depth : usize,
     /// Effect-evidence parameters in scope (implicit label → evidence param), for
     /// explicit-effects dispatch / effect injection. Mirrors `currentEvidenceParams`.
     current_evidence_params : Option(HashMap(String, EvidenceParameter)),
@@ -474,6 +498,9 @@ impl(
       async_cond_branch_info : Option(HashMap(usize, AsyncCondBranchInfo)).None,
       cond_branch_case_seq : usize(0),
       async_body_return_expr : Option(AstExpr).None,
+      nested_cond_sink : Option(AsyncCondBranchInfo).None,
+      nested_cond_records : ArrayList(AsyncCondBranchInfo).new(),
+      nested_cond_depth : usize(0),
       current_evidence_params : Option(HashMap(String, EvidenceParameter)).None,
       deferred_async_blocks : Option(ArrayList(DeferredAsyncBlock)).None,
       current_assignment_save_temp : Option(String).None,

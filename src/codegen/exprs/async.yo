@@ -15,7 +15,7 @@
 //! key — yo-self `Func` types carry no `.id`).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ await_is_while_condition, cond_await_point_needs_dispatch, cond_await_point_any_branch_in_while } :: import("../async/state_code_gen.yo");
+{ await_is_while_condition, cond_await_point_needs_dispatch, cond_await_point_any_branch_in_while, max_nested_cond_depth } :: import("../async/state_code_gen.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 {
@@ -513,7 +513,11 @@ AsyncBlockStructInfo :: ref(
     await_future_temp_var_aliases : Option(HashMap(String, String)),
     overlapping_slot_aliases : Option(HashMap(String, String)),
     overlapping_slots : Option(ArrayList(OverlappingSlot)),
-    closure_param_slots : Option(ArrayList(ClosureParamSlot))
+    closure_param_slots : Option(ArrayList(ClosureParamSlot)),
+    /// `max_nested_cond_depth(body)`: how many levels of cond/match-with-await
+    /// nest inside awaiting arms; the struct declares `cond_branch_N_n<d>` for
+    /// d in 1..depth-1 (state_code_gen.yo `_cond_field_name`).
+    nested_cond_depth : usize
   )
 );
 /// True if an await point's result type is effectively unit (real unit, or an
@@ -849,6 +853,13 @@ emit_async_block_struct_definition :: (
           cond_emitted = true;
         });
         em.emit_declaration_string_line(`  int cond_branch_${ap.base.index.to_string()};  // Which branch was taken in cond with await ${ap.base.index.to_string()}`);
+        // One extra field per nesting level for cond/match instances NESTED
+        // inside this point's awaiting arms (the top level is depth 1).
+        (nd : usize) = usize(1);
+        while(nd < info.nested_cond_depth, {
+          em.emit_declaration_string_line(`  int cond_branch_${ap.base.index.to_string()}_n${nd.to_string()};  // nested level ${nd.to_string()}`);
+          nd = (nd + usize(1));
+        });
       }),
       .None => ()
     );
@@ -1148,7 +1159,8 @@ emit_deferred_async_block_struct_definitions :: (fn(context : FunctionGeneration
             await_future_temp_var_aliases : Option(HashMap(String, String)).Some(cbr.await_future_temp_var_aliases),
             overlapping_slot_aliases : Option(HashMap(String, String)).Some(osr.slot_aliases),
             overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(osr.slots),
-            closure_param_slots : b.closure_param_slots
+            closure_param_slots : b.closure_param_slots,
+            nested_cond_depth : max_nested_cond_depth(b.body_expr)
           ),
           context
         );
@@ -2272,7 +2284,8 @@ generate_deferred_async_blocks :: (fn(context : FunctionGenerationContext) -> un
                 await_future_temp_var_aliases : Option(HashMap(String, String)).Some(ncbr.await_future_temp_var_aliases),
                 overlapping_slot_aliases : Option(HashMap(String, String)).Some(nosr.slot_aliases),
                 overlapping_slots : Option(ArrayList(OverlappingSlot)).Some(nosr.slots),
-                closure_param_slots : nb.closure_param_slots
+                closure_param_slots : nb.closure_param_slots,
+                nested_cond_depth : max_nested_cond_depth(nb.body_expr)
               ),
               context
             );

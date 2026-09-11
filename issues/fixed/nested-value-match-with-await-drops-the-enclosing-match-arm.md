@@ -1,6 +1,7 @@
 # In an `io.async` body, a match arm whose body holds a value-producing INNER match with an await is emitted as NOTHING
 
-**Status:** OPEN — root cause of `issues/yo-install-git-dependency-writes-an-empty-ref.md`
+**Status:** FIXED 2026-09-11 (`fix/async-nested-match-dead-arm`) — see "Fix" below.
+Was the root cause of `issues/yo-install-git-dependency-writes-an-empty-ref.md`.
 **Found:** 2026-09-11, bisecting `run_install` by body substitution. Reproduces
 with `yo 0.2.30` and with develop's codegen (a gen-1 binary built from
 `p1/imports-plumbing` compiling the reproducer).
@@ -77,7 +78,52 @@ overwritten before resume, so they never run. The fix is one dispatch slot per
 nesting level (the same "poll + store per depth" shape C36's
 `_dispatch_branches` gave `cond` arms), not another special case.
 
-## Fix direction
+## Fix (2026-09-11)
+
+One dispatch field per nesting level, in `src/codegen/async/`:
+
+- **Struct.** `AsyncBlockStructInfo.nested_cond_depth` (`max_nested_cond_depth`
+  over the body) declares `int cond_branch_N_n<d>;` next to `cond_branch_N`
+  for every nesting level `d` (`exprs/async.yo`).
+- **Store side** (`state_code_gen.yo`). `generate_cond_branch_with_await`
+  returns a `BranchEmission(remaining, nested)`. A nested cond/match in an
+  awaiting arm — bare, or the RHS of `x := …` / `x = …` (the bound form used
+  to fall through EVERY case and emit nothing) — goes through
+  `_emit_nested_cond_or_match`: a fresh `AsyncCondBranchInfo` sink is
+  installed in `context.nested_cond_sink`, `context.nested_cond_depth` is
+  bumped, and the nested instance's `sm->cond_branch_N_n<d> = k` writes
+  (`_cond_field_name`) and arm registrations (`_push_cond_branch`,
+  `_set_cond_branch_target`, `_store_cond_branch_info`) land in that sink
+  instead of the enclosing point's entry. The sink is pushed to
+  `context.nested_cond_records`; its index is the enclosing arm's
+  `CondBranch.nested` (an index, because `CondBranch` and
+  `AsyncCondBranchInfo` may not name each other).
+- **Resume side** (`state_machine.yo`). `_emit_nested_level_switch` switches
+  on the nested field, binds the taken nested arm's result (or hands it to the
+  nested instance's `x :=` target), recurses for deeper levels, runs the
+  nested arm's remaining code — and then the caller runs the ENCLOSING arm's
+  remaining code: the two-level dispatch that replaced the dead `case`.
+  Dispatch-mode points extract per nested arm through the recursive
+  `_emit_dispatch_extraction_case`. Uniform (slot-guarded) points emit the
+  nested-bearing arms AFTER the guard in `_emit_nested_branch_continuation`,
+  with the bindings under a `__yo_had_future_N` C local remembered from before
+  the guard, so a nested arm that completed synchronously (no future stored,
+  guard skipped) still runs the enclosing arm's statements — once, because
+  emitting the remaining code twice re-referenced the cached temporaries of
+  its own next await.
+- The "nested match claims the dispatch slot" fatal for dispatch-mode points
+  is gone; that shape is now emitted.
+
+Programs without nesting emit byte-identical C (checked with `--emit-c-to`
+on the direct-await control shape).
+
+**Gate:** `tests/async_await.test.yo` — "an awaiting inner match inside a
+match arm keeps the arm's trailing statements", "the yo install shape: inner
+match, a second bound await, an awaiting if, and a sibling arm binding the
+same name", "two nesting levels: an awaiting cond inside a match inside a
+match arm". All three fail (dropped arm / mis-typed slot) before the fix.
+
+## Fix direction (as filed)
 
 In `src/codegen/async/` (the match/cond FSM emitters registered by
 `register_fsm_emitters_impl`): when an await point sits inside a nested
@@ -85,5 +131,5 @@ value-producing match, the await's result binding must be the INNER match's
 result temp, allocated per nesting level, not the enclosing arm's next
 binding. Gate: this reproducer in `tests/async_await.test.yo` asserting all
 five lines, plus the `run_install` shape (two sibling arms binding `added`).
-Until fixed, avoid the shape: hoist the inner match's awaiting arm into its
-own async fn and await it directly in the outer arm.
+(The workaround — hoisting the inner match's awaiting arm into its own async
+fn — is no longer needed.)
