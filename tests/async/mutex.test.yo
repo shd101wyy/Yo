@@ -3,6 +3,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Mutex } :: import("std/async/mutex");
+{ ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 
 // ---------------------------------------------------------------------------
@@ -73,4 +74,78 @@ test("Test mutex lock waits", {
   assert(m.get() == i64(1), "lock should only be acquired after the releaser ran");
   m.unlock();
   _done := h.await(io);
+});
+// ---------------------------------------------------------------------------
+// 4. WAKER-BASED acquisition: FIFO, and every waiter runs
+//
+// Contended acquisition used to re-check on a 1 ms timer and was explicitly
+// unfair. It is a waiter QUEUE now (`plans/backlog/WAKER_BASED_SCHEDULING.md`
+// stage 3), which makes two things testable that were not before: the order
+// tasks acquire in, and that a chain of N waiters all run from N unlocks with
+// no wake lost. A lost wake is a HANG rather than a failure — invisible to a
+// green macOS run and historically a Linux-only symptom — so the assertion has
+// to be that all N ran, not that the program exited.
+// ---------------------------------------------------------------------------
+test("Test mutex acquisition is FIFO and no waiter is lost", {
+  m := Mutex(i64).new(i64(0));
+  order := Box(ArrayList(i64))(ArrayList(i64).new());
+  // Main takes the lock first, so every worker below MUST queue.
+  assert(m.try_lock(), "main holds the lock while the workers queue");
+  worker :: (fn(m2 : Mutex(i64), ord : Box(ArrayList(i64)), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
+    io.async((io : Io) => {
+      io.await(m2.lock(io), io);
+      ord.*.push(tag);
+      m2.unlock();
+      return(());
+    })
+  );
+  // Spawned in order. Each reaches its `lock` and parks before the next runs,
+  // because a spawn does not start the task — the first suspension of the
+  // spawner does, and there is none between these six lines.
+  h1 := io.spawn(worker(m, order, i64(1), io), io);
+  h2 := io.spawn(worker(m, order, i64(2), io), io);
+  h3 := io.spawn(worker(m, order, i64(3), io), io);
+  h4 := io.spawn(worker(m, order, i64(4), io), io);
+  h5 := io.spawn(worker(m, order, i64(5), io), io);
+  // Let them all reach the queue before anything is released.
+  io.await(sleep(u64(5)), io);
+  assert(m.waiter_count() == usize(5), `all five queued, got ${m.waiter_count().to_string()}`);
+  m.unlock();
+  _r1 := h1.await(io);
+  _r2 := h2.await(io);
+  _r3 := h3.await(io);
+  _r4 := h4.await(io);
+  _r5 := h5.await(io);
+  assert(order.*.len() == usize(5), `all five ran, got ${order.*.len().to_string()}`);
+  // FIFO: the queue is drained from the front, so the arrival order is the
+  // acquisition order. A stack would give 5,4,3,2,1 and would starve worker 1
+  // under sustained contention.
+  (i : usize) = usize(0);
+  while(i < usize(5), i = (i + usize(1)), {
+    assert(
+      order.*(i) == i64(i + usize(1)),
+      `FIFO order: position ${i.to_string()} should be worker ${(i + usize(1)).to_string()}, got ${order.*(i).to_string()}`
+    );
+  });
+  assert(!m.is_locked(), "the last release leaves it unlocked");
+  assert(m.waiter_count() == usize(0), "and the queue empty");
+});
+test("Test an uncontended lock still costs no suspension", {
+  // The fast path must not have gained a park: an uncontended acquire has to
+  // stay synchronous inside the async body, or every lock in a hot loop pays a
+  // loop turn it does not need.
+  m := Mutex(i64).new(i64(0));
+  body := io.async((io : Io) => {
+    (n : i64) = i64(0);
+    while(n < i64(100), n = (n + i64(1)), {
+      io.await(m.lock(io), io);
+      m.set(m.get() + i64(1));
+      m.unlock();
+    });
+    return(());
+  });
+  h := io.spawn(body, io);
+  _d := h.await(io);
+  assert(m.get() == i64(100), `a hundred uncontended round trips, got ${m.get().to_string()}`);
+  assert(m.waiter_count() == usize(0), "and nothing ever queued");
 });
