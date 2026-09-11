@@ -209,6 +209,14 @@ render_function_md :: (fn(fn_ : DocFunction) -> String)({
   lines.push(`\`\`\``);
   lines.push(``);
   match(
+    fn_.inherited_from,
+    .Some(tn) => {
+      lines.push(`*Documentation inherited from \`${tn}\`.*`);
+      lines.push(``);
+    },
+    .None => ()
+  );
+  match(
     fn_.doc,
     .None => (),
     .Some(d) => {

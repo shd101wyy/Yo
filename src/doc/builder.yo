@@ -1254,7 +1254,8 @@ _extract_trait_body_members :: (
               returns : Option(String).None,
               errors : Option(String).None,
               deprecated : Option(String).None,
-              examples : Option(String).None
+              examples : Option(String).None,
+              inherited_from : Option(String).None
             )
           );
         }, {
@@ -1462,7 +1463,8 @@ extract_impl_info_from_tokens :: (
             returns : Option(String).None,
             errors : Option(String).None,
             deprecated : Option(String).None,
-            examples : Option(String).None
+            examples : Option(String).None,
+            inherited_from : Option(String).None
           )
         );
       }, {
@@ -1530,7 +1532,8 @@ extract_impl_info_from_tokens :: (
                     returns : m.returns,
                     errors : m.errors,
                     deprecated : m.deprecated,
-                    examples : m.examples
+                    examples : m.examples,
+                    inherited_from : Option(String).None
                   )
                 );
               },
@@ -1791,6 +1794,176 @@ build_cross_references :: (fn(modules : ArrayList(DocModule)) -> unit)({
     });
     mj = (mj + usize(1));
   });
+  _inherit_trait_method_docs(modules);
+});
+/// Give every undocumented trait-impl method the TRAIT's documentation.
+///
+/// Rustdoc, which this library follows deliberately, states a method's contract
+/// once at the trait and shows it on every implementation that does not
+/// override it. `yo doc` did not, so 454 trait-impl methods across `std/`
+/// rendered as bare signatures — `hash`, `clone`, `next`, `to_string`,
+/// `dispose`, one per implementing type, 139 of them in `std/prelude.yo` alone
+/// (`issues/fixed/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`).
+///
+/// The fix belongs here rather than in `std/`: 454 per-instance restatements of
+/// "returns the hash of `self`" would be noise, would drift from the trait's
+/// text, and would still leave every USER crate's impls blank.
+///
+/// Two rules, both load-bearing:
+///
+/// * **An impl-site doc always wins.** Several `std/` impls document a
+///   DIVERGENCE at the impl — `imm/*`'s `IntoIterator` says it is eager rather
+///   than lazy — and replacing that with the trait's generic text would make
+///   the docs actively wrong. Only a method whose `doc` is `.None` inherits.
+/// * **The trait must actually be implemented by that type.** The lookup is
+///   keyed on the type's own `trait_impls` list, so a method that merely shares
+///   a name with some unrelated trait's method inherits nothing.
+///
+/// Runs after implementors are filled in, over ALL modules, because a trait and
+/// its implementors are almost never in the same file: `ToString` lives in
+/// `std/fmt/to_string` and is implemented across the whole library.
+_inherit_trait_method_docs :: (fn(modules : ArrayList(DocModule)) -> unit)({
+  // trait name -> (method name -> doc). Parallel arrays rather than a map of
+  // maps: the trait count is small and this keeps the lookup allocation-free.
+  t_names := ArrayList(String).new();
+  t_method_names := ArrayList(ArrayList(String)).new();
+  t_method_docs := ArrayList(ArrayList(String)).new();
+  (mi : usize) = usize(0);
+  while(mi < modules.len(), {
+    m := match(
+      modules.get(mi),
+      .Some(x) => x,
+      .None => {
+        mi = (mi + usize(1));
+        continue;
+      }
+    );
+    (ti : usize) = usize(0);
+    while(ti < m.traits.len(), {
+      tr := match(
+        m.traits.get(ti),
+        .Some(x) => x,
+        .None => {
+          ti = (ti + usize(1));
+          continue;
+        }
+      );
+      names := ArrayList(String).new();
+      docs := ArrayList(String).new();
+      (fi : usize) = usize(0);
+      while(fi < tr.methods.len(), {
+        match(
+          tr.methods.get(fi),
+          .Some(fnc) => match(
+            fnc.doc,
+            .Some(d) => if(d.len() > usize(0), {
+              names.push(fnc.name.clone());
+              docs.push(d.clone());
+            }),
+            .None => ()
+          ),
+          .None => ()
+        );
+        fi = (fi + usize(1));
+      });
+      if(names.len() > usize(0), {
+        t_names.push(tr.name.clone());
+        t_method_names.push(names);
+        t_method_docs.push(docs);
+      });
+      ti = (ti + usize(1));
+    });
+    mi = (mi + usize(1));
+  });
+  if(t_names.len() == usize(0), {
+    return(());
+  });
+  (mj : usize) = usize(0);
+  while(mj < modules.len(), {
+    m2 := match(
+      modules.get(mj),
+      .Some(x) => x,
+      .None => {
+        mj = (mj + usize(1));
+        continue;
+      }
+    );
+    (tj : usize) = usize(0);
+    while(tj < m2.types.len(), {
+      ty := match(
+        m2.types.get(tj),
+        .Some(x) => x,
+        .None => {
+          tj = (tj + usize(1));
+          continue;
+        }
+      );
+      (fj : usize) = usize(0);
+      while(fj < ty.methods.len(), {
+        mm := match(
+          ty.methods.get(fj),
+          .Some(x) => x,
+          .None => {
+            fj = (fj + usize(1));
+            continue;
+          }
+        );
+        // An impl-site doc wins; only a bare method inherits.
+        if(mm.doc.is_none(), {
+          (found_doc : Option(String)) = Option(String).None;
+          (found_trait : Option(String)) = Option(String).None;
+          (ii : usize) = usize(0);
+          while((ii < ty.trait_impls.len()) && found_doc.is_none(), {
+            tn := match(ty.trait_impls.get(ii), .Some(x) => x, .None => String.new());
+            match(
+              t_names.index_of(tn.clone()),
+              .Some(k) => {
+                names := match(t_method_names.get(k), .Some(x) => x, .None => ArrayList(String).new());
+                match(
+                  names.index_of(mm.name.clone()),
+                  .Some(di) => {
+                    docs := match(t_method_docs.get(k), .Some(x) => x, .None => ArrayList(String).new());
+                    match(
+                      docs.get(di),
+                      .Some(d2) => {
+                        found_doc = Option(String).Some(d2.clone());
+                        found_trait = Option(String).Some(tn.clone());
+                      },
+                      .None => ()
+                    );
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+            ii = (ii + usize(1));
+          });
+          if(found_doc.is_some(), {
+            ty.methods(fj) = DocFunction(
+              name : mm.name,
+              doc : found_doc,
+              signature : mm.signature,
+              parameters : mm.parameters,
+              return_type : mm.return_type,
+              type_params : mm.type_params,
+              effects : mm.effects,
+              is_method : mm.is_method,
+              self_type : mm.self_type,
+              returns : mm.returns,
+              errors : mm.errors,
+              deprecated : mm.deprecated,
+              examples : mm.examples,
+              inherited_from : found_trait
+            );
+          });
+        });
+        fj = (fj + usize(1));
+      });
+      tj = (tj + usize(1));
+    });
+    mj = (mj + usize(1));
+  });
 });
 // ---------------------------------------------------------------------------
 // Evaluator half — buildDocModule and its helpers
@@ -2024,7 +2197,8 @@ build_doc_function :: (
     returns : returns,
     errors : errors,
     deprecated : deprecated,
-    examples : examples
+    examples : examples,
+    inherited_from : Option(String).None
   )
 });
 /// The nominal name of a named type, "" otherwise.

@@ -59,3 +59,21 @@ An impl-site comment must keep winning over the trait's: several `std/` impls
 document a divergence at the impl (`imm/*`'s `IntoIterator` says it is eager
 rather than lazy), and that text must not be replaced by the trait's generic
 version.
+
+## Landed 2026-09-11 — and what still blocks the rest
+
+`src/doc/builder.yo` gained `_inherit_trait_method_docs`, run from
+`build_cross_references` over ALL modules (a trait and its implementors are
+almost never in one file). An impl-site doc always wins, and the lookup is
+keyed on the type's own `trait_impls` list so a method that merely shares a
+name inherits nothing. `DocFunction` carries `inherited_from`, the JSON
+renderer emits `inheritedFrom`, and the HTML and markdown renderers label it
+the way rustdoc does.
+
+Measured on `yo doc ./std`: **110 methods now inherit**, out of the ~454 this
+issue counted. The remainder is blocked on a separate defect —
+`issues/yo-doc-renders-std-prelude-as-an-empty-module.md` — because
+`Iterator` (213 impls), `Eq` (169), `Default` (160), `Ord` (134),
+`Dispose` (81), `Clone` (70), `Hash` (67) and the rest are declared in
+`std/prelude.yo`, which `yo doc` renders as 0 types, 0 traits, 0 functions.
+When that is fixed they inherit for free, with no edit to `std/`.
