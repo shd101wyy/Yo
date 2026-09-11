@@ -216,10 +216,11 @@ derive(
 /// its own. The handle is consumed either way. Millisecond granularity (the
 /// timer contract of `std/time/sleep`).
 ///
-/// KNOWN RESIDUAL (bounded): when the task finishes BEFORE the deadline, the
-/// deadline timer stays armed in the I/O backend until it fires, and its
-/// future struct (~tens of bytes) is never reclaimed — see
-/// `issues/timeout-deadline-timer-future-leak.md`.
+/// A task that finishes before the deadline leaves nothing behind: `abort()`
+/// on the deadline handle deregisters the armed timer in the I/O backend and
+/// releases the deadline task there and then. Until that cancel path existed
+/// the timer kept counting and held ~256 bytes per call for the whole
+/// remaining deadline (`issues/fixed/timeout-deadline-timer-future-leak.md`).
 timeout :: (
   fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Result(T, TimeoutError)
 )({
@@ -252,9 +253,9 @@ timeout :: (
     );
   });
   // Consume the deadline handle exactly once. When the task finished first,
-  // the abort is a no-op and the await returns immediately; the aborted
-  // task's armed timer fires at `limit` into the resume entry guard, which
-  // releases the state machine then.
+  // the abort cancels the still-armed timer and releases the deadline task
+  // immediately (runtime_core.yo `__yo_async_io_cancel`), so the await that
+  // follows returns without waiting for `limit`.
   dh.abort();
   _deadline_r := dh.await(io);
   match(

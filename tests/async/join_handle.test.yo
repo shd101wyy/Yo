@@ -102,3 +102,44 @@ test("Test abort after completion is a no-op", {
   r := h.await(io);
   assert(match(r, .Some(v) => (v == u64(11)), .None => false), "completed result should be intact");
 });
+// ---------------------------------------------------------------------------
+// 6. abort() cancels the operation the task is suspended IN, and releases the
+//    task there and then — it does not wait for that operation to complete on
+//    its own. Before the I/O cancel path existed, the aborted task's state
+//    machine and everything it captured stayed alive for the whole remaining
+//    sleep, which is what made `timeout` retain ~256 bytes per call until its
+//    deadline (issues/fixed/timeout-deadline-timer-future-leak.md).
+//    The Dispose counter is the observable: CI runs with detect_leaks=0, so a
+//    retention this shape is invisible to the sanitizers.
+// ---------------------------------------------------------------------------
+(g_abort_capture_disposed : i32) = i32(0);
+AbortCaptureProbe :: ref(struct(id : i32));
+impl(
+  AbortCaptureProbe,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      g_abort_capture_disposed = (g_abort_capture_disposed + i32(1));
+    })
+  )
+);
+test("Test abort cancels the pending timer and releases the task", {
+  {
+    probe := AbortCaptureProbe(id : i32(7));
+    fut := io.async((io : Io) => {
+      io.await(sleep(u64(30000)), io);
+      return(probe.id);
+    });
+    h := io.spawn(fut, io);
+    // Let the spawned task reach its suspension point.
+    io.await(yield(io), io);
+    assert(!h.is_finished(), "task should be parked on the 30 s sleep");
+    assert(g_abort_capture_disposed == i32(0), "capture is alive while the task is");
+    h.abort();
+    r := h.await(io);
+    assert(match(r, .Some(_) => false, .None => true), "aborted task should give .None");
+  };
+  // The local reference is gone and the handle is consumed, so the only thing
+  // that could still hold the capture is a state machine kept alive for a
+  // timer that will not fire for another 30 seconds.
+  assert(g_abort_capture_disposed == i32(1), "abort must release the aborted task's captures at once");
+});

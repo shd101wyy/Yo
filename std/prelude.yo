@@ -12050,7 +12050,8 @@ impl(
   await : __yo_join_handle_await
 );
 /// JoinHandle introspection + cancellation. The raw helpers read/write the
-/// common spawned-future header (`{__yo_ref_header_t; int state;}`) emitted
+/// common spawned-future header (`{__yo_ref_header_t; int state; void
+/// (*cancel_pending_fn)(void*);}`) emitted
 /// by the async runtime; state mapping follows `io.state`: any positive step
 /// index reads as Running.
 extern(
@@ -12075,9 +12076,11 @@ impl(
   /// resume past its current suspension point (its pending completion, if
   /// any, releases the state machine instead of resuming it). Completed and
   /// already-aborted tasks are left untouched. `await` on an aborted handle
-  /// returns `.None`. NOTE: abort cancels the TASK, not any in-flight I/O
-  /// operation it is suspended on — a task parked on I/O that never
-  /// completes stays allocated until process exit.
+  /// returns `.None`. An operation the task is suspended in is cancelled too
+  /// where the I/O backend can take the registration back (timers today):
+  /// the task and what it was waiting on are then released at once instead
+  /// of when that operation would have completed. An operation with no
+  /// cancel path still runs to completion and releases the task then.
   abort : (fn(self : JoinHandle(T)) -> unit)(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )
