@@ -30,15 +30,27 @@ both learned the hard way:
    through untouched, which is why `#define X \` line continuations work as
    written; only `\n`, `\r` and `\"` are transformed.
 
-3. **Never write a markdown backtick inside a C comment in that literal.** The
-   whole emitted block IS one `` ` ``-delimited literal, so a backtick in
-   `// reads `state` first` CLOSES it, and the rest of the C is parsed as Yo.
-   The error is `E0008: paren-less function and operator calls are not
-   supported` anchored on a WORD INSIDE A C COMMENT, which reads like nonsense
-   until you spot the delimiter — and `yo fmt` makes it worse by padding the
-   fragment to `` ` state ` ``. In C comments destined for a template, write
-   bare words or double quotes. After editing such a region, grep it:
-   `grep -n '`' <file>`.
+3. **A backtick inside that literal must be ESCAPED as `` \` ``.** The whole
+   emitted block IS one `` ` ``-delimited literal, so an unescaped backtick in
+   a C comment — `// reads `state` first` — CLOSES it, and the rest of the C is
+   parsed as Yo. The error is then `E0008: paren-less function and operator
+   calls are not supported` anchored on a WORD INSIDE A C COMMENT, which reads
+   like nonsense until you spot the delimiter, and `yo fmt` makes it worse by
+   padding the fragment to `` ` state ` ``.
+
+   The escape is supported and is the right answer — markdown in a C comment is
+   fine, write it:
+
+   ```rust
+   c := `// reads \`state\` first, then registers
+   static int x = 1;`;
+   ```
+
+   Verified end to end: the emitted C contains a real `` ` ``, and `yo fmt`
+   preserves the `` \` `` and is idempotent over it. So there is nothing here
+   to avoid — only something to escape, the way `` \$ `` is escaped to keep a
+   literal `${`.
+
 4. **A new runtime function must be DECLARED before anything that calls it.**
    The emitters write into two buffers — declarations and code — and the
    declaration buffer is flushed first, so a call emitted into declarations
