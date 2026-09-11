@@ -204,7 +204,8 @@ _impl_to_json :: (fn(im : DocImpl) -> JsonValue)({
   JsonValue.Object(keys : keys, values : vals)
 });
 /// DocFunction → {name, doc?, signature, parameters, returnType, typeParams?,
-/// isMethod, selfType?, returns?, errors?, deprecated?, examples?}.
+/// isMethod, selfType?, returns?, errors?, deprecated?, examples?,
+/// inheritedFrom?}.
 _function_to_json :: (fn(f : DocFunction) -> JsonValue)({
   keys := ArrayList(String).new();
   vals := ArrayList(JsonValue).new();
@@ -226,6 +227,11 @@ _function_to_json :: (fn(f : DocFunction) -> JsonValue)({
   _obj_add_opt_str(keys, vals, String.from("errors"), f.errors);
   _obj_add_opt_str(keys, vals, String.from("deprecated"), f.deprecated);
   _obj_add_opt_str(keys, vals, String.from("examples"), f.examples);
+  // Present only on a trait-impl method that took the TRAIT's documentation
+  // because the impl carried none of its own, so a consumer can label it the
+  // way rustdoc does ("from `ToString`") rather than presenting the trait's
+  // generic text as if the impl had written it.
+  _obj_add_opt_str(keys, vals, String.from("inheritedFrom"), f.inherited_from);
   JsonValue.Object(keys : keys, values : vals)
 });
 _functions_to_json :: (fn(fns : ArrayList(DocFunction)) -> JsonValue)({
