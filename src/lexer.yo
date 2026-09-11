@@ -798,11 +798,13 @@ tokenize :: (
         // binder was `forall` -> `generic`. V5 of
         // plans/backlog/FORMAL_VERIFICATION.md §6 ACTIVATES it: `forall(...)`
         // is the ghost-only universal quantifier builtin (dispatched like the
-        // other contract builtins). `exists` keeps its `_val` spelling
-        // (`exists_val`) — the bare name is a live public API
-        // (`std/fs/file.yo`'s `exists(path, io)`, used across the corpus) that
-        // a builtin dispatch on the bare head would shadow. The non-ASCII
-        // `∀`/`∃` remain rejected (the plan's ASCII-only stance).
+        // other contract builtins). `exists` is the existential twin: in ghost
+        // context it dispatches to the quantifier, and everywhere else a bare
+        // `exists(...)` call goes through the ordinary call path
+        // (_evaluate_exists_or_call) — so std/fs's exported
+        // `exists(path, io)` (defined `_exists`, exported as
+        // `export(exists : _exists)`) keeps working for every importer. The
+        // non-ASCII `∀`/`∃` remain rejected (the plan's ASCII-only stance).
         if((id_str == `∀`) || (id_str == `∃`), {
           exn.throw(
             dyn(
@@ -811,7 +813,7 @@ tokenize :: (
                 input,
                 line,
                 col,
-                `\`${id_str}\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists_val(...)\` (plans/backlog/FORMAL_VERIFICATION.md §6)`
+                `\`${id_str}\` is not part of the language — the ASCII spellings are \`forall(...)\` and \`exists(...)\` (plans/backlog/FORMAL_VERIFICATION.md §6)`
               )
             )
           );

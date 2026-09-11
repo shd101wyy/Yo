@@ -1724,7 +1724,7 @@ _while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -
   ctx.path.push(_or_terms(disj));
   Option(VcTerm).Some(VcTerm.BoolLit(true))
 });
-/// forall/exists_val (V5 §6): N binder args `(name : Type)` then the
+/// forall/exists (V5 §6): N binder args `(name : Type)` then the
 /// predicate body. Each binder shadows any outer binding for the body
 /// walk (saved/restored like the cond-arm pre-state); the SMT binder
 /// handles scoping at the solver level. Instantiation relies on z3's
@@ -2076,7 +2076,7 @@ _call_term :: (
     });
     return(Option(VcTerm).Some(_app2(VcOp.ImpOp, a.unwrap(), b.unwrap())));
   });
-  if(((head == "forall") || (head == "exists_val")) && (n >= usize(2)), {
+  if(((head == "forall") || (head == "exists")) && (n >= usize(2)), {
     return(_quant_term(ctx, e, head, args));
   });
   // --- calls to contracted callees ----------------------------------------

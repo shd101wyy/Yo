@@ -75,7 +75,7 @@ _evaluate_contract_marker :: (
     // registration env), so unbound identifiers soft-fall-back to unknowns
     // instead of the hard `Variable not found` error (Phase V3). The same
     // bracket sets ghost context (V5): contract clauses are where the
-    // ghost-only builtins (forall_val/exists_val/==>) are legal.
+    // ghost-only builtins (forall/exists/==>) are legal.
     prev_pred_flag := ctx.is_evaluating_contract_predicate;
     prev_ghost_flag := ctx.is_ghost_context;
     ctx.is_evaluating_contract_predicate = true;
@@ -222,7 +222,7 @@ evaluate_ghost_fn :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, e
   ctx.is_ghost_context = prev_ghost;
   out
 });
-/// Ghost-only constructs (V5 §6: forall_val/exists_val/==>) have NO
+/// Ghost-only constructs (V5 §6: forall/exists/==>) have NO
 /// runtime semantics — outside ghost context they are a compile error,
 /// the same stance as `unwind(...)` outside `ctl(...) -> R`.
 _reject_not_ghost_context :: (fn(expr : AstExpr, ctx : EvalContext, exn : Exception) -> unit)({
@@ -395,12 +395,12 @@ _evaluate_quantifier :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-/// forall_val(...) — ghost-only universal quantifier (V5).
+/// forall(...) — ghost-only universal quantifier (V5).
 evaluate_forall :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_quantifier(expr, env, ctx, exn)
 );
-/// exists_val(...) — ghost-only existential quantifier (V5).
-evaluate_exists_val :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
+/// exists(...) — ghost-only existential quantifier (V5).
+evaluate_exists :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)(
   _evaluate_quantifier(expr, env, ctx, exn)
 );
 /// `a ==> b` — ghost-only implication (V5). Exactly two args; evaluates
@@ -1227,7 +1227,7 @@ wrap_function_body_with_contracts :: (
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
 export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_ghost);
-export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists_val, evaluate_implies);
+export(evaluate_ghost_fn, evaluate_old, evaluate_forall, evaluate_exists, evaluate_implies);
 export(wrap_function_body_with_contracts);
 export(
   VerifyTask,

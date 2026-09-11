@@ -379,7 +379,7 @@ factorial :: (fn(
   Measures may be integer expressions or lexicographic tuples
   (`decreases((a, b))`).
 
-### 6. Quantifier builtins — `forall`, `exists_val`, `==>` (new, Phase V5; NAMING 2026-09-11, maintainer decision: `forall` takes the word RESERVED for it since FORALL_TO_GENERIC (the lex-time hold-back is released — it existed for exactly this), while `exists` keeps the `_val` spelling because the bare name is std/fs's live `exists(path, io)` API that a builtin head-dispatch would shadow)
+### 6. Quantifier builtins — `forall`, `exists`, `==>` (new, Phase V5; NAMING, maintainer decisions 2026-09-11: `forall` takes the word RESERVED for it since FORALL_TO_GENERIC (the lex-time hold-back is released — it existed for exactly this), and `exists` is TAKEN AS A KEYWORD: std/fs's path check is defined `_exists` and re-exported under its historical name via `export(exists : _exists)`, while the evaluator's `_evaluate_exists_or_call` dispatches the quantifier in ghost context and the ordinary call path everywhere else — every existing `exists(path, io)` import keeps working)
 
 Well-formed **only inside ghost context** (contract clauses, `ghost(...)`
 bindings, `ghost_fn` bodies) — enforced by an `is_ghost_context` flag on
@@ -1152,9 +1152,12 @@ a broken invariant is a compile error naming the failing iteration.
 > verifier hollow — the pipeline now records and reports the swallowed
 > CAUSE. SECOND ROW LANDED on feat/fv5-quantifiers (2026-09-11, tasks
 > 1 + 4's inout half): the quantifier builtins `forall` /
-> `exists_val` / `==>` (§6) are real (`forall` is the PLAIN word the
+> `exists` / `==>` (§6) are real (`forall` is the PLAIN word the
 > lexer reserved for it since FORALL_TO_GENERIC — the hold-back is
-> released; `exists` keeps `_val` — the bare name is std/fs's live API) — `==>` is a new THREE-CHAR
+> released; `exists` is a KEYWORD per the second maintainer decision:
+> std/fs defines `_exists` + `export(exists : _exists)`, and the
+> evaluator delegates bare `exists(...)` calls to the ordinary path
+> OUTSIDE ghost context, so every fs importer keeps working) — `==>` is a new THREE-CHAR
 > operator (the only one; `_is_three_char_operator` ahead of the greedy
 > two-char split; reserved-list + GRAMMAR en+zh updated) and the word
 > builtins dispatch through new BF constants; all three are gated by
