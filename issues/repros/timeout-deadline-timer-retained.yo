@@ -1,0 +1,42 @@
+//! Reproducer for issues/fixed/timeout-deadline-timer-future-leak.md — every
+//! in-time `timeout` call used to leave its deadline timer armed for the whole
+//! remaining deadline, retaining exactly 4 allocations / 256 bytes per call.
+//!
+//! Measure (aarch64-apple-darwin):
+//!
+//!   yo compile issues/repros/timeout-deadline-timer-retained.yo \
+//!     --optimize 2 --allocator system --std-path ./std -o /tmp/r4.out
+//!   leaks --atExit -- /tmp/r4.out
+//!
+//! BEFORE the I/O cancel path: live allocations scale with the loop count —
+//! 186 at 0 calls, 387 at 50, 987 at 200, 3387 at 800 (233 KB).
+//! AFTER: 187 nodes / 33 KB at 800 calls — the baseline, flat whatever the
+//! loop count, because `timeout`'s `dh.abort()` now deregisters the armed
+//! timer. Measured 2026-09-11 on aarch64-apple-darwin, both binaries built
+//! from the same source with the seed (0.2.30) and with the fix in place.
+//! (`leaks` reports the same pre-existing 1 leak / 32 bytes either way.)
+//! `leaks` never FLAGS these (they stay reachable from the state-machine
+//! graph), so the count, not the leak verdict, is the measurement.
+pragma(Pragma.AllowUnsafe);
+{ println } :: import("std/fmt");
+{ timeout } :: import("std/async");
+{ assert } :: import("std/assert");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/sys/timer");
+fast :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(sleep(u64(1)), io);
+    return(i32(7));
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  n := u64(0);
+  while(n < u64(800), n = (n + u64(1)), {
+    h := io.spawn(fast(io), io);
+    // Always wins: ~1 ms of work against a 9 s deadline.
+    r := timeout(h, Duration.from_millis(i64(9000)), io);
+    assert(match(r, .Ok(v) => (v == i32(7)), .Err(_) => false), "in-time");
+  });
+  println("done");
+});
+export(main);

@@ -747,6 +747,9 @@ static void __yo_io_process_event(struct kevent* ev) {
     typedef struct { __yo_io_future_t* future; } __yo_timer_ctx_t;
     __yo_timer_ctx_t* ctx = (__yo_timer_ctx_t*)ev->udata;
     ctx->future->result = (int32_t)sizeof(uint64_t);  // Match timerfd read size on Linux
+    // Delivery destroys the one-shot registration and frees the context
+    // below, so the future is no longer cancellable.
+    ctx->future->cancel_fn = NULL;
     __yo_pending_io_count--;
     __yo_io_wake_continuation(ctx->future);
     __yo_free(ctx);

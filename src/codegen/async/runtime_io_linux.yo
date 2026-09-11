@@ -596,6 +596,7 @@ static void __yo_io_cleanup(void) {
     __yo_io_future_t* future = __yo_sq_deferred_futures[__yo_sq_deferred_head];
     __yo_sq_deferred_head = (__yo_sq_deferred_head + 1) % __YO_IO_RING_ENTRIES;
     __yo_sq_unsubmitted--;
+    if (!future) continue;  // a cancellation SQE: no future, no pending slot
     __yo_pending_io_count--;
     future->result = -ECANCELED;
     future->state = -1;
@@ -624,6 +625,23 @@ static inline void __yo_io_ring_submit(__yo_io_future_t* future) {
   __yo_sq_unsubmitted++;
 }
 
+// Ask the kernel to cancel the operation submitted with target as its user
+// data. The cancellation SQE carries NULL user data (it is not an operation a
+// task awaits) and does NOT take a pending-I/O slot: the operation it cancels
+// still owns one, and still delivers its own CQE — with -ECANCELED — which is
+// what releases the ring's reference. Returns false when no SQE is available,
+// leaving the operation registered.
+static inline bool __yo_io_ring_submit_cancel(__yo_io_future_t* target) {
+  if (__yo_sq_unsubmitted >= __YO_IO_RING_ENTRIES) return false;
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
+  if (!sqe) return false;
+  io_uring_prep_cancel(sqe, (void*)target, 0);
+  io_uring_sqe_set_data(sqe, NULL);
+  __yo_sq_deferred_futures[(__yo_sq_deferred_head + __yo_sq_unsubmitted) % __YO_IO_RING_ENTRIES] = NULL;
+  __yo_sq_unsubmitted++;
+  return true;
+}
+
 // Flush any queued SQEs to the kernel if non-empty. Returns the liburing result.
 // On failure (ret < 0), the SQEs remain in the SQ ring so __yo_sq_unsubmitted
 // is left unchanged -- the next submit attempt (via poll/wait) will retry them.
@@ -649,6 +667,13 @@ static inline int __yo_io_flush_sq(void) {
 // The future pointer is stored directly in the SQE user data
 static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   __yo_io_future_t* future = (__yo_io_future_t*)io_uring_cqe_get_data(cqe);
+  if (!future) {
+    // Completion of a cancellation SQE (__yo_io_ring_submit_cancel): it owns
+    // no future and no pending-I/O slot. The cancelled operation reports
+    // separately, through its own CQE.
+    io_uring_cqe_seen(&__yo_io_ring, cqe);
+    return;
+  }
   __yo_pending_io_count--;
 
   // Set the result

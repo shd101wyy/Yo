@@ -1,0 +1,53 @@
+// Reproducer for issues/fixed/async-chained-sibling-arm-second-await-binding-never-assigned.md
+// Expected: `A:exists=true;A:added;` then `B:nm=nm;B:added;`. Pre-fix the second line lacked `B:added;`.
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+{ Exception, IoExn } :: import("std/error");
+{ yield } :: import("std/async");
+
+flag :: (fn(io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    true
+  })
+);
+name_of :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    String.from("nm")
+  })
+);
+// Two sibling arms whose SECOND awaits bind same-typed locals: the arm
+// registered second lands in a chained layer of the sibling's entry.
+Kind :: enum(A, B);
+run :: (fn(k : Kind, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    match(
+      k,
+      .A => {
+        exists := e.io.await(flag(e.io), e);
+        log.push_string(`A:exists=${exists.to_string()};`);
+        added := e.io.await(flag(e.io), e);
+        if(added, {
+          log.push_str("A:added;");
+        });
+      },
+      .B => {
+        nm := e.io.await(name_of(e.io), e);
+        log.push_string(`B:nm=${nm};`);
+        added := e.io.await(flag(e.io), e);
+        if(added, {
+          log.push_str("B:added;");
+        });
+      }
+    );
+    log
+  })
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  b := IoExn(io : io, exn : exn);
+  println(io.await(run(Kind.A, io), b));
+  println(io.await(run(Kind.B, io), b));
+});
+export(main);

@@ -675,6 +675,14 @@ static void __yo_timer_future_dispose(void* ptr) {
 // box gets undefined symbols instead of the documented graceful degradation.
 // See issues/liburing-fallback-does-not-compile.md.
 #ifdef __YO_HAS_LIBURING
+// Cancel a pending timerfd read. The kernel still delivers the read's own CQE
+// (with -ECANCELED), and that is what releases the ring's reference and frees
+// the timerfd through the dispose hook — so the retention window becomes one
+// poll turn instead of the whole remaining deadline.
+static bool __yo_timer_future_cancel(__yo_io_future_t* future) {
+  return __yo_io_ring_submit_cancel(future);
+}
+
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
   
@@ -731,6 +739,7 @@ ${timer_dispose_init}
   timer_future->read_buf = buf;
   io_uring_prep_read(sqe, tfd, buf, sizeof(uint64_t), 0);
   io_uring_sqe_set_data(sqe, future);
+  future->cancel_fn = __yo_timer_future_cancel;
   __yo_io_ring_submit(future);
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms (pending=%zu)\\n",
@@ -775,12 +784,47 @@ typedef struct __yo_timer_ctx_t {
   __yo_io_future_t* future;
 } __yo_timer_ctx_t;
 
+// Extended future for a timer: keeps the kqueue ident and the udata context,
+// which is what a cancel needs to name the registration. Before this the
+// ident was a local discarded as soon as EV_SET was issued, so an aborted
+// sleep could only be released by letting it fire
+// (issues/fixed/timeout-deadline-timer-future-leak.md).
+typedef struct {
+  __yo_io_future_t base;
+  uintptr_t timer_id;
+  __yo_timer_ctx_t* ctx;
+} __yo_timer_future_t;
+
+// Deregister the one-shot timer. EV_DELETE destroys the knote, so no event is
+// delivered for it afterwards and this path owns the context and the pending
+// count — exactly what __yo_io_process_event would otherwise have done. A
+// timer that already fired is gone from the kqueue (EV_ONESHOT deletes on
+// delivery), so kevent reports ENOENT: refuse, and let the delivered event
+// take its normal course.
+static bool __yo_timer_future_cancel(__yo_io_future_t* future) {
+  __yo_timer_future_t* tf = (__yo_timer_future_t*)future;
+  struct kevent ev;
+  EV_SET(&ev, tf->timer_id, EVFILT_TIMER, EV_DELETE, 0, 0, NULL);
+  if (kevent(__yo_io_kq, &ev, 1, NULL, 0, NULL) < 0) {
+    ASYNC_DEBUG("[TIMER] Cancel found no registration: errno=%d\\n", errno);
+    return false;
+  }
+  if (tf->ctx) {
+    __yo_free(tf->ctx);
+    tf->ctx = NULL;
+  }
+  __yo_pending_io_count--;
+  ASYNC_DEBUG("[TIMER] Cancelled timer (pending=%zu)\\n", __yo_pending_io_count);
+  return true;
+}
+
 // macOS timer using kqueue EVFILT_TIMER
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
   
-  __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
-  memset(future, 0, sizeof(__yo_io_future_t));
+  __yo_timer_future_t* timer_future = (__yo_timer_future_t*)__yo_rc_alloc(sizeof(__yo_timer_future_t));
+  memset(timer_future, 0, sizeof(__yo_timer_future_t));
+  __yo_io_future_t* future = &timer_future->base;
   
   future->header.ref_count = 1;
   atomic_init(&future->state, 0);
@@ -792,17 +836,21 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   ctx->future = future;
   
   uintptr_t timer_id = __yo_timer_next_id++;
+  timer_future->timer_id = timer_id;
+  timer_future->ctx = ctx;
   
   struct kevent ev;
   EV_SET(&ev, timer_id, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_USECONDS, (intptr_t)(milliseconds * 1000), (void*)ctx);
   if (kevent(__yo_io_kq, &ev, 1, NULL, 0, NULL) < 0) {
     future->result = -errno;
     atomic_store(&future->state, -1);
+    timer_future->ctx = NULL;
     __yo_free(ctx);
     ASYNC_DEBUG("[TIMER] Failed to register timer: errno=%d\\n", errno);
     return future;
   }
   
+  future->cancel_fn = __yo_timer_future_cancel;
   __yo_pending_io_count++;
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms (pending=%zu)\\n",
@@ -829,6 +877,7 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
 
 static void __yo_io_init(void);
 static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds);
+static bool __yo_win_timer_cancel(__yo_io_future_t* future);
 
 static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   __yo_io_init();
@@ -841,6 +890,7 @@ static __yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
+  future->cancel_fn = __yo_win_timer_cancel;
   __yo_win_timer_add(future, milliseconds);
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms\\n", (unsigned long long)milliseconds);

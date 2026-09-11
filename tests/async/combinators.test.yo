@@ -107,6 +107,23 @@ test("Test timeout completes in time", {
   assert(match(r, .Ok(v) => (v == i32(7)), .Err(_) => false), "task inside the limit should deliver its value");
 });
 // ---------------------------------------------------------------------------
+// 6b. timeout — repeated in-time calls against a long deadline.
+//     Every call arms a real deadline timer that the winning task never lets
+//     fire; each one used to stay armed (and hold its task, its capture and
+//     its future) for the whole remaining 60 s, ~256 bytes a call with no
+//     ceiling — issues/fixed/timeout-deadline-timer-future-leak.md. The abort
+//     now cancels it, so this loop is flat. The assertion here is the
+//     behavioural half: correctness under repetition.
+// ---------------------------------------------------------------------------
+test("Test timeout in a loop against a long deadline", {
+  (i : usize) = usize(0);
+  while(i < usize(200), i = (i + usize(1)), {
+    h := io.spawn(sleepy(i32(3), u64(0), io), io);
+    r := timeout(h, Duration.from_millis(i64(60000)), io);
+    assert(match(r, .Ok(v) => (v == i32(3)), .Err(_) => false), "every in-time call should deliver its value");
+  });
+});
+// ---------------------------------------------------------------------------
 // 7b. timeout — a SELF-aborted task is Aborted, not Elapsed (D18)
 // ---------------------------------------------------------------------------
 test("Test timeout distinguishes an aborted task from an elapsed deadline", {

@@ -95,7 +95,8 @@
   find_bundle_field_name,
   compute_cross_boundary_variables,
   compute_overlapping_slots,
-  generate_async_block_resume_function
+  generate_async_block_resume_function,
+  generate_async_block_cancel_pending_function
 } :: import("../async/state_machine.yo");
 { get_state_machine_field_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
@@ -599,6 +600,10 @@ emit_async_block_struct_definition :: (
   em.emit_declaration_string_line(`struct ${info.struct_name.clone()}_struct {`);
   em.emit_declaration_line("  __yo_ref_header_t header;  // Reference counting header (must be first)");
   em.emit_declaration_line("  int state;  // Current state (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)");
+  // Part of the common spawned-future header: JoinHandle.abort reaches the
+  // suspension through it (runtime_core.yo, __yo_join_handle_abort_raw), so it
+  // must sit at the same offset in every future struct.
+  em.emit_declaration_line("  void (*cancel_pending_fn)(void*);  // Cancel the I/O operation the task is suspended in");
   // Always include a result field to keep continuation_fn/continuation_sm at
   // consistent offsets. For unit type, use uint8_t as a dummy (cannot use void).
   if(is_unit_type(info.result_type), {
@@ -1355,7 +1360,7 @@ generate_async_block_state_dispose_function :: (
 /// of `generateAsyncBlockConstructor` (async.ts:1269). `async_block_id` and
 /// `future_type` are retained for signature fidelity (unused in the TS body too).
 generate_async_block_constructor :: (
-  fn(async_block_id : String, struct_name : String, resume_function_name : String, constructor_name : String, dispose_function_name : String, set_effect_function_name : String, future_type : TypeValue, result_type : TypeValue, result_type_c_name : String, capture_type : Option(TypeValue), context : FunctionGenerationContext) -> unit
+  fn(async_block_id : String, struct_name : String, resume_function_name : String, constructor_name : String, dispose_function_name : String, set_effect_function_name : String, cancel_pending_function_name : Option(String), future_type : TypeValue, result_type : TypeValue, result_type_c_name : String, capture_type : Option(TypeValue), context : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   // Constructor signature (returns a pointer for a stable Future/SM address).
@@ -1393,6 +1398,11 @@ generate_async_block_constructor :: (
   });
   em.emit_line("");
   em.emit_line("  sm->state = 0;");
+  match(
+    cancel_pending_function_name,
+    .Some(cpfn) => em.emit_string_line(`  sm->cancel_pending_fn = ${cpfn};  // JoinHandle.abort cancels the pending I/O`),
+    .None => em.emit_line("  sm->cancel_pending_fn = NULL;  // no cancellable await slot")
+  );
   em.emit_line("  sm->continuation_fn = NULL;");
   em.emit_line("  sm->continuation_sm = NULL;");
   em.emit_line("");
@@ -2218,8 +2228,10 @@ _emit_one_deferred_async_block :: (fn(block : DeferredAsyncBlock, context : Func
   // Dispose function.
   generate_async_block_state_dispose_function(block.async_block_id.clone(), block.struct_name.clone(), block.dispose_function_name.clone(), block.result_type, block.capture_type, filtered_analysis, local_var_drops, cross_boundary_ids, await_future_temp_var_aliases, context);
   em.emit_string_line(String.from(""));
+  // Abort hook — cancels the I/O operation the task is suspended in.
+  cancel_pending_function_name := generate_async_block_cancel_pending_function(block.async_block_id.clone(), block.struct_name.clone(), filtered_analysis, context);
   // Constructor.
-  generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), block.future_type, block.result_type, block.result_type_c_name.clone(), block.capture_type, context);
+  generate_async_block_constructor(block.async_block_id.clone(), block.struct_name.clone(), block.resume_function_name.clone(), block.constructor_name.clone(), block.dispose_function_name.clone(), block.set_effect_function_name.clone(), cancel_pending_function_name, block.future_type, block.result_type, block.result_type_c_name.clone(), block.capture_type, context);
   em.emit_string_line(String.from(""));
 });
 /// Generate all deferred async-block implementations (resume / set_effect / dispose
@@ -2643,6 +2655,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   em.emit_declaration_string_line(`struct ${struct_name.clone()}_struct {`);
   em.emit_declaration_line("  __yo_ref_header_t header;");
   em.emit_declaration_line("  int state;");
+  em.emit_declaration_line("  void (*cancel_pending_fn)(void*);");
   if(is_unit_type(result_type), {
     em.emit_declaration_line("  uint8_t result;");
   }, {
@@ -2893,6 +2906,7 @@ generate_io_async_sync_call :: (fn(expr : AstExpr, indent : String, context : Fu
   });
   // State 0 = not started (lazy); resume executes the closure.
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
+  em.emit_string_line(`${indent.clone()}${result_var.clone()}->cancel_pending_fn = NULL;  // no await slot to cancel`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->__yo_resume_fn = ${resume_function_name.clone()};`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->__yo_set_effect_fn = ${sync_set_effect_function_name.clone()};`);
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->continuation_fn = NULL;`);
