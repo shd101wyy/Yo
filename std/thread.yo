@@ -23,6 +23,25 @@
 //! t.join();
 //! result := out.recv().unwrap();
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `Thread.spawn`/`join`, `ThreadPool` and `join_all` have the
+//! shapes they will keep, and `Thread(T).spawn` + `join() -> T` (D18) landed.
+//! One thing keeps this from freezing, and it is a safety property rather
+//! than a name: **`Send` is declared but not enforced at the spawn boundary.**
+//! `spawn` takes `Impl(Fn(io : Io) -> unit, Send)`, but the capture check
+//! behind it (`validate_capture_trait_requirements`) is a no-op stub, so a
+//! closure that captures a non-atomic `ref` struct, an `Io`, or a
+//! `JoinHandle` compiles — and then races a non-atomic refcount across
+//! threads. `tests/thread_safety.test.yo` asserts `Type.impls`, which is not
+//! the same question.
+//!
+//! Freezing a threading API whose one static guarantee is unchecked would
+//! freeze the guarantee as decoration. The fix is a compiler change (marker
+//! traits over captures, with `comptime_expect_error` negatives and an
+//! over-rejection canary per exempt shape); the API itself is not expected to
+//! move when it lands.
 pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("./sync/mutex");
 { AtomicBool, AtomicUsize, MemoryOrder } :: import("./sync/atomic");

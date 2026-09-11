@@ -8,6 +8,33 @@
 //!
 //! **Do NOT import `std/prelude`** — it is loaded automatically and an
 //! explicit import will produce a compile error.
+//!
+//! ## Stability
+//!
+//! **The prelude is the one module whose surface is a language decision**, not
+//! a library one: every name here is in scope in every Yo file, so adding one
+//! can shadow a user's binding and removing one breaks every program. Treat
+//! additions as breaking changes in review even though the compiler will not
+//! call them that.
+//!
+//! Broadly stable: the core traits (`Clone`, `Eq`, `Ord`, `Hash`, `Dispose`,
+//! `Send`, `Rc`, the operator traits), `Option`, `Result`, `Box`, `Range`,
+//! the numeric types and their inherent methods, and the async vocabulary
+//! (`Io`, `Future`, `JoinHandle`). These have Rust's names and meanings and
+//! are not expected to move.
+//!
+//! Known to move: the byte-conversion battery. `to_be_bytes`, `to_le_bytes`,
+//! `from_be_bytes` and `from_le_bytes` are written ten times, once per integer
+//! type, because the return type is `Array(u8, N)` with `N` the receiver's
+//! width — and an associated constant in a LENGTH position is not
+//! substitutable
+//! (`issues/associated-constant-in-a-type-position-resolves-to-zero.md`, now a
+//! diagnostic rather than a silent zero). `usize`/`isize` deliberately have
+//! none, because their width is the target's. When the value half of
+//! `substitute()` lands
+//! (`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`) these collapse
+//! onto one blanket impl and `usize`/`isize` gain them, which is additive for
+//! callers but changes where the methods are defined.
 // === Foundational traits ===
 // `Comptime` and `Runtime` are defined first because every other
 // type (including `Pragma` below) is type-checked against them.

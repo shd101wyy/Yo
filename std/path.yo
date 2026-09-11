@@ -1,4 +1,22 @@
 //! Cross-platform filesystem path manipulation.
+//!
+//! ## Stability
+//!
+//! unstable — `Path` and the free `split_paths`/`join_paths` have Rust's
+//! names and meanings and are not expected to move. Two things keep it from
+//! freezing.
+//!
+//! `Path` is a `String` wrapper, so it is a BYTE path with no encoding
+//! guarantee, and on Windows that is not what the platform wants: the OS API
+//! is UTF-16, and the round trip through UTF-8 is lossy for names that are
+//! not valid Unicode. Rust answers this with `OsString`; Yo has not decided
+//! whether to, and that decision would change what `Path` holds.
+//!
+//! The other is that normalization is TEXTUAL — `normalize` resolves `.` and
+//! `..` lexically without touching the filesystem, which is the right default
+//! and matches Rust, but there is no `canonicalize` beside it that resolves
+//! symlinks. Adding one is additive; changing `normalize` to do it would not
+//! be.
 pragma(Pragma.AllowUnsafe);
 { rune, String } :: import("./string");
 { ToString } :: import("./fmt");

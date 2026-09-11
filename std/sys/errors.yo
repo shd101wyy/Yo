@@ -1,4 +1,18 @@
 //! `IoError` type — comprehensive I/O error type with errno-to-error mapping.
+//!
+//! ## Stability
+//!
+//! close to stable, and the most-depended-on type in `std/sys` — every
+//! `Result` in `std/fs`, `std/net` and `std/process` carries an `IoError`.
+//! The variants are the errno classes Rust's `std::io::ErrorKind` names, the
+//! mapping from errno is exhaustive for the codes `std` can produce, and
+//! `from_result` is the documented way to turn a raw syscall answer into a
+//! `Result`.
+//!
+//! What is open is only the tail: the enum is NOT documented as
+//! non-exhaustive, so adding a variant — which a new syscall surface can
+//! force — is a breaking change for any caller that matches exhaustively.
+//! Deciding that, and saying so here, is what freezing this module means.
 { String } :: import("../string");
 { ToString } :: import("../fmt");
 { Error, Exception } :: import("../error");

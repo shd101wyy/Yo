@@ -1,6 +1,22 @@
 //! Extern C runtime function declarations.
 //!
 //! All low-level extern functions for async I/O operations.
+//!
+//! ## Stability
+//!
+//! **Not public API, and not intended to become it.** This file is the list of
+//! C runtime symbols the async I/O layer calls, one `extern` per symbol, and
+//! it exists so that the typed modules above it have something to bind
+//! against. The names are the C runtime's, the signatures are raw pointers
+//! and `i32`s, and an entry appears or disappears whenever the emitted runtime
+//! gains or loses a function — the waker primitives arrived this way in
+//! 2026-09-11, and each such arrival is SEED-GATED, because the seed compiler
+//! emits a runtime that does not yet contain the new symbol.
+//!
+//! Nothing here will be frozen. Callers want `std/fs`, `std/net`,
+//! `std/process` or `std/async`; the members carry no `///` documentation for
+//! the same reason, and that is deliberate rather than a gap in the doc
+//! sweep.
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
 // ============================================================================

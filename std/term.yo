@@ -2,6 +2,21 @@
 //! raw mode for the standard streams — the typed, non-`sys` face of
 //! `std/sys/tty` (which stays fd- and errno-oriented). `std/cli` and
 //! interactive tools consume this module.
+//!
+//! ## Stability
+//!
+//! unstable — a small facade (`is_terminal`, `size`, `supports_color`,
+//! `enter_raw_mode`, `restore_mode`) whose names are settled, over a
+//! `std/sys/tty` that is not. Two things are open. `enter_raw_mode` /
+//! `restore_mode` are a PAIR the caller must balance by hand, and a process
+//! that dies between them leaves the terminal in raw mode — the shape that
+//! fixes it is a guard value with a `Dispose`, the way `Semaphore.with_permit`
+//! and `Mutex.with_lock` already work in `std/sync`. And `supports_color`
+//! answers a bool from `TERM`/`NO_COLOR` heuristics, where callers
+//! increasingly want a LEVEL (none / 16 / 256 / truecolor).
+//!
+//! Both are additive to add and breaking to change afterwards, so they belong
+//! before the freeze rather than after.
 import("./string");
 { Exception } :: import("./error");
 { IoError } :: import("./sys/errors");
