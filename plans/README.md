@@ -69,7 +69,11 @@ S0–S5 complete, superseded by `STD_API_STABILIZATION.md`), with its sub-plan
 [`archive/STD_API_AUDIT_HANDOVER.md`](archive/STD_API_AUDIT_HANDOVER.md).
 Its superseded handovers (`HANDOVER_2026_08_28.md`,
 `HANDOVER_STD_AUDIT_NEXT.md`, and the dated 08-30 / 09-01 / 09-02 / 09-05 /
-09-06 files) are archived alongside;
+09-06 files) are archived alongside, as is
+[`archive/HANDOVER_STD_CAMPAIGN_2026-09-10.md`](archive/HANDOVER_STD_CAMPAIGN_2026-09-10.md)
+— the 09-10 evening handover, closed 2026-09-11 once everything it handed over
+had landed, and worth reading for its §4 (three "Yo has no X" comments that
+were false, each having already produced a workaround);
 [`archive/D6_TLS_PLAN.md`](archive/D6_TLS_PLAN.md) closed with Windows
 Schannel TLS in v0.2.26.
 
