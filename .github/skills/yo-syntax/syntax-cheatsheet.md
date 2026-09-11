@@ -716,31 +716,30 @@ match(val,
 
 Same applies to `.IntLit(42)`, `.StrLit("hello")`, etc.
 
-### `forall` / `exists` / `∀` / `∃` are RESERVED — the type binder is `generic`
+### `forall` / `exists` / `==>` — the verification quantifiers (V5, ghost-only)
 
-The type-parameter binder is `generic(T : Type)`. `forall` was renamed to it
-(`plans/archive/FORALL_TO_GENERIC.md`) so the quantifier words stay free for
-Dafny-style verification, where they will bind VALUES with a predicate inside
-`requires` / `ensures`. All four words are rejected at LEX time with a targeted
-message (`src/lexer.yo`):
-
-```
-`forall` is reserved for verification quantifiers. Use `generic(T : Type)` to
-declare type parameters.
-```
+The type-parameter binder is `generic(T : Type)` (the old `forall` binder was
+renamed, `plans/archive/FORALL_TO_GENERIC.md`). V5 of
+`plans/backlog/FORMAL_VERIFICATION.md` §6 then ACTIVATED the words as the
+ghost-only quantifier builtins: `forall(binders..., P)`, `exists(binders...,
+P)`, and the three-char implication `a ==> b`. They are well-formed ONLY
+inside contract clauses (`requires` / `ensures` / `invariant`), `ghost(...)`
+bindings, and `ghost_fn` bodies — they have no runtime semantics, so ordinary
+code using them is a compile error. Each binder is `(name : Type)`:
 
 ```rust
-// WRONG:
-sum :: (fn(forall(T : Type), a : T, b : T) -> T)((a + b));
+// A quantified post-condition (the SMT side is a real forall):
+ensures(forall(k : i32, (k <= i32(0)) ==> (k < result)))
 
-// CORRECT:
+// The type binder is STILL generic — forall binds VALUES now:
 sum :: (fn(generic(T : Type), a : T, b : T) -> T)((a + b));
 ```
 
-Note the INTERNAL identifiers (`forall_labels`, `forall_types`,
-`forallParameters`, …) deliberately keep the old name in both compilers — they
-are invisible to users and renaming them would churn the bootstrap fixpoint for
-no gain.
+`exists` outside ghost context is the ORDINARY call path — std/fs's
+`exists(path, io)` (defined `_exists`, exported as `exists : _exists`) keeps
+working everywhere. The non-ASCII `∀` / `∃` are rejected with an
+ASCII-spelling hint. Note the INTERNAL identifiers (`forall_labels`,
+`forall_types`, …) deliberately keep the old name — invisible to users.
 
 ### `type` is a reserved keyword — avoid as field/param name
 
