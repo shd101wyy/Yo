@@ -1,8 +1,9 @@
 # `exe.link(lib)` orders the build but never links the library
 
-**Status:** OPEN
+**Status:** OPEN — runner half FIXED (branch `p0/build-yo-errors-surfaced`: `compile_artifact` now passes every linked static library, transitively, as `--extern <lib>.a`); still fails because the LIBRARY exports no symbols — `issues/static-library-exports-no-symbols.md`, fixed in the stacked PR together with the `build-link-static` cli-case.
 **Found:** 2026-09-11, auditing the build system
-(`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with `yo 0.2.30`.
+(`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with `yo 0.2.30` and
+with a compiler built from `develop` (`94fae98f8`).
 **Severity:** high — the "Cross-Module Linking with `extern "Yo"`" section of
 `docs/en-US/BUILD_SYSTEM.md` is the flagship multi-artifact example and it fails
 at link time.

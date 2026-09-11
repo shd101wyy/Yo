@@ -3,7 +3,7 @@
 **Status:** OPEN
 **Found:** 2026-09-11, auditing the build and dependency subsystems
 (`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
-`yo 0.2.30`; the relevant sources are unchanged on `develop`.
+`yo 0.2.30` and again with a compiler built from `develop` (`94fae98f8`).
 **Severity:** high — the documented dependency workflow (`yo init` → `yo install`
 → `import("name")` → `yo build`) fails at the import, so no Yo project can
 consume another Yo package through the build system. `tetris_yo` worked around

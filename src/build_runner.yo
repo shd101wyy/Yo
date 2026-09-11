@@ -24,9 +24,9 @@ _(args : proc_args) :: import("std/env");
 _(env : proc_env) :: import("std/env");
 { create_dir_all } :: import("std/fs/dir");
 { Command, Output, ExitStatus } :: import("std/process/command");
-{ error_format } :: import("./diagnostics.yo");
+{ error_format, emit_rendered_text } :: import("./diagnostics.yo");
 { yield } :: import("std/async");
-{ mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path } :: import("./module_manager.yo");
+{ mm_load_yo_file, mm_reset, get_std_path_override, resolve_std_path, _take_load_error } :: import("./module_manager.yo");
 { exit } :: import("std/libc/stdlib");
 {
   ArtifactKind,
@@ -237,6 +237,78 @@ _get_target_output_dir :: (
 )(
   `${project_dir}/yo-out/${target_triple}/${kind}`
 );
+// ---------------------------------------------------------------------------
+// Linked static libraries
+// ---------------------------------------------------------------------------
+/// The `.a` files an artifact links, transitively through the linked
+/// libraries' own `link` calls, as absolute paths under
+/// `<project>/yo-out/<target>/lib/`. Names that resolve to no artifact (system
+/// libraries attached elsewhere, or a typo the DAG walk also drops) are
+/// skipped; a library reached twice is listed once.
+///
+/// `Step.link(lib)` used to produce only a DAG edge, so the library was built
+/// first and then never handed to the consumer's link — the documented
+/// `extern("Yo", …)` example failed with an undefined symbol
+/// (issues/step-link-does-not-link-the-static-library.md).
+_collect_linked_static_libs :: (
+  fn(
+    registry : BuildRegistry,
+    artifact : BuildArtifact,
+    project_dir : String,
+    effective_target : String,
+    target_triple_opt : Option(String)
+  ) -> ArrayList(String)
+)({
+  out := ArrayList(String).new();
+  seen := ArrayList(String).new();
+  pending := ArrayList(String).new();
+  i := usize(0);
+  while(i < artifact.linked_artifacts.len(), {
+    pending.push(artifact.linked_artifacts(i).clone());
+    i = (i + usize(1));
+  });
+  lib_dir := _get_target_output_dir(project_dir, effective_target, "lib");
+  while(pending.len() > usize(0), {
+    name := pending.pop().unwrap();
+    already := false;
+    j := usize(0);
+    while(j < seen.len(), {
+      if(seen(j) == name, {
+        already = true;
+      });
+      j = (j + usize(1));
+    });
+    if(!(already), {
+      seen.push(name.clone());
+      match(
+        registry.find_artifact(name.clone()),
+        .Some(lib) => {
+          match(
+            lib.kind,
+            .StaticLibrary => {
+              file_name := get_artifact_output_file_name(
+                lib.kind,
+                lib.name.clone(),
+                lib.target.clone(),
+                lib.c_flags,
+                target_triple_opt
+              );
+              out.push(`${lib_dir}/${file_name}.a`);
+              k := usize(0);
+              while(k < lib.linked_artifacts.len(), {
+                pending.push(lib.linked_artifacts(k).clone());
+                k = (k + usize(1));
+              });
+            },
+            _ => ()
+          );
+        },
+        .None => ()
+      );
+    });
+  });
+  out
+});
 // ---------------------------------------------------------------------------
 // Build DAG
 // ---------------------------------------------------------------------------
@@ -622,6 +694,23 @@ compile_artifact :: (
       .Some(t) => t,
       .None => artifact.target
     );
+    // `SharedLibrary` has no compile mode yet: `yo compile` knows only
+    // `--static-library`, so the artifact was compiled as an EXECUTABLE into
+    // `lib/` and failed on the missing `main`
+    // (issues/shared-library-artifact-is-compiled-as-an-executable.md). Until
+    // the shared-library mode lands (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md
+    // §4.5.4) the honest answer is a clear error, not a confusing link failure.
+    match(
+      artifact.kind,
+      .SharedLibrary => {
+        return(
+          Result(unit, String).Err(
+            `shared_library "${artifact.name}" is not supported yet — yo compile has no shared-library mode (issues/shared-library-artifact-is-compiled-as-an-executable.md). Use static_library.`
+          )
+        );
+      },
+      _ => ()
+    );
     is_lib := match(
       artifact.kind,
       .StaticLibrary => true,
@@ -741,6 +830,22 @@ compile_artifact :: (
     while(i < n, {
       cmd.arg(String.from("--extern"));
       cmd.arg(artifact.c_sources(i));
+      i = (i + usize(1));
+    });
+    // Static libraries this artifact links (`Step.link`), built earlier in the
+    // DAG, reach the child's link line the same way C sources do.
+    linked_libs := _collect_linked_static_libs(
+      ctx.registry,
+      artifact,
+      ctx.project_dir.clone(),
+      effective_target.clone(),
+      ctx.target_triple
+    );
+    i = usize(0);
+    n = linked_libs.len();
+    while(i < n, {
+      cmd.arg(String.from("--extern"));
+      cmd.arg(linked_libs(i));
       i = (i + usize(1));
     });
     i = usize(0);
@@ -1484,10 +1589,14 @@ print_steps :: (fn(registry : BuildRegistry) -> unit)({
 /// evaluate the file through the module manager (the builtins mutate the
 /// registry as a side effect of evaluation), then read the registry back.
 ///
-/// Evaluation errors are SWALLOWED, exactly as in TS: "the evaluator populates
-/// the registry during compile-time evaluation; some errors are expected if the
-/// build file has runtime components." A partially-populated registry is the
-/// intended outcome there, not a failure.
+/// A parse or evaluation error in the build file is a BUILD FAILURE: the
+/// loader's handlers stash the rendered diagnostic (the single-print rule,
+/// plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md D2), this edge prints it once
+/// and throws. It used to be swallowed ("some errors are expected if the build
+/// file has runtime components", mirroring TS), which turned every mistake in
+/// a build file — a syntax error, a duplicate artifact name, a wrong field
+/// type — into `Unknown step "install". Available: (none)` with no location
+/// (issues/fixed/build-yo-evaluation-errors-are-swallowed.md).
 evaluate_build_file :: (
   fn(
     build_file : String,
@@ -1503,8 +1612,18 @@ evaluate_build_file :: (
     // of its declared default.
     reg := get_build_registry();
     reg.cli_options = defines;
-    _outcome := mm_load_yo_file(build_file, e.io, e.exn);
+    outcome := mm_load_yo_file(build_file, e.io, e.exn);
+    // Take the diagnostic BEFORE `mm_reset`, which clears it.
+    load_error := _take_load_error();
     mm_reset();
+    if(!(outcome.ok), {
+      match(
+        load_error,
+        .Some(rendered) => emit_rendered_text(rendered),
+        .None => eprintln(`build: error in: ${build_file} (no diagnostic recorded)`)
+      );
+      e.exn.throw(dyn(`Error: Failed to evaluate build file ${build_file}`));
+    });
     get_build_registry()
   })
 );

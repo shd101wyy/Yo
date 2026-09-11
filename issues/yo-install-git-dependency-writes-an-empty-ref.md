@@ -3,7 +3,8 @@
 **Status:** OPEN
 **Found:** 2026-09-11, auditing the dependency subsystem
 (`plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`). Reproduced with the released
-`yo 0.2.30` on macOS; `src/install_command.yo` is byte-identical on `develop`.
+`yo 0.2.30` on macOS and with a compiler built from `develop` (`94fae98f8`)
+by the 0.2.30 seed (so the lowering is the seed's — a gen-2 check is still owed).
 **Severity:** high — every git dependency added through the CLI is broken on
 the very next `yo fetch`, so the CLI install flow is unusable.
 
