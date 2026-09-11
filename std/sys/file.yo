@@ -5,6 +5,19 @@
 //! Async operations return `IoFuture` which resolves to:
 //! - Positive value: success (fd for open, bytes for read/write, 0 for others)
 //! - Negative value: -errno on failure
+//!
+//! ## Stability
+//!
+//! unstable — a raw wrapper over the C file calls whose async results are a
+//! bare `i32` that is a value on success and `-errno` on failure, which a
+//! caller converts with `IoError.from_result`. `std/fs` is the typed face
+//! (`File`, `read_to_string`, `write`, the `Reader`/`Writer` impls) and is
+//! what should be imported.
+//!
+//! It freezes, if ever, as an implementation detail of `std/fs`. The one
+//! thing worth knowing before then is that the `*u8` + length parameter shape
+//! here is the same one `std/io`'s traits carry, for the same reason — Yo has
+//! no slice type — so if a slice type arrives, both layers change together.
 // Use IoError.from_result() to convert results to Result(i32, IoError).
 //
 // Example:

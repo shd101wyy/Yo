@@ -1435,13 +1435,29 @@ removal), and the 359 here cover `std/collections/*`, `std/imm/*`,
 `std/crypto/*`, `std/encoding/*`, `std/url`, `std/time/*`, `std/fs/*`,
 `std/sys/*` and the root modules.
 
-**Still open, and now measured rather than estimated:** 479 members, and
-**16 modules with no `## Stability` section** — `allocator`, `path`,
-`signal`, `error`, `thread`, `term`, `prelude`, `build`, `env`, `assert`,
-`sys/file`, `sys/dir`, `sys/dns`, `sys/errors`, `sys/externs`, and
-`sync/atomic` (whose marker lands in its own PR). §1's "8 modules" count was
-a subset: it listed the ones a reader was most likely to reach for, not the
-ones that lack a marker.
+**Still open, and now measured rather than estimated:** 479 members. §1's
+"8 modules" count was a subset: it listed the ones a reader was most likely to
+reach for, not the ones that lack a marker.
+
+**`## Stability` markers — DONE 2026-09-11. All 175 std modules carry one.**
+The last fifteen were the ones a doc sweep cannot write mechanically, because
+the honest answer in each case is a specific blocker rather than a status word:
+
+| module | what keeps it from freezing |
+| --- | --- |
+| `prelude` | its surface is a LANGUAGE decision — every name is in scope everywhere, so an addition can shadow a user binding and a removal breaks every program. The byte-conversion battery is the known mover, blocked on value substitution in a type position. |
+| `thread` | `Send` is DECLARED at the spawn boundary and not enforced — the capture check is a no-op stub, so a closure capturing a non-atomic `ref` compiles and races a refcount. Freezing would freeze the guarantee as decoration. |
+| `error` | `ErrorChain`/`root_cause` cannot be written at all (#521): `source()`'s result loses the `Error` trait on an erased receiver, so a caller can follow one link and print it but never store or re-throw it. |
+| `allocator` | a trait surface with exactly ONE implementor and nothing in `std` generic over it; the shape has never had to survive a second backend. |
+| `path` | `Path` is a byte path, which is not what Windows wants (its API is UTF-16); Rust answers with `OsString` and Yo has not decided. No `canonicalize` beside the textual `normalize`. |
+| `build` | the API every project's `build.yo` is written against, so a break costs every downstream project an edit — and the `Step`/`StepKind` DAG vocabulary is still moving with the runner. |
+| `env` | three different failure channels across one module (Option, Result, throw) because the functions were added at different times; D1 wants one. |
+| `signal` | `SignalHandler` is a bare `fn(*(u8))`, so a handler can close over nothing and runs in signal context. The shape this wants is signals as EVENTS on the `Io` loop. |
+| `term` | `enter_raw_mode`/`restore_mode` is a hand-balanced pair that leaves the terminal raw if the process dies between them; wants a `Dispose` guard like `Mutex.with_lock`. |
+| `assert` | stable in shape; the caveat is that there is no `debug_assert` that compiles out. |
+| `sys/errors` | close to stable and the most-depended-on type in `std/sys`; what is open is only whether the enum is non-exhaustive. |
+| `sys/{dir,dns,file}` | raw errno-oriented wrappers that freeze, if ever, as implementation details of `std/fs` and `std/net`. `sys/dns` also carries the no-happy-eyeballs gap. |
+| `sys/externs` | **not public API and not intended to become it** — the list of C runtime symbols the async layer binds against, which is also why its members carry no `///`. |
 
 ---
 

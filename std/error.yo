@@ -1,4 +1,23 @@
 //! Standard error handling types and traits for Yo.
+//!
+//! ## Stability
+//!
+//! unstable — the `Error` trait, `AnyError`, `Exception` and the `IoExn`
+//! bundle are the core of every fallible API in `std` and their shapes are
+//! settled. What is missing is the part a real error story needs and this one
+//! does not have: **`ErrorChain` and `root_cause` cannot be written today**,
+//! and it is a compiler defect rather than a design gap
+//! (`issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`,
+//! filed as #521). Both must store what `source()` returned as an `AnyError`,
+//! and on a `Dyn(Error)` receiver that value's STATIC type has lost the
+//! `Error` trait — so a caller can follow one link and print it, but cannot
+//! store, re-erase, `downcast` or re-throw it. Spelling `Dyn(Error)` instead
+//! of `Dyn(SelfTrait)` is not available either: `Error` is unbound inside its
+//! own definition.
+//!
+//! So `source()` exists and works one level deep, and the walk over it does
+//! not. Freezing before that is decided would freeze a trait whose defining
+//! use case is still blocked.
 // Narrow imports (audit error row: the blanket glob import of `./string`/`./fmt`
 // re-exported ALL of string/fmt through std/error — every error-module
 // importer gained println, String, Format, ... — for the two names actually

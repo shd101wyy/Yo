@@ -10,6 +10,21 @@
 //! handler :: (fn(data: *(u8)) -> unit)({ println("Caught SIGINT"); });
 //! on_signal(.Interrupt, handler);
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the `Signal` enum and `on_signal`/`off_signal` are a thin typed
+//! face over `std/sys/signal`, and the handler shape is what has to change.
+//! `SignalHandler` is a bare `fn(data : *(u8)) -> unit`: it takes a raw
+//! pointer because there is nothing else a C signal handler can be handed,
+//! which means a Yo caller cannot close over anything and has to reach for a
+//! module-level global instead. It is also genuinely async-signal-unsafe
+//! territory — almost nothing in `std` may be called from inside one.
+//!
+//! The shape this wants is the one every event loop uses: deliver signals as
+//! EVENTS on the `Io` loop, so a handler is ordinary Yo code running between
+//! turns rather than in signal context. `std/sys/events` already has the
+//! machinery. Freezing the callback form would standardise the wrong one.
 { IoError } :: import("./sys/errors");
 { on_signal : _on_signal, off_signal : _off_signal, SignalHandler } :: import("./sys/signal");
 { platform, Platform } :: import("./process");
