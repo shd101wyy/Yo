@@ -1,6 +1,9 @@
 # Build system & dependency system — audit and redesign plan
 
-_Status: PROPOSED 2026-09-11 — audit complete (this document §1–§3), design
+_Status: PROPOSED 2026-09-11, revised the same day after maintainer review —
+the manifest is a Yo data file (`package.yo`, §4.1) rather than TOML, and the
+plan carries no backward-compatibility scaffolding (Yo has one user today;
+breaking changes land outright — §6). Audit complete (§1–§3), design
 decisions drafted for review (§4–§6), nothing implemented. The five bugs the
 audit reproduced are filed under `issues/` and listed in §1.3. Successor of
 `plans/reference/BUILD_SYSTEM.md` and `plans/reference/DEPENDENCY_MANAGEMENT.md`
@@ -209,11 +212,11 @@ no to `comptime_fetch` and puts file reads behind a root boundary.
 
 | | Cargo | pnpm | bun | Zig | Nix | **Yo today** | **Yo proposed** |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| manifest (data) | `Cargo.toml` | `package.json` | `package.json` | `build.zig.zon` | `flake.nix` inputs | none — `build.dependency({...})` calls in `deps.yo`, text-edited | `yo.toml` (§4.1) |
+| manifest (data) | `Cargo.toml` | `package.json` | `package.json` | `build.zig.zon` | `flake.nix` inputs | none — `build.dependency({...})` calls in `deps.yo`, text-edited | `package.yo`, a parser-only data literal (§4.1) |
 | build program (code) | `build.rs` (compiled + run) | scripts | scripts | `build.zig` (compiled + run) | derivations | `build.yo` (comptime-evaluated) | `build.yo` (comptime-evaluated, unchanged) |
 | version constraints | semver ranges `^ ~ = >=` | semver ranges | semver ranges | exact URL + content hash | exact rev/hash | exact git ref string | semver ranges over git tags (§4.2) |
 | resolver | highest-satisfying, one per semver-major | highest-satisfying, per-dependent | highest-satisfying | none (exact) | none (exact) | none | highest-satisfying, one per semver-major (§4.2) |
-| lockfile | `Cargo.lock` (graph + checksums) | `pnpm-lock.yaml` (graph + integrity) | `bun.lock` (text) | hashes in the manifest | `flake.lock` | `yo.lock`: name/url/ref/commit/hash, no edges | `yo.lock` v2: graph + integrity (§4.3) |
+| lockfile | `Cargo.lock` (graph + checksums) | `pnpm-lock.yaml` (graph + integrity) | `bun.lock` (text) | hashes in the manifest | `flake.lock` | `yo.lock`: name/url/ref/commit/hash, no edges | `yo.lock` v2: same data-literal syntax, graph + integrity (§4.3) |
 | store | `~/.cargo/registry/src` + git checkouts | content-addressable store, hard-linked | global cache | `~/.cache/zig/p/<hash>` content-addressed | `/nix/store/<hash>-name` | `~/.cache/yo/deps/<name>-<commit12>` | `~/.cache/yo/store/<sha256>` + bare git mirrors (§4.4) |
 | integrity check | checksum on every use | integrity on every link | hash | hash verified on fetch | hash is the identity | trusts a sidecar file | verified on install and stamped per build (§4.4) |
 | transitive deps | yes | yes | yes | yes (nested `.zon`) | yes | **no** | yes (§4.2) |
@@ -232,49 +235,70 @@ and for tooling (`yo add` edits a data file; nothing edits Yo source as text).
 
 ## 4. Dependency system redesign
 
-### 4.1 D-1 — `yo.toml` is the manifest; `deps.yo` is retired
+### 4.1 D-1 — `package.yo` is the manifest: a Yo *data* file the parser reads
 
-```toml
-[package]
-name = "tetris_yo"
-version = "0.3.0"            # what `yo publish`/tagging reads; semver
-description = "Tetris in Yo"
-license = "MIT"
-yo = "0.2.30"                # minimum compiler version (mirrors .yo-version; optional)
-
-[modules]                    # what importers may `import("tetris_yo")` / `import("tetris_yo/board")`
-default = "src/lib.yo"
-board   = "src/board.yo"
-
-[dependencies]
-raylib_yo = { git = "https://github.com/shd101wyy/raylib_yo", version = "^0.0.6" }
-json      = { git = "https://github.com/user/json-yo", tag = "v1.2.0" }          # exact
-utils     = { git = "https://github.com/user/mono", version = "~2.1", path = "packages/utils" }
-mylib     = { path = "../mylib" }
-
-[dev-dependencies]           # only for this package's tests/examples
-snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
+```rust
+// package.yo — exactly one expression: a struct literal of literals, lists and
+// nested struct literals. No import, no calls, no bindings, no cond.
+{
+  name : "tetris_yo",
+  version : "0.3.0",                 // semver; what `yo publish`/tagging reads
+  description : "Tetris in Yo",
+  license : "MIT",
+  yo : "0.2.30",                     // minimum compiler version (mirrors .yo-version; optional)
+  modules : {                        // what importers may import("tetris_yo") / import("tetris_yo/board")
+    default : "src/lib.yo",
+    board : "src/board.yo"
+  },
+  dependencies : {
+    raylib_yo : { git : "https://github.com/shd101wyy/raylib_yo", version : "^0.0.6" },
+    json : { git : "https://github.com/user/json-yo", tag : "v1.2.0" },                     // exact
+    utils : { git : "https://github.com/user/mono", version : "~2.1", path : "packages/utils" },
+    mylib : { path : "../mylib" }
+  },
+  dev_dependencies : {               // only for this package's tests/examples
+    snapshot : { git : "https://github.com/user/snapshot-yo", version : "^0.4" }
+  }
+}
 ```
 
-- TOML because it is human-edited, has comments, is what Cargo and pyproject
-  use, and `std/encoding/toml.yo` exists — the same parser serves the CLI
-  (runtime) and, through §5.2, the evaluator. JSON is the alternative (npm,
-  bun); rejected for comments and because Yo's users will be writing it by
-  hand. A `.zon`-style Yo data file is rejected: reading it needs the
-  evaluator, and machine-editing it is the text-rewriting mess of D7.
-- `build.yo` keeps its role — it is code. It gets the manifest for free:
-  `build.manifest` is a comptime struct (name, version) the runner injects
-  after parsing `yo.toml`, and `build.dependency("raylib_yo")` (a **string
-  name** now, Zig's `b.dependency(name, .{})`) returns the handle for a
-  manifest entry. The struct-literal form `build.dependency({ url, ref })` is
-  accepted for one release with a deprecation diagnostic that prints the
-  `yo.toml` lines to paste, then removed. `build.path_dependency` likewise.
-- `yo init` writes `yo.toml` and a `build.yo` that no longer imports
-  `deps.yo`; `yo add` on a project that still has `deps.yo` migrates its
-  declarations into `yo.toml` and deletes the file (one-shot, printed).
-- The manifest is what the resolver reads for **every** package in the
-  closure, so a dependency without `yo.toml` gets the defaults: name from the
-  URL, `default = "src/lib.yo"` → `index.yo` → `<name>.yo`, no dependencies.
+The three requirements the current `deps.yo` violates (§3) are met without
+leaving the language — the model is Zig's `build.zig.zon`, a Zig struct
+literal that the Zig parser reads:
+
+- **Read by the parser, never the evaluator.** `parse_manifest` is a
+  restricted mode of `src/parser.yo` that accepts one struct-literal
+  expression whose leaves are string/int/bool literals, list literals and
+  nested struct literals, and rejects anything else (`import`, calls, `::`,
+  `cond`, identifiers) with a location. The resolver reads the manifest of
+  every package in the transitive closure this way: no prelude clone, no
+  `std/build`, no code from a package runs before it is chosen. The same
+  function serves `yo add`, `yo build`, `yo doc`, and the LSP.
+- **Edited through the parser and the formatter, never as text.** `yo add` /
+  `yo remove` parse the file, insert or delete an entry in the
+  `dependencies` literal, and reprint through `src/formatter.yo`. The lexer
+  keeps comment tokens and the formatter is token-based, so comments survive
+  — the marker/substring rewriting of D7 and its commented-out-line bug go
+  away. Note this is a capability TOML would *not* have given us: `std` has
+  no comment-preserving TOML writer.
+- **A closed grammar.** Because the file cannot compute, it can be hashed,
+  diffed, resolved offline, and rendered by `yo doc` as package metadata.
+
+`build.yo` keeps its role — it is code — and gets the manifest for free:
+`build.manifest` is the parsed literal injected by the runner as a comptime
+struct (`build.manifest.name`, `.version`), and `build.dependency("raylib_yo")`
+(a **string name**, Zig's `b.dependency(name, .{})`) returns the handle for a
+manifest entry. The struct-literal forms `build.dependency({ url, ref })` and
+`build.path_dependency({ ... })` are **removed**, as is `deps.yo`: `yo init`
+writes `package.yo` and a `build.yo` that imports nothing but `std/build`.
+A dependency without `package.yo` gets the defaults: name from the URL,
+`default : "src/lib.yo"` → `index.yo` → `<name>.yo`, no dependencies.
+
+TOML (Cargo, pyproject) and JSON (npm, bun) were considered and rejected:
+they would be Yo's only non-Yo syntax, they need a second parser in every
+consumer, and editing them while preserving comments needs a writer `std`
+does not have. Their one advantage — familiarity to newcomers — is not a
+factor for a single-user language.
 
 ### 4.2 D-2 — semver ranges over git tags, Cargo's resolver
 
@@ -297,36 +321,42 @@ snapshot  = { git = "https://github.com/user/snapshot-yo", version = "^0.4" }
   and because "highest satisfying" is what a registry-less ecosystem needs
   to pick up fixes.
 - **Transitive**: after choosing a version, the resolver fetches that
-  package into the store (§4.4) and reads **its** `yo.toml`; breadth-first
+  package into the store (§4.4) and reads **its** `package.yo` with
+  `parse_manifest`; breadth-first
   until closed. No `build.yo` is evaluated during resolution.
 
 ### 4.3 D-3 — `yo.lock` v2 records the graph and is authoritative
 
-```toml
-# yo.lock — generated by `yo add`/`yo update`; commit this file.
-version = 2
+The same data-literal syntax and the same restricted parser as `package.yo`,
+so one reader and one writer (the formatter) cover both files:
 
-[[package]]
-name = "raylib_yo"
-version = "0.0.6"
-source = "git+https://github.com/shd101wyy/raylib_yo#v0.0.6"
-commit = "973b8cb6c1e362839534df8c16a735aa8a684dc9"
-integrity = "sha256-…"           # normalized tree hash, §4.4
-dependencies = ["utils 2.1.4"]
-
-[[package]]
-name = "mylib"
-source = "path+../mylib"         # path deps ARE recorded (no integrity: they are live)
+```rust
+// yo.lock — generated by `yo add` / `yo update`; commit this file.
+{
+  version : 2,
+  packages : [
+    {
+      name : "raylib_yo",
+      version : "0.0.6",
+      source : "git+https://github.com/shd101wyy/raylib_yo#v0.0.6",
+      commit : "973b8cb6c1e362839534df8c16a735aa8a684dc9",
+      integrity : "sha256-…",          // normalized tree hash, §4.4
+      dependencies : ["utils 2.1.4"]
+    },
+    { name : "mylib", source : "path+../mylib" }   // path deps ARE recorded (no integrity: they are live)
+  ]
+}
 ```
 
-- Entries sorted by (name, version); TOML with escaping done by
-  `std/encoding/toml`, not string concatenation; written atomically
-  (temp + rename).
-- `yo build` **obeys the lock**: if `yo.lock` satisfies `yo.toml` it is used
-  without touching the network; if the manifest changed it is re-resolved
-  (minimal change: only the affected packages move) and rewritten; with
-  `--locked` an out-of-date lock is an error (CI); with `--frozen`/`--offline`
-  nothing is fetched. This replaces the name-only `are_deps_cached` (D5).
+- Entries sorted by (name, version); string escaping is the formatter's, not
+  string concatenation; written atomically (temp + rename). The v1 format is
+  not read — a v1 `yo.lock` is regenerated.
+- `yo build` **obeys the lock**: if `yo.lock` satisfies `package.yo` it is
+  used without touching the network; if the manifest changed it is
+  re-resolved (minimal change: only the affected packages move) and
+  rewritten; with `--locked` an out-of-date lock is an error (CI); with
+  `--frozen`/`--offline` nothing is fetched. This replaces the name-only
+  `are_deps_cached` (D5).
 - `yo update [name...]` re-resolves within ranges; `yo update --latest`
   bumps ranges in the manifest too (pnpm `--latest`).
 
@@ -402,9 +432,9 @@ source = "path+../mylib"         # path deps ARE recorded (no integrity: they ar
 
 ### 4.6 D-6 — workspaces
 
-```toml
-[workspace]
-members = ["packages/*", "examples/tetris"]
+```rust
+// package.yo at the workspace root
+{ name : "yo-workspace", workspace : { members : ["packages/*", "examples/tetris"] } }
 ```
 
 One `yo.lock` at the root, members refer to each other with
@@ -465,7 +495,7 @@ Not in this plan's phases; shape recorded so P1 does not preclude it. A
 **static index** (Cargo's sparse index / Go's module proxy): an HTTPS tree of
 `name → { repository, versions[] }` JSON files, mirrored to `index/` in the
 store, so `yo add json` resolves a short name to a git URL. Publishing is
-`yo publish`: verify `yo.toml`, tag `v<version>`, push the tag, and (with an
+`yo publish`: verify `package.yo`, tag `v<version>`, push the tag, and (with an
 index) open a PR against the index repo. No hosted registry service is
 proposed.
 
@@ -473,14 +503,14 @@ proposed.
 
 | command | does |
 | --- | --- |
-| `yo add <spec>` | edit `yo.toml`, resolve, fetch, write `yo.lock`. Specs: `user/repo`, `user/repo@^1.2`, `https://…`, `git@…`, `./path`, `--dev`, `--path packages/x` (subdir) |
+| `yo add <spec>` | edit `package.yo` (parse → insert → format), resolve, fetch, write `yo.lock`. Specs: `user/repo`, `user/repo@^1.2`, `https://…`, `git@…`, `./path`, `--dev`, `--path packages/x` (subdir) |
 | `yo remove <name>` | inverse |
 | `yo install` | fetch everything the lock names (create the lock if absent); `--locked`, `--frozen`, `--offline` |
 | `yo update [name…] [--latest]` | re-resolve |
-| `yo fetch` | alias of `yo install` for one release, then removed |
-| `yo install <spec>` | today's meaning; prints "use `yo add`" and forwards, one release |
 | `yo cache path / clean / gc` | store management |
 | `yo build [--locked] [--frozen] [-j N] [-p member] [-- args]` | |
+
+`yo fetch` and `yo install <spec>` are removed, not aliased.
 
 ---
 
@@ -493,19 +523,20 @@ represent, what caches must know) and §3's hermeticity column.
 
 Zig's `@embedFile`, with Zig's boundary rule: the path is relative to the
 importing file and **must resolve inside that file's package root** (the
-directory of the nearest `yo.toml`/`build.yo`, or the std root for std) —
+directory of the nearest `package.yo`/`build.yo`, or the std root for std) —
 outside is a compile error, symlinks resolved first. Returns bytes as
 `comptime_str` (`len`/`slice` are byte offsets, so binary content is fine);
 `comptime_embed_bytes` returning `ComptimeList(u8)`-shaped array constant is
 the same builtin with a different result type, added only if a user asks.
-Uses in scope: a version string, a shader or SQL file, `yo.toml` itself,
+Uses in scope: a version string, a shader or SQL file, a sibling
+`package.json`,
 test fixtures, a generated table — and it is the mechanism §5.2 sits on.
 Evaluator: a `BF_COMPTIME_READ_FILE` handler that reads through the same
 `_read_file_sync` path modules use, guarded by `ctx.is_executing` so def-time
 trials and CTFE-capability probes do not touch the disk, and that records the
 edge (§5.4).
 
-### 5.2 `comptime_json_parse` / `comptime_toml_parse` — **yes, as comptime-only data**
+### 5.2 `comptime_json_parse` — **yes, as comptime-only data**
 
 Because no runtime container can exist at compile time (§2.2), the result
 type is a prelude comptime enum:
@@ -520,14 +551,17 @@ ComptimeValue :: enum(
 
 with `get(key)`, `at(i)`, `as_str/as_int/as_bool` helpers in the prelude
 (written in Yo over `ComptimeList`; they promote because they return comptime
-types). The parsers are **builtins** (`__yo_comptime_json_parse`,
-`__yo_comptime_toml_parse`) implemented in the evaluator by calling
-`std/encoding/json` / `toml` at the compiler's runtime and lifting
-`JsonValue`/`TomlValue` into `EvalValue.EnumVal` — the same std code, one
+types). The parser is a **builtin** (`__yo_comptime_json_parse`) implemented
+in the evaluator by calling `std/encoding/json` at the compiler's runtime and
+lifting `JsonValue` into `EvalValue.EnumVal` — the same std code, one
 implementation, no CTFE promotion problem. Parse errors are compile errors
 at the call site with the parser's line/column. Uses: `build.yo` reading a
-sibling `package.json`, a generated bindings table, `yo.toml` fields the
-runner does not already inject.
+sibling `package.json`, a generated bindings table, test fixtures. A
+`comptime_toml_parse` twin over `std/encoding/toml` is the same shape and is
+added only when a use appears — with the manifest in Yo syntax (§4.1) nothing
+in the toolchain needs TOML. Yo data files themselves need no parser builtin:
+`import("./data.yo")` of a file holding one `::` binding already yields the
+value at compile time.
 
 ### 5.3 `comptime_fetch` — **no**; `build.fetch` as a fixed-output step — later, if needed
 
@@ -594,8 +628,8 @@ pointer here, and `AGENTS.md`'s command table refreshed.
 | phase | scope | gates |
 | --- | --- | --- |
 | **P0 — stop the bleeding** (runner correctness, no design change) | §4.7 items; the five filed issues (B1 link via `--extern`, B2 removal-or-implement decision taken as implement in P1 — P0 rejects `SharedLibrary` with a clear error, B3, D1 root-caused and fixed, D2/D3/D10/D12); docs: `extern` example gains the pragma, ReleaseSmall/`-g`, "`--help` shows options" made true | new cli-cases: `build-link-static` (prints 7), `build-file-syntax-error` (rc 1 + `-->`), `build-unknown-option`, `build-dry-run-graph`, `build-run-args`, `install-git-pinned-ref` (offline `file://` repo; asserts the written ref, `yo.lock`, rc); `tests/internal/build_runner.test.yo` grows the scheduler/failure cases; existing `build-*`/`init*`/`cache-*` goldens stay green |
-| **P1 — dependencies work** | §4.1 manifest + `yo add/remove/install/update` (+ `deps.yo` migration), §4.2 resolver, §4.3 lock v2, §4.4 store, §4.5.1 `--imports` plumbing in compile/test/check/lsp, §4.5.2 dependency `build.yo` evaluation, §4.5.3 linking, §4.5.4 shared libraries | cli-cases: `add-path-dep-import` (the §1.1 reproducer, prints 12), `add-git-dep-semver` (three tags, `^` picks highest), `add-transitive` (A→B, B's module importable from A only), `lock-locked-fails-when-stale`, `install-frozen-offline`, `store-integrity-mismatch` (tampered store dir is re-fetched), `dep-artifact-link`, `shared-library-dlopen`; `tetris_yo` un-vendors `raylib_yo` as the end-to-end proof; `yo check`/LSP resolve `import("dep")` in a fixture |
-| **P2 — compile-time inputs** | §5.1 `comptime_read_file`, §5.2 `ComptimeValue` + JSON/TOML parsers, §5.4 `build.env`, §5.5 plumbing (module graph edge, watch set, `--emit-deps`) | `tests/comptime_read_file.test.yo` (root boundary error, byte content, module-level assert), `tests/comptime_json.test.yo`, cli-cases `check-watch-data-file` (editing the read file re-checks the importer), `build-cache-data-input` (second build recompiles only after the data file changes), `build-env-stamped` |
+| **P1 — dependencies work** | §4.1 `parse_manifest` + `package.yo` + `yo add/remove/install/update` (formatter-based editing), removal of `deps.yo` and the struct-form `build.dependency`, §4.2 resolver, §4.3 lock v2, §4.4 store, §4.5.1 `--imports` plumbing in compile/test/check/lsp, §4.5.2 dependency `build.yo` evaluation, §4.5.3 linking, §4.5.4 shared libraries | cli-cases: `add-path-dep-import` (the §1.1 reproducer, prints 12), `add-git-dep-semver` (three tags, `^` picks highest), `add-transitive` (A→B, B's module importable from A only), `lock-locked-fails-when-stale`, `install-frozen-offline`, `store-integrity-mismatch` (tampered store dir is re-fetched), `dep-artifact-link`, `shared-library-dlopen`; `tetris_yo` un-vendors `raylib_yo` as the end-to-end proof; `yo check`/LSP resolve `import("dep")` in a fixture |
+| **P2 — compile-time inputs** | §5.1 `comptime_read_file`, §5.2 `ComptimeValue` + the JSON parser, §5.4 `build.env`, §5.5 plumbing (module graph edge, watch set, `--emit-deps`) | `tests/comptime_read_file.test.yo` (root boundary error, byte content, module-level assert), `tests/comptime_json.test.yo`, cli-cases `check-watch-data-file` (editing the read file re-checks the importer), `build-cache-data-input` (second build recompiles only after the data file changes), `build-env-stamped` |
 | **P3 — speed and scale** | §4.8 parallel levels + `-j`, §4.9 depfile-based stamps, §4.6 workspaces | `build-parallel-levels` (two independent artifacts overlap in `--summary` timestamps), `build-cache-per-artifact` (editing artifact A's private module does not recompile B), `workspace-members`; the self-build's `yo build` time is unchanged or better (one artifact) |
 | **P4 — ecosystem** | §4.10 static index, `yo publish` | designed then, not now |
 
@@ -624,10 +658,12 @@ Risks and how the plan bounds them:
   compilation works, but `dyn`/trait registries are keyed per type and a type
   from `json 1.x` is not `json 2.x`'s — the same as Cargo, and the diagnostic
   must say so. A cli-case with two majors pins the behaviour.
-- **Breaking changes**: `deps.yo` and struct-form `build.dependency` are
-  deprecated for one release with a migration message, then removed; `yo
-  install <spec>` and `yo fetch` are aliased for one release. `yo.lock` v1 is
-  read once and rewritten as v2.
+- **Breaking changes land outright** (maintainer decision 2026-09-11: Yo
+  has one user; no deprecation windows, aliases, or migration shims).
+  `deps.yo`, struct-form `build.dependency`/`build.path_dependency`, `yo
+  install <spec>`, `yo fetch`, and the v1 `yo.lock` format are removed in the
+  P1 PR that replaces them; the docs get a one-paragraph migration note. The
+  only compatibility constraint that remains is the seed gate above.
 
 ## 7. Documents this plan supersedes or corrects
 
