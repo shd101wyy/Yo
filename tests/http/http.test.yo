@@ -1034,11 +1034,13 @@ _ka_conn :: (fn(stream : TcpStream, mode : i32, stats : _KaStats, io : Io) -> Im
     carry := ArrayList(u8).new();
     open := true;
     while(runtime(open), {
+      eprintln(`  [srv] awaiting a framed request (carry=${carry.len()})`);
       framed := e.io.await(
         _wire.read_http_message_buffered(stream, usize(0), _wire.MessageKind.Request, carry, e.io),
         e
       );
       raw := match(framed, .Ok(x) => x, .Err(_) => String.new());
+      eprintln(`  [srv] framed ${raw.len()} request byte(s)`);
       (answer : String) = String.new();
       cond(
         raw.is_empty() => {
@@ -1058,6 +1060,7 @@ _ka_conn :: (fn(stream : TcpStream, mode : i32, stats : _KaStats, io : Io) -> Im
       cond(
         !answer.is_empty() => {
           _w := e.io.await(stream.write_string(answer, e.io), e);
+          eprintln(`  [srv] wrote ${_w.to_string()} of ${answer.len()} answer byte(s)`);
         },
         true => ()
       );
@@ -1101,6 +1104,7 @@ _ka_serve :: (
     n := usize(0);
     while(runtime(n < max_conns), {
       stream := e.io.await(listener.accept(e.io), e);
+      eprintln(`  [srv] accepted connection ${(stats.accepts + usize(1)).to_string()}`);
       stats.accepts = (stats.accepts + usize(1));
       n = (n + usize(1));
       held.push(stream);
