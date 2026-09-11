@@ -84,6 +84,38 @@ impl(generic(T : Type), Holder(T),
 `ArrayList(Waker)`, parks on it, and is green — which is why stage 3's mutex
 half landed and the channel half did not.
 
+## Two probes that narrow it a long way
+
+**1. The element type is UNRESOLVED, not missing a method.** Replacing
+`tracer.visit(base.add(i))` with `tracer.visit(base)` in the tracer changes the
+error to:
+
+```
+error[E0605]: Type mismatch for parameter "slot":
+- Expected: *(T)
+- Got     : *(T)
+    --> std/prelude.yo:242:31
+```
+
+Two different `T`s that print identically — the signature of a stale
+substitution. `ArrayList(Waker)`'s `Trace` is being instantiated with the
+element type still bound to `ArrayList`'s own generic parameter rather than to
+`Waker`, so `*(T)` has no methods and `.add` cannot resolve. That is the
+[[side-tables-stale-under-substitution]] family, not a missing impl.
+
+**2. It only happens on the ASYNC path.** The same patched channel used
+SYNCHRONOUSLY — `try_send`/`try_recv`, no `io.async` anywhere — gets past the
+evaluator cleanly. (It then fails to LINK, for an unrelated reason worth its
+own line: `Waker`'s `Dispose` calls `__yo_waker_release` and `wake` calls
+`__yo_waker_wake`, and those externs are only emitted when the async runtime
+is, so a program that holds a `Waker` without ever using `io.async` has no
+definition for them. The channel's `close()` wakes waiters synchronously, so a
+sync-only user of a waker-based channel would hit exactly that.)
+
+So the trigger is: a cycle-capable type carrying an `ArrayList` of an RC'd
+element, whose `Trace` is derived while the ASYNC transform is running. The
+async `Mutex` does not hit it, which is the contrast to explain.
+
 ## Where to look
 
 `tracer.visit(base.add(i))` is evaluated when the collector's `Trace` is
