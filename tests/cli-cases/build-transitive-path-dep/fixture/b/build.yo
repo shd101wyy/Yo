@@ -1,0 +1,6 @@
+build :: import("std/build");
+// b depends on c; b's OWN executable wires the import, and b's module uses it.
+c :: build.path_dependency({ name : "c", path : "../c" });
+mod :: build.module({ name : "b", root : "./src/lib.yo" });
+exe :: build.executable({ name : "b-demo", root : "./src/main.yo" });
+exe.add_import({ name : "c", module : c.module() });

@@ -47,8 +47,11 @@ reproduce identically.
 > #577 (runner errors, linking), #578 (library exports) and the stacked
 > `p1/imports-plumbing` branch (`--imports` file + resolver rule 0, §4.5.1)
 > make `import("mylib")` / `import("mylib/sub")` work for path and fetched git
-> dependencies and for a project's own `build.module`. Transitive dependencies,
-> `yo check`/LSP outside a build, and system-library propagation remain (§6 P1).
+> dependencies and for a project's own `build.module`; the `p1/transitive-path-deps`
+> branch walks the dependencies' own registries so a dependency's imports
+> resolve too (one flat mapping per artifact; git dependencies of dependencies
+> still need the root `yo.lock` to know them). `yo check`/LSP outside a build
+> and system-library propagation remain (§6 P1).
 
 
 The documented workflow — `yo init`, `yo install user/repo`, `import("repo")`,
