@@ -970,6 +970,17 @@ _collect_doc_comment_before :: (
 // ---------------------------------------------------------------------------
 /// Extract trait implementation names per type from the token stream.
 /// Mirrors `extractTraitImplsFromTokens` (builder.ts:377).
+///
+/// `derive(Type, Trait(...))` counts as well as `impl(Type, Trait(...))`: the
+/// two spell the same relationship with the same argument shape, so one walk
+/// reads both. Scanning only `impl` left every DERIVED impl invisible — an
+/// empty `trait_impls` — and the trait-doc inheritance pass keys on exactly
+/// that list, so 25 `source` and 24 `to_string` methods rendered as bare
+/// signatures even once their traits carried documentation
+/// (issues/fixed/yo-doc-renders-the-prelude-empty.md, measured after the
+/// prelude fix). It is also what a reader wants on the type's page: a derived
+/// `Eq` is an implemented `Eq`. Only the NAME scanner learns this — the
+/// impl-INFO scanner below reads method bodies, and a derive call has none.
 extract_trait_impls_from_tokens :: (
   fn(tokens : ArrayList(Token)) -> HashMap(String, ArrayList(String))
 )({
@@ -997,7 +1008,9 @@ extract_trait_impls_from_tokens :: (
         continue;
       }
     );
-    is_impl := ((tok.kind == TokenKind.Identifier) && (tok.value == `impl`));
+    is_impl := (
+      (tok.kind == TokenKind.Identifier) && ((tok.value == `impl`) || (tok.value == `derive`))
+    );
     has_lparen := match(
       toks.get(i + usize(1)),
       .Some(t) => (t.kind == TokenKind.LParen),
@@ -1636,12 +1649,15 @@ build_doc_module_from_tokens :: (
     match(
       trait_impl_map.get(decl_name.clone()),
       .Some(trait_impls) => {
-        // Likely a type — add as a type with trait impls. NOTE: TS omits the
-        // doc field here (builder.ts:1509 literal has no `doc`).
+        // Likely a type — add as a type with trait impls. The doc comment is
+        // the one `sections` was just extracted from, so dropping it (as the
+        // TS literal did, builder.ts:1509) rendered every declaration of a
+        // module that failed to evaluate bare
+        // (issues/fixed/yo-doc-renders-the-prelude-empty.md, root cause 3).
         types.push(
           DocType(
             name : decl_name.clone(),
-            doc : Option(String).None,
+            doc : Option(String).Some(assoc.comment.content.clone()),
             kind : DocItemKind.Struct,
             signature : decl_name.clone(),
             type_params : Option(ArrayList(DocParam)).None,
@@ -1656,11 +1672,11 @@ build_doc_module_from_tokens :: (
         );
       },
       .None => {
-        // Generic fallback: a constant. NOTE: TS omits `doc` here too.
+        // Generic fallback: a constant — same doc-dropping defect as above.
         constants.push(
           DocConstant(
             name : decl_name.clone(),
-            doc : Option(String).None,
+            doc : Option(String).Some(assoc.comment.content.clone()),
             type_ : String.from("(unknown)"),
             value : Option(String).None,
             deprecated : sections.deprecated,

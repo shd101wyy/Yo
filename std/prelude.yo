@@ -241,6 +241,14 @@ export(Rc);
 /// Dispose trait - defines a dispose method for cleaning up resources.
 Dispose :: trait(
   id := "Dispose",
+  /// Release the resources `self` owns — a file descriptor, a socket, a lock,
+  /// a buffer the allocator handed out. Called automatically when the last
+  /// reference to the value goes away, so an implementor never calls it
+  /// directly and must tolerate being the only one who ever does.
+  ///
+  /// It must be safe to run exactly once: the runtime calls it at refcount
+  /// zero, and a type that also exposes an explicit `close`/`release` is
+  /// responsible for making the second call a no-op.
   dispose : (fn(self : Self) -> unit),
   where(Self <: Rc)
 );

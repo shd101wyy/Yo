@@ -27,6 +27,15 @@
 /// Standard error trait for typed error propagation.
 /// All error types should implement this trait along with `ToString`.
 Error :: trait(
+  /// The error that caused this one, or `.None` at the root of the chain.
+  ///
+  /// Rust's `Error::source`. Defaulted to `.None`, so an error with nothing
+  /// underneath it implements the trait by saying only what it is; a wrapper
+  /// overrides it to hand back what it wrapped. Walking the chain to the root
+  /// cause is not expressible yet — the returned `Dyn` loses the `Error`
+  /// trait on an erased receiver, so a caller can print one link but cannot
+  /// follow it (#521,
+  /// `issues/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
   (source : (fn(inout(self) : Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
   where(Self <: ToString)
 );
