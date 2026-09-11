@@ -99,6 +99,8 @@ json :: import("std/encoding/json");
   resolve_std_path,
   get_std_path_override,
   set_std_path_override,
+  get_imports_file_override,
+  set_imports_file_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
   mm_reset,
@@ -3904,6 +3906,16 @@ run_test :: (
           },
           .None => ()
         );
+        // `--imports` is global the same way and travels to the batch compile
+        // for the same reason.
+        match(
+          get_imports_file_override(),
+          .Some(imf) => {
+            ccmd.arg(String.from("--imports"));
+            ccmd.arg(imf);
+          },
+          .None => ()
+        );
         // Cooperative compile deadline, ported from TS's test runner
         // (`src/test-runner.ts:544`, SEQUENTIAL_COMPILE_TIMEOUT_MS). TS arms
         // it in-process; we compile in a CHILD, so it travels as a flag. A
@@ -5984,18 +5996,30 @@ main :: (fn(io : Io) -> unit)({
         exn.throw(dyn(`--std-path requires a directory argument`));
       });
     }, {
-      if(a == "--lang", {
+      // Global `--imports <file>`: the build runner's per-artifact
+      // `name=/abs/root.yo` mapping for bare `import("name")` resolution
+      // (module_manager.yo loads it on the first module load).
+      if(a == "--imports", {
         if((ai + usize(1)) < raw_argv.len(), {
-          set_cli_lang_override(raw_argv(ai + usize(1)).clone());
+          set_imports_file_override(raw_argv(ai + usize(1)).clone());
           ai = (ai + usize(1));
         }, {
-          exn.throw(dyn(tr(`--lang requires a language code (e.g. en, zh-CN)`, `--lang 需要一个语言代码（例如 en、zh-CN）`)));
+          exn.throw(dyn(`--imports requires a file argument`));
         });
       }, {
-        if(a.starts_with(String.from("--lang=")), {
-          set_cli_lang_override(a.substring(usize(7), a.len()));
+        if(a == "--lang", {
+          if((ai + usize(1)) < raw_argv.len(), {
+            set_cli_lang_override(raw_argv(ai + usize(1)).clone());
+            ai = (ai + usize(1));
+          }, {
+            exn.throw(dyn(tr(`--lang requires a language code (e.g. en, zh-CN)`, `--lang 需要一个语言代码（例如 en、zh-CN）`)));
+          });
         }, {
-          argv.push(a);
+          if(a.starts_with(String.from("--lang=")), {
+            set_cli_lang_override(a.substring(usize(7), a.len()));
+          }, {
+            argv.push(a);
+          });
         });
       });
     });
