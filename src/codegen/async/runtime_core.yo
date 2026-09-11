@@ -572,11 +572,57 @@ static void __yo_async_report_wake_deadlock(void) {
   fflush(stderr);
 }
 
+// ============================================================================
+// I/O cancellation — release what a suspended task is waiting on
+// ============================================================================
+// abort() marks a task Aborted, but the operation it is suspended IN stays
+// registered with the backend: the timer keeps counting down, and everything
+// it holds (the operation's future, the task's state machine, its captures)
+// is retained until that operation completes on its own. For a timeout that
+// the task wins, that is the whole remaining deadline
+// (issues/fixed/timeout-deadline-timer-future-leak.md).
+//
+// This is the prompt path: deregister the operation so no completion is ever
+// delivered, and hand the caller ownership of both the future and the task.
+// It returns true ONLY when the backend confirms the registration is gone AND
+// this call took the continuation — i.e. nothing can resume the task any
+// more. Every other case returns false having changed nothing, and the resume
+// function's aborted-entry guard stays the fallback: the operation completes
+// as it always did and releases the task then.
+static bool __yo_async_io_cancel(void* p) {
+  if (!p) {
+    return false;
+  }
+  __yo_io_future_t* f = (__yo_io_future_t*)p;
+  if (atomic_load(&f->state) != 0) {
+    return false;  // already terminal: the completion path owns the wake
+  }
+  if (!f->cancel_fn) {
+    return false;  // this operation has no cancel path
+  }
+  void (*cont)(void*) = atomic_exchange(&f->continuation_fn, NULL);
+  if (!cont) {
+    return false;  // nobody is suspended on it
+  }
+  if (!f->cancel_fn(f)) {
+    atomic_store(&f->continuation_fn, cont);  // backend refused — put it back
+    return false;
+  }
+  atomic_store(&f->continuation_sm, NULL);
+  atomic_store(&f->state, -2);
+  return true;
+}
+
 // JoinHandle introspection/cancellation — every spawned future starts with
 // this common header (the same layout JoinHandle.await casts to).
 typedef struct {
   __yo_ref_header_t header;
   int state;
+  // Per-async-block hook: cancel the I/O operation the task is suspended in
+  // and release the suspension's references. Emitted beside the resume
+  // function, which knows which fields are await slots; NULL for a future
+  // with no await slot to cancel.
+  void (*cancel_pending_fn)(void*);
 } __yo_spawned_future_header_t;
 
 // Non-blocking FutureState read: positive step indices read as Running (1),
@@ -594,6 +640,12 @@ static void __yo_join_handle_abort_raw(void* fut) {
   __yo_spawned_future_header_t* h = (__yo_spawned_future_header_t*)fut;
   if (h->state >= 0) {
     h->state = -2;
+    // Prompt cancellation: give back what the task was waiting on instead of
+    // outliving it. The hook may drop the task's last suspension reference,
+    // so nothing may touch h afterwards.
+    if (h->cancel_pending_fn) {
+      h->cancel_pending_fn(fut);
+    }
   }
 }`
   );

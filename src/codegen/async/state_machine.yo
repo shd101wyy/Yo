@@ -3632,6 +3632,100 @@ generate_async_block_resume_function :: (
   em.emit_string_line(String.from(""));
   local_var_drop_codes
 });
+/// The `await_future_N` slots that hold an I/O future, deduplicated and in
+/// await order. Only these can be cancelled: a slot holding another task's
+/// state machine is that task's business, and a park/yield future has no
+/// backend registration to take back.
+///
+/// A DISPATCH-MODE point is excluded even when its representative is an I/O
+/// future: that slot is declared type-erased precisely because sibling
+/// branches store differently-shaped futures into it, so what is in there at
+/// abort time is not decidable here — and reading an async state machine
+/// through `__yo_io_future_t*` would find a `cancel_fn` that is really the
+/// tail of some other field.
+_io_await_future_slots :: (
+  fn(analysis : AwaitAnalysisResult, context : FunctionGenerationContext) -> ArrayList(String)
+)({
+  slots := ArrayList(String).new();
+  seen := HashSet(String).new();
+  (i : usize) = usize(0);
+  while(i < analysis.await_points.len(), i = (i + usize(1)), {
+    match(
+      analysis.await_points.get(i),
+      .Some(ap) => {
+        ffn := get_future_field_name(ap, analysis);
+        if(ffn.starts_with("await_future_") && !(seen.contains(ffn.clone())) && !(cond_await_point_needs_dispatch(ap, context)), {
+          fut_ty := match(
+            ap.base.expr,
+            .FnCall(_, _, a, _, _) => match(
+              a.get(usize(0)),
+              .Some(fe) => match(context.base.get_expr_info(fe), .Some(ei) => Option(TypeValue).Some(ei.ty), .None => Option(TypeValue).None),
+              .None => Option(TypeValue).None
+            ),
+            .Atom(_, _) => Option(TypeValue).None
+          );
+          if(match(fut_ty, .Some(t) => is_io_future_type(t), .None => false), {
+            seen.insert(ffn.clone());
+            slots.push(ffn);
+          });
+        });
+      },
+      .None => ()
+    );
+  });
+  slots
+});
+/// Emit the async block's `cancel_pending_fn` — the prompt half of
+/// `JoinHandle.abort`. Abort marks the task Aborted and then calls this, which
+/// deregisters the I/O operation the task is suspended in and releases the
+/// suspension's references eagerly, instead of leaving the operation armed
+/// until it completes on its own (issues/fixed/timeout-deadline-timer-future-leak.md).
+///
+/// It does exactly what the resume function's aborted-entry guard does — drop
+/// the `await_future_N` slot and the task's own reference — but only for the
+/// ONE slot whose operation the backend confirms it has taken back
+/// (`__yo_async_io_cancel`). Any other case falls through unchanged and the
+/// guard stays the fallback, so the release still happens exactly once.
+/// Returns the emitted function's name, or `.None` when the block has no
+/// cancellable slot and needs no hook.
+generate_async_block_cancel_pending_function :: (
+  fn(
+    async_block_id : String,
+    struct_name : String,
+    analysis : AwaitAnalysisResult,
+    context : FunctionGenerationContext
+  ) -> Option(String)
+)({
+  slots := _io_await_future_slots(analysis, context);
+  if(slots.len() == usize(0), {
+    return(Option(String).None);
+  });
+  em := context.base.emitter;
+  fn_name := `${async_block_id.clone()}_cancel_pending`;
+  em.emit_declaration_string_line(`void ${fn_name.clone()}(void* sm_ptr);  // Cancel the pending I/O of an aborted task`);
+  em.emit_declaration_line("");
+  em.emit_string_line(`// Abort hook for async block ${async_block_id.clone()}`);
+  em.emit_string_line(`void ${fn_name.clone()}(void* sm_ptr) {`);
+  em.emit_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)sm_ptr;`);
+  (i : usize) = usize(0);
+  while(i < slots.len(), i = (i + usize(1)), {
+    match(
+      slots.get(i),
+      .Some(slot) => {
+        em.emit_string_line(`  if (sm->${slot.clone()} != NULL && __yo_async_io_cancel((void*)sm->${slot.clone()})) {`);
+        em.emit_string_line(`    __yo_decr_rc((void*)sm->${slot.clone()});`);
+        em.emit_string_line(`    sm->${slot.clone()} = NULL;`);
+        em.emit_string_line(`    __yo_decr_rc((void*)sm);  // the suspended task's own reference`);
+        em.emit_string_line(`    return;`);
+        em.emit_string_line(`  }`);
+      },
+      .None => ()
+    );
+  });
+  em.emit_string_line(`}`);
+  em.emit_string_line(String.from(""));
+  Option(String).Some(fn_name)
+});
 export(
   is_io_future_type,
   StateMachineInfo,
@@ -3663,5 +3757,6 @@ export(
   _emit_post_while_cond_branch,
   _emit_outer_while_continuation,
   _emit_while_continuation,
-  generate_async_block_resume_function
+  generate_async_block_resume_function,
+  generate_async_block_cancel_pending_function
 );

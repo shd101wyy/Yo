@@ -504,8 +504,25 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 The inline header struct assumes the standard state machine layout:
 
 ```c
-struct { __yo_ref_header_t header; int state; T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
+struct { __yo_ref_header_t header; int state; void (*cancel_pending_fn)(void*); T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
 ```
+
+**That prefix is an ABI, spelled in five places, and they must agree.**
+`__yo_ref_header_t header; int state; void (*cancel_pending_fn)(void*);` is
+the part `JoinHandle`'s type-erased helpers cast to
+(`__yo_spawned_future_header_t` in `src/codegen/async/runtime_core.yo`), so
+`result` — whose type and therefore size varies per future — may never move
+ahead of it. The five emitters are: the async-block struct and the
+sync-closure future struct (`src/codegen/exprs/async.yo`), the generic
+Future-trait interface (`src/codegen/types/generation.yo`), this inline
+`JoinHandle.await` header (`src/codegen/exprs/await.yo`), and the runtime
+header itself. Adding a field to the prefix means editing all five.
+
+`cancel_pending_fn` is how `abort()` reaches the suspension: codegen emits one
+per async block beside the resume function, and it cancels the I/O operation
+the task is parked in (`__yo_async_io_cancel`, `cancel_fn` on
+`__yo_io_future_t`) rather than waiting for that operation to complete —
+`issues/fixed/timeout-deadline-timer-future-leak.md`.
 
 For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.
 

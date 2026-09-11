@@ -12,7 +12,7 @@ them.
 | 2. `yield` over `park` | **SEED-GATED.** `yield_now` is the fast form and is landed; `yield` itself cannot point at it until the seed ships `__yo_async_yield_start`, because `yield` is on the compiler's own import path (through `std/fs/watch`) and the seed emits a runtime without that symbol, so the compiler fails to LINK. Moves in the release after the one that ships this runtime |
 | 3a. `Mutex` over a waiter queue | **LANDED** (#576) — `std/async/mutex.yo` holds an `ArrayList(Waker)`, `unlock` wakes the FRONT waiter, and `waiter_count()` is the oracle the FIFO test reads |
 | 3b. `Channel` over the same queue | **LANDED** (#586) — `send`/`recv` park on a waiter queue instead of re-checking on a 1 ms timer tick. It was blocked for a day by a compiler defect that the rewrite surfaced: the trace collector tried to monomorphize a GENERIC `ArrayList(T)` instance that only this shape put in the codegen type registry, and failed inside `array_list.yo`'s `Trace` body — a file the rewrite never touched (`issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md`) |
-| 4. The combinators (`race`/`any`/`timeout`) | open |
+| 4. The combinators (`race`/`any`/`timeout`) | **PARTLY LANDED.** `timeout`'s retention is CLOSED: `abort()` now cancels the operation the task is suspended in, so the deadline timer is deregistered the moment the task wins instead of staying armed for the rest of the limit (`issues/fixed/timeout-deadline-timer-future-leak.md`). What remains is the polling SHAPE — `race`/`any` still re-check `is_finished()` around `__yo_async_poll_step()`; parking them on a wake needs a completion-notification list on `JoinHandle`, which is step 5's machinery |
 | 5. Cross-thread wake + `spawn_blocking` | open |
 
 **Two codegen bugs fell out of this campaign, both fixed.**
@@ -156,11 +156,17 @@ markers say the NAMES are stable and the MECHANISM is not.
   ([[yo-linux-loop-stays-alive-on-parked-accept]],
   [[yo-linux-only-hang-debug-via-temp-workflow]]). Every waiter list needs a
   test that wakes N waiters from one signal and asserts all N ran.
-- **`timeout`'s known residual.** `std/async/index.yo` documents that a
-  completed-before-deadline task leaves its deadline timer armed and its
-  future struct unreclaimed (`issues/timeout-deadline-timer-future-leak.md`).
-  Waker-based `timeout` should CLOSE that rather than inherit it — the
-  deadline becomes a wake to cancel, not a task to outlive.
+- **`timeout`'s known residual — CLOSED 2026-09-11.** `std/async/index.yo`
+  documented that a completed-before-deadline task left its deadline timer
+  armed and its future struct retained
+  (`issues/fixed/timeout-deadline-timer-future-leak.md`). The deadline is
+  still a task, but `abort()` is no longer only a state word: the I/O future
+  carries a `cancel_fn` the backend fills in, `__yo_async_io_cancel` takes the
+  registration back, and a per-async-block `cancel_pending_fn` on the spawned
+  future header does eagerly what the resume function's aborted-entry guard
+  did lazily. Timers on all four backends have a cancel path; every other
+  operation keeps the lazy path until one is written for it, which is the
+  natural home for `spawn_blocking`'s cancellation story in step 5.
 
 ## Acceptance for the whole change
 

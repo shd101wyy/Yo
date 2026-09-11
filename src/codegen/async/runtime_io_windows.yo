@@ -2192,6 +2192,24 @@ static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds) 
   cur->next = node;
 }
 
+// Drop a pending timer from the queue. The list is the whole registration, so
+// unlinking it is a complete cancellation: nothing will ever fire for this
+// future, and this path owns the node and the pending count.
+static bool __yo_win_timer_cancel(__yo_io_future_t* future) {
+  __yo_win_timer_entry_t** link = &__yo_win_timer_head;
+  while (*link) {
+    if ((*link)->future == future) {
+      __yo_win_timer_entry_t* node = *link;
+      *link = node->next;
+      __yo_free(node);
+      __yo_pending_io_count--;
+      return true;
+    }
+    link = &(*link)->next;
+  }
+  return false;
+}
+
 static int __yo_win_timer_process_due(uint64_t now_ms) {
   int fired = 0;
   while (__yo_win_timer_head && __yo_win_timer_head->due_ms <= now_ms) {

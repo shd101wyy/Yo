@@ -6,7 +6,7 @@ row. `std/async/index.yo:124-127` already documents this residual and cites
 exist (`find . -name 'timeout-deadline-timer-future-leak.md'` returned
 nothing, and the only occurrence of the string in the tree was the citation
 itself). **Class**: unbounded-until-deadline memory retention on a shipped std
-API. **Status**: OPEN.
+API. **Status**: FIXED 2026-09-11 — see "Resolution" at the end.
 
 The module doc's wording is also wrong in a way that matters: it says the
 future struct "is never reclaimed". Measured below, it **is** reclaimed — but
@@ -180,3 +180,67 @@ table above rather than by an assertion:
 - Whatever `cancel_pending_fn` is added by fix (2) also needs the general
   case: a task suspended on a `sleep` far in the future, aborted, and the
   program exits immediately — verified through the same repro harness.
+
+
+## Resolution (2026-09-11)
+
+Fixed as the fix section prescribes: `abort()` now takes the I/O registration
+back instead of leaving it armed. Measured on the reproducer below, 800
+in-time calls against a 9 s deadline, aarch64-apple-darwin, both binaries from
+the same source:
+
+| | live allocations at exit | bytes |
+| --- | --- | --- |
+| before | 3387 | 233 KB |
+| after | 187 | 33 KB |
+
+187 is the 0-call baseline, so the per-call retention is gone, not reduced.
+
+**What landed.**
+
+1. **`cancel_fn` on `__yo_io_future_t`** (`codegen/types/generation.yo`) — a
+   per-operation hook the `*_start` function fills in, returning `true` only
+   when the backend is certain no completion will be delivered. `NULL` means
+   "this operation has no cancel path", which is every operation except the
+   timer today: those keep the old lazy release, so nothing regresses while
+   the rest are written.
+2. **`__yo_async_io_cancel`** (`codegen/async/runtime_core.yo`) — the
+   arbitration. It cancels only a future that is still pending AND whose
+   continuation registration this call takes (`atomic_exchange`), so a
+   completion already in flight keeps ownership of the wake and the eager path
+   stands down; a backend that refuses puts the continuation back.
+3. **Timer cancel on all four backends.** macOS keeps the kqueue ident and the
+   udata context in a new `__yo_timer_future_t` and issues `EV_DELETE`
+   (`ENOENT` — the one-shot already delivered — is a refusal, not a cancel).
+   Linux submits an `IORING_OP_ASYNC_CANCEL` SQE with NULL user data, so the
+   timerfd read reports `-ECANCELED` on the next poll and releases the ring's
+   reference there; the CQE path learned to skip a NULL-user-data completion.
+   Windows and wasm unlink the entry from their sorted timer queues.
+4. **`cancel_pending_fn` on the spawned-future header** — abort is type-erased
+   through `JoinHandle.__future`, so the hook has to live at a fixed offset in
+   every future struct (right after `state`; the five emitters that spell that
+   prefix now all carry it). Codegen emits one per async block beside the
+   resume function: it cancels whichever `await_future_N` slot holds a live
+   cancellable I/O future, drops that slot and the task's own reference — the
+   same work the resume function's aborted-entry guard does lazily, which
+   stays as the fallback. Dispatch-mode slots are excluded: they are declared
+   type-erased precisely because sibling branches store differently-shaped
+   futures there, so what is in one at abort time is not decidable.
+5. **The doc correction** (item 3 of the fix) — `std/async/index.yo` and
+   `JoinHandle.abort`'s doc comment in `std/prelude.yo` now describe
+   cancellation, not retention.
+
+**Regression cover.** `tests/async/join_handle.test.yo` — "abort cancels the
+pending timer and releases the task": a task parked on a 30 s sleep, captured
+value with a `Dispose` counter, aborted; the counter must read 1 immediately
+(verified RED on the pre-fix compiler, GREEN after — CI runs with
+`detect_leaks=0`, so a Dispose counter is the only observable for this class).
+`tests/async/combinators.test.yo` — "timeout in a loop against a long
+deadline": 200 in-time calls against a 60 s limit, the behavioural companion
+to the allocation count above.
+
+**Still open, deliberately.** Only timers have a `cancel_fn`. A task aborted
+while parked on a socket read, a `getaddrinfo`, or a waker still holds that
+operation until it completes on its own. The mechanism is now in place for
+each of them; `plans/WAKER_BASED_SCHEDULING.md` step 5 is where the rest
+belongs.
