@@ -129,6 +129,17 @@ signature every specialisation in the compiler is keyed by, so it moves
 `yo_id_*` names tree-wide and has to clear the bootstrap FIXPOINT gate — it
 belongs in its own PR with the full battery, not bolted onto another fix.
 
+Resolving at READ may not even be possible here. The sibling defect's
+investigation established that the CALL's result `SomeT` has no recorded
+resolution at codegen time at all —
+`resolve_some_type_to_concrete` consults both the per-object `resolved_concrete`
+cell and the global registry and finds neither, which is why
+`init_assignment.yo`'s existing `rhs_is_unit` guard missed. If the `T` in
+`rtparam1_2193` is in the same state, the resolution has to be RECORDED at
+specialisation time rather than looked up later, and that is evaluator work on
+how a generic body's ExprInfos are stamped for a specialisation. (Not measured
+for this particular `SomeT` — measure it before choosing a direction.)
+
 It is also probably not sufficient on its own. With the segment omitted, the
 closure's call mints the spec with a param type that is still the raw SomeT,
 and `should_skip_function_codegen` drops a spec whose signature carries one
