@@ -3011,7 +3011,9 @@ _emit_nested_branch_continuation :: (
               cbd.branches.get(bi),
               .Some(branch) => match(
                 branch.nested,
-                .Some(nk) => if(branch.has_await, {
+                // An OWNED arm's nested instance runs inside its owner's case
+                // (`_emit_nested_level_switch` recurses), never as a case here.
+                .Some(nk) => if(branch.has_await && branch.owner.is_none(), {
                   em.emit_string_line(`        ${_case_labels(labels, branch)} {`);
                   match(
                     context.nested_cond_records.get(nk),
@@ -3189,6 +3191,7 @@ _emit_cond_branch_continuation :: (
                       match(
                         layer.branches.get(ci),
                         .Some(cb) => if(cb.has_await && match(cb.remaining_exprs, .Some(r) => (r.len() > usize(0)), .None => false), {
+                          _emit_chained_arm_binding(cb, prev_await, `      `, context, cross_boundary_ids);
                           _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, Option(String).None, `      `, context);
                         }),
                         .None => ()
@@ -3226,6 +3229,38 @@ _emit_cond_branch_continuation :: (
     .None => ()
   );
 });
+/// A chained arm's own await binding at a uniform point: `sm->var_<b> =
+/// sm->await_result_N` for the `b` in `b := io.await(...)` that carried the
+/// arm's additional await, under the same three conditions the main
+/// continuation switch applies to its arms (not the arm the pre-switch copy
+/// already covers; the binding lives in the state struct; it has this point's
+/// result type). Chained layers used to run their remaining code without ever
+/// assigning it, so a sibling arm's second-await binding read calloc zero
+/// (issues/fixed/async-chained-sibling-arm-second-await-binding-never-assigned.md).
+_emit_chained_arm_binding :: (
+  fn(
+    cb : CondBranch,
+    prev_await : AwaitPoint,
+    indent : String,
+    context : FunctionGenerationContext,
+    cross_boundary_ids : Option(HashSet(String))
+  ) -> unit
+)({
+  em := context.base.emitter;
+  if(cond_await_point_needs_dispatch(prev_await, context), return(()));
+  match(
+    cb.await_target_variable_id,
+    .Some(btvid) => if((
+      match(prev_await.base.target_variable_id, .Some(ptv) => !(ptv == btvid), .None => true)
+      && _await_target_has_struct_field(btvid.clone(), cross_boundary_ids, context)
+    )
+    && _branch_target_matches_await_type(btvid.clone(), prev_await.result_type, context), {
+      bfield := get_state_machine_field_name(btvid, Option(String).Some(String.from("local")), context.state_machine_field_aliases);
+      em.emit_string_line(`${indent}sm->${bfield} = sm->await_result_${prev_await.base.index.to_string()};`);
+    }),
+    .None => ()
+  );
+});
 /// Chained layers from an OUTER cond (field != prev_await.index): the outer
 /// branch's remaining code must run even when THIS state's await was never
 /// submitted (the nested branch was not taken), so it lives OUTSIDE the
@@ -3242,7 +3277,8 @@ _emit_outer_chained_branch_layers :: (
     future_type : TypeValue,
     capture_type : Option(TypeValue),
     analysis : AwaitAnalysisResult,
-    context : FunctionGenerationContext
+    context : FunctionGenerationContext,
+    cross_boundary_ids : Option(HashSet(String))
   ) -> unit
 )({
   em := context.base.emitter;
@@ -3273,6 +3309,7 @@ _emit_outer_chained_branch_layers :: (
                         .Some(outer) => outer.target_assignment_code,
                         .None => Option(String).None
                       );
+                      _emit_chained_arm_binding(cb, prev_await, `        `, context, cross_boundary_ids);
                       _emit_cond_branch_remaining(cb, prev_await, segment, body_expr, future_type, capture_type, analysis, layer.cond_branch_field_index, outer_target, `      `, context);
                       em.emit_string_line(`      }`);
                     }),
@@ -4052,7 +4089,7 @@ generate_async_block_resume_function :: (
                 em.emit_string_line(`      }`);
                 _emit_nested_branch_continuation(async_block_id, prev_await, segment, body_expr, future_type, capture_type, analysis, context, cross_boundary_ids);
               });
-              _emit_outer_chained_branch_layers(prev_await, segment, body_expr, future_type, capture_type, analysis, context);
+              _emit_outer_chained_branch_layers(prev_await, segment, body_expr, future_type, capture_type, analysis, context, cross_boundary_ids);
               _emit_while_continuation(prev_await, segment, body_expr, async_block_id, future_type, capture_type, analysis, context);
             },
             .None => ()

@@ -5082,6 +5082,47 @@ _while_reassign_await :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
     i
   })
 );
+/// Shape J — two sibling arms whose SECOND awaits bind same-typed locals:
+/// the arm registered second lands in a chained layer of the sibling's
+/// entry, and its binding must still be assigned there.
+_sib_flag :: (fn(io : Io) -> Impl(Future(bool, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    true
+  })
+);
+_sib_name :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    e.io.await(yield(e.io), e.io);
+    String.from("nm")
+  })
+);
+_SibKind :: enum(A, B);
+_sibling_second_awaits :: (fn(k : _SibKind, io : Io) -> Impl(Future(String, IoExn)))(
+  io.async((e : IoExn) => {
+    (log : String) = String.new();
+    match(
+      k,
+      .A => {
+        exists := e.io.await(_sib_flag(e.io), e);
+        log.push_string(`A:exists=${exists.to_string()};`);
+        added := e.io.await(_sib_flag(e.io), e);
+        if(added, {
+          log.push_str("A:added;");
+        });
+      },
+      .B => {
+        nm := e.io.await(_sib_name(e.io), e);
+        log.push_string(`B:nm=${nm};`);
+        added := e.io.await(_sib_flag(e.io), e);
+        if(added, {
+          log.push_str("B:added;");
+        });
+      }
+    );
+    log
+  })
+);
 test("an awaiting inner match inside a match arm keeps the arm's trailing statements", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
@@ -5162,4 +5203,13 @@ test("a while body that re-assigns an outer local from an await stores the futur
   exn := Exception(throw : (_err -> unwind(())));
   got := io.await(_while_reassign_await(io), IoExn(io : io, exn : exn));
   assert(got == usize(3), `the loop advanced through the awaited values (got ${got.to_string()})`);
+});
+test("a sibling arm's second-await binding is assigned when its continuation is a chained layer", {
+  if(arch == Arch.Wasm32, return(()));
+  exn := Exception(throw : (_err -> unwind(())));
+  bundle := IoExn(io : io, exn : exn);
+  a := io.await(_sibling_second_awaits(_SibKind.A, io), bundle);
+  assert(a == "A:exists=true;A:added;", `the first arm binds both awaits (got ${a})`);
+  b := io.await(_sibling_second_awaits(_SibKind.B, io), bundle);
+  assert(b == "B:nm=nm;B:added;", `the second arm's second-await binding is assigned (got ${b})`);
 });
