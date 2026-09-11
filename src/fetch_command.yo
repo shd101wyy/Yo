@@ -11,7 +11,8 @@
 { exists, read, write_string } :: import("std/fs/file");
 { BuildGitDependency, get_build_registry, clear_build_registry } :: import("./evaluator/builtins/build.yo");
 { FetchResult, fetch_all_deps } :: import("./fetch.yo");
-{ mm_load_yo_file, mm_reset } :: import("./module_manager.yo");
+{ mm_load_yo_file, mm_reset, _take_load_error } :: import("./module_manager.yo");
+{ emit_rendered_text } :: import("./diagnostics.yo");
 /// Options for `run_fetch`. Mirrors TS `FetchOptions`.
 FetchOptions :: ref(
   struct(
@@ -95,12 +96,22 @@ run_fetch :: (
       true => ()
     );
     // Evaluating `build.yo` is what POPULATES the registry — the
-    // `__yo_build_*` builtins mutate it as a side effect. Errors are
-    // swallowed, as in TS: a build file with runtime components can throw
-    // after the registry is already populated.
+    // `__yo_build_*` builtins mutate it as a side effect. A parse or
+    // evaluation error is reported and fails the command (it used to be
+    // swallowed, so a broken build file reported "No dependencies declared"
+    // with rc 0 — issues/fixed/build-yo-evaluation-errors-are-swallowed.md).
     clear_build_registry();
-    _outcome := mm_load_yo_file(resolved_build_file_str.clone(), e.io, e.exn);
+    outcome := mm_load_yo_file(resolved_build_file_str.clone(), e.io, e.exn);
+    load_error := _take_load_error();
     mm_reset();
+    if(!outcome.ok, {
+      match(
+        load_error,
+        .Some(rendered) => emit_rendered_text(rendered),
+        .None => eprintln(`fetch: error in: ${resolved_build_file_str} (no diagnostic recorded)`)
+      );
+      e.exn.throw(dyn(`Error: Failed to evaluate build file ${resolved_build_file_str}`));
+    });
     registry := get_build_registry();
     dependencies := registry.dependencies;
     cond(

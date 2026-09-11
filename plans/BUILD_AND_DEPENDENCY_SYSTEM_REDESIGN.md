@@ -33,8 +33,9 @@ same in both: `src/install_command.yo` and `src/evaluator/exprs/import.yo` are
 byte-identical to v0.2.30, and the diffs in `src/fetch.yo`, `src/build_runner.yo`
 and `src/evaluator/builtins/build.yo` since then are the `--heap-size` /
 `--emit-chunks auto` plumbing and a hex-helper rename — none touch a finding.
-(A develop-built binary was not produced for this audit: compiling `src/main.yo`
-needs the `vendor/markdown_yo` submodule, which the worktree could not clone.)
+The three headline reproducers (§1.1 import, B1 link, D1 install) were re-run
+against a compiler built from `develop` `94fae98f8` by the 0.2.30 seed and
+reproduce identically.
 
 ---
 
@@ -96,7 +97,7 @@ keeping. The runner is where the port is incomplete. Reproduced on 0.2.30:
 | --- | --- | --- | --- |
 | B1 | `exe.link(lib)` for a `static_library` orders the build and **does not link** — the docs' "Cross-Module Linking with `extern "Yo"`" example fails with `Undefined symbols: "_add"`. `linked_artifacts` is read only by `_walk_dag` (`build_runner.yo:257-266`); `compile_artifact` never emits `--extern lib<name>.a` | reproduced | `issues/step-link-does-not-link-the-static-library.md` |
 | B2 | `build.shared_library` compiles its root as an **executable** (no `--shared` mode exists in `yo compile`), fails on `_main`, output has no `lib` prefix or extension | reproduced | `issues/shared-library-artifact-is-compiled-as-an-executable.md` |
-| B3 | a parse or evaluation error in `build.yo` is **swallowed**: `evaluate_build_file` binds `mm_load_yo_file`'s outcome to `_outcome` and never calls `_take_load_error` (`build_runner.yo:1491-1510`). The user sees `Unknown step "install". Available: (none)`. The duplicate-artifact-name diagnostic that exists (`builtins/build.yo:652-670`) is therefore never shown; `yo fetch` has the same swallow (`fetch_command.yo:97-103`) | reproduced | `issues/build-yo-evaluation-errors-are-swallowed.md` |
+| B3 | a parse or evaluation error in `build.yo` is **swallowed**: `evaluate_build_file` binds `mm_load_yo_file`'s outcome to `_outcome` and never calls `_take_load_error` (`build_runner.yo:1491-1510`). The user sees `Unknown step "install". Available: (none)`. The duplicate-artifact-name diagnostic that exists (`builtins/build.yo:652-670`) is therefore never shown; `yo fetch` has the same swallow (`fetch_command.yo:97-103`) | reproduced | `issues/fixed/build-yo-evaluation-errors-are-swallowed.md` |
 | B4 | `-D` options are **unvalidated**: undeclared names accepted silently (`declared_options` has no reader outside the builtins file), values are untyped strings, `yo build --help` does not list the project's options although `docs/en-US/BUILD_SYSTEM.md` says it does | reproduced | this plan (§4.7) |
 | B5 | the DAG scheduler computes Kahn levels and then runs each level **sequentially** (`execute_dag`, `build_runner.yo:1260-1266`); the docs' rationale ("the Yo evaluator uses global state") is obsolete since artifacts compile in child processes | code | this plan (§4.8) |
 | B6 | failures do not stop dependents — a `run` node runs after its artifact failed; `Tests failed (exit n)` / `Executable exited with code n` are computed and never printed (`:1124-1126`, `:1142-1144`); a dependency name that resolves to nothing is silently dropped from the DAG (`:250-252`), so `install.depend_on(<typo>)` is a no-op | code | this plan (§4.7) |
