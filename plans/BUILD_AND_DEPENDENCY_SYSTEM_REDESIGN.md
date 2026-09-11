@@ -698,7 +698,20 @@ borrowed value out without a dup — released twice
 (issues/fixed/async-match-arm-borrowed-payload-released-twice.md); and
 every `io.async` closure leaked its captured values — neither dispose path
 released the capture struct the call site had dup'd
-(issues/fixed/io-async-closure-captures-never-released.md).
+(issues/fixed/io-async-closure-captures-never-released.md). The bare-arm fix
+itself needed a second round: the pending list it feeds is also what a
+may-unwind call's `if (__yo_effect_escaped)` block drains, so the early-exit
+path now honours the emitted-once set and both scope-end flushes record a
+drop even when its code was written inline (the fast suite's "unwind argument
+built by a may-unwind call" caught the double release; a keeper-based test in
+`tests/algebraic_effects.test.yo` pins it). **Seed floor: v0.2.31.** A
+compiler built by the v0.2.30 seed mislowers `inspect_cached_dep` (a nested
+match arm in an `io.async` body — the dead-arm family #592 fixed on develop
+after v0.2.30), so its second `yo install` dereferences a null result; built
+by develop's tip it passes. The branch therefore merges after the v0.2.31
+seed bump, not before. cli-case fixture bare repositories carry a tracked
+`refs/.keep` — git does not check out empty directories, and a bare repo
+without `refs/` "does not appear to be a git repository".
 Not in P1.4a (next, **P1.4b**): the content-addressed store (§4.4 — bare
 mirrors, `store/<sha256>` trees, `gc`, a lock across concurrent installs),
 `build.manifest` in `build.yo`; then §4.5.2 dependency `build.yo` evaluation

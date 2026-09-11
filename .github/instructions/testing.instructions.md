@@ -340,6 +340,26 @@ locally built one, since that is what CI runs:
 yo fmt --check ./src ./std ./tests
 ```
 
+## A bare-repository fixture needs a tracked file under `refs/`
+
+Several `install`/`update`/`lock` cases ship a bare git repository inside the
+fixture (`fixture/remote.git`, `fixture/util.git`) and point `yo.toml` at it
+(`git = "./remote.git"`). After `git gc`/`pack-refs` the repository's `refs/`
+directory is EMPTY (every ref lives in `packed-refs`), and git does not track
+empty directories — so a fresh checkout (CI, a new worktree) has no `refs/`
+and git refuses the repository outright:
+
+```
+fatal: './remote.git' does not appear to be a git repository
+```
+
+Locally the case keeps passing, because the directory exists where the
+fixture was generated. Put a `refs/.keep` file in every fixture bare
+repository (loose-ref iteration skips dotfiles, so it is inert), then
+re-record: the file is part of the project tree the `expected_tree` golden
+hashes. Verify from a clean worktree, never only from the tree you generated
+the fixture in.
+
 ## A cli-case `cmd` needs a trailing newline, or NOTHING runs
 
 `scripts/cli-diff-test.sh` reads the command list with
