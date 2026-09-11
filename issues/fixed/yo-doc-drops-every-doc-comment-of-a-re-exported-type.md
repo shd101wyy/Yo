@@ -1,7 +1,17 @@
 # `yo doc` drops every doc comment of a re-exported type
 
-**Status:** OPEN. Found 2026-09-11 while re-measuring the campaign's doc-coverage
-row after trait-doc inheritance (#579) landed.
+**Status:** FIXED 2026-09-11 — `_fill_re_exported_docs`
+(`src/doc/builder.yo`), a model pass beside `_inherit_trait_method_docs`.
+Found while re-measuring the campaign's doc-coverage row after trait-doc
+inheritance (#579) landed.
+
+**Result:** the two-file reproducer below now renders identically under both
+modules, and `std/`'s undocumented count drops **1554 → 1293** of 3345. `String`
+alone goes from 115 undocumented methods to 21. What remains is a DIFFERENT
+class — trait-impl methods that `_inherit_trait_method_docs` is not reaching
+(`next`/`map`/`filter` from `Iterator`, `==`/`cmp`, `to_string`) and ~304
+genuinely undocumented `libc/*` externs — so the residue is its own follow-up,
+not this bug.
 
 ## Symptom
 
@@ -92,7 +102,36 @@ get_doc_comment_lookup_key :: (fn(comment : DocComment) -> String)(
 It leads with `module_path`, so doc comments from every file in the walk can
 share ONE map without colliding — the map is simply never built that way.
 
-## Fix direction
+## The fix as landed
+
+Not the token-plumbing route sketched below — that would have meant threading a
+cross-file map through the ~12 name-keyed `doc_lookup.get` sites in the builder,
+where a naive merge collides (`new` is declared in dozens of files).
+
+Instead a MODEL pass, `_fill_re_exported_docs`, runs beside the trait-doc
+inheritance pass once every module is built: a type missing documentation takes
+it from another module's type with the same **name AND signature**. A genuine
+re-export is the same declaration, so its rendered signature matches by
+construction, while two distinct types sharing a name differ in theirs — which
+is what keeps `std/`'s several same-named types apart. Only `.None` is filled,
+so a module that documents a re-export itself keeps what it wrote.
+
+Two details that cost a measurement each:
+
+* **Write back by INDEX.** `DocType`/`DocFunction` are value structs, so
+  mutating a `.get()` result changes a copy and is silently lost. The pass
+  rebuilds each entry (`types(ti) = DocType(…)`), the same way
+  `_inherit_trait_method_docs` does.
+* **Keep the RICHEST donor, not the first.** A re-exporting module's own entry
+  can carry a doc or two — `String` in `string/index` has `format`, inherited
+  from the `Format` trait — and registering that first let it claim the key and
+  block the declaring module's fully documented entry. With first-wins the
+  count only fell to 1414; scoring donors by documented-member count took it to
+  1293.
+
+The original sketch is kept below for the record.
+
+### Original fix direction (not taken)
 
 Extract doc comments for every file in the walk FIRST, merge them into one
 lookup keyed as above, and hand that merged map to `build_doc_module` (each

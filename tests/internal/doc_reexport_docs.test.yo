@@ -1,0 +1,151 @@
+/// Tests for `_fill_re_exported_docs` — a re-exported declaration must carry
+/// the documentation of the module that DECLARES it.
+///
+/// Each module is documented from its own file's tokens, so a type declared in
+/// `foo/thing.yo` and re-exported by `foo/index.yo` used to render bare under
+/// the module a reader actually opens: no type doc, and no doc on any method.
+/// `std/` is organised that way throughout, which is why `yo doc ./std`
+/// reported 1554 of 3345 members undocumented while the source carries a `///`
+/// on nearly all of them
+/// (issues/fixed/yo-doc-drops-every-doc-comment-of-a-re-exported-type.md).
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{
+  DocParam,
+  DocField,
+  DocVariant,
+  DocImpl,
+  DocFunction,
+  DocType,
+  DocTrait,
+  DocConstant,
+  DocModule
+} :: import("../../src/doc/model.yo");
+{ DocItemKind } :: import("../../src/doc/model.yo");
+{ build_cross_references } :: import("../../src/doc/builder.yo");
+/// A method entry, documented or bare.
+_method :: (fn(name : String, doc : Option(String)) -> DocFunction)(
+  DocFunction(
+    name : name,
+    doc : doc,
+    signature : `${name} :: (fn() -> i32)`,
+    parameters : ArrayList(DocParam).new(),
+    return_type : `i32`,
+    type_params : Option(ArrayList(DocParam)).None,
+    effects : Option(ArrayList(DocParam)).None,
+    is_method : true,
+    self_type : Option(String).Some(`Point`),
+    returns : Option(String).None,
+    errors : Option(String).None,
+    deprecated : Option(String).None,
+    examples : Option(String).None,
+    inherited_from : Option(String).None
+  )
+);
+/// A `Point` entry. `documented` decides whether this is the declaring
+/// module's copy or the bare re-export.
+_point :: (fn(documented : bool, signature : String) -> DocType)({
+  fields := ArrayList(DocField).new();
+  fields.push(
+    DocField(
+      name : `x`,
+      type_ : `i32`,
+      doc : if(documented, Option(String).Some(`The x coordinate.`), Option(String).None),
+      default_value : Option(String).None
+    )
+  );
+  methods := ArrayList(DocFunction).new();
+  methods.push(
+    _method(`origin`, if(documented, Option(String).Some(`Make a point at the origin.`), Option(String).None))
+  );
+  DocType(
+    name : `Point`,
+    doc : if(documented, Option(String).Some(`A point in the plane.`), Option(String).None),
+    kind : DocItemKind.Struct,
+    signature : signature,
+    type_params : Option(ArrayList(DocParam)).None,
+    fields : Option(ArrayList(DocField)).Some(fields),
+    variants : Option(ArrayList(DocVariant)).None,
+    methods : methods,
+    trait_impls : ArrayList(String).new(),
+    impls : Option(ArrayList(DocImpl)).None,
+    deprecated : Option(String).None,
+    examples : Option(String).None
+  )
+});
+_module_with :: (fn(name : String, t : DocType) -> DocModule)({
+  types := ArrayList(DocType).new();
+  types.push(t);
+  DocModule(
+    name : name,
+    path : name,
+    doc : Option(String).None,
+    stability : Option(String).None,
+    functions : ArrayList(DocFunction).new(),
+    types : types,
+    traits : ArrayList(DocTrait).new(),
+    constants : ArrayList(DocConstant).new(),
+    submodules : ArrayList(Box(DocModule)).new()
+  )
+});
+test("a re-exported type takes the declaring module's documentation", {
+  sig := `Point :: struct(x : i32, y : i32)`;
+  modules := ArrayList(DocModule).new();
+  // The re-exporting module is FIRST on purpose: the pass must not depend on
+  // walk order, and must not let the bare entry claim the donor slot.
+  modules.push(_module_with(`index`, _point(false, sig.clone())));
+  modules.push(_module_with(`point`, _point(true, sig.clone())));
+  build_cross_references(modules);
+  idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
+  t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
+  assert(
+    match(t.doc, .Some(d) => (d == `A point in the plane.`), .None => false),
+    "the re-exported type carries the declaration's own doc"
+  );
+  m0 := match(t.methods.get(usize(0)), .Some(x) => x, .None => return(()));
+  assert(
+    match(m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
+    "and so does its method"
+  );
+  fs := match(t.fields, .Some(x) => x, .None => return(()));
+  f0 := match(fs.get(usize(0)), .Some(x) => x, .None => return(()));
+  assert(
+    match(f0.doc, .Some(d) => (d == `The x coordinate.`), .None => false),
+    "and its field"
+  );
+});
+test("a DIFFERENT type of the same name is not a donor", {
+  // Same name, different declaration — the signatures differ, so nothing is
+  // copied. This is what keeps `std/`'s several same-named types apart.
+  modules := ArrayList(DocModule).new();
+  modules.push(_module_with(`index`, _point(false, `Point :: struct(x : i32, y : i32)`)));
+  modules.push(_module_with(`other`, _point(true, `Point :: struct(lat : f64, lon : f64)`)));
+  build_cross_references(modules);
+  idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
+  t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
+  assert(t.doc.is_none(), "no doc is taken from a type that merely shares the name");
+  m0 := match(t.methods.get(usize(0)), .Some(x) => x, .None => return(()));
+  assert(m0.doc.is_none(), "and none on its methods");
+});
+test("a module that documents its own re-export keeps what it wrote", {
+  sig := `Point :: struct(x : i32, y : i32)`;
+  own := _point(false, sig.clone());
+  own.doc = Option(String).Some(`Re-exported here with a note of its own.`);
+  modules := ArrayList(DocModule).new();
+  modules.push(_module_with(`index`, own));
+  modules.push(_module_with(`point`, _point(true, sig.clone())));
+  build_cross_references(modules);
+  idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
+  t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
+  assert(
+    match(t.doc, .Some(d) => (d == `Re-exported here with a note of its own.`), .None => false),
+    "an existing doc is never overwritten"
+  );
+  // The bare method still fills in — only `.None` is touched.
+  m0 := match(t.methods.get(usize(0)), .Some(x) => x, .None => return(()));
+  assert(
+    match(m0.doc, .Some(d) => (d == `Make a point at the origin.`), .None => false),
+    "while its undocumented method still fills in"
+  );
+});
