@@ -149,9 +149,10 @@ a bare `sm->await_future_N = …` at a new one. The missing dup was a
 use-after-free in `Park.wait`, which awaits `self._future`
 (`issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`);
 it does not reproduce by running the program locally (this box's
-`--sanitize address` does not instrument), and only the ASan-armed CI legs —
-both Linux ones and macOS — report it. An RC change around awaits is not clean
-until those legs have run; until then, read the counts in the emitted C.
+`--sanitize address` is inert — the runner prints "AddressSanitizer is not
+functional with this compiler setup … Skipping sanitizer"), while ALL SIX CI
+`test (…)` legs die on it. An RC change around awaits is not clean until those
+legs have run; until then, read the counts in the emitted C.
 
 ## `ExprInfo.variable_name` is UNTRUSTWORTHY in cond/match arm-value position
 

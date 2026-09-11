@@ -2,9 +2,11 @@
 
 **Status:** FIXED 2026-09-11 — `src/codegen/async/state_code_gen.yo`
 (`emit_await_future_store`).
-**Found by:** develop's full battery, run 34557965609 — `test (ubuntu-latest)`,
-`test (ubuntu-24.04-arm)` and `test (macos-latest)` all report it in
-`tests/async/waker.test.yo`, "Test a wake before the park suspends is not lost".
+**Found by:** develop's full battery, run 34557965609. **All six `test (…)`
+legs fail on it** — ubuntu-latest, ubuntu-24.04-arm, macos-latest,
+macos-26-intel, windows-latest and windows-11-arm — plus the full-corpus hollow
+sweep, which scores `tests/async/waker.test.yo` RED. The failing test is "Test a
+wake before the park suspends is not lost".
 
 ## Symptom
 
@@ -27,8 +29,8 @@ previously allocated by thread T1 here:
     #2 __yo_async_park_start
 ```
 
-Every ASan-armed CI leg reports it — the two Linux ones and macOS (there as
-exit code 6, an abort out of ASan). It does NOT reproduce by running the
+The ASan-armed legs name it (Linux; macOS as exit code 6, an abort out of
+ASan); Windows just dies, exit code 15. It does NOT reproduce by running the
 program on this development machine: the object is freed one drop early and the
 read that follows lands on memory the allocator has not reused, and the local box's ASan is inert — the test runner
 prints "AddressSanitizer is not functional with this compiler setup … Skipping
