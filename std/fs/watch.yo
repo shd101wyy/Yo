@@ -5,7 +5,9 @@
 //! backend (inotify on Linux, kqueue on macOS, ReadDirectoryChangesW on
 //! Windows; the `std/sys/events` layer). Events are delivered on the event
 //! loop and queued inside the watcher; read them with the non-blocking
-//! `poll()` or the awaitable `next(io)`.
+//! `poll()` or the awaitable `next(io)`. `next` is the `Stream` trait's
+//! method (`std/async/stream.yo`), so a watcher composes:
+//! `w.filter(…).map(…).take(n)`.
 //!
 //! ```rust
 //! { watch, WatchOptions, FsEventKind } :: import("std/fs/watch");
@@ -14,6 +16,11 @@
 //! match(ev, .Some(e) => println(`${e.name} ${e.kind}`), .None => ());
 //! w.close();
 //! ```
+//!
+//! `close()` is idempotent and runs automatically when the last reference to
+//! the watcher goes away, so a watcher that simply falls out of scope stops
+//! its native watch rather than leaving the event loop calling back into
+//! freed memory.
 //!
 //! Event kinds follow the backend's (and libuv's) two-way split: `Rename`
 //! covers create / delete / move, `Change` covers a write or metadata change.
@@ -42,6 +49,7 @@ pragma(Pragma.AllowUnsafe);
 { ToString } :: import("../fmt");
 events :: import("../sys/events");
 { yield } :: import("../async");
+{ Stream } :: import("../async/stream");
 /// What happened to the entry.
 FsEventKind :: enum(
   /// Created, removed or moved (the backend's "rename" class).
@@ -67,6 +75,9 @@ FsEvent :: struct(
   /// Entry name relative to the watched directory (or the watched file's
   /// own name); empty when the backend reports no name.
   name : String,
+  /// Which of the backend's two classes this was. Platforms coalesce
+  /// differently, so a `Rename` says "created, removed or moved" rather than
+  /// which of the three.
   kind : FsEventKind
 );
 /// Watch settings.
@@ -77,6 +88,10 @@ WatchOptions :: struct(
 );
 impl(
   WatchOptions,
+  /// Watch only the named directory itself — `recursive : false`. That is
+  /// the conservative default because `recursive` is best-effort on Linux
+  /// (inotify is per directory), so a program written against the default
+  /// behaves the same on every platform.
   defaults : (fn() -> Self)(Self(recursive : false))
 );
 /// A live watch. Create with `watch`, drain with `poll`/`next`, and `close`
@@ -161,25 +176,55 @@ impl(
       true => Option(FsEvent).None
     )
   ),
-  /// Wait for the next event. Resolves `.None` once the watcher is closed
-  /// and its queue drained. Suspends through `yield`, so it is safe inside
-  /// tasks (no nested event loop).
-  next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
-    io.async((io : Io) => {
-      while(runtime((self._head >= self._queue.len()) && self._active), {
-        io.await(yield(io), io);
-      });
-      self.poll()
-    })
-  ),
   /// Stop the native watch. Queued events stay readable through `poll`;
-  /// `next` no longer waits.
-  close : (fn(inout(self) : Self) -> unit)({
+  /// `next` no longer waits. Idempotent, and called for you when the last
+  /// reference to the watcher goes away (`Dispose` below).
+  close : (fn(self : Self) -> unit)({
     if(self._active, {
       self._active = false;
       events.fs_event_stop(self._handle);
       events.fs_event_close(self._handle);
     });
   })
+);
+/// A `Watcher` IS an async stream of events, and was the shape the `Stream`
+/// trait was generalised from: `next` already answered `Option(FsEvent)`
+/// through a future, with `.None` for "closed and drained". Registering it
+/// as the trait impl (rather than an inherent method) is what lets the
+/// combinators apply — `w.filter(...)`, `w.map(...)`, `w.take(n)` — and what
+/// lets a function be generic over "something that yields events".
+impl(
+  Watcher,
+  Stream(
+    Item : FsEvent,
+    /// Wait for the next event. Resolves `.None` once the watcher is closed
+    /// and its queue drained. Suspends through `yield`, so it is safe inside
+    /// tasks (no nested event loop).
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
+      io.async((io : Io) => {
+        while(runtime((self._head >= self._queue.len()) && self._active), {
+          io.await(yield(io), io);
+        });
+        self.poll()
+      })
+    )
+  )
+);
+impl(
+  Watcher,
+  /// Releasing the last reference stops the native watch.
+  ///
+  /// This is not merely tidy. `watch` registers `_on_fs_event` with a RAW,
+  /// NON-OWNING pointer to the watcher (`unsafe.cast(w, *u8)`), so a watcher
+  /// that is dropped while active leaves the event loop holding a dangling
+  /// pointer and calling back into freed memory — a use-after-free, on top of
+  /// leaking the backend's `__yo_fs_event_t` and its inotify/kqueue
+  /// descriptor. `dispose` unregistering the watch is exactly what makes the
+  /// non-owning `user_data` sound: the callback cannot outlive the object,
+  /// because the object's own teardown removes it.
+  /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
+  Dispose(
+    dispose : (fn(self : Self) -> unit)(self.close())
+  )
 );
 export(FsEventKind, FsEvent, WatchOptions, Watcher, watch);

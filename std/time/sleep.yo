@@ -6,7 +6,12 @@
 //! loop.
 //!
 //! The underlying timers take whole milliseconds, so sub-millisecond
-//! precision in the `Duration` is truncated.
+//! precision in the `Duration` is truncated — a `Duration.from_micros(500)`
+//! sleeps for no time at all. A NEGATIVE `Duration` is worse than that: both
+//! forms cast the millisecond count to an unsigned type, so it becomes a wait
+//! of ~585 million years rather than an immediate return
+//! (`issues/stddoc-io-negative-duration-sleeps-forever.md`). Pass a span you
+//! know to be non-negative until that is fixed.
 //!
 //! `interval` is the third form: a repeating tick that does NOT drift, which a
 //! `sleep` in a loop does. See its own doc.
@@ -25,6 +30,21 @@
 //!   io.await(sleep(Duration.from_millis(i64(100)), io), io);
 //! });
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `interval` landed 2026-09-10 (#532) and has had one release,
+//! and it ships exactly one missed-tick policy. `tick()` BURSTS to catch up,
+//! which is Tokio's `MissedTickBehavior::Burst` default and right for
+//! anything that counts ticks, but wrong for a rate limiter; Tokio's `Delay`
+//! and `Skip` are deliberately not implemented until a call site needs one,
+//! so the selector that would carry them (a constructor argument, or
+//! `set_missed_tick_behavior`) is an unmade decision in this module's surface.
+//! The other open item is the input contract the two `sleep` forms share:
+//! the millisecond floor and the negative-`Duration` hole above are properties
+//! of the code, not of any signature, and freezing them would freeze the hole.
+//! `sleep` / `sleep_blocking` themselves — the names, the split, and the rule
+//! that async code uses `sleep` — are settled.
 pragma(Pragma.AllowUnsafe);
 { Duration } :: import("./duration");
 { Instant } :: import("./instant");
@@ -44,7 +64,6 @@ sleep :: (fn(duration : Duration, io : Io) -> Impl(Future(unit)))({
 });
 /// Block the current thread for `duration`. Nothing else runs on this thread
 /// until it returns — inside async code use `sleep` instead.
-///
 sleep_blocking :: (fn(duration : Duration) -> unit)(
   __yo_ms_sleep(usize(duration.as_millis()))
 );

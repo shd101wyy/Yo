@@ -305,7 +305,7 @@ static void __yo_dispose_dispatch(void* ptr) {
 /// 4 MB keeps every such small program at N=1 while large programs still
 /// saturate the core count.
 MIN_CHUNK_BYTES :: usize(4194304);
-compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0)) -> String)({
+compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : TargetInfo, allocator : String, heap_size : usize, debug_heap : bool, debug_gc : bool, debug_parallelism : bool, debug_async_await : bool, is_library : bool, eval_ctx : EvalContext, module_env : Environment, exn : Exception, (chunk_parts_out : ArrayList(String)) ?= ArrayList(String).new(), (emit_chunks : usize) ?= usize(0), (chunk_auto_cap : usize) ?= usize(0)) -> String)({
   // Route fatal emitter errors (codegen_fatal) through this compile's exn so
   // they exit rc=1 like a TS compile error instead of __yo_panic's SIGABRT.
   set_codegen_fatal_exn(exn);
@@ -324,7 +324,10 @@ compile_module :: (fn(module_value : EvalValue, info : ExprInfoTable, target : T
   // concrete type (mirrors TS reading someType.resolvedConcreteType).
   set_lookup_some_resolved_concrete(lookup_some_resolved_concrete);
   emitter := Emitter.new();
-  base := CodeGenContext.new(emitter, info, target, allocator, debug_gc, debug_parallelism, debug_async_await, is_library);
+  base := CodeGenContext.new(emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
+  // The entry module's path decides which top-level exports get plain,
+  // externally-linked C names (functions/collection.yo).
+  base.current_module_path = Option(String).Some(module_env.module_path.clone());
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md): record function byte
   // ranges and split cross-chunk statics. MUST stay false by default — the
   // single-file emission is gated byte-identical. `chunk_auto_cap >= 1` is the

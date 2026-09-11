@@ -1,0 +1,22 @@
+// Negative twin of valid/loop_invariant.yo: a WRONG invariant — `acc == i`
+// claims the accumulator tracks the index, but the body accumulates i'
+// (the incremented index) each step. The loop-invariant-iterate obligation
+// must REFUTE (and the ensures falls with it).
+pragma(Pragma.Verify);
+
+sum_bad :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(1000)),
+    ensures(result == ((n * (n + i32(1))) / i32(2)))
+  ) -> (result : i32)
+)({
+  i := i32(0);
+  acc := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n, acc == i);
+    i = (i + i32(1));
+    acc = (acc + i);
+  });
+  acc
+});

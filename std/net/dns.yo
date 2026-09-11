@@ -1,22 +1,40 @@
-//! Async DNS resolution.
-// std/net/dns.yo - High-level DNS resolution
-//
-// Wraps std/sys/dns with typed DNS lookup functions.
-// Uses the Exception effect for error handling.
-//
-// Example:
-//   { lookup_host } :: import "std/net/dns";
-//   { IpAddr } :: import "std/net/addr";
-//   { Exception } :: import "std/error";
-//
-//   main :: (fn(io : Io, exn : Exception) -> unit)({
-//     addrs := io.await(lookup_host(`localhost`, io), { io, exn });
-//     i := usize(0);
-//     while runtime((i < addrs.len())), {
-//       println(addrs(i).to_string());
-//       i = (i + usize(1));
-//     };
-//   });
+//! Name resolution — `getaddrinfo` behind typed lookup functions.
+//!
+//! **These calls BLOCK the event loop.** They are spelled like every other
+//! awaited I/O operation, but the runtime calls `getaddrinfo` synchronously
+//! on the loop thread and hands back an already-resolved future
+//! (`src/codegen/async/runtime_io_common.yo`), so no other task makes
+//! progress for the duration of the lookup — which is the resolver's own
+//! timeout, seconds, when a nameserver is unreachable. `getaddrinfo` has no
+//! non-blocking kernel counterpart, which is why libuv, tokio and Go all run
+//! it on a thread pool; Yo does not yet have the `spawn_blocking` that would
+//! let it do the same
+//! (`issues/stddoc-io-dns-resolution-blocks-the-event-loop.md`). Resolve
+//! once at startup rather than per request.
+//!
+//! Failures throw `NetError.DNSFailed` (D1). Nothing here caches: every call
+//! is a fresh resolver query, subject to the system resolver's own cache.
+//!
+//! ```rust
+//! { lookup_host } :: import("std/net/dns");
+//! { IoExn } :: import("std/error");
+//!
+//! addrs := io.await(lookup_host(`localhost`, io), IoExn(io : io, exn : exn));
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable, and it is the least finished module in `std/net`. Three things
+//! have to be decided before the two functions here can be frozen: the
+//! blocking-on-the-loop behaviour above (a fix changes no signature, but it
+//! is the reason this surface should not attract callers yet); the error,
+//! which discards the `EAI_*` code the sys layer resolves to, so a retryable
+//! `EAI_AGAIN` is indistinguishable from a permanent `EAI_NONAME`
+//! (`issues/stddoc-io-dns-lookup-discards-the-gai-error-code.md`); and the
+//! result list, which today repeats each address once per socket type
+//! (`issues/stddoc-io-dns-lookup-host-returns-duplicate-addresses.md`).
+//! Reverse lookup is absent even though `getnameinfo` is plumbed one layer
+//! down in `std/sys/dns`.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -31,7 +49,21 @@ IO_dns :: import("../sys/dns");
 // ============================================================================
 // DNS lookup
 // ============================================================================
-/// Resolve a hostname to a list of IP addresses.
+/// Resolve a hostname to a list of IP addresses — Rust's
+/// `ToSocketAddrs`/`lookup_host`, minus the port. Accepts a numeric literal
+/// too (`::1` and `127.0.0.1` resolve without a query).
+///
+/// BLOCKS the event loop for the duration of the lookup (see the module
+/// doc). Throws `NetError.DNSFailed(host)` on any resolver failure — the
+/// `EAI_*` code is not carried, so "no such host" and "try again later" are
+/// not distinguishable.
+///
+/// The list can REPEAT an address: `getaddrinfo` is called without hints, so
+/// each resolved address comes back once per supported socket type — two
+/// entries per address on macOS, three where `SOCK_RAW` is included. A caller
+/// that walks the list to connect will therefore try the same address twice
+/// before moving on. Both families are included, IPv6 first as the resolver
+/// orders them.
 lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoExn)))(
   io.async(e => {
     host_cstr_bytes := host.to_cstr();
@@ -96,7 +128,11 @@ lookup_host :: (fn(host : String, io : Io) -> Impl(Future(ArrayList(IpAddr), IoE
     return(addrs);
   })
 );
-/// Resolve a hostname and port to a list of socket addresses.
+/// Resolve a hostname and pair every result with `port` — the
+/// `SocketAddr`-shaped form of `lookup_host`, and what a caller about to
+/// connect actually wants. Inherits everything above, INCLUDING the repeated
+/// addresses: `port` is attached to each entry as it comes, so a duplicated
+/// IP yields two identical `SocketAddr`s.
 resolve :: (fn(host : String, port : u16, io : Io) -> Impl(Future(ArrayList(SocketAddr), IoExn)))(
   io.async(e => {
     addrs := e.io.await(lookup_host(host, io), e);

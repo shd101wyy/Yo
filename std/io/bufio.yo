@@ -15,8 +15,13 @@
 //! sync positional syscall — buffered bytes still in the writer when it is
 //! dropped are LOST. Call `flush(io)` before letting it go.
 //!
-//! `lines()` is deliberately absent: Yo has no async iterator protocol, so
-//! the line primitive is `read_line` (`.None` on clean EOF).
+//! `lines()` is still absent, but no longer for the reason this doc used to
+//! give. The async iterator protocol EXISTS now (`std/async/stream.yo`); what
+//! blocks `lines()` is that a `Stream` reports failure IN its item while
+//! `read_line` THROWS, and a `ctl` handler can neither be installed across a
+//! suspension nor stored in a `ref` struct. So the line primitive is still
+//! `read_line` (`.None` on clean EOF), and the fix is a `Reader` that can
+//! return its failure — `plans/backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`.
 //!
 //! The fd-based `std/sys/bufio` pair is GONE (2026-08-28): the compiler's own
 //! three consumers — `lsp/server`, `lsp/transport`, `check_watch` — read stdin
@@ -24,6 +29,21 @@
 //! migration waited on a seed carrying #299's shadow-registration fix, because
 //! `yo build` compiles `src/` with the SEED and the older one mis-emitted this
 //! module's match bindings; v0.2.18 carries it.
+//!
+//! ## Stability
+//!
+//! unstable — one thing here is expected to move and one thing is waiting on
+//! the language. `read_exact` is a `BufReader` METHOD returning
+//! `Option(ArrayList(u8))`, where Rust's is a `Read` trait method: the
+//! Rust-shaped end state is a `Reader` default (so a `File` or `TcpStream`
+//! gets it unbuffered too), which would leave two spellings of one operation
+//! unless this one is removed — a breaking change, so it waits for a window.
+//! And `lines()` cannot exist until Yo has an async iterator protocol, which
+//! is why `read_line` is the primitive; adding `lines()` later is additive,
+//! but it may well change what shape `read_line` wants to be. The
+//! no-flush-on-drop rule for `BufWriter` is NOT an open question — it is a
+//! deliberate match for tokio's `BufWriter` (a `Dispose` cannot await), and
+//! it is documented above because callers must act on it.
 pragma(Pragma.AllowUnsafe);
 { Reader, Writer } :: import("./index");
 { IoExn } :: import("../error");

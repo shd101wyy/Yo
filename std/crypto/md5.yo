@@ -4,13 +4,26 @@
 //! ## Example
 //!
 //! ```rust
-//! { md5_hex } :: import "std/crypto/md5";
+//! { md5_hex } :: import("std/crypto/md5");
 //!
 //! digest := md5_hex(data);  // "5d41402abc4b2a76b9719d911017c592"
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable, with a concrete structural blocker: the one-shot `md5` is a
+//! SECOND, open-coded implementation of the algorithm, where `sha1`,
+//! `sha256` and `sha512`'s one-shots all delegate to their streaming type.
+//! Two code paths compute MD5 in this file and they agree only because
+//! `tests/crypto/digest.test.yo` asserts that they do. Collapsing `md5`
+//! onto `Md5.new().update(data).finish()` is the obvious fix and it
+//! changes nothing observable, so it should happen before anything here is
+//! frozen. Beyond that, the same open question as `std/crypto/sha1`: MD5
+//! is broken and the API gives a new caller no signal that it is the
+//! legacy option.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
-{ hex_encode } :: import("../encoding/hex");
+hex :: import("../encoding/hex");
 { Digest } :: import("./digest");
 { String } :: import("../string");
 // ============================================================================
@@ -206,7 +219,7 @@ Md5 :: ref(
 );
 impl(
   Md5,
-  // Initialise a new hasher.
+  /// A hasher seeded with the RFC 1321 initial state.
   new : (fn() -> Self)(
     Self(
       _h : Array(u32, usize(4))(u32(0x67452301), u32(0xefcdab89), u32(0x98badcfe), u32(0x10325476)),
@@ -215,7 +228,9 @@ impl(
       _total : u64(0)
     )
   ),
-  // Feed more data into the hasher.
+  /// Absorb `data` and return the same hasher, so calls chain. O(len).
+  /// Buffers a partial 64-byte block, so how the input is split cannot
+  /// change the digest.
   update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
@@ -234,7 +249,12 @@ impl(
     });
     self
   }),
-  // Finalise and return the 16-byte digest.
+  /// Append the padding and the little-endian bit length, fold the last
+  /// block in, and return the 16-byte digest.
+  ///
+  /// **Single use** — the padding is written into the hasher's own buffer,
+  /// so a second `finish` digests the padded state rather than the
+  /// message.
   finish : (fn(self : Self) -> Array(u8, usize(16)))({
     bit_len := (self._total * u64(8));
     self._buf(self._buflen) = u8(0x80);
@@ -299,6 +319,17 @@ impl(
   )
 );
 
+/// MD5 of `data` in one call — the 16-byte digest.
+///
+/// **Broken.** Collisions are minutes of laptop time (RFC 6151), so this
+/// answers "did this file change by accident" and never "is this the file
+/// I was promised". Use `sha256` for anything an attacker can influence.
+/// It stays for legacy interop: S3 ETags, old package manifests,
+/// HMAC-MD5 in pre-2010 protocols.
+///
+/// Computed by an open-coded loop rather than by driving `Md5` — the two
+/// paths in this file agree, and `tests/crypto/digest.test.yo` is what
+/// keeps them agreeing.
 md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
   h := Array(u32, usize(4))(
     u32(0x67452301),
@@ -367,7 +398,8 @@ md5 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(16)))({
   digest
 });
 export(md5);
-// Return the 32-character lowercase hex MD5 digest.
+/// MD5 of `data` as 32 lowercase hex characters — the form checksum files
+/// publish. Same "broken, legacy interop only" caveat as `md5`.
 md5_hex :: (fn(data : ArrayList(u8)) -> String)({
   digest := md5(data);
   bytes := ArrayList(u8).with_capacity(usize(16));
@@ -375,6 +407,6 @@ md5_hex :: (fn(data : ArrayList(u8)) -> String)({
   while(i < usize(16), i = (i + usize(1)), {
     bytes.push(digest(i));
   });
-  hex_encode(bytes)
+  hex.encode(bytes)
 });
 export(md5_hex);

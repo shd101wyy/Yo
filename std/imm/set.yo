@@ -17,6 +17,24 @@
 //! assert(s.contains(i32(1)), "set contains 1");
 //! assert((s.len() == usize(2)), "two elements");
 //! ```
+//!
+//! Membership, insert and remove are O(log32 n) and share every node the
+//! mutation did not touch. The set operations (`union`, `intersection`,
+//! `difference`, `is_subset`, `is_disjoint`) are eager: each walks a set and
+//! builds a NEW one, so they cost O(n log32 n) rather than Rust's lazy
+//! iterator adaptors. `to_list()` — and the `IntoIterator` behind
+//! `for(set, ...)` — materializes an `imm.List` of the elements first, O(n).
+//!
+//! ## Stability
+//!
+//! unstable — two decisions from `plans/STD_API_STABILIZATION.md` still land
+//! on this module. D16 ("`HashSet(T)` IS `HashMap(T, unit)`") says the same
+//! treatment applies here, and it has NOT been done: the backing map is
+//! `Map(T, bool)` whose value is always `true`, which costs a byte per entry
+//! now that `unit` is a true ZST. And §4's open `imm` `remove` shape applies
+//! as it does to `imm.Map`: `remove(elem) -> Self` cannot tell a caller
+//! whether the element was present. Both change signatures or storage, so
+//! neither can be frozen first.
 pragma(Pragma.AllowUnsafe);
 { Map } :: import("./map.yo");
 { ArrayList } :: import("../collections/array_list.yo");
@@ -49,9 +67,25 @@ impl(
   insert : (fn(self : Self, elem : T) -> Self)(
     Self(_inner : self._inner.insert(elem, true))
   ),
-  /// Return a new set with `elem` removed.
+  /// Return a new set with `elem` removed — `im`'s `without`. An element that
+  /// is not present gives back an equal set, and says nothing about whether
+  /// anything was there; `extract` is the form that does.
   remove : (fn(self : Self, elem : T) -> Self)(
     Self(_inner : self._inner.remove(elem))
+  ),
+  /// The set WITHOUT `elem`, or `.None` when `elem` was not a member — `im`'s
+  /// `extract`.
+  ///
+  /// A set has no value to hand back, so the `Option` carries the whole
+  /// answer: `.Some` means "it was there, and here is the set without it",
+  /// `.None` means "nothing to remove, and your own set is already correct".
+  /// That is what `remove` alone cannot say — its result is
+  /// indistinguishable from a no-op.
+  extract : (fn(self : Self, elem : T) -> Option(Self))(
+    cond(
+      self.contains(elem) => Option(Self).Some(self.remove(elem)),
+      true => Option(Self).None
+    )
   ),
   /// Return the union of two sets (`self ∪ other`).
   union : (fn(self : Self, other : Self) -> Self)(

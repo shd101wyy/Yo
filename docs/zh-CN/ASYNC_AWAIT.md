@@ -787,6 +787,124 @@ __yo_decr_rc(future);  // 释放运行中任务的引用
 - 无同步开销
 - 缓存友好（小型状态机）
 
+## 异步迭代：`Stream` trait
+
+`Iterator` 现在就产出值，`Future` 稍后产出一个值。**`Stream`** 兼具两者 ——
+“稍后产出一个值，而且反复产出”：
+
+```rust
+Stream :: trait(
+  Item : Type,
+  next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
+);
+```
+
+它位于 `std/async/stream`，`.None` 表示流已结束 —— 这是终止状态，并且会一直保持
+终止。
+
+```rust
+{ Stream } :: import("std/async/stream");
+{ TcpListener } :: import("std/net/tcp");
+
+conns := listener.incoming().take(usize(3));       // 惰性的 Stream
+accepted := io.await(conns.collect(io), io);       // ArrayList(Result(TcpStream, NetError))
+```
+
+### 谁实现了它
+
+| 类型 | 它的流 |
+| --- | --- |
+| `TcpListener.incoming()`（`std/net/tcp`） | `Item = Result(TcpStream, NetError)` —— 每一项是一条连接 |
+| `Watcher`（`std/fs/watch`） | `Item = FsEvent` —— watcher 关闭且队列排空后为 `.None` |
+| `Channel(T)`（`std/async/channel`） | `Item = T` —— `next` 就是 `recv`；关闭且排空后为 `.None` |
+
+### 组合器与消费者
+
+它们只写一次，定义在 `where(S <: Stream)` 上，与 `Iterator` 的组合器一一对应：
+
+| 惰性组合器 | 作用 |
+| --- | --- |
+| `map(f)` | 变换每一项 |
+| `filter(pred)` | 只保留满足 `pred` 的项（按值传入，与 `map` 对称） |
+| `filter_map(f)` | `f` 返回 `Option(B)`，只产出其中的 `.Some` |
+| `take(n)` | 最多产出 `n` 项后结束，之后不再触碰上游 |
+| `skip(n)` | 丢弃前 `n` 项 |
+
+| 消费者 | 作用 |
+| --- | --- |
+| `for_each(f, io)` | 驱动流直到结束，对每一项调用 `f` |
+| `collect(io)` | 驱动流直到结束，把所有项收集进 `ArrayList` |
+
+```rust
+// 最多取五个“内容变更”事件的名字。
+names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
+io.await(names.for_each(n => println(n), io), io);
+```
+
+### 如何实现一个流
+
+`next` 的接收者是 `self : Self`，而不是 `Iterator` 用的 `inout(self)`：它返回的
+future 的生命周期超出这次调用，而 `inout` 借用无法跨越挂起点。因此流的源头都是
+引用语义类型（`ref(struct(...))`），字段写入通过句柄传播：
+
+```rust
+Countdown :: ref(struct(_n : i32));
+impl(
+  Countdown,
+  Stream(
+    Item : i32,
+    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async((io : Io) =>
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        )
+      )
+    )
+  )
+);
+```
+
+如果流的项**可能失败**，就把失败装进项里 —— `Item = Result(T, E)`，正如
+`incoming` 产出 `Result(TcpStream, NetError)`。这也是 `next` 的 future 是
+`Future(_, Io)` 而不是 `Future(_, IoExn)` 的原因：**流从不抛异常**，所以单项失败
+不会结束整个序列，消费者也不需要 `Exception` 处理器。
+
+### 动手前需要知道的四件事
+
+1. **组合链要在 `io.async` 体的外面构造。** 在 async 体内部把闭包传给泛型回调
+   参数，会让外层 future 的结果类型无法确定，而错误会报在调用方的 `await` 上。
+   先构造链，再在任意位置 await 它 —— 包括在 spawn 出去的任务里：
+
+   ```rust
+   chain := source.map(x => f(x));            // 在外面构造
+   task := io.async((io : Io) => io.await(chain.collect(io), io));   // 在里面 await
+   ```
+
+2. **没有 `for_await`。** 用宏写的异步循环，其 `io.await` 会被编译成**阻塞**形式
+   （宏展开体不会被扫描挂起点），在 spawn 出去的任务里会死锁。请用 `for_each`，
+   或者用到处都能工作的手写循环：
+
+   ```rust
+   (done : bool) = false;
+   while(done == false, {
+     nx := io.await(stream.next(io), io);
+     match(nx, .Some(x) => { … }, .None => { done = true; });
+   });
+   ```
+
+3. **泛型消费者要用裸约束或具体约束。** `where(S <: Stream)` 与
+   `where(S <: Stream(Item := i32))` 都能接受流的源头和组合链；而带泛型 `A` 的
+   `where(S <: Stream(Item := A))` 什么也绑不上，两者都会被拒绝。需要对项类型泛型
+   的消费者应写成 blanket impl 方法 —— `collect` 和 `for_each` 本身就是这样写的。
+
+4. **`.None` 是终止状态。** 消费者据此停止，所以实现者结束之后必须继续回答
+   `.None`，绝不能“结束后又恢复”。
+
 ## API
 
 ### 核心操作
@@ -870,6 +988,60 @@ main :: (fn(io : Io) -> unit)({
 });
 export main;
 ```
+
+### 从另一个任务唤醒任务：`Waker` 与 `Park`
+
+`yield` 把一个轮次交还给事件循环，但它无法让一个任务等待**另一个任务的进展**。
+那需要一个可以被对方触发的令牌，`std/async/waker` 就是它。
+
+```rust
+{ Park } :: import "std/async/waker";
+
+// 等待方。先创建 park，把它的 waker 交给将来发信号的一方，然后挂起 ——
+// 顺序就是这样，中间不能有 await。
+p := Park.new();
+waiters.push(p.waker());
+io.await(p.wait(io), io);
+
+// 发信号方，可以来自任何其他任务：
+match(waiters.pop(), .Some(w) => w.wake(), .None => ());
+```
+
+有三条性质值得记住，因为建立在它之上的原语都依赖它们：
+
+- **在等待方挂起之前到达的唤醒不会丢失。** await 点会先读取 future 的状态，
+  再注册续延，所以一个已被唤醒的 park 会直接就地恢复，而不会挂起。
+- **唤醒是幂等的。** 第二次 `wake()`，或者唤醒一个任务已经结束的 park，都是空操作。
+  因此等待者列表可以逐个唤醒所有人，而无需记录谁已经跑过了。
+- **无人能唤醒的 park 会被报告，而不是挂死。** 运行时会统计存活的 waker 令牌；
+  当没有可运行的任务、没有未完成的 I/O，却仍有令牌存活时，事件循环会明确报告并停止，
+  而不是空转。
+
+对于只需要一个 waker 的常见情形，`park(register, io)` 把整个顺序包好了：
+
+```rust
+{ park } :: import "std/async/waker";
+
+io.await(park((w : Waker) => { slot.* = Option(Waker).Some(w); }, io), io);
+```
+
+`register` 在挂起**之前**运行并拿到 waker，所以顺序不可能写错。这与 Rust 的
+`Future::poll(cx)` 是同一种形状。当等待者列表需要自己持有令牌时，直接使用 `Park`。
+
+### `yield_now`：不带定时器的公平让出
+
+`std/async` 的 `yield` 会把一个轮次交还给事件循环，代价是一次 1 毫秒的 sleep ——
+这给建立在它之上的一切都加上了毫秒级的下限。`yield_now`（`std/async/waker`）
+免费给出同样的保证：它的 future 创建时处于 pending 状态，由下一次就绪任务批处理在
+测量完自己的配额之后完成它，于是被恢复的任务在下一个轮次运行，中间正好有一次
+I/O 轮询。
+
+在一个 spawn 出来的任务里跑 400 个轮次，`-O0` 和 `--optimize 2` 下的实测：
+`yield_now` 0 毫秒，`yield` 603 毫秒。
+
+`yield` 本身会在下一个版本变成它。今天做不到的原因是引导（bootstrap），而不是设计：
+`yield` 位于编译器自身的 import 路径上，而用来构建本仓库的 seed 编译器所生成的
+async 运行时里没有这个新原语 —— 把 `yield` 指向它会导致编译器**链接失败**。
 
 ## 与其他语言的比较
 
@@ -1040,4 +1212,5 @@ r2 := handle2.await(io);  // Option(T)
 | CPU 密集型并行计算 | `Task.spawn`（参见 PARALLELISM.md） |
 | 后台处理           | `Task.spawn`（参见 PARALLELISM.md） |
 | 等待多个 Io        | `io.spawn` + `handle.await`         |
+| 消费异步序列       | `Stream` + `for_each`/`collect`（参见[异步迭代](#异步迭代stream-trait)） |
 | 利用多个 CPU 核心  | `Task.spawn`（参见 PARALLELISM.md） |

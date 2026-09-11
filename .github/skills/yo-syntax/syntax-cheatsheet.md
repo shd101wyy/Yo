@@ -113,6 +113,7 @@ Key rules:
 - **`push_str` takes `str`, `push_string` takes `String`** (same split as `String.from` vs a bare template): `s.push_str(", ")` with a bare literal is right; `s.push_str(String.from(", "))` fails to unify. Reach for `push_string` only when the value is a runtime `String` (measured 2026-09-06).
 - **A double-quoted literal does NOT concatenate with a `String` variable**: `"prefix " + var` fails with `Cannot unify incompatible types: "String" and "comptime_str"`. For a runtime concat starting from a literal, write `String.from("prefix ") + var` (measured 2026-09-02).
 - **A template string may NOT contain another template string inside `${…}`.** Writing an inner `` ` ``-string in an interpolation hole is rejected, and the diagnostic is actively misleading: `error[E0403]: Module field "to_string" not found in module type` pointing at **line 1, column 1** of the file (the first `import`), naming neither the construct nor the real line — the inner backtick terminates the outer literal at the lexer level. Hoist the inner value into a local first (`inner := f(...);` then interpolate `inner`). Measured 2026-09-05; filed as `issues/template-string-nested-inside-an-interpolation-fails-to-parse.md` (sibling of the backslash-before-`${…}` bug).
+- **The escape tables of the two string forms are DIFFERENT, and neither errors on an escape it does not know.** Both decode `\n \t \r \\ \" \' \0 \b \f \v`; only the double-quoted form decodes `\uXXXX` (exactly four hex digits), and only the template form decodes `` \` `` and `\$`. There is no `\u{...}` (Rust's delimited form) and no `\xNN` anywhere. Everything else is passed through as a literal backslash plus the next character — silently. Measured 2026-09-11: `"x\u0041y"` is 3 bytes (`xAy`) but `` `x\u0041y` `` is 8 literal bytes, and a malformed `"\uZZZZ"` is a NUL byte while `"\u{41}"` is U+0410 followed by leftover text (each non-hex digit counts as 0). `issues/unicode-escape-accepts-non-hex-digits.md`. Consequences: never spell a unicode escape in a template string, and build a control byte with `s.push_byte(u8(7))` rather than an escape.
 - **`assert`/`panic` require an explicit import**: `{ assert, panic } :: import("std/assert");` — they are NOT prelude-ambient. Both are generic over `where(T <: ToString)`, so `str`, `String` (template strings), integers, etc. all work as messages: `assert(cond, `got ${x}`)`. `assert(cond)` uses the default message.
 - **`__yo_panic` is the diverging builtin** (message must be `str`/`comptime_str`/`*(u8)`). Use it (not `panic`) in VALUE-position match/cond arms — e.g. `.None => __yo_panic("...")` in an arm that must yield `T` — because `std/assert`'s `panic` is a normal fn returning `unit` and cannot adopt the sibling arm's type. Statement-position `panic("...")` from `std/assert` is fine.
 - Low-level std modules inside `std/assert`'s own dependency cycle (`std/string/string.yo`, `std/collections/array_list.yo`, …) cannot import it — they use `cond`/`if` + `__yo_panic` directly.
@@ -1145,6 +1146,74 @@ An unbraced arm's value is the expression's value, and `list.push(x)` /
 block-shaped (unit) sibling arm is a type error ("Incompatible types" /
 "{ ... } without semicolons"). Brace-and-semicolon every arm whose result
 is not meant to be the value: `(c) => { bytes.push(b); },`.
+
+### Associated CONSTANTS exist, and a blanket body can read them
+
+An `impl` may declare a plain value member beside its methods, and that member
+is readable off the TYPE — including off a generic type parameter inside a
+blanket impl. `MIN`/`MAX`/`BITS` on the integer types are exactly this:
+
+```rust
+impl(u8, MIN : u8(0), MAX : u8(255), BITS : u32(8));
+impl(usize, BITS : _USIZE_BITS);          // a comptime-computed value is fine
+
+impl(
+  generic(T : Type),
+  where(T <: Integer),
+  T,
+  // T.BITS is what makes a WIDTH-dependent method writable ONCE instead of
+  // ten times.
+  checked_shl : (fn(self : T, n : u32) -> Option(T))(
+    cond((n >= T.BITS) => Option(T).None, true => Option(T).Some((self << T(n))))
+  )
+);
+```
+
+Pair it with an associated TYPE when a method's RESULT depends on the receiver
+type — `T.Unsigned` from a `UnsignedCounterpart(Unsigned : Type)` trait is how
+`unsigned_abs` and the ten bit batteries became single blanket impls:
+
+```rust
+UnsignedCounterpart :: trait(id := "UnsignedCounterpart", Unsigned : Type);
+impl(i8, UnsignedCounterpart(Unsigned : u8));
+impl(u8, UnsignedCounterpart(Unsigned : u8));   // an unsigned type names ITSELF
+
+impl(
+  generic(T : Type),
+  where(T <: (Integer, UnsignedCounterpart)),
+  T,
+  count_ones : (fn(self : T) -> u32)(_popcount_u64(u64(T.Unsigned(self))))
+);
+```
+
+**Do NOT read an associated constant from a TYPE position.** `-> Array(u8,
+T.BYTES)` silently resolves the length to **0** in the signature while
+specialized bodies emit the right widths, which produces invalid C
+(`issues/associated-constant-in-a-type-position-resolves-to-zero.md`,
+`plans/backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`). A VALUE position is
+fine; a type position is not.
+
+### "Yo has no X" in a comment is a claim about a moving target
+
+Three such comments in `std/` were measured FALSE in one day (`T.BITS` as an
+associated constant, associated types at all, and `channel.try_recv`'s shape),
+and each had already produced a per-type workaround that then got deleted.
+Probe before working around: a 15-line `tmp/probe.yo` plus
+`yo compile tmp/probe.yo --std-path ./std --emit-c --skip-c-compiler` settles
+it in under a minute, and `grep "failed to transpile"` on the emitted C is the
+oracle — `yo check` is evaluator-only and reports OK over a body codegen
+cannot emit.
+
+### Collapsing N per-type copies into one generic body is not behaviour-preserving
+
+The per-type bodies were reaching code paths the generic body does not. Two
+real regressions came out of one such collapse: a unary `~`/`-` on a
+generic-typed value could not be transpiled at all (the unary inline fast path
+was gated to `!`), and the inline `~` lowering did not narrow its result, so
+`u64((~self))` on a `u8` gave `0xFFFFFFFFFFFFFF00` and
+`u8.MAX.trailing_ones()` answered 64 instead of 8. Both were caught by a
+VALUE-level test battery, not by the compile. Collapse behind assertions that
+check answers, not just that it builds.
 
 ### A trait where-clause cannot bind another trait's assoc type to its OWN
 

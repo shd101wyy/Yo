@@ -1,4 +1,37 @@
 //! Mutable UTF-8 string builder for efficient incremental construction.
+//!
+//! `StringBuilder` is the accumulator to reach for when a `String` is assembled
+//! from many parts in a loop: appending is amortised O(1) into one growing
+//! `ArrayList(u8)`, and `to_string()` hands that buffer over instead of copying
+//! it, so building an N-byte string costs O(N) once rather than twice. Repeated
+//! `a + b` on `String` is what it replaces — that allocates a new string per
+//! concatenation.
+//!
+//! It also carries the three number/field renderers that used to live on
+//! `std/fmt`'s `Writer` (`write_hex`, `write_f64`, `write_padded`), which
+//! retired into this type in v0.2.28 (#511). They sit in `std/string` only
+//! because `std/fmt` already depends on `std/string` and the other direction
+//! would be a cycle; `std/fmt` re-exports `StringBuilder` and `Alignment` so a
+//! caller formatting text need not know that.
+//!
+//! Lengths here are BYTES — `len()` is the buffer's byte count, the same basis
+//! as `String.len()` (see `docs/en-US/STRINGS.md`). The one exception is
+//! `write_padded`, whose `width` is a RUNE count so that it agrees with
+//! `FormatSpec`.
+//!
+//! ## Stability
+//!
+//! unstable — the core (`new`, `write_str`, `write_string`, `write_byte`,
+//! `write_rune`, `len`, `to_string`) is settled and heavily used, but the
+//! helpers transplanted from `Writer` are not. `write_hex` and `write_f64`
+//! render through a fixed-size stack buffer and TRUNCATE silently rather than
+//! growing it (`write_f64(f64(1.0e300), i32(2))` yields 63 digits of a
+//! 302-digit number — `issues/stddoc-str-string-builder-write-f64-truncates.md`),
+//! and `clear` releases the buffer where Rust's `String::clear` keeps the
+//! capacity (`issues/stddoc-str-string-builder-clear-drops-capacity.md`).
+//! Freezing follows fixing those two and deciding whether number formatting
+//! belongs on a text builder at all — it is here because of a dependency
+//! direction, not because it was designed here.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list.yo");
 { snprintf } :: import("../libc/stdio.yo");
@@ -28,24 +61,22 @@ _str_rune_count :: (fn(s : str) -> usize)({
   });
   n
 });
-/**
-* Mutable buffer for building a `String` incrementally.
-*
-* Use `StringBuilder` when you need to construct a string from many parts,
-* appending bytes or strings in a loop, before converting to an immutable
-* `String` with `to_string()`.
-*
-* ## Example
-* ```rust
-* sb := StringBuilder.new();
-* sb.write_str("Hello");
-* sb.write_str(", ");
-* sb.write_string(`world`);
-* sb.write_byte(u8(33));  // '!'
-* result := sb.to_string();
-* assert(result == `Hello, world!`, "built string");
-* ```
-*/
+/// Mutable buffer for building a `String` incrementally.
+///
+/// Use `StringBuilder` when you need to construct a string from many parts,
+/// appending bytes or strings in a loop, before converting to an immutable
+/// `String` with `to_string()`.
+///
+/// ## Example
+/// ```rust
+/// sb := StringBuilder.new();
+/// sb.write_str("Hello");
+/// sb.write_str(", ");
+/// sb.write_string(`world`);
+/// sb.write_byte(u8(33));  // '!'
+/// result := sb.to_string();
+/// assert(result == `Hello, world!`, "built string");
+/// ```
 StringBuilder :: ref(
   struct(
     _buf : ArrayList(u8)
@@ -53,42 +84,30 @@ StringBuilder :: ref(
 );
 impl(
   StringBuilder,
-  /**
-  * Create a new, empty `StringBuilder`.
-  */
+  /// Create a new, empty `StringBuilder`.
   new : (fn() -> Self)(
     Self(_buf : ArrayList(u8).new())
   ),
-  /**
-  * Create a `StringBuilder` pre-allocated for `capacity` bytes.
-  */
+  /// Create a `StringBuilder` pre-allocated for `capacity` bytes.
   with_capacity : (fn(capacity : usize) -> Self)(
     Self(_buf : ArrayList(u8).with_capacity(capacity))
   ),
-  /**
-  * Returns the current number of bytes in the buffer.
-  */
+  /// Returns the current number of bytes in the buffer.
   len : (fn(self : Self) -> usize)(
     self._buf.len()
   ),
-  /**
-  * Returns true if the buffer is empty.
-  */
+  /// Returns true if the buffer is empty.
   is_empty : (fn(self : Self) -> bool)(
     self._buf.len() == usize(0)
   ),
-  /**
-  * Append a `str` (raw byte slice) to the buffer.
-  */
+  /// Append a `str` (raw byte slice) to the buffer.
   write_str : (fn(self : Self, s : str) -> unit)({
     byte_len := s.len();
     if(byte_len > usize(0), {
       self._buf.extend_from_ptr(s.ptr(), byte_len);
     });
   }),
-  /**
-  * Append a `String` to the buffer.
-  */
+  /// Append a `String` to the buffer.
   write_string : (fn(self : Self, s : String) -> unit)(
     match(
       s._bytes,
@@ -111,36 +130,34 @@ impl(
       }
     )
   ),
-  /**
-  * Append a single byte to the buffer.
-  */
+  /// Append a single byte to the buffer.
   write_byte : (fn(self : Self, b : u8) -> unit)({
     self._buf.push(b);
   }),
-  /**
-  * Append a single Unicode code point, encoded as UTF-8.
-  *
-  * ## Example
-  * ```rust
-  * sb := StringBuilder.new();
-  * sb.write_rune(rune(0x1F600));  // 😀
-  * sb.write_rune(rune(0x41));     // 'A'
-  * ```
-  */
+  /// Append a single Unicode code point, encoded as UTF-8.
+  ///
+  /// ## Example
+  /// ```rust
+  /// sb := StringBuilder.new();
+  /// sb.write_rune(rune(0x1F600));  // 😀
+  /// sb.write_rune(rune(0x41));     // 'A'
+  /// ```
   write_rune : (fn(self : Self, r : rune) -> unit)({
     utf8.encode_into(r, self._buf);
   }),
-  /**
-  * Append a `String` followed by a newline byte (`\n`).
-  */
+  /// Append a `String` followed by a newline byte (`\n`).
   write_line : (fn(self : Self, s : String) -> unit)({
     self.write_string(s);
     self._buf.push(u8(10));
   }),
-  /**
-  * Consume the builder and return the accumulated `String`.
-  * The builder is left empty after this call.
-  */
+  /// Detach the accumulated bytes as a `String`, leaving the builder EMPTY and
+  /// still usable.
+  ///
+  /// It does not copy and it does not consume the builder: the receiver is a
+  /// reference, and it starts over with a fresh buffer, so building an N-byte
+  /// string costs O(N) once. The returned `String` is therefore independent —
+  /// a later `write_*` on the same builder cannot mutate a string already
+  /// handed to a caller.
   to_string : (fn(self : Self) -> String)({
     // HANDS THE BUFFER OVER, it does not copy it: the returned `String` takes
     // the `ArrayList` and the builder starts again from a fresh one. This used
@@ -153,34 +170,28 @@ impl(
     self._buf = ArrayList(u8).new();
     String.from_bytes(bytes)
   }),
-  /**
-  * Append an unsigned 64-bit integer in lowercase hexadecimal.
-  */
+  /// Append an unsigned 64-bit integer in lowercase hexadecimal.
   write_hex : (fn(self : Self, n : u64) -> unit)({
     buf := Array(u8, usize(20)).fill(u8(0));
     buf_ptr := &buf(usize(0));
     unsafe(snprintf((*char)(buf_ptr), usize(20), "%llx", n));
     self.write_string(String.from_cstr(buf_ptr).unwrap());
   }),
-  /**
-  * Append `n` with exactly `precision` decimal places.
-  */
+  /// Append `n` with exactly `precision` decimal places.
   write_f64 : (fn(self : Self, n : f64, precision : i32) -> unit)({
     buf := Array(u8, usize(64)).fill(u8(0));
     buf_ptr := &buf(usize(0));
     unsafe(snprintf((*char)(buf_ptr), usize(64), "%.*f", precision, n));
     self.write_string(String.from_cstr(buf_ptr).unwrap());
   }),
-  /**
-  * Append `s` padded to `width` RUNES with `pad`, aligned per `align`.
-  * A `s` already at or over the width is written unpadded.
-  *
-  * Width is a RUNE count, matching `FormatSpec`'s `{:width$}` and Rust's.
-  * It used to be a BYTE count here, so `write_padded("héllo", 8, ' ', .Left)`
-  * emitted two spaces instead of three and the column did not line up — the
-  * two width bases in one module disagreed
-  * (issues/fixed/write-padded-counted-bytes-where-formatspec-counts-runes.md).
-  */
+  /// Append `s` padded to `width` RUNES with `pad`, aligned per `align`.
+  /// A `s` already at or over the width is written unpadded.
+  ///
+  /// Width is a RUNE count, matching `FormatSpec`'s `{:width$}` and Rust's.
+  /// It used to be a BYTE count here, so `write_padded("héllo", 8, ' ', .Left)`
+  /// emitted two spaces instead of three and the column did not line up — the
+  /// two width bases in one module disagreed
+  /// (issues/fixed/write-padded-counted-bytes-where-formatspec-counts-runes.md).
   write_padded : (fn(self : Self, s : str, width : usize, pad : rune, align : Alignment) -> unit)({
     n_runes := _str_rune_count(s);
     cond(
@@ -219,9 +230,15 @@ impl(
       }
     );
   }),
-  /**
-  * Clear the buffer without freeing memory.
-  */
+  /// Empty the builder.
+  ///
+  /// This RELEASES the buffer rather than retaining its capacity — unlike
+  /// Rust's `String::clear` and unlike `ArrayList.clear`, both of which keep the
+  /// allocation for reuse. A builder cleared in a loop therefore reallocates
+  /// from zero on every pass; when that matters, keep a fresh builder per
+  /// iteration instead (it costs the same) or hand the bytes off with
+  /// `to_string()`, which detaches for the same price.
+  /// (`issues/stddoc-str-string-builder-clear-drops-capacity.md`)
   clear : (fn(self : Self) -> unit)({
     self._buf = ArrayList(u8).new();
   })

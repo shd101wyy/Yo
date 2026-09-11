@@ -405,6 +405,29 @@ _emit_loop_body_drops_before_exit :: (fn(context : FunctionGenerationContext, in
     .None => ()
   )
 );
+// Whether `name` is captured by the closure currently being generated, and so
+// must be read through `closure_context` rather than as a plain identifier.
+//
+// ONE predicate, deliberately. It used to be written out twice — once as the
+// guard that decides whether to take the plain-identifier early return, once
+// where the `closure_context` access is actually emitted — and the two copies
+// keyed on different names, so a variable could be "not captured" for the
+// guard and "captured" for the emitter. The guard won, and the closure body
+// referenced a variable that does not exist in it.
+_is_captured_here :: (fn(name : String, env_opt : Option(Environment), context : FunctionGenerationContext) -> bool)(
+  match(
+    context.current_closure_captures,
+    .Some(caps) => match(
+      context.current_closure_capture_frame_level,
+      .Some(level) => (
+        caps.contains(name.clone()) &&
+          match(env_opt, .Some(e) => check_variable_is_closure_captured(name.clone(), e, level), .None => true)
+      ),
+      .None => false
+    ),
+    .None => false
+  )
+);
 /// Resolve a plain identifier read to its C code: the variable's C name, wrapped
 /// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
 /// the C level `name` is `T*`, so a read dereferences). Mirrors TS generateAtom
@@ -666,20 +689,18 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
             return(match(ei.value, .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty), context.base), .None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
-          captured := match(
-            env_opt,
-            .Some(e) => match(
-              context.current_closure_captures,
-              .Some(caps) => match(
-                context.current_closure_capture_frame_level,
-                .Some(level) => (caps.contains(var_name.clone()) && check_variable_is_closure_captured(var_name.clone(), e, level)),
-                .None => false
-              ),
-              .None => false
-            ),
-            .None => false
-          );
-          if(!captured, {
+          //
+          // Keyed on the SOURCE TOKEN, through the same predicate the
+          // emitting path below uses. This guard used to test
+          // `variable_name`, and the two disagreed exactly where the comment
+          // below says `variable_name` is untrustworthy: a bare reference used
+          // as a cond/match arm value can carry a SPURIOUS temp
+          // `variable_name`, which is not in the capture set, so this answered
+          // "not captured", took the `_var_read_code` early return, and
+          // emitted the BARE identifier inside a closure body — undeclared in
+          // the generated C
+          // (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md).
+          if(!_is_captured_here(tv.clone(), env_opt, context), {
             // Resolve a plain identifier by its SOURCE TOKEN, not the recorded
             // `variable_name`. Mirrors TS generateAtom (atom.ts:262 uses
             // `expr.token.value`). yo-self's attach_temp_variable_to_expr can
@@ -697,15 +718,7 @@ generate_atom :: (fn(expr : AstExpr, context : FunctionGenerationContext, indent
       // Closure-captured access (the general path); otherwise a literal with a
       // comptime value is inlined, else the bare variable name.
       cap_name := tv.clone();
-      is_captured := match(
-        context.current_closure_captures,
-        .Some(caps) => match(
-          context.current_closure_capture_frame_level,
-          .Some(level) => (caps.contains(cap_name.clone()) && match(env_opt, .Some(e) => check_variable_is_closure_captured(cap_name.clone(), e, level), .None => true)),
-          .None => false
-        ),
-        .None => false
-      );
+      is_captured := _is_captured_here(cap_name.clone(), env_opt, context);
       cond(
         is_captured => match(
           context.current_closure_capture_type_c_name,

@@ -1,11 +1,14 @@
 //! TLS client streams over OpenSSL — `plans/archive/D6_TLS_PLAN.md` (the O2
 //! decision: one `TlsStream` implementing the D5 `Reader`/`Writer` traits).
 //!
-//! Requires OpenSSL 1.1.1+/3.x at BUILD time: the compiler probes
-//! `pkg-config openssl` (with Homebrew keg fallbacks) and adds the include
-//! and link flags; without it, importing this module fails at the C step
-//! with the linker naming the missing library. Windows is not covered yet
-//! (Schannel is part of the Windows platform audit).
+//! On unix targets this requires OpenSSL 1.1.1+/3.x at BUILD time: the
+//! compiler probes `pkg-config openssl` (with Homebrew keg fallbacks) and
+//! adds the include and link flags; without it, importing this module
+//! fails at the C step with the linker naming the missing library. Windows
+//! needs no OpenSSL — it gets a Schannel/SSPI backend behind the same
+//! fifteen `__yo_tls_*` functions (shipped in v0.2.26,
+//! `plans/archive/D6_TLS_PLAN.md`). On wasm there is no backend and
+//! `tls_available()` answers `false`.
 //!
 //! Integration model: the TCP socket belongs to Yo's per-thread async
 //! runtime, so OpenSSL never sees the fd. The SSL object speaks through two
@@ -19,6 +22,22 @@
 //! n := io.await(s.read(buf.ptr().unwrap(), buf.capacity(), io), e);
 //! io.await(s.close(io), e);
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the transport works on every supported target (D6 closed
+//! 2026-09-04; the compiler's own downloader runs over it) and both
+//! backends verify the chain against the system trust store and check the
+//! hostname, so what is unstable is how narrow the surface is. There is
+//! exactly one entry point, `TlsStream.connect(host, port, io)`, and no
+//! way to say anything else: no options value, so no custom CA bundle, no
+//! client certificate, no ALPN (which HTTP/2 would need), no session
+//! resumption, no "accept this self-signed certificate for a test", and no
+//! server side. Every one of those arrives as a new parameter or a new
+//! options type, which is why `connect`'s signature is not frozen.
+//! Certificate REVOCATION is deliberately not checked on either backend,
+//! matching them to each other rather than to a policy. Freezing follows
+//! the first of those features, not a release count.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { String } :: import("../string");
@@ -33,10 +52,13 @@ IoTraits :: import("../io");
 
 extern(
   "Yo",
-  // The TLS backend ABI (D6). OpenSSL on unix targets; ABI stubs on Windows
-  // until the Schannel row of the Windows platform audit lands — the
-  // implementation is selected per TARGET at C-compile time and emitted only
-  // when a __yo_tls_ extern is called.
+  // The TLS backend ABI (D6). OpenSSL on unix targets, Schannel/SSPI on
+  // Windows (`generate_tls_runtime`, src/codegen/async/runtime_io_common.yo),
+  // and refusing stubs on wasm — the implementation is selected per TARGET at
+  // C-compile time and emitted only when a __yo_tls_ extern is called.
+  // Nothing in this ABI is OpenSSL-specific: it moves ciphertext between two
+  // opaque in-memory buffers and asks for plaintext, which is why the Windows
+  // backend needed no Yo-side change.
   __yo_tls_ctx_new : (fn() -> ?*void),
   __yo_tls_ssl_new : (fn(ctx : *void, hostname : *char) -> ?*void),
   __yo_tls_handshake : (fn(ssl : *void) -> int),

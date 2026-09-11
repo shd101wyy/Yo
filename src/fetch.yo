@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("std/fs/dir");
 { remove_dir_all } :: import("std/fs/walker");
 { Sha256 } :: import("std/crypto/sha256");
-{ hex_encode } :: import("std/encoding/hex");
+hex :: import("std/encoding/hex");
 {
   LockEntry,
   LockFile,
@@ -328,9 +328,9 @@ compute_content_hash :: (
       hex_bytes.push(digest(k));
       k = (k + usize(1));
     });
-    hex := hex_encode(hex_bytes);
+    hex_str := hex.encode(hex_bytes);
     result := String.from("sha256-");
-    result.push_string(hex);
+    result.push_string(hex_str);
     result
   })
 );

@@ -3,13 +3,39 @@
 //! Auto-generated from <https://html.spec.whatwg.org/entities.json>.
 //! Total: 2125 entities (93 decode to two code points).
 //!
-//! This module provides the entity name-to-string mapping used by `html_decode`.
+//! This module provides the entity name-to-string mapping used by `html.decode`.
 //!
 //! The table is STATIC DATA: one ASCII blob of `name,cp[,cp];` records
 //! (and a comma-joined name list for the legacy set), parsed by a small
 //! loop. It was previously ~2,125 straight-line `map.insert(...)` calls in one
 //! function, whose emitted C crashed clang's frontend at -O0 and made the
 //! module untestable (issues/fixed/html-entities-runtime-map-uncompilable-in-tests.md).
+//!
+//! ## Stability
+//!
+//! unstable — this is `html_decode`'s data table, not an API, and its two
+//! exports say so themselves: `_build_entity_map` and `_build_legacy_set` are
+//! `_`-prefixed, which is this tree's spelling for "private", yet they appear
+//! in an `export(...)` list. They are exported only because
+//! `std/encoding/html` is a separate module and has to reach them. The open
+//! question is what to do about that — a module-private visibility that
+//! crosses the file boundary, a merge into `html.yo` (blocked by the clang
+//! frontend crash that split them in the first place), or a rename that drops
+//! the underscore and admits they are public. All three change the export
+//! list, so none is additive.
+//!
+//! The DATA is as stable as its source: 2,125 records generated from
+//! <https://html.spec.whatwg.org/entities.json>, whose table WHATWG treats as
+//! append-only. A regeneration adds names; it does not move existing ones.
+//!
+//! Cost worth knowing before this freezes: both tables are built EAGERLY at
+//! module init (`html.yo`'s `_entity_map` / `_legacy_set`), so every program
+//! that imports `std/encoding/html` pays for 2,125 `HashMap` inserts before
+//! `main`. That is deliberate — they used to be built lazily behind an
+//! unsynchronised flag that two threads raced on
+//! (`issues/fixed/html-and-log-globals-raced.md`) — but a
+//! parse-on-first-miss or a compile-time perfect hash would pay less, and
+//! either would be invisible to callers.
 { String } :: import("../string");
 { HashMap } :: import("../collections/hash_map");
 { HashSet } :: import("../collections/hash_set");
@@ -56,8 +82,14 @@ _build_entity_map :: (fn() -> HashMap(String, String))({
   });
   m
 });
-// Legacy entity names that can be decoded without trailing semicolon
-// (comma-joined).
+/// The subset of entity names WHATWG allows WITHOUT a trailing semicolon —
+/// all 106 of them (`&amp` for `&`, `&nbsp` for U+00A0, …), kept for
+/// compatibility with pre-HTML5 documents. `html_decode` consults it before
+/// giving up on a reference that has no `;`.
+///
+/// Stored as one comma-joined name list rather than a second `name,cp;`
+/// table, because the code points are already in `_build_entity_map`: this
+/// answers only "may this name appear bare?".
 _build_legacy_set :: (fn() -> HashSet(String))({
   (s : HashSet(String)) = HashSet(String).new();
   data := `AElig,AMP,Aacute,Acirc,Agrave,Aring,Atilde,Auml,COPY,Ccedil,ETH,Eacute,Ecirc,Egrave,Euml,GT,Iacute,Icirc,Igrave,Iuml,LT,Ntilde,Oacute,Ocirc,Ograve,Oslash,Otilde,Ouml,QUOT,REG,THORN,Uacute,Ucirc,Ugrave,Uuml,Yacute,aacute,acirc,acute,aelig,agrave,amp,aring,atilde,auml,brvbar,ccedil,cedil,cent,copy,curren,deg,divide,eacute,ecirc,egrave,eth,euml,frac12,frac14,frac34,gt,iacute,icirc,iexcl,igrave,iquest,iuml,laquo,lt,macr,micro,middot,nbsp,not,ntilde,oacute,ocirc,ograve,ordf,ordm,oslash,otilde,ouml,para,plusmn,pound,quot,raquo,reg,sect,shy,sup1,sup2,sup3,szlig,thorn,times,uacute,ucirc,ugrave,uml,uuml,yacute,yen,yuml`;

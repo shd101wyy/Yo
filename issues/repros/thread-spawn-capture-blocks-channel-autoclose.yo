@@ -1,0 +1,48 @@
+// Reproducer: a `Sender` MOVED INTO a `Thread.spawn` closure never runs its
+// `dispose`, so the channel's sender count never reaches zero and the
+// auto-close never fires. The same handle dropped from a plain scope DOES
+// dispose, which localizes the fault to the spawn closure's captures
+// (issues/fixed/spawn-closure-captures-never-dropped-leak.md).
+//
+//   yo compile issues/repros/thread-spawn-capture-blocks-channel-autoclose.yo \
+//     --std-path ./std --optimize 2 -o /tmp/repro && /tmp/repro
+//
+// Expected (correct behaviour):
+//   plain scope: closed after the sender's scope ended = true
+//   spawn capture: closed after join                   = true
+// Measured 2026-09-10 (macOS arm64, --optimize 2): the second line is FALSE.
+{ Channel } :: import("std/sync/channel");
+{ Thread } :: import("std/thread");
+{ printf } :: import("std/libc/stdio");
+pragma(Pragma.AllowUnsafe);
+
+show :: (fn(tag : str, flag : bool) -> unit)(
+  cond(
+    flag => {
+      _a := unsafe(printf("%-50s = true\n", tag));
+    },
+    true => {
+      _b := unsafe(printf("%-50s = false\n", tag));
+    }
+  )
+);
+main :: (fn() -> unit)({
+  // Control: a sender dropped at the end of a plain scope closes the channel.
+  rx1 := Channel(i32).receiver(usize(2));
+  {
+    tx := rx1.sender();
+    _s := tx.send(i32(1));
+  };
+  show("plain scope: closed after the sender's scope ended", rx1.is_closed());
+  // The bug: the same sender moved into a spawned thread's closure.
+  rx2 := Channel(i32).receiver(usize(2));
+  {
+    tx := rx2.sender();
+    t := Thread.spawn(io => {
+      _s := tx.send(i32(2));
+    });
+    t.join();
+  };
+  show("spawn capture: closed after join", rx2.is_closed());
+});
+export(main);

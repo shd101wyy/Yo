@@ -1,4 +1,24 @@
-//! `IoFuture` type — opaque handle to a C async I/O future struct.
+//! `IoFuture` — the opaque handle every async I/O extern hands back.
+//!
+//! This is the one type the whole `std/sys` async surface is written in terms
+//! of: `sys/file`, `sys/dir`, `sys/tcp`, `sys/udp`, `sys/unix`, `sys/dns`,
+//! `sys/process` and `sys/timer` all return it, and `io.await` is what turns
+//! it back into an `i32`. Every public module above them (`std/fs`,
+//! `std/net`, `std/process`, `std/time/sleep`) reaches it only through those.
+//!
+//! ## Stability
+//!
+//! unstable — this is an ABI, not an API. `__yo_io_future_t` is emitted by
+//! the compiler's own runtime (`src/codegen/async/`) with a layout the await
+//! codegen indexes directly (`state`, `result`), so its shape is pinned to
+//! the async state-machine representation and moves with it, not with a
+//! library decision. It also cannot be frozen while the *value* convention it
+//! carries is still raw: a resolved `i32` that is a non-negative syscall
+//! result or a negative errno, with `sys/dns` and the Windows socket paths
+//! already carrying codes that are neither. What would have to be true to
+//! freeze it: a typed result channel (the `Result(i32, IoError)` that
+//! `IoError.from_result` reconstructs by hand today) and a state-machine
+//! layout that codegen promises to keep.
 // ============================================================================
 // Extern type for I/O Future
 // ============================================================================
@@ -7,6 +27,21 @@ extern(
   "Yo",
   __yo_io_future_t : Type
 );
+/// A pending (or already finished) I/O operation, resolved with `io.await`.
+///
+/// `Impl(Concrete(__yo_io_future_t), Future(i32))`: an opaque C struct laid
+/// out like an async state machine, so `await` reads its `state` and `result`
+/// the same way it reads a Yo `async` block's. `state` 0 means still in
+/// flight, `-1` already completed (the common case on macOS and Windows,
+/// where most file operations run synchronously and are handed back finished)
+/// and `-2` aborted — see the effects model in AGENTS.md.
+///
+/// It resolves to a raw `i32`: a non-negative syscall result (an fd, a byte
+/// count, or 0) or a NEGATIVE errno. Nothing here throws, so error handling
+/// is `IoError.from_result` / `IoError.check` at the call site. Two families
+/// break even that convention and say so at their own definitions —
+/// `sys/dns` resolves to a `getaddrinfo` code, and the Windows socket paths
+/// resolve to negated WSA codes.
 IoFuture :: Impl(Concrete(__yo_io_future_t), Future(i32));
 export(
   __yo_io_future_t,

@@ -1,0 +1,22 @@
+// Loop-invariant fixture for the V4 verifier (the plan's sum_to doc
+// example): while + invariant + assignments under the havoc rule. The
+// requires bound keeps the bitvector arithmetic overflow-free, which the
+// exact-width model honestly needs (i and i*(i+1)/2 stay in range).
+pragma(Pragma.Verify);
+
+sum_to :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(1000)),
+    ensures(result == ((n * (n + i32(1))) / i32(2)))
+  ) -> (result : i32)
+)({
+  i := i32(0);
+  acc := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n, acc == ((i * (i + i32(1))) / i32(2)));
+    i = (i + i32(1));
+    acc = (acc + i);
+  });
+  acc
+});

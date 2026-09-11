@@ -5,16 +5,36 @@
 //! ## Example
 //!
 //! ```rust
-//! { random_u64, uuid_v4 } :: import "std/crypto/random";
+//! { random_u64, uuid_v4 } :: import("std/crypto/random");
 //!
-//! id := uuid_v4();  // "550e8400-e29b-41d4-a716-446655440000"
+//! id := uuid_v4(exn);  // "550e8400-e29b-41d4-a716-446655440000"
 //! ```
+//!
+//! Every function here takes an `exn : Exception`: reading OS entropy can
+//! fail, and a CSPRNG that silently returns a weak value on failure is
+//! worse than one that stops. `std/rand` is the unseeded-quality
+//! counterpart for simulations and shuffles — it is faster, needs no
+//! `exn`, and is NOT for keys, tokens or nonces.
+//!
+//! ## Stability
+//!
+//! unstable — the correctness work is done (rejection sampling in
+//! `random_range`, a 53-bit `random_f64`, and a `getrandom` loop that no
+//! longer accepts a short read: `plans/archive/STD_API_AUDIT.md` C5), and
+//! `tests/crypto/random.test.yo` covers the bounds and the format. What is
+//! not settled is how failure is reported. This module THROWS on an
+//! entropy failure and PANICS on an empty `random_range` — two failure
+//! modes in one call — while `std/rand`'s `rand_u32` / `rand_range` take
+//! no `exn` at all, so the same question is answered two ways in `std`.
+//! `uuid_v4` also hands back a `String` rather than a `Uuid` type, so a
+//! caller that needs the bytes back has to re-parse its own output; std
+//! has no `Uuid`. Freezing needs both calls made.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { platform, Platform } :: import("../process");
 { String } :: import("../string");
 { snprintf } :: import("../libc/stdio");
-{ hex_encode } :: import("../encoding/hex");
+hex :: import("../encoding/hex");
 { Error, AnyError, Exception } :: import("../error");
 { ToString } :: import("../fmt");
 // ============================================================================
@@ -52,6 +72,22 @@ extern(
 // ============================================================================
 // Fill a buffer with cryptographically secure random bytes.
 // ============================================================================
+/// Fill `buf` with cryptographically secure random bytes from the OS —
+/// Rust's `getrandom` crate, or `OsRng`.
+///
+/// The whole slice is filled or the call throws: on Linux the `getrandom`
+/// syscall is looped until `buf.len` bytes have arrived (it may return
+/// short above 256 bytes) and `EINTR` is retried, and on WASI the request
+/// is chunked to the 256-byte `random_get` limit. macOS uses
+/// `arc4random_buf`, Windows `BCryptGenRandom`.
+///
+/// Throws `CryptoError.Unavailable` when the platform entropy source
+/// refuses. **A short fill is never reported as success** — the earlier
+/// single-shot `getrandom` left the tail of the buffer zeroed, which is
+/// predictable material from an apparently successful call.
+///
+/// This blocks only for as long as the OS needs; it is not async, so
+/// filling a very large buffer on the event-loop thread stalls it.
 random_bytes :: (fn(buf : RawSlice(u8), exn : Exception) -> unit)({
   buf_ptr := buf.ptr;
   size := buf.len;
@@ -121,6 +157,8 @@ export(random_bytes);
 // ============================================================================
 // Typed helpers
 // ============================================================================
+/// A uniform random `u32` — four OS-entropy bytes, assembled
+/// little-endian.
 random_u32 :: (fn(exn : Exception) -> u32)({
   buf := Array(u8, usize(4)).fill(u8(0));
   random_bytes(RawSlice(u8)(ptr : &buf(usize(0)), len : usize(4)), exn);
@@ -129,35 +167,46 @@ random_u32 :: (fn(exn : Exception) -> u32)({
       (u32(buf(usize(2))) << u32(16)) |
         (u32(buf(usize(3))) << u32(24))
       });
+/// A uniform random `u64`.
+///
+/// Two `random_u32` draws, so two trips to the OS entropy source: prefer
+/// one `random_bytes` over a buffer when you need many values.
 random_u64 :: (fn(exn : Exception) -> u64)({
   lo := u64(random_u32(exn));
   hi := u64(random_u32(exn));
   lo | (hi << u64(32))
 });
-// Return a uniform random f64 in the half-open range [0.0, 1.0).
-// Uses the top 53 bits (the double mantissa width): every result is exactly
-// representable and 1.0 is unreachable. The old version divided by u64::MAX,
-// which produced the CLOSED range [0.0, 1.0] and results rounded off the
-// 53-bit grid (plans/archive/STD_API_AUDIT.md C5).
+// The old version divided by u64::MAX, which produced the CLOSED range
+// [0.0, 1.0] and results rounded off the 53-bit grid
+// (plans/archive/STD_API_AUDIT.md C5).
+/// A uniform random `f64` in the half-open range `[0.0, 1.0)` — Rust's
+/// `Rng::random::<f64>()`.
+///
+/// Built from the top 53 bits of a `u64` draw, the double mantissa width,
+/// so every result is exactly representable and `1.0` is unreachable.
 random_f64 :: (fn(exn : Exception) -> f64)(
   f64(random_u64(exn) >> u64(11)) / f64(9007199254740992.0)
 );
-// Return a random integer in the half-open range `r` — write it with `..`:
-// `random_range(i64(10) .. i64(20), exn)`. The bound is a `Range(i64)` rather
-// than two `i64` parameters so the half-open end is visible AT THE CALL SITE,
-// and so this reads the same as `Rng.range` in `std/rand`.
-//
-// PANICS on an empty range (`r.end <= r.start`), like `Rng.range`: a sampler
-// must return a value FROM the range, and an empty range has none. (It used to
-// return `r.start`, which invented a value that was never in the range —
-// `BTreeMap.range` may yield an empty ITERATOR for an inverted window because
-// "no elements" is a real answer there; "no number" is not.)
-//
-// Uniform via rejection sampling: `r % span` alone over-weights the low
-// residues whenever span does not divide 2^64 — a bias defect in a module
-// advertising cryptographic security (plans/archive/STD_API_AUDIT.md C5). Draws
-// above the largest span-multiple are rejected and redrawn; the retry
-// probability is < 2^-1 per draw even in the worst case.
+/// A uniform random integer in the half-open range `r` — write it with
+/// `..`: `random_range(i64(10) .. i64(20), exn)`.
+///
+/// The bound is a `Range(i64)` rather than two `i64` parameters so the
+/// half-open end is visible AT THE CALL SITE, and so this reads the same
+/// as `Rng.range` in `std/rand`.
+///
+/// **PANICS on an empty range** (`r.end <= r.start`), like `Rng.range`: a
+/// sampler must return a value FROM the range, and an empty range has
+/// none. It used to return `r.start`, which invented a value that was
+/// never in the range. (`BTreeMap.range` may yield an empty ITERATOR for
+/// an inverted window because "no elements" is a real answer there; "no
+/// number" is not.)
+///
+/// Uniform by REJECTION SAMPLING, so the number of entropy draws is not
+/// fixed — a draw above the largest multiple of the span is discarded and
+/// redrawn, with a retry probability below 1/2 even in the worst case.
+/// Plain `draw % span` would over-weight the low residues whenever the
+/// span does not divide 2^64, which is a real bias in a module advertising
+/// cryptographic security (plans/archive/STD_API_AUDIT.md C5).
 random_range :: (fn(r : Range(i64), exn : Exception) -> i64)(
   cond(
     (r.end <= r.start) => __yo_panic("random_range: empty range (end <= start)"),
@@ -190,7 +239,13 @@ export(random_u32, random_u64, random_f64, random_range);
 // ============================================================================
 // UUID v4
 // ============================================================================
-// Generate a random UUID v4 string: "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"
+/// A random UUID v4 as the 36-character hyphenated lowercase string
+/// `"xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx"` — RFC 4122 §4.4.
+///
+/// 122 bits come from `random_bytes`; the version nibble (`4`) and the two
+/// variant bits are set as the RFC requires, so two of the 128 bits are
+/// fixed. Returns a `String`, not a `Uuid` value — std has no UUID type —
+/// so a caller that needs the bytes must decode the hex again.
 uuid_v4 :: (fn(exn : Exception) -> String)({
   bytes := ArrayList(u8).with_capacity(usize(16));
   buf := Array(u8, usize(16)).fill(u8(0));
@@ -203,8 +258,8 @@ uuid_v4 :: (fn(exn : Exception) -> String)({
   while(i < usize(16), i = (i + usize(1)), {
     bytes.push(buf(i));
   });
-  hex := hex_encode(bytes);
-  hex_bytes := hex.as_bytes();
+  hex_str := hex.encode(bytes);
+  hex_bytes := hex_str.as_bytes();
   // Insert dashes: 8-4-4-4-12
   out := ArrayList(u8).with_capacity(usize(36));
   positions := Array(usize, usize(4))(usize(8), usize(12), usize(16), usize(20));

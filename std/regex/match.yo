@@ -1,5 +1,33 @@
 //! Match result type — represents the result of a regex match,
 //! including the matched text, position, and captured groups.
+//!
+//! Every offset a `RegexMatch` reports is a BYTE offset into the input, on a
+//! UTF-8 boundary (D4, 2026-08-26 — they used to be rune indices), so they can
+//! be fed straight into `String.substring` / `index_of`. See
+//! `docs/en-US/STRINGS.md`.
+//!
+//! A match is EAGER and self-contained: it holds the matched text, the whole
+//! input, every group's text and every group's span, all captured when the VM
+//! reported success. That is why there is no separate `captures` method the way
+//! Rust splits `Regex::find` from `Regex::captures` — Yo's `find` already pays
+//! for the groups, so a second entry point would buy nothing. It also means the
+//! match keeps the input string alive for as long as it lives.
+//!
+//! Group numbering is 1-based, with group 0 meaning the whole match, matching
+//! the `$1`/`\1` vocabulary of the patterns themselves.
+//!
+//! ## Stability
+//!
+//! unstable — it is one of the four public `std/regex` names and its accessors
+//! are settled, but two shapes are still open. `group(i)` and `named_group(n)`
+//! return `.None` both for "that group exists and did not participate" and for
+//! "there is no such group", so a caller cannot tell a typo'd group name from
+//! an optional group that did not match; Rust's `Captures::name` has the same
+//! conflation but its `len()` lets you rule the second out, and
+//! `group_count()` here counts only the groups the pattern declared.
+//! `named_group` is also a LINEAR scan of the name table on every call, which
+//! is fine for a handful of names and wrong for a pattern with dozens.
+//! Freezing waits on deciding whether the two failure modes separate.
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { GroupNameEntry } :: import("./node.yo");
@@ -17,7 +45,9 @@ RegexMatch :: ref(
 );
 impl(
   RegexMatch,
-  // Create a match result
+  /// Assemble a match. Called only by the engine (`Regex.find` and the
+  /// iterators) after the VM reports success — every argument is a slot the
+  /// VM already computed, so nothing here validates or re-derives anything.
   new : (fn(value : String, index : usize, end : usize, input : String, groups : ArrayList(Option(String)), group_spans : ArrayList(Option(Range(usize))), group_names : ArrayList(GroupNameEntry)) -> Self)(
     Self(
       _value : value,
@@ -29,7 +59,8 @@ impl(
       _group_names : group_names
     )
   ),
-  // Get the full matched text
+  /// The matched text itself — the same bytes as
+  /// `input().substring(index(), end())`, captured at match time.
   value : (fn(self : Self) -> String)(
     self._value
   ),
@@ -56,11 +87,19 @@ impl(
   span : (fn(self : Self) -> Range(usize))(
     self._index .. self._end
   ),
-  // Get the original input string
+  /// The whole string the match was found in, not just the matched part. The
+  /// match holds a reference to it, so the offsets `index()` / `end()` /
+  /// `span()` / `group_span()` stay meaningful for as long as the match does.
   input : (fn(self : Self) -> String)(
     self._input
   ),
-  // Get capture group by index (1-based, group 0 is the full match)
+  /// The text of capture group `idx`, 1-based, with `0` meaning the whole
+  /// match — the same numbering `$1` and `\1` use in patterns.
+  ///
+  /// `.None` means EITHER that the group did not participate in this match (an
+  /// unmatched `(x)?`, or an alternative that was not taken) OR that `idx` is
+  /// past `group_count()`. The two are not distinguishable here; compare `idx`
+  /// against `group_count()` first if that matters.
   group : (fn(self : Self, idx : usize) -> Option(String))(
     cond(
       (idx == usize(0)) => .Some(self._value),
@@ -90,7 +129,13 @@ impl(
       }
     )
   ),
-  // Get capture group by name
+  /// The text of the group declared as `(?<name>...)`, or `.None` when no
+  /// group has that name OR the named group did not participate — the same
+  /// conflation as `group`.
+  ///
+  /// O(number of named groups): the name table is scanned linearly on every
+  /// call, so a loop over many names over a long input is quadratic. Names are
+  /// compared for exact equality, case-sensitively.
   named_group : (fn(self : Self, name : String) -> Option(String))({
     i := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
@@ -104,7 +149,10 @@ impl(
     });
     .None
   }),
-  // Get number of capture groups (not counting group 0)
+  /// How many capture groups the PATTERN declared, not counting group 0 and
+  /// not counting how many actually participated. So a non-participating group
+  /// is still counted, and `group(i)` is a legal call for every
+  /// `1 <= i <= group_count()`.
   group_count : (fn(self : Self) -> usize)(
     self._groups.len()
   )

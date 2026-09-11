@@ -2,6 +2,28 @@
 //!
 //! Environment variables, command-line arguments, and current working
 //! directory live in `std/env`.
+//!
+//! ## Stability
+//!
+//! unstable, and not because of anything defined here. The last line of this
+//! file re-exports ALL of `std/process/command` — `Command`, `Child`,
+//! `Stdio`, `ExitStatus` and the child pipe handles — so importing
+//! `std/process` imports that surface, and it changed on 2026-09-10 when
+//! `Child` gained `take_stdin`/`take_stdout`/`take_stderr` beside the three
+//! bespoke `*_stdin`/`read_*_to_end` methods it already had. Two ways into a
+//! child's streams is one too many, and which pair survives is not settled.
+//! Freezing this module follows `command.yo`, not its own five members.
+//!
+//! Those five are as settled as anything in `std`: `platform`/`arch` and the
+//! `Platform`/`Arch` constant sets have not changed since the bootstrap and
+//! are what every platform `cond` in `std/` and `src/` is written against.
+//! They report the CFG spellings (`macos`, `x86`), deliberately not the
+//! target-triple words (`apple-darwin`, `i686`) — the split is made
+//! explicitly in `src/target.yo`, see `plans/reference/TARGET_TRIPLES.md`. New
+//! targets add strings additively, but note that `Platform`/`Arch` are
+//! comptime STRINGS in a struct rather than enum variants, so a `cond` over
+//! them gets no exhaustiveness check and a newly added platform silently
+//! takes whatever `true =>` arm is there.
 pragma(Pragma.AllowUnsafe);
 /// Current target platform as a compile-time string.
 /// One of: "linux", "macos", "windows", "freebsd", "emscripten", "wasi".

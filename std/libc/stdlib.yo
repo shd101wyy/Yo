@@ -1,4 +1,15 @@
 //! C11 `<stdlib.h>` — general utility functions.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. Callers in `std/` take
+//! narrow slices of it: `getenv` / `setenv` / `unsetenv` / `realpath` for
+//! `std/env`, `exit` for `std/process`, `atof` for `std/encoding/json`'s
+//! number parser. Those modules are the supported surface. `malloc` /
+//! `free` / `realloc` are bound but are NOT how Yo allocates — that is
+//! `std/allocator` and the runtime's own allocator — and calling them on a
+//! Yo-owned pointer is a heap bug. Freezing follows the modules above it;
+//! the binding set itself is additive-by-demand.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<stdlib.h>",

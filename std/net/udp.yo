@@ -1,19 +1,39 @@
-//! Async UDP networking — connectionless datagram sockets.
-// std/net/udp.yo - High-level UDP socket
-//
-// Wraps std/sys/udp with typed UdpSocket object.
-// Uses the Exception effect for error handling.
-//
-// Example:
-//   { UdpSocket } :: import "std/net/udp";
-//   { SocketAddr, IpAddr } :: import "std/net/addr";
-//   { Exception } :: import "std/error";
-//
-//   main :: (fn(io : Io, exn : Exception) -> unit)({
-//     addr := SocketAddr.new(IpAddr.loopback_v4(), u16(9999));
-//     sock := io.await(UdpSocket.bind(addr, io), { io, exn });
-//     io.await(sock.close(io), { io, exn });
-//   });
+//! Async UDP networking — a typed `UdpSocket` over `std/sys/udp` for
+//! connectionless datagrams.
+//!
+//! Every call is an `io.async` future on the single event-loop thread, and
+//! kernel failures throw `IoExn` carrying a `NetError` (D1) instead of
+//! resolving to a negative count. Datagram semantics are the kernel's and
+//! not softened here: a receive returns ONE datagram (never a partial one and
+//! never two), a datagram longer than the buffer is TRUNCATED with the excess
+//! discarded, and nothing is retried or ordered.
+//!
+//! `send_to` addresses each datagram; `send` uses the peer set by `connect`,
+//! which for a datagram socket only fixes the default destination and the
+//! addresses the kernel will accept from — it does not establish anything.
+//!
+//! ```rust
+//! { UdpSocket } :: import("std/net/udp");
+//! { SocketAddr } :: import("std/net/addr");
+//! { IoExn } :: import("std/error");
+//!
+//! e := IoExn(io : io, exn : exn);
+//! sock := io.await(UdpSocket.bind(SocketAddr.loopback(u16(0)), io), e);
+//! got := io.await(sock.recv_from_bytes(usize(1500), io), e);
+//! io.await(sock.close(io), e);
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — the receive surface was rebuilt on 2026-09-09 (`recv_from` now
+//! resolves to `(usize, SocketAddr)` instead of taking two C out-params, and
+//! `recv_bytes` / `recv_from_bytes` gave safe code a way to read a datagram
+//! at all), so it is inside its one-release window. The open question is
+//! whether the raw pointer pair (`recv`, `recv_from`) stays exported beside
+//! the pointer-free pair: two spellings per operation is what D2 argues
+//! against, and only the raw one needs `pragma(Pragma.AllowUnsafe)`.
+//! Multicast joins and `set_ttl` are missing but additive, so they do not
+//! block freezing; the raw/safe split does.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;

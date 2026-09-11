@@ -17,6 +17,66 @@
 //!   assert(out.status.success(), "echo should succeed");
 //! });
 //! ```
+//!
+//! ## Streaming a child's pipes
+//!
+//! `Command.spawn` returns a `Child`; `take_stdin`/`take_stdout`/`take_stderr`
+//! hand you the parent ends as `Writer`/`Reader` handles, so all of
+//! `std/io`'s surface — `write_all`, `read_to_string`, `read_exact`,
+//! `BufReader.lines` — applies to a child's streams:
+//!
+//! ```rust
+//! { Command, Stdio } :: import("std/process/command");
+//! { BufReader } :: import("std/io/buffered");
+//!
+//! cmd := Command.new(`sort`);
+//! cmd.stdin(Stdio.Piped);
+//! cmd.stdout(Stdio.Piped);
+//! child := io.await(cmd.spawn(io), ie);
+//! match(child.take_stdin(), .Some(w) => {
+//!   io.await(w.write_string(`b\na\n`, io), ie);
+//!   io.await(w.close(io), ie);            // EOF — or just drop `w`
+//! }, .None => ());
+//! text := match(
+//!   child.take_stdout(),
+//!   .Some(r) => io.await(r.read_to_string(io), ie),
+//!   .None => String.new()
+//! );
+//! io.await(child.wait(io), ie);
+//! ```
+//!
+//! Taking a stream MOVES its fd out of the `Child`, so `wait()` will not close
+//! it and the handle's own `close` (or its drop) does. Read a piped stdout
+//! before `wait()` when the child may produce more than a pipe buffer holds,
+//! or the child blocks writing while you block waiting.
+//!
+//! ## Stability
+//!
+//! unstable — there are two ways into a child's pipes and one of them has to
+//! go. The typed handles (`take_stdin`/`take_stdout`/`take_stderr`) landed
+//! 2026-09-10 and are the ones that put a child's streams inside `std/io`'s
+//! surface; the three bespoke methods they replace (`write_stdin`,
+//! `read_stdout_to_end`, `read_stderr_to_end`) are still exported beside
+//! them, so the same fd is reachable through two vocabularies with different
+//! ownership rules. Removing the older pair is breaking, so it has not
+//! happened yet, and freezing now would freeze both.
+//!
+//! The manual path is also missing the piece that makes it safe. Draining
+//! stdout to EOF and then stderr deadlocks on any child that fills the 64 KiB
+//! stderr pipe first, which is why `output()` spawns a task per pipe
+//! (`issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md`).
+//! A caller who took the handles has to rebuild that concurrency by hand —
+//! Rust offers `Child::wait_with_output` for exactly this, and Yo's
+//! equivalent is only reachable if you did NOT take the handles. That helper
+//! is additive; the duplicate stream API is not. Freezing follows the removal
+//! of the bespoke trio, not a release count.
+//!
+//! Settled and not blocking: `kill` throws through `Exception` rather than
+//! returning an errno (D1, changed 2026-09-06), and `ExitStatus`/`Stdio`/the
+//! `Command` builder have been stable across the campaign. `kill` does take a
+//! raw signal NUMBER where Rust's takes none — deliberate, since the whole
+//! POSIX signal set is reachable and Windows has no equivalent to narrow it
+//! to.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
 { String } :: import("../string");
@@ -33,6 +93,8 @@ IO_pipe :: import("../sys/pipe");
 { O_NONBLOCK, FD_CLOEXEC } :: import("../libc/fcntl");
 { malloc, free } :: GlobalAllocator;
 { stdout, fflush } :: import("../libc/stdio");
+{ close_sync } :: import("../sys/file");
+IoTraits :: import("../io");
 // ============================================================================
 // ExitStatus
 // ============================================================================
@@ -159,7 +221,6 @@ impl(
     self._env_overrides.push(entry);
     self
   }),
-  /// Start the child from an EMPTY environment (only `env()` entries).
   /// Run the child with `dir` as its working directory. POSIX uses
   /// posix_spawn_file_actions_addchdir_np (spawn reports ENOSYS on a libc
   /// without it — macOS 10.15+/glibc 2.29+/musl 1.2.5+ all have it);
@@ -168,6 +229,19 @@ impl(
     self._cwd = Option(String).Some(dir);
     self
   }),
+  /// Stop the child inheriting this process's environment, so it starts
+  /// from an EMPTY one plus whatever `env()` supplied — Rust's
+  /// `Command::env_clear`.
+  ///
+  /// **It does not clear the `env()` entries already recorded, and Rust's
+  /// does.** This sets a flag that is consulted at spawn time and only
+  /// suppresses the walk over `environ`; the overrides are collected
+  /// separately and always survive. So `cmd.env(`A`, `1`).env_clear()`
+  /// runs the child with `A=1` here, and with nothing at all in Rust —
+  /// call order makes no difference in either direction.
+  ///
+  /// With neither this nor any `env()` call, no `envp` is constructed at
+  /// all and the child inherits by the platform's own mechanism.
   env_clear : (fn(self : Self) -> Self)({
     self._env_clear = true;
     self
@@ -563,13 +637,283 @@ Child :: ref(
     _reaped : bool
   )
 );
+// ============================================================================
+// Child pipe handles (Reader / Writer over the parent end of a pipe)
+// ============================================================================
+// A pipe is read and written at offset 0 — pipes have no seek position — and
+// an fd of -1 makes the syscall return EBADF, which `IoError.check` turns into
+// `IoError.BadFileDescriptor`. That is how a handle closed (or disposed)
+// before use reports itself, with no branch inside the `io.async` body.
+_pipe_write :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    n := e.io.await(IO_file.write(fd, buf, u32(size), u64(0)), e.io);
+    usize(IoError.check(n, e.exn))
+  })
+);
+_pipe_read :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    n := e.io.await(IO_file.read(fd, buf, u32(size), u64(0)), e.io);
+    usize(IoError.check(n, e.exn))
+  })
+);
+/// The parent's write end of a child's stdin pipe — a `Writer`, so
+/// `write_all`, `write_string` and the rest of `std/io`'s writer surface work
+/// on it. Take it off a `Child` with `take_stdin()`; closing it (explicitly,
+/// or by dropping it) is the EOF the child is usually waiting for.
+ChildStdin :: ref(struct(_fd : i32, _closed : bool));
+/// The parent's read end of a child's stdout pipe — a `Reader`, so
+/// `read_to_end`, `read_to_string`, `read_exact` and `BufReader` work on it.
+/// Take it off a `Child` with `take_stdout()`.
+ChildStdout :: ref(struct(_fd : i32, _closed : bool));
+/// The parent's read end of a child's stderr pipe. Structurally identical to
+/// `ChildStdout` and distinct for the same reason Rust keeps them apart: the
+/// type says which stream you are holding.
+ChildStderr :: ref(struct(_fd : i32, _closed : bool));
+impl(
+  ChildStdin,
+  /// The underlying file descriptor.
+  fd : (fn(self : Self) -> i32)(self._fd),
+  /// Whether the handle has been closed.
+  is_closed : (fn(self : Self) -> bool)(self._closed),
+  /// Write up to `size` bytes. Returns the number written.
+  write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    raw := cond(self._closed => i32(-1), true => self._fd);
+    _pipe_write(raw, buf, size, io)
+  }),
+  /// Close the write end — the child sees EOF. Safe to call multiple times.
+  ///
+  /// The flag is set INSIDE the async body, after the close, exactly as
+  /// `File.close` does: a future that is created and never awaited must leave
+  /// the handle closeable, or `dispose` would skip an fd that is still open.
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    raw := self._fd;
+    io.async(
+      e =>
+        cond(
+          self._closed => (),
+          true => {
+            result := e.io.await(IO_file.close(raw), e.io);
+            self._closed = true;
+            cond(
+              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
+              true => ()
+            )
+          }
+        )
+    )
+  })
+);
+impl(
+  ChildStdin,
+  IoTraits.Writer(
+    write : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.write(buf, size, io)
+    ),
+    /// A no-op that always succeeds: a pipe write goes straight to the
+    /// kernel, so there is nothing held here to push. Everything `write`
+    /// reported as written is already visible to the child, and flushing
+    /// is NOT what delivers EOF — `close` (or dropping the handle) is.
+    flush : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+      io.async(e => ())
+    )
+  )
+);
+// Registered AFTER the `Writer` impl above: `write_string` calls the
+// `write_all` DEFAULT on a `ChildStdin`, and a module evaluates top to bottom,
+// so an impl that came later would leave this `io.async` body hollow at
+// definition time — the same ordering constraint std/fs/file.yo records.
+impl(
+  ChildStdin,
+  /// Write a `String`, in full. `File.write_string` spells the same
+  /// convenience.
+  write_string : (fn(self : Self, data : String, io : Io) -> Impl(Future(usize, IoExn)))(
+    io.async(e => {
+      bytes := data.as_bytes();
+      cond(
+        (bytes.len() == usize(0)) => usize(0),
+        true => {
+          e.io.await(self.write_all(bytes.ptr().unwrap(), bytes.len(), e.io), e);
+          bytes.len()
+        }
+      )
+    })
+  )
+);
+impl(
+  ChildStdin,
+  /// Dropping the handle closes the pipe, so a child waiting on EOF is not
+  /// left hanging by a forgotten `close`.
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        !self._closed => {
+          close_sync(self._fd);
+          self._closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
+impl(
+  ChildStdout,
+  /// The underlying file descriptor.
+  fd : (fn(self : Self) -> i32)(self._fd),
+  /// Whether the handle has been closed.
+  is_closed : (fn(self : Self) -> bool)(self._closed),
+  /// Read up to `size` bytes. Returns the number read; 0 means EOF.
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    raw := cond(self._closed => i32(-1), true => self._fd);
+    _pipe_read(raw, buf, size, io)
+  }),
+  /// Close the read end. Safe to call multiple times. Sets the flag after the
+  /// close, for the reason `ChildStdin.close` records.
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    raw := self._fd;
+    io.async(
+      e =>
+        cond(
+          self._closed => (),
+          true => {
+            result := e.io.await(IO_file.close(raw), e.io);
+            self._closed = true;
+            cond(
+              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
+              true => ()
+            )
+          }
+        )
+    )
+  })
+);
+impl(
+  ChildStdout,
+  IoTraits.Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+impl(
+  ChildStdout,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        !self._closed => {
+          close_sync(self._fd);
+          self._closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
+impl(
+  ChildStderr,
+  /// The underlying file descriptor.
+  fd : (fn(self : Self) -> i32)(self._fd),
+  /// Whether the handle has been closed.
+  is_closed : (fn(self : Self) -> bool)(self._closed),
+  /// Read up to `size` bytes. Returns the number read; 0 means EOF.
+  read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+    raw := cond(self._closed => i32(-1), true => self._fd);
+    _pipe_read(raw, buf, size, io)
+  }),
+  /// Close the read end. Safe to call multiple times. Sets the flag after the
+  /// close, for the reason `ChildStdin.close` records.
+  close : (fn(self : Self, io : Io) -> Impl(Future(unit, IoExn)))({
+    raw := self._fd;
+    io.async(
+      e =>
+        cond(
+          self._closed => (),
+          true => {
+            result := e.io.await(IO_file.close(raw), e.io);
+            self._closed = true;
+            cond(
+              (result < i32(0)) => e.exn.throw(dyn(IoError.from_errno(i32(0) - result))),
+              true => ()
+            )
+          }
+        )
+    )
+  })
+);
+impl(
+  ChildStderr,
+  IoTraits.Reader(
+    read : (fn(self : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+      self.read(buf, size, io)
+    )
+  )
+);
+impl(
+  ChildStderr,
+  Dispose(
+    dispose : (fn(self : Self) -> unit)({
+      cond(
+        !self._closed => {
+          close_sync(self._fd);
+          self._closed = true;
+        },
+        true => ()
+      );
+    })
+  )
+);
 impl(
   Child,
   /// The child's process id.
   pid : (fn(self : Self) -> i32)(
     self._pid
   ),
+  /// Take the parent's write end of the child's stdin pipe as a `Writer`.
+  /// `.None` if stdin was not `Stdio.Piped`, or if it has already been taken
+  /// or closed.
+  ///
+  /// Taking MOVES the fd out of the `Child`: `wait()` no longer closes it, the
+  /// returned handle owns it, and `write_stdin`/`close_stdin` on this `Child`
+  /// throw `BadFileDescriptor` from then on. Dropping the handle closes the
+  /// pipe, which is the EOF the child is usually waiting for.
+  take_stdin : (fn(self : Self) -> Option(ChildStdin))(
+    match(
+      self._stdin_fd,
+      .Some(f) => {
+        self._stdin_fd = Option(i32).None;
+        Option(ChildStdin).Some(ChildStdin(_fd : f, _closed : false))
+      },
+      .None => Option(ChildStdin).None
+    )
+  ),
+  /// Take the parent's read end of the child's stdout pipe as a `Reader`, so
+  /// `read_to_string`, `read_exact` and `BufReader` apply. `.None` if stdout
+  /// was not `Stdio.Piped`, or if it has already been taken.
+  ///
+  /// Taking MOVES the fd out of the `Child`, exactly as `take_stdin` does.
+  take_stdout : (fn(self : Self) -> Option(ChildStdout))(
+    match(
+      self._stdout_fd,
+      .Some(f) => {
+        self._stdout_fd = Option(i32).None;
+        Option(ChildStdout).Some(ChildStdout(_fd : f, _closed : false))
+      },
+      .None => Option(ChildStdout).None
+    )
+  ),
+  /// Take the parent's read end of the child's stderr pipe as a `Reader`.
+  /// `.None` if stderr was not `Stdio.Piped`, or if it has already been taken.
+  take_stderr : (fn(self : Self) -> Option(ChildStderr))(
+    match(
+      self._stderr_fd,
+      .Some(f) => {
+        self._stderr_fd = Option(i32).None;
+        Option(ChildStderr).Some(ChildStderr(_fd : f, _closed : false))
+      },
+      .None => Option(ChildStderr).None
+    )
+  ),
   /// Write bytes into the child's piped stdin. Requires `stdin(Stdio.Piped)`.
+  /// Throws `BadFileDescriptor` once `take_stdin()` has moved the fd out.
   write_stdin : (fn(self : Self, data : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd_opt := self._stdin_fd;
     io.async(e => {
@@ -756,4 +1100,4 @@ impl(
     })
   )
 );
-export(Command, ExitStatus, Output, Child);
+export(Command, ExitStatus, Output, Child, ChildStdin, ChildStdout, ChildStderr);

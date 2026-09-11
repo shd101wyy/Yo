@@ -6,6 +6,20 @@
 //! All async operations return `IoFuture` which resolves to:
 //! - 0: success
 //! - Non-zero: raw `gai_error` code (`EAI_NONAME`, `EAI_AGAIN`, etc.)
+//!
+//! ## Stability
+//!
+//! unstable — a raw wrapper over `getaddrinfo`/`getnameinfo` whose results
+//! are a linked list walked through accessor functions and whose errors are
+//! raw `gai_error` codes, not `IoError`. `std/net/dns`'s `lookup_host` is the
+//! typed face and is what callers want.
+//!
+//! It is also where a real open question lives rather than just a rough edge:
+//! a plaintext connect uses the FIRST address this returns and does not fall
+//! back to the next on failure, so a host whose IPv6 route is dead fails
+//! instead of reaching its IPv4 address. There is no happy-eyeballs, and the
+//! resolver's order decides. Fixing that will change what the typed layer
+//! asks of this one.
 //
 // Example:
 //   { GlobalAllocator } :: import "../allocator";

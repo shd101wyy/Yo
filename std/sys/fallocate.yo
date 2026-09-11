@@ -1,14 +1,50 @@
-//! File space pre-allocation.
+//! File space pre-allocation (`fallocate`) — the raw syscall boundary.
 //!
-//! Synchronous wrapper for `fallocate`-style allocation.
-//! Returns 0 on success, -errno on failure.
+//! One wrapper, three genuinely different implementations underneath. No
+//! public `std` module reserves space yet; `tests/sys/fallocate.test.yo` is
+//! its only caller in this tree.
+//!
+//! ## Stability
+//!
+//! unstable — the `mode` word is a Linux flag set that only Linux can honour.
+//! macOS reaches `fcntl(F_PREALLOCATE)` and Windows reaches
+//! `SetFileInformationByHandle`, and neither has an equivalent of
+//! `PUNCH_HOLE` or `ZERO_RANGE`, so those bits are silently ignored rather
+//! than rejected. Freezing needs that resolved one way or the other: either
+//! narrow the API to the one mode every platform can implement (reserve, with
+//! or without growing the file) and give hole-punching its own Linux-only
+//! entry point, or report `-ENOTSUP` for a mode the platform cannot serve
+//! instead of returning success.
 { __yo_sync_fallocate } :: import("./externs.yo");
-// Mode constants
-FALLOC_FL_KEEP_SIZE :: i32(0x01); // Do not change file size
-FALLOC_FL_PUNCH_HOLE :: i32(0x02); // Deallocate range (Linux-specific)
-FALLOC_FL_ZERO_RANGE :: i32(0x10); // Zero range (Linux-specific)
-// Pre-allocate disk space for a file range.
-// Ensures writes in [offset, offset + length) have space reserved.
+/// `FALLOC_FL_KEEP_SIZE` from Linux `<linux/falloc.h>` — reserve the blocks
+/// but leave the file's reported length alone. This is the ONE mode bit every
+/// platform's implementation inspects: with it clear, macOS and Windows also
+/// grow the file to `offset + length`.
+FALLOC_FL_KEEP_SIZE :: i32(0x01);
+/// `FALLOC_FL_PUNCH_HOLE` — deallocate the range, leaving a sparse hole that
+/// reads as zeroes. Linux-only, and Linux requires it OR-ed with
+/// `FALLOC_FL_KEEP_SIZE`. Ignored (not rejected) on macOS, Windows and wasm.
+FALLOC_FL_PUNCH_HOLE :: i32(0x02);
+/// `FALLOC_FL_ZERO_RANGE` — zero the range, converting it to unwritten
+/// extents where the filesystem can. Linux-only; ignored elsewhere.
+FALLOC_FL_ZERO_RANGE :: i32(0x10);
+/// Reserve disk space for `[offset, offset + length)` so that later writes
+/// there cannot fail with `-ENOSPC`. Returns 0 on success, a negative errno
+/// on failure.
+///
+/// The implementations are not the same call, and the difference is
+/// observable:
+/// * Linux — `fallocate(2)`, with `mode` passed through unchanged.
+/// * macOS — `fcntl(F_PREALLOCATE)`, first asking for a contiguous run
+///   (`F_ALLOCATECONTIG`) and retrying with `F_ALLOCATEALL`; if the
+///   filesystem refuses outright (`ENOTSUP`/`EOPNOTSUPP`/`ENOSYS`/`EINVAL`)
+///   it degrades to `ftruncate`, which reserves nothing — so success here is
+///   weaker than on Linux. Rejects a negative `offset` or `length` with
+///   `-EINVAL`.
+/// * Windows — `SetFileInformationByHandle(FileAllocationInfo)` plus
+///   `_chsize_s` when the size must grow.
+/// * wasm — `ftruncate` only, and only for `mode == 0`; any other mode
+///   returns 0 without doing anything.
 fallocate :: (fn(fd : i32, mode : i32, offset : i64, length : i64) -> i32)(
   __yo_sync_fallocate(fd, mode, offset, length)
 );

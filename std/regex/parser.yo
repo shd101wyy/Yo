@@ -4,23 +4,78 @@
 //! **Internal to `std/regex`.** Nothing here is public API: import
 //! `std/regex` and use `Regex`. This module's shape changes freely — the one
 //! piece of it users see is `RegexError`, which `std/regex` re-exports.
+//!
+//! ## Why iterative
+//!
+//! Nesting in a pattern is unbounded (`((((a))))`), and a recursive-descent
+//! parser turns that into unbounded native stack. `parse` keeps an explicit
+//! `ArrayList(ParseFrame)` instead: `(` pushes the enclosing frame and starts a
+//! fresh one, `)` pops and folds the finished group into its parent's current
+//! sequence. So pattern depth costs heap, not stack, and a deeply nested
+//! pattern from untrusted input cannot overflow.
+//!
+//! Alternation is handled by the same frames rather than by precedence: `|`
+//! closes the current sequence into the frame's `alternatives` list and starts
+//! a new one, and the frame is folded into right-nested binary
+//! `RegexNode.alternation` nodes when it closes. That is why `a|b|c` becomes
+//! `alternation(a, alternation(b, c))` and not a three-child node.
+//!
+//! Positions are BYTE offsets into the pattern throughout — `_pos` indexes
+//! `_bytes` — and every `RegexError` reports one. Bytes outside ASCII are
+//! decoded as runes only where the grammar cares (literals, class members);
+//! the structural scan is byte-wise, which is safe because every metacharacter
+//! is ASCII and UTF-8 is self-synchronising.
+//!
+//! ## Stability
+//!
+//! unstable, and deliberately not public. Its output type (`RegexNode`) is
+//! internal and its input grammar is still growing — every construct added
+//! (inline `(?i)` flag groups, `\Q...\E`, atomic groups, named-class
+//! shorthands) changes both `NodeKind` and `RegexError`. `RegexError` is the
+//! one piece that escapes, and its own `## Stability` section explains why an
+//! exhaustively-matched error enum cannot be frozen while the grammar moves.
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { RegexNode, CharRange, GroupNameEntry } :: import("./node.yo");
 { unicode_property_ranges } :: import("./unicode.yo");
 { RegexError } :: import("./error.yo");
 utf8 :: import("../encoding/utf8.yo");
-// A parse frame for tracking alternation/sequence state
+/// One suspended enclosing context, pushed on `(` and popped on `)`.
+///
+/// Everything about a group EXCEPT its contents: the alternation state of the
+/// enclosing level plus what kind of group is being opened, so `)` knows which
+/// `RegexNode` constructor to fold with. Held only in `parse`'s explicit
+/// stack, which is what keeps pattern nesting off the native stack.
 ParseFrame :: struct(
+  /// Completed branches of the enclosing alternation, one sequence each —
+  /// everything `|` has closed off so far. Empty when the enclosing level has
+  /// no `|` in it.
   alternatives : ArrayList(ArrayList(RegexNode)),
+  /// The enclosing level's sequence-in-progress, to which the finished group
+  /// node is appended when `)` pops this frame.
   current : ArrayList(RegexNode),
+  /// The group being opened is `(?:...)`, so it consumes no capture number.
   is_non_capturing : bool,
+  /// The 1-based capture number assigned to the group being opened, or 0 when
+  /// it captures nothing. Assigned at `(` — by opening-parenthesis order, as
+  /// every regex dialect does — so a nested group's number is lower than a
+  /// later sibling's.
   group_index : usize,
+  /// The group being opened is `(?=...)` / `(?!...)`.
   is_lookahead : bool,
+  /// The group being opened is `(?<=...)` / `(?<!...)`.
   is_lookbehind : bool,
+  /// For either lookaround, whether it is the POSITIVE form. Meaningless when
+  /// both lookaround flags are false.
   is_positive : bool
 );
-// Parser state object
+/// A parser over one pattern: the byte cursor plus the capture-numbering
+/// state that outlives the parse.
+///
+/// SINGLE USE — `parse` consumes the cursor to the end and the group counters
+/// are cumulative, so a second `parse` on the same instance would return an
+/// empty pattern with the previous run's group table. Build one per pattern,
+/// call `parse`, then read `group_count()` / `group_names()` off it.
 RegexParser :: ref(
   struct(
     _source : String,
@@ -33,6 +88,7 @@ RegexParser :: ref(
 // First impl block: utility + leaf parsers (defined bottom-up)
 impl(
   RegexParser,
+  /// A parser positioned at the start of `pattern`, with no groups seen yet.
   new : (fn(pattern : String) -> Self)(
     Self(
       _source : pattern,
@@ -75,9 +131,20 @@ impl(
   _at_end : (fn(self : Self) -> bool)(
     self._pos >= self._bytes.len()
   ),
+  /// How many capturing groups the pattern declared, not counting group 0.
+  ///
+  /// Only meaningful AFTER `parse` — it counts groups as they are opened, so
+  /// reading it early reports a partial count. `compile` uses it to size the
+  /// VM's capture array.
   group_count : (fn(self : Self) -> usize)(
     self._group_count
   ),
+  /// The `(?<name>...)` declarations, in the order they were opened. Valid
+  /// after `parse`, for the same reason as `group_count`.
+  ///
+  /// Returns the parser's own list, not a copy — it travels into the compiled
+  /// program and out to `RegexMatch.named_group`, and nobody mutates it after
+  /// the parse.
   group_names : (fn(self : Self) -> ArrayList(GroupNameEntry))(
     self._group_names
   ),
@@ -693,6 +760,22 @@ impl(
     });
     result
   }),
+  /// Parse the whole pattern into an AST, or report the first fault.
+  ///
+  /// One left-to-right pass with the explicit frame stack described in the
+  /// module header — no backtracking and no second pass, so the FIRST error
+  /// wins and later faults in the same pattern are never seen. Errors carry
+  /// the byte offset the parser had reached, which is not always where the
+  /// construct began (a `(` opened at 0 and never closed reports the end of
+  /// the pattern).
+  ///
+  /// Backreferences are validated here rather than at compile time: `\1` past
+  /// `group_count()` is `InvalidBackreference` and `\k<name>` with no such
+  /// name is `UnknownGroupName`, so the compiler and VM can assume every
+  /// `Backreference` node names a real group.
+  ///
+  /// An empty pattern is legal and parses to an empty `Sequence`, which
+  /// matches the empty string at every position.
   parse : (fn(self : Self) -> Result(RegexNode, RegexError))({
     stack := ArrayList(ParseFrame).new();
     cur_alts := ArrayList(ArrayList(RegexNode)).new();

@@ -1,0 +1,26 @@
+// Regex.split interleaves capture groups into its result (JavaScript's shape,
+// not Rust's) and renders a NON-PARTICIPATING group as the literal string
+// "undefined". Expected (Rust's Regex::split): ["a", "b"].
+// Actual: ["a", "undefined", "b"].
+{ Regex } :: import("std/regex");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ println } :: import("std/fmt");
+show :: (fn(tag : String, parts : ArrayList(String)) -> unit)({
+  println(tag);
+  i := usize(0);
+  while(i < parts.len(), i = (i + usize(1)), {
+    println(parts(i));
+  });
+});
+main :: (fn() -> unit)({
+  // 1. A non-participating optional group becomes the text "undefined".
+  re := Regex.new(`,(x)?`).unwrap();
+  show(`-- ,(x)? split of a,b --`, re.split(`a,b`));
+  // 2. A participating group is interleaved into the pieces.
+  re2 := Regex.new(`(-)`).unwrap();
+  show(`-- (-) split of a-b-c --`, re2.split(`a-b-c`));
+  // 3. The same body serves String.split(re) through the Pattern trait.
+  show(`-- String.split(re) --`, `a,b`.split(re));
+});
+export(main);

@@ -1,0 +1,78 @@
+name: Bug report
+description: Something compiles, runs, or behaves differently from what it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing. The single most useful thing you can give us is a
+        **minimal `.yo` file that reproduces it** — smaller reproducers get
+        fixed faster, because the first thing a fix needs is a test.
+
+        If the bug is a C compiler error out of `yo compile`, please use the
+        **Codegen / C compile failure** template instead: it asks for the
+        emitted C, which is where that class of bug is diagnosed.
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproducer
+      description: A complete `.yo` file, as small as you can make it. Please include `export(main);`.
+      render: rust
+      placeholder: |
+        main :: (fn() -> unit)({
+          // ...
+        });
+        export(main);
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: The command you ran
+      description: Verbatim, including flags — `--optimize`, `--sanitize` and `--target` all change behaviour.
+      render: shell
+      placeholder: yo compile repro.yo --optimize 2 -o /tmp/repro && /tmp/repro
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The output or error, copied verbatim rather than described. Include the exit code if the program crashed.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Yo version
+      description: Output of `yo --version`. If you built from source, the commit SHA.
+      placeholder: "yo 0.2.30"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (arm64)
+        - Windows
+        - WebAssembly (wasm32-wasip1 / emscripten)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Does it reproduce at `-O0` as well as `--optimize 2`? On one platform only? Did it work in an earlier release?

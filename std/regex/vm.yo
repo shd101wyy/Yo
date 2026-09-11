@@ -17,28 +17,78 @@
 //! bound is memory. (A `MAX_SLOTS :: 200` constant used to sit here; it was
 //! referenced nowhere and bounded nothing, so it was deleted rather than
 //! turned into a limit the engine never had.)
+//!
+//! ## Match semantics
+//!
+//! LEFTMOST-FIRST, like Perl/PCRE and Rust's regex crate — not POSIX
+//! leftmost-longest. Threads within one generation are processed in priority
+//! order and the first to reach `Match` wins, which is exactly what makes
+//! `a|ab` match just `a`. Priority comes from the order `_add_thread` walks a
+//! `Split`'s two targets (`target_a` first), so the compiler's greedy/lazy
+//! target ordering IS the greediness.
+//!
+//! ## Where it stops being linear
+//!
+//! The `seen` bitmap makes each generation visit every pc at most once, which
+//! is what buys O(n×m). A `Backref` breaks that premise: it needs the actual
+//! text a group captured, so two threads at the same pc are no longer
+//! interchangeable, and a multi-byte backreference cannot be consumed in one
+//! generation at all — those threads go into `deferred` and are revived at the
+//! byte position they land on. Lookarounds also step outside the simulation:
+//! each one runs its own nested generation loop over the sub-program. So
+//! patterns using only the linear-time constructs get the linear-time bound,
+//! and the others do not.
+//!
+//! ## Stability
+//!
+//! unstable, and deliberately not public. It is one half of an internal pair
+//! with `compiler.yo` — the `Instr` set is their private wire format and moves
+//! in the same commit as this file. Two behaviours here are known-approximate
+//! and will change: `_to_lower` folds ASCII only, so the `i` flag does not
+//! match `é`/`É`, and class membership is a linear scan of unsorted ranges. A
+//! third is unbounded: nothing caps thread count or backtracking work, so a
+//! pathological backreference pattern has no execution budget the way Rust's
+//! engine does. Fixing any of those changes what matches or how long it takes.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { NfaProgram, ClassEntry } :: import("./compiler.yo");
 { RegexFlags } :: import("./flags.yo");
 utf8 :: import("../encoding/utf8.yo");
-// A single NFA thread: an instruction pointer + capture slots
+/// One live NFA thread — a position in the program plus the captures it has
+/// recorded so far. Reference-counted, but never shared: `fork` copies the
+/// slots, because two threads that diverge must not see each other's captures.
 NfaThread :: ref(
   struct(
+    /// Index into `NfaProgram.instructions` — the instruction this thread is
+    /// about to execute.
     pc : usize,
+    /// `2 * (n_groups + 1)` capture positions, `usize.MAX` meaning "unset".
+    /// Slot `2g` is group `g`'s start and `2g+1` its end; 0 and 1 are the
+    /// whole match.
     slots : ArrayList(usize)
   )
 );
 impl(
   NfaThread,
+  /// A thread at `pc` with all `n_slots` captures unset.
+  ///
+  /// "Unset" is `usize.MAX`, chosen so the whole array can be initialised
+  /// with one `memset` of `0xFF` instead of a per-slot loop — which is why the
+  /// sentinel is MAX rather than 0 (0 is a legal byte offset).
   new : (fn(pc : usize, n_slots : usize) -> Self)({
     s := ArrayList(usize).with_capacity(n_slots);
     // usize.MAX = 0xFF..FF, so memset with 0xFF fills each byte
     s.resize_with_byte(n_slots, int(255));
     Self(pc : pc, slots : s)
   }),
-  // Clone a thread with a new PC
+  /// A copy of this thread positioned at `new_pc`, with its captures copied
+  /// too.
+  ///
+  /// The copy is a bulk `extend_from_ptr`, and it is what a `Split` costs: an
+  /// O(n_slots) copy per fork per generation. Every step of the simulation
+  /// forks rather than mutating, so a thread's captures are only ever written
+  /// by the thread that owns them.
   fork : (fn(self : Self, new_pc : usize) -> Self)({
     new_slots := ArrayList(usize).with_capacity(self.slots.len());
     match(
@@ -49,22 +99,49 @@ impl(
     Self(pc : new_pc, slots : new_slots)
   })
 );
-// VM execution result
+/// What one `exec_at` attempt produced.
 VmMatch :: struct(
+  /// Whether a match was found starting at (or, without the `y` flag, at or
+  /// after) the requested position.
   matched : bool,
+  /// The winning thread's capture slots, or an EMPTY list when `matched` is
+  /// false — so callers must check `matched` before indexing, not just the
+  /// length.
   slots : ArrayList(usize)
 );
-// Helper struct for decoded characters
+/// One decoded rune and how many bytes it occupied — the unit the simulation
+/// advances by, since the program matches runes while positions are byte
+/// offsets.
 DecodedChar :: struct(
+  /// The code point, or U+FFFD when the bytes did not decode: the VM is
+  /// tolerant by contract and never fails on malformed input.
   codepoint : u32,
+  /// Bytes consumed, always at least 1 — a malformed byte is charged as width
+  /// 1 so the scan cannot stall.
   byte_len : usize
 );
-// A thread deferred to a future byte position (for multi-byte backrefs)
+/// A thread parked until the scan reaches a later byte position.
+///
+/// This exists for BACKREFERENCES only. A `Backref` consumes as many bytes as
+/// the referenced group captured, which may be several generations' worth,
+/// and the generation loop advances one rune at a time — so the thread is
+/// stored here and revived when `byte_pos` catches up. Nothing else in the
+/// engine needs it, because every other instruction consumes zero or one rune.
 DeferredThread :: struct(
+  /// The byte position at which this thread becomes live again.
   target_byte_pos : usize,
+  /// The parked thread, captures included.
   thread : NfaThread
 );
-// The NFA virtual machine
+/// One execution context: a compiled program bound to one input, plus the
+/// scratch buffers the generation loop reuses.
+///
+/// Cheap to create and intended to be created per attempt — `Regex`'s
+/// `Pattern` methods build one per call. It is NOT reusable across inputs (the
+/// input is a field) and not safe to run twice concurrently (the `_seen`
+/// buffers are shared mutable scratch), but `exec_at` may be called repeatedly
+/// on the same instance for different start offsets, which is how `find_all`
+/// walks a string.
 NfaVm :: ref(
   struct(
     _program : NfaProgram,
@@ -79,6 +156,11 @@ NfaVm :: ref(
 // Block 1: Constructor and leaf helpers (no method dependencies)
 impl(
   NfaVm,
+  /// Bind `program` and `flags` to `input`, sizing the capture array from the
+  /// program's group count and pre-allocating the two per-generation `seen`
+  /// bitmaps to the instruction count. Those two allocations are hoisted here,
+  /// rather than made per generation, because `exec_at` clears them with a
+  /// `memset` on every step.
   new : (fn(program : NfaProgram, flags : RegexFlags, input : String) -> Self)({
     n_slots := ((program.n_groups + usize(1)) * usize(2));
     n_instr := program.instructions.len();
@@ -434,6 +516,24 @@ impl(
 // Block 5: exec_at (depends on Block 1+2+3+4)
 impl(
   NfaVm,
+  /// Run the program against the input, starting at byte offset `start_byte`.
+  ///
+  /// Without the `y` (sticky) flag the caller is expected to retry at
+  /// successive offsets — this function does not itself scan forward for a
+  /// start position; the surrounding `Regex` methods do, using
+  /// `literal_prefix` to skip offsets that cannot match.
+  ///
+  /// Returns the LEFTMOST-FIRST match (see the module header): threads are
+  /// processed in priority order within each generation and the first to reach
+  /// `Match` ends that generation, so alternation order and greedy/lazy
+  /// ordering decide the result rather than match length.
+  ///
+  /// The loop runs while `byte_pos <= input_len` — one generation PAST the
+  /// last byte — because the zero-width assertions (`$`, `\b`) and empty
+  /// matches have to be evaluated at the end of input too.
+  ///
+  /// `start_byte` is not boundary-checked: a mid-rune offset simply decodes
+  /// the bytes it finds there and, for a valid pattern, fails to match.
   exec_at : (fn(self : Self, start_byte : usize) -> VmMatch)({
     // Reuse pre-allocated seen buffers from the VM
     current := ArrayList(NfaThread).new();

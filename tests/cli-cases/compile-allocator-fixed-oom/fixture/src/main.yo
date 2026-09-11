@@ -1,0 +1,67 @@
+// OOM behaviour under --allocator fixed (plans/reference/FIXED_REGION_ALLOCATOR.md
+// §2.5): allocation through the INFALLIBLE surface (RC objects —
+// __yo_rc_alloc) past a 64 KiB region must PANIC with the "out of memory"
+// diagnostic, never NULL-deref.
+//
+// The panic aborts the process, and abort exit codes differ by platform
+// (signal 6 on POSIX, code 3 on Windows) — so the program re-executes ITSELF
+// in child mode (the tests/gc_cleanup_exit.test.yo pattern) and only the
+// PARENT, which exits 0 portably, prints the child's diagnostic line.
+{ assert } :: import("std/assert");
+{ Command } :: import("std/process/command");
+{ Exception, AnyError, IoExn } :: import("std/error");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+{ env, args } :: import("std/env");
+/// A user ref struct: every construction lowers to `__yo_new_Node`, whose
+/// allocation goes through `__yo_rc_alloc` — the emitted-runtime panic path
+/// this case pins (std-level growable collections have their own OOM panic
+/// message; a Node chain touches nothing but RC constructors).
+Node :: ref(
+  struct(
+    value : i32,
+    next : Option(Self)
+  )
+);
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  match(
+    env.get(String.from("YO_FIXED_OOM_CHILD")),
+    .Some(_) => {
+      // Child: chain 65536 Nodes — far past the 64 KiB region — holding every
+      // node alive via `next`, so only Node constructors allocate and the
+      // panic that fires is __yo_alloc_fail's.
+      (head : Option(Node)) = Option(Node).None;
+      (i : usize) = usize(0);
+      while(i < usize(65536), {
+        head = Option(Node).Some(Node(i32(0), head));
+        i = (i + usize(1));
+      });
+      // Unreachable inside a 64 KiB heap; reaching it means the oracle broke.
+      println(String.from("child-kept-allocating (BUG)"));
+    },
+    .None => ()
+  );
+  // Parent: spawn the child, capture its output, print the panic line.
+  _s := env.set(String.from("YO_FIXED_OOM_CHILD"), String.from("1"));
+  argv := args();
+  cmd := Command.new(argv(usize(0)));
+  out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
+  assert(!out.status.success(), "the OOM child must die, not exit 0");
+  text := String.from_bytes(out.stderr);
+  lines := text.split("\n");
+  (found : bool) = false;
+  (i : usize) = usize(0);
+  while(i < lines.len(), {
+    match(
+      lines.get(i),
+      .Some(line) => if(line.contains(String.from("out of memory")), {
+        println(line.clone());
+        found = true;
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  assert(found, "the OOM child's stderr carried the diagnostic");
+});
+export(main);

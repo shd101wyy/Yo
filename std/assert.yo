@@ -10,6 +10,20 @@
 //!   assert(x > i32(0), "x must be positive");
 //!   assert(opt.is_some(), "Expected Some");
 //!   panic("unexpected condition");
+//!
+//! ## Stability
+//!
+//! **stable in shape, with one caveat worth stating before the freeze.**
+//! `panic`, `assert`, `assert_eq`, `assert_ne` and `assert_approx` have the
+//! names and the meanings Rust gives them, they accept any `ToString`, and no
+//! additions are planned. The caveat is that these are RUNTIME assertions
+//! only: there is no `debug_assert` that compiles out, so every `assert` in a
+//! release build pays for its condition and its message. Adding one later is
+//! additive; changing these five is not expected.
+//!
+//! Do not reach for `comptime_assert` as the compile-time counterpart without
+//! reading its own note — it fires only where the condition folds to a
+//! concrete `false`.
 { ToString } :: import("std/fmt/to_string");
 { String } :: import("std/string");
 /// Terminate the program with a message.

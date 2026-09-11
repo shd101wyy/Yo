@@ -24,6 +24,7 @@ pragma(Pragma.AllowUnsafe);
 {
   AstExpr,
   ExprId,
+  BK_TUPLE,
   ast_expr_id,
   ast_expr_token,
   ast_expr_is_fn_call,
@@ -164,6 +165,33 @@ VcCtx :: ref(
     subset_error : Option(VcSubsetError),
     /// Counter for query names and synthetic vars.
     fresh : usize,
+    /// Havoc-version counter for loop encodings (V4): each `while` gets a
+    /// distinct post-havoc generation so nested/back-to-back loops never
+    /// share a synthetic constant.
+    havoc : usize,
+    /// This function's `decreases(M)` measure (V4 recursion), if any.
+    decreases : Option(AstExpr),
+    /// Break sites of the loop body being walked (V4.2): each `break`
+    /// snapshots the path condition and every binding — the loop's exit
+    /// state is the disjunction of these with the fresh-havoc cond-exit.
+    break_sites : ArrayList(BreakSite),
+    /// The invariant predicates of the loop being walked (V4.2): a
+    /// `continue` site proves them over the state at the statement.
+    loop_invariants : ArrayList(AstExpr),
+    /// The loop being walked's `decreases(M)` AST, if any (V4.2 continue).
+    loop_measure : Option(AstExpr),
+    /// The head (havoced) measure TERM of the loop being walked, if any —
+    /// a `continue` site proves its own `M(now) < M(head)` step against it.
+    head_measure : Option(VcTerm),
+    /// The current straight-line path has exited the loop (break or
+    /// continue): statements after the exit statement are dead, not walked.
+    path_dead : bool,
+    /// Loop nesting depth during a body walk (0 outside any loop body).
+    loop_depth : usize,
+    /// The FUNCTION-ENTRY binding snapshot (params + module bindings at
+    /// body start, taken before the walk): `old(e)` walks e against it
+    /// (V5 two-state). Body-locals have no entry binding.
+    entry_vars : HashMap(String, VcTerm),
     /// Datatype declaration entries (`<dt-name>|<ctor0> <ctor1> (f0 sort) ...`)
     /// for every enum sort used so far — merged into each obligation's
     /// VcQuery.datatypes at `_emit` time so the emitted script declares
@@ -181,6 +209,15 @@ _new_vc_ctx :: (fn(table : ExprInfoTable, fn_name : String, func_id : String) ->
     obligations : ArrayList(VcObligation).new(),
     subset_error : Option(VcSubsetError).None,
     fresh : usize(0),
+    havoc : usize(0),
+    decreases : Option(AstExpr).None,
+    break_sites : ArrayList(BreakSite).new(),
+    loop_invariants : ArrayList(AstExpr).new(),
+    loop_measure : Option(AstExpr).None,
+    head_measure : Option(VcTerm).None,
+    path_dead : false,
+    loop_depth : usize(0),
+    entry_vars : HashMap(String, VcTerm).new(),
     datatypes : ArrayList(String).new()
   )
 );
@@ -1134,6 +1171,480 @@ _arm_under_pattern :: (
   });
   v
 });
+// ============================================================================
+// Loops (V4): the havoc-invariant rule
+// ============================================================================
+/// Conjoin a non-empty term list with AndOp (single terms pass through).
+_and_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
+  r := ts.get(usize(0)).unwrap();
+  (i : usize) = usize(1);
+  while(i < ts.len(), {
+    nxt := ts.get(i).unwrap();
+    r = _app2(VcOp.AndOp, r, nxt);
+    i = (i + usize(1));
+  });
+  r
+});
+/// Disjoin a non-empty term list with OrOp (single terms pass through).
+_or_terms :: (fn(ts : ArrayList(VcTerm)) -> VcTerm)({
+  r := ts.get(usize(0)).unwrap();
+  (i : usize) = usize(1);
+  while(i < ts.len(), {
+    nxt := ts.get(i).unwrap();
+    r = _app2(VcOp.OrOp, r, nxt);
+    i = (i + usize(1));
+  });
+  r
+});
+/// Collect every source name ASSIGNED inside a loop body: `:=`/`=` LHS
+/// names (the havoc set). Follows `ExprInfo.macro_expansion` for macro
+/// calls (`for`, collection literals, user macros — the branch structure
+/// lives in the expansion, not the macro call; the optimizer-family
+/// discipline from issues/fixed/where-constraints-arraylist-96b-leak.md).
+/// Names already in `out` are skipped (idempotent).
+_scan_assigned :: (fn(table : ExprInfoTable, e : AstExpr, inout(out) : ArrayList(String)) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, f, fargs, _, _) => {
+      // Macro calls: the semantics live in the expansion.
+      expanded := match(
+        expr_info_table_get(table, ast_expr_id(e)),
+        .Some(ei) => ei.macro_expansion,
+        .None => Option(AstExpr).None
+      );
+      match(
+        expanded,
+        .Some(xp) => _scan_assigned(table, xp, out),
+        .None => {
+          head := ast_expr_token(f).value;
+          if(((head == ":=") || (head == "=")) && (fargs.len() == usize(2)), {
+            match(
+              _binding_name_of(fargs.get(usize(0)).unwrap()),
+              .Some(name) => {
+                if(!out.contains(name.clone()), {
+                  out.push(name.clone());
+                });
+              },
+              .None => ()
+            );
+          });
+          (i : usize) = usize(0);
+          while(i < fargs.len(), {
+            match(
+              fargs.get(i),
+              .Some(a) => _scan_assigned(table, a, out),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+        }
+      );
+    }
+  )
+);
+/// Extract the loop body's leading `invariant(...)` predicates and the
+/// optional trailing `decreases(...)` measure; every other statement is
+/// the executable body. Returns `.None` when no invariant leads the body.
+_loop_annotations :: (
+  fn(body : AstExpr) -> Option(LoopAnnotations)
+)(
+  match(
+    body,
+    .FnCall(_, f, stmts, _, _) => match(
+      stmts.get(usize(0)),
+      .Some(first) => match(
+        first,
+        .FnCall(_, invf, inv_args, _, _) => if(ast_expr_token(invf).value == "invariant", {
+          measure := Option(AstExpr).None;
+          rest_at := usize(1);
+          match(
+            stmts.get(usize(1)),
+            .Some(second) => match(
+              second,
+              .FnCall(_, df, dargs, _, _) => if((ast_expr_token(df).value == "decreases") && (dargs.len() == usize(1)), {
+                measure = dargs.get(usize(0));
+                rest_at = usize(2);
+              }),
+              .Atom(_, _) => ()
+            ),
+            .None => ()
+          );
+          rest := ArrayList(AstExpr).new();
+          (i : usize) = rest_at;
+          while(i < stmts.len(), {
+            match(
+              stmts.get(i),
+              .Some(s) => rest.push(s.clone()),
+              .None => ()
+            );
+            i = (i + usize(1));
+          });
+          Option(LoopAnnotations).Some(LoopAnnotations(invariants : inv_args.clone(), decreases : measure, body : rest))
+        }, Option(LoopAnnotations).None),
+        .Atom(_, _) => Option(LoopAnnotations).None
+      ),
+      .None => Option(LoopAnnotations).None
+    ),
+    .Atom(_, _) => Option(LoopAnnotations).None
+  )
+);
+LoopAnnotations :: struct(invariants : ArrayList(AstExpr), decreases : Option(AstExpr), body : ArrayList(AstExpr));
+/// One `break` site (V4.2): the path condition at the break — the AND of
+/// `ctx.path` at the statement, which includes the iterate assumptions and
+/// every taken guard — and the full binding snapshot at that point. Terms
+/// are shared refs (the IR is immutable once built).
+BreakSite :: struct(path : VcTerm, vals : HashMap(String, VcTerm));
+/// `break` parses as a plain atom or a zero-arg call (like `continue`).
+_is_break_stmt :: (fn(e : AstExpr) -> bool)(
+  cond(
+    ast_expr_is_atom(e) => (ast_expr_token(e).value == "break"),
+    true => ast_expr_is_fn_call_of(e, "break", Option(usize).None)
+  )
+);
+_is_continue_stmt :: (fn(e : AstExpr) -> bool)(
+  cond(
+    ast_expr_is_atom(e) => (ast_expr_token(e).value == "continue"),
+    true => ast_expr_is_fn_call_of(e, "continue", Option(usize).None)
+  )
+);
+/// Snapshot the current state as one break site.
+_record_break_site :: (fn(inout(ctx) : VcCtx) -> unit)({
+  vals := HashMap(String, VcTerm).new();
+  it := ctx.vars.keys();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(k) => {
+        // Keys come from ctx.vars itself, so the get always succeeds.
+        vals.insert(k.clone(), ctx.vars.get(k.clone()).unwrap());
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  ctx.break_sites.push(BreakSite(path : _and_terms(ctx.path), vals : vals));
+});
+/// A `continue` site jumps to the head, so the invariant must hold (and
+/// the measure strictly decrease) over the state AT the statement — an
+/// obligation emitted here, not only at the back-edge.
+_continue_obligations :: (fn(inout(ctx) : VcCtx, at : AstExpr) -> bool)({
+  (ok : bool) = true;
+  inv_terms := ArrayList(VcTerm).new();
+  (i : usize) = usize(0);
+  while(i < ctx.loop_invariants.len(), {
+    match(
+      _expr_term(ctx, ctx.loop_invariants.get(i).unwrap()),
+      .Some(t) => {
+        inv_terms.push(t);
+      },
+      .None => {
+        ok = false;
+      }
+    );
+    i = (i + usize(1));
+  });
+  if(!ok, {
+    return(false);
+  });
+  if(inv_terms.len() > usize(0), {
+    _emit(ctx, String.from("loop-invariant-continue"), ArrayList(VcTerm).new(), _and_terms(inv_terms));
+  });
+  match(
+    ctx.loop_measure,
+    .Some(m_ast) => {
+      if(ctx.head_measure.is_some(), {
+        m_now := _expr_term(ctx, m_ast);
+        match(
+          m_now,
+          .Some(mn) => {
+            _emit(ctx, String.from("loop-variant-continue"), ArrayList(VcTerm).new(), _app2(VcOp.BvSlt, mn, ctx.head_measure.unwrap()));
+          },
+          .None => {
+            _fail_subset(ctx, String.from("decreases measure outside the subset at a continue"), at);
+            ok = false;
+          }
+        );
+      });
+    },
+    .None => ()
+  );
+  ok
+});
+/// The havoc constant's sort for an existing binding: a Var carries its
+/// own; anything else keeps the term's bit width (width 1 = bool).
+_havoc_binding_sort :: (fn(old : VcTerm) -> VcSort)(
+  match(
+    old,
+    .Var(_, s) => s,
+    _ => cond(
+      (_term_width(old) > usize(1)) => VcSort.BvS(width : _term_width(old)),
+      true => VcSort.BoolS
+    )
+  )
+);
+/// Rebind every assigned name to a fresh unconstrained constant under a
+/// NEW havoc generation (nested/back-to-back loops never share constants).
+_havoc_assigned :: (fn(inout(ctx) : VcCtx, assigned : ArrayList(String)) -> unit)({
+  ctx.havoc = (ctx.havoc + usize(1));
+  (ai : usize) = usize(0);
+  while(ai < assigned.len(), {
+    name := assigned.get(ai).unwrap();
+    srt := match(
+      ctx.vars.get(name.clone()),
+      .Some(old) => _havoc_binding_sort(old),
+      .None => VcSort.BoolS
+    );
+    hv := `__yo_hv${ctx.havoc.to_string()}_${name.clone()}`;
+    ctx.vars.insert(name.clone(), VcTerm.Var(name : hv, sort : srt));
+    ai = (ai + usize(1));
+  });
+});
+/// The havoc-invariant encoding of `while(cond, { invariant(...); body })`:
+///
+/// 1. ENTRY — prove `Inv` over the current state.
+/// 2. ITERATE — assume `Inv ∧ Cond` over a HAVOCED state (every assigned
+///    name rebound to a fresh unconstrained constant), execute the body
+///    symbolically, prove `Inv` over the resulting state. Body obligations
+///    (asserts, callee requires) emitted during the walk carry the iterate
+///    assumptions through `ctx.path`.
+/// 3. EXIT — the post-body bindings stay, with `Inv ∧ ¬Cond` over them
+///    pushed onto `ctx.path` for everything after the loop.
+///
+/// `decreases(M)`: at iterate, prove `0 <= M` over the havoced state and
+/// `M' < M` over the post-body state (M < M compared SIGNED at M's width —
+/// the measure must be an integer expression).
+_while_term :: (fn(inout(ctx) : VcCtx, e : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
+  if(args.len() != usize(2), {
+    _fail_subset(ctx, String.from("while with unexpected arity"), e);
+    return(Option(VcTerm).None);
+  });
+  ann := _loop_annotations(args.get(usize(1)).unwrap());
+  if(ann.is_none(), {
+    _fail_subset(ctx, String.from("while loop without a leading invariant(...)"), e);
+    return(Option(VcTerm).None);
+  });
+  a := ann.unwrap();
+  if(a.invariants.len() == usize(0), {
+    _fail_subset(ctx, String.from("invariant(...) with no predicates"), e);
+    return(Option(VcTerm).None);
+  });
+  // 1. ENTRY: Inv over the current state.
+  inv_entry_terms := ArrayList(VcTerm).new();
+  (ii : usize) = usize(0);
+  while(ii < a.invariants.len(), {
+    match(
+      _expr_term(ctx, a.invariants.get(ii).unwrap()),
+      .Some(t) => inv_entry_terms.push(t),
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+    ii = (ii + usize(1));
+  });
+  _emit(ctx, String.from("loop-invariant-entry"), ArrayList(VcTerm).new(), _and_terms(inv_entry_terms));
+  // 2. HAVOC: rebind every assigned name to a fresh constant.
+  assigned := ArrayList(String).new();
+  (bi : usize) = usize(0);
+  while(bi < a.body.len(), {
+    match(
+      a.body.get(bi),
+      .Some(s) => _scan_assigned(ctx.table, s, assigned),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  _havoc_assigned(ctx, assigned);
+  // ITERATE assumptions over the havoced state.
+  inv_havoc_terms := ArrayList(VcTerm).new();
+  (hi : usize) = usize(0);
+  while(hi < a.invariants.len(), {
+    match(
+      _expr_term(ctx, a.invariants.get(hi).unwrap()),
+      .Some(t) => inv_havoc_terms.push(t),
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+    hi = (hi + usize(1));
+  });
+  cond_havoc := _expr_term(ctx, args.get(usize(0)).unwrap());
+  if(cond_havoc.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  path_mark := ctx.path.len();
+  ctx.path.push(_and_terms(inv_havoc_terms));
+  ctx.path.push(cond_havoc.unwrap());
+  // Optional measure over the havoced state.
+  m_havoc := match(
+    a.decreases,
+    .Some(dm) => _expr_term(ctx, dm),
+    .None => Option(VcTerm).None
+  );
+  if(m_havoc.is_some(), {
+    m := m_havoc.unwrap();
+    zero := VcTerm.BvLit(value : u64(0), width : _term_width(m));
+    _emit(ctx, String.from("loop-variant-nonneg"), ArrayList(VcTerm).new(), _app2(VcOp.BvSge, m, zero));
+  });
+  // 3. Walk the executable body (obligations inside carry the iterate
+  //    assumptions via ctx.path). `_begin_term` is the statement walker —
+  //    it is what knows `:=`/`=` rebind ctx.vars, records break sites
+  //    (with the path snapshot at the statement), and emits the
+  //    continue-site obligations. `path_dead` after the walk means every
+  //    remaining path exited mid-body — there is no body-end state, so
+  //    the iterate/variant goals are skipped (the continue sites proved
+  //    the invariant at their statements) and the exit is only the break
+  //    disjuncts plus the cond-exit.
+  saved_invariants := ctx.loop_invariants;
+  saved_measure := ctx.loop_measure;
+  saved_head_measure := ctx.head_measure;
+  ctx.loop_invariants = a.invariants;
+  ctx.loop_measure = a.decreases;
+  ctx.head_measure = m_havoc;
+  saved_sites := ctx.break_sites;
+  ctx.break_sites = ArrayList(BreakSite).new();
+  ctx.path_dead = false;
+  ctx.loop_depth = (ctx.loop_depth + usize(1));
+  bd := _begin_term(ctx, a.body.clone());
+  sites := ctx.break_sites;
+  ctx.break_sites = saved_sites;
+  ctx.loop_depth = (ctx.loop_depth - usize(1));
+  fell_through := !ctx.path_dead;
+  ctx.path_dead = false;
+  ctx.loop_invariants = saved_invariants;
+  ctx.loop_measure = saved_measure;
+  ctx.head_measure = saved_head_measure;
+  if(bd.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  if(fell_through, {
+    // ITERATE goal: Inv (and the measure step) over the post-body state.
+    inv_after_terms := ArrayList(VcTerm).new();
+    (ti : usize) = usize(0);
+    while(ti < a.invariants.len(), {
+      match(
+        _expr_term(ctx, a.invariants.get(ti).unwrap()),
+        .Some(t) => inv_after_terms.push(t),
+        .None => {
+          return(Option(VcTerm).None);
+        }
+      );
+      ti = (ti + usize(1));
+    });
+    _emit(ctx, String.from("loop-invariant-iterate"), ArrayList(VcTerm).new(), _and_terms(inv_after_terms));
+    if(m_havoc.is_some(), {
+      m2 := match(
+        a.decreases,
+        .Some(dm) => _expr_term(ctx, dm),
+        .None => Option(VcTerm).None
+      );
+      if(m2.is_none(), {
+        return(Option(VcTerm).None);
+      });
+      _emit(
+        ctx,
+        String.from("loop-variant-decreases"),
+        ArrayList(VcTerm).new(),
+        _app2(VcOp.BvSlt, m2.unwrap(), m_havoc.unwrap())
+      );
+    });
+  });
+  // 4. EXIT. Pop back to the pre-iterate mark — the iterate assumptions
+  //    (and anything the walk pushed above them: callee ensures, dead-arm
+  //    guards) constrain the iteration's terms; the break sites carry
+  //    their own full snapshots, and no post-loop obligation may lean on
+  //    the dropped ones. The cond-exit state is a FRESH havoc generation:
+  //    a concrete cond-exit can be the zero-iteration pre-state, which
+  //    the walked body's output cannot represent — the exit facts are
+  //    Inv ∧ ¬Cond over unconstrained constants, the standard modular
+  //    rule (issues/fixed/verifier-loop-exit-pins-post-body-bindings.md).
+  while(ctx.path.len() > path_mark, {
+    _ := ctx.path.pop();
+  });
+  _havoc_assigned(ctx, assigned);
+  inv_exit := ArrayList(VcTerm).new();
+  (xi : usize) = usize(0);
+  while(xi < a.invariants.len(), {
+    match(
+      _expr_term(ctx, a.invariants.get(xi).unwrap()),
+      .Some(t) => inv_exit.push(t),
+      .None => {
+        return(Option(VcTerm).None);
+      }
+    );
+    xi = (xi + usize(1));
+  });
+  cond_exit := _expr_term(ctx, args.get(usize(0)).unwrap());
+  if(cond_exit.is_none(), {
+    return(Option(VcTerm).None);
+  });
+  if(sites.len() == usize(0), {
+    // No breaks: the exit is just the fresh-havoc Inv ∧ ¬Cond.
+    ctx.path.push(_and_terms(inv_exit));
+    ctx.path.push(_app1(VcOp.NotOp, cond_exit.unwrap()));
+    return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
+  });
+  // With breaks: a fresh selector b_k per site. Every assigned name's
+  // post-loop binding selects the site's snapshot value when that break
+  // fired, else the fresh cond-exit constant; the path assumes the
+  // matching state disjunction (the site's snapshot path includes the
+  // iterate assumptions and every guard taken to reach the break).
+  bs := ArrayList(VcTerm).new();
+  (ki : usize) = usize(0);
+  while(ki < sites.len(), {
+    bs.push(VcTerm.Var(name : `__yo_br${ctx.havoc.to_string()}_${ki.to_string()}`, sort : VcSort.BoolS));
+    ki = (ki + usize(1));
+  });
+  (ni : usize) = usize(0);
+  while(ni < assigned.len(), {
+    name := assigned.get(ni).unwrap();
+    base := match(
+      ctx.vars.get(name.clone()),
+      .Some(cur) => cur,
+      .None => VcTerm.BoolLit(true)
+    );
+    chain := box(base);
+    (ci2 : usize) = sites.len();
+    while(ci2 > usize(0), {
+      ci2 = (ci2 - usize(1));
+      site := sites.get(ci2).unwrap();
+      site_v := match(
+        site.vals.get(name.clone()),
+        .Some(sv) => sv,
+        .None => chain.*
+      );
+      ite_a := ArrayList(VcTerm).new();
+      ite_a.push(bs.get(ci2).unwrap());
+      ite_a.push(site_v);
+      ite_a.push(chain.*);
+      chain.* = VcTerm.App(VcOp.IteOp, ite_a);
+    });
+    ctx.vars.insert(name.clone(), chain.*);
+    ni = (ni + usize(1));
+  });
+  exit_terms := ArrayList(VcTerm).new();
+  exit_terms.push(_app1(VcOp.NotOp, _or_terms(bs)));
+  (ii2 : usize) = usize(0);
+  while(ii2 < inv_exit.len(), {
+    exit_terms.push(inv_exit.get(ii2).unwrap());
+    ii2 = (ii2 + usize(1));
+  });
+  exit_terms.push(_app1(VcOp.NotOp, cond_exit.unwrap()));
+  disj := ArrayList(VcTerm).new();
+  disj.push(_and_terms(exit_terms));
+  (di3 : usize) = usize(0);
+  while(di3 < sites.len(), {
+    d_args := ArrayList(VcTerm).new();
+    d_args.push(bs.get(di3).unwrap());
+    d_args.push(sites.get(di3).unwrap().path);
+    disj.push(_and_terms(d_args));
+    di3 = (di3 + usize(1));
+  });
+  ctx.path.push(_or_terms(disj));
+  Option(VcTerm).Some(VcTerm.BoolLit(true))
+});
 /// The operator/cast/call dispatch.
 _call_term :: (
   fn(inout(ctx) : VcCtx, e : AstExpr, head : String, args : ArrayList(AstExpr), info : ExprInfo)
@@ -1245,22 +1756,43 @@ _call_term :: (
   if(head == "match", {
     return(_match_term(ctx, e, args));
   });
-  // --- while / for: precise subset rejections ----------------------
-  // These would otherwise fall into the callee-call path and report a
-  // misleading "uncontracted callee" error. Loops need the V4
-  // havoc-invariant rule; `match` needs the enum/datatype encoding
-  // (later in V3); `for` is a macro over while (same V4 rule).
+  // --- while: the V4 havoc-invariant encoding ----------------------
+  // `for` is a macro over while whose expansion drives an iterator
+  // (`iter.next()` — an uncontracted trait call over collection state);
+  // that needs the collection model of the later phases, so it stays
+  // outside the subset with a precise error (the idiomatic replacement —
+  // `while(runtime(true), { invariant(...); ...; if(done, {break;}) })` —
+  // IS verifiable: `runtime` is the identity, below, and break is the
+  // V4.2 exit-path disjunction).
   if(head == "while", {
-    _fail_subset(ctx, String.from("while loop (requires invariant(...) — Phase V4)"), e);
-    return(Option(VcTerm).None);
+    return(_while_term(ctx, e, args));
   });
   if(head == "for", {
-    _fail_subset(ctx, String.from("for loop (requires invariant(...) — Phase V4)"), e);
+    _fail_subset(ctx, String.from("for loop (write it as a while with an invariant — the iterator model is outside the subset for now)"), e);
+    return(Option(VcTerm).None);
+  });
+  // break/continue are STATEMENT-level constructs (V4.2): `_begin_term`
+  // handles them with the site machinery. Reaching this gate means one
+  // appeared in EXPRESSION position (`x := (break, 1)`-shaped code),
+  // where there is no state to snapshot as a single exit disjunct.
+  if((head == "break") || (head == "continue") ||
+    (ast_expr_is_atom(e) && ((ast_expr_token(e).value == "break") || (ast_expr_token(e).value == "continue"))), {
+    _fail_subset(
+      ctx,
+      String.from("break/continue in expression position (supported as statements only)"),
+      e
+    );
     return(Option(VcTerm).None);
   });
   // --- begin blocks --------------------------------------------------------
   if(head == "begin", {
     return(_begin_term(ctx, args));
+  });
+  // --- the unit literal `()` ------------------------------------------------
+  // A zero-arg `tuple` call — the parser's unit, e.g. an empty cond arm
+  // (`true => ()`). As a VALUE it carries no information.
+  if(_is_unit_lit(e), {
+    return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
   });
   // --- assert sites --------------------------------------------------------
   if((head == "assert") && (n >= usize(1)), {
@@ -1281,11 +1813,56 @@ _call_term :: (
     // Diverging path — contributes nothing (SPARK's stance).
     return(Option(VcTerm).Some(VcTerm.BoolLit(true)));
   });
-  // --- old(...): identity ----------------------------------------------------
-  // V3 straight-line bodies cannot rebind a parameter (`:=` creates NEW
-  // bindings; reassignment is outside the subset), so the entry value and
-  // the current value coincide. Real two-state reasoning is V5.
+  // --- old(...): the two-state ENTRY snapshot (V5) ---------------------------
+  // `old(e)` evaluates e in the FUNCTION-ENTRY state: the walk runs against
+  // a copy of ctx.entry_vars. The V3 identity was sound only while bodies
+  // could not rebind — V4 legalized `=` on locals, and identity then read
+  // the CURRENT binding, a false PROOF (`y := x; y = (y + 1);
+  // assert(y == old(y))` "proved" though it is false for every x).
   if((head == "old") && (n == usize(1)), {
+    oa := args.get(usize(0)).unwrap();
+    // A bare name must be bound AT ENTRY — a body-local name has no entry
+    // value (the Dafny rule); a complex arg's own unbound names error
+    // precisely during the snapshot walk below.
+    if(ast_expr_is_atom(oa) && !ctx.entry_vars.contains_key(ast_expr_token(oa).value), {
+      _fail_subset(
+        ctx,
+        `old(...) of '${ast_expr_token(oa).value}' — the name is not bound at function entry (old is the entry state; a body-local has no entry value)`,
+        e
+      );
+      return(Option(VcTerm).None);
+    });
+    saved_vars := ctx.vars;
+    entry_copy := HashMap(String, VcTerm).new();
+    eit := ctx.entry_vars.keys();
+    (ego : bool) = true;
+    while(ego, {
+      match(
+        eit.next(),
+        .Some(ek) => {
+          match(
+            ctx.entry_vars.get(ek.clone()),
+            .Some(ev) => {
+              entry_copy.insert(ek.clone(), ev);
+            },
+            .None => ()
+          );
+        },
+        .None => {
+          ego = false;
+        }
+      );
+    });
+    ctx.vars = entry_copy;
+    t := _expr_term(ctx, oa);
+    ctx.vars = saved_vars;
+    return(t);
+  });
+  // --- runtime(...): identity ------------------------------------------------
+  // The comptime/runtime barrier marker: `runtime(e)` IS `e` at runtime.
+  // This is what makes the infinite-loop idiom `while(runtime(true),
+  // { invariant(...); ...; if(done, { break; }) })` walkable.
+  if((head == "runtime") && (n == usize(1)), {
     return(_expr_term(ctx, args.get(usize(0)).unwrap()));
   });
   // --- calls to contracted callees ----------------------------------------
@@ -1359,10 +1936,71 @@ _widen_or_trunc :: (fn(t : VcTerm, src_w : usize, dst_w : usize, src_signed : bo
 });
 /// `cond(c1 => v1, …, true => vN)` as nested ite VALUES (V3: no branch-local
 /// obligations — the whole cond is one value).
+/// Remove `guard_count` entries starting at index `base` of ctx.path,
+/// keeping everything ABOVE them (stacked off and restored in order).
+/// The cond-arm guards are arm-local; assumptions pushed DURING the arm
+/// walk — callee ensures at call sites — must survive the arm.
+_unwind_path_guards :: (fn(inout(ctx) : VcCtx, base : usize, guard_count : usize) -> unit)({
+  keep := ArrayList(VcTerm).new();
+  (k : usize) = (ctx.path.len() - (base + guard_count));
+  while(k > usize(0), {
+    match(
+      ctx.path.get(ctx.path.len() - usize(1)),
+      .Some(top) => keep.push(top),
+      .None => ()
+    );
+    _ := ctx.path.pop();
+    k = (k - usize(1));
+  });
+  (g : usize) = guard_count;
+  while(g > usize(0), {
+    _ := ctx.path.pop();
+    g = (g - usize(1));
+  });
+  (r : usize) = keep.len();
+  while(r > usize(0), {
+    r = (r - usize(1));
+    match(
+      keep.get(r),
+      .Some(t) => ctx.path.push(t),
+      .None => ()
+    );
+  });
+});
 _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) -> Option(VcTerm))({
   // Pair up (condition, value); the trailing `true => v` arm is the else.
+  // An arm may ASSIGN (a block value): every arm walks from the SAME
+  // pre-cond state, and each assigned name's post-cond binding is the
+  // phi ite-fold over the arm guards (exactly one arm runs).
   conds := ArrayList(VcTerm).new();
   vals := ArrayList(VcTerm).new();
+  // Parallel to the arms: true when that arm's walk exited the loop
+  // (break/continue inside) — the arm has no fall-through contribution.
+  dead_flags := ArrayList(bool).new();
+  // Pre-pass: the union of names assigned in any arm, and the pre-cond
+  // bindings they are restored to between arms.
+  phi_names := ArrayList(String).new();
+  (ai0 : usize) = usize(0);
+  while(ai0 < args.len(), {
+    arm0 := args.get(ai0).unwrap();
+    if(ast_expr_is_fn_call_of(arm0, "=>", Option(usize).Some(usize(2))), {
+      aa0 := match(
+        arm0,
+        .FnCall(_, _, a2, _, _) => a2,
+        .Atom(_, _) => ArrayList(AstExpr).new()
+      );
+      _scan_assigned(ctx.table, aa0.get(usize(1)).unwrap(), phi_names);
+    });
+    ai0 = (ai0 + usize(1));
+  });
+  pre_vals := ArrayList(Option(VcTerm)).new();
+  (pi0 : usize) = usize(0);
+  while(pi0 < phi_names.len(), {
+    pre_vals.push(ctx.vars.get(phi_names.get(pi0).unwrap().clone()));
+    pi0 = (pi0 + usize(1));
+  });
+  // Per-arm resulting bindings for the phi names (parallel to the arms).
+  arm_states := ArrayList(HashMap(String, VcTerm)).new();
   (i : usize) = usize(0);
   while(i < args.len(), {
     arm := args.get(i).unwrap();
@@ -1374,11 +2012,70 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
         .Atom(_, _) => ArrayList(AstExpr).new()
       );
       c_opt := _expr_term(ctx, aa.get(usize(0)).unwrap());
+      // The arm's value walks under its GUARD (this condition ∧ the
+      // negation of every earlier condition): obligations inside the arm
+      // — callee requires, asserts — are reachable only on that path.
+      guard_cell := box(match(c_opt, .Some(c0) => c0, .None => VcTerm.BoolLit(true)));
+      path_base := ctx.path.len();
+      (pi : usize) = usize(0);
+      pushed := usize(0);
+      while(pi < conds.len(), {
+        ng := _app1(VcOp.NotOp, conds.get(pi).unwrap());
+        ctx.path.push(ng);
+        pushed = (pushed + usize(1));
+        pi = (pi + usize(1));
+      });
+      if(c_opt.is_some(), {
+        ctx.path.push(c_opt.unwrap());
+        pushed = (pushed + usize(1));
+      });
+      ctx.path_dead = false;
       v_opt := _expr_term(ctx, aa.get(usize(1)).unwrap());
+      // Capture this arm's resulting bindings, then restore the pre-cond
+      // state so the NEXT arm walks from it (exactly one arm runs).
+      state := HashMap(String, VcTerm).new();
+      (ci : usize) = usize(0);
+      while(ci < phi_names.len(), {
+        nm := phi_names.get(ci).unwrap();
+        match(
+          ctx.vars.get(nm.clone()),
+          .Some(now) => {
+            state.insert(nm.clone(), now);
+          },
+          .None => ()
+        );
+        match(
+          pre_vals.get(ci),
+          .Some(pre) => {
+            match(
+              pre,
+              .Some(old) => {
+                ctx.vars.insert(nm.clone(), old);
+              },
+              .None => {
+                _ := ctx.vars.remove(nm.clone());
+                ()
+              }
+            );
+          },
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      arm_states.push(state);
+      _unwind_path_guards(ctx, path_base, pushed);
+      // An arm that exited the loop never falls through: its guard can
+      // never hold on the fall-through path, so assume ¬guard there
+      // permanently (the exit itself — site snapshot or continue
+      // obligation — was recorded during the arm's walk).
+      dead_flags.push(ctx.path_dead);
+      if(ctx.path_dead, {
+        ctx.path.push(_app1(VcOp.NotOp, guard_cell.*));
+      });
       if(c_opt.is_none() || v_opt.is_none(), {
         return(Option(VcTerm).None);
       });
-      ct := c_opt.unwrap();
+      ct := guard_cell.*;
       vt := v_opt.unwrap();
       conds.push(ct);
       vals.push(vt);
@@ -1392,16 +2089,120 @@ _cond_ite :: (fn(inout(ctx) : VcCtx, at : AstExpr, args : ArrayList(AstExpr)) ->
     _fail_subset(ctx, String.from("empty cond"), at);
     return(Option(VcTerm).None);
   });
-  // Fold right: else = last value; each earlier arm ites on its condition.
-  // VcTerm is a ref enum, so the folded cell is written through a pointer.
-  acc := vals.get(vals.len() - usize(1)).unwrap();
+  // At least one arm must fall through — the cond's VALUE (and the phi
+  // bindings) would otherwise be unreachable garbage. With live arms,
+  // their guards (plus the pushed ¬guards of the dead ones) are
+  // exhaustive on the fall-through path. The cond itself falls through,
+  // so the enclosing block keeps walking.
+  last_live := usize(0);
+  (found_live : bool) = false;
+  (ll : usize) = dead_flags.len();
+  while((ll > usize(0)) && !found_live, {
+    ll = (ll - usize(1));
+    match(
+      dead_flags.get(ll),
+      .Some(df) => {
+        if(!df, {
+          last_live = ll;
+          found_live = true;
+        });
+      },
+      .None => ()
+    );
+  });
+  if(!found_live, {
+    _fail_subset(ctx, String.from("cond arm exits the loop on every arm (break/continue) — the cond has no fall-through value"), at);
+    return(Option(VcTerm).None);
+  });
+  ctx.path_dead = false;
+  // Phi-fold every assigned name: the post-cond binding is the ite over
+  // the guards of each LIVE arm's resulting term (an arm that does not
+  // assign keeps the pre-cond value); the LAST live arm is the else — its
+  // entry is the fold base (dead arms are excluded: their guards cannot
+  // hold on the fall-through path).
+  (fi : usize) = usize(0);
+  while(fi < phi_names.len(), {
+    fname := phi_names.get(fi).unwrap();
+    pre_opt := pre_vals.get(fi);
+    base := match(
+      arm_states.get(last_live),
+      .Some(last_state) => match(
+        last_state.get(fname.clone()),
+        .Some(v) => v,
+        .None => match(
+          pre_opt,
+          .Some(pv) => match(
+            pv,
+            .Some(pv2) => pv2,
+            .None => VcTerm.BoolLit(true)
+          ),
+          .None => VcTerm.BoolLit(true)
+        )
+      ),
+      .None => VcTerm.BoolLit(true)
+    );
+    phi_cell := box(base);
+    (fj : usize) = last_live;
+    while(true, {
+      if(fj == usize(0), {
+        break;
+      });
+      fj = (fj - usize(1));
+      arm_dead := match(
+        dead_flags.get(fj),
+        .Some(df) => df,
+        .None => false
+      );
+      if(arm_dead, {
+        // Skip to the next lower index without folding this arm.
+        continue;
+      });
+      arm_v := match(
+        arm_states.get(fj),
+        .Some(st) => match(
+          st.get(fname.clone()),
+          .Some(v) => v,
+          .None => match(
+            pre_opt,
+            .Some(pv) => match(
+              pv,
+              .Some(pv2) => pv2,
+              .None => phi_cell.*
+            ),
+            .None => phi_cell.*
+          )
+        ),
+        .None => phi_cell.*
+      );
+      ite_a := ArrayList(VcTerm).new();
+      ite_a.push(conds.get(fj).unwrap());
+      ite_a.push(arm_v);
+      ite_a.push(phi_cell.*);
+      phi_cell.* = VcTerm.App(VcOp.IteOp, ite_a);
+    });
+    ctx.vars.insert(fname.clone(), phi_cell.*);
+    fi = (fi + usize(1));
+  });
+  // Fold right: else = the last LIVE arm's value; each earlier live arm
+  // ites on its condition (dead arms are skipped — their guards cannot
+  // hold on the fall-through path). VcTerm is a ref enum, so the folded
+  // cell is written through a pointer.
+  acc := vals.get(last_live).unwrap();
   acc_cell := box(acc);
-  (j : usize) = (conds.len() - usize(1));
+  (j : usize) = last_live;
   while(true, {
     if(j == usize(0), {
       break;
     });
     j = (j - usize(1));
+    arm_dead2 := match(
+      dead_flags.get(j),
+      .Some(df2) => df2,
+      .None => false
+    );
+    if(arm_dead2, {
+      continue;
+    });
     c := conds.get(j).unwrap();
     v := vals.get(j).unwrap();
     ite_args := ArrayList(VcTerm).new();
@@ -1443,11 +2244,52 @@ _binding_name_of :: (fn(lhs : AstExpr) -> Option(String))(
     true => Option(String).None
   )
 );
+/// The `()` unit literal — the parser's trailing element of blocks that
+/// end in a statement (parser.yo's make_unit_call: a zero-arg `tuple`
+/// call).
+_is_unit_lit :: (fn(e : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, at) => (at.value == "()"),
+    .FnCall(_, f, a, _, _) => ((ast_expr_token(f).value == BK_TUPLE) && (a.len() == usize(0)))
+  )
+);
 _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTerm))({
   (i : usize) = usize(0);
   result := Option(VcTerm).None;
   while(i < args.len(), {
     stmt := args.get(i).unwrap();
+    // A prior statement exited the loop (break/continue): everything
+    // after it in this block is dead — stop walking.
+    if(ctx.path_dead, {
+      break;
+    });
+    // `break`/`continue` as STATEMENTS (V4.2): break snapshots the state
+    // as an exit disjunct; continue proves the invariant (and measure
+    // step) at the statement — the head is reached from exactly here.
+    // Both kill the rest of the block.
+    if(_is_break_stmt(stmt), {
+      if(ctx.loop_depth == usize(0), {
+        _fail_subset(ctx, String.from("break outside a loop"), stmt);
+        return(Option(VcTerm).None);
+      });
+      _record_break_site(ctx);
+      ctx.path_dead = true;
+      result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+      break;
+    });
+    if(_is_continue_stmt(stmt), {
+      if(ctx.loop_depth == usize(0), {
+        _fail_subset(ctx, String.from("continue outside a loop"), stmt);
+        return(Option(VcTerm).None);
+      });
+      if(!_continue_obligations(ctx, stmt), {
+        return(Option(VcTerm).None);
+      });
+      ctx.path_dead = true;
+      result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+      break;
+    });
     // Bindings: `name := value` and `name = value` / `(name : T) = value`.
     // A reassignment is an SSA REBIND of the same source name — sound for
     // straight-line code (the old term is simply shadowed); mutation-based
@@ -1482,16 +2324,22 @@ _begin_term :: (fn(inout(ctx) : VcCtx, args : ArrayList(AstExpr)) -> Option(VcTe
         }
       );
     }, {
-      v := _expr_term(ctx, stmt);
-      match(
-        v,
-        .Some(vt) => {
-          result = Option(VcTerm).Some(vt);
-        },
-        .None => {
-          return(Option(VcTerm).None);
-        }
-      );
+      // The parser appends a trailing `()` to statement-final blocks — a
+      // block ending in a statement (the while-body shape) carries it.
+      if(_is_unit_lit(stmt), {
+        result = Option(VcTerm).Some(VcTerm.BoolLit(true));
+      }, {
+        v := _expr_term(ctx, stmt);
+        match(
+          v,
+          .Some(vt) => {
+            result = Option(VcTerm).Some(vt);
+          },
+          .None => {
+            return(Option(VcTerm).None);
+          }
+        );
+      });
     });
     i = (i + usize(1));
   });
@@ -1527,10 +2375,17 @@ _callee_call_term :: (
     return(Option(VcTerm).None);
   });
   fid := callee_id.unwrap();
-  // Recursion: a self-call needs `decreases(...)` — termination measures
-  // are Phase V4 (plan §"Loops, mutation, old, and decreases").
-  if(fid == ctx.func_id, {
-    _fail_subset(ctx, String.from("recursion (requires decreases(...) — Phase V4)"), e);
+  // Recursion (V4): a self-call needs `decreases(M)`. The measure of the
+  // CURRENT state is captured BEFORE the param rebinding; after the
+  // rebinding (callee params = actual terms) the measure evaluates as the
+  // ACTUALS' measure, and the call proves M(actuals) < M(current) — the
+  // well-foundedness step that makes the ensures-assume below sound.
+  m_current := Option(VcTerm).None;
+  if((fid == ctx.func_id) && ctx.decreases.is_some(), {
+    m_current = _expr_term(ctx, ctx.decreases.unwrap());
+  });
+  if((fid == ctx.func_id) && m_current.is_none(), {
+    _fail_subset(ctx, String.from("recursion (requires decreases(...) in the signature)"), e);
     return(Option(VcTerm).None);
   });
   reqs := get_func_requires_exprs(fid.clone());
@@ -1590,6 +2445,16 @@ _callee_call_term :: (
     );
     i = (i + usize(1));
   });
+  if((fid == ctx.func_id) && m_current.is_some(), {
+    m_actual := _expr_term(ctx, ctx.decreases.unwrap());
+    match(
+      m_actual,
+      .Some(ma) => {
+        _emit(ctx, String.from("decreases-step"), ArrayList(VcTerm).new(), _app2(VcOp.BvSlt, ma, m_current.unwrap()));
+      },
+      .None => ()
+    );
+  });
   (ri : usize) = usize(0);
   while(ri < reqs.len(), {
     match(
@@ -1641,7 +2506,9 @@ _callee_call_term :: (
           .Some(ett) => {
             ctx.path.push(ett);
           },
-          .None => ()
+          .None => {
+            _fail_subset(ctx, String.from("callee ensures outside the subset (dropped assumption)"), ens);
+          }
         );
       },
       .None => ()
@@ -1728,6 +2595,8 @@ VerifyFnInput :: ref(
     result_type : TypeValue,
     requires_exprs : ArrayList(AstExpr),
     ensures_exprs : ArrayList(AstExpr),
+    /// Phase V4 `decreases(M)` termination measure (recursion).
+    (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
     return_label : Option(String),
     table : ExprInfoTable
   )
@@ -1762,6 +2631,43 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     );
     i = (i + usize(1));
   });
+  ctx.decreases = input.decreases_expr;
+  // V5 two-state: snapshot the ENTRY state (params; module constants fold
+  // into literals) — `old(e)` walks against this, never the live bindings.
+  eit0 := ctx.vars.keys();
+  (ego0 : bool) = true;
+  while(ego0, {
+    match(
+      eit0.next(),
+      .Some(ek0) => {
+        match(
+          ctx.vars.get(ek0.clone()),
+          .Some(ev0) => {
+            ctx.entry_vars.insert(ek0.clone(), ev0);
+          },
+          .None => ()
+        );
+      },
+      .None => {
+        ego0 = false;
+      }
+    );
+  });
+  // A body whose ROOT has no ExprInfo never completed its definition-time
+  // evaluation (the trial swallowed the real error at load — E0902/E0401
+  // class). Say THAT instead of the misleading "untyped expression".
+  root_typed := match(
+    expr_info_table_get(ctx.table, ast_expr_id(input.body)),
+    .Some(_) => true,
+    .None => false
+  );
+  if(!root_typed, {
+    _fail_subset(
+      ctx,
+      String.from("the body's definition-time evaluation did not complete (its error was swallowed at load — run yo check on the file for the underlying cause)"),
+      input.body
+    );
+  });
   // Callee-side: ASSUME the requires.
   (ri : usize) = usize(0);
   while(ri < input.requires_exprs.len(), {
@@ -1781,8 +2687,30 @@ verify_function_body :: (fn(input : VerifyFnInput) -> VcBodyResult)({
     );
     ri = (ri + usize(1));
   });
+  // V4 termination: with a `decreases(M)` measure, prove M >= 0 on entry
+  // (the well-foundedness ground for every recursive call's decrease) —
+  // under the assumed requires, where it is actually provable.
+  match(
+    ctx.decreases,
+    .Some(dm) => {
+      m := _expr_term(ctx, dm);
+      match(
+        m,
+        .Some(mt) => {
+          zero := VcTerm.BvLit(value : u64(0), width : _term_width(mt));
+          _emit(ctx, String.from("decreases-nonneg"), ArrayList(VcTerm).new(), _app2(VcOp.BvSge, mt, zero));
+        },
+        .None => ()
+      );
+    },
+    .None => ()
+  );
   // Bind the return label to the body value; then prove each ensures.
-  body_val := _expr_term(ctx, input.body);
+  body_val := if(
+    !root_typed,
+    Option(VcTerm).None,
+    _expr_term(ctx, input.body)
+  );
   match(
     body_val,
     .Some(bv) => {

@@ -2,10 +2,11 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { assert } :: import("std/assert");
 { arch, Arch } :: import("std/process");
 import("std/libc/stdio");
-{ Channel, TryRecvError } :: import("std/sync/channel");
+{ Channel, Sender, Receiver, TryRecvError } :: import("std/sync/channel");
 { Thread, ThreadPool, spawn } :: import("std/thread");
 { sleep_blocking } :: import("std/time/sleep");
 { Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
 { WaitGroup } :: import("std/sync/waitgroup");
 // ============================================================================
 // Basic Operations
@@ -374,4 +375,282 @@ test("O7: a cyclic element type is rejected — atomic RC cannot collect cycles"
   comptime_assert(Type.impls(CyclicNode, Send), "the pin payload must be Send so the error is Acyclic's");
   comptime_expect_error(Channel(CyclicNode));
   assert(true, "rejected at comptime");
+});
+// ============================================================================
+// Sender / Receiver split — auto-close when the last Sender is dropped
+// ============================================================================
+// Every blocking wait below is BOUNDED. A regression in the auto-close leaves
+// a consumer parked in `recv` forever, and an unbounded wait here would burn a
+// whole CI job's timeout instead of reporting a failure — so the verdict
+// always travels back over a second channel that the main thread POLLS with a
+// deadline. Verified: with `Sender`'s `dispose` removed, the two wake-up tests
+// report their assertion in ~2 s instead of hanging.
+_recv_within :: (fn(ch : Channel(i32), budget_ms : i64) -> Option(i32))({
+  start := Instant.now();
+  (found : Option(i32)) = .None;
+  (waiting : bool) = true;
+  while(runtime(waiting), {
+    match(
+      ch.try_recv(),
+      .Ok(v) => {
+        found = .Some(v);
+        waiting = false;
+      },
+      .Err(_e) => cond(
+        (start.elapsed().as_millis() > budget_ms) => {
+          waiting = false;
+        },
+        true => sleep_blocking(Duration.from_millis(i64(5)))
+      )
+    );
+  });
+  found
+});
+test("Sender/Receiver deliver values in send order", {
+  rx := Channel(i32).receiver(usize(4));
+  tx := rx.sender();
+  assert(tx.send(i32(1)).is_ok(), "first send");
+  assert(tx.send(i32(2)).is_ok(), "second send");
+  assert(tx.send(i32(3)).is_ok(), "third send");
+  assert(rx.len() == usize(3), "three values buffered");
+  assert(rx.recv().unwrap() == i32(1), "FIFO: 1 first");
+  assert(rx.recv().unwrap() == i32(2), "FIFO: then 2");
+  assert(rx.recv().unwrap() == i32(3), "FIFO: then 3");
+  assert(!rx.is_closed(), "a live sender keeps the channel open");
+});
+test("Channel.pair hands back both halves over one queue", {
+  pair := Channel(i32).pair(usize(2));
+  tx := pair.0;
+  rx := pair.1;
+  assert(tx.send(i32(11)).is_ok(), "the pair's sender sends");
+  assert(rx.recv().unwrap() == i32(11), "the pair's receiver receives the same queue");
+  assert(tx.len() == usize(0), "both halves see one length");
+});
+test("dropping the LAST Sender closes the channel", {
+  rx := Channel(i32).receiver(usize(4));
+  {
+    tx := rx.sender();
+    assert(!rx.is_closed(), "open while a sender lives");
+    assert(tx.send(i32(5)).is_ok(), "send while open");
+  };
+  // The sender's scope ended: nothing called close(), the count reaching zero
+  // did it. THIS is the behaviour the split exists for.
+  assert(rx.is_closed(), "the last sender's drop closed the channel");
+});
+test("dropping ONE of several Senders does NOT close the channel", {
+  rx := Channel(i32).receiver(usize(4));
+  tx := rx.sender();
+  {
+    tx2 := tx.clone();
+    assert(tx2.send(i32(1)).is_ok(), "the clone sends into the same queue");
+  };
+  assert(!rx.is_closed(), "one of two senders going away is not the end of the stream");
+  assert(tx.send(i32(2)).is_ok(), "the surviving sender still sends");
+  assert(rx.recv().unwrap() == i32(1), "the clone's value arrived");
+  assert(rx.recv().unwrap() == i32(2), "and the original's after it");
+});
+test("values queued when the last Sender drops are still received first", {
+  // Rust's guarantee: closing must not lose what the channel already
+  // accepted. The disconnect is reported only once the buffer is drained.
+  rx := Channel(i32).receiver(usize(4));
+  {
+    tx := rx.sender();
+    assert(tx.send(i32(7)).is_ok(), "queued before the drop");
+    assert(tx.send(i32(8)).is_ok(), "queued before the drop");
+  };
+  assert(rx.is_closed(), "closed by the drop");
+  assert(rx.recv().unwrap() == i32(7), "buffered 7 survives the close");
+  assert(rx.recv().unwrap() == i32(8), "buffered 8 survives the close");
+  assert(
+    match(rx.recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "only THEN is it Disconnected"
+  );
+});
+test("Receiver.try_recv is Empty while open and Disconnected once senders are gone", {
+  rx := Channel(i32).receiver(usize(4));
+  {
+    tx := rx.sender();
+    assert(
+      match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Empty)),
+      "open and empty says Empty — the producer may still send"
+    );
+    assert(tx.send(i32(3)).is_ok(), "send one");
+  };
+  assert(match(rx.try_recv(), .Ok(v) => (v == i32(3)), .Err(_) => false), "the buffered value first");
+  assert(
+    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "closed AND drained says Disconnected — stop polling"
+  );
+});
+test("send fails once the Receiver has been dropped", {
+  // Rust's SendError: the value that could not be sent comes back.
+  ch := Channel(i32).new(usize(1));
+  tx := Sender(i32)._attach(ch);
+  {
+    rx := Receiver(i32)._attach(ch);
+    assert(rx.len() == usize(0), "nothing buffered");
+  };
+  match(
+    tx.send(i32(9)),
+    .Err(v) => assert(v == i32(9), "the unsent value is handed back"),
+    .Ok(_) => assert(false, "a send with no receiver must fail, not block")
+  );
+  match(
+    tx.try_send(i32(10)),
+    .Err(v) => assert(v == i32(10), "try_send fails the same way"),
+    .Ok(_) => assert(false, "try_send with no receiver must fail")
+  );
+});
+test("dropping the last Sender wakes a Receiver already blocked in recv", {
+  if(arch == Arch.Wasm32, return(()));
+  rx := Channel(i32).receiver(usize(4));
+  verdict := Channel(i32).new(usize(2));
+  consumer := Thread.spawn(io => {
+    // Parks here: the channel is empty and open. Only the auto-close can
+    // wake it, and it must wake with Disconnected rather than a value.
+    match(
+      rx.recv(),
+      .Ok(_v) => {
+        _a := verdict.send(i32(1));
+      },
+      .Err(e) => {
+        _b := verdict.send(cond((e == TryRecvError.Disconnected) => i32(-1), true => i32(-2)));
+      }
+    );
+  });
+  {
+    tx := rx.sender();
+    // Give the consumer time to be genuinely parked in `recv`, so this
+    // exercises the broadcast-under-the-mutex wake path and not the
+    // already-closed fast path.
+    sleep_blocking(Duration.from_millis(i64(50)));
+  };
+  answer := _recv_within(verdict, i64(3000));
+  assert(
+    match(answer, .Some(v) => (v == i32(-1)), .None => false),
+    "the blocked recv woke up Disconnected when the last sender dropped"
+  );
+  consumer.join();
+});
+test("buffered values reach a blocked Receiver before the disconnect", {
+  if(arch == Arch.Wasm32, return(()));
+  rx := Channel(i32).receiver(usize(4));
+  verdict := Channel(i32).new(usize(4));
+  consumer := Thread.spawn(io => {
+    (going : bool) = true;
+    while(going, {
+      match(
+        rx.recv(),
+        .Ok(v) => {
+          _a := verdict.send(v);
+        },
+        .Err(_e) => {
+          going = false;
+          _b := verdict.send(i32(-1));
+        }
+      );
+    });
+  });
+  {
+    tx := rx.sender();
+    sleep_blocking(Duration.from_millis(i64(50)));
+    assert(tx.send(i32(21)).is_ok(), "sent while the consumer is parked");
+    assert(tx.send(i32(22)).is_ok(), "and a second one");
+  };
+  v1 := _recv_within(verdict, i64(3000));
+  v2 := _recv_within(verdict, i64(3000));
+  v3 := _recv_within(verdict, i64(3000));
+  assert(match(v1, .Some(v) => (v == i32(21)), .None => false), "21 arrived");
+  assert(match(v2, .Some(v) => (v == i32(22)), .None => false), "22 arrived");
+  assert(match(v3, .Some(v) => (v == i32(-1)), .None => false), "and only then the disconnect");
+  consumer.join();
+});
+test("cloned Senders in several threads all fan in to one Receiver", {
+  if(arch == Arch.Wasm32, return(()));
+  rx := Channel(i32).receiver(usize(16));
+  tx1 := rx.sender();
+  tx2 := tx1.clone();
+  tx3 := tx1.clone();
+  t1 := Thread.spawn(io => {
+    _a := tx1.send(i32(1));
+    _b := tx1.send(i32(2));
+  });
+  t2 := Thread.spawn(io => {
+    _a := tx2.send(i32(10));
+    _b := tx2.send(i32(20));
+  });
+  t3 := Thread.spawn(io => {
+    _a := tx3.send(i32(100));
+    _b := tx3.send(i32(200));
+  });
+  t1.join();
+  t2.join();
+  t3.join();
+  // Drained with try_recv, never recv: every value is already buffered once
+  // the threads have joined, so a lost value fails an assertion instead of
+  // parking the test.
+  (total : i32) = i32(0);
+  (count : i32) = i32(0);
+  v := rx.try_recv();
+  while(runtime(v.is_ok()), {
+    total = (total + v.unwrap());
+    count = (count + i32(1));
+    v = rx.try_recv();
+  });
+  assert(count == i32(6), "all six values from three cloned senders arrived");
+  assert(total == i32(333), "and none of them was corrupted (1+2+10+20+100+200)");
+});
+test("a sender per thread: the last one to finish closes the channel", {
+  if(arch == Arch.Wasm32, return(()));
+  // Each worker mints its OWN sender inside the thread, so the sender's
+  // lifetime IS the thread's work. `keeper` is minted BEFORE the workers
+  // start and holds the count above zero while they do: without it the first
+  // worker to finish would take the count 1 -> 0 and close the channel under
+  // the ones still minting (measured — this test failed exactly that way
+  // when the keeper was created after the spawns).
+  //
+  // This is the cross-thread shape that reaches zero today. A `Sender` moved
+  // into a `Thread.spawn` closure is captured by reference and that reference
+  // is never released (issues/fixed/spawn-closure-captures-never-dropped-leak.md),
+  // so its `dispose` — and with it the auto-close — would never run.
+  rx := Channel(i32).receiver(usize(16));
+  wg := WaitGroup.new();
+  wg.add(i32(2));
+  {
+    keeper := rx.sender();
+    w1 := Thread.spawn(io => {
+      tx := rx.sender();
+      _a := tx.send(i32(4));
+      wg.done();
+    });
+    w2 := Thread.spawn(io => {
+      tx := rx.sender();
+      _a := tx.send(i32(5));
+      wg.done();
+    });
+    wg.wait();
+    assert(!rx.is_closed(), "the keeper holds the channel open while workers run");
+    w1.join();
+    w2.join();
+  };
+  // The workers' senders and the keeper are all gone now.
+  assert(rx.is_closed(), "the last sender to go closed the channel");
+  (sum : i32) = i32(0);
+  v := rx.try_recv();
+  while(runtime(v.is_ok()), {
+    sum = (sum + v.unwrap());
+    v = rx.try_recv();
+  });
+  assert(sum == i32(9), "both workers' values arrived before the close");
+  assert(
+    match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
+    "and the drained channel reports Disconnected"
+  );
+});
+test("Sender implements Send and Clone, Receiver implements Send", {
+  assert_send :: (fn(comptime(T) : Type, where(T <: Send)) -> comptime(unit))(());
+  assert_clone :: (fn(comptime(T) : Type, where(T <: Clone)) -> comptime(unit))(());
+  assert_send(Sender(i32));
+  assert_send(Receiver(i32));
+  assert_clone(Sender(i32));
 });

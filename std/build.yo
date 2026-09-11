@@ -13,6 +13,24 @@
 //! install :: build.step("install", "Build all artifacts");
 //! install.depend_on(exe);
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — this is the API a project's `build.yo` is written against, so
+//! it is the one place where a breaking change costs every downstream project
+//! a manual edit, and two things still move. The step model is one:
+//! `StepKind` and `Step` expose the runner's DAG vocabulary directly, and the
+//! runner's scheduling is still being changed (levels, artifact caching), so
+//! a build file that reaches past `Executable`/`TestSuite` into `Step` is
+//! reaching at something not yet settled. The other is `CompilationTarget`,
+//! which gained the canonical Rust triples in
+//! `plans/reference/TARGET_TRIPLES.md` and may still gain fields as targets
+//! are added.
+//!
+//! The declarative face — `Executable`, `StaticLibrary`, `SharedLibrary`,
+//! `TestSuite`, `BuildModule`, `target_host`, the `Optimize`/`Allocator`/
+//! `Sanitize` enums — is what `yo init` scaffolds and what is expected to
+//! keep its names and meanings. Write build files against that.
 // ── Optimization levels ──────────────────────────────────────────────
 /// Optimization level for compiled artifacts.
 Optimize :: enum(
@@ -37,7 +55,13 @@ Allocator :: enum(
   Mimalloc,
   /// The platform's system allocator (macOS malloc zones, Windows CRT heap,
   /// glibc/musl malloc on Linux).
-  System
+  System,
+  /// A general-purpose TLSF allocator over ONE statically-sized region in
+  /// `.bss` (`heap_size`, default 16 MiB). No libc heap; running out of that
+  /// region is a panic with a diagnostic. The first building block of the
+  /// embedded/freestanding story, and on desktop a deterministic OOM oracle
+  /// (plans/reference/FIXED_REGION_ALLOCATOR.md).
+  Fixed
 );
 export(Allocator);
 // ── Sanitizers ───────────────────────────────────────────────────────
@@ -90,6 +114,10 @@ Executable :: struct(
   (optimize : Optimize) ?= Optimize.Debug,
   /// Memory allocator.
   (allocator : Allocator) ?= Allocator.System,
+  /// Fixed-region heap size in bytes (`allocator : Allocator.Fixed` only;
+  /// 64 KiB..4 GiB, rounded down to a 16-byte granule). Ignored by the other
+  /// allocators.
+  (heap_size : usize) ?= usize(16777216),
   /// Runtime sanitizer.
   (sanitize : Sanitize) ?= Sanitize.None,
   /// Write the single generated C file to this path instead of the default
@@ -304,7 +332,8 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
   alloc_str :: match(
     config.allocator,
     .Mimalloc => "mimalloc",
-    .System => "system"
+    .System => "system",
+    .Fixed => "fixed"
   );
   san_str :: match(
     config.sanitize,
@@ -313,7 +342,7 @@ executable :: (fn(comptime(config) : Executable) -> comptime(Step))({
     .Leak => "leak",
     .Thread => "thread"
   );
-  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks);
+  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str, config.emit_c_to, config.emit_chunks, config.heap_size);
   Step(name : config.name, kind : StepKind.Executable)
 });
 export(executable);

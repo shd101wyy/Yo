@@ -25,6 +25,23 @@
 //! assert((m.get(i32(1)).unwrap() == i32(100)), "key 1 maps to 100");
 //! assert((m.len() == usize(2)), "two entries");
 //! ```
+//!
+//! Insert, lookup and remove are O(log32 n) — five levels of 32-way branching
+//! covers 33 million keys — and every mutation copies only the nodes on the
+//! path it touched, so the original map and the new one share everything else.
+//! Iteration (`keys`/`values`/`entries`, and the `IntoIterator` behind
+//! `for(map, ...)`) MATERIALIZES an `imm.List` of the entries first: O(n) time
+//! and O(n) allocation, in trie order, not a lazy cursor.
+//!
+//! ## Stability
+//!
+//! unstable — `plans/STD_API_STABILIZATION.md` §4 keeps one shape open across
+//! the `imm` containers, and this is its clearest case: `remove(key) -> Self`
+//! cannot tell a caller whether the key was there, where the mutable
+//! `HashMap.remove` answers `Option(V)`. Deciding that (a second
+//! `remove_entry`-style spelling, or a `RemoveResult`-shaped return) changes
+//! this signature. The lazy-cursor iteration above is the other known gap,
+//! but that one is an optimization rather than a surface change.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator.yo");
 { ArrayList } :: import("../collections/array_list.yo");
@@ -370,6 +387,12 @@ _make_branch :: (
     )
   )
 });
+/// What one step of the trie insert walk returns: the rebuilt node, plus
+/// whether the key was NEW.
+///
+/// The flag is what lets `insert` maintain `len` without a second lookup —
+/// replacing an existing key must not increment it. Internal to the HAMT
+/// walk; it is not part of the map's public surface.
 InsertResult :: (fn(comptime(K) : Type, comptime(V) : Type, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> comptime(Type))(
   struct(node : MapNode(K, V), added : bool)
 );
@@ -499,6 +522,13 @@ _node_get :: (
     }
   )
 );
+/// What one step of the trie remove walk returns: the rebuilt node —
+/// `.None` when the subtree collapsed to nothing — plus whether a key was
+/// actually removed.
+///
+/// The `Option` is the collapse signal: a branch whose last child went away
+/// must disappear rather than stay as an empty node. Internal to the HAMT
+/// walk; `Map.remove` returns only the new map.
 RemoveResult :: (fn(comptime(K) : Type, comptime(V) : Type, where(K <: (Eq(K), Hash, Send, Acyclic), V <: (Send, Acyclic))) -> comptime(Type))(
   struct(node : Option(MapNode(K, V)), removed : bool)
 );
@@ -894,7 +924,11 @@ impl(
       )
     )
   ),
-  /// Return a new map without `key`.
+  /// Return a new map without `key` — `im`'s `without`. A key that is not
+  /// present gives back `self` itself, not a copy.
+  ///
+  /// This deliberately does NOT report what it removed; `extract` is the form
+  /// that does.
   remove : (fn(self : Self, key : K) -> Self)(
     match(
       self._root,
@@ -909,6 +943,29 @@ impl(
       .None => self
     )
   ),
+  /// The value at `key` together with the map WITHOUT it, or `.None` when
+  /// the key is absent — `im`'s `extract`.
+  ///
+  /// This exists because `remove` answers only "the map afterwards", so a
+  /// caller who wants the removed value had to look it up first and could not
+  /// tell "absent" from "removed a value that happens to equal the default".
+  /// The `.None` arm carries no map, which is the point: on a miss the
+  /// caller's own `self` already IS the answer, so nothing is rebuilt.
+  ///
+  /// TWO walks of the trie, not one. `im`'s `extract` is one walk because
+  /// Rust can move the value out of the node it visits; threading the value
+  /// out of `_node_remove` here would make every `remove` — the common case —
+  /// carry and then drop a value it does not want. A HAMT walk is
+  /// ⌈log₃₂ n⌉ levels (2 for a million entries), so the second walk is a
+  /// smaller cost than the refcount traffic on the first.
+  extract : (fn(self : Self, key : K) -> Option(Tuple(V, Self)))({
+    hit := self.get(key);
+    match(
+      hit,
+      .Some(v) => Option(Tuple(V, Self)).Some((v, self.remove(key))),
+      .None => Option(Tuple(V, Self)).None
+    )
+  }),
   /// Merge another map into this one. Keys from `other` overwrite `self`.
   merge : (fn(self : Self, other : Self) -> Self)(
     match(

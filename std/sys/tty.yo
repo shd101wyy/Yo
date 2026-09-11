@@ -1,4 +1,25 @@
-//! TTY operations.
+//! Terminal control (termios / Win32 Console) — the raw syscall boundary.
+//!
+//! Mode switching, window size and the "is this a terminal" test.
+//! `std/term.yo` is the public surface (raw mode, size queries, the
+//! interactive-output decision).
+//!
+//! The mode constants come from `std/sys/events` because the whole
+//! libuv-shaped handle family (`TTY_MODE_*`, `POLL_*`, `FS_EVENT_*`) is
+//! declared together there.
+//!
+//! ## Stability
+//!
+//! unstable — the process-global saved mode is what has to change. `tty_init`
+//! stashes ONE original mode in a runtime global and `tty_reset` restores
+//! only that, ignoring which descriptor asked; two terminals, or an
+//! `init`-less `tty_set_mode(NORMAL)`, are outside what this can express. The
+//! three modes are also libuv's vocabulary rather than a considered Yo one,
+//! and they mean measurably different things per platform (termios flag
+//! clearing on POSIX against console-mode bit sets on Windows). Freezing
+//! needs per-descriptor saved state and a mode set defined by what Yo
+//! promises rather than by what libuv happened to name. `std/term` is the
+//! stable surface.
 pragma(Pragma.AllowUnsafe);
 { __yo_tty_init, __yo_tty_set_mode, __yo_tty_reset_mode, __yo_tty_get_winsize, __yo_isatty } :: import("./externs.yo");
 { TTY_MODE_NORMAL, TTY_MODE_RAW, TTY_MODE_IO } :: import("./events.yo");
@@ -9,23 +30,56 @@ WinSize :: struct(
   /// Height in rows.
   height : i32
 );
-/// Initialize TTY for a fd.
-/// Returns 0 on success, -errno on failure.
+/// Save `fd`'s current terminal mode so `TTY_MODE_NORMAL` and `tty_reset`
+/// have something to restore. Returns 0 on success, a negative errno on
+/// failure (`-ENOTTY` when `fd` is not a terminal).
+///
+/// Call this BEFORE any `tty_set_mode`: the saved mode is a single
+/// process-global slot, it is only filled by the FIRST successful `tty_init`,
+/// and restoring without it installs a zeroed `termios` rather than the
+/// terminal's real settings. On POSIX it is `tcgetattr(3)`; on Windows it is
+/// `GetConsoleMode` on the process's standard input AND output handles, so
+/// the `fd` argument is not consulted there.
 tty_init :: (fn(fd : i32) -> i32)(
   __yo_tty_init(fd)
 );
-/// Set TTY mode (normal, raw, Io).
-/// Returns 0 on success, -errno on failure.
+/// Put `fd` into `TTY_MODE_NORMAL`, `TTY_MODE_RAW` or `TTY_MODE_IO`. Returns
+/// 0 on success, a negative errno on failure — `-EINVAL` for an unknown
+/// mode, and `-ENOTTY` on Windows when `fd` is not a console handle.
+///
+/// `NORMAL` restores the mode `tty_init` saved (see the caveat there). `RAW`
+/// turns off echo, line buffering and signal generation, so a key is
+/// readable immediately and Ctrl-C arrives as a byte instead of a `SIGINT`.
+/// `IO` is the middle setting — output post-processing and input translation
+/// off, but echo and canonical input left alone — which is what you want for
+/// binary data on a terminal rather than for a full-screen UI.
+///
+/// On POSIX this is `tcsetattr(TCSAFLUSH)`, so pending input is DISCARDED by
+/// the switch. On Windows it is `SetConsoleMode`, and the bits differ by
+/// direction: an input handle gets `ENABLE_VIRTUAL_TERMINAL_INPUT`, an output
+/// handle gets virtual-terminal processing.
 tty_set_mode :: (fn(fd : i32, mode : i32) -> i32)(
   __yo_tty_set_mode(fd, mode)
 );
-/// Reset TTY to original mode.
-/// Returns 0 on success, -errno on failure.
+/// Restore the terminal mode saved by `tty_init` — the call to make on the
+/// way out so an aborted program does not leave the shell in raw mode.
+/// Returns 0 on success, a negative errno on failure.
+///
+/// It ignores which descriptor was put into raw mode and restores the
+/// process's standard streams (stdin on POSIX; stdin and stdout on Windows).
+/// If `tty_init` never ran it is a no-op that still returns 0, so a 0 here is
+/// not evidence that anything was restored.
 tty_reset :: (fn() -> i32)(
   __yo_tty_reset_mode()
 );
-/// Get terminal window size.
-/// Returns width and height (0,0 on error).
+/// Read the terminal window size — `ioctl(TIOCGWINSZ)` on POSIX,
+/// `GetConsoleScreenBufferInfo` on Windows (falling back to the process's
+/// standard output handle when `fd` has no screen buffer).
+///
+/// Errors are FOLDED INTO THE VALUE: a failure returns `WinSize(0, 0)`
+/// rather than an errno, so a caller that needs to distinguish "80×24" from
+/// "not a terminal" must test `isatty` separately. A resize is not reported;
+/// re-read to notice one.
 tty_winsize :: (fn(fd : i32) -> WinSize)({
   buf_uninit := MaybeUninit(Array(i32, usize(2))).new();
   buf := (*i32)(buf_uninit.as_ptr());
@@ -40,7 +94,10 @@ tty_winsize :: (fn(fd : i32) -> WinSize)({
   );
   WinSize(width, height)
 });
-/// Check if `fd` is a TTY.
+/// Whether `fd` refers to a terminal — `isatty(3)` (`_isatty` on Windows).
+/// This is the test for "am I talking to a human", and so the one to gate
+/// colour output, progress bars and prompts on. It cannot fail: a bad
+/// descriptor is simply `false`.
 isatty :: (fn(fd : i32) -> bool)({
   res := __yo_isatty(fd);
   res > i32(0)

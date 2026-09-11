@@ -1,11 +1,34 @@
 //! Windows-specific C API bindings.
 //! Only available when compiling for Windows.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design, and Windows-only: every
+//! import must sit inside a `Platform.Windows` comptime arm or the
+//! `<windows.h>` / `<io.h>` / `<direct.h>` includes reach other platforms'
+//! emitted C. The public surfaces above it are `std/env` (cwd,
+//! `current_exe`, environment), `std/fs` (delete / rmdir) and `std/time`
+//! (local time via `_localtime64_s`). It is additive-by-demand — a Win32
+//! symbol appears here the first time a `std/` module needs it — and the
+//! selection embeds real Windows decisions, e.g. CRT `_write` is
+//! deliberately NOT bound because async-opened fds wrap
+//! `FILE_FLAG_OVERLAPPED` handles the CRT cannot serve. Freezing follows
+//! the modules above it, not a release count.
 // Windows type aliases (using Yo types that match the C types)
 pragma(Pragma.AllowUnsafe);
 pragma(Pragma.AllowUnsafe);
-DWORD :: ulong; // unsigned long on Windows
-WCHAR :: ushort; // unsigned short (UTF-16 code unit)
-BOOL :: int; // int
+/// Win32's `DWORD` — a 32-bit unsigned count or error code, bound as
+/// `ulong` because that is what it is on the Windows ABI. Every size,
+/// length and `GetLastError` value below is one of these.
+DWORD :: ulong;
+/// Win32's `WCHAR` — ONE UTF-16 code unit, not a character: a non-BMP
+/// code point is two of these, so a `*WCHAR` buffer length is in code
+/// units and `WideCharToMultiByte` is what turns it into Yo's UTF-8.
+WCHAR :: ushort;
+/// Win32's `BOOL` — a C `int`, where zero is failure and ANY non-zero
+/// value is success. It is not Yo's `bool`; compare against zero rather
+/// than casting.
+BOOL :: int;
 export(DWORD);
 export(WCHAR);
 export(BOOL);

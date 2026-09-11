@@ -4,6 +4,15 @@
 //! sanctioned route is `<crt_externs.h>`'s `_NSGetEnviron()`. This module is
 //! only ever imported from a `Platform.Macos` comptime arm, so the header
 //! include never reaches other platforms' emitted C.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding that exists to serve exactly one caller:
+//! `std/env`'s `vars()` on macOS. The public surface is `std/env`, and this
+//! module follows Darwin rather than a Yo design — `_NSGetEnviron` is
+//! Apple's sanctioned replacement for the `environ` symbol `std/libc/unistd`
+//! binds on other Unixes. Anything else Darwin-only that `std/` comes to
+//! need lands here, so the surface is additive-by-demand and not frozen.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<crt_externs.h>",

@@ -8,8 +8,12 @@
 //! awaits INSIDE a critical section yields the loop mid-section; plain
 //! variables are only task-safe between suspension points.
 //!
-//! Lock acquisition re-checks on a 1ms timer tick when contended (never on
-//! the uncontended fast path) and is unfair: no FIFO ordering among waiters.
+//! **Contended acquisition is WAKER-BASED and FIFO.** A task that finds the
+//! lock held parks itself and puts its waker at the back of a queue; `unlock`
+//! wakes the one at the front. There is no timer under it, so a hand-off costs
+//! a loop turn rather than a millisecond, and the order is the order tasks
+//! arrived in. Until 2026-09-11 this re-checked on a 1 ms tick and was
+//! explicitly unfair (`plans/WAKER_BASED_SCHEDULING.md` stage 3).
 //!
 //! ```rust
 //! { Mutex } :: import "std/async/mutex";
@@ -23,19 +27,24 @@
 //! ## Stability
 //!
 //! unstable — `new`, `lock`, `with_lock`, `try_lock`, `unlock`, `is_locked`,
-//! `get` and `set` are intended to keep their names and meanings, but the 1 ms
-//! tick that contended acquisition re-checks on is an implementation choice a
-//! waker-based rewrite would remove (`plans/STD_API_STABILIZATION.md` §4
-//! Concurrency). Unfairness is by design, not provisional: build FIFO ordering
-//! on top if you need it.
+//! `get` and `set` are intended to keep their names and meanings. What changed
+//! under them in 2026-09-11 is the MECHANISM (a waiter queue instead of a 1 ms
+//! tick) and one guarantee that is now stronger than it was: acquisition is
+//! FIFO, where the timer version documented itself as unfair. Callers that
+//! built FIFO ordering on top no longer need to, but nothing they wrote breaks.
 { assert } :: import("../assert");
-IO_timer :: import("../sys/timer");
+{ ArrayList } :: import("../collections/array_list");
+{ Waker, Park } :: import("./waker.yo");
 
 /// A mutual-exclusion lock for same-thread async tasks, protecting a `T`.
 Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
   ref(
     struct(
       _locked : bool,
+      /// Waiters in arrival order. `unlock` wakes the FRONT one, which is what
+      /// makes acquisition FIFO; a stack here would starve the first arrival
+      /// under sustained contention.
+      _waiters : ArrayList(Waker),
       _value : T
     )
   )
@@ -45,22 +54,32 @@ impl(
   Mutex(T),
   /// A new unlocked mutex protecting `value`.
   new : (fn(value : T) -> Self)(
-    Self(_locked : false, _value : value)
+    Self(_locked : false, _waiters : ArrayList(Waker).new(), _value : value)
   ),
-  /// Acquire the lock, suspending while another task holds it. The check
-  /// and the acquisition happen with no suspension between them, so tasks
-  /// cannot interleave inside the handoff.
+  /// Acquire the lock, suspending while another task holds it.
+  ///
+  /// The check and the acquisition happen with no suspension between them, so
+  /// tasks cannot interleave inside the hand-off. When the lock IS held, the
+  /// task publishes its waker and then suspends — in that order, which is the
+  /// order that cannot lose a wake (`std/async/waker`). It re-checks after
+  /// waking rather than trusting the wake, because `unlock` hands over the
+  /// RIGHT to try, not the lock itself: a `try_lock` from a third task can
+  /// still win in between, and the loop would otherwise have two holders.
   lock : (fn(self : Self, io : Io) -> Impl(Future(unit)))(
     io.async((io : Io) => {
       (waiting : bool) = true;
       while(waiting, {
-        if(!self._locked, {
-          self._locked = true;
-          waiting = false;
-        });
-        if(waiting, {
-          io.await(IO_timer.sleep(u64(1)), io);
-        });
+        cond(
+          !self._locked => {
+            self._locked = true;
+            waiting = false;
+          },
+          true => {
+            p := Park.new();
+            self._waiters.push(p.waker());
+            io.await(p.wait(io), io);
+          }
+        );
       });
       return(());
     })
@@ -91,14 +110,31 @@ impl(
       }
     )
   ),
-  /// Release the lock. Panics if the mutex is not locked.
+  /// Release the lock and wake the longest-waiting acquirer, if any. Panics if
+  /// the mutex is not locked.
+  ///
+  /// The woken task is not handed the lock — it is handed the right to try for
+  /// it, and it re-checks. That is deliberate: handing over the lock itself
+  /// would make `try_lock` from a third task able to observe an unlocked mutex
+  /// that is already spoken for.
   unlock : (fn(self : Self) -> unit)({
     assert(self._locked, "Mutex.unlock: not locked");
     self._locked = false;
+    cond(
+      (self._waiters.len() > usize(0)) => {
+        w := self._waiters.remove(usize(0));
+        w.wake();
+      },
+      true => ()
+    );
   }),
   /// True while some task holds the lock.
   is_locked : (fn(self : Self) -> bool)(
     self._locked
+  ),
+  /// How many tasks are suspended waiting for this lock. Diagnostics only.
+  waiter_count : (fn(self : Self) -> usize)(
+    self._waiters.len()
   ),
   /// Read the protected value. Meaningful only while YOU hold the lock —
   /// single-threaded cooperation makes an unlocked read a logic bug, not a

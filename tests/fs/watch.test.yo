@@ -9,6 +9,10 @@ import("std/fmt");
 { Path } :: import("std/path");
 { watch, WatchOptions, FsEvent, FsEventKind, Watcher } :: import("std/fs/watch");
 { Exception } :: import("std/error");
+{ Stream } :: import("std/async/stream");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
+{ ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 file :: import("std/sys/file");
 dir :: import("std/sys/dir");
@@ -112,4 +116,114 @@ test("watching a missing path throws IoError", {
 test("FsEventKind renders", {
   assert(FsEventKind.Rename.to_string() == "rename", "rename");
   assert(FsEventKind.Change.to_string() == "change", "change");
+});
+// A watcher created inside this function drops at the function's end without
+// `close()`. Returns false if `watch` itself threw.
+_watch_and_drop :: (fn(p : String) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(false);
+      }
+    )
+  );
+  w := watch(Path.new(p), WatchOptions.defaults(), exn);
+  assert(w.is_active(), "a fresh watcher is active");
+  true
+});
+// Open-and-close a file and report the descriptor number it got. The kernel
+// hands out the LOWEST free descriptor, so this reads as "how many fds are
+// currently in use" without depending on any resource limit.
+_probe_fd :: (fn(path : String, io : Io) -> i32)({
+  c := path.to_cstr();
+  p := c.ptr().unwrap();
+  fd := io.await(file.openat(AT_FDCWD, p, O_CREAT | O_WRONLY, i32(0o644)), io);
+  assert(fd >= i32(0), "the probe file opened");
+  io.await(file.close(fd), io);
+  fd
+});
+// Regression: `Watcher` shipped a `close()` and no `Dispose`, so a dropped
+// watcher never unregistered — leaking the backend's `__yo_fs_event_t` and its
+// descriptors, AND leaving the event loop holding a raw non-owning pointer to
+// freed memory
+// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md).
+//
+// The oracle is the descriptor NUMBER, not a resource limit: each live watcher
+// holds an inotify instance on Linux and an O_EVTONLY fd plus a kqueue fd on
+// macOS, so 200 leaked watchers push the next free descriptor hundreds higher.
+// A limit-based oracle would have been vacuous here — this machine's
+// RLIMIT_NOFILE swallows 200 leaks without complaining.
+test("a watcher dropped without close() releases its backend handle", {
+  d := temp_dir();
+  probe := path_join(d, `yo_watch_fd_probe.txt`);
+  base := _probe_fd(probe, io);
+  (i : usize) = usize(0);
+  while(i < usize(200), {
+    assert(
+      _watch_and_drop(d),
+      `watch failed at iteration ${i} — dropped watchers are not releasing their backend handles`
+    );
+    i = (i + usize(1));
+  });
+  after := _probe_fd(probe, io);
+  assert(
+    after <= (base + i32(8)),
+    `200 dropped watchers moved the next free descriptor from ${base} to ${after} — their backend handles leaked`
+  );
+  // And the backend still works afterwards: a fresh watcher still delivers.
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  target := path_join(d, `yo_watch_drop.txt`);
+  _unlink(target, io);
+  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  _touch(target, String.from("x"), io);
+  ev := io.await(w.next(io), io);
+  assert(ev.is_some(), "a watcher created after 200 dropped ones still delivers");
+  w.close();
+  _unlink(target, io);
+  _unlink(probe, io);
+});
+// A `Watcher` is the first `Stream` implementor — its `next` WAS this shape
+// before the trait existed (plans/reference/ASYNC_ITERATION_STREAM.md), so
+// every combinator applies to it. The chain is bounded by `take(1)` and the
+// await runs in a spawned task under a deadline, so a regression that stops
+// delivering events fails instead of hanging.
+test("a Watcher is a Stream: map + take collects one event name", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error: ${err}`);
+        unwind(());
+      }
+    )
+  );
+  d := temp_dir();
+  target := path_join(d, `yo_watch_stream.txt`);
+  _unlink(target, io);
+  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  names := w.map(e => e.name).take(usize(1));
+  h := io.spawn(names.collect(io), io);
+  _touch(target, String.from("x"), io);
+  got := match(
+    timeout(h, Duration.from_millis(i64(5000)), io),
+    .Ok(list) => list,
+    .Err(_) => {
+      assert(false, "the watcher stream delivered no event inside the deadline");
+      ArrayList(String).new()
+    }
+  );
+  assert(got.len() == usize(1), "take(1) ends the stream after one event");
+  assert(got(usize(0)).len() > usize(0), "the mapped item is the entry name");
+  (more : Option(FsEvent)) = w.poll();
+  while(more.is_some(), {
+    more = w.poll();
+  });
+  w.close();
+  _unlink(target, io);
 });

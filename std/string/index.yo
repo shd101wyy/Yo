@@ -1,4 +1,25 @@
 //! String and Unicode types.
+//!
+//! A re-export barrel: importing `std/string` gives you `rune`, everything in
+//! `./string.yo` (`String`, `StringError`, its four iterators, `Pattern`,
+//! `FromString`, the three parse-error enums) and everything in
+//! `./string_builder.yo` (`StringBuilder`, `Alignment`). It defines nothing of
+//! its own — the imports are `_`-prefixed so only the re-exported names cross
+//! the boundary.
+//!
+//! `./unicode.yo` is deliberately NOT re-exported: it is the leaf case-mapping
+//! table `String.to_lowercase` / `to_uppercase` route through, not a surface a
+//! caller reaches for.
+//!
+//! ## Stability
+//!
+//! unstable — only because what it forwards is. The barrel's own shape (one
+//! import per file, one flat export list) is settled and adding a module to it
+//! is additive, but it re-exports `std/string/rune.yo`, whose ASCII-only
+//! `is_*` / `to_*case` methods are due a breaking rename, and
+//! `std/string/string.yo`, which still carries the D10/D12 deprecated aliases
+//! awaiting deletion. Both are named in those modules' own `## Stability`
+//! sections. This file freezes when they do.
 _rune :: import("./rune.yo");
 _string :: import("./string.yo");
 _string_builder :: import("./string_builder.yo");

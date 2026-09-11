@@ -214,3 +214,16 @@ test("SortedSet Default is the empty set", {
   assert(s.is_empty(), "default sorted set is empty");
   assert(s.insert(i32(1)).len() == usize(1), "the default sorted set is usable");
 });
+// See `imm_set.test.yo` for why the Option carries the whole answer here.
+test("SortedSet extract reports membership as well as removing", {
+  s := SortedSet(i32).new().insert(i32(3)).insert(i32(1)).insert(i32(2));
+  got := s.extract(i32(2));
+  assert(got.is_some(), "2 was a member");
+  t := got.unwrap();
+  assert(t.len() == usize(2), "the returned set is one smaller");
+  assert(!t.contains(i32(2)), "2 is gone from it");
+  assert(t.min().unwrap() == i32(1), "the minimum is still 1");
+  assert(t.max().unwrap() == i32(3), "and the maximum is still 3");
+  assert(s.len() == usize(3), "the original set is untouched");
+  assert(s.extract(i32(99)).is_none(), "a non-member extracts nothing");
+});

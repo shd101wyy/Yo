@@ -255,5 +255,26 @@ case "$clidiff_tail" in
      dump_log "/tmp/${P}_clidiff.log" ;;
 esac
 
+echo "=== T1 GATE 8: embedded Yo programs compile ==="
+# Yo source that lives INSIDE another file is covered by nothing else here:
+# GATE 3/4 check ./std and ./src, GATE 1 runs tests/, and none of them can see
+# the hello worlds embedded in the two install scripts, in
+# install-scripts.yml, or in release.yml's three bundle smokes. Those decide
+# whether a user's install succeeds and whether a release publishes, and the
+# workflows carrying them are paths-filtered or release-time only — so a
+# language change that removes a form one of them uses lands green and breaks
+# the installer for real users (it did, when the `open(...)` builtin was
+# removed: issues/fixed/installer-verification-snippet-is-outside-every-per-pr-gate.md).
+#
+# The checker EXTRACTS each snippet from its host file, compiles it, runs it,
+# and compares stdout against the line that host file itself asserts.
+scripts/check-embedded-yo.sh "$S1" "/tmp/${P}_embyo" &> "/tmp/${P}_embyo.log"
+embyo_rc=$?
+echo "EMBYO_RC=$embyo_rc  $(tail -1 "/tmp/${P}_embyo.log")"
+if [ "$embyo_rc" != "0" ]; then
+  fail "embedded Yo programs failed (rc=$embyo_rc)"
+  dump_log "/tmp/${P}_embyo.log"
+fi
+
 echo "=== T1_DONE (${P}) failures=${fails} ==="
 [ "$fails" = "0" ] || exit 1

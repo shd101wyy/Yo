@@ -1,4 +1,17 @@
 //! POSIX `<unistd.h>` — standard symbolic constants and types.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design, and POSIX-only: including
+//! `<unistd.h>` on Windows does not compile, so every import must sit
+//! inside a non-Windows comptime arm (`tests/io/tty.test.yo` did not, and
+//! that was the bug — docs/en-US/STD_SYS_MODULE.md). The public surfaces
+//! above it are `std/fs`, `std/env` and `std/process`; what they take is
+//! narrow — `getcwd` / `chdir` / `readlink` for `std/env`, `unlink` /
+//! `rmdir` for `std/fs/temp`. `read` / `write` / `close` are bound, but Yo
+//! file I/O goes through the async runtime (`std/sys/file`), not these, so
+//! a synchronous call here bypasses the event loop. Additive-by-demand,
+//! follows POSIX.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<unistd.h>",

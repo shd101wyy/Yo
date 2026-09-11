@@ -3,7 +3,7 @@
 //! Mirrors `src/doc-command.ts` — 1:1 port.
 //!
 //! Adaptations, each noted at its site:
-//!   - `package.json`'s `name` is read with a string scan (std json_parse
+//!   - `package.json`'s `name` is read with a string scan (std json.parse
 //!     takes a static `str`, not a runtime String);
 //!   - TS's retry-with-a-fresh-ModuleManager path collapses into
 //!     `mm_load_file`, which already catches evaluator throws internally;
@@ -204,7 +204,7 @@ _module_name_from_path :: (fn(file_path : String, base_path : String) -> String)
 });
 /// The value of the FIRST `"<key>" : "<value>"` pair in `content`, or `.None`.
 /// Stands in for both TS lookups in `inferProjectName`: JSON.parse(...).name
-/// for package.json (std's json_parse takes a static `str`, not a runtime
+/// for package.json (std's json.parse takes a static `str`, not a runtime
 /// String) and the `\.name\s*=\s*"..."` regex for build.yo.
 _scan_quoted_value_after :: (fn(content : String, marker : String, connector : String) -> Option(String))({
   (search_from : usize) = usize(0);

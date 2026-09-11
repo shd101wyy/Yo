@@ -1,0 +1,15 @@
+// continue-as-final-statement fixture: the continue jumps to the head,
+// where the invariant is assumed — the iterate obligation discharges it.
+pragma(Pragma.Verify);
+
+skip_step :: (
+  fn(n : i32, requires(n >= i32(0), n <= i32(1000)), ensures(result == n)) -> (result : i32)
+)({
+  i := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n);
+    i = (i + i32(1));
+    continue;
+  });
+  i
+});

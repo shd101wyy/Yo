@@ -1,35 +1,86 @@
-//! Memory-mapped I/O operations.
+//! Memory-mapped I/O (`mmap`/`munmap`/`mprotect`/`msync`) — the raw syscall
+//! boundary.
 //!
-//! Synchronous wrappers for `mmap`/`munmap`/`mprotect`/`msync`.
+//! No public `std` module maps files yet; `tests/sys/mmap.test.yo` (and
+//! `tests/sys/advise.test.yo`, which maps in order to `madvise`) are the only
+//! callers in this tree.
 //!
-//! `mmap` returns:
-//! - Mapped pointer on success
-//! - Encoded error pointer on failure (negative errno cast to pointer)
-// Use is_error(ptr) and error_code(ptr) to detect/decode mmap failures.
+//! `mmap` cannot use the negative-errno convention the rest of `std/sys`
+//! uses, because its success value is a pointer. It ENCODES the error in the
+//! pointer instead — a small negative value cast to `?*u8` — so every call
+//! must be screened with `is_error` before the pointer is dereferenced, and
+//! `error_code` decodes it.
+//!
+//! ## Stability
+//!
+//! unstable — the encoded-error pointer is the thing that has to go. It is
+//! valid only because no real mapping ever lands in `-1 .. -65535`, it is
+//! indistinguishable from a wild pointer to anything that forgets to call
+//! `is_error`, and it makes the return type `?*u8` while `.None` means
+//! nothing. A frozen version returns `Result(*u8, IoError)` and hands back an
+//! owning mapping type that unmaps on drop. There is also a real capability
+//! gap underneath: file mappings do not exist on wasm at all (`mmap` there
+//! always fails with `ENOSYS`), and Windows cannot partially unmap a view —
+//! `munmap`'s `length` is ignored there.
 pragma(Pragma.AllowUnsafe);
 { platform, Platform } :: import("../process");
 { __yo_sync_mmap, __yo_sync_mmap_is_error, __yo_sync_mmap_errno, __yo_sync_munmap, __yo_sync_mprotect, __yo_sync_msync } :: import("./externs.yo");
-// Protection constants
+/// `PROT_NONE` from `<sys/mman.h>` — no access at all. Useful for reserving
+/// address space, or as a guard page. Windows has no equivalent page
+/// protection for a file view, so the runtime maps read/write and then
+/// applies `VirtualProtect(PAGE_NOACCESS)`.
 PROT_NONE :: i32(0);
+/// `PROT_READ` — pages may be read.
 PROT_READ :: i32(1);
+/// `PROT_WRITE` — pages may be written. On most systems this implies
+/// readability in practice, but do not rely on it: ask for
+/// `PROT_READ | PROT_WRITE` when you mean both.
 PROT_WRITE :: i32(2);
+/// `PROT_EXEC` — pages may be executed. Denied outright on hardened
+/// platforms and on Apple Silicon without the right entitlement, so treat a
+/// failure here as expected rather than exceptional.
 PROT_EXEC :: i32(4);
-// Mapping flags
+/// `MAP_SHARED` — writes go through to the underlying file and are visible
+/// to other processes mapping it. 1 on both Linux and macOS.
 MAP_SHARED :: i32(1);
+/// `MAP_PRIVATE` — copy-on-write: writes are private to this process and
+/// never reach the file. 2 on both Linux and macOS.
 MAP_PRIVATE :: i32(2);
+/// `MAP_ANONYMOUS` (`MAP_ANON`) — map zero-filled memory instead of a file;
+/// pass it with `fd = -1`. The value genuinely differs per platform (`0x1000`
+/// on macOS, `0x20` on Linux), which is why this is a `cond` rather than a
+/// literal.
 MAP_ANONYMOUS :: cond(
   (platform == Platform.Macos) => i32(0x1000),
   true => i32(0x20)
 );
-// msync flags
+/// `MS_ASYNC` — schedule the writeback and return immediately.
 MS_ASYNC :: i32(1);
+/// `MS_INVALIDATE` — drop other mappings' cached copies of the range so they
+/// re-read from the file.
 MS_INVALIDATE :: i32(2);
+/// `MS_SYNC` — wait for the writeback to complete before returning. Another
+/// genuinely per-platform value (`0x10` on macOS, `4` on Linux). Note that
+/// Windows ignores the flags entirely, so `MS_ASYNC` and `MS_SYNC` behave
+/// identically there (`FlushViewOfFile`).
 MS_SYNC :: cond(
   (platform == Platform.Macos) => i32(0x10),
   true => i32(4)
 );
-// Map a file or anonymous memory region.
-// For anonymous mappings, pass flags including MAP_ANONYMOUS and fd = -1.
+/// Map `length` bytes of `fd` starting at `offset`, or anonymous memory when
+/// `flags` includes `MAP_ANONYMOUS` (with `fd = -1`). `addr` is a placement
+/// hint — pass `.None` to let the kernel choose, which is almost always what
+/// you want. `offset` must be page-aligned.
+///
+/// The return is EITHER a live mapping OR an errno encoded as a small
+/// negative pointer: test it with `is_error` first and decode with
+/// `error_code`. Dereferencing without that check is a segfault at a low
+/// address, not a null-pointer panic.
+///
+/// Windows has no `mmap`: the runtime creates a `CreateFileMappingW` section
+/// sized to `offset + length`, maps a view of it, and closes the section
+/// handle immediately (the view keeps it alive). wasm has no file mappings at
+/// all — `mmap` there always fails, and `error_code` reports `ENOSYS`.
 mmap :: (
   fn(
     addr : ?*u8,
@@ -42,27 +93,51 @@ mmap :: (
 )(
   __yo_sync_mmap(addr, length, prot, flags, fd, offset)
 );
-// Returns true if mmap returned an encoded error pointer.
+/// Whether an `mmap` return is an encoded error rather than a mapping. The
+/// test is that the pointer, read as a signed integer, lies in
+/// `-1 .. -65535` — a range no real mapping occupies. Call this on every
+/// `mmap` result before using it.
 is_error :: (fn(addr : ?*u8) -> bool)(
   __yo_sync_mmap_is_error(addr)
 );
-// Decode errno from an encoded mmap error pointer.
-// Returns 0 if addr is not an encoded error pointer.
+/// Decode the errno from an encoded `mmap` error pointer, as a POSITIVE
+/// errno (`ENOMEM`, `EACCES`, …) — note the sign differs from the rest of
+/// `std/sys`, which returns negated errnos. Answers 0 for a pointer that is
+/// not an encoded error, so pair it with `is_error` rather than testing for
+/// non-zero.
 error_code :: (fn(addr : ?*u8) -> i32)(
   __yo_sync_mmap_errno(addr)
 );
-// Unmap a previously mapped region.
-// Returns 0 on success, -errno on failure.
+/// Unmap a region previously returned by `mmap`. Returns 0 on success, a
+/// negative errno on failure. Any pointer into the region becomes invalid;
+/// nothing here tracks that, so this is the one call in the module that can
+/// turn a live pointer into a use-after-free.
+///
+/// On POSIX `addr` and `length` may name a SUBSET of a mapping, splitting it.
+/// On Windows they may not: `UnmapViewOfFile` releases the whole view and
+/// `length` is IGNORED, so partial unmapping silently unmaps everything.
 munmap :: (fn(addr : *u8, length : usize) -> i32)(
   __yo_sync_munmap(addr, length)
 );
-// Change memory protection on a mapped region.
-// Returns 0 on success, -errno on failure.
+/// Change the protection of `length` bytes at `addr` — `mprotect(2)`.
+/// Returns 0 on success, a negative errno on failure. Both must be
+/// page-aligned; this is how a JIT flips a page from writable to executable.
+///
+/// On Windows this is `VirtualProtect`, and the runtime translates `prot` as
+/// though the mapping were shared and anonymous — so re-protecting a
+/// `MAP_PRIVATE` file view there does not get the copy-on-write protection it
+/// would on POSIX.
 mprotect :: (fn(addr : *u8, length : usize, prot : i32) -> i32)(
   __yo_sync_mprotect(addr, length, prot)
 );
-// Flush mapped pages to storage.
-// Returns 0 on success, -errno on failure.
+/// Flush dirty pages of a `MAP_SHARED` mapping back to the file — `msync(2)`.
+/// Returns 0 on success, a negative errno on failure. Without this, a
+/// mapping's writes reach the file at the kernel's convenience, so it is the
+/// durability barrier for mapped I/O the way `fsync` is for descriptor I/O.
+///
+/// `flags` is one of `MS_ASYNC`/`MS_SYNC` optionally with `MS_INVALIDATE`.
+/// Windows ignores them and always performs a `FlushViewOfFile`, and wasm
+/// returns `-ENOSYS`.
 msync :: (fn(addr : *u8, length : usize, flags : i32) -> i32)(
   __yo_sync_msync(addr, length, flags)
 );

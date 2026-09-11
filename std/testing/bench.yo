@@ -11,6 +11,29 @@
 //! result := bench(`sort`, u64(1000), () => { /* work */ });
 //! println(result.to_string());
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — `BenchResult`'s statistics are total/average/min/max, and that
+//! is not the set a benchmark harness ends up wanting. A mean over a
+//! distribution with scheduler outliers is the wrong summary; Rust's libtest
+//! reports a median and a deviation, and `criterion` a confidence interval.
+//! Adding those means adding public fields to a value struct, which is not an
+//! additive change, so the shape has to settle before the module is frozen.
+//!
+//! What `avg_ns` MEANS is the second open question. `bench` reads the clock
+//! twice per iteration, so every number here includes two `Instant.now()`
+//! calls of per-iteration overhead — for a trivial body that is the whole
+//! measurement, which is exactly why `bench_auto` had to calibrate against
+//! wall time instead. Timing a BATCH and dividing would be more accurate and
+//! would change every reported figure without changing a single signature:
+//! precisely the silent semantic shift a stability promise is meant to
+//! prevent.
+//!
+//! `black_box` is separately constrained rather than unsettled — it is
+//! scalar-only because the aggregate route is blocked by two compiler
+//! defects, and widening it later is additive. Freezing follows the
+//! statistics set and the per-iteration/per-batch decision.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("../string");
 { ToString } :: import("../fmt");

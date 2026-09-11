@@ -33,7 +33,7 @@ pragma(Pragma.AllowUnsafe);
 { Path } :: import("std/path");
 { ArrayList } :: import("std/collections/array_list");
 { getenv } :: import("std/libc/stdlib");
-{ current_exe } :: import("std/env");
+{ current_exe, cwd } :: import("std/env");
 { Instant } :: import("std/time/instant");
 { profile_record_module } :: import("./utils.yo");
 { AstExpr } :: import("./expr.yo");
@@ -43,7 +43,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, eval_context_new, LoadModuleResult } :: import("./evaluator/context.yo");
 { register_evaluate_expression, evaluator_deadline_tripped, evaluator_deadline_message } :: import("./evaluator/exprs/_expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./evaluator/values/anonymous_module.yo");
-{ resolve_module_path, ModuleResolveResult, _build_module_val_from_env } :: import("./evaluator/exprs/import.yo");
+{ resolve_module_path, ModuleResolveResult, _build_module_val_from_env, set_import_root, clear_import_roots } :: import("./evaluator/exprs/import.yo");
 { clear_module_cache, module_cache_has, register_module, load_module_from_cache, register_loading, unregister_loading, loading_env, current_loading_module, record_import_edge, invalidate_module } :: import("./evaluator/module_loader.yo");
 { purge_type_trait_methods_owned_by } :: import("./evaluator/values/type_trait_methods.yo");
 { purge_generic_impls_owned_by } :: import("./evaluator/values/impl.yo");
@@ -205,6 +205,30 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
 /// loaded and the majority of user code references (`Option`, `Box`, `+`, …)
 /// fail with "Variable not found".
 ///
+/// Canonicalize a std-directory spelling: absolute (against the cwd when
+/// relative), separators normalized, `.`/`..` folded LEXICALLY. The resolved
+/// std path feeds module paths, which feed TYPE KEYS and mangled C names —
+/// two spellings of one directory (`YO_STD=<abs>` vs `--std-path ./std`)
+/// otherwise produce different emitted C, so any two-stage comparison whose
+/// stages resolve std differently (a local bootstrap fixpoint: stage-1 via
+/// exe-walk-up, stage-3 via the ./std fallback) false-fails on ~19k lines of
+/// `__yo_tN` renumbering churn
+/// (issues/fixpoint-gate-std-path-spelling-changes-type-keys.md). Lexical
+/// only — no symlink resolution: this is sync and runs inside the module
+/// loader. Falls back to the raw spelling when the cwd is unobtainable.
+_std_canonicalize :: (fn(p : String) -> String)({
+  path := Path.new(p.clone());
+  if(!path.is_absolute(), {
+    match(
+      cwd(),
+      .Ok(base) => {
+        path = base.join(path);
+      },
+      .Err(_) => ()
+    );
+  });
+  path.normalize().to_string()
+});
 /// Lookup order (mirrors TS `module-manager.ts` `findStdDirectory`):
 ///   1. The `--std-path` CLI flag (stashed via `set_std_path_override`).
 ///   2. `YO_STD` env var, if set and non-empty.
@@ -212,11 +236,14 @@ _read_file_sync :: (fn(path : String, exn : Exception) -> ArrayList(u8))({
 ///      executable's directory. This is what makes an installed release
 ///      bundle (`<prefix>/bin/yo` + `<prefix>/std`) self-locating.
 ///   4. `./std` relative to the current working directory (repo dev flow).
+///
+/// Every branch returns the CANONICALIZED spelling (see `_std_canonicalize`)
+/// so the resolution route never leaks into module paths or emitted C.
 resolve_std_path :: (fn() -> String)({
   match(
     g_std_path_override,
     .Some(p) => {
-      return(p.clone());
+      return(_std_canonicalize(p.clone()));
     },
     .None => {}
   );
@@ -228,7 +255,7 @@ resolve_std_path :: (fn() -> String)({
     .Some(ptr) => {
       v := String.from_cstr((*u8)(ptr)).unwrap();
       if(v.len() > usize(0), {
-        return(v);
+        return(_std_canonicalize(v));
       });
     }
   );
@@ -241,13 +268,13 @@ resolve_std_path :: (fn() -> String)({
         d := dir.unwrap();
         candidate := d.join(Path.new(String.from("std")));
         if(_path_exists_sync(candidate.to_string()), {
-          return(candidate.to_string());
+          return(_std_canonicalize(candidate.to_string()));
         });
         dir = d.parent();
       });
     }
   );
-  return(String.from("./std"));
+  _std_canonicalize(String.from("./std"))
 });
 // ---------------------------------------------------------------------------
 // State accessors (main.yo's compile path drives these directly)
@@ -404,6 +431,65 @@ mm_reset :: (fn() -> unit)({
   g_loader_std_path = Option(String).None;
   g_loader_exn = Option(Exception).None;
   g_load_module_error = Option(String).None;
+});
+/// The `--imports <file>` mapping (global flag, stripped by main.yo like
+/// `--std-path`): one `name=/abs/root.yo` per line, `#` comments allowed. The
+/// build runner writes it per artifact; the child compile loads it into the
+/// evaluator's import-root table on the first module load
+/// (plans/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.5.1). Per-process
+/// configuration — `mm_reset` leaves it alone.
+(g_imports_file_override : Option(String)) = Option(String).None;
+(g_imports_file_loaded : bool) = false;
+set_imports_file_override :: (fn(path : String) -> unit)({
+  g_imports_file_override = Option(String).Some(path);
+  g_imports_file_loaded = false;
+});
+get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override.clone());
+/// Load the `--imports` mapping once. A relative root is absolutized against
+/// the process cwd (the runner writes absolute paths; the flag is usable by
+/// hand too). Malformed lines (no `=`, empty name or root) are errors — the
+/// file is machine-written, so a bad line means a bug, not a typo.
+_load_imports_file :: (fn(exn : Exception) -> unit)({
+  if(g_imports_file_loaded, {
+    return(());
+  });
+  g_imports_file_loaded = true;
+  match(
+    g_imports_file_override,
+    .None => (),
+    .Some(p) => {
+      text := String.from_bytes(_read_file_sync(p.clone(), exn));
+      clear_import_roots();
+      cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+      lines := text.split("\n");
+      (i : usize) = usize(0);
+      while(i < lines.len(), {
+        line := lines(i).trim();
+        if(!((line.len() == usize(0)) || line.starts_with(String.from("#"))), {
+          match(
+            line.index_of("="),
+            .None => {
+              exn.throw(dyn(`--imports ${p}: line ${(i + usize(1)).to_string()} is not "name=/path/to/root.yo": ${line}`));
+            },
+            .Some(k) => {
+              name := line.substring(usize(0), k).trim();
+              root := line.substring(k + usize(1), line.len()).trim();
+              if((name.len() == usize(0)) || (root.len() == usize(0)), {
+                exn.throw(dyn(`--imports ${p}: line ${(i + usize(1)).to_string()} has an empty name or root: ${line}`));
+              });
+              abs_root := if(
+                Path.new(root.clone()).is_absolute(),
+                root,
+                Path.new(cwd_str.clone()).join(Path.new(root)).normalize().to_string()
+              );
+              set_import_root(name, abs_root);
+            }
+          );
+        });
+        i = (i + usize(1));
+      });
+    }
+  );
 });
 // ---------------------------------------------------------------------------
 // The demand loader
@@ -673,6 +759,7 @@ mm_eval_entry_exprs :: (
   ) -> ModuleLoadOutcome
 )({
   mm_set_loader_context(std_path.clone(), exn);
+  _load_imports_file(exn);
   env := mm_fresh_module_env(entry_abs.clone());
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
@@ -757,6 +844,7 @@ mm_load_file :: (
       }
     )
   );
+  _load_imports_file(exn);
   // A prelude that is already cached is a HIT — never re-evaluate it (TS
   // parity: a checked prelude is a module-cache hit in `loadModule`). The env
   // cache below is populate-once, but before this guard the prelude BODY was
@@ -925,6 +1013,8 @@ export(
   resolve_std_path,
   set_std_path_override,
   get_std_path_override,
+  set_imports_file_override,
+  get_imports_file_override,
   mm_set_loader_context,
   mm_demand_loader,
   mm_prelude_env,

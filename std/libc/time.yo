@@ -1,4 +1,17 @@
 //! C11 `<time.h>` — date and time functions.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. `std/time` is the public
+//! surface (`Instant`, `Duration`, `DateTime`); what it takes from here is
+//! `localtime_r` for `DateTime`'s local-time conversion. The bindings are
+//! deliberately shaped around a portability trap this module cannot fix:
+//! `tm` is opaque so `localtime_r` is typed through `*void`, and MSVC has
+//! no `localtime_r` at all while its `localtime_s` REVERSES the C11 Annex K
+//! argument order — so the Annex K binding here must not be called on
+//! Windows, where `std/libc/windows`'s `_localtime64_s` is the equivalent.
+//! Freezing would require one portable spelling of broken-down time, which
+//! C does not offer; use `std/time`.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<time.h>",

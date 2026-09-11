@@ -23,6 +23,7 @@
   BF_REQUIRES,
   BF_ENSURES,
   BF_INVARIANT,
+  BF_DECREASES,
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
@@ -42,6 +43,7 @@
 { Token, TokenKind } :: import("../../token.yo");
 { file_has_pragma } :: import("../memory_safety.yo");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { format_error_message } :: import("../../error.yo");
 { Exception } :: import("std/error");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
@@ -138,6 +140,18 @@ evaluate_invariant :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, 
   _reject_zero_arg_marker(
     expr,
     String.from("'invariant(...)' with zero arguments is a syntax error."),
+    exn
+  );
+  _evaluate_contract_marker(expr, env, ctx, exn)
+});
+/// `decreases(M)` — no-op marker in expression position: the loop-body
+/// statement form (right after `invariant(...)`) is consumed by the V4
+/// verifier's loop encoding; the SIGNATURE clause is extracted by the
+/// function-type evaluator.
+evaluate_decreases :: (fn(expr : AstExpr, env : Environment, ctx : EvalContext, exn : Exception) -> AstExpr)({
+  _reject_zero_arg_marker(
+    expr,
+    String.from("'decreases(...)' with zero arguments is a syntax error."),
     exn
   );
   _evaluate_contract_marker(expr, env, ctx, exn)
@@ -499,6 +513,8 @@ VerifyTask :: ref(
     result_type : TypeValue,
     requires_exprs : ArrayList(AstExpr),
     ensures_exprs : ArrayList(AstExpr),
+    /// Phase V4 `decreases(M)` termination measure (at most one).
+    (decreases_expr : Option(AstExpr)) ?= Option(AstExpr).None,
     return_label : Option(String),
     table : ExprInfoTable,
     /// `"verify"` | `"verify+"` — only those modes register.
@@ -509,6 +525,19 @@ VerifyTask :: ref(
   )
 );
 (g_verify_tasks : ArrayList(VerifyTask)) = ArrayList(VerifyTask).new();
+/// V5 honest diagnostics: when a verify-target function's definition-time
+/// body trial SWALLOWS an error (E0902/E0401 class — the load continues,
+/// the body never gets ExprInfo), the real message is recorded here keyed
+/// by the task's fn_id, so the verifier can report the CAUSE instead of
+/// the misleading "untyped expression" at the hollow body root.
+(g_verify_def_eval_failures : HashMap(String, String)) = HashMap(String, String).new();
+record_verify_task_def_eval_failure :: (fn(fn_id : String, msg : String) -> unit)({
+  g_verify_def_eval_failures.insert(fn_id, msg);
+  ()
+});
+verify_task_def_eval_failure :: (fn(fn_id : String) -> Option(String))(
+  g_verify_def_eval_failures.get(fn_id)
+);
 /// The file set the current command is verifying (absolute or as-given
 /// paths — matched by equality against `Token.module_path`). Empty = no
 /// verification is recording (plain `yo check`/`compile`), so registry
@@ -949,7 +978,7 @@ wrap_function_body_with_contracts :: (
   });
   AstExpr.FnCall(alloc_global_expr_id(), begin_atom, out_args, false, body_tok.clone())
 });
-export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_ghost);
+export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreases, evaluate_ghost);
 export(evaluate_ghost_fn, evaluate_old);
 export(wrap_function_body_with_contracts);
 export(
@@ -961,5 +990,7 @@ export(
   register_verify_task,
   evaluated_for_verify,
   take_verify_tasks,
+  record_verify_task_def_eval_failure,
+  verify_task_def_eval_failure,
   strip_proved_ensures_asserts
 );

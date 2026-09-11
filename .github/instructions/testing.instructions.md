@@ -340,6 +340,67 @@ locally built one, since that is what CI runs:
 yo fmt --check ./src ./std ./tests
 ```
 
+## A cli-case `cmd` needs a trailing newline, or NOTHING runs
+
+`scripts/cli-diff-test.sh` reads the command list with
+
+```bash
+while IFS= read -r line; do … done < "$cdir/cmd"
+```
+
+and `read` returns non-zero on a final line with **no trailing newline**, so
+the loop body never runs. The sandbox's `stdout.raw` is then 0 bytes and
+`--record` reports
+
+```
+NO-GOLDEN  <case>  (stdout_keep_match matched nothing — vacuous)
+```
+
+which reads like a wrong `stdout_keep_match` regex, so the natural response is
+to loosen the pattern or blame a timeout. Write the file with
+`printf 'build run\n'`, never `printf 'build run'`; the same goes for
+`expected_rc`.
+
+**How to tell which it is:** run with `--keep`, take the `kept sandbox:` path
+it prints, and `ls -la $W/run/stdout.raw`. Zero bytes means the command never
+ran; non-empty means the pattern really is wrong.
+
+## A LEXER-level error cannot live in a cli-case fixture
+
+The fixture tree is scanned by CI's `fmt --check` (above), and `yo fmt` has to
+LEX a file before it can print it back. So a fixture whose whole point is that
+it does not lex — a malformed `"\uZZZZ"` escape, a reserved quantifier — fails
+the formatting gate no matter how correct the case is.
+
+Lexer errors go in `tests/internal/lexer.test.yo` instead, which calls
+`tokenize` directly with an `Exception` whose handler asserts on the message
+and then `unwind`s, followed by `assert(false, "expected a lexer error")`.
+That is also where the reserved-`forall`/`∀` diagnostics live. Write the
+offending source as a Yo string with the backslash DOUBLED
+(`String.from("s :: \"\\uZZZZ\";")`) — writing it in a backtick template
+would make the test file's own lexing the thing under test.
+
+Evaluator-level rejections are different: `comptime_expect_error` handles
+those, including around an `impl(...)` inside a `test(...)` body.
+
+## `lsp-member-definition` pins absolute LINE NUMBERS inside `std/`
+
+The `lsp-member-definition` cli-case asks the LSP to jump to `ArrayList.push`,
+`ArrayList.new` and `ArrayList` itself, and its golden records the answers as
+`{"line": 244}` and friends in `std/collections/array_list.yo`. **Any edit to
+that file that adds or removes lines above those definitions moves all three**
+— a doc sweep adding `///` comments did exactly that, and the case went
+GOLDEN-DIFF roughly 25 minutes into the tier-1 job.
+
+The fix is a re-record, like the skills cases:
+
+```bash
+YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh --record lsp-member-definition
+```
+
+Check the diff says only that the line numbers moved. A changed URI, a changed
+character column, or a missing result is a real regression.
+
 ## Editing ANY file under `.github/skills/` re-records two cli-cases
 
 `yo skills install` (restored in #412) copies the skill tree into a project, and
@@ -364,6 +425,50 @@ YO_SELF_BIN=<your stage-1> bash scripts/cli-diff-test.sh          # re-score, ex
 Review the diff before committing: it should be exactly one changed hash line
 per case per edited skill file. Anything else means the install copied
 something you did not intend.
+
+**Export `YO_SKILLS` when your stage-1 binary lives outside the checkout.**
+`yo skills install` finds the bundled tree by walking up from the EXECUTABLE,
+so a binary copied to `/tmp/yo-s1-*` finds no `.github/skills` and prints
+`note: bundled skill files not found; skipping agent scaffolding` — with
+**rc 1** for `skills-install` and a much shorter tree for the `init` cases.
+`--record` then happily writes that as the golden, and the diff is ~120
+deleted lines rather than one changed hash. `gates_fast.sh` exports it for
+you (`YO_SKILLS="$PWD/.github/skills"`); a hand-run re-record must do the same:
+
+```bash
+YO_SKILLS="$PWD/.github/skills" YO_SELF_BIN=/tmp/yo-s1-dev \
+  bash scripts/cli-diff-test.sh --record skills-install skills-install-zh init init-build-test init-cwd init-existing
+```
+
+## Yo source also lives INSIDE scripts and workflows — GATE 8 checks it
+
+Seven Yo programs are embedded in non-`.yo` files, and `yo check ./std`,
+`yo check ./src` and the language suite can see none of them:
+
+- the verification hello world in `scripts/install.sh` and
+  `scripts/install.ps1` (compiled on a user's machine, with the release the
+  script just downloaded);
+- the post-install smoke in `.github/workflows/install-scripts.yml` (POSIX and
+  Windows legs);
+- the three bundle smokes in `.github/workflows/release.yml`.
+
+`install-scripts.yml` is `paths`-filtered to the two installer files, and
+`release.yml` runs at release time only, so **a language change that removes a
+form one of those snippets used to land green and still break the installer
+for real users.** That happened when the `open(...)` builtin was removed
+(`issues/fixed/installer-verification-snippet-is-outside-every-per-pr-gate.md`).
+
+`scripts/check-embedded-yo.sh <path-to-yo>` extracts each snippet from its host
+file, compiles it, runs it and compares stdout against the line that host file
+asserts. It runs as GATE 8 of `gates_fast.sh`, so it is covered on every PR.
+**A tree-wide language sweep must include these files** — grep the scripts and
+workflows, not just `std/`, `src/` and `tests/`.
+
+`scripts/build_site.yo` is the same class of file (Yo source outside the three
+checked directories). `test.yml`'s `docs-site` job compiles it per-PR, but with
+the **SEED** compiler, which by construction still accepts every form it
+shipped with — that job catches std API drift, not language removals. Sweep it
+by hand.
 
 ## A fixpoint run's stage-1 must live OUTSIDE the repo (`/tmp/yo-s1`)
 

@@ -12,12 +12,13 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { env, home_dir } :: import("std/env");
 { Exception, IoExn } :: import("std/error");
-{ json_parse_string, json_stringify, JsonValue } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
 { sha256_hex } :: import("std/crypto/sha256");
 { VcQuery, VcSort, VcTerm, VcOp, new_vc_query, vc_eq } :: import("./terms.yo");
 { encode_content, encode_script, EncodeOptions, default_encode_options } :: import("./encode.yo");
 { VerifyFnInput, verify_function_body } :: import("./vc.yo");
-{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts } :: import("../evaluator/builtins/contracts.yo");
+{ take_verify_tasks, VerifyTask, strip_proved_ensures_asserts, verify_task_def_eval_failure } :: import("../evaluator/builtins/contracts.yo");
 {
   Z3_VERSION,
   ensure_z3,
@@ -291,7 +292,7 @@ _cache_lookup :: (fn(q : VcQuery, cfg : VerifyRunConfig) -> Option(VerifyResult)
     _z3_read_file_sync(cache_path.clone()),
     .None => Option(VerifyResult).None,
     .Some(content) => match(
-      json_parse_string(content),
+      json.parse_string(content),
       // The store's shape is {query, verdict: {...}} — unwrap the verdict
       // member before parsing it. A corrupt cache entry is a MISS, not an
       // error — the store overwrites.
@@ -320,7 +321,7 @@ _cache_store :: (fn(q : VcQuery, verdict : VerifyVerdict) -> unit)({
     String.from("verdict"),
     _verdict_to_json(verdict)
   );
-  _ := _z3_write_file_sync(cache_path.clone(), json_stringify(payload));
+  _ := _z3_write_file_sync(cache_path.clone(), json.stringify(payload));
   ()
 });
 /// Run one obligation end-to-end: cache lookup → solver → parse → cache
@@ -514,6 +515,27 @@ verify_and_strip_tasks :: (
     match(
       tasks.get(ti),
       .Some(t) => {
+        // V5 honest diagnostics: a body whose definition-time trial
+        // SWALLOWED (E0902/E0401 class) reaches here hollow — report the
+        // recorded CAUSE instead of walking into "untyped expression".
+        match(
+          verify_task_def_eval_failure(t.fn_id.clone()),
+          .Some(msg) => {
+            reports.push(
+              VerifyFnReport(
+                fn_id : t.fn_id.clone(),
+                mode : t.mode.clone(),
+                outcome : String.from("subset-error"),
+                obligations : ArrayList(VerifyFnObligation).new(),
+                subset_construct : `body's definition-time evaluation failed (swallowed at load): ${msg}`,
+                subset_source : String.new()
+              )
+            );
+            ti = (ti + usize(1));
+            continue;
+          },
+          .None => ()
+        );
         input := VerifyFnInput(
           fn_name : t.fn_id.clone(),
           func_id : t.func_id.clone(),
@@ -523,6 +545,7 @@ verify_and_strip_tasks :: (
           result_type : t.result_type.clone(),
           requires_exprs : t.requires_exprs.clone(),
           ensures_exprs : t.ensures_exprs.clone(),
+          decreases_expr : t.decreases_expr.clone(),
           return_label : t.return_label.clone(),
           table : t.table
         );

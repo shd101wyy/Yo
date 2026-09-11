@@ -1,5 +1,16 @@
 //! POSIX `<fcntl.h>` — file control options.
 //! Provides open flags and file control operations.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. `std/sys/constants`
+//! re-exports the `O_*` flags for the `std/fs` open path and
+//! `std/process/command` uses `O_NONBLOCK` / `FD_CLOEXEC` on the child
+//! pipes; those two are the supported surface. The values are per-platform,
+//! the set is additive-by-demand, and Windows has no `<fcntl.h>` in this
+//! shape at all — the CRT equivalents live in `std/libc/windows`, so a
+//! caller here is implicitly inside a POSIX arm. Freezing follows the
+//! `std/fs` open surface, not this file.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<fcntl.h>",

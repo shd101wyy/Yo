@@ -1,4 +1,29 @@
 //! Unicode code point type (`rune`) for representing individual characters.
+//!
+//! A `rune` is a `newtype` over `u32` holding one scalar value — Go's `rune`,
+//! Rust's `char`. `from_u32` is the only constructor that validates, and it
+//! rejects the surrogate range D800..=DFFF as well as anything above 10FFFF,
+//! so a `rune` in hand is always encodable as UTF-8. Runes are values: `Eq`,
+//! `Ord` and `Send` are all defined by comparing the code point.
+//!
+//! This module gives a PRIMITIVE type its inherent methods from outside the
+//! prelude (the prelude imports nothing and has no `c_include`, so it cannot
+//! host them); `std/math.yo` follows the same pattern.
+//!
+//! ## Stability
+//!
+//! unstable — seven of the eleven methods are ASCII-ONLY under names Rust
+//! reserves for the Unicode behaviour: `is_whitespace`, `is_digit`,
+//! `is_alphabetic`, `is_uppercase`, `is_lowercase`, `to_lowercase` and
+//! `to_uppercase` all test or shift the ASCII range and pass every other code
+//! point through unchanged. Each says so in its own doc, but the NAMES are the
+//! problem — Rust spells these `is_ascii_*` / `to_ascii_*` and keeps the
+//! unprefixed names for the table-driven versions. The audit's plan
+//! (`plans/STD_API_STABILIZATION.md` §4, "Text") is to rename them to
+//! `is_ascii_*` / `to_ascii_*` and add real Unicode versions backed by
+//! `std/string/unicode.yo`'s tables. That rename is breaking, so the module
+//! cannot be frozen before it lands. `rune` itself, `from_u32`, `to_u32`,
+//! `is_ascii` and the named constants are settled.
 pragma(Pragma.AllowUnsafe);
 /// Unicode code point (U+0000 to U+10FFFF, excluding surrogates).
 /// Similar to Go's `rune` or Rust's `char`.

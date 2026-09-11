@@ -210,6 +210,57 @@ Thread.spawn((io) => {
 
 Channel 内部使用 `Mutex` + `CondVar` 进行同步。当 Channel 满时 send 阻塞；当 Channel 空时 recv 阻塞。
 
+### Sender / Receiver - 无需手动 `close()` 的流结束信号
+
+`Channel` 是两端共享的同一个句柄，只有有人调用 `close()` 它才会关闭。当消费者需要知道生产者
+**已经结束**时，请改用 `Sender`/`Receiver` 拆分：队列会统计存活的 sender，最后一个被丢弃时
+自动关闭 Channel。
+
+```rust
+{ Channel } :: import "std/sync/channel";
+
+rx := Channel(i32).receiver(usize(4)); // 队列及其唯一的消费者
+{
+  tx := rx.sender();                   // 一个被计数的生产者
+  tx.send(i32(1));
+  tx.send(i32(2));
+};                                     // 最后一个 sender 被丢弃 -> Channel 关闭
+
+rx.recv().unwrap();                    // 1  - 已缓冲的值先被取出
+rx.recv().unwrap();                    // 2
+rx.recv();                             // .Err(TryRecvError.Disconnected)
+```
+
+- `Sender` 可克隆（`tx.clone()`）；每个克隆都是又一个被计数的生产者，只有**最后**一个被丢弃时
+  才关闭队列。
+- 丢弃 `Receiver` 后，之后的每次 `send` 都会失败并把未发送的值交还给调用者，而不是阻塞在一个
+  没人消费的队列上。
+- `Receiver.recv()` 返回 `Result(T, TryRecvError)`；错误恒为 `Disconnected`，并且只有在缓冲区
+  被取空之后才会报告，因此已经被接受的值不会丢失。
+- `Channel(T).pair(capacity)` 以元组形式一次返回两端，写法更接近 Rust，但元组会在其整个作用域内
+  持有两个句柄——所以提前丢弃 sender **并不会**关闭 Channel。只要流的结束时机重要，就优先使用
+  `receiver()` + `sender()`。
+
+对于位于其他线程的生产者，请在线程内部创建该线程自己的 `Sender`，并在父线程中保留一个，
+直到工作线程都已启动：
+
+```rust
+rx := Channel(i32).receiver(usize(16));
+{
+  keeper := rx.sender();               // 保证计数不会归零
+  w := Thread.spawn((io) => {
+    tx := rx.sender();                 // 本线程的生产者
+    tx.send(i32(7));
+  });                                  // 线程体结束时 tx 被丢弃
+  w.join();
+};                                     // keeper 被丢弃 -> Channel 关闭
+```
+
+目前把 `Sender` **移入** `Thread.spawn` 闭包并不会关闭 Channel：spawn 闭包捕获的引用从不释放，
+因此该 sender 的丢弃逻辑永远不会执行。值依然可以正常传递，只是失去了自动关闭。异步任务
+（`std/async/channel`，在单个事件循环上提供同样的 `receiver()`/`sender()`/`pair()` API）会正确
+释放捕获。
+
 ## 可发送类型
 
 只有实现了 `Send` 的类型才能跨越线程边界：

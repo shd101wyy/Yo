@@ -1,0 +1,32 @@
+// Cond-arm phi-merge fixture for the V4.1 verifier: the binary-search
+// index skeleton — a two-way cond whose arms ASSIGN different variables
+// (`hi = mid` vs `lo = mid`). The post-cond binding of each assigned
+// name is the phi ite-fold over the arm guards; arrays stay outside the
+// subset, so this validates the INDEX reasoning (bounds + termination)
+// the plan's exit criteria name.
+pragma(Pragma.Verify);
+
+bsearch_step :: (
+  fn(
+    n : i32,
+    requires(n >= i32(0), n <= i32(100000)),
+    ensures(result >= i32(0), result <= n)
+  ) -> (result : i32)
+)({
+  lo := i32(0);
+  hi := n;
+  while(lo < hi, {
+    invariant(lo >= i32(0), lo <= hi, hi <= n);
+    decreases(hi - lo);
+    mid := ((lo + hi) / i32(2));
+    cond(
+      ((hi - mid) <= i32(1)) => {
+        hi = mid;
+      },
+      true => {
+        lo = mid;
+      }
+    );
+  });
+  lo
+});

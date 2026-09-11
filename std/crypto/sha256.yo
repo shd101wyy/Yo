@@ -3,13 +3,27 @@
 //! ## Example
 //!
 //! ```rust
-//! { sha256_hex } :: import "std/crypto/sha256";
+//! { sha256_hex } :: import("std/crypto/sha256");
 //!
 //! digest := sha256_hex(data);  // "2cf24dba..."
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the algorithm is fixed by FIPS 180-4 and the vectors are
+//! tested (`tests/crypto/sha256.test.yo`, plus the streaming-equals-
+//! one-shot check in `tests/crypto/digest.test.yo`), so what is unstable is
+//! the SHAPE, not the answer. Every digest is reachable two ways — the
+//! inherent `finish() -> Array(u8, 32)` and the `Digest` trait's
+//! `finish_bytes() -> ArrayList(u8)` — and which is canonical is not
+//! settled; there is no `reset`; and `finish` neither consumes nor resets
+//! the hasher, so a second call silently returns a digest of the padded
+//! state. Freezing follows those decisions in `std/crypto/digest`. A
+//! `Sha224` sibling (the same core with a different IV and a truncated
+//! output) would be additive.
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("../collections/array_list");
-{ hex_encode } :: import("../encoding/hex");
+hex :: import("../encoding/hex");
 { Digest } :: import("./digest");
 { String } :: import("../string");
 // ============================================================================
@@ -148,6 +162,16 @@ _sha256_block :: (fn(block : *(u8), h : *(u32)) -> unit)({
 // ============================================================================
 // Sha256 streaming state
 // ============================================================================
+/// A streaming SHA-256 hasher: 32-byte digest, 64-byte block, big-endian
+/// throughout — RustCrypto's `Sha256`.
+///
+/// Feed it with `update` (any number of times, any chunk sizes) and finish
+/// with `finish`. Splitting the input differently cannot change the
+/// digest; the hasher buffers a partial block internally.
+///
+/// A `ref` type, so a copy of the value is the same hasher — passing it
+/// around does not fork the state. Use `sha256` / `sha256_hex` when the
+/// whole message is already in hand.
 Sha256 :: ref(
   struct(
     _h : Array(u32, usize(8)),
@@ -158,7 +182,7 @@ Sha256 :: ref(
 );
 impl(
   Sha256,
-  // Initialise a new hasher.
+  /// A hasher seeded with the FIPS 180-4 initial state, ready for `update`.
   new : (fn() -> Self)(
     Self(
       _h : Array(u32, usize(8))(
@@ -176,7 +200,12 @@ impl(
       _total : u64(0)
     )
   ),
-  // Feed more data into the hasher.
+  /// Absorb `data` into the hash and return the same hasher, so calls
+  /// chain: `Sha256.new().update(a).update(b).finish()`.
+  ///
+  /// O(len(data)). The return value is the receiver, not a copy — the
+  /// hasher is mutated in place either way, so ignoring the result is
+  /// equally correct.
   update : (fn(self : Self, data : ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
@@ -195,7 +224,14 @@ impl(
     });
     self
   }),
-  // Finalise and return the 32-byte digest.
+  /// Append the FIPS padding and the message-length field, fold the last
+  /// block in, and return the 32-byte digest.
+  ///
+  /// **Single use.** The padding is written into the hasher's own buffer
+  /// and folded into its state, so calling `finish` twice hashes that
+  /// padding as if it were more message and returns a digest of nothing
+  /// you fed it. RustCrypto's `finalize(self)` makes that a compile error;
+  /// here it is a rule — one hasher, one message.
   finish : (fn(self : Self) -> Array(u8, usize(32)))({
     // Padding
     bit_len := (self._total * u64(8));
@@ -266,19 +302,28 @@ impl(
 // ============================================================================
 // Convenience functions
 // ============================================================================
-// Hash data and return the 32-byte digest.
+/// SHA-256 of `data` in one call — the 32-byte digest.
+///
+/// Exactly `Sha256.new().update(data).finish()`, so use it whenever the
+/// whole message is in memory; reach for the `Sha256` type only to hash in
+/// pieces.
 sha256 :: (fn(data : ArrayList(u8)) -> Array(u8, usize(32)))(
   Sha256.new().update(data).finish()
 );
-// Hash data and return the 64-character lowercase hex digest.
+/// SHA-256 of `data` as 64 lowercase hex characters — the spelling
+/// checksums are usually published in.
+///
+/// Convenience over `sha256` + `hex_encode`; it allocates the `String`.
+/// Compare hex digests with care: use `constant_time_eq`
+/// (`std/crypto/hmac`) when the comparison is a security decision.
 sha256_hex :: (fn(data : ArrayList(u8)) -> String)({
   digest := sha256(data);
-  // Convert fixed array to ArrayList(u8) for hex_encode
+  // Convert fixed array to ArrayList(u8) for hex.encode
   bytes := ArrayList(u8).with_capacity(usize(32));
   i := usize(0);
   while(i < usize(32), i = (i + usize(1)), {
     bytes.push(digest(i));
   });
-  hex_encode(bytes)
+  hex.encode(bytes)
 });
 export(sha256, sha256_hex);

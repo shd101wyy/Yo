@@ -3,11 +3,13 @@ pragma(Pragma.SkipWasm32Emscripten); // no process model in WASM
 pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { assert } :: import("std/assert");
 { stdin, stdout, stderr, printf, EOF } :: import("std/libc/stdio");
-{ Command, ExitStatus, Output, Child, Stdio } :: import("std/process/command");
+{ Command, ExitStatus, Output, Child, ChildStdin, ChildStdout, ChildStderr, Stdio } :: import("std/process/command");
 { Exception, AnyError, IoExn } :: import("std/error");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { platform, Platform } :: import("std/process");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
 test("Command.new + status (echo exits 0)", {
   exn := Exception(
     throw : (
@@ -430,4 +432,140 @@ test("Command.output drains stdout and stderr concurrently (large stderr does no
   assert(out.stdout.len() >= usize(2), "stdout captured after the stderr flood");
   assert(out.stdout(usize(0)) == u8(111), "o");
   assert(out.stdout(usize(1)) == u8(107), "k");
+});
+// === Child pipe handles as Reader/Writer (plans/STD_API_STABILIZATION.md, I/O row) ===
+test("take_stdin/take_stdout give Writer/Reader handles over the child's pipes", {
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/cat`.to_string());
+  cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  w := child.take_stdin().unwrap();
+  r := child.take_stdout().unwrap();
+  assert(w.fd() >= i32(0), "the write handle owns a real fd");
+  assert(r.fd() >= i32(0), "the read handle owns a real fd");
+  // The Writer default `write_string` reaches a child pipe.
+  n := io.await(w.write_string(`handles héllo`, io), e);
+  assert(n == usize(14), "wrote 14 UTF-8 bytes through the Writer");
+  io.await(w.close(io), e);
+  assert(w.is_closed(), "closing is recorded");
+  // The Reader default `read_to_string` drains a child pipe to EOF.
+  text := io.await(r.read_to_string(io), e);
+  assert(text == `handles héllo`, `cat echoed it back: ${text}`);
+  st := io.await(child.wait(io), e);
+  assert(st.success(), "cat exits 0");
+});
+test("taking a stream moves the fd out of the Child", {
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/cat`.to_string());
+  cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  first := child.take_stdout();
+  assert(first.is_some(), "the first take yields the handle");
+  assert(child.take_stdout().is_none(), "a second take yields .None — the fd moved out");
+  // stderr was never piped, so there is nothing to take.
+  assert(child.take_stderr().is_none(), "an unpiped stream has no handle");
+  match(child.take_stdin(), .Some(w) => io.await(w.close(io), e), .None => assert(false, "stdin was piped"));
+  r := first.unwrap();
+  out := io.await(r.read_to_end(io), e);
+  assert(out.len() == usize(0), "cat saw EOF immediately and wrote nothing");
+  io.await(child.wait(io), e);
+});
+// Dropping a taken stdin handle closes the pipe, so the child sees EOF without
+// an explicit close — `Dispose` on ChildStdin. Without it, `cat` would never
+// exit and `wait` below would hang.
+_feed_and_drop :: (fn(child : Child, payload : String, io : Io, e : IoExn) -> bool)(
+  match(
+    child.take_stdin(),
+    .Some(w) => {
+      io.await(w.write_string(payload, io), e);
+      // no close: `w`'s last reference dies with this frame
+      true
+    },
+    .None => false
+  )
+);
+test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/cat`.to_string());
+  cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  r := child.take_stdout().unwrap();
+  assert(_feed_and_drop(child, `dropped`, io, e), "stdin was piped");
+  // BOUNDED on purpose. Without `Dispose` on `ChildStdin` the pipe stays open,
+  // `cat` waits for an EOF that never comes, and a bare `read_to_string` here
+  // HANGS — which in CI burns a job's whole timeout instead of reporting a
+  // failure. Verified: with the impl removed this reports Elapsed in ~2s;
+  // with it, the read finishes immediately.
+  rh := io.spawn(r.read_to_string(io), e);
+  text := match(
+    timeout(rh, Duration.from_millis(i64(2000)), io),
+    .Ok(t) => t,
+    .Err(te) => {
+      assert(false, `dropping the ChildStdin did not deliver EOF — ${te}`);
+      String.new()
+    }
+  );
+  assert(text == `dropped`, `cat echoed it and exited: ${text}`);
+  st := io.await(child.wait(io), e);
+  assert(st.success(), "cat exits 0 after the dropped handle's EOF");
+});
+test("take_stderr reads a child's stderr as a Reader", {
+  if(platform == Platform.Windows, {
+    unsafe(printf("  skipped on windows\n"));
+    return(());
+  });
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  e := IoExn(io : io, exn : exn);
+  cmd := Command.new(`/bin/sh`.to_string());
+  cmd.arg(`-c`.to_string());
+  cmd.arg(`printf 'to stderr' 1>&2`.to_string());
+  cmd.stderr(Stdio.Piped);
+  child := io.await(cmd.spawn(io), e);
+  r := child.take_stderr().unwrap();
+  text := io.await(r.read_to_string(io), e);
+  assert(text == `to stderr`, `stderr came through: ${text}`);
+  io.await(child.wait(io), e);
 });

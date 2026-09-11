@@ -1,4 +1,29 @@
 //! Formatted output to stdout and stderr.
+//!
+//! Four printers over one body: `println` / `print` write to stdout,
+//! `eprintln` / `eprint` to stderr, and each takes any `T <: ToString`, so a
+//! template string (`` `x = ${v}` ``) and a bare value are the same call.
+//! Output goes straight to the C `FILE*` with `fwrite` — line-buffered on a
+//! tty, block-buffered into a pipe, and NOT flushed here, so interleaving
+//! stdout with stderr in a redirected run can reorder.
+//!
+//! This is also the front door for the formatting vocabulary: `ToString` and
+//! `Debug` (`./to_string.yo`), `Format` and the `value.format(spec)` protocol
+//! (`./format.yo`), `FormatSpec` (`./spec.yo`), and — re-exported from
+//! `std/string` because the dependency may only run that way —
+//! `StringBuilder` and `Alignment`.
+//!
+//! ## Stability
+//!
+//! unstable — the four printers are frozen in practice (they are Rust's
+//! `println!` family minus the macro, every name in the tree calls them, and
+//! nothing about their signature is in question), but this module's job is to
+//! BE the surface of `std/fmt`, and three of the four things it re-exports are
+//! themselves unstable: `Debug` is one release old (D15), `FormatSpec` has no
+//! dynamic width or precision, and `StringBuilder` still carries the number
+//! renderers that retired into it from `Writer`. Each says so in its own
+//! `## Stability` section. There is no open question about `print`/`println`
+//! itself; freezing this file means freezing what it forwards.
 pragma(Pragma.AllowUnsafe);
 { fwrite, stdout, stderr, FILE } :: import("../libc/stdio");
 { String } :: import("../string");

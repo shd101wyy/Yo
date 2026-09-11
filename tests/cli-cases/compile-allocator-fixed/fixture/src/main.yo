@@ -1,0 +1,111 @@
+// Mixed-order exercise of the fixed-region allocator (TLSF): raw
+// malloc/calloc/realloc/aligned_alloc round-trips interleaved with RC
+// objects (Strings/ArrayLists — the __yo_rc_alloc path), ending in a
+// deterministic checksum. Everything is freed; the run must not OOM inside
+// the 1 MiB region.
+pragma(Pragma.AllowUnsafe);
+{ GlobalAllocator } :: import("std/allocator");
+{ malloc, calloc, realloc, free, aligned_alloc, aligned_free } :: GlobalAllocator;
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ println } :: import("std/fmt");
+/// Fill `n` bytes at `p` with a seed pattern and return their checksum.
+/// `.None` (an OOM, impossible inside this probe's budget) folds to 0 and so
+/// changes the printed checksum — the golden catches it either way.
+_sum_block :: (fn(p : ?*void, n : usize, seed : u8) -> usize)(
+  match(
+    p,
+    .Some(raw) => {
+      (sum : usize) = usize(0);
+      bytes := (*u8)(raw);
+      (i : usize) = usize(0);
+      while(i < n, {
+        unsafe((bytes.add(i)).* = (seed + u8(i)));
+        i = (i + usize(1));
+      });
+      i = usize(0);
+      while(i < n, {
+        sum = ((sum + usize(unsafe((bytes.add(i)).*))) * usize(31));
+        i = (i + usize(1));
+      });
+      sum
+    },
+    .None => usize(0)
+  )
+);
+main :: (fn() -> unit)({
+  (sum : usize) = usize(0);
+  // grow/shrink realloc: contents must survive both directions.
+  (a : ?*void) = malloc(usize(64));
+  sum = (sum + _sum_block(a, usize(64), u8(1)));
+  a = realloc(a, usize(512));
+  sum = (sum + _sum_block(a, usize(512), u8(2)));
+  a = realloc(a, usize(32));
+  sum = (sum + _sum_block(a, usize(32), u8(3)));
+  free(a);
+  // calloc zeroes every byte.
+  b := calloc(usize(16), usize(8));
+  match(
+    b,
+    .Some(raw) => {
+      bytes := (*u8)(raw);
+      (zeroed : bool) = true;
+      (i : usize) = usize(0);
+      while(i < usize(128), {
+        if(!(unsafe((bytes.add(i)).*) == u8(0)), {
+          zeroed = false;
+        });
+        i = (i + usize(1));
+      });
+      if(zeroed, {
+        sum = (sum + usize(7));
+      });
+      free(b);
+    },
+    .None => ()
+  );
+  // aligned_alloc: 4096 alignment with a size that is NOT a multiple of it
+  // (the GlobalAllocator contract — raw C11 aligned_alloc would reject this).
+  d := aligned_alloc(usize(4096), usize(100));
+  match(
+    d,
+    .Some(raw) => {
+      addr := unsafe.cast(raw, usize);
+      if((addr % usize(4096)) == usize(0), {
+        sum = (sum + _sum_block(d, usize(100), u8(4)));
+      });
+      aligned_free(d);
+    },
+    .None => ()
+  );
+  // free-then-malloc reuse + one block held across another's lifetime.
+  e := malloc(usize(48));
+  free(e);
+  f := malloc(usize(2048));
+  e2 := malloc(usize(48));
+  sum = (sum + _sum_block(e2, usize(48), u8(5)));
+  sum = (sum + _sum_block(f, usize(2048), u8(6)));
+  free(f);
+  free(e2);
+  // RC objects: String/ArrayList headers ride __yo_rc_alloc under fixed.
+  words := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < usize(200), {
+    words.push(`fixed-${i.to_string()}`);
+    i = (i + usize(1));
+  });
+  (j : usize) = usize(0);
+  while(j < words.len(), {
+    match(
+      words.get(j),
+      .Some(w) => {
+        sum = (sum + w.len());
+      },
+      .None => ()
+    );
+    j = (j + usize(1));
+  });
+  println(`checksum ${sum.to_string()}`);
+  println(String.from("fixed-probe ok"));
+});
+export(main);

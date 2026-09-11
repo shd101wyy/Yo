@@ -1,28 +1,70 @@
-//! File descriptor control operations.
+//! Descriptor flags (`fcntl` F_GETFL/F_SETFL/F_GETFD/F_SETFD) — the raw
+//! syscall boundary.
 //!
-//! Synchronous wrappers for file descriptor flags and close-on-exec flags.
+//! The four `fcntl(2)` operations that read and write a descriptor's flags.
+//! `std/process/command.yo` needs three of them (to make a pipe non-blocking
+//! and to clear close-on-exec before a spawn) but reaches the externs
+//! directly, so this module has no `std` consumer today —
+//! `tests/sys/fcntl.test.yo` is its only caller in this tree.
 //!
 //! ## Returns
 //!
-//! - `getfl`/`getfd`: flags on success, -errno on failure
-//! - `setfl`/`setfd`: 0 on success, -errno on failure
+//! - `getfl`/`getfd`: the flag word on success, a negative errno on failure
+//! - `setfl`/`setfd`: 0 on success, a negative errno on failure
+//!
+//! ## Stability
+//!
+//! unstable — Windows is where this stops being one API. `fcntl` does not
+//! exist there, and the shim answers with a mix of best-effort translations
+//! and lies: `getfl` always reports 0 because Winsock cannot be asked its
+//! current `FIONBIO` state, and `setfl` can only serve `O_NONBLOCK` on
+//! sockets and named pipes. So a caller cannot round-trip flags on Windows,
+//! which is the one thing this API's shape implies. Freezing needs the
+//! individual flags exposed as their own predicates and setters (a
+//! `set_nonblocking(fd, bool)` that every platform can implement honestly)
+//! rather than a flag word borrowed from POSIX.
 { __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl, __yo_sync_fcntl_getfd, __yo_sync_fcntl_setfd } :: import("./externs.yo");
 { O_NONBLOCK } :: import("./constants.yo");
-// POSIX FD_CLOEXEC value. On Windows this is interpreted by the runtime wrapper.
+/// `FD_CLOEXEC` from `<fcntl.h>` — the one descriptor flag POSIX defines:
+/// close this descriptor automatically when the process `exec`s. 1 on every
+/// POSIX platform. On Windows the wrapper translates it to the INVERSE of
+/// `HANDLE_FLAG_INHERIT`, so the meaning survives even though the mechanism
+/// does not.
 FD_CLOEXEC :: i32(1);
-// Get file status flags (F_GETFL)
+/// Read `fd`'s file STATUS flags — the `O_*` word, including `O_NONBLOCK`,
+/// `O_APPEND` and the access mode (`fcntl(F_GETFL)`). Returns the flags, or
+/// a negative errno.
+///
+/// On Windows this always returns 0 for a valid descriptor: Winsock offers no
+/// way to query the current non-blocking mode, and there is no `O_*` word
+/// behind a Win32 handle. Do not read a flag back to confirm a `setfl` there.
 getfl :: (fn(fd : i32) -> i32)(
   __yo_sync_fcntl_getfl(fd)
 );
-// Set file status flags (F_SETFL)
+/// Replace `fd`'s file status flags with `flags` (`fcntl(F_SETFL)`). Returns
+/// 0 on success, a negative errno on failure. This is a REPLACE, not an OR:
+/// on POSIX the correct sequence is `getfl`, or in the bit you want, then
+/// `setfl` — and only `O_NONBLOCK`, `O_APPEND` and a few others can be
+/// changed at all, the access mode being fixed at open time.
+///
+/// Windows serves only `O_NONBLOCK`, and only for two kinds of handle:
+/// `ioctlsocket(FIONBIO)` for a socket and `SetNamedPipeHandleState(
+/// PIPE_NOWAIT)` for a pipe. Setting it on anything else is `-ENOSYS`;
+/// CLEARING it (passing flags without `O_NONBLOCK`) is accepted as a no-op.
 setfl :: (fn(fd : i32, flags : i32) -> i32)(
   __yo_sync_fcntl_setfl(fd, flags)
 );
-// Get file descriptor flags (F_GETFD)
+/// Read `fd`'s DESCRIPTOR flags (`fcntl(F_GETFD)`) — in practice just
+/// `FD_CLOEXEC`. Returns the flags, or a negative errno. On Windows this is
+/// `GetHandleInformation`, reported as `FD_CLOEXEC` when `HANDLE_FLAG_INHERIT`
+/// is clear; a socket descriptor there answers 0.
 getfd :: (fn(fd : i32) -> i32)(
   __yo_sync_fcntl_getfd(fd)
 );
-// Set file descriptor flags (F_SETFD)
+/// Replace `fd`'s descriptor flags with `flags` (`fcntl(F_SETFD)`) — the call
+/// that arms or disarms close-on-exec before a spawn. Returns 0 on success, a
+/// negative errno on failure. On Windows it is `SetHandleInformation` on
+/// `HANDLE_FLAG_INHERIT`, and a socket descriptor is accepted as a no-op.
 setfd :: (fn(fd : i32, flags : i32) -> i32)(
   __yo_sync_fcntl_setfd(fd, flags)
 );

@@ -5,11 +5,38 @@
 //! ## Example
 //!
 //! ```rust
-//! { utf8_to_utf16, utf16_to_utf8 } :: import "std/encoding/utf16";
+//! utf16 :: import("std/encoding/utf16");
 //!
-//! words := utf8_to_utf16("hello");
-//! s := utf16_to_utf8(words);
+//! words := utf16.from_utf8("hello");
+//! s := utf16.to_utf8(words);
 //! ```
+//!
+//! Both directions work in CODE UNITS, not bytes — the same basis as Rust's
+//! `str::encode_utf16` and `String::from_utf16`. There is no endianness and
+//! no BOM here: a caller reading a UTF-16LE file or a Windows `wchar_t*`
+//! assembles the `u16`s first.
+//!
+//! ## Stability
+//!
+//! unstable — the two directions disagree about failure, and settling that is
+//! the open question. `utf8_to_utf16` is LOSSY and infallible (a malformed
+//! byte becomes U+FFFD, via `utf8.decode_lossy`), while `utf16_to_utf8` is
+//! STRICT and returns a `Result` (an unpaired surrogate is
+//! `EncodingError.UnpairedSurrogate`). Rust ships BOTH forms of the fallible
+//! direction — `String::from_utf16` and `from_utf16_lossy` — and this module
+//! has neither counterpart: no `utf16_to_utf8_lossy` for a caller who wants
+//! replacement characters, and no strict `utf8_to_utf16` for a caller who
+//! would rather hear that the `String` it was handed is not valid UTF-8 than
+//! have the fault papered over. Adding the lossy decoder is additive; making
+//! the encoder fallible is not.
+//!
+//! Also not shipped yet: `utf16_to_utf8` became `Result`-returning in #467
+//! (D13), and `UnpairedSurrogate` — which fixed all three surrogate faults
+//! reporting `InvalidChar(u8(0))`, an offending character of NUL, because a
+//! 16-bit code unit does not fit a `u8` — landed 2026-09-09 (#526). The
+//! `pos` it carries is a CODE-UNIT index where every other `EncodingError`
+//! offset is a byte offset, which is part of why that shared enum is itself
+//! unstable. Names stutter (D2) like the rest of the encoding group.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { EncodingError } :: import("./error");
@@ -21,7 +48,7 @@ utf8 :: import("./utf8");
 /// Convert a UTF-8 string to an `ArrayList(u16)` of UTF-16 code units.
 ///
 /// Handles BMP characters directly and encodes supplementary characters as surrogate pairs.
-utf8_to_utf16 :: (fn(s : String) -> ArrayList(u16))({
+from_utf8 :: (fn(s : String) -> ArrayList(u16))({
   bytes := s.as_bytes();
   out := ArrayList(u16).new();
   i := usize(0);
@@ -45,19 +72,19 @@ utf8_to_utf16 :: (fn(s : String) -> ArrayList(u16))({
   });
   out
 });
-export(utf8_to_utf16);
+export(from_utf8);
 // ============================================================================
 // UTF-16 → UTF-8
 // ============================================================================
 /// Convert UTF-16 code units to a UTF-8 `String` (D13 — a pure transform
-/// returns a `Result`; `utf16_to_utf8_exn` is the effect-carrying wrapper).
+/// returns a `Result`; `to_utf8_exn` is the effect-carrying wrapper).
 ///
 /// Decodes surrogate pairs back into supplementary code points.
 /// `.Err(EncodingError.UnpairedSurrogate)` on an unpaired surrogate, carrying
 /// the offending code unit and its index — it used to report
 /// `InvalidChar(u8(0))`, an offending character of NUL, because a 16-bit code
 /// unit does not fit in `InvalidChar`'s `u8`.
-utf16_to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))({
+to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))({
   out := ArrayList(u8).new();
   i := usize(0);
   while(i < data.len(), {
@@ -99,9 +126,25 @@ utf16_to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))({
   });
   .Ok(String.from_bytes(out))
 });
-/// `utf16_to_utf8` as an effect: throws the `EncodingError` through `exn`
+/// `to_utf8` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
-utf16_to_utf8_exn :: (fn(data : ArrayList(u16), exn : Exception) -> String)(
-  match(utf16_to_utf8(data), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+to_utf8_exn :: (fn(data : ArrayList(u16), exn : Exception) -> String)(
+  match(to_utf8(data), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
-export(utf16_to_utf8, utf16_to_utf8_exn);
+export(to_utf8, to_utf8_exn);
+// ============================================================================
+// DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32
+// ============================================================================
+// `utf16 :: import("std/encoding/utf16")` already qualifies the call, so both
+// old spellings stuttered (`utf16.utf8_to_utf16`, `utf16.utf16_to_utf8`). These
+// thin aliases keep them compiling for one release, the way `json_parse_result`
+// and `derive(ToString)` were kept in v0.2.28.
+/// DEPRECATED, removed in v0.2.32: call `utf16.from_utf8`.
+utf8_to_utf16 :: (fn(s : String) -> ArrayList(u16))(from_utf8(s));
+/// DEPRECATED, removed in v0.2.32: call `utf16.to_utf8`.
+utf16_to_utf8 :: (fn(data : ArrayList(u16)) -> Result(String, EncodingError))(to_utf8(data));
+/// DEPRECATED, removed in v0.2.32: call `utf16.to_utf8_exn`.
+utf16_to_utf8_exn :: (fn(data : ArrayList(u16), exn : Exception) -> String)(
+  to_utf8_exn(data, exn)
+);
+export(utf8_to_utf16, utf16_to_utf8, utf16_to_utf8_exn);

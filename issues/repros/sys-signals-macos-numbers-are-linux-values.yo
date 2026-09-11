@@ -1,0 +1,16 @@
+// Reproducer: std/sys/signals.yo hands out Linux signal numbers on macOS for
+// SIGBUS, SIGURG, SIGUSR1 and SIGUSR2.
+//
+//   yo compile issues/repros/sys-signals-macos-numbers-are-linux-values.yo \
+//     --std-path ./std --optimize 2 -o /tmp/sigrepro && /tmp/sigrepro
+//
+// Expected on macOS (per <sys/signal.h>): BUS=10 URG=16 USR1=30 USR2=31.
+{ SIGBUS, SIGURG, SIGUSR1, SIGUSR2 } :: import("std/sys/signals");
+{ println } :: import("std/fmt");
+main :: (fn() -> unit)({
+  println(`SIGBUS = ${SIGBUS} (macOS <sys/signal.h>: 10, 7 is SIGEMT)`);
+  println(`SIGURG = ${SIGURG} (macOS <sys/signal.h>: 16, 23 is SIGIO)`);
+  println(`SIGUSR1 = ${SIGUSR1} (macOS <sys/signal.h>: 30, 10 is SIGBUS)`);
+  println(`SIGUSR2 = ${SIGUSR2} (macOS <sys/signal.h>: 31, 12 is SIGSYS)`);
+});
+export(main);

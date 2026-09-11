@@ -1,0 +1,28 @@
+// Reproducer: `DateTime.day_of_week` is off by one for year 0 and returns a
+// `u8` wrap (200s) for negative years, though its contract is 0..=6 with
+// 0 = Monday.
+//
+//   yo compile issues/repros/stddoc-io-datetime-day-of-week-wrong-for-non-positive-years.yo \
+//     --std-path ./std --optimize 2 -o /tmp/dow && /tmp/dow
+//
+// Expected (proleptic Gregorian, 0 = Monday):
+//   2026-01-01 -> 3 (Thu), 0001-01-01 -> 0 (Mon), 0000-01-01 -> 5 (Sat),
+//   -0001-01-01 -> 4 (Fri), -0004-01-01 -> 1 (Tue)
+// Actual: 3, 0, 6, 254, 250
+{ DateTime } :: import("std/time/datetime");
+{ println } :: import("std/fmt");
+show :: (fn(y : i32) -> unit)({
+  match(
+    DateTime.new(y, u8(1), u8(1), u8(0), u8(0), u8(0)),
+    .Ok(d) => println(`year ${y} Jan 1 dow=${d.day_of_week()} doy=${d.day_of_year()}`),
+    .Err(e) => println(`year ${y} rejected: ${e}`)
+  );
+});
+main :: (fn() -> unit)({
+  show(i32(2026));
+  show(i32(1));
+  show(i32(0));
+  show(i32(-1));
+  show(i32(-4));
+});
+export(main);

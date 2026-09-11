@@ -1,4 +1,17 @@
 //! C11 `<stdio.h>` — standard I/O functions.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. The public surfaces above
+//! it are `std/io` (streams and readers/writers) and `std/fmt` (printing);
+//! what `std/` uses directly from here is `snprintf` for number formatting
+//! (`std/net/addr`, `std/encoding/json`, `std/crypto/random`) and
+//! `fwrite` / `stdout` / `stderr` for `std/log`. `FILE`, `fpos_t` and
+//! `va_list` are opaque `Type`s because their layout is the C library's,
+//! and the varargs functions cannot be called from Yo with a variable
+//! argument list — `snprintf` works only because each call site passes a
+//! fixed one. Prefer `std/io`; this file freezes when C's stdio does, which
+//! is to say it is not the thing to freeze.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<stdio.h>",

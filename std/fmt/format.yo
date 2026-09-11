@@ -15,6 +15,26 @@
 //! f64(3.14159).format(".2"); // "3.14"
 //! `ada`.format("<8");        // "ada     "
 //! ```
+//!
+//! Dispatch is by impl specificity: the eighteen numeric impls and the four
+//! text ones are concrete, and a single blanket `impl(T <: ToString)` at the
+//! bottom of the file catches everything else — so any type that can render
+//! itself gets width, fill, alignment and truncation for free, and a concrete
+//! impl always wins over the blanket one. `f32` delegates to `f64`; every
+//! integer funnels into one `_format_int` after splitting itself into sign and
+//! magnitude in its own width.
+//!
+//! ## Stability
+//!
+//! unstable — it is a thin dispatch layer over `./spec.yo`, and it inherits
+//! that module's two open questions (no dynamic width or precision, and a
+//! `parse` that never reports a bad spec). It has one of its own: fixed-point
+//! float rendering goes through `StringBuilder.write_f64`, which truncates at
+//! 63 bytes, so `f64(1.0e300).format(".2")` returns 63 digits of a 302-digit
+//! number (`issues/stddoc-str-string-builder-write-f64-truncates.md`).
+//! Fixing that changes output. The `Format` trait itself — one method, `spec`
+//! as a plain `str`, an unrecognised spec degrading to `to_string()` — is
+//! settled.
 { FormatSpec } :: import("./spec");
 { Alignment, StringBuilder } :: import("../string/string_builder");
 { StringBuilder } :: import("../string/string_builder");

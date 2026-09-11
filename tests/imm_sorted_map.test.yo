@@ -211,3 +211,37 @@ test("SortedMap Default is the empty map", {
   assert(m.is_empty(), "default sorted map is empty");
   assert(m.insert(i32(1), i32(2)).len() == usize(1), "the default sorted map is usable");
 });
+// `extract` reports what came out; `remove` answers only "the map afterwards".
+test("SortedMap extract returns the removed value with the map without it", {
+  m := SortedMap(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  got := m.extract(i32(1));
+  assert(got.is_some(), "1 was present");
+  p := got.unwrap();
+  assert(p.0 == i32(10), "and its value comes back");
+  assert(p.1.len() == usize(1), "with a one-entry map");
+  assert(p.1.get(i32(1)).is_none(), "1 is gone from it");
+  assert(p.1.get(i32(2)).unwrap() == i32(20), "and 2 survives");
+  assert(m.len() == usize(2), "the original is untouched");
+});
+test("SortedMap extract of an absent key is None", {
+  m := SortedMap(i32, i32).new().insert(i32(1), i32(10));
+  assert(m.extract(i32(99)).is_none(), "a missing key extracts nothing");
+  assert(m.extract(i32(1)).is_some(), "a present one does");
+});
+test("SortedMap extract keeps the tree ordered while draining", {
+  (m : SortedMap(i32, i32)) = SortedMap(i32, i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(30), i = (i + i32(1)), {
+    m = m.insert(i, i);
+  });
+  // Drain from the MIDDLE outwards, which is the case that rebalances most.
+  (k : i32) = i32(15);
+  while(k < i32(30), k = (k + i32(1)), {
+    p := m.extract(k).unwrap();
+    assert(p.0 == k, "the extracted value is the key's own");
+    m = p.1;
+  });
+  assert(m.len() == usize(15), "half the keys remain");
+  assert(m.min_key().unwrap() == i32(0), "the minimum is still 0");
+  assert(m.max_key().unwrap() == i32(14), "and the maximum is now 14");
+});

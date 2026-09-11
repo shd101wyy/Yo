@@ -1517,7 +1517,7 @@ generate_iso_type_declarations :: (fn(context : CodeGenContext) -> unit)({
         .Some(info) => if(!info.create_generated, {
           child := info.child_type_c_name.clone();
           em.emit_string_line(`${iso_name.clone()} __yo_create_iso_${iso_name.clone()}(${child.clone()} value) {`);
-          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_malloc(sizeof(${iso_name.clone()}_struct));`);
+          em.emit_string_line(`  ${iso_name.clone()} iso = (${iso_name.clone()})__yo_rc_alloc(sizeof(${iso_name.clone()}_struct));`);
           em.emit_string_line(String.from("  iso->header.ref_count = 1;"));
           em.emit_string_line(String.from("  iso->header.borrow_count = 0;"));
           if(context.needs_cycle_gc, {

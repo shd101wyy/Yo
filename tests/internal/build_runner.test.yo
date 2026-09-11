@@ -21,6 +21,7 @@ _mk_artifact :: (fn(kind : ArtifactKind, name : String, root : String) -> BuildA
     target : String.from(""),
     optimize : String.from(""),
     allocator : String.from(""),
+    heap_size : usize(0),
     sanitize : String.from(""),
     emit_c_to : String.from(""),
     emit_chunks : usize(0),
@@ -75,6 +76,29 @@ test("build_dag: empty step produces a single-node DAG", {
   node := dag(usize(0));
   assert(node.name == `install`, "root name");
   assert(node.depends_on.len() == usize(0), "no deps");
+});
+test("register_executable carries the fixed-allocator heap size", {
+  // plans/reference/FIXED_REGION_ALLOCATOR.md P2: heap_size rides the artifact
+  // next to the allocator string; a missed copy in a register_* site would
+  // silently build `fixed` with the default region. The end-to-end path
+  // (build.yo -> --heap-size argv -> compile) is pinned by the
+  // compile-allocator-fixed cli-case.
+  exn := Exception(
+    throw : (
+      _err -> {
+        assert(false, "unexpected registry error");
+        unwind(());
+      }
+    )
+  );
+  reg := BuildRegistry.new();
+  a := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
+  a.allocator = String.from("fixed");
+  a.heap_size = usize(65536);
+  reg.register_executable(a, exn);
+  got := reg.artifacts(usize(0));
+  assert(got.heap_size == usize(65536), "heap_size is copied on registration");
+  assert(got.allocator == `fixed`, "allocator is copied on registration");
 });
 test("build_dag: step with artifact dependencies", {
   exn := Exception(

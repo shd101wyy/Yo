@@ -1,4 +1,18 @@
 //! Memory allocation abstractions and global allocator interface.
+//!
+//! ## Stability
+//!
+//! unstable — `Layout`, `AllocError` and the `GlobalAllocator` names are
+//! settled, but this module is a TRAIT SURFACE with exactly one implementor
+//! and that has never been tested. Nothing in `std` is generic over an
+//! allocator: every container calls `GlobalAllocator.malloc`/`free` directly,
+//! so the abstraction has never had to survive a second backend, and the
+//! shape a custom allocator would need (does it get `Layout`, or size +
+//! alignment? is `realloc` required or defaulted?) is unanswered by use.
+//! Freezing needs a second implementor — an arena or a counting allocator in
+//! `tests/` would do — and a decision on whether containers take an allocator
+//! parameter the way Zig's and Rust's do. Until then, treat this as the
+//! global allocator's own interface rather than as a pluggable one.
 pragma(Pragma.AllowUnsafe);
 { SIZE_MAX } :: import("./libc/stdint.yo");
 /// Memory allocation error variants.
@@ -58,6 +72,11 @@ extern(
 ///
 /// Crossing the two corrupts the heap on Windows, where the aligned family is
 /// the CRT's separate `_aligned_malloc` / `_aligned_free` pair.
+///
+/// Under `--allocator fixed` there is ONE family: `aligned_free` and `free`
+/// are the same function, so the split above cannot bite (the region's
+/// `aligned_alloc` splits a misaligned front piece back into the pool and
+/// every release path coalesces through the same TLSF `free`).
 GlobalAllocator :: impl({
   /// Allocate `size` uninitialized bytes. `.None` on failure.
   /// Release with `free`.

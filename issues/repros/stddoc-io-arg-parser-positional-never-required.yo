@@ -1,0 +1,50 @@
+// Reproducer: `add_positional` records `_required : true` and nothing ever
+// reads it, so `parse` succeeds with a required positional missing. Also
+// shows that there is no `--` end-of-options separator, so a negative number
+// cannot reach a positional slot.
+//
+//   yo compile issues/repros/stddoc-io-arg-parser-positional-never-required.yo \
+//     --std-path ./std --optimize 2 -o /tmp/posrepro && /tmp/posrepro
+{ ArgParser } :: import("../../std/cli/arg_parser");
+{ ArrayList } :: import("../../std/collections/array_list");
+{ String } :: import("../../std/string");
+{ println } :: import("../../std/fmt");
+_argv :: (fn(toks : ArrayList(String)) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  out.push(`myapp`);
+  i := usize(0);
+  while(runtime(i < toks.len()), {
+    match(toks.get(i), .Some(a) => out.push(a), .None => ());
+    i = (i + usize(1));
+  });
+  out
+});
+main :: (fn() -> unit)({
+  parser := ArgParser.new(`myapp`, `demo`);
+  parser.add_positional(`input`, `Input file (required)`);
+  // 1. The required positional is simply absent.
+  match(
+    parser.parse(_argv(ArrayList(String).new())),
+    .Ok(p) =>
+      match(
+        p.get_positional(`input`),
+        .Some(v) => println(`missing arg -> Ok, input = ${v}`),
+        .None => println(`missing arg -> Ok, input = .None  <-- BUG: parse succeeded`)
+      ),
+    .Err(m) => println(`missing arg -> Err: ${m}`)
+  );
+  // 2. A negative number as the positional value.
+  neg := ArrayList(String).new();
+  neg.push(`-5`);
+  match(
+    parser.parse(_argv(neg)),
+    .Ok(p) =>
+      match(
+        p.get_positional(`input`),
+        .Some(v) => println(`"-5"        -> Ok, input = ${v}`),
+        .None => println(`"-5"        -> Ok, input = .None`)
+      ),
+    .Err(m) => println(`"-5"        -> Err: ${m}  <-- BUG: no -- separator`)
+  );
+});
+export(main);

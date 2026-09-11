@@ -70,6 +70,7 @@ import("std/fmt");
   BF_REQUIRES,
   BF_ENSURES,
   BF_INVARIANT,
+  BF_DECREASES,
   BF_GHOST,
   BF_GHOST_FN,
   BF_OLD,
@@ -322,6 +323,7 @@ import("std/fmt");
   evaluate_requires,
   evaluate_ensures,
   evaluate_invariant,
+  evaluate_decreases,
   evaluate_ghost,
   evaluate_ghost_fn,
   evaluate_old
@@ -836,6 +838,8 @@ _evaluate_expression :: (
           evaluate_ensures(expr, env, ctx, exn),
         ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_INVARIANT, .None)) =>
           evaluate_invariant(expr, env, ctx, exn),
+        ((__dk_len == usize(9)) && ast_expr_is_fn_call_of(expr, BF_DECREASES, .None)) =>
+          evaluate_decreases(expr, env, ctx, exn),
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BF_GHOST, .None)) =>
           evaluate_ghost(expr, env, ctx, exn),
         ((__dk_len == usize(8)) && ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .None)) =>

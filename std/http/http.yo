@@ -1,5 +1,35 @@
-//! HTTP core types — methods, headers, requests, and responses.
-// std/http/http.yo - HTTP types and request/response builders
+//! HTTP core types — `HttpMethod`, `StatusCode`, `HeaderMap`, `HttpRequest`,
+//! `HttpResponse`, and the two parsers that turn wire bytes into them.
+//!
+//! Pure values and pure text: nothing in this file does I/O or blocks, so it
+//! is equally usable in a client, in a server, and in a test. The parsers
+//! return `Result(_, HttpParseError)` rather than throwing (D13), which is
+//! what lets `HttpServer.serve` answer a malformed request with a 400 and
+//! keep serving instead of unwinding out of its accept loop.
+//!
+//! Two shapes are worth knowing before reading further, because both differ
+//! from the obvious data structure: a header field name compares
+//! case-insensitively but is STORED as written (that is what goes on the
+//! wire), and a field may legitimately REPEAT with the order significant
+//! (`Set-Cookie` always does) — so headers are an insertion-ordered
+//! multimap, not a `HashMap(String, String)`. And a status is a `u16`
+//! newtype with 22 named constructors rather than an enum, because the
+//! registered set is OPEN: a peer may send a code this list does not carry,
+//! and an enum would have to reject or box it.
+//!
+//! ## Stability
+//!
+//! unstable — the type surface was reworked on 2026-09-09 (`StatusCode`
+//! replacing a bare `status_code : i32`, `HeaderMap` replacing
+//! `ArrayList(HttpHeader)`) and gained `HttpResponse.version` on 2026-09-10
+//! for connection reuse, so it is inside its one-release window. One
+//! decided-convention violation is still standing: `HttpRequest`/
+//! `HttpResponse` carry `get_header`/`set_header` beside the `HeaderMap`'s
+//! own Rust-shaped `get`/`insert`/`append`, which is two spellings for one
+//! operation and the `get_*` prefix D2 rules out — the plan lists
+//! `get_header` among its D2 violations. Removing the pair is breaking, so
+//! it waits for a window; the multimap and `StatusCode` themselves are
+//! expected to stay.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { ToString } :: import("../fmt");
@@ -410,10 +440,23 @@ HttpResponse :: ref(
     /// belong with the value, and a status is never negative.
     status : StatusCode,
     /// The reason phrase as the peer sent it, which may be anything (RFC 9110
-    /// SS15 makes it advisory). `status.reason()` gives the registered phrase
+    /// §15 makes it advisory). `status.reason()` gives the registered phrase
     /// instead; keeping both means a proxy can pass the original through.
     status_text : String,
+    /// The version on the status line, as received — `HTTP/1.1` or
+    /// `HTTP/1.0`. Kept for the same reason `status_text` is: a proxy passes
+    /// it through, and connection reuse turns on it (an `HTTP/1.0` response
+    /// without `Connection: keep-alive` ends its connection, RFC 9112 §9.3).
+    /// `HttpResponse.new` defaults it to `HTTP/1.1`.
+    version : String,
+    /// The response's header fields, in the order they arrived. A multimap:
+    /// use `headers.get_all(name)` when a field can repeat, and note that
+    /// `HttpResponse.to_string` writes these verbatim.
     headers : HeaderMap,
+    /// The body as received, byte-transparent — it is sliced out of the raw
+    /// message on the CRLFCRLF boundary and wrapped without UTF-8 validation,
+    /// so a binary body survives (a `String` here is a byte container, and
+    /// `body.as_bytes()` is the safe way to read one).
     body : String
   )
 );
@@ -421,7 +464,7 @@ impl(
   HttpResponse,
   /// Create a response with the given status and reason phrase.
   new : (fn(status : StatusCode, status_text : String) -> Self)(
-    Self(status : status, status_text : status_text, headers : HeaderMap.new(), body : ``)
+    Self(status : status, status_text : status_text, version : `HTTP/1.1`, headers : HeaderMap.new(), body : ``)
   ),
   /// Look up a header value by name (case-insensitive). The first value, when
   /// the field repeats — `self.headers.get_all(name)` for all of them, which
@@ -464,11 +507,12 @@ impl(
 impl(
   HttpResponse,
   ToString(
-    /// Serialize to HTTP/1.1 wire format. A `Content-Length` header is added
+    /// Serialize to wire format, on the status line's own `version` (so a
+    /// parsed response round-trips). A `Content-Length` header is added
     /// when none is present (the byte length of `body`), so the peer can
     /// delimit the message without waiting for close.
     to_string : (fn(self : Self) -> String)({
-      result := `HTTP/1.1 ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
+      result := `${self.version} ${self.status.to_string()} ${self.status_text}\r\n${self.headers.to_string()}`;
       cond(
         self.get_header(`Content-Length`).is_none() => {
           result = `${result}Content-Length: ${self.body.len().to_string()}\r\n`;
@@ -559,6 +603,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
     true => ()
   );
   sp1 := sp1_opt.unwrap();
+  version := status_line.substring(usize(0), sp1);
   rest := status_line.substring(sp1 + usize(1), status_line.len());
   // The reason phrase is OPTIONAL (RFC 9112 SS4): `HTTP/1.1 204` with no
   // trailing space is well-formed, and rejecting it made this parser stricter
@@ -588,6 +633,7 @@ parse_response :: (fn(raw : String) -> Result(HttpResponse, HttpParseError))({
     }
   );
   resp := HttpResponse.new(status, status_text);
+  resp.version = version;
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
     hline := lines(j);

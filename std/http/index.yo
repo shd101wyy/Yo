@@ -1,19 +1,32 @@
-//! HTTP/1.1 client and server — types, request/response building, async
-//! `fetch`, and `HttpServer` on `TcpListener`.
-// std/http - HTTP types, request/response builders, and async client.
-//
-// Example:
-//   { HttpRequest, HttpResponse, fetch } :: import "std/http";
-//   { Exception } :: import "std/error";
-//
-//   main :: (fn(io : Io) -> unit)({
-//     exn := Exception(throw : ((err) -> {
-//       println(err.message());
-//       unwind ();
-//     }));
-//     resp := io.await(fetch(`http://example.com`, io));
-//     println(resp.body);
-//   });
+//! HTTP/1.1 — the module you import. It is a barrel: it re-exports
+//! `./http.yo` (the pure types and parsers), `./client.yo` (`fetch` /
+//! `fetch_with`) and `./server.yo` (`HttpServer` over `TcpListener`), so
+//! `import("std/http")` gives the whole surface.
+//!
+//! `./wire.yo` is deliberately NOT re-exported. Message framing —
+//! `Content-Length`, chunked decoding, and what a read leaves behind — is
+//! shared by the client and the server but is not a public API: it is
+//! std-internal so that the framing rules can change with the pooling work
+//! without that being a breaking change to `std/http`.
+//!
+//! ```rust
+//! { fetch } :: import("std/http");
+//! { IoExn } :: import("std/error");
+//!
+//! resp := io.await(fetch(`http://example.com`, io), IoExn(io : io, exn : exn));
+//! println(resp.body);
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable, and it inherits rather than owns that: this file declares no
+//! members of its own, so its stability is exactly the union of the three
+//! modules it fronts, each of which carries its own `## Stability` section
+//! and its own open question — connection pooling in `./client.yo`, the
+//! `get_header`/`HeaderMap` duplication in `./http.yo`, and the idle timeout
+//! `./server.yo` needs before it can hold a connection open. What IS stable
+//! about this file is the barrel shape: `import("std/http")` will keep
+//! exporting those three modules, and adding a fourth would be additive.
 _http :: import("./http.yo");
 _client :: import("./client.yo");
 _server :: import("./server.yo");

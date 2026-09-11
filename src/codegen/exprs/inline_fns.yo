@@ -61,7 +61,7 @@
   BF_YO_ARRAY_INDEX
 } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_enum_type } :: import("../../types/guards.yo");
+{ is_enum_type, is_primitive_type, is_unit_type } :: import("../../types/guards.yo");
 { is_target_windows } :: import("../../target.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -100,6 +100,63 @@ _unop :: (fn(args : ArrayList(String), op : str) -> String)({
   out.push_str("))");
   out
 });
+/// The C type of a one-argument call's OPERAND, when it is a nameable
+/// primitive. Used to narrow a prefix arithmetic operator's result — see
+/// `_unop_narrowed`.
+_unary_operand_c_type :: (fn(expr : AstExpr, context : FunctionGenerationContext) -> Option(String))(
+  match(
+    expr,
+    .FnCall(_, _, ua, _, _) => match(
+      ua.get(usize(0)),
+      .Some(u0) => match(
+        context.base.get_expr_info(u0),
+        .Some(uei) => if(
+          is_primitive_type(uei.ty) && !is_unit_type(uei.ty),
+          Option(String).Some(get_type_string(uei.ty, context.base)),
+          Option(String).None
+        ),
+        .None => Option(String).None
+      ),
+      .None => Option(String).None
+    ),
+    .Atom(_, _) => Option(String).None
+  )
+);
+/// `((<operand C type>)(<op>(a)))` — a prefix ARITHMETIC unary, narrowed back
+/// to its operand's width.
+///
+/// C integer promotion is why the cast is not optional: `~(uint8_t)255` is an
+/// `int` `0xFFFFFF00`, not `0`, and `-(int8_t)(-128)` is an `int` `128`, which
+/// is not representable in `int8_t` at all. The trait-method path never had
+/// this problem because a primitive's `bit_not`/`neg` impl is a real function
+/// whose RETURN TYPE performs the conversion; an inline lowering has no such
+/// conversion and must spell it out.
+///
+/// Measured before the cast existed: `u64((~self))` on a `u8` receiver
+/// produced `0xFFFFFFFFFFFFFF00`, and `u8.MAX.trailing_ones()` answered `64`
+/// instead of `8` — the `(~self) == T(0)` guard compared `int -256` against
+/// `0` and took the wrong arm. Storing the complement in a local first hid it,
+/// because the local's own declared type did the narrowing.
+///
+/// `!` does NOT come through here: its result is `bool`, which has no narrower
+/// representation to be promoted out of.
+_unop_narrowed :: (fn(args : ArrayList(String), op : str, expr : AstExpr, context : FunctionGenerationContext) -> String)({
+  inner := _a(args, usize(0));
+  // Same degraded-render guard as `_binop`: `(~())` is invalid C and would
+  // break the whole batch rather than this one expression.
+  if((inner.len() == usize(0)) || inner.starts_with("// Failed to transpile"), {
+    return(`// Failed to transpile ${op}(${inner})`);
+  });
+  match(
+    _unary_operand_c_type(expr, context),
+    .Some(cty) => `((${cty})(${op}(${inner})))`,
+    // No nameable operand type — emit the un-narrowed form, which is what
+    // this lowering did before. Narrowing only matters for a sub-`int`-width
+    // operand, and a node whose ExprInfo we cannot read is not one we can
+    // name a type for either.
+    .None => `(${op}(${inner}))`
+  )
+});
 /// `(a <op> b)` — pointer-style binary (no inner parens, matches TS).
 _ptr_binop :: (fn(args : ArrayList(String), op : str) -> String)({
   out := String.from("(");
@@ -129,7 +186,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_OP_MUL) => _binop(args, "*"),
     (function_name == BF_YO_OP_DIV) => _binop(args, "/"),
     (function_name == BF_YO_OP_MOD) => _binop(args, "%"),
-    (function_name == BF_YO_OP_NEG) => _unop(args, "-"),
+    (function_name == BF_YO_OP_NEG) => _unop_narrowed(args, "-", expr, context),
     (function_name == BF_YO_OP_EQ) => _binop(args, "=="),
     (function_name == BF_YO_OP_NEQ) => _binop(args, "!="),
     (function_name == BF_YO_OP_LT) => _binop(args, "<"),
@@ -140,7 +197,7 @@ generate_yo_inline_function_call :: (fn(function_name : String, args : ArrayList
     (function_name == BF_YO_OP_BIT_AND) => _binop(args, "&"),
     (function_name == BF_YO_OP_BIT_OR) => _binop(args, "|"),
     (function_name == BF_YO_OP_BIT_XOR) => _binop(args, "^"),
-    (function_name == BF_YO_OP_BIT_COMPLEMENT) => _unop(args, "~"),
+    (function_name == BF_YO_OP_BIT_COMPLEMENT) => _unop_narrowed(args, "~", expr, context),
     (function_name == BF_YO_OP_BIT_LEFT_SHIFT) => _binop(args, "<<"),
     (function_name == BF_YO_OP_BIT_RIGHT_SHIFT) => _binop(args, ">>"),
     (function_name == BF_YO_NOOP) => String.from(""),

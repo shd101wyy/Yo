@@ -19,6 +19,21 @@ pragma(Pragma.AllowUnsafe);
 //! });
 //! wg.wait();  // blocks until all 3 tasks call done()
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the type has concurrent coverage
+//! (`tests/sync/waitgroup.test.yo`) and the Go-derived names are settled,
+//! but one behaviour is an unresolved divergence rather than a decision:
+//! `add` CLAMPS the counter at zero, so one `done()` too many is silently
+//! ignored where Go panics with "negative WaitGroup counter" — the one
+//! place Go reliably catches a miscounted group.
+//! `plans/STD_API_STABILIZATION_FINDINGS.md` item 10 records it as a gap.
+//! Freezing needs that call made (clamp, panic, or a `Result`), because
+//! whichever way it goes is observable to every caller. Note also that
+//! this is not Go's value type: a `WaitGroup` here is an atomically
+//! reference-counted handle, so copying one is correct and shares the
+//! counter, where copying Go's is a bug.
 { Mutex } :: import("./mutex");
 { Cond } :: import("./cond");
 { AtomicI32, MemoryOrder } :: import("./atomic");
@@ -40,7 +55,8 @@ WaitGroup :: atomic(
 );
 impl(
   WaitGroup,
-  // Create a new WaitGroup with count 0.
+  /// Create an empty group — counter zero, no waiters. A `wait()` on it
+  /// returns immediately until something is added.
   new : (fn() -> Self)(
     Self(
       _count : AtomicI32(i32(0)),
@@ -48,8 +64,22 @@ impl(
       _cv : Cond.new()
     )
   ),
-  // Add delta to the counter (can be negative).
-  // If the counter becomes zero, all waiters are woken.
+  /// Add `delta` to the counter, waking every waiter if it reaches zero —
+  /// Go's `WaitGroup.Add`.
+  ///
+  /// Call this BEFORE spawning the tasks it counts: a `wait()` that runs
+  /// while the counter is still zero returns immediately, and no later
+  /// `add` can bring it back. `delta` may be negative (`done` is exactly
+  /// `add(-1)`).
+  ///
+  /// **The counter is clamped at zero, not checked.** A `delta` that would
+  /// take it below zero stores zero and broadcasts, so an extra `done()`
+  /// is silently absorbed rather than panicking as Go's does — see the
+  /// module's Stability note.
+  ///
+  /// This briefly takes the group's internal mutex, so it blocks only
+  /// against another `add` or the bookkeeping of `wait`, never for the
+  /// length of the tasks themselves.
   add : (fn(self : Self, delta : i32) -> unit)({
     self._mutex._raw_lock();
     new_count := (self._count.load(MemoryOrder.Relaxed) + delta);
@@ -64,11 +94,23 @@ impl(
     );
     self._mutex._raw_unlock();
   }),
-  // Decrement the counter by one (equivalent to add(-1)).
+  /// Mark one counted task finished — Go's `WaitGroup.Done`, and exactly
+  /// `add(-1)`, including the clamp at zero.
   done : (fn(self : Self) -> unit)(
     self.add(i32(-1))
   ),
-  // Block until the counter reaches zero.
+  /// Block until the counter reaches zero — Go's `WaitGroup.Wait`.
+  ///
+  /// Returns immediately when the counter is already zero, which includes
+  /// the case of a group nothing was ever added to. Several threads may
+  /// wait at once; the zero is announced with a `broadcast`, so all of
+  /// them wake. The predicate is re-checked in a loop, so a spurious
+  /// condvar wake cannot end the wait early.
+  ///
+  /// This is a BLOCKING (OS-thread) wait, not an `io.await` — it parks the
+  /// calling thread, so calling it on the event-loop thread stalls every
+  /// async task in the program. Use it from a thread that owns its own
+  /// work.
   wait : (fn(self : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._count.load(MemoryOrder.Acquire) > i32(0)), {
@@ -76,7 +118,12 @@ impl(
     });
     self._mutex._raw_unlock();
   }),
-  // Get the current count (lock-free atomic load).
+  /// How many counted tasks are still outstanding, as a lock-free Acquire
+  /// load — no mutex is taken.
+  ///
+  /// Advisory only: another thread can change it between the load and the
+  /// next line, so branching on `count() == 0` instead of calling `wait()`
+  /// is a race. It exists for diagnostics and progress reporting.
   count : (fn(self : Self) -> i32)(
     self._count.load(MemoryOrder.Acquire)
   )

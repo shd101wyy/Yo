@@ -14,6 +14,25 @@
 //!   io.await(remove_dir(Path.new(`/tmp/yo_test`), io), { io, exn });
 //! });
 //! ```
+//!
+//! Every operation here is async: it submits to the single-threaded event
+//! loop and must be awaited, and it reports failure by throwing `IoExn`
+//! carrying the OS `errno` as an `IoError` (D1), never by returning a
+//! `Result`. Each `Path`-taking function has a `_str` twin that differs only
+//! in accepting a borrowed `str` literal.
+//!
+//! ## Stability
+//!
+//! unstable — `read_dir` is eager and Rust's is not. It drains the whole
+//! directory into an `ArrayList(DirEntry)` before the future resolves, so a
+//! caller that wants the first matching entry pays for every entry, and a
+//! directory with a million entries is a million-entry allocation rather
+//! than a cursor. Rust's `fs::read_dir` is an iterator of
+//! `io::Result<DirEntry>`, which also lets ONE unreadable entry be reported
+//! without failing the listing. The entry order is whatever the filesystem
+//! returns, deliberately (Rust promises nothing either), and callers that
+//! need determinism sort. Freezing follows a lazy `ReadDir` cursor beside
+//! the eager form, not a release count.
 pragma(Pragma.AllowUnsafe);
 { GlobalAllocator } :: import("../allocator");
 { malloc, free } :: GlobalAllocator;
@@ -54,9 +73,24 @@ export(FileType);
 /// the directory it was read from (so `path()` can rebuild the full path —
 /// Rust's `DirEntry::path`).
 DirEntry :: struct(
+  /// The entry's own name, with no directory part — Rust's
+  /// `DirEntry::file_name`. `.` and `..` are never reported.
   name : String,
+  /// The entry's kind as `readdir` reported it, WITHOUT following a final
+  /// symlink: a link is `.Symlink`, never its target's kind. Filesystems
+  /// that do not carry the type inline (XFS, many network and overlay mounts)
+  /// answer `DT_UNKNOWN`, and `read_dir` resolves those with an `lstat` per
+  /// entry rather than passing `.Other` on — so this is a real answer
+  /// everywhere, at the cost of one syscall per such entry.
   file_type : FileType,
+  /// Inode number from the directory entry. Filesystem identity, not
+  /// content: two names sharing an `ino` on one device are the same file.
+  /// Always `0` on Windows, whose directory enumeration carries no inode
+  /// (`Metadata.ino` has the NTFS file index instead).
   ino : u64,
+  /// The directory this entry was read from, kept so `path()` can rebuild
+  /// the full path — Rust's `DirEntry` holds the same thing for the same
+  /// reason. It is the path as GIVEN to `read_dir`, not a canonical one.
   parent : Path
 );
 impl(
@@ -185,6 +219,7 @@ remove_dir :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     )
   })
 );
+/// `remove_dir` (`str` path variant).
 remove_dir_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
   remove_dir(Path.new(String.from(path)), io)
 );
@@ -200,6 +235,7 @@ remove_file :: (fn(path : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     )
   })
 );
+/// `remove_file` (`str` path variant).
 remove_file_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(remove_file(Path.new(String.from(path)), io));
 /// Rename or move a file or directory from `from` to `to`.
 rename :: (fn(from : Path, to : Path, io : Io) -> Impl(Future(unit, IoExn)))(
@@ -215,6 +251,7 @@ rename :: (fn(from : Path, to : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     )
   })
 );
+/// `rename` (`str` path variant).
 rename_str :: (fn(from : str, to : str, io : Io) -> Impl(Future(unit, IoExn)))(rename(Path.new(String.from(from)), Path.new(String.from(to)), io));
 /// Create a hard link from `src` to `dst`.
 hard_link :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
@@ -230,6 +267,7 @@ hard_link :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     )
   })
 );
+/// `hard_link` (`str` path variant).
 hard_link_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn)))(hard_link(Path.new(String.from(src)), Path.new(String.from(dst)), io));
 /// Create a symbolic link at `dst` pointing to `src`.
 symlink :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
@@ -245,6 +283,7 @@ symlink :: (fn(src : Path, dst : Path, io : Io) -> Impl(Future(unit, IoExn)))(
     )
   })
 );
+/// `symlink` (`str` path variant).
 symlink_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn)))(symlink(Path.new(String.from(src)), Path.new(String.from(dst)), io));
 /// Read a symlink's target (`std::fs::read_link`). Throws for a path that is
 /// not a symlink (EINVAL) — like Rust.
@@ -446,6 +485,7 @@ read_dir :: (fn(path : Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)
     entries
   })
 );
+/// `read_dir` (`str` path variant).
 read_dir_str :: (fn(path : str, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(read_dir(Path.new(String.from(path)), io));
 export(
   create_dir,

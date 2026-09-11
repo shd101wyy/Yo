@@ -19,7 +19,7 @@ writing dates — the banner is the authoritative summary.
 
 ## Current entry points
 
-Active work (root) — **7 docs, and nothing else lives here**:
+Active work (root) — **8 docs, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
 - [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — the live std
@@ -40,6 +40,16 @@ Active work (root) — **7 docs, and nothing else lives here**:
   backend, in-place patching). Phase 0 = instrumentation; nothing started.
 - [`PERF_BORROW_ELISION.md`](PERF_BORROW_ELISION.md) — cutting RC traffic in
   the self-compile; in progress.
+- [`BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`](BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md) —
+  PROPOSED 2026-09-11: the build/dependency audit (the dependency system is
+  fetch-only — `import("dep")` never resolves; `Step.link` does not link;
+  `build.yo` errors are swallowed — five issues filed) and the redesign:
+  `yo.toml` manifest (declarative, read without the evaluator, edited in place), semver ranges over git tags with a Cargo-style
+  resolver, `yo.lock` v2 with integrity, a content-addressed store,
+  explicit `--imports` plumbing to the child compile, workspaces; plus the
+  compile-time-input decisions (`comptime_read_file` and
+  `comptime_json_parse`/`comptime_toml_parse` yes, `comptime_fetch` no,
+  `build.env` in the build context only).
 
 Closed campaigns (`archive/`) — self-hosting is **finished**. The compiler has
 been self-hosting since 2026-08-03, the TypeScript compiler was retired
@@ -59,7 +69,11 @@ S0–S5 complete, superseded by `STD_API_STABILIZATION.md`), with its sub-plan
 [`archive/STD_API_AUDIT_HANDOVER.md`](archive/STD_API_AUDIT_HANDOVER.md).
 Its superseded handovers (`HANDOVER_2026_08_28.md`,
 `HANDOVER_STD_AUDIT_NEXT.md`, and the dated 08-30 / 09-01 / 09-02 / 09-05 /
-09-06 files) are archived alongside;
+09-06 files) are archived alongside, as is
+[`archive/HANDOVER_STD_CAMPAIGN_2026-09-10.md`](archive/HANDOVER_STD_CAMPAIGN_2026-09-10.md)
+— the 09-10 evening handover, closed 2026-09-11 once everything it handed over
+had landed, and worth reading for its §4 (three "Yo has no X" comments that
+were false, each having already produced a workaround);
 [`archive/D6_TLS_PLAN.md`](archive/D6_TLS_PLAN.md) closed with Windows
 Schannel TLS in v0.2.26.
 
@@ -69,6 +83,9 @@ designs: [`reference/BUILD_SYSTEM.md`](reference/BUILD_SYSTEM.md),
 [`reference/VERSION_MANAGEMENT.md`](reference/VERSION_MANAGEMENT.md),
 [`reference/ERROR_DIAGNOSTICS_OVERHAUL.md`](reference/ERROR_DIAGNOSTICS_OVERHAUL.md),
 [`reference/PORTABLE_C_DISTRIBUTION.md`](reference/PORTABLE_C_DISTRIBUTION.md),
+[`reference/ASYNC_ITERATION_STREAM.md`](reference/ASYNC_ITERATION_STREAM.md)
+(the `Stream` trait — async iteration, LANDED 2026-09-11 with `for_await` and
+`BufReader.lines` parked in `backlog/`),
 …. Policy decisions:
 [`reference/MACRO_POLICY.md`](reference/MACRO_POLICY.md),
 [`reference/TARGET_TRIPLES.md`](reference/TARGET_TRIPLES.md),
@@ -93,7 +110,49 @@ expensive — with probes and a Rust/Swift comparison),
 mechanism was built and rejected twice; kept because the failure modes
 generalize) and
 [`backlog/ZEROLANG_AGENT_FIRST_LESSONS.md`](backlog/ZEROLANG_AGENT_FIRST_LESSONS.md)
-(a keep/reject audit, explicitly not a commitment).
+(a keep/reject audit, explicitly not a commitment). Three landed 2026-09-11
+alongside `reference/ASYNC_ITERATION_STREAM.md`, each parking a piece of it
+with the blocker measured:
+[`backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`](backlog/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md)
+(an `io.await` inside a macro expansion compiles to a BLOCKING await, so an
+awaiting macro deadlocks in a task),
+[`backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md`](backlog/ASYNC_LINES_NEEDS_A_NONTHROWING_READ.md)
+(an async `BufReader.lines` needs a `Reader` that returns its failure instead
+of throwing it) and
+[`backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`](backlog/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md)
+(`where(T <: Trait(Assoc := A))` binds nothing when `A` is a generic — true of
+`Iterator` too).
+
+**Language features the std campaign is blocked on** (added 2026-09-10, each
+written from the std row that needs it, with the blocked call sites named):
+
+- [`WAKER_BASED_SCHEDULING.md`](WAKER_BASED_SCHEDULING.md) — the largest one,
+  and **now active** (moved out of `backlog/` on 2026-09-11). Everything that
+  waits on a peer used to poll a **1 ms timer**, putting a millisecond floor
+  under every hand-off and making `spawn_blocking` inexpressible. The `Waker` +
+  `park` primitive and the async `Mutex` over it have landed; `yield` is
+  seed-gated, `Channel` is blocked on a tracer defect, and the combinators and
+  cross-thread wake are open — the doc's status table says which is which.
+- [`backlog/MEMBER_VISIBILITY.md`](backlog/MEMBER_VISIBILITY.md) — Yo has no
+  visibility mechanism; the leading-underscore convention standing in for it
+  covers **752 members** in `std/` and enforces nothing. Blocks three
+  stabilization rows, including `Mutex._raw_lock`.
+- [`backlog/ASYNC_ITERATION_STREAM.md`](backlog/ASYNC_ITERATION_STREAM.md) —
+  no async analogue of `Iterator`, so four std APIs have each invented their
+  own "value, later, repeatedly" shape. Blocks `TcpListener.incoming`. This
+  one needs **no compiler change**.
+- [`backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md`](backlog/VALUE_SUBSTITUTION_IN_TYPE_POSITIONS.md)
+  — an associated constant in a TYPE position (`Array(u8, T.BYTES)`) silently
+  resolves to **0**. Blocks collapsing the ten per-type byte conversions, and
+  `usize`/`isize` having them at all.
+- [`backlog/THREAD_LOCAL_STORAGE.md`](backlog/THREAD_LOCAL_STORAGE.md) — no
+  thread-local storage, so `rand.thread_rng` is not expressible.
+
+Two things measured while writing these, both of which turned out to be
+features Yo already HAS despite comments in the tree saying otherwise:
+associated **types** (`Item : Type`, `Self.Item`, used as a return type and as
+a constructor) and associated **constants** in a value position (`T.BITS`).
+Probe before working around.
 
 ## Conventions
 

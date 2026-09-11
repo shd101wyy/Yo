@@ -1,0 +1,15 @@
+{ println } :: import("std/fmt");
+{ IoExn, Exception } :: import("std/error");
+
+pick :: (fn(cap : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+  io.async(e => {
+    r := cond((cap < usize(10)) => usize(0), true => cap);
+    r
+  })
+);
+
+main :: (fn(io : Io, exn : Exception) -> unit)({
+  e := IoExn(io : io, exn : exn);
+  println(`${io.await(pick(usize(42), io), e)}`);
+});
+export(main);

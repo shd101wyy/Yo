@@ -24,6 +24,21 @@
 //!
 //! lower := `HELLO WÖRLD`.to_lowercase();  // "hello wörld" — String method
 //! ```
+//!
+//! ## Stability
+//!
+//! unstable — the four exported entry points (`to_lowercase_bytes`,
+//! `to_uppercase_bytes`, `to_lower_code_point`, `to_upper_code_point`) are the
+//! right shape and are unlikely to move, but the tables behind them are
+//! GENERATED against one Unicode version (15.1.0, via Python `unicodedata`;
+//! generator `issues/repros/gen_unicode_case_table.py`) and there is no
+//! regeneration step in the build, so a Unicode upgrade is a manual
+//! re-derivation of five parallel arrays. The other open question is scope:
+//! the audit wants Unicode-aware `rune` classifiers
+//! (`plans/STD_API_STABILIZATION.md` §4, "Text"), which means this module
+//! grows category tables beside the case tables and may need a different
+//! lookup shape than the alternating-range trick the case table uses.
+//! Freezing follows that growth and a regeneration story, not a release count.
 { ArrayList } :: import("../collections/array_list");
 utf8 :: import("../encoding/utf8");
 // ============================================================================

@@ -1,0 +1,542 @@
+//! Fixed-region allocator (TLSF) — the `--allocator fixed` arm.
+//!
+//! Emits a general-purpose two-level segregated-fit allocator over ONE
+//! statically-sized `.bss` region (`plans/reference/FIXED_REGION_ALLOCATOR.md`):
+//! O(1) malloc/free/realloc, bounded fragmentation, no libc heap, thread-safe
+//! via a C11 `atomic_flag` spinlock (the parallelism runtime allocates from
+//! worker threads). The algorithm was developed and stress-tested as
+//! standalone C first (randomized malloc/realloc/aligned/free integrity
+//! hammer, physical-block invariant walker, 4-thread concurrency hammer,
+//! double-free/foreign-pointer aborts) — keep that harness in sync when
+//! touching the emitted C below.
+//!
+//! Emission split (chunked C emission compatibility): the `#define` family
+//! mapping plus the external prototypes go to the HEADER section (every
+//! translation unit sees them), while the implementation — region, control
+//! block, free lists, functions — is defined ONCE in the CODE section. The
+//! chunk assembler routes non-function code like this into chunk 0, and its
+//! auto-dequalifier leaves non-`static` functions external, so chunks > 0
+//! link against the single copy instead of getting one region per TU
+//! (`src/codegen/chunk_assembly.yo`).
+{ String } :: import("std/string");
+{ Emitter } :: import("../../emitter.yo");
+{ CodeGenContext } :: import("../utils/index.yo");
+{ is_target_wasm } :: import("../../target.yo");
+/// Emit the `#define __yo_malloc __yo_fixed_malloc` family and the external
+/// prototypes into the header section. Mirrors the shape of the mimalloc /
+/// system arms in `collection.yo`.
+emit_fixed_allocator_defines :: (fn(emitter : Emitter) -> unit)({
+  emitter.emit_header_string_line(
+    `
+// Fixed-region allocator (TLSF): every allocation is served from ONE
+// statically-sized region in .bss - no libc heap. The implementation lives
+// in the code section; ONE family only, __yo_aligned_free IS __yo_fixed_free.
+#define __yo_malloc __yo_fixed_malloc
+#define __yo_calloc __yo_fixed_calloc
+#define __yo_realloc __yo_fixed_realloc
+#define __yo_free __yo_fixed_free
+#define __yo_aligned_alloc __yo_fixed_aligned_alloc
+#define __yo_aligned_free __yo_fixed_free
+void* __yo_fixed_malloc(size_t size);
+void* __yo_fixed_calloc(size_t nmemb, size_t size);
+void* __yo_fixed_realloc(void* ptr, size_t size);
+void __yo_fixed_free(void* ptr);
+void* __yo_fixed_aligned_alloc(size_t alignment, size_t size);`
+  );
+});
+/// Emit the allocator implementation + the fixed-arm `__yo_alloc_fail` into
+/// the code section. `heap_bytes` is validated upstream (granule-aligned,
+/// 64 KiB..4 GiB) and becomes the region size.
+emit_fixed_allocator_impl :: (fn(context : CodeGenContext) -> unit)({
+  em := context.emitter;
+  debug_heap := context.debug_heap;
+  // `static` in library mode — see the non-fixed arm in c/collection.yo.
+  alloc_fail_linkage := if(context.is_library, "static ", "");
+  // WASM keeps the direct-call main, so the reporter is called there in
+  // person; hosted targets register it with atexit at allocator init.
+  atexit_reporter := (debug_heap && !is_target_wasm(context.target_info));
+  atexit_line :=
+    if(
+      atexit_reporter,
+      // Leak-oracle reporter (section 2.4): registered at the earliest allocation,
+      // because module-global initializers allocate before main runs and
+      // constructor-attribute order across TUs is a portability trap.
+      String.from("  // Leak-oracle reporter: see __yo_fixed_heap_report below.\n  atexit(__yo_fixed_heap_report);\n"),
+      String.new()
+    );
+  em.emit_string_line(
+    `
+// ============================================================================
+// Fixed-region allocator (TLSF) - plans/reference/FIXED_REGION_ALLOCATOR.md
+// ============================================================================
+// Two-level segregated fit over one static region: 32 first-level power-of-2
+// classes x 32 second-level linear classes, O(1) malloc/free/in-place realloc,
+// immediate coalescing with both physical neighbours, bounded fragmentation.
+// Layout: [control block][free blocks...][sentinel header]. A block's header
+// carries the previous PHYSICAL block's pointer plus its own size with two
+// flag bits (bit 0: this block free, bit 1: previous block free), which is
+// what makes both-direction coalescing O(1).
+#define __YO_FIXED_HEAP_BYTES ((size_t)${context.heap_size.to_string()})
+#define __YO_FIXED_FL_INDEX_MAX 32
+#define __YO_FIXED_SL_BITS 5
+
+typedef struct __yo_fixed_block {
+  struct __yo_fixed_block* prev_phys;
+  size_t size;
+} __yo_fixed_block_t;
+
+typedef struct __yo_fixed_free_block {
+  __yo_fixed_block_t header;
+  struct __yo_fixed_free_block* next_free;
+  struct __yo_fixed_free_block* prev_free;
+} __yo_fixed_free_block_t;
+
+#define __YO_FIXED_FREE_BIT ((size_t)1)
+#define __YO_FIXED_PREV_FREE_BIT ((size_t)2)
+#define __YO_FIXED_SIZE_MASK (~(size_t)3)
+#define __YO_FIXED_GRAN (_Alignof(max_align_t))
+#define __YO_FIXED_HDR_SIZE (sizeof(__yo_fixed_block_t))
+// >= the free-list pointers a free block stores, and >= 2^SL_BITS so every
+// block maps into a valid class (mapping_insert shifts by fl-SL_BITS >= 0).
+#define __YO_FIXED_MIN_BLOCK \\
+  (__YO_FIXED_ROUNDUP(sizeof(__yo_fixed_free_block_t) > (size_t)32 \\
+      ? sizeof(__yo_fixed_free_block_t) : (size_t)32))
+#define __YO_FIXED_ROUNDUP(x) (((x) + (__YO_FIXED_GRAN - 1)) & ~((size_t)(__YO_FIXED_GRAN - 1)))
+
+typedef struct {
+  unsigned int fl_bitmap;
+  unsigned int sl_bitmap[__YO_FIXED_FL_INDEX_MAX];
+  __yo_fixed_free_block_t* blocks[__YO_FIXED_FL_INDEX_MAX][__YO_FIXED_FL_INDEX_MAX];
+  size_t live_bytes;
+  size_t live_blocks;
+  size_t peak_bytes;
+  size_t alloc_count;
+} __yo_fixed_ctrl_t;
+
+static _Alignas(max_align_t) uint8_t __yo_fixed_heap_region[__YO_FIXED_HEAP_BYTES];
+static atomic_flag __yo_fixed_lock = ATOMIC_FLAG_INIT;
+static int __yo_fixed_ready = 0;
+
+static __yo_fixed_ctrl_t* __yo_fixed_ctrl(void) {
+  return (__yo_fixed_ctrl_t*)(void*)__yo_fixed_heap_region;
+}
+
+static size_t __yo_fixed_bsize(__yo_fixed_block_t* b) {
+  return b->size & __YO_FIXED_SIZE_MASK;
+}
+
+static __yo_fixed_block_t* __yo_fixed_next_phys(__yo_fixed_block_t* b) {
+  return (__yo_fixed_block_t*)(void*)((char*)b + __yo_fixed_bsize(b));
+}
+
+static void* __yo_fixed_block_to_ptr(__yo_fixed_block_t* b) {
+  return (char*)b + __YO_FIXED_HDR_SIZE;
+}
+
+static __yo_fixed_block_t* __yo_fixed_ptr_to_block(void* ptr) {
+  return (__yo_fixed_block_t*)(void*)((char*)ptr - __YO_FIXED_HDR_SIZE);
+}
+
+static unsigned __yo_fixed_fls(size_t x) {
+  unsigned r = 0;
+  x >>= 1;
+  while (x != 0) { r++; x >>= 1; }
+  return r;
+}
+
+static unsigned __yo_fixed_ctz(unsigned int x) {
+  unsigned n = 0;
+  if ((x & 0xFFFFu) == 0) { n += 16; x >>= 16; }
+  if ((x & 0xFFu) == 0) { n += 8; x >>= 8; }
+  if ((x & 0xFu) == 0) { n += 4; x >>= 4; }
+  if ((x & 0x3u) == 0) { n += 2; x >>= 2; }
+  if ((x & 0x1u) == 0) { n += 1; }
+  return n;
+}
+
+// size -> (first-level, second-level) class. Valid for size >= 2^SL_BITS
+// (every block is >= MIN_BLOCK >= 32 = 2^5).
+static void __yo_fixed_mapping_insert(size_t size, unsigned* fl, unsigned* sl) {
+  unsigned f = __yo_fixed_fls(size);
+  *fl = f;
+  *sl = (unsigned)((size >> (f - __YO_FIXED_SL_BITS)) - (size_t)(1u << __YO_FIXED_SL_BITS));
+}
+
+// request -> first class whose members are all >= size: round up to the next
+// second-level boundary, clamped into the top class. uint64_t arithmetic so
+// the rounding cannot wrap size_t.
+static void __yo_fixed_mapping_search(size_t size, unsigned* fl, unsigned* sl) {
+  uint64_t rounded = (uint64_t)size + (((uint64_t)1 << (__yo_fixed_fls(size) - __YO_FIXED_SL_BITS)) - 1);
+  if (rounded > 0xFFFFFFFFull) rounded = 0xFFFFFFFFull;
+  __yo_fixed_mapping_insert((size_t)rounded, fl, sl);
+}
+
+static void __yo_fixed_insert_block(__yo_fixed_free_block_t* fb) {
+  __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
+  unsigned fl, sl;
+  __yo_fixed_mapping_insert(__yo_fixed_bsize(&fb->header), &fl, &sl);
+  fb->next_free = c->blocks[fl][sl];
+  fb->prev_free = NULL;
+  if (c->blocks[fl][sl] != NULL) c->blocks[fl][sl]->prev_free = fb;
+  c->blocks[fl][sl] = fb;
+  c->sl_bitmap[fl] |= (unsigned int)1 << sl;
+  c->fl_bitmap |= (unsigned int)1 << fl;
+}
+
+static void __yo_fixed_remove_block(__yo_fixed_free_block_t* fb) {
+  __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
+  unsigned fl, sl;
+  __yo_fixed_mapping_insert(__yo_fixed_bsize(&fb->header), &fl, &sl);
+  if (fb->next_free != NULL) fb->next_free->prev_free = fb->prev_free;
+  if (fb->prev_free != NULL) {
+    fb->prev_free->next_free = fb->next_free;
+  } else {
+    c->blocks[fl][sl] = fb->next_free;
+    if (fb->next_free == NULL) {
+      c->sl_bitmap[fl] &= ~((unsigned int)1 << sl);
+      if (c->sl_bitmap[fl] == 0) c->fl_bitmap &= ~((unsigned int)1 << fl);
+    }
+  }
+}
+
+static __yo_fixed_free_block_t* __yo_fixed_find_suitable(size_t size) {
+  __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
+  unsigned fl, sl;
+  unsigned int sl_map, fl_map;
+  __yo_fixed_mapping_search(size, &fl, &sl);
+  sl_map = c->sl_bitmap[fl] & (0xFFFFFFFFu << sl);
+  if (sl_map != 0) {
+    sl = __yo_fixed_ctz(sl_map);
+    return c->blocks[fl][sl];
+  }
+  fl_map = (fl + 1 >= __YO_FIXED_FL_INDEX_MAX)
+      ? 0
+      : (c->fl_bitmap & (0xFFFFFFFFu << (fl + 1)));
+  if (fl_map == 0) return NULL;
+  fl = __yo_fixed_ctz(fl_map);
+  sl = __yo_fixed_ctz(c->sl_bitmap[fl]);
+  return c->blocks[fl][sl];
+}
+`
+  );
+  if(debug_heap, {
+    // Forward declaration: __yo_fixed_init registers the reporter with
+    // atexit, and the reporter's definition is emitted further below.
+    em.emit_line("static void __yo_fixed_heap_report(void);");
+  });
+  em.emit_string_line(
+    `
+static void __yo_fixed_init(void) {
+  __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
+  size_t ctrl_bytes = __YO_FIXED_ROUNDUP(sizeof(__yo_fixed_ctrl_t));
+  size_t first_size = __YO_FIXED_HEAP_BYTES - ctrl_bytes - __YO_FIXED_HDR_SIZE;
+  __yo_fixed_block_t* first =
+      (__yo_fixed_block_t*)(void*)((char*)__yo_fixed_heap_region + ctrl_bytes);
+  __yo_fixed_block_t* sentinel =
+      (__yo_fixed_block_t*)(void*)((char*)__yo_fixed_heap_region + __YO_FIXED_HEAP_BYTES - __YO_FIXED_HDR_SIZE);
+  memset(c, 0, sizeof(*c));
+  if (first_size < __YO_FIXED_MIN_BLOCK) return; /* region too small: every alloc fails */
+  first->prev_phys = NULL;
+  first->size = first_size | __YO_FIXED_FREE_BIT;
+  sentinel->prev_phys = first;
+  sentinel->size = __YO_FIXED_HDR_SIZE | __YO_FIXED_PREV_FREE_BIT;
+  __yo_fixed_insert_block((__yo_fixed_free_block_t*)(void*)first);
+${atexit_line}}
+
+static void* __yo_fixed_alloc_core(size_t size) {
+  __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
+  size_t needed, rem, bsize;
+  __yo_fixed_free_block_t* fb;
+  __yo_fixed_block_t *b, *tail, *after;
+  if (size >= __YO_FIXED_HEAP_BYTES) return NULL;
+  needed = __YO_FIXED_ROUNDUP(size + __YO_FIXED_HDR_SIZE);
+  if (needed < __YO_FIXED_MIN_BLOCK) needed = __YO_FIXED_MIN_BLOCK;
+  fb = __yo_fixed_find_suitable(needed);
+  if (fb == NULL) return NULL;
+  __yo_fixed_remove_block(fb);
+  b = &fb->header;
+  bsize = __yo_fixed_bsize(b);
+  rem = bsize - needed;
+  if (rem >= __YO_FIXED_MIN_BLOCK) {
+    b->size = needed | (b->size & ~__YO_FIXED_SIZE_MASK);
+    tail = (__yo_fixed_block_t*)(void*)((char*)b + needed);
+    tail->prev_phys = b;
+    tail->size = rem | __YO_FIXED_FREE_BIT;
+    __yo_fixed_insert_block((__yo_fixed_free_block_t*)(void*)tail);
+    after = __yo_fixed_next_phys(tail);
+    after->size |= __YO_FIXED_PREV_FREE_BIT;
+    after->prev_phys = tail;
+    bsize = needed;
+  }
+  b->size &= ~__YO_FIXED_FREE_BIT;
+  __yo_fixed_next_phys(b)->size &= ~__YO_FIXED_PREV_FREE_BIT;
+  c->live_bytes += bsize;
+  if (c->live_bytes > c->peak_bytes) c->peak_bytes = c->live_bytes;
+  c->live_blocks += 1;
+  c->alloc_count += 1;
+  return __yo_fixed_block_to_ptr(b);
+}
+
+static void __yo_fixed_lock_acquire(void) {
+  while (atomic_flag_test_and_set_explicit(&__yo_fixed_lock, memory_order_acquire)) {
+    /* spin - uncontended cost is one CAS */
+  }
+}
+
+static void __yo_fixed_lock_release(void) {
+  atomic_flag_clear_explicit(&__yo_fixed_lock, memory_order_release);
+}
+
+static void __yo_fixed_ensure_init(void) {
+  if (!__yo_fixed_ready) {
+    __yo_fixed_init();
+    __yo_fixed_ready = 1;
+  }
+}
+
+void* __yo_fixed_malloc(size_t size) {
+  void* p;
+  if (size == 0) size = 1;
+  __yo_fixed_lock_acquire();
+  __yo_fixed_ensure_init();
+  p = __yo_fixed_alloc_core(size);
+  __yo_fixed_lock_release();
+  return p;
+}
+
+void* __yo_fixed_calloc(size_t nmemb, size_t size) {
+  size_t total;
+  void* p;
+  if (nmemb != 0 && size > (size_t)-1 / nmemb) return NULL;
+  total = nmemb * size;
+  p = __yo_fixed_malloc(total);
+  if (p != NULL) memset(p, 0, total);
+  return p;
+}
+`
+  );
+  em.emit_string_line(
+    `
+void __yo_fixed_free(void* ptr) {
+  __yo_fixed_ctrl_t* c;
+  __yo_fixed_block_t *b, *next;
+  size_t freed;
+  char* p = (char*)ptr;
+  if (ptr == NULL) return;
+  if ((p < (char*)__yo_fixed_heap_region) ||
+      (p >= (char*)__yo_fixed_heap_region + __YO_FIXED_HEAP_BYTES)) {
+    fprintf(stderr, "__yo_fixed_free: pointer %p is not from the fixed heap\\n", ptr);
+    abort();
+  }
+  __yo_fixed_lock_acquire();
+  __yo_fixed_ensure_init();
+  b = __yo_fixed_ptr_to_block(ptr);
+  if ((b->size & __YO_FIXED_FREE_BIT) != 0) {
+    __yo_fixed_lock_release();
+    fprintf(stderr, "__yo_fixed_free: double free of %p\\n", ptr);
+    abort();
+  }
+  freed = __yo_fixed_bsize(b);
+  next = __yo_fixed_next_phys(b);
+  if ((next->size & __YO_FIXED_FREE_BIT) != 0) {
+    __yo_fixed_remove_block((__yo_fixed_free_block_t*)(void*)next);
+    b->size = (b->size & ~__YO_FIXED_SIZE_MASK) |
+        (freed + __yo_fixed_bsize(next));
+  }
+  if ((b->size & __YO_FIXED_PREV_FREE_BIT) != 0) {
+    __yo_fixed_block_t* prev = b->prev_phys;
+    __yo_fixed_remove_block((__yo_fixed_free_block_t*)(void*)prev);
+    prev->size = (prev->size & ~__YO_FIXED_SIZE_MASK) |
+        (__yo_fixed_bsize(prev) + __yo_fixed_bsize(b));
+    b = prev;
+  }
+  next = __yo_fixed_next_phys(b);
+  next->size |= __YO_FIXED_PREV_FREE_BIT;
+  next->prev_phys = b;
+  b->size |= __YO_FIXED_FREE_BIT;
+  __yo_fixed_insert_block((__yo_fixed_free_block_t*)(void*)b);
+  c = __yo_fixed_ctrl();
+  c->live_bytes -= freed;
+  c->live_blocks -= 1;
+  __yo_fixed_lock_release();
+}
+
+void* __yo_fixed_realloc(void* ptr, size_t size) {
+  __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
+  __yo_fixed_block_t *b, *next, *tail, *after;
+  size_t cur, needed, rem, old_payload;
+  if (ptr == NULL) return __yo_fixed_malloc(size);
+  if (size == 0) {
+    __yo_fixed_free(ptr);
+    return NULL;
+  }
+  if (size >= __YO_FIXED_HEAP_BYTES) return NULL;
+  needed = __YO_FIXED_ROUNDUP(size + __YO_FIXED_HDR_SIZE);
+  if (needed < __YO_FIXED_MIN_BLOCK) needed = __YO_FIXED_MIN_BLOCK;
+  __yo_fixed_lock_acquire();
+  __yo_fixed_ensure_init();
+  b = __yo_fixed_ptr_to_block(ptr);
+  cur = __yo_fixed_bsize(b);
+  old_payload = cur - __YO_FIXED_HDR_SIZE;
+  if (needed <= cur) {
+    rem = cur - needed;
+    if (rem >= __YO_FIXED_MIN_BLOCK) {
+      b->size = needed | (b->size & ~__YO_FIXED_SIZE_MASK);
+      tail = (__yo_fixed_block_t*)(void*)((char*)b + needed);
+      tail->prev_phys = b;
+      tail->size = rem | __YO_FIXED_FREE_BIT;
+      // The old next block may itself be free: merge it so no two adjacent
+      // free blocks ever exist (the maximality invariant).
+      after = __yo_fixed_next_phys(tail);
+      if ((after->size & __YO_FIXED_FREE_BIT) != 0) {
+        __yo_fixed_remove_block((__yo_fixed_free_block_t*)(void*)after);
+        tail->size = (tail->size & ~__YO_FIXED_SIZE_MASK) |
+            (rem + __yo_fixed_bsize(after));
+        after = __yo_fixed_next_phys(tail);
+      }
+      __yo_fixed_insert_block((__yo_fixed_free_block_t*)(void*)tail);
+      after->size |= __YO_FIXED_PREV_FREE_BIT;
+      after->prev_phys = tail;
+      c->live_bytes -= rem;
+    }
+    __yo_fixed_lock_release();
+    return ptr;
+  }
+  next = __yo_fixed_next_phys(b);
+  if ((next->size & __YO_FIXED_FREE_BIT) != 0) {
+    size_t avail = cur + __yo_fixed_bsize(next);
+    if (avail >= needed) {
+      __yo_fixed_remove_block((__yo_fixed_free_block_t*)(void*)next);
+      b->size = (b->size & ~__YO_FIXED_SIZE_MASK) | avail;
+      rem = avail - needed;
+      if (rem >= __YO_FIXED_MIN_BLOCK) {
+        b->size = (b->size & ~__YO_FIXED_SIZE_MASK) | needed;
+        tail = (__yo_fixed_block_t*)(void*)((char*)b + needed);
+        tail->prev_phys = b;
+        tail->size = rem | __YO_FIXED_FREE_BIT;
+        __yo_fixed_insert_block((__yo_fixed_free_block_t*)(void*)tail);
+        after = __yo_fixed_next_phys(tail);
+        after->size |= __YO_FIXED_PREV_FREE_BIT;
+        after->prev_phys = tail;
+      } else {
+        after = __yo_fixed_next_phys(b);
+        after->size &= ~__YO_FIXED_PREV_FREE_BIT;
+      }
+      c->live_bytes += __yo_fixed_bsize(b) - cur;
+      if (c->live_bytes > c->peak_bytes) c->peak_bytes = c->live_bytes;
+      __yo_fixed_lock_release();
+      return ptr;
+    }
+  }
+  __yo_fixed_lock_release();
+  {
+    void* np = __yo_fixed_malloc(size);
+    if (np == NULL) return NULL; /* original block untouched (the documented contract) */
+    memcpy(np, ptr, old_payload < size ? old_payload : size);
+    __yo_fixed_free(ptr);
+    return np;
+  }
+}
+`
+  );
+  em.emit_string_line(
+    `
+void* __yo_fixed_aligned_alloc(size_t alignment, size_t size) {
+  __yo_fixed_ctrl_t* c;
+  __yo_fixed_block_t* after;
+  void* p;
+  uintptr_t addr;
+  size_t off, total;
+  if (alignment == 0 || (alignment & (alignment - 1)) != 0) return NULL;
+  // Every ordinary payload is already granule-aligned (== alignof(max_align_t)).
+  if (alignment <= __YO_FIXED_GRAN) return __yo_fixed_malloc(size);
+  if (alignment > __YO_FIXED_HEAP_BYTES) return NULL;
+  if (size == 0) size = 1;
+  total = size + alignment + __YO_FIXED_MIN_BLOCK;
+  if (total < size) return NULL; /* size_t overflow */
+  __yo_fixed_lock_acquire();
+  __yo_fixed_ensure_init();
+  c = __yo_fixed_ctrl();
+  p = __yo_fixed_alloc_core(total);
+  if (p == NULL) {
+    __yo_fixed_lock_release();
+    return NULL;
+  }
+  addr = (uintptr_t)p;
+  off = (size_t)(addr % (uintptr_t)alignment);
+  if (off != 0) {
+    // Split a misaligned FRONT piece off as a free block (TLSF's native
+    // over-alignment technique). front stays a granule multiple and is raised
+    // to MIN_BLOCK so it can live on the free lists.
+    __yo_fixed_block_t* b = __yo_fixed_ptr_to_block(p);
+    __yo_fixed_block_t* nb;
+    size_t bsize0 = __yo_fixed_bsize(b);
+    size_t front = (size_t)(alignment - off);
+    while (front < __YO_FIXED_MIN_BLOCK) front += alignment;
+    nb = (__yo_fixed_block_t*)(void*)((char*)b + front);
+    if ((b->size & __YO_FIXED_PREV_FREE_BIT) != 0) {
+      // b's physical prev is free: extend IT by the front instead of
+      // creating a second free block adjacent to it.
+      __yo_fixed_block_t* prev = b->prev_phys;
+      __yo_fixed_remove_block((__yo_fixed_free_block_t*)(void*)prev);
+      prev->size = (prev->size & ~__YO_FIXED_SIZE_MASK) |
+          (__yo_fixed_bsize(prev) + front);
+      __yo_fixed_insert_block((__yo_fixed_free_block_t*)(void*)prev);
+      nb->prev_phys = prev;
+    } else {
+      b->size = front | __YO_FIXED_FREE_BIT;
+      __yo_fixed_insert_block((__yo_fixed_free_block_t*)(void*)b);
+      nb->prev_phys = b;
+    }
+    nb->size = (bsize0 - front) | __YO_FIXED_PREV_FREE_BIT;
+    after = __yo_fixed_next_phys(nb);
+    after->size &= ~__YO_FIXED_PREV_FREE_BIT;
+    after->prev_phys = nb;
+    c->live_bytes -= front;
+    p = __yo_fixed_block_to_ptr(nb);
+  }
+  __yo_fixed_lock_release();
+  return p;
+}
+
+// OOM panic for the fixed arm: name the request and the heap state.
+${alloc_fail_linkage}void __yo_alloc_fail(size_t size) {
+  __yo_fixed_ctrl_t* c = __yo_fixed_ctrl();
+  fprintf(stderr,
+      "out of memory: requested %zu bytes (fixed heap %zu bytes, live %zu bytes in %zu blocks)\\n",
+      size, (size_t)__YO_FIXED_HEAP_BYTES, c->live_bytes, c->live_blocks);
+  abort();
+}
+`
+  );
+  if(debug_heap, {
+    em.emit_string_line(
+      `
+static void __yo_fixed_format_size(char* buf, size_t n, size_t bytes) {
+  double v = (double)bytes;
+  const char* unit = "B";
+  if (v >= 1073741824.0) { v /= 1073741824.0; unit = "GiB"; }
+  else if (v >= 1048576.0) { v /= 1048576.0; unit = "MiB"; }
+  else if (v >= 1024.0) { v /= 1024.0; unit = "KiB"; }
+  snprintf(buf, n, "%.1f %s", v, unit);
+}
+
+// Leak oracle (--debug-heap): reports peak/live at exit. Non-zero live at
+// exit is the portable leak signal (no ASan, no mimalloc stats needed).
+static void __yo_fixed_heap_report(void) {
+  __yo_fixed_ctrl_t* c;
+  char peak[32];
+  char total[32];
+  __yo_fixed_lock_acquire();
+  c = __yo_fixed_ctrl();
+  __yo_fixed_format_size(peak, sizeof(peak), c->peak_bytes);
+  __yo_fixed_format_size(total, sizeof(total), (size_t)__YO_FIXED_HEAP_BYTES);
+  fprintf(stderr, "heap: peak %s of %s, %zu allocations, live at exit: %zu blocks / %zu bytes\\n",
+      peak, total, c->alloc_count, c->live_blocks, c->live_bytes);
+  __yo_fixed_lock_release();
+}
+`
+    );
+  });
+});
+export(emit_fixed_allocator_defines, emit_fixed_allocator_impl);

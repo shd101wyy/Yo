@@ -17,6 +17,22 @@
 //! m = m.insert(i32(2), i32(20));
 //! // keys are always sorted: 1, 2, 3
 //! ```
+//!
+//! A left-leaning red-black tree keeps the depth in O(log n), so `get`,
+//! `insert` and `remove` are all O(log n) and a mutation copies only the
+//! nodes on its path — the rest is shared with the map it came from. This is
+//! the ordered counterpart of `imm.Map`'s HAMT: reach for it when iteration
+//! must come out in key order. `keys`/`values`/`entries`, and the
+//! `IntoIterator` behind `for(map, ...)`, MATERIALIZE an `imm.List` in key
+//! order first — O(n) time and allocation, not a lazy in-order cursor.
+//!
+//! ## Stability
+//!
+//! unstable — the same open shape as `imm.Map`
+//! (`plans/STD_API_STABILIZATION.md` §4): `remove(key) -> Self` cannot report
+//! whether the key was there, and deciding that changes this signature. The
+//! eager `imm.List` iteration above is the other known gap, and a stack-based
+//! in-order cursor is the intended fix; that one is additive.
 pragma(Pragma.AllowUnsafe);
 { List, ListIter } :: import("./list.yo");
 { ArrayList } :: import("../collections/array_list.yo");
@@ -582,7 +598,11 @@ impl(
     );
     Self(_root : .Some(black_root), _len : new_len)
   }),
-  /// Return a new map with the key removed.
+  /// Return a new map with the key removed — `im`'s `without`. A key that is
+  /// not present gives back `self` itself, not a copy.
+  ///
+  /// This deliberately does NOT report what it removed; `extract` is the form
+  /// that does.
   remove : (fn(self : Self, key : K) -> Self)(
     match(
       self._root,
@@ -602,6 +622,21 @@ impl(
       }
     )
   ),
+  /// The value at `key` together with the map WITHOUT it, or `.None` when
+  /// the key is absent — `im`'s `extract`, and the form `remove` is not:
+  /// `remove` answers only "the map afterwards".
+  ///
+  /// Two walks of the tree, as `remove` itself already does (it asks
+  /// `_node_contains` before rebuilding), so this costs one lookup more than
+  /// `remove` and nothing more than `get` + `remove` written by hand.
+  extract : (fn(self : Self, key : K) -> Option(Tuple(V, Self)))({
+    hit := self.get(key);
+    match(
+      hit,
+      .Some(v) => Option(Tuple(V, Self)).Some((v, self.remove(key))),
+      .None => Option(Tuple(V, Self)).None
+    )
+  }),
   /// Get the minimum key in the map.
   min_key : (fn(self : Self) -> Option(K))(
     match(

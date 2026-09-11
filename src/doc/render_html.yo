@@ -1180,6 +1180,16 @@ _render_function :: (
   dep_cls := match(f.deprecated, .Some(_) => String.from(" deprecated"), .None => String.new());
   html := `<div class="item-card${dep_cls}" id="fn-${_escape_html(f.name)}">\n<div class="item-header">\n  <a class="item-name" href="#fn-${_escape_html(f.name)}">${_escape_html(f.name)}</a>\n  <span class="item-kind">function</span>\n</div>\n<div class="item-body">\n<div class="decl-signature">${_escape_html(f.signature)}</div>`;
   html.push_string(_render_deprecated_banner(f.deprecated));
+  // A trait-impl method that took the TRAIT's documentation is LABELLED as
+  // such, the way rustdoc labels it, so a reader can tell the contract from
+  // the implementation's own notes.
+  match(
+    f.inherited_from,
+    .Some(tn) => {
+      html.push_string(`<div class="inherited-doc">documentation inherited from <code>${_escape_html(tn)}</code></div>`);
+    },
+    .None => ()
+  );
   html.push_string(_render_doc(f.doc));
   match(
     f.type_params,

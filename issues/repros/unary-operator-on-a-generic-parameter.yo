@@ -1,0 +1,38 @@
+//! Repro: a unary operator applied to a value of a GENERIC type parameter
+//! fails to transpile (issues/unary-operator-on-a-generic-parameter-fails-to-transpile.md).
+//!
+//! `a2` and `n1` are the failing shapes. Everything else in this file is a
+//! control that already worked, so a regression localises.
+//!
+//! Before the fix, `yo compile --emit-c --skip-c-compiler` marked the u8
+//! specialization of `a2` and the i8 specialization of `n1` with
+//! `__attribute__((error(...)))`, and `yo compile` failed at the C compiler.
+//! `yo check` reported "evaluator OK" either way.
+impl(
+  generic(T : Type),
+  where(T <: Integer),
+  T,
+  a1 : (fn(self : T) -> T)(T(0) - self),
+  a2 : (fn(self : T) -> T)(~self),
+  a3 : (fn(self : T) -> bool)(!(self == T(0))),
+  a4 : (fn(self : T) -> T)(self.(~)())
+);
+impl(
+  generic(T : Type),
+  where(T <: (Integer, SignedInteger)),
+  T,
+  n1 : (fn(self : T) -> T)(-self)
+);
+_concrete_not :: (fn(y : u8) -> u8)(~y);
+_concrete_neg :: (fn(y : i32) -> i32)(-y);
+main :: (fn() -> unit)({
+  p := u8(3).a1();
+  q := u8(3).a2();
+  r := u8(3).a3();
+  s := u8(3).a4();
+  t := i8(3).n1();
+  u := _concrete_not(u8(3));
+  v := _concrete_neg(i32(5));
+  ()
+});
+export(main);

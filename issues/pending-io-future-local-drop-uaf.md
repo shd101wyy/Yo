@@ -43,7 +43,7 @@ compile — and made this ownership hole reachable.
    extern io future is the await machinery's / backend's, never the binding's.
    Cheap, matches the TS-era behavior of never dropping these, leaks only a
    never-awaited future (bounded, same class as
-   `issues/spawn-closure-captures-never-dropped-leak.md`).
+   `issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
 2. **Backend cancellation API** — a real `__yo_io_cancel(fut)` that disarms
    the pending op and releases the borrow, letting the drop stand. Correct but
    per-backend work (kqueue EV_DELETE, epoll timerfd close, IOCP CancelIoEx).

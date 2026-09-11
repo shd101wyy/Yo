@@ -1,4 +1,33 @@
 //! Glob pattern matching for file paths.
+//!
+//! The vocabulary is the shell's, with `/` treated as a barrier:
+//!
+//! | pattern | matches |
+//! | --- | --- |
+//! | `*` | any run of bytes EXCEPT `/` |
+//! | `**` | any run of bytes, `/` included (optionally followed by `/`) |
+//! | `?` | exactly one byte that is not `/` |
+//! | `[abc]`, `[a-z]` | one byte in the class, never `/` |
+//! | `[!…]`, `[^…]` | one byte NOT in the class |
+//!
+//! A `]` first in a class is a literal member and a `-` first or last is a
+//! literal dash, as in POSIX; an UNTERMINATED `[` matches nothing. Matching
+//! is on BYTES, so a class range over non-ASCII text compares UTF-8 bytes
+//! rather than runes.
+//!
+//! This module matches STRINGS. It does not walk the filesystem — there is no
+//! `glob(pattern)` returning paths yet (`plans/STD_API_STABILIZATION.md` §4
+//! lists it as still open); compose `fs.read_dir` with `glob_match` for that.
+//!
+//! ## Stability
+//!
+//! unstable — the matcher's semantics are settled and tested (the ranges and
+//! the iterative single-`*` walk landed with
+//! `issues/fixed/glob-ranges-unimplemented-and-star-exponential.md`), but the
+//! module's SHAPE is not: §4 still wants the filesystem `glob()` and a
+//! `GlobPattern.new -> Result` that reports a malformed pattern instead of
+//! accepting it and matching nothing. The second of those changes this file's
+//! only constructor, so it cannot be frozen first.
 { String } :: import("./string");
 { ArrayList } :: import("./collections/array_list");
 // Index of the `]` closing the class whose body starts at `ci` (just past `[`
@@ -180,6 +209,14 @@ _glob_match_impl :: (fn(pb : ArrayList(u8), pi0 : usize, tb : ArrayList(u8), ti0
   });
   false
 });
+/// Whether `text` matches `pattern` — the one-shot form; `GlobPattern` is
+/// the same matcher behind a named value.
+///
+/// Nothing is compiled or cached: the pattern is re-scanned on every call, so
+/// a pattern used in a loop is better held as a `GlobPattern` (which today
+/// costs the same, but is where a compiled representation would go). A run
+/// costs O(|pattern| · |text|) per `**`-free segment; see `_glob_match_impl`
+/// for why only `**` recurses.
 glob_match :: (fn(pattern : String, text : String) -> bool)(
   _glob_match_impl(pattern.as_bytes(), usize(0), text.as_bytes(), usize(0))
 );
@@ -191,9 +228,16 @@ GlobPattern :: ref(
 );
 impl(
   GlobPattern,
+  /// Hold a pattern for repeated matching.
+  ///
+  /// It does NOT validate: a malformed pattern (an unterminated `[`) is
+  /// accepted here and simply matches nothing later. §4 wants this to become
+  /// a `Result`, which is why the module is unstable.
   new : (fn(pattern : String) -> Self)(
     Self(_pattern : pattern)
   ),
+  /// Whether `text` matches this pattern — identical to `glob_match(p, text)`
+  /// and with the same cost, since the pattern is not precompiled.
   matches : (fn(self : Self, text : String) -> bool)(
     _glob_match_impl(self._pattern.as_bytes(), usize(0), text.as_bytes(), usize(0))
   )

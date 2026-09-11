@@ -1,6 +1,22 @@
 //! Extern C runtime function declarations.
 //!
 //! All low-level extern functions for async I/O operations.
+//!
+//! ## Stability
+//!
+//! **Not public API, and not intended to become it.** This file is the list of
+//! C runtime symbols the async I/O layer calls, one `extern` per symbol, and
+//! it exists so that the typed modules above it have something to bind
+//! against. The names are the C runtime's, the signatures are raw pointers
+//! and `i32`s, and an entry appears or disappears whenever the emitted runtime
+//! gains or loses a function — the waker primitives arrived this way in
+//! 2026-09-11, and each such arrival is SEED-GATED, because the seed compiler
+//! emits a runtime that does not yet contain the new symbol.
+//!
+//! Nothing here will be frozen. Callers want `std/fs`, `std/net`,
+//! `std/process` or `std/async`; the members carry no `///` documentation for
+//! the same reason, and that is deliberate rather than a gap in the doc
+//! sweep.
 pragma(Pragma.AllowUnsafe);
 { IoFuture } :: import("./future.yo");
 // ============================================================================
@@ -135,6 +151,22 @@ extern(
   // Timer Operations
   // ========================================================================
   __yo_async_sleep_start : (fn(milliseconds : u64) -> IoFuture),
+  // ========================================================================
+  // Waker / park — "resume THIS task"
+  // ========================================================================
+  // `__yo_async_park_start` returns a future NO backend will ever complete;
+  // only `__yo_waker_wake` does. See `std/async/waker.yo` for the safe
+  // ordering and `plans/WAKER_BASED_SCHEDULING.md` for why it exists.
+  __yo_async_park_start : (fn() -> IoFuture),
+  // A future that is pending NOW and completed by the next ready-task drain —
+  // the timer-free fairness yield. It cannot be an already-complete future:
+  // the await point takes an inline fast path for one of those, so the task
+  // never leaves the C stack and the loop never gets its turn.
+  __yo_async_yield_start : (fn() -> IoFuture),
+  __yo_waker_new : (fn(future : IoFuture) -> *u8),
+  __yo_waker_wake : (fn(waker : *u8) -> unit),
+  __yo_waker_is_woken : (fn(waker : *u8) -> bool),
+  __yo_waker_release : (fn(waker : *u8) -> unit),
   // ========================================================================
   // File Extra Operations (async only: sleep remains async)
   // ========================================================================
@@ -341,6 +373,13 @@ export(
   __yo_ntohl,
   // Timer operations
   __yo_async_sleep_start,
+  // Waker / park
+  __yo_async_park_start,
+  __yo_async_yield_start,
+  __yo_waker_new,
+  __yo_waker_wake,
+  __yo_waker_is_woken,
+  __yo_waker_release,
   // File extra operations (statfs accessors only - statfs itself is now sync)
   __yo_statfs_buf_size,
   __yo_statfs_type,

@@ -196,3 +196,47 @@ test("Map Default is the empty map", {
   assert(m.is_empty(), "default map is empty");
   assert(m.insert(i32(1), i32(2)).len() == usize(1), "the default map is a usable map");
 });
+// `extract` is the form `remove` is not: it reports what came out. `remove`
+// alone cannot distinguish "removed a value" from "the key was never there",
+// because both answer with a map of the same size.
+test("Map extract returns the removed value with the map without it", {
+  m := Map(i32, i32).new().insert(i32(1), i32(10)).insert(i32(2), i32(20));
+  got := m.extract(i32(1));
+  assert(got.is_some(), "1 was present, so extract says .Some");
+  pair := got.unwrap();
+  assert(pair.0 == i32(10), "and hands back 1's value");
+  assert(pair.1.len() == usize(1), "with a one-entry map");
+  assert(pair.1.get(i32(1)).is_none(), "1 is gone from it");
+  assert(pair.1.get(i32(2)).unwrap() == i32(20), "and 2 survives");
+  // The receiver is untouched — these are persistent maps.
+  assert(m.len() == usize(2), "the original map still has both entries");
+  assert(m.get(i32(1)).unwrap() == i32(10), "and still holds 1");
+});
+test("Map extract of an absent key is None and carries no map", {
+  m := Map(i32, i32).new().insert(i32(1), i32(10));
+  assert(m.extract(i32(999)).is_none(), "a missing key extracts nothing");
+  // The distinction `remove` cannot make: removing a value that equals the
+  // zero value looks exactly like removing nothing.
+  z := Map(i32, i32).new().insert(i32(5), i32(0));
+  assert(z.extract(i32(5)).is_some(), "extracting a zero value still says .Some");
+  assert(z.extract(i32(5)).unwrap().0 == i32(0), "and the value is that zero");
+  assert(z.extract(i32(6)).is_none(), "while a genuinely absent key is .None");
+});
+test("Map extract drains a map one key at a time", {
+  (m : Map(i32, i32)) = Map(i32, i32).new();
+  (i : i32) = i32(0);
+  while(i < i32(40), i = (i + i32(1)), {
+    m = m.insert(i, i * i32(10));
+  });
+  (sum : i32) = i32(0);
+  (k : i32) = i32(0);
+  while(k < i32(40), k = (k + i32(1)), {
+    e := m.extract(k);
+    assert(e.is_some(), "every inserted key extracts");
+    p := e.unwrap();
+    sum = (sum + p.0);
+    m = p.1;
+  });
+  assert(m.is_empty(), "the map is drained");
+  assert(sum == i32(7800), "and every value came out exactly once");
+});

@@ -19,7 +19,8 @@
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
 { eprintln } :: import("std/fmt");
-{ JsonValue, json_parse_string_exn, json_stringify } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
 { read_lsp_message, write_lsp_message } :: import("./transport.yo");
 {
   jb,
@@ -170,13 +171,13 @@ _analyze_and_publish :: (
     i = (i + usize(1));
   });
   params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : items)).obj();
-  write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
+  write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", params)));
 });
 
 /// Send an empty diagnostics list for `uri` (clears squiggles on close).
 _publish_empty :: (fn(uri : String) -> unit)({
   params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : ArrayList(JsonValue).new())).obj();
-  write_lsp_message(json_stringify(j_notification("textDocument/publishDiagnostics", params)));
+  write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", params)));
 });
 
 /// signatureHelp trigger characters: "(" and ",".
@@ -284,7 +285,7 @@ _format_document :: (fn(text : String, doc_abs : String) -> JsonValue)({
 _respond :: (fn(id_opt : Option(JsonValue), result : JsonValue) -> unit)({
   match(
     id_opt,
-    .Some(id) => write_lsp_message(json_stringify(j_response(id, result))),
+    .Some(id) => write_lsp_message(json.stringify(j_response(id, result))),
     .None => ()
   );
 });
@@ -307,9 +308,9 @@ _handle_message :: (
       }
     )
   );
-  // D13: json_parse_string's Result form is for callers outside an effect
+  // D13: json.parse_string's Result form is for callers outside an effect
   // scope; this caller is already inside one, so it takes the _exn wrapper.
-  v := json_parse_string_exn(body, local_exn);
+  v := json.parse_string_exn(body, local_exn);
   method := _jfield_str(v, "method");
   id_opt := v.get(String.from("id"));
   params_opt := v.get(String.from("params"));
@@ -578,7 +579,7 @@ _handle_message :: (
       match(
         id_opt,
         .Some(id) => write_lsp_message(
-          json_stringify(
+          json.stringify(
             j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
           )
         ),

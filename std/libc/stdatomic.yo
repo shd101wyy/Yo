@@ -1,4 +1,17 @@
 //! C11 `<stdatomic.h>` — atomic operations and types.
+//!
+//! ## Stability
+//!
+//! unstable — a raw C binding, not a Yo design. `std/sync/atomic` is the
+//! public surface (`std/sync/once` also reaches in for its state flag), and
+//! what is bound here is shaped by C rather than chosen: the C11 atomic
+//! operations are GENERIC MACROS, and a `c_include` binding is keyed by C
+//! symbol name, so each macro can have exactly one Yo binding — which is
+//! why `atomic_fetch_*_explicit` appears for `i32` only and every other
+//! type runs a compare-exchange loop in `std/sync/atomic` instead
+//! (docs/en-US/THREAD_SAFETY.md). The memory-order enumerators are bound as
+//! plain `int`s. Freezing would mean freezing that per-type binding
+//! asymmetry, which is a workaround, not a design.
 pragma(Pragma.AllowUnsafe);
 c_include(
   "<stdatomic.h>",

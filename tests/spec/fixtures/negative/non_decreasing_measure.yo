@@ -1,0 +1,16 @@
+// Negative twin: a loop measure that does NOT decrease (n - i is
+// constant — the body never moves i) — the loop-variant-decreases
+// obligation must REFUTE.
+pragma(Pragma.Verify);
+
+stuck_measure :: (
+  fn(n : i32, requires(n >= i32(0), n <= i32(100)), ensures(result >= i32(0))) -> (result : i32)
+)({
+  i := i32(0);
+  while(i < n, {
+    invariant(i >= i32(0), i <= n);
+    decreases(n - i);
+    i = i;
+  });
+  i
+});

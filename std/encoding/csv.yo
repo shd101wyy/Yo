@@ -6,16 +6,40 @@
 //! quote and any bytes — delimiters, quotes, newlines — inside the quotes,
 //! and a final record with or without a terminator. The writer quotes a
 //! field only when it must (it contains the delimiter, a quote, CR or LF),
-//! so `csv_parse(csv_write(rows))` round-trips.
+//! so `csv.parse(csv.write(rows))` round-trips.
 //!
 //! Errors are a typed enum (`CsvError`) carrying byte positions, per the D1
 //! convention for pure decoders (plans/archive/STD_API_AUDIT.md).
 //!
 //! ```rust
-//! { csv_parse, csv_write } :: import("std/encoding/csv");
-//! rows := csv_parse(String.from("a,b\n1,\"x,y\"\n"));   // Result(ArrayList(ArrayList(String)), CsvError)
-//! text := csv_write(rows.unwrap());                      // `a,b\n1,"x,y"\n`
+//! csv :: import("std/encoding/csv");
+//! rows := csv.parse(String.from("a,b\n1,\"x,y\"\n"));   // Result(ArrayList(ArrayList(String)), CsvError)
+//! text := csv.write(rows.unwrap());                      // `a,b\n1,"x,y"\n`
 //! ```
+//!
+//! ## Stability
+//!
+//! stable — frozen in #421, which reviewed the four expired unstable windows
+//! and decided this one. The whole module is eight names (`csv_parse`,
+//! `csv_parse_with`, `csv_parse_strict`, `csv_write`, `csv_write_with`,
+//! `CsvOptions`, `LineEnding`, `CsvError`), each covered by
+//! `tests/encoding/csv.test.yo`, and the shape questions a CSV reader has —
+//! whether a lenient parse or a strict one is the default, whether errors are
+//! values or effects, what a quote fault reports — are all answered and
+//! answered the way Rust's `csv` crate answers them.
+//!
+//! There is deliberately NO header-record API: `Reader::headers()`,
+//! `StringRecord` and serde derive are the parts of Rust's `csv` this does
+//! not have, and adding them is ADDITIVE — a record here is an
+//! `ArrayList(String)` whether or not the first one names columns, so a
+//! future header layer sits on top of `csv_parse` without changing it. The
+//! one place to be careful is `CsvOptions`: it is a plain value `struct` with
+//! public fields, so a new option is a new field and every positional
+//! `CsvOptions(...)` literal names its fields — use `default()` or
+//! `with_delimiter()` and let new options default.
+//!
+//! `LineEnding.Lf` as the writer default is the module's one divergence from
+//! RFC 4180 (which says CRLF) and is documented at `default()`.
 { String } :: import("../string");
 { ArrayList } :: import("../collections/array_list");
 { Error } :: import("../error");
@@ -32,7 +56,7 @@ CsvError :: enum(
   /// A bare CR that is not followed by LF. `pos` is the CR.
   BareCarriageReturn(pos : usize),
   /// A record has a different number of fields than the first one (only
-  /// raised by `csv_parse_strict`). `record` is the 0-based record index.
+  /// raised by `parse_strict`). `record` is the 0-based record index.
   UnevenRecord(record : usize, expected : usize, found : usize)
 );
 derive(
@@ -62,6 +86,14 @@ CsvOptions :: struct(
 );
 impl(
   CsvOptions,
+  /// RFC 4180 with LF output: `,` delimiter, `\n` line ending.
+  ///
+  /// The line ending is the one deliberate divergence from the RFC, which
+  /// specifies CRLF. LF is what every Unix tool and every `csv` crate default
+  /// writes, and the reader accepts both either way, so a CRLF default would
+  /// only add carriage returns nobody asked for. Pass
+  /// `CsvOptions(delimiter : u8(44), line_ending : LineEnding.CrLf)` when the
+  /// consumer really wants RFC-literal output.
   default : (fn() -> Self)(Self(delimiter : u8(44), line_ending : LineEnding.Lf)),
   /// `default()` with another delimiter.
   with_delimiter : (fn(delimiter : u8) -> Self)(Self(delimiter : delimiter, line_ending : LineEnding.Lf))
@@ -72,8 +104,8 @@ _LF :: u8(10);
 /// Parse `input` with `opts`. Records are returned in order; an empty input
 /// yields zero records, and a trailing terminator does not add an empty
 /// record. Fields are never trimmed. Records may have different lengths —
-/// use `csv_parse_strict` to reject that.
-csv_parse_with :: (
+/// use `parse_strict` to reject that.
+parse_with :: (
   fn(input : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
 )({
   bytes := input.as_bytes();
@@ -161,17 +193,17 @@ csv_parse_with :: (
   });
   .Ok(records)
 });
-/// `csv_parse_with(input, CsvOptions.default())`.
-csv_parse :: (fn(input : String) -> Result(ArrayList(ArrayList(String)), CsvError))(
-  csv_parse_with(input, CsvOptions.default())
+/// `parse_with(input, CsvOptions.default())`.
+parse :: (fn(input : String) -> Result(ArrayList(ArrayList(String)), CsvError))(
+  parse_with(input, CsvOptions.default())
 );
-/// Like `csv_parse_with`, and additionally requires every record to have as
+/// Like `parse_with`, and additionally requires every record to have as
 /// many fields as the first one (`CsvError.UnevenRecord` otherwise).
-csv_parse_strict :: (
+parse_strict :: (
   fn(input : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
 )(
   match(
-    csv_parse_with(
+    parse_with(
       input,
       opts
     ),
@@ -226,7 +258,7 @@ _write_field :: (fn(inout(out) : String, field : String, delimiter : u8) -> unit
 /// Serialize `records` with `opts`. Every record ends with the configured
 /// line ending, including the last (RFC 4180 allows either; a terminated
 /// last record concatenates cleanly).
-csv_write_with :: (fn(records : ArrayList(ArrayList(String)), opts : CsvOptions) -> String)({
+write_with :: (fn(records : ArrayList(ArrayList(String)), opts : CsvOptions) -> String)({
   out := String.new();
   r := usize(0);
   while(r < records.len(), r = (r + usize(1)), {
@@ -249,8 +281,32 @@ csv_write_with :: (fn(records : ArrayList(ArrayList(String)), opts : CsvOptions)
   });
   out
 });
-/// `csv_write_with(records, CsvOptions.default())`.
-csv_write :: (fn(records : ArrayList(ArrayList(String))) -> String)(
-  csv_write_with(records, CsvOptions.default())
+/// `write_with(records, CsvOptions.default())`.
+write :: (fn(records : ArrayList(ArrayList(String))) -> String)(
+  write_with(records, CsvOptions.default())
 );
-export(CsvError, LineEnding, CsvOptions, csv_parse, csv_parse_with, csv_parse_strict, csv_write, csv_write_with);
+export(CsvError, LineEnding, CsvOptions, parse, parse_with, parse_strict, write, write_with);
+// ============================================================================
+// DEPRECATED module-prefix aliases (D2) — REMOVED IN v0.2.32
+// ============================================================================
+// `csv :: import("std/encoding/csv")` already qualifies the call, so the `csv_`
+// prefix stuttered (`csv.csv_parse`). These thin aliases keep the pre-rename
+// spellings compiling for one release, the way `json_parse_result` and
+// `derive(ToString)` were kept in v0.2.28.
+/// DEPRECATED, removed in v0.2.32: call `csv.parse`.
+csv_parse :: (fn(input : String) -> Result(ArrayList(ArrayList(String)), CsvError))(parse(input));
+/// DEPRECATED, removed in v0.2.32: call `csv.parse_with`.
+csv_parse_with :: (
+  fn(input : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+)(parse_with(input, opts));
+/// DEPRECATED, removed in v0.2.32: call `csv.parse_strict`.
+csv_parse_strict :: (
+  fn(input : String, opts : CsvOptions) -> Result(ArrayList(ArrayList(String)), CsvError)
+)(parse_strict(input, opts));
+/// DEPRECATED, removed in v0.2.32: call `csv.write`.
+csv_write :: (fn(records : ArrayList(ArrayList(String))) -> String)(write(records));
+/// DEPRECATED, removed in v0.2.32: call `csv.write_with`.
+csv_write_with :: (fn(records : ArrayList(ArrayList(String)), opts : CsvOptions) -> String)(
+  write_with(records, opts)
+);
+export(csv_parse, csv_parse_with, csv_parse_strict, csv_write, csv_write_with);

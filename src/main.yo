@@ -86,7 +86,8 @@ _(env : proc_env) :: import("std/env");
 { set_verify_mode_override, set_verify_target_paths, take_verify_tasks } :: import("./evaluator/builtins/contracts.yo");
 { ensure_z3 } :: import("./verifier/z3.yo");
 { Z3_VERSION } :: import("./verifier/z3.yo");
-{ json_stringify, JsonValue } :: import("std/encoding/json");
+json :: import("std/encoding/json");
+{ JsonValue } :: import("std/encoding/json");
 { Environment } :: import("./env.yo");
 // The demand-driven module loader, the cached prelude env, the shared codegen
 // ExprInfoTable and std-path resolution all live in `module_manager.yo` — the
@@ -98,6 +99,8 @@ _(env : proc_env) :: import("std/env");
   resolve_std_path,
   get_std_path_override,
   set_std_path_override,
+  get_imports_file_override,
+  set_imports_file_override,
   mm_clear_prelude_env,
   mm_set_shared_expr_info_table,
   mm_reset,
@@ -1180,7 +1183,7 @@ run_verify_cmd :: (
     vs2.push(JsonValue.Bool(harness_ok));
     vs2.push(JsonValue.Array(_verify_self_test_json(results)));
     vs2.push(JsonValue.Array(fn_entries));
-    println(json_stringify(JsonValue.Object(keys : ks2, values : vs2)));
+    println(json.stringify(JsonValue.Object(keys : ks2, values : vs2)));
   }, {
     println(`verify: solver: ${binary} (z3 ${Z3_VERSION})`);
     println(
@@ -1402,6 +1405,64 @@ _opt_value :: (
   fn(argv : ArrayList(String), i : usize, flag : String, attached : Option(String), exn : Exception) -> String
 )(
   match(attached, .Some(v) => v, .None => _arg_val_req(argv, i, flag, exn))
+);
+/// `--heap-size <n>[K|M|G]` (suffix case-insensitive) -> bytes, validated:
+/// 64 KiB minimum (the TLSF control block alone needs ~8 KiB), 4 GiB maximum
+/// (FL_INDEX_MAX = 32 caps the size classes at 2^32), rounded DOWN to a
+/// 16-byte granule. `.Err(message)` on a malformed or out-of-range value.
+/// plans/reference/FIXED_REGION_ALLOCATOR.md §2.2.
+_parse_heap_size :: (fn(raw : String) -> Result(usize, String))({
+  if(raw.len() == usize(0), {
+    return(Result(usize, String).Err(String.from("empty value")));
+  });
+  (num_end : usize) = raw.len();
+  (mult : u64) = u64(1);
+  last := raw.byte_at((raw.len() - usize(1)));
+  cond(
+    ((last == u8(75)) || (last == u8(107))) => {
+      num_end = (raw.len() - usize(1));
+      mult = u64(1024);
+    },
+    ((last == u8(77)) || (last == u8(109))) => {
+      num_end = (raw.len() - usize(1));
+      mult = u64(1048576);
+    },
+    ((last == u8(71)) || (last == u8(103))) => {
+      num_end = (raw.len() - usize(1));
+      mult = u64(1073741824);
+    },
+    true => ()
+  );
+  if(num_end == usize(0), {
+    return(Result(usize, String).Err(String.from("no digits before the unit")));
+  });
+  num := raw.substring(usize(0), num_end);
+  match(
+    num.parse_u64(),
+    .Some(n) => {
+      // Check BEFORE multiplying so a huge digit count cannot wrap u64.
+      (max_bytes : u64) = u64(4294967296);
+      if((n == u64(0)) || (n > (max_bytes / mult)), {
+        return(Result(usize, String).Err(String.from("out of range (64 KiB .. 4 GiB)")));
+      });
+      (bytes : u64) = ((n * mult) & (~u64(15)));
+      if(bytes < u64(65536), {
+        return(Result(usize, String).Err(String.from("out of range (64 KiB .. 4 GiB)")));
+      });
+      Result(usize, String).Ok(usize(bytes))
+    },
+    .None => Result(usize, String).Err(String.from("not a number"))
+  )
+});
+/// Human-readable heap size for the allocator notice: the largest of
+/// GiB/MiB/KiB that divides it exactly, else raw bytes (16 MiB, 64 KiB, ...).
+_format_heap_size :: (fn(bytes : usize) -> String)(
+  cond(
+    ((bytes % usize(1073741824)) == usize(0)) => `${(bytes / usize(1073741824)).to_string()} GiB`,
+    ((bytes % usize(1048576)) == usize(0)) => `${(bytes / usize(1048576)).to_string()} MiB`,
+    ((bytes % usize(1024)) == usize(0)) => `${(bytes / usize(1024)).to_string()} KiB`,
+    true => `${bytes.to_string()} bytes`
+  )
 );
 /// `compiler --version` probe (mirrors `checkCompilerAvailable`,
 /// src/compiler-utils.ts:66-73 — stdio ignored, availability = exit 0).
@@ -2137,6 +2198,11 @@ run_compile :: (
   (target_triple : String) = String.from("");
   (sysroot : String) = String.from("");
   (allocator : String) = String.from("system");
+  // `--heap-size <n>[K|M|G]`: raw string kept so validation can name the
+  // flag; heap_size carries the parsed default (16 MiB) until then.
+  (heap_size_raw : String) = String.new();
+  (heap_size : usize) = usize(16777216);
+  (debug_heap : bool) = false;
   (emit_chunks : usize) = usize(0);
   // `--emit-chunks auto` (Phase 1, plans/INCREMENTAL_COMPILATION_ZIG_LESSONS.md
   // §4): N is resolved AFTER emission, from the actual emitted bytes —
@@ -2253,6 +2319,14 @@ run_compile :: (
       (a_name == "--allocator") => {
         allocator = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--heap-size") => {
+        heap_size_raw = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
+        ai = (ai + _opt_step(a_val));
+      },
+      (a_name == "--debug-heap") => {
+        debug_heap = true;
+        ai = (ai + usize(1));
       },
       (a_name == "--optimize") => {
         optimize = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -2432,8 +2506,28 @@ run_compile :: (
   if(((cc != "") && (((cc != "cc") && (cc != "gcc")) && ((cc != "clang") && (cc != "zig")))) && (cc != "emcc"), {
     exn.throw(dyn(`compile: invalid --c-compiler "${cc}". Choices: cc, gcc, clang, zig, emcc`));
   });
-  if((allocator != "mimalloc") && (allocator != "system"), {
-    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system`));
+  if(((allocator != "mimalloc") && (allocator != "system")) && (allocator != "fixed"), {
+    exn.throw(dyn(`compile: invalid --allocator "${allocator}". Choices: mimalloc, system, fixed`));
+  });
+  // --heap-size / --debug-heap belong to the fixed-region allocator only
+  // (plans/reference/FIXED_REGION_ALLOCATOR.md §2.2/§2.4): a silent ignore would
+  // let a build believe it has a bounded heap while it runs on libc malloc.
+  if(heap_size_raw.len() > usize(0), {
+    if(allocator != "fixed", {
+      exn.throw(dyn(String.from("compile: --heap-size requires --allocator fixed")));
+    });
+    match(
+      _parse_heap_size(heap_size_raw.clone()),
+      .Ok(bytes) => {
+        heap_size = bytes;
+      },
+      .Err(why) => {
+        exn.throw(dyn(`compile: invalid --heap-size "${heap_size_raw}": ${why}`));
+      }
+    );
+  });
+  if(debug_heap && (allocator != "fixed"), {
+    exn.throw(dyn(String.from("compile: --debug-heap requires --allocator fixed")));
   });
   if((optimize != "") && (((optimize != "0") && (optimize != "1")) && ((optimize != "2") && (optimize != "3"))), {
     exn.throw(dyn(`compile: invalid --optimize "${optimize}". Choices: 0, 1, 2, 3`));
@@ -2540,6 +2634,11 @@ run_compile :: (
   // arms in std/ are selected during evaluation, and the untaken arm never
   // reaches the AST.
   set_current_target(target);
+  // The fixed-region heap becomes a size_t-typed static array in the emitted
+  // C; a 32-bit target's size_t cannot hold a 4 GiB byte count.
+  if(((allocator == "fixed") && (target.pointer_size_bits == u32(32))) && (heap_size > usize(4294967295)), {
+    exn.throw(dyn(`compile: --heap-size ${_format_heap_size(heap_size)} does not fit a 32-bit target (max 4294967295 bytes)`));
+  });
   // The pointer-size global feeds get_size_of_type's sizeof/alignof folding.
   // TS pairs these two setters at the same spot (codegen/index.ts:194-195);
   // yo-self had NO caller for this setter, so sizeof folded 64-bit pointer
@@ -2721,7 +2820,7 @@ run_compile :: (
     // wrapper (is_library = true). Allocator + debug-logging flags are threaded
     // through to the code generator (mirrors CodeGeneratorC.compileModule).
     chunk_parts := ArrayList(String).new();
-    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
+    c_src := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, static_library, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap);
     // `--emit-chunks auto` resolved its N inside compile_module (from the
     // actual emitted bytes); read it back so every later decision — the
     // chunk writer, the ThinLTO gate, the driver report — sees the real N.
@@ -3024,7 +3123,13 @@ run_compile :: (
       eprintln(String.from("Bundled mimalloc not found, falling back to standard malloc"));
     });
   }, {
-    println(String.from("Using system allocator"));
+    if(allocator == "fixed", {
+      // The region is a static .bss array inside the emitted C — nothing
+      // joins the link line for this allocator.
+      println(`Using fixed-region allocator (${_format_heap_size(heap_size)} heap)`);
+    }, {
+      println(String.from("Using system allocator"));
+    });
   });
   // Cross-compile target / sysroot pass-through. Skipped entirely for emcc,
   // which handles its own target internally (codegen/index.ts:636-641) — it
@@ -3342,6 +3447,12 @@ run_test :: (
   (test_profile : bool) = false;
   (test_cc : String) = String.from("");
   (test_target : String) = String.from("");
+  // Allocator choice forwarded to every batch compile (`--allocator fixed`
+  // gives the suite a deterministic OOM oracle; plans/reference/FIXED_REGION_ALLOCATOR.md
+  // §2.6 — without the forwarding the suite cannot run under `fixed` at all).
+  (test_allocator : String) = String.from("");
+  (test_heap_size_raw : String) = String.new();
+  (test_debug_heap : bool) = false;
   (json_summary : bool) = false;
   (batch_size : usize) = TEST_BATCH_SIZE;
   // `--exclude <path>` (repeatable), same semantics as `check --exclude`.
@@ -3377,6 +3488,18 @@ run_test :: (
       (a == "--target") => {
         test_target = _arg_val_req(argv, ai, a.clone(), exn);
         ai = (ai + usize(2));
+      },
+      (a == "--allocator") => {
+        test_allocator = _arg_val_req(argv, ai, a.clone(), exn);
+        ai = (ai + usize(2));
+      },
+      (a == "--heap-size") => {
+        test_heap_size_raw = _arg_val_req(argv, ai, a.clone(), exn);
+        ai = (ai + usize(2));
+      },
+      (a == "--debug-heap") => {
+        test_debug_heap = true;
+        ai = (ai + usize(1));
       },
       (a == "--test-batch-size") => {
         bs_raw := _arg_val_req(argv, ai, a.clone(), exn);
@@ -3438,6 +3561,32 @@ run_test :: (
       }
     );
     println(`Filtering tests matching: ${name_pattern}`);
+  });
+  // Allocator-flag validation mirrors `compile`: fixed is a valid choice and
+  // --heap-size/--debug-heap belong to it alone. Parse the heap size here so
+  // a bad value fails BEFORE any batch compiles.
+  (test_heap_size : usize) = usize(16777216);
+  if(test_allocator.len() > usize(0), {
+    if(((test_allocator != "mimalloc") && (test_allocator != "system")) && (test_allocator != "fixed"), {
+      exn.throw(dyn(`test: invalid --allocator "${test_allocator}". Choices: mimalloc, system, fixed`));
+    });
+  });
+  if(test_heap_size_raw.len() > usize(0), {
+    if(test_allocator != "fixed", {
+      exn.throw(dyn(String.from("test: --heap-size requires --allocator fixed")));
+    });
+    match(
+      _parse_heap_size(test_heap_size_raw.clone()),
+      .Ok(bytes) => {
+        test_heap_size = bytes;
+      },
+      .Err(why) => {
+        exn.throw(dyn(`test: invalid --heap-size "${test_heap_size_raw}": ${why}`));
+      }
+    );
+  });
+  if(test_debug_heap && (test_allocator != "fixed"), {
+    exn.throw(dyn(String.from("test: --debug-heap requires --allocator fixed")));
   });
   files := _collect_test_files(target_path, excludes, io, exn);
   // `Pragma.SkipWasm` pre-scan for wasm targets (hasSkipDirectiveForTarget,
@@ -3723,6 +3872,19 @@ run_test :: (
           ccmd.arg(String.from("--target"));
           ccmd.arg(test_target.clone());
         });
+        // Forward the allocator choice (and its two fixed-only companions)
+        // to the batch compile — the same forwarding --cc/--target get.
+        if(test_allocator != "", {
+          ccmd.arg(String.from("--allocator"));
+          ccmd.arg(test_allocator.clone());
+        });
+        if(test_allocator == "fixed", {
+          ccmd.arg(String.from("--heap-size"));
+          ccmd.arg(test_heap_size.to_string());
+          if(test_debug_heap, {
+            ccmd.arg(String.from("--debug-heap"));
+          });
+        });
         // Forward the error format so a batch-compile failure renders per
         // --error-format (P3 threading).
         if(!(error_format() == "human"), {
@@ -3741,6 +3903,16 @@ run_test :: (
           .Some(sp) => {
             ccmd.arg(String.from("--std-path"));
             ccmd.arg(sp);
+          },
+          .None => ()
+        );
+        // `--imports` is global the same way and travels to the batch compile
+        // for the same reason.
+        match(
+          get_imports_file_override(),
+          .Some(imf) => {
+            ccmd.arg(String.from("--imports"));
+            ccmd.arg(imf);
           },
           .None => ()
         );
@@ -5125,7 +5297,9 @@ Options:
   --static-library          Build a static library instead of an executable
   --sanitize <kind>         Sanitizer (address|thread|undefined)
   --disable-sanitize        Drop sanitizer flags added by defaults
-  --allocator <name>        Allocator (system|mimalloc)
+  --allocator <name>        Allocator (system|mimalloc|fixed)
+  --heap-size <size>        Fixed-region heap, e.g. 16M (only with --allocator fixed; 64K..4G)
+  --debug-heap              Print heap stats + live-at-exit leak oracle at exit (fixed only)
   --emit-c                  Print the generated C to stdout and stop
   --emit-c-to <path>        Write the generated C to a file and stop
   --skip-c-compiler         Generate C but skip the C compile
@@ -5169,7 +5343,9 @@ Examples:
   --static-library          构建静态库而非可执行文件
   --sanitize <kind>         清理器（address|thread|undefined）
   --disable-sanitize        去掉默认追加的清理器标志
-  --allocator <name>        分配器（system|mimalloc）
+  --allocator <name>        分配器（system|mimalloc|fixed）
+  --heap-size <size>        固定区域堆大小，如 16M（仅 --allocator fixed；64K..4G）
+  --debug-heap              退出时打印堆统计与存活块泄漏检查（仅 fixed）
   --emit-c                  把生成的 C 打印到 stdout 然后停止
   --emit-c-to <path>        把生成的 C 写入文件然后停止
   --skip-c-compiler         只生成 C，跳过 C 编译
@@ -5820,18 +5996,30 @@ main :: (fn(io : Io) -> unit)({
         exn.throw(dyn(`--std-path requires a directory argument`));
       });
     }, {
-      if(a == "--lang", {
+      // Global `--imports <file>`: the build runner's per-artifact
+      // `name=/abs/root.yo` mapping for bare `import("name")` resolution
+      // (module_manager.yo loads it on the first module load).
+      if(a == "--imports", {
         if((ai + usize(1)) < raw_argv.len(), {
-          set_cli_lang_override(raw_argv(ai + usize(1)).clone());
+          set_imports_file_override(raw_argv(ai + usize(1)).clone());
           ai = (ai + usize(1));
         }, {
-          exn.throw(dyn(tr(`--lang requires a language code (e.g. en, zh-CN)`, `--lang 需要一个语言代码（例如 en、zh-CN）`)));
+          exn.throw(dyn(`--imports requires a file argument`));
         });
       }, {
-        if(a.starts_with(String.from("--lang=")), {
-          set_cli_lang_override(a.substring(usize(7), a.len()));
+        if(a == "--lang", {
+          if((ai + usize(1)) < raw_argv.len(), {
+            set_cli_lang_override(raw_argv(ai + usize(1)).clone());
+            ai = (ai + usize(1));
+          }, {
+            exn.throw(dyn(tr(`--lang requires a language code (e.g. en, zh-CN)`, `--lang 需要一个语言代码（例如 en、zh-CN）`)));
+          });
         }, {
-          argv.push(a);
+          if(a.starts_with(String.from("--lang=")), {
+            set_cli_lang_override(a.substring(usize(7), a.len()));
+          }, {
+            argv.push(a);
+          });
         });
       });
     });
