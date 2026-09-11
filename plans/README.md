@@ -19,7 +19,7 @@ writing dates — the banner is the authoritative summary.
 
 ## Current entry points
 
-Active work (root) — **7 docs, and nothing else lives here**:
+Active work (root) — **8 docs, and nothing else lives here**:
 
 - [`ROADMAP.md`](ROADMAP.md) — overall language/product roadmap.
 - [`STD_API_STABILIZATION.md`](STD_API_STABILIZATION.md) — the live std
@@ -40,6 +40,16 @@ Active work (root) — **7 docs, and nothing else lives here**:
   backend, in-place patching). Phase 0 = instrumentation; nothing started.
 - [`PERF_BORROW_ELISION.md`](PERF_BORROW_ELISION.md) — cutting RC traffic in
   the self-compile; in progress.
+- [`BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md`](BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md) —
+  PROPOSED 2026-09-11: the build/dependency audit (the dependency system is
+  fetch-only — `import("dep")` never resolves; `Step.link` does not link;
+  `build.yo` errors are swallowed — five issues filed) and the redesign:
+  `yo.toml` manifest, semver ranges over git tags with a Cargo-style
+  resolver, `yo.lock` v2 with integrity, a content-addressed store,
+  explicit `--imports` plumbing to the child compile, workspaces; plus the
+  compile-time-input decisions (`comptime_read_file` and
+  `comptime_json_parse`/`comptime_toml_parse` yes, `comptime_fetch` no,
+  `build.env` in the build context only).
 
 Closed campaigns (`archive/`) — self-hosting is **finished**. The compiler has
 been self-hosting since 2026-08-03, the TypeScript compiler was retired
